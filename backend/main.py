@@ -708,6 +708,16 @@ def require_workflow_token(x_workflow_token: Optional[str] = Header(default=None
         raise HTTPException(status_code=403, detail="Недостаточно прав Workflow")
     return {"role": "workflow", "name": "Yandex Workflow"}
 
+from backend.features.supplier_access.supply_request_workflow import (
+    SUPPLIER_REQUEST_VISIBILITY_SQL,
+    SupplyRequestWorkflowViolation,
+    sanitize_supplier_request_response,
+    supplier_request_visibility_params,
+    validate_rfq_dispatch_role,
+    validate_supply_request_transition,
+)
+
+
 LEADERSHIP_ROLES = ("директор", "зам_директора")
 SYSTEM_PROJECT_NAME = "Система"
 FINANCE_ROLES = ("директор", "зам_директора", "бухгалтер")
@@ -7862,13 +7872,128 @@ def _sanitize_estimate_control_money(value):
         return [_sanitize_estimate_control_money(item) for item in value]
     return value
 
+
+def _supply_project_has_active_reviewer(
+    cur,
+    company_id,
+    project_name,
+):
+    """Return whether the company has an active reviewer assigned here."""
+
+    try:
+        normalized_company_id = int(company_id or 0)
+    except (TypeError, ValueError):
+        return True
+
+    normalized_project_name = str(
+        project_name or ""
+    ).strip()
+
+    # Warehouse and project-less requests have no project foreman.
+    if (
+        normalized_company_id <= 0
+        or not normalized_project_name
+    ):
+        return normalized_company_id <= 0
+
+    if normalized_project_name == "Основной склад":
+        return False
+
+    cur.execute(
+        """
+        SELECT EXISTS (
+            SELECT 1
+              FROM user_company_roles AS membership
+              JOIN users
+                ON users.id=membership.user_id
+               AND COALESCE(users.active,TRUE)=TRUE
+              LEFT JOIN projects AS target_project
+                ON target_project.company_id=
+                   membership.company_id
+               AND LOWER(BTRIM(target_project.name))=
+                   LOWER(BTRIM(%s))
+               AND COALESCE(
+                       target_project.archived,
+                       FALSE
+                   )=FALSE
+             WHERE membership.company_id=%s
+               AND membership.role IN (
+                   'прораб',
+                   'главный_инженер'
+               )
+               AND COALESCE(
+                       membership.active,
+                       TRUE
+                   )=TRUE
+               AND (
+                    users.project_id=target_project.id
+                 OR LOWER(BTRIM(
+                        COALESCE(users.project_name,'')
+                    ))=LOWER(BTRIM(%s))
+                 OR EXISTS (
+                        SELECT 1
+                          FROM jsonb_array_elements_text(
+                              CASE
+                                  WHEN jsonb_typeof(
+                                      membership.assigned_projects
+                                  )='array'
+                                  THEN membership.assigned_projects
+                                  ELSE '[]'::jsonb
+                              END
+                          ) AS assigned(project_name)
+                         WHERE LOWER(BTRIM(
+                                   assigned.project_name
+                               ))=LOWER(BTRIM(%s))
+                    )
+                 OR EXISTS (
+                        SELECT 1
+                          FROM jsonb_array_elements_text(
+                              CASE
+                                  WHEN jsonb_typeof(
+                                      users.assigned_projects
+                                  )='array'
+                                  THEN users.assigned_projects
+                                  ELSE '[]'::jsonb
+                              END
+                          ) AS assigned(project_name)
+                         WHERE LOWER(BTRIM(
+                                   assigned.project_name
+                               ))=LOWER(BTRIM(%s))
+                    )
+               )
+        ) AS has_reviewer
+        """,
+        (
+            normalized_project_name,
+            normalized_company_id,
+            normalized_project_name,
+            normalized_project_name,
+            normalized_project_name,
+        ),
+    )
+
+    row = cur.fetchone()
+    if not row:
+        return False
+
+    if hasattr(row, "get"):
+        return bool(row.get("has_reviewer"))
+
+    return bool(row[0])
+
 def _supply_response_for_role(row, user: dict):
     data = dict(row) if row else {}
-    if (user.get("role") or "") not in WORKER_EXECUTION_ROLES:
+    role = (user.get("role") or "").strip().lower()
+    if role == "поставщик":
+        return sanitize_supplier_request_response(data)
+    if role not in WORKER_EXECUTION_ROLES:
         return data
     items = _json_list_or_empty(data.get("itemsJson"))
     if items:
-        data["itemsJson"] = json.dumps(_sanitize_estimate_control_money(items), ensure_ascii=False)
+        data["itemsJson"] = json.dumps(
+            _sanitize_estimate_control_money(items),
+            ensure_ascii=False,
+        )
     return data
 
 try:
@@ -9137,20 +9262,15 @@ def get_supply_requests(
             cur.close(); conn.close()
             return []
         _ensure_supply_request_recipients_table(cur)
-        cur.execute(SUPPLY_SELECT + """
-            WHERE COALESCE(selected_suppliers, '{}'::int[]) && %s::int[]
-               OR id IN (
-                    SELECT request_id
-                      FROM supply_request_recipients
-                     WHERE visible_to_supplier=TRUE
-                       AND (
-                            target_supplier_id = ANY(%s)
-                         OR supplier_id = ANY(%s)
-                         OR COALESCE(supplier_group_ids, '{}'::int[]) && %s::int[]
-                       )
-               )
-            ORDER BY id DESC
-        """ + page_sql, [supplier_ids, supplier_ids, supplier_ids, supplier_ids] + page_params)
+        cur.execute(
+            SUPPLY_SELECT
+            + " WHERE "
+            + SUPPLIER_REQUEST_VISIBILITY_SQL
+            + " ORDER BY id DESC"
+            + page_sql,
+            supplier_request_visibility_params(supplier_ids)
+            + page_params,
+        )
     elif role == "прораб":
         projects = user_project_names(current_user)
         clauses = ["requested_by_id=%s", "created_by=%s"]
@@ -9477,17 +9597,54 @@ def update_supply_request(
         if (req.get("status") or "Новая") not in ("Новая", "Подтверждена прорабом"):
             conn.close()
             raise HTTPException(status_code=400, detail="Заявка уже в обработке, отмену делает снабжение или руководитель")
+    assigned_reviewer_exists = None
+    if (
+        action == "confirm_prorab"
+        and role in LEADERSHIP_ROLES
+    ):
+        assigned_reviewer_exists = (
+            _supply_project_has_active_reviewer(
+                cur,
+                req.get("company_id"),
+                req.get("project"),
+            )
+        )
+
+    if action in ("confirm_prorab", "approve_director"):
+        try:
+            validate_supply_request_transition(
+                action=action,
+                role=role,
+                current_status=req.get("status"),
+                assigned_reviewer_exists=(
+                    assigned_reviewer_exists
+                ),
+            )
+        except SupplyRequestWorkflowViolation as exc:
+            conn.close()
+            raise HTTPException(
+                status_code=exc.status_code,
+                detail=exc.detail,
+            )
+
     if action == 'confirm_prorab':
-        if role not in (*LEADERSHIP_ROLES, "прораб", "главный_инженер"):
-            conn.close()
-            raise HTTPException(status_code=403, detail="Подтвердить заявку может прораб, главный инженер или руководство")
         cur.execute(
-            "UPDATE supply_requests SET status=%s, prorab_id=%s, prorab_name=%s, prorab_confirmed_at=%s WHERE id=%s",
-            ('Подтверждена прорабом', user_id, user_name, now, id))
-    elif action == 'approve_director':
-        if role not in LEADERSHIP_ROLES:
+            """UPDATE supply_requests
+                  SET status=%s,
+                      prorab_id=%s,
+                      prorab_name=%s,
+                      prorab_confirmed_at=%s
+                WHERE id=%s
+                  AND COALESCE(status,'Новая')='Новая'""",
+            ('Подтверждена прорабом', user_id, user_name, now, id),
+        )
+        if cur.rowcount != 1:
             conn.close()
-            raise HTTPException(status_code=403, detail="Утвердить заявку может только директор или замдиректора")
+            raise HTTPException(
+                status_code=409,
+                detail="Статус заявки изменился до подтверждения прорабом",
+            )
+    elif action == 'approve_director':
         refreshed_items = _attach_supply_estimate_control(
             cur,
             req.get("project") or "",
@@ -9499,8 +9656,21 @@ def update_supply_request(
             _enforce_supply_estimate_control(refreshed_items, source="заявка")
             cur.execute("UPDATE supply_requests SET items_json=%s WHERE id=%s", (json.dumps(refreshed_items, ensure_ascii=False), id))
         cur.execute(
-            "UPDATE supply_requests SET status=%s, director_id=%s, director_name=%s, director_approved_at=%s WHERE id=%s",
-            ('Утверждена', user_id, user_name, now, id))
+            """UPDATE supply_requests
+                  SET status=%s,
+                      director_id=%s,
+                      director_name=%s,
+                      director_approved_at=%s
+                WHERE id=%s
+                  AND status='Подтверждена прорабом'""",
+            ('Утверждена', user_id, user_name, now, id),
+        )
+        if cur.rowcount != 1:
+            conn.close()
+            raise HTTPException(
+                status_code=409,
+                detail="Статус заявки изменился до утверждения директором",
+            )
     elif action == 'reject':
         if role not in (*LEADERSHIP_ROLES, "прораб", "главный_инженер", "снабженец", "кладовщик"):
             conn.close()
@@ -10008,6 +10178,15 @@ def request_kp_from_suppliers(
             platform_staff_roles=PLATFORM_STAFF_ROLES,
             client_account_roles=CLIENT_ACCOUNT_ROLES,
         )
+        try:
+            validate_rfq_dispatch_role(
+                effective_user.get("role") or "",
+            )
+        except SupplyRequestWorkflowViolation as exc:
+            raise HTTPException(
+                status_code=exc.status_code,
+                detail=exc.detail,
+            )
         company_id = int(company_context.get("companyId"))
         if req.get('project'):
             require_project_or_warehouse_access(effective_user, req.get('project') or "")
