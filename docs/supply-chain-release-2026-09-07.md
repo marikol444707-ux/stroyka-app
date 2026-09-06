@@ -32,7 +32,15 @@ The helper renders the unchanged, existing deployment workflow into the backup d
 
 Success requires the exact checkout, `0007`, local and public health at the target version, public frontend manifest equal to the installed build, nginx, and the previously running agent worker. Expect `SUPPLY_CHAIN_DEPLOYED 65ce32791725 BACKUP=...`.
 
-Offline helper verification: 19 safety tests pass, including executing the rendered-script transformation and launch environment logic with local fakes, CI/rehearsal mismatch rejection, and the hostile `ALEMBIC_CONFIG` regression. All six embedded Python blocks parse, and `bash -n` passes. The existing application-only deployment runner's nine fake-host tests and eleven frontend publisher tests also pass. These checks do not execute this new release helper against production; operator output remains required.
+Offline helper verification: 21 safety tests pass, including executing the rendered-script transformation and launch environment logic with local fakes, CI/rehearsal mismatch rejection, the hostile `ALEMBIC_CONFIG` regression, and database-address validation. All six embedded Python blocks parse, and `bash -n` passes. The existing application-only deployment runner's nine fake-host tests and eleven frontend publisher tests also pass. These checks do not execute this new release helper against production; operator output remains required.
+
+### Preflight address-format correction
+
+The operator's first attempt with helper `a8259dee` stopped at `migration connection is not the reviewed local server`, before the fresh dump, checkout, migration or restart. Its two health checks still reported baseline `20cf455a`. The exact returned database/port/address tuple was not printed, so the log alone does not distinguish an address-format mismatch from a genuinely different database or port.
+
+Inspection found a definite false-negative: PostgreSQL's explicit `inet::text` cast retains the netmask (`127.0.0.1/32`, `::1/128`), whereas the guard expected plain addresses. The query now uses `host(inet_server_addr())`, as specified in [PostgreSQL network-address functions](https://www.postgresql.org/docs/current/functions-net.html). The exact database `stroyka`, port `5432`, and address allowlist `NULL/127.0.0.1/::1` are unchanged; no arbitrary loopback ranges or remote addresses were enabled.
+
+Regression tests execute the embedded validation against a fake cursor that distinguishes the two SQL forms: IPv4/IPv6 failed before the fix and pass after it; Unix sockets pass; wrong database, port and non-local IPv4/IPv6 still stop, roll back and close without writing the frozen environment file. An attempted local SQL verification required unavailable local credentials; no credentials were requested, no database authentication was changed, and no production query was executed by the agent. A retry must still pass every preflight gate before deployment can proceed.
 
 ## Failure handling
 

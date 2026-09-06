@@ -123,7 +123,8 @@ conn = psycopg2.connect(**DB_CONFIG, connect_timeout=5)
 try:
     conn.set_session(readonly=True)
     with conn.cursor() as cur:
-        cur.execute("SELECT current_database(), current_setting('port'), inet_server_addr()::text")
+        # inet::text retains /32 or /128; compare the host, not its display mask.
+        cur.execute("SELECT current_database(), current_setting('port'), host(inet_server_addr())")
         db, port, host = cur.fetchone()
         if db != 'stroyka' or port != '5432' or host not in (None, '127.0.0.1', '::1'):
             raise SystemExit('STOP: migration connection is not the reviewed local server')

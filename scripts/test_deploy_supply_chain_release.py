@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 
 RUNNER = Path(__file__).with_name("deploy-supply-chain-release.sh")
@@ -98,6 +98,67 @@ class SupplyChainDeploymentSafetyTests(unittest.TestCase):
         for count in (0, 2):
             with self.subTest(count=count), self.assertRaisesRegex(SystemExit, "evidence does not match"):
                 self.preflight(count=count)
+
+    def database_env(self, address, database="stroyka", port="5432"):
+        config = dict(dbname="stroyka", host="localhost", port="5432", user="app", password="fake")
+        conn = MagicMock()
+        cursor = conn.cursor.return_value.__enter__.return_value
+        def select_identity(query):
+            self.assertTrue(query.startswith("SELECT current_database(), current_setting('port'), "))
+            if "host(inet_server_addr())" in query.replace(" ", ""):
+                host = address
+            elif "inet_server_addr()::text" in query:
+                host = None if address is None else address + ("/128" if ":" in address else "/32")
+            else:
+                self.fail("unexpected server identity query")
+            cursor.fetchone.return_value = (database, port, host)
+        cursor.execute.side_effect = select_identity
+        connect = Mock(return_value=conn)
+        artifact = SimpleNamespace(write_text=Mock())
+        environment = {"PGHOSTADDR": "wrong", "PGPASSWORD": "wrong"}
+        paths = {"/proc/1234/environ": SimpleNamespace(read_bytes=lambda: b""),
+                 "migration-env.json": artifact}
+        def execute():
+            with redirect_stdout(io.StringIO()) as output:
+                self.execute_embedded("DB_ENV_PY", {
+                    "json": json, "os": SimpleNamespace(environ=environment),
+                    "sys": SimpleNamespace(argv=["db-env", "1234", "migration-env.json"]),
+                    "pathlib": SimpleNamespace(Path=paths.__getitem__),
+                    "psycopg2": SimpleNamespace(connect=connect),
+                    "backend.db": SimpleNamespace(DB_CONFIG=config),
+                })
+            return output.getvalue()
+        return SimpleNamespace(run=execute, conn=conn, connect=connect, config=config,
+                               artifact=artifact, environment=environment)
+
+    def test_db_env_accepts_loopback_ipv4_ipv6_and_unix_socket(self):
+        for address in ("127.0.0.1", "::1", None):
+            with self.subTest(address=address):
+                case = self.database_env(address)
+                self.assertEqual(case.run(), "MIGRATION_DATABASE_ENV_VERIFIED\n")
+                case.connect.assert_called_once_with(**case.config, connect_timeout=5)
+                case.conn.set_session.assert_called_once_with(readonly=True)
+                case.conn.rollback.assert_called_once_with()
+                case.conn.close.assert_called_once_with()
+                case.artifact.write_text.assert_called_once()
+                self.assertEqual(json.loads(case.artifact.write_text.call_args.args[0]), {
+                    "DB_NAME": "stroyka", "DB_HOST": "localhost", "DB_PORT": "5432",
+                    "DB_USER": "app", "DB_PASSWORD": "fake",
+                })
+                self.assertEqual(case.environment, {"PGPASSFILE": "/dev/null", "PGCONNECT_TIMEOUT": "5"})
+
+    def test_db_env_rejects_wrong_identity_and_closes_without_env_artifact(self):
+        cases = (("127.0.0.1", "other", "5432"), ("127.0.0.1", "stroyka", "5433"),
+                 ("192.0.2.1", "stroyka", "5432"), ("2001:db8::1", "stroyka", "5432"))
+        for address, database, port in cases:
+            with self.subTest(address=address, database=database, port=port):
+                case = self.database_env(address, database, port)
+                with self.assertRaisesRegex(SystemExit, "not the reviewed local server"):
+                    case.run()
+                case.conn.set_session.assert_called_once_with(readonly=True)
+                case.conn.rollback.assert_called_once_with()
+                case.conn.close.assert_called_once_with()
+                case.artifact.write_text.assert_not_called()
 
     def test_shell_syntax_without_executing_the_runner(self):
         result = subprocess.run(["/bin/bash", "-n", str(RUNNER)],
