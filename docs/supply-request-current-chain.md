@@ -79,12 +79,45 @@ foreman stamp and dispatch could occur during creation. Supplier reads already
 required both stamps. `197464ac` removes that contradictory path. Old incomplete
 requests are not automatically repaired, approved, deleted or resent.
 
-## Confirmed code gaps; not part of the runtime fixes above
+## Follow-up: request clarity and creation safety (2026-09-07)
 
-- Work labels repeat inside a single request card. Two concurrent ordinary
-  save actions can issue identical POSTs; no production duplicate count was
-  established. Exact material-control source locks already protect some paths,
-  but a repeated source within the same multi-position payload remains a gap.
+Local follow-up to release `354bc020`; production deployment is not confirmed.
+This changes new request validation and presentation, not stored purchases:
+
+- Each card shows `Заявка #ID`. Its item name is shown once as a heading/list
+  position, rather than again as the estimate-control heading. Multi-item
+  controls retain their original `Позиция N` mapping, quantities and warnings.
+- An exactly matching source work already visible in the card is omitted from
+  duplicate work-label fields. Different/combined source descriptions remain.
+  The server's full explanatory `controlMessage` remains intact, even if its
+  prose mentions the work again. No name-based record merging is performed.
+- Both manual creation forms disable their fields/save/cancel while pending.
+  A synchronous, app-instance-scoped ref protects both creation actions across
+  renders. HTTP rejection retains the draft. Confirmed success clears it before
+  list refresh; refresh failure says the request was created, not to recreate it.
+- A lost/invalid response is an unknown outcome: check the list before manually
+  retrying. There is no automatic retry. This is **not** server-side replay
+  idempotency across tabs, page reloads or client restarts.
+- Material-control validation rejects a repeated exact estimate source tuple
+  `(estimateId, sectionIndex, itemIndex)` anywhere in one new request, including
+  across two positions. Different source rows (even with the same work/material
+  name) remain valid. Existing records and transaction locks are unchanged.
+
+No migration, historical cleanup, permission expansion or supplier dispatch is
+part of this follow-up. Browser guards do not replace backend ownership checks.
+
+Local verification: 556 frontend tests (128 suites), 29 lineage/transaction/
+inventory tests and 57 supplier-access tests passed; ESLint and production build
+passed. An isolated Chrome SSR fixture using the real card components and themes
+passed at 390×844 and 1440×1000 with no clipping or console errors. It used only
+synthetic data; async submit interactions are covered by RTL, not a production
+browser flow. Authenticated production receipt/notification checks remain open.
+
+## Remaining code gaps
+
+- Server-side request replay idempotency for all creation paths is still absent.
+  No production duplicate count has been established; UI counts are not evidence
+  that two purchases are the same transaction.
 - Source types, work names and purchased materials are not presented as a
   consistently separated hierarchy.
 - Invoice payment update and `project_payments` creation are two independent
@@ -96,9 +129,9 @@ requests are not automatically repaired, approved, deleted or resent.
   current reshipment route requires a new request/offer after receipt.
 - No single final procurement-closure gate combines delivery, payment and claims.
 
-Recommended next slice: agree the request header/position/work-source display,
-then remove repeated labels and implement retry/double-submit protection without
-merging legitimate purchases by name. Historical QA records need a separate
+Recommended next slice: design persisted request origins and server-side replay
+idempotency across all creation paths, without merging legitimate purchases by
+name. Historical QA records need a separate
 read-only inventory and approved cleanup scope, never a mass resend.
 
 ## Release procedure

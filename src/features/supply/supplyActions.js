@@ -51,6 +51,7 @@ export const createSupplyActions = ({
   supplyTemplates,
   user,
   companyContext = {},
+  supplyRequestCreationRef = { current: false },
 }) => {
   const currentUser = user || {};
   const selectedCompanyId = Number(companyContext?.selectedCompanyId || companyContext?.selectedCompany?.companyId || 0) || null;
@@ -64,6 +65,31 @@ export const createSupplyActions = ({
       return null;
     }
     return selectedCompanyId;
+  };
+
+  // The app supplies a useRef shared by both forms and retained across renders.
+  // This prevents concurrent clicks, not retries across reloads or other tabs.
+  const runRequestCreation = async (save) => {
+    if (supplyRequestCreationRef.current) return;
+    supplyRequestCreationRef.current = true;
+    let created = false;
+    try {
+      await save(() => { created = true; });
+    } catch (_) {
+      alert(created
+        ? 'Заявка создана, но следующий шаг не завершился. Проверьте список заявок и запросы КП. Повторно создавать заявку не нужно.'
+        : 'Не удалось подтвердить создание заявки. Проверьте список заявок перед повторной отправкой.');
+    } finally {
+      supplyRequestCreationRef.current = false;
+    }
+  };
+
+  const refreshCreatedRequests = async () => {
+    try {
+      await refreshData();
+    } catch (_) {
+      alert('Заявка создана, но список не обновился. Обновите страницу; повторно создавать заявку не нужно.');
+    }
   };
 
   const saveSupplier = async () => {
@@ -110,7 +136,7 @@ export const createSupplyActions = ({
     }
   };
 
-  const saveRequest = async () => {
+  const saveRequest = () => runRequestCreation(async (markCreated) => {
     const companyId = requireSelectedCompanyForWrite();
     if (!companyId) return;
     const requestPackages = getProjectWorkPackageOptions(newRequest.project);
@@ -156,6 +182,12 @@ export const createSupplyActions = ({
       alert('Не удалось создать заявку: ' + (data.detail || data.error || res.status));
       return;
     }
+    if (!Number.isInteger(data.id) || data.id <= 0) {
+      throw new Error('request_creation_unconfirmed');
+    }
+    markCreated();
+    setNewRequest(createRequestForm());
+    setShowForm(false);
     const supplierIds = (newRequest.selectedSuppliers || []).filter(Boolean);
     const approvalComplete = Boolean(data.prorabConfirmedAt && data.directorApprovedAt);
     if (Array.isArray(data.notifications)) {
@@ -179,10 +211,8 @@ export const createSupplyActions = ({
     } else {
       notify('Заявка создана внутри снабжения. Поставщикам не отправлена: выберите поставщиков через «Запросить КП».', 'supply');
     }
-    await refreshData();
-    setNewRequest(createRequestForm());
-    setShowForm(false);
-  };
+    await refreshCreatedRequests();
+  });
 
   const cancelRequest = async (id) => {
     await fetch(API + '/supply-requests/' + id, {
@@ -193,7 +223,7 @@ export const createSupplyActions = ({
     await refreshData();
   };
 
-  const createSupplyReq = async () => {
+  const createSupplyReq = () => runRequestCreation(async (markCreated) => {
     const valid = (newSupplyReq.items || []).filter(i => i.materialName && Number(i.quantity) > 0);
     if (!valid.length || !newSupplyReq.project) {
       alert('Заполните хотя бы одну строку (материал + кол-во) и выберите объект');
@@ -236,12 +266,18 @@ export const createSupplyActions = ({
       }),
     });
     const data = await r.json().catch(() => ({}));
-    if (!r.ok) {
+    if (!r.ok || data.detail || data.error) {
       let err = '';
-      try { err = data.detail || ''; } catch (_) {}
+      try { err = data.detail || data.error || ''; } catch (_) {}
       alert('Не удалось создать заявку' + (err ? ': ' + err : ''));
       return;
     }
+    if (!Number.isInteger(data.id) || data.id <= 0) {
+      throw new Error('request_creation_unconfirmed');
+    }
+    markCreated();
+    setNewSupplyReq({ items: [{ materialName: '', quantity: '', unit: 'шт', workPackage: '' }], project: '', urgency: 'обычная', notes: '', category: '' });
+    setShowSupplyForm(false);
     const msg = valid.length > 1
       ? ('Заявка из ' + valid.length + ' позиций — объект ' + newSupplyReq.project)
       : ('Заявка «' + valid[0].materialName + '» — объект ' + newSupplyReq.project);
@@ -251,18 +287,14 @@ export const createSupplyActions = ({
       notify('Прораб ' + (currentUser.name || 'пользователь') + ': ' + msg + ' — нужно утвердить', 'supply');
     } else if (data.id && ['Утверждена', 'КП запрошены'].includes(data.status)) {
       notify(msg + ' — утверждена директором. Выберите поставщиков для запроса КП.', 'supply');
-      await refreshData();
-      setNewSupplyReq({ items: [{ materialName: '', quantity: '', unit: 'шт', workPackage: '' }], project: '', urgency: 'обычная', notes: '', category: '' });
-      setShowSupplyForm(false);
+      await refreshCreatedRequests();
       await openRequestKpModal(data.id);
       return;
     } else {
       notify(msg + ' — создана. После утверждения директора поставщиков нужно выбрать через «Запросить КП».', 'supply');
     }
-    await refreshData();
-    setNewSupplyReq({ items: [{ materialName: '', quantity: '', unit: 'шт', workPackage: '' }], project: '', urgency: 'обычная', notes: '', category: '' });
-    setShowSupplyForm(false);
-  };
+    await refreshCreatedRequests();
+  });
 
   const fetchPriceHint = async (name) => {
     const key = (name || '').trim();
