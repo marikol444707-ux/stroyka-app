@@ -4,6 +4,7 @@ import {
   describeClientCardConfidence,
 } from './companyOnboarding';
 import ClientContractsPanel from './ClientContractsPanel';
+import './SystemOwnerCabinet.css';
 
 function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, inp, badge, API}) {
   const [tab, setTab] = useState('dashboard');
@@ -793,19 +794,19 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
   ].filter(Boolean);
 
   return (
-    <div style={{minHeight:'100vh',backgroundColor:C.bg,padding:'20px'}}>
+    <div className="system-owner-cabinet" style={{minHeight:'100vh',backgroundColor:C.bg}}>
       <div style={{maxWidth:'1100px',margin:'0 auto'}}>
         {/* Шапка */}
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'18px'}}>
-          <div style={{display:'flex',alignItems:'center',gap:'12px'}}>
-            <span style={{fontSize:'28px'}}>⚙️</span>
-            <div>
+        <header className="system-owner-cabinet__header">
+          <div className="system-owner-cabinet__identity">
+            <span style={{fontSize:'28px',flexShrink:0}}>⚙️</span>
+            <div className="system-owner-cabinet__identity-text">
               <b style={{color:C.text,fontSize:'18px',display:'block'}}>Кабинет платформы</b>
               <p style={{color:C.textSec,margin:0,fontSize:'13px'}}>{user.name} · {platformRoleLabels[user.role] || user.role}</p>
             </div>
           </div>
-          <button onClick={()=>{localStorage.removeItem('authToken');localStorage.removeItem('user');setUser(null);}} style={{...btnG,fontSize:'12px'}}>Выйти</button>
-        </div>
+          <button className="system-owner-cabinet__logout" onClick={()=>{localStorage.removeItem('authToken');localStorage.removeItem('user');setUser(null);}} style={{...btnG,fontSize:'12px'}}>Выйти</button>
+        </header>
 
         {/* Вкладки */}
         <div style={{display:'flex',gap:'6px',marginBottom:'16px',overflowX:'auto',borderBottom:'1.5px solid '+C.border}}>
