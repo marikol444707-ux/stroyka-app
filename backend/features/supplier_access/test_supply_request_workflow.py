@@ -14,7 +14,7 @@ from backend.features.supplier_access.supply_request_workflow import (
 
 
 class SupplyRequestTransitionPolicyTests(unittest.TestCase):
-    def test_prorab_confirms_only_new_request(self):
+    def test_reviewer_or_leadership_fallback_confirms_new_request(self):
         for role in ("прораб", "главный_инженер"):
             validate_supply_request_transition(
                 action="confirm_prorab",
@@ -23,9 +23,43 @@ class SupplyRequestTransitionPolicyTests(unittest.TestCase):
             )
 
         for role in (
+            "директор",
+            "зам_директора",
+        ):
+            validate_supply_request_transition(
+                action="confirm_prorab",
+                role=role,
+                current_status="Новая",
+                assigned_reviewer_exists=False,
+            )
+
+            for assigned_reviewer_exists in (
+                True,
+                None,
+            ):
+                with self.subTest(
+                    role=role,
+                    assigned=assigned_reviewer_exists,
+                ):
+                    with self.assertRaises(
+                        SupplyRequestWorkflowViolation
+                    ) as raised:
+                        validate_supply_request_transition(
+                            action="confirm_prorab",
+                            role=role,
+                            current_status="Новая",
+                            assigned_reviewer_exists=(
+                                assigned_reviewer_exists
+                            ),
+                        )
+                    self.assertEqual(
+                        raised.exception.status_code,
+                        409,
+                    )
+
+        for role in (
             "мастер",
             "снабженец",
-            "директор",
             "поставщик",
         ):
             with self.subTest(role=role):
@@ -329,12 +363,51 @@ class SupplyRequestRuntimeWiringTests(unittest.TestCase):
             function,
         )
         self.assertIn(
+            "_supply_project_has_active_reviewer(",
+            function,
+        )
+        self.assertIn(
+            "assigned_reviewer_exists=",
+            function,
+        )
+        self.assertIn(
             "COALESCE(status,'Новая')='Новая'",
             function,
         )
         self.assertIn(
             "status='Подтверждена прорабом'",
             function,
+        )
+
+    def test_director_fallback_checks_exact_project_assignment(self):
+        function = self.function_source(
+            name="_supply_project_has_active_reviewer",
+        )
+        normalized = " ".join(function.split())
+
+        self.assertIn(
+            "user_company_roles AS membership",
+            normalized,
+        )
+        self.assertIn(
+            "membership.company_id=%s",
+            normalized,
+        )
+        self.assertIn(
+            "membership.assigned_projects",
+            normalized,
+        )
+        self.assertIn(
+            "users.assigned_projects",
+            normalized,
+        )
+        self.assertIn(
+            "COALESCE( membership.active, TRUE )=TRUE",
+            normalized,
+        )
+        self.assertIn(
+            "COALESCE(users.active,TRUE)=TRUE",
+            normalized,
         )
 
     def test_dispatch_policy_is_wired_into_request_kp(self):

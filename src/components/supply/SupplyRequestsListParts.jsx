@@ -618,7 +618,7 @@ export function SupplyRequestCard(props) {
             </p>
           )}
           {request.status === 'Отклонена' && request.rejectReason && <p style={{ color: C.danger, margin: '4px 0 0', fontSize: '11px' }}>❌ Причина: {request.rejectReason}</p>}
-          {request.prorabName && <p style={{ color: C.textMuted, margin: '2px 0 0', fontSize: '10px' }}>👷 Прораб: {request.prorabName}</p>}
+          {request.prorabName && <p style={{ color: C.textMuted, margin: '2px 0 0', fontSize: '10px' }}>✅ Подтвердил заявку: {request.prorabName}</p>}
           {request.directorName && <p style={{ color: C.textMuted, margin: '2px 0 0', fontSize: '10px' }}>👑 Директор: {request.directorName}</p>}
           <SupplyEstimateControlBlock C={C} items={items} />
         </div>
@@ -629,7 +629,12 @@ export function SupplyRequestCard(props) {
           </div>
           <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             {request.status === 'Новая' && canConfirmProrab && (
-              <button onClick={() => confirmSupplyAsProrab(request.id)} style={{ ...btnGr, padding: '4px 10px', fontSize: '11px' }}><Check size={11} />Подтвердить</button>
+              <button onClick={() => confirmSupplyAsProrab(request.id)} style={{ ...btnGr, padding: '4px 10px', fontSize: '11px' }}>
+                <Check size={11} />
+                {['директор', 'зам_директора'].includes(user.role)
+                  ? 'Подтвердить вместо прораба'
+                  : 'Подтвердить'}
+              </button>
             )}
             {request.status === 'Подтверждена прорабом' && canApprove && (
               <button onClick={() => approveSupplyAsDirector(request.id)} style={{ ...btnGr, padding: '4px 10px', fontSize: '11px' }}><Check size={11} />Утвердить</button>

@@ -7872,6 +7872,115 @@ def _sanitize_estimate_control_money(value):
         return [_sanitize_estimate_control_money(item) for item in value]
     return value
 
+
+def _supply_project_has_active_reviewer(
+    cur,
+    company_id,
+    project_name,
+):
+    """Return whether the company has an active reviewer assigned here."""
+
+    try:
+        normalized_company_id = int(company_id or 0)
+    except (TypeError, ValueError):
+        return True
+
+    normalized_project_name = str(
+        project_name or ""
+    ).strip()
+
+    # Warehouse and project-less requests have no project foreman.
+    if (
+        normalized_company_id <= 0
+        or not normalized_project_name
+    ):
+        return normalized_company_id <= 0
+
+    if normalized_project_name == "Основной склад":
+        return False
+
+    cur.execute(
+        """
+        SELECT EXISTS (
+            SELECT 1
+              FROM user_company_roles AS membership
+              JOIN users
+                ON users.id=membership.user_id
+               AND COALESCE(users.active,TRUE)=TRUE
+              LEFT JOIN projects AS target_project
+                ON target_project.company_id=
+                   membership.company_id
+               AND LOWER(BTRIM(target_project.name))=
+                   LOWER(BTRIM(%s))
+               AND COALESCE(
+                       target_project.archived,
+                       FALSE
+                   )=FALSE
+             WHERE membership.company_id=%s
+               AND membership.role IN (
+                   'прораб',
+                   'главный_инженер'
+               )
+               AND COALESCE(
+                       membership.active,
+                       TRUE
+                   )=TRUE
+               AND (
+                    users.project_id=target_project.id
+                 OR LOWER(BTRIM(
+                        COALESCE(users.project_name,'')
+                    ))=LOWER(BTRIM(%s))
+                 OR EXISTS (
+                        SELECT 1
+                          FROM jsonb_array_elements_text(
+                              CASE
+                                  WHEN jsonb_typeof(
+                                      membership.assigned_projects
+                                  )='array'
+                                  THEN membership.assigned_projects
+                                  ELSE '[]'::jsonb
+                              END
+                          ) AS assigned(project_name)
+                         WHERE LOWER(BTRIM(
+                                   assigned.project_name
+                               ))=LOWER(BTRIM(%s))
+                    )
+                 OR EXISTS (
+                        SELECT 1
+                          FROM jsonb_array_elements_text(
+                              CASE
+                                  WHEN jsonb_typeof(
+                                      users.assigned_projects
+                                  )='array'
+                                  THEN users.assigned_projects
+                                  ELSE '[]'::jsonb
+                              END
+                          ) AS assigned(project_name)
+                         WHERE LOWER(BTRIM(
+                                   assigned.project_name
+                               ))=LOWER(BTRIM(%s))
+                    )
+               )
+        ) AS has_reviewer
+        """,
+        (
+            normalized_project_name,
+            normalized_company_id,
+            normalized_project_name,
+            normalized_project_name,
+            normalized_project_name,
+        ),
+    )
+
+    row = cur.fetchone()
+    if not row:
+        return False
+
+    if hasattr(row, "get"):
+        return bool(row.get("has_reviewer"))
+
+    return bool(row[0])
+
 def _supply_response_for_role(row, user: dict):
     data = dict(row) if row else {}
     role = (user.get("role") or "").strip().lower()
@@ -9488,12 +9597,28 @@ def update_supply_request(
         if (req.get("status") or "Новая") not in ("Новая", "Подтверждена прорабом"):
             conn.close()
             raise HTTPException(status_code=400, detail="Заявка уже в обработке, отмену делает снабжение или руководитель")
+    assigned_reviewer_exists = None
+    if (
+        action == "confirm_prorab"
+        and role in LEADERSHIP_ROLES
+    ):
+        assigned_reviewer_exists = (
+            _supply_project_has_active_reviewer(
+                cur,
+                req.get("company_id"),
+                req.get("project"),
+            )
+        )
+
     if action in ("confirm_prorab", "approve_director"):
         try:
             validate_supply_request_transition(
                 action=action,
                 role=role,
                 current_status=req.get("status"),
+                assigned_reviewer_exists=(
+                    assigned_reviewer_exists
+                ),
             )
         except SupplyRequestWorkflowViolation as exc:
             conn.close()
