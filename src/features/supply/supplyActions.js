@@ -1,4 +1,5 @@
 import { emptySupplierForm, hasSupplierLegalIdentity, normalizeSupplierPayload } from '../../utils/supplierUtils';
+import { supplyNotificationSummary } from '../../utils/supplyNotificationUtils';
 import { createRequestForm, createSupplierOfferForm } from './supplyInitialForms';
 
 export const createSupplyActions = ({
@@ -156,7 +157,14 @@ export const createSupplyActions = ({
       return;
     }
     const supplierIds = (newRequest.selectedSuppliers || []).filter(Boolean);
-    if (supplierIds.length > 0 && data.id) {
+    const approvalComplete = Boolean(data.prorabConfirmedAt && data.directorApprovedAt);
+    if (Array.isArray(data.notifications)) {
+      notify('Заявка создана. ' + supplyNotificationSummary(data), 'supply');
+    } else if (!approvalComplete) {
+      notify('Заявка создана — ожидает ' + (data.prorabConfirmedAt
+        ? 'утверждения директора'
+        : 'подтверждения прораба и утверждения директора') + '. Запрос КП поставщикам пока не создавался.', 'supply');
+    } else if (supplierIds.length > 0 && data.id && ['Утверждена', 'КП запрошены'].includes(data.status)) {
       const kpRes = await fetch(API + '/supply-requests/' + data.id + '/request-kp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -164,9 +172,9 @@ export const createSupplyActions = ({
       });
       const kpData = await kpRes.json().catch(() => ({}));
       if (!kpRes.ok || kpData.detail || kpData.error) {
-        alert('Заявка создана, но поставщикам не отправлена: ' + (kpData.detail || kpData.error || kpRes.status));
+        alert('Заявка создана, но запрос КП не подтверждён: ' + (kpData.detail || kpData.error || kpRes.status));
       } else {
-        notify('Заявка отправлена поставщикам: ' + supplierIds.length, 'supply');
+        notify(supplyNotificationSummary(kpData), 'supply');
       }
     } else {
       notify('Заявка создана внутри снабжения. Поставщикам не отправлена: выберите поставщиков через «Запросить КП».', 'supply');
@@ -423,7 +431,7 @@ export const createSupplyActions = ({
     });
     const data = await r.json().catch(() => ({}));
     if (!r.ok || data.detail || data.error) { alert('Ошибка: ' + (data.detail || data.error || r.status)); return; }
-    notify('Отправлен запрос КП ' + selectedSupplierIds.length + ' поставщикам', 'supply');
+    notify(supplyNotificationSummary(data), 'supply');
     setShowRequestKpModal(null);
     setSelectedSupplierIds([]);
     setSuggestedSuppliers(null);

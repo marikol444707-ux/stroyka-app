@@ -348,7 +348,7 @@ class SupplyRequestRuntimeWiringTests(unittest.TestCase):
             function,
         )
         self.assertIn(
-            '("Утверждена", "КП запрошены")',
+            'validate_rfq_dispatch_request(req)',
             function,
         )
 

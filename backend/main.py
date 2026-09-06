@@ -714,7 +714,11 @@ from backend.features.supplier_access.supply_request_workflow import (
     sanitize_supplier_request_response,
     supplier_request_visibility_params,
     validate_rfq_dispatch_role,
+    validate_rfq_dispatch_request,
     validate_supply_request_transition,
+)
+from backend.features.supplier_access.delivery_diagnostics import (
+    attach_recipient_delivery_diagnostics,
 )
 
 
@@ -1648,6 +1652,8 @@ def _supplier_visibility_for_scope(cur, scope_ids) -> dict:
          ORDER BY CASE WHEN user_id IS NOT NULL THEN 0 ELSE 1 END, id
     """, (ids,))
     suppliers = cur.fetchall() or []
+    if not suppliers:
+        return {"visible": False, "user_id": None, "reason": "Карточка поставщика не найдена: выберите существующего поставщика"}
     for supplier in suppliers:
         user_id = _row_get(supplier, "user_id", 4, None)
         if user_id:
@@ -9223,9 +9229,8 @@ def create_supply_request(
         raise HTTPException(status_code=400, detail="Заявка снабжения должна быть привязана к объекту или складу")
     created_by = _current_user.get("name") or r.createdBy or ""
     requested_by_id = _current_user.get("id")
-    if role in ("директор", "зам_директора"):
-        initial_status = "Утверждена"
-    elif role == "прораб":
+    # Creation is not a director approval: supplier reads require both stages.
+    if role == "прораб":
         initial_status = "Подтверждена прорабом"
     else:
         initial_status = "Новая"
@@ -9233,9 +9238,9 @@ def create_supply_request(
     prorab_id = requested_by_id if role == "прораб" else None
     prorab_name = created_by if role == "прораб" else None
     prorab_at = now if role == "прораб" else None
-    director_id = requested_by_id if role in ("директор", "зам_директора") else None
-    director_name = created_by if role in ("директор", "зам_директора") else None
-    director_at = now if role in ("директор", "зам_директора") else None
+    director_id = None
+    director_name = None
+    director_at = None
     # Нормализация items: если items пустой, но есть materialName, упаковываем как single-item.
     request_package = _supply_work_package(r.workPackage)
     items = _normalize_supply_request_items(r.items, r.materialName, r.quantity, r.unit, request_package)
@@ -9259,26 +9264,23 @@ def create_supply_request(
     )
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    _ensure_supply_runtime_columns(cur)
-    conn.commit()
-    if is_material_control_request:
-        # The advisory lineage lock and duplicate scan must share one
-        # transaction with the request insert.
-        conn.autocommit = False
-    project_company_id = None
-    requested_company_id = r.companyId
-    if is_material_control_request:
-        if not _positive_int_or_none(r.companyId) or not _positive_int_or_none(r.projectId):
-            cur.close()
-            conn.close()
-            raise HTTPException(
-                status_code=400,
-                detail="Заявка из контроля материалов должна содержать точные companyId и projectId",
-            )
-    else:
-        project_company_id = _project_company_id(cur, project_name)
-        requested_company_id = requested_company_id or project_company_id
     try:
+        _ensure_supply_runtime_columns(cur)
+        conn.commit()
+        # All request creation is atomic, including ordinary manual requests.
+        # The lineage advisory lock also shares this transaction with its insert.
+        conn.autocommit = False
+        project_company_id = None
+        requested_company_id = r.companyId
+        if is_material_control_request:
+            if not _positive_int_or_none(r.companyId) or not _positive_int_or_none(r.projectId):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Заявка из контроля материалов должна содержать точные companyId и projectId",
+                )
+        else:
+            project_company_id = _project_company_id(cur, project_name)
+            requested_company_id = requested_company_id or project_company_id
         company_context = _resolve_work_company_context(
             cur,
             _current_user,
@@ -9287,143 +9289,127 @@ def create_supply_request(
             x_company_id=x_company_id,
             x_company_mode=x_company_mode,
         )
+        company_id = int(company_context.get("companyId") or requested_company_id or 1)
+        project_id = _positive_int_or_none(r.projectId)
+        if is_material_control_request:
+            try:
+                project_owner = resolve_material_control_project(
+                    cur,
+                    company_id=company_id,
+                    project_id=project_id,
+                    project_name=project_name,
+                )
+                project_id = int(project_owner["projectId"])
+                project_name = project_owner["projectName"]
+            except MaterialControlLineageError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+        elif project_company_id and int(project_company_id) != company_id:
+            raise HTTPException(status_code=400, detail="Выбранная компания не совпадает с компанией объекта. Переключите компанию в шапке или выберите другой объект.")
+        selected_suppliers = supplier_group_scope_ids(cur, selected_suppliers)
+        if is_material_control_request:
+            lineage_material_keys = {}
+
+            def resolve_lineage_material_key(project, name, unit):
+                cache_key = (project or "", name or "", unit or "")
+                if cache_key not in lineage_material_keys:
+                    lineage_material_keys[cache_key] = _material_control_key_resolved(
+                        cur, project, name, unit
+                    )
+                return lineage_material_keys[cache_key]
+
+            try:
+                items = validate_material_control_request_lineage(
+                    request_source=r.requestSource,
+                    request_notes=r.notes,
+                    project_name=project_name,
+                    company_id=company_id,
+                    project_id=project_id,
+                    work_package=request_package,
+                    items=items,
+                    estimates_by_id=load_material_control_estimates(
+                        cur,
+                        material_control_estimate_ids(items),
+                    ),
+                    parse_sections=_estimate_sections,
+                    item_type=_estimate_item_type_backend,
+                    item_plan_issue=_estimate_material_plan_issue_backend,
+                    material_key=resolve_lineage_material_key,
+                    normalize_unit=_norm_base_unit,
+                    item_quantity=_estimate_imported_quantity,
+                )
+            except MaterialControlLineageError as exc:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Заявка из контроля материалов отклонена: " + str(exc),
+                ) from exc
+            lineage_keys = material_control_lineage_keys(items)
+            # The source estimate row is the idempotency key. Advisory transaction locks
+            # make two simultaneous clicks serialize before either request is inserted.
+            for estimate_id, section_index, item_index in sorted(lineage_keys):
+                cur.execute(
+                    "SELECT pg_advisory_xact_lock(hashtext(%s))",
+                    (f"material-control-lineage:{company_id}:{project_id}:{estimate_id}:{section_index}:{item_index}",),
+                )
+            cur.execute(
+                """
+                SELECT id, items_json
+                  FROM supply_requests
+                 WHERE company_id=%s
+                   AND project=%s
+                   AND COALESCE(status,'') IN (
+                       'Новая', 'Подтверждена прорабом', 'Утверждена', 'КП запрошены',
+                       'В пути', 'Частично поставлено', 'Проблема поставки', 'Утверждено'
+                   )
+                 FOR UPDATE
+                """,
+                (company_id, project_name),
+            )
+            conflicts = material_control_lineage_conflicts(
+                items,
+                [dict(row) for row in cur.fetchall()],
+                _json_list_or_empty,
+            )
+            if conflicts:
+                request_ids = sorted({row["requestId"] for row in conflicts if row.get("requestId")})
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "По этой строке активной сметы уже создана заявка"
+                        + (" #" + ", #".join(str(request_id) for request_id in request_ids) if request_ids else "")
+                        + ". Отмените её или дождитесь поставки, затем обновите контроль материалов."
+                    ),
+                )
+        items = _attach_supply_estimate_control(
+            cur,
+            project_name,
+            items,
+            company_id=company_id,
+            project_id=project_id,
+        )
+        if project_name != "Основной склад":
+            _enforce_supply_estimate_control(items, source="заявка")
+        items_json = _json.dumps(items, ensure_ascii=False)
+        cur.execute(
+            "INSERT INTO supply_requests "
+            "(material_name,quantity,unit,project,company_id,work_package,created_by,date,notes,selected_suppliers,"
+            "status,requested_by_role,requested_by_id,urgency,category,"
+            "prorab_id,prorab_name,prorab_confirmed_at,"
+            "director_id,director_name,director_approved_at,items_json) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+            (agg_name, agg_qty, agg_unit, project_name, company_id, request_package, created_by, r.date, r.notes,
+             selected_suppliers, initial_status, role, requested_by_id, r.urgency, r.category,
+             prorab_id, prorab_name, prorab_at,
+             director_id, director_name, director_at, items_json))
+        new_id = cur.fetchone()['id']
+        cur.execute(SUPPLY_SELECT + " WHERE id=%s", (new_id,))
+        row = cur.fetchone()
+        conn.commit()
     except Exception:
+        conn.rollback()
+        raise
+    finally:
         cur.close()
         conn.close()
-        raise
-    company_id = int(company_context.get("companyId") or requested_company_id or 1)
-    project_id = _positive_int_or_none(r.projectId)
-    if is_material_control_request:
-        try:
-            project_owner = resolve_material_control_project(
-                cur,
-                company_id=company_id,
-                project_id=project_id,
-                project_name=project_name,
-            )
-            project_id = int(project_owner["projectId"])
-            project_name = project_owner["projectName"]
-        except MaterialControlLineageError as exc:
-            cur.close()
-            conn.close()
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-    elif project_company_id and int(project_company_id) != company_id:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=400, detail="Выбранная компания не совпадает с компанией объекта. Переключите компанию в шапке или выберите другой объект.")
-    selected_suppliers = supplier_group_scope_ids(cur, selected_suppliers)
-    if is_material_control_request:
-        lineage_material_keys = {}
-
-        def resolve_lineage_material_key(project, name, unit):
-            cache_key = (project or "", name or "", unit or "")
-            if cache_key not in lineage_material_keys:
-                lineage_material_keys[cache_key] = _material_control_key_resolved(
-                    cur, project, name, unit
-                )
-            return lineage_material_keys[cache_key]
-
-        try:
-            items = validate_material_control_request_lineage(
-                request_source=r.requestSource,
-                request_notes=r.notes,
-                project_name=project_name,
-                company_id=company_id,
-                project_id=project_id,
-                work_package=request_package,
-                items=items,
-                estimates_by_id=load_material_control_estimates(
-                    cur,
-                    material_control_estimate_ids(items),
-                ),
-                parse_sections=_estimate_sections,
-                item_type=_estimate_item_type_backend,
-                item_plan_issue=_estimate_material_plan_issue_backend,
-                material_key=resolve_lineage_material_key,
-                normalize_unit=_norm_base_unit,
-                item_quantity=_estimate_imported_quantity,
-            )
-        except MaterialControlLineageError as exc:
-            cur.close()
-            conn.close()
-            raise HTTPException(
-                status_code=400,
-                detail="Заявка из контроля материалов отклонена: " + str(exc),
-            ) from exc
-        lineage_keys = material_control_lineage_keys(items)
-        # The source estimate row is the idempotency key. Advisory transaction locks
-        # make two simultaneous clicks serialize before either request is inserted.
-        for estimate_id, section_index, item_index in sorted(lineage_keys):
-            cur.execute(
-                "SELECT pg_advisory_xact_lock(hashtext(%s))",
-                (f"material-control-lineage:{company_id}:{project_id}:{estimate_id}:{section_index}:{item_index}",),
-            )
-        cur.execute(
-            """
-            SELECT id, items_json
-              FROM supply_requests
-             WHERE company_id=%s
-               AND project=%s
-               AND COALESCE(status,'') IN (
-                   'Новая', 'Подтверждена прорабом', 'Утверждена', 'КП запрошены',
-                   'В пути', 'Частично поставлено', 'Проблема поставки', 'Утверждено'
-               )
-             FOR UPDATE
-            """,
-            (company_id, project_name),
-        )
-        conflicts = material_control_lineage_conflicts(
-            items,
-            [dict(row) for row in cur.fetchall()],
-            _json_list_or_empty,
-        )
-        if conflicts:
-            request_ids = sorted({row["requestId"] for row in conflicts if row.get("requestId")})
-            cur.close()
-            conn.close()
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "По этой строке активной сметы уже создана заявка"
-                    + (" #" + ", #".join(str(request_id) for request_id in request_ids) if request_ids else "")
-                    + ". Отмените её или дождитесь поставки, затем обновите контроль материалов."
-                ),
-            )
-    items = _attach_supply_estimate_control(
-        cur,
-        project_name,
-        items,
-        company_id=company_id,
-        project_id=project_id,
-    )
-    if project_name != "Основной склад":
-        _enforce_supply_estimate_control(items, source="заявка")
-    items_json = _json.dumps(items, ensure_ascii=False)
-    cur.execute(
-        "INSERT INTO supply_requests "
-        "(material_name,quantity,unit,project,company_id,work_package,created_by,date,notes,selected_suppliers,"
-        "status,requested_by_role,requested_by_id,urgency,category,"
-        "prorab_id,prorab_name,prorab_confirmed_at,"
-        "director_id,director_name,director_approved_at,items_json) "
-        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (agg_name, agg_qty, agg_unit, project_name, company_id, request_package, created_by, r.date, r.notes,
-         selected_suppliers, initial_status, role, requested_by_id, r.urgency, r.category,
-         prorab_id, prorab_name, prorab_at,
-         director_id, director_name, director_at, items_json))
-    new_id = cur.fetchone()['id']
-    notification_rows = []
-    if selected_suppliers and initial_status == "Утверждена":
-        recipient_rows = _upsert_supply_request_recipients(cur, new_id, company_id, selected_suppliers)
-        visibility_error = _recipient_visibility_error(recipient_rows)
-        if visibility_error:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail=visibility_error)
-        _create_supplier_offer_requests(cur, new_id, selected_suppliers, company_id=company_id)
-        notification_rows = _notify_supply_request_recipients(cur, new_id)
-        cur.execute("UPDATE supply_requests SET status=%s WHERE id=%s", ('КП запрошены', new_id))
-    cur.execute(SUPPLY_SELECT + " WHERE id=%s", (new_id,))
-    row = cur.fetchone()
-    conn.commit()
-    conn.close()
     log_audit(
         _current_user.get("name", ""),
         _current_user.get("role", ""),
@@ -9434,8 +9420,6 @@ def create_supply_request(
         project_name,
     )
     response = _supply_response_for_role(row, _current_user)
-    if notification_rows:
-        response["notifications"] = notification_rows
     return response
 
 @app.put("/supply-requests/{id}")
@@ -10054,7 +10038,7 @@ def request_kp_from_suppliers(
     try:
         _ensure_supply_runtime_columns(cur)
         # Получаем количество из заявки для preview total
-        cur.execute("SELECT quantity, project, status, company_id FROM supply_requests WHERE id=%s FOR UPDATE", (id,))
+        cur.execute("SELECT quantity, project, status, company_id, prorab_confirmed_at, director_approved_at FROM supply_requests WHERE id=%s FOR UPDATE", (id,))
         req = cur.fetchone()
         if not req:
             raise HTTPException(status_code=404, detail="Заявка не найдена")
@@ -10087,8 +10071,10 @@ def request_kp_from_suppliers(
             project_company_id = _project_company_id(cur, req.get('project') or "")
             if project_company_id and int(project_company_id) != company_id:
                 raise HTTPException(status_code=400, detail="Выбранная компания не совпадает с компанией объекта. Переключите компанию в шапке или выберите другой объект.")
-        if (req.get("status") or "Новая") not in ("Утверждена", "КП запрошены"):
-            raise HTTPException(status_code=400, detail="Запрашивать КП можно только после утверждения заявки директором")
+        try:
+            validate_rfq_dispatch_request(req)
+        except SupplyRequestWorkflowViolation as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.detail)
         selected_scope_ids = supplier_group_scope_ids(cur, supplier_ids)
         recipient_rows = _upsert_supply_request_recipients(cur, id, company_id, selected_scope_ids)
         assert_rows_company_scope(recipient_rows, company_id, "Получатели КП")
@@ -10149,7 +10135,7 @@ def get_supply_request_recipients(
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     _ensure_supply_request_recipients_table(cur)
-    cur.execute("SELECT id, project, company_id FROM supply_requests WHERE id=%s", (id,))
+    cur.execute("SELECT id, project, company_id, prorab_confirmed_at, director_approved_at FROM supply_requests WHERE id=%s", (id,))
     req = cur.fetchone()
     if not req:
         cur.close(); conn.close()
@@ -10287,8 +10273,11 @@ def get_supply_request_recipients(
                 "offerStatuses": [offer_status_row],
             }
         rows = [_add_supply_recipient_link_hint(row) for row in recipient_map.values()]
-    cur.close(); conn.close()
-    return rows
+    try:
+        return attach_recipient_delivery_diagnostics(cur, req, rows)
+    finally:
+        cur.close()
+        conn.close()
 
 @app.get("/supply-requests/{id}/suggest-suppliers")
 def suggest_suppliers_for_request(id: int, current_user: dict = Depends(require_roles(*SUPPLY_INTERNAL_ROLES))):

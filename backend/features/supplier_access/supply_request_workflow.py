@@ -186,6 +186,26 @@ def validate_rfq_dispatch_role(role: Any) -> None:
         )
 
 
+def supply_request_approval_block_reason(request: Mapping[str, Any]) -> str:
+    """Use the same approval evidence required by the supplier read boundary."""
+    if request.get("prorab_confirmed_at") is None:
+        return "Нет подтверждения прораба или главного инженера: поставщик не увидит заявку"
+    if request.get("director_approved_at") is None:
+        return "Нет утверждения директора: поставщик не увидит заявку"
+    return ""
+
+
+def validate_rfq_dispatch_request(request: Mapping[str, Any]) -> None:
+    if _normal_status(request.get("status")) not in ("Утверждена", "КП запрошены"):
+        raise SupplyRequestWorkflowViolation(
+            "Запрашивать КП можно только после утверждения заявки директором",
+            status_code=400,
+        )
+    reason = supply_request_approval_block_reason(request)
+    if reason:
+        raise SupplyRequestWorkflowViolation(reason, status_code=409)
+
+
 def supplier_request_visibility_params(
     supplier_ids: Sequence[Any],
 ) -> list[list[int]]:
