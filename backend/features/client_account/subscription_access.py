@@ -93,6 +93,7 @@ def register_subscription_read_only_middleware(app, deps):
     get_db = deps["get_db"]
     request_user_snapshot = deps["request_user_snapshot"]
     resolve_work_company_context = deps["resolve_work_company_context"]
+    resolve_resource_subscription_context = deps.get("resolve_resource_subscription_context")
     platform_staff_roles = frozenset(deps.get("platform_staff_roles") or ())
     today_provider = deps.get("today") or dt.date.today
 
@@ -112,14 +113,21 @@ def register_subscription_read_only_middleware(app, deps):
             role = str(user.get("role") or "").strip()
             if user and role not in platform_staff_roles:
                 try:
-                    context = resolve_work_company_context(
-                        cur,
-                        user,
-                        None,
-                        "write",
-                        x_company_id=request.headers.get("x-company-id"),
-                        x_company_mode=request.headers.get("x-company-mode"),
+                    context = (
+                        resolve_resource_subscription_context(cur, user, request)
+                        if resolve_resource_subscription_context else None
                     )
+                    if context is None:
+                        context = resolve_work_company_context(
+                            cur,
+                            user,
+                            None,
+                            "write",
+                            x_company_id=request.headers.get("x-company-id"),
+                            x_company_mode=request.headers.get("x-company-mode"),
+                        )
+                    elif not (context.get("companyId") or context.get("company_id")):
+                        raise LookupError("Authorized resource company is missing")
                 except HTTPException as exc:
                     _write_structured_log({
                         "event": "subscription_company_context_rejected",

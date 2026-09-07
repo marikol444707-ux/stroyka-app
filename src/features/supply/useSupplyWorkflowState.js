@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   createKpResponseForm,
   createOfferInvoiceForm,
@@ -9,6 +9,7 @@ import {
 } from './supplyInitialForms';
 
 export function useSupplyWorkflowState() {
+  const supplyRequestCreationRef = useRef(false);
   const [supplyTab, setSupplyTab] = useState('inbox');
   const [showSupplyForm, setShowSupplyForm] = useState(false);
   const [newSupplyReq, setNewSupplyReq] = useState(createSupplyRequestForm);
@@ -40,6 +41,7 @@ export function useSupplyWorkflowState() {
   const [generatedInviteLink, setGeneratedInviteLink] = useState(null);
 
   return {
+    supplyRequestCreationRef,
     compareLoadingReqId,
     compareResultByReq,
     deliveryAiLoadingId,

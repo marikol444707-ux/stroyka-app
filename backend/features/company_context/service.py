@@ -137,6 +137,20 @@ def effective_company_user(user: dict, context: dict) -> dict:
     )
     actor.update({
         "role": (context or {}).get("effectiveRole") or (context or {}).get("role") or actor.get("role") or "",
+        "membershipId": _as_int(
+            (context or {}).get("membershipId")
+            or (context or {}).get("membership_id")
+        ),
+        "membership_id": _as_int(
+            (context or {}).get("membershipId")
+            or (context or {}).get("membership_id")
+        ),
+        "staffId": _as_int(
+            (context or {}).get("staffId") or (context or {}).get("staff_id")
+        ),
+        "staff_id": _as_int(
+            (context or {}).get("staffId") or (context or {}).get("staff_id")
+        ),
         "companyId": company_id,
         "company_id": company_id,
         "platformAccountId": platform_account_id,
@@ -191,6 +205,8 @@ def _company_context_row(
     platform_account_id = item.get("platform_account_id")
     context = {
         "membershipId": item.get("membership_id"),
+        "staffId": item.get("staff_id"),
+        "staff_id": item.get("staff_id"),
         "companyId": company_id,
         "company_id": company_id,
         "companyName": item.get("company_name") or item.get("name") or "",
@@ -237,7 +253,7 @@ def user_company_memberships(
         where.append("COALESCE(m.active,TRUE)=TRUE")
         where.append("COALESCE(c.active,TRUE)=TRUE")
     cur.execute(f"""
-        SELECT m.id AS membership_id, m.user_id, m.company_id,
+        SELECT m.id AS membership_id, m.user_id, m.company_id, m.staff_id,
                COALESCE(m.platform_account_id,c.platform_account_id) AS platform_account_id,
                m.role, m.assigned_projects, m.assigned_packages,
                COALESCE(m.active,TRUE) AS active, COALESCE(m.is_default,FALSE) AS is_default,

@@ -3,6 +3,7 @@ import { Check, Eye, FileText, Plus, Trash2, Upload, X } from 'lucide-react';
 import SettingsTabsNav from './SettingsTabsNav';
 import SitePricingSettingsPanel from './SitePricingSettingsPanel';
 import { createCompanyDocumentForm } from '../features/settings/settingsInitialForms';
+import ClientContractsReadOnlyPanel from '../features/client-account/ClientContractsReadOnlyPanel';
 
 const COMPANY_DOC_TYPES = ['Устав','ОГРН','ИНН','Выписка ЕГРЮЛ','Лицензия СРО','Доверенность','Прочее'];
 
@@ -68,7 +69,7 @@ export default function SettingsPage({
               <input placeholder="Корр. счёт" value={companyReqForm.ks} onChange={e=>setCompanyReqForm({...companyReqForm,ks:e.target.value})} style={{...inp,marginBottom:0}}/>
             </div>
           </div>
-          <button onClick={async()=>{await saveCompanyRequisites();setCompanyRequisites(companyReqForm);}} style={{...btnO,marginTop:'20px',padding:'12px 30px',fontSize:'15px'}}><Check size={16}/>Сохранить реквизиты</button>
+          <button onClick={async()=>{const saved=await saveCompanyRequisites();if(saved){setCompanyRequisites(saved);setCompanyReqForm(saved);}}} style={{...btnO,marginTop:'20px',padding:'12px 30px',fontSize:'15px'}}><Check size={16}/>Сохранить реквизиты</button>
         </div>
         {companyRequisites&&companyRequisites.fullName&&(<div style={{...card,padding:'20px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}>
           <b style={{color:C.success,fontSize:'14px',display:'block',marginBottom:'10px'}}>✅ Реквизиты сохранены — подставляются во все документы</b>
@@ -80,6 +81,9 @@ export default function SettingsPage({
       </div>)}
 
       {settingsTab==='documents'&&(<div>
+        {user?.role==='директор'&&(
+          <ClientContractsReadOnlyPanel API={API} C={C} card={card} btnG={btnG}/>
+        )}
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
           <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Юридические документы</b>
           <button onClick={()=>setShowForm(!showForm)} style={btnO}><Plus size={14}/>Добавить документ</button>

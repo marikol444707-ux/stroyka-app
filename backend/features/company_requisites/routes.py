@@ -11,6 +11,19 @@ from typing import Optional
 import psycopg2.extras
 from fastapi import Depends, Header, HTTPException
 
+try:
+    from backend.features.company_requisites.service import (
+        company_requisites_to_api,
+        mirror_company_identity,
+        upsert_company_requisites,
+    )
+except ModuleNotFoundError:
+    from features.company_requisites.service import (
+        company_requisites_to_api,
+        mirror_company_identity,
+        upsert_company_requisites,
+    )
+
 
 def register_company_requisites_module(app, deps):
     get_db = deps["get_db"]
@@ -49,16 +62,7 @@ def register_company_requisites_module(app, deps):
             row = cur.fetchone()
             if not row:
                 return {"companyId": company_id}
-            return {
-                "id": row.get("id"), "companyId": row.get("company_id"),
-                "fullName": row.get("full_name") or "", "shortName": row.get("short_name") or "",
-                "inn": row.get("inn") or "", "kpp": row.get("kpp") or "", "ogrn": row.get("ogrn") or "",
-                "legalAddress": row.get("legal_address") or "", "actualAddress": row.get("actual_address") or "",
-                "phone": row.get("phone") or "", "email": row.get("email") or "",
-                "directorName": row.get("director_name") or "", "directorPosition": row.get("director_position") or "",
-                "basis": row.get("basis") or "", "bankName": row.get("bank_name") or "",
-                "bik": row.get("bik") or "", "rs": row.get("rs") or "", "ks": row.get("ks") or "",
-            }
+            return company_requisites_to_api(row, company_id)
         finally:
             cur.close(); conn.close()
 
@@ -88,23 +92,10 @@ def register_company_requisites_module(app, deps):
                 raise HTTPException(status_code=409, detail="Компания для реквизитов не определена")
             if (actor.get("role") or "") not in finance_roles:
                 raise HTTPException(status_code=403, detail="Роль в выбранной компании не позволяет менять реквизиты")
-            cur.execute("""INSERT INTO company_requisites
-                               (company_id,full_name,short_name,inn,kpp,ogrn,legal_address,actual_address,
-                                phone,email,director_name,director_position,basis,bank_name,bik,rs,ks)
-                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                           ON CONFLICT (company_id) DO UPDATE SET
-                               full_name=EXCLUDED.full_name, short_name=EXCLUDED.short_name,
-                               inn=EXCLUDED.inn, kpp=EXCLUDED.kpp, ogrn=EXCLUDED.ogrn,
-                               legal_address=EXCLUDED.legal_address, actual_address=EXCLUDED.actual_address,
-                               phone=EXCLUDED.phone, email=EXCLUDED.email,
-                               director_name=EXCLUDED.director_name, director_position=EXCLUDED.director_position,
-                               basis=EXCLUDED.basis, bank_name=EXCLUDED.bank_name,
-                               bik=EXCLUDED.bik, rs=EXCLUDED.rs, ks=EXCLUDED.ks
-                           RETURNING id,company_id""",
-                        (company_id,data.get("fullName",""),data.get("shortName",""),data.get("inn",""),data.get("kpp",""),data.get("ogrn",""),data.get("legalAddress",""),data.get("actualAddress",""),data.get("phone",""),data.get("email",""),data.get("directorName",""),data.get("directorPosition",""),data.get("basis",""),data.get("bankName",""),data.get("bik",""),data.get("rs",""),data.get("ks","")))
-            row = cur.fetchone()
+            row = upsert_company_requisites(cur, company_id, data)
+            mirror_company_identity(cur, company_id, data)
             conn.commit()
-            return {"id": row.get("id"), "companyId": row.get("company_id"), "ok": True}
+            return {**company_requisites_to_api(row, company_id), "ok": True}
         except Exception:
             conn.rollback()
             raise

@@ -1,0 +1,39 @@
+.system-owner-cabinet {
+  box-sizing: border-box;
+  padding: 20px;
+  /* The standalone iOS app uses viewport-fit=cover and a translucent status bar. */
+  padding-top: calc(20px + env(safe-area-inset-top, 0px));
+  padding-right: calc(20px + env(safe-area-inset-right, 0px));
+  padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  padding-left: calc(20px + env(safe-area-inset-left, 0px));
+}
+
+.system-owner-cabinet__header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.system-owner-cabinet__identity {
+  display: flex;
+  flex: 1 1 240px;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.system-owner-cabinet__identity-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.system-owner-cabinet__logout {
+  flex-shrink: 0;
+  min-width: 44px;
+  min-height: 44px;
+  margin-left: auto;
+  white-space: nowrap;
+}

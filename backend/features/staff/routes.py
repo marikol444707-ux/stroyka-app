@@ -1,7 +1,7 @@
 """Staff directory routes.
 
-Extracted verbatim from backend/main.py (Task 13.1, slice 39):
-the seven staff routes with their column maps, sanitizer, access
+Extracted from backend/main.py (Task 13.1, slice 39): the staff routes
+with their column maps, sanitizer, access
 provisioning (creates/updates the linked user account) and the
 fire-with-deactivation flow that disables user logins and revokes
 sessions. Shared access-scope validation stays in main.py and is
@@ -255,7 +255,9 @@ def register_staff_module(app, deps):
         "технадзор", "стройконтроль", "менеджер_crm",
     )
 
-    def _sync_staff_access(cur, s: StaffModel, company_id, exact_project):
+    def _sync_staff_access(cur, s: StaffModel, company_id, staff_id, exact_project):
+        if _positive_int(staff_id) is None:
+            raise HTTPException(status_code=400, detail="Некорректная связь сотрудника")
         email = ((s.email or s.emailWork or "") or "").strip().lower()
         password = ((s.password or "") or "").strip()
         role = ((s.systemRole or "") or "").strip()
@@ -295,10 +297,21 @@ def register_staff_module(app, deps):
                 )
 
         cur.execute(
-            "SELECT id,company_id FROM public.users WHERE LOWER(email)=LOWER(%s) LIMIT 2",
+            """SELECT id,company_id
+                 FROM public.users
+                WHERE LOWER(email)=LOWER(%s)
+                ORDER BY id
+                LIMIT 2
+                FOR UPDATE""",
             (email,),
         )
-        existing = cur.fetchone()
+        identity_rows = cur.fetchall()
+        if len(identity_rows) > 1:
+            raise HTTPException(
+                status_code=409,
+                detail="Email связан с несколькими аккаунтами — сначала устраните дубликат",
+            )
+        existing = identity_rows[0] if identity_rows else None
         user_id = _positive_int(_row_value(existing, "id", 0))
         full_name = (s.name or "Сотрудник").strip()
         if user_id:
@@ -322,6 +335,39 @@ def register_staff_module(app, deps):
                 raise HTTPException(status_code=400, detail="Не удалось создать доступ сотрудника")
             action = "created"
         cur.execute(
+            """SELECT user_id
+                 FROM public.user_company_roles
+                WHERE company_id=%s
+                  AND staff_id=%s
+                  AND COALESCE(active,TRUE)=TRUE
+                  AND user_id<>%s
+                LIMIT 1
+                FOR UPDATE""",
+            (company_id, staff_id, user_id),
+        )
+        if cur.fetchone() is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="Карточка сотрудника уже связана с другим аккаунтом",
+            )
+        cur.execute(
+            """SELECT staff_id
+                 FROM public.user_company_roles
+                WHERE company_id=%s
+                  AND user_id=%s
+                  AND staff_id IS NOT NULL
+                  AND staff_id<>%s
+                  AND COALESCE(active,TRUE)=TRUE
+                LIMIT 1
+                FOR UPDATE""",
+            (company_id, user_id, staff_id),
+        )
+        if cur.fetchone() is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="Аккаунт уже связан с другой карточкой сотрудника",
+            )
+        cur.execute(
             """UPDATE public.user_company_roles
                   SET active=FALSE,updated_at=NOW()
                 WHERE user_id=%s AND company_id=%s AND role<>%s AND active IS TRUE""",
@@ -329,16 +375,18 @@ def register_staff_module(app, deps):
         )
         cur.execute(
             """INSERT INTO public.user_company_roles
-                   (user_id,company_id,role,assigned_projects,assigned_packages,
+                   (user_id,company_id,staff_id,role,assigned_projects,assigned_packages,
                     active,is_default,updated_at)
-                VALUES (%s,%s,%s,%s::jsonb,%s::jsonb,TRUE,FALSE,NOW())
+                VALUES (%s,%s,%s,%s,%s::jsonb,%s::jsonb,TRUE,FALSE,NOW())
                 ON CONFLICT (user_id,company_id,role) DO UPDATE
-                  SET assigned_projects=EXCLUDED.assigned_projects,
+                  SET staff_id=EXCLUDED.staff_id,
+                      assigned_projects=EXCLUDED.assigned_projects,
                       assigned_packages=EXCLUDED.assigned_packages,
                       active=TRUE,updated_at=NOW()""",
             (
                 user_id,
                 company_id,
+                staff_id,
                 role,
                 json.dumps(assigned_projects),
                 json.dumps(assigned_packages),
@@ -384,12 +432,52 @@ def register_staff_module(app, deps):
                 tuple(params),
             )
             rows = cur.fetchall()
+            access_by_staff = {}
+            if role in staff_full_view_roles:
+                cur.execute(
+                    """SELECT membership.staff_id,
+                              account.id AS "accessUserId",
+                              account.email AS "accessEmail",
+                              membership.role AS "accessRole",
+                              membership.assigned_projects AS "accessAssignedProjects",
+                              membership.assigned_packages AS "accessAssignedPackages"
+                         FROM public.user_company_roles membership
+                         JOIN public.users account ON account.id=membership.user_id
+                        WHERE membership.company_id=%s
+                          AND membership.staff_id IS NOT NULL
+                          AND COALESCE(membership.active,TRUE)=TRUE
+                          AND COALESCE(account.active,TRUE)=TRUE
+                        ORDER BY membership.staff_id""",
+                    (company_id,),
+                )
+                for access_row in cur.fetchall():
+                    staff_id = _positive_int(_row_value(access_row, "staff_id", 0))
+                    if staff_id is None:
+                        continue
+                    access_by_staff[staff_id] = {
+                        "accessUserId": _positive_int(
+                            _row_value(access_row, "accessUserId", 1)
+                        ),
+                        "accessEmail": str(
+                            _row_value(access_row, "accessEmail", 2) or ""
+                        ).strip(),
+                        "accessRole": str(
+                            _row_value(access_row, "accessRole", 3) or ""
+                        ).strip(),
+                        "accessAssignedProjects": safe_project_list(
+                            _row_value(access_row, "accessAssignedProjects", 4) or []
+                        ),
+                        "accessAssignedPackages": safe_project_list(
+                            _row_value(access_row, "accessAssignedPackages", 5) or []
+                        ),
+                    }
         finally:
             cur.close()
             conn.close()
         result = []
         for r in rows:
             d = dict(r)
+            d.update(access_by_staff.get(_positive_int(d.get("id")), {}))
             if role in ("прораб", "главный_инженер") and role not in staff_manage_roles:
                 d = _sanitize_staff_for_project_roles(d)
             for k in ("birthDate", "passportIssuedDate", "hiredDate", "firedDate"):
@@ -399,6 +487,147 @@ def register_staff_module(app, deps):
                     d[k] = ""
             result.append(d)
         return result
+
+    @app.post("/staff/current-user-link")
+    def link_current_user_to_staff(
+        x_company_id: Optional[str] = Header(None, alias="X-Company-Id"),
+        x_company_mode: Optional[str] = Header(None, alias="X-Company-Mode"),
+        _current_user: dict = Depends(require_roles(*staff_manage_roles)),
+    ):
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            actor = _selected_actor(
+                cur, _current_user, "write", x_company_id, x_company_mode,
+                staff_manage_roles,
+            )
+            if actor is None:
+                raise HTTPException(status_code=403, detail="Недостаточно прав для сотрудников")
+            company_id = actor["companyId"]
+            user_id = _positive_int(actor.get("id"))
+            membership_id = _positive_int(
+                actor.get("membershipId") or actor.get("membership_id")
+            )
+            role = str(actor.get("role") or "").strip()
+            email = str(actor.get("email") or "").strip().lower()
+            name = _actor_name(actor)
+            if user_id is None or membership_id is None or not email or not role:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Основной аккаунт выбранной компании не определён",
+                )
+
+            cur.execute(
+                """SELECT id,user_id,company_id,staff_id,role
+                     FROM public.user_company_roles
+                    WHERE id=%s AND user_id=%s AND company_id=%s AND role=%s
+                      AND COALESCE(active,TRUE)=TRUE
+                    FOR UPDATE""",
+                (membership_id, user_id, company_id, role),
+            )
+            membership = cur.fetchone()
+            if _positive_int(_row_value(membership, "id", 0)) is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Активная роль основного аккаунта не найдена",
+                )
+
+            linked_staff_id = _positive_int(_row_value(membership, "staff_id", 3))
+            if linked_staff_id is not None:
+                staff_row = _exact_staff(
+                    cur, company_id, linked_staff_id,
+                    columns="id,name,email_work",
+                )
+                return {
+                    "ok": True,
+                    "created": False,
+                    "staffId": linked_staff_id,
+                    "email": str(_row_value(staff_row, "email_work", 2) or email),
+                }
+
+            cur.execute(
+                """SELECT id
+                     FROM public.staff
+                    WHERE company_id=%s
+                      AND company_scope_verified IS TRUE
+                      AND (LOWER(BTRIM(email_work))=%s
+                           OR LOWER(BTRIM(email_personal))=%s)
+                    ORDER BY id
+                    LIMIT 2
+                    FOR UPDATE""",
+                (company_id, email, email),
+            )
+            matching_staff = list(cur.fetchall() or [])
+            if len(matching_staff) > 1:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Email связан с несколькими сотрудниками",
+                )
+
+            created = not matching_staff
+            if matching_staff:
+                staff_id = _positive_int(_row_value(matching_staff[0], "id", 0))
+            else:
+                human_role = {
+                    "директор": "Директор",
+                    "зам_директора": "Заместитель директора",
+                }.get(role, role.replace("_", " ").strip().title())
+                cur.execute(
+                    """INSERT INTO public.staff
+                              (name,role,salary,pay_type,email_work,status,
+                               company_id,company_scope_verified)
+                         VALUES (%s,%s,0,'оклад',%s,'Активен',%s,TRUE)
+                      RETURNING id""",
+                    (name or email, human_role, email, company_id),
+                )
+                staff_id = _positive_int(_row_value(cur.fetchone(), "id", 0))
+            if staff_id is None:
+                raise HTTPException(status_code=409, detail="Карточка сотрудника не определена")
+
+            cur.execute(
+                """SELECT user_id
+                     FROM public.user_company_roles
+                    WHERE company_id=%s AND staff_id=%s
+                      AND COALESCE(active,TRUE)=TRUE AND user_id<>%s
+                    LIMIT 1
+                    FOR UPDATE""",
+                (company_id, staff_id, user_id),
+            )
+            if cur.fetchone() is not None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Карточка сотрудника уже связана с другим аккаунтом",
+                )
+
+            cur.execute(
+                """UPDATE public.user_company_roles
+                      SET staff_id=%s,updated_at=NOW()
+                    WHERE id=%s AND user_id=%s AND company_id=%s
+                      AND COALESCE(active,TRUE)=TRUE""",
+                (staff_id, membership_id, user_id, company_id),
+            )
+            if cur.rowcount != 1:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Не удалось связать основной аккаунт с сотрудником",
+                )
+            conn.commit()
+            log_audit(
+                _actor_name(actor), role, "link", "staff", staff_id,
+                "Основной аккаунт связан с карточкой сотрудника", "",
+            )
+            return {
+                "ok": True,
+                "created": created,
+                "staffId": staff_id,
+                "email": email,
+            }
+        except BaseException:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+            conn.close()
 
     @app.post("/staff")
     def create_staff(
@@ -428,7 +657,7 @@ def register_staff_module(app, deps):
             new_id = _positive_int(_row_value(cur.fetchone(), "id", 0))
             if new_id is None:
                 raise HTTPException(status_code=400, detail="Не удалось создать сотрудника")
-            access = _sync_staff_access(cur, s, company_id, project)
+            access = _sync_staff_access(cur, s, company_id, new_id, project)
             conn.commit()
             log_audit(
                 _actor_name(actor), actor.get("role", ""),
@@ -480,7 +709,7 @@ def register_staff_module(app, deps):
                   AND company_scope_verified IS TRUE""", tuple(values) + (id, company_id))
             if cur.rowcount == 0:
                 raise HTTPException(status_code=404, detail="Сотрудник не найден")
-            access = _sync_staff_access(cur, s, company_id, project)
+            access = _sync_staff_access(cur, s, company_id, id, project)
             conn.commit()
             log_audit(
                 _actor_name(actor), actor.get("role", ""),
@@ -531,19 +760,20 @@ def register_staff_module(app, deps):
                  WHERE id=%s AND company_id=%s
                    AND company_scope_verified IS TRUE
             """, (id, company_id))
-            disabled_users = 0
-            if emails:
-                cur.execute("""
-                    UPDATE public.user_company_roles membership
-                       SET active=FALSE,updated_at=NOW()
-                      FROM public.users linked_user
-                     WHERE membership.user_id=linked_user.id
-                       AND membership.company_id=%s
-                       AND membership.active IS TRUE
-                       AND LOWER(COALESCE(linked_user.email,''))=ANY(%s)
-                     RETURNING membership.user_id AS id
-                """, (company_id, emails))
-                disabled_users = len(cur.fetchall())
+            cur.execute("""
+                UPDATE public.user_company_roles membership
+                   SET active=FALSE,updated_at=NOW()
+                  FROM public.users linked_user
+                 WHERE membership.user_id=linked_user.id
+                   AND membership.company_id=%s
+                   AND membership.active IS TRUE
+                   AND (
+                       membership.staff_id=%s
+                       OR LOWER(COALESCE(linked_user.email,''))=ANY(%s)
+                   )
+                 RETURNING membership.user_id AS id
+            """, (company_id, id, emails))
+            disabled_users = len(cur.fetchall())
             conn.commit()
             log_audit(
                 _actor_name(actor), actor.get("role", ""),

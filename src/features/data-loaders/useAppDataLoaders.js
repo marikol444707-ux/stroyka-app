@@ -1,4 +1,5 @@
 import { useCallback, useEffect } from 'react';
+import { createCompanyRequisitesForm } from '../settings/settingsInitialForms';
 
 const ESTIMATES_SUMMARY_PATH = '/estimates?summary=true';
 const PEOPLE_DATA_ROLES = ['директор', 'зам_директора', 'бухгалтер', 'прораб', 'главный_инженер', 'сметчик', 'кладовщик', 'снабженец', 'стройконтроль'];
@@ -17,7 +18,7 @@ export const useAppDataLoaders = (ctx) => {
     createMaterialsPageState, createWorkJournalPageState, estimatesTab, initialDataLoaded, MATERIAL_NORMS_PAGE_LIMIT, materialNormSearch,
     MATERIALS_PAGE_LIMIT, mergeRowsByIdValue, mobileApiRequestsRef, mobileLoadedScopesRef, mobileScopeForPage, normalizeEstimateList, roleFlagsForUser,
     ROLES, setAccountablePayments, setAiFindings, setAiTasks, setAllBrigadeItems, setAllBrigadePayments, setAuditLog,
-    setBrigadeContracts, setCableJournal, setChecklists, setClients, setCompanyDocuments, setCompanyRequisites,
+    setBrigadeContracts, setCableJournal, setChecklists, setClients, setCompanyDocuments, setCompanyReqForm, setCompanyRequisites,
     setContracts, setEstimateReconciliations, setEstimatesList, setEstimatesPage, setExpenseReports, setHiddenActs, setHistory,
     setInitialDataLoaded, setInspectionOrders, setInterimActs, setInventory, setInviteCodes, setInvoices, setLeads,
     setManualExpenses, setMasterProfiles, setMaterialAliases, setMaterialInspections, setMaterialNormOverrides, setMaterialNorms, setMaterialNormsPage,
@@ -82,6 +83,15 @@ export const useAppDataLoaders = (ctx) => {
   const pagedPath = (path, params = {}) => buildPagedPath(path, params);
 
   const mergeRowsById = (current = [], incoming = []) => mergeRowsByIdValue(current, incoming);
+
+  const applyCompanyRequisites = (payload) => {
+    const requisites = payload && typeof payload === 'object' ? payload : {};
+    setCompanyRequisites(requisites);
+    if (typeof setCompanyReqForm === 'function') {
+      const {id: _id, companyId: _companyId, ...editable} = requisites;
+      setCompanyReqForm(createCompanyRequisitesForm(editable));
+    }
+  };
 
   const loadMaterialsPage = useCallback(async ({projectName = '', search = '', offset = 0} = {}) => {
     setMaterialsPage(prev => ({...prev, projectName, search, loading:true, error:''}));
@@ -528,7 +538,7 @@ export const useAppDataLoaders = (ctx) => {
         role === 'поставщик' ? Promise.resolve({}) : getApi('/company-requisites', {}),
         isFinanceRole ? getApi('/company-documents') : Promise.resolve([]),
       ]);
-      setCompanyRequisites(cr || {});
+      applyCompanyRequisites(cr);
       setCompanyDocuments(Array.isArray(cd)?cd:[]);
     });
     if (page === 'activitylog') return loadMobileScopeOnce('mobile:activitylog', async () => {
@@ -660,7 +670,7 @@ export const useAppDataLoaders = (ctx) => {
       setLoaded(setMasterProfiles, mp); setLoaded(setContracts, ct); setLoaded(setInterimActs, ia);
       setLoaded(setRooms, ro); setLoaded(setRoomWorks, rw); setLoaded(setTools, tl); setLoaded(setToolHistory, th);
       setLoaded(setInventory, inv); setLoaded(setPdConsents, pdc); setLoaded(setWarehouses, wh);
-      if (isLoaded(cr)) setCompanyRequisites(cr || {});
+      if (isLoaded(cr)) applyCompanyRequisites(cr);
       setLoaded(setCompanyDocuments, cd);
       setLoaded(setProjectStages, ps); setLoaded(setChecklists, pcl);
       setLoaded(setPrescriptionsList, pres); setLoaded(setUnexpectedWorksList, uw);

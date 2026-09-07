@@ -1,5 +1,6 @@
 import React from 'react';
 import { Check, Plus, X } from 'lucide-react';
+import useAsyncSubmit from '../hooks/useAsyncSubmit';
 
 function SupplyRequestForm({
   C,
@@ -25,6 +26,10 @@ function SupplyRequestForm({
   saveSupplyTemplate,
   setShowSupplyForm,
 }) {
+  const {submit, pending, error} = useAsyncSubmit(
+    createSupplyReq,
+    'Не удалось создать заявку. Проверьте список заявок перед повторной отправкой.',
+  );
   const items = newSupplyReq.items || [];
   const packageOptions = typeof getProjectWorkPackageOptions === 'function'
     ? getProjectWorkPackageOptions(newSupplyReq.project)
@@ -60,6 +65,7 @@ function SupplyRequestForm({
 
   return (
     <div style={{...card,padding:'20px',marginBottom:'16px'}}>
+      <fieldset disabled={pending} style={{border:0,padding:0,margin:0,minWidth:0}}>
       <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'10px'}}>📝 Новая заявка на материал</b>
 
       {(supplyTemplates||[]).length>0 && (
@@ -125,14 +131,16 @@ function SupplyRequestForm({
       <div style={{padding:'10px 12px',backgroundColor:C.infoLight||C.warningLight,border:'1.5px solid '+(C.infoBorder||C.warningBorder),borderRadius:'8px',marginBottom:'12px',fontSize:'12px',color:C.text}}>
         {['мастер','субподрядчик','бригадир'].includes(role)?'ℹ️ После создания заявка попадёт прорабу на подтверждение':
           role==='прораб'?'ℹ️ Заявка сразу пойдёт директору на утверждение':
-          isLeadership?'✅ Заявка будет утверждена автоматически. Следующим шагом откроется выбор поставщиков для запроса КП.':
+          isLeadership?'ℹ️ После создания заявка ожидает подтверждения прораба и утверждения директора. Затем можно запросить КП у поставщиков.':
           'ℹ️ Заявка будет создана внутри снабжения. После утверждения директора выберите поставщиков через «Запросить КП».'}
       </div>
+      {error && <p role="alert" style={{color:C.danger,fontSize:'12px'}}>{error}</p>}
       <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
-        <button onClick={createSupplyReq} style={btnO}><Check size={14}/>Создать заявку</button>
+        <button onClick={submit} disabled={pending} aria-busy={pending} style={btnO}><Check size={14}/>{pending?'Создание…':'Создать заявку'}</button>
         <button onClick={saveSupplyTemplate} style={btnG}><Plus size={14}/>Сохранить как шаблон</button>
-        <button onClick={()=>setShowSupplyForm(false)} style={btnG}><X size={14}/>Отмена</button>
+        <button onClick={()=>setShowSupplyForm(false)} disabled={pending} style={btnG}><X size={14}/>Отмена</button>
       </div>
+      </fieldset>
     </div>
   );
 }

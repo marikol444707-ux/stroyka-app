@@ -40,8 +40,10 @@ _PROTECTED_HISTORY_TABLES = {
     "work_journal",
 }
 _ALLOWED_WRITERS = Counter({
+    # Creation no longer dispatches RFQs or updates the request status: that
+    # reviewed writer was removed when dispatch became a separate action gated
+    # by the complete human approval chain.
     (_MAIN_PATH, "create_supply_request", "insert", "supply_requests"): 1,
-    (_MAIN_PATH, "create_supply_request", "update", "supply_requests"): 1,
     (_MAIN_PATH, "update_estimate_status", "update", "estimates"): 2,
     (
         "backend/features/supply_estimate_refresh/service.py",

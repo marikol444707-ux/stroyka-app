@@ -38,6 +38,10 @@ except ModuleNotFoundError:
     )
     from features.model_gateway.yandex_adapter import build_yandex_model_adapter
 
+try:
+    from backend.features.company_requisites.service import upsert_company_requisites
+except ModuleNotFoundError:
+    from features.company_requisites.service import upsert_company_requisites
 
 PLATFORM_VIEW_ROLES = ("system_owner", "platform_admin", "platform_support", "billing_admin")
 PLATFORM_MANAGE_ROLES = ("system_owner", "platform_admin")
@@ -157,6 +161,9 @@ SYSTEM_TARIFFS = [
 def _system_tariff(plan: str):
     plan_key = (plan or "demo").strip()
     return next((t for t in SYSTEM_TARIFFS if t["id"] == plan_key), SYSTEM_TARIFFS[0])
+
+
+get_platform_tariff = _system_tariff
 
 
 def _system_days_left(value):
@@ -302,6 +309,59 @@ def _billing_document_status_label(status: str) -> str:
         "cancelled": "Аннулирован",
     }
     return labels.get(status or "", status or "Черновик")
+
+
+def _billing_document_contract_id(data: dict, *, required: bool = False):
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=422, detail="Ожидается объект документа.")
+    supplied = "clientContractId" in data or "client_contract_id" in data
+    if required and not supplied:
+        raise HTTPException(status_code=422, detail="Укажите договор или значение без договора.")
+    raw_value = data.get("clientContractId") if "clientContractId" in data else data.get("client_contract_id")
+    if raw_value in (None, ""):
+        return None
+    if isinstance(raw_value, bool):
+        raise HTTPException(status_code=422, detail="Некорректный договор.")
+    try:
+        contract_id = int(raw_value)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="Некорректный договор.")
+    if contract_id <= 0:
+        raise HTTPException(status_code=422, detail="Некорректный договор.")
+    return contract_id
+
+
+def _load_billing_document_contract(cur, contract_id, company_id, platform_account_id):
+    if contract_id is None:
+        return None
+    cur.execute(
+        """SELECT id, platform_account_id, company_id, number, status
+           FROM platform_client_contracts
+           WHERE id=%s AND company_id=%s AND platform_account_id=%s
+             AND status <> 'cancelled'""",
+        (contract_id, company_id, platform_account_id),
+    )
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(
+            status_code=409,
+            detail="Выбранный договор недоступен для этой компании.",
+        )
+    return dict(row)
+
+
+def _decorate_billing_document(document: dict, contract: dict = None) -> dict:
+    item = dict(document)
+    item["documentTypeLabel"] = _billing_document_type_label(item.get("document_type"))
+    item["statusLabel"] = _billing_document_status_label(item.get("status"))
+    if contract is not None:
+        item["client_contract_id"] = contract.get("id")
+        item["client_contract_number"] = contract.get("number")
+        item["client_contract_status"] = contract.get("status")
+    else:
+        item.setdefault("client_contract_number", None)
+        item.setdefault("client_contract_status", None)
+    return item
 
 
 def _payment_provider_label(provider: str) -> str:
@@ -509,6 +569,36 @@ def _draw_wrapped_pdf_line(canvas_obj, text: str, x: float, y: float, width_char
     return y
 
 
+def _billing_company_profile(row: dict) -> dict:
+    """Build the payer profile from requisites, falling back only before they exist."""
+    source = dict(row or {})
+    canonical = source.get("requisite_id") is not None
+
+    def value(requisite_key, company_key=None):
+        if canonical:
+            return source.get(requisite_key) or ""
+        return (source.get(company_key) or "") if company_key else ""
+
+    return {
+        "name": value("requisite_full_name", "company_name"),
+        "short_name": value("requisite_short_name", "company_name"),
+        "inn": value("requisite_inn", "company_inn"),
+        "kpp": value("requisite_kpp", "company_kpp"),
+        "ogrn": value("requisite_ogrn"),
+        "legal_address": value("requisite_legal_address"),
+        "actual_address": value("requisite_actual_address"),
+        "phone": value("requisite_phone", "company_contact_phone"),
+        "email": value("requisite_email", "company_contact_email"),
+        "director_name": value("requisite_director_name", "company_contact_name"),
+        "director_position": value("requisite_director_position"),
+        "basis": value("requisite_basis"),
+        "bank_name": value("requisite_bank_name"),
+        "bik": value("requisite_bik"),
+        "rs": value("requisite_rs"),
+        "ks": value("requisite_ks"),
+    }
+
+
 def _generate_billing_document_pdf(document: dict, company: dict, current_user: dict, save_upload_bytes=None) -> str:
     try:
         from reportlab.lib.pagesizes import A4
@@ -586,15 +676,35 @@ def _generate_billing_document_pdf(document: dict, company: dict, current_user: 
     c.drawString(x, y, "Плательщик")
     y -= 16
     payer = company.get("name") or document.get("company_name") or "-"
-    inn = company.get("inn")
-    kpp = company.get("kpp")
-    if inn:
-        payer += f", ИНН {inn}"
-    if kpp:
-        payer += f", КПП {kpp}"
     y = _draw_wrapped_pdf_line(c, payer, x, y, 90, regular_font, 10)
-    if company.get("contact_email"):
-        y = _draw_wrapped_pdf_line(c, "Email: " + company.get("contact_email"), x, y, 90, regular_font, 10)
+    payer_ids = []
+    if company.get("inn"):
+        payer_ids.append("ИНН " + company["inn"])
+    if company.get("kpp"):
+        payer_ids.append("КПП " + company["kpp"])
+    if company.get("ogrn"):
+        payer_ids.append("ОГРН/ОГРНИП " + company["ogrn"])
+    if payer_ids:
+        y = _draw_wrapped_pdf_line(c, ", ".join(payer_ids), x, y, 90, regular_font, 9, 12)
+    if company.get("legal_address"):
+        y = _draw_wrapped_pdf_line(c, "Юридический адрес: " + company["legal_address"], x, y, 90, regular_font, 9, 12)
+    payer_bank = [
+        company.get("bank_name"),
+        ("БИК " + company["bik"]) if company.get("bik") else "",
+        ("р/с " + company["rs"]) if company.get("rs") else "",
+        ("к/с " + company["ks"]) if company.get("ks") else "",
+    ]
+    if any(payer_bank):
+        y = _draw_wrapped_pdf_line(c, "Банк: " + ", ".join(item for item in payer_bank if item), x, y, 90, regular_font, 9, 12)
+    payer_contacts = [item for item in (company.get("email"), company.get("phone")) if item]
+    if payer_contacts:
+        y = _draw_wrapped_pdf_line(c, "Контакты: " + ", ".join(payer_contacts), x, y, 90, regular_font, 9, 12)
+    if company.get("director_name"):
+        signatory = company.get("director_position") or "Руководитель"
+        signatory += ": " + company["director_name"]
+        if company.get("basis"):
+            signatory += ", действует на основании " + company["basis"]
+        y = _draw_wrapped_pdf_line(c, signatory, x, y, 90, regular_font, 9, 12)
     y -= 12
 
     c.setFont(bold_font, 11)
@@ -1048,6 +1158,14 @@ CLIENT_CARD_KEYS = (
     "contactPhone",
     "contactEmail",
     "legalAddress",
+    "actualAddress",
+    "directorName",
+    "directorPosition",
+    "basis",
+    "bankName",
+    "bik",
+    "rs",
+    "ks",
     "website",
     "notes",
 )
@@ -1182,6 +1300,7 @@ def _client_card_heuristic(text: str) -> dict:
         website = ""
     fields["website"] = website
     fields["legalAddress"] = _client_card_first_match(r"(?:адрес|юр\.?\s*адрес|местонахождение)\s*[:\-]?\s*([^\n]{8,220})", raw)
+    fields["actualAddress"] = _client_card_first_match(r"(?:факт\.?\s*адрес|фактический адрес)\s*[:\-]?\s*([^\n]{8,220})", raw)
     company = _client_card_first_match(r"((?:ООО|АО|ПАО|ЗАО|ИП)\s+[\"«]?[А-ЯЁA-Z0-9][^,\n;]{2,160})", raw)
     if company:
         company = re.sub(r"\s+(?:ИНН|КПП|ОГРН|тел\.?|email|e-mail).*$", "", company, flags=re.IGNORECASE).strip(" ,;")
@@ -1198,6 +1317,14 @@ def _client_card_heuristic(text: str) -> dict:
     if not position:
         position = _client_card_first_match(r"\n\s*((?:директор|руководитель|собственник|учредитель|менеджер|главный инженер)[^\n]{0,80})", raw)
     fields["contactPosition"] = position
+    fields["directorName"] = fields["contactName"]
+    fields["directorPosition"] = fields["contactPosition"]
+    fields["bankName"] = _client_card_first_match(r"(?:банк|наименование банка)\s*[:\-]?\s*([^\n]{3,220})", raw)
+    fields["bik"] = _client_card_digits(_client_card_first_match(r"\bБИК\b[^\d]{0,20}(\d{9})", raw))[:9]
+    fields["rs"] = _client_card_digits(_client_card_first_match(r"(?:р/?с|расч[её]тный сч[её]т)\s*[:\-]?\s*(\d{20})", raw))[:20]
+    fields["ks"] = _client_card_digits(_client_card_first_match(r"(?:к/?с|корр(?:еспондентский)?\.? сч[её]т)\s*[:\-]?\s*(\d{20})", raw))[:20]
+    if len(fields["ogrn"]) == 15 or fields["companyName"].casefold().startswith("ип "):
+        fields["basis"] = "записи в ЕГРИП"
     note_bits = []
     if fields["ogrn"]:
         note_bits.append("ОГРН: " + fields["ogrn"])
@@ -1234,6 +1361,10 @@ def _normalize_client_card_fields(ai_fields, fallback_fields) -> dict:
     fields["contactName"] = _client_card_person(fields.get("contactName"))
     fields["contactEmail"] = _client_card_text(fields.get("contactEmail"), 255).lower()
     fields["contactPhone"] = re.sub(r"\s+", " ", _client_card_text(fields.get("contactPhone"), 100))
+    for key, limit in (("bik", 9), ("rs", 20), ("ks", 20)):
+        fields[key] = _client_card_digits(fields.get(key))[:limit]
+    fields["directorName"] = _client_card_person(fields.get("directorName")) or fields["contactName"]
+    fields["directorPosition"] = _client_card_text(fields.get("directorPosition"), 255) or _client_card_text(fields.get("contactPosition"), 255)
     if fields.get("companyName") and not fields.get("platformAccountName"):
         fields["platformAccountName"] = re.sub(r"^(?:ООО|АО|ПАО|ЗАО|ИП)\s+", "", fields["companyName"], flags=re.IGNORECASE).strip(" \"«»")
     if fields.get("companyName") and not fields.get("shortName"):
@@ -1398,8 +1529,12 @@ _CLIENT_CARD_PROMPT = (
     "Верни только JSON без markdown. Не выдумывай значения. Если поля нет — пустая строка. "
     "Нужно заполнить форму подключения клиентского аккаунта и первой компании. "
     "platformAccountName — группа/бренд клиента без ООО, companyName — полное юрлицо, shortName — короткое имя. "
-    "contactName — ФИО контактного лица, contactPosition — должность. "
-    "notes — только полезные дополнительные данные, которые некуда положить: адрес, сайт, ОГРН, должность, источник. "
+    "contactName — ФИО контактного лица для приглашения, contactPosition — его должность. "
+    "directorName и directorPosition — руководитель юрлица и его должность. "
+    "legalAddress и actualAddress — юридический и фактический адрес. "
+    "bankName, bik, rs, ks — банк, БИК, расчетный и корреспондентский счета. "
+    "basis — основание полномочий руководителя (например, Устава или записи в ЕГРИП). "
+    "notes — только полезные дополнительные данные, для которых нет отдельного поля. "
     "Формат: {"
     "\"platformAccountName\":\"\","
     "\"companyName\":\"\","
@@ -1412,6 +1547,14 @@ _CLIENT_CARD_PROMPT = (
     "\"contactPhone\":\"\","
     "\"contactEmail\":\"\","
     "\"legalAddress\":\"\","
+    "\"actualAddress\":\"\","
+    "\"directorName\":\"\","
+    "\"directorPosition\":\"\","
+    "\"basis\":\"\","
+    "\"bankName\":\"\","
+    "\"bik\":\"\","
+    "\"rs\":\"\","
+    "\"ks\":\"\","
     "\"website\":\"\","
     "\"notes\":\"\","
     "\"confidence\":0.0,"
@@ -1732,91 +1875,106 @@ def register_platform_admin_routes(app, deps):
 
     @app.post("/system/companies")
     def system_create_company(data: dict, current_user: dict = Depends(require_roles(*PLATFORM_MANAGE_ROLES))):
-        """Создание новой компании-клиента + инвайт-код ее директору."""
+        """Atomically create the account, company, requisites and director invite."""
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        preview = _system_company_create_preview(cur, data or {})
-        if not preview.get("canCreate"):
+        previous_autocommit = bool(getattr(conn, "autocommit", False))
+        try:
+            if previous_autocommit:
+                conn.autocommit = False
+            preview = _system_company_create_preview(cur, data or {})
+            if not preview.get("canCreate"):
+                raise HTTPException(status_code=409, detail={
+                    "message": "Компания не создана: сначала разберите дубли или смените тариф/аккаунт.",
+                    "blockingReasons": preview.get("blockingReasons") or [],
+                    "duplicates": preview.get("duplicates") or [],
+                    "limitWarnings": preview.get("limitWarnings") or [],
+                    "preview": preview,
+                })
+            platform_account_id = data.get("platformAccountId")
+            plan = preview.get("plan") if platform_account_id and preview.get("account") else (data.get("plan") or "demo")
+            tariff = _system_tariff(plan)
+            trial_days = int(data.get("trialDays") or 30)
+            trial_until = (datetime.now() + timedelta(days=trial_days)).date() if plan == "demo" else None
+            monthly_fee = float(data.get("monthlyFee") or tariff.get("monthlyFee") or 0)
+            max_projects = int(data.get("maxProjects") or tariff.get("maxProjects") or 0) or None
+            max_users = int(data.get("maxUsers") or tariff.get("maxUsers") or 0) or None
+            inn = _system_digits(data.get("inn"), 12)
+            kpp = _system_digits(data.get("kpp"), 9)
+            created_platform_account = False
+            if not platform_account_id:
+                account_name = (data.get("platformAccountName") or data.get("accountName") or data.get("name") or "").strip()
+                cur.execute("""INSERT INTO platform_accounts (name, owner_name, contact_email, plan, status, notes)
+                               VALUES (%s,%s,%s,%s,%s,%s) RETURNING id""",
+                    (account_name, data.get("contactName"), data.get("contactEmail"),
+                     plan, "trial" if plan == "demo" else "active", data.get("notes")))
+                platform_account_id = cur.fetchone()["id"]
+                created_platform_account = True
+                _system_write_audit(cur, current_user, "platform_account_created", "platform_account",
+                    platform_account_id, account_name, platform_account_id=platform_account_id,
+                    details={"plan": plan, "status": "trial" if plan == "demo" else "active", "contactEmail": data.get("contactEmail")})
+            cur.execute("""INSERT INTO companies (platform_account_id, name, short_name, inn, kpp, contact_name, contact_phone,
+                                                  contact_email, plan, trial_until, monthly_fee,
+                                                  payment_status, max_projects, max_users, active, notes)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                (platform_account_id, data.get("name"), data.get("shortName"), inn, kpp,
+                 data.get("contactName"), data.get("contactPhone"), data.get("contactEmail"),
+                 plan, trial_until, monthly_fee,
+                 "trial" if plan == "demo" else "active",
+                 max_projects, max_users,
+                 True, data.get("notes")))
+            new_id = cur.fetchone()["id"]
+            upsert_company_requisites(cur, new_id, data)
+
+            invite_code = uuid.uuid4().hex[:20].upper()
+            expires = datetime.now() + timedelta(days=30)
+            onboarding = _build_initial_company_invite(
+                data,
+                current_user=current_user,
+                company_id=new_id,
+                platform_account_id=platform_account_id,
+                code=invite_code,
+                expires_at=expires,
+            )
+            cur.execute("""INSERT INTO invite_codes
+                              (code, role, preset_name, preset_category, expires_at, created_by, company_id, platform_account_id)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (
+                    onboarding["code"], onboarding["role"], onboarding["presetName"],
+                    onboarding["presetCategory"], expires, onboarding["createdBy"],
+                    new_id, platform_account_id,
+                ))
+            _system_write_audit(cur, current_user, "company_created", "company", new_id, data.get("name"),
+                platform_account_id=platform_account_id, company_id=new_id,
+                details={
+                    "createdPlatformAccount": created_platform_account,
+                    "plan": plan,
+                    "trialUntil": trial_until,
+                    "monthlyFee": monthly_fee,
+                    "maxProjects": max_projects,
+                    "maxUsers": max_users,
+                    "requisitesInitialized": True,
+                    "inviteCreated": True,
+                    "inviteExpiresAt": onboarding["expiresAt"],
+                    "duplicateCheck": {"inn": inn, "kpp": kpp, "duplicates": len(preview.get("duplicates") or [])},
+                    "limitPreview": preview.get("accountUsage"),
+                })
+            conn.commit()
+            return {
+                "id": new_id,
+                "inviteCode": invite_code,
+                "trialUntil": str(trial_until) if trial_until else None,
+                "requisitesInitialized": True,
+                "onboarding": onboarding,
+            }
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+            if previous_autocommit:
+                conn.autocommit = True
             conn.close()
-            raise HTTPException(status_code=409, detail={
-                "message": "Компания не создана: сначала разберите дубли или смените тариф/аккаунт.",
-                "blockingReasons": preview.get("blockingReasons") or [],
-                "duplicates": preview.get("duplicates") or [],
-                "limitWarnings": preview.get("limitWarnings") or [],
-                "preview": preview,
-            })
-        platform_account_id = data.get("platformAccountId")
-        plan = preview.get("plan") if platform_account_id and preview.get("account") else (data.get("plan") or "demo")
-        tariff = _system_tariff(plan)
-        trial_days = int(data.get("trialDays") or 30)
-        trial_until = (datetime.now() + timedelta(days=trial_days)).date() if plan == "demo" else None
-        monthly_fee = float(data.get("monthlyFee") or tariff.get("monthlyFee") or 0)
-        max_projects = int(data.get("maxProjects") or tariff.get("maxProjects") or 0) or None
-        max_users = int(data.get("maxUsers") or tariff.get("maxUsers") or 0) or None
-        inn = _system_digits(data.get("inn"), 12)
-        kpp = _system_digits(data.get("kpp"), 9)
-        created_platform_account = False
-        if not platform_account_id:
-            account_name = (data.get("platformAccountName") or data.get("accountName") or data.get("name") or "").strip()
-            cur.execute("""INSERT INTO platform_accounts (name, owner_name, contact_email, plan, status, notes)
-                           VALUES (%s,%s,%s,%s,%s,%s) RETURNING id""",
-                (account_name, data.get("contactName"), data.get("contactEmail"),
-                 plan, "trial" if plan == "demo" else "active", data.get("notes")))
-            platform_account_id = cur.fetchone()["id"]
-            created_platform_account = True
-            _system_write_audit(cur, current_user, "platform_account_created", "platform_account",
-                platform_account_id, account_name, platform_account_id=platform_account_id,
-                details={"plan": plan, "status": "trial" if plan == "demo" else "active", "contactEmail": data.get("contactEmail")})
-        cur.execute("""INSERT INTO companies (platform_account_id, name, short_name, inn, kpp, contact_name, contact_phone,
-                                              contact_email, plan, trial_until, monthly_fee,
-                                              payment_status, max_projects, max_users, active, notes)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-            (platform_account_id, data.get("name"), data.get("shortName"), inn, kpp,
-             data.get("contactName"), data.get("contactPhone"), data.get("contactEmail"),
-             plan, trial_until, monthly_fee,
-             "trial" if plan == "demo" else "active",
-             max_projects, max_users,
-             True, data.get("notes")))
-        new_id = cur.fetchone()["id"]
-        invite_code = uuid.uuid4().hex[:20].upper()
-        expires = datetime.now() + timedelta(days=30)
-        onboarding = _build_initial_company_invite(
-            data,
-            current_user=current_user,
-            company_id=new_id,
-            platform_account_id=platform_account_id,
-            code=invite_code,
-            expires_at=expires,
-        )
-        cur.execute("""INSERT INTO invite_codes
-                          (code, role, preset_name, preset_category, expires_at, created_by, company_id, platform_account_id)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
-            (
-                onboarding["code"], onboarding["role"], onboarding["presetName"],
-                onboarding["presetCategory"], expires, onboarding["createdBy"],
-                new_id, platform_account_id,
-            ))
-        _system_write_audit(cur, current_user, "company_created", "company", new_id, data.get("name"),
-            platform_account_id=platform_account_id, company_id=new_id,
-            details={
-                "createdPlatformAccount": created_platform_account,
-                "plan": plan,
-                "trialUntil": trial_until,
-                "monthlyFee": monthly_fee,
-                "maxProjects": max_projects,
-                "maxUsers": max_users,
-                "inviteCreated": True,
-                "inviteExpiresAt": onboarding["expiresAt"],
-                "duplicateCheck": {"inn": inn, "kpp": kpp, "duplicates": len(preview.get("duplicates") or [])},
-                "limitPreview": preview.get("accountUsage"),
-            })
-        conn.close()
-        return {
-            "id": new_id,
-            "inviteCode": invite_code,
-            "trialUntil": str(trial_until) if trial_until else None,
-            "onboarding": onboarding,
-        }
 
     @app.put("/system/companies/{id}")
     def system_update_company(id: int, data: dict, current_user: dict = Depends(require_roles(*PLATFORM_MANAGE_ROLES))):
@@ -2266,8 +2424,16 @@ def register_platform_admin_routes(app, deps):
     def system_payments_list(_current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES))):
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("""SELECT p.*, c.name as company_name FROM company_payments p
+        cur.execute("""SELECT p.*, c.name AS company_name,
+                              c.platform_account_id,
+                              pc.number AS client_contract_number,
+                              pc.status AS client_contract_status
+                       FROM company_payments p
                        LEFT JOIN companies c ON c.id=p.company_id
+                       LEFT JOIN platform_client_contracts pc
+                         ON pc.id=p.client_contract_id
+                        AND pc.company_id=p.company_id
+                        AND pc.platform_account_id=c.platform_account_id
                        ORDER BY p.payment_date DESC LIMIT 200""")
         rows = [dict(r) for r in cur.fetchall()]
         conn.close()
@@ -2431,38 +2597,150 @@ def register_platform_admin_routes(app, deps):
 
     @app.post("/system/payments")
     def system_create_payment(data: dict, current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES))):
+        client_contract_id = _billing_document_contract_id(data)
+        company_id = data.get("companyId") or data.get("company_id")
+        amount = float(data.get("amount") or 0)
+        if not company_id:
+            raise HTTPException(status_code=400, detail="Укажите компанию")
+        if amount <= 0:
+            raise HTTPException(status_code=400, detail="Сумма должна быть больше 0")
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("""INSERT INTO company_payments (company_id, amount, payment_date, method,
-                                                      invoice_number, status, period_start, period_end,
-                                                      notes, created_by)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-            (data.get("companyId"), float(data.get("amount") or 0), data.get("paymentDate") or None,
-             data.get("method"), data.get("invoiceNumber"), data.get("status") or "paid",
-             data.get("periodStart") or None, data.get("periodEnd") or None,
-             data.get("notes"), data.get("createdBy")))
-        new_id = cur.fetchone()["id"]
-        if data.get("periodEnd") and data.get("companyId"):
-            cur.execute("""UPDATE companies
-                           SET plan_expires_at=%s, payment_status='active',
-                               suspended_at=NULL, suspended_reason=NULL, active=TRUE
-                           WHERE id=%s""",
-                (data["periodEnd"], data["companyId"]))
-        cur.execute("SELECT id, name, platform_account_id FROM companies WHERE id=%s", (data.get("companyId"),))
-        company = cur.fetchone() or {}
-        _system_write_audit(cur, current_user, "payment_added", "company_payment", new_id,
-            data.get("invoiceNumber") or company.get("name"), platform_account_id=company.get("platform_account_id"),
-            company_id=data.get("companyId"),
-            details={
-                "amount": float(data.get("amount") or 0),
-                "paymentDate": data.get("paymentDate"),
-                "periodStart": data.get("periodStart"),
-                "periodEnd": data.get("periodEnd"),
-                "method": data.get("method"),
-                "companyName": company.get("name"),
-            })
-        conn.close()
-        return {"id": new_id, "ok": True}
+        try:
+            cur.execute(
+                "SELECT id, name, platform_account_id FROM companies WHERE id=%s",
+                (company_id,),
+            )
+            company = cur.fetchone()
+            if not company:
+                raise HTTPException(status_code=404, detail="Компания не найдена")
+            contract = _load_billing_document_contract(
+                cur,
+                client_contract_id,
+                company_id,
+                company.get("platform_account_id"),
+            )
+            cur.execute("""INSERT INTO company_payments
+                              (company_id, client_contract_id, amount, payment_date, method,
+                               invoice_number, status, period_start, period_end,
+                               notes, created_by)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                           RETURNING id""",
+                (company_id, client_contract_id, amount, data.get("paymentDate") or None,
+                 data.get("method"), data.get("invoiceNumber"), data.get("status") or "paid",
+                 data.get("periodStart") or None, data.get("periodEnd") or None,
+                 data.get("notes"), data.get("createdBy")))
+            new_id = cur.fetchone()["id"]
+            if data.get("periodEnd"):
+                cur.execute("""UPDATE companies
+                               SET plan_expires_at=%s, payment_status='active',
+                                   suspended_at=NULL, suspended_reason=NULL, active=TRUE
+                               WHERE id=%s""",
+                    (data["periodEnd"], company_id))
+            _system_write_audit(cur, current_user, "payment_added", "company_payment", new_id,
+                data.get("invoiceNumber") or company.get("name"), platform_account_id=company.get("platform_account_id"),
+                company_id=company_id,
+                details={
+                    "amount": amount,
+                    "paymentDate": data.get("paymentDate"),
+                    "periodStart": data.get("periodStart"),
+                    "periodEnd": data.get("periodEnd"),
+                    "method": data.get("method"),
+                    "companyName": company.get("name"),
+                    "clientContractId": client_contract_id,
+                    "clientContractNumber": contract.get("number") if contract else None,
+                })
+            conn.commit()
+            return {"id": new_id, "ok": True}
+        except HTTPException:
+            conn.rollback()
+            raise
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+            conn.close()
+
+    @app.put("/system/payments/{id}/client-contract")
+    def system_update_payment_contract(
+        id: int,
+        data: dict,
+        current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES)),
+    ):
+        client_contract_id = _billing_document_contract_id(data, required=True)
+        conn = get_db()
+        conn.autocommit = False
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            cur.execute(
+                """SELECT p.*, c.name AS company_name,
+                          c.platform_account_id
+                   FROM company_payments p
+                   JOIN companies c ON c.id=p.company_id
+                   WHERE p.id=%s
+                   FOR UPDATE OF p""",
+                (id,),
+            )
+            before = cur.fetchone()
+            if not before:
+                raise HTTPException(status_code=404, detail="Платеж не найден")
+            before = dict(before)
+            contract = _load_billing_document_contract(
+                cur,
+                client_contract_id,
+                before.get("company_id"),
+                before.get("platform_account_id"),
+            )
+            cur.execute(
+                """UPDATE company_payments
+                   SET client_contract_id=%s
+                   WHERE id=%s
+                   RETURNING *""",
+                (client_contract_id, id),
+            )
+            payment = dict(cur.fetchone())
+            payment["company_name"] = before.get("company_name")
+            payment["platform_account_id"] = before.get("platform_account_id")
+            payment["client_contract_number"] = contract.get("number") if contract else None
+            payment["client_contract_status"] = contract.get("status") if contract else None
+            action = (
+                "company_payment_contract_linked"
+                if client_contract_id is not None
+                else "company_payment_contract_unlinked"
+            )
+            _system_write_audit(
+                cur,
+                current_user,
+                action,
+                "company_payment",
+                id,
+                payment.get("invoice_number") or before.get("company_name"),
+                platform_account_id=before.get("platform_account_id"),
+                company_id=before.get("company_id"),
+                details={
+                    "beforeClientContractId": before.get("client_contract_id"),
+                    "afterClientContractId": client_contract_id,
+                    "clientContractNumber": contract.get("number") if contract else None,
+                    "companyName": before.get("company_name"),
+                },
+            )
+            conn.commit()
+            return {
+                "ok": True,
+                "changed": before.get("client_contract_id") != client_contract_id,
+                "payment": payment,
+            }
+        except HTTPException:
+            conn.rollback()
+            raise
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+            conn.close()
 
     @app.post("/system/payment-events/{id}/confirm")
     def system_confirm_payment_event(id: int, data: dict = None, current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES))):
@@ -2475,6 +2753,7 @@ def register_platform_admin_routes(app, deps):
                                   d.amount AS billing_document_amount, d.currency AS billing_document_currency,
                                   d.payment_provider AS billing_payment_provider,
                                   d.period_start AS billing_period_start, d.period_end AS billing_period_end,
+                                  d.client_contract_id AS billing_client_contract_id,
                                   d.platform_account_id AS document_platform_account_id,
                                   d.company_id AS document_company_id,
                                   c.name AS company_name
@@ -2520,12 +2799,13 @@ def register_platform_admin_routes(app, deps):
             base_note = "Зачислено вручную по событию провайдера #" + str(id)
             if notes:
                 base_note += ". " + notes
-            cur.execute("""INSERT INTO company_payments (company_id, amount, payment_date, method,
+            cur.execute("""INSERT INTO company_payments (company_id, client_contract_id, amount, payment_date, method,
                                                           invoice_number, status, period_start, period_end,
                                                           notes, created_by)
-                           VALUES (%s,%s,%s,%s,%s,'paid',%s,%s,%s,%s)
+                           VALUES (%s,%s,%s,%s,%s,%s,'paid',%s,%s,%s,%s)
                            RETURNING id""",
-                        (company_id, float(event.get("amount") or 0), payment_date, provider or "provider",
+                        (company_id, event.get("billing_client_contract_id"),
+                         float(event.get("amount") or 0), payment_date, provider or "provider",
                          event.get("billing_document_number"), period_start or None, period_end or None,
                          base_note, current_user.get("name") or current_user.get("email")))
             payment_id = cur.fetchone()["id"]
@@ -2557,6 +2837,7 @@ def register_platform_admin_routes(app, deps):
                     "eventStatus": event.get("provider_status"),
                     "billingDocumentId": event.get("billing_document_id"),
                     "billingDocumentNumber": event.get("billing_document_number"),
+                    "clientContractId": event.get("billing_client_contract_id"),
                     "paymentId": payment_id,
                     "amount": float(event.get("amount") or 0),
                     "currency": event_currency,
@@ -2581,23 +2862,44 @@ def register_platform_admin_routes(app, deps):
     def system_billing_documents_list(_current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES))):
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("""SELECT d.*, c.name AS company_name, pa.name AS platform_account_name
+        cur.execute("""SELECT d.*, c.name AS company_name, pa.name AS platform_account_name,
+                              pc.number AS client_contract_number,
+                              pc.status AS client_contract_status
                        FROM platform_billing_documents d
                        LEFT JOIN companies c ON c.id=d.company_id
                        LEFT JOIN platform_accounts pa ON pa.id=d.platform_account_id
+                       LEFT JOIN platform_client_contracts pc
+                         ON pc.id=d.client_contract_id
+                        AND pc.company_id=d.company_id
+                        AND pc.platform_account_id=d.platform_account_id
                        ORDER BY d.created_at DESC
                        LIMIT 200""")
         rows = []
         for row in cur.fetchall():
-            item = dict(row)
-            item["documentTypeLabel"] = _billing_document_type_label(item.get("document_type"))
-            item["statusLabel"] = _billing_document_status_label(item.get("status"))
-            rows.append(item)
+            rows.append(_decorate_billing_document(row))
+        conn.close()
+        return rows
+
+    @app.get("/system/billing-contract-options")
+    def system_billing_contract_options(_current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES))):
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("""SELECT pc.id, pc.platform_account_id, pc.company_id,
+                              pc.number, pc.status, c.name AS company_name
+                       FROM platform_client_contracts pc
+                       JOIN companies c
+                         ON c.id=pc.company_id
+                        AND c.platform_account_id=pc.platform_account_id
+                       WHERE pc.status <> 'cancelled'
+                       ORDER BY pc.contract_date DESC, pc.id DESC
+                       LIMIT 500""")
+        rows = [dict(row) for row in cur.fetchall()]
         conn.close()
         return rows
 
     @app.post("/system/billing-documents")
     def system_create_billing_document(data: dict, current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES))):
+        client_contract_id = _billing_document_contract_id(data)
         company_id = data.get("companyId") or data.get("company_id")
         if not company_id:
             raise HTTPException(status_code=400, detail="Укажите компанию")
@@ -2617,13 +2919,25 @@ def register_platform_admin_routes(app, deps):
         if not company:
             conn.close()
             raise HTTPException(status_code=404, detail="Компания не найдена")
+        try:
+            contract = _load_billing_document_contract(
+                cur,
+                client_contract_id,
+                company_id,
+                company.get("platform_account_id"),
+            )
+        except Exception:
+            cur.close()
+            conn.close()
+            raise
         cur.execute("""INSERT INTO platform_billing_documents
-                          (platform_account_id, company_id, document_type, number, status, amount,
+                          (platform_account_id, company_id, client_contract_id,
+                           document_type, number, status, amount,
                            currency, issue_date, due_date, period_start, period_end,
                            payment_provider, payment_url, file_url, notes, created_by)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                        RETURNING *""",
-                    (company.get("platform_account_id"), company_id, document_type,
+                    (company.get("platform_account_id"), company_id, client_contract_id, document_type,
                      (data.get("number") or "").strip() or None, status, amount,
                      data.get("currency") or "RUB", data.get("issueDate") or data.get("issue_date") or None,
                      data.get("dueDate") or data.get("due_date") or None,
@@ -2650,11 +2964,88 @@ def register_platform_admin_routes(app, deps):
                 "amount": amount,
                 "companyName": company.get("name"),
                 "paymentProvider": document.get("payment_provider"),
+                "clientContractId": client_contract_id,
+                "clientContractNumber": contract.get("number") if contract else None,
             })
         conn.close()
-        document["documentTypeLabel"] = _billing_document_type_label(document.get("document_type"))
-        document["statusLabel"] = _billing_document_status_label(document.get("status"))
-        return {"ok": True, "document": document}
+        return {"ok": True, "document": _decorate_billing_document(document, contract)}
+
+    @app.put("/system/billing-documents/{id}/client-contract")
+    def system_update_billing_document_contract(
+        id: int,
+        data: dict,
+        current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES)),
+    ):
+        client_contract_id = _billing_document_contract_id(data, required=True)
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            cur.execute(
+                """SELECT d.*, c.name AS company_name,
+                          pa.name AS platform_account_name
+                   FROM platform_billing_documents d
+                   LEFT JOIN companies c ON c.id=d.company_id
+                   LEFT JOIN platform_accounts pa ON pa.id=d.platform_account_id
+                   WHERE d.id=%s
+                   FOR UPDATE OF d""",
+                (id,),
+            )
+            before = cur.fetchone()
+            if not before:
+                raise HTTPException(status_code=404, detail="Документ не найден")
+            before = dict(before)
+            contract = _load_billing_document_contract(
+                cur,
+                client_contract_id,
+                before.get("company_id"),
+                before.get("platform_account_id"),
+            )
+            cur.execute(
+                """UPDATE platform_billing_documents
+                   SET client_contract_id=%s, updated_at=NOW()
+                   WHERE id=%s
+                   RETURNING *""",
+                (client_contract_id, id),
+            )
+            document = dict(cur.fetchone())
+            document["company_name"] = before.get("company_name")
+            document["platform_account_name"] = before.get("platform_account_name")
+            action = (
+                "platform_billing_document_contract_linked"
+                if client_contract_id is not None
+                else "platform_billing_document_contract_unlinked"
+            )
+            _system_write_audit(
+                cur,
+                current_user,
+                action,
+                "platform_billing_document",
+                id,
+                document.get("number"),
+                platform_account_id=document.get("platform_account_id"),
+                company_id=document.get("company_id"),
+                details={
+                    "beforeClientContractId": before.get("client_contract_id"),
+                    "afterClientContractId": client_contract_id,
+                    "clientContractNumber": contract.get("number") if contract else None,
+                    "companyName": before.get("company_name"),
+                },
+            )
+            conn.commit()
+            return {
+                "ok": True,
+                "changed": before.get("client_contract_id") != client_contract_id,
+                "document": _decorate_billing_document(document, contract),
+            }
+        except HTTPException:
+            conn.rollback()
+            raise
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+            conn.close()
 
     @app.put("/system/billing-documents/{id}")
     def system_update_billing_document(id: int, data: dict, current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES))):
@@ -2700,11 +3091,33 @@ def register_platform_admin_routes(app, deps):
     def system_generate_billing_document_pdf(id: int, current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES))):
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("""SELECT d.*, c.name AS company_name, c.inn, c.kpp, c.contact_email,
+        cur.execute("""SELECT d.*, c.name AS company_name,
+                              c.inn AS company_inn, c.kpp AS company_kpp,
+                              c.contact_name AS company_contact_name,
+                              c.contact_phone AS company_contact_phone,
+                              c.contact_email AS company_contact_email,
                               c.platform_account_id AS company_platform_account_id,
+                              cr.id AS requisite_id,
+                              cr.full_name AS requisite_full_name,
+                              cr.short_name AS requisite_short_name,
+                              cr.inn AS requisite_inn,
+                              cr.kpp AS requisite_kpp,
+                              cr.ogrn AS requisite_ogrn,
+                              cr.legal_address AS requisite_legal_address,
+                              cr.actual_address AS requisite_actual_address,
+                              cr.phone AS requisite_phone,
+                              cr.email AS requisite_email,
+                              cr.director_name AS requisite_director_name,
+                              cr.director_position AS requisite_director_position,
+                              cr.basis AS requisite_basis,
+                              cr.bank_name AS requisite_bank_name,
+                              cr.bik AS requisite_bik,
+                              cr.rs AS requisite_rs,
+                              cr.ks AS requisite_ks,
                               pa.name AS platform_account_name
                        FROM platform_billing_documents d
                        LEFT JOIN companies c ON c.id=d.company_id
+                       LEFT JOIN company_requisites cr ON cr.company_id=c.id
                        LEFT JOIN platform_accounts pa ON pa.id=d.platform_account_id
                        WHERE d.id=%s""", (id,))
         row = cur.fetchone()
@@ -2712,12 +3125,7 @@ def register_platform_admin_routes(app, deps):
             conn.close()
             raise HTTPException(status_code=404, detail="Документ не найден")
         document = dict(row)
-        company = {
-            "name": document.get("company_name"),
-            "inn": document.get("inn"),
-            "kpp": document.get("kpp"),
-            "contact_email": document.get("contact_email"),
-        }
+        company = _billing_company_profile(document)
         file_url = _generate_billing_document_pdf(document, company, current_user, save_upload_bytes=save_upload_bytes)
         cur.execute("""UPDATE platform_billing_documents
                        SET file_url=%s, updated_at=NOW()

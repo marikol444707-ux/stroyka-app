@@ -3,6 +3,7 @@ import { Bot, Check, Edit2, Plus, Search, Trash2, X } from 'lucide-react';
 import { API } from '../api';
 import { createRequestForm, createSupplierForm, createSupplierInviteForm } from '../features/supply/supplyInitialForms';
 import { groupSuppliers } from '../utils/supplierUtils';
+import useAsyncSubmit from '../hooks/useAsyncSubmit';
 
 function SuppliersPage({
   C,
@@ -63,6 +64,10 @@ function SuppliersPage({
   supplyDeliveries,
   supplyHistory,
 }) {
+  const {submit: submitRequest, pending: requestPending, error: requestError} = useAsyncSubmit(
+    saveRequest,
+    'Не удалось создать заявку. Проверьте список заявок перед повторной отправкой.',
+  );
   const isLeadershipUser = typeof isLeadership === 'function' ? isLeadership() : Boolean(isLeadership);
   const supplierRequestPackages = typeof getProjectWorkPackageOptions === 'function'
     ? getProjectWorkPackageOptions(newRequest.project)
@@ -95,7 +100,7 @@ function SuppliersPage({
     <div>
       <div style={{display:'flex',gap:'8px',marginBottom:'20px',flexWrap:'wrap'}}>
         {['active','requests','offers','history'].map(tab=>(
-          <button key={tab} onClick={()=>{setSuppliersTab(tab);setShowForm(false);}} style={{...(suppliersTab===tab?btnO:btnG),fontSize:'12px',padding:'7px 14px'}}>
+          <button key={tab} disabled={requestPending} onClick={()=>{setSuppliersTab(tab);setShowForm(false);}} style={{...(suppliersTab===tab?btnO:btnG),fontSize:'12px',padding:'7px 14px'}}>
             {{active:'Поставщики',requests:'Заявки',offers:'КП',history:'История'}[tab]}
           </button>
         ))}
@@ -173,11 +178,12 @@ function SuppliersPage({
         <div>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
             <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Заявки на материалы</b>
-            <button onClick={()=>setShowForm(!showForm)} style={btnO}><Plus size={14}/>Новая заявка</button>
+            <button onClick={()=>setShowForm(!showForm)} disabled={requestPending} style={btnO}><Plus size={14}/>Новая заявка</button>
           </div>
 
           {showForm&&(
             <div style={{...card,padding:'20px',marginBottom:'16px'}}>
+              <fieldset disabled={requestPending} style={{border:0,padding:0,margin:0,minWidth:0}}>
               <select value={newRequest.project} onChange={e=>updateRequestProject(e.target.value)} style={inp}><option value="">Выберите объект *</option>{projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}</select>
               <select value={newRequest.category} onChange={e=>setNewRequest({...newRequest,category:e.target.value})} style={inp}><option value="">Категория материала</option>{supplierCategories.map(c=><option key={c}>{c}</option>)}</select>
               {newRequest.items.map((item,idx)=>(
@@ -209,10 +215,12 @@ function SuppliersPage({
               {newRequest.selectedSuppliers.length===0&&(
                 <p style={{color:C.warning,fontSize:'12px',margin:'6px 0 0'}}>Поставщики не выбраны: заявка создастся внутри снабжения, но никому не уйдёт.</p>
               )}
+              {requestError && <p role="alert" style={{color:C.danger,fontSize:'12px'}}>{requestError}</p>}
               <div style={{display:'flex',gap:'8px',marginTop:'12px'}}>
-                <button onClick={saveRequest} style={btnO}><Check size={14}/>Создать и запросить КП</button>
-                <button onClick={()=>setShowForm(false)} style={btnG}><X size={14}/>Отмена</button>
+                <button onClick={submitRequest} disabled={requestPending} aria-busy={requestPending} style={btnO}><Check size={14}/>{requestPending?'Создание…':'Создать заявку'}</button>
+                <button onClick={()=>setShowForm(false)} disabled={requestPending} style={btnG}><X size={14}/>Отмена</button>
               </div>
+              </fieldset>
             </div>
           )}
 

@@ -38,6 +38,18 @@ export const findStaffForPerformer = (contract = {}, staffRows = []) => {
 
 export const findUserForStaff = (staffRow, users = []) => {
   if (!staffRow) return null;
+  const explicitUserId = Number(staffRow.accessUserId || 0);
+  if (explicitUserId > 0) {
+    const exactUser = (users || []).find(u => Number(u.id) === explicitUserId);
+    if (exactUser) return exactUser;
+    return {
+      id: explicitUserId,
+      email: String(staffRow.accessEmail || '').trim(),
+      role: String(staffRow.accessRole || '').trim(),
+      assignedProjects: Array.isArray(staffRow.accessAssignedProjects) ? staffRow.accessAssignedProjects : [],
+      assignedPackages: Array.isArray(staffRow.accessAssignedPackages) ? staffRow.accessAssignedPackages : [],
+    };
+  }
   const emails = [staffRow.emailWork, staffRow.emailPersonal, staffRow.email]
     .map(e => String(e || '').trim().toLowerCase())
     .filter(Boolean);

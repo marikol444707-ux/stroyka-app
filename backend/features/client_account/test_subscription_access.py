@@ -1,9 +1,9 @@
 import datetime as dt
 import json
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from backend.features.client_account.subscription_access import (
@@ -13,13 +13,16 @@ from backend.features.client_account.subscription_access import (
 
 
 class FakeCursor:
-    def __init__(self, company):
+    def __init__(self, company, queried_company_ids=None):
         self.company = dict(company)
         self.description = None
+        self.queried_company_ids = queried_company_ids
 
     def execute(self, query, params=()):
         if "FROM companies" not in query:
             raise AssertionError("Unexpected query: " + " ".join(str(query).split()))
+        if self.queried_company_ids is not None:
+            self.queried_company_ids.append(params[0])
 
     def fetchone(self):
         return dict(self.company)
@@ -33,9 +36,10 @@ class FakeConnection:
         self.company = company
         self.rolled_back = False
         self.closed = False
+        self.queried_company_ids = []
 
     def cursor(self, **_kwargs):
-        return FakeCursor(self.company)
+        return FakeCursor(self.company, self.queried_company_ids)
 
     def rollback(self):
         self.rolled_back = True
@@ -244,6 +248,83 @@ class SubscriptionReadOnlyMiddlewareTests(unittest.TestCase):
         self.assertEqual(event["event"], "subscription_access_check_failed")
         self.assertEqual(event["errorType"], "RuntimeError")
         self.assertNotIn("identity lookup unavailable", json.dumps(event).lower())
+
+
+class ResourceSubscriptionContextTests(unittest.TestCase):
+    def build(self, *, expired=False, resource_error=None, resource_context=None):
+        connection = FakeConnection({
+            "plan": "business",
+            "plan_expires_at": dt.date(2026, 9, 1 if expired else 30),
+            "payment_status": "active",
+            "suspended_at": None,
+        })
+        resolve_resource = Mock(
+            side_effect=resource_error,
+            return_value=resource_context if resource_context is not None else {"companyId": 7},
+        )
+        resolve_work = Mock(side_effect=HTTPException(403, "Компания пользователя не назначена"))
+        app = FastAPI()
+        register_subscription_read_only_middleware(app, {
+            "get_db": lambda: connection,
+            "request_user_snapshot": lambda *_args: {"id": 42, "role": "поставщик", "companyId": None},
+            "resolve_work_company_context": resolve_work,
+            "resolve_resource_subscription_context": resolve_resource,
+            "today": lambda: dt.date(2026, 9, 2),
+        })
+
+        @app.put("/supplier-offers/{offer_id}")
+        def respond(offer_id: int):
+            return {"saved": offer_id}
+
+        return TestClient(app), connection, resolve_work, resolve_resource
+
+    def test_addressed_supplier_without_work_company_uses_authorized_resource_owner(self):
+        client, connection, resolve_work, _resolve_resource = self.build()
+        response = client.put("/supplier-offers/9", headers={"X-Company-Id": "999"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"saved": 9})
+        self.assertEqual(connection.queried_company_ids, [7])
+        resolve_work.assert_not_called()
+        self.assertTrue(connection.closed)
+
+    def test_resource_company_subscription_still_blocks_supplier_write(self):
+        client, connection, resolve_work, _resolve_resource = self.build(expired=True)
+        response = client.put("/supplier-offers/9", headers={"X-Company-Id": "999"})
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["code"], SUBSCRIPTION_READ_ONLY_CODE)
+        self.assertEqual(connection.queried_company_ids, [7])
+        resolve_work.assert_not_called()
+
+    def test_resource_authorization_denial_is_not_replaced_by_work_company(self):
+        client, _connection, resolve_work, _resolve_resource = self.build(
+            resource_error=HTTPException(403, "Нет доступа к КП"),
+        )
+        response = client.put("/supplier-offers/9")
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["detail"], "Нет доступа к КП")
+        resolve_work.assert_not_called()
+
+    def test_resource_lookup_failure_is_fail_closed(self):
+        client, _connection, resolve_work, _resolve_resource = self.build(
+            resource_error=RuntimeError("DB failure"),
+        )
+        response = client.put("/supplier-offers/9")
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["code"], "subscription_check_unavailable")
+        resolve_work.assert_not_called()
+
+    def test_unhandled_resource_keeps_original_company_resolution(self):
+        client, _connection, resolve_work, resolve_resource = self.build()
+        resolve_resource.return_value = None
+        response = client.put("/supplier-offers/9")
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["code"], "company_context_invalid")
+        resolve_work.assert_called_once()
+
+    def test_handled_resource_without_owner_cannot_skip_subscription_check(self):
+        client, _connection, _resolve_work, _resolve_resource = self.build(resource_context={})
+        response = client.put("/supplier-offers/9")
+        self.assertEqual(response.status_code, 503)
 
 
 if __name__ == "__main__":

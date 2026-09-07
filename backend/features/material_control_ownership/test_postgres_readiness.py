@@ -641,7 +641,7 @@ class MaterialControlOwnershipPostgresTests(unittest.TestCase):
         self.assertTrue(report["dataReady"])
         self.assertTrue(report["runtimeInventoryReady"])
         self.assertTrue(report["writerInventoryReady"])
-        self.assertEqual(report["writerInventory"]["dmlStatements"], 5)
+        self.assertEqual(report["writerInventory"]["dmlStatements"], 4)
         self.assertEqual(
             report["writerInventory"]["requiredIntegrationChecks"], 5
         )

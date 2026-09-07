@@ -37,7 +37,18 @@ export default function OwnExpenseFormModal({
     }
     const payload={category:newOwnExpense.category||'other',description:newOwnExpense.description,amount:Number(newOwnExpense.amount),photoUrl:newOwnExpense.photoUrl||'',date:newOwnExpense.date||''};
     if(newOwnExpense.projectId) payload.projectId=Number(newOwnExpense.projectId);
-    await fetch(API+'/own-expenses',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    let response;
+    try {
+      response = await fetch(API+'/own-expenses',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    } catch (_error) {
+      alert('Не удалось отправить трату. Проверьте соединение и повторите попытку.');
+      return;
+    }
+    if (!response.ok) {
+      const error = await response.json().catch(()=>({}));
+      alert(error.detail || error.error || 'Не удалось отправить трату. Повторите попытку.');
+      return;
+    }
     setNewOwnExpense({projectId:'',projectName:'',category:'other',description:'',amount:'',photoUrl:'',date:''});
     setShowOwnExpenseForm(false);
     await loadAll();

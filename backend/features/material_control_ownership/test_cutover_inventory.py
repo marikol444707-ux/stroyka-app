@@ -28,10 +28,36 @@ class MaterialControlCutoverInventoryTests(unittest.TestCase):
         self.assertTrue(report["writerInventoryReady"], report["violations"])
         self.assertTrue(report["dryRun"])
         self.assertEqual(report["writesAttempted"], 0)
-        self.assertEqual(report["dmlStatements"], 5)
+        self.assertEqual(report["dmlStatements"], 4)
+        self.assertEqual(report["expectedDmlStatements"], 4)
         self.assertEqual(report["requiredIntegrationChecks"], 5)
         self.assertEqual(report["missingIntegrationChecks"], [])
         self.assertEqual(report["violations"], [])
+
+    def test_creation_time_rfq_status_writer_is_not_allowlisted(self):
+        report = audit_cutover_inventory(
+            source_files={
+                "backend/main.py": """
+                    def create_supply_request(cur):
+                        cur.execute("INSERT INTO supply_requests(id) VALUES (1)")
+                        cur.execute(
+                            "UPDATE supply_requests SET status=%s WHERE id=%s",
+                            ("КП запрошены", 1),
+                        )
+                """,
+            },
+            integration_test_source=integration_source(*REQUIRED_CHECKS),
+            enforce_complete_inventory=False,
+        )
+
+        self.assertFalse(report["writerInventoryReady"])
+        self.assertEqual(
+            [
+                (item["reasonCode"], item["symbol"], item["operation"], item["table"])
+                for item in report["violations"]
+            ],
+            [("writer_not_allowlisted", "create_supply_request", "update", "supply_requests")],
+        )
 
     def test_protected_history_mutation_fails_closed(self):
         report = audit_cutover_inventory(

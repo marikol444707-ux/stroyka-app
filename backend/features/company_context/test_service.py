@@ -99,6 +99,19 @@ def user(*, account_id=5):
 
 
 class ResolveRequestCompanyContextTests(unittest.TestCase):
+    def test_effective_actor_exposes_membership_staff_link(self):
+        context = _company_context_row({
+            **membership(role="директор"),
+            "staff_id": 23,
+        })
+
+        actor = effective_company_user(user(), context)
+
+        self.assertEqual(context["membershipId"], 101)
+        self.assertEqual(context["staffId"], 23)
+        self.assertEqual(actor["membershipId"], 101)
+        self.assertEqual(actor["staffId"], 23)
+
     def test_company_context_exposes_canonical_subscription_state(self):
         context = _company_context_row({
             **membership(role="директор"),

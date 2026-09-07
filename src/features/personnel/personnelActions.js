@@ -65,6 +65,20 @@ export const createPersonnelActions = ({
 
   const findUserForStaff = (st) => findUserForStaffRow(st, users);
 
+  const linkCurrentUserToStaff = async () => {
+    const result = await readApiResult(await fetch(API + '/staff/current-user-link', {
+      method: 'POST',
+    }));
+    await refreshData();
+    notify(
+      result?.created
+        ? 'Основной аккаунт добавлен в персонал'
+        : 'Основной аккаунт связан с сотрудником',
+      'staff',
+    );
+    return result;
+  };
+
   const upsertStaffAccess = async ({staffRow={}, fullName, email, password, role, projectName, assignedProjects=[], assignedPackages=[]}) => {
     const cleanEmail = String(email||'').trim().toLowerCase();
     const cleanPassword = String(password||'').trim();
@@ -445,6 +459,7 @@ export const createPersonnelActions = ({
     deletePiecework,
     deleteStaff,
     findUserForStaff,
+    linkCurrentUserToStaff,
     openStaffProfile,
     paySalary,
     ratemaster,

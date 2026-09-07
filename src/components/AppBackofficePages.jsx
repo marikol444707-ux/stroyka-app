@@ -106,6 +106,7 @@ export default function AppBackofficePages({ activePage, ui, constants, state, a
     isFinanceRole,
     isLeadership,
     loadAuditLog,
+    linkCurrentUserToStaff,
     matchSearch,
     materialControlSummaryForProject,
     normalizePersonKey,
@@ -311,6 +312,9 @@ export default function AppBackofficePages({ activePage, ui, constants, state, a
           interimActs={interimActs}
           isMobile={isMobile}
           listSearch={listSearch}
+          companyContext={companyContext}
+          currentUser={user}
+          linkCurrentUserToStaff={linkCurrentUserToStaff}
           masterProfiles={masterProfiles}
           masterRatings={masterRatings}
           matchSearch={matchSearch}

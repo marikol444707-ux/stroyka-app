@@ -54,3 +54,48 @@ test('refreshing the warehouse reloads tools, tool history and inventory', async
   expect(setToolHistory).toHaveBeenCalledWith([{id: '/api/tool-history'}]);
   expect(setInventory).toHaveBeenCalledWith([{id: '/api/inventory'}]);
 });
+
+test('loading settings hydrates both document data and the editable requisites form', async () => {
+  const requisites = {
+    companyId: 42,
+    fullName: 'ООО Клиент',
+    inn: '1234567890',
+    directorName: 'Иван Петров',
+  };
+  const setCompanyRequisites = setter();
+  const setCompanyReqForm = setter();
+  global.fetch = jest.fn(async url => ({
+    ok: true,
+    json: async () => url.endsWith('/company-requisites') ? requisites : [],
+  }));
+
+  const {result} = renderHook(() => useAppDataLoaders({
+    activePage: 'settings',
+    API: '/api',
+    canAccessRole: () => false,
+    initialDataLoaded: true,
+    mobileApiRequestsRef: {current: new Map()},
+    mobileLoadedScopesRef: {current: new Set()},
+    mobileScopeForPage: page => `mobile:${page}`,
+    roleFlagsForUser: () => ({role: 'директор', isFinanceRole: true}),
+    ROLES: {},
+    setCompanyDocuments: setter(),
+    setCompanyRequisites,
+    setCompanyReqForm,
+    setInitialDataLoaded: setter(),
+    setUser: setter(),
+    user: {id: 1, role: 'директор'},
+  }));
+
+  await act(async () => {
+    await result.current.refreshData('settings');
+  });
+
+  expect(setCompanyRequisites).toHaveBeenCalledWith(requisites);
+  expect(setCompanyReqForm).toHaveBeenCalledWith(expect.objectContaining({
+    fullName: 'ООО Клиент',
+    inn: '1234567890',
+    directorName: 'Иван Петров',
+    basis: 'Устава',
+  }));
+});

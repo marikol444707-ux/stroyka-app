@@ -312,6 +312,7 @@ class SupplyRequestRuntimeWiringTests(unittest.TestCase):
         cls.source = cls.main_path.read_text(
             encoding="utf-8"
         )
+        cls.source_lines = cls.source.splitlines()
         cls.tree = ast.parse(
             cls.source,
             filename=str(cls.main_path),
@@ -328,10 +329,11 @@ class SupplyRequestRuntimeWiringTests(unittest.TestCase):
             ):
                 continue
 
-            segment = ast.get_source_segment(
-                cls.source,
-                node,
-            ) or ""
+            segment = "\n".join(
+                cls.source_lines[
+                    node.lineno - 1:node.end_lineno
+                ]
+            )
 
             if name is not None and node.name != name:
                 continue
@@ -419,7 +421,7 @@ class SupplyRequestRuntimeWiringTests(unittest.TestCase):
             function,
         )
         self.assertIn(
-            '("Утверждена", "КП запрошены")',
+            'validate_rfq_dispatch_request(req)',
             function,
         )
 

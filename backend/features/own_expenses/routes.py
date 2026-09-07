@@ -174,6 +174,16 @@ def register_own_expenses_module(app, deps):
         return staff
 
     def _self_staff(cur, actor, *, lock=False):
+        linked_staff_id = _positive_int(
+            actor.get("staffId") or actor.get("staff_id")
+        )
+        if linked_staff_id is not None:
+            return _exact_staff(
+                cur,
+                actor["companyId"],
+                linked_staff_id,
+                lock=lock,
+            )
         email = str(actor.get("email") or "").strip().lower()
         if not email:
             raise HTTPException(
