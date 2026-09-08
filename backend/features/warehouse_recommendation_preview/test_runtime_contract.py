@@ -721,7 +721,7 @@ class WarehouseAnomalyRuntimeDisclosurePolicyTests(unittest.TestCase):
             # Reviewed supply subscription scope, tenant stock and VAT bootstrap fixes;
             # warehouse preview implementation and registration are unchanged.
             backend_root / "main.py": (
-                "18c44fa898f33599b1ba380eee3a34ce94c725eb7e93a0e65c3baab2933c986e"
+                "e37aa113834a1ada5cc0dbc2e4b1743cc10cc39d4a2acc4a48931b1b2a37899e"
             ),
         }
         actual = {

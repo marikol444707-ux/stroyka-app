@@ -763,15 +763,26 @@ def user_project_names(user: dict) -> list[str]:
         names.append(user.get("projectName"))
     if user.get("project_name"):
         names.append(user.get("project_name"))
-    ap = user.get("assignedProjects", user.get("assigned_projects", []))
+    ap = user.get(
+        "assignedProjects",
+        user.get("assigned_projects", []),
+    )
     try:
         if isinstance(ap, str):
             ap = json.loads(ap)
     except Exception:
         ap = []
     if isinstance(ap, list):
-        names.extend([str(x) for x in ap if x])
-    return sorted(set([x for x in names if x]))
+        names.extend([
+            str(value)
+            for value in ap
+            if value is not None
+        ])
+    return sorted({
+        str(value).strip()
+        for value in names
+        if str(value or "").strip()
+    })
 
 def user_package_names(user: dict) -> list[str]:
     packages = user.get("assignedPackages", user.get("assigned_packages", []))
