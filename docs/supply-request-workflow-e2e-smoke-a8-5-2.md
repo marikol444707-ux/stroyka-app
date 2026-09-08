@@ -29,6 +29,15 @@ records in the selected deployed environment.
 
 ## Guard and cleanup
 
+Privileged temporary users complete the backend-required initial
+2FA setup through `/login/2fa/setup-confirm`. The setup secret is not
+printed. Cleanup revokes temporary sessions, clears temporary 2FA
+secrets and disables all temporary users.
+
+Temporary fixture assignments and runtime project-access names are
+trimmed before comparison. This preserves access to legacy projects whose
+stored names contain accidental leading or trailing whitespace.
+
 The script refuses to run without the exact phrase:
 
 ```text

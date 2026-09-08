@@ -9,13 +9,16 @@ disables all temporary fixtures. It must be run manually after deployment.
 from __future__ import annotations
 
 import argparse
+import base64
 import datetime as dt
 import hashlib
+import hmac
 import json
 import os
 import re
 import secrets
 import sys
+import time
 import urllib.error
 import urllib.request
 import uuid
@@ -177,21 +180,139 @@ def api_json(
     return status, parsed
 
 
-def login(base_url: str, email: str, password: str) -> str:
+def totp_code(
+    secret: str,
+    *,
+    timestamp: int | None = None,
+) -> str:
+    """Generate the six-digit TOTP used by the backend."""
+
+    value = "".join(
+        str(secret or "").split()
+    ).upper()
+
+    if not value:
+        raise RuntimeError(
+            "2FA setup did not return a manual key"
+        )
+
+    value += "=" * (-len(value) % 8)
+    key = base64.b32decode(
+        value,
+        casefold=True,
+    )
+
+    current_time = (
+        int(time.time())
+        if timestamp is None
+        else int(timestamp)
+    )
+    counter = current_time // 30
+
+    digest = hmac.new(
+        key,
+        counter.to_bytes(8, "big"),
+        hashlib.sha1,
+    ).digest()
+
+    offset = digest[-1] & 0x0F
+    code = (
+        int.from_bytes(
+            digest[offset:offset + 4],
+            "big",
+        )
+        & 0x7FFFFFFF
+    )
+
+    return str(code % 1_000_000).zfill(6)
+
+
+def _require_auth_token(
+    body: Any,
+    *,
+    email: str,
+    stage: str,
+) -> str:
+    token = (
+        body.get("authToken")
+        if isinstance(body, dict)
+        else None
+    )
+
+    if not token:
+        raise RuntimeError(
+            f"Login for {email} did not return "
+            f"authToken after {stage}"
+        )
+
+    return str(token)
+
+
+def login(
+    base_url: str,
+    email: str,
+    password: str,
+) -> str:
     _, body = api_json(
         "POST",
         "/login",
         base_url=base_url,
-        data={"email": email, "password": password},
+        data={
+            "email": email,
+            "password": password,
+        },
         expected=200,
     )
-    token = body.get("authToken") if isinstance(body, dict) else None
-    if not token:
-        raise RuntimeError(
-            f"Login for {email} did not return authToken: "
-            + json.dumps(body, ensure_ascii=False)[:500]
+
+    if (
+        isinstance(body, dict)
+        and body.get("authToken")
+    ):
+        return str(body["authToken"])
+
+    if (
+        isinstance(body, dict)
+        and body.get("twoFactorSetupRequired")
+    ):
+        setup_token = body.get("setupToken")
+        manual_key = body.get("manualKey")
+
+        if not setup_token or not manual_key:
+            raise RuntimeError(
+                f"Login for {email} returned "
+                "incomplete 2FA setup data"
+            )
+
+        _, confirmed = api_json(
+            "POST",
+            "/login/2fa/setup-confirm",
+            base_url=base_url,
+            data={
+                "setupToken": setup_token,
+                "code": totp_code(manual_key),
+            },
+            expected=200,
         )
-    return str(token)
+
+        return _require_auth_token(
+            confirmed,
+            email=email,
+            stage="initial 2FA setup",
+        )
+
+    if (
+        isinstance(body, dict)
+        and body.get("twoFactorRequired")
+    ):
+        raise RuntimeError(
+            f"Login for {email} unexpectedly "
+            "requires an existing 2FA secret"
+        )
+
+    raise RuntimeError(
+        f"Login for {email} did not return "
+        "an authentication result"
+    )
 
 
 def hash_password(password: str) -> str:
@@ -421,7 +542,14 @@ def create_company_user(
 ) -> dict[str, Any]:
     email = f"{TEMP_EMAIL_PREFIX}{run_id}-{name_suffix}@{TEMP_EMAIL_DOMAIN}"
     name = f"{TEMP_NAME_PREFIX} {name_suffix} {run_id}"
-    assigned_projects = [project["project_name"]] if assigned_to_project else []
+    canonical_project_name = str(
+        project.get("project_name") or ""
+    ).strip()
+    assigned_projects = (
+        [canonical_project_name]
+        if assigned_to_project and canonical_project_name
+        else []
+    )
     assigned_packages = [work_package] if work_package else []
     conn = db_conn()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -443,7 +571,7 @@ def create_company_user(
                 project["company_id"],
                 project.get("platform_account_id"),
                 project["project_id"] if assigned_to_project else None,
-                project["project_name"] if assigned_to_project else "",
+                canonical_project_name if assigned_to_project else "",
                 json.dumps(assigned_projects, ensure_ascii=False),
                 json.dumps(assigned_packages, ensure_ascii=False),
             ),
@@ -676,7 +804,7 @@ def create_request(
         data={
             "companyId": project["company_id"],
             "projectId": project["project_id"],
-            "project": project["project_name"],
+            "project": str(project["project_name"]).strip(),
             "materialName": candidate["materialName"],
             "quantity": candidate["quantity"],
             "unit": candidate["unit"],
@@ -1134,12 +1262,41 @@ def cleanup(fixtures: dict[str, Any]) -> None:
             cur.execute("DELETE FROM suppliers WHERE id=ANY(%s)", (supplier_ids,))
 
         if user_ids:
-            cur.execute("UPDATE user_company_roles SET active=FALSE WHERE user_id=ANY(%s)", (user_ids,))
-            cur.execute("UPDATE users SET active=FALSE WHERE id=ANY(%s)", (user_ids,))
+            cur.execute(
+                """
+                UPDATE user_sessions
+                   SET revoked_at=NOW()
+                 WHERE user_id=ANY(%s)
+                   AND revoked_at IS NULL
+                """,
+                (user_ids,),
+            )
+            cur.execute(
+                """
+                UPDATE user_company_roles
+                   SET active=FALSE
+                 WHERE user_id=ANY(%s)
+                """,
+                (user_ids,),
+            )
+            cur.execute(
+                """
+                UPDATE users
+                   SET active=FALSE,
+                       two_factor_secret=NULL,
+                       two_factor_enabled=FALSE,
+                       two_factor_confirmed_at=NULL
+                 WHERE id=ANY(%s)
+                """,
+                (user_ids,),
+            )
 
         conn.commit()
         cur.close()
-        print("cleanup: removed workflow requests/suppliers and disabled temp users")
+        print(
+            "cleanup: removed workflow requests/suppliers "
+            "and disabled temp users; sessions revoked"
+        )
     except Exception as exc:
         if conn:
             conn.rollback()
