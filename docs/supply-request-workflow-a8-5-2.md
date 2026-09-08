@@ -5,7 +5,10 @@
 The enforced sequence is:
 
 1. A master, subcontractor or brigade leader creates a request.
-2. A project foreman or chief engineer confirms a `Новая` request.
+2. An assigned project foreman or chief engineer confirms a
+   `Новая` request. If no active reviewer is assigned to the project,
+   a director or deputy director may perform a separate fallback
+   confirmation.
 3. A director or deputy director approves a
    `Подтверждена прорабом` request.
 4. A director, deputy director or supply specialist dispatches an
@@ -14,6 +17,10 @@ The enforced sequence is:
 6. The technical comparison remains an explicit human-triggered action.
 
 Repeated, skipped and backward approval transitions are rejected.
+
+Leadership fallback confirmation is denied whenever an active foreman or
+chief engineer is assigned to the request project. Fallback confirmation
+does not replace the separate director-approval action.
 
 ## Supplier disclosure
 

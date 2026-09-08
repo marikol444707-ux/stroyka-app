@@ -352,13 +352,46 @@ export const createSupplyActions = ({
   };
 
   const confirmSupplyAsProrab = async (id) => {
-    await fetch(API + '/supply-requests/' + id, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'confirm_prorab', userId: currentUser.id || null, userName: currentUser.name || '' }),
-    });
-    notify('Заявка подтверждена прорабом — ждёт директора', 'supply');
-    await refreshData();
+    try {
+      const response = await fetch(API + '/supply-requests/' + id, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'confirm_prorab',
+          userId: currentUser.id || null,
+          userName: currentUser.name || '',
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.detail || data.error) {
+        alert(
+          data.detail
+          || data.error
+          || 'Не удалось подтвердить заявку.'
+        );
+        return false;
+      }
+
+      const leadershipFallback = [
+        'директор',
+        'зам_директора',
+      ].includes(currentUser.role);
+
+      notify(
+        leadershipFallback
+          ? 'Заявка подтверждена руководителем вместо прораба — теперь требуется отдельное утверждение'
+          : 'Заявка подтверждена прорабом — ждёт директора',
+        'supply',
+      );
+      await refreshData();
+      return true;
+    } catch (_) {
+      alert(
+        'Не удалось подтвердить заявку. '
+        + 'Проверьте соединение и повторите.'
+      );
+      return false;
+    }
   };
 
   const approveSupplyAsDirector = async (id) => {

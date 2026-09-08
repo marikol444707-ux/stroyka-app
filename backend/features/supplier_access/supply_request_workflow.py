@@ -134,6 +134,7 @@ def validate_supply_request_transition(
     action: str,
     role: Any,
     current_status: Any,
+    assigned_reviewer_exists: bool | None = None,
 ) -> None:
     """Validate one explicit human approval action."""
 
@@ -141,18 +142,31 @@ def validate_supply_request_transition(
     status_value = _normal_status(current_status)
 
     if action == "confirm_prorab":
-        if role_value not in PRORAB_CONFIRM_ROLES:
-            raise SupplyRequestWorkflowViolation(
-                "Подтвердить новую заявку может только прораб "
-                "или главный инженер объекта",
-                status_code=403,
-            )
         if status_value != "Новая":
             raise SupplyRequestWorkflowViolation(
-                "Прораб может подтверждать только новую заявку",
+                "Подтверждать можно только новую заявку",
                 status_code=409,
             )
-        return
+
+        if role_value in PRORAB_CONFIRM_ROLES:
+            return
+
+        if role_value in LEADERSHIP_ROLES:
+            if assigned_reviewer_exists is False:
+                return
+            raise SupplyRequestWorkflowViolation(
+                "Руководитель может подтвердить заявку вместо "
+                "прораба только когда на объект не назначен "
+                "активный прораб или главный инженер",
+                status_code=409,
+            )
+
+        raise SupplyRequestWorkflowViolation(
+            "Подтвердить заявку может прораб, главный инженер "
+            "или руководство при отсутствии назначенного "
+            "ответственного",
+            status_code=403,
+        )
 
     if action == "approve_director":
         if role_value not in LEADERSHIP_ROLES:
