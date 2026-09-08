@@ -63,3 +63,15 @@ assigned foreman or chief engineer. The script creates a temporary foreman for
 the ordinary path, deactivates that account for the fallback path, removes the
 created requests, offers, recipients and supplier cards, and disables all
 created temporary users in a `finally` cleanup.
+
+
+## Legacy project identity during RFQ dispatch
+
+`supply_requests` currently stores the company and project name but not a
+`project_id`. RFQ dispatch therefore resolves a legacy project inside the
+stored request company by a trimmed name comparison. The lookup remains
+fail-closed: exactly one non-archived project must match. Zero matches and
+normalized-name duplicates continue to return HTTP 409.
+
+This compatibility lookup does not rename production projects and does not
+replace a future migration to exact `project_id` ownership.

@@ -1887,7 +1887,7 @@ def _supply_request_notification_context(cur, request_id: int) -> dict:
     project_id = None
     if company_id and project and project != "Основной склад":
         cur.execute(
-            "SELECT id FROM projects WHERE company_id=%s AND name=%s "
+            "SELECT id FROM projects WHERE company_id=%s AND BTRIM(name)=BTRIM(%s) "
             "AND COALESCE(archived,FALSE)=FALSE ORDER BY id",
             (company_id, project),
         )
