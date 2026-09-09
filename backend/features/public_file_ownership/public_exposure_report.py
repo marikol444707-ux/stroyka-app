@@ -29,7 +29,7 @@ URLISH_COLUMN_PATTERN = re.compile(
 
 def public_uploads_mount_enabled(environ=None):
     source = os.environ if environ is None else environ
-    value = str(source.get("PUBLIC_UPLOADS_MOUNT_ENABLED", "true") or "").strip().lower()
+    value = str(source.get("PUBLIC_UPLOADS_MOUNT_ENABLED", "false") or "").strip().lower()
     return value in ("1", "true", "yes", "on")
 
 

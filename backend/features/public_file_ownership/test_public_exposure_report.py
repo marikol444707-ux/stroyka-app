@@ -12,8 +12,8 @@ from .public_exposure_report import (
 
 
 class PublicUploadExposureReportTests(unittest.TestCase):
-    def test_public_mount_policy_defaults_open_and_requires_explicit_false(self):
-        self.assertTrue(public_uploads_mount_enabled({}))
+    def test_public_mount_policy_defaults_closed_and_requires_explicit_true(self):
+        self.assertFalse(public_uploads_mount_enabled({}))
         self.assertTrue(public_uploads_mount_enabled({"PUBLIC_UPLOADS_MOUNT_ENABLED": "yes"}))
         self.assertFalse(public_uploads_mount_enabled({"PUBLIC_UPLOADS_MOUNT_ENABLED": "false"}))
         self.assertFalse(public_uploads_mount_enabled({"PUBLIC_UPLOADS_MOUNT_ENABLED": "0"}))
