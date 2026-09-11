@@ -135,6 +135,7 @@ def validate_supply_request_transition(
     role: Any,
     current_status: Any,
     assigned_reviewer_exists: bool | None = None,
+    reviewer_absence_reason: Any = None,
 ) -> None:
     """Validate one explicit human approval action."""
 
@@ -152,18 +153,28 @@ def validate_supply_request_transition(
             return
 
         if role_value in LEADERSHIP_ROLES:
+            if reviewer_absence_reason is not None and (
+                not isinstance(reviewer_absence_reason, str)
+                or not reviewer_absence_reason.strip()
+                or len(reviewer_absence_reason.strip()) > 500
+            ):
+                raise SupplyRequestWorkflowViolation(
+                    "Укажите причину замены ответственного (от 1 до 500 символов)",
+                    status_code=400,
+                )
             if assigned_reviewer_exists is False:
                 return
+            if assigned_reviewer_exists is True and reviewer_absence_reason:
+                return
             raise SupplyRequestWorkflowViolation(
-                "Руководитель может подтвердить заявку вместо "
-                "прораба только когда на объект не назначен "
-                "активный прораб или главный инженер",
+                "Для подтверждения вместо назначенного прораба или главного "
+                "инженера укажите причину его отсутствия",
                 status_code=409,
             )
 
         raise SupplyRequestWorkflowViolation(
             "Подтвердить заявку может прораб, главный инженер "
-            "или руководство при отсутствии назначенного "
+            "или руководство при отсутствии "
             "ответственного",
             status_code=403,
         )

@@ -353,11 +353,23 @@ export const createSupplyActions = ({
 
   const confirmSupplyAsProrab = async (id) => {
     try {
+      const leadershipFallback = ['директор', 'зам_директора'].includes(currentUser.role);
+      let reviewerAbsenceReason;
+      if (leadershipFallback) {
+        const reason = window.prompt('Почему вы подтверждаете вместо прораба / главного инженера? Укажите отсутствие назначения или причину временного отсутствия (до 500 символов).');
+        if (reason === null) return false;
+        reviewerAbsenceReason = reason.trim();
+        if (!reviewerAbsenceReason || reviewerAbsenceReason.length > 500) {
+          alert('Укажите причину замены ответственного (от 1 до 500 символов)');
+          return false;
+        }
+      }
       const response = await fetch(API + '/supply-requests/' + id, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'confirm_prorab',
+          reviewerAbsenceReason,
           userId: currentUser.id || null,
           userName: currentUser.name || '',
         }),
@@ -371,11 +383,6 @@ export const createSupplyActions = ({
         );
         return false;
       }
-
-      const leadershipFallback = [
-        'директор',
-        'зам_директора',
-      ].includes(currentUser.role);
 
       notify(
         leadershipFallback

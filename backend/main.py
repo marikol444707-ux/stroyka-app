@@ -9643,6 +9643,7 @@ def update_supply_request(
                 assigned_reviewer_exists=(
                     assigned_reviewer_exists
                 ),
+                reviewer_absence_reason=data.get("reviewerAbsenceReason"),
             )
         except SupplyRequestWorkflowViolation as exc:
             conn.close()
@@ -9652,22 +9653,50 @@ def update_supply_request(
             )
 
     if action == 'confirm_prorab':
-        cur.execute(
-            """UPDATE supply_requests
-                  SET status=%s,
-                      prorab_id=%s,
-                      prorab_name=%s,
-                      prorab_confirmed_at=%s
-                WHERE id=%s
-                  AND COALESCE(status,'Новая')='Новая'""",
-            ('Подтверждена прорабом', user_id, user_name, now, id),
-        )
-        if cur.rowcount != 1:
-            conn.close()
-            raise HTTPException(
-                status_code=409,
-                detail="Статус заявки изменился до подтверждения прорабом",
+        from backend.features.audit_ownership.runtime import insert_audit_event
+
+        # The real confirming actor and the reason must be durable together.
+        conn.autocommit = False
+        try:
+            cur.execute(
+                """UPDATE supply_requests
+                      SET status=%s,
+                          prorab_id=%s,
+                          prorab_name=%s,
+                          prorab_confirmed_at=%s
+                    WHERE id=%s AND company_id=%s
+                      AND COALESCE(status,'Новая')='Новая'""",
+                ('Подтверждена прорабом', user_id, user_name, now, id, req.get("company_id")),
             )
+            if cur.rowcount != 1:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Статус заявки изменился до подтверждения потребности",
+                )
+            description = "Подтверждение потребности"
+            if role in LEADERSHIP_ROLES:
+                reason = (data.get("reviewerAbsenceReason") or "").strip()
+                assignment = ("Ответственный временно отсутствует" if assigned_reviewer_exists
+                              else "Прораб или главный инженер не назначен")
+                description += ": руководитель вместо ответственного. " + assignment
+                if reason:
+                    description += ". Причина: " + reason
+            insert_audit_event(
+                cur, user_id=user_id, user_name=user_name, user_role=role,
+                action="confirm_prorab", entity_type="supply_request", entity_id=id,
+                description=description, project_name=req.get("project") or "",
+                owner_scope="company", company_id=req.get("company_id"),
+            )
+            cur.execute(SUPPLY_SELECT + " WHERE id=%s", (id,))
+            row = cur.fetchone()
+            conn.commit()
+            return _supply_response_for_role(row, effective_user) if row else {"ok": True}
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+            conn.close()
     elif action == 'approve_director':
         refreshed_items = _attach_supply_estimate_control(
             cur,

@@ -14,6 +14,33 @@ from backend.features.supplier_access.supply_request_workflow import (
 
 
 class SupplyRequestTransitionPolicyTests(unittest.TestCase):
+    def test_temporary_absence_allows_leadership_with_reason(self):
+        for role in ("директор", "зам_директора"):
+            validate_supply_request_transition(
+                action="confirm_prorab", role=role, current_status="Новая",
+                assigned_reviewer_exists=True,
+                reviewer_absence_reason="Ответственный в отпуске",
+            )
+
+    def test_absence_reason_does_not_bypass_role_or_state(self):
+        for role, status, code in (("снабженец", "Новая", 403),
+                                   ("директор", "Утверждена", 409)):
+            with self.assertRaises(SupplyRequestWorkflowViolation) as error:
+                validate_supply_request_transition(
+                    action="confirm_prorab", role=role, current_status=status,
+                    assigned_reviewer_exists=True, reviewer_absence_reason="Отпуск",
+                )
+            self.assertEqual(error.exception.status_code, code)
+
+    def test_invalid_absence_reasons_are_rejected(self):
+        for reason in (None, "", "   ", [], 123, "x" * 501):
+            with self.subTest(reason=reason):
+                with self.assertRaises(SupplyRequestWorkflowViolation):
+                    validate_supply_request_transition(
+                        action="confirm_prorab", role="директор", current_status="Новая",
+                        assigned_reviewer_exists=True, reviewer_absence_reason=reason,
+                    )
+
     def test_reviewer_or_leadership_fallback_confirms_new_request(self):
         for role in ("прораб", "главный_инженер"):
             validate_supply_request_transition(
