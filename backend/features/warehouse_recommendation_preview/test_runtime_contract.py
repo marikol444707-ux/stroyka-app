@@ -718,10 +718,10 @@ class WarehouseAnomalyRuntimeDisclosurePolicyTests(unittest.TestCase):
             backend_root / "db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Reviewed supplier catalog, exact recipient and fulfilment authority fixes;
+            # Reviewed supplier catalog and legacy journal backfill fixes;
             # warehouse preview implementation and registration are unchanged.
             backend_root / "main.py": (
-                "deb3a27d84a84f9bdfbabf11279b4a911d601923ea7fc7827fb5ea2d030090d6"
+                "744c2edaf5ef4f3477ba4cada95d75470d331783298fbc4d4baed706ded52c06"
             ),
         }
         actual = {

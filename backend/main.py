@@ -11647,7 +11647,7 @@ def _ensure_material_inspection_row(
                               AND COALESCE(NULLIF(work_package,''),'Основная')=%s
                               AND COALESCE(received_at::text,'')=%s
                             LIMIT 1""",
-                        (project, material_name, unit, qty, work_package, received_at))
+                        (project, material_name, unit.replace(' ', ''), qty, work_package, received_at))
             exists = bool(cur.fetchone())
         except Exception as e:
             print("INSPECTION ENSURE LEGACY CHECK ERROR:", str(e))
@@ -11729,8 +11729,8 @@ def _backfill_material_inspection_journal(cur, project_names=None):
                 source_item_key=_journal_item_key(name, unit, qty, work_package, idx),
             ):
                 repaired += 1
-    history_where = "WHERE COALESCE(quantity,0)>0 AND LOWER(COALESCE(type,'')) LIKE 'приход%' AND COALESCE(project,'')<>'' AND project<>'Основной склад'"
-    history_params = []
+    history_where = "WHERE COALESCE(quantity,0)>0 AND LOWER(COALESCE(type,'')) LIKE %s AND COALESCE(project,'')<>'' AND project<>'Основной склад'"
+    history_params = ['приход%']
     if project_names:
         history_where += " AND project = ANY(%s)"
         history_params.append(project_names)
@@ -11764,7 +11764,7 @@ def _backfill_material_inspection_journal(cur, project_names=None):
                             WHERE project_name=%s
                               AND LOWER(TRIM(COALESCE(material_name,'')))=LOWER(TRIM(%s))
                               AND {_sql_norm_unit('unit')}=%s
-                            LIMIT 1""", (project, name, _norm_base_unit(unit or "шт") or "шт"))
+                            LIMIT 1""", (project, name, (_norm_base_unit(unit or "шт") or "шт").replace(' ', '')))
             if cur.fetchone():
                 continue
         except Exception as e:
@@ -11907,8 +11907,8 @@ def _backfill_cable_journal(cur, project_names=None):
                                          source_id=invoice_id,
                                          source_item_key=_journal_item_key(name, unit, qty, work_package, idx)):
                 repaired += 1
-    history_where = "WHERE COALESCE(quantity,0)>0 AND LOWER(COALESCE(type,'')) LIKE 'приход%' AND COALESCE(project,'')<>'' AND project<>'Основной склад'"
-    history_params = []
+    history_where = "WHERE COALESCE(quantity,0)>0 AND LOWER(COALESCE(type,'')) LIKE %s AND COALESCE(project,'')<>'' AND project<>'Основной склад'"
+    history_params = ['приход%']
     if project_names:
         history_where += " AND project = ANY(%s)"
         history_params.append(project_names)
