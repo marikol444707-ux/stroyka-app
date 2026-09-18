@@ -57,7 +57,7 @@ export const createWorkJournalActions = ({
       row.name + ': ' + fmtMeasure(row.quantity, row.unit) + '\n  с мастера ' + fmtMeasure(row.personalQuantity, row.unit)
       + ', со склада ' + fmtMeasure(row.warehouseQuantity, row.unit)).join('\n') + '\n\nОтправить работу и списать указанный расход?');
   };
-  const submitEstimateWorkDone = async (mi, displayQty) => {
+  const submitEstimateWorkDone = async (mi, displayQty, estimateDraftValueRef) => {
     const project = projects.find(p=>p.id===Number(masterProjectId));
     const est = estimatesList.find(e=>Number(e.id)===Number(mi.estId));
     if (!project || !est) return;
@@ -150,9 +150,10 @@ export const createWorkJournalActions = ({
     }
     }
     setEstimatesList(prev=>prev.map(e=>Number(e.id)===Number(est.id)?{...est,sections:newSections}:e));
-    if (submittedBatch) clearSubmittedDrafts(submittedBatch, {setEstimateDoneDrafts,setEstimateWorkMaterials,setEstimateWorkParams});
+    if (submittedBatch) clearSubmittedDrafts(submittedBatch, {setEstimateDoneDrafts,setEstimateWorkMaterials,setEstimateWorkParams,estimateDraftValueRef});
     else {
       setEstimateDoneDrafts(prev=>{const next={...prev};delete next[workKey];return next;});
+      if (estimateDraftValueRef) delete estimateDraftValueRef.current[workKey];
       setEstimateWorkMaterials(prev=>{const next={...prev};delete next[workKey];return next;});
       setEstimateWorkParams(prev=>{const next={...prev};delete next[workKey];return next;});
     }

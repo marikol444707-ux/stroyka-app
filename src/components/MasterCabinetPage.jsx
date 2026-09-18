@@ -1549,9 +1549,9 @@ export default function MasterCabinetPage(props) {
                               step="any"
                               inputMode="decimal"
                               placeholder={'сегодня, ' + (doneNorm.unit || item.unit)}
-	                              defaultValue={draft}
+	                              value={draft}
 	                              onChange={e => {
-	                                estimateDraftValueRef.current[workKey] = e.target.value;
+	                                commitEstimateDoneDraft(workKey, e.target.value);
 	                                if (dailyWorkError) setDailyWorkError('');
 	                              }}
                               onBlur={e => {
@@ -1595,7 +1595,7 @@ export default function MasterCabinetPage(props) {
                                 const liveDraft = estimateDraftValueRef.current[workKey] !== undefined ? estimateDraftValueRef.current[workKey] : draft;
                                 commitEstimateDoneDraft(workKey, liveDraft);
                                 const targetDisplay = safeNormalizeMeasure(done + safeDenormalizeMeasure(liveDraft, item.unit), item.unit).qty;
-                                submitEstimateWorkDone(item, targetDisplay);
+                                submitEstimateWorkDone(item, targetDisplay, estimateDraftValueRef);
                               }}
                               disabled={missingExecutionPrice}
                               style={{ ...(!missingExecutionPrice ? btnO : btnG), padding: '5px 9px', fontSize: '11px', opacity: !missingExecutionPrice ? 1 : 0.65 }}

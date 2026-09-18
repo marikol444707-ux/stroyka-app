@@ -83,12 +83,14 @@ describe('createWorkJournalActions hidden-work photo rule', () => {
         setEstimateDoneDrafts:jest.fn(),setEstimateWorkMaterials:jest.fn(),setEstimateWorkParams:jest.fn(),
         setEstimatesList:jest.fn(),refreshData:jest.fn(),notify:jest.fn(),
       });
-      await actions.submitEstimateWorkDone({...item,estId:7,sectionIdx:0,itemIdx:0,contractItemId:5,executionPricePerUnit:10},1);
+      const estimateDraftValueRef={current:{[draftKey]:1}};
+      await actions.submitEstimateWorkDone({...item,estId:7,sectionIdx:0,itemIdx:0,contractItemId:5,executionPricePerUnit:10},1,estimateDraftValueRef);
       expect(global.fetch).toHaveBeenCalledTimes(1);
       const payload=JSON.parse(global.fetch.mock.calls[0][1].body);
       expect(payload._workJournalMaterials['stable-work']).toEqual([material]);
       expect(payload._workJournalParams['stable-work']).toMatchObject({contractItemId:5,estimateItemKey:'stable-work'});
       expect(payload._workJournalMaterials[draftKey]).toBeUndefined();
+      expect(estimateDraftValueRef.current).toEqual({});
     } finally {
       if (previousFlag === undefined) delete process.env.REACT_APP_WORK_MATERIAL_ACCOUNTING_ENABLED;
       else process.env.REACT_APP_WORK_MATERIAL_ACCOUNTING_ENABLED = previousFlag;
