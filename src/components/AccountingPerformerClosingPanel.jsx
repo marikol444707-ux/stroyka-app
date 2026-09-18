@@ -105,6 +105,7 @@ const buildPrintHtml = ({ month, rows, summary }) => {
 };
 
 export default function AccountingPerformerClosingPanel({
+  onOpenContractActs,
   C,
   card,
   inp,
@@ -146,6 +147,7 @@ export default function AccountingPerformerClosingPanel({
 
   const rows = useMemo(() => {
     return (workJournal || [])
+      .filter(work => work.settlementVersion !== 2)
       .filter(work => safeText(work.status) === 'Подтверждено')
       .filter(work => monthOf(work.confirmedAt || work.date) === month)
       .map(work => {
@@ -178,6 +180,7 @@ export default function AccountingPerformerClosingPanel({
 
   const blockedRows = useMemo(() => {
     return (workJournal || [])
+      .filter(work => work.settlementVersion !== 2)
       .filter(work => safeText(work.status) === 'Подтверждено')
       .filter(work => monthOf(work.confirmedAt || work.date) === month)
       .filter(work => !safeText(work.roomName || work.room_name) || workExecutionTotal(work) <= 0);
@@ -391,6 +394,7 @@ export default function AccountingPerformerClosingPanel({
 
   return (
     <div>
+      {(workJournal || []).some(work => work.settlementVersion === 2) && <div style={{...card, padding: 16, marginBottom: 16}}><p>Работы по договорам с учётом материалов закрываются в разделе «Акты»: там указаны принятые работы, штрафы и сумма к оплате.</p><button style={btnB} onClick={onOpenContractActs}>Открыть акты договоров</button></div>}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
         <div>
           <b style={{ color: C.text, fontSize: '15px' }}>📘 Закрытие исполнителей</b>

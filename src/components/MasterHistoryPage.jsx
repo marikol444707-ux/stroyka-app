@@ -17,6 +17,7 @@ export default function MasterHistoryPage({
   setShowPhotoModal,
   sumConfirmed,
   user,
+  onOpenMaterials,
 }) {
   const toNumber = (value) => {
     const parsed = Number(String(value ?? 0).replace(',', '.').replace(/\s+/g, ''));
@@ -42,12 +43,14 @@ export default function MasterHistoryPage({
           <b style={{ color: 'white', fontSize: '18px' }}>{Math.round(acceptedTotal).toLocaleString('ru-RU') + ' ₽'}</b>
         </div>
         <div style={{ textAlign: 'right' }}>
-          <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: '11px', margin: 0 }}>Зачислено к выплате</p>
+          <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: '11px', margin: 0 }}>Сдельные начисления</p>
           <b style={{ color: 'white', fontSize: '18px' }}>
             {Math.round((piecework || []).filter((pw) => Number(pw.staffId) === user.id).reduce((sum, pw) => sum + Number(pw.total || 0), 0)).toLocaleString('ru-RU') + ' ₽'}
           </b>
         </div>
       </div>
+
+      {(myJournal || []).some(work => work.settlementVersion === 2) && <p style={{color: C.textSec}}>Оплата по договорам и штрафы показаны в актах ниже.</p>}
 
       <div style={{ position: 'relative', marginBottom: '14px' }}>
         <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: C.textMuted }} />
@@ -144,11 +147,12 @@ export default function MasterHistoryPage({
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <b style={{ fontSize: '13px', color: C.text, display: 'block' }}>{work.description}</b>
                               <p style={{ color: C.textSec, margin: '2px 0', fontSize: '11px' }}>{fmtMeasure(work.quantity, work.unit)}</p>
+                              {work.materialAccountingVersion === 2 && onOpenMaterials && <button onClick={() => onOpenMaterials(work)} style={{...btnG, margin: '6px 0'}}>Материалы и брак</button>}
                               <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '3px' }}>
                                 <span style={{ padding: '2px 8px', borderRadius: '8px', fontSize: '10px', fontWeight: '600', backgroundColor: statusBackground, color: statusColor }}>
                                   {statusIcon + ' ' + status}
                                 </span>
-                                {status === 'Подтверждено' && (
+                                {status === 'Подтверждено' && (work.settlementVersion === 2 ? <span>Расчёт по акту договора</span> : (
                                   isPaid ? (
                                     <span style={{ padding: '2px 8px', borderRadius: '8px', fontSize: '10px', fontWeight: '600', backgroundColor: C.successLight, color: C.success }}>
                                       💰 Зачислено в зарплату
@@ -158,7 +162,7 @@ export default function MasterHistoryPage({
                                       ⏳ Ждёт зарплаты
                                     </span>
                                   )
-                                )}
+                                ))}
                               </div>
                               {work.comment && status === 'Отклонено' && <p style={{ color: C.danger, fontSize: '10px', margin: '4px 0 0' }}>Причина: {work.comment}</p>}
                             </div>

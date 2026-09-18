@@ -1,4 +1,5 @@
 import React from 'react';
+import { allocateWorkMaterialSources, workMaterialAccountingEnabled } from '../work-material-accounting/materialSources';
 import { buildWorkMaterialSelectionRow } from '../../utils/materialDocumentUtils';
 import {
   applyMaterialOverNormReasonToRows,
@@ -70,12 +71,35 @@ export const createMaterialWriteoffActions = ({
     materialNameKey,
   });
 
-  const renderMaterialWriteoffStatus = (projectName, usedMaterials = []) => React.createElement(MaterialWriteoffStatus, {
+  const prepareWorkMaterialGroups = (projectName, groups) => {
+    if (!workMaterialAccountingEnabled()) return groups;
+    const remaining = new Map();
+    return groups.map(items => items.map(item => {
+      const meta = canonicalMaterialMeta(projectName, item.name, item.unit);
+      const nameKey = materialNameKey(meta.name);
+      const workPackage = item.workPackage || 'Основная';
+      const key = nameKey + '\u0000' + workPackage;
+      if (!remaining.has(key)) remaining.set(key, { ...materialAvailabilityMapForWork(projectName, workPackage)[nameKey] });
+      const stock = remaining.get(key);
+      const prepared = allocateWorkMaterialSources(item, stock);
+      const rows = buildMaterialWriteoffRows({ projectName, usedMaterials: [prepared],
+        materialAvailabilityMapForWork: () => ({ [nameKey]: stock }), canonicalMaterialMeta, materialNameKey });
+      const error = buildMaterialWriteoffBlockMessage({ projectName, rows, isPersonalMaterialRole, fmtMeasure });
+      if (error) throw new Error(error);
+      stock.personalAvailable = Math.round((stock.personalAvailable - prepared.personalQuantity) * 1e6) / 1e6;
+      stock.warehouseAvailable = Math.round((stock.warehouseAvailable - prepared.warehouseQuantity) * 1e6) / 1e6;
+      stock.quantity = Math.round((stock.personalAvailable + stock.warehouseAvailable) * 1e6) / 1e6;
+      return prepared;
+    }));
+  };
+
+  const renderMaterialWriteoffStatus = (projectName, usedMaterials = [], onSourceChange) => React.createElement(MaterialWriteoffStatus, {
     rows: materialWriteoffRows(projectName, usedMaterials),
     C,
     fmtMeasure,
     isMobile,
     isPersonalMaterialRole,
+    onSourceChange,
   });
 
   const upsertSelectedWorkMaterial = (itemId, material, quantity = '') => {
@@ -140,6 +164,7 @@ export const createMaterialWriteoffActions = ({
   };
 
   return {
+    prepareWorkMaterialGroups,
     applyMaterialOverNormReason,
     capMaterialWriteoffQty,
     materialNormOverrunReason,

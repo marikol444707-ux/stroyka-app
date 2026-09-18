@@ -1,3 +1,4 @@
+import { buildWorkMaterialAvailability, workMaterialAccountingEnabled } from '../work-material-accounting/materialSources';
 import {
   buildEstimateMaterialPlanRows,
   buildMaterialAliasCandidates,
@@ -226,11 +227,17 @@ export function createMaterialRuntime({
     });
 
   const materialRowsAvailableForWork = (projectName, workPackage = '') => {
+    if (workMaterialAccountingEnabled()) return Object.values(materialAvailabilityMapForWork(projectName, workPackage));
     if (isPersonalMaterialRole()) return personalMaterialRowsForProject(projectName, user?.name, user?.id, workPackage).filter(r => toNum(r.quantity) > 0);
     return (materials || []).filter(m => m.project === projectName && toNum(m.quantity) > 0 && packageMatches(m.workPackage || m.work_package, workPackage));
   };
 
-  const materialAvailabilityMapForWork = (projectName, workPackage = '') => buildMaterialAvailabilityMap({
+  const materialAvailabilityMapForWork = (projectName, workPackage = '') => workMaterialAccountingEnabled()
+    ? buildWorkMaterialAvailability({
+      personalRows: aliasUnavailable || !isPersonalMaterialRole() ? [] : personalMaterialRowsForProject(projectName, user?.name, user?.id, workPackage),
+      warehouseRows: aliasUnavailable ? [] : materials || [],
+      projectName, workPackage, canonicalMaterialMeta, materialNameKey,
+    }) : buildMaterialAvailabilityMap({
     rows: aliasUnavailable ? [] : materialRowsAvailableForWork(projectName, workPackage),
     projectName,
     canonicalMaterialMeta,

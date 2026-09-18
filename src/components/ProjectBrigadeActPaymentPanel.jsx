@@ -1,8 +1,10 @@
 import React from 'react';
 import { Eye, Plus, ScrollText, Trash2, Upload } from 'lucide-react';
 import { API } from '../api';
+import ContractSettlementPanel from '../features/work-material-accounting/ContractSettlementPanel';
 
 export default function ProjectBrigadeActPaymentPanel({
+  companyContext, user, onChanged,
   project,
   selectedBrigadeContract,
   brigadeContractItems = [],
@@ -24,6 +26,9 @@ export default function ProjectBrigadeActPaymentPanel({
   btnB,
   btnR,
 }) {
+  if (selectedBrigadeContract.settlementVersion === 2) {
+    return <ContractSettlementPanel contract={selectedBrigadeContract} {...{companyContext, user, C, showPreview, onChanged}} />;
+  }
   const due = Math.round(brigadeContractItems.reduce((sum, item) => sum + Number(item.doneQuantity || 0) * Number(item.priceBrigade || 0), 0));
   const paid = Math.round((brigadePayments || []).reduce((sum, payment) => sum + Number(payment.amount || 0), 0));
   const owe = Math.max(0, due - paid);

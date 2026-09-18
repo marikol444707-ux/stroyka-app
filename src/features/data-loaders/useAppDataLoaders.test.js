@@ -9,7 +9,7 @@ const snapshotHeaders = { get: name => name === 'X-Quality-Journal-Snapshot' ? '
 
 const company = id => ({ mode: 'company', selectedCompanyId: id, companies: [{ companyId: id, role: 'директор' }] });
 const journalRow = { id: 1, companyId: 2, projectId: 11, projectName: 'Школа', materialName: 'Кабель', cableBrand: 'ВВГ', quantity: 10, lengthReceived: 10 };
-function useJournalHarness(companyContext) {
+function useJournalHarness(companyContext, overrides = {}) {
   const [inspections, setMaterialInspections] = useState([journalRow]);
   const [cables, setCableJournal] = useState([journalRow]);
   const [qualityJournalLoadState, setQualityJournalLoadState] = useState({});
@@ -23,6 +23,7 @@ function useJournalHarness(companyContext) {
     mobileApiRequestsRef: { current: new Map() }, mobileLoadedScopesRef: { current: new Set() },
     mobileScopeForPage: page => `mobile:${page}`, normalizeEstimateList: rows => rows,
     roleFlagsForUser: () => ({ role: 'директор', canSeeProjectDocs: true, isWarehouseRole: true }),
+    ...overrides,
   }, { get: (target, name) => name in target ? target[name] : String(name).startsWith('set') ? jest.fn() : undefined });
   return { ...useAppDataLoaders(ctx), inspections, cables, qualityJournalLoadState };
 }
@@ -278,6 +279,54 @@ test('loading settings hydrates both document data and the editable requisites f
     directorName: 'Иван Петров',
     basis: 'Устава',
   }));
+});
+
+test.each(['1', '0'])('first master works load hydrates warehouse stock, norms and history only with accounting flag=%s', async flag => {
+  const previous = process.env.REACT_APP_WORK_MATERIAL_ACCOUNTING_ENABLED;
+  process.env.REACT_APP_WORK_MATERIAL_ACCOUNTING_ENABLED = flag;
+  const rowsByPath = {
+    '/api/materials': [{ id: 41, project: 'Школа', name: 'Кабель', unit: 'м', quantity: 1, workPackage: 'Основная' }],
+    '/api/material-norms': [{ id: 51, workName: 'Монтаж', materialName: 'Кабель', quantity: 2 }],
+    '/api/material-norms/overrides': [{ id: 61, project: 'Школа', normId: 51, quantity: 3 }],
+    '/api/warehouse-history': [{ id: 71, material: 'Кабель', project: 'Школа', type: 'возврат', quantity: 1 }],
+    '/api/material-transfers': [{ id: 81, projectName: 'Школа', toUserId: 7, materialName: 'Кабель', quantity: 1, signed: true }],
+  };
+  const setters = {
+    setMaterials: setter(), setMaterialNorms: setter(), setMaterialNormOverrides: setter(),
+    setHistory: setter(), setMaterialTransfers: setter(),
+  };
+  global.fetch = jest.fn(async url => ({ ok: true, headers: snapshotHeaders,
+    json: async () => rowsByPath[String(url).split('?')[0]] || [],
+  }));
+  const context = { ...company(2), companies: [{ companyId: 2, role: 'мастер' }] };
+  let unmount;
+  try {
+    const hook = renderHook(() => useJournalHarness(context, {
+      ...setters, activePage: 'works', initialDataLoaded: false,
+      user: { id: 7, role: 'мастер', name: 'Мастер' }, ROLES: {},
+      MATERIALS_PAGE_LIMIT: 100, MATERIAL_NORMS_PAGE_LIMIT: 100, WORK_JOURNAL_PAGE_LIMIT: 100,
+      roleFlagsForUser: () => ({ role: 'мастер', canSeeProjectDocs: true, isInternalRole: true }),
+    }));
+    unmount = hook.unmount;
+    // This is the first page load, without first visiting warehouse or estimates.
+    await act(async () => { await hook.result.current.refreshData('works'); });
+    expect(setters.setMaterialTransfers).toHaveBeenCalledWith(rowsByPath['/api/material-transfers']);
+    const paths = global.fetch.mock.calls.map(([url]) => String(url).split('?')[0]);
+    for (const [setterName, path] of [['setMaterials', '/api/materials'], ['setMaterialNorms', '/api/material-norms'],
+      ['setMaterialNormOverrides', '/api/material-norms/overrides'], ['setHistory', '/api/warehouse-history']]) {
+      if (flag === '1') {
+        expect(paths).toContain(path);
+        expect(setters[setterName]).toHaveBeenCalledWith(rowsByPath[path]);
+      } else {
+        expect(paths).not.toContain(path);
+        expect(setters[setterName]).not.toHaveBeenCalled();
+      }
+    }
+  } finally {
+    unmount?.();
+    if (previous === undefined) delete process.env.REACT_APP_WORK_MATERIAL_ACCOUNTING_ENABLED;
+    else process.env.REACT_APP_WORK_MATERIAL_ACCOUNTING_ENABLED = previous;
+  }
 });
 
 test('uncertain write stays blocked through manual reload, remount and another confirmed save', async () => {

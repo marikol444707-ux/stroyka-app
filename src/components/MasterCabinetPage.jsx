@@ -1,3 +1,10 @@
+import { pricelistAssignments } from '../features/work-material-accounting/pricelistAssignments';
+import { clearSubmittedDrafts } from '../features/work-material-accounting/workDrafts';
+import { workMaterialAccountingEnabled } from '../features/work-material-accounting/materialSources';
+import { sendWorkBatch, clearWorkBatch, pendingWorkBatch, workBatchScope } from '../features/work-material-accounting/workCommands';
+import WorkSubmissionRecovery from '../features/work-material-accounting/WorkSubmissionRecovery';
+import WorkMaterialAccountingPanel from '../features/work-material-accounting/WorkMaterialAccountingPanel';
+import ContractSettlementPanel from '../features/work-material-accounting/ContractSettlementPanel';
 import React from 'react';
 import {
   BarChart3,
@@ -85,6 +92,8 @@ export const resolveMasterContractDocument = ({
 
 export default function MasterCabinetPage(props) {
   const [showProjectPicker, setShowProjectPicker] = React.useState(false);
+  const [materialJournal, setMaterialJournal] = React.useState(null);
+  const [settlementContract, setSettlementContract] = React.useState(null);
   const [showEstimateChangeForm, setShowEstimateChangeForm] = React.useState(false);
   const [dailyWorkReview, setDailyWorkReview] = React.useState(null);
   const [dailyWorkError, setDailyWorkError] = React.useState('');
@@ -185,6 +194,7 @@ export default function MasterCabinetPage(props) {
     materialRowsAvailableForWork,
     materialSuggestionsForWork,
     materialWriteoffBlockMessage,
+    prepareWorkMaterialGroups,
     materialTransfers,
     myNotifications,
     navigateTo,
@@ -726,6 +736,7 @@ export default function MasterCabinetPage(props) {
           const normQuantity = safeToNum(material.normQuantity);
           const materialQuantity = safeToNum(material.quantity);
           return {
+            sourcePreference: material.sourcePreference,
             name: material.name,
             quantity: materialQuantity,
             unit: material.unit || 'шт',
@@ -797,6 +808,12 @@ export default function MasterCabinetPage(props) {
         materialsUsed: usedMaterials,
       });
     }
+    if (workMaterialAccountingEnabled() && !errors.length) {
+      try {
+        const prepared = prepareWorkMaterialGroups(project.name, rows.map(row => row.materialsUsed));
+        rows.forEach((row, index) => { row.materialsUsed = prepared[index]; });
+      } catch (error) { errors.push(error.message); }
+    }
     const total = rows.reduce((sum, row) => sum + safeToNum(row.executionTotal), 0);
     return { project, rows, total, errors };
   };
@@ -846,6 +863,10 @@ export default function MasterCabinetPage(props) {
     }
     setDailyWorkSubmitting(true);
     try {
+      if (workMaterialAccountingEnabled() && pendingWorkBatch(workBatchScope(props.companyContext, user))) {
+        throw new Error('Сначала повторите сохранённую отправку работ.');
+      }
+      const commands = [];
       const rowsByEstimate = dailyWorkReview.rows.reduce((map, row) => {
         const key = String(row.estId);
         map[key] = map[key] || [];
@@ -921,6 +942,17 @@ export default function MasterCabinetPage(props) {
         if (missingRows.length) {
           throw new Error('Не удалось найти в свежей смете строку: ' + missingRows[0].name);
         }
+        const payload = {
+          ...est, sections: newSections,
+          _workJournalMaterials: workJournalMaterials, _workJournalParams: workJournalParams,
+        };
+        if (workMaterialAccountingEnabled()) {
+          commands.push({ path: '/estimates/' + est.id, method: 'PUT', payload,
+            drafts: rows.map(row => ({ kind: 'estimate', key: row.workKey,
+              done: estimateDraftValueRef.current[row.workKey] ?? estimateDoneDrafts[row.workKey],
+              materials: estimateWorkMaterials[row.workKey], params: estimateWorkParams[row.workKey] })) });
+          continue;
+        }
         const res = await fetch(API + '/estimates/' + est.id, {
           method: 'PUT',
           headers: authJsonHeaders(),
@@ -936,6 +968,10 @@ export default function MasterCabinetPage(props) {
           throw new Error(error.detail || ('HTTP ' + res.status));
         }
       }
+      if (workMaterialAccountingEnabled()) {
+        const completed = await sendWorkBatch({ API, scope: workBatchScope(props.companyContext, user), commands });
+        clearSubmittedDrafts(completed, {setEstimateDoneDrafts,setEstimateWorkMaterials,setEstimateWorkParams,estimateDraftValueRef});
+      } else {
       const submittedKeys = dailyWorkReview.rows.map(row => row.workKey);
       setEstimateDoneDrafts(prev => {
         const next = { ...prev };
@@ -953,9 +989,11 @@ export default function MasterCabinetPage(props) {
         return next;
       });
       setActiveEstimateMaterialKey(prev => submittedKeys.includes(prev) ? '' : prev);
+      }
       setDailyWorkReview(null);
       setDailyWorkActDraft({ date: new Date().toISOString().split('T')[0], comment: '', photoUrl: '' });
       if (typeof refreshData === 'function') await refreshData();
+      if (workMaterialAccountingEnabled()) clearWorkBatch(workBatchScope(props.companyContext, user));
       notify('Дневной пакет работ отправлен на проверку: ' + dailyWorkReview.count + ' поз.', 'work');
     } catch (error) {
       setDailyWorkError('Не удалось отправить дневной пакет: ' + (error?.message || error));
@@ -964,9 +1002,18 @@ export default function MasterCabinetPage(props) {
     }
   };
   const myTools = tools.filter(tool => tool.masterName === (masterProfile?.fullName || user.name) && tool.status.includes('У мастера'));
+  const recoverWorkDrafts = batch => {
+    setDailyWorkReview(null);
+    clearSubmittedDrafts(batch, {setEstimateDoneDrafts,setEstimateWorkMaterials,setEstimateWorkParams,setSelectedWorks,estimateDraftValueRef});
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', backgroundColor: C.bg }}>
+      <WorkSubmissionRecovery API={API} companyContext={props.companyContext} user={user} C={C}
+        onRecovered={async batch => {
+          await refreshData();
+          recoverWorkDrafts(batch);
+        }} />
       <ImagePreviewModal src={showPhotoModal} onClose={() => setShowPhotoModal(null)} />
       {previewContent && <PreviewModal content={previewContent} title={previewTitle} onClose={() => setPreviewContent(null)} onPrint={doPrint} />}
       <OwnExpenseFormModal
@@ -1035,6 +1082,7 @@ export default function MasterCabinetPage(props) {
                       🔒 Скрытая работа — фотоотчёт обязателен до отправки.
                     </p>
                   )}
+                  {renderMaterialWriteoffStatus(dailyWorkReview.projectName, row.materialsUsed)}
                   {(row.params.roomName || row.params.roomId || row.params.photoUrl || row.materialsUsed.length > 0) && (
                     <p style={{ margin: '4px 0 0', color: C.textMuted, fontSize: '11px' }}>
                       {(row.params.roomName ? 'Помещение: ' + row.params.roomName + '. ' : '') +
@@ -1119,8 +1167,9 @@ export default function MasterCabinetPage(props) {
                   💰 Заработано: {myTotal.toLocaleString() + ' ₽'}
                 </div>
               ) : (
-                <div style={{ padding: '8px 14px', borderRadius: '10px', fontSize: '12px', color: C.textSec, backgroundColor: C.bg, border: '1.5px dashed ' + C.border }} title="Здесь будет сумма ваших принятых работ когда прораб их подтвердит">
-                  📊 Работ пока не принято
+                <div style={{ padding: '8px 14px', borderRadius: '10px', fontSize: '12px', color: C.textSec, backgroundColor: C.bg, border: '1.5px dashed ' + C.border }}>
+                  {(brigadeContracts || []).some(contract => contract.settlementVersion === 2 && Number(contract.contractorId) === Number(user.id))
+                    ? 'Расчёты по договорам — в разделе «История»' : 'Сдельных начислений пока нет'}
                 </div>
               )}
             </div>
@@ -1614,7 +1663,7 @@ export default function MasterCabinetPage(props) {
                                   })}
                                 </div>
                               )}
-                              {renderMaterialWriteoffStatus(project.name, usedMaterials)}
+                              {renderMaterialWriteoffStatus(project.name, usedMaterials, (name, sourcePreference) => setEstimateWorkMaterials(prev => ({...prev, [workKey]: (prev[workKey] || []).map(material => material.name === name ? {...material, sourcePreference} : material)})))}
                               {projectMaterials.length > 0 ? (
                                 <div style={{ maxHeight: '155px', overflowY: 'auto', display: 'grid', gap: '5px' }}>
                                   {projectMaterials.map(material => {
@@ -1693,7 +1742,9 @@ export default function MasterCabinetPage(props) {
                       {pricelistItems.filter(item => item.category === category).map(item => {
                         const project = projects.find(projectRow => projectRow.id === Number(masterProjectId));
                         const pricelist = project && props.pricelists.find(price => price.id === project.pricelistId);
-                        const price = item.price * (pricelist ? pricelist.coefficient : 1.0);
+                        const assignedLines = pricelistAssignments(brigadeContractItems, project, item, props.companyContext?.selectedCompanyId);
+                        const chosenLine = assignedLines.find(line => line.id === Number(selectedWorks[item.id]?.contractItemId));
+                        const price = workMaterialAccountingEnabled() ? Number(chosenLine?.priceBrigade || 0) : item.price * (pricelist ? pricelist.coefficient : 1.0);
                         const isSelected = selectedWorks[item.id] !== undefined;
                         return (
                           <div key={item.id} style={{ padding: '12px', marginBottom: '8px', borderRadius: '10px', border: '1.5px solid ' + (isSelected ? C.accent : C.border), backgroundColor: isSelected ? C.accentLight : C.bgWhite }}>
@@ -1718,6 +1769,16 @@ export default function MasterCabinetPage(props) {
                             </div>
                             {isSelected && (
                               <div style={{ paddingLeft: '30px', marginTop: '10px' }}>
+                                {workMaterialAccountingEnabled() && <label style={{display:'block',color:C.text,fontSize:'12px',marginBottom:'8px'}}>
+                                  Договорная позиция
+                                  <select aria-label={'Договорная позиция для «'+item.name+'»'} style={inp}
+                                    value={selectedWorks[item.id]?.contractItemId || ''}
+                                    onChange={event => setSelectedWorks(prev => ({...prev,[item.id]:{...prev[item.id],contractItemId:Number(event.target.value)}}))}>
+                                    <option value="">Выберите назначенную работу</option>
+                                    {assignedLines.map(line => <option key={line.id} value={line.id}>{'Договор №'+line.contractId+' · '+line.name+' · '+line.priceBrigade+' ₽/'+line.unit}</option>)}
+                                  </select>
+                                  {!assignedLines.length && <span>Для этой работы нет назначенной позиции в пакете «Прайс». Директор должен назначить её в договоре.</span>}
+                                </label>}
                                 <input
                                   placeholder={'Количество (' + item.unit + ')'}
                                   type="number"
@@ -1834,7 +1895,7 @@ export default function MasterCabinetPage(props) {
                                           })}
                                         </div>
                                       )}
-                                      {renderMaterialWriteoffStatus(project.name, usedMaterials)}
+                                      {renderMaterialWriteoffStatus(project.name, usedMaterials, (name, sourcePreference) => setSelectedWorks(prev => ({...prev, [item.id]: {...prev[item.id], materials: (prev[item.id]?.materials || []).map(material => material.name === name ? {...material, sourcePreference} : material)}})))}
                                       {projectMaterials.length > 0 && (
                                         <div style={{ maxHeight: '190px', overflowY: 'auto', display: 'grid', gap: '6px' }}>
                                           {projectMaterials.map(material => {
@@ -1901,6 +1962,7 @@ export default function MasterCabinetPage(props) {
 
         {activePage === 'history' && (
           <MasterHistoryPage
+            onOpenMaterials={setMaterialJournal}
             C={{ ...C, inp }}
             btnG={btnG}
             card={card}
@@ -1918,6 +1980,12 @@ export default function MasterCabinetPage(props) {
             user={user}
           />
         )}
+
+        {materialJournal && <WorkMaterialAccountingPanel journal={materialJournal} API={API} companyContext={props.companyContext} user={user} C={C} onChanged={refreshData} onRecovered={recoverWorkDrafts} onClose={() => setMaterialJournal(null)} />}
+        {activePage === 'history' && <div style={{marginTop: 20}}>
+          {(brigadeContracts || []).filter(contract => contract.settlementVersion === 2 && Number(contract.contractorId) === Number(user.id)).map(contract => <button key={contract.id} style={{...btnG, margin: 4}} onClick={() => setSettlementContract(contract)}>Акты: {contract.projectName} · договор №{contract.id}</button>)}
+          {settlementContract && <ContractSettlementPanel contract={settlementContract} companyContext={props.companyContext} user={user} C={C} showPreview={showPreview} onChanged={refreshData} onRecovered={recoverWorkDrafts} />}
+        </div>}
 
         {activePage === 'materials' && (
           <MasterMaterialsPage

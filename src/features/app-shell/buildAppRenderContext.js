@@ -162,6 +162,7 @@ export function buildAppRenderContext({
     autoFillNormMaterialsForWork,
     autoReconcileEstimateChanges,
     buildEstimateDiffContent,
+    capMaterialWriteoffQty,
     closeAiTask,
     computeNotifications,
     createAiTask,
@@ -183,6 +184,7 @@ export function buildAppRenderContext({
     materialRowsAvailableForWork,
     materialSuggestionsForWork,
     materialWriteoffBlockMessage,
+    prepareWorkMaterialGroups,
     openEstimateDiffPreview,
     openAiTaskAction,
     personalMaterialRowsForProject,
@@ -472,7 +474,7 @@ export function buildAppRenderContext({
         createInvoiceFromOffer, createShipmentFromOffer, createSupplyReq, deleteSupplyTemplate, fetchPriceHint,
         getNotifPage, handleLogin, handleLogout, handleRegister, handleTwoFactorLogin,
         loadAll, loadPricelistItems, markMyNotificationsRead, myNotifications: readMyNotifications, navigateTo,
-        materialNormOverrunReason, materialWriteoffBlockMessage,
+        materialNormOverrunReason, materialWriteoffBlockMessage, prepareWorkMaterialGroups,
         notify, openAiTaskAction, refreshData, removeEstimateWorkMaterial, removeSelectedWorkMaterial,
         renderMaterialWriteoffStatus, renderSupplyPlanningHint, renderSupplyRequestOrigin,
         returnMaterialToProject, roleColor, saveProfile, saveSupplyTemplate,
@@ -490,7 +492,7 @@ export function buildAppRenderContext({
         buildSupplementaryAgreementContent, showKS2
       },
       materialRuntime: {
-        isPersonalMaterialRole, materialAvailabilityMapForWork, materialHintForProject,
+        capMaterialWriteoffQty, isPersonalMaterialRole, materialAvailabilityMapForWork, materialHintForProject,
         materialNameKey, materialNormForWork, materialRowsAvailableForWork,
         materialSuggestionsForWork, personalMaterialRowsForProject, workNeedsThicknessParam
       },

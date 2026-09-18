@@ -65,6 +65,7 @@ export function buildAppActionGroups({
     materialNormOverrunReason,
     materialReconciliationRows,
     materialWriteoffBlockMessage,
+    prepareWorkMaterialGroups,
     roomMeasurementCheck,
     roomMeasurementMessage,
     warehouseInvoiceEstimateControl,
@@ -445,6 +446,10 @@ export function buildAppActionGroups({
 
   const workJournalActions = createWorkJournalActions({
     API,
+    allBrigadeItems,
+    companyContext,
+    estimatesList: appMainState.estimatesList,
+    estimateDoneDrafts: appMainState.estimateDoneDrafts,
     GENERAL_WORK_ROOM_NAME,
     addActivity,
     applyMaterialOverNormReason,
@@ -460,6 +465,7 @@ export function buildAppActionGroups({
     materialNameKey,
     materialNormOverrunReason,
     materialWriteoffBlockMessage,
+    prepareWorkMaterialGroups,
     masterProjectId,
     notify,
     pricelistItems,

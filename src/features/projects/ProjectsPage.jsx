@@ -389,6 +389,7 @@ export default function ProjectsPage({ ctx }) {
 
 	                    {activeProjectTab==='Производство работ'&&(
                       <ProjectWorkJournalPanel
+                        API={API} companyContext={ctx.companyContext} user={user} onChanged={refreshData}
                         project={p}
                         workJournal={workJournal}
                         workJournalPage={workJournalPage}
@@ -464,6 +465,7 @@ export default function ProjectsPage({ ctx }) {
 
                     {activeProjectTab==='Расчёт с бригадой'&&(
                       <ProjectBrigadeCalculationTab
+                        companyContext={ctx.companyContext} user={user} onChanged={refreshData}
                         project={p}
                         brigadeContracts={brigadeContracts}
                         smetaTotal={projectPlanDone(p).plan}

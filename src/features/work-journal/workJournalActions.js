@@ -1,5 +1,13 @@
+import { pricelistAssignments } from '../work-material-accounting/pricelistAssignments';
+import { workMaterialAccountingEnabled } from '../work-material-accounting/materialSources';
+import { sendWorkBatch, clearWorkBatch, workBatchScope } from '../work-material-accounting/workCommands';
+import { clearSubmittedDrafts } from '../work-material-accounting/workDrafts';
+
 export const createWorkJournalActions = ({
   API,
+  companyContext,
+  allBrigadeItems = [],
+  prepareWorkMaterialGroups,
   GENERAL_WORK_ROOM_NAME,
   addActivity,
   applyMaterialOverNormReason,
@@ -7,6 +15,7 @@ export const createWorkJournalActions = ({
   denormalizeMeasure,
   estimatePackage,
   estimateWorkKey,
+  estimateDoneDrafts,
   estimateWorkMaterials,
   estimateWorkParams,
   estimatesList,
@@ -42,6 +51,12 @@ export const createWorkJournalActions = ({
   updateProjectProgress,
   user,
 }) => {
+  const confirmSources = groups => {
+    const rows = groups.flat();
+    return !rows.length || window.confirm('При отправке работы будет списано:\n\n' + rows.map(row =>
+      row.name + ': ' + fmtMeasure(row.quantity, row.unit) + '\n  с мастера ' + fmtMeasure(row.personalQuantity, row.unit)
+      + ', со склада ' + fmtMeasure(row.warehouseQuantity, row.unit)).join('\n') + '\n\nОтправить работу и списать указанный расход?');
+  };
   const submitEstimateWorkDone = async (mi, displayQty) => {
     const project = projects.find(p=>p.id===Number(masterProjectId));
     const est = estimatesList.find(e=>Number(e.id)===Number(mi.estId));
@@ -76,7 +91,7 @@ export const createWorkJournalActions = ({
     setEstimateWorkMaterials(prev => ({ ...prev, [workKey]: currentWorkMaterials }));
     let usedMats = currentWorkMaterials
       .filter(m=>m.name)
-      .map(m=>({name:m.name, quantity:toNum(m.quantity), unit:m.unit||'шт', workPackage:m.workPackage||estimatePackage(est), normQuantity:toNum(m.normQuantity), normSource:m.normSource||'', normRuleId:m.normRuleId||m.ruleId||'', normThicknessMm:m.normThicknessMm||m.thicknessMm||'', autoNorm:!!m.autoNorm, overNorm:toNum(m.normQuantity)>0 && toNum(m.quantity)>toNum(m.normQuantity)*1.1}));
+      .map(m=>({sourcePreference:m.sourcePreference, name:m.name, quantity:toNum(m.quantity), unit:m.unit||'шт', workPackage:m.workPackage||estimatePackage(est), normQuantity:toNum(m.normQuantity), normSource:m.normSource||'', normRuleId:m.normRuleId||m.ruleId||'', normThicknessMm:m.normThicknessMm||m.thicknessMm||'', autoNorm:!!m.autoNorm, overNorm:toNum(m.normQuantity)>0 && toNum(m.quantity)>toNum(m.normQuantity)*1.1}));
     for (const m of usedMats) {
       if (toNum(m.quantity)<=0) { alert('Укажите количество материала «'+m.name+'» или снимите галочку.'); return; }
     }
@@ -116,17 +131,33 @@ export const createWorkJournalActions = ({
         photoUrl: params.photoUrl || '',
       }},
     };
+    let submittedBatch;
+    if (workMaterialAccountingEnabled()) {
+      try {
+        updated._workJournalMaterials[workKey] = prepareWorkMaterialGroups(project.name, [usedMats])[0];
+        if (!confirmSources([updated._workJournalMaterials[workKey]])) return;
+        submittedBatch = await sendWorkBatch({ API, scope: workBatchScope(companyContext, user), commands: [
+          { path: '/estimates/' + est.id, method: 'PUT', payload: updated,
+            drafts: [{kind:'estimate',key:workKey,done:estimateDoneDrafts?.[workKey],materials:currentWorkMaterials,params:estimateWorkParams[workKey]}] },
+        ] });
+      } catch (error) { alert(error.message); return; }
+    } else {
     const res = await fetch(API+'/estimates/'+est.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(updated)});
     if (!res.ok) {
       const er = await res.json().catch(()=>({}));
       alert('Не удалось отправить работу: '+(er.detail||res.status));
       return;
     }
+    }
     setEstimatesList(prev=>prev.map(e=>Number(e.id)===Number(est.id)?{...est,sections:newSections}:e));
-    setEstimateDoneDrafts(prev=>{const next={...prev};delete next[workKey];return next;});
-    setEstimateWorkMaterials(prev=>{const next={...prev};delete next[workKey];return next;});
-    setEstimateWorkParams(prev=>{const next={...prev};delete next[workKey];return next;});
+    if (submittedBatch) clearSubmittedDrafts(submittedBatch, {setEstimateDoneDrafts,setEstimateWorkMaterials,setEstimateWorkParams});
+    else {
+      setEstimateDoneDrafts(prev=>{const next={...prev};delete next[workKey];return next;});
+      setEstimateWorkMaterials(prev=>{const next={...prev};delete next[workKey];return next;});
+      setEstimateWorkParams(prev=>{const next={...prev};delete next[workKey];return next;});
+    }
     await refreshData();
+    if (workMaterialAccountingEnabled()) clearWorkBatch(workBatchScope(companyContext, user));
     notify('Работа отправлена в ЖПР: '+mi.name,'work');
     alert('Работа отправлена на проверку. Материалы списаны по выбранным нормам/количествам.');
   };
@@ -150,6 +181,16 @@ export const createWorkJournalActions = ({
       }
       return [itemId, workData];
     });
+    if (workMaterialAccountingEnabled()) {
+      for (const [itemId, work] of normalizedSelectedEntries) {
+        const item = pricelistItems.find(row => row.id === Number(itemId));
+        if (!pricelistAssignments(allBrigadeItems, project, item, companyContext?.selectedCompanyId)
+          .some(line => line.id === Number(work.contractItemId))) {
+          alert('Выберите назначенную вам договорную позицию для работы «' + item.name + '».');
+          return;
+        }
+      }
+    }
     const plannedUsage = {};
     for (const [itemId, workData] of normalizedSelectedEntries) {
       const item = pricelistItems.find(i=>i.id===Number(itemId));
@@ -170,7 +211,7 @@ export const createWorkJournalActions = ({
       }
     }
     const blockMessage = materialWriteoffBlockMessage(project.name, Object.values(plannedUsage));
-    if (blockMessage) { alert(blockMessage); return; }
+    if (!workMaterialAccountingEnabled() && blockMessage) { alert(blockMessage); return; }
     const overrunReasons = {};
     for (const [itemId, workData] of normalizedSelectedEntries) {
       const item = pricelistItems.find(i=>i.id===Number(itemId));
@@ -179,21 +220,42 @@ export const createWorkJournalActions = ({
       if (overReason === null) return;
       if (overReason) overrunReasons[itemId] = overReason;
     }
+    const commands = [];
+    let preparedGroups;
+    if (workMaterialAccountingEnabled()) {
+      try { preparedGroups = prepareWorkMaterialGroups(project.name, normalizedSelectedEntries.map(([, work]) =>
+        (work.materials || []).map(material => ({ ...material, workPackage: material.workPackage || 'Прайс' })))); }
+      catch (error) { alert(error.message); return; }
+      if (!confirmSources(preparedGroups)) return;
+    }
+    let groupIndex = 0;
     for (const [itemId,workData] of normalizedSelectedEntries) {
       const item = pricelistItems.find(i=>i.id===Number(itemId));
       if (!item) continue;
       hasWork = true;
-      const ppu = item.price*coeff;
+      const contractLine = workMaterialAccountingEnabled()
+        ? allBrigadeItems.find(line => line.id === Number(workData.contractItemId)) : null;
+      const ppu = contractLine ? toNum(contractLine.priceBrigade) : item.price*coeff;
       const workQty = toNum(workData.quantity);
       const total = workQty*ppu;
       const reason = overrunReasons[itemId] || '';
-      const usedMats=(workData.materials||[]).filter(m=>m.name&&toNum(m.quantity)>0).map(m=>{const over=toNum(m.normQuantity)>0&&toNum(m.quantity)>toNum(m.normQuantity)*1.1;return {name:m.name,quantity:toNum(m.quantity),unit:m.unit||'шт',workPackage:m.workPackage||'Прайс',normQuantity:toNum(m.normQuantity),normSource:m.normSource||'',normRuleId:m.normRuleId||m.ruleId||'',normThicknessMm:m.normThicknessMm||m.thicknessMm||'',autoNorm:!!m.autoNorm,overNorm:over,overNormReason:over?reason:''};});
-      const wjRes=await fetch(API+'/work-journal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({masterId:user.id,masterName:user.name,project:project.name,description:item.name,unit:item.unit,quantity:workQty,pricePerUnit:ppu,total,customerPricePerUnit:ppu,customerTotal:total,executionPricePerUnit:ppu,executionTotal:total,executionPriceMode:'pricelist',date:now.toISOString().split('T')[0],comment:workData.comment||'',photoUrl:workData.photoUrl||'',materialsUsed:usedMats,workPackage:'Прайс',roomId:workData.roomId?Number(workData.roomId):null,roomName:workData.roomName||'',surface:workData.surface||'Стены',estimateItemName:item.name})});
+      const usedMats=(preparedGroups ? preparedGroups[groupIndex++] : workData.materials||[]).filter(m=>m.name&&toNum(m.quantity)>0).map(m=>{const over=toNum(m.normQuantity)>0&&toNum(m.quantity)>toNum(m.normQuantity)*1.1;return {...m,name:m.name,quantity:toNum(m.quantity),unit:m.unit||'шт',workPackage:m.workPackage||'Прайс',normQuantity:toNum(m.normQuantity),normSource:m.normSource||'',normRuleId:m.normRuleId||m.ruleId||'',normThicknessMm:m.normThicknessMm||m.thicknessMm||'',autoNorm:!!m.autoNorm,overNorm:over,overNormReason:over?reason:''};});
+      const workPayload = {contractItemId:contractLine?.id || null,masterId:user.id,masterName:user.name,project:project.name,description:item.name,unit:item.unit,quantity:workQty,pricePerUnit:ppu,total,customerPricePerUnit:ppu,customerTotal:total,executionPricePerUnit:ppu,executionTotal:total,executionPriceMode:'pricelist',date:now.toISOString().split('T')[0],comment:workData.comment||'',photoUrl:workData.photoUrl||'',materialsUsed:usedMats,workPackage:'Прайс',roomId:workData.roomId?Number(workData.roomId):null,roomName:workData.roomName||'',surface:workData.surface||'Стены',estimateItemName:item.name};
+      if (workMaterialAccountingEnabled()) { commands.push({ path: '/work-journal', method: 'POST', payload: workPayload, drafts:[{kind:'pricelist',key:itemId,selection:selectedWorks[itemId]}] }); continue; }
+      const wjRes = await fetch(API+'/work-journal', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(workPayload)});
       if(!wjRes.ok){const er=await wjRes.json().catch(()=>({}));alert('Не удалось отправить работу: '+(er.detail||'ошибка'));return;}
     }
     if (!hasWork) { alert('Введите количество хотя бы для одной работы'); return; }
+    let submittedBatch;
+    if (workMaterialAccountingEnabled()) {
+      try { submittedBatch = await sendWorkBatch({ API, scope: workBatchScope(companyContext, user), commands }); }
+      catch (error) { alert(error.message); return; }
+    }
     notify(user.name+' отправил работы','work');
-    await refreshData(); setSelectedWorks({}); setMasterProjectId(''); setPricelistItems([]);
+    await refreshData();
+    if (submittedBatch) clearSubmittedDrafts(submittedBatch, {setSelectedWorks});
+    else { setSelectedWorks({}); setMasterProjectId(''); setPricelistItems([]); }
+    if (workMaterialAccountingEnabled()) clearWorkBatch(workBatchScope(companyContext, user));
     alert('Работы отправлены на проверку!');
   };
 

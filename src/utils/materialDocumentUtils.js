@@ -26,6 +26,7 @@ export const parseJournalMaterialsValue = (value) => {
 
 export const buildWorkMaterialSelectionRow = (material = {}, quantity = '') => ({
   name: material.name,
+  sourcePreference: material.sourcePreference || 'auto',
   quantity,
   unit: material.unit || 'шт',
   workPackage: material.workPackage || '',

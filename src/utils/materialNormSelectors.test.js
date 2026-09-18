@@ -111,4 +111,33 @@ describe('personal material balance identity', () => {
       history: [{project: 'Объект', type: 'возврат от мастера', issuedBy: 'Иван Петров', material: 'Кабель', unit: 'м', quantity: 3}],
     })).toMatchObject({quantity: 5, used: 2, returned: 3});
   });
+
+  test.each(['Отклонено', 'Аннулировано'])(
+    'v2 work with status %s still consumes only its personal source', status => {
+      expect(row({workJournal: [{
+        project: 'Объект', masterId: 41, masterName: 'Иван Петров',
+        status, materialAccountingVersion: 2,
+        materialsUsed: [{name: 'Кабель', unit: 'м', quantity: 7,
+          personalQuantity: 2, warehouseQuantity: 5, warehouseMaterialId: 31}],
+      }]})).toMatchObject({quantity: 8, used: 2});
+    },
+  );
+
+  test.each(['Отклонено', 'Аннулировано'])(
+    'legacy work with status %s contributes no personal consumption', status => {
+      expect(row({workJournal: [{
+        project: 'Объект', masterId: 41, masterName: 'Иван Петров', status,
+        materialsUsed: [{name: 'Кабель', unit: 'м', quantity: 7}],
+      }]})).toMatchObject({quantity: 10, used: 0});
+    },
+  );
+
+  test('v2 database field names preserve personal consumption after annulment', () => {
+    expect(row({workJournal: [{
+      project: 'Объект', master_id: 41, master_name: 'Иван Петров',
+      status: 'Аннулировано', material_accounting_version: 2,
+      materials_used: [{name: 'Кабель', unit: 'м', quantity: 7,
+        personalQuantity: 2, warehouseQuantity: 5, warehouseMaterialId: 31}],
+    }]})).toMatchObject({quantity: 8, used: 2});
+  });
 });

@@ -292,6 +292,7 @@ export default function AccountingPage(props) {
 
       {accountingTab === 'acts' && (
         <AccountingActsPanel
+          companyContext={companyContext} user={user}
           C={C}
           card={card}
           inp={inp}
@@ -336,6 +337,7 @@ export default function AccountingPage(props) {
 
       {accountingTab === 'performerClosing' && (
         <AccountingPerformerClosingPanel
+          onOpenContractActs={() => setAccountingTab('acts')}
           C={C}
           card={card}
           inp={inp}

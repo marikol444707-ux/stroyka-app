@@ -2,6 +2,7 @@ import React from 'react';
 import { Check, FileText, ImageOff, LoaderCircle, ScrollText, Search, X } from 'lucide-react';
 
 import useProtectedFileObjectUrl from '../features/uploads/useProtectedFileObjectUrl';
+import WorkMaterialAccountingPanel from '../features/work-material-accounting/WorkMaterialAccountingPanel';
 
 
 function WorkJournalPhotoPreview({url, fileSrc, onOpen, C}) {
@@ -55,6 +56,7 @@ function WorkJournalPhotoPreview({url, fileSrc, onOpen, C}) {
 }
 
 export default function ProjectWorkJournalPanel({
+  API, companyContext, user, onChanged,
   project,
   workJournal = [],
   workJournalPage = {},
@@ -87,6 +89,7 @@ export default function ProjectWorkJournalPanel({
   const projectName = project.name;
   const [dateFrom, setDateFrom] = React.useState('');
   const [dateTo, setDateTo] = React.useState('');
+  const [materialJournal, setMaterialJournal] = React.useState(null);
   const workExecutionTotal = (work) => Number(work?.executionTotal ?? work?.execution_total ?? 0);
   const workCustomerTotal = (work) => Number(work?.customerTotal ?? work?.customer_total ?? work?.total ?? 0);
   const projectWorks = workJournal.filter(item => item.project === projectName);
@@ -217,6 +220,7 @@ export default function ProjectWorkJournalPanel({
                           );
                         })() : null}
                       </b>
+                      {item.materialAccountingVersion === 2 && <button type="button" style={{...btnB, margin: '6px 0'}} onClick={event => { event.stopPropagation(); setMaterialJournal(item); }}>Материалы и брак</button>}
                       <p style={{color: C.textSec, margin: '1px 0', fontSize: '11px'}}>
                         {item.quantity + ' ' + item.unit + (item.roomName ? ' · ' + item.roomName : '')}
                       </p>
@@ -273,6 +277,7 @@ export default function ProjectWorkJournalPanel({
       {queryMatches && workJournalPage.error && (
         <p style={{color: C.danger, fontSize:'12px', margin:'8px 0 0'}}>{workJournalPage.error}</p>
       )}
+      {materialJournal && <WorkMaterialAccountingPanel journal={materialJournal} {...{API, companyContext, user, C, onChanged}} onClose={() => setMaterialJournal(null)} />}
     </div>
   );
 }

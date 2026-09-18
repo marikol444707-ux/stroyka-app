@@ -40,6 +40,42 @@ const createRuntime = (cache, overrides = {}) => createMaterialRuntime({
   ...overrides,
 });
 
+test.each(['1', '0'])('director availability exposes warehouse sources only under accounting flag=%s', flag => {
+  const previous = process.env.REACT_APP_WORK_MATERIAL_ACCOUNTING_ENABLED;
+  process.env.REACT_APP_WORK_MATERIAL_ACCOUNTING_ENABLED = flag;
+  try {
+    const runtime = createRuntime(createMaterialRuntimeCache(), {
+      companyContext: { mode: 'company', selectedCompanyId: 1 }, materialAliasesError: '',
+      projects: [firstProject], user: { id: 7, name: 'Директор', role: 'директор' },
+      materials: [{ id: 41, name: 'Цемент', unit: 'кг', quantity: 3, project: 'Школа', workPackage: 'Основная' }],
+      materialTransfers: [
+        { id: 71, toUserId: 7, toPerson: 'Директор', signed: true, projectName: 'Школа',
+          materialName: 'Цемент', unit: 'кг', quantity: 6, workPackage: 'Основная' },
+        { id: 72, toUserId: 8, toPerson: 'Мастер', signed: true, projectName: 'Школа',
+          materialName: 'Цемент', unit: 'кг', quantity: 8, workPackage: 'Основная' },
+      ],
+    });
+    // Prove the personal fixture is valid, then verify it is not a source for
+    // a director's work submission, even when its recipient is the same user.
+    expect(runtime.personalMaterialRowsForProject('Школа', 'Директор', 7, 'Основная'))
+      .toEqual([expect.objectContaining({ name: 'Цемент', quantity: 6 })]);
+    const available = Object.values(runtime.materialAvailabilityMapForWork('Школа', 'Основная'));
+    expect(available).toHaveLength(1);
+    expect(available[0]).toMatchObject({ name: 'Цемент', unit: 'кг', quantity: 3 });
+    if (flag === '1') {
+      expect(available[0]).toMatchObject({ materialAccountingVersion: 2, personalAvailable: 0,
+        warehouseAvailable: 3, warehouseMaterialId: 41, sourceConflict: false });
+    } else {
+      expect(available[0].materialAccountingVersion).toBeUndefined();
+      expect(available[0].warehouseAvailable).toBeUndefined();
+      expect(available[0].warehouseMaterialId).toBeUndefined();
+    }
+  } finally {
+    if (previous === undefined) delete process.env.REACT_APP_WORK_MATERIAL_ACCOUNTING_ENABLED;
+    else process.env.REACT_APP_WORK_MATERIAL_ACCOUNTING_ENABLED = previous;
+  }
+});
+
 test('owned snapshot failure blocks cached reconciliation and marks invoice control unavailable', () => {
   const previous = process.env.REACT_APP_COMPANY_MATERIAL_ALIASES_ENABLED;
   process.env.REACT_APP_COMPANY_MATERIAL_ALIASES_ENABLED = '1';

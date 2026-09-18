@@ -3,6 +3,7 @@ import { createCompanyRequisitesForm } from '../settings/settingsInitialForms';
 import { qualityJournalScopeKey, requireQualityJournalOwnership } from '../../utils/qualityJournalScope';
 import { getQualityJournalRevision, qualityJournalMutationIssue, QUALITY_JOURNAL_MUTATED } from '../../utils/qualityJournalEvents';
 import { ownedAliasesEnabled } from '../material-control/ownedAliases';
+import { workMaterialAccountingEnabled } from '../work-material-accounting/materialSources';
 
 const ESTIMATES_SUMMARY_PATH = '/estimates?summary=true';
 const PEOPLE_DATA_ROLES = ['директор', 'зам_директора', 'бухгалтер', 'прораб', 'главный_инженер', 'сметчик', 'кладовщик', 'снабженец', 'стройконтроль'];
@@ -411,7 +412,8 @@ export const useAppDataLoaders = (ctx) => {
     });
     if (['projects','site','works','documents','cable'].includes(page)) return loadMobileScopeOnce('mobile:projects-docs', async () => {
       if (canSeeProjectDocs) markEstimatesLoading(true);
-      const [p,wj,mt,ro,rw,rwin,rdoor,ps,pcl,pres,uw,est,er,bc,abi,hwa,mij,cbj,sva,inspO,warD,pdocs,plet,pmeas,mdrafts,s,u,ct,ia,pw,mp] = await Promise.all([
+      const loadWorkMaterials = isWorkerRole && workMaterialAccountingEnabled();
+      const [p,wj,mt,ro,rw,rwin,rdoor,ps,pcl,pres,uw,est,er,bc,abi,hwa,mij,cbj,sva,inspO,warD,pdocs,plet,pmeas,mdrafts,s,u,ct,ia,pw,mp,m,mn,mno,h] = await Promise.all([
         role === 'поставщик' ? Promise.resolve([]) : getApi('/projects'),
         role === 'поставщик' ? Promise.resolve([]) : getApi(pagedPath('/work-journal', {limit: WORK_JOURNAL_PAGE_LIMIT})),
         (isWarehouseRole || ['мастер','субподрядчик','бригадир'].includes(role)) ? getApi('/material-transfers') : Promise.resolve([]),
@@ -443,6 +445,10 @@ export const useAppDataLoaders = (ctx) => {
         canLoadAccountingData ? getApi('/interim-acts') : Promise.resolve([]),
         canLoadPeopleData ? getApi('/piecework') : Promise.resolve([]),
         canLoadPeopleData ? getApi('/master-profiles') : Promise.resolve([]),
+        loadWorkMaterials ? getApi(pagedPath('/materials', {limit: MATERIALS_PAGE_LIMIT})) : Promise.resolve([]),
+        loadWorkMaterials ? getApi(pagedPath('/material-norms', {limit: MATERIAL_NORMS_PAGE_LIMIT})) : Promise.resolve([]),
+        loadWorkMaterials ? getApi('/material-norms/overrides') : Promise.resolve([]),
+        loadWorkMaterials ? getApi('/warehouse-history') : Promise.resolve([]),
       ]);
       const safeWorkJournal = Array.isArray(wj) ? wj : [];
       setProjects(Array.isArray(p)?p:[]);
@@ -467,6 +473,12 @@ export const useAppDataLoaders = (ctx) => {
       setInterimActs(Array.isArray(ia)?ia:[]);
       setPiecework(Array.isArray(pw)?pw:[]);
       setMasterProfiles(Array.isArray(mp)?mp:[]);
+      if (loadWorkMaterials) {
+        setMaterials(Array.isArray(m)?m:[]); resetMaterialsPage(m);
+        setMaterialNorms(Array.isArray(mn)?mn:[]); resetMaterialNormsPage(mn);
+        setMaterialNormOverrides(Array.isArray(mno)?mno:[]);
+        setHistory(Array.isArray(h)?h:[]);
+      }
     });
     if (page === 'estimates') return loadMobileScopeOnce('mobile:estimates', async () => {
       if (canLoadEstimates) markEstimatesLoading(true);

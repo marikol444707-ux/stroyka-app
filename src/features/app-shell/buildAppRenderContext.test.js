@@ -3,6 +3,28 @@ import { qualityJournalLoadIssue, qualityJournalScopeKey } from '../../utils/qua
 import { getQualityJournalRevision } from '../../utils/qualityJournalEvents';
 
 describe('buildAppRenderContext company context wiring', () => {
+  test.each(['мастер', 'субподрядчик', 'бригадир'])(
+    'forwards shared material preparation through the early route into the %s cabinet', role => {
+      const prepareWorkMaterialGroups = jest.fn((_project, groups) => groups);
+      const capMaterialWriteoffQty = jest.fn((_project, _name, quantity) => quantity);
+      const { earlyRoleRoute } = buildAppRenderContext({
+        actionGroups: {
+          documentActions: {}, personnelActions: {}, pricelistActions: {},
+          projectCrudActions: {}, projectOperationActions: {}, supplyActions: {},
+          supplyPlanningUi: {}, userAccessActions: {}, warehouseActions: {}, workJournalActions: {},
+        },
+        appCoreRuntime: { myNotifications: () => [] },
+        appBusinessRuntime: { prepareWorkMaterialGroups, capMaterialWriteoffQty },
+        companyContext: { mode: 'company', selectedCompanyId: 4 },
+        user: { id: 7, role },
+      });
+      expect(earlyRoleRoute.props.actions.prepareWorkMaterialGroups).toBe(prepareWorkMaterialGroups);
+      const cabinetRoute = earlyRoleRoute.type(earlyRoleRoute.props);
+      expect(cabinetRoute.props.children.props.prepareWorkMaterialGroups).toBe(prepareWorkMaterialGroups);
+      expect(cabinetRoute.props.children.props.capMaterialWriteoffQty).toBe(capMaterialWriteoffQty);
+    },
+  );
+
   test('passes the received company context to operations page state', () => {
     const companyContext = {
       mode: 'company',

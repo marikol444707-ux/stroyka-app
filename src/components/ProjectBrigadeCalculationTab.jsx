@@ -11,6 +11,7 @@ import ProjectBrigadeCalculationTable from './ProjectBrigadeCalculationTable';
 import ProjectBrigadeActPaymentPanel from './ProjectBrigadeActPaymentPanel';
 
 export default function ProjectBrigadeCalculationTab({
+  companyContext, user, onChanged,
   project,
   brigadeContracts,
   smetaTotal,
@@ -175,6 +176,7 @@ export default function ProjectBrigadeCalculationTab({
           />
 
           <ProjectBrigadeActPaymentPanel
+            {...{companyContext, user, onChanged}}
             project={project}
             selectedBrigadeContract={selectedBrigadeContract}
             brigadeContractItems={brigadeContractItems}
