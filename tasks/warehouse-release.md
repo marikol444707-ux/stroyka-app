@@ -36,8 +36,8 @@ supplier-catalog development branch. Keep its supplier invoice/payment work out.
   PostgreSQL; resolve findings with failing regressions first.
 - [x] Rehearse migrations on a fresh private production copy; compare original
   data fingerprints and inspect source/stock precision without historical repair.
-- [ ] Complete full regression, enabled build and authenticated browser rehearsal.
-- [ ] Back up and publish a pinned release; verify live API/UI, owners and counts.
+- [x] Complete full regression, enabled build and authenticated browser rehearsal.
+- [x] Back up and publish a pinned release; verify live API/UI, owners and counts.
 
 Preserve all old records and balances. Do not infer per-lot provenance for old
 object stock, import financial migrations, send RFQs/notifications or introduce
