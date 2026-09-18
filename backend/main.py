@@ -8174,7 +8174,13 @@ def _row_get(row, key, index=None, default=None):
             return default
     return default
 
-def _resolve_material_alias(cur, project: str, name: str, unit: str = ""):
+def _resolve_material_alias(cur, project: str, name: str, unit: str = "", *, company_id=None, project_id=None):
+    try:
+        from backend.features.material_aliases.runtime import owned_aliases_enabled, resolve_owned_alias
+    except ModuleNotFoundError:
+        from features.material_aliases.runtime import owned_aliases_enabled, resolve_owned_alias
+    if owned_aliases_enabled():
+        return resolve_owned_alias(cur, project, name, unit, company_id=company_id, project_id=project_id)
     raw_name = (name or "").strip()
     raw_unit = _norm_base_unit(unit or "")
     if not raw_name:
@@ -8220,20 +8226,20 @@ def _resolve_material_alias(cur, project: str, name: str, unit: str = ""):
         print("MATERIAL ALIAS RESOLVE ERROR:", str(e))
     return None
 
-def _material_control_key_resolved(cur, project: str, name: str, unit: str = ""):
+def _material_control_key_resolved(cur, project: str, name: str, unit: str = "", *, company_id=None, project_id=None):
     raw_name = (name or "").strip()
     raw_unit = _norm_base_unit(unit or "")
-    alias = _resolve_material_alias(cur, project, raw_name, raw_unit)
+    alias = _resolve_material_alias(cur, project, raw_name, raw_unit, company_id=company_id, project_id=project_id)
     if alias:
         return _material_control_key(alias.get("canonicalName") or raw_name, alias.get("canonicalUnit") or raw_unit)
     return _material_control_key(raw_name, raw_unit)
 
-def _apply_material_alias_to_invoice_item(cur, project: str, item: dict):
+def _apply_material_alias_to_invoice_item(cur, project: str, item: dict, *, company_id=None, project_id=None):
     if not isinstance(item, dict):
         return item
     raw_name = (item.get("name") or item.get("materialName") or "").strip()
     raw_unit = item.get("unit") or ""
-    alias = _resolve_material_alias(cur, project, raw_name, raw_unit)
+    alias = _resolve_material_alias(cur, project, raw_name, raw_unit, company_id=company_id, project_id=project_id)
     if not alias:
         return item
     canonical_name = (alias.get("canonicalName") or raw_name).strip()
@@ -8253,6 +8259,8 @@ def _apply_material_alias_to_invoice_item(cur, project: str, item: dict):
         "canonicalUnit": canonical_unit or "",
         "matchType": alias.get("matchType") or "exact",
     }
+    if alias.get("matchType") == "company_owned":
+        item["materialAlias"].update(companyId=alias["companyId"], projectId=alias["projectId"])
     return item
 
 def _is_invoice_consumable_material(name: str) -> bool:
@@ -8713,7 +8721,7 @@ def _supply_material_estimate_control(cur, project_owner: dict, material_name: s
     if not project or not company_id or not project_id or not material_name:
         return None
     package = _supply_work_package(work_package)
-    target_key = _material_control_key_resolved(cur, project, material_name, unit)
+    target_key = _material_control_key_resolved(cur, project, material_name, unit, company_id=company_id, project_id=project_owner["id"])
     planned_qty = planned_sum = 0.0
     matched_rows = 0
     fuzzy_matched_rows = 0
@@ -8760,7 +8768,7 @@ def _supply_material_estimate_control(cur, project_owner: dict, material_name: s
                 qty, plan_sum, _ = contribution
                 item_name = (item.get("name") or "").strip()
                 item_unit = item.get("unit") or ""
-                item_key = _material_control_key_resolved(cur, project, item_name, item_unit)
+                item_key = _material_control_key_resolved(cur, project, item_name, item_unit, company_id=company_id, project_id=project_owner["id"])
                 exact_match = item_key == target_key
                 fuzzy_score = 0.0 if exact_match else _material_name_match_score(material_name, item_name)
                 units_compatible = _material_units_compatible(unit, item_unit)
@@ -8803,7 +8811,7 @@ def _supply_material_estimate_control(cur, project_owner: dict, material_name: s
                    WHERE project=%s AND COALESCE(NULLIF(work_package,''),'Основная') = ANY(%s)""",
                 (project, stock_packages))
     for row in _cursor_rows_as_dicts(cur, cur.fetchall()):
-        if _material_control_key_resolved(cur, project, row.get("name"), row.get("unit")) == target_key or (
+        if _material_control_key_resolved(cur, project, row.get("name"), row.get("unit"), company_id=company_id, project_id=project_owner["id"]) == target_key or (
             _material_units_compatible(unit, row.get("unit")) and _material_name_match_score(material_name, row.get("name")) >= 0.55
         ):
             stock_qty += _float_or_zero(row.get("quantity"))
@@ -8819,7 +8827,7 @@ def _supply_material_estimate_control(cur, project_owner: dict, material_name: s
                      AND COALESCE(status,'Активна') <> 'Аннулирована'""",
                 (company_id, project_id, matched_package))
     for row in _cursor_rows_as_dicts(cur, cur.fetchall()):
-        if _material_control_key_resolved(cur, project, row.get("material_name"), row.get("unit")) == target_key or (
+        if _material_control_key_resolved(cur, project, row.get("material_name"), row.get("unit"), company_id=company_id, project_id=project_owner["id"]) == target_key or (
             _material_units_compatible(unit, row.get("unit")) and _material_name_match_score(material_name, row.get("material_name")) >= 0.55
         ):
             qty = _float_or_zero(row.get("quantity"))
@@ -8836,7 +8844,7 @@ def _supply_material_estimate_control(cur, project_owner: dict, material_name: s
                      AND COALESCE(NULLIF(work_package,''),'Основная')=%s
                      AND LOWER(COALESCE(type,'')) LIKE %s""", (project, matched_package, "возврат от мастера%"))
     for row in _cursor_rows_as_dicts(cur, cur.fetchall()):
-        if _material_control_key_resolved(cur, project, row.get("material"), row.get("unit")) == target_key or (
+        if _material_control_key_resolved(cur, project, row.get("material"), row.get("unit"), company_id=company_id, project_id=project_owner["id"]) == target_key or (
             _material_units_compatible(unit, row.get("unit")) and _material_name_match_score(material_name, row.get("material")) >= 0.55
         ):
             returned_qty += _float_or_zero(row.get("quantity"))
@@ -8854,7 +8862,7 @@ def _supply_material_estimate_control(cur, project_owner: dict, material_name: s
                 continue
             item_name = item.get("name") or item.get("materialName") or ""
             item_unit = item.get("unit") or unit
-            if _material_control_key_resolved(cur, project, item_name, item_unit) == target_key or (
+            if _material_control_key_resolved(cur, project, item_name, item_unit, company_id=company_id, project_id=project_owner["id"]) == target_key or (
                 _material_units_compatible(unit, item_unit) and _material_name_match_score(material_name, item_name) >= 0.55
             ):
                 written_off_qty += _float_or_zero(item.get("quantity"))
@@ -8888,7 +8896,7 @@ def _supply_material_estimate_control(cur, project_owner: dict, material_name: s
             item_package = _supply_work_package(item.get("workPackage") or item.get("work_package") or row.get("work_package"))
             if item_package != matched_package:
                 continue
-            if _material_control_key_resolved(cur, project, item_name, item_unit) == target_key or (
+            if _material_control_key_resolved(cur, project, item_name, item_unit, company_id=company_id, project_id=project_owner["id"]) == target_key or (
                 _material_units_compatible(unit, item_unit) and _material_name_match_score(material_name, item_name) >= 0.55
             ):
                 item_qty = _float_or_zero(item.get("quantity"))
@@ -8901,7 +8909,7 @@ def _supply_material_estimate_control(cur, project_owner: dict, material_name: s
                     delivery_package = _supply_work_package(delivery_row.get("work_package"))
                     if delivery_package != item_package:
                         continue
-                    if _material_control_key_resolved(cur, project, delivery_row.get("material_name"), delivery_row.get("unit")) == target_key or (
+                    if _material_control_key_resolved(cur, project, delivery_row.get("material_name"), delivery_row.get("unit"), company_id=company_id, project_id=project_owner["id"]) == target_key or (
                         _material_units_compatible(unit, delivery_row.get("unit")) and _material_name_match_score(material_name, delivery_row.get("material_name")) >= 0.55
                     ):
                         delivered_qty += _float_or_zero(delivery_row.get("received_quantity"))
@@ -9080,7 +9088,7 @@ def _attach_supply_estimate_control(
             item.get("unit") or "",
             item.get("workPackage") or item.get("work_package") or "",
             exclude_request_id=exclude_request_id,
-            exclude_stock_qty=exclude_stock_by_key.get(_material_control_key_resolved(cur, project, item.get("materialName") or item.get("name") or "", item.get("unit") or ""), 0),
+            exclude_stock_qty=exclude_stock_by_key.get(_material_control_key_resolved(cur, project, item.get("materialName") or item.get("name") or "", item.get("unit") or "", company_id=company_id, project_id=project_owner["id"]), 0),
         )
         if not control:
             continue
@@ -9207,10 +9215,16 @@ def _enforce_supply_estimate_control(
             detail=prefix + " не проходит сметный контроль. " + "; ".join(blockers[:5]) + ". Сначала добавьте материал в активную/доп. смету или исправьте раздел сметы."
         )
 
-def _copy_approved_supply_request_control(cur, request_id, project: str, items: list) -> bool:
+def _copy_approved_supply_request_control(cur, request_id, project: str, items: list, *, company_id=None) -> bool:
     if not request_id or not items:
         return False
-    cur.execute("SELECT status, items_json FROM supply_requests WHERE id=%s", (request_id,))
+    try:
+        from backend.features.material_aliases.runtime import owned_aliases_enabled
+    except ModuleNotFoundError:
+        from features.material_aliases.runtime import owned_aliases_enabled
+    if owned_aliases_enabled() and not company_id:
+        raise HTTPException(409, 'Компания заявки не определена')
+    cur.execute("SELECT status, items_json FROM supply_requests WHERE id=%s AND (company_id=%s OR %s IS NULL)", (request_id, company_id, company_id))
     req = cur.fetchone()
     if not req:
         return False
@@ -9229,6 +9243,7 @@ def _copy_approved_supply_request_control(cur, request_id, project: str, items: 
             project,
             item.get("materialName") or item.get("name") or "",
             item.get("unit") or "",
+            company_id=company_id,
         )
         for req_item in request_items:
             if not isinstance(req_item, dict):
@@ -9241,6 +9256,7 @@ def _copy_approved_supply_request_control(cur, request_id, project: str, items: 
                 project,
                 req_item.get("materialName") or req_item.get("name") or "",
                 req_item.get("unit") or "",
+                company_id=company_id,
             )
             if req_key != item_key:
                 continue
@@ -9436,7 +9452,7 @@ def create_supply_request(
                 cache_key = (project or "", name or "", unit or "")
                 if cache_key not in lineage_material_keys:
                     lineage_material_keys[cache_key] = _material_control_key_resolved(
-                        cur, project, name, unit
+                        cur, project, name, unit, company_id=company_id, project_id=project_id
                     )
                 return lineage_material_keys[cache_key]
 
@@ -12553,7 +12569,7 @@ def _stock_row_by_material_key(
     main_warehouse: bool = False,
     company_id=None,
 ):
-    target_key = _material_control_key_resolved(cur, project, material_name, unit)
+    target_key = _material_control_key_resolved(cur, project, material_name, unit, company_id=company_id)
     unit_key = _norm_base_unit(unit or "").strip().lower()
     unit_filter = f" AND {_sql_norm_unit('unit')}=%s" if unit_key else ""
     normalized_company_id = _positive_int_or_none(company_id)
@@ -12561,7 +12577,7 @@ def _stock_row_by_material_key(
     def _row_matches(row):
         row_name = _row_value(row, 1, "name", "")
         row_unit = _row_value(row, 3, "unit", unit)
-        if _material_control_key_resolved(cur, project, row_name, row_unit) == target_key:
+        if _material_control_key_resolved(cur, project, row_name, row_unit, company_id=company_id) == target_key:
             return True
         return _material_units_compatible(unit, row_unit) and _material_name_match_score(material_name, row_name) >= 0.55
     if main_warehouse:
@@ -12611,7 +12627,7 @@ def _personal_material_balance(
 ):
     if not (material_name or "").strip():
         return {"issued": 0, "used": 0, "available": 0}
-    target_key = _material_control_key_resolved(cur, project, material_name, unit)
+    target_key = _material_control_key_resolved(cur, project, material_name, unit, company_id=company_id)
     unit_key = _norm_base_unit(unit or "").strip().lower()
     package_name = (work_package or "Основная").strip() or "Основная"
     package_filter = " AND COALESCE(NULLIF(work_package,''),'Основная')=%s"
@@ -12642,7 +12658,7 @@ def _personal_material_balance(
     for row in cur.fetchall() or []:
         row_name = _row_value(row, 0, "material_name", "")
         row_unit = _row_value(row, 2, "unit", unit)
-        if _material_control_key_resolved(cur, project, row_name, row_unit) == target_key:
+        if _material_control_key_resolved(cur, project, row_name, row_unit, company_id=company_id) == target_key:
             issued += float(_row_value(row, 1, "quantity", 0) or 0)
     package_journal_filter = " AND COALESCE(NULLIF(work_package,''),'Основная')=%s"
     if person_id:
@@ -12664,7 +12680,7 @@ def _personal_material_balance(
         raw = row.get("materials_used") if isinstance(row, dict) else row[0]
         for m in _parse_materials_used(raw):
             material_unit = _norm_base_unit(m.get("unit") or "").strip().lower()
-            material_name_key = _material_control_key_resolved(cur, project, m.get("name") or "", material_unit or unit)
+            material_name_key = _material_control_key_resolved(cur, project, m.get("name") or "", material_unit or unit, company_id=company_id)
             if material_name_key == target_key and (not unit_key or material_unit == unit_key):
                 try:
                     used += float(m.get("quantity") or 0)
@@ -12682,7 +12698,7 @@ def _personal_material_balance(
     for row in cur.fetchall() or []:
         row_name = _row_value(row, 0, "material", "")
         row_unit = _row_value(row, 2, "unit", unit)
-        if _material_control_key_resolved(cur, project, row_name, row_unit) == target_key:
+        if _material_control_key_resolved(cur, project, row_name, row_unit, company_id=company_id) == target_key:
             returned += float(_row_value(row, 1, "quantity", 0) or 0)
     return {"issued": issued, "used": used, "returned": returned, "available": issued - used - returned}
 
@@ -12734,7 +12750,7 @@ def _work_material_items(raw, fallback_package: str = ""):
         })
     return items
 
-def _server_work_material_norm(cur, material: dict, *, project: str = "", estimate_id=None,
+def _server_work_material_norm(cur, material: dict, *, company_id=None, project: str = "", estimate_id=None,
                                work_name: str = "", section_name: str = "",
                                work_qty=0, work_unit: str = ""):
     name = (material.get("name") or "").strip()
@@ -12752,9 +12768,15 @@ def _server_work_material_norm(cur, material: dict, *, project: str = "", estima
         return None
     resolved_name = ""
     try:
-        resolved_key = _material_control_key_resolved(cur, project, name, material_unit)
+        resolved_key = _material_control_key_resolved(cur, project, name, material_unit, company_id=company_id)
         resolved_name = resolved_key[0] if isinstance(resolved_key, tuple) else ""
     except Exception:
+        try:
+            from backend.features.material_aliases.runtime import owned_aliases_enabled
+        except ModuleNotFoundError:
+            from features.material_aliases.runtime import owned_aliases_enabled
+        if owned_aliases_enabled():
+            raise
         resolved_name = ""
     material_name_variants = [name]
     if resolved_name and _norm_key_text(resolved_name) != _norm_key_text(name):
@@ -12802,7 +12824,7 @@ def _server_work_material_norm(cur, material: dict, *, project: str = "", estima
         "autoNorm": True,
     }
 
-def _validate_work_material_norm_reasons(items, cur=None, *, project: str = "", estimate_id=None,
+def _validate_work_material_norm_reasons(items, cur=None, *, company_id=None, project: str = "", estimate_id=None,
                                          work_name: str = "", section_name: str = "",
                                          work_qty=0, work_unit: str = "", actor_role: str = ""):
     for material in items or []:
@@ -12813,6 +12835,7 @@ def _validate_work_material_norm_reasons(items, cur=None, *, project: str = "", 
             server_norm = _server_work_material_norm(
                 cur,
                 material,
+                company_id=company_id,
                 project=project,
                 estimate_id=estimate_id,
                 work_name=work_name,
@@ -13089,13 +13112,13 @@ def _recalculate_estimate_item_done_from_work_journal(cur, work_row: dict):
                 (json.dumps(sections, ensure_ascii=False), estimate_id))
     return True
 
-def _work_material_key(material: dict, cur=None, project: str = ""):
+def _work_material_key(material: dict, cur=None, project: str = "", *, company_id=None):
     name = (material.get("name") or "").strip()
     unit = (material.get("unit") or "").strip()
     package = (material.get("workPackage") or material.get("work_package") or "").strip().lower()
     if cur is not None and project:
         return (
-            _material_control_key_resolved(cur, project, name, unit),
+            _material_control_key_resolved(cur, project, name, unit, company_id=company_id),
             package,
         )
     return (
@@ -13104,10 +13127,10 @@ def _work_material_key(material: dict, cur=None, project: str = ""):
         package,
     )
 
-def _work_material_map(items, cur=None, project: str = ""):
+def _work_material_map(items, cur=None, project: str = "", *, company_id=None):
     mapped = {}
     for material in items or []:
-        key = _work_material_key(material, cur, project)
+        key = _work_material_key(material, cur, project, company_id=company_id)
         if not key[0]:
             continue
         current = mapped.get(key)
@@ -13166,8 +13189,8 @@ def _apply_work_material_delta(cur, work_row: dict, old_items, new_items, curren
     project = work_row.get("project") or ""
     if not project:
         return
-    old_map = _work_material_map(old_items, cur, project)
-    new_map = _work_material_map(new_items, cur, project)
+    old_map = _work_material_map(old_items, cur, project, company_id=work_row.get("company_id"))
+    new_map = _work_material_map(new_items, cur, project, company_id=work_row.get("company_id"))
     changes = []
     for key in set(old_map.keys()) | set(new_map.keys()):
         old_material = old_map.get(key) or {}
@@ -13573,6 +13596,7 @@ def create_work_journal(
         _validate_work_material_norm_reasons(
             used,
             cur,
+            company_id=journal_company_id,
             project=w.project,
             estimate_id=journal_estimate_id,
             work_name=journal_description,
@@ -13877,17 +13901,6 @@ def update_work_journal(
     if new_materials is not None:
         target_material_package = data.get("workPackage", project_row.get("work_package") if project_row else "")
         new_materials = _force_work_material_package(new_materials, target_material_package or "")
-        _validate_work_material_norm_reasons(
-            new_materials,
-            cur,
-            project=project_name,
-            estimate_id=data.get("estimateId") or (project_row.get("estimate_id") if project_row else None),
-            work_name=data.get("description") or (project_row.get("description") if project_row else ""),
-            section_name=data.get("sectionName") or (project_row.get("section_name") if project_row else ""),
-            work_qty=new_qty,
-            work_unit=data.get("unit") or (project_row.get("unit") if project_row else ""),
-            actor_role=_current_user.get("role") or "",
-        )
     if contract_item_id and contract_item and "quantity" in data:
         contract_price = _float_or_zero(contract_item.get("price_brigade") if isinstance(contract_item, dict) else contract_item[3])
         contract_total = round(new_qty * contract_price, 2)
@@ -13920,6 +13933,18 @@ def update_work_journal(
         ))
     try:
         if new_materials is not None:
+            _validate_work_material_norm_reasons(
+                new_materials,
+                cur,
+                company_id=project_row.get("company_id"),
+                project=project_name,
+                estimate_id=data.get("estimateId") or project_row.get("estimate_id"),
+                work_name=data.get("description") or project_row.get("description") or "",
+                section_name=data.get("sectionName") or project_row.get("section_name") or "",
+                work_qty=new_qty,
+                work_unit=data.get("unit") or project_row.get("unit") or "",
+                actor_role=_current_user.get("role") or "",
+            )
             _apply_work_material_delta(cur, project_row, old_materials, new_materials, _current_user, project_row.get("date") or "")
             sets.append("materials_used=%s")
             vals.append(_json.dumps(new_materials, ensure_ascii=False) if new_materials else None)
@@ -18184,6 +18209,7 @@ def update_estimate(
                 _validate_work_material_norm_reasons(
                     used_materials,
                     cur,
+                    company_id=estimate_scope["companyId"],
                     project=project_name,
                     estimate_id=id,
                     work_name=it.get("name", ""),
@@ -18268,27 +18294,33 @@ def update_estimate(
         or new_smeta_type != (prev[4] or "Заказчик")
         or new_work_package != current_work_package
     )
-    if new_status == "Активная" and project_name and (estimate_materials_changed or estimate_scope_changed):
-        supply_refresh = _refresh_open_supply_controls_for_estimate(
-            cur,
-            project_name,
-            estimate_scope["companyId"],
-            estimate_scope.get("projectId"),
-        )
-    if (
-        new_status == "Активная"
-        and new_smeta_type == "Заказчик"
-        and estimate_scope.get("projectId")
-    ):
-        ensure_active_estimate_snapshot(
-            cur,
-            estimate_id=id,
-            company_id=estimate_scope["companyId"],
-            project_id=estimate_scope["projectId"],
-            created_by=_current_user.get("name") or "",
-        )
-    conn.commit()
-    cur.close(); conn.close()
+    try:
+        if new_status == "Активная" and project_name and (estimate_materials_changed or estimate_scope_changed):
+            supply_refresh = _refresh_open_supply_controls_for_estimate(
+                cur,
+                project_name,
+                estimate_scope["companyId"],
+                estimate_scope.get("projectId"),
+            )
+        if (
+            new_status == "Активная"
+            and new_smeta_type == "Заказчик"
+            and estimate_scope.get("projectId")
+        ):
+            ensure_active_estimate_snapshot(
+                cur,
+                estimate_id=id,
+                company_id=estimate_scope["companyId"],
+                project_id=estimate_scope["projectId"],
+                created_by=_current_user.get("name") or "",
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
     agent_dispatch_report = handoff_estimate_activation_transition(
         previous_status=prev_status,
         next_status=new_status,
@@ -19341,7 +19373,7 @@ def create_material_transfer(
                 "unit": unit,
                 "workPackage": work_package,
             }]
-            control_key = _material_control_key_resolved(cur, project_name, stock_name or material_name, unit)
+            control_key = _material_control_key_resolved(cur, project_name, stock_name or material_name, unit, company_id=company_id)
             _attach_supply_estimate_control(
                 cur,
                 project_name,
@@ -20144,7 +20176,8 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
             item = dict(raw_item)
             item["workPackage"] = _supply_work_package(item.get("workPackage") or item.get("work_package") or data.get("workPackage") or data.get("work_package"))
             if target_project:
-                item = _apply_material_alias_to_invoice_item(cur, target_project, item)
+                item = _apply_material_alias_to_invoice_item(cur, target_project, item,
+                    company_id=company_id, project_id=resolved_receipt_project['id'])
             normalized_invoice_items.append(item)
         items_list = normalized_invoice_items
         try:
@@ -21874,6 +21907,21 @@ register_material_aliases_module(app, {
     "write_roles": (*LEADERSHIP_ROLES, "прораб", "главный_инженер", "сметчик", "снабженец", "кладовщик"),
     "require_project_access": require_project_access,
     "visible_project_names": visible_project_names,
+})
+
+try:
+    from backend.features.material_aliases.owned_routes import register_owned_aliases
+except ModuleNotFoundError:
+    from features.material_aliases.owned_routes import register_owned_aliases
+
+register_owned_aliases(app, {
+    "get_db": get_db,
+    "get_current_user": get_current_user,
+    "read_roles": PROJECT_DOCUMENT_ROLES,
+    "write_roles": (*LEADERSHIP_ROLES, "прораб", "главный_инженер", "сметчик", "снабженец", "кладовщик"),
+    "full_project_roles": BRIGADE_FULL_VIEW_ROLES,
+    "platform_staff_roles": PLATFORM_STAFF_ROLES,
+    "client_account_roles": CLIENT_ACCOUNT_ROLES,
 })
 
 @app.get("/material-norms")
