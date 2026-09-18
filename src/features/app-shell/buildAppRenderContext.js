@@ -541,6 +541,7 @@ export function buildAppRenderContext({
     actions: { showPreview },
     appMainState,
     businessRuntime: appBusinessRuntime,
+    companyContext,
     coreRuntime: appCoreRuntime,
     documentActions,
     layout: { isMobile },
@@ -549,6 +550,7 @@ export function buildAppRenderContext({
     projectOperationActions,
     selectors: appShellSelectors,
     ui: appShellUi,
+    user,
     warehouseActions,
     workJournalActions
   });
