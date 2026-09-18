@@ -29,6 +29,7 @@ describe('buildAppRenderContext company context wiring', () => {
     });
 
     expect(earlyRoleRoute).toBeNull();
+    expect(appShellProps.projectsPageContext.companyContext).toBe(companyContext);
     expect(
       appShellProps.appOperationsPagesProps.state.companyContext,
     ).toBe(companyContext);

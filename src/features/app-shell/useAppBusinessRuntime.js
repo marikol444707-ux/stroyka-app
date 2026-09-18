@@ -73,6 +73,9 @@ export function useAppBusinessRuntime({
   } = utilities;
   const {
     apiAuthHeaders,
+    invalidateOwnedAliases,
+    reloadOwnedAliases,
+    getOwnedAliasSnapshotToken,
     isFinanceRole,
     navigateTo,
     notify,
@@ -120,6 +123,7 @@ export function useAppBusinessRuntime({
     invoices,
     manualExpenses,
     materialAliases,
+    materialAliasesError,
     materialInspections,
     materialNormOverrides,
     materialNorms,
@@ -324,6 +328,9 @@ export function useAppBusinessRuntime({
     workJournal,
   ]);
   const materialRuntime = createMaterialRuntime({
+    getOwnedAliasSnapshotToken,
+    materialAliasesError,
+    companyContext,
     activeEstimatesForProject,
     canonicalCompanyName: companyName,
     companyRequisites,
@@ -508,6 +515,9 @@ export function useAppBusinessRuntime({
     isLeadership
   } = appRoleRuntime;
   const materialControlActions = createMaterialControlActions({
+    getOwnedAliasSnapshotToken,
+    invalidateOwnedAliases,
+    reloadOwnedAliases,
     API,
     C,
     btnB,
@@ -516,6 +526,8 @@ export function useAppBusinessRuntime({
     user,
     projects,
     materialAliases,
+    materialAliasesError,
+    companyContext,
     setMaterialAliases,
     supplyRequests,
     aiTaskByMarker,

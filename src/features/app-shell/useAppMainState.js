@@ -234,6 +234,7 @@ export function useAppMainState() {
   const [materialsPage, setMaterialsPage] = useState({projectName:'', search:'', hasMore:false, loading:false, error:''});
   const [workJournalPage, setWorkJournalPage] = useState({projectName:'', search:'', dateFrom:'', dateTo:'', hasMore:false, loading:false, error:''});
   const [materialAliases, setMaterialAliases] = useState([]);
+  const [materialAliasesError, setMaterialAliasesError] = useState('Соответствия ещё не загружены');
   const [materialNormOverrides, setMaterialNormOverrides] = useState([]);
   const [listSearch, setListSearch] = useState('');
   const [expandedActDate, setExpandedActDate] = useState(null);
@@ -336,7 +337,7 @@ export function useAppMainState() {
     expandedPieceworkProject, expandedProject, expandedRoom, expandedStaffId, expenseReports, geoCheckins,
     globalSearch, hiddenActs, history, initialDataLoaded, inlineEditPl, inlineEditPlData, inlineEditPrice,
     inspectionOrders, interimActs, inventory, inviteCodes, invoices, issueToolData, journalFilter, leads,
-    listSearch, manualExpenses, masterProfile, masterProfiles, masterProjectId, masterRatings, materialAliases,
+    listSearch, manualExpenses, masterProfile, masterProfiles, masterProjectId, masterRatings, materialAliases, materialAliasesError,
     materialInspections, qualityJournalLoadState, setQualityJournalLoadState, materialNormOverrides, materialNorms, materialTransfers, materials, materialsPage,
     measurementDraftLoadingId, measurementRoomDrafts, mobileExpandedRenderLists, newAct, newBrigadeContract,
     newBrigadeItem, newBrigadePayment, newCatalogItem, newChecklist, newChecklistItem, newClient,
@@ -378,7 +379,7 @@ export function useAppMainState() {
     setInlineEditPl, setInlineEditPlData, setInlineEditPrice, setInspectionOrders, setInterimActs,
     setInventory, setInviteCodes, setInvoices, setIssueToolData, setJournalFilter, setLeads, setListSearch,
     setManualExpenses, setMasterProfile, setMasterProfiles, setMasterProjectId, setMasterRatings,
-    setMaterialAliases, setMaterialInspections, setMaterialNormOverrides, setMaterialNorms, setMaterialTransfers,
+    setMaterialAliases, setMaterialAliasesError, setMaterialInspections, setMaterialNormOverrides, setMaterialNorms, setMaterialTransfers,
     setMaterials, setMaterialsPage, setMeasurementDraftLoadingId, setMeasurementRoomDrafts,
     setMobileExpandedRenderLists, setNewAct, setNewBrigadeContract, setNewBrigadeItem, setNewBrigadePayment,
     setNewCatalogItem, setNewChecklist, setNewChecklistItem, setNewClient, setNewCompanyDoc,

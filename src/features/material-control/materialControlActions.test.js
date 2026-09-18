@@ -1,8 +1,34 @@
 import {
   buildMaterialControlSupplyItem,
+  createMaterialControlActions,
   materialControlRequestOwner,
   materialControlRowCanCreateSupply,
 } from './materialControlActions';
+
+test('batch procurement stops before the next POST when snapshot epoch changes', async () => {
+  const previous = process.env.REACT_APP_COMPANY_MATERIAL_ALIASES_ENABLED;
+  process.env.REACT_APP_COMPANY_MATERIAL_ALIASES_ENABLED = '1';
+  const confirm = jest.spyOn(window, 'confirm').mockReturnValue(true);
+  const alert = jest.spyOn(window, 'alert').mockImplementation(() => {});
+  let token = 1;
+  const owner = {id: 7, companyId: 2, name: 'Школа'};
+  const row = {name: 'Цемент', unit: 'кг', toBuy: 10, planningSource: 'estimate', procurementEligible: true,
+    planDetails: [{sourceType: 'estimate_material', includedInProcurement: true, estimateId: 1, sectionIndex: 0, itemIndex: 0, normalizedQty: 10}]};
+  global.fetch = jest.fn(async () => {token = 2; return {ok: true, json: async () => ({id: 1})};});
+  try {
+    const actions = createMaterialControlActions({API: '/api', user: {role: 'директор'}, projects: [owner],
+      materialAliasesError: '', companyContext: {mode: 'company', selectedCompanyId: 2},
+      getOwnedAliasSnapshotToken: () => token, supplyRequests: [], toNum: value => Number(value || 0),
+      materialNameKey: value => value, _normalizeUnit: value => value, fmtMeasure: value => String(value), notify: jest.fn()});
+    await actions.createBatchSupplyRequestFromMaterialControl(owner, [{...row, workPackage: 'А'}, {...row, workPackage: 'Б'}]);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(alert).toHaveBeenCalledWith(expect.stringContaining('остановлено'));
+  } finally {
+    confirm.mockRestore(); alert.mockRestore();
+    if (previous === undefined) delete process.env.REACT_APP_COMPANY_MATERIAL_ALIASES_ENABLED;
+    else process.env.REACT_APP_COMPANY_MATERIAL_ALIASES_ENABLED = previous;
+  }
+});
 
 describe('materialControlRowCanCreateSupply', () => {
   const validRow = {

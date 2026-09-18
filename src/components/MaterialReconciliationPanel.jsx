@@ -26,6 +26,7 @@ export default function MaterialReconciliationPanel({
   const limit = options.limit || 25;
   const title = options.title || '📊 Материалы: смета ↔ поставки ↔ склад';
   const summary = materialControlSummaryForProject(project);
+  if (summary.unavailable) return <section style={card}><p role="alert">Сверка материалов недоступна: {summary.error}</p></section>;
   const currentUser = user || {};
   const isFinanceUser = typeof isFinanceRole === 'function' ? isFinanceRole() : Boolean(isFinanceRole);
   const isLeadershipUser = typeof isLeadership === 'function' ? isLeadership() : Boolean(isLeadership);

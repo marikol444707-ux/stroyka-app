@@ -15,7 +15,7 @@ jest.mock('../../utils/materialReconciliationUtils', () => ({
 const firstProject = { id: 11, companyId: 1, name: 'Школа' };
 const secondProject = { id: 22, companyId: 2, name: 'Школа' };
 
-const createRuntime = (cache) => createMaterialRuntime({
+const createRuntime = (cache, overrides = {}) => createMaterialRuntime({
   activeEstimatesForProject: () => [],
   canonicalCompanyName: '',
   companyRequisites: {},
@@ -37,6 +37,25 @@ const createRuntime = (cache) => createMaterialRuntime({
   warehouseMovements: [],
   workJournal: [],
   cache,
+  ...overrides,
+});
+
+test('owned snapshot failure blocks cached reconciliation and marks invoice control unavailable', () => {
+  const previous = process.env.REACT_APP_COMPANY_MATERIAL_ALIASES_ENABLED;
+  process.env.REACT_APP_COMPANY_MATERIAL_ALIASES_ENABLED = '1';
+  try {
+    const cache = createMaterialRuntimeCache();
+    const companyContext = {mode: 'company', selectedCompanyId: 1};
+    const ready = createRuntime(cache, {companyContext, materialAliasesError: ''});
+    ready.materialReconciliationRows(firstProject);
+    const failed = createRuntime(cache, {companyContext, materialAliasesError: 'Нет соединения'});
+    expect(failed.materialReconciliationRows(firstProject)).toEqual([]);
+    expect(failed.materialControlSummaryForProject(firstProject)).toMatchObject({unavailable: true, error: 'Нет соединения'});
+    expect(ready.materialReconciliationRows(secondProject)).toEqual([]);
+  } finally {
+    if (previous === undefined) delete process.env.REACT_APP_COMPANY_MATERIAL_ALIASES_ENABLED;
+    else process.env.REACT_APP_COMPANY_MATERIAL_ALIASES_ENABLED = previous;
+  }
 });
 
 describe('material runtime cache', () => {

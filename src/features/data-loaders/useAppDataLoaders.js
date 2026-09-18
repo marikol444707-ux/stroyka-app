@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { createCompanyRequisitesForm } from '../settings/settingsInitialForms';
 import { qualityJournalScopeKey, requireQualityJournalOwnership } from '../../utils/qualityJournalScope';
 import { getQualityJournalRevision, qualityJournalMutationIssue, QUALITY_JOURNAL_MUTATED } from '../../utils/qualityJournalEvents';
+import { ownedAliasesEnabled } from '../material-control/ownedAliases';
 
 const ESTIMATES_SUMMARY_PATH = '/estimates?summary=true';
 const PEOPLE_DATA_ROLES = ['директор', 'зам_директора', 'бухгалтер', 'прораб', 'главный_инженер', 'сметчик', 'кладовщик', 'снабженец', 'стройконтроль'];
@@ -474,7 +475,7 @@ export const useAppDataLoaders = (ctx) => {
         canLoadEstimates ? getApi('/estimate-reconciliations') : Promise.resolve([]),
         ((isInternalRole && !['мастер','субподрядчик','бригадир'].includes(role)) || role === 'технадзор') ? getApi('/pricelists') : Promise.resolve([]),
         canSeeProjectDocs ? getApi(pagedPath('/material-norms', {limit: MATERIAL_NORMS_PAGE_LIMIT})) : Promise.resolve([]),
-        canSeeProjectDocs ? getApi('/material-aliases') : Promise.resolve([]),
+        canSeeProjectDocs && !ownedAliasesEnabled() ? getApi('/material-aliases') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/material-norms/overrides') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/material-norm-suggestions') : Promise.resolve([]),
         canLoadBrigadeData ? getApi('/brigade-contracts') : Promise.resolve([]),
@@ -484,7 +485,8 @@ export const useAppDataLoaders = (ctx) => {
       applyLoadedEstimates(est, canLoadEstimates);
       if (canLoadEstimates && est === null) mobileLoadedScopesRef.current.delete('mobile:estimates');
       setEstimateReconciliations(Array.isArray(er)?er:[]); setPricelists(Array.isArray(pl)?pl:[]);
-      setMaterialNorms(Array.isArray(mn)?mn:[]); resetMaterialNormsPage(mn); setMaterialAliases(Array.isArray(ma)?ma:[]);
+      setMaterialNorms(Array.isArray(mn)?mn:[]); resetMaterialNormsPage(mn);
+      if (!ownedAliasesEnabled()) setMaterialAliases(Array.isArray(ma)?ma:[]);
       setMaterialNormOverrides(Array.isArray(mno)?mno:[]); setMaterialNormSuggestions(Array.isArray(mns)?mns:[]);
       setBrigadeContracts(Array.isArray(bc)?bc:[]); setAllBrigadeItems(Array.isArray(abi)?abi:[]);
       setAllBrigadePayments(Array.isArray(abp)?abp:[]);
@@ -748,7 +750,7 @@ export const useAppDataLoaders = (ctx) => {
         canSeeProjectDocs ? get('/ai-findings') : skip([]),
         canSeeProjectDocs ? get(assignmentsPathForRole(role)) : skip([]),
         canSeeProjectDocs ? get(pagedPath('/material-norms', {limit: MATERIAL_NORMS_PAGE_LIMIT})) : skip([]),
-        canSeeProjectDocs ? get('/material-aliases') : skip([]),
+        canSeeProjectDocs && !ownedAliasesEnabled() ? get('/material-aliases') : skip([]),
         canSeeProjectDocs ? get('/material-norms/overrides') : skip([]),
         canSeeProjectDocs ? get('/material-norm-suggestions') : skip([]),
         (isLeadershipRole || isFinanceRole) ? get(pagedPath('/audit-log', {limit: AUDIT_LOG_PAGE_LIMIT})) : skip([]),
@@ -775,7 +777,8 @@ export const useAppDataLoaders = (ctx) => {
       setLoaded(setWarrantyDefects, warD); setLoaded(setSupplierCatalog, scat); setLoaded(setSupplyTemplates, stpl);
       setLoaded(setAiFindings, aif); setLoaded(setAiTasks, ait);
       if (isLoaded(mn)) { setMaterialNorms(asArray(mn)); resetMaterialNormsPage(asArray(mn)); }
-      setLoaded(setMaterialAliases, ma); setLoaded(setMaterialNormOverrides, mno); setLoaded(setMaterialNormSuggestions, mns); setLoaded(setAuditLog, aud);
+      if (!ownedAliasesEnabled()) setLoaded(setMaterialAliases, ma);
+      setLoaded(setMaterialNormOverrides, mno); setLoaded(setMaterialNormSuggestions, mns); setLoaded(setAuditLog, aud);
       if (canSeeProjectDocs) try {
         const [rwin,rdoor] = await Promise.all([
           get('/room-windows'),

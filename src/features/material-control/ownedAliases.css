@@ -1,0 +1,18 @@
+.owned-aliases { color: var(--alias-text, #172b3a); background: var(--alias-surface, #fff); border: 1px solid var(--alias-border, #c5cdd4); border-radius: 8px; padding: 16px; margin-bottom: 16px; overflow-wrap: anywhere; }
+.owned-aliases h3 { font-size: 1rem; margin: 0 0 8px; }
+.owned-aliases p, .owned-aliases caption { font-size: .875rem; line-height: 1.5; margin: 8px 0; }
+.owned-aliases .alias-help { color: var(--alias-muted, #45576a); }
+.owned-aliases label { display: flex; flex-direction: column; gap: 4px; font-size: .875rem; min-width: 0; }
+.owned-aliases input, .owned-aliases select, .owned-aliases button { font: inherit; padding: 8px; min-height: 40px; border: 1px solid var(--alias-border, #9cabb7); border-radius: 4px; color: inherit; background: var(--alias-surface, white); max-width: 100%; box-sizing: border-box; }
+.owned-aliases button { cursor: pointer; }
+.owned-aliases button:disabled { opacity: .55; cursor: default; }
+.owned-aliases :focus-visible { outline: 3px solid var(--alias-accent, #14707c); outline-offset: 2px; }
+.owned-aliases fieldset { margin: 16px 0; border: 1px solid var(--alias-border, #c5cdd4); min-width: 0; padding: 12px; }
+.alias-fields { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.alias-toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+.alias-table-scroll { overflow-x: auto; }
+.owned-aliases table { width: 100%; border-collapse: collapse; font-size: .875rem; }
+.owned-aliases th, .owned-aliases td { text-align: left; padding: 8px; border-bottom: 1px solid var(--alias-border, #c5cdd4); vertical-align: top; min-width: 112px; }
+.owned-aliases caption { text-align: left; }
+.owned-aliases .alias-error, .alias-confirm { border-left: 4px solid #a84919; padding-left: 12px; }
+@media (min-width: 768px) { .alias-fields { grid-template-columns: minmax(0, 2fr) minmax(0, 2fr) minmax(0, 1fr); } }

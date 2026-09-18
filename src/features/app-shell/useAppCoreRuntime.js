@@ -6,6 +6,7 @@ import { useCompanyChatContextSync } from '../chat/useCompanyChatContextSync';
 import { createCrmActions } from '../crm/crmActions';
 import { createDataLoadActions } from '../data-loaders/dataLoadActions';
 import { useAppDataLoaders } from '../data-loaders/useAppDataLoaders';
+import { useOwnedAliasSnapshot } from '../material-control/useOwnedAliasSnapshot';
 import { createGeoActions } from '../geolocation/geoActions';
 import { createMaterialTransferActions } from '../material-transfer/materialTransferActions';
 import { createNotificationActions } from '../notifications/notificationActions';
@@ -46,6 +47,9 @@ export function useAppCoreRuntime({
   limits,
   layout,
 }) {
+  const ownedAliasRuntime = useOwnedAliasSnapshot({API, companyContext, projects: appMainState.projects,
+    userId: authEntryState.user?.id, setMaterialAliases: appMainState.setMaterialAliases,
+    setMaterialAliasesError: appMainState.setMaterialAliasesError});
   const {
     AUDIT_LOG_PAGE_LIMIT,
     MATERIAL_NORMS_PAGE_LIMIT,
@@ -526,6 +530,7 @@ export function useAppCoreRuntime({
   });
 
   return {
+    ...ownedAliasRuntime,
     addActivity,
     apiAuthHeaders,
     appendPhotos,

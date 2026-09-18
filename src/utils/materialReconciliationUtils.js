@@ -154,7 +154,7 @@ export const buildMaterialReconciliationRows = ({
   };
   const ensure = (name, unit, sourcePackage = '') => {
     const rawName = name || '';
-    const meta = canonicalMaterialMeta(projectName, rawName, unit);
+    const meta = canonicalMaterialMeta(project, rawName, unit);
     const baseKey = keyOf(meta.name);
     if (!baseKey) return null;
     const cleanPackage = String(sourcePackage || '').trim();

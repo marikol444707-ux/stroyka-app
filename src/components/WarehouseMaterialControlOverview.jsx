@@ -27,6 +27,8 @@ export default function WarehouseMaterialControlOverview({
   const isFinanceUser = typeof isFinanceRole === 'function' ? isFinanceRole() : Boolean(isFinanceRole);
   const isLeadershipUser = typeof isLeadership === 'function' ? isLeadership() : Boolean(isLeadership);
   const activeProjects = visibleActiveProjects(projects);
+  const unavailable = activeProjects.map(materialControlSummaryForProject).find(summary => summary.unavailable);
+  if (unavailable) return <section style={card}><h3>Контроль материалов по сметам</h3><p role="alert">Сверка материалов недоступна: {unavailable.error}</p></section>;
 
   return (
     <div>

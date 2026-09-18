@@ -1,4 +1,5 @@
 import React from 'react';
+import { aliasKey, ownedAliasesEnabled, saveOwnedAlias } from './ownedAliases';
 import {
   canCreateInvoiceControlReviewTaskForUser,
   canCreateSupplyRequestFromControlForUser,
@@ -105,6 +106,11 @@ export function createMaterialControlActions({
   user,
   projects,
   materialAliases,
+  materialAliasesError,
+  invalidateOwnedAliases,
+  reloadOwnedAliases,
+  getOwnedAliasSnapshotToken,
+  companyContext,
   setMaterialAliases,
   supplyRequests,
   aiTaskByMarker,
@@ -127,8 +133,25 @@ export function createMaterialControlActions({
   const currentUser = user || {};
   const isLeadershipUser = typeof isLeadership === 'function' ? isLeadership() : Boolean(isLeadership);
 
-  const createMaterialAlias = async (projectName, aliasName, canonicalName, canonicalUnit = '') => {
+  const createMaterialAlias = async (projectOrName, aliasName, canonicalName, canonicalUnit = '') => {
     if (!aliasName || !canonicalName) return null;
+    const owner = materialControlRequestOwner(projects, projectOrName);
+    const projectName = typeof projectOrName === 'object' ? owner?.projectName : projectOrName;
+    if (ownedAliasesEnabled()) {
+      if (!owner || companyContext?.mode !== 'company' || Number(companyContext.selectedCompanyId) !== owner.companyId || materialAliasesError) {
+        alert(materialAliasesError || 'Выберите точный объект и его компанию');
+        return null;
+      }
+      const current = (materialAliases || []).filter(row => row.companyId === owner.companyId && row.projectId === owner.projectId
+        && row.active !== false && aliasKey(row.aliasName) === aliasKey(aliasName));
+      if (current.length > 1) {alert('Конфликт справочника. Обновите данные'); return null;}
+      const release = invalidateOwnedAliases?.();
+      try {
+        const row = await saveOwnedAlias(API, {...owner, aliasName, canonicalName, canonicalUnit, expectedAliasId: current[0]?.id || null});
+        return row;
+      } catch (error) {alert(error.message); return null;}
+      finally {release?.(); await reloadOwnedAliases?.();}
+    }
     const res = await fetch(API + '/material-aliases', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -149,6 +172,8 @@ export function createMaterialControlActions({
   };
 
   const acceptMaterialAliasTask = async (task) => {
+    // AI suggestions are not proof of company/project ownership.
+    if (ownedAliasesEnabled()) {openAiTaskAction(task); return;}
     const payload = parseAiTaskPayload(task);
     const suggestion = payload.aliasCandidate || null;
     if (!suggestion?.aliasName || !suggestion?.canonicalName) {
@@ -180,7 +205,7 @@ export function createMaterialControlActions({
         {candidates.map(c => (
           <button
             key={c.key}
-            onClick={async e => { e.stopPropagation(); await createMaterialAlias(projectName, aliasName, c.name, c.unit); }}
+            onClick={async e => { e.stopPropagation(); await createMaterialAlias(project, aliasName, c.name, c.unit); }}
             style={{ ...btnG, padding: '2px 6px', fontSize: '10px', borderRadius: '6px' }}
             title={'Считать «' + aliasName + '» как «' + c.name + '»'}
           >
@@ -207,14 +232,17 @@ export function createMaterialControlActions({
       ) return false;
       if (String(req.notes || '').includes(marker)) return true;
       return materialControlRequestItems(req).some(it =>
-        materialNameKey(canonicalMaterialMeta(projectName, it.materialName, it.unit).name) === rowKey &&
+        materialNameKey(canonicalMaterialMeta(owner, it.materialName, it.unit).name) === rowKey &&
         (!unitKey || _normalizeUnit(it.unit || '') === unitKey) &&
         materialControlRowPackageKey(it) === packageKey
       );
     });
   };
 
-  const canCreateSupplyRequestFromControl = () => canCreateSupplyRequestFromControlForUser(user);
+  const snapshotToken = getOwnedAliasSnapshotToken?.();
+  const aliasesUnavailable = () => ownedAliasesEnabled() && (materialAliasesError !== '' || companyContext?.mode !== 'company'
+    || (getOwnedAliasSnapshotToken && (snapshotToken == null || snapshotToken !== getOwnedAliasSnapshotToken())));
+  const canCreateSupplyRequestFromControl = () => !aliasesUnavailable() && canCreateSupplyRequestFromControlForUser(user);
 
   const invoiceControlSupplyRequestExists = (inv, ctrl, item = {}) => {
     const projectName = invoiceControlProjectName(inv, ctrl);
@@ -234,6 +262,7 @@ export function createMaterialControlActions({
   };
 
   const createSupplyRequestFromMaterialControl = async (projectOrName, row) => {
+    if (aliasesUnavailable()) {alert('Сначала загрузите соответствия компании'); return;}
     const owner = materialControlRequestOwner(projects, projectOrName);
     if (!owner || !materialControlRowCanCreateSupply(row, toNum)) return;
     const projectName = owner.projectName;
@@ -296,6 +325,7 @@ export function createMaterialControlActions({
   };
 
   const createBatchSupplyRequestFromMaterialControl = async (projectOrName, rows = []) => {
+    if (aliasesUnavailable()) {alert('Сначала загрузите соответствия компании'); return;}
     const owner = materialControlRequestOwner(projects, projectOrName);
     if (!owner) return;
     const projectName = owner.projectName;
@@ -315,6 +345,7 @@ export function createMaterialControlActions({
     if (!window.confirm('Создать ' + groupNames.length + ' заявк. снабжения на ' + candidates.length + ' позиций по текущему фильтру?')) return;
     let createdItems = 0;
     for (const [requestPackage, groupRows] of Object.entries(groups)) {
+      if (aliasesUnavailable()) {alert('Справочник изменился. Массовое создание остановлено; уже созданные заявки сохранены.'); return;}
       const items = groupRows.map(row => buildMaterialControlSupplyItem(
         owner,
         {...row, workPackage: requestPackage},
@@ -368,6 +399,7 @@ export function createMaterialControlActions({
   };
 
   const createSupplyRequestFromInvoiceControl = async (inv, ctrl, item = {}) => {
+    if (aliasesUnavailable() || ctrl?.unavailable) {alert('Сначала загрузите соответствия компании'); return;}
     const projectName = invoiceControlProjectName(inv, ctrl);
     const materialName = invoiceControlMaterialName(ctrl, item);
     const qty = toNum(ctrl?.shortageQty);
@@ -431,6 +463,7 @@ export function createMaterialControlActions({
   };
 
   const createInvoiceControlReviewTask = async (inv, ctrl, item = {}) => {
+    if (aliasesUnavailable() || ctrl?.unavailable) {alert('Сначала загрузите соответствия компании'); return;}
     const projectName = invoiceControlProjectName(inv, ctrl);
     const materialName = invoiceControlMaterialName(ctrl, item);
     const unit = invoiceControlUnit(ctrl, item);
@@ -506,10 +539,12 @@ export function createMaterialControlActions({
   };
 
   const createInvoiceControlReviewTasksForInvoice = async (inv) => {
+    if (aliasesUnavailable()) {alert('Сначала загрузите соответствия компании'); return;}
     if (!inv || invoiceControlProjectName(inv) === '' || !canCreateInvoiceControlReviewTask()) return 0;
     const rows = warehouseInvoiceEstimateControl(inv).filter(invoiceControlNeedsReview);
     let created = 0;
     for (const ctrl of rows) {
+      if (aliasesUnavailable()) {alert('Справочник изменился. Обработка остановлена; уже созданные задачи сохранены.'); return created;}
       const materialName = invoiceControlMaterialName(ctrl, ctrl);
       if (!materialName || invoiceControlReviewTaskExists(inv, ctrl, ctrl)) continue;
       const task = await createInvoiceControlReviewTask(inv, ctrl, ctrl);
