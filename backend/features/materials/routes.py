@@ -11,6 +11,8 @@ import psycopg2.extras
 from fastapi import Depends, Header, HTTPException
 from pydantic import BaseModel, conint
 
+from ..work_material_accounting.runtime import enabled as work_material_accounting_enabled
+
 
 class MaterialModel(BaseModel):
     companyId: Optional[conint(strict=True, gt=0)] = None
@@ -158,7 +160,14 @@ def register_materials_module(app, deps):
             can_see_stock = can_see_warehouse_data(actor)
             can_see_prices = actor.get("role") in material_price_history_roles or actor.get("role") in finance_roles
             if not can_see_stock:
-                d["quantity"] = 0
+                # The query has already limited these rows to the worker's
+                # company, assigned projects and packages. Actual consumption
+                # needs the available quantity, but never purchasing prices.
+                can_select_stock = work_material_accounting_enabled() and actor.get("role") in (
+                    "мастер", "бригадир", "субподрядчик"
+                )
+                if not can_select_stock:
+                    d["quantity"] = 0
                 d["minQuantity"] = 0
             if not can_see_prices:
                 d["price"] = 0

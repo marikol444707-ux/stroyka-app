@@ -78,6 +78,28 @@ class WorkMaterialAccountingPostgresTests(unittest.TestCase):
     def stock_quantity(self):
         return self.sql("SELECT quantity FROM materials WHERE id=%s", (self.stock_id,))[0][0]
 
+    def test_worker_v2_stock_quantity_is_visible_only_in_assigned_scope_while_prices_stay_hidden(self):
+        self.sql("UPDATE materials SET price=125,min_quantity=9 WHERE id=%s", (self.stock_id,))
+        other_project = "Synthetic unassigned stock " + uuid4().hex
+        self.sql("INSERT INTO projects(name,company_id) VALUES(%s,2)", (other_project,))
+        for project, package in ((self.f["project"], "Other package"), (other_project, self.f["workPackage"])):
+            self.sql("""INSERT INTO materials(company_id,name,unit,quantity,price,min_quantity,project,work_package)
+                VALUES(2,%s,%s,23,321,8,%s,%s)""",
+                (self.f["materialName"], self.f["unit"], project, package))
+        self.assertEqual(self.sql("SELECT company_id,quantity FROM materials WHERE id=%s",
+                                  (self.foreign_stock_id,)), [(3, 7)])
+        before = self.snapshot()
+        for enabled, expected_quantity in (("1", 2), ("0", 0)):
+            with self.subTest(accounting_flag=enabled), patch.dict(os.environ, {"WORK_MATERIAL_ACCOUNTING_ENABLED": enabled}):
+                rows = self.api("worker", "GET", "/materials", **{"X-Company-Id": "2", "X-Company-Mode": "company"})
+                self.assertEqual([row["id"] for row in rows], [self.stock_id])
+                self.assertEqual(rows[0]["companyId"], 2)
+                self.assertEqual(rows[0]["workPackage"], self.f["workPackage"])
+                self.assertEqual(rows[0]["quantity"], expected_quantity)
+                self.assertEqual(rows[0]["price"], 0)
+                self.assertEqual(rows[0]["minQuantity"], 0)
+        self.assertEqual(self.snapshot(), before)
+
     def seed_aliased_warehouse_unit_mismatch(self):
         flag = patch.dict(os.environ, {"COMPANY_MATERIAL_ALIASES_ENABLED": "1"})
         flag.start()
