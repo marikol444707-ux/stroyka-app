@@ -20,6 +20,7 @@ export default function ProjectJournalsHubTab({
       tab: 'Входной контроль',
       icon: '📦',
       label: 'Входной контроль материалов',
+      issue: diagnostics.inspectionIssue,
       hint: 'СП 48.13330.2019',
       count: diagnostics.inspections.length,
       warningCount: diagnostics.stockWithoutInspection.length,
@@ -33,6 +34,7 @@ export default function ProjectJournalsHubTab({
       tab: 'Кабельная продукция',
       icon: '⚡',
       label: 'Кабельная продукция',
+      issue: diagnostics.cableIssue,
       hint: 'СП 76.13330 · ПУЭ',
       count: diagnostics.cables.length,
       warningCount: diagnostics.cableWithoutJournal.length,
@@ -79,8 +81,8 @@ export default function ProjectJournalsHubTab({
               <b style={{ color: C.text, fontSize: '13px' }}>{item.label}</b>
             </div>
             <p style={{ color: C.textSec, fontSize: '11px', margin: '0 0 6px' }}>{item.hint}</p>
-            <b style={{ color: item.warningCount ? C.warning : C.accent, fontSize: '13px' }}>{item.count + ' ' + (item.count === 1 ? 'запись' : item.count >= 2 && item.count <= 4 ? 'записи' : 'записей')}</b>
-            {item.details && (
+            {item.issue ? <p role="status">{item.issue}</p> : <b style={{ color: item.warningCount ? C.warning : C.accent, fontSize: '13px' }}>{item.count + ' ' + (item.count === 1 ? 'запись' : item.count >= 2 && item.count <= 4 ? 'записи' : 'записей')}</b>}
+            {!item.issue && item.details && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: '6px', marginTop: '10px' }}>
                 {item.details.map(detail => (
                   <div key={detail.label} style={{ minWidth: 0 }}>
@@ -90,7 +92,7 @@ export default function ProjectJournalsHubTab({
                 ))}
               </div>
             )}
-            {item.warningCount > 0 && <p style={{ color: C.warning, fontSize: '11px', margin: '8px 0 0', fontWeight: '700' }}>Есть несвязанные позиции</p>}
+            {!item.issue && item.warningCount > 0 && <p style={{ color: C.warning, fontSize: '11px', margin: '8px 0 0', fontWeight: '700' }}>Есть несвязанные позиции</p>}
           </div>
         ))}
       </div>

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Bot, Check, Eye } from 'lucide-react';
 import { API } from '../api';
+import useJournalMutation, { journalRowKey } from '../hooks/useJournalMutation';
 import { aiActionButtonStyle, borderedBlockStyle, footerActionsStyle, formLabelStyle, formSectionStyle, installGridStyle, modalBodyStyle, modalFooterStyle, modalHeaderStyle, modalOverlayStyle, modalShellStyle, modalSummaryGridStyle, sectionHintStyle, sectionTitleStyle, summaryValueStyle, twoColumnGridStyle, twoColumnGridTightStyle } from '../utils/modalStyles';
 import { AiNotice, ModalHeaderActions, ModalTitleBlock, SummaryCell, TextareaField } from './common/ModalParts';
 
@@ -22,7 +23,10 @@ export default function ProjectCableJournalEditModal({
   aiNoticeIcon,
   aiNoticeText,
 }) {
+  const mutation = useJournalMutation(cable, { draft: true });
   if (!cable) return null;
+  const identity = journalRowKey(cable);
+  const close = () => { mutation.cancel(); setEditingCable(null); };
 
   const updateCable = (key, value) => setEditingCable({...cable, [key]: value});
   const responsibleNames = users
@@ -35,34 +39,17 @@ export default function ProjectCableJournalEditModal({
   const cableType = cableTypeOf(cable);
 
   const suggestByAI = async () => {
-    setEditingCable(prev => ({...prev, __aiLoading: true}));
-    try {
-      const res = await fetch(API + '/cable-journal/' + cable.id + '/ai-suggest', {method: 'POST'});
-      if (!res.ok) {
-        const error = await res.json().catch(() => ({}));
-        throw new Error(error.detail || ('HTTP ' + res.status));
-      }
-      const data = await res.json();
-      setEditingCable(prev => ({
-        ...prev,
-        normatives: data.normatives || prev.normatives,
-        aiFilled: true,
-        __aiLoading: false,
-      }));
-      setCableJournal(prev => prev.map(item => (
-        item.id === cable.id
-          ? {...item, normatives: data.normatives || item.normatives, aiFilled: true}
-          : item
-      )));
-    } catch (error) {
-      alert('Не получилось получить ответ от AI: ' + error.message);
-      setEditingCable(prev => ({...prev, __aiLoading: false}));
-    }
+    await mutation.run({ url: API + '/cable-journal/' + cable.id + '/ai-suggest', method: 'POST',
+      onSuccess: (data, current) => {
+        const applySuggestion = item => ({ ...item, normatives: data.normatives || item.normatives, aiFilled: true });
+        setEditingCable(prev => current() && journalRowKey(prev) === identity ? applySuggestion(prev) : prev);
+        setCableJournal(prev => current() ? prev.map(item => journalRowKey(item) === identity ? applySuggestion(item) : item) : prev);
+      },
+    });
   };
 
   const saveCable = async () => {
     const body = {
-      cableType,
       drumNumber: cable.drumNumber || '',
       manufacturer: cable.manufacturer || '',
       certificateNumber: cable.certificateNumber || '',
@@ -76,17 +63,16 @@ export default function ProjectCableJournalEditModal({
       responsibleItr: cable.responsibleItr || '',
       normatives: cable.normatives || '',
     };
-    await fetch(API + '/cable-journal/' + cable.id, {
-      method: 'PUT',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(body),
+    await mutation.run({ url: API + '/cable-journal/' + cable.id, body,
+      onSuccess: (_data, current) => {
+        setCableJournal(prev => current() ? prev.map(item => journalRowKey(item) === identity ? {...item, ...body, aiFilled: false} : item) : prev);
+        setEditingCable(prev => current() && journalRowKey(prev) === identity ? null : prev);
+      },
     });
-    setCableJournal(prev => prev.map(item => item.id === cable.id ? {...item, ...body, aiFilled: false} : item));
-    setEditingCable(null);
   };
 
   return (
-    <div onClick={() => setEditingCable(null)} style={modalOverlayStyle()}>
+    <div onClick={close} style={modalOverlayStyle()}>
       <div onClick={event => event.stopPropagation()} style={modalShellStyle(card)}>
         <div style={modalHeaderStyle(C)}>
           <ModalTitleBlock
@@ -97,13 +83,13 @@ export default function ProjectCableJournalEditModal({
           <ModalHeaderActions
             status={cable.installedAt ? 'Проложен' : 'На складе'}
             statusVariant={cable.installedAt ? 'success' : 'warning'}
-            onClose={() => setEditingCable(null)}
+            onClose={close}
             C={C}
             btnG={btnG}
           />
         </div>
 
-        <div style={modalBodyStyle()}>
+        <fieldset disabled={mutation.busy} aria-busy={mutation.busy} style={{ ...modalBodyStyle(), border: 0, margin: 0, minWidth: 0 }}>
           <AiNotice show={cable.aiFilled} noticeStyle={aiNotice} iconStyle={aiNoticeIcon} textStyle={aiNoticeText}>
             <b>Нормативы и мин. R подсказаны AI.</b> Проверь и сохрани — при правке поля метка снимется.
           </AiNotice>
@@ -212,18 +198,21 @@ export default function ProjectCableJournalEditModal({
               minHeight="80px"
             />
           </div>
-        </div>
+        </fieldset>
 
+        {mutation.error && <div role="alert" style={{ color: C.danger, padding: '10px 24px' }}>{mutation.error}</div>}
+        {mutation.busy && <div role="status" style={{ color: C.textSec, padding: '10px 24px' }}>Обработка запроса…</div>}
         <div style={modalFooterStyle(C)}>
-          <button onClick={() => showPreview(buildCableJournalContent([cable], cable.projectName, cable.receivedAt, cable.installedAt || cable.receivedAt), 'Запись кабеля')} style={btnB}>
+          {mutation.printDirty && <span style={{ color: C.textSec }}>Сохраните изменения перед печатью и откройте запись заново.</span>}
+          <button disabled={mutation.busy || mutation.printDirty} onClick={() => mutation.print(buildCableJournalContent, showPreview, 'Запись кабеля', cable.installedAt)} style={btnB}>
             <Eye size={14}/>🖨️ Печать
           </button>
           <div style={footerActionsStyle()}>
-            <button disabled={!!cable.__aiLoading} onClick={suggestByAI} style={aiActionButtonStyle(btnB, !!cable.__aiLoading)}>
-              <Bot size={14}/>{cable.__aiLoading ? 'AI работает…' : '🤖 AI-подсказка нормативов и R изоляции'}
+            <button disabled={mutation.busy} onClick={suggestByAI} style={aiActionButtonStyle(btnB, mutation.busy)}>
+              <Bot size={14}/>🤖 AI-подсказка нормативов и R изоляции
             </button>
-            <button onClick={() => setEditingCable(null)} style={btnG}>Отмена</button>
-            <button onClick={saveCable} style={btnO}>
+            <button onClick={close} style={btnG}>Отмена</button>
+            <button disabled={mutation.busy} onClick={saveCable} style={btnO}>
               <Check size={14}/>Сохранить
             </button>
           </div>

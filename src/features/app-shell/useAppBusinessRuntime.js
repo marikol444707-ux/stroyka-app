@@ -541,6 +541,8 @@ export function useAppBusinessRuntime({
   } = materialControlActions;
   const documentActionRefs = {};
   const projectDashboardRuntime = createProjectDashboardRuntime({
+    companyContext,
+    qualityJournalLoadState: appMainState.qualityJournalLoadState,
     C,
     EXPENSE_CATEGORIES,
     accountablePayments,

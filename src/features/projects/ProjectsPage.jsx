@@ -1,4 +1,5 @@
 import React from 'react';
+import { qualityJournalLoadIssue, selectQualityJournalRows } from '../../utils/qualityJournalScope';
 import {
   createInspectionOrderForm,
   createWarrantyDefectForm,
@@ -74,6 +75,12 @@ export default function ProjectsPage({ ctx }) {
     weatherLog, workJournal, workJournalPage,
   } = ctx;
 
+  const journalIssue = (project, kinds) => qualityJournalLoadIssue(ctx.qualityJournalLoadState, project, ctx.companyContext, user, kinds);
+  const journalLoadNotice = issue => <div role="alert" style={{ ...card, padding: '16px' }}>
+    <p>{issue}</p><p>Печать и диагностика журналов недоступны до полной загрузки.</p>
+    <button type="button" style={btnG} onClick={() => ctx.reloadQualityJournals?.()}>Повторить загрузку журналов</button>
+  </div>;
+
   const journalPackage = (row = {}) => String(row.workPackage || row.work_package || '').trim() || 'Основная';
   const journalMaterialKey = (name, unit, workPackage) => [
     materialNameKey ? materialNameKey(name || '') : String(name || '').toLowerCase().trim(),
@@ -87,11 +94,13 @@ export default function ProjectsPage({ ctx }) {
   const projectJournalDiagnostics = (project) => {
     const projectName = project?.name || '';
     const projectStock = (materials || []).filter(m => m.project === projectName && toNum(m.quantity) > 0);
-    const inspections = (materialInspections || []).filter(mi => mi.projectName === projectName);
+    const inspectionIssue = journalIssue(project, ['inspections']);
+    const cableIssue = journalIssue(project, ['cables']);
+    const inspections = inspectionIssue ? [] : selectQualityJournalRows(materialInspections, project);
     const inspectionKeys = new Set(inspections.map(mi => journalMaterialKey(mi.materialName, mi.unit, journalPackage(mi))));
     const stockWithoutInspection = projectStock.filter(m => !inspectionKeys.has(journalMaterialKey(m.name, m.unit, journalPackage(m))));
     const cableStock = projectStock.filter(m => isCableName ? isCableName(m.name) : false);
-    const cables = (cableJournal || []).filter(c => c.projectName === projectName);
+    const cables = cableIssue ? [] : selectQualityJournalRows(cableJournal, project);
     const cableKeys = new Set(cables.map(c => journalNamePackageKey(c.cableBrand, journalPackage(c))));
     const cableWithoutJournal = cableStock.filter(m => !cableKeys.has(journalNamePackageKey(m.name, journalPackage(m))));
     const reconciliationRows = (materialReconciliationRows(project) || []);
@@ -101,6 +110,7 @@ export default function ProjectsPage({ ctx }) {
     const smetaOutsideRows = smetaRows.filter(r => r.isOutsideEstimate);
     const aliasNeededRows = smetaOutsideRows.filter(r => !(r.aliasIds || []).length);
     return {
+      inspectionIssue, cableIssue,
       projectStock,
       inspections,
       stockWithoutInspection,
@@ -803,7 +813,7 @@ export default function ProjectsPage({ ctx }) {
                         <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>📦 Журнал входного контроля материалов</b>
                         <span style={{fontSize:'11px',color:C.textMuted}}>СП 48.13330.2019 · автозаполняется из накладных</span>
                       </div>
-                      <ProjectMaterialInspectionTab
+                      {journalIssue(p, ['inspections']) ? journalLoadNotice(journalIssue(p, ['inspections'])) : <ProjectMaterialInspectionTab
                         C={C}
                         Eye={Eye}
                         badge={badge}
@@ -823,7 +833,7 @@ export default function ProjectsPage({ ctx }) {
                         tblC={tblC}
                         tblH={tblH}
                         toNum={toNum}
-                      />
+                      />}
                     </div>
                   )}
                   {activeProjectTab==='Кабельная продукция'&&(
@@ -832,7 +842,7 @@ export default function ProjectsPage({ ctx }) {
                         <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>⚡ Журнал кабельной продукции</b>
                         <span style={{fontSize:'11px',color:C.textMuted}}>Электрика · СКС · пожарка · слаботочка</span>
                       </div>
-                      <ProjectCableJournalTab
+                      {journalIssue(p, ['cables']) ? journalLoadNotice(journalIssue(p, ['cables'])) : <ProjectCableJournalTab
                         C={C}
                         Eye={Eye}
                         badge={badge}
@@ -853,7 +863,7 @@ export default function ProjectsPage({ ctx }) {
                         tblC={tblC}
                         tblH={tblH}
                         toNum={toNum}
-                      />
+                      />}
                     </div>
                   )}
                   </div>

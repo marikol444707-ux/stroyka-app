@@ -39,6 +39,7 @@ export function renderAppEarlyRoleRoute({
     appMainState,
     authEntryState,
     builders,
+    companyContext,
     materialRuntime,
     paymentUiState,
     projectRuntime,
@@ -55,6 +56,8 @@ export function renderAppEarlyRoleRoute({
         constants={{ EXPENSE_CATEGORIES, PD_CONSENT_TEXT, ROLE_LABELS, SURFACES, UNITS }}
         ui={{ API, C, badge, btnB, btnG, btnGr, btnO, btnR, card, inp, isMobile }}
         data={{
+          companyContext,
+          qualityJournalLoadState: appMainState.qualityJournalLoadState,
           accountablePayments: appMainState.accountablePayments,
           activePage: appMainState.activePage,
           aiTasks: appMainState.aiTasks,
@@ -325,6 +328,8 @@ export function renderAppEarlyRoleRoute({
         }}
         data={{
           projects: appMainState.projects,
+          companyContext,
+          qualityJournalLoadState: appMainState.qualityJournalLoadState,
           workJournal: appMainState.workJournal,
           checklists: appMainState.checklists,
           prescriptionsList: appMainState.prescriptionsList,

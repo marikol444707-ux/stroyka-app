@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Eye, FileText } from 'lucide-react';
 import { uniqueStoredProjectForName } from '../features/estimates/projectEstimateOwnership';
 
@@ -44,6 +44,7 @@ export default function AccountingDocumentsPanel({
   interimActs,
   buildActContent,
 }) {
+  const [journalError, setJournalError] = useState(null);
   const selectedProject = uniqueStoredProjectForName(projects, accountingDocProject);
   const projectPaymentSignedAmount = (payment) => {
     const amount = Number(payment?.amount || 0);
@@ -60,7 +61,14 @@ export default function AccountingDocumentsPanel({
     if (doc === 'Паспорт') showPreview(buildPassportContent(project), 'Паспорт объекта');
     if (doc === 'КС-2') showKS2(project);
     if (doc === 'КС-3') showPreview(buildKS3Content(project), 'КС-3');
-    if (doc === 'ЖПР') showPreview(buildJPRContent(project.name), 'ЖПР');
+    if (doc === 'ЖПР') {
+      setJournalError(null);
+      try {
+        showPreview(buildJPRContent(project), 'ЖПР');
+      } catch (error) {
+        setJournalError({ project, message: error?.message || 'Данные журнала не подтверждены. Печать недоступна.' });
+      }
+    }
     if (doc === 'М-29') {
       const today = new Date();
       const monthAgo = new Date(today.getTime() - 30 * 24 * 3600 * 1000);
@@ -175,6 +183,8 @@ export default function AccountingDocumentsPanel({
             </button>
           ))}
         </div>
+
+        {journalError?.project === selectedProject && <p role="alert" style={{ color: C.warning }}>{journalError.message}</p>}
 
         <div style={{ ...card, padding: '14px', marginBottom: '14px', backgroundColor: C.bg, border: '1.5px solid ' + C.border }}>
           <b style={{ color: C.text, fontSize: '13px', display: 'block', marginBottom: '10px' }}>💰 Себестоимость объекта (план vs факт)</b>

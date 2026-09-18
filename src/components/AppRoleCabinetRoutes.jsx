@@ -82,6 +82,8 @@ export default function AppRoleCabinetRoutes({
       <React.Suspense fallback={pageFallback}>
         <SupervisorCabinetPage
           user={user}
+          companyContext={data.companyContext}
+          qualityJournalLoadState={data.qualityJournalLoadState}
           projects={projects}
           handleLogout={handleLogout}
           C={C}

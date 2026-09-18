@@ -1,5 +1,6 @@
 import { docEsc, normalizeDocDate, parseWorkMaterials, photoCount, workDocDate } from './documentFormatUtils';
 import { fmtMeasure } from './measureUtils';
+import { resolveQualityJournalProject, selectQualityJournalRows } from './qualityJournalScope';
 import {
   companyTitle,
   directorDocStyles,
@@ -215,7 +216,7 @@ export const buildDailyObjectReportDocContent = (date, context = {}) => {
   return html;
 };
 
-export const buildJPRDocContent = (projectName, context = {}) => {
+export const buildJPRDocContent = (projectOrName, context = {}) => {
   const {
     companyRequisites = null,
     companyName = '',
@@ -229,16 +230,17 @@ export const buildJPRDocContent = (projectName, context = {}) => {
     cableJournal = [],
     weatherLog = [],
   } = context;
+  const project = resolveQualityJournalProject(projectOrName, projects);
+  const projectName = project.name;
   const works = workJournal.filter((item) => item.project === projectName && item.status === 'Подтверждено');
-  const project = projects.find((item) => item.name === projectName) || {};
   const req = companyRequisites || {};
   const orgName = req.fullName || req.shortName || companyName || '_____';
   const itr = users.filter((item) => ['прораб', 'главный_инженер', 'стройконтроль'].includes(item.role));
   const acts = hiddenActs.filter((item) => item.projectName === projectName);
-  const inspections = (materialInspections || []).filter((item) => item.projectName === projectName);
+  const inspections = selectQualityJournalRows(materialInspections, project);
   const prescs = (prescriptionsList || []).filter((item) => item.projectName === projectName);
   const tb = (tbJournal || []).filter((item) => item.project === projectName);
-  const cables = (cableJournal || []).filter((item) => item.projectName === projectName);
+  const cables = selectQualityJournalRows(cableJournal, project);
   const byDate = {};
   works.forEach((work) => {
     if (!byDate[work.date]) byDate[work.date] = {};
@@ -298,7 +300,7 @@ export const buildJPRDocContent = (projectName, context = {}) => {
     html += '<p style="color:#888;font-size:11px;text-align:center">Записей входного контроля нет (ведётся в отдельном журнале СП 48.13330.2019)</p>';
   } else {
     html += '<table class="jpr-table"><tr><th>№</th><th>Дата</th><th>Материал</th><th>Поставщик</th><th>Партия</th><th>Сертификат</th><th>Результат</th></tr>';
-    inspections.slice(0, 30).forEach((item, index) => {
+    inspections.forEach((item, index) => {
       html += '<tr><td>' + (index + 1) + '</td><td>' + (item.receivedAt || '') + '</td><td>' + (item.materialName || '') + '</td><td>' + (item.supplier || '') + '</td><td>' + (item.batchNumber || '—') + '</td><td>' + (item.certificateNumber || item.passportNumber || '—') + '</td><td>' + (item.visualInspectionResult || (item.inspected ? 'Проверено' : '—')) + '</td></tr>';
     });
     html += '</table>';
@@ -541,11 +543,13 @@ export const buildWorkJournalDocContent = (records = [], projectName, dateFrom, 
   return html;
 };
 
-export const buildMaterialInspectionDocContent = (records = [], projectName, dateFrom, dateTo, context = {}) => {
+export const buildMaterialInspectionDocContent = (records = [], projectOrName, dateFrom, dateTo, context = {}) => {
   const { companyRequisites = null, companyName = '', projects = [] } = context;
   const req = companyRequisites || {};
   const orgName = req.fullName || req.shortName || companyName || '_____';
-  const project = projects.find((item) => item.name === projectName) || {};
+  const project = resolveQualityJournalProject(projectOrName, projects);
+  const projectName = project.name;
+  const scopedRecords = selectQualityJournalRows(records, project);
   let html = '<style>'
     + '.mic-meta{margin:6px 0;font-size:11px}'
     + '.mic-title{text-align:center;font-weight:700;font-size:14px;margin:14px 0 4px}'
@@ -573,7 +577,7 @@ export const buildMaterialInspectionDocContent = (records = [], projectName, dat
   html += '<table class="mic-tbl"><thead><tr>';
   html += '<th style="width:24px">№</th><th style="width:60px">Дата приёмки</th><th>Наименование материала</th><th style="width:36px">Ед.</th><th style="width:50px">Кол-во</th><th style="width:110px">Поставщик</th><th style="width:70px">Партия №</th><th style="width:80px">Паспорт №</th><th style="width:80px">Сертификат №</th><th style="width:80px">Протокол №</th><th style="width:90px">Результат осмотра</th><th style="width:90px">Проверил (ФИО)</th><th style="width:60px">Дата осмотра</th><th>Замечания</th>';
   html += '</tr></thead><tbody>';
-  records.forEach((record, index) => {
+  scopedRecords.forEach((record, index) => {
     html += '<tr>';
     html += '<td class="num">' + (index + 1) + '</td>';
     html += '<td>' + formatJournalDate(record.receivedAt) + '</td>';
@@ -600,7 +604,7 @@ export const buildMaterialInspectionDocContent = (records = [], projectName, dat
   return html;
 };
 
-export const buildCableJournalDocContent = (records = [], projectName, dateFrom, dateTo, context = {}) => {
+export const buildCableJournalDocContent = (records = [], projectOrName, dateFrom, dateTo, context = {}) => {
   const {
     companyRequisites = null,
     companyName = '',
@@ -609,7 +613,9 @@ export const buildCableJournalDocContent = (records = [], projectName, dateFrom,
   } = context;
   const req = companyRequisites || {};
   const orgName = req.fullName || req.shortName || companyName || '_____';
-  const project = projects.find((item) => item.name === projectName) || {};
+  const project = resolveQualityJournalProject(projectOrName, projects);
+  const projectName = project.name;
+  const scopedRecords = selectQualityJournalRows(records, project);
   let html = '<style>'
     + '.cab-meta{margin:6px 0;font-size:11px}'
     + '.cab-title{text-align:center;font-weight:700;font-size:14px;margin:14px 0 4px}'
@@ -637,7 +643,7 @@ export const buildCableJournalDocContent = (records = [], projectName, dateFrom,
   html += '<table class="cab-tbl"><thead><tr>';
   html += '<th style="width:22px">№</th><th style="width:54px">Дата приёмки</th><th style="width:76px">Тип системы</th><th>Марка кабеля</th><th style="width:42px">Сечение, мм²</th><th style="width:32px">Жил</th><th style="width:50px">Длина, м (с барабана)</th><th style="width:50px">№ барабана/бухты</th><th style="width:80px">Изготовитель</th><th style="width:80px">Сертификат №</th><th style="width:42px">R изоляции ДО, МΩ</th><th style="width:42px">R изоляции ПОСЛЕ, МΩ</th><th>Место прокладки</th><th style="width:80px">Способ прокладки</th><th style="width:54px">Дата монтажа</th><th style="width:90px">Ответств. ИТР</th>';
   html += '</tr></thead><tbody>';
-  records.forEach((record, index) => {
+  scopedRecords.forEach((record, index) => {
     html += '<tr>';
     html += '<td class="num">' + (index + 1) + '</td>';
     html += '<td>' + formatJournalDate(record.receivedAt) + '</td>';

@@ -465,6 +465,7 @@ export function buildAppRenderContext({
   const earlyRoleRoute = renderAppEarlyRoleRoute({
     constants: { EXPENSE_CATEGORIES, PD_CONSENT_TEXT, ROLE_LABELS, SURFACES, UNITS },
     data: {
+      companyContext,
       actions: {
         acceptAiTask, addMasterWorks, appendPhotos, applyMaterialOverNormReason, applySupplyTemplate, autoFillNormMaterialsForWork,
         checkinGeo, closeAiTask, closeNotifications, confirmMaterialReceipt, createAiTask,

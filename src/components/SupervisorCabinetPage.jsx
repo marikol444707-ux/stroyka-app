@@ -5,10 +5,14 @@ import PreviewModal from './PreviewModal';
 import ImagePreviewModal from './ImagePreviewModal';
 import { Search, Eye, Check, Plus, Upload, ChevronRight } from 'lucide-react';
 import { createSupervisorActForm } from '../features/documents/projectDocumentInitialForms';
+import { confirmedQualityJournalRows, qualityJournalOwnerId } from '../utils/projectObjectLinksUtils';
+import { qualityJournalScopeKey } from '../utils/qualityJournalScope';
 
 export default function SupervisorCabinetPage(props) {
   const {
     user,
+    companyContext,
+    qualityJournalLoadState,
     projects,
     handleLogout,
     C,
@@ -55,11 +59,14 @@ export default function SupervisorCabinetPage(props) {
     doPrint,
   } = props;
 
-  const myProject = projects.find(
-    (project) =>
-      project.id === Number(user.project_id || user.projectId) ||
-      project.name === (user.project_name || user.projectName)
-  );
+  const assignedProjectId = qualityJournalOwnerId(user, 'projectId', 'project_id');
+  const selectedCompanyId = qualityJournalOwnerId(companyContext, 'selectedCompanyId');
+  const assignedProjects = qualityJournalScopeKey(companyContext, user) && assignedProjectId !== null
+    ? (projects || []).filter(project =>
+      qualityJournalOwnerId(project, 'id', 'projectId', 'project_id') === assignedProjectId
+      && qualityJournalOwnerId(project, 'companyId', 'company_id') === selectedCompanyId)
+    : [];
+  const myProject = assignedProjects.length === 1 ? assignedProjects[0] : null;
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: C.bg, padding: '20px' }}>
@@ -79,7 +86,7 @@ export default function SupervisorCabinetPage(props) {
 
         {!myProject ? (
           <div style={{ ...card, padding: '40px', textAlign: 'center' }}>
-            <p style={{ color: C.textMuted }}>Объект не найден. Обратитесь к подрядчику.</p>
+            <p role="alert" style={{ color: C.textMuted }}>Объект не подтвержден для выбранной компании. Обратитесь к подрядчику.</p>
           </div>
         ) : (
           <div>
@@ -752,7 +759,11 @@ export default function SupervisorCabinetPage(props) {
             <div style={{ ...card, padding: '20px', marginBottom: '16px' }}>
               <b style={{ color: C.text, fontSize: '14px', display: 'block', marginBottom: '12px' }}>📦 Входной контроль материалов</b>
               {(() => {
-                const rows = materialInspections.filter((row) => row.projectName === myProject.name);
+                const { rows, issue } = confirmedQualityJournalRows({
+                  rows: materialInspections, project: myProject, qualityJournalLoadState,
+                  companyContext, user, kind: 'inspections',
+                });
+                if (issue) return <p role="alert" style={{ color: C.warning, fontSize: '12px' }}>{issue}</p>;
                 if (rows.length === 0) {
                   return (
                     <p style={{ color: C.textMuted, fontSize: '12px' }}>

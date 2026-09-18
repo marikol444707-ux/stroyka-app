@@ -14,6 +14,7 @@ import { buildAppRenderContext } from './features/app-shell/buildAppRenderContex
 import { useAppBusinessRuntime } from './features/app-shell/useAppBusinessRuntime';
 import { useAppCoreRuntime } from './features/app-shell/useAppCoreRuntime';
 import { useAppMainState } from './features/app-shell/useAppMainState';
+import usePreviewInvalidation from './hooks/usePreviewInvalidation';
 import { useAuthEntryState, useDarkModeState, useResponsiveLayout, useShellOverlayState } from './features/app-shell/useAppShellState';
 import { useAiAssistantState } from './features/ai-assistant/useAiAssistantState';
 import { useCompanyContext } from './features/company-context';
@@ -59,6 +60,12 @@ function App() {
     user
   });
   const appMainState = useAppMainState();
+  usePreviewInvalidation({
+    user,
+    companyContext,
+    qualityJournalLoadState: appMainState.qualityJournalLoadState,
+    setPreviewContent: appMainState.setPreviewContent,
+  });
   const {
     allBrigadeItems,
     estimateWorkMaterials,

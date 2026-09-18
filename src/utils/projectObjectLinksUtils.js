@@ -1,5 +1,35 @@
+import { positiveStoredId } from '../features/estimates/projectEstimateOwnership';
+import { qualityJournalLoadIssue } from './qualityJournalScope';
+
+export const qualityJournalOwnerId = (row, ...keys) => {
+  const values = keys.map(key => row?.[key]).filter(value => value != null);
+  const id = positiveStoredId(values[0]);
+  return id !== null && values.every(value => positiveStoredId(value) === id) ? id : null;
+};
+
+// A complete load is necessary but not sufficient: legacy rows cannot prove ownership.
+export const confirmedQualityJournalRows = ({ rows, project, qualityJournalLoadState, companyContext, user, kind }) => {
+  const projectId = qualityJournalOwnerId(project, 'id', 'projectId', 'project_id');
+  const companyId = qualityJournalOwnerId(project, 'companyId', 'company_id');
+  const loadIssue = qualityJournalLoadIssue(qualityJournalLoadState, project, companyContext, user, [kind]);
+  if (loadIssue || projectId === null || companyId === null || !Array.isArray(rows)
+      || rows.some(row => qualityJournalOwnerId(row, 'companyId', 'company_id') === null
+        || qualityJournalOwnerId(row, 'projectId', 'project_id') === null)) {
+    return { rows: [], issue: 'Данные журнала не подтверждены. ' + (loadIssue || 'Принадлежность объекта или записей не установлена.') };
+  }
+  return {
+    issue: '',
+    rows: rows.filter(row => row.status !== 'Аннулирована'
+      && qualityJournalOwnerId(row, 'companyId', 'company_id') === companyId
+      && qualityJournalOwnerId(row, 'projectId', 'project_id') === projectId),
+  };
+};
+
 export const buildProjectObjectLinks = ({
   project,
+  companyContext,
+  qualityJournalLoadState,
+  user,
   C,
   estimatesList = [],
   rooms = [],
@@ -48,9 +78,13 @@ export const buildProjectObjectLinks = ({
   const projectWorks = (workJournal || []).filter(work => work.project === projectName);
   const pendingWorks = projectWorks.filter(work => !work.status || work.status === 'На проверке' || work.status === 'Автоматически из сметы').length;
   const hiddenCount = projectRows(hiddenActs).length;
-  const inspections = projectRows(materialInspections);
+  const qualityScope = { project, companyContext, qualityJournalLoadState, user };
+  const inspectionSnapshot = confirmedQualityJournalRows({ ...qualityScope, rows: materialInspections, kind: 'inspections' });
+  const cableSnapshot = confirmedQualityJournalRows({ ...qualityScope, rows: cableJournal, kind: 'cables' });
+  const journalIssue = inspectionSnapshot.issue || cableSnapshot.issue;
+  const inspections = inspectionSnapshot.rows;
   const inspectionPending = inspections.filter(inspection => !inspection.inspected).length;
-  const cables = projectRows(cableJournal);
+  const cables = cableSnapshot.rows;
   const cablePending = cables.filter(cable => !cable.installedAt).length;
   const materialSummary = materialControlSummaryForProject(project);
   const materialIssues = (materialSummary.toBuyRows?.length || 0)
@@ -120,12 +154,12 @@ export const buildProjectObjectLinks = ({
       tab: 'Главный',
       icon: '📚',
       label: 'Журналы',
-      count: hiddenCount + inspections.length + cables.length,
-      hint: 'АОСР ' + hiddenCount + ', входной ' + inspections.length + ', кабель ' + cables.length,
-      status: (inspectionPending || cablePending) ? 'ожидают проверки/монтажа: ' + (inspectionPending + cablePending) : '',
-      color: (inspectionPending || cablePending) ? C.warning : C.accent,
-      bg: (inspectionPending || cablePending) ? C.warningLight : C.bg,
-      border: (inspectionPending || cablePending) ? C.warningBorder : C.border,
+      count: journalIssue ? '—' : hiddenCount + inspections.length + cables.length,
+      hint: journalIssue || 'АОСР ' + hiddenCount + ', входной ' + inspections.length + ', кабель ' + cables.length,
+      status: journalIssue ? 'Данные журналов не подтверждены' : (inspectionPending || cablePending) ? 'ожидают проверки/монтажа: ' + (inspectionPending + cablePending) : '',
+      color: (journalIssue || inspectionPending || cablePending) ? C.warning : C.accent,
+      bg: (journalIssue || inspectionPending || cablePending) ? C.warningLight : C.bg,
+      border: (journalIssue || inspectionPending || cablePending) ? C.warningBorder : C.border,
     },
     {
       key: 'estimate-reconciliations',

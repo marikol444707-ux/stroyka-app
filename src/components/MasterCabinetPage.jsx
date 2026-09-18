@@ -1944,6 +1944,8 @@ export default function MasterCabinetPage(props) {
             btnO={btnO}
             buildCableJournalContent={buildCableJournalContent}
             cableJournal={cableJournal}
+            companyContext={props.companyContext}
+            qualityJournalLoadState={props.qualityJournalLoadState}
             cableTypeOf={cableTypeOf}
             card={card}
             projects={projects}

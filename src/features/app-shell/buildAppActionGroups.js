@@ -335,6 +335,8 @@ export function buildAppActionGroups({
   const { resolveContractPerformer } = personnelActions;
 
   const documentActions = createDocumentActions({
+    companyContext,
+    qualityJournalLoadState: appMainState.qualityJournalLoadState,
     accountablePayments,
     activeEstimatesForProject,
     actPayments,

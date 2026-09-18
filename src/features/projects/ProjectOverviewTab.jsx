@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 export default function ProjectOverviewTab({
   budgetSpent,
@@ -8,6 +8,7 @@ export default function ProjectOverviewTab({
   project,
   total,
 }) {
+  const [journalError, setJournalError] = useState(null);
   const {
     API,
     Bot,
@@ -220,9 +221,18 @@ export default function ProjectOverviewTab({
         <button onClick={() => showPreview(buildPassportContent(p), 'Паспорт объекта — ' + p.name)} style={btnB}><FileText size={14} />Паспорт</button>
         <button onClick={() => showKS2(p)} style={btnG}><FileText size={14} />КС-2</button>
         <button onClick={() => showPreview(buildKS3Content(p), 'КС-3 — ' + p.name)} style={btnG}><FileText size={14} />КС-3</button>
-        <button onClick={() => showPreview(buildJPRContent(p.name), 'ЖПР — ' + p.name)} style={btnG}><ScrollText size={14} />ЖПР</button>
+        <button onClick={() => {
+          setJournalError(null);
+          try {
+            showPreview(buildJPRContent(p), 'ЖПР — ' + p.name);
+          } catch (error) {
+            setJournalError({ project: p, message: error?.message || 'Данные журнала не подтверждены. Печать недоступна.' });
+          }
+        }} style={btnG}><ScrollText size={14} />ЖПР</button>
         <button onClick={() => setShowQRModal({ title: 'QR — ' + p.name, data: window.location.origin + '/?project=' + encodeURIComponent(p.name) })} style={btnG}><QrCode size={14} />QR</button>
       </div>
+
+      {journalError?.project === p && <p role="alert" style={{ color: C.warning }}>{journalError.message}</p>}
 
       <div>
         <b style={{ color: C.text, fontSize: '13px' }}>Задачи:</b>

@@ -3,7 +3,56 @@ import {
   buildEstimateReconciliationDocContent,
   buildMaterialRequirementDocContent,
   buildProjectEstimateDiffSummaryDocContent,
+  buildMaterialInspectionDocContent,
+  buildCableJournalDocContent,
+  buildJPRDocContent,
+  buildExecPackageDocContent,
 } from './printDocumentBuilders';
+
+describe('quality journal export ownership', () => {
+  const project = { id: 11, companyId: 2, name: 'Школа', client: 'Наш заказчик' };
+  const other = { id: 12, companyId: 3, name: 'Школа', client: 'Чужой заказчик' };
+  const rows = [
+    { id: 1, companyId: 2, projectId: 11, projectName: 'Старое имя', materialName: 'OWN', cableBrand: 'OWN' },
+    { id: 2, companyId: 3, projectId: 12, projectName: 'Школа', materialName: 'FOREIGN', cableBrand: 'FOREIGN' },
+    { id: 3, companyId: 2, projectName: 'Школа', materialName: 'PARTIAL', cableBrand: 'PARTIAL' },
+    { id: 4, projectName: 'Школа', materialName: 'LEGACY', cableBrand: 'LEGACY' },
+  ];
+  test.each([buildMaterialInspectionDocContent, buildCableJournalDocContent])('builder scopes explicit project and preserves identity in header', builder => {
+    const html = builder(rows, project, '', '', { projects: [other, project] });
+    expect(html).toContain('OWN'); expect(html).toContain('LEGACY');
+    expect(html).not.toContain('FOREIGN'); expect(html).not.toContain('PARTIAL');
+    expect(html).toContain('Наш заказчик'); expect(html).not.toContain('Чужой заказчик');
+    expect(html).not.toContain('[object Object]');
+  });
+  test.each([buildMaterialInspectionDocContent, buildCableJournalDocContent])('legacy string resolves only unique project; ambiguous export refuses', builder => {
+    expect(builder(rows, 'Школа', '', '', { projects: [project] })).toContain('OWN');
+    expect(() => builder(rows, 'Школа', '', '', { projects: [project, other] })).toThrow(/неоднознач/i);
+    const legacyHtml = builder(rows, 'Школа', '', '');
+    expect(legacyHtml).toContain('LEGACY'); expect(legacyHtml).not.toContain('OWN');
+    expect(legacyHtml).not.toContain('FOREIGN');
+  });
+  test('JPR scopes journal sections and rejects ambiguous project names', () => {
+    const context = { projects: [other, project], materialInspections: rows, cableJournal: rows };
+    const html = buildJPRDocContent(project, context);
+    expect(html).toContain('OWN'); expect(html).toContain('LEGACY');
+    expect(html).not.toContain('FOREIGN'); expect(html).not.toContain('PARTIAL');
+    expect(html).toContain('Журнал кабельной продукции</td><td>2</td>');
+    expect(() => buildJPRDocContent('Школа', context)).toThrow(/неоднознач/i);
+  });
+  test('JPR includes every loaded incoming inspection, including rows after thirty', () => {
+    const inspections = Array.from({length: 35}, (_, i) => ({...rows[0], id: i + 1, materialName: `Inspection-${i + 1}-end`}));
+    const html = buildJPRDocContent(project, {projects: [project], materialInspections: inspections});
+    expect(html).toContain('Inspection-35-end');
+  });
+  test('executive package counts only selected journal ownership plus legacy', () => {
+    const html = buildExecPackageDocContent(project, { materialInspections: rows, cableJournal: rows });
+    for (const title of ['Журнал входного контроля материалов', 'Журнал кабельной продукции']) {
+      const section = html.slice(html.indexOf(title)).split('</tr>')[0];
+      expect(section).toMatch(/<td[^>]*>2<\/td>/);
+    }
+  });
+});
 
 const reconciliationRow = (overrides = {}) => ({
   name: 'Смесь штукатурная',
