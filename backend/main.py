@@ -6811,9 +6811,13 @@ def update_warehouse_main(
 ):
     unit = _norm_base_unit(m.unit or "шт") or "шт"
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        cur.execute("SELECT id,company_id FROM warehouse_main WHERE id=%s FOR UPDATE", (id,))
+        # Acquire the eventual UPDATE relation lock before its row lock; otherwise
+        # a concurrent batch's stronger relation lock can cause a lock upgrade cycle.
+        cur.execute('LOCK TABLE warehouse_main IN ROW EXCLUSIVE MODE')
+        cur.execute("SELECT id,company_id,name,unit,quantity FROM warehouse_main WHERE id=%s FOR UPDATE", (id,))
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Материал основного склада не найден")
@@ -6829,6 +6833,11 @@ def update_warehouse_main(
             platform_staff_roles=PLATFORM_STAFF_ROLES,
             client_account_roles=CLIENT_ACCOUNT_ROLES,
         )
+        try:
+            from backend.features.material_traceability.guards import guard_main_stock_edit
+        except ModuleNotFoundError:
+            from features.material_traceability.guards import guard_main_stock_edit
+        guard_main_stock_edit(cur, row, name=m.name, unit=unit, quantity=m.quantity)
         cur.execute("UPDATE warehouse_main SET name=%s,unit=%s,quantity=%s,price=%s,min_quantity=%s,category=%s WHERE id=%s AND company_id=%s",
                     (m.name,unit,m.quantity,m.price,m.minQuantity,m.category,id,row.get("company_id")))
         conn.commit()
@@ -6867,7 +6876,7 @@ def get_warehouse_movements(
     except Exception:
         cur.close(); conn.close()
         raise
-    select_sql = "SELECT wm.id,wm.material_name as \"materialName\",wm.from_location as \"fromLocation\",wm.to_location as \"toLocation\",wm.quantity,wm.unit,wm.work_package as \"workPackage\",wm.date,wm.created_by as \"createdBy\",wm.notes,wm.source_invoice_id as \"sourceInvoiceId\",wm.source_invoice_line_index as \"sourceInvoiceLineIndex\",wm.estimate_control_status as \"estimateControlStatus\",wm.estimate_control as \"estimateControl\",wm.estimate_review_task_id as \"estimateReviewTaskId\" FROM warehouse_movements wm WHERE TRUE"
+    select_sql = "SELECT wm.id,wm.company_id as \"companyId\",wm.material_name as \"materialName\",wm.from_location as \"fromLocation\",wm.to_location as \"toLocation\",wm.quantity,wm.unit,wm.work_package as \"workPackage\",wm.date,wm.created_by as \"createdBy\",wm.notes,wm.source_invoice_id as \"sourceInvoiceId\",wm.source_invoice_line_index as \"sourceInvoiceLineIndex\",wm.estimate_control_status as \"estimateControlStatus\",wm.estimate_control as \"estimateControl\",wm.estimate_review_task_id as \"estimateReviewTaskId\" FROM warehouse_movements wm WHERE TRUE"
     if current_user.get("role") == "прораб":
         projects = user_project_names(current_user)
         if not projects:
@@ -6895,6 +6904,223 @@ def get_warehouse_movements(
     conn.close()
     return [dict(r) for r in rows]
 
+def _apply_warehouse_movement(cur, m, company_id, _current_user):
+    """Apply one movement inside the caller's transaction; never commit here."""
+    material_name = (m.materialName or "").strip()
+    from_location = (m.fromLocation or "").strip()
+    to_location = (m.toLocation or "").strip()
+    work_package = (m.workPackage or "Основная").strip() or "Основная"
+    qty = float(m.quantity or 0)
+    movement_estimate_control = build_movement_estimate_control([])
+    source_invoice_id = m.invoiceId
+    source_invoice_line_index = m.invoiceLineIndex
+    selected_receipt_lot = None
+    if source_invoice_id is not None or source_invoice_line_index is not None:
+        cur.execute("""SELECT id,number,project,location,items
+                       FROM warehouse_invoices
+                       WHERE id=%s AND company_id=%s
+                         AND COALESCE(status,'Принята') <> 'Аннулирована' FOR UPDATE""", (source_invoice_id, company_id))
+        invoice_row = cur.fetchone()
+        try:
+            from backend.features.material_traceability.service import ensure_source_quantity_available, resolve_invoice_line_source
+        except ModuleNotFoundError:
+            from features.material_traceability.service import ensure_source_quantity_available, resolve_invoice_line_source
+        try:
+            source_reference = resolve_invoice_line_source(source_invoice_id, source_invoice_line_index, invoice_row)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        invoice_location = (invoice_row.get("project") or "").strip() or (invoice_row.get("location") or "").strip()
+        if invoice_location != from_location:
+            raise HTTPException(status_code=400, detail="Выбранная строка накладной относится к другому складу или объекту")
+        invoice_items = _json_list_or_empty(invoice_row.get("items"))
+        source_item = invoice_items[source_reference["invoiceLineIndex"]]
+        source_item_name = str(
+            (source_item or {}).get("name")
+            or (source_item or {}).get("materialName")
+            or (source_item or {}).get("title")
+            or ""
+        ).strip().lower()
+        source_item_unit = _norm_base_unit((source_item or {}).get("unit") or "шт") or "шт"
+        requested_unit = _norm_base_unit(m.unit or "") if (m.unit or "").strip() else source_item_unit
+        if source_item_name != material_name.lower() or source_item_unit != requested_unit:
+            raise HTTPException(status_code=400, detail="Выбранная строка накладной не совпадает с перемещаемым материалом")
+        source_invoice_id = source_reference["invoiceId"]
+        source_invoice_line_index = source_reference["invoiceLineIndex"]
+        try:
+            from backend.features.material_traceability.receipt_lots import (
+                ensure_receipt_lot_schema,
+                lock_receipt_lot_for_movement,
+            )
+        except ModuleNotFoundError:
+            from features.material_traceability.receipt_lots import (
+                ensure_receipt_lot_schema,
+                lock_receipt_lot_for_movement,
+            )
+        ensure_receipt_lot_schema(cur)
+        try:
+            selected_receipt_lot = lock_receipt_lot_for_movement(
+                cur,
+                company_id=company_id,
+                warehouse_invoice_id=source_invoice_id,
+                invoice_line_index=source_invoice_line_index,
+                warehouse_location=from_location,
+                material_name=material_name,
+                unit=requested_unit,
+                requested_quantity=qty,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        if not selected_receipt_lot:
+            cur.execute("""SELECT COALESCE(SUM(quantity),0) AS allocated_quantity
+                           FROM warehouse_movements
+                           WHERE company_id=%s AND source_invoice_id=%s AND source_invoice_line_index=%s""",
+                        (company_id, source_reference["invoiceId"], source_reference["invoiceLineIndex"]))
+            allocated_quantity = float((cur.fetchone() or {}).get("allocated_quantity") or 0)
+            try:
+                ensure_source_quantity_available(source_item, allocated_quantity, qty)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=400,
+                    detail="По выбранной строке накладной доступно " + str(exc) + " " + source_item_unit,
+                )
+    source_price = 0
+    source_category = ""
+    source_unit = _norm_base_unit(m.unit or "") if (m.unit or "").strip() else ""
+    if from_location == "Основной склад":
+        cur.execute(f"""SELECT id,quantity,unit,price,category FROM warehouse_main
+                       WHERE LOWER(name)=LOWER(%s)
+                         AND company_id=%s
+                         AND (%s='' OR {_sql_norm_unit('unit')}=%s)
+                       ORDER BY id LIMIT 1 FOR UPDATE""", (material_name, company_id, source_unit, source_unit))
+        source = cur.fetchone()
+        if not source:
+            raise HTTPException(status_code=400, detail="Материал «"+material_name+"» не найден на основном складе")
+        if float(source.get("quantity") or 0) < qty:
+            raise HTTPException(status_code=400, detail="На основном складе недостаточно материала «"+material_name+"»")
+        source_unit = source_unit or _norm_base_unit(source.get("unit") or "шт") or "шт"
+        source_price = float(source.get("price") or 0)
+        source_category = source.get("category") or ""
+        cur.execute("UPDATE warehouse_main SET quantity=COALESCE(quantity,0)-%s WHERE id=%s", (qty, source["id"]))
+    else:
+        cur.execute(f"""SELECT id,quantity,unit,price,category FROM materials
+                       WHERE LOWER(name)=LOWER(%s)
+                         AND project=%s
+                         AND company_id=%s
+                         AND COALESCE(NULLIF(work_package,''),'Основная')=%s
+                         AND (%s='' OR {_sql_norm_unit('unit')}=%s)
+                       ORDER BY id LIMIT 1 FOR UPDATE""", (material_name, from_location, company_id, work_package, source_unit, source_unit))
+        source = cur.fetchone()
+        if not source:
+            raise HTTPException(status_code=400, detail="Материал «"+material_name+"» не найден на складе объекта «"+from_location+"»" + (" по пакету «"+work_package+"»" if work_package else ""))
+        if float(source.get("quantity") or 0) < qty:
+            raise HTTPException(status_code=400, detail="На складе объекта недостаточно материала «"+material_name+"»")
+        source_unit = source_unit or _norm_base_unit(source.get("unit") or "шт") or "шт"
+        source_price = float(source.get("price") or 0)
+        source_category = source.get("category") or ""
+        cur.execute("UPDATE materials SET quantity=COALESCE(quantity,0)-%s WHERE id=%s", (qty, source["id"]))
+
+    if to_location != "Основной склад":
+        movement_control_items = [{
+            "materialName": material_name,
+            "quantity": qty,
+            "unit": source_unit,
+            "workPackage": work_package,
+        }]
+        _attach_supply_estimate_control(
+            cur,
+            to_location,
+            movement_control_items,
+            company_id=company_id,
+        )
+        movement_estimate_control = build_movement_estimate_control(movement_control_items)
+        work_package = _supply_work_package(movement_control_items[0].get("workPackage") or work_package)
+
+    if to_location == "Основной склад":
+        cur.execute(f"""SELECT id FROM warehouse_main
+                       WHERE LOWER(name)=LOWER(%s)
+                         AND company_id=%s
+                         AND {_sql_norm_unit('unit')}=%s
+                       ORDER BY id LIMIT 1 FOR UPDATE""", (material_name, company_id, source_unit))
+        target = cur.fetchone()
+        if target:
+            cur.execute("""UPDATE warehouse_main
+                           SET quantity=COALESCE(quantity,0)+%s,
+                               unit=COALESCE(NULLIF(%s,''), unit),
+                               price=CASE WHEN %s > 0 THEN %s ELSE price END,
+                               category=COALESCE(NULLIF(%s,''), category)
+                           WHERE id=%s""", (qty, source_unit, source_price, source_price, source_category, target["id"]))
+        else:
+            cur.execute("""INSERT INTO warehouse_main (name,unit,quantity,price,min_quantity,category,company_id)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+                        (material_name, source_unit, qty, source_price, 0, source_category, company_id))
+    else:
+        cur.execute(f"""SELECT id FROM materials
+                       WHERE LOWER(name)=LOWER(%s)
+                         AND project=%s
+                         AND company_id=%s
+                         AND COALESCE(NULLIF(work_package,''),'Основная')=%s
+                         AND {_sql_norm_unit('unit')}=%s
+                       ORDER BY id LIMIT 1 FOR UPDATE""", (material_name, to_location, company_id, work_package, source_unit))
+        target = cur.fetchone()
+        if target:
+            cur.execute("""UPDATE materials
+                           SET quantity=COALESCE(quantity,0)+%s,
+                               unit=COALESCE(NULLIF(%s,''), unit),
+                               price=CASE WHEN %s > 0 THEN %s ELSE price END,
+                               category=COALESCE(NULLIF(%s,''), category)
+                           WHERE id=%s""", (qty, source_unit, source_price, source_price, source_category, target["id"]))
+        else:
+            cur.execute("""INSERT INTO materials (name,unit,quantity,price,min_quantity,project,category,work_package,company_id)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                        (material_name, source_unit, qty, source_price, 0, to_location, source_category, work_package, company_id))
+
+    cur.execute("""INSERT INTO warehouse_movements
+                      (material_name,from_location,to_location,quantity,unit,work_package,date,created_by,notes,company_id,
+                       source_invoice_id,source_invoice_line_index,estimate_control_status,estimate_control)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING
+                      id,company_id as "companyId",material_name as "materialName",from_location as "fromLocation",
+                      to_location as "toLocation",quantity,unit,work_package as "workPackage",
+                      date,created_by as "createdBy",notes,source_invoice_id as "sourceInvoiceId",
+                      source_invoice_line_index""",
+                (material_name, from_location, to_location, qty, source_unit, work_package, m.date, m.createdBy or _current_user.get("name",""), m.notes, company_id,
+                 source_invoice_id, source_invoice_line_index, movement_estimate_control["status"], psycopg2.extras.Json(movement_estimate_control)))
+    row = cur.fetchone()
+    row["sourceInvoiceLineIndex"] = row.pop("source_invoice_line_index", None)
+    row["estimateControlStatus"] = movement_estimate_control["status"]
+    row["estimateControl"] = movement_estimate_control
+    actor_name = m.createdBy or _current_user.get("name","")
+    if selected_receipt_lot:
+        try:
+            from backend.features.material_traceability.receipt_lots import consume_receipt_lot
+        except ModuleNotFoundError:
+            from features.material_traceability.receipt_lots import consume_receipt_lot
+        try:
+            consume_receipt_lot(
+                cur,
+                lot=selected_receipt_lot,
+                warehouse_movement_id=row["id"],
+                quantity=qty,
+                from_location=from_location,
+                to_location=to_location,
+                created_by=actor_name,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+    date_time = dt.datetime.now().strftime("%d.%m.%Y, %H:%M")
+    cur.execute("""INSERT INTO warehouse_history
+                      (company_id,material,type,quantity,unit,date,project,issued_to,issued_by,work_package,date_time,
+                       source_type,source_id,source_invoice_id,source_invoice_line_index)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (company_id, material_name, "перемещение: списание", qty, source_unit, m.date or None, from_location, to_location, actor_name, work_package, date_time,
+                 "warehouse_movement", row["id"], source_invoice_id, source_invoice_line_index))
+    cur.execute("""INSERT INTO warehouse_history
+                      (company_id,material,type,quantity,unit,date,project,issued_to,issued_by,work_package,date_time,
+                       source_type,source_id,source_invoice_id,source_invoice_line_index)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (company_id, material_name, "перемещение: приход", qty, source_unit, m.date or None, to_location, from_location, actor_name, work_package, date_time,
+                 "warehouse_movement", row["id"], source_invoice_id, source_invoice_line_index))
+    return dict(row)
+
 @app.post("/warehouse-movements")
 def create_warehouse_movement(
     m: WarehouseMovementModel,
@@ -6902,6 +7128,8 @@ def create_warehouse_movement(
     x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
     _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES)),
 ):
+    if os.getenv('OWNED_DISTRIBUTION_QUALITY_ENABLED') == '1':
+        raise HTTPException(status_code=409, detail="Для перемещения с журналом качества используйте распределение конкретной партии или возврат по распределению. Старое перемещение отключено.")
     material_name = (m.materialName or "").strip()
     from_location = (m.fromLocation or "").strip()
     to_location = (m.toLocation or "").strip()
@@ -6949,213 +7177,13 @@ def create_warehouse_movement(
         raise HTTPException(status_code=409, detail="Компания перемещения не определена")
     conn.autocommit = False
     try:
-        movement_estimate_control = build_movement_estimate_control([])
-        source_invoice_id = m.invoiceId
-        source_invoice_line_index = m.invoiceLineIndex
-        selected_receipt_lot = None
-        if source_invoice_id is not None or source_invoice_line_index is not None:
-            cur.execute("""SELECT id,number,project,location,items
-                           FROM warehouse_invoices
-                           WHERE id=%s AND company_id=%s
-                             AND COALESCE(status,'Принята') <> 'Аннулирована'""", (source_invoice_id, company_id))
-            invoice_row = cur.fetchone()
-            try:
-                from backend.features.material_traceability.service import ensure_source_quantity_available, resolve_invoice_line_source
-            except ModuleNotFoundError:
-                from features.material_traceability.service import ensure_source_quantity_available, resolve_invoice_line_source
-            try:
-                source_reference = resolve_invoice_line_source(source_invoice_id, source_invoice_line_index, invoice_row)
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail=str(exc))
-            invoice_location = (invoice_row.get("project") or "").strip() or (invoice_row.get("location") or "").strip()
-            if invoice_location != from_location:
-                raise HTTPException(status_code=400, detail="Выбранная строка накладной относится к другому складу или объекту")
-            invoice_items = _json_list_or_empty(invoice_row.get("items"))
-            source_item = invoice_items[source_reference["invoiceLineIndex"]]
-            source_item_name = str(
-                (source_item or {}).get("name")
-                or (source_item or {}).get("materialName")
-                or (source_item or {}).get("title")
-                or ""
-            ).strip().lower()
-            source_item_unit = _norm_base_unit((source_item or {}).get("unit") or "шт") or "шт"
-            requested_unit = _norm_base_unit(m.unit or "") if (m.unit or "").strip() else source_item_unit
-            if source_item_name != material_name.lower() or source_item_unit != requested_unit:
-                raise HTTPException(status_code=400, detail="Выбранная строка накладной не совпадает с перемещаемым материалом")
-            cur.execute("""SELECT COALESCE(SUM(quantity),0) AS allocated_quantity
-                           FROM warehouse_movements
-                           WHERE company_id=%s AND source_invoice_id=%s AND source_invoice_line_index=%s""",
-                        (company_id, source_reference["invoiceId"], source_reference["invoiceLineIndex"]))
-            allocated_quantity = float((cur.fetchone() or {}).get("allocated_quantity") or 0)
-            try:
-                ensure_source_quantity_available(source_item, allocated_quantity, qty)
-            except ValueError as exc:
-                raise HTTPException(
-                    status_code=400,
-                    detail="По выбранной строке накладной доступно " + str(exc) + " " + source_item_unit,
-                )
-            source_invoice_id = source_reference["invoiceId"]
-            source_invoice_line_index = source_reference["invoiceLineIndex"]
-            try:
-                from backend.features.material_traceability.receipt_lots import (
-                    ensure_receipt_lot_schema,
-                    lock_receipt_lot_for_movement,
-                )
-            except ModuleNotFoundError:
-                from features.material_traceability.receipt_lots import (
-                    ensure_receipt_lot_schema,
-                    lock_receipt_lot_for_movement,
-                )
-            ensure_receipt_lot_schema(cur)
-            try:
-                selected_receipt_lot = lock_receipt_lot_for_movement(
-                    cur,
-                    company_id=company_id,
-                    warehouse_invoice_id=source_invoice_id,
-                    invoice_line_index=source_invoice_line_index,
-                    warehouse_location=from_location,
-                    material_name=material_name,
-                    unit=requested_unit,
-                    requested_quantity=qty,
-                )
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail=str(exc))
-        source_price = 0
-        source_category = ""
-        source_unit = _norm_base_unit(m.unit or "") if (m.unit or "").strip() else ""
-        if from_location == "Основной склад":
-            cur.execute(f"""SELECT id,quantity,unit,price,category FROM warehouse_main
-                           WHERE LOWER(name)=LOWER(%s)
-                             AND company_id=%s
-                             AND (%s='' OR {_sql_norm_unit('unit')}=%s)
-                           ORDER BY id LIMIT 1 FOR UPDATE""", (material_name, company_id, source_unit, source_unit))
-            source = cur.fetchone()
-            if not source:
-                raise HTTPException(status_code=400, detail="Материал «"+material_name+"» не найден на основном складе")
-            if float(source.get("quantity") or 0) < qty:
-                raise HTTPException(status_code=400, detail="На основном складе недостаточно материала «"+material_name+"»")
-            source_unit = source_unit or _norm_base_unit(source.get("unit") or "шт") or "шт"
-            source_price = float(source.get("price") or 0)
-            source_category = source.get("category") or ""
-            cur.execute("UPDATE warehouse_main SET quantity=COALESCE(quantity,0)-%s WHERE id=%s", (qty, source["id"]))
-        else:
-            cur.execute(f"""SELECT id,quantity,unit,price,category FROM materials
-                           WHERE LOWER(name)=LOWER(%s)
-                             AND project=%s
-                             AND company_id=%s
-                             AND COALESCE(NULLIF(work_package,''),'Основная')=%s
-                             AND (%s='' OR {_sql_norm_unit('unit')}=%s)
-                           ORDER BY id LIMIT 1 FOR UPDATE""", (material_name, from_location, company_id, work_package, source_unit, source_unit))
-            source = cur.fetchone()
-            if not source:
-                raise HTTPException(status_code=400, detail="Материал «"+material_name+"» не найден на складе объекта «"+from_location+"»" + (" по пакету «"+work_package+"»" if work_package else ""))
-            if float(source.get("quantity") or 0) < qty:
-                raise HTTPException(status_code=400, detail="На складе объекта недостаточно материала «"+material_name+"»")
-            source_unit = source_unit or _norm_base_unit(source.get("unit") or "шт") or "шт"
-            source_price = float(source.get("price") or 0)
-            source_category = source.get("category") or ""
-            cur.execute("UPDATE materials SET quantity=COALESCE(quantity,0)-%s WHERE id=%s", (qty, source["id"]))
+        try:
+            from backend.features.material_traceability.guards import lock_distribution_compatible_stock
+        except ModuleNotFoundError:
+            from features.material_traceability.guards import lock_distribution_compatible_stock
+        lock_distribution_compatible_stock(cur)
+        row = _apply_warehouse_movement(cur, m, company_id, _current_user)
 
-        if to_location != "Основной склад":
-            movement_control_items = [{
-                "materialName": material_name,
-                "quantity": qty,
-                "unit": source_unit,
-                "workPackage": work_package,
-            }]
-            _attach_supply_estimate_control(
-                cur,
-                to_location,
-                movement_control_items,
-                company_id=company_id,
-            )
-            movement_estimate_control = build_movement_estimate_control(movement_control_items)
-            work_package = _supply_work_package(movement_control_items[0].get("workPackage") or work_package)
-
-        if to_location == "Основной склад":
-            cur.execute(f"""SELECT id FROM warehouse_main
-                           WHERE LOWER(name)=LOWER(%s)
-                             AND company_id=%s
-                             AND {_sql_norm_unit('unit')}=%s
-                           ORDER BY id LIMIT 1 FOR UPDATE""", (material_name, company_id, source_unit))
-            target = cur.fetchone()
-            if target:
-                cur.execute("""UPDATE warehouse_main
-                               SET quantity=COALESCE(quantity,0)+%s,
-                                   unit=COALESCE(NULLIF(%s,''), unit),
-                                   price=CASE WHEN %s > 0 THEN %s ELSE price END,
-                                   category=COALESCE(NULLIF(%s,''), category)
-                               WHERE id=%s""", (qty, source_unit, source_price, source_price, source_category, target["id"]))
-            else:
-                cur.execute("""INSERT INTO warehouse_main (name,unit,quantity,price,min_quantity,category,company_id)
-                               VALUES (%s,%s,%s,%s,%s,%s,%s)""",
-                            (material_name, source_unit, qty, source_price, 0, source_category, company_id))
-        else:
-            cur.execute(f"""SELECT id FROM materials
-                           WHERE LOWER(name)=LOWER(%s)
-                             AND project=%s
-                             AND company_id=%s
-                             AND COALESCE(NULLIF(work_package,''),'Основная')=%s
-                             AND {_sql_norm_unit('unit')}=%s
-                           ORDER BY id LIMIT 1 FOR UPDATE""", (material_name, to_location, company_id, work_package, source_unit))
-            target = cur.fetchone()
-            if target:
-                cur.execute("""UPDATE materials
-                               SET quantity=COALESCE(quantity,0)+%s,
-                                   unit=COALESCE(NULLIF(%s,''), unit),
-                                   price=CASE WHEN %s > 0 THEN %s ELSE price END,
-                                   category=COALESCE(NULLIF(%s,''), category)
-                               WHERE id=%s""", (qty, source_unit, source_price, source_price, source_category, target["id"]))
-            else:
-                cur.execute("""INSERT INTO materials (name,unit,quantity,price,min_quantity,project,category,work_package,company_id)
-                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                            (material_name, source_unit, qty, source_price, 0, to_location, source_category, work_package, company_id))
-
-        cur.execute("""INSERT INTO warehouse_movements
-                          (material_name,from_location,to_location,quantity,unit,work_package,date,created_by,notes,company_id,
-                           source_invoice_id,source_invoice_line_index,estimate_control_status,estimate_control)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING
-                          id,material_name as "materialName",from_location as "fromLocation",
-                          to_location as "toLocation",quantity,unit,work_package as "workPackage",
-                          date,created_by as "createdBy",notes,source_invoice_id as "sourceInvoiceId",
-                          source_invoice_line_index""",
-                    (material_name, from_location, to_location, qty, source_unit, work_package, m.date, m.createdBy or _current_user.get("name",""), m.notes, company_id,
-                     source_invoice_id, source_invoice_line_index, movement_estimate_control["status"], psycopg2.extras.Json(movement_estimate_control)))
-        row = cur.fetchone()
-        row["sourceInvoiceLineIndex"] = row.pop("source_invoice_line_index", None)
-        row["estimateControlStatus"] = movement_estimate_control["status"]
-        row["estimateControl"] = movement_estimate_control
-        actor_name = m.createdBy or _current_user.get("name","")
-        if selected_receipt_lot:
-            try:
-                from backend.features.material_traceability.receipt_lots import consume_receipt_lot
-            except ModuleNotFoundError:
-                from features.material_traceability.receipt_lots import consume_receipt_lot
-            try:
-                consume_receipt_lot(
-                    cur,
-                    lot=selected_receipt_lot,
-                    warehouse_movement_id=row["id"],
-                    quantity=qty,
-                    from_location=from_location,
-                    to_location=to_location,
-                    created_by=actor_name,
-                )
-            except ValueError as exc:
-                raise HTTPException(status_code=409, detail=str(exc))
-        date_time = dt.datetime.now().strftime("%d.%m.%Y, %H:%M")
-        cur.execute("""INSERT INTO warehouse_history
-                          (company_id,material,type,quantity,unit,date,project,issued_to,issued_by,work_package,date_time,
-                           source_type,source_id,source_invoice_id,source_invoice_line_index)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                    (company_id, material_name, "перемещение: списание", qty, source_unit, m.date or None, from_location, to_location, actor_name, work_package, date_time,
-                     "warehouse_movement", row["id"], source_invoice_id, source_invoice_line_index))
-        cur.execute("""INSERT INTO warehouse_history
-                          (company_id,material,type,quantity,unit,date,project,issued_to,issued_by,work_package,date_time,
-                           source_type,source_id,source_invoice_id,source_invoice_line_index)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                    (company_id, material_name, "перемещение: приход", qty, source_unit, m.date or None, to_location, from_location, actor_name, work_package, date_time,
-                     "warehouse_movement", row["id"], source_invoice_id, source_invoice_line_index))
         conn.commit()
     except Exception:
         conn.rollback()
@@ -8808,8 +8836,9 @@ def _supply_material_estimate_control(cur, project_owner: dict, material_name: s
     if matched_package != "Основная":
         stock_packages.append("Основная")
     cur.execute("""SELECT name, unit, quantity FROM materials
-                   WHERE project=%s AND COALESCE(NULLIF(work_package,''),'Основная') = ANY(%s)""",
-                (project, stock_packages))
+                   WHERE company_id=%s AND project=%s
+                     AND COALESCE(NULLIF(work_package,''),'Основная') = ANY(%s)""",
+                (company_id, project, stock_packages))
     for row in _cursor_rows_as_dicts(cur, cur.fetchall()):
         if _material_control_key_resolved(cur, project, row.get("name"), row.get("unit"), company_id=company_id, project_id=project_owner["id"]) == target_key or (
             _material_units_compatible(unit, row.get("unit")) and _material_name_match_score(material_name, row.get("name")) >= 0.55
@@ -8840,9 +8869,9 @@ def _supply_material_estimate_control(cur, project_owner: dict, material_name: s
     returned_qty = 0.0
     cur.execute("""SELECT material, unit, quantity
                    FROM warehouse_history
-                   WHERE project=%s
+                   WHERE company_id=%s AND project=%s
                      AND COALESCE(NULLIF(work_package,''),'Основная')=%s
-                     AND LOWER(COALESCE(type,'')) LIKE %s""", (project, matched_package, "возврат от мастера%"))
+                     AND LOWER(COALESCE(type,'')) LIKE %s""", (company_id, project, matched_package, "возврат от мастера%"))
     for row in _cursor_rows_as_dicts(cur, cur.fetchall()):
         if _material_control_key_resolved(cur, project, row.get("material"), row.get("unit"), company_id=company_id, project_id=project_owner["id"]) == target_key or (
             _material_units_compatible(unit, row.get("unit")) and _material_name_match_score(material_name, row.get("material")) >= 0.55
@@ -8852,10 +8881,10 @@ def _supply_material_estimate_control(cur, project_owner: dict, material_name: s
     written_off_qty = 0.0
     cur.execute("""SELECT materials_used
                    FROM work_journal
-                   WHERE project=%s
+                   WHERE company_id=%s AND project=%s
                      AND COALESCE(NULLIF(work_package,''),'Основная')=%s
                      AND COALESCE(status,'') NOT IN ('Аннулировано','Отклонено')
-                     AND COALESCE(materials_used,'') <> ''""", (project, matched_package))
+                     AND COALESCE(materials_used,'') <> ''""", (company_id, project, matched_package))
     for row in _cursor_rows_as_dicts(cur, cur.fetchall()):
         for item in _json_list_or_empty(row.get("materials_used")):
             if not isinstance(item, dict):
@@ -8868,14 +8897,14 @@ def _supply_material_estimate_control(cur, project_owner: dict, material_name: s
                 written_off_qty += _float_or_zero(item.get("quantity"))
 
     requested_qty = 0.0
-    request_params = [project, matched_package]
+    request_params = [company_id, project, matched_package]
     request_exclude_clause = ""
     if exclude_request_id:
         request_exclude_clause = " AND id<>%s"
         request_params.append(int(exclude_request_id))
     cur.execute("""SELECT id, status, items_json, material_name, quantity, unit, COALESCE(work_package,'Основная') AS work_package
                    FROM supply_requests
-                   WHERE project=%s
+                   WHERE company_id=%s AND project=%s
                      AND COALESCE(status,'') NOT IN ('Отклонена','Отменена','Отменена с откатом','Поставлено')
                      AND COALESCE(NULLIF(work_package,''),'Основная')=%s""" + request_exclude_clause,
                 tuple(request_params))
@@ -8903,8 +8932,8 @@ def _supply_material_estimate_control(cur, project_owner: dict, material_name: s
                 delivered_qty = 0.0
                 cur.execute("""SELECT material_name, unit, received_quantity, COALESCE(work_package,'Основная') AS work_package
                                FROM supply_deliveries
-                               WHERE request_id=%s
-                                 AND COALESCE(status,'') NOT IN ('Отменена','Отклонена')""", (row.get("id"),))
+                               WHERE company_id=%s AND request_id=%s
+                                 AND COALESCE(status,'') NOT IN ('Отменена','Отклонена')""", (company_id, row.get("id")))
                 for delivery_row in _cursor_rows_as_dicts(cur, cur.fetchall()):
                     delivery_package = _supply_work_package(delivery_row.get("work_package"))
                     if delivery_package != item_package:
@@ -12130,6 +12159,13 @@ def receive_supply_delivery(
     conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
+        try:
+            from backend.features.material_traceability.guards import lock_distribution_compatible_stock
+        except ModuleNotFoundError:
+            from features.material_traceability.guards import lock_distribution_compatible_stock
+        # Runtime schema helpers also lock receipt/supply relations. Take the
+        # stock lock first and retain it through acceptance, including replay.
+        lock_distribution_compatible_stock(cur)
         _ensure_supply_runtime_columns(cur)
         cur.execute("SELECT * FROM supply_deliveries WHERE id=%s FOR UPDATE", (id,))
         delivery = cur.fetchone()
@@ -12615,6 +12651,31 @@ def _stock_row_by_material_key(
                     return row
     return None
 
+def _require_unambiguous_legacy_material_person(cur, company_id, person_id, person_name):
+    """Do not assign name-only historic material events to a namesake."""
+    cur.execute("""SELECT u.id FROM users u
+                   WHERE LOWER(TRIM(u.name))=LOWER(TRIM(%s))
+                     AND (u.company_id=%s OR EXISTS (
+                         SELECT 1 FROM user_company_roles r WHERE r.user_id=u.id AND r.company_id=%s))
+                   UNION SELECT to_user_id FROM material_transfers
+                   WHERE company_id=%s AND LOWER(TRIM(to_person))=LOWER(TRIM(%s))
+                     AND to_user_id IS NOT NULL""",
+                (person_name, company_id, company_id, company_id, person_name))
+    identities = {_row_value(row, 0, "id") for row in cur.fetchall() or []}
+    if len(identities) > 1 or (person_id and identities and identities != {int(person_id)}):
+        raise HTTPException(status_code=409, detail="Исторические движения материала записаны только по имени исполнителя. Требуется сверка владельца; остаток не изменён.")
+
+
+def _personal_material_quantity(value):
+    try:
+        quantity = float(value or 0)
+    except (TypeError, ValueError, OverflowError):
+        quantity = float("nan")
+    if isinstance(value, bool) or not math.isfinite(quantity) or quantity < 0:
+        raise HTTPException(status_code=409, detail="В истории движения материала некорректное количество. Требуется сверка; остаток не изменён.")
+    return quantity
+
+
 def _personal_material_balance(
     cur,
     project: str,
@@ -12635,7 +12696,7 @@ def _personal_material_balance(
     normalized_company_id = _positive_int_or_none(company_id)
     company_filter = " AND company_id=%s" if normalized_company_id else ""
     if person_id:
-        cur.execute("""SELECT material_name, quantity, unit
+        cur.execute("""SELECT material_name, quantity, unit, to_person, to_user_id
                        FROM material_transfers
                        WHERE project_name=%s
                          """ + company_filter + """
@@ -12645,7 +12706,7 @@ def _personal_material_balance(
                          """ + package_filter + unit_filter,
                     tuple([project] + ([normalized_company_id] if normalized_company_id else []) + [person_id, person_name or "", package_name] + ([unit_key] if unit_key else [])))
     else:
-        cur.execute("""SELECT material_name, quantity, unit
+        cur.execute("""SELECT material_name, quantity, unit, to_person, to_user_id
                        FROM material_transfers
                        WHERE project_name=%s
                          """ + company_filter + """
@@ -12655,11 +12716,16 @@ def _personal_material_balance(
                          """ + package_filter + unit_filter,
                     tuple([project] + ([normalized_company_id] if normalized_company_id else []) + [person_name or "", package_name] + ([unit_key] if unit_key else [])))
     issued = 0
+    legacy_names = {person_name or ""}
     for row in cur.fetchall() or []:
         row_name = _row_value(row, 0, "material_name", "")
         row_unit = _row_value(row, 2, "unit", unit)
         if _material_control_key_resolved(cur, project, row_name, row_unit, company_id=company_id) == target_key:
-            issued += float(_row_value(row, 1, "quantity", 0) or 0)
+            transfer_name = _row_value(row, 3, "to_person", person_name) or person_name or ""
+            legacy_names.add(transfer_name)
+            if not _row_value(row, 4, "to_user_id"):
+                _require_unambiguous_legacy_material_person(cur, normalized_company_id, person_id, transfer_name)
+            issued += _personal_material_quantity(_row_value(row, 1, "quantity", 0))
     package_journal_filter = " AND COALESCE(NULLIF(work_package,''),'Основная')=%s"
     if person_id:
         cur.execute("""SELECT materials_used FROM work_journal
@@ -12682,24 +12748,27 @@ def _personal_material_balance(
             material_unit = _norm_base_unit(m.get("unit") or "").strip().lower()
             material_name_key = _material_control_key_resolved(cur, project, m.get("name") or "", material_unit or unit, company_id=company_id)
             if material_name_key == target_key and (not unit_key or material_unit == unit_key):
-                try:
-                    used += float(m.get("quantity") or 0)
-                except Exception:
-                    pass
-    cur.execute("""SELECT material, quantity, unit
+                used += _personal_material_quantity(m.get("quantity"))
+    cur.execute("""SELECT material, quantity, unit, source_type, source_id, issued_by
                    FROM warehouse_history
                    WHERE project=%s
                      """ + company_filter + """
-                     AND issued_by=%s
+                     AND ((source_type='material_return_user' AND source_id=%s)
+                          OR (COALESCE(source_type,'')<>'material_return_user' AND issued_by=ANY(%s)))
                      AND type=%s
                      """ + package_filter + unit_filter,
-                tuple([project] + ([normalized_company_id] if normalized_company_id else []) + [person_name or "", "возврат от мастера", package_name] + ([unit_key] if unit_key else [])))
+                tuple([project] + ([normalized_company_id] if normalized_company_id else []) + [person_id, sorted(legacy_names), "возврат от мастера", package_name] + ([unit_key] if unit_key else [])))
     returned = 0
     for row in cur.fetchall() or []:
         row_name = _row_value(row, 0, "material", "")
         row_unit = _row_value(row, 2, "unit", unit)
         if _material_control_key_resolved(cur, project, row_name, row_unit, company_id=company_id) == target_key:
-            returned += float(_row_value(row, 1, "quantity", 0) or 0)
+            if _row_value(row, 3, "source_type") != "material_return_user":
+                _require_unambiguous_legacy_material_person(
+                    cur, normalized_company_id, person_id, _row_value(row, 5, "issued_by", person_name))
+            returned += _personal_material_quantity(_row_value(row, 1, "quantity", 0))
+    for total in (issued, used, returned):
+        _personal_material_quantity(total)
     return {"issued": issued, "used": used, "returned": returned, "available": issued - used - returned}
 
 def _apply_material_work_writeoff(cur, project: str, material: dict, actor: dict, date_value: str, fallback_master_name: str = ""):
@@ -12730,6 +12799,19 @@ def _apply_material_work_writeoff(cur, project: str, material: dict, actor: dict
                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
         (company_id, name, "расход (работа мастера)", qty, unit, date_value or None, project,
          actor_name, actor_name, work_package, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
+
+def _validate_requested_work_material_quantities(raw):
+    for material in _parse_materials_used(raw):
+        if not isinstance(material, dict):
+            continue
+        value = material.get("quantity")
+        try:
+            quantity = float(value or 0)
+        except (TypeError, ValueError, OverflowError):
+            quantity = float("nan")
+        if isinstance(value, bool) or not math.isfinite(quantity):
+            raise HTTPException(status_code=400, detail="Укажите корректное конечное количество списываемого материала")
+
 
 def _work_material_items(raw, fallback_package: str = ""):
     items = []
@@ -13481,6 +13563,19 @@ def _mark_room_work_rejected(cur, work_journal_id: int, confirmed_by: str = ""):
         return
     cur.execute("UPDATE room_works SET status='Отклонено', confirmed_by=%s WHERE work_journal_id=%s", (confirmed_by or "", work_journal_id))
 
+def _require_work_journal_stock_actor(cur, actors, allowed_roles):
+    # Authorize first, then use the same lock order as returns/distributions,
+    # before mutation scope takes any project or work-journal row locks.
+    _, _, require_project_write_actor = _project_access_helpers()
+    actor = require_project_write_actor(actors, allowed_roles)
+    try:
+        from backend.features.material_traceability.guards import lock_distribution_compatible_stock
+    except ModuleNotFoundError:
+        from features.material_traceability.guards import lock_distribution_compatible_stock
+    lock_distribution_compatible_stock(cur)
+    return actor
+
+
 @app.post("/work-journal")
 def create_work_journal(
     w: WorkJournalModel,
@@ -13488,6 +13583,7 @@ def create_work_journal(
     x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
     _current_user: dict = Depends(get_current_user),
 ):
+    _validate_requested_work_material_quantities(w.materialsUsed)
     conn = get_db()
     conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -13524,7 +13620,7 @@ def create_work_journal(
             deps={
                 "resolve_work_company_context": _resolve_work_company_context,
                 "effective_company_actors": effective_company_actors,
-                "require_project_write_actor": require_project_write_actor,
+                "require_project_write_actor": lambda actors, roles: _require_work_journal_stock_actor(cur, actors, roles),
                 "resolve_project_parent": resolve_project_parent,
                 "require_project_parent_access": require_project_parent_access,
                 "journal_write_roles": JOURNAL_WRITE_ROLES,
@@ -13538,8 +13634,13 @@ def create_work_journal(
         if user_role in PACKAGE_LIMIT_ROLES and not has_work_execution_package_access(_current_user, w.project, work_package):
             raise HTTPException(status_code=403, detail="Нет доступа к пакету работ")
         if user_role in WORKER_EXECUTION_ROLES:
-            if str(w.masterId or "") != str(_current_user.get("id") or "") and (w.masterName or "").strip().lower() != (_current_user.get("name") or "").strip().lower():
+            if (
+                (w.masterId and str(w.masterId) != str(_current_user.get("id") or ""))
+                or (not w.masterId and (w.masterName or "").strip().lower() != (_current_user.get("name") or "").strip().lower())
+            ):
                 raise HTTPException(status_code=403, detail="Мастер может создавать ЖПР только от своего имени")
+            w.masterId = _current_user["id"]
+            w.masterName = _current_user.get("name") or ""
         used = [m for m in (w.materialsUsed or []) if m.get("name") and float(m.get("quantity") or 0) > 0]
         journal_room_id = w.roomId
         journal_room_name = (w.roomName or "").strip()
@@ -13605,7 +13706,7 @@ def create_work_journal(
             work_unit=journal_unit,
             actor_role=user_role,
         )
-        for m in used:
+        for m in _work_material_map(used, cur, w.project, company_id=journal_company_id).values():
             _apply_material_work_writeoff(cur, w.project, m, _current_user, w.date, w.masterName)
 
         import json as _json
@@ -13722,7 +13823,7 @@ def _resolve_work_journal_mutation(cur, current_user, journal_id, action_mode, x
         deps={
             "resolve_work_company_context": _resolve_work_company_context,
             "effective_company_actors": effective_company_actors,
-            "require_project_write_actor": require_project_write_actor,
+            "require_project_write_actor": lambda actors, roles: _require_work_journal_stock_actor(cur, actors, roles),
             "resolve_project_parent": resolve_project_parent,
             "require_project_parent_access": require_project_parent_access,
             "full_view_roles": BRIGADE_FULL_VIEW_ROLES,
@@ -13739,6 +13840,8 @@ def update_work_journal(
     _current_user: dict = Depends(get_current_user),
 ):
     import json as _json
+    if "materialsUsed" in data:
+        _validate_requested_work_material_quantities(data.get("materialsUsed"))
     conn = get_db()
     conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -13772,7 +13875,10 @@ def update_work_journal(
     if role in WORKER_EXECUTION_ROLES:
         master_id = project_row.get("master_id") if project_row else None
         master_name = project_row.get("master_name") if project_row else ""
-        if str(master_id or "") != str(_current_user.get("id") or "") and (master_name or "").strip().lower() != (_current_user.get("name") or "").strip().lower():
+        if (
+            (master_id and str(master_id) != str(_current_user.get("id") or ""))
+            or (not master_id and (master_name or "").strip().lower() != (_current_user.get("name") or "").strip().lower())
+        ):
             cur.close(); conn.close()
             raise HTTPException(status_code=403, detail="Мастер может менять только свои записи ЖПР")
         allowed_worker_keys = {"quantity", "comment", "photoUrl", "materialsUsed", "timeStart", "timeEnd"}
@@ -13878,6 +13984,11 @@ def update_work_journal(
     if reset_ai:
         sets.append("ai_filled=FALSE")
     old_materials = _work_material_items(project_row.get("materials_used"), project_row.get("work_package") or "") if project_row else []
+    excluded_material_statuses = {"Отклонено", "Аннулировано"}
+    reactivating_materials = (
+        str(project_row.get("status") or "").strip() in excluded_material_statuses
+        and target_status not in excluded_material_statuses
+    )
     new_materials = None
     old_qty = _float_or_zero(project_row.get("quantity") if project_row else 0)
     new_qty = _float_or_zero(data.get("quantity")) if "quantity" in data else old_qty
@@ -13898,6 +14009,8 @@ def update_work_journal(
         if package_changed:
             target_package = data.get("workPackage") or ""
             new_materials = [{**m, "workPackage": target_package} for m in new_materials]
+    if reactivating_materials and new_materials is None:
+        new_materials = list(old_materials)
     if new_materials is not None:
         target_material_package = data.get("workPackage", project_row.get("work_package") if project_row else "")
         new_materials = _force_work_material_package(new_materials, target_material_package or "")
@@ -13945,7 +14058,28 @@ def update_work_journal(
                 work_unit=data.get("unit") or project_row.get("unit") or "",
                 actor_role=_current_user.get("role") or "",
             )
-            _apply_work_material_delta(cur, project_row, old_materials, new_materials, _current_user, project_row.get("date") or "")
+            if reactivating_materials:
+                # Excluded work contributes no consumption to the balance. On
+                # restoration validate the full target amount, not its delta.
+                old_map = _work_material_map(old_materials, cur, project_name, company_id=project_row.get("company_id"))
+                new_map = _work_material_map(new_materials, cur, project_name, company_id=project_row.get("company_id"))
+                if role not in WORKER_EXECUTION_ROLES and any(
+                    item["quantity"] > (old_map.get(key) or {}).get("quantity", 0)
+                    for key, item in new_map.items()
+                ):
+                    raise HTTPException(status_code=403, detail="Увеличивать списание материалов в ЖПР может только исполнитель: мастер, субподрядчик или бригадир.")
+                if new_map and not _positive_int_or_none(project_row.get("master_id")):
+                    raise HTTPException(status_code=409, detail="Для восстановления списания нужно уточнить исполнителя старой записи ЖПР")
+                # Leadership authorizes the status change; the material still
+                # belongs to the original journal's persisted recipient.
+                material_owner = {
+                    "id": project_row.get("master_id"), "name": project_row.get("master_name"),
+                    "companyId": project_row.get("company_id"), "role": "мастер",
+                }
+                for material in new_map.values():
+                    _apply_material_work_writeoff(cur, project_name, material, material_owner, project_row.get("date") or "")
+            elif target_status not in excluded_material_statuses:
+                _apply_work_material_delta(cur, project_row, old_materials, new_materials, _current_user, project_row.get("date") or "")
             sets.append("materials_used=%s")
             vals.append(_json.dumps(new_materials, ensure_ascii=False) if new_materials else None)
         if not sets:
@@ -14018,7 +14152,7 @@ def delete_work_journal(
             conn.rollback()
             raise HTTPException(status_code=403, detail="Нет доступа к пакету работ")
         cancellation_marker = "Аннулировано без физического удаления"
-        if cancellation_marker in (work.get("comment") or ""):
+        if cancellation_marker in (work.get("comment") or "") and work.get("status") in ("Отклонено", "Аннулировано"):
             conn.rollback()
             return {"ok": True, "cancelled": True, "alreadyCancelled": True, "materialsRestored": 0}
         used = []
@@ -19205,13 +19339,18 @@ def create_material_transfer(
 ):
     from_location = (data.get("fromLocation") or "").strip() or "Основной склад"
     material_name = data.get("materialName", "")
-    qty = float(data.get("quantity", 0) or 0)
+    try:
+        if isinstance(data.get("quantity"), bool):
+            raise ValueError("Boolean is not a quantity")
+        qty = float(data.get("quantity", 0) or 0)
+    except (TypeError, ValueError, OverflowError):
+        raise HTTPException(status_code=400, detail="Укажите корректное количество материала")
     unit = _norm_base_unit(data.get("unit") or "шт") or "шт"
     project_name = (data.get("projectName") or "").strip()
     work_package = (data.get("workPackage") or data.get("work_package") or "").strip()
     to_person_role = (data.get("toPersonRole") or data.get("to_person_role") or "").strip().lower()
     transfer_receiver_roles = ("мастер", "субподрядчик", "бригадир")
-    if not material_name or qty <= 0:
+    if not material_name or not math.isfinite(qty) or qty <= 0:
         raise HTTPException(status_code=400, detail="Укажите материал и количество больше 0")
     if to_person_role == "бригада":
         raise HTTPException(status_code=400, detail="Выдача материала абстрактной бригаде закрыта. Выберите конкретного активного бригадира, мастера или субподрядчика с доступом к объекту и пакету.")
@@ -19243,6 +19382,11 @@ def create_material_transfer(
             x_company_mode=x_company_mode,
         )
         actor = require_project_write_actor(effective_company_actors(current_user, company_context), WAREHOUSE_ROLES)
+        try:
+            from backend.features.material_traceability.guards import lock_distribution_compatible_stock
+        except ModuleNotFoundError:
+            from features.material_traceability.guards import lock_distribution_compatible_stock
+        lock_distribution_compatible_stock(cur)
         company_id = int(actor.get("companyId"))
         project = resolve_project_parent(
             cur,
@@ -19307,8 +19451,8 @@ def create_material_transfer(
             invoice_line_key = ""
             invoice_number = ""
         if to_person_role in ("мастер", "субподрядчик", "бригадир"):
-            to_user_id = _resolve_staff_or_user_id(cur, to_user_id, to_person)
-        if to_person_role in ("мастер", "субподрядчик", "бригадир"):
+            # toUserId is a users.id, never a staff.id. Name-only legacy clients
+            # remain supported only when the company has one eligible recipient.
             cur.execute("""SELECT u.id,u.name,m.role,'' AS project_name,m.assigned_projects,m.assigned_packages
                            FROM users u
                            JOIN user_company_roles m ON m.user_id=u.id
@@ -19316,9 +19460,12 @@ def create_material_transfer(
                              AND ((%s IS NOT NULL AND u.id=%s) OR (%s IS NULL AND LOWER(TRIM(u.name))=LOWER(TRIM(%s))))
                              AND m.role IN ('мастер','субподрядчик','бригадир')
                              AND COALESCE(u.active,TRUE)=TRUE AND COALESCE(m.active,TRUE)=TRUE
-                           ORDER BY CASE WHEN u.id=%s THEN 0 ELSE 1 END, u.id LIMIT 1""",
-                        (company_id, to_user_id, to_user_id, to_user_id, to_person, to_user_id))
-            receiver = cur.fetchone()
+                           ORDER BY u.id LIMIT 2""",
+                        (company_id, to_user_id, to_user_id, to_user_id, to_person))
+            receivers = cur.fetchall() or []
+            if len(receivers) > 1:
+                raise HTTPException(status_code=409, detail="Найдено несколько исполнителей с таким именем. Выберите получателя с привязанным доступом в программу.")
+            receiver = receivers[0] if receivers else None
             if not receiver:
                 raise HTTPException(status_code=400, detail="Получатель материала должен быть активным пользователем с ролью мастер, субподрядчик или бригадир")
             to_user_id = receiver.get("id")
@@ -19478,10 +19625,15 @@ def return_material_from_master(
 ):
     project_name = data.get("projectName", "")
     material_name = data.get("materialName", "")
-    qty = float(data.get("quantity", 0) or 0)
+    try:
+        if isinstance(data.get("quantity"), bool):
+            raise ValueError("Boolean is not a quantity")
+        qty = float(data.get("quantity", 0) or 0)
+    except (TypeError, ValueError, OverflowError):
+        raise HTTPException(status_code=400, detail="Укажите корректное количество материала")
     unit = _norm_base_unit(data.get("unit") or "шт") or "шт"
     work_package = (data.get("workPackage") or data.get("work_package") or "Основная").strip() or "Основная"
-    if not project_name or not material_name or qty <= 0:
+    if not project_name or not material_name or not math.isfinite(qty) or qty <= 0:
         raise HTTPException(status_code=400, detail="Укажите объект, материал и количество больше 0")
     conn = get_db()
     conn.autocommit = False
@@ -19498,6 +19650,11 @@ def return_material_from_master(
             effective_company_actors(current_user, company_context),
             (*SUPPLY_INTERNAL_ROLES, *WORKER_EXECUTION_ROLES),
         )
+        try:
+            from backend.features.material_traceability.guards import lock_distribution_compatible_stock
+        except ModuleNotFoundError:
+            from features.material_traceability.guards import lock_distribution_compatible_stock
+        lock_distribution_compatible_stock(cur)
         project = resolve_project_parent(
             cur,
             actor,
@@ -19515,6 +19672,25 @@ def return_material_from_master(
         else:
             person_name = data.get("fromPerson") or actor.get("name", "")
             person_id = data.get("fromPersonId")
+        if person_id:
+            cur.execute("""SELECT u.id,u.name FROM users u WHERE u.id=%s
+                           AND (u.company_id=%s OR EXISTS (
+                               SELECT 1 FROM user_company_roles r WHERE r.user_id=u.id AND r.company_id=%s)
+                               OR EXISTS (SELECT 1 FROM material_transfers mt
+                                          WHERE mt.to_user_id=u.id AND mt.company_id=%s))""",
+                        (person_id, company_id, company_id, company_id))
+        else:
+            cur.execute("""SELECT DISTINCT u.id,u.name FROM users u
+                           WHERE LOWER(TRIM(u.name))=LOWER(TRIM(%s))
+                           AND (u.company_id=%s OR EXISTS (
+                               SELECT 1 FROM user_company_roles r WHERE r.user_id=u.id AND r.company_id=%s)
+                               OR EXISTS (SELECT 1 FROM material_transfers mt
+                                          WHERE mt.to_user_id=u.id AND mt.company_id=%s))""",
+                        (person_name, company_id, company_id, company_id))
+        people = cur.fetchall() or []
+        if len(people) != 1:
+            raise HTTPException(status_code=409, detail="Для возврата выберите точного исполнителя. По имени владелец материала не определён однозначно.")
+        person_id, person_name = people[0]["id"], people[0]["name"]
         balance = _personal_material_balance(
             cur, project_name, person_id, person_name, material_name, work_package, unit, company_id=company_id
         )
@@ -19538,10 +19714,11 @@ def return_material_from_master(
 
         return_date = data.get("date") or None
         cur.execute("""INSERT INTO warehouse_history
-                       (company_id,material,type,quantity,unit,date,project,issued_to,issued_by,work_package,date_time)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                       (company_id,material,type,quantity,unit,date,project,issued_to,issued_by,work_package,date_time,source_type,source_id)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
             (company_id, material_name, "возврат от мастера", qty, unit, return_date, project_name,
-             "Склад объекта", person_name, work_package, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
+             "Склад объекта", person_name, work_package, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M"),
+             "material_return_user", person_id))
         history_id = cur.fetchone().get("id")
         conn.commit()
         _run_project_ai_control_safely(project_name, "material_transfer:return")
@@ -19576,6 +19753,11 @@ def delete_material_transfer(
             cur, current_user, None, "write", x_company_id=x_company_id, x_company_mode=x_company_mode
         )
         actor = require_project_write_actor(effective_company_actors(current_user, company_context), WAREHOUSE_ROLES)
+        try:
+            from backend.features.material_traceability.guards import lock_distribution_compatible_stock
+        except ModuleNotFoundError:
+            from features.material_traceability.guards import lock_distribution_compatible_stock
+        lock_distribution_compatible_stock(cur)
         transfer = resolve_material_transfer_parent(cur, actor, id, for_update=True)
         cur.execute("""SELECT project_name,from_location,to_person,material_name,quantity,unit,signed,
                               COALESCE(status,'Активна') AS status,work_package
@@ -19964,7 +20146,10 @@ def get_warehouse_invoices(
     cur.close(); conn.close()
     result = []
     for r in rows:
-        items = _json_list_or_empty(r[9])
+        # Source identity is the stored JSON position, never the visible position
+        # after package filtering or an index supplied in an uploaded item.
+        items = [{**item, "invoiceLineIndex": index}
+                 for index, item in enumerate(_json_list_or_empty(r[9]))]
         total_base = float(r[10] or 0)
         total_vat = float(r[11] or 0)
         total_with_vat = float(r[12] or 0)
@@ -20014,6 +20199,13 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
     cur = conn.cursor()
     conn.autocommit = False
     try:
+        try:
+            from backend.features.material_traceability.guards import lock_distribution_compatible_stock
+        except ModuleNotFoundError:
+            from features.material_traceability.guards import lock_distribution_compatible_stock
+        # Must precede even schema preparation and project lookups: a receipt
+        # DDL lock followed by stock access reverses distribution's lock order.
+        lock_distribution_compatible_stock(cur)
         _ensure_invoice_document_link_columns(cur)
         source_type = (data.get("sourceType") or "").strip()
         source_id = data.get("sourceId") or None
@@ -21676,6 +21868,28 @@ def delete_warehouse_invoice(
     conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
+        # Authorize without a row lock, then acquire the common stock lock order.
+        # The locked row below is authorized again in case its company changed.
+        cur.execute('SELECT company_id FROM warehouse_invoices WHERE id=%s', (id,))
+        initial = cur.fetchone()
+        if not initial:
+            raise HTTPException(status_code=404, detail="Накладная не найдена")
+        resolve_resource_company_actor(
+            cur, _current_user, initial.get('company_id'), 'delete',
+            x_company_id=x_company_id, x_company_mode=x_company_mode,
+            allowed_roles=(*LEADERSHIP_ROLES, "кладовщик", "снабженец"),
+            forbidden_detail="Роль в выбранной компании не позволяет аннулировать складскую накладную",
+            platform_staff_roles=PLATFORM_STAFF_ROLES, client_account_roles=CLIENT_ACCOUNT_ROLES,
+        )
+        # Release the preliminary receipt-table ACCESS SHARE lock before taking
+        # stock locks: the legacy column helper below may need ACCESS EXCLUSIVE.
+        # No writes have occurred; the locked row is authorized again below.
+        conn.rollback()
+        try:
+            from backend.features.material_traceability.guards import lock_distribution_compatible_stock
+        except ModuleNotFoundError:
+            from features.material_traceability.guards import lock_distribution_compatible_stock
+        lock_distribution_compatible_stock(cur)
         _ensure_invoice_document_link_columns(cur)
         cur.execute("""SELECT id, COALESCE(project,'') AS project, COALESCE(location,'') AS location,
                               COALESCE(status,'') AS status, items, COALESCE(accepted_by,'') AS accepted_by,
@@ -21703,6 +21917,11 @@ def delete_warehouse_invoice(
         if row.get("status") == "Аннулирована":
             conn.rollback()
             return {"ok": True, "annulled": True, "alreadyAnnulled": True, "stockRowsRestored": 0}
+        try:
+            from backend.features.material_traceability.guards import close_receipt_lots_for_cancellation
+        except ModuleNotFoundError:
+            from features.material_traceability.guards import close_receipt_lots_for_cancellation
+        close_receipt_lots_for_cancellation(cur, row.get('company_id'), id)
         target_project = row.get("project") or (row.get("location") if row.get("location") != "Основной склад" else "")
         if target_project:
             require_project_or_warehouse_access(_current_user, target_project)
@@ -25175,6 +25394,23 @@ def save_doc_version(document_type, document_id, snapshot_json, changed_by="", c
         return None
 
 try:
+    from backend.features.warehouse_distribution import register_warehouse_distribution_module
+except ModuleNotFoundError:
+    from features.warehouse_distribution import register_warehouse_distribution_module
+
+register_warehouse_distribution_module(app, {
+    "get_db": get_db,
+    "get_current_user": get_current_user,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
+    "apply_movement": _apply_warehouse_movement,
+    "movement_model": WarehouseMovementModel,
+    "detect_cable_info": _detect_cable_info,
+    "normalize_unit": _norm_base_unit,
+    "finance_roles": FINANCE_ROLES,
+})
+
+try:
     from backend.features.document_versions.routes import register_document_versions_module
 except ModuleNotFoundError:
     from features.document_versions.routes import register_document_versions_module
@@ -25305,6 +25541,8 @@ except ModuleNotFoundError:
 
 
 register_materials_module(app, {
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
     "get_db": get_db,
     "get_current_user": get_current_user,
     "require_roles": require_roles,

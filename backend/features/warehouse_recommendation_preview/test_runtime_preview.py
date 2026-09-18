@@ -949,7 +949,7 @@ class WarehouseAnomalyRuntimePreviewCompositionTests(unittest.TestCase):
             # Reviewed supplier catalog and bounded journal schema preparation;
             # warehouse preview implementation and registration are unchanged.
             root / "backend/main.py": (
-                "8c9f527e57d2cbcb7fa945e65e1b1892f53c4e22a66f8dfcaffebf260a0ce949"
+                "2ee437ceaba01b00b38959f6a718a1965f794420c9d4e7833f5d5e5225cc7088"
             ),
         }
         self.assertEqual({
