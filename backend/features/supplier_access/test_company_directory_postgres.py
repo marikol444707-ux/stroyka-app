@@ -99,8 +99,10 @@ class CompanyDirectoryPostgresTests(unittest.TestCase):
     def test_legacy_bootstrap_is_explicit_atomic_version_safe_and_replayable(self):
         import psycopg2.extras
         from .catalog_bootstrap import make_plan, apply_plan, digest
-        ids = [self.sql("INSERT INTO suppliers(name,notes,contract_number) VALUES(%s,%s,%s) RETURNING id",
-                        ('Legacy no INN ' + str(i), 'Only company A', 'A-' + str(i)))[0][0] for i in range(2)]
+        legacy_statuses = ('На проверке', 'Нужно уточнение')
+        ids = [self.sql("INSERT INTO suppliers(name,notes,contract_number,status) VALUES(%s,%s,%s,%s) RETURNING id",
+                        ('Legacy no INN ' + str(i), 'Only company A', 'A-' + str(i), status))[0][0]
+               for i, status in enumerate(legacy_statuses)]
         conn = self.main.get_db()
         conn.autocommit = False
         try:
@@ -134,6 +136,10 @@ class CompanyDirectoryPostgresTests(unittest.TestCase):
                 conn.commit()
                 self.assertEqual(self.sql('SELECT company_id,profile->>\'notes\' FROM company_supplier_links WHERE supplier_id=ANY(%s)', (ids,)), [(2, 'Only company A')] * 2)
                 self.assertEqual(self.sql("SELECT count(*) FROM audit_log WHERE action='supplier_catalog_bootstrap'"), [(2,)])
+                self.assertEqual(self.sql('SELECT status FROM company_supplier_links WHERE supplier_id=ANY(%s) ORDER BY supplier_id', (ids,)), [(status,) for status in legacy_statuses])
+                for sid, status in zip(ids, legacy_statuses):
+                    updated = self.api('director', 'PUT', f'/suppliers/{sid}', {'notes': 'Only company A', 'relationshipVersion': 1})
+                    self.assertEqual(updated['status'], status)
                 cur.execute('UPDATE company_supplier_links SET contract_number=%s,version=version+1 WHERE supplier_id=%s', ('New company contract', ids[0]))
                 conn.commit()
                 with self.assertRaisesRegex(ValueError, 'must not be overwritten'):
@@ -236,10 +242,13 @@ class CompanyDirectoryPostgresTests(unittest.TestCase):
         self.assertIn(sid, [row['id'] for row in candidates['suppliers']])
         self.api('stranger', 'GET', path + '/suggest-suppliers', expected=403)
         self.api('director', 'GET', path + '/compare-kp', expected=409, **{'X-Company-Id': '3'})
-        self.api('director', 'PUT', f'/suppliers/{sid}', {'status': 'Неактивный', 'relationshipVersion': 1})
-        self.api('director', 'POST', path + '/request-kp', {'supplierIds': [sid]}, expected=409)
-        self.assertEqual(self.sql('SELECT COUNT(*) FROM supplier_offers WHERE request_id=%s', (request['id'],)), [(0,)])
-        self.api('director', 'PUT', f'/suppliers/{sid}', {'status': 'Активный', 'relationshipVersion': 2})
+        for version, status in enumerate(('Неактивный', 'На проверке', 'Нужно уточнение'), start=1):
+            self.api('director', 'PUT', f'/suppliers/{sid}', {'status': status, 'relationshipVersion': version})
+            self.api('director', 'POST', path + '/request-kp', {'supplierIds': [sid]}, expected=409)
+            candidates = self.api('director', 'GET', path + '/suggest-suppliers')
+            self.assertNotIn(sid, [row['id'] for row in candidates['suppliers']])
+            self.assertEqual(self.sql('SELECT COUNT(*) FROM supplier_offers WHERE request_id=%s', (request['id'],)), [(0,)])
+        self.api('director', 'PUT', f'/suppliers/{sid}', {'status': 'Активный', 'relationshipVersion': 4})
         with patch.object(self.main, 'supplier_group_scope_ids', return_value=[sid, 999999]), \
              patch.object(self.main, 'supplier_offer_targets_for_groups', side_effect=AssertionError('Implicit alias dispatch')):
             result = self.api('director', 'POST', path + '/request-kp', {'supplierIds': [sid], 'aiRecommendedIds': [sid]})

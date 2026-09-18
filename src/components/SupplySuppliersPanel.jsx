@@ -547,7 +547,7 @@ function SupplySuppliersPanel({
             </select>
             <input placeholder="Специализация" value={newSupplier.specialization} onChange={e=>setNewSupplier({...newSupplier,specialization:e.target.value})} style={{...inp,marginBottom:0}}/>
             <select value={newSupplier.status} onChange={e=>setNewSupplier({...newSupplier,status:e.target.value})} style={{...inp,marginBottom:0}}>
-              {['Активный','Неактивный','Заблокирован'].map(status=><option key={status}>{status}</option>)}
+              {['Активный','Неактивный','Заблокирован','На проверке','Нужно уточнение'].map(status=><option key={status}>{status}</option>)}
             </select>
             <select value={newSupplier.sourceType || 'manual'} onChange={e=>setNewSupplier({...newSupplier,sourceType:e.target.value})} style={{...inp,marginBottom:0}}>
               {Object.entries(SUPPLIER_SOURCE_META).map(([value, meta])=><option key={value} value={value}>{meta.label}</option>)}

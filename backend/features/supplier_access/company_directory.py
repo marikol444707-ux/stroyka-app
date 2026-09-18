@@ -53,7 +53,7 @@ def relationship_values(data, previous=None):
             limit = 100 if key in ('category', 'sourceType', 'contractNumber') else 500 if key == 'contractUrl' else 4000
             if len(value) > limit:
                 raise HTTPException(422, 'Слишком длинное поле: ' + key)
-            if key == 'status' and value not in ('Активный', 'Неактивный', 'Заблокирован'):
+            if key == 'status' and value not in ('Активный', 'Неактивный', 'Заблокирован', 'На проверке', 'Нужно уточнение'):
                 raise HTTPException(422, 'Некорректный статус отношений с поставщиком')
         values[column] = value
     profile = dict(previous.get('profile') or {})
