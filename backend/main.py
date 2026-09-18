@@ -6670,6 +6670,7 @@ def _resolve_estimate_mutation_actor(
     *,
     x_company_id=None,
     x_company_mode=None,
+    lock_stock=False,
 ):
     try:
         from backend.features.estimate_access.service import resolve_estimate_parent
@@ -6691,6 +6692,12 @@ def _resolve_estimate_mutation_actor(
             effective_company_actors(current_user, company_context),
             allowed_roles,
         )
+        if lock_stock:
+            try:
+                from backend.features.material_traceability.guards import lock_distribution_compatible_stock
+            except ModuleNotFoundError:
+                from features.material_traceability.guards import lock_distribution_compatible_stock
+            lock_distribution_compatible_stock(access_cur)
         estimate = resolve_estimate_parent(
             access_cur,
             actor,
@@ -17933,9 +17940,24 @@ def update_estimate(
     x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
     current_user: dict = Depends(get_current_user),
 ):
+    # One transaction owner also closes failures before the journal sub-handler.
+    for materials in (data.get("_workJournalMaterials") or {}).values():
+        _validate_requested_work_material_quantities(materials)
+    conn = get_db()
+    try:
+        return _update_estimate_with_connection(conn, id, data, x_company_id, x_company_mode, current_user)
+    except BaseException:
+        if not conn.closed:
+            conn.rollback()
+        raise
+    finally:
+        if not conn.closed:
+            conn.close()
+
+
+def _update_estimate_with_connection(conn, id, data, x_company_id, x_company_mode, current_user):
     import json as j
     from datetime import date as _date
-    conn = get_db()
     conn.autocommit = False
     _current_user, estimate_scope = _resolve_estimate_mutation_actor(
         conn,
@@ -17944,6 +17966,7 @@ def update_estimate(
         (*ESTIMATE_WRITE_ROLES, *WORKER_EXECUTION_ROLES),
         x_company_id=x_company_id,
         x_company_mode=x_company_mode,
+        lock_stock=True,
     )
     cur = conn.cursor()
     cur.execute("""SELECT sections_json, name, version, project_name, COALESCE(smeta_type,'Заказчик'), status,
@@ -18352,7 +18375,7 @@ def update_estimate(
                     work_unit=unit,
                     actor_role=_current_user.get("role") or "",
                 )
-                for m in used_materials:
+                for m in _work_material_map(used_materials, cur, project_name, company_id=estimate_scope["companyId"]).values():
                     _apply_material_work_writeoff(cur, project_name, m, _current_user, journal_date, brigade)
                 materials_json = j.dumps(used_materials, ensure_ascii=False) if used_materials else None
                 cur.execute("""INSERT INTO work_journal

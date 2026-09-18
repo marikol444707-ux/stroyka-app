@@ -87,7 +87,7 @@ class AliasRuntimeContractTests(unittest.TestCase):
 
     def test_estimate_refresh_failure_rolls_back_and_closes_transaction(self):
         tree = ast.parse((Path(__file__).resolve().parents[2] / 'main.py').read_text())
-        route = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'update_estimate')
+        route = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == '_update_estimate_with_connection')
         guarded = next(n for n in route.body if isinstance(n, ast.Try) and any(
             isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
             and call.func.id == '_refresh_open_supply_controls_for_estimate' for call in ast.walk(n)))
