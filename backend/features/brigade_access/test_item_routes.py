@@ -232,7 +232,7 @@ class BrigadeContractItemsTest(unittest.TestCase):
 
     def test_delete_recalcs_total(self):
         recalc = []
-        cursor = FakeCursor(fetchone_results=[(7, "Основная"), (7,)])
+        cursor = FakeCursor(fetchone_results=[(7, "Основная"), None, (7,)])
         app, connection = build(cursor, recalc_calls=recalc)
         result = app.routes[("DELETE", "/brigade-contract-items/{id}")](
             id=4, x_company_id="3", x_company_mode="company", _current_user={}
@@ -240,6 +240,21 @@ class BrigadeContractItemsTest(unittest.TestCase):
         self.assertEqual(result["ok"], True)
         self.assertEqual(recalc, [7])
         self.assertTrue(connection.committed)
+
+    def test_delete_preserves_item_with_factual_material_consumption(self):
+        recalc = []
+        cursor = FakeCursor(fetchone_results=[(7, "Основная"), (1,)])
+        app, connection = build(cursor, recalc_calls=recalc)
+        with self.assertRaises(HTTPException) as error:
+            app.routes[("DELETE", "/brigade-contract-items/{id}")](
+                id=4, x_company_id="3", x_company_mode="company", _current_user={}
+            )
+        self.assertEqual(error.exception.status_code, 409)
+        self.assertFalse(any(sql.startswith("DELETE") for sql, _ in cursor.calls))
+        self.assertEqual(recalc, [])
+        self.assertTrue(connection.rolled_back)
+        self.assertFalse(connection.committed)
+        self.assertTrue(connection.closed)
 
 
 if __name__ == "__main__":

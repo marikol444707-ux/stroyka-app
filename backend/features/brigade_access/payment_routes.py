@@ -94,6 +94,9 @@ def register_brigade_payments_module(app, deps):
         cur = conn.cursor()
         claimed_company_id = data.get("companyId") if "companyId" in data else data.get("company_id")
         try:
+            if deps.get('lock_settlement_actor'):
+                deps['lock_settlement_actor'](cur, _current_user, data.get('contractId'), finance_roles,
+                    x_company_id, x_company_mode)
             contract, actor, _project = resolve_brigade_contract_actor(
                 cur,
                 _current_user,
@@ -105,6 +108,10 @@ def register_brigade_payments_module(app, deps):
                 for_update=True,
             )
             company_id = int(contract["companyId"])
+            if contract.get('settlementVersion') == 2:
+                result = deps['pay_settlement'](conn, contract, actor, data)
+                conn.commit()
+                return result
             cur.execute("""SELECT company_id FROM brigade_payments
                            WHERE contract_id=%s AND company_id IS DISTINCT FROM %s
                            LIMIT 1""", (contract["id"], company_id))
@@ -192,6 +199,9 @@ def register_brigade_payments_module(app, deps):
             if not payment_link:
                 return {"ok": True}
             contract_id = row_get(payment_link, "contract_id", 0)
+            if deps.get('lock_settlement_actor'):
+                deps['lock_settlement_actor'](cur, _current_user, contract_id, finance_roles,
+                    x_company_id, x_company_mode)
             contract, actor, _project = resolve_brigade_contract_actor(
                 cur,
                 _current_user,
@@ -202,6 +212,8 @@ def register_brigade_payments_module(app, deps):
                 for_update=True,
             )
             company_id = int(contract["companyId"])
+            if contract.get('settlementVersion') == 2:
+                raise HTTPException(409, 'Платёж по акту нельзя удалить. Возврат требует отдельной денежной корректировки')
             cur.execute("""SELECT paid_by,company_id,project_payment_id
                            FROM brigade_payments
                            WHERE id=%s AND contract_id=%s

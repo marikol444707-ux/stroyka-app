@@ -63,6 +63,9 @@ def reviewed_sources():
                 handoff_estimate_revision_impact_transition()
 
             def update_estimate(conn):
+                return _update_estimate_with_connection(conn)
+
+            def _update_estimate_with_connection(conn):
                 conn.commit()
                 handoff_estimate_revision_impact_transition()
 
@@ -202,6 +205,25 @@ class EstimateRevisionImpactCutoverInventoryTests(unittest.TestCase):
             1,
         )
         cases.append((before_commit, REQUIRED_CHECKS))
+
+        detached_helper = reviewed_sources()
+        detached_helper["backend/main.py"] = detached_helper[
+            "backend/main.py"
+        ].replace("return _update_estimate_with_connection(conn)", "return None")
+        cases.append((detached_helper, REQUIRED_CHECKS))
+
+        helper_before_commit = reviewed_sources()
+        helper_before_commit["backend/main.py"] = helper_before_commit[
+            "backend/main.py"
+        ].replace(
+            "def _update_estimate_with_connection(conn):\n"
+            "                conn.commit()\n"
+            "                handoff_estimate_revision_impact_transition()",
+            "def _update_estimate_with_connection(conn):\n"
+            "                handoff_estimate_revision_impact_transition()\n"
+            "                conn.commit()",
+        )
+        cases.append((helper_before_commit, REQUIRED_CHECKS))
         cases.append((reviewed_sources(), REQUIRED_CHECKS[:-1]))
 
         for sources, checks in cases:

@@ -348,13 +348,32 @@ class EstimateRevisionImpactHandoffTests(unittest.TestCase):
             handoff_offset = function_source.find(
                 "handoff_estimate_revision_impact_transition("
             )
+            self.assertGreaterEqual(commit_offset, 0)
             self.assertGreater(handoff_offset, commit_offset)
 
         self.assertEqual(sorted(owners), [
+            "_update_estimate_with_connection",
             "create_estimate",
-            "update_estimate",
             "update_estimate_status",
         ])
+
+    def test_update_route_returns_the_post_commit_helper_result(self):
+        root = Path(__file__).resolve().parents[3]
+        tree = ast.parse((root / "backend/main.py").read_text(encoding="utf-8"))
+        route = next(node for node in tree.body
+                     if isinstance(node, ast.FunctionDef) and node.name == "update_estimate")
+        helper_calls = [
+            node for node in ast.walk(route)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+            and node.func.id == "_update_estimate_with_connection"
+        ]
+        self.assertEqual(len(helper_calls), 1)
+        self.assertEqual(
+            ast.unparse(helper_calls[0]),
+            "_update_estimate_with_connection(conn, id, data, x_company_id, x_company_mode, current_user)",
+        )
+        self.assertTrue(any(isinstance(node, ast.Return) and node.value is helper_calls[0]
+                            for node in ast.walk(route)))
 
     def test_backend_working_directory_import_and_disabled_inventory(self):
         root = Path(__file__).resolve().parents[3]

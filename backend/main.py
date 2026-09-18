@@ -2263,7 +2263,7 @@ def _resolve_brigade_contract_actor(
         """SELECT id,company_id,project_id,project_name,
                   COALESCE(NULLIF(work_package,''),'Основная') AS work_package,
                   brigade_name,COALESCE(act_scan_url,'') AS act_scan_url,
-                  total_amount,status,contractor_id
+                  total_amount,status,contractor_id,settlement_version
              FROM brigade_contracts
             WHERE id=%s""" + lock_sql,
         (normalized_contract_id,),
@@ -2282,6 +2282,7 @@ def _resolve_brigade_contract_actor(
         "totalAmount": _row_get(row, "total_amount", 7, 0) or 0,
         "status": _row_get(row, "status", 8, "") or "",
         "contractorId": _row_get(row, "contractor_id", 9),
+        "settlementVersion": _row_get(row, "settlement_version", 10, 1),
     }
     if not _positive_int_or_none(contract["projectId"]):
         cur.execute(
@@ -4355,6 +4356,7 @@ def init_db():
         ALTER TABLE brigade_contracts ADD COLUMN IF NOT EXISTS company_id INT;
         ALTER TABLE brigade_contracts ADD COLUMN IF NOT EXISTS work_package VARCHAR(100) DEFAULT '';
         ALTER TABLE brigade_contracts ADD COLUMN IF NOT EXISTS act_scan_url TEXT;
+        ALTER TABLE brigade_contracts ADD COLUMN IF NOT EXISTS settlement_version SMALLINT NOT NULL DEFAULT 1;
         ALTER TABLE brigade_contracts ALTER COLUMN company_id SET DEFAULT 1;
         ALTER TABLE brigade_contracts ALTER COLUMN company_id DROP NOT NULL;
         UPDATE brigade_contracts bc
@@ -5431,6 +5433,7 @@ def init_db():
 	        ALTER TABLE rooms ADD COLUMN IF NOT EXISTS floor_material VARCHAR(100);
 	        ALTER TABLE rooms ADD COLUMN IF NOT EXISTS photo_url TEXT;
         ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS materials_used TEXT;
+        ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS material_accounting_version SMALLINT NOT NULL DEFAULT 1;
         ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS estimate_id INT;
         ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS section_name VARCHAR(255);
         ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS responsible_itr VARCHAR(255);
@@ -5993,6 +5996,10 @@ class MaterialNormSuggestionUpdateModel(BaseModel):
     status: str = ""
 
 class WorkJournalModel(BaseModel):
+    requestId: Optional[str] = None
+    materialAccountingVersion: int = 1
+    expectedCompanyId: Optional[int] = None
+    expectedActorId: Optional[int] = None
     masterId: int
     masterName: str
     project: str
@@ -6693,6 +6700,8 @@ def _resolve_estimate_mutation_actor(
             allowed_roles,
         )
         if lock_stock:
+            if work_material_runtime.enabled():
+                work_material_access.lock_actor(access_cur, actor)
             try:
                 from backend.features.material_traceability.guards import lock_distribution_compatible_stock
             except ModuleNotFoundError:
@@ -7459,6 +7468,10 @@ def get_piecework(current_user: dict = Depends(get_current_user)):
         SELECT 1 FROM work_journal wj
         WHERE wj.id = piecework.work_journal_id
           AND COALESCE(wj.status,'') = 'Отклонено'
+    ) AND NOT EXISTS (
+        SELECT 1 FROM work_journal w JOIN brigade_contract_items i ON i.id=w.contract_item_id
+        JOIN brigade_contracts c ON c.id=i.contract_id
+        WHERE w.id=piecework.work_journal_id AND c.settlement_version=2
     )"""
     if current_user.get("role") in WORKER_EXECUTION_ROLES:
         cur.execute(f"""SELECT {cols} FROM piecework
@@ -7486,47 +7499,68 @@ def create_piecework(p: PieceworkModel, _current_user: dict = Depends(require_ro
     if _current_user.get("role") in WORKER_EXECUTION_ROLES:
         raise HTTPException(status_code=403, detail="Сдельное начисление создаётся только после проверки ЖПР прорабом/руководителем")
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    if p.workJournalId:
-        work = require_work_journal_actor_access(cur, p.workJournalId, _current_user)
-        cur.execute("SELECT id FROM piecework WHERE work_journal_id=%s LIMIT 1", (p.workJournalId,))
-        existing = cur.fetchone()
-        if existing:
+    try:
+        if p.workJournalId:
+            work = require_work_journal_actor_access(cur, p.workJournalId, _current_user)
+            _lock_legacy_work_settlement(cur)
+            work_settlement_guards.require_legacy_work(cur, [p.workJournalId])
+            cur.execute("SELECT id FROM piecework WHERE work_journal_id=%s LIMIT 1", (p.workJournalId,))
+            existing = cur.fetchone()
+            if existing:
+                conn.close()
+                return dict(existing)
+            cur.execute("""SELECT master_id, master_name, project, description, unit, quantity,
+                                  execution_price_per_unit, execution_total, date
+                           FROM work_journal
+                           WHERE id=%s AND COALESCE(status,'')='Подтверждено'""", (p.workJournalId,))
+            work_row = cur.fetchone()
+            if not work_row:
+                conn.close()
+                raise HTTPException(status_code=400, detail="Сдельное начисление можно создать только по подтверждённой записи ЖПР")
+            p.staffId = str(work_row.get("master_id") or p.staffId or "")
+            p.project = work_row.get("project") or work.get("project") or p.project
+            p.description = work_row.get("description") or p.description
+            p.unit = work_row.get("unit") or p.unit
+            p.quantity = float(work_row.get("quantity") or 0)
+            p.pricePerUnit = float(work_row.get("execution_price_per_unit") or 0)
+            p.total = float(work_row.get("execution_total") or (p.quantity * p.pricePerUnit))
+            p.date = str(work_row.get("date") or p.date or "")
+        else:
             conn.close()
-            return dict(existing)
-        cur.execute("""SELECT master_id, master_name, project, description, unit, quantity,
-                              execution_price_per_unit, execution_total, date
-                       FROM work_journal
-                       WHERE id=%s AND COALESCE(status,'')='Подтверждено'""", (p.workJournalId,))
-        work_row = cur.fetchone()
-        if not work_row:
-            conn.close()
-            raise HTTPException(status_code=400, detail="Сдельное начисление можно создать только по подтверждённой записи ЖПР")
-        p.staffId = str(work_row.get("master_id") or p.staffId or "")
-        p.project = work_row.get("project") or work.get("project") or p.project
-        p.description = work_row.get("description") or p.description
-        p.unit = work_row.get("unit") or p.unit
-        p.quantity = float(work_row.get("quantity") or 0)
-        p.pricePerUnit = float(work_row.get("execution_price_per_unit") or 0)
-        p.total = float(work_row.get("execution_total") or (p.quantity * p.pricePerUnit))
-        p.date = str(work_row.get("date") or p.date or "")
-    else:
+            raise HTTPException(status_code=400, detail="Ручные сдельные начисления отключены. Закрывайте работу через ЖПР: подтверждённая запись сама формирует сумму исполнителя и акт бухгалтерии.")
+        cur.execute("INSERT INTO piecework (staff_id,description,unit,quantity,price_per_unit,total,project,date,comment,photo_url,work_journal_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+                    (p.staffId,p.description,p.unit,p.quantity,p.pricePerUnit,p.total,p.project,p.date,p.comment,p.photoUrl,p.workJournalId))
+        row = cur.fetchone()
+        conn.commit()
         conn.close()
-        raise HTTPException(status_code=400, detail="Ручные сдельные начисления отключены. Закрывайте работу через ЖПР: подтверждённая запись сама формирует сумму исполнителя и акт бухгалтерии.")
-    cur.execute("INSERT INTO piecework (staff_id,description,unit,quantity,price_per_unit,total,project,date,comment,photo_url,work_journal_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
-                (p.staffId,p.description,p.unit,p.quantity,p.pricePerUnit,p.total,p.project,p.date,p.comment,p.photoUrl,p.workJournalId))
-    row = cur.fetchone()
-    conn.close()
-    return dict(row)
+        return dict(row)
+    finally:
+        if not conn.closed:
+            conn.rollback()
+            conn.close()
 
 @app.delete("/piecework/{id}")
 def delete_piecework(id: int, _current_user: dict = Depends(require_roles("директор"))):
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor()
-    require_row_project_access(cur, "piecework", id, _current_user, "project")
-    cur.execute("DELETE FROM piecework WHERE id=%s", (id,))
-    conn.close()
-    return {"ok": True}
+    try:
+        require_row_project_access(cur, "piecework", id, _current_user, "project")
+        _lock_legacy_work_settlement(cur)
+        cur.execute("SELECT work_journal_id FROM piecework WHERE id=%s FOR UPDATE", (id,))
+        row = cur.fetchone()
+        if row and row[0]:
+            work_settlement_guards.require_legacy_work(cur, [row[0]])
+        cur.execute("DELETE FROM piecework WHERE id=%s", (id,))
+        conn.commit()
+        conn.close()
+        return {"ok": True}
+    finally:
+        if not conn.closed:
+            conn.rollback()
+            conn.close()
 
 @app.get("/users")
 def get_users(current_user: dict = Depends(get_current_user)):
@@ -8890,7 +8924,7 @@ def _supply_material_estimate_control(cur, project_owner: dict, material_name: s
                    FROM work_journal
                    WHERE company_id=%s AND project=%s
                      AND COALESCE(NULLIF(work_package,''),'Основная')=%s
-                     AND COALESCE(status,'') NOT IN ('Аннулировано','Отклонено')
+                     AND (material_accounting_version=2 OR COALESCE(status,'') NOT IN ('Аннулировано','Отклонено'))
                      AND COALESCE(materials_used,'') <> ''""", (company_id, project, matched_package))
     for row in _cursor_rows_as_dicts(cur, cur.fetchall()):
         for item in _json_list_or_empty(row.get("materials_used")):
@@ -12528,7 +12562,9 @@ def get_work_journal(
                               wj.execution_price_per_unit as "executionPricePerUnit",wj.execution_total as "executionTotal",
                               wj.execution_price_mode as "executionPriceMode",wj.photo_url as "photoUrl",
                               wj.confirmed_by as "confirmedBy",wj.confirmed_at as "confirmedAt",
-                              wj.materials_used as "materialsUsed",wj.estimate_id as "estimateId",
+                              wj.materials_used as "materialsUsed",wj.material_accounting_version as "materialAccountingVersion",wj.estimate_id as "estimateId",
+                              (SELECT c.settlement_version FROM brigade_contract_items i JOIN brigade_contracts c ON c.id=i.contract_id WHERE i.id=wj.contract_item_id AND c.company_id=wj.company_id) AS "settlementVersion",
+                              (SELECT c.id FROM brigade_contract_items i JOIN brigade_contracts c ON c.id=i.contract_id WHERE i.id=wj.contract_item_id AND c.company_id=wj.company_id) AS "settlementContractId",
                               wj.section_name as "sectionName",wj.responsible_itr as "responsibleItr",wj.weather,
                               wj.time_start as "timeStart",wj.time_end as "timeEnd",wj.hidden_work as "hiddenWork",
                               wj.quality_status as "qualityStatus",wj.normatives,wj.project_docs as "projectDocs",
@@ -12692,6 +12728,7 @@ def _personal_material_balance(
     work_package: str = "",
     unit: str = "",
     company_id=None,
+    include_identity=False,
 ):
     if not (material_name or "").strip():
         return {"issued": 0, "used": 0, "available": 0}
@@ -12723,6 +12760,7 @@ def _personal_material_balance(
                          """ + package_filter + unit_filter,
                     tuple([project] + ([normalized_company_id] if normalized_company_id else []) + [person_name or "", package_name] + ([unit_key] if unit_key else [])))
     issued = 0
+    identity_sources = []
     legacy_names = {person_name or ""}
     for row in cur.fetchall() or []:
         row_name = _row_value(row, 0, "material_name", "")
@@ -12733,29 +12771,41 @@ def _personal_material_balance(
             if not _row_value(row, 4, "to_user_id"):
                 _require_unambiguous_legacy_material_person(cur, normalized_company_id, person_id, transfer_name)
             issued += _personal_material_quantity(_row_value(row, 1, "quantity", 0))
+            identity_sources.append({"name": row_name, "unit": row_unit})
     package_journal_filter = " AND COALESCE(NULLIF(work_package,''),'Основная')=%s"
     if person_id:
-        cur.execute("""SELECT materials_used FROM work_journal
+        cur.execute("""SELECT materials_used,material_accounting_version,status FROM work_journal
                        WHERE project=%s
                          """ + company_filter + """
-                         AND COALESCE(status,'') NOT IN ('Отклонено','Аннулировано')
                          AND (COALESCE(master_id,0)=%s OR (COALESCE(master_id,0)=0 AND master_name=%s))""" + package_journal_filter,
                     tuple([project] + ([normalized_company_id] if normalized_company_id else []) + [person_id, person_name or "", package_name]))
     else:
-        cur.execute("""SELECT materials_used FROM work_journal
+        cur.execute("""SELECT materials_used,material_accounting_version,status FROM work_journal
                        WHERE project=%s
                          """ + company_filter + """
-                         AND COALESCE(status,'') NOT IN ('Отклонено','Аннулировано')
                          AND master_name=%s""" + package_journal_filter,
                     tuple([project] + ([normalized_company_id] if normalized_company_id else []) + [person_name or "", package_name]))
     used = 0
     for row in cur.fetchall() or []:
+        version = _row_value(row, 1, "material_accounting_version", 1)
+        if version != 2 and _row_value(row, 2, "status", "") in ("Отклонено", "Аннулировано"):
+            continue
         raw = row.get("materials_used") if isinstance(row, dict) else row[0]
         for m in _parse_materials_used(raw):
             material_unit = _norm_base_unit(m.get("unit") or "").strip().lower()
-            material_name_key = _material_control_key_resolved(cur, project, m.get("name") or "", material_unit or unit, company_id=company_id)
+            if version == 2:
+                identity = m.get("identitySnapshot")
+                if not isinstance(identity, dict) or not identity.get("key") or not identity.get("sources"):
+                    raise HTTPException(409, "Не определён источник фактического расхода. Требуется сверка")
+                material_name_key = tuple(identity["key"])
+                for source in identity["sources"]:
+                    current_key = _material_control_key_resolved(cur, project, source["name"], source["unit"], company_id=company_id)
+                    if current_key != material_name_key:
+                        raise HTTPException(409, "Соответствия материалов изменились после расхода. Требуется сверка личного остатка")
+            else:
+                material_name_key = _material_control_key_resolved(cur, project, m.get("name") or "", material_unit or unit, company_id=company_id)
             if material_name_key == target_key and (not unit_key or material_unit == unit_key):
-                used += _personal_material_quantity(m.get("quantity"))
+                used += _personal_material_quantity(m.get("personalQuantity") if version == 2 else m.get("quantity"))
     cur.execute("""SELECT material, quantity, unit, source_type, source_id, issued_by
                    FROM warehouse_history
                    WHERE project=%s
@@ -12776,7 +12826,10 @@ def _personal_material_balance(
             returned += _personal_material_quantity(_row_value(row, 1, "quantity", 0))
     for total in (issued, used, returned):
         _personal_material_quantity(total)
-    return {"issued": issued, "used": used, "returned": returned, "available": issued - used - returned}
+    result = {"issued": issued, "used": used, "returned": returned, "available": issued - used - returned}
+    if include_identity:
+        result["identitySources"] = identity_sources
+    return result
 
 def _apply_material_work_writeoff(cur, project: str, material: dict, actor: dict, date_value: str, fallback_master_name: str = ""):
     name = material.get("name") or ""
@@ -12811,6 +12864,8 @@ def _validate_requested_work_material_quantities(raw):
     for material in _parse_materials_used(raw):
         if not isinstance(material, dict):
             continue
+        if material.get("name") is not None and not isinstance(material["name"], str):
+            raise HTTPException(400, detail="Укажите корректное название материала")
         value = material.get("quantity")
         try:
             quantity = float(value or 0)
@@ -13570,11 +13625,49 @@ def _mark_room_work_rejected(cur, work_journal_id: int, confirmed_by: str = ""):
         return
     cur.execute("UPDATE room_works SET status='Отклонено', confirmed_by=%s WHERE work_journal_id=%s", (confirmed_by or "", work_journal_id))
 
-def _require_work_journal_stock_actor(cur, actors, allowed_roles):
+try:
+    from backend.features.work_material_accounting import runtime as work_material_runtime, service as work_material_service, access as work_material_access, settlement as work_settlement, settlement_guards as work_settlement_guards
+except ModuleNotFoundError:
+    from features.work_material_accounting import runtime as work_material_runtime, service as work_material_service, access as work_material_access, settlement as work_settlement, settlement_guards as work_settlement_guards
+
+
+def _lock_legacy_work_settlement(cur):
+    try:
+        from backend.features.material_traceability.guards import lock_distribution_compatible_stock
+    except ModuleNotFoundError:
+        from features.material_traceability.guards import lock_distribution_compatible_stock
+    lock_distribution_compatible_stock(cur)
+
+
+def _lock_brigade_settlement_actor(cur, user, contract_id, roles, company, mode):
+    cur.execute('SELECT company_id FROM brigade_contracts WHERE id=%s', (_positive_int_or_none(contract_id),))
+    owner = cur.fetchone()
+    if owner and company and _positive_int_or_none(company) != _row_get(owner, 'company_id', 0):
+        raise HTTPException(404, 'Договор не найден')
+    if owner:
+        cur.execute('SELECT 1 FROM user_company_roles WHERE user_id=%s AND company_id=%s AND COALESCE(active,TRUE)',
+                    (user.get('id'), _row_get(owner, 'company_id', 0)))
+        if not cur.fetchone():
+            raise HTTPException(404, 'Договор не найден')
+    contract, actor, _ = _resolve_brigade_contract_actor(cur, user, contract_id, roles,
+        x_company_id=company, x_company_mode=mode, for_update=False)
+    if not has_package_access(actor, contract['workPackage']):
+        raise HTTPException(403, 'Нет доступа к пакету договора')
+    work_material_access.lock_actor(cur, actor)
+    try:
+        from backend.features.material_traceability.guards import lock_distribution_compatible_stock
+    except ModuleNotFoundError:
+        from features.material_traceability.guards import lock_distribution_compatible_stock
+    lock_distribution_compatible_stock(cur)
+
+
+def _require_work_journal_stock_actor(cur, actors, allowed_roles, require_membership=False):
     # Authorize first, then use the same lock order as returns/distributions,
     # before mutation scope takes any project or work-journal row locks.
     _, _, require_project_write_actor = _project_access_helpers()
     actor = require_project_write_actor(actors, allowed_roles)
+    if work_material_runtime.enabled() or require_membership:
+        work_material_access.lock_actor(cur, actor)
     try:
         from backend.features.material_traceability.guards import lock_distribution_compatible_stock
     except ModuleNotFoundError:
@@ -13637,6 +13730,19 @@ def create_work_journal(
         w.project = journal_project["name"]
         journal_company_id = journal_project["companyId"]
         user_role = _current_user.get("role")
+        use_material_v2 = w.materialAccountingVersion == 2
+        material_operation_id = None
+        if use_material_v2 and user_role not in WORKER_EXECUTION_ROLES:
+            raise HTTPException(403, detail="Расход по работе отправляет назначенный исполнитель")
+        if use_material_v2 and not work_material_runtime.enabled():
+            raise HTTPException(404, detail="Новый учёт расхода пока недоступен")
+        if work_material_runtime.enabled() and user_role in WORKER_EXECUTION_ROLES and not use_material_v2:
+            raise HTTPException(409, detail="Обновите страницу и проверьте источники расхода материалов")
+        if use_material_v2:
+            material_operation_id, replay = work_material_runtime.begin_operation(
+                cur, _current_user, w.requestId, "work", w.model_dump())
+            if replay is not None:
+                return replay
         work_package = (w.workPackage or "Основная").strip() or "Основная"
         if user_role in PACKAGE_LIMIT_ROLES and not has_work_execution_package_access(_current_user, w.project, work_package):
             raise HTTPException(status_code=403, detail="Нет доступа к пакету работ")
@@ -13648,7 +13754,9 @@ def create_work_journal(
                 raise HTTPException(status_code=403, detail="Мастер может создавать ЖПР только от своего имени")
             w.masterId = _current_user["id"]
             w.masterName = _current_user.get("name") or ""
-        used = [m for m in (w.materialsUsed or []) if m.get("name") and float(m.get("quantity") or 0) > 0]
+        if use_material_v2:
+            work_material_service.validate_items(w.materialsUsed or [])
+        used = list(w.materialsUsed or []) if use_material_v2 else [m for m in (w.materialsUsed or []) if m.get("name") and float(m.get("quantity") or 0) > 0]
         journal_room_id = w.roomId
         journal_room_name = (w.roomName or "").strip()
         if user_role in WORKER_EXECUTION_ROLES and not journal_room_id and not journal_room_name:
@@ -13701,6 +13809,10 @@ def create_work_journal(
             company_id=journal_company_id,
         ))
         used = _force_work_material_package(used, journal_work_package)
+        if use_material_v2:
+            used = work_material_service.prepare(cur, journal_project, _current_user, used,
+                material_key=_material_control_key_resolved, personal_balance=_personal_material_balance,
+                norm_unit=_norm_base_unit)
         _validate_work_material_norm_reasons(
             used,
             cur,
@@ -13713,11 +13825,12 @@ def create_work_journal(
             work_unit=journal_unit,
             actor_role=user_role,
         )
-        for m in _work_material_map(used, cur, w.project, company_id=journal_company_id).values():
-            _apply_material_work_writeoff(cur, w.project, m, _current_user, w.date, w.masterName)
+        if not use_material_v2:
+            for m in _work_material_map(used, cur, w.project, company_id=journal_company_id).values():
+                _apply_material_work_writeoff(cur, w.project, m, _current_user, w.date, w.masterName)
 
         import json as _json
-        materials_json = _json.dumps(used, ensure_ascii=False) if used else None
+        materials_json = _json.dumps(work_material_service.public_items(used) if use_material_v2 else used, ensure_ascii=False) if used else None
         contract_item_id = w.contractItemId
         if user_role in WORKER_EXECUTION_ROLES:
             assigned_item = _worker_contract_item_for_work(
@@ -13779,6 +13892,10 @@ def create_work_journal(
                      journal_work_package,journal_room_id,journal_room_name,w.surface,w.estimateItemName or journal_description,journal_estimate_item_key,
                      contract_item_id,customer_price,customer_total,execution_price,execution_total,execution_mode))
         row = cur.fetchone()
+        if use_material_v2:
+            work_material_service.post(cur, journal_project, _current_user, row['id'], material_operation_id, used, w.date)
+            row['material_accounting_version'] = 2
+            work_material_runtime.finish_operation(cur, material_operation_id, dict(row))
         _recalculate_contract_item_done_from_work_journal(cur, contract_item_id)
         _sync_room_work_from_journal(cur, row)
         _sync_hidden_work_act_from_journal(cur, row)
@@ -13805,7 +13922,7 @@ def create_work_journal(
         conn.close()
 
 
-def _resolve_work_journal_mutation(cur, current_user, journal_id, action_mode, x_company_id, x_company_mode, allowed_roles):
+def _resolve_work_journal_mutation(cur, current_user, journal_id, action_mode, x_company_id, x_company_mode, allowed_roles, require_membership=False):
     try:
         from backend.features.work_journal.service import resolve_work_journal_mutation_scope
         from backend.features.project_access.service import (
@@ -13830,7 +13947,7 @@ def _resolve_work_journal_mutation(cur, current_user, journal_id, action_mode, x
         deps={
             "resolve_work_company_context": _resolve_work_company_context,
             "effective_company_actors": effective_company_actors,
-            "require_project_write_actor": lambda actors, roles: _require_work_journal_stock_actor(cur, actors, roles),
+            "require_project_write_actor": lambda actors, roles: _require_work_journal_stock_actor(cur, actors, roles, require_membership),
             "resolve_project_parent": resolve_project_parent,
             "require_project_parent_access": require_project_parent_access,
             "full_view_roles": BRIGADE_FULL_VIEW_ROLES,
@@ -13850,6 +13967,19 @@ def update_work_journal(
     if "materialsUsed" in data:
         _validate_requested_work_material_quantities(data.get("materialsUsed"))
     conn = get_db()
+    try:
+        return _update_work_journal_with_connection(conn, id, data, x_company_id, x_company_mode, _current_user)
+    except BaseException:
+        if not conn.closed:
+            conn.rollback()
+        raise
+    finally:
+        if not conn.closed:
+            conn.close()
+
+
+def _update_work_journal_with_connection(conn, id, data, x_company_id, x_company_mode, _current_user):
+    import json as _json
     conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     request_user = _current_user
@@ -13863,13 +13993,14 @@ def update_work_journal(
         conn.close()
         raise
     cur.execute("""SELECT company_id,project, master_id, master_name, room_id, room_name, description,
-                          estimate_item_key, work_package, status, quantity, unit, date, materials_used,
+                          estimate_item_key, work_package, status, quantity, unit, date, materials_used, material_accounting_version,
                           contract_item_id, estimate_id, section_name, estimate_item_name,
                           hidden_work, photo_url
 				                   FROM work_journal WHERE id=%s AND company_id=%s FOR UPDATE""",
                 (id, owner_row.get("company_id")))
     project_row = cur.fetchone()
     project_name = project_row.get("project") if project_row else ""
+    work_settlement_guards.require_unacted_work(cur, id)
     role = _current_user.get("role")
     current_work_package = project_row.get("work_package") or "Основная" if project_row else "Основная"
     requested_work_package = (data.get("workPackage", current_work_package) or "Основная").strip() or "Основная"
@@ -13928,7 +14059,7 @@ def update_work_journal(
     if target_status != "Отклонено" and (target_status == "Подтверждено" or (project_row and project_row.get("estimate_item_key"))) and not target_room_id and not str(target_room_name or "").strip():
         cur.close(); conn.close()
         raise HTTPException(status_code=400, detail="Нельзя подтвердить или сохранить сметную работу без помещения")
-    if str(data.get("status") or "").strip() == "Отклонено":
+    if str(data.get("status") or "").strip() == "Отклонено" and project_row.get("material_accounting_version") != 2:
         current_status = str(project_row.get("status") or "").strip() if project_row else ""
         if current_status == "Отклонено":
             conn.rollback()
@@ -13996,6 +14127,15 @@ def update_work_journal(
         str(project_row.get("status") or "").strip() in excluded_material_statuses
         and target_status not in excluded_material_statuses
     )
+    factual_materials = project_row.get("material_accounting_version") == 2
+    if factual_materials:
+        reactivating_materials = False
+        if "materialsUsed" in data and _work_material_items(data['materialsUsed'], project_row.get('work_package')) != old_materials:
+            conn.rollback(); cur.close(); conn.close()
+            raise HTTPException(409, detail="Фактический расход исправляется отдельной корректировкой с причиной")
+        if "workPackage" in data and data['workPackage'] != project_row.get('work_package'):
+            conn.rollback(); cur.close(); conn.close()
+            raise HTTPException(409, detail="Пакет работы с фактическим расходом нельзя менять")
     new_materials = None
     old_qty = _float_or_zero(project_row.get("quantity") if project_row else 0)
     new_qty = _float_or_zero(data.get("quantity")) if "quantity" in data else old_qty
@@ -14009,9 +14149,9 @@ def update_work_journal(
         if contract_item:
             _validate_contract_item_capacity(contract_item, new_qty, old_qty)
     package_changed = "workPackage" in data and (data.get("workPackage") or "") != (project_row.get("work_package") or "")
-    if "materialsUsed" in data:
+    if "materialsUsed" in data and not factual_materials:
         new_materials = _work_material_items(data.get("materialsUsed"), data.get("workPackage", project_row.get("work_package") if project_row else ""))
-    elif old_materials and ("quantity" in data or package_changed):
+    elif old_materials and not factual_materials and ("quantity" in data or package_changed):
         new_materials = _scale_work_materials(old_materials, max(0, new_qty) / old_qty) if "quantity" in data and old_qty > 0 else list(old_materials)
         if package_changed:
             target_package = data.get("workPackage") or ""
@@ -14147,7 +14287,7 @@ def delete_work_journal(
             cur, _current_user, id, "delete", x_company_id, x_company_mode, ("директор",),
         )
         cur.execute("""SELECT company_id,project, master_id, master_name, date, status, comment, materials_used,
-                              work_package, quantity, contract_item_id, description, estimate_id,
+                              work_package, quantity, contract_item_id, description, estimate_id, material_accounting_version,
                               section_name, estimate_item_key, estimate_item_name
                        FROM work_journal WHERE id=%s AND company_id=%s FOR UPDATE""",
                     (id, owner_row.get("company_id")))
@@ -14155,6 +14295,7 @@ def delete_work_journal(
         if not work:
             conn.rollback()
             raise HTTPException(status_code=404, detail="Запись журнала не найдена")
+        work_settlement_guards.require_unacted_work(cur, id)
         if _current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(_current_user, work.get("work_package") or "Основная"):
             conn.rollback()
             raise HTTPException(status_code=403, detail="Нет доступа к пакету работ")
@@ -14171,6 +14312,8 @@ def delete_work_journal(
                     used = [m for m in parsed if isinstance(m, dict) and m.get("name") and float(m.get("quantity") or 0) > 0]
             except Exception:
                 used = []
+        if work.get("material_accounting_version") == 2:
+            used = []  # Rejection is not a physical return or consumption correction.
         for m in used:
             name = m.get("name") or ""
             qty = float(m.get("quantity") or 0)
@@ -17941,7 +18084,12 @@ def update_estimate(
     current_user: dict = Depends(get_current_user),
 ):
     # One transaction owner also closes failures before the journal sub-handler.
-    for materials in (data.get("_workJournalMaterials") or {}).values():
+    material_mapping = data.get("_workJournalMaterials", {})
+    if not isinstance(material_mapping, dict):
+        raise HTTPException(400, "Материалы должны быть сопоставлены со строками работ")
+    for materials in material_mapping.values():
+        if data.get("materialAccountingVersion") == 2:
+            work_material_service.validate_items(materials)
         _validate_requested_work_material_quantities(materials)
     conn = get_db()
     try:
@@ -17969,6 +18117,19 @@ def _update_estimate_with_connection(conn, id, data, x_company_id, x_company_mod
         lock_stock=True,
     )
     cur = conn.cursor()
+    use_material_v2 = data.get("materialAccountingVersion") == 2
+    material_operation_id = None
+    if use_material_v2:
+        if not work_material_runtime.enabled():
+            raise HTTPException(404, detail="Новый учёт расхода пока недоступен")
+        if _current_user.get("role") not in WORKER_EXECUTION_ROLES:
+            raise HTTPException(403, detail="Расход по работе отправляет назначенный исполнитель")
+        material_operation_id, replay = work_material_runtime.begin_operation(
+            cur, _current_user, data.get("requestId"), "estimate-work", {"estimateId": id, "data": data})
+        if replay is not None:
+            return replay
+    elif work_material_runtime.enabled() and _current_user.get("role") in WORKER_EXECUTION_ROLES:
+        raise HTTPException(409, detail="Обновите страницу и проверьте источники расхода материалов")
     cur.execute("""SELECT sections_json, name, version, project_name, COALESCE(smeta_type,'Заказчик'), status,
                           COALESCE(work_package,'Основная')
                      FROM estimates WHERE id=%s AND company_id=%s""",
@@ -18241,6 +18402,8 @@ def _update_estimate_with_connection(conn, id, data, x_company_id, x_company_mod
                 return params
         return {"_estimateItemKey": str(id) + ":" + str(section_idx) + ":" + str(item_idx)}
 
+    matched_material_keys = set()
+
     def _materials_for_delta(section_idx, item_idx, section_name, item_name, item=None):
         keys = [
             str(id) + ":" + str(section_idx) + ":" + str(item_idx),
@@ -18250,6 +18413,11 @@ def _update_estimate_with_connection(conn, id, data, x_company_id, x_company_mod
         item_key = str((item or {}).get("estimateItemKey") or (item or {}).get("estimate_item_key") or "").strip()
         if item_key:
             keys.insert(0, item_key)
+        matched_material_keys.update(k for k in keys if k in work_journal_materials)
+        if use_material_v2:
+            provided = [work_journal_materials[k] for k in keys if k in work_journal_materials]
+            if provided and any(value != provided[0] for value in provided[1:]):
+                raise HTTPException(409, "Одна строка работы содержит противоречащие друг другу списки расхода")
         raw = []
         for k in keys:
             if k in work_journal_materials:
@@ -18257,6 +18425,8 @@ def _update_estimate_with_connection(conn, id, data, x_company_id, x_company_mod
                 break
         used = []
         for m in raw if isinstance(raw, list) else []:
+            if use_material_v2:
+                work_material_service.source_quantities(m)
             try:
                 qty = float(m.get("quantity") or 0)
             except Exception:
@@ -18264,6 +18434,9 @@ def _update_estimate_with_connection(conn, id, data, x_company_id, x_company_mod
             name = (m.get("name") or "").strip()
             if name and qty > 0:
                 row = {"name": name, "quantity": qty, "unit": m.get("unit") or "шт"}
+                if use_material_v2:
+                    row.update({field: m.get(field) for field in
+                                ("personalQuantity", "warehouseQuantity", "warehouseMaterialId")})
                 try:
                     norm_qty = float(m.get("normQuantity") or 0)
                 except Exception:
@@ -18359,10 +18532,15 @@ def _update_estimate_with_connection(conn, id, data, x_company_id, x_company_mod
                     work_package=work_package_for_journal,
                 )
                 if duplicate_work:
-                    if _current_user.get("role") in WORKER_EXECUTION_ROLES and _work_journal_duplicate_is_pending_for_actor(duplicate_work, _current_user):
+                    if not use_material_v2 and _current_user.get("role") in WORKER_EXECUTION_ROLES and _work_journal_duplicate_is_pending_for_actor(duplicate_work, _current_user):
                         continue
                     _raise_work_journal_duplicate(duplicate_work)
                 used_materials = _force_work_material_package(used_materials, work_package_for_journal)
+                material_project = {"id": estimate_scope["projectId"], "companyId": estimate_scope["companyId"], "name": project_name}
+                if use_material_v2:
+                    used_materials = work_material_service.prepare(cur, material_project, _current_user, used_materials,
+                        material_key=_material_control_key_resolved, personal_balance=_personal_material_balance,
+                        norm_unit=_norm_base_unit)
                 _validate_work_material_norm_reasons(
                     used_materials,
                     cur,
@@ -18375,9 +18553,10 @@ def _update_estimate_with_connection(conn, id, data, x_company_id, x_company_mod
                     work_unit=unit,
                     actor_role=_current_user.get("role") or "",
                 )
-                for m in _work_material_map(used_materials, cur, project_name, company_id=estimate_scope["companyId"]).values():
-                    _apply_material_work_writeoff(cur, project_name, m, _current_user, journal_date, brigade)
-                materials_json = j.dumps(used_materials, ensure_ascii=False) if used_materials else None
+                if not use_material_v2:
+                    for m in _work_material_map(used_materials, cur, project_name, company_id=estimate_scope["companyId"]).values():
+                        _apply_material_work_writeoff(cur, project_name, m, _current_user, journal_date, brigade)
+                materials_json = j.dumps(work_material_service.public_items(used_materials) if use_material_v2 else used_materials, ensure_ascii=False) if used_materials else None
                 cur.execute("""INSERT INTO work_journal
                                (company_id, master_id, master_name, project, description, unit, quantity, price_per_unit, total, date, status, comment,
                                 photo_url, materials_used, estimate_id, section_name, hidden_work, confirmed_by, confirmed_at,
@@ -18398,6 +18577,9 @@ def _update_estimate_with_connection(conn, id, data, x_company_id, x_company_mod
                              estimate_item_key,
                              contract_item_id, customer_price, round(delta*customer_price,2), execution_price, round(delta*execution_price,2), execution_mode))
                 work_journal_id = cur.fetchone()[0]
+                if use_material_v2:
+                    work_material_service.post(cur, material_project, _current_user, work_journal_id,
+                                               material_operation_id, used_materials, journal_date)
                 work_row = _work_journal_sync_row(cur, work_journal_id)
                 _recalculate_contract_item_done_from_work_journal(cur, contract_item_id)
                 if auto_journal_status == "Подтверждено":
@@ -18471,6 +18653,12 @@ def _update_estimate_with_connection(conn, id, data, x_company_id, x_company_mod
                 project_id=estimate_scope["projectId"],
                 created_by=_current_user.get("name") or "",
             )
+        if use_material_v2:
+            if not journal_added or set(work_journal_materials) - matched_material_keys:
+                raise HTTPException(409, "Расход должен относиться к новым отправляемым строкам работы")
+            work_material_runtime.finish_operation(cur, material_operation_id, {
+                "ok": True, "journalEntries": journal_added, "hiddenWorkActs": acts_added,
+                "brigadeItemsSynced": brigade_synced, "supplyControlRefresh": supply_refresh})
         conn.commit()
     except Exception:
         conn.rollback()
@@ -18798,7 +18986,7 @@ def get_brigade_contracts(
             "COALESCE((SELECT SUM(COALESCE(bci.quantity,0)*COALESCE(bci.price_brigade,0)) FROM brigade_contract_items bci WHERE bci.contract_id=bc.id),0) AS plan_amount,"
             "COALESCE((SELECT SUM(CASE WHEN COALESCE(bci.quantity,0)>0 THEN GREATEST(0, LEAST(COALESCE(bci.done_quantity,0), COALESCE(bci.quantity,0))) * COALESCE(bci.price_brigade,0) ELSE 0 END) FROM brigade_contract_items bci WHERE bci.contract_id=bc.id),0) AS done_amount,"
             "COALESCE((SELECT SUM(bp.amount) FROM brigade_payments bp WHERE bp.contract_id=bc.id AND bp.company_id=bc.company_id AND bp.amount IS NOT NULL AND bp.amount NOT IN ('NaN'::numeric,'Infinity'::numeric,'-Infinity'::numeric)),0) AS paid_amount,"
-            "bc.act_scan_url,bc.company_id FROM brigade_contracts bc WHERE "
+            "bc.act_scan_url,bc.company_id,bc.settlement_version FROM brigade_contracts bc WHERE "
         )
         cur = conn.cursor()
         try:
@@ -18855,6 +19043,7 @@ def get_brigade_contracts(
                 "planAmount": plan_amount, "doneAmount": done_amount,
                 "paidAmount": float(row[15] or 0), "workPackage": row[12] or "",
                 "actScanUrl": row[16] or "", "companyId": row[17],
+                "settlementVersion": _row_get(row, "settlement_version", 18, 1),
             })
         return result
     finally:
@@ -18874,6 +19063,8 @@ register_brigade_payments_module(app, {
     "brigade_contract_read_scope": _brigade_contract_read_scope,
     "resolve_brigade_contract_actor": _resolve_brigade_contract_actor,
     "row_get": _row_get,
+    "lock_settlement_actor": _lock_brigade_settlement_actor,
+    "pay_settlement": work_settlement.pay,
 })
 try:
     from backend.features.salary_payments.routes import register_salary_payments_module
@@ -19299,6 +19490,7 @@ except ModuleNotFoundError:
 
 register_brigade_acts_module(app, {
     "get_db": get_db,
+    "lock_settlement_actor": _lock_brigade_settlement_actor,
     "get_current_user": get_current_user,
     "finance_roles": FINANCE_ROLES,
     "brigade_contract_read_scope": _brigade_contract_read_scope,
@@ -25358,6 +25550,9 @@ except ModuleNotFoundError:
 
 
 register_interim_acts_module(app, {
+    "lock_settlement": _lock_legacy_work_settlement,
+    "require_legacy_work": work_settlement_guards.require_legacy_work,
+    "require_legacy_interim": work_settlement_guards.require_legacy_interim,
     "get_db": get_db,
     "get_current_user": get_current_user,
     "require_roles": require_roles,
@@ -25462,6 +25657,8 @@ except ModuleNotFoundError:
 
 
 register_project_payments_module(app, {
+    "lock_settlement": _lock_legacy_work_settlement,
+    "require_legacy_project_payment": work_settlement_guards.require_legacy_project_payment,
     "get_db": get_db,
     "get_current_user": get_current_user,
     "finance_roles": FINANCE_ROLES,
@@ -27534,4 +27731,28 @@ register_assignments_module(app, {
         "снабженец",
         "кладовщик",
     ),
+})
+
+try:
+    from backend.features.work_material_accounting.routes import register_material_accounting
+except ModuleNotFoundError:
+    from features.work_material_accounting.routes import register_material_accounting
+
+register_material_accounting(app, {
+    "get_db": get_db,
+    "get_current_user": get_current_user,
+    "resolve_mutation": _resolve_work_journal_mutation,
+    "has_package_access": has_package_access,
+    "personal_balance": _personal_material_balance,
+})
+
+try:
+    from backend.features.work_material_accounting.settlement_routes import register_contract_settlement
+except ModuleNotFoundError:
+    from features.work_material_accounting.settlement_routes import register_contract_settlement
+
+register_contract_settlement(app, {
+    "get_db": get_db, "get_current_user": get_current_user,
+    "lock_actor": _lock_brigade_settlement_actor,
+    "resolve_contract": _resolve_brigade_contract_actor, "has_package_access": has_package_access,
 })

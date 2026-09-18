@@ -48,19 +48,21 @@ class HiddenWorkPhotoRuleTests(unittest.TestCase):
             node.name: ast.unparse(node)
             for node in tree.body
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and node.name in {"create_work_journal", "update_work_journal", "update_estimate", "_update_estimate_with_connection"}
+            and node.name in {"create_work_journal", "update_work_journal", "_update_work_journal_with_connection", "update_estimate", "_update_estimate_with_connection"}
         }
 
         self.assertEqual(set(functions), {
             "create_work_journal",
             "update_work_journal",
+            "_update_work_journal_with_connection",
             "update_estimate",
             "_update_estimate_with_connection",
         })
         self.assertIn('journal_hidden_work = bool(estimate_work_item.get(\'hiddenWork\'))', functions["create_work_journal"])
-        self.assertIn("hidden_work_photo_required", functions["update_work_journal"])
-        self.assertIn("hidden_work, photo_url", functions["update_work_journal"])
-        self.assertIn("target_hidden_work if js_key == 'hiddenWork'", functions["update_work_journal"])
+        self.assertIn("return _update_work_journal_with_connection(conn, id, data, x_company_id, x_company_mode, _current_user)", functions["update_work_journal"])
+        self.assertIn("hidden_work_photo_required", functions["_update_work_journal_with_connection"])
+        self.assertIn("hidden_work, photo_url", functions["_update_work_journal_with_connection"])
+        self.assertIn("target_hidden_work if js_key == 'hiddenWork'", functions["_update_work_journal_with_connection"])
         self.assertIn("_update_estimate_with_connection", functions["update_estimate"])
         self.assertIn("hidden_work_photo_required", functions["_update_estimate_with_connection"])
 

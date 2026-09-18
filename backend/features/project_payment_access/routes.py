@@ -150,8 +150,11 @@ def register_project_payments_module(app, deps):
     ):
         from datetime import date
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
+            if deps.get('lock_settlement'):
+                deps['lock_settlement'](cur)
             cur.execute("""SELECT company_id,project_name,COALESCE(work_package,'') AS work_package,
                                   amount,note,date,added_by
                            FROM project_payments WHERE id=%s FOR UPDATE""", (id,))
@@ -176,6 +179,8 @@ def register_project_payments_module(app, deps):
             require_project_access(actor, project_name)
             if not has_package_access(actor, work_package or "Основная"):
                 raise HTTPException(status_code=403, detail="Нет доступа к пакету платежа")
+            if deps.get('require_legacy_project_payment'):
+                deps['require_legacy_project_payment'](cur, id)
             amount = row.get("amount") or 0
             note = row.get("note") or ""
             reversal_note = "Сторно платежа #" + str(id)

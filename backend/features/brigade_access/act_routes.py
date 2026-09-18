@@ -73,6 +73,9 @@ def register_brigade_acts_module(app, deps):
         conn.autocommit = False
         cur = conn.cursor()
         try:
+            if deps.get('lock_settlement_actor'):
+                deps['lock_settlement_actor'](cur, current_user, data.get('contractId'),
+                    (*finance_roles, 'прораб', 'главный_инженер', 'сметчик'), x_company_id, x_company_mode)
             contract, actor, project = resolve_brigade_contract_actor(
                 cur,
                 current_user,
@@ -83,6 +86,8 @@ def register_brigade_acts_module(app, deps):
                 x_company_mode=x_company_mode,
                 for_update=True,
             )
+            if contract.get('settlementVersion') == 2:
+                raise HTTPException(409, 'Сформируйте акт из подтверждённых работ договора с учётом штрафов')
             if data.get("projectName") and (data.get("projectName") or "").strip() != contract["projectName"]:
                 raise HTTPException(status_code=403, detail="Договор бригады относится к другому объекту")
             if not has_package_access(actor, contract["workPackage"]):

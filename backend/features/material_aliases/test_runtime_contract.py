@@ -63,7 +63,7 @@ class AliasRuntimeContractTests(unittest.TestCase):
 
     def test_journal_alias_failure_rolls_back_and_closes_locked_transaction(self):
         tree = ast.parse((Path(__file__).resolve().parents[2] / 'main.py').read_text())
-        route = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'update_work_journal')
+        route = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == '_update_work_journal_with_connection')
         guarded = next(n for n in route.body if isinstance(n, ast.Try) and any(
             isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
             and call.func.id == '_validate_work_material_norm_reasons' for call in ast.walk(n)))
@@ -84,6 +84,39 @@ class AliasRuntimeContractTests(unittest.TestCase):
             conn.commit.assert_not_called()
             cur.close.assert_called_once()
             conn.close.assert_called_once()
+
+    def test_journal_route_delegates_and_closes_early_helper_failures(self):
+        tree = ast.parse((Path(__file__).resolve().parents[2] / 'main.py').read_text())
+        route = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'update_work_journal')
+        fn = ast.FunctionDef(
+            name='run',
+            args=ast.arguments(posonlyargs=[], args=[ast.arg(arg=name) for name in
+                ('id', 'data', 'x_company_id', 'x_company_mode', '_current_user')],
+                kwonlyargs=[], kw_defaults=[], defaults=[]),
+            body=route.body, decorator_list=[],
+        )
+        for failure in (None, HTTPException(409, 'Owner missing'), RuntimeError('Missing schema')):
+            with self.subTest(failure=type(failure).__name__):
+                conn = Mock(closed=False)
+                result = {'ok': True}
+                helper = Mock(return_value=result, side_effect=failure)
+                get_db = Mock(return_value=conn)
+                ns = dict(get_db=get_db, _update_work_journal_with_connection=helper)
+                exec(compile(ast.fix_missing_locations(ast.Module(body=[fn], type_ignores=[])),
+                             '<journal-route>', 'exec'), ns)
+                data, actor = {}, {'id': 9, 'role': 'директор'}
+                if failure is None:
+                    self.assertIs(ns['run'](4, data, '2', 'company', actor), result)
+                    conn.rollback.assert_not_called()
+                else:
+                    with self.assertRaises(type(failure)) as error:
+                        ns['run'](4, data, '2', 'company', actor)
+                    self.assertIs(error.exception, failure)
+                    conn.rollback.assert_called_once()
+                get_db.assert_called_once_with()
+                helper.assert_called_once_with(conn, 4, data, '2', 'company', actor)
+                conn.commit.assert_not_called()
+                conn.close.assert_called_once()
 
     def test_estimate_refresh_failure_rolls_back_and_closes_transaction(self):
         tree = ast.parse((Path(__file__).resolve().parents[2] / 'main.py').read_text())
