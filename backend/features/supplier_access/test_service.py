@@ -8,6 +8,21 @@ from backend.features.supplier_access.service import (
 
 
 class SupplierOfferVisibilityFilterTests(unittest.TestCase):
+    def test_offer_reuses_request_visibility_and_checks_its_own_recipient(self):
+        from backend.features.supplier_access.supply_request_workflow import (
+            SUPPLIER_REQUEST_VISIBILITY_SQL,
+        )
+
+        sql, params = supplier_offer_visibility_filter([7], 42)
+        request_policy = SUPPLIER_REQUEST_VISIBILITY_SQL.replace(
+            "supply_requests.", "scoped_request."
+        )
+        self.assertIn(request_policy, sql)
+        # One check inside the request policy and one for this exact offer.
+        self.assertEqual(sql.count("recipient.visible_to_supplier=TRUE"), 2)
+        self.assertEqual(params[:4], [[7]] * 4)
+        self.assertEqual(sql.count("%s"), len(params))
+
     def test_builds_recipient_identity_filter_for_user_and_duplicate_group(self):
         sql, params = supplier_recipient_identity_filter([7, "3", 7], 42)
 
@@ -43,7 +58,7 @@ class SupplierOfferVisibilityFilterTests(unittest.TestCase):
         self.assertIn("supplier_offers.supplier_id = ANY(COALESCE(recipient.supplier_group_ids", sql)
         self.assertIn("recipient.supplier_user_id=%s", sql)
         self.assertIn("recipient.supplier_group_ids", sql)
-        self.assertEqual(params, [42, [3, 7], [3, 7], [3, 7], [3, 7], [3, 7]])
+        self.assertEqual(params, [[3, 7]] * 4 + [42] + [[3, 7]] * 5)
 
     def test_keeps_legacy_fallback_only_when_recipient_rows_are_absent(self):
         sql, _ = supplier_offer_visibility_filter([7], None)

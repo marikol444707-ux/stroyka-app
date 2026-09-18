@@ -156,6 +156,8 @@ def _seed(runtime):
                     ("SUPPLY CHAIN legal " + key, users[key]["email"], inn, users[key]["id"]))
                 if key == "supplier":
                     supplier_id = cur.fetchone()["id"]
+                    cur.execute('''INSERT INTO company_supplier_links(company_id,supplier_id,platform_account_id)
+                                   SELECT id,%s,platform_account_id FROM companies WHERE id IN (2,3)''', (supplier_id,))
             sections = [{"name": package, "items": [{"id": "chain-material-1", "name": material,
                 "type": "material", "itemType": "material", "unit": "шт", "quantity": 2,
                 "price": 100, "priceMaterial": 100, "lineTotal": 200, "workPackage": package}]}]

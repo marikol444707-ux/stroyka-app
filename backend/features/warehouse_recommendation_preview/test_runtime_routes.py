@@ -257,11 +257,11 @@ class WarehouseAnomalyRuntimeRouteRegistrationTests(unittest.TestCase):
         package_bytes = package_path.read_bytes()
         runtime_source = runtime_path.read_text(encoding="utf-8")
 
-        # Reviewed supply subscription scope, tenant stock and VAT bootstrap fixes;
+        # Reviewed supplier catalog, exact recipient and fulfilment authority fixes;
         # warehouse preview implementation and registration are unchanged.
         self.assertEqual(
             hashlib.sha256(main_bytes).hexdigest(),
-            "3e4a2b873d79f1493a2de02d2bcdecd28c2b713ff78bc1adc1cc448f1e86777c",
+            "deb3a27d84a84f9bdfbabf11279b4a911d601923ea7fc7827fb5ea2d030090d6",
         )
         self.assertEqual(
             hashlib.sha256(package_bytes).hexdigest(),

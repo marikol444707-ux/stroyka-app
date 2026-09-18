@@ -91,6 +91,20 @@ describe('MaterialCapabilityProofPanel', () => {
     jest.clearAllMocks();
   });
 
+  it.each([
+    [403, /доступна директору выбранной компании/],
+    [404, /Проверьте её связь со сметой/],
+    [409, /данные позиции изменились/],
+    [503, /временно недоступна/],
+  ])('explains HTTP %s without exposing raw server details or enabling actions', async (status, message) => {
+    global.fetch.mockResolvedValue(response({ detail: 'private-source-fingerprint' }, { ok: false, status }));
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'Проверить доказуемость' }));
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(screen.queryByText(/private-source/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Подтвердить поставщика' })).not.toBeInTheDocument();
+  });
+
   it('is visible only for the exact enabled flag and exact director role, without automatic loading', () => {
     process.env[FLAG] = 'TRUE';
     const { rerender } = renderPanel();
@@ -359,7 +373,7 @@ describe('MaterialCapabilityProofPanel', () => {
         parseSupplyItems={() => [{ materialName: request.materialName, quantity: 20, unit: 'м' }]}
         renderSupplyRequestOrigin={() => null}
         supplyRequestOrigin={() => null}
-        supplyExpandedId={null}
+        supplyExpandedId={21}
         setSupplyExpandedId={jest.fn()}
         canConfirmProrab={false}
         canApprove

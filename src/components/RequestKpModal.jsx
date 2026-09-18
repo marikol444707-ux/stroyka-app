@@ -1,6 +1,5 @@
 import React from 'react';
 import { Check, X } from 'lucide-react';
-import { groupSuppliers } from '../utils/supplierUtils';
 
 export default function RequestKpModal({
   showRequestKpModal,
@@ -20,7 +19,7 @@ export default function RequestKpModal({
   sendKpRequest,
 }) {
   const suggestedSupplierGroups = React.useMemo(
-    () => groupSuppliers(suggestedSuppliers?.suppliers || []),
+    () => suggestedSuppliers?.suppliers || [],
     [suggestedSuppliers]
   );
   React.useEffect(() => {
@@ -28,7 +27,7 @@ export default function RequestKpModal({
     setSelectedSupplierIds(prev => {
       const prevIds = new Set((prev || []).map(String));
       const next = suggestedSupplierGroups
-        .filter(supplier => (supplier._supplierIds || [supplier.id]).some(id => prevIds.has(String(id))))
+        .filter(supplier => prevIds.has(String(supplier.id)))
         .map(supplier => supplier.id);
       const same = next.length === (prev || []).length && next.every((id, index) => String(id) === String(prev[index]));
       return same ? prev : next;
@@ -66,41 +65,40 @@ export default function RequestKpModal({
             <b style={{color:C.text,fontSize:'16px',display:'block'}}>📨 Запросить КП у поставщиков</b>
             {renderTitleMeta()}
           </div>
-          <button onClick={()=>setShowRequestKpModal(null)} style={{...btnG,padding:'4px 8px'}}><X size={14}/></button>
+          <button aria-label="Закрыть" onClick={()=>setShowRequestKpModal(null)} style={{...btnG,padding:'4px 8px'}}><X size={14}/></button>
         </div>
-        {requestKpLoading && <p style={{color:C.textMuted,padding:'20px',textAlign:'center',fontSize:'13px'}}>⏳ AI подбирает поставщиков...</p>}
+        {requestKpLoading && <p style={{color:C.textMuted,padding:'20px',textAlign:'center',fontSize:'13px'}}>Загружаем поставщиков компании…</p>}
         {!requestKpLoading && suggestedSuppliers && suggestedSuppliers.error && (
           <p style={{color:C.danger,padding:'20px',textAlign:'center',fontSize:'13px'}}>❌ {suggestedSuppliers.error}</p>
         )}
         {!requestKpLoading && suggestedSuppliers && !suggestedSuppliers.error && (<>
           <div style={{padding:'10px 12px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder,borderRadius:'8px',marginBottom:'12px',fontSize:'12px',color:C.text}}>
-            🤖 AI нашёл {suggestedSupplierGroups.length} поставщиков по категории «{suggestedSuppliers.category||'не указана'}». Из них рекомендует {suggestedSuppliers.aiRecommendedCount} — отметил их ⭐ галочкой автоматически. Можно добавить или убрать.
+            Поставщиков вашей компании: {suggestedSupplierGroups.length}. Отметьте адресатов запроса. Рейтинг и история поставок не подтверждают наличие нужного материала.
           </div>
           {suggestedSupplierGroups.length===0 && (
             <div style={{padding:'30px',textAlign:'center',color:C.textMuted,fontSize:'13px'}}>
-              Поставщиков по этой категории нет.<br/>Добавьте поставщиков в разделе «Снабжение → Поставщики».
+              В компании пока нет активных связей с поставщиками.<br/>Добавьте поставщиков в разделе «Снабжение → Поставщики».
             </div>
           )}
           {suggestedSupplierGroups.map(s=>{
             const checked = selectedSupplierIds.includes(s.id);
             return (
-              <div key={s.id} onClick={()=>{
-                if (s.alreadyRequested) return;
-                setSelectedSupplierIds(prev=>checked?prev.filter(x=>x!==s.id):[...prev,s.id]);
-              }} style={{padding:'10px 12px',marginBottom:'6px',borderRadius:'8px',backgroundColor:checked?C.successLight:C.bg,border:'1.5px solid '+(checked?C.successBorder:C.border),cursor:s.alreadyRequested?'not-allowed':'pointer',display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',opacity:s.alreadyRequested?0.5:1}}>
+              <label key={s.id} style={{padding:'10px 12px',marginBottom:'6px',borderRadius:'8px',backgroundColor:checked?C.successLight:C.bg,border:'1.5px solid '+(checked?C.successBorder:C.border),cursor:s.alreadyRequested?'not-allowed':'pointer',display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',opacity:s.alreadyRequested?0.5:1}}>
                 <div style={{display:'flex',alignItems:'center',gap:'10px',flex:1}}>
-                  <input type='checkbox' checked={checked} readOnly disabled={s.alreadyRequested} style={{accentColor:C.accent,cursor:s.alreadyRequested?'not-allowed':'pointer'}}/>
+                  <input type='checkbox' aria-label={s.name} checked={checked} onChange={()=>{
+                    if (s.alreadyRequested) return;
+                    setSelectedSupplierIds(prev=>checked?prev.filter(x=>x!==s.id):[...prev,s.id]);
+                  }} disabled={s.alreadyRequested} style={{accentColor:C.accent}}/>
                   <div>
                     <div style={{display:'flex',alignItems:'center',gap:'6px'}}>
                       <b style={{color:C.text,fontSize:'13px'}}>{s.name}</b>
-                      {s.aiRecommend && <span style={badge(C.accent,C.accentLight,C.accentBorder||C.border)}>🤖 AI рек.</span>}
                       {s.alreadyRequested && <span style={badge(C.textMuted,C.bg,C.border)}>уже запросили</span>}
                     </div>
                     <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{(s.category||'')+(s.specialization?' · '+s.specialization:'')+(s.phone?' · '+s.phone:'')}</p>
-                    <p style={{color:C.textMuted,margin:0,fontSize:'10px'}}>⭐ {s.rating||'нет'} · 📦 успешных поставок: {s.deliveriesCount}</p>
+                    <p style={{color:C.textMuted,margin:0,fontSize:'10px'}}>⭐ {s.rating ?? 'нет'} · 📦 успешных поставок: {s.deliveriesCount ?? 0}</p>
                   </div>
                 </div>
-              </div>
+              </label>
             );
           })}
           <div style={{display:'flex',gap:'8px',marginTop:'14px',justifyContent:'flex-end'}}>

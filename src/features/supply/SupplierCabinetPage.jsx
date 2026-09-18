@@ -1,3 +1,4 @@
+import { supplierPublicRequisites } from './supplierPublicRequisites';
 import React from 'react';
 import { Check, Download, Edit2, Plus, Trash2, Upload, X } from 'lucide-react';
 import DocumentRecognitionPanel from '../../components/DocumentRecognitionPanel';
@@ -814,7 +815,6 @@ export default function SupplierCabinetPage({
                 <input placeholder='Email' value={supplierRequisites.email} onChange={e=>setSupplierRequisites({...supplierRequisites,email:e.target.value})} style={{...inp,marginBottom:0}}/>
                 <input placeholder='Сайт (опц.)' value={supplierRequisites.website||''} onChange={e=>setSupplierRequisites({...supplierRequisites,website:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
                 <input placeholder='Специализация (что поставляете)' value={supplierRequisites.specialization||''} onChange={e=>setSupplierRequisites({...supplierRequisites,specialization:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
-                <textarea placeholder='Примечания / предмет договора' value={supplierRequisites.notes||''} onChange={e=>setSupplierRequisites({...supplierRequisites,notes:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2',minHeight:'64px',resize:'vertical',fontFamily:'inherit'}}/>
               </div>
               <b style={{color:C.textSec,fontSize:'12px',display:'block',marginBottom:'8px',marginTop:'12px'}}>🏦 Банковские реквизиты</b>
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
@@ -823,16 +823,7 @@ export default function SupplierCabinetPage({
                 <input placeholder='Корр. счёт' value={supplierRequisites.korAccount||''} onChange={e=>setSupplierRequisites({...supplierRequisites,korAccount:e.target.value})} style={{...inp,marginBottom:0}}/>
                 <input placeholder='Расчётный счёт' value={supplierRequisites.account} onChange={e=>setSupplierRequisites({...supplierRequisites,account:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
               </div>
-              <b style={{color:C.textSec,fontSize:'12px',display:'block',marginBottom:'8px',marginTop:'12px'}}>📄 Договор поставки</b>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}}>
-                <input placeholder='Номер договора' value={supplierRequisites.contractNumber||''} onChange={e=>setSupplierRequisites({...supplierRequisites,contractNumber:e.target.value})} style={{...inp,marginBottom:0}}/>
-                <input type='date' placeholder='Дата договора' value={supplierRequisites.contractDate||''} onChange={e=>setSupplierRequisites({...supplierRequisites,contractDate:e.target.value})} style={{...inp,marginBottom:0}}/>
-              </div>
-              <label style={{...btnG,padding:'10px 14px',fontSize:'12px',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:'6px',marginRight:'8px'}}>
-                <Upload size={14}/>{supplierRequisites.contractUrl?'✅ Договор загружен':'Загрузить договор (PDF)'}
-                <input type='file' accept='.pdf,image/*' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0],{context:'supplier-documents'});setSupplierRequisites({...supplierRequisites,contractUrl:url});}}}/>
-              </label>
-              {supplierRequisites.contractUrl && (<a href={fileSrc(supplierRequisites.contractUrl)} target='_blank' rel='noopener noreferrer' style={{fontSize:'12px',color:C.accent,marginRight:'8px'}}>📥 Посмотреть</a>)}
+              <p style={{color:C.textSec,fontSize:'12px'}}>Договоры и условия относятся к конкретному заказчику и хранятся в документах сделки.</p>
               <DocumentRecognitionPanel
                 C={C}
                 card={card}
@@ -851,22 +842,12 @@ export default function SupplierCabinetPage({
                 onCreateRecognizedDocument={myPrimarySupplierId ? createOwnSupplierDocumentFromRecognition : null}
                 createRecognizedDocumentLabel="Добавить в документы"
               />
-              <b style={{color:C.textSec,fontSize:'12px',display:'block',marginBottom:'8px',marginTop:'12px'}}>📦 Прайс-лист (опц.)</b>
-              <input placeholder='Ссылка на прайс (Google Sheet / Excel URL)' value={supplierRequisites.priceUrl||''} onChange={e=>setSupplierRequisites({...supplierRequisites,priceUrl:e.target.value})} style={inp}/>
-              <label style={{...btnG,padding:'10px 14px',fontSize:'12px',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:'6px',marginRight:'8px'}}>
-                <Upload size={14}/>{supplierRequisites.licenseUrl?'✅ Лицензия загружена':'Загрузить лицензию/сертификат'}
-                <input type='file' accept='.pdf,image/*' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0],{context:'supplier-documents'});setSupplierRequisites({...supplierRequisites,licenseUrl:url});}}}/>
-              </label>
-              {supplierRequisites.licenseUrl && (<a href={fileSrc(supplierRequisites.licenseUrl)} target='_blank' rel='noopener noreferrer' style={{fontSize:'12px',color:C.accent}}>📥 Посмотреть</a>)}
               <button onClick={async()=>{
                 if (!myPrimarySupplierId) {
-                  alert('Кабинет не связан с карточкой поставщика. Попросите директора связать аккаунт с компанией.');
+                  alert('Кабинет не связан с карточкой поставщика. Обратитесь к администратору платформы для проверки привязки.');
                   return;
                 }
-                const res = await fetch(API+'/suppliers/'+(myPrimarySupplierId||0)+'/requisites',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-                  ...supplierRequisites,
-                  legalAddress: supplierRequisites.address // alias
-                })});
+                const res = await fetch(API+'/suppliers/'+(myPrimarySupplierId||0)+'/requisites',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(supplierPublicRequisites(supplierRequisites))});
                 if (res.ok) {
                   localStorage.setItem('supplierReq_'+user.id,JSON.stringify(supplierRequisites));
                   alert('Реквизиты сохранены!');

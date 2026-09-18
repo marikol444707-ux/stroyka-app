@@ -946,10 +946,10 @@ class WarehouseAnomalyRuntimePreviewCompositionTests(unittest.TestCase):
             root / "backend/db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Reviewed supply subscription scope, tenant stock and VAT bootstrap fixes;
+            # Reviewed supplier catalog, exact recipient and fulfilment authority fixes;
             # warehouse preview implementation and registration are unchanged.
             root / "backend/main.py": (
-                "3e4a2b873d79f1493a2de02d2bcdecd28c2b713ff78bc1adc1cc448f1e86777c"
+                "deb3a27d84a84f9bdfbabf11279b4a911d601923ea7fc7827fb5ea2d030090d6"
             ),
         }
         self.assertEqual({

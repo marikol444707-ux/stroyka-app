@@ -45,7 +45,6 @@ export const createSupplyActions = ({
   setSupplyStockCheck,
   shipmentForm,
   showRequestKpModal,
-  suggestedSuppliers,
   supplyRejectReason,
   supplyRequests,
   supplyTemplates,
@@ -94,11 +93,13 @@ export const createSupplyActions = ({
 
   const saveSupplier = async () => {
     if (!newSupplier.name) return;
+    const companyId = requireSelectedCompanyForWrite();
+    if (!companyId) return;
     if (!editingItem?.id && !hasSupplierLegalIdentity(newSupplier)) {
       alert('Для новой карточки поставщика укажите ИНН (10 или 12 цифр) либо ОГРН/ОГРНИП (13 или 15 цифр).');
       return;
     }
-    const payload = normalizeSupplierPayload(newSupplier);
+    const payload = { ...normalizeSupplierPayload(newSupplier), companyId };
     let res;
     if (editingItem && editingItem.id) {
       res = await fetch(API + '/suppliers/' + editingItem.id, {
@@ -124,16 +125,17 @@ export const createSupplyActions = ({
     setShowForm(false);
   };
 
-  const deleteSupplier = async (id) => {
-    if (window.confirm('Удалить?')) {
-      const res = await fetch(API + '/suppliers/' + id, { method: 'DELETE' });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        alert(data.detail || 'Поставщика нельзя удалить: есть связанные документы. Используйте привязку или объединение дублей.');
-        return;
-      }
-      await refreshData();
-    }
+  const deleteSupplier = async (supplier) => {
+    const companyId = requireSelectedCompanyForWrite();
+    if (!companyId || !supplier?.id) return;
+    if (!window.confirm('Деактивировать поставщика в каталоге этой компании? История документов сохранится.')) return;
+    const res = await fetch(API + '/suppliers/' + supplier.id, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ companyId, relationshipVersion: supplier.relationshipVersion, status: 'Неактивный' }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { alert(data.detail || 'Не удалось деактивировать поставщика'); return; }
+    await refreshData();
   };
 
   const saveRequest = () => runRequestCreation(async (markCreated) => {
@@ -479,11 +481,10 @@ export const createSupplyActions = ({
     try {
       const r = await fetch(API + '/supply-requests/' + requestId + '/suggest-suppliers');
       const data = await r.json();
-      if (data.error) {
-        setSuggestedSuppliers({ suppliers: [], error: data.error });
+      if (!r.ok || data.error) {
+        setSuggestedSuppliers({ suppliers: [], error: data.detail || data.error || 'Не удалось загрузить поставщиков' });
       } else {
         setSuggestedSuppliers(data);
-        setSelectedSupplierIds(data.suppliers.filter(s => s.aiRecommend && !s.alreadyRequested).map(s => s.id));
       }
     } catch (_) {
       setSuggestedSuppliers({ suppliers: [], error: 'Не удалось загрузить' });
@@ -495,11 +496,10 @@ export const createSupplyActions = ({
     if (!showRequestKpModal || selectedSupplierIds.length === 0) { alert('Выберите хотя бы одного поставщика'); return; }
     const companyId = requireSelectedCompanyForWrite();
     if (!companyId) return;
-    const aiIds = (suggestedSuppliers?.suppliers || []).filter(s => s.aiRecommend).map(s => s.id);
     const r = await fetch(API + '/supply-requests/' + showRequestKpModal + '/request-kp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ supplierIds: selectedSupplierIds, aiRecommendedIds: aiIds, companyId }),
+      body: JSON.stringify({ supplierIds: selectedSupplierIds, aiRecommendedIds: [], companyId }),
     });
     const data = await r.json().catch(() => ({}));
     if (!r.ok || data.detail || data.error) { alert('Ошибка: ' + (data.detail || data.error || r.status)); return; }

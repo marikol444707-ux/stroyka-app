@@ -708,7 +708,7 @@ export function SupplyRequestCard(props) {
           supplyAiText={supplyAiText}
         />
       )}
-      {['Утверждена', 'КП запрошены'].includes(request.status) && items.map((item, requestItemIndex) => (
+      {expanded && ['Утверждена', 'КП запрошены'].includes(request.status) && items.map((item, requestItemIndex) => (
         <MaterialCapabilityProofPanel
           key={`${companyContext?.mode || ''}:${companyContext?.selectedCompanyId || companyContext?.selectedCompany?.companyId || ''}:${companyContext?.selectedCompany?.role || ''}:${request.id}:${requestItemIndex}`}
           API={API}

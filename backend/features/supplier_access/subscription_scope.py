@@ -14,6 +14,17 @@ _OFFER_MUTATION_PATH = re.compile(
 )
 
 
+def is_owned_supplier_profile_mutation(cur, user, method, path):
+    """A supplier's public profile does not consume a customer's subscription."""
+    if user.get('role') != 'поставщик' or str(method).upper() != 'PUT':
+        return False
+    match = re.fullmatch(r'/suppliers/([1-9][0-9]*)/requisites/?', str(path))
+    if not match:
+        return False
+    cur.execute('SELECT id FROM suppliers WHERE id=%s AND user_id=%s', (int(match.group(1)), user.get('id')))
+    return bool(cur.fetchone())
+
+
 def resolve_supplier_offer_subscription_context(
     cur, user, method, path, *, require_supplier_offer_visibility,
 ):
@@ -24,6 +35,20 @@ def resolve_supplier_offer_subscription_context(
     """
     if (user or {}).get("role") != "поставщик":
         return None
+    claim_match = re.fullmatch(r'/supply-claims/([1-9][0-9]*)/?', str(path or ''))
+    if claim_match and str(method or '').upper() == 'PUT':
+        cur.execute('''SELECT d.company_id,d.offer_id FROM supply_claims c
+            JOIN supply_deliveries d ON d.id=c.delivery_id AND d.request_id=c.request_id
+              AND d.offer_id=c.offer_id AND d.supplier_id=c.supplier_id AND d.project=c.project
+            JOIN supplier_offers o ON o.id=d.offer_id AND o.company_id=d.company_id
+              AND o.supplier_id=d.supplier_id AND o.request_id=d.request_id
+            JOIN supply_requests r ON r.id=o.request_id AND r.company_id=o.company_id
+              AND r.project=d.project WHERE c.id=%s''', (int(claim_match.group(1)),))
+        claim = cur.fetchone()
+        if not claim:
+            raise HTTPException(403, 'Нет доступа к претензии')
+        require_supplier_offer_visibility(cur, claim['offer_id'], user)
+        return {'mode': 'company', 'companyId': claim['company_id']}
     match = _OFFER_MUTATION_PATH.fullmatch(str(path or ""))
     if not match:
         return None

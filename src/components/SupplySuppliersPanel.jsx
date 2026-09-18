@@ -127,8 +127,8 @@ function SupplySuppliersPanel({
   const [duplicateSupplierId, setDuplicateSupplierId] = React.useState('');
   const [sourceFilter, setSourceFilter] = React.useState('all');
   const [collapsedCategories, setCollapsedCategories] = React.useState(() => new Set());
-  const canEditSuppliers = ['директор','зам_директора','кладовщик','снабженец'].includes(user?.role || '');
-  const canLinkSupplierUsers = ['директор','зам_директора'].includes(user?.role || '');
+  const canEditSuppliers = ['директор','зам_директора','кладовщик','снабженец','бухгалтер'].includes(user?.role || '');
+  const canLinkSupplierUsers = ['system_owner','platform_admin'].includes(user?.role || '');
   const canSaveNewSupplier = Boolean(newSupplier?.name?.trim()) && hasSupplierLegalIdentity(newSupplier);
   const supplierUsers = React.useMemo(
     () => (users || []).filter(item => item?.role === 'поставщик'),
@@ -222,7 +222,8 @@ function SupplySuppliersPanel({
     await loadAll();
   };
 
-  const supplierGroups = React.useMemo(() => groupSuppliers(suppliers), [suppliers]);
+  const supplierGroups = React.useMemo(() => suppliers.some(s => s.companySupplierLinkId)
+    ? suppliers.flatMap(s => groupSuppliers([s])) : groupSuppliers(suppliers), [suppliers]);
 
   React.useEffect(() => {
     const focusedSupplierId = Number(supplierLinkFocus?.supplierId || 0);
@@ -440,21 +441,24 @@ function SupplySuppliersPanel({
   const updateRating = async (supplier, rating, event) => {
     event?.stopPropagation();
     if (!canEditSuppliers) return;
-    await fetch(API+'/suppliers/'+supplier.id,{
+    const response = await fetch(API+'/suppliers/'+supplier.id,{
       method:'PUT',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({...supplier,rating}),
+      body:JSON.stringify({rating,companyId:supplier.companyId,relationshipVersion:supplier.relationshipVersion}),
     });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) { alert(data.detail || 'Не удалось изменить рейтинг'); return; }
     await loadAll();
   };
 
   const handleDeleteSupplier = (supplier, event) => {
     event?.stopPropagation();
-    deleteSupplier(supplier.id);
+    deleteSupplier(supplier);
   };
 
   const openLinkSupplier = (supplier, event) => {
     event?.stopPropagation();
+    setOpenedSupplierId(supplier.id);
     setLinkingSupplierId(prev => (prev === supplier.id ? null : supplier.id));
     setLinkUserId('');
     setLinkUserEmail('');
@@ -521,7 +525,7 @@ function SupplySuppliersPanel({
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',gap:'8px',flexWrap:'wrap'}}>
         <div>
           <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>🚚 Поставщики</b>
-          <p style={{color:C.textSec,fontSize:'11px',margin:'2px 0 0'}}>Единая карточка поставщика: счета, поставки, складские накладные и каталог в одном месте.</p>
+          <p style={{color:C.textSec,fontSize:'11px',margin:'2px 0 0'}}>Каталог выбранной компании. Контакты, рейтинг, договор и заметки сохраняются только для неё.</p>
         </div>
         {canEditSuppliers&&(
           <div style={{display:'flex',gap:'6px',flexWrap:'wrap'}}>
@@ -533,8 +537,9 @@ function SupplySuppliersPanel({
 
       {showForm&&canEditSuppliers&&(
         <div style={{...card,padding:'20px',marginBottom:'16px'}}>
+          {editingItem?.identityReadOnly && <p style={{color:C.textSec,fontSize:'12px'}}>Общие реквизиты ведёт поставщик или администратор платформы. Здесь можно изменить контакты и условия работы вашей компании.</p>}
           <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(190px,1fr))',gap:'10px'}}>
-            <input placeholder="Название *" value={newSupplier.name} onChange={e=>setNewSupplier({...newSupplier,name:e.target.value})} style={{...inp,marginBottom:0}}/>
+            <input placeholder="Название *" readOnly={Boolean(editingItem?.identityReadOnly)} value={newSupplier.name} onChange={e=>setNewSupplier({...newSupplier,name:e.target.value})} style={{...inp,marginBottom:0}}/>
             <input placeholder="Телефон" value={newSupplier.phone} onChange={e=>setNewSupplier({...newSupplier,phone:e.target.value})} style={{...inp,marginBottom:0}}/>
             <input placeholder="Email" value={newSupplier.email} onChange={e=>setNewSupplier({...newSupplier,email:e.target.value})} style={{...inp,marginBottom:0}}/>
             <select value={newSupplier.category} onChange={e=>setNewSupplier({...newSupplier,category:e.target.value})} style={{...inp,marginBottom:0}}>
@@ -548,18 +553,20 @@ function SupplySuppliersPanel({
               {Object.entries(SUPPLIER_SOURCE_META).map(([value, meta])=><option key={value} value={value}>{meta.label}</option>)}
             </select>
             <input placeholder="Детали источника" value={newSupplier.sourceDetail || ''} onChange={e=>setNewSupplier({...newSupplier,sourceDetail:e.target.value})} style={{...inp,marginBottom:0}}/>
-            <input placeholder="ИНН (10 или 12 цифр) *" value={newSupplier.inn || ''} onChange={e=>setNewSupplier({...newSupplier,inn:e.target.value})} style={{...inp,marginBottom:0}}/>
-            <input placeholder="КПП" value={newSupplier.kpp || ''} onChange={e=>setNewSupplier({...newSupplier,kpp:e.target.value})} style={{...inp,marginBottom:0}}/>
-            <input placeholder="ОГРН / ОГРНИП (13 или 15 цифр) *" value={newSupplier.ogrn || ''} onChange={e=>setNewSupplier({...newSupplier,ogrn:e.target.value})} style={{...inp,marginBottom:0}}/>
-            <input placeholder="Банк" value={newSupplier.bank || ''} onChange={e=>setNewSupplier({...newSupplier,bank:e.target.value})} style={{...inp,marginBottom:0}}/>
-            <input placeholder="БИК" value={newSupplier.bik || ''} onChange={e=>setNewSupplier({...newSupplier,bik:e.target.value})} style={{...inp,marginBottom:0}}/>
-            <input placeholder="Расчетный счет" value={newSupplier.account || ''} onChange={e=>setNewSupplier({...newSupplier,account:e.target.value})} style={{...inp,marginBottom:0}}/>
-            <input placeholder="Корр. счет" value={newSupplier.korAccount || ''} onChange={e=>setNewSupplier({...newSupplier,korAccount:e.target.value})} style={{...inp,marginBottom:0}}/>
-            <input placeholder="Подписант / директор" value={newSupplier.directorName || ''} onChange={e=>setNewSupplier({...newSupplier,directorName:e.target.value})} style={{...inp,marginBottom:0}}/>
-            <input placeholder="Основание / должность" value={newSupplier.directorPosition || ''} onChange={e=>setNewSupplier({...newSupplier,directorPosition:e.target.value})} style={{...inp,marginBottom:0}}/>
+            <input placeholder="ИНН (10 или 12 цифр) *" readOnly={Boolean(editingItem?.identityReadOnly)} value={newSupplier.inn || ''} onChange={e=>setNewSupplier({...newSupplier,inn:e.target.value})} style={{...inp,marginBottom:0}}/>
+            <input placeholder="КПП" readOnly={Boolean(editingItem?.identityReadOnly)} value={newSupplier.kpp || ''} onChange={e=>setNewSupplier({...newSupplier,kpp:e.target.value})} style={{...inp,marginBottom:0}}/>
+            <input placeholder="ОГРН / ОГРНИП (13 или 15 цифр) *" readOnly={Boolean(editingItem?.identityReadOnly)} value={newSupplier.ogrn || ''} onChange={e=>setNewSupplier({...newSupplier,ogrn:e.target.value})} style={{...inp,marginBottom:0}}/>
+            <input placeholder="Банк" readOnly={Boolean(editingItem?.identityReadOnly)} value={newSupplier.bank || ''} onChange={e=>setNewSupplier({...newSupplier,bank:e.target.value})} style={{...inp,marginBottom:0}}/>
+            <input placeholder="БИК" readOnly={Boolean(editingItem?.identityReadOnly)} value={newSupplier.bik || ''} onChange={e=>setNewSupplier({...newSupplier,bik:e.target.value})} style={{...inp,marginBottom:0}}/>
+            <input placeholder="Расчетный счет" readOnly={Boolean(editingItem?.identityReadOnly)} value={newSupplier.account || ''} onChange={e=>setNewSupplier({...newSupplier,account:e.target.value})} style={{...inp,marginBottom:0}}/>
+            <input placeholder="Корр. счет" readOnly={Boolean(editingItem?.identityReadOnly)} value={newSupplier.korAccount || ''} onChange={e=>setNewSupplier({...newSupplier,korAccount:e.target.value})} style={{...inp,marginBottom:0}}/>
+            <input placeholder="Подписант / директор" readOnly={Boolean(editingItem?.identityReadOnly)} value={newSupplier.directorName || ''} onChange={e=>setNewSupplier({...newSupplier,directorName:e.target.value})} style={{...inp,marginBottom:0}}/>
+            <input placeholder="Основание / должность" readOnly={Boolean(editingItem?.identityReadOnly)} value={newSupplier.directorPosition || ''} onChange={e=>setNewSupplier({...newSupplier,directorPosition:e.target.value})} style={{...inp,marginBottom:0}}/>
             <input placeholder="Номер договора" value={newSupplier.contractNumber || ''} onChange={e=>setNewSupplier({...newSupplier,contractNumber:e.target.value})} style={{...inp,marginBottom:0}}/>
             <input type="date" value={newSupplier.contractDate || ''} onChange={e=>setNewSupplier({...newSupplier,contractDate:e.target.value})} style={{...inp,marginBottom:0}}/>
-            <input placeholder="Юридический адрес" value={newSupplier.legalAddress || ''} onChange={e=>setNewSupplier({...newSupplier,legalAddress:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'1 / -1'}}/>
+            <input placeholder="Юридический адрес" readOnly={Boolean(editingItem?.identityReadOnly)} value={newSupplier.legalAddress || ''} onChange={e=>setNewSupplier({...newSupplier,legalAddress:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'1 / -1'}}/>
+            <input aria-label="Условия оплаты" placeholder="Условия оплаты" value={newSupplier.paymentTerms || ''} onChange={e=>setNewSupplier({...newSupplier,paymentTerms:e.target.value})} style={{...inp,marginBottom:0}}/>
+            <input aria-label="Условия поставки" placeholder="Условия поставки" value={newSupplier.deliveryTerms || ''} onChange={e=>setNewSupplier({...newSupplier,deliveryTerms:e.target.value})} style={{...inp,marginBottom:0}}/>
             <textarea placeholder="Примечания / предмет договора" value={newSupplier.notes || ''} onChange={e=>setNewSupplier({...newSupplier,notes:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'1 / -1',minHeight:'64px',resize:'vertical'}}/>
           </div>
           <DocumentRecognitionPanel
@@ -575,7 +582,13 @@ function SupplySuppliersPanel({
             context="supplier-documents"
             entityType="supplier"
             currentFields={newSupplier}
-            onApplyExtracted={applySupplierRecognition}
+            onApplyExtracted={result => {
+              if (editingItem?.identityReadOnly) {
+                const patch = supplierPatchFromRecognition(result, newSupplier);
+                const local = Object.fromEntries(Object.entries(patch).filter(([key]) => ['contractNumber','contractDate','contractUrl','notes','specialization'].includes(key)));
+                setNewSupplier(prev => ({...prev,...local}));
+              } else applySupplierRecognition(result);
+            }}
             applyExtractedLabel="Заполнить поставщика"
             onCreateRecognizedDocument={editingItem?.id ? createSupplierDocumentFromRecognition : null}
             createRecognizedDocumentLabel="Добавить в документы поставщика"
@@ -651,7 +664,7 @@ function SupplySuppliersPanel({
                       <p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{supplier.phone+(supplier.email?' · '+supplier.email:'')+(supplier.specialization?' · '+supplier.specialization:'')}</p>
                       <div style={{display:'flex',gap:'4px',marginTop:'4px'}}>
                         {[1,2,3,4,5].map(star=>(
-                          <span key={star} style={{color:star<=toNumber(supplier.rating)?'#f59e0b':'#d1d5db',fontSize:'14px',cursor:canEditSuppliers?'pointer':'default'}} onClick={event=>updateRating(supplier, star, event)}>★</span>
+                          <button type="button" aria-label={'Рейтинг '+star} key={star} disabled={!canEditSuppliers} style={{background:'none',border:0,padding:0,color:star<=toNumber(supplier.rating)?'#f59e0b':'#d1d5db',fontSize:'14px',cursor:canEditSuppliers?'pointer':'default'}} onClick={event=>updateRating(supplier, star, event)}>★</button>
                         ))}
                       </div>
                     </div>
@@ -662,7 +675,7 @@ function SupplySuppliersPanel({
                       <span style={{color:C.textSec,fontSize:'11px'}}>Накладные: <b style={{color:C.text}}>{stats.warehouseInvoices.length}</b></span>
                       <span style={{color:C.textSec,fontSize:'11px'}}>Каталог: <b style={{color:C.text}}>{stats.catalog.length}</b></span>
                       {stats.total > 0 && <span style={{fontSize:'11px',fontWeight:'700',color:C.success,padding:'3px 8px',borderRadius:'999px',backgroundColor:C.successLight,border:'1px solid '+C.successBorder}}>{formatMoney(stats.total)}</span>}
-                      {canEditSuppliers&&(
+                      {(canEditSuppliers || canLinkSupplierUsers)&&(
                         <div style={{display:'flex',gap:'6px'}}>
                           {canLinkSupplierUsers&&(
                             <button title="Связать кабинет поставщика" onClick={event=>openLinkSupplier(supplier, event)} style={{...btnB,padding:'5px 10px'}}><Link2 size={11}/></button>
@@ -670,8 +683,8 @@ function SupplySuppliersPanel({
                           {canLinkSupplierUsers&&(
                             <button title="Связать дубль поставщика" onClick={event=>openDuplicateLinkSupplier(supplier, event)} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}><Link2 size={11}/>Дубль</button>
                           )}
-                          <button onClick={event=>editSupplier(supplier, event)} style={{...btnG,padding:'5px 10px'}}><Edit2 size={11}/></button>
-                          <button onClick={event=>handleDeleteSupplier(supplier, event)} style={{...btnR,padding:'5px 10px'}}><Trash2 size={11}/></button>
+                          {canEditSuppliers && <button aria-label="Редактировать поставщика" onClick={event=>editSupplier(supplier, event)} style={{...btnG,padding:'5px 10px'}}><Edit2 size={11}/></button>}
+                          {canEditSuppliers && <button aria-label="Деактивировать поставщика" title="Деактивировать в этой компании" onClick={event=>handleDeleteSupplier(supplier, event)} style={{...btnR,padding:'5px 10px'}}><Trash2 size={11}/></button>}
                         </div>
                       )}
                     </div>

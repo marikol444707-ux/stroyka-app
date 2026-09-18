@@ -1467,39 +1467,19 @@ def _remove_resolved_supplier_clarification(comment) -> str:
             kept.append(line.strip())
     return "\n".join(kept)
 
-def current_supplier_id(cur, user: dict):
-    cur.execute("""SELECT id FROM suppliers
-                   WHERE user_id=%s
-                      OR (%s<>'' AND LOWER(email)=LOWER(%s))
-                      OR (%s<>'' AND name=%s)
-                   ORDER BY CASE WHEN user_id=%s THEN 0 ELSE 1 END, id
-                   LIMIT 1""",
-                (
-                    user.get("id"),
-                    user.get("email") or "", user.get("email") or "",
-                    user.get("name") or "", user.get("name") or "",
-                    user.get("id"),
-                ))
-    row = cur.fetchone()
-    if not row:
-        supplier = _supplier_find_match(cur, {
-            "name": user.get("name") or "",
-            "email": user.get("email") or "",
-            "phone": user.get("phone") or "",
-        })
-        row = supplier
-        if not row:
-            return None
-    try:
-        return row["id"]
-    except Exception:
-        return row[0]
-
 def current_supplier_ids(cur, user: dict):
-    supplier_id = current_supplier_id(cur, user)
-    if not supplier_id:
-        return []
-    return supplier_related_ids(cur, supplier_id)
+    # Similar names, contacts and duplicate-group metadata are directory hints,
+    # never proof of authority to act for a supplier.
+    cur.execute("""SELECT s.id FROM suppliers s JOIN users u ON u.id=s.user_id
+                   WHERE s.user_id=%s AND u.role='поставщик' AND COALESCE(u.active,TRUE)
+                   ORDER BY s.id""", (user.get('id'),))
+    return [int(row['id'] if isinstance(row, dict) else row[0]) for row in cur.fetchall()]
+
+
+def current_supplier_id(cur, user: dict):
+    supplier_ids = current_supplier_ids(cur, user)
+    return supplier_ids[0] if supplier_ids else None
+
 
 def supplier_related_ids(cur, supplier_id: int):
     try:
@@ -1709,16 +1689,18 @@ def _supplier_visibility_for_scope(cur, scope_ids) -> dict:
         "reason": "Карточка поставщика не связана с пользователем: поставщик не увидит запрос в кабинете",
     }
 
-def _upsert_supply_request_recipients(cur, request_id: int, company_id: int, supplier_ids, status: str = "Ожидает ответа") -> list:
-    _ensure_supply_request_recipients_table(cur)
+def _upsert_supply_request_recipients(cur, request_id: int, company_id: int, supplier_ids, status: str = "Ожидает ответа", *, ensure_schema=True, targets=None) -> list:
+    if ensure_schema:
+        _ensure_supply_request_recipients_table(cur)
     rows = []
-    for target in supplier_offer_targets_for_groups(cur, supplier_ids):
+    for target in targets if targets is not None else supplier_offer_targets_for_groups(cur, supplier_ids):
         supplier_id = int(target.get("requested_id") or target.get("target_id") or 0)
         target_id = int(target.get("target_id") or supplier_id or 0)
         scope_ids = _normalize_supplier_ids(target.get("scope_ids") or [target_id])
         if not supplier_id or not target_id:
             continue
-        visibility = _supplier_visibility_for_scope(cur, scope_ids)
+        visibility = ({'visible': True, 'user_id': target['user_id'], 'reason': ''}
+                      if targets is not None else _supplier_visibility_for_scope(cur, scope_ids))
         row = {
             "companyId": company_id,
             "requestId": request_id,
@@ -2847,17 +2829,20 @@ try:
         register_subscription_read_only_middleware,
     )
     from backend.features.supplier_access.subscription_scope import (
-        resolve_supplier_offer_subscription_context,
+        resolve_supplier_offer_subscription_context, is_owned_supplier_profile_mutation,
     )
 except ModuleNotFoundError:
     from features.client_account.subscription_access import (
         register_subscription_read_only_middleware,
     )
     from features.supplier_access.subscription_scope import (
-        resolve_supplier_offer_subscription_context,
+        resolve_supplier_offer_subscription_context, is_owned_supplier_profile_mutation,
     )
 
 register_subscription_read_only_middleware(app, {
+    "is_owned_external_profile": lambda cur, user, request: is_owned_supplier_profile_mutation(
+        cur, user, request.method, request.url.path,
+    ),
     "get_db": get_db,
     "request_user_snapshot": _request_user_snapshot,
     "resolve_work_company_context": _resolve_work_company_context,
@@ -3783,6 +3768,13 @@ def init_db():
             uploaded_by VARCHAR(255),
             created_at TIMESTAMP DEFAULT NOW()
         );
+        -- NULL ownership is deliberate: old supplier documents are not shared
+        -- with customers until their company is established from evidence.
+        ALTER TABLE supplier_documents ADD COLUMN IF NOT EXISTS company_id INT;
+        ALTER TABLE supplier_documents ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP;
+        CREATE INDEX IF NOT EXISTS idx_supplier_documents_company_active
+            ON supplier_documents (company_id, supplier_id, created_at DESC)
+            WHERE archived_at IS NULL;
         CREATE TABLE IF NOT EXISTS supplier_invoice_templates (
             id SERIAL PRIMARY KEY,
             supplier_id INT,
@@ -6533,8 +6525,9 @@ def register(data: dict, response: Response, request: Request):
     if not code or not name or not email or not password:
         raise HTTPException(status_code=400, detail="Заполните имя, email, пароль и код приглашения")
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT * FROM invite_codes WHERE code=%s AND used=FALSE", (code,))
+    cur.execute("SELECT * FROM invite_codes WHERE code=%s AND used=FALSE FOR UPDATE", (code,))
     invite = cur.fetchone()
     if not invite:
         conn.close()
@@ -6575,6 +6568,13 @@ def register(data: dict, response: Response, request: Request):
             assigned_packages = []
             if not platform_account_id:
                 raise HTTPException(status_code=400, detail="В приглашении не указан клиентский аккаунт")
+        if role == 'поставщик':
+            company_id = None
+            platform_account_id = None
+            project_id = None
+            project_name = ''
+            assigned_projects = []
+            assigned_packages = []
         cur.execute("""INSERT INTO users
                           (name,email,password,role,project_id,project_name,assigned_projects,assigned_packages,company_id,platform_account_id)
                        VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s,%s) RETURNING *""",
@@ -6595,37 +6595,28 @@ def register(data: dict, response: Response, request: Request):
                 "sourceType": "invite_link",
                 "sourceDetail": "Регистрация поставщика по ссылке приглашения",
             }
-            if supplier_id:
-                # Привязываем к существующей компании
-                cur.execute("SELECT id FROM suppliers WHERE id=%s LIMIT 1", (supplier_id,))
-                supplier_row = cur.fetchone()
-                if supplier_row:
-                    _update_supplier_missing_fields(cur, supplier_id, supplier_payload, user_id=user['id'])
-                    _remember_supplier_alias(cur, supplier_id, supplier_payload, source="supplier_invite")
-            else:
-                existing_supplier = _supplier_find_match(cur, supplier_payload)
-                if existing_supplier:
-                    supplier_id = int(existing_supplier.get("id") or 0)
-                    _update_supplier_missing_fields(cur, supplier_id, supplier_payload, user_id=user['id'])
-                    _remember_supplier_alias(cur, supplier_id, supplier_payload, source="supplier_invite")
-                else:
-                    # Создаём новую компанию
-                    cur.execute(
-                        "INSERT INTO suppliers (name, phone, email, category, specialization, "
-                        "inn, kpp, ogrn, legal_address, bank, bik, account, director_name, "
-                        "status, rating, user_id, registered_at, source_type, source_detail) "
-                        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),%s,%s) RETURNING id",
-                        (company_name, data.get("phone",""), email,
-                         invite.get('preset_category') or data.get("category",""),
-                         data.get("specialization",""),
-                         data.get("inn"), data.get("kpp"), data.get("ogrn"),
-                         data.get("legalAddress"), data.get("bank"), data.get("bik"),
-                         data.get("account"), data.get("directorName"),
-                         'Активный', 5.0, user['id'],
-                         "invite_link", "Регистрация поставщика по ссылке приглашения"))
-                    new_supplier = cur.fetchone()
-                    supplier_id = new_supplier.get("id") if isinstance(new_supplier, dict) else new_supplier[0]
-                    _remember_supplier_alias(cur, supplier_id, supplier_payload, source="supplier_invite")
+            requisites = _supplier_extract_requisites(supplier_payload)
+            for identity in sorted({requisites.get(key, '') for key in ('inn', 'ogrn')} - {''}):
+                cur.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))', ('supplier-legal:' + identity,))
+            if supplier_id or _supplier_find_match(cur, supplier_payload):
+                raise HTTPException(409, 'Приглашение не подтверждает право управлять существующей организацией поставщика. Войдите в её кабинет или обратитесь к администратору платформы для проверки привязки')
+            # Создаём новую компанию
+            cur.execute(
+                "INSERT INTO suppliers (name, phone, email, category, specialization, "
+                "inn, kpp, ogrn, legal_address, bank, bik, account, director_name, "
+                "status, rating, user_id, registered_at, source_type, source_detail) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),%s,%s) RETURNING id",
+                (company_name, data.get("phone",""), email,
+                 invite.get('preset_category') or data.get("category",""),
+                 data.get("specialization",""),
+                 data.get("inn"), data.get("kpp"), data.get("ogrn"),
+                 data.get("legalAddress"), data.get("bank"), data.get("bik"),
+                 data.get("account"), data.get("directorName"),
+                 'Активный', 5.0, user['id'],
+                 "invite_link", "Регистрация поставщика по ссылке приглашения"))
+            new_supplier = cur.fetchone()
+            supplier_id = new_supplier.get("id") if isinstance(new_supplier, dict) else new_supplier[0]
+            _remember_supplier_alias(cur, supplier_id, supplier_payload, source="supplier_invite")
         cur.execute("UPDATE invite_codes SET used=TRUE WHERE code=%s", (code,))
         session_token = None
         if _user_requires_2fa(user):
@@ -6647,9 +6638,11 @@ def register(data: dict, response: Response, request: Request):
             _set_auth_session_cookie(response, session_token)
         return public_user(user, include_token=True, two_factor_passed=False)
     except HTTPException:
+        conn.rollback()
         conn.close()
         raise
     except Exception as e:
+        conn.rollback()
         conn.close()
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -8082,12 +8075,12 @@ def _normalize_supplier_ids(value) -> list:
             ids.append(supplier_id)
     return ids
 
-def _create_supplier_offer_requests(cur, request_id: int, supplier_ids, ai_ids=None, company_id=None) -> list:
+def _create_supplier_offer_requests(cur, request_id: int, supplier_ids, ai_ids=None, company_id=None, *, targets=None) -> list:
     created = []
     if company_id is None:
         cur.execute("SELECT company_id FROM supply_requests WHERE id=%s LIMIT 1", (request_id,))
         company_id = _row_get(cur.fetchone(), "company_id", 0, None)
-    for target in supplier_offer_targets_for_groups(cur, supplier_ids, ai_ids):
+    for target in targets if targets is not None else supplier_offer_targets_for_groups(cur, supplier_ids, ai_ids):
         supplier_id = target["target_id"]
         scope_ids = target["scope_ids"] or [supplier_id]
         ai_recommended = bool(target.get("ai_recommended"))
@@ -10200,13 +10193,12 @@ def request_kp_from_suppliers(
 ):
     """Директор отправляет запрос КП нескольким поставщикам.
        data: {supplierIds: [1,2,3], aiRecommendedIds: [1,2]}"""
-    try:
-        supplier_ids = sorted({int(x) for x in (data.get('supplierIds') or []) if int(x) > 0})
-        ai_ids = {int(x) for x in (data.get('aiRecommendedIds') or []) if int(x) > 0}
-    except Exception:
-        raise HTTPException(status_code=400, detail="Некорректный список поставщиков")
-    if not supplier_ids:
-        return {"error": "Не выбраны поставщики"}
+    supplier_ids = data.get('supplierIds')
+    if not isinstance(supplier_ids, list) or not 1 <= len(supplier_ids) <= 100 or any(
+        type(value) is not int or not 0 < value <= 2147483647 for value in supplier_ids
+    ):
+        raise HTTPException(400, 'Выберите от 1 до 100 поставщиков с корректными ID')
+    supplier_ids = sorted(set(supplier_ids))
     conn = get_db()
     conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -10250,13 +10242,14 @@ def request_kp_from_suppliers(
             validate_rfq_dispatch_request(req)
         except SupplyRequestWorkflowViolation as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.detail)
-        selected_scope_ids = supplier_group_scope_ids(cur, supplier_ids)
-        recipient_rows = _upsert_supply_request_recipients(cur, id, company_id, selected_scope_ids)
+        targets = explicit_supplier_targets(cur, company_id, supplier_ids)
+        selected_scope_ids = supplier_ids
+        recipient_rows = _upsert_supply_request_recipients(cur, id, company_id, selected_scope_ids, targets=targets)
         assert_rows_company_scope(recipient_rows, company_id, "Получатели КП")
         visibility_error = _recipient_visibility_error(recipient_rows)
         if visibility_error:
             raise HTTPException(status_code=400, detail=visibility_error)
-        created = _create_supplier_offer_requests(cur, id, selected_scope_ids, ai_ids, company_id=company_id)
+        created = _create_supplier_offer_requests(cur, id, selected_scope_ids, company_id=company_id, targets=targets)
         cur.execute(
             "SELECT company_id FROM supply_request_recipients WHERE request_id=%s FOR UPDATE",
             (id,),
@@ -10455,80 +10448,101 @@ def get_supply_request_recipients(
         conn.close()
 
 @app.get("/supply-requests/{id}/suggest-suppliers")
-def suggest_suppliers_for_request(id: int, current_user: dict = Depends(require_roles(*SUPPLY_INTERNAL_ROLES))):
-    """Возвращает список поставщиков подходящих под категорию материала, ранжированных
-       по рейтингу + истории успешных поставок. AI-комментарий опциональный."""
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT material_name, category, project FROM supply_requests WHERE id=%s", (id,))
-    req = cur.fetchone()
-    if not req:
-        conn.close()
-        return {"error": "not found"}
-    if req.get('project'):
-        require_project_access(current_user, req.get('project') or "")
-    category = (req['category'] or '').strip()
-    material_name = (req['material_name'] or '').lower()
-    # Фильтр по категории если задана. Иначе берём всех активных
-    if category:
+def suggest_suppliers_for_request(
+    id: int,
+    current_user: dict = Depends(get_current_user),
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+):
+    """Return candidates and company-owned commercial context for human review."""
+    with procurement_read_cursor(get_db) as cur:
+        cur.execute("SELECT id, company_id, material_name, category, project, work_package FROM supply_requests WHERE id=%s", (id,))
+        req = cur.fetchone()
+        company_id, actor = authorize_procurement_document(
+            cur, req, current_user, resolve_actor=resolve_resource_company_actor,
+            project_access=require_project_or_warehouse_access, package_access=has_package_access,
+            allowed_roles=SUPPLY_INTERNAL_ROLES, platform_staff_roles=PLATFORM_STAFF_ROLES,
+            client_account_roles=CLIENT_ACCOUNT_ROLES,
+            x_company_id=x_company_id, x_company_mode=x_company_mode,
+        )
+        category = (req['category'] or '').strip()
+        material_name = (req['material_name'] or '').lower()
         cur.execute(
-            "SELECT id, name, category, specialization, rating, phone, email, status FROM suppliers "
-            "WHERE (status IS NULL OR status='Активный' OR status='') AND category=%s ORDER BY rating DESC NULLS LAST",
-            (category,))
-    else:
-        cur.execute(
-            "SELECT id, name, category, specialization, rating, phone, email, status FROM suppliers "
-            "WHERE (status IS NULL OR status='Активный' OR status='') ORDER BY rating DESC NULLS LAST")
-    suppliers = [dict(r) for r in cur.fetchall()]
-    # Считаем историю успешных поставок (status='Доставлено') по каждому поставщику
-    cur.execute("SELECT supplier_id, COUNT(*) as deliveries FROM supply_history WHERE status='Доставлено' GROUP BY supplier_id")
-    deliveries_map = {r['supplier_id']: r['deliveries'] for r in cur.fetchall()}
-    # Считаем уже отправленные КП этой заявке
-    cur.execute("SELECT supplier_id FROM supplier_offers WHERE request_id=%s AND COALESCE(status,'') NOT IN ('Отклонено','Отозвано')", (id,))
-    already_requested = {r['supplier_id'] for r in cur.fetchall()}
-    conn.close()
+            """SELECT s.id, s.name, link.local_category AS category, link.profile->>'specialization' AS specialization,
+                      link.rating, link.profile->>'phone' AS phone, link.profile->>'email' AS email, link.status,
+                      link.id AS "companySupplierLinkId"
+                 FROM company_supplier_links link
+                 JOIN companies company ON company.id=link.company_id
+                      AND company.platform_account_id=link.platform_account_id
+                 JOIN suppliers s ON s.id=link.supplier_id
+                WHERE link.company_id=%s
+                  AND link.status='Активный'
+                  AND COALESCE(s.status,'Активный') IN ('Активный','')
+                ORDER BY s.name, s.id LIMIT 101""",
+            (company_id,),
+        )
+        suppliers = [dict(row) for row in cur.fetchall()]
+        if len(suppliers) > 100:
+            raise HTTPException(409, detail="Более 100 поставщиков: уточните список связей компании перед подбором")
+        supplier_ids = [supplier['id'] for supplier in suppliers]
+        cur.execute("""SELECT supplier_id, COUNT(*) AS deliveries FROM supply_history
+                       WHERE company_id=%s AND supplier_id=ANY(%s) AND status='Доставлено'
+                       GROUP BY supplier_id""", (company_id, supplier_ids))
+        deliveries_map = {row['supplier_id']: row['deliveries'] for row in cur.fetchall()}
+        cur.execute("""SELECT supplier_id FROM supplier_offers
+                       WHERE request_id=%s AND company_id=%s
+                         AND COALESCE(status,'') NOT IN ('Отклонено','Отозвано')""", (id, company_id))
+        already_requested = {row['supplier_id'] for row in cur.fetchall()}
     for s in suppliers:
         s['deliveriesCount'] = int(deliveries_map.get(s['id'], 0))
         s['alreadyRequested'] = s['id'] in already_requested
-        # Простая логика: AI рекомендует если category совпадает + (rating>=4 OR deliveries>=1)
-        score = 0
-        if s['rating']: score += float(s['rating'])
-        if s['deliveriesCount']: score += min(s['deliveriesCount'], 5)
-        if material_name and (s.get('specialization') or '').lower() and any(w in material_name for w in (s['specialization'] or '').lower().split()):
-            score += 2
-        s['_score'] = score
-        s['aiRecommend'] = score >= 5  # порог рекомендации
-    suppliers.sort(key=lambda x: -x['_score'])
+        # Commercial history does not prove capability for this exact material.
+        s['aiRecommend'] = False
+        s['capabilityStatus'] = 'not_checked'
     return {
         "requestId": id,
         "materialName": req['material_name'],
         "category": category,
-        "suppliers": suppliers[:15],  # топ 15
-        "aiRecommendedCount": sum(1 for s in suppliers if s.get('aiRecommend')),
+        "suppliers": suppliers,
+        "aiRecommendedCount": 0,
     }
 
 @app.get("/supply-requests/{id}/compare-kp")
-def compare_kp_for_request(id: int, current_user: dict = Depends(require_roles(*SUPPLY_INTERNAL_ROLES))):
-    """Сравнивает все полученные КП по заявке и возвращает AI-вердикт.
-       Учитывает цену, срок поставки, условия оплаты, НДС, рейтинг поставщика."""
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT material_name, quantity, unit, project FROM supply_requests WHERE id=%s", (id,))
-    req = cur.fetchone()
-    if not req:
-        conn.close()
-        return {"error": "Заявка не найдена"}
-    if req.get('project'):
-        require_project_access(current_user, req.get('project') or "")
-    cur.execute(
-        "SELECT o.id, o.supplier_id, o.price_per_unit, o.total_price, o.delivery_days, "
-        "o.payment_terms, o.vat_included, o.valid_until, o.supplier_message, o.status, "
-        "s.name as supplier_name, s.rating "
-        "FROM supplier_offers o LEFT JOIN suppliers s ON s.id=o.supplier_id "
-        "WHERE o.request_id=%s AND o.status IN ('Получено','Утверждено')",
-        (id,))
-    offers = [dict(r) for r in cur.fetchall()]
-    conn.close()
+def compare_kp_for_request(
+    id: int,
+    current_user: dict = Depends(get_current_user),
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+):
+    """Compare offers belonging to the authorized request and company."""
+    with procurement_read_cursor(get_db) as cur:
+        cur.execute("SELECT id, company_id, material_name, quantity, unit, project, work_package FROM supply_requests WHERE id=%s", (id,))
+        req = cur.fetchone()
+        company_id, actor = authorize_procurement_document(
+            cur, req, current_user, resolve_actor=resolve_resource_company_actor,
+            project_access=require_project_or_warehouse_access, package_access=has_package_access,
+            allowed_roles=SUPPLY_INTERNAL_ROLES, platform_staff_roles=PLATFORM_STAFF_ROLES,
+            client_account_roles=CLIENT_ACCOUNT_ROLES,
+            x_company_id=x_company_id, x_company_mode=x_company_mode,
+        )
+        cur.execute(
+            """SELECT o.id, o.supplier_id, o.price_per_unit, o.total_price, o.delivery_days,
+                      o.payment_terms, o.vat_included, o.valid_until, o.supplier_message, o.status,
+                      s.name AS supplier_name, link.rating
+                 FROM supplier_offers o
+                 LEFT JOIN suppliers s ON s.id=o.supplier_id
+                 LEFT JOIN companies company ON company.id=o.company_id
+                 LEFT JOIN company_supplier_links link
+                        ON link.company_id=o.company_id AND link.supplier_id=o.supplier_id
+                       AND link.platform_account_id=company.platform_account_id
+                WHERE o.request_id=%s AND o.company_id=%s
+                  AND o.status IN ('Получено','Утверждено')
+                ORDER BY o.id LIMIT 101""",
+            (id, company_id),
+        )
+        offers = [dict(row) for row in cur.fetchall()]
+        if len(offers) > 100:
+            raise HTTPException(409, detail="Слишком много КП для одного сравнения")
     if len(offers) < 2:
         return {
             "error": "Нужно минимум 2 полученных КП для сравнения",
@@ -11921,73 +11935,109 @@ def _backfill_cable_journal(cur, project_names=None):
             repaired += 1
     return repaired
 
+def _fulfilment_visibility(cur, user, company_column, project_column, package_column,
+                           x_company_id=None, x_company_mode=None, worker_condition=None):
+    try:
+        from backend.features.supplier_access.fulfilment import internal_fulfilment_filter
+    except ModuleNotFoundError:
+        from features.supplier_access.fulfilment import internal_fulfilment_filter
+    context = _resolve_work_company_context(cur, user, None, 'read',
+        x_company_id=x_company_id, x_company_mode=x_company_mode)
+    return internal_fulfilment_filter(effective_company_actors(user, context),
+        company_column=company_column, project_column=project_column,
+        full_view_roles=('директор', 'зам_директора', 'бухгалтер') if worker_condition else None,
+        package_column=package_column, worker_condition=worker_condition, deps={
+            'can_see_all_company_data': can_see_all_company_data,
+            'scoped_project_filter': scoped_project_filter,
+            'package_access_filter': package_access_filter,
+            'worker_execution_roles': WORKER_EXECUTION_ROLES,
+        })
+
+
 @app.get("/supply-deliveries")
-def list_supply_deliveries(limit: Optional[int] = None, offset: int = 0, current_user: dict = Depends(get_current_user)):
+def list_supply_deliveries(
+    limit: Optional[int] = None, offset: int = 0,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    current_user: dict = Depends(get_current_user),
+):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     _ensure_supply_runtime_columns(cur)
     conn.commit()
     role = current_user.get("role")
     page_sql, page_params = limit_offset_sql(limit, offset)
-    if can_see_all_company_data(current_user):
-        cur.execute(DELIVERY_SELECT + " ORDER BY d.id DESC" + page_sql, page_params)
-    elif role in ("снабженец", "кладовщик"):
-        project_sql, project_params = scoped_project_where(current_user, "d.project")
-        cur.execute(DELIVERY_SELECT + project_sql + " ORDER BY d.id DESC" + page_sql, project_params + page_params)
-    elif role == "поставщик":
+    if role == "поставщик":
         supplier_ids = current_supplier_ids(cur, current_user)
         if not supplier_ids:
             cur.close(); conn.close()
             return []
-        cur.execute(DELIVERY_SELECT + " WHERE d.supplier_id = ANY(%s) ORDER BY d.id DESC" + page_sql, [supplier_ids] + page_params)
-    elif role == "прораб":
-        projects = user_project_names(current_user)
-        if not projects:
+        try:
+            from backend.features.supplier_access.service import supplier_delivery_visibility_filter
+        except ModuleNotFoundError:
+            from features.supplier_access.service import supplier_delivery_visibility_filter
+        visibility, params = supplier_delivery_visibility_filter(supplier_ids, current_user.get('id'))
+        cur.execute(DELIVERY_SELECT + ' WHERE ' + visibility + ' ORDER BY d.id DESC' + page_sql, params + page_params)
+    else:
+        try:
+            scope, params = _fulfilment_visibility(cur, current_user, 'd.company_id',
+                'd.project', 'd.work_package', x_company_id, x_company_mode)
+            cur.execute(DELIVERY_SELECT + ' WHERE ' + scope + ' ORDER BY d.id DESC' + page_sql, params + page_params)
+        except Exception:
+            cur.close(); conn.close()
+            raise
+    try:
+        rows = [dict(r) for r in cur.fetchall()]
+        if os.getenv('SUPPLIER_DOCUMENT_CONTRACT_BINDINGS_ENABLED') == '1':
+            try:
+                from backend.features.supplier_deal_parties.payment_deferral import enrich_delivery_deadlines
+            except ModuleNotFoundError:
+                from features.supplier_deal_parties.payment_deferral import enrich_delivery_deadlines
+            enrich_delivery_deadlines(cur, rows)
+        return rows
+    finally:
+        cur.close(); conn.close()
+
+
+@app.get("/supply-claims")
+def list_supply_claims(
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    current_user: dict = Depends(get_current_user),
+):
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    role = current_user.get("role")
+    if role == "поставщик":
+        supplier_ids = current_supplier_ids(cur, current_user)
+        if not supplier_ids:
             cur.close(); conn.close()
             return []
-        package_sql, package_params = package_access_filter(current_user, "d.work_package")
-        cur.execute(DELIVERY_SELECT + " WHERE d.project = ANY(%s)" + package_sql + " ORDER BY d.id DESC" + page_sql, [projects] + package_params + page_params)
-    elif role in WORKER_EXECUTION_ROLES:
-        cur.close(); conn.close()
-        return []
+        try:
+            from backend.features.supplier_access.service import supplier_delivery_visibility_filter
+        except ModuleNotFoundError:
+            from features.supplier_access.service import supplier_delivery_visibility_filter
+        visibility, params = supplier_delivery_visibility_filter(supplier_ids, current_user.get('id'))
+        cur.execute(CLAIM_SELECT + """ WHERE EXISTS(SELECT 1 FROM supply_deliveries d
+            WHERE d.id=supply_claims.delivery_id AND d.request_id=supply_claims.request_id
+              AND d.offer_id=supply_claims.offer_id AND d.supplier_id=supply_claims.supplier_id
+              AND """ + visibility + ') ORDER BY id DESC', params)
     else:
-        cur.close(); conn.close()
-        return []
+        try:
+            scope, params = _fulfilment_visibility(cur, current_user,
+                '(SELECT d.company_id FROM supply_deliveries d WHERE d.id=supply_claims.delivery_id'
+                ' AND d.request_id=supply_claims.request_id AND d.offer_id=supply_claims.offer_id'
+                ' AND d.supplier_id=supply_claims.supplier_id)',
+                'project', 'work_package', x_company_id, x_company_mode,
+                'request_id IN (SELECT id FROM supply_requests WHERE requested_by_id=%s OR created_by=%s)')
+            cur.execute(CLAIM_SELECT + ' WHERE ' + scope + ' ORDER BY id DESC', params)
+        except Exception:
+            cur.close(); conn.close()
+            raise
     rows = cur.fetchall()
     cur.close(); conn.close()
     return [dict(r) for r in rows]
 
-@app.get("/supply-claims")
-def list_supply_claims(current_user: dict = Depends(get_current_user)):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    role = current_user.get("role")
-    if role in ("директор", "зам_директора", "снабженец", "кладовщик", "бухгалтер"):
-        cur.execute(CLAIM_SELECT + " ORDER BY id DESC")
-    elif role == "поставщик":
-        supplier_ids = current_supplier_ids(cur, current_user)
-        if not supplier_ids:
-            cur.close(); conn.close()
-            return []
-        cur.execute(CLAIM_SELECT + " WHERE supplier_id = ANY(%s) ORDER BY id DESC", (supplier_ids,))
-    elif role == "прораб":
-        projects = user_project_names(current_user)
-        if not projects:
-            cur.close(); conn.close()
-            return []
-        package_sql, package_params = package_access_filter(current_user, "work_package")
-        cur.execute(CLAIM_SELECT + " WHERE project = ANY(%s)" + package_sql + " ORDER BY id DESC",
-                    [projects] + package_params)
-    elif role in WORKER_EXECUTION_ROLES:
-        package_sql, package_params = package_access_filter(current_user, "work_package")
-        cur.execute(CLAIM_SELECT + " WHERE request_id IN (SELECT id FROM supply_requests WHERE requested_by_id=%s OR created_by=%s)" + package_sql + " ORDER BY id DESC",
-                    [current_user.get("id"), current_user.get("name") or ""] + package_params)
-    else:
-        cur.close(); conn.close()
-        return []
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return [dict(r) for r in rows]
 
 
 CLAIM_SELECT = """
@@ -12030,7 +12080,12 @@ DELIVERY_SELECT = """
 
 
 @app.put("/supply-deliveries/{id}/receive")
-def receive_supply_delivery(id: int, data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
+def receive_supply_delivery(
+    id: int, data: dict,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
     from datetime import datetime
     conn = get_db()
     conn.autocommit = False
@@ -12043,6 +12098,23 @@ def receive_supply_delivery(id: int, data: dict, _current_user: dict = Depends(r
         conn.rollback()
         cur.close(); conn.close()
         raise HTTPException(status_code=404, detail="Поставка не найдена")
+    try:
+        _context, _current_user = resolve_resource_company_actor(
+            cur, _current_user, delivery.get('company_id'), 'update',
+            claimed_company_id=data.get('companyId', data.get('company_id')),
+            x_company_id=x_company_id, x_company_mode=x_company_mode,
+            allowed_roles=WAREHOUSE_ROLES, platform_staff_roles=PLATFORM_STAFF_ROLES,
+            client_account_roles=CLIENT_ACCOUNT_ROLES,
+        )
+        try:
+            from backend.features.supplier_access.fulfilment import assert_delivery_chain
+        except ModuleNotFoundError:
+            from features.supplier_access.fulfilment import assert_delivery_chain
+        assert_delivery_chain(cur, delivery)
+    except Exception:
+        conn.rollback()
+        cur.close(); conn.close()
+        raise
     if delivery.get('project'):
         try:
             require_project_or_warehouse_access(_current_user, delivery.get('project') or "")
@@ -12155,19 +12227,41 @@ def receive_supply_delivery(id: int, data: dict, _current_user: dict = Depends(r
     return {"ok": True, "delivery": dict(row), "claimId": claim_id, "invoiceId": invoice_id}
 
 @app.post("/supply-deliveries/{id}/ai-check")
-def ai_check_supply_delivery(id: int, data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
+def ai_check_supply_delivery(
+    id: int, data: dict, request: Request,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
+    try:
+        from backend.features.supplier_access.fulfilment import assert_delivery_chain, save_delivery_check_result
+    except ModuleNotFoundError:
+        from features.supplier_access.fulfilment import assert_delivery_chain, save_delivery_check_result
+    def authorize(cursor, delivery, actor):
+        if data.get('companyId', data.get('company_id')) not in (None, delivery.get('company_id') if delivery else None):
+            raise HTTPException(403, 'Компания не соответствует поставке')
+        return authorize_procurement_document(
+            cursor, delivery, actor, resolve_actor=resolve_resource_company_actor,
+            project_access=require_project_or_warehouse_access, package_access=has_package_access,
+            allowed_roles=WAREHOUSE_ROLES, platform_staff_roles=PLATFORM_STAFF_ROLES,
+            client_account_roles=CLIENT_ACCOUNT_ROLES, x_company_id=x_company_id,
+            x_company_mode=x_company_mode, action_mode='update',
+        )
     conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT * FROM supply_deliveries WHERE id=%s", (id,))
-    d = cur.fetchone()
-    if not d:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=404, detail="Поставка не найдена")
-    if d.get("project"):
-        require_project_or_warehouse_access(_current_user, d.get("project") or "")
-    if _current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(_current_user, d.get("work_package") or "Основная"):
-        cur.close(); conn.close()
-        raise HTTPException(status_code=403, detail="Нет доступа к пакету поставки")
+    cur = None
+    try:
+        conn.autocommit = False
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SET LOCAL statement_timeout='15s'")
+        cur.execute("SELECT * FROM supply_deliveries WHERE id=%s", (id,))
+        d = cur.fetchone()
+        authorize(cur, d, _current_user)
+        assert_delivery_chain(cur, d)
+    finally:
+        conn.rollback()
+        if cur is not None:
+            cur.close()
+        conn.close()
     parsed_items = data.get('parsedItems') or []
     doc_text = data.get('documentText') or ''
     expected = {
@@ -12223,53 +12317,36 @@ def ai_check_supply_delivery(id: int, data: dict, _current_user: dict = Depends(
     except Exception as e:
         print("DELIVERY AI CHECK ERROR:", e)
         result_text = "AI-сверка не сработала, проверьте поставку вручную."
-    cur.execute("UPDATE supply_deliveries SET ai_check_result=%s WHERE id=%s", (result_text, id))
-    cur.close(); conn.close()
+    # Authentication can expire or be revoked while the model is running.
+    # Resolve the original credential again, then recheck the current document.
+    fresh_user = get_current_user(request, request.headers.get('authorization'))
+    save_delivery_check_result(get_db, d, result_text,
+                               lambda cursor, current: authorize(cursor, current, fresh_user))
     return {"ok": True, "result": result_text, "expected": expected}
 
+
 @app.put("/supply-claims/{id}")
-def update_supply_claim(id: int, data: dict, _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT id, supplier_id, project, COALESCE(work_package,'') as work_package FROM supply_claims WHERE id=%s", (id,))
-    claim = cur.fetchone()
-    if not claim:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=404, detail="Претензия не найдена")
-    role = _current_user.get("role")
-    if role == "поставщик":
-        supplier_ids = current_supplier_ids(cur, _current_user)
-        if claim.get("supplier_id") not in supplier_ids:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=403, detail="Нет доступа к претензии")
-        protected_keys = {"status", "resolvedAt"}
-        if protected_keys.intersection(data.keys()):
-            cur.close(); conn.close()
-            raise HTTPException(status_code=403, detail="Закрытие претензии доступно только внутренним ролям")
-    else:
-        if role not in SUPPLY_INTERNAL_ROLES:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=403, detail="Недостаточно прав для изменения претензии")
-        if claim.get("project"):
-            require_project_or_warehouse_access(_current_user, claim.get("project") or "")
-        if role in PACKAGE_LIMIT_ROLES and not has_package_access(_current_user, claim.get("work_package") or "Основная"):
-            cur.close(); conn.close()
-            raise HTTPException(status_code=403, detail="Нет доступа к разделу сметы претензии")
-    fields_map = [('status','status'),('resolution','resolution'),('resolvedAt','resolved_at')]
-    sets, vals = [], []
-    for js_key, db_col in fields_map:
-        if js_key in data:
-            sets.append(db_col + "=%s")
-            vals.append(data[js_key] or None if js_key == 'resolvedAt' else data[js_key])
-    if data.get('status') in ('Закрыта', 'Решена') and 'resolvedAt' not in data:
-        sets.append("resolved_at=NOW()")
-    if not sets:
-        cur.close(); conn.close()
-        return {"ok": True}
-    vals.append(id)
-    cur.execute("UPDATE supply_claims SET " + ", ".join(sets) + " WHERE id=%s", vals)
-    cur.close(); conn.close()
-    return {"ok": True}
+def update_supply_claim(
+    id: int, data: dict,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
+    try:
+        from backend.features.supplier_access.claims import update_claim
+    except ModuleNotFoundError:
+        from features.supplier_access.claims import update_claim
+    def authorize_internal(cursor, delivery):
+        if data.get('companyId', data.get('company_id')) not in (None, delivery['company_id']):
+            raise HTTPException(403, 'Компания не соответствует поставке')
+        return authorize_procurement_document(
+            cursor, delivery, _current_user, resolve_actor=resolve_resource_company_actor,
+            project_access=require_project_or_warehouse_access, package_access=has_package_access,
+            allowed_roles=SUPPLY_INTERNAL_ROLES, platform_staff_roles=PLATFORM_STAFF_ROLES,
+            client_account_roles=CLIENT_ACCOUNT_ROLES, x_company_id=x_company_id,
+            x_company_mode=x_company_mode, action_mode='update',
+        )
+    return update_claim(get_db, id, data, _current_user, authorize_internal, current_supplier_ids)
 
 try:
     from backend.features.supply_history.routes import register_supply_history_module
@@ -19560,6 +19637,8 @@ register_supplier_documents_module(app, {
     "get_current_user": get_current_user,
     "current_supplier_ids": current_supplier_ids,
     "supplier_related_ids": supplier_related_ids,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
 })
 
 def _supplier_invoice_template_key(value: str) -> str:
@@ -25087,12 +25166,16 @@ register_rooms_module(app, {
 })
 
 try:
+    from backend.features.supplier_access.procurement_scope import authorize_procurement_document, procurement_read_cursor, explicit_supplier_targets
     from backend.features.supplier_access.directory_routes import register_supplier_directory_module
 except ModuleNotFoundError:
+    from features.supplier_access.procurement_scope import authorize_procurement_document, procurement_read_cursor, explicit_supplier_targets
     from features.supplier_access.directory_routes import register_supplier_directory_module
 
 
 register_supplier_directory_module(app, {
+    "platform_staff_roles": PLATFORM_STAFF_ROLES,
+    "client_account_roles": CLIENT_ACCOUNT_ROLES,
     "get_db": get_db,
     "get_current_user": get_current_user,
     "require_roles": require_roles,

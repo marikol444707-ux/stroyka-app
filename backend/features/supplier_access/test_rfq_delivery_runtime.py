@@ -166,6 +166,14 @@ class RuntimeHarness:
             if any(row.get("companyId", row.get("company_id")) != company_id for row in rows):
                 raise HTTPException(status_code=403, detail="Получатели другой компании")
 
+        def explicit_targets(_cur, company_id, ids):
+            # Relationship/identity SQL is exercised on real PG in the catalog
+            # suite; this ledger focuses on transaction and notification order.
+            if company_id != COMPANY_ID or not visible:
+                raise HTTPException(409, 'Получатель больше не доступен')
+            return [dict(requested_id=sid, target_id=sid, scope_ids=[sid],
+                         user_id=401, ai_recommended=False) for sid in ids]
+
         namespace = {
             **vars(supply_request_workflow),
             "HTTPException": HTTPException,
@@ -183,6 +191,7 @@ class RuntimeHarness:
             "PLATFORM_STAFF_ROLES": (),
             "CLIENT_ACCOUNT_ROLES": (),
             "supplier_group_scope_ids": lambda _cur, ids: list(ids),
+            "explicit_supplier_targets": explicit_targets,
             "supplier_offer_targets_for_groups": lambda _cur, ids, *_args: [
                 {"requested_id": supplier_id, "target_id": supplier_id, "scope_ids": [supplier_id]}
                 for supplier_id in ids
@@ -311,7 +320,7 @@ class RfqDeliveryRuntimeTests(unittest.TestCase):
         with self.assertRaises(HTTPException) as error:
             harness.dispatch()
 
-        self.assertEqual(400, error.exception.status_code)
+        self.assertEqual(409, error.exception.status_code)
         self.assertGreater(harness.connection.rollback_count, 0)
         self.assertEqual("Утверждена", harness.connection.committed["supply_requests"][REQUEST_ID]["status"])
         self.assert_no_dispatch(harness)

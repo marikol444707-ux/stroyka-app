@@ -128,23 +128,20 @@ class SupplierDirectoryTest(unittest.TestCase):
         self.assertEqual(result, [])
         self.assertEqual(cursor.calls, [])
 
-    def test_create_merges_into_existing_match(self):
-        alias = []
-        cursor = FakeCursor(fetchone_results=[{"id": 7, "name": "ООО Поставка"}])
-        app, _conn = build(cursor, find_match={"id": 7}, alias_calls=alias)
-        result = app.routes[("POST", "/suppliers")](
-            SupplierModel(name="ООО Поставка", phone="+7"), _current_user={"name": "Тест"}
-        )
-        self.assertEqual(result["id"], 7)
-        update = cursor.calls[0]
-        self.assertIn("UPDATE suppliers SET", update[0])
-        self.assertEqual(alias[0][0], 7)
+    def test_name_match_does_not_grant_a_company_relationship(self):
+        cursor = FakeCursor()
+        app, connection = build(cursor, find_match={'id': 7})
+        with self.assertRaises(HTTPException) as ctx:
+            app.routes[('POST', '/suppliers')](SupplierModel(name='Existing name'), _current_user={})
+        self.assertEqual(ctx.exception.status_code, 422)
+        self.assertEqual(cursor.calls, [])
+        self.assertFalse(connection.committed)
 
     def test_create_requires_name(self):
         app, _conn = build(FakeCursor())
         with self.assertRaises(HTTPException) as ctx:
             app.routes[("POST", "/suppliers")](SupplierModel(name="  "), _current_user={})
-        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertEqual(ctx.exception.status_code, 422)
 
     def test_create_requires_legal_identity_for_new_supplier(self):
         cursor = FakeCursor()
@@ -154,15 +151,6 @@ class SupplierDirectoryTest(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 422)
         self.assertIn("ИНН", ctx.exception.detail)
         self.assertEqual(cursor.calls, [])
-
-    def test_create_accepts_ogrn_for_new_supplier(self):
-        cursor = FakeCursor(fetchone_results=[{"id": 8, "name": "ООО Поставка"}])
-        app, _conn = build(cursor)
-        result = app.routes[("POST", "/suppliers")](
-            SupplierModel(name="ООО Поставка", ogrn="1162375052839"), _current_user={}
-        )
-        self.assertEqual(result["id"], 8)
-        self.assertIn("INSERT INTO suppliers", cursor.calls[0][0])
 
     def test_link_user_rejects_non_supplier_role(self):
         cursor = FakeCursor(fetchone_results=[{"id": 3, "name": "ООО"}, {"id": 42, "name": "Тест", "email": "a@b", "role": "мастер"}])

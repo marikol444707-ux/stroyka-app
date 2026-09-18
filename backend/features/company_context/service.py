@@ -249,9 +249,6 @@ def user_company_memberships(
         return []
     where = ["m.user_id=%s"]
     values = [user_id]
-    if not include_inactive:
-        where.append("COALESCE(m.active,TRUE)=TRUE")
-        where.append("COALESCE(c.active,TRUE)=TRUE")
     cur.execute(f"""
         SELECT m.id AS membership_id, m.user_id, m.company_id, m.staff_id,
                COALESCE(m.platform_account_id,c.platform_account_id) AS platform_account_id,
@@ -269,7 +266,10 @@ def user_company_memberships(
         for row in cur.fetchall()
     ]
     if rows:
-        return rows
+        # Explicit memberships remain authoritative even when all are revoked
+        # or their companies are inactive. Legacy fallback is only for users
+        # with no membership records, not an alternative grant after revocation.
+        return rows if include_inactive else [row for row in rows if row['active'] and row['companyActive']]
     legacy_company_id = _as_int(user.get("companyId") or user.get("company_id"))
     if not legacy_company_id or user.get("role") in platform_staff_roles:
         return []

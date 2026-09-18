@@ -13,11 +13,32 @@ import re
 from typing import Optional
 
 import psycopg2.extras
-from fastapi import Depends, HTTPException
+from fastapi import Depends, Header, HTTPException
 from pydantic import BaseModel
+
+from .company_directory import CompanySupplierDirectory, PUBLIC_FIELDS
+
+
+# These mutations affect one global supplier identity across all customers.
+PRIVATE_COMMERCIAL_FIELDS = ('category', 'rating', 'status', 'contractUrl', 'contractNumber', 'contractDate',
+                             'contract_url', 'contract_number', 'contract_date', 'notes',
+                             'sourceType', 'sourceDetail', 'source_type', 'source_detail',
+                             'priceUrl', 'price_url', 'licenseUrl', 'license_url', 'paymentTerms', 'deliveryTerms')
+
+
+def reject_global_commercial_fields(data):
+    if any(data.get(key) not in (None, '') for key in PRIVATE_COMMERCIAL_FIELDS):
+        raise HTTPException(422, 'Условия, договор и заметки сохраняются в каталоге выбранной компании')
+
+
+SUPPLIER_IDENTITY_MANAGE_ROLES = ("system_owner", "platform_admin")
 
 
 class SupplierModel(BaseModel):
+    companyId: Optional[int] = None
+    relationshipVersion: Optional[int] = None
+    paymentTerms: str = ""
+    deliveryTerms: str = ""
     name: str
     phone: str = ""
     email: str = ""
@@ -55,6 +76,7 @@ def _has_legal_supplier_identity(inn: str = "", ogrn: str = "") -> bool:
 
 
 def register_supplier_directory_module(app, deps):
+    company_directory = CompanySupplierDirectory(deps)
     get_db = deps["get_db"]
     get_current_user = deps["get_current_user"]
     require_roles = deps["require_roles"]
@@ -73,7 +95,12 @@ def register_supplier_directory_module(app, deps):
     log_audit = deps["log_audit"]
 
     @app.get("/suppliers")
-    def get_suppliers(current_user: dict = Depends(get_current_user)):
+    def get_suppliers(current_user: dict = Depends(get_current_user),
+                      x_company_id: Optional[str] = Header(None, alias='X-Company-Id'),
+                      x_company_mode: Optional[str] = Header(None, alias='X-Company-Mode')):
+        role = current_user.get('role')
+        if role not in ('поставщик', *SUPPLIER_IDENTITY_MANAGE_ROLES, *worker_execution_roles):
+            return company_directory.list(current_user, (x_company_id, x_company_mode))
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         role = current_user.get("role")
@@ -87,16 +114,16 @@ def register_supplier_directory_module(app, deps):
         elif role in worker_execution_roles:
             cur.close(); conn.close()
             return []
-        elif role in supply_roles or role in warehouse_roles or role in finance_roles:
+        elif role in SUPPLIER_IDENTITY_MANAGE_ROLES:
             cur.execute("SELECT * FROM suppliers ORDER BY name")
         else:
             cur.close(); conn.close()
             return []
         rows = cur.fetchall()
-        relation_metadata = supplier_relation_metadata(cur, rows)
+        relation_metadata = supplier_relation_metadata(cur, rows) if role in SUPPLIER_IDENTITY_MANAGE_ROLES else {}
         payload = []
         for row in rows:
-            supplier = dict(row)
+            supplier = {key: row.get(key) for key in (*PUBLIC_FIELDS.values(), 'id', 'user_id', 'phone', 'email', 'specialization')}
             supplier.update(relation_metadata.get(int(supplier.get("id") or 0), {}))
             payload.append(supplier)
         cur.close()
@@ -104,155 +131,28 @@ def register_supplier_directory_module(app, deps):
         return payload
 
     @app.post("/suppliers")
-    def create_supplier(s: SupplierModel, _current_user: dict = Depends(require_roles(*warehouse_roles, "бухгалтер"))):
-        conn = get_db()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        name = (s.name or "").strip()
-        if not name:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="Название поставщика обязательно")
-        payload = s.dict()
-        payload["name"] = name
-        payload["sourceType"] = payload.get("sourceType") or "manual"
-        payload["sourceDetail"] = payload.get("sourceDetail") or ("Добавил вручную: " + (_current_user.get("name") or _current_user.get("role") or ""))
-        existing = supplier_find_match(cur, payload, allow_name_match=True)
-        if existing:
-            cur.execute("""
-                UPDATE suppliers SET
-                  phone=CASE WHEN COALESCE(phone,'')='' THEN %s ELSE phone END,
-                  email=CASE WHEN COALESCE(email,'')='' THEN %s ELSE email END,
-                  specialization=CASE WHEN COALESCE(specialization,'')='' THEN %s ELSE specialization END,
-                  category=CASE WHEN COALESCE(category,'')='' THEN %s ELSE category END,
-                  rating=COALESCE(rating,%s),
-                  status=CASE WHEN COALESCE(status,'')='' THEN %s ELSE status END,
-                  inn=CASE WHEN COALESCE(inn,'')='' THEN %s ELSE inn END,
-                  kpp=CASE WHEN COALESCE(kpp,'')='' THEN %s ELSE kpp END,
-                  ogrn=CASE WHEN COALESCE(ogrn,'')='' THEN %s ELSE ogrn END,
-                  legal_address=CASE WHEN COALESCE(legal_address,'')='' THEN %s ELSE legal_address END,
-                  actual_address=CASE WHEN COALESCE(actual_address,'')='' THEN %s ELSE actual_address END,
-                  bank=CASE WHEN COALESCE(bank,'')='' THEN %s ELSE bank END,
-                  bik=CASE WHEN COALESCE(bik,'')='' THEN %s ELSE bik END,
-                  account=CASE WHEN COALESCE(account,'')='' THEN %s ELSE account END,
-                  kor_account=CASE WHEN COALESCE(kor_account,'')='' THEN %s ELSE kor_account END,
-                  director_name=CASE WHEN COALESCE(director_name,'')='' THEN %s ELSE director_name END,
-                  director_position=CASE WHEN COALESCE(director_position,'')='' THEN %s ELSE director_position END,
-                  contract_url=CASE WHEN COALESCE(contract_url,'')='' THEN %s ELSE contract_url END,
-                  contract_number=CASE WHEN COALESCE(contract_number,'')='' THEN %s ELSE contract_number END,
-                  contract_date=CASE WHEN contract_date IS NULL THEN %s ELSE contract_date END,
-                  license_url=CASE WHEN COALESCE(license_url,'')='' THEN %s ELSE license_url END,
-                  price_url=CASE WHEN COALESCE(price_url,'')='' THEN %s ELSE price_url END,
-                  website=CASE WHEN COALESCE(website,'')='' THEN %s ELSE website END,
-                  notes=CASE WHEN COALESCE(notes,'')='' THEN %s ELSE notes END,
-                  source_type=CASE WHEN COALESCE(source_type,'')='' THEN %s ELSE source_type END,
-                  source_detail=CASE WHEN COALESCE(source_detail,'')='' THEN %s ELSE source_detail END
-                WHERE id=%s RETURNING *
-            """, (
-                s.phone, s.email, s.specialization, s.category, s.rating, s.status,
-                s.inn, s.kpp, s.ogrn, s.legalAddress, s.actualAddress, s.bank, s.bik,
-                s.account, s.korAccount, s.directorName, s.directorPosition,
-                s.contractUrl, s.contractNumber, s.contractDate or None, s.licenseUrl,
-                s.priceUrl, s.website, s.notes, payload["sourceType"], payload["sourceDetail"], existing["id"],
-            ))
-            row = cur.fetchone()
-            remember_supplier_alias(cur, existing["id"], payload, source="manual_supplier")
-            cur.close(); conn.close()
-            return dict(row)
-        if not _has_legal_supplier_identity(s.inn, s.ogrn):
-            cur.close(); conn.close()
-            raise HTTPException(
-                status_code=422,
-                detail="Для новой карточки поставщика укажите ИНН (10 или 12 цифр) либо ОГРН/ОГРНИП (13 или 15 цифр)",
-            )
-        cur.execute("""
-            INSERT INTO suppliers (
-                name,phone,email,specialization,category,rating,status,
-                inn,kpp,ogrn,legal_address,actual_address,bank,bik,account,kor_account,
-                director_name,director_position,contract_url,contract_number,contract_date,
-                license_url,price_url,website,notes,source_type,source_detail
-            ) VALUES (
-                %s,%s,%s,%s,%s,%s,%s,
-                %s,%s,%s,%s,%s,%s,%s,%s,%s,
-                %s,%s,%s,%s,%s,
-                %s,%s,%s,%s,%s,%s
-            ) RETURNING *
-        """, (
-            name, s.phone, s.email, s.specialization, s.category, s.rating, s.status,
-            s.inn, s.kpp, s.ogrn, s.legalAddress, s.actualAddress, s.bank, s.bik,
-            s.account, s.korAccount, s.directorName, s.directorPosition,
-            s.contractUrl, s.contractNumber, s.contractDate or None,
-            s.licenseUrl, s.priceUrl, s.website, s.notes, payload["sourceType"], payload["sourceDetail"],
-        ))
-        row = cur.fetchone()
-        supplier_id = row.get("id") if isinstance(row, dict) else row[0]
-        remember_supplier_alias(cur, supplier_id, payload, source="manual_supplier")
-        cur.close()
-        conn.close()
-        return dict(row)
+    def create_supplier(s: SupplierModel, _current_user: dict = Depends(get_current_user),
+                        x_company_id: Optional[str] = Header(None, alias='X-Company-Id'),
+                        x_company_mode: Optional[str] = Header(None, alias='X-Company-Mode')):
+        if _current_user.get('role') not in SUPPLIER_IDENTITY_MANAGE_ROLES:
+            return company_directory.create(s.model_dump(), _current_user, (x_company_id, x_company_mode))
+        raise HTTPException(403, 'Добавление в каталог требует рабочей роли в выбранной компании')
 
     @app.put("/suppliers/{id}")
-    def update_supplier(id: int, data: dict, _current_user: dict = Depends(require_roles(*warehouse_roles, "бухгалтер"))):
-        data = data or {}
-        def field(camel, snake=None, fallback=""):
-            snake = snake or camel
-            if camel in data:
-                return data.get(camel) or ""
-            if snake in data:
-                return data.get(snake) or ""
-            return fallback or ""
-        conn = get_db()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("SELECT * FROM suppliers WHERE id=%s", (id,))
-        existing = cur.fetchone()
-        if not existing:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=404, detail="Поставщик не найден")
-        try:
-            supplier_rating = float(data.get("rating") if "rating" in data and data.get("rating") not in (None, "") else (existing.get("rating") or 5.0))
-        except (TypeError, ValueError):
-            supplier_rating = float(existing.get("rating") or 5.0)
-        cur.execute("""
-            UPDATE suppliers SET
-                name=%s,phone=%s,email=%s,specialization=%s,category=%s,rating=%s,status=%s,
-                inn=%s,kpp=%s,ogrn=%s,legal_address=%s,actual_address=%s,bank=%s,bik=%s,
-                account=%s,kor_account=%s,director_name=%s,director_position=%s,
-                contract_url=%s,contract_number=%s,contract_date=%s,license_url=%s,
-                price_url=%s,website=%s,notes=%s
-                ,source_type=%s,source_detail=%s
-            WHERE id=%s
-        """, (
-            field("name", fallback=existing.get("name")), field("phone", fallback=existing.get("phone")),
-            field("email", fallback=existing.get("email")), field("specialization", fallback=existing.get("specialization")),
-            field("category", fallback=existing.get("category")), supplier_rating,
-            field("status", fallback=existing.get("status")),
-            field("inn", fallback=existing.get("inn")), field("kpp", fallback=existing.get("kpp")),
-            field("ogrn", fallback=existing.get("ogrn")), field("legalAddress", "legal_address", existing.get("legal_address")),
-            field("actualAddress", "actual_address", existing.get("actual_address")),
-            field("bank", fallback=existing.get("bank")), field("bik", fallback=existing.get("bik")),
-            field("account", fallback=existing.get("account")), field("korAccount", "kor_account", existing.get("kor_account")),
-            field("directorName", "director_name", existing.get("director_name")),
-            field("directorPosition", "director_position", existing.get("director_position")),
-            field("contractUrl", "contract_url", existing.get("contract_url")),
-            field("contractNumber", "contract_number", existing.get("contract_number")),
-            field("contractDate", "contract_date", existing.get("contract_date")) or None,
-            field("licenseUrl", "license_url", existing.get("license_url")),
-            field("priceUrl", "price_url", existing.get("price_url")),
-            field("website", fallback=existing.get("website")),
-            field("notes", fallback=existing.get("notes")),
-            field("sourceType", "source_type", existing.get("source_type")),
-            field("sourceDetail", "source_detail", existing.get("source_detail")),
-            id,
-        ))
-        conn.commit()
-        cur.close()
-        conn.close()
-        return {"ok": True}
+    def update_supplier(id: int, data: dict, _current_user: dict = Depends(get_current_user),
+                        x_company_id: Optional[str] = Header(None, alias='X-Company-Id'),
+                        x_company_mode: Optional[str] = Header(None, alias='X-Company-Mode')):
+        if _current_user.get('role') not in SUPPLIER_IDENTITY_MANAGE_ROLES:
+            return company_directory.update(id, data or {}, _current_user, (x_company_id, x_company_mode))
+        return update_supplier_requisites(id, data or {}, _current_user)
 
     @app.post("/suppliers/{id}/link-user")
-    def link_supplier_user(id: int, data: dict, current_user: dict = Depends(require_roles(*leadership_roles))):
+    def link_supplier_user(id: int, data: dict, current_user: dict = Depends(require_roles(*SUPPLIER_IDENTITY_MANAGE_ROLES))):
         data = data or {}
         raw_user_id = data.get("userId") or data.get("user_id")
         email = (str(data.get("email") or "").strip().lower())
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             cur.execute("SELECT * FROM suppliers WHERE id=%s LIMIT 1", (id,))
@@ -305,7 +205,7 @@ def register_supplier_directory_module(app, deps):
                  WHERE id=%s
                  RETURNING *
                 """,
-                (supplier_user_id, supplier_email, "Пользователь привязан директором: " + supplier_name, id),
+                (supplier_user_id, supplier_email, "Пользователь привязан администратором платформы: " + supplier_name, id),
             )
             row = cur.fetchone()
             remember_supplier_alias(cur, id, {
@@ -338,7 +238,7 @@ def register_supplier_directory_module(app, deps):
             conn.close()
 
     @app.post("/suppliers/{id}/link-duplicate")
-    def link_supplier_duplicate(id: int, data: dict, current_user: dict = Depends(require_roles(*leadership_roles))):
+    def link_supplier_duplicate(id: int, data: dict, current_user: dict = Depends(require_roles(*SUPPLIER_IDENTITY_MANAGE_ROLES))):
         data = data or {}
         try:
             duplicate_id = int(data.get("duplicateSupplierId") or data.get("duplicate_supplier_id") or data.get("supplierId") or 0)
@@ -460,7 +360,7 @@ def register_supplier_directory_module(app, deps):
         return references
 
     @app.delete("/suppliers/{id}")
-    def delete_supplier(id: int, _current_user: dict = Depends(require_roles("директор", "зам_директора", "снабженец", "кладовщик"))):
+    def delete_supplier(id: int, _current_user: dict = Depends(require_roles(*SUPPLIER_IDENTITY_MANAGE_ROLES))):
         conn = get_db()
         cur = conn.cursor()
         conn.autocommit = False
@@ -500,40 +400,25 @@ def register_supplier_directory_module(app, deps):
             if id not in supplier_ids:
                 cur.close(); conn.close()
                 raise HTTPException(status_code=403, detail="Нет доступа к этому поставщику")
-        elif role not in ("директор", "зам_директора", "снабженец", "кладовщик", "бухгалтер"):
+        elif role not in SUPPLIER_IDENTITY_MANAGE_ROLES:
             cur.close(); conn.close()
             raise HTTPException(status_code=403, detail="Недостаточно прав")
-        # Расширенный апдейт реквизитов: все поля опциональные
-        cur.execute("""UPDATE suppliers SET
-            inn=COALESCE(%s, inn), kpp=COALESCE(%s, kpp), ogrn=COALESCE(%s, ogrn),
-            legal_address=COALESCE(%s, legal_address),
-            actual_address=COALESCE(%s, actual_address),
-            bank=COALESCE(%s, bank), bik=COALESCE(%s, bik),
-            account=COALESCE(%s, account), kor_account=COALESCE(%s, kor_account),
-            director_name=COALESCE(%s, director_name),
-            director_position=COALESCE(%s, director_position),
-            contract_url=COALESCE(%s, contract_url),
-            contract_number=COALESCE(%s, contract_number),
-            contract_date=COALESCE(%s, contract_date),
-            license_url=COALESCE(%s, license_url),
-            price_url=COALESCE(%s, price_url),
-            website=COALESCE(%s, website),
-            notes=COALESCE(%s, notes),
-            phone=COALESCE(%s, phone), email=COALESCE(%s, email),
-            category=COALESCE(%s, category), specialization=COALESCE(%s, specialization)
-            WHERE id=%s""",
-            (data.get("inn"), data.get("kpp"), data.get("ogrn"),
-             data.get("legalAddress") or data.get("address"),
-             data.get("actualAddress"),
-             data.get("bank"), data.get("bik"),
-             data.get("account"), data.get("korAccount"),
-             data.get("directorName"), data.get("directorPosition"),
-             data.get("contractUrl"), data.get("contractNumber"), data.get("contractDate") or None,
-             data.get("licenseUrl"), data.get("priceUrl"),
-             data.get("website"), data.get("notes"),
-             data.get("phone"), data.get("email"),
-             data.get("category"), data.get("specialization"),
-             id))
-        conn.commit()
-        cur.close(); conn.close()
-        return {"ok": True}
+        try:
+            reject_global_commercial_fields(data)
+            fields = {**PUBLIC_FIELDS, 'phone': 'phone', 'email': 'email', 'specialization': 'specialization'}
+            if 'address' in data and 'legalAddress' not in data:
+                data = {**data, 'legalAddress': data['address']}
+            values = [(column, str(data[key] or '').strip()) for key, column in fields.items() if key in data]
+            if not values:
+                raise HTTPException(422, 'Нет реквизитов для обновления')
+            if any(len(value) > 500 for _, value in values):
+                raise HTTPException(422, 'Реквизиты слишком длинные')
+            cur.execute('UPDATE suppliers SET ' + ','.join(column + '=%s' for column, _ in values) + ' WHERE id=%s',
+                        [value for _, value in values] + [id])
+            conn.commit()
+            return {'ok': True}
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close(); conn.close()
