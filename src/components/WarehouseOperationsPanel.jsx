@@ -2,6 +2,8 @@ import React from 'react';
 import { Check, Edit2, Eye, Plus, Trash2, X } from 'lucide-react';
 import { API } from '../api';
 import { createToolForm } from '../features/warehouse/warehouseInitialForms';
+import WarehouseMovementSource from './WarehouseMovementSource';
+import { identifiedInvoiceLines } from '../utils/warehouseInvoiceSource';
 
 export default function WarehouseOperationsPanel({
   warehouseTab,
@@ -71,14 +73,14 @@ export default function WarehouseOperationsPanel({
     const sourceCandidatesForMaterial = (material) => (warehouseInvoices || []).flatMap((invoice) => {
       const invoiceLocation = invoice.project || invoice.location || '';
       if (invoiceLocation !== newMovement.fromLocation || invoice.status === 'Аннулирована') return [];
-      return (Array.isArray(invoice.items) ? invoice.items : []).flatMap((item, itemIndex) => (
+      return identifiedInvoiceLines(invoice.items).flatMap((item) => (
         normalizeSourceText(item?.name) === normalizeSourceText(material?.name)
           && normalizeSourceText(item?.unit) === normalizeSourceText(material?.unit)
           ? [{
-            key: `${invoice.id}:${itemIndex}`,
+            key: `${invoice.id}:${item.invoiceLineIndex}`,
             invoiceId: invoice.id,
-            invoiceLineIndex: itemIndex,
-            label: `Накладная № ${invoice.number || invoice.id} · ${item.quantity} ${item.unit || ''}`,
+            invoiceLineIndex: item.invoiceLineIndex,
+            label: `Накладная № ${invoice.number || invoice.id} · строка ${item.invoiceLineIndex + 1} · ${item.quantity} ${item.unit || ''}`,
           }]
           : []
       ));
@@ -206,6 +208,7 @@ export default function WarehouseOperationsPanel({
                     }}
                   />
                   {sourceCandidates.length > 0 && <select
+                    aria-label={`Источник прихода: ${material.name}`}
                     value={selected.invoiceId != null && selected.invoiceLineIndex != null ? `${selected.invoiceId}:${selected.invoiceLineIndex}` : ''}
                     onChange={e => {
                       const candidate = sourceCandidates.find(item => item.key === e.target.value);
@@ -223,6 +226,9 @@ export default function WarehouseOperationsPanel({
                     <option value="">Источник прихода: не выбран</option>
                     {sourceCandidates.map(candidate => <option key={candidate.key} value={candidate.key}>{candidate.label}</option>)}
                   </select>}
+                  {sourceCandidates.length === 0 && <div role="status" style={{fontSize:'11px',color:C.textSec}}>
+                    Нет доступных строк с подтверждённым индексом. Источник не будет привязан; обновите данные или проверьте накладную.
+                  </div>}
                 </div>}
               </div>
             );
@@ -260,11 +266,16 @@ export default function WarehouseOperationsPanel({
         <h3 style={{ color: C.text, marginBottom: '10px', fontSize: '14px', fontWeight: '700' }}>
           История перемещений
         </h3>
+        <p style={{ color: C.textSec, fontSize: '12px' }}>
+          Внутреннее перемещение не создаёт новый долг поставщику и не меняет срок оплаты исходной поставки.
+          История перемещений не равна текущему остатку на объекте.
+        </p>
         {compactRows ? (
           <div style={{display:'grid',gap:'10px'}}>
             {warehouseMovements.slice(0, 20).map((movement, index) => (
               <div key={index} style={{padding:'12px',borderRadius:'12px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border,display:'grid',gap:'8px'}}>
                 <b style={{color:C.text,fontSize:'13px',lineHeight:'1.35',overflowWrap:'anywhere'}}>{movement.materialName}</b>
+                <WarehouseMovementSource movement={movement} invoices={warehouseInvoices} C={C} />
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',fontSize:'12px',color:C.textSec}}>
                   <span style={{overflowWrap:'anywhere'}}><b style={{color:C.text}}>Откуда:</b> {movement.fromLocation || '—'}</span>
                   <span style={{overflowWrap:'anywhere'}}><b style={{color:C.text}}>Куда:</b> {movement.toLocation || '—'}</span>
@@ -288,7 +299,9 @@ export default function WarehouseOperationsPanel({
           <tbody>
             {warehouseMovements.slice(0, 20).map((movement, index) => (
               <tr key={index}>
-                <td style={tblC}>{movement.materialName}</td>
+                <td style={tblC}>{movement.materialName}
+                  <WarehouseMovementSource movement={movement} invoices={warehouseInvoices} C={C} />
+                </td>
                 <td style={tblC}>{movement.fromLocation}</td>
                 <td style={tblC}>{movement.toLocation}</td>
                 <td style={tblC}>{movement.quantity + ' ' + movement.unit}</td>

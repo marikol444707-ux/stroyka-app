@@ -1,0 +1,19 @@
+.warehouse-distribution { color: var(--wd-text, #182536); background: var(--wd-surface, #fff); border: 1px solid var(--wd-border, #ccd4dc); border-radius: 8px; padding: 16px; margin: 16px 0; overflow-wrap: anywhere; }
+.warehouse-distribution p { line-height: 1.5; }
+.warehouse-distribution h3, .warehouse-distribution h4 { margin: 8px 0; }
+.wd-heading { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.warehouse-distribution fieldset { min-width: 0; border: 1px solid var(--wd-border, #ccd4dc); padding: 12px; margin: 16px 0; }
+.wd-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) auto; gap: 12px; align-items: end; margin-bottom: 12px; }
+.warehouse-distribution label { display: flex; flex-direction: column; gap: 8px; min-width: 0; margin: 8px 0; }
+.warehouse-distribution input, .warehouse-distribution select, .warehouse-distribution textarea, .warehouse-distribution button { font: inherit; box-sizing: border-box; padding: 8px; border: 1px solid var(--wd-border, #ccd4dc); border-radius: 4px; color: inherit; background: var(--wd-surface, #fff); min-height: 40px; max-width: 100%; }
+.warehouse-distribution textarea { min-height: 72px; resize: vertical; }
+.warehouse-distribution button { cursor: pointer; }
+.warehouse-distribution button:disabled { opacity: .55; cursor: not-allowed; }
+.warehouse-distribution :focus-visible { outline: 2px solid var(--wd-accent, #126797); outline-offset: 2px; }
+.wd-records { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 12px; }
+.wd-records article { border-top: 1px solid var(--wd-border, #ccd4dc); padding: 12px 0; min-width: 0; }
+.warehouse-distribution .wd-confirm { flex-direction: row; align-items: flex-start; line-height: 1.5; }
+.wd-confirm input { flex: 0 0 20px; min-height: 20px; }
+.wd-filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin: 16px 0; }
+.wd-filters label { flex: 1 1 180px; }
+@media (max-width: 767px) { .wd-row { grid-template-columns: minmax(0, 1fr); } .warehouse-distribution { padding: 12px; } }

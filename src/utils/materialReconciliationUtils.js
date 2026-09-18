@@ -131,6 +131,25 @@ export const buildMaterialReconciliationRows = ({
   const keyOf = materialNameLookupKey;
   const rows = {};
   const rowsByMaterialKey = {};
+  const holderUserId = value => Number.isSafeInteger(Number(value)) && Number(value) > 0 ? Number(value) : null;
+  const holderIdsByName = new Map();
+  const rememberHolder = (id, name) => {
+    const userId = holderUserId(id);
+    const key = String(name || '').trim().toLowerCase();
+    if (!userId || !key) return;
+    if (!holderIdsByName.has(key)) holderIdsByName.set(key, new Set());
+    holderIdsByName.get(key).add(userId);
+  };
+  const returnHolderId = row => (row.sourceType || row.source_type) === 'material_return_user'
+    ? (row.sourceId ?? row.source_id ?? 0) : null;
+  // Index names before adding quantities, so a name-only historical record can
+  // join an account only when all known project records identify it uniquely.
+  (materialTransfers || []).filter(t => t.projectName === projectName)
+    .forEach(t => rememberHolder(t.toUserId ?? t.to_user_id, t.toPerson || t.to_person));
+  (workJournal || []).filter(w => w.project === projectName)
+    .forEach(w => rememberHolder(w.masterId ?? w.master_id, w.masterName || w.master_name));
+  (history || []).filter(h => h.project === projectName && h.type === 'возврат от мастера')
+    .forEach(h => rememberHolder(returnHolderId(h), h.issuedBy || h.issued_by));
   const requiredPackage = String(workPackage || '').trim();
   const sourcePackageMatches = (value) => !requiredPackage || String(value || '').trim() === requiredPackage;
   const sourcePackageOf = (item = {}, parent = {}) => item.workPackage || item.work_package || parent.workPackage || parent.work_package || '';
@@ -221,14 +240,17 @@ export const buildMaterialReconciliationRows = ({
     if (!row.unit && converted.unit) row.unit = converted.unit;
     row[field] += converted.qty;
   };
-  const addHolderQty = (row, person, role, field, qty, unit, transfer) => {
+  const addHolderQty = (row, person, role, field, qty, unit, personId, transfer) => {
     if (!row) return;
     const name = (person || 'Без ответственного').trim();
-    const key = name.toLowerCase();
+    const nameKey = name.toLowerCase();
+    const candidates = holderIdsByName.get(nameKey);
+    const userId = holderUserId(personId) || (personId == null && candidates?.size === 1 ? [...candidates][0] : null);
+    const key = userId ? 'user:' + userId : 'name:' + nameKey;
     const converted = materialQty(qty, unit || row.unit);
     if (converted.unit && row.unit && converted.unit !== row.unit) row.unitMismatch = true;
     if (!row.unit && converted.unit) row.unit = converted.unit;
-    if (!row.holders[key]) row.holders[key] = { name, role: role || '', unit: row.unit || converted.unit || unit || '', issued: 0, pending: 0, used: 0, returned: 0, transfers: [] };
+    if (!row.holders[key]) row.holders[key] = { name, userId, role: role || '', unit: row.unit || converted.unit || unit || '', issued: 0, pending: 0, used: 0, returned: 0, transfers: [] };
     row.holders[key][field] += converted.qty;
     if (transfer) row.holders[key].transfers.push(transfer);
   };
@@ -415,7 +437,7 @@ export const buildMaterialReconciliationRows = ({
     addQty(r, 'issued', t.quantity, t.unit);
     if (t.signed) addQty(r, 'issuedSigned', t.quantity, t.unit);
     else addQty(r, 'issuedPending', t.quantity, t.unit);
-    addHolderQty(r, t.toPerson, t.toPersonRole, t.signed ? 'issued' : 'pending', t.quantity, t.unit, t);
+    addHolderQty(r, t.toPerson || t.to_person, t.toPersonRole, t.signed ? 'issued' : 'pending', t.quantity, t.unit, t.toUserId ?? t.to_user_id, t);
   });
   (workJournal || []).filter(w => w.project === projectName && !['Отклонено', 'Аннулировано', 'Удалено', 'Отменено'].includes(w.status || '') && sourcePackageMatches(w.workPackage || w.work_package)).forEach(w => {
     let mats = w.materialsUsed !== undefined ? w.materialsUsed : w.materials_used;
@@ -427,7 +449,7 @@ export const buildMaterialReconciliationRows = ({
       const writeoffPackage = m.workPackage || m.work_package || w.workPackage || w.work_package || '';
       const r = ensure(m.name, m.unit, writeoffPackage);
       addQty(r, 'used', m.quantity, m.unit);
-      addHolderQty(r, w.masterName || w.master_name || 'Без ответственного', '', 'used', m.quantity, m.unit);
+      addHolderQty(r, w.masterName || w.master_name || 'Без ответственного', '', 'used', m.quantity, m.unit, w.masterId ?? w.master_id);
     });
   });
   (history || [])
@@ -436,7 +458,7 @@ export const buildMaterialReconciliationRows = ({
       const returnPackage = h.workPackage || h.work_package || '';
       const r = ensure(h.material, '', returnPackage);
       addQty(r, 'returnedFromMasters', h.quantity, r?.unit);
-      addHolderQty(r, h.issuedBy || h.issued_by || 'Без ответственного', '', 'returned', h.quantity, r?.unit);
+      addHolderQty(r, h.issuedBy || h.issued_by || 'Без ответственного', '', 'returned', h.quantity, r?.unit, returnHolderId(h));
     });
   (materials || []).filter(m => m.project === projectName && sourcePackageMatches(sourcePackageOf({}, m))).forEach(m => {
     const stockPackage = sourcePackageOf({}, m);

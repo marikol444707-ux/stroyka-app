@@ -1,4 +1,4 @@
-import { buildEstimateWorkNormRequirementRows } from './materialNormSelectors';
+import { buildEstimateWorkNormRequirementRows, buildPersonalMaterialRowsForProject } from './materialNormSelectors';
 import { materialLookupText } from './materialMatchUtils';
 
 describe('buildEstimateWorkNormRequirementRows traceability', () => {
@@ -68,5 +68,47 @@ describe('buildEstimateWorkNormRequirementRows traceability', () => {
         requiredUnit: 'кг',
       },
     });
+  });
+});
+
+describe('personal material balance identity', () => {
+  const base = {
+    projectName: 'Объект', personName: 'Иван Петров', personId: 41,
+    canonicalMaterialMeta: (_project, name, unit) => ({name, unit}),
+    parseJournalMaterials: value => value || [],
+    materialNameKey: materialLookupText,
+    materialTransfers: [{projectName: 'Объект', toPerson: 'Иван Петров', toUserId: 41,
+      materialName: 'Кабель', unit: 'м', quantity: 10, signed: true}],
+  };
+  const row = overrides => buildPersonalMaterialRowsForProject({...base, ...overrides})[0];
+
+  test('a journal user ID excludes another worker with the same name', () => {
+    expect(row({workJournal: [{project: 'Объект', masterId: 42, masterName: 'Иван Петров',
+      materialsUsed: [{name: 'Кабель', unit: 'м', quantity: 4}]}]})).toMatchObject({quantity: 10, used: 0});
+  });
+
+  test.each([
+    {sourceType: 'material_return_user', sourceId: 42},
+    {source_type: 'material_return_user', source_id: 42},
+    {sourceType: 'material_return_user'},
+  ])('an identified return cannot fall back to a matching name: %p', source => {
+    expect(row({history: [{project: 'Объект', type: 'возврат от мастера', issuedBy: 'Иван Петров',
+      material: 'Кабель', unit: 'м', quantity: 3, ...source}]})).toMatchObject({quantity: 10, returned: 0});
+  });
+
+  test('renamed workers retain consumption and returns linked to their user ID', () => {
+    expect(row({
+      workJournal: [{project: 'Объект', master_id: '41', master_name: 'Прежняя фамилия',
+        materials_used: [{name: 'Кабель', unit: 'м', quantity: 2}]}],
+      history: [{project: 'Объект', type: 'возврат от мастера', issued_by: 'Прежняя фамилия',
+        source_type: 'material_return_user', source_id: '41', material: 'Кабель', unit: 'м', quantity: 3}],
+    })).toMatchObject({quantity: 5, used: 2, returned: 3});
+  });
+
+  test('historical name-only consumption and returns remain visible', () => {
+    expect(row({
+      workJournal: [{project: 'Объект', masterName: 'Иван Петров', materialsUsed: [{name: 'Кабель', unit: 'м', quantity: 2}]}],
+      history: [{project: 'Объект', type: 'возврат от мастера', issuedBy: 'Иван Петров', material: 'Кабель', unit: 'м', quantity: 3}],
+    })).toMatchObject({quantity: 5, used: 2, returned: 3});
   });
 });

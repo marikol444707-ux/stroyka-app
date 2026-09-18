@@ -1,5 +1,6 @@
 import React from 'react';
 import { Check, Package, Trash2, X } from 'lucide-react';
+import { materialRecipientUserId } from '../../utils/materialPersonIdentity';
 
 export function TransferMetricCards({
   C,
@@ -137,7 +138,7 @@ export function TransferQuantityBlock({
           const stockQty = transferItemStockQty ? transferItemStockQty(item) : selectedStockQty;
           const qty = Number(item.quantity || 0);
           const overrun = transferItemOverStock ? transferItemOverStock(item) : hasStockOverrun;
-          const balance = personMaterialBalance ? personMaterialBalance(newTransfer.toPerson, item.materialName, item.workPackage || '') : selectedPersonBalance;
+          const balance = personMaterialBalance ? personMaterialBalance(newTransfer.toPerson, item.materialName, item.workPackage || '', newTransfer.toUserId ?? newTransfer.to_user_id) : selectedPersonBalance;
           const request = matchingRequestForItem ? matchingRequestForItem(item) : matchingRequest;
           return (
             <div key={transferItemKey(item)} style={{padding: '10px', border: '1.5px solid ' + (overrun ? C.dangerBorder : C.border), borderRadius: '8px', backgroundColor: overrun ? C.dangerLight : C.bg}}>
@@ -207,19 +208,26 @@ export function TransferRecipientSelect({
   requesterOptions,
   staff,
 }) {
+  const namedStaff = name => staff.filter(person => person.name === name);
+  const uniqueStaff = name => {
+    const matches = namedStaff(name);
+    return matches.length === 1 ? matches[0] : null;
+  };
+  const recipientValue = person => materialRecipientUserId(person)
+    ? 'user:' + materialRecipientUserId(person) : person.name;
   return (
     <select
       value={newTransfer.toUserId ? 'user:' + newTransfer.toUserId : newTransfer.toPerson}
       onChange={e => {
         const rawValue = e.target.value;
-        const selected = rawValue.startsWith('user:') ? staff.find(st => String(st.id) === rawValue.slice(5)) : null;
-        const requesterUser = !selected ? staff.find(st => st.name === rawValue) : null;
+        const selected = rawValue.startsWith('user:') ? staff.find(st => String(materialRecipientUserId(st)) === rawValue.slice(5)) : null;
+        const requesterUser = !selected ? uniqueStaff(rawValue) : null;
         const person = selected || requesterUser;
         setNewTransfer(prev => ({
           ...prev,
           toPerson: person ? person.name : rawValue,
           toPersonRole: person ? person.role : '',
-          toUserId: person ? person.id : '',
+          toUserId: materialRecipientUserId(person),
         }));
       }}
       style={{...inp, marginBottom: 0}}
@@ -228,14 +236,14 @@ export function TransferRecipientSelect({
       {requesterOptions.requesters.length > 0 && (
         <optgroup label="📋 Заявляли этот материал">
           {requesterOptions.requesters.map((r, i) => (
-            <option key={'req-' + i} value={staff.find(st => st.name === r.name) ? 'user:' + staff.find(st => st.name === r.name).id : r.name}>⭐ {r.name} ({r.role}) — просил {r.quantity} {r.unit}</option>
+            <option key={'req-' + i} disabled={namedStaff(r.name).length > 1} value={uniqueStaff(r.name) ? recipientValue(uniqueStaff(r.name)) : r.name}>⭐ {r.name} ({r.role}) — просил {r.quantity} {r.unit}</option>
           ))}
         </optgroup>
       )}
         <optgroup label={requesterOptions.requesters.length > 0 ? '👥 Остальные исполнители' : '👥 Исполнители'}>
         {staff
-          .filter(s => ['мастер', 'бригадир', 'субподрядчик'].includes((s.role || '').toLowerCase()) && !requesterOptions.requesterNames.has(s.name))
-          .map(s => <option key={s.id} value={'user:' + s.id}>{s.name} ({s.role})</option>)}
+          .filter(s => ['мастер', 'бригадир', 'субподрядчик'].includes((s.role || '').toLowerCase()) && (!requesterOptions.requesterNames.has(s.name) || namedStaff(s.name).length > 1))
+          .map(s => <option key={s.id} value={recipientValue(s)}>{s.name} ({s.role})</option>)}
       </optgroup>
     </select>
   );
@@ -432,7 +440,7 @@ export function TransfersTable({
       </thead>
       <tbody>
         {transfers.map(t => {
-          const balance = personMaterialBalance(t.toPerson, t.materialName, t.workPackage || '');
+          const balance = personMaterialBalance(t.toPerson, t.materialName, t.workPackage || '', t.toUserId ?? t.to_user_id);
           return (
             <tr key={t.id}>
               <td style={tblC}>

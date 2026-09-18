@@ -3,6 +3,7 @@ import { Check, Eye, Plus, QrCode, Truck, Upload, X } from 'lucide-react';
 import { invoiceImageAccept, normalizeInvoiceImageFiles } from '../../utils/invoiceImages';
 import { createWarehouseInvoiceItemForm } from '../../features/warehouse/warehouseInitialForms';
 import { groupSuppliers } from '../../utils/supplierUtils';
+import { identifiedInvoiceLines, isInvoiceLineIndex } from '../../utils/warehouseInvoiceSource';
 
 export function WarehouseInvoiceForm({
   user,
@@ -428,26 +429,48 @@ export function WarehouseInvoiceCard({
     const workPackage = packageOf(fact || {}) || packageOf(ctrl) || packageOf(item);
     const materialName = item.name || fact?.name || ctrl.canonicalName || '';
     const invoiceLineKey = invoiceLineKeyFor({ materialName, workPackage, unit });
-    const issued = (materialTransfers || [])
-      .filter(transfer => String(transfer.invoiceId || '') === String(inv.id || ''))
-      .filter(transfer => (transfer.status || 'Активна') !== 'Аннулирована')
-      .filter(transfer => {
-        const transferLineKey = transfer.invoiceLineKey || '';
-        if (transferLineKey) return transferLineKey === invoiceLineKey;
-        return normalizeText(transfer.materialName) === normalizeText(materialName) &&
-          packageOf(transfer) === workPackage &&
-          normalizeText(transfer.unit || '') === normalizeText(unit || '');
-      })
-      .reduce((sum, transfer) => sum + toNum(transfer.quantity), 0);
+    const id = value => /^\d+$/.test(String(value)) && Number.isSafeInteger(Number(value)) && Number(value) > 0 ? Number(value) : null;
+    const companyId = id(inv.companyId);
+    const invoiceId = id(inv.id);
+    let verified = Boolean(companyId && invoiceId && identifiedInvoiceLines(items).includes(item));
+    let issued = 0;
+    for (const transfer of materialTransfers || []) {
+      if (transfer.status === 'Аннулирована') continue;
+      const transferCompany = id(transfer.companyId);
+      if (transferCompany && transferCompany !== companyId) continue;
+      const transferInvoice = id(transfer.invoiceId);
+      if (transferInvoice && transferInvoice !== invoiceId) continue;
+      const sameInvoice = invoiceId && transferInvoice === invoiceId;
+      const hasLine = isInvoiceLineIndex(transfer.invoiceLineIndex);
+      if (sameInvoice && hasLine && transfer.invoiceLineIndex !== item.invoiceLineIndex) continue;
+      if (sameInvoice && hasLine) {
+        const quantity = toNum(transfer.quantity);
+        if (!transferCompany || quantity <= 0) verified = false;
+        else issued += quantity;
+        continue;
+      }
+      // A known invoice with no line index remains ambiguous even after renaming.
+      if (sameInvoice) { verified = false; continue; }
+      // Names can warn of an unlinked legacy relation, never establish a balance.
+      const possiblySameMaterial = transfer.invoiceLineKey === invoiceLineKey
+        || (normalizeText(transfer.materialName) === normalizeText(materialName)
+          && (!packageOf(transfer) || packageOf(transfer) === workPackage)
+          && (!transfer.unit || normalizeText(transfer.unit) === normalizeText(unit)));
+      const sameProject = (transfer.projectName || transfer.fromLocation) === projectName;
+      if (possiblySameMaterial && !transferInvoice && sameProject) verified = false;
+    }
     const received = toNum(item.quantity);
     return {
       unit,
       received,
       issued,
+      verified,
       remaining: Math.max(0, received - issued),
       overIssued: Math.max(0, issued - received),
     };
   };
+  const formatInvoiceBalance = (balance, key) => balance.verified
+    ? formatMeasure(balance[key], balance.unit) : 'не подтверждено';
 
   return (
     <div style={{...card,padding:isMobile?'14px':'16px',marginBottom:'10px',overflow:'hidden'}}>
@@ -529,9 +552,9 @@ export function WarehouseInvoiceCard({
                     {projectName && (
                       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginTop:'10px',padding:'10px',borderRadius:'10px',border:'1px solid '+(fact?C.infoBorder:C.border),backgroundColor:fact?C.infoLight:C.bgWhite,fontSize:'12px'}}>
                         <span style={{color:C.textSec}}>Пришло по накладной<br/><b style={{color:C.text}}>{formatMeasure(invoiceBalance.received, invoiceBalance.unit)}</b></span>
-                        <span style={{color:C.textSec}}>Выдано из накладной<br/><b style={{color:invoiceBalance.issued>0?C.info:C.textMuted}}>{formatMeasure(invoiceBalance.issued, invoiceBalance.unit)}</b></span>
-                        <span style={{color:C.textSec}}>Осталось по накладной<br/><b style={{color:invoiceBalance.remaining>0?C.success:C.textMuted}}>{formatMeasure(invoiceBalance.remaining, invoiceBalance.unit)}</b></span>
-                        <span style={{color:C.textSec}}>Перевыдача<br/><b style={{color:invoiceBalance.overIssued>0?C.danger:C.textMuted}}>{formatMeasure(invoiceBalance.overIssued, invoiceBalance.unit)}</b></span>
+                        <span style={{color:C.textSec}}>Выдано из накладной<br/><b style={{color:invoiceBalance.issued>0?C.info:C.textMuted}}>{formatInvoiceBalance(invoiceBalance, 'issued')}</b></span>
+                        <span style={{color:C.textSec}}>Осталось по накладной<br/><b style={{color:invoiceBalance.remaining>0?C.success:C.textMuted}}>{formatInvoiceBalance(invoiceBalance, 'remaining')}</b></span>
+                        <span style={{color:C.textSec}}>Перевыдача<br/><b style={{color:invoiceBalance.overIssued>0?C.danger:C.textMuted}}>{formatInvoiceBalance(invoiceBalance, 'overIssued')}</b></span>
                         <span style={{color:C.textSec}}>Остаток объекта<br/><b style={{color:fact && toNum(fact.stock)>0?C.success:C.textMuted}}>{fact ? formatMeasure(fact.stock, factUnit) : 'не найден'}</b></span>
                         <span style={{color:C.textSec}}>Выдано по объекту<br/><b style={{color:fact && toNum(fact.issued)>0?C.info:C.textMuted}}>{fact ? formatMeasure(fact.issued, factUnit) : '—'}</b></span>
                         <span style={{color:C.textSec}}>У мастеров<br/><b style={{color:fact && toNum(fact.masterBalance)>0?C.warning:C.textMuted}}>{fact ? formatMeasure(fact.masterBalance, factUnit) : '—'}</b></span>
@@ -587,8 +610,8 @@ export function WarehouseInvoiceCard({
                         <td style={tblC}>
                           {projectName ? (
                             <div style={{display:'grid',gap:'2px',fontSize:'10px',color:C.textSec}}>
-                              <span>Накл выд: <b style={{color:invoiceBalance.issued>0?C.info:C.textMuted}}>{formatMeasure(invoiceBalance.issued, invoiceBalance.unit)}</b></span>
-                              <span>Накл ост: <b style={{color:invoiceBalance.remaining>0?C.success:C.textMuted}}>{formatMeasure(invoiceBalance.remaining, invoiceBalance.unit)}</b></span>
+                              <span>Накл выд: <b style={{color:invoiceBalance.issued>0?C.info:C.textMuted}}>{formatInvoiceBalance(invoiceBalance, 'issued')}</b></span>
+                              <span>Накл ост: <b style={{color:invoiceBalance.remaining>0?C.success:C.textMuted}}>{formatInvoiceBalance(invoiceBalance, 'remaining')}</b></span>
                               {fact && <span>Ост: <b style={{color:toNum(fact.stock)>0?C.success:C.textMuted}}>{formatMeasure(fact.stock, factUnit)}</b></span>}
                               {fact && <span>Выд: <b style={{color:toNum(fact.issued)>0?C.info:C.textMuted}}>{formatMeasure(fact.issued, factUnit)}</b></span>}
                               {fact && <span>У мастеров: <b style={{color:toNum(fact.masterBalance)>0?C.warning:C.textMuted}}>{formatMeasure(fact.masterBalance, factUnit)}</b></span>}

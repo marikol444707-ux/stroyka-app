@@ -4,6 +4,7 @@ import WarehouseMainStockPanel from './WarehouseMainStockPanel';
 import WarehouseCompanyWarehousesPanel from './WarehouseCompanyWarehousesPanel';
 import WarehouseHistoryPanel from './WarehouseHistoryPanel';
 import WarehouseOperationsPanel from './WarehouseOperationsPanel';
+import WarehouseDistributionPanel from '../features/warehouse/WarehouseDistributionPanel';
 import WarehouseObjectsPanel from './WarehouseObjectsPanel';
 import WarehouseTabsNav from './WarehouseTabsNav';
 import WarehouseMaterialControlOverview from './WarehouseMaterialControlOverview';
@@ -122,6 +123,8 @@ export default function WarehousePage(props) {
     companyContext,
   } = props;
   const canReviewSupplyRequests = roleFlagsForUser(user).isSupplyRole;
+  const useTwoStageMovements = process.env.REACT_APP_WAREHOUSE_DISTRIBUTION_ENABLED === 'true'
+    && process.env.REACT_APP_WAREHOUSE_DISTRIBUTION_TRANSFERS_ENABLED === 'true';
 
   return (
     <div style={{width:'100%',maxWidth:'100%',minWidth:0,overflowX:'hidden'}}>
@@ -325,7 +328,8 @@ export default function WarehousePage(props) {
         />
       )}
 
-      {['move', 'tools', 'inventory'].includes(warehouseTab) && (
+      {warehouseTab === 'move' && <WarehouseDistributionPanel companyContext={companyContext} projects={projects} C={C} refreshData={refreshData} />}
+      {(warehouseTab === 'tools' || warehouseTab === 'inventory' || (warehouseTab === 'move' && !useTwoStageMovements)) && (
         <WarehouseOperationsPanel
           isMobile={isMobile}
           warehouseTab={warehouseTab}

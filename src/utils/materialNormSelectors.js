@@ -1,6 +1,7 @@
 import { estimatePackage, estimateSectionsOf, isEstimateMaterialItem, isEstimateWorkItem } from './estimateUtils';
 import { packageMatches } from './materialDocumentUtils';
 import { _normalizeUnit, normalizeMeasure, toNum } from './measureUtils';
+import { materialPersonMatches, materialReturnMatchesPerson } from './materialPersonIdentity';
 import {
   materialNoNormCoverageReason,
   materialNormMatchesMaterial,
@@ -135,11 +136,9 @@ export const buildPersonalMaterialRowsForProject = ({
     if (rawName && materialNameKey(rawName) !== materialNameKey(byName[key].name) && !byName[key].aliases.includes(rawName)) byName[key].aliases.push(rawName);
     return byName[key];
   };
-  const transferBelongsToPerson = (t) => {
-    const transferUserId = t.toUserId || t.to_user_id;
-    if (personId && transferUserId) return Number(transferUserId) === Number(personId);
-    return !transferUserId && t.toPerson === personName;
-  };
+  const transferBelongsToPerson = t => materialPersonMatches(
+    t.toUserId ?? t.to_user_id, t.toPerson || t.to_person, personId, personName,
+  );
   (materialTransfers || [])
     .filter(t => t.projectName === projectName && transferBelongsToPerson(t) && t.signed && (t.status || 'Активна') !== 'Аннулирована' && packageMatches(t.workPackage || t.work_package, workPackage))
     .forEach(t => {
@@ -160,7 +159,7 @@ export const buildPersonalMaterialRowsForProject = ({
       row.pendingTransfers.push(t);
     });
   (workJournal || [])
-    .filter(w => w.project === projectName && w.status !== 'Отклонено' && packageMatches(w.workPackage || w.work_package, workPackage) && (Number(w.masterId || w.master_id) === Number(personId) || w.masterName === personName || w.master_name === personName))
+    .filter(w => w.project === projectName && w.status !== 'Отклонено' && packageMatches(w.workPackage || w.work_package, workPackage) && materialPersonMatches(w.masterId ?? w.master_id, w.masterName || w.master_name, personId, personName))
     .forEach(w => parseJournalMaterials(w.materialsUsed !== undefined ? w.materialsUsed : w.materials_used).forEach(m => {
       const key = materialTransferKey(m.name, m.workPackage || w.workPackage || w.work_package, m.unit);
       const cur = byName[key] || byName[materialTransferKey(m.name, '', m.unit)];
@@ -170,7 +169,7 @@ export const buildPersonalMaterialRowsForProject = ({
       }
     }));
   (history || [])
-    .filter(h => h.project === projectName && h.type === 'возврат от мастера' && h.issuedBy === personName && packageMatches(h.workPackage || h.work_package, workPackage))
+    .filter(h => h.project === projectName && h.type === 'возврат от мастера' && materialReturnMatchesPerson(h, personId, personName) && packageMatches(h.workPackage || h.work_package, workPackage))
     .forEach(h => {
       const key = materialTransferKey(h.material, h.workPackage || h.work_package, h.unit);
       const cur = byName[key] || byName[materialTransferKey(h.material, '', h.unit)];

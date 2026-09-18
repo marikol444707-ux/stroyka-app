@@ -6,6 +6,7 @@ import AccountingExpenseReportsPanel from './AccountingExpenseReportsPanel';
 import AccountingAuditPanel from './AccountingAuditPanel';
 import AccountingDocumentsPanel from './AccountingDocumentsPanel';
 import AccountingIncomingDocumentsPanel from './AccountingIncomingDocumentsPanel';
+import WarehouseDistributionPanel from '../features/warehouse/WarehouseDistributionPanel';
 import AccountingSupplierDocumentsPanel from './AccountingSupplierDocumentsPanel';
 import AccountingSalaryPanel from './AccountingSalaryPanel';
 import AccountingActsPanel from './AccountingActsPanel';
@@ -177,6 +178,8 @@ export default function AccountingPage(props) {
       )}
 
       {accountingTab === 'incoming' && (
+        <>
+        <WarehouseDistributionPanel companyContext={companyContext} projects={projects} C={C} readOnly />
         <AccountingIncomingDocumentsPanel
           C={C}
           card={card}
@@ -199,6 +202,7 @@ export default function AccountingPage(props) {
           badge={badge}
           toNum={toNum}
         />
+        </>
       )}
 
       {accountingTab === 'supplierDocs' && (

@@ -1,0 +1,5 @@
+.warehouse-transfers { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--wd-border, #ccd4dc); min-width: 0; }
+.warehouse-transfers h5 { font: inherit; font-weight: 600; margin: 8px 0; }
+.warehouse-transfers fieldset { max-width: 640px; }
+.warehouse-transfers .wd-heading button { flex-shrink: 0; }
+@media (max-width: 767px) { .warehouse-transfers .wd-heading button { flex-shrink: 1; } }
