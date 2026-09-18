@@ -113,8 +113,8 @@ export const createWorkJournalActions = ({
     const updated = {
       ...est,
       sections:newSections,
-      _workJournalMaterials:{[workKey]:usedMats},
-      _workJournalParams:{[workKey]:{
+      _workJournalMaterials:{[estimateItemKey]:usedMats},
+      _workJournalParams:{[estimateItemKey]:{
         ...params,
         roomId: params.roomId ? Number(params.roomId) : null,
         roomName: params.roomName || roomCheck?.room?.name || '',
@@ -134,8 +134,8 @@ export const createWorkJournalActions = ({
     let submittedBatch;
     if (workMaterialAccountingEnabled()) {
       try {
-        updated._workJournalMaterials[workKey] = prepareWorkMaterialGroups(project.name, [usedMats])[0];
-        if (!confirmSources([updated._workJournalMaterials[workKey]])) return;
+        updated._workJournalMaterials[estimateItemKey] = prepareWorkMaterialGroups(project.name, [usedMats])[0];
+        if (!confirmSources([updated._workJournalMaterials[estimateItemKey]])) return;
         submittedBatch = await sendWorkBatch({ API, scope: workBatchScope(companyContext, user), commands: [
           { path: '/estimates/' + est.id, method: 'PUT', payload: updated,
             drafts: [{kind:'estimate',key:workKey,done:estimateDoneDrafts?.[workKey],materials:currentWorkMaterials,params:estimateWorkParams[workKey]}] },
