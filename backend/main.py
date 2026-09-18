@@ -12100,144 +12100,181 @@ def receive_supply_delivery(
     _current_user: dict = Depends(get_current_user),
 ):
     from datetime import datetime
+    try:
+        from backend.features.quality_journals.delivery_sources import delivery_sources_enabled, prepare_delivery_sources, bind_new_delivery_sources
+        from backend.features.quality_journals.delivery_receipt import delivery_quality_enabled, create_delivery_quality
+    except ModuleNotFoundError:
+        from features.quality_journals.delivery_sources import delivery_sources_enabled, prepare_delivery_sources, bind_new_delivery_sources
+        from features.quality_journals.delivery_receipt import delivery_quality_enabled, create_delivery_quality
+    owned_sources = delivery_sources_enabled()
+    owned_quality = delivery_quality_enabled()
+    if owned_quality and not owned_sources:
+        raise HTTPException(503, 'Журнал поставки требует включённой проверки первичных документов')
     conn = get_db()
     conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    _ensure_supply_runtime_columns(cur)
-    conn.commit()
-    cur.execute("SELECT * FROM supply_deliveries WHERE id=%s FOR UPDATE", (id,))
-    delivery = cur.fetchone()
-    if not delivery:
-        conn.rollback()
-        cur.close(); conn.close()
-        raise HTTPException(status_code=404, detail="Поставка не найдена")
     try:
-        _context, _current_user = resolve_resource_company_actor(
-            cur, _current_user, delivery.get('company_id'), 'update',
-            claimed_company_id=data.get('companyId', data.get('company_id')),
-            x_company_id=x_company_id, x_company_mode=x_company_mode,
-            allowed_roles=WAREHOUSE_ROLES, platform_staff_roles=PLATFORM_STAFF_ROLES,
-            client_account_roles=CLIENT_ACCOUNT_ROLES,
-        )
+        _ensure_supply_runtime_columns(cur)
+        cur.execute("SELECT * FROM supply_deliveries WHERE id=%s FOR UPDATE", (id,))
+        delivery = cur.fetchone()
+        if not delivery:
+            conn.rollback()
+            cur.close(); conn.close()
+            raise HTTPException(status_code=404, detail="Поставка не найдена")
         try:
-            from backend.features.supplier_access.fulfilment import assert_delivery_chain
-        except ModuleNotFoundError:
-            from features.supplier_access.fulfilment import assert_delivery_chain
-        assert_delivery_chain(cur, delivery)
-    except Exception:
-        conn.rollback()
-        cur.close(); conn.close()
-        raise
-    if delivery.get('project'):
-        try:
-            require_project_or_warehouse_access(_current_user, delivery.get('project') or "")
+            _context, _current_user = resolve_resource_company_actor(
+                cur, _current_user, delivery.get('company_id'), 'update',
+                claimed_company_id=data.get('companyId', data.get('company_id')),
+                x_company_id=x_company_id, x_company_mode=x_company_mode,
+                allowed_roles=WAREHOUSE_ROLES,
+                platform_staff_roles=PLATFORM_STAFF_ROLES,
+                client_account_roles=CLIENT_ACCOUNT_ROLES,
+            )
+            try:
+                from backend.features.supplier_access.fulfilment import assert_delivery_chain
+            except ModuleNotFoundError:
+                from features.supplier_access.fulfilment import assert_delivery_chain
+            assert_delivery_chain(cur, delivery)
         except Exception:
             conn.rollback()
             cur.close(); conn.close()
             raise
-    if _current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(_current_user, delivery.get("work_package") or "Основная"):
-        conn.rollback()
-        cur.close(); conn.close()
-        raise HTTPException(status_code=403, detail="Нет доступа к пакету поставки")
-    if delivery['status'] in ('Принято', 'Проблема') or delivery.get('received_at'):
-        try:
-            _create_delivery_quality_records(cur, delivery)
-        except Exception as e:
-            print("DELIVERY QUALITY RECOVERY ERROR:", str(e))
-        try:
-            _create_supply_delivery_history(cur, delivery)
-        except Exception as e:
-            print("DELIVERY HISTORY RECOVERY ERROR:", str(e))
-        try:
-            invoice_id = _ensure_supply_delivery_invoice(
-                cur, delivery,
-                delivery.get('received_quantity'),
-                delivery.get('received_at'),
-                delivery.get('received_by') or ''
+        if delivery.get('project'):
+            try:
+                require_project_or_warehouse_access(_current_user, delivery.get('project') or "")
+            except Exception:
+                conn.rollback()
+                cur.close(); conn.close()
+                raise
+        if _current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(_current_user, delivery.get("work_package") or "Основная"):
+            conn.rollback()
+            cur.close(); conn.close()
+            raise HTTPException(status_code=403, detail="Нет доступа к пакету поставки")
+        source_project_id = prepare_delivery_sources(cur, _current_user, delivery) if owned_sources else None
+        if delivery['status'] in ('Принято', 'Проблема') or delivery.get('received_at'):
+            if not owned_quality:
+                try:
+                    _create_delivery_quality_records(cur, delivery)
+                except Exception as e:
+                    print("DELIVERY QUALITY RECOVERY ERROR:", str(e))
+            try:
+                _create_supply_delivery_history(cur, delivery)
+            except Exception as e:
+                print("DELIVERY HISTORY RECOVERY ERROR:", str(e))
+            try:
+                invoice_id = _ensure_supply_delivery_invoice(
+                    cur, delivery,
+                    delivery.get('received_quantity'),
+                    delivery.get('received_at'),
+                    delivery.get('received_by') or ''
+                )
+            except Exception as e:
+                if owned_quality:
+                    raise
+                print("DELIVERY INVOICE RECOVERY ERROR:", str(e))
+                invoice_id = None
+            if owned_quality:
+                create_delivery_quality(cur, delivery_id=id, company_id=delivery['company_id'],
+                    project_id=source_project_id, invoice_id=invoice_id, replay=True,
+                    cable_info=_detect_cable_info(delivery['material_name']), normalize_unit=_norm_base_unit)
+            try:
+                cur.execute(DELIVERY_SELECT + " WHERE d.id=%s", (id,))
+                row = cur.fetchone()
+            except Exception as e:
+                print("DELIVERY RECOVERY SELECT ERROR:", str(e))
+                row = None
+            conn.commit()
+            cur.close(); conn.close()
+            return {
+                "ok": True,
+                "delivery": dict(row) if row else {"id": id},
+                "claimId": delivery.get('claim_id'),
+                "invoiceId": invoice_id,
+                "alreadyReceived": True
+            }
+        received_qty = _float_or_zero(data.get('receivedQuantity'))
+        planned_qty = _float_or_zero(delivery['planned_quantity'])
+        shipped_qty = _float_or_zero(delivery['shipped_quantity']) or planned_qty
+        quality_status = data.get('qualityStatus') or 'Принято'
+        if received_qty < 0:
+            conn.rollback()
+            cur.close(); conn.close()
+            raise HTTPException(status_code=400, detail="Принятое количество не может быть отрицательным")
+        if shipped_qty > 0 and received_qty > shipped_qty + 0.000001:
+            conn.rollback()
+            cur.close(); conn.close()
+            raise HTTPException(
+                status_code=400,
+                detail=f"Нельзя принять больше отгруженного: отгружено {shipped_qty:g} {delivery['unit']}, принимается {received_qty:g} {delivery['unit']}",
             )
-        except Exception as e:
-            print("DELIVERY INVOICE RECOVERY ERROR:", str(e))
-            invoice_id = None
-        try:
-            cur.execute(DELIVERY_SELECT + " WHERE d.id=%s", (id,))
-            row = cur.fetchone()
-        except Exception as e:
-            print("DELIVERY RECOVERY SELECT ERROR:", str(e))
-            row = None
+        shortage = max(0.0, shipped_qty - received_qty)
+        problem = shortage > 0 or quality_status in ('Брак', 'Несоответствие', 'Недостача', 'Частично')
+        status = 'Проблема' if problem else 'Принято'
+        received_at = datetime.now()
+        cur.execute("""UPDATE supply_deliveries SET received_quantity=%s, received_at=%s,
+                       received_by=%s, quality_status=%s, quality_notes=%s,
+                       shortage_quantity=%s, photo_url=COALESCE(NULLIF(%s,''), photo_url),
+                       status=%s WHERE id=%s""",
+                    (received_qty, received_at, data.get('receivedBy') or '',
+                     quality_status, data.get('qualityNotes') or '',
+                     shortage, data.get('photoUrl') or '', status, id))
+        claim_id = None
+        cur.execute("SELECT * FROM supply_deliveries WHERE id=%s", (id,))
+        updated = cur.fetchone()
+        if not owned_quality:
+            _create_delivery_quality_records(cur, updated)
+        if problem:
+            claim_type = 'Недостача' if shortage > 0 else quality_status
+            description = data.get('claimDescription') or (
+                f"По поставке «{delivery['material_name']}» ожидалось {shipped_qty:g} {delivery['unit']}, "
+                f"принято {received_qty:g} {delivery['unit']}. "
+                f"Статус качества: {quality_status}. {data.get('qualityNotes') or ''}"
+            )
+            cur.execute("""INSERT INTO supply_claims
+                           (delivery_id, request_id, offer_id, supplier_id, project, material_name,
+                            work_package, claim_type, description, expected_quantity, received_quantity,
+                            shortage_quantity, photo_url, created_by)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                        (id, delivery['request_id'], delivery['offer_id'], delivery['supplier_id'],
+                         delivery['project'], delivery['material_name'], delivery.get('work_package') or delivery.get('workPackage') or '',
+                         claim_type, description,
+                         shipped_qty, received_qty, shortage, data.get('photoUrl') or '',
+                         data.get('receivedBy') or ''))
+            claim_id = cur.fetchone()['id']
+            cur.execute("UPDATE supply_deliveries SET claim_id=%s WHERE id=%s", (claim_id, id))
+        _create_supply_delivery_history(cur, updated, status, received_qty, data.get('receivedBy') or '')
+        invoice_id = _ensure_supply_delivery_invoice(cur, updated, received_qty, received_at, data.get('receivedBy') or '')
+        if received_qty > 0 and quality_status not in ('Брак',):
+            _add_project_material(cur, delivery['material_name'], delivery['unit'], received_qty,
+                                  _float_or_zero(delivery['price_per_unit']), delivery['project'],
+                                  delivery.get('work_package') or delivery.get('workPackage') or "",
+                                  delivery.get('company_id') or delivery.get('companyId') or 1,
+                                  source_type="supply_delivery", source_id=id,
+                                  source_invoice_id=invoice_id)
+        if owned_sources:
+            bind_new_delivery_sources(cur, updated, source_project_id, invoice_id)
+        if owned_quality:
+            create_delivery_quality(cur, delivery_id=id, company_id=delivery['company_id'],
+                project_id=source_project_id, invoice_id=invoice_id,
+                cable_info=_detect_cable_info(delivery['material_name']), expected_quantity=received_qty,
+                normalize_unit=_norm_base_unit)
+        _update_supply_flow_status_after_delivery(cur, delivery['request_id'], delivery['offer_id'])
+        cur.execute(DELIVERY_SELECT + " WHERE d.id=%s", (id,))
+        row = cur.fetchone()
         conn.commit()
         cur.close(); conn.close()
-        return {
-            "ok": True,
-            "delivery": dict(row) if row else {"id": id},
-            "claimId": delivery.get('claim_id'),
-            "invoiceId": invoice_id,
-            "alreadyReceived": True
-        }
-    received_qty = _float_or_zero(data.get('receivedQuantity'))
-    planned_qty = _float_or_zero(delivery['planned_quantity'])
-    shipped_qty = _float_or_zero(delivery['shipped_quantity']) or planned_qty
-    quality_status = data.get('qualityStatus') or 'Принято'
-    if received_qty < 0:
-        conn.rollback()
-        cur.close(); conn.close()
-        raise HTTPException(status_code=400, detail="Принятое количество не может быть отрицательным")
-    if shipped_qty > 0 and received_qty > shipped_qty + 0.000001:
-        conn.rollback()
-        cur.close(); conn.close()
-        raise HTTPException(
-            status_code=400,
-            detail=f"Нельзя принять больше отгруженного: отгружено {shipped_qty:g} {delivery['unit']}, принимается {received_qty:g} {delivery['unit']}",
-        )
-    shortage = max(0.0, shipped_qty - received_qty)
-    problem = shortage > 0 or quality_status in ('Брак', 'Несоответствие', 'Недостача', 'Частично')
-    status = 'Проблема' if problem else 'Принято'
-    received_at = datetime.now()
-    cur.execute("""UPDATE supply_deliveries SET received_quantity=%s, received_at=%s,
-                   received_by=%s, quality_status=%s, quality_notes=%s,
-                   shortage_quantity=%s, photo_url=COALESCE(NULLIF(%s,''), photo_url),
-                   status=%s WHERE id=%s""",
-                (received_qty, received_at, data.get('receivedBy') or '',
-                 quality_status, data.get('qualityNotes') or '',
-                 shortage, data.get('photoUrl') or '', status, id))
-    claim_id = None
-    cur.execute("SELECT * FROM supply_deliveries WHERE id=%s", (id,))
-    updated = cur.fetchone()
-    _create_delivery_quality_records(cur, updated)
-    if problem:
-        claim_type = 'Недостача' if shortage > 0 else quality_status
-        description = data.get('claimDescription') or (
-            f"По поставке «{delivery['material_name']}» ожидалось {shipped_qty:g} {delivery['unit']}, "
-            f"принято {received_qty:g} {delivery['unit']}. "
-            f"Статус качества: {quality_status}. {data.get('qualityNotes') or ''}"
-        )
-        cur.execute("""INSERT INTO supply_claims
-                       (delivery_id, request_id, offer_id, supplier_id, project, material_name,
-                        work_package, claim_type, description, expected_quantity, received_quantity,
-                        shortage_quantity, photo_url, created_by)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-                    (id, delivery['request_id'], delivery['offer_id'], delivery['supplier_id'],
-                     delivery['project'], delivery['material_name'], delivery.get('work_package') or delivery.get('workPackage') or '',
-                     claim_type, description,
-                     shipped_qty, received_qty, shortage, data.get('photoUrl') or '',
-                     data.get('receivedBy') or ''))
-        claim_id = cur.fetchone()['id']
-        cur.execute("UPDATE supply_deliveries SET claim_id=%s WHERE id=%s", (claim_id, id))
-    _create_supply_delivery_history(cur, updated, status, received_qty, data.get('receivedBy') or '')
-    invoice_id = _ensure_supply_delivery_invoice(cur, updated, received_qty, received_at, data.get('receivedBy') or '')
-    if received_qty > 0 and quality_status not in ('Брак',):
-        _add_project_material(cur, delivery['material_name'], delivery['unit'], received_qty,
-                              _float_or_zero(delivery['price_per_unit']), delivery['project'],
-                              delivery.get('work_package') or delivery.get('workPackage') or "",
-                              delivery.get('company_id') or delivery.get('companyId') or 1,
-                              source_type="supply_delivery", source_id=id,
-                              source_invoice_id=invoice_id)
-    _update_supply_flow_status_after_delivery(cur, delivery['request_id'], delivery['offer_id'])
-    cur.execute(DELIVERY_SELECT + " WHERE d.id=%s", (id,))
-    row = cur.fetchone()
-    conn.commit()
-    cur.close(); conn.close()
-    _run_project_ai_control_safely(delivery['project'], "supply_delivery:receive")
-    return {"ok": True, "delivery": dict(row), "claimId": claim_id, "invoiceId": invoice_id}
+        _run_project_ai_control_safely(delivery['project'], "supply_delivery:receive")
+        return {"ok": True, "delivery": dict(row), "claimId": claim_id, "invoiceId": invoice_id}
+    except Exception:
+        if not conn.closed:
+            conn.rollback()
+        raise
+    finally:
+        if not cur.closed:
+            cur.close()
+        if not conn.closed:
+            conn.close()
+
 
 @app.post("/supply-deliveries/{id}/ai-check")
 def ai_check_supply_delivery(
@@ -19927,6 +19964,12 @@ def get_warehouse_invoices(
 
 def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_company_id=None, x_company_mode=None):
     import json as j
+    try:
+        from backend.features.quality_journals.invoice_receipt import invoice_quality_enabled, create_invoice_quality
+    except ModuleNotFoundError:
+        from features.quality_journals.invoice_receipt import invoice_quality_enabled, create_invoice_quality
+    owned_quality = invoice_quality_enabled()
+    resolved_receipt_project = None
     target_location = (data.get("location") or "").strip()
     target_project = (data.get("project") or "").strip() or (target_location if target_location and target_location != "Основной склад" else "")
     def _invoice_float(value, default=0.0):
@@ -19967,7 +20010,7 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
         else:
             source_type = source_type or "manual_main_invoice"
         claimed_company_id = _positive_int_or_none(data.get("companyId") or data.get("company_id"))
-        project_company_id = _positive_int_or_none(_project_company_id(cur, target_project or target_location))
+        project_company_id = None if owned_quality else _positive_int_or_none(_project_company_id(cur, target_project or target_location))
         request_company_id = None
         if supply_request_id:
             cur.execute("SELECT company_id FROM supply_requests WHERE id=%s", (supply_request_id,))
@@ -20004,6 +20047,14 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
         if (actor.get("role") or "") not in WAREHOUSE_ROLES:
             raise HTTPException(status_code=403, detail="Роль в выбранной компании не позволяет принимать складские накладные")
         current_user = actor
+        if target_project:
+            try:
+                from backend.features.project_access.service import resolve_project_parent
+            except ModuleNotFoundError:
+                from features.project_access.service import resolve_project_parent
+            # A display name must not choose a tenant. Stock still uses names,
+            # so require one unambiguous project inside the resolved company.
+            resolved_receipt_project = resolve_project_parent(cur, actor, project_name=target_project, for_update=owned_quality)
         try:
             receipt_policy = resolve_warehouse_receipt_policy(
                 data,
@@ -20227,7 +20278,11 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
                     )
         ensure_receipt_lot_schema(cur)
         project_id = None
-        if target_project:
+        if target_project and owned_quality:
+            project_id = resolved_receipt_project['id']
+            cur.execute('UPDATE warehouse_invoices SET project_id=%s WHERE id=%s AND company_id=%s',
+                        (project_id, invoice_id, company_id))
+        elif target_project:
             cur.execute("SELECT id FROM projects WHERE name=%s AND company_id=%s ORDER BY id LIMIT 1", (target_project, company_id))
             project_row = cur.fetchone()
             project_id = _positive_int_or_none(_row_get(project_row, "id", 0))
@@ -20309,9 +20364,13 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
             cur.execute("""INSERT INTO warehouse_history
                               (company_id,material,type,quantity,unit,date,project,issued_by,work_package,date_time,
                                source_type,source_id,source_invoice_id,source_invoice_line_index)
-                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
                         (company_id, name, "приход", qty, unit, rcv_date, history_project, accepted_by, work_package, date_time,
                          source_type or "warehouse_invoice", invoice_id, invoice_id, item_index))
+            receipt_history_id = cur.fetchone()[0]
+            if owned_quality and target_project:
+                cur.execute('UPDATE warehouse_history SET project_id=%s WHERE id=%s AND company_id=%s',
+                            (project_id, receipt_history_id, company_id))
             history_added += 1
             if create_receipt_lot(
                 cur,
@@ -20332,6 +20391,13 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
                 lot_rows_added += 1
 
             if target_project:
+                if owned_quality:
+                    quality = create_invoice_quality(cur, company_id=company_id, project_id=project_id,
+                        invoice_id=invoice_id, line_index=item_index, name=name, quantity=qty, unit=unit,
+                        work_package=work_package, cable_info=_detect_cable_info(name))
+                    inspections_added += quality['inspections']
+                    cables_added += quality['cables']
+                    continue
                 source_item_key = _journal_item_key(name, unit, qty, work_package, item_index)
                 if _ensure_material_inspection_row(
                     cur,
@@ -20392,6 +20458,7 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
         except Exception as exc:
             result["accountingWarning"] = getattr(exc, "detail", str(exc)) or "Не удалось связать бухгалтерскую первичку"
     return result
+
 
 def _sync_supplier_invoice_from_warehouse(warehouse_invoice_id: int, payload: dict = None, actor: dict = None):
     payload = payload or {}
@@ -23604,8 +23671,58 @@ def accept_material_norm_suggestion_as_override(id: int, payload: dict = Body(de
     cur.close(); conn.close()
     return _material_norm_suggestion_row(dict(row))
 
+try:
+    from backend.features.quality_journals.access import quality_access_enabled, journal_operation
+except ModuleNotFoundError:
+    from features.quality_journals.access import quality_access_enabled, journal_operation
+
+
+def _quality_journal_dependencies():
+    return {
+        'get_db': get_db, 'read_roles': PROJECT_DOCUMENT_ROLES,
+        'write_roles': (*PROJECT_DOCUMENT_WRITE_ROLES, 'кладовщик', 'снабженец'),
+        'worker_roles': WORKER_EXECUTION_ROLES, 'visible_projects': visible_project_names,
+        'package_filter': package_access_filter, 'platform_staff_roles': PLATFORM_STAFF_ROLES,
+        'client_account_roles': CLIENT_ACCOUNT_ROLES,
+    }
+
+
+
+def _owned_quality_journal(user, request, table, **operation):
+    return journal_operation(_quality_journal_dependencies(), user, request.headers, table, **operation)
+
+
+
+def _owned_quality_suggestion(user, request, table, row_id):
+    try:
+        from backend.features.quality_journals.suggestions import suggest_journal
+    except ModuleNotFoundError:
+        from features.quality_journals.suggestions import suggest_journal
+    return suggest_journal(_quality_journal_dependencies(), user, request.headers, table, row_id,
+                          api_key=YANDEX_API_KEY, folder_id=YANDEX_FOLDER_ID)
+
+
+
+def _quality_journal_reader(user: dict = Depends(get_current_user)):
+    if not quality_access_enabled() and user.get('role') not in PROJECT_DOCUMENT_ROLES:
+        raise HTTPException(403, 'Недостаточно прав')
+    return user
+
+
+
+def _quality_journal_writer(user: dict = Depends(get_current_user)):
+    if not quality_access_enabled() and user.get('role') not in (*PROJECT_DOCUMENT_WRITE_ROLES, 'кладовщик', 'снабженец'):
+        raise HTTPException(403, 'Недостаточно прав')
+    return user
+
+
+
 @app.get("/material-inspection")
-def list_material_inspections(project_name: str = None, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
+def list_material_inspections(request: Request, response: Response, project_name: str = None, _current_user: dict = Depends(_quality_journal_reader)):
+    if quality_access_enabled():
+        rows = _owned_quality_journal(_current_user, request, 'material_inspection_journal', project_name=project_name)
+        response.headers['X-Quality-Journal-Snapshot'] = 'owned-v1'
+        return rows
     conn = get_db()
     cur = conn.cursor()
     _ensure_journal_source_columns(cur)
@@ -23655,8 +23772,11 @@ def list_material_inspections(project_name: str = None, _current_user: dict = De
              "deliveryId":r[21],"warehouseHistoryId":r[22],"sourceType":r[23] or "",
              "sourceId":r[24],"sourceItemKey":r[25] or ""} for r in rows]
 
+
 @app.put("/material-inspection/{id}")
-def update_material_inspection(id: int, data: dict, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES, "кладовщик", "снабженец"))):
+def update_material_inspection(id: int, data: dict, request: Request, _current_user: dict = Depends(_quality_journal_writer)):
+    if quality_access_enabled():
+        return _owned_quality_journal(_current_user, request, 'material_inspection_journal', row_id=id, data=data)
     conn = get_db()
     cur = conn.cursor()
     require_row_project_access(cur, "material_inspection_journal", id, _current_user)
@@ -23700,8 +23820,11 @@ def update_material_inspection(id: int, data: dict, _current_user: dict = Depend
     cur.close(); conn.close()
     return {"ok": True}
 
+
 @app.post("/material-inspection/{id}/ai-suggest")
-def ai_suggest_material_inspection(id: int, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES, "кладовщик", "снабженец"))):
+def ai_suggest_material_inspection(id: int, request: Request, _current_user: dict = Depends(_quality_journal_writer)):
+    if quality_access_enabled():
+        return _owned_quality_suggestion(_current_user, request, 'material_inspection_journal', id)
     import openai as oa, json as j, re
     conn = get_db()
     cur = conn.cursor()
@@ -23762,8 +23885,13 @@ def ai_suggest_material_inspection(id: int, _current_user: dict = Depends(requir
     cur.close(); conn.close()
     return {"ok": True, "normatives": normatives, "requiredDocs": required_docs, "aiFilled": True}
 
+
 @app.get("/cable-journal")
-def list_cable_journal(project_name: str = None, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
+def list_cable_journal(request: Request, response: Response, project_name: str = None, _current_user: dict = Depends(_quality_journal_reader)):
+    if quality_access_enabled():
+        rows = _owned_quality_journal(_current_user, request, 'cable_journal', project_name=project_name)
+        response.headers['X-Quality-Journal-Snapshot'] = 'owned-v1'
+        return rows
     if _current_user.get("role") in WORKER_EXECUTION_ROLES:
         return []
     conn = get_db()
@@ -23814,8 +23942,11 @@ def list_cable_journal(project_name: str = None, _current_user: dict = Depends(r
              "workPackage":r[24] or "","deliveryId":r[25],"warehouseHistoryId":r[26],
              "sourceType":r[27] or "","sourceId":r[28],"sourceItemKey":r[29] or ""} for r in rows]
 
+
 @app.put("/cable-journal/{id}")
-def update_cable_journal(id: int, data: dict, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES, "кладовщик", "снабженец"))):
+def update_cable_journal(id: int, data: dict, request: Request, _current_user: dict = Depends(_quality_journal_writer)):
+    if quality_access_enabled():
+        return _owned_quality_journal(_current_user, request, 'cable_journal', row_id=id, data=data)
     conn = get_db()
     cur = conn.cursor()
     require_row_project_access(cur, "cable_journal", id, _current_user)
@@ -23861,8 +23992,11 @@ def update_cable_journal(id: int, data: dict, _current_user: dict = Depends(requ
     cur.close(); conn.close()
     return {"ok": True}
 
+
 @app.post("/cable-journal/{id}/ai-suggest")
-def ai_suggest_cable_journal(id: int, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES, "кладовщик", "снабженец"))):
+def ai_suggest_cable_journal(id: int, request: Request, _current_user: dict = Depends(_quality_journal_writer)):
+    if quality_access_enabled():
+        return _owned_quality_suggestion(_current_user, request, 'cable_journal', id)
     import openai as oa, json as j, re
     conn = get_db()
     cur = conn.cursor()
@@ -23925,6 +24059,7 @@ def ai_suggest_cable_journal(id: int, _current_user: dict = Depends(require_role
     conn.commit()
     cur.close(); conn.close()
     return {"ok": True, "normatives": full_normatives, "minInsulation": min_insulation, "recommendations": recommendations, "aiFilled": True}
+
 
 try:
     from backend.features.supervisor_acts.routes import register_supervisor_acts_module
