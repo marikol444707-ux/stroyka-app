@@ -10,8 +10,8 @@ Work on supplier payments remains in the parallel worktree.
 - [x] Integrate the existing editor and complete scoped browser snapshots.
 - [x] Verify active membership, project access, conflicts, revocation and retries.
 - [x] Rehearse an additive migration following 0023, preserving all legacy rows.
-- [ ] Run focused PostgreSQL, full regression, build and authenticated browser checks.
-- [ ] Publish coordinated server/browser flags and verify the live release.
+- [x] Run focused PostgreSQL, full regression, build and authenticated browser checks.
+- [x] Publish coordinated server/browser flags and verify the live release.
 
 Mappings may be company-wide or restricted to one exact project. Do not assign
 historical owners by project name. The live inventory contains no active mapping
@@ -22,3 +22,7 @@ Any newly active legacy mapping requires explicit review before cutover.
 Use an independent additive migration; the unreleased 0013 branch depends on
 warehouse distribution, which is outside this release. Do not run future payment
 or distribution migrations or overwrite their separate worktree.
+
+Released `435c3bf4c1e7` at 22:36:41 MSK on 18 September 2026. Production API,
+browser scopes, all preserved data, flags and public artifact hashes verified.
+See `docs/material-alias-release-2026-09-18.md` for evidence and recovery.

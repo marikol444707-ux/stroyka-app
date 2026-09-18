@@ -87,3 +87,46 @@ preserve them and fix forward with company isolation enabled.
 
 Supplier invoices/payments remain with the other workstream. Historical journal
 duplicates, units and factual inspection details are unchanged.
+
+## Production result
+
+Published `435c3bf4c1e7eec1ff40f8be78528292f99f49d7` on 18 September 2026,
+22:36:41 MSK. Public and local health confirm `435c3bf4c1e7`; database schema is
+`0024_company_material_aliases`. nginx configuration validation passed. All 243
+published files match the artifact, including public HTML, asset manifest and
+`static/js/main.dff9779d.js`. Old frontend hashes remain available.
+
+The live migration preserved original columns across all 143 application
+tables. After restart, nine key business tables were checked again unchanged.
+All 14 legacy mappings remain inactive, the new directory has zero rows,
+inspection/cable journals retain 340/19 records with owner `1:1`, and all 26
+company supplier cards remain present. All six alias/journal server flags and
+the prior frontend feature flags are confirmed enabled as intended.
+
+Authenticated browser checks used the owner's existing session without reading
+cookies or tokens. Company and project alias GETs return 200 and consistent
+revisions; company 2 returns 403 without rows. The retired legacy editor returns
+503 by design. Complete snapshot pages for projects 1, 24 and 25 return 200.
+The real Materials screen shows the new editor for СтройКа / Кисловодск Лицей 4,
+both scope selections work and reconciliation is no longer paused. Save controls
+are enabled for the director. Production checks created no business records;
+mutation scenarios were exercised in isolated PostgreSQL and synthetic browser
+data. The live browser is left on the new editor.
+
+Full backend regression: 3256 tests, 208 opt-in skips, no failures. The additional
+document concurrency regression was then verified with its real PostgreSQL
+suite. Focused backend: 110 tests, 55 PostgreSQL skips, no failures. Real database
+coverage totals 64 distinct checks (30 alias HTTP/storage, 5 alias runtime,
+3 readiness, 15 journal access and 11 delivery/journal checks).
+
+No JavaScript exceptions were observed. The app startup still returned 429 for
+master profiles and the selected project's AI summary; the unused public image
+preload also warns. Those requests are separate follow-up work. Alias endpoints
+returned no errors. Post-release API logs show zero Traceback, backfill,
+delivery-quality recovery, undefined-column or foreign-key errors.
+
+Backup: `/root/stroyka-material-alias-Xnpptj0h/backup` (database dump, previous
+code/frontend, environment, nginx and service state). Evidence is in ignored
+`output/material-alias-release/`; production screenshots are copied to
+`output/playwright/material-alias-production*.png`. Temporary local production
+SQL and restore logs were removed. Server recovery backups remain available.
