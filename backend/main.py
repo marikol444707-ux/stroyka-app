@@ -11557,8 +11557,10 @@ def _ensure_journal_source_columns(cur):
         cur.execute("ALTER TABLE cable_journal ADD COLUMN IF NOT EXISTS source_type VARCHAR(100)")
         cur.execute("ALTER TABLE cable_journal ADD COLUMN IF NOT EXISTS source_id INT")
         cur.execute("ALTER TABLE cable_journal ADD COLUMN IF NOT EXISTS source_item_key VARCHAR(255)")
+        return True
     except Exception as e:
         print("JOURNAL SOURCE COLUMNS ERROR:", str(e))
+        return False
 
 def _journal_item_key(name="", unit="", qty=0, work_package="", item_index=None):
     base = [
@@ -11596,13 +11598,15 @@ def _ensure_material_inspection_row(
     source_type="",
     source_id=None,
     source_item_key="",
+    source_columns_ready=False,
 ):
     project = (project or "").strip()
     material_name = (material_name or "").strip()
     qty = _float_or_zero(qty)
     if not project or not material_name or qty <= 0:
         return False
-    _ensure_journal_source_columns(cur)
+    if not source_columns_ready:
+        _ensure_journal_source_columns(cur)
     unit = _norm_base_unit(unit or "шт") or "шт"
     work_package = _supply_work_package(work_package or "")
     received_at = _receipt_date_value(received_at) or __import__("datetime").date.today().isoformat()
@@ -11665,7 +11669,7 @@ def _ensure_material_inspection_row(
 
 def _backfill_material_inspection_journal(cur, project_names=None):
     repaired = 0
-    _ensure_journal_source_columns(cur)
+    source_columns_ready = _ensure_journal_source_columns(cur)
     project_names = list(project_names or [])
     delivery_where = "WHERE COALESCE(received_quantity,0)>0 AND status IN ('Принято','Проблема')"
     delivery_params = []
@@ -11692,6 +11696,7 @@ def _backfill_material_inspection_journal(cur, project_names=None):
             inspected=True,
             source_type="supply_delivery",
             source_id=delivery_id,
+            source_columns_ready=source_columns_ready,
         ):
             repaired += 1
     invoice_where = "WHERE COALESCE(status,'Принята') <> 'Аннулирована'"
@@ -11727,6 +11732,7 @@ def _backfill_material_inspection_journal(cur, project_names=None):
                 source_type=source_type or "warehouse_invoice",
                 source_id=invoice_id,
                 source_item_key=_journal_item_key(name, unit, qty, work_package, idx),
+                source_columns_ready=source_columns_ready,
             ):
                 repaired += 1
     history_where = "WHERE COALESCE(quantity,0)>0 AND LOWER(COALESCE(type,'')) LIKE %s AND COALESCE(project,'')<>'' AND project<>'Основной склад'"
@@ -11750,6 +11756,7 @@ def _backfill_material_inspection_journal(cur, project_names=None):
             work_package=work_package,
             source_type="warehouse_history",
             source_id=history_id,
+            source_columns_ready=source_columns_ready,
         ):
             repaired += 1
     material_where = "WHERE COALESCE(quantity,0)>0 AND COALESCE(project,'')<>''"
@@ -11781,15 +11788,17 @@ def _backfill_material_inspection_journal(cur, project_names=None):
             source_type="project_stock",
             source_id=None,
             source_item_key=_journal_item_key(name, unit, qty, work_package, "stock"),
+            source_columns_ready=source_columns_ready,
         ):
             repaired += 1
     return repaired
 
-def _ensure_cable_journal_row(cur, *, project, cable_brand, qty, supplier="", received_at=None, delivery_id=None, invoice_id=None, warehouse_history_id=None, work_package="", source_type="", source_id=None, source_item_key=""):
+def _ensure_cable_journal_row(cur, *, project, cable_brand, qty, supplier="", received_at=None, delivery_id=None, invoice_id=None, warehouse_history_id=None, work_package="", source_type="", source_id=None, source_item_key="", source_columns_ready=False):
     cable_info = _detect_cable_info(cable_brand)
     if not cable_info["isCable"]:
         return False
-    _ensure_journal_source_columns(cur)
+    if not source_columns_ready:
+        _ensure_journal_source_columns(cur)
     project = (project or "").strip()
     cable_brand = (cable_brand or "").strip()
     qty = _float_or_zero(qty)
@@ -11865,7 +11874,7 @@ def _ensure_cable_journal_row(cur, *, project, cable_brand, qty, supplier="", re
 def _backfill_cable_journal(cur, project_names=None):
     import json as _json
     repaired = 0
-    _ensure_journal_source_columns(cur)
+    source_columns_ready = _ensure_journal_source_columns(cur)
     project_names = list(project_names or [])
     delivery_where = "WHERE COALESCE(received_quantity,0)>0 AND status IN ('Принято','Проблема')"
     delivery_params = []
@@ -11880,6 +11889,7 @@ def _backfill_cable_journal(cur, project_names=None):
                                      supplier=supplier, received_at=received_at, delivery_id=delivery_id,
                                      work_package=work_package, source_type="supply_delivery",
                                      source_id=delivery_id,
+                                     source_columns_ready=source_columns_ready,
                                      source_item_key=_journal_item_key(name, unit or "м", qty, work_package)):
             repaired += 1
     invoice_where = ""
@@ -11905,6 +11915,7 @@ def _backfill_cable_journal(cur, project_names=None):
                                          supplier=supplier, received_at=date_value, invoice_id=invoice_id,
                                          work_package=work_package, source_type=source_type or "warehouse_invoice",
                                          source_id=invoice_id,
+                                         source_columns_ready=source_columns_ready,
                                          source_item_key=_journal_item_key(name, unit, qty, work_package, idx)):
                 repaired += 1
     history_where = "WHERE COALESCE(quantity,0)>0 AND LOWER(COALESCE(type,'')) LIKE %s AND COALESCE(project,'')<>'' AND project<>'Основной склад'"
@@ -11919,6 +11930,7 @@ def _backfill_cable_journal(cur, project_names=None):
                                      supplier=issued_by, received_at=date_value,
                                      warehouse_history_id=history_id, work_package=work_package,
                                      source_type="warehouse_history", source_id=history_id,
+                                     source_columns_ready=source_columns_ready,
                                      source_item_key=_journal_item_key(name, unit or "м", qty, work_package)):
             repaired += 1
     material_where = "WHERE COALESCE(quantity,0)>0"
@@ -11931,6 +11943,7 @@ def _backfill_cable_journal(cur, project_names=None):
         name, qty, unit, project, work_package = material
         if _ensure_cable_journal_row(cur, project=project, cable_brand=name, qty=qty,
                                      work_package=work_package, source_type="project_stock",
+                                     source_columns_ready=source_columns_ready,
                                      source_item_key=_journal_item_key(name, unit or "м", qty, work_package, "stock")):
             repaired += 1
     return repaired

@@ -257,11 +257,11 @@ class WarehouseAnomalyRuntimeRouteRegistrationTests(unittest.TestCase):
         package_bytes = package_path.read_bytes()
         runtime_source = runtime_path.read_text(encoding="utf-8")
 
-        # Reviewed supplier catalog and legacy journal backfill fixes;
+        # Reviewed supplier catalog and bounded journal schema preparation;
         # warehouse preview implementation and registration are unchanged.
         self.assertEqual(
             hashlib.sha256(main_bytes).hexdigest(),
-            "744c2edaf5ef4f3477ba4cada95d75470d331783298fbc4d4baed706ded52c06",
+            "c72d441afb0db7729723a8587c7fb240a022d973ecaf32ef1a370ea9d5929786",
         )
         self.assertEqual(
             hashlib.sha256(package_bytes).hexdigest(),

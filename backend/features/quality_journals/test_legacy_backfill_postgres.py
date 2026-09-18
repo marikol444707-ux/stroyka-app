@@ -1,6 +1,8 @@
 """Real legacy backfill regression; requires a fresh isolated fixture database."""
+import json
 import os
 import unittest
+from unittest.mock import patch
 
 
 @unittest.skipUnless(os.environ.get('SUPPLY_CHAIN_RUN_POSTGRES') == '1',
@@ -100,3 +102,103 @@ class LegacyBackfillPostgresTests(unittest.TestCase):
 
     def test_custom_unit_stock_backfill_is_idempotent(self):
         self.check_custom_units(True)
+
+    def check_bounded_schema_work(self, function_name, table):
+        class CountingCursor:
+            def __init__(self, cursor):
+                self.cursor = cursor
+                self.alters = 0
+
+            def __getattr__(self, name):
+                return getattr(self.cursor, name)
+
+            def execute(self, sql, *args):
+                self.alters += int(sql.lstrip().upper().startswith('ALTER TABLE'))
+                return self.cursor.execute(sql, *args)
+
+        conn = self.main.get_db()
+        conn.autocommit = False
+        try:
+            with conn.cursor() as raw:
+                project = 'Schema work regression'
+                for index in range(16):
+                    name = 'ВВГнг 3х2,5 regression ' + str(index)
+                    raw.execute('''INSERT INTO supply_deliveries
+                        (project,material_name,received_quantity,unit,status,work_package)
+                        VALUES (%s,%s,2,'м','Принято','Основная')''', (project, name + ' delivery'))
+                    raw.execute('''INSERT INTO warehouse_invoices
+                        (project,items,status) VALUES (%s,%s,'Принята')''',
+                        (project, json.dumps([dict(name=name + ' invoice', quantity=3, unit='м')])))
+                    raw.execute('''INSERT INTO warehouse_history
+                        (project,material,quantity,unit,type,work_package)
+                        VALUES (%s,%s,4,'м','приход','Основная')''', (project, name + ' history'))
+                    raw.execute('''INSERT INTO materials
+                        (project,name,quantity,unit,work_package)
+                        VALUES (%s,%s,5,'м','Основная')''', (project, name + ' stock'))
+                # Verify the bulk path still repairs an incomplete legacy schema.
+                raw.execute('ALTER TABLE ' + table + ' DROP COLUMN source_item_key')
+                for expected in (64, 0):
+                    cur = CountingCursor(raw)
+                    self.assertEqual(getattr(self.main, function_name)(cur, [project]), expected)
+                    raw.execute('SELECT COUNT(*) FROM ' + table + ' WHERE project_name=%s', (project,))
+                    self.assertEqual(raw.fetchone()[0], 64)
+                    self.assertLessEqual(cur.alters, 9, 'Schema work must not grow with journal rows')
+        finally:
+            conn.rollback()
+            conn.close()
+
+    def test_inspection_schema_work_is_bounded_for_all_sources(self):
+        self.check_bounded_schema_work('_backfill_material_inspection_journal', 'material_inspection_journal')
+
+    def test_cable_schema_work_is_bounded_for_all_sources(self):
+        self.check_bounded_schema_work('_backfill_cable_journal', 'cable_journal')
+
+    def test_standalone_rows_still_repair_legacy_schema(self):
+        conn = self.main.get_db()
+        conn.autocommit = False
+        try:
+            with conn.cursor() as cur:
+                for table, function, args in (
+                    ('material_inspection_journal', self.main._ensure_material_inspection_row,
+                     dict(material_name='Schema repair', unit='уп 100м')),
+                    ('cable_journal', self.main._ensure_cable_journal_row,
+                     dict(cable_brand='ВВГнг 3х2,5 schema repair')),
+                ):
+                    cur.execute('ALTER TABLE ' + table + ' DROP COLUMN source_item_key')
+                    args.update(project='Standalone schema regression', qty=2)
+                    self.assertTrue(function(cur, **args))
+                    self.assertFalse(function(cur, **args))
+                    cur.execute('SELECT COUNT(*) FROM ' + table + ' WHERE project_name=%s', (args['project'],))
+                    self.assertEqual(cur.fetchone()[0], 1)
+        finally:
+            conn.rollback()
+            conn.close()
+
+    def test_failed_bulk_schema_preparation_keeps_row_repair(self):
+        conn = self.main.get_db()
+        conn.autocommit = False
+        try:
+            with conn.cursor() as cur:
+                project = 'Schema retry regression'
+                cur.execute('''INSERT INTO warehouse_history
+                    (project,material,quantity,unit,type)
+                    VALUES (%s,'ВВГнг 3х2,5 retry',2,'м','приход')''', (project,))
+                prepare = self.main._ensure_journal_source_columns
+                for function_name, table in (
+                    ('_backfill_material_inspection_journal', 'material_inspection_journal'),
+                    ('_backfill_cable_journal', 'cable_journal'),
+                ):
+                    cur.execute('ALTER TABLE ' + table + ' DROP COLUMN source_item_key')
+                    attempts = []
+
+                    def fail_once(cursor):
+                        attempts.append(True)
+                        return False if len(attempts) == 1 else prepare(cursor)
+
+                    with patch.object(self.main, '_ensure_journal_source_columns', fail_once):
+                        self.assertEqual(getattr(self.main, function_name)(cur, [project]), 1)
+                    cur.execute('SELECT COUNT(*) FROM ' + table + ' WHERE project_name=%s', (project,))
+                    self.assertEqual(cur.fetchone()[0], 1)
+        finally:
+            conn.rollback()
+            conn.close()
