@@ -36,3 +36,6 @@
 .supplier-order{border:1px solid #b8c4d2;border-radius:12px;padding:20px;margin-top:16px;overflow-wrap:anywhere}
 .supplier-order-heading{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}.supplier-order h3{font-size:17px;margin:0}.supplier-order p,.supplier-order summary{font-size:13px;line-height:1.6}
 .supplier-order-lines>div{border-top:1px solid #dce2ea;padding:8px 0}.supplier-order h4{margin:8px 0;font-size:14px}.supplier-order dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px}.supplier-order dt{font-size:11px;opacity:.75}.supplier-order dd{margin:4px 0;font-weight:600}.supplier-order button,.supplier-orders>button{margin-top:12px;padding:9px;border:1px solid #b8c4d2;background:transparent;color:inherit;border-radius:7px;cursor:pointer}
+.supplier-customer-filter{display:flex;flex-direction:column;gap:8px;max-width:420px;margin-top:20px;font-size:13px}
+.supplier-customer-filter select{min-width:0;max-width:100%;padding:10px;border:1px solid #b8c4d2;border-radius:7px;background:transparent;color:inherit}
+.supplier-customer-history{overflow-wrap:anywhere}.supplier-customer-history>h4{margin:24px 0 12px}.supplier-customer-history>p{font-size:13px;line-height:1.6}

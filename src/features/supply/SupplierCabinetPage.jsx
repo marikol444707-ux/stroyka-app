@@ -2,6 +2,7 @@ import { supplierPublicRequisites } from './supplierPublicRequisites';
 import React from 'react';
 import SupplierRequestRegistry from './SupplierRequestRegistry';
 import SupplierOrders from './SupplierOrders';
+import SupplierCustomers from './SupplierCustomers';
 import useSupplierRequestSelection from './useSupplierRequestSelection';
 import SupplyClaims from './SupplyClaims';
 import SupplierCatalogImport from './SupplierCatalogImport';
@@ -252,7 +253,7 @@ export default function SupplierCabinetPage({
         || (invoiceRequestId && String(delivery.requestId || delivery.request_id || '') === String(invoiceRequestId))
       ));
     };
-    const SUPPLIER_TABS = [{id:'requests',label:'📋 Заявки'},{id:'orders',label:'📦 Заказы'},{id:'catalog',label:'📦 Мой каталог'},{id:'offers',label:'💰 Предложения'},{id:'deliveries',label:'🚚 Отгрузки'},{id:'documents',label:'📄 Счета и накладные'},{id:'claims',label:'⚠️ Претензии'},{id:'profile',label:'⚙️ Профиль'}];
+    const SUPPLIER_TABS = [{id:'requests',label:'📋 Заявки'},{id:'orders',label:'📦 Заказы'},{id:'customers',label:'🏢 Заказчики'},{id:'catalog',label:'📦 Мой каталог'},{id:'offers',label:'💰 Предложения'},{id:'deliveries',label:'🚚 Отгрузки'},{id:'documents',label:'📄 Счета и накладные'},{id:'claims',label:'⚠️ Претензии'},{id:'profile',label:'⚙️ Профиль'}];
     const supplierOfferStatusStyle = (status) => {
       if (status === 'Утверждено') return {label:'Утверждено', color:C.success, bg:C.successLight};
       if (status === 'Получено') return {label:'Отправлено', color:C.info, bg:C.infoLight};
@@ -328,6 +329,7 @@ export default function SupplierCabinetPage({
             </div>
           </div>
 
+          {supplierTab==='customers' && <SupplierCustomers API={API} user={user} C={C} fileSrc={fileSrc} onOpen={id=>{selectRequest(id);setSupplierTab('requests');inboxState?.reload();}}/>}
           {supplierTab==='orders' && <SupplierOrders API={API} user={user} C={C} fileSrc={fileSrc} onOpen={id=>{selectRequest(id);setSupplierTab('requests');inboxState?.reload();}}/>}
           {supplierTab==='requests'&&(<div>
             <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>📋 Запросы КП</b>

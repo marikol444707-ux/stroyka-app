@@ -1,6 +1,6 @@
 # Implementation Plan: Safe Stroyka Program Improvements
 
-## Next slice: supplier customers P8
+## Current slice: supplier customers P8
 
 Roadmap: [Supplier portal implementation plan](../docs/supplier-portal-roadmap.md).
 User deferred inbox/spam investigation and Mail support to final acceptance P14.
@@ -717,3 +717,7 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
 - [ ] Task A14: Put model access behind a provider-neutral gateway; keep the cloud model first and evaluate a local model only after quality/load/cost measurements.
 
 Close and strike through a task only after applicable focused tests, full backend/frontend verification, manual browser checks, tenant/role isolation and production smoke. Record the evidence in `tasks/todo.md`.
+
+P8: derive customer list from authorized request/quote pairs; reuse order cards,
+filter history and documents by company and quote identities; test revocation,
+matching names, mobile and release without API or schema changes.

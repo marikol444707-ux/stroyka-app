@@ -10702,3 +10702,10 @@ change.
 - [x] Own fresh requests/offers/deliveries/invoices load with error and actor guards.
 - [x] Scoped documents and transition to current request actions.
 - [x] Full frontend/build, real browser, backup deploymentd7406367 and smoke.
+
+## P8 — supplier customers
+
+- [x] Customer projection by company ID from addressed requests.
+- [x] Separate requests/orders/document history and all-customer filter.
+- [x] Tests for equal names, foreign documents and revoked selection.
+- [ ] Full tests/build, two-customer browser QA and backed-up release.
