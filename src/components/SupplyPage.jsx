@@ -324,6 +324,7 @@ export default function SupplyPage({
       {curTab === 'deliveries' && (<>
         <SupplyClaims API={API} C={C} user={user} companyContext={companyContext} onChanged={loadAll} />
         <SupplyDeliveriesPanel
+          key={`${companyContext?.mode}:${companyContext?.selectedCompanyId}:${user?.id}`}
           C={C}
           card={card}
           inp={inp}
