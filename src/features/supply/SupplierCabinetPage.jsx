@@ -1,5 +1,7 @@
 import { supplierPublicRequisites } from './supplierPublicRequisites';
 import React from 'react';
+import SupplierRequestRegistry from './SupplierRequestRegistry';
+import useSupplierRequestSelection from './useSupplierRequestSelection';
 import SupplyClaims from './SupplyClaims';
 import SupplierCatalogImport from './SupplierCatalogImport';
 import useSupplierCatalogActions from './useSupplierCatalogActions';
@@ -79,6 +81,9 @@ export default function SupplierCabinetPage({
   uploadPhoto,
   user,
 }) {
+    const [selectedRequestId, selectRequest] = useSupplierRequestSelection();
+    const requestDetailRef = React.useRef(null);
+    React.useEffect(() => { if (selectedRequestId) requestDetailRef.current?.scrollIntoView?.({block:'start'}); }, [selectedRequestId, inboxState?.status]);
     const currentUserId = user?.id || user?.userId || user?.user_id || '';
     const quoteResponse = useSupplierQuoteResponse({
       API, actorId: `${currentUserId}:${user?.role || ''}`, offerId: respondingOfferId,
@@ -280,7 +285,12 @@ export default function SupplierCabinetPage({
     };
     return (
       <div style={{minHeight:'100vh',backgroundColor:C.bg,padding:'20px'}}>
-        <div style={{maxWidth:'900px',margin:'0 auto'}}>
+        <div className="supplier-workspace">
+          <nav className="supplier-workspace-nav" aria-label="Кабинет поставщика">
+            <strong>СТРОЙКА</strong>
+            {SUPPLIER_TABS.map(t=><button key={t.id} type="button" aria-current={supplierTab===t.id?'page':undefined} onClick={()=>setSupplierTab(t.id)}>{t.label}</button>)}
+          </nav>
+          <main className="supplier-workspace-main">
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px'}}>
             <div style={{display:'flex',alignItems:'center',gap:'12px'}}>
               <span style={{fontSize:'28px'}}>🏭</span>
@@ -292,20 +302,6 @@ export default function SupplierCabinetPage({
             </div>
             <button onClick={()=>handleLogout()} style={{...btnG,fontSize:'12px'}}>Выйти</button>
           </div>
-          {/* Селектор клиентов (заготовка под multi-tenancy) */}
-          <div style={{...card,padding:'10px 14px',marginBottom:'16px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder,display:'flex',alignItems:'center',justifyContent:'space-between',gap:'10px',flexWrap:'wrap'}}>
-            <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
-              <span style={{fontSize:'18px'}}>🏢</span>
-              <div>
-                <b style={{color:C.text,fontSize:'13px'}}>Компания-клиент: СтройКа</b>
-                <p style={{color:C.textSec,margin:'2px 0 0',fontSize:'11px'}}>Сейчас показываем заявки только от одной компании. В будущем сюда подключатся другие клиенты — увидите всех в одном кабинете.</p>
-              </div>
-            </div>
-            <select disabled value='1' style={{...inp,marginBottom:0,width:'auto',cursor:'not-allowed',opacity:0.7}}>
-              <option value='1'>СтройКа</option>
-              <option value='all' disabled>🚧 Скоро: все клиенты</option>
-            </select>
-          </div>
           {supplierAccountUnlinked && (
             <div style={{...card,padding:'12px 14px',marginBottom:'16px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}>
               <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'4px'}}>Кабинет не связан с карточкой поставщика</b>
@@ -316,7 +312,7 @@ export default function SupplierCabinetPage({
               </p>
             </div>
           )}
-          <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'12px',marginBottom:'16px'}}>
+          <div className="supplier-workspace-summary" style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'12px',marginBottom:'16px'}}>
             <div style={{...card,padding:'16px',textAlign:'center'}}>
               <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 4px'}}>Новых заявок</p>
               <b style={{color:C.danger,fontSize:'24px'}}>{inboxState && inboxState.status!=='ready' ? '—' : pendingOfferCount}</b>
@@ -331,10 +327,6 @@ export default function SupplierCabinetPage({
             </div>
           </div>
 
-          <div style={{display:'flex',gap:0,overflowX:'auto',borderBottom:'1.5px solid '+C.border,marginBottom:'16px'}}>
-            {SUPPLIER_TABS.map(t=>(<button key={t.id} onClick={()=>setSupplierTab(t.id)} style={{padding:'10px 16px',border:'none',backgroundColor:'transparent',cursor:'pointer',fontSize:'12px',fontWeight:supplierTab===t.id?'700':'400',color:supplierTab===t.id?C.accent:C.textSec,borderBottom:supplierTab===t.id?'2px solid '+C.accent:'2px solid transparent',whiteSpace:'nowrap'}}>{t.label}</button>))}
-          </div>
-
           {supplierTab==='requests'&&(<div>
             <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>📋 Запросы КП</b>
             {inboxState && <div style={{marginBottom:12}}>
@@ -342,13 +334,21 @@ export default function SupplierCabinetPage({
               {inboxState.status==='loading' && <p role="status">Загружаем входящие заявки…</p>}
               {inboxState.status==='error' && <p role="alert" style={{color:C.danger}}>Не удалось загрузить заявки: {inboxState.error}</p>}
             </div>}
+            {(!inboxState || inboxState.status==='ready') && <>
+              <SupplierRequestRegistry C={C} requests={supplyRequests || []} offers={myOffers} selectedId={selectedRequestId} onOpen={selectRequest} busy={quoteResponse.busy} />
+              {selectedRequestId && <div ref={requestDetailRef}>
+                <button type="button" style={btnG} disabled={quoteResponse.busy} onClick={()=>selectRequest('')}>← К списку заявок</button>
+                <h2 style={{color:C.text,fontSize:18}}>Заявка №{selectedRequestId}</h2>
+                {!myOffers.some(o=>String(o.requestId)===selectedRequestId) && <p role="status">Заявка недоступна или больше не входит в ваш список.</p>}
+              </div>}
+            </>}
             {(()=>{
               if (inboxState && inboxState.status!=='ready') return null;
               // Берём supplier_offers где я — поставщик, и группируем по статусу
-              const myOffersForMe = myOffers;
-              if (myOffersForMe.length===0) return (<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'20px'}}>
-                Запросов нет. Когда директор запросит у вас КП по своей заявке — он появится здесь.
-              </p>);
+              const detailId = selectedRequestId;
+              const myOffersForMe = myOffers.filter(o=>String(o.requestId)===detailId);
+              if (!detailId) return null;
+              if (myOffersForMe.length===0) return null;
               const waiting = myOffersForMe.filter(o=>o.status==='Ожидает ответа');
               const responded = myOffersForMe.filter(o=>o.status==='Получено');
               const won = myOffersForMe.filter(o=>o.status==='Утверждено');
@@ -841,6 +841,7 @@ export default function SupplierCabinetPage({
               }} style={{...btnO,marginTop:'14px',width:'100%',justifyContent:'center',padding:'12px'}}><Check size={14}/>Сохранить реквизиты</button>
             </div>
           </div>)}
+          </main>
         </div>
       </div>
     );

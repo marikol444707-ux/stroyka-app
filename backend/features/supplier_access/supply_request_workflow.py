@@ -33,6 +33,7 @@ SUPPLIER_REQUEST_VISIBLE_FIELDS = (
     "unit",
     "project",
     "companyId",
+    "companyName",
     "workPackage",
     "date",
     "status",

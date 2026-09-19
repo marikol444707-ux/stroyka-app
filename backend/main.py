@@ -720,6 +720,7 @@ from backend.features.supplier_access.supply_request_workflow import (
 from backend.features.supplier_access.email_attempts import (
     EMAIL_QUEUED, prepare_email_status, dispatch_recipient_email,
 )
+from backend.features.supplier_access.request_companies import attach_request_company_names
 from backend.features.supplier_access.delivery_diagnostics import (
     attach_recipient_delivery_diagnostics,
 )
@@ -9419,6 +9420,8 @@ def get_supply_requests(
         cur.close(); conn.close()
         return []
     rows = cur.fetchall()
+    if role == "поставщик":
+        rows = attach_request_company_names(cur, rows)
     if is_internal_supply_reader:
         rows = attach_supply_allocation_projection(cur, rows)
     conn.close()

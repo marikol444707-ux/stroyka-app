@@ -30,13 +30,26 @@ function Cabinet({ deps, multi = false, respondedAt = null }) {
 describe('supplier offer submission', () => {
   const originalFetch = global.fetch;
   beforeEach(() => {
+    window.history.replaceState({}, '', '/app?supplyRequestId=31');
     global.fetch = jest.fn();
     Object.defineProperty(window, 'crypto', { configurable: true, value: { randomUUID: () => '12345678-1234-4234-8234-123456789012' } });
     jest.spyOn(window, 'alert').mockImplementation(() => {});
   });
   afterEach(() => {
+    window.history.replaceState({}, '', '/app');
     global.fetch = originalFetch;
     jest.restoreAllMocks();
+  });
+
+  it('hides the draft when returning to the list and restores it on reopening', () => {
+    render(<Cabinet deps={{notify:jest.fn(),refreshData:jest.fn()}} />);
+    expect(screen.getByDisplayValue('Доставим утром')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', {name:'← К списку заявок'}));
+    expect(window.location.search).toBe('');
+    expect(screen.queryByDisplayValue('Доставим утром')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {name:'Отправить КП',exact:true})).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', {name:'Открыть заявку №31'}));
+    expect(screen.getByDisplayValue('Доставим утром')).toBeInTheDocument();
   });
 
   it.each([false, true])('preserves the filled form after HTTP failure (multi=%s)', async multi => {
