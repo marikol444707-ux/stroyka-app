@@ -1,6 +1,7 @@
 import React from 'react';
 import ToolsWorkspace from '../features/tool-custody/ToolsWorkspace';
 import { toolCustodyEnabled } from '../features/tool-custody/ToolCustodyPanel';
+import InventoryWorkspace, { inventoryReconciliationEnabled } from '../features/inventory-reconciliation/InventoryWorkspace';
 import WarehouseInvoicesPanel from './WarehouseInvoicesPanel';
 import WarehouseMainStockPanel from './WarehouseMainStockPanel';
 import WarehouseCompanyWarehousesPanel from './WarehouseCompanyWarehousesPanel';
@@ -127,6 +128,10 @@ export default function WarehousePage(props) {
   const canReviewSupplyRequests = roleFlagsForUser(user).isSupplyRole;
   const useTwoStageMovements = process.env.REACT_APP_WAREHOUSE_DISTRIBUTION_ENABLED === 'true'
     && process.env.REACT_APP_WAREHOUSE_DISTRIBUTION_TRANSFERS_ENABLED === 'true';
+
+  if (user?.role === 'прораб' && inventoryReconciliationEnabled()) {
+    return <InventoryWorkspace {...{ API, companyContext, user, C, showPreview }} onChanged={refreshData} />;
+  }
 
   return (
     <div style={{width:'100%',maxWidth:'100%',minWidth:0,overflowX:'hidden'}}>
@@ -332,7 +337,9 @@ export default function WarehousePage(props) {
 
       {warehouseTab === 'move' && <WarehouseDistributionPanel companyContext={companyContext} projects={projects} C={C} refreshData={refreshData} />}
       {warehouseTab === 'tools' && toolCustodyEnabled() && <ToolsWorkspace {...{ tools, toolHistory, API, companyContext, user, C, refreshData }} />}
-      {((warehouseTab === 'tools' && !toolCustodyEnabled()) || warehouseTab === 'inventory' || (warehouseTab === 'move' && !useTwoStageMovements)) && (
+      {warehouseTab === 'inventory' && inventoryReconciliationEnabled() && <InventoryWorkspace {...{ API, companyContext, user, C, showPreview }} onChanged={refreshData} />}
+
+      {((warehouseTab === 'tools' && !toolCustodyEnabled()) || (warehouseTab === 'inventory' && !inventoryReconciliationEnabled()) || (warehouseTab === 'move' && !useTwoStageMovements)) && (
         <WarehouseOperationsPanel
           isMobile={isMobile}
           warehouseTab={warehouseTab}

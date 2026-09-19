@@ -2,7 +2,7 @@ export const ROLES = {
   директор: ['dashboard','projects','assignments','site','clients','warehouse','pricelists','supply','accounting','analytics','personnel','crm','activitylog','companychat','estimates','settings','myexpenses'],
   зам_директора: ['dashboard','projects','assignments','site','clients','warehouse','pricelists','supply','analytics','accounting','personnel','crm','activitylog','companychat','estimates','settings','myexpenses'],
   главный_инженер: ['dashboard','projects','assignments','warehouse','personnel','companychat','estimates','weather','myexpenses'],
-  прораб: ['projects','assignments','estimates','supply','companychat','weather','myexpenses'],
+  прораб: ['projects','assignments','estimates','supply','companychat','weather','myexpenses', ...(process.env.REACT_APP_INVENTORY_RECONCILIATION_ENABLED === '1' ? ['warehouse'] : [])],
   кладовщик: ['warehouse','assignments','supply','companychat','myexpenses'],
   бухгалтер: ['dashboard','accounting','assignments','supply','personnel','companychat','settings','myexpenses'],
   снабженец: ['warehouse','assignments','supply','companychat','myexpenses'],
