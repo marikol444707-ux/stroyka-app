@@ -13999,6 +13999,11 @@ def _update_work_journal_with_connection(conn, id, data, x_company_id, x_company
 				                   FROM work_journal WHERE id=%s AND company_id=%s FOR UPDATE""",
                 (id, owner_row.get("company_id")))
     project_row = cur.fetchone()
+    try:
+        from backend.features.work_acceptance.policy import guard_legacy_update
+    except ModuleNotFoundError:
+        from features.work_acceptance.policy import guard_legacy_update
+    guard_legacy_update(project_row, _current_user, data)
     project_name = project_row.get("project") if project_row else ""
     work_settlement_guards.require_unacted_work(cur, id)
     role = _current_user.get("role")
