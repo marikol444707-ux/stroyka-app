@@ -22,6 +22,10 @@ React/FastAPI/PostgreSQL без новых зависимостей. Модул�
 
 Сначала failing tests старого поведения и новых команд, затем схема/сервер, интерфейс, PostgreSQL и браузер. Использовать существующие lock_actor, общий stock lock и work_material_operations для повторов. Денежные поля и количество — Decimal, ID строго числовые, клиентские имена/роли не являются доказательством доступа.
 
+API: GET/POST `/inventory/reconciliation` — список с доступными объектами/создание снимка (`projectId`: точный ID либо null для основного склада, `notes`). GET/POST `/inventory/{id}/reconciliation` — чтение и команды (`action`: save/submit/return/cancel/approve, `expectedState`, `requestId`). Save принимает `counts`: список `{key, actual, reason}` для материала или `{key, condition, reason}` для инструмента (`as_recorded/missing/damaged/found`). Учёт и разницу клиент не передаёт. Approve принимает обязательную причину и `lotDeductions`: `{key, untrackedQuantity, lots:[{lotId,quantity}]}` для каждой недостачи основного склада. Все суммы распределения должны точно совпасть с недостачей.
+
+Хранение: прежняя `inventory` служит идентификатором и краткой карточкой; новый `inventory_reconciliations` хранит исходный снимок, текущий факт, версию и состояние. `inventory_reconciliation_events` хранит неизменяемые снимки каждого действия; `inventory_stock_adjustments` — точные изменения материалов с источниками и историей. Старые POST/PUT/DELETE не меняют новые ведомости; при включённом флаге прежние ведомости доступны только для чтения.
+
 Команды проверки:
 ```
 PATH=/usr/local/bin:$PATH /Users/nikolas/.codex/tmp/journal-isolation-release/venv/bin/python scripts/run_supplier_catalog_postgres_tests.py backend.features.inventory_reconciliation.test_postgres

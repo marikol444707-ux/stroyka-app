@@ -8,6 +8,8 @@ from fastapi import Depends, Header, HTTPException
 from ..tool_custody import policy as tool_policy, records as tool_records
 from ..tool_custody.routes import register_tool_custody
 from ..work_material_accounting.quantities import money
+from ..inventory_reconciliation.policy import legacy_write_guard
+from ..inventory_reconciliation.routes import register_inventory_reconciliation
 
 
 def _row_value(row, key, index=0, default=None):
@@ -301,6 +303,7 @@ def register_inventory_module(app, deps):
             cur.close(); conn.close()
 
     register_tool_custody(app, deps, selected_actor)
+    register_inventory_reconciliation(app, deps, selected_actor)
 
     @app.get("/inventory")
     def get_inventory(
@@ -335,6 +338,7 @@ def register_inventory_module(app, deps):
         conn = get_db(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             _context, actor, company_id = selected_actor(cur, current_user, "create", x_company_id, x_company_mode, (*warehouse_roles, "главный_инженер"))
+            legacy_write_guard(cur)
             scope, project_id = resolve_project_owner(cur, inventory.project, company_id)
             if scope != "project": raise HTTPException(status_code=400, detail="Для инвентаризации укажите объект")
             if actor.get("role") == "прораб": project_access(actor, inventory.project)
@@ -356,6 +360,7 @@ def register_inventory_module(app, deps):
         try:
             _context, actor, company_id = selected_actor(cur, current_user, "update", x_company_id, x_company_mode, (*warehouse_roles, "главный_инженер"))
             require_inventory_actor_access(cur, inventory_id, actor, company_id)
+            legacy_write_guard(cur, inventory_id)
             if "status" in data: cur.execute("UPDATE inventory SET status=%s WHERE id=%s AND company_id=%s", (data["status"], inventory_id, company_id))
             conn.commit(); return {"ok": True}
         except Exception:
@@ -374,6 +379,7 @@ def register_inventory_module(app, deps):
         try:
             _context, actor, company_id = selected_actor(cur, current_user, "delete", x_company_id, x_company_mode, (*warehouse_roles, "главный_инженер"))
             require_inventory_actor_access(cur, inventory_id, actor, company_id)
+            legacy_write_guard(cur, inventory_id)
             cur.execute("DELETE FROM inventory_items WHERE inventory_id=%s AND company_id=%s", (inventory_id, company_id))
             cur.execute("DELETE FROM inventory WHERE id=%s AND company_id=%s", (inventory_id, company_id))
             conn.commit(); return {"ok": True}
@@ -400,6 +406,7 @@ def register_inventory_module(app, deps):
 
     def insert_inventory_item(cur, inventory_id, data, actor, company_id):
         inventory = require_inventory_actor_access(cur, inventory_id, actor, company_id)
+        legacy_write_guard(cur, inventory_id)
         cur.execute(
             "INSERT INTO inventory_items (inventory_id,material_name,unit,expected,actual,difference,notes,owner_scope,company_id,project_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
             (inventory_id,data["materialName"],data["unit"],data["expected"],data["actual"],data["difference"],data.get("notes", ""),_row_value(inventory,"owner_scope",2),company_id,_row_value(inventory,"project_id",4)),
