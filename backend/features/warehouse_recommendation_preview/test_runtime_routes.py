@@ -257,11 +257,11 @@ class WarehouseAnomalyRuntimeRouteRegistrationTests(unittest.TestCase):
         package_bytes = package_path.read_bytes()
         runtime_source = runtime_path.read_text(encoding="utf-8")
 
-        # Reviewed template registration now supplies selected-company auth;
+        # Reviewed claim registration enforces scoped history and versioned actions;
         # warehouse preview implementation and registration are unchanged.
         self.assertEqual(
             hashlib.sha256(main_bytes).hexdigest(),
-            "1deec5aa1603f3b32f0c82914b6c3831f1648306cb21cd2509992fa4ed0a4f86",
+            "3c1c203025e53551ea1a79626b597db97fcd3cb3519b74622d41d39f14e10797",
         )
         self.assertEqual(
             hashlib.sha256(package_bytes).hexdigest(),

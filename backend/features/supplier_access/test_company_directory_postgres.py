@@ -269,20 +269,20 @@ class CompanyDirectoryPostgresTests(unittest.TestCase):
         delivery_id = self.sql('''INSERT INTO supply_deliveries(company_id,request_id,offer_id,supplier_id,project,
             material_name,planned_quantity,unit,work_package) VALUES(2,%s,%s,%s,%s,'Synthetic',1,'шт',%s) RETURNING id''',
             (request_id, offer_id, f['supplierId'], f['project'], f['workPackage']))[0][0]
-        claim_id = self.sql('''INSERT INTO supply_claims(delivery_id,request_id,offer_id,supplier_id,project,material_name)
-            VALUES(%s,%s,%s,%s,%s,'Synthetic') RETURNING id''',
-            (delivery_id, request_id, offer_id, f['supplierId'], f['project']))[0][0]
+        claim_id = self.sql('''INSERT INTO supply_claims(delivery_id,request_id,offer_id,supplier_id,project,material_name,work_package)
+            VALUES(%s,%s,%s,%s,%s,'Synthetic',%s) RETURNING id''',
+            (delivery_id, request_id, offer_id, f['supplierId'], f['project'], f['workPackage']))[0][0]
         self.assertIn(delivery_id, [r['id'] for r in self.api('supplier', 'GET', '/supply-deliveries')])
         self.assertIn(claim_id, [r['id'] for r in self.api('supplier', 'GET', '/supply-claims')])
-        self.api('supplier', 'PUT', f'/supply-claims/{claim_id}', {'resolution': 'Reply'})
-        self.api('supplier', 'PUT', f'/supply-claims/{claim_id}', {'status': 'Закрыта'}, expected=403)
-        self.api('stranger', 'PUT', f'/supply-claims/{claim_id}', {'resolution': 'Foreign'}, expected=403)
+        self.api('supplier', 'PUT', f'/supply-claims/{claim_id}', {'resolution': 'Reply'}, expected=409)
+        self.api('supplier', 'PUT', f'/supply-claims/{claim_id}', {'status': 'Закрыта'}, expected=409)
+        self.api('stranger', 'PUT', f'/supply-claims/{claim_id}', {'resolution': 'Foreign'}, expected=409)
         self.api('stranger', 'PUT', f'/supply-deliveries/{delivery_id}/receive', {'receivedQuantity': 1}, expected=403)
         self.sql('UPDATE supply_request_recipients SET visible_to_supplier=FALSE WHERE id=%s', (recipient_id,))
         self.assertNotIn(delivery_id, [r['id'] for r in self.api('supplier', 'GET', '/supply-deliveries')])
         self.assertNotIn(claim_id, [r['id'] for r in self.api('supplier', 'GET', '/supply-claims')])
         self.api('supplier', 'PUT', f'/supply-claims/{claim_id}', {'resolution': 'Hidden'}, expected=403)
-        self.assertEqual(self.sql('SELECT resolution FROM supply_claims WHERE id=%s', (claim_id,)), [('Reply',)])
+        self.assertEqual(self.sql('SELECT resolution FROM supply_claims WHERE id=%s', (claim_id,)), [(None,)])
         self.sql('UPDATE supply_request_recipients SET visible_to_supplier=TRUE WHERE id=%s', (recipient_id,))
         self.sql('UPDATE supply_deliveries SET company_id=3 WHERE id=%s', (delivery_id,))
         self.assertNotIn(delivery_id, [r['id'] for r in self.api('supplier', 'GET', '/supply-deliveries')])

@@ -1,0 +1,15 @@
+.supply-claims { margin-bottom: 20px; overflow-wrap: anywhere; }
+.supply-claims button, .supply-claims select, .supply-claims textarea { font: inherit; max-width: 100%; }
+.supply-claims button { cursor: pointer; padding: 8px 12px; }
+.supply-claim-list { padding: 0; list-style: none; }
+.supply-claim-list > li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid #cbd5e1; }
+.supply-claim-list p { margin: 4px 0; }
+.supply-claim-card { border: 1px solid #cbd5e1; border-radius: 10px; padding: 16px; }
+.supply-claim-card fieldset { min-width: 0; padding: 0; border: 0; }
+.supply-claim-card label { display: grid; gap: 6px; margin-bottom: 12px; }
+.supply-claim-card select, .supply-claim-card textarea { box-sizing: border-box; width: 100%; padding: 10px; border: 1px solid #94a3b8; border-radius: 6px; }
+.supply-claim-card textarea { min-height: 100px; resize: vertical; }
+.supply-claim-card ol { padding-left: 22px; }
+.supply-claim-text { white-space: pre-wrap; }
+.supply-claims :focus-visible { outline: 3px solid #2563eb; outline-offset: 2px; }
+@media (max-width: 400px) { .supply-claim-card { padding: 10px; } }

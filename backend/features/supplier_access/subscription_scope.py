@@ -35,8 +35,8 @@ def resolve_supplier_offer_subscription_context(
     """
     if (user or {}).get("role") != "поставщик":
         return None
-    claim_match = re.fullmatch(r'/supply-claims/([1-9][0-9]*)/?', str(path or ''))
-    if claim_match and str(method or '').upper() == 'PUT':
+    claim_match = re.fullmatch(r'/supply-claims/([1-9][0-9]*)(/case)?/?', str(path or ''))
+    if claim_match and str(method or '').upper() == ('POST' if claim_match.group(2) else 'PUT'):
         cur.execute('''SELECT d.company_id,d.offer_id FROM supply_claims c
             JOIN supply_deliveries d ON d.id=c.delivery_id AND d.request_id=c.request_id
               AND d.offer_id=c.offer_id AND d.supplier_id=c.supplier_id AND d.project=c.project

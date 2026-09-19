@@ -3,6 +3,7 @@ import { Search } from 'lucide-react';
 import SupplyHeaderTabs from './SupplyHeaderTabs';
 import SupplyRequestForm from './SupplyRequestForm';
 import SupplyRequestsList from './SupplyRequestsList';
+import SupplyClaims from '../features/supply/SupplyClaims';
 import SupplyDeliveriesPanel from './SupplyDeliveriesPanel';
 import SupplyCatalogPanel from './SupplyCatalogPanel';
 import SupplySuppliersPanel from './SupplySuppliersPanel';
@@ -320,7 +321,8 @@ export default function SupplyPage({
         />
       )}
 
-      {curTab === 'deliveries' && (
+      {curTab === 'deliveries' && (<>
+        <SupplyClaims API={API} C={C} user={user} companyContext={companyContext} onChanged={loadAll} />
         <SupplyDeliveriesPanel
           C={C}
           card={card}
@@ -348,7 +350,7 @@ export default function SupplyPage({
           buildInvoiceContent={buildInvoiceContent}
           uploadPhoto={uploadPhoto}
         />
-      )}
+      </>)}
 
       {curTab !== 'catalog' && curTab !== 'invoices' && curTab !== 'suppliers' && curTab !== 'deliveries' && showSupplyForm && (
         <SupplyRequestForm

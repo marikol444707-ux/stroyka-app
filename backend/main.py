@@ -12098,60 +12098,6 @@ def list_supply_deliveries(
         cur.close(); conn.close()
 
 
-@app.get("/supply-claims")
-def list_supply_claims(
-    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
-    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
-    current_user: dict = Depends(get_current_user),
-):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    role = current_user.get("role")
-    if role == "поставщик":
-        supplier_ids = current_supplier_ids(cur, current_user)
-        if not supplier_ids:
-            cur.close(); conn.close()
-            return []
-        try:
-            from backend.features.supplier_access.service import supplier_delivery_visibility_filter
-        except ModuleNotFoundError:
-            from features.supplier_access.service import supplier_delivery_visibility_filter
-        visibility, params = supplier_delivery_visibility_filter(supplier_ids, current_user.get('id'))
-        cur.execute(CLAIM_SELECT + """ WHERE EXISTS(SELECT 1 FROM supply_deliveries d
-            WHERE d.id=supply_claims.delivery_id AND d.request_id=supply_claims.request_id
-              AND d.offer_id=supply_claims.offer_id AND d.supplier_id=supply_claims.supplier_id
-              AND """ + visibility + ') ORDER BY id DESC', params)
-    else:
-        try:
-            scope, params = _fulfilment_visibility(cur, current_user,
-                '(SELECT d.company_id FROM supply_deliveries d WHERE d.id=supply_claims.delivery_id'
-                ' AND d.request_id=supply_claims.request_id AND d.offer_id=supply_claims.offer_id'
-                ' AND d.supplier_id=supply_claims.supplier_id)',
-                'project', 'work_package', x_company_id, x_company_mode,
-                'request_id IN (SELECT id FROM supply_requests WHERE requested_by_id=%s OR created_by=%s)')
-            cur.execute(CLAIM_SELECT + ' WHERE ' + scope + ' ORDER BY id DESC', params)
-        except Exception:
-            cur.close(); conn.close()
-            raise
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return [dict(r) for r in rows]
-
-
-
-CLAIM_SELECT = """
-    SELECT id, delivery_id as "deliveryId", request_id as "requestId",
-           offer_id as "offerId", supplier_id as "supplierId",
-           project, material_name as "materialName",
-           claim_type as "claimType", description,
-           expected_quantity as "expectedQuantity",
-           received_quantity as "receivedQuantity",
-           shortage_quantity as "shortageQuantity",
-           COALESCE(work_package,'') as "workPackage",
-           photo_url as "photoUrl", status, created_by as "createdBy",
-           created_at as "createdAt", resolved_at as "resolvedAt", resolution
-    FROM supply_claims
-"""
 DELIVERY_SELECT = """
     SELECT d.id, d.offer_id as "offerId", d.company_id as "companyId", d.request_id as "requestId",
            d.supplier_id as "supplierId", d.supplier_name as "supplierName",
@@ -12468,28 +12414,19 @@ def ai_check_supply_delivery(
     return {"ok": True, "result": result_text, "expected": expected}
 
 
-@app.put("/supply-claims/{id}")
-def update_supply_claim(
-    id: int, data: dict,
-    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
-    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
-    _current_user: dict = Depends(get_current_user),
-):
-    try:
-        from backend.features.supplier_access.claims import update_claim
-    except ModuleNotFoundError:
-        from features.supplier_access.claims import update_claim
-    def authorize_internal(cursor, delivery):
-        if data.get('companyId', data.get('company_id')) not in (None, delivery['company_id']):
-            raise HTTPException(403, 'Компания не соответствует поставке')
-        return authorize_procurement_document(
-            cursor, delivery, _current_user, resolve_actor=resolve_resource_company_actor,
-            project_access=require_project_or_warehouse_access, package_access=has_package_access,
-            allowed_roles=SUPPLY_INTERNAL_ROLES, platform_staff_roles=PLATFORM_STAFF_ROLES,
-            client_account_roles=CLIENT_ACCOUNT_ROLES, x_company_id=x_company_id,
-            x_company_mode=x_company_mode, action_mode='update',
-        )
-    return update_claim(get_db, id, data, _current_user, authorize_internal, current_supplier_ids)
+try:
+    from backend.features.supply_claim_cases.routes import register_supply_claim_cases_module
+except ModuleNotFoundError:
+    from features.supply_claim_cases.routes import register_supply_claim_cases_module
+
+register_supply_claim_cases_module(app, {
+    "get_db": get_db,
+    "get_current_user": get_current_user,
+    "current_supplier_ids": current_supplier_ids,
+    "fulfilment_visibility": _fulfilment_visibility,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
+})
 
 try:
     from backend.features.supply_history.routes import register_supply_history_module

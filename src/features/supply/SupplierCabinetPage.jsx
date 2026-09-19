@@ -1,5 +1,6 @@
 import { supplierPublicRequisites } from './supplierPublicRequisites';
 import React from 'react';
+import SupplyClaims from './SupplyClaims';
 import { Check, Download, Edit2, Plus, Trash2, Upload, X } from 'lucide-react';
 import DocumentRecognitionPanel from '../../components/DocumentRecognitionPanel';
 import { groupSuppliers, normalizeSupplierPayload, supplierIdentityKeys } from '../../utils/supplierUtils';
@@ -783,20 +784,7 @@ export default function SupplierCabinetPage({
             {mySupplierInvoices.length===0&&<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'20px'}}>Счетов пока нет</p>}
           </div>)}
 
-          {supplierTab==='claims'&&(<div>
-            <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>⚠️ Претензии по поставкам</b>
-            {myClaims.map(c=>(<div key={c.id} style={{...card,padding:'12px',marginBottom:'8px',borderLeft:'3px solid '+(c.status==='Открыта'?C.danger:C.success)}}>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
-                <div>
-                  <b style={{fontSize:'13px',color:C.text}}>{c.materialName}</b>
-                  <p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{c.claimType} · 🏗 {c.project||'—'}</p>
-                  <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{c.description}</p>
-                </div>
-                <span style={badge(c.status==='Открыта'?C.danger:C.success,c.status==='Открыта'?C.dangerLight:C.successLight,c.status==='Открыта'?C.dangerBorder:C.successBorder)}>{c.status}</span>
-              </div>
-            </div>))}
-            {myClaims.length===0&&<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'20px'}}>Претензий нет</p>}
-          </div>)}
+          {supplierTab==='claims'&&<SupplyClaims API={API} C={C} user={user} onChanged={refreshData} />}
 
           {supplierTab==='profile'&&(<div>
             <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>⚙️ Реквизиты компании</b>
