@@ -31,3 +31,10 @@ and zero stale cards (no false empty message); explicit retry restores the card.
 supplier receives empty requests/offers via real API and sees no first supplier card.
 Mobile320 viewport/document320; screenshot inspected. No real supplier notification
 sent. Browser console only fixture online403, injected503 and preload warnings.
+
+Release56c0d2ac9d5797eb2f73042d7198727d5107d3b6 completed2026-09-19T13:33:01Z.
+Backup `/root/stroyka-inbox-loading-a0kmucWk/backup`;173tables preserved,319assetsverified.
+Read-only smoke13:33:20Z healthy, DB11.3ms, runtimeErrors0; requests/offers without session401.
+Schema unchanged0033. Synthetic database/auth files removed. Private logs and screenshot:
+`/Users/nikolas/.codex/tmp/supplier-inbox-loading/`. P1 complete; P2 and external-notification
+P3 remain pending, with existing PostgreSQL baseline evidence available for P2.
