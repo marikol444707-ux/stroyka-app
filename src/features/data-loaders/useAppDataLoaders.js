@@ -31,7 +31,7 @@ export const useAppDataLoaders = (ctx) => {
     setPiecework, setPrescriptionsList, setPricelists, setProjectDocuments, setProjectLetters, setProjectMeasurements, setProjectPayments,
     setProjects, setProjectStages, setRoomDoors, setRooms, setRoomWindows, setRoomWorks, setSalaryPayments,
     setStaff, setSupervisorActs, setSupplierCatalog, setSupplierInvoices, setSupplierOffers, setSuppliers, setSupplyClaims,
-    setSupplyDeliveries, setSupplyHistory, setSupplyRequests, setSupplyTemplates, setTbJournal, setTimesheet,
+    setSupplyDeliveries, setSupplyHistory, setSupplyRequests, setTbJournal, setTimesheet,
     setToolHistory, setTools, setUnexpectedWorksList, setUser, setUsers, setWarehouseMain, setWarehouseMovements,
     setWarehouses, setWarrantyDefects, setWorkJournal, setWorkJournalPage, user, WORK_JOURNAL_PAGE_LIMIT,
   } = ctx;
@@ -534,7 +534,7 @@ export const useAppDataLoaders = (ctx) => {
       setInventory(Array.isArray(inv)?inv:[]);
     });
     if (['supply','suppliers'].includes(page)) return loadMobileScopeOnce('mobile:supply', async () => {
-      const [sup,sr,so,sh,sd,sc,supI,scat,stpl,winv] = await Promise.all([
+      const [sup,sr,so,sh,sd,sc,supI,scat,winv] = await Promise.all([
         (isSupplyRole || isWarehouseRole || isFinanceRole) ? getApi('/suppliers') : Promise.resolve([]),
         isSupplyRole ? getApi('/supply-requests') : Promise.resolve([]),
         isSupplyRole ? getApi('/supplier-offers') : Promise.resolve([]),
@@ -543,14 +543,12 @@ export const useAppDataLoaders = (ctx) => {
         isSupplyRole ? getApi('/supply-claims') : Promise.resolve([]),
         canSeeSupplierInvoices ? getApi('/supplier-invoices') : Promise.resolve([]),
         (isSupplyRole || isWarehouseRole || isFinanceRole || role === 'поставщик') ? getApi('/supplier-catalog') : Promise.resolve([]),
-        isSupplyRole ? getApi('/supply-request-templates') : Promise.resolve([]),
         (isWarehouseRole || isFinanceRole) ? getApi('/warehouse-invoices') : Promise.resolve([]),
       ]);
       setSuppliers(Array.isArray(sup)?sup:[]); setSupplyRequests(Array.isArray(sr)?sr:[]);
       setSupplierOffers(Array.isArray(so)?so:[]); setSupplyHistory(Array.isArray(sh)?sh:[]);
       setSupplyDeliveries(Array.isArray(sd)?sd:[]); setSupplyClaims(Array.isArray(sc)?sc:[]);
       setSupplierInvoices(Array.isArray(supI)?supI:[]); setSupplierCatalog(Array.isArray(scat)?scat:[]);
-      setSupplyTemplates(Array.isArray(stpl)?stpl:[]);
       setInvoices(Array.isArray(winv)?winv:[]);
     });
     if (['personnel','users'].includes(page)) return loadMobileScopeOnce('mobile:people', async () => {
@@ -708,8 +706,7 @@ export const useAppDataLoaders = (ctx) => {
         })
         .catch(() => fallback === null ? null : LOAD_FAILED);
       const skip = (fallback = []) => Promise.resolve(fallback);
-
-      const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,sd,sc,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,er,bc,hwa,mij,cbj,sva,inspO,expR,supI,warD,scat,stpl,aif,ait,mn,ma,mno,mns,aud] = await Promise.all([
+      const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,sd,sc,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,er,bc,hwa,mij,cbj,sva,inspO,expR,supI,warD,scat,aif,ait,mn,ma,mno,mns,aud] = await Promise.all([
         role === 'поставщик' ? skip([]) : get('/projects'),
         (isLeadershipRole || role === 'менеджер_crm') ? get('/clients') : skip([]),
         role === 'поставщик' ? skip([]) : get(pagedPath('/materials', {limit: MATERIALS_PAGE_LIMIT})),
@@ -761,7 +758,6 @@ export const useAppDataLoaders = (ctx) => {
         canSeeSupplierInvoices ? get('/supplier-invoices') : skip([]),
         canSeeProjectDocs ? get('/warranty-defects') : skip([]),
         (isSupplyRole || isWarehouseRole || isFinanceRole || role === 'поставщик') ? get('/supplier-catalog') : skip([]),
-        isSupplyRole ? get('/supply-request-templates') : skip([]),
         canSeeProjectDocs ? get('/ai-findings') : skip([]),
         canSeeProjectDocs ? get(assignmentsPathForRole(role)) : skip([]),
         canSeeProjectDocs ? get(pagedPath('/material-norms', {limit: MATERIAL_NORMS_PAGE_LIMIT})) : skip([]),
@@ -789,7 +785,7 @@ export const useAppDataLoaders = (ctx) => {
       setLoaded(setEstimateReconciliations, er); setLoaded(setBrigadeContracts, bc); setLoaded(setHiddenActs, hwa);
       applyQualityJournal(mij); applyQualityJournal(cbj); setLoaded(setSupervisorActs, sva);
       setLoaded(setInspectionOrders, inspO); setLoaded(setExpenseReports, expR); setLoaded(setSupplierInvoices, supI);
-      setLoaded(setWarrantyDefects, warD); setLoaded(setSupplierCatalog, scat); setLoaded(setSupplyTemplates, stpl);
+      setLoaded(setWarrantyDefects, warD); setLoaded(setSupplierCatalog, scat);
       setLoaded(setAiFindings, aif); setLoaded(setAiTasks, ait);
       if (isLoaded(mn)) { setMaterialNorms(asArray(mn)); resetMaterialNormsPage(asArray(mn)); }
       if (!ownedAliasesEnabled()) setLoaded(setMaterialAliases, ma);

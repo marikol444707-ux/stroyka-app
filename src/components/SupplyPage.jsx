@@ -38,9 +38,6 @@ export default function SupplyPage({
   listSearch,
   setListSearch,
   matchSearch,
-  supplyTemplates,
-  applySupplyTemplate,
-  deleteSupplyTemplate,
   newSupplyReq,
   setNewSupplyReq,
   priceHints,
@@ -50,7 +47,6 @@ export default function SupplyPage({
   getProjectWorkPackageOptions,
   renderSupplyPlanningHint,
   createSupplyReq,
-  saveSupplyTemplate,
   supplyCollapsedProjects,
   setSupplyCollapsedProjects,
   parseSupplyItems,
@@ -356,6 +352,7 @@ export default function SupplyPage({
 
       {curTab !== 'catalog' && curTab !== 'invoices' && curTab !== 'suppliers' && curTab !== 'deliveries' && showSupplyForm && (
         <SupplyRequestForm
+          API={API} companyContext={companyContext} user={user}
           C={C}
           card={card}
           inp={inp}
@@ -364,9 +361,6 @@ export default function SupplyPage({
           btnR={btnR}
           role={role}
           isLeadership={isLeadershipUser}
-          supplyTemplates={supplyTemplates}
-          applySupplyTemplate={applySupplyTemplate}
-          deleteSupplyTemplate={deleteSupplyTemplate}
           newSupplyReq={newSupplyReq}
           setNewSupplyReq={setNewSupplyReq}
           priceHints={priceHints}
@@ -376,7 +370,6 @@ export default function SupplyPage({
           getProjectWorkPackageOptions={getProjectWorkPackageOptions}
           renderSupplyPlanningHint={renderSupplyPlanningHint}
           createSupplyReq={createSupplyReq}
-          saveSupplyTemplate={saveSupplyTemplate}
           setShowSupplyForm={setShowSupplyForm}
         />
       )}

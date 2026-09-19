@@ -257,11 +257,11 @@ class WarehouseAnomalyRuntimeRouteRegistrationTests(unittest.TestCase):
         package_bytes = package_path.read_bytes()
         runtime_source = runtime_path.read_text(encoding="utf-8")
 
-        # Reviewed company warehouse directory replaces global warehouse CRUD;
+        # Reviewed template registration now supplies selected-company auth;
         # warehouse preview implementation and registration are unchanged.
         self.assertEqual(
             hashlib.sha256(main_bytes).hexdigest(),
-            "6e51f58ffd507247928a4c5ef9180fe7c06f99a0bf257d9ed7cc08c0d6ee4f9a",
+            "1deec5aa1603f3b32f0c82914b6c3831f1648306cb21cd2509992fa4ed0a4f86",
         )
         self.assertEqual(
             hashlib.sha256(package_bytes).hexdigest(),

@@ -93,7 +93,7 @@ function App() {
   const estimateChangeReconcileQueuedRef = useRef(new Set());
   const materialControlTaskQueuedRef = useRef(new Set());
   const roomControlTaskQueuedRef = useRef(new Set());
-  const supplyWorkflowState = useSupplyWorkflowState();
+  const supplyWorkflowState = useSupplyWorkflowState(`${user?.id}:${companyContext.mode}:${companyContext.selectedCompanyId}`);
   const materialNormsState = useMaterialNormsState();
   const {
     fileSrc,

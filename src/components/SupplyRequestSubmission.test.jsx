@@ -49,7 +49,16 @@ const forms = [
     },
   },
 ];
-
+test('changing object clears a section absent from the new estimate', () => {
+  const setDraft = jest.fn();
+  render(<SupplyRequestForm {...common} role="директор" isLeadership
+    projects={[{id: 1, name: 'Объект'}, {id: 2, name: 'Новый объект'}]}
+    getProjectWorkPackageOptions={project => project === 'Новый объект' ? ['Электрика', 'Сантехника'] : ['Основная']}
+    priceHints={{}} UNITS={['шт']} newSupplyReq={createSupplyRequestForm({project: 'Объект', items: [item]})}
+    setNewSupplyReq={setDraft} renderSupplyPlanningHint={() => null} />);
+  fireEvent.change(screen.getByDisplayValue('Объект'), {target: {value: 'Новый объект'}});
+  expect(setDraft.mock.calls[0][0].items[0].workPackage).toBe('');
+});
 describe.each(forms)('$name request submission', ({build}) => {
   test('allows one submission and keeps fields/cancel locked across rerenders until completion', async () => {
     const pending = deferred();

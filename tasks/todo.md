@@ -10615,3 +10615,14 @@ executor and begins with an audit-only warehouse review acknowledgement. This
 planning step changed documentation and task decomposition only; it made no
 code, schema, route, registration, UI, production, commit, push or deployment
 change.
+# Company supply request templates — 2026-09-19
+
+- [x] Reproduce global visibility and stale project section failures.
+- [x] Add nullable company ownership, immutable archive/audit and scoped HTTP policy.
+- [x] Use server identity, exact replay and reject malformed rows without dropping them.
+- [x] Replace global template UI state with company-scoped controls; wire master sections.
+- [x] PostgreSQL 19, frontend 1083, build, independent review and 320px browser checks.
+- [x] Rehearse migration on private production copy; all 171 original tables unchanged.
+- [x] Canonical backend discovery: 3745 tests passed, 623 opt-in skips.
+- [ ] Release with verified rollback quarantine.
+- [ ] Attribute legacy warehouse/template only after explicit ownership confirmation.

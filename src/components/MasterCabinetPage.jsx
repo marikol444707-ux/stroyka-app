@@ -133,7 +133,6 @@ export default function MasterCabinetPage(props) {
     addMasterWorks,
     appendPhotos,
     applyMaterialOverNormReason,
-    applySupplyTemplate,
     badge,
     brigadeContracts = [],
     brigadeContractItems,
@@ -223,7 +222,6 @@ export default function MasterCabinetPage(props) {
     roomMeasurementMessage,
     rooms,
     saveProfile,
-    saveSupplyTemplate,
     selectableActiveProjects,
     selectedBrigadeContract,
     selectedWorks,
@@ -261,7 +259,6 @@ export default function MasterCabinetPage(props) {
     supplyCollapsedProjects,
     supplyRequestOrigin,
     supplyRequests,
-    supplyTemplates,
     toNum,
     toggleNotifications,
     tools,
@@ -2107,6 +2104,7 @@ export default function MasterCabinetPage(props) {
 
         {activePage === 'supply' && (
           <MasterSupplyPage
+            API={API} companyContext={props.companyContext} getProjectWorkPackageOptions={props.getProjectWorkPackageOptions}
             C={C}
             card={card}
             inp={inp}
@@ -2120,9 +2118,6 @@ export default function MasterCabinetPage(props) {
             showSupplyForm={showSupplyForm}
             setShowSupplyForm={setShowSupplyForm}
             supplyRequests={supplyRequests}
-            supplyTemplates={supplyTemplates}
-            applySupplyTemplate={applySupplyTemplate}
-            deleteSupplyTemplate={props.deleteSupplyTemplate}
             newSupplyReq={newSupplyReq}
             setNewSupplyReq={setNewSupplyReq}
             priceHints={priceHints}
@@ -2131,7 +2126,6 @@ export default function MasterCabinetPage(props) {
             masterProjectOptions={masterProjectOptions}
             renderSupplyPlanningHint={renderSupplyPlanningHint}
             createSupplyReq={createSupplyReq}
-            saveSupplyTemplate={saveSupplyTemplate}
             parseSupplyItems={parseSupplyItems}
             renderSupplyRequestOrigin={renderSupplyRequestOrigin}
             supplyRequestOrigin={supplyRequestOrigin}

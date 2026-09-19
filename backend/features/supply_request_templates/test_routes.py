@@ -1,113 +1,48 @@
+"""Boundary validation and authenticated legacy guard; SQL policy is exercised in PG."""
 import unittest
-
-from fastapi import HTTPException
-
+from fastapi import FastAPI, HTTPException
 from backend.features.supply_request_templates.routes import register_supply_request_templates_module
+from backend.features.supply_request_templates.service import validate
 
 
-class FakeApp:
-    def __init__(self):
-        self.routes = {}
+class SupplyRequestTemplatesValidationTest(unittest.TestCase):
+    def payload(self, **changes):
+        return {'name': '  Начальный   набор ', 'category': ' Стены ', 'items': [
+            {'materialName': ' Цемент ', 'quantity': '1.000001', 'unit': ' кг ', 'workPackage': ' Основная '}], **changes}
 
-    def get(self, path):
-        return self._register("GET", path)
+    def test_normalizes_text_and_preserves_valid_fractional_quantity(self):
+        name, category, items = validate(self.payload())
+        self.assertEqual((name, category), ('Начальный набор', 'Стены'))
+        self.assertEqual(items, [{'materialName': 'Цемент', 'quantity': 1.000001, 'unit': 'кг', 'workPackage': 'Основная'}])
 
-    def post(self, path):
-        return self._register("POST", path)
+    def test_invalid_row_rejects_whole_template_instead_of_dropping_material(self):
+        payload = self.payload()
+        payload['items'].append({'materialName': '', 'quantity': 3, 'unit': 'шт'})
+        with self.assertRaises(HTTPException) as caught:
+            validate(payload)
+        self.assertEqual(caught.exception.status_code, 400)
 
-    def delete(self, path):
-        return self._register("DELETE", path)
+    def test_malformed_fields_and_author_spoofing_are_rejected(self):
+        for changes in ({'name': None}, {'name': 123}, {'category': []}, {'createdById': 1}, {'companyId': 2},
+                        {'items': []}, {'items': {}}, {'items': [None]}, {'items': [True]}):
+            with self.subTest(changes=changes), self.assertRaises(HTTPException) as caught:
+                validate(self.payload(**changes))
+            self.assertEqual(caught.exception.status_code, 400)
 
-    def _register(self, method, path):
-        def decorator(handler):
-            self.routes[(method, path)] = handler
-            return handler
-        return decorator
+    def test_quantities_must_be_positive_finite_and_exact_to_six_places(self):
+        for value in (None, True, [], {}, 'NaN', 'Infinity', '-Infinity', 0, -1, '0.0000001', 100000000):
+            payload = self.payload()
+            payload['items'][0]['quantity'] = value
+            with self.subTest(value=value), self.assertRaises(HTTPException) as caught:
+                validate(payload)
+            self.assertEqual(caught.exception.status_code, 400)
 
-
-class FakeCursor:
-    def __init__(self, rows=(), row=None):
-        self.rows = list(rows)
-        self.row = row
-        self.calls = []
-
-    def execute(self, sql, params=()):
-        self.calls.append((" ".join(sql.split()), tuple(params)))
-
-    def fetchall(self):
-        return list(self.rows)
-
-    def fetchone(self):
-        return self.row
-
-    def close(self):
-        pass
-
-
-class FakeConnection:
-    def __init__(self, cursor):
-        self._cursor = cursor
-        self.committed = False
-
-    def cursor(self, **_kwargs):
-        return self._cursor
-
-    def commit(self):
-        self.committed = True
-
-    def close(self):
-        self.closed = True
-
-
-def build(cursor):
-    app = FakeApp()
-    connection = FakeConnection(cursor)
-    register_supply_request_templates_module(app, {
-        "get_db": lambda: connection,
-        "require_roles": lambda *roles: (lambda: None),
-        "supply_roles": ("снабженец",),
-    })
-    return app, connection
-
-
-class SupplyRequestTemplatesRoutesTest(unittest.TestCase):
-    def test_registers_same_urls(self):
-        app, _conn = build(FakeCursor())
-        for key in [("GET", "/supply-request-templates"), ("POST", "/supply-request-templates"),
-                    ("DELETE", "/supply-request-templates/{id}")]:
-            self.assertIn(key, app.routes)
-
-    def test_list_parses_items_json(self):
-        cursor = FakeCursor(rows=[(1, "Черновая", "стены", '[{"materialName":"цемент","quantity":5}]', "Тест", 42, "2026-07-28")])
-        app, _conn = build(cursor)
-        rows = app.routes[("GET", "/supply-request-templates")](_current_user={})
-        self.assertEqual(rows[0]["items"][0]["materialName"], "цемент")
-        self.assertEqual(rows[0]["name"], "Черновая")
-
-    def test_create_rejects_empty_items(self):
-        app, _conn = build(FakeCursor())
-        with self.assertRaises(HTTPException) as ctx:
-            app.routes[("POST", "/supply-request-templates")]({"name": "Пустой", "items": []}, _current_user={})
-        self.assertEqual(ctx.exception.status_code, 400)
-
-    def test_create_normalizes_items_and_commits(self):
-        cursor = FakeCursor(row=(7,))
-        app, connection = build(cursor)
-        result = app.routes[("POST", "/supply-request-templates")](
-            {"name": "Черновая", "items": [
-                {"materialName": "цемент", "quantity": "5", "unit": "мешок"},
-                {"materialName": "", "quantity": 3},
-            ]},
-            _current_user={},
-        )
-        self.assertEqual(result, {"id": 7, "ok": True})
-        self.assertTrue(connection.committed)
-        import json
-        stored_items = json.loads(cursor.calls[0][1][2])
-        self.assertEqual(len(stored_items), 1)
-        self.assertEqual(stored_items[0]["materialName"], "цемент")
-        self.assertEqual(stored_items[0]["quantity"], 5.0)
-
-
-if __name__ == "__main__":
-    unittest.main()
+    def test_deleted_legacy_endpoint_stays_authenticated_and_closed(self):
+        app = FastAPI()
+        def auth(): return {'id': 1}
+        register_supply_request_templates_module(app, {'get_current_user': auth})
+        route = next(r for r in app.routes if r.path == '/supply-request-templates/{id}' and 'DELETE' in r.methods)
+        self.assertEqual(route.dependant.dependencies[0].call, auth)
+        with self.assertRaises(HTTPException) as caught:
+            route.endpoint(user={'id': 1})
+        self.assertEqual(caught.exception.status_code, 409)

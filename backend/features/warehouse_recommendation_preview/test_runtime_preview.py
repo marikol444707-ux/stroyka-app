@@ -946,10 +946,10 @@ class WarehouseAnomalyRuntimePreviewCompositionTests(unittest.TestCase):
             root / "backend/db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Reviewed company warehouse directory replaces global warehouse CRUD;
+            # Reviewed template registration now supplies selected-company auth;
             # warehouse preview implementation and registration are unchanged.
             root / "backend/main.py": (
-                "6e51f58ffd507247928a4c5ef9180fe7c06f99a0bf257d9ed7cc08c0d6ee4f9a"
+                "1deec5aa1603f3b32f0c82914b6c3831f1648306cb21cd2509992fa4ed0a4f86"
             ),
         }
         self.assertEqual({

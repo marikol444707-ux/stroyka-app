@@ -20084,8 +20084,9 @@ except ModuleNotFoundError:
 
 register_supply_request_templates_module(app, {
     "get_db": get_db,
-    "require_roles": require_roles,
-    "supply_roles": SUPPLY_ROLES,
+    "get_current_user": get_current_user,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
 })
 
 

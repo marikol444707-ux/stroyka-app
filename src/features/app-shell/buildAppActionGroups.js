@@ -212,7 +212,6 @@ export function buildAppActionGroups({
     supplierInvoices,
     suppliers,
     supplyRequests,
-    supplyTemplates,
     tbJournal,
     tools,
     users,
@@ -578,7 +577,6 @@ export function buildAppActionGroups({
     suggestedSuppliers,
     supplyRejectReason,
     supplyRequests,
-    supplyTemplates,
     user,
     companyContext
   });

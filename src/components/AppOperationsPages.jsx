@@ -59,7 +59,6 @@ export default function AppOperationsPages({ activePage, ui, constants, state, a
     supplyRequestOrigin,
     supplyStockCheck,
     supplyTab,
-    supplyTemplates,
     toolHistory,
     tools,
     toolsTab,
@@ -74,7 +73,6 @@ export default function AppOperationsPages({ activePage, ui, constants, state, a
   } = state;
   const {
     _normalizeUnit,
-    applySupplyTemplate,
     applyWarehouseMovement,
     approveSupplyAsDirector,
     askSupplyAi,
@@ -89,7 +87,6 @@ export default function AppOperationsPages({ activePage, ui, constants, state, a
     deleteMainMaterial,
     deleteMaterial,
     deleteSupplier,
-    deleteSupplyTemplate,
     deleteTool,
     deleteWarehouse,
     exportToExcel,
@@ -122,7 +119,6 @@ export default function AppOperationsPages({ activePage, ui, constants, state, a
     runDeliveryAiCheck,
     saveInvoiceNew,
     saveSupplier,
-    saveSupplyTemplate,
     saveTool,
     saveWarehouse,
     selectSupplierOffer,
@@ -319,9 +315,6 @@ export default function AppOperationsPages({ activePage, ui, constants, state, a
           listSearch={listSearch}
           setListSearch={setListSearch}
           matchSearch={matchSearch}
-          supplyTemplates={supplyTemplates}
-          applySupplyTemplate={applySupplyTemplate}
-          deleteSupplyTemplate={deleteSupplyTemplate}
           newSupplyReq={newSupplyReq}
           setNewSupplyReq={setNewSupplyReq}
           priceHints={priceHints}
@@ -331,7 +324,6 @@ export default function AppOperationsPages({ activePage, ui, constants, state, a
           getProjectWorkPackageOptions={getProjectWorkPackageOptions}
           renderSupplyPlanningHint={renderSupplyPlanningHint}
           createSupplyReq={createSupplyReq}
-          saveSupplyTemplate={saveSupplyTemplate}
           supplyCollapsedProjects={supplyCollapsedProjects}
           setSupplyCollapsedProjects={setSupplyCollapsedProjects}
           parseSupplyItems={parseSupplyItems}

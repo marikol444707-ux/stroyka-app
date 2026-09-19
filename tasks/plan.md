@@ -1,5 +1,12 @@
 # Implementation Plan: Safe Stroyka Program Improvements
 
+## Current slice: company supply request templates (2026-09-19)
+
+Implement selected-company catalogue, server author, strict complete-row validation,
+director archive and durable retry in the existing request form. Contract and
+evidence: `docs/supply-request-templates.md`. Supplier invoices/payments remain a
+separate stream. Legacy template ID 1 and warehouse ID 1 await ownership confirmation.
+
 ## Overview
 
 Improve `stroyka-app` in small, safe steps so the current working ERP can move toward a production-grade SaaS platform without destabilizing existing object, estimate, supply, warehouse, journal, accounting, and public-site flows. The plan prioritizes security, company data boundaries, verification, and reversible refactors before adding new product surface.

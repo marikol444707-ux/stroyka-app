@@ -156,7 +156,6 @@ export function useAppMainState() {
   const [newBrigadeItem, setNewBrigadeItem] = useState(createBrigadeItemForm);
   const [brigadeCoef, setBrigadeCoef] = useState('0.6');
   const [supplierCatalog, setSupplierCatalog] = useState([]);
-  const [supplyTemplates, setSupplyTemplates] = useState([]);
   const [priceHints, setPriceHints] = useState({});
   const [showCatalogForm, setShowCatalogForm] = useState(false);
   const [newCatalogItem, setNewCatalogItem] = useState(createCatalogItemForm);
@@ -359,7 +358,7 @@ export function useAppMainState() {
     showStaffDocForm, showTransferForm, sidebarVisible, sitePublicationDrafts, staff, staffExpandedSections,
     staffProfile, staffProfileLoading, settingsTab, supervisorActPhoto, supervisorActs, supplierCatalog,
     supplierInvoices, supplierOffers, supplierRequisites, suppliers, suppliersTab, supplierTab, supplyClaims,
-    supplyDeliveries, supplyHistory, supplyRequests, supplyTemplates, sverkaModal, tbJournal, timesheet,
+    supplyDeliveries, supplyHistory, supplyRequests, sverkaModal, tbJournal, timesheet,
     toolHistory, tools, toolsTab, unexpectedWorksList, uploadingDoc, uploadingLetter, uploadingMeasurementDoc,
     users, warehouseMain, warehouseMovements, warehouses, warehouseTab, warrantyDefects, warrantyEditForm,
     weatherLog, weatherTab, workJournal, workJournalPage,
@@ -405,7 +404,7 @@ export function useAppMainState() {
     setSitePublicationDrafts, setStaff, setStaffExpandedSections, setStaffProfile, setStaffProfileLoading,
     setSettingsTab, setSupervisorActPhoto, setSupervisorActs, setSupplierCatalog, setSupplierInvoices,
     setSupplierOffers, setSupplierRequisites, setSuppliers, setSuppliersTab, setSupplierTab, setSupplyClaims,
-    setSupplyDeliveries, setSupplyHistory, setSupplyRequests, setSupplyTemplates, setSverkaModal,
+    setSupplyDeliveries, setSupplyHistory, setSupplyRequests, setSverkaModal,
     setTbJournal, setTimesheet, setToolHistory, setTools, setToolsTab, setUnexpectedWorksList, setUploadingDoc,
     setUploadingLetter, setUploadingMeasurementDoc, setUsers, setWarehouseMain, setWarehouseMovements,
     setWarehouses, setWarehouseTab, setWarrantyDefects, setWarrantyEditForm, setWeatherLog, setWeatherTab,

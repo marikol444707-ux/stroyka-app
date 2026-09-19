@@ -47,7 +47,6 @@ export const createSupplyActions = ({
   showRequestKpModal,
   supplyRejectReason,
   supplyRequests,
-  supplyTemplates,
   user,
   companyContext = {},
   supplyRequestCreationRef = { current: false },
@@ -308,51 +307,6 @@ export const createSupplyActions = ({
       setPriceHints(prev => ({ ...prev, [key]: data }));
     } catch (_) {}
   };
-
-  const saveSupplyTemplate = async () => {
-    const valid = (newSupplyReq.items || []).filter(i => i.materialName && Number(i.quantity) > 0);
-    if (!valid.length) { alert('Добавьте хотя бы одну позицию, чтобы сохранить шаблон'); return; }
-    const name = window.prompt('Название шаблона (например «Стартовый набор на объект»):', '');
-    if (!name || !name.trim()) return;
-    const r = await fetch(API + '/supply-request-templates', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: name.trim(),
-        category: newSupplyReq.category || '',
-        items: valid.map(it => ({ materialName: it.materialName, quantity: Number(it.quantity), unit: it.unit || 'шт', workPackage: it.workPackage || '' })),
-        createdBy: currentUser.name || '',
-        createdById: currentUser.id || null,
-      }),
-    });
-    if (!r.ok) {
-      let e = '';
-      try { e = (await r.json()).detail || ''; } catch (_) {}
-      alert('Не удалось сохранить шаблон' + (e ? ': ' + e : ''));
-      return;
-    }
-    await refreshData();
-    alert('Шаблон «' + name.trim() + '» сохранён');
-  };
-
-  const applySupplyTemplate = (tplId) => {
-    const tpl = (supplyTemplates || []).find(t => String(t.id) === String(tplId));
-    if (!tpl) return;
-    const items = (tpl.items || []).map(it => ({
-      materialName: it.materialName,
-      quantity: String(it.quantity || ''),
-      unit: it.unit || 'шт',
-      workPackage: it.workPackage || '',
-    }));
-    setNewSupplyReq(prev => ({ ...prev, items: items.length ? items : [{ materialName: '', quantity: '', unit: 'шт', workPackage: '' }], category: tpl.category || prev.category }));
-  };
-
-  const deleteSupplyTemplate = async (tplId) => {
-    if (!window.confirm('Удалить шаблон?')) return;
-    await fetch(API + '/supply-request-templates/' + tplId, { method: 'DELETE' });
-    await refreshData();
-  };
-
   const confirmSupplyAsProrab = async (id) => {
     try {
       const leadershipFallback = ['директор', 'зам_директора'].includes(currentUser.role);
@@ -700,7 +654,6 @@ export const createSupplyActions = ({
     createShipmentFromOffer,
     createSupplyReq,
     deleteSupplier,
-    deleteSupplyTemplate,
     fetchPriceHint,
     loadSupplyStockCheck,
     openRequestKpModal,
@@ -712,10 +665,8 @@ export const createSupplyActions = ({
     saveOffer,
     saveRequest,
     saveSupplier,
-    saveSupplyTemplate,
     selectSupplierOffer,
     sendKpRequest,
-    applySupplyTemplate,
     withdrawSupplierOffer,
   };
 };

@@ -235,10 +235,7 @@ export function buildAppRenderContext({
     createInvoiceFromOffer,
     createShipmentFromOffer,
     createSupplyReq,
-    deleteSupplyTemplate,
     fetchPriceHint,
-    saveSupplyTemplate,
-    applySupplyTemplate
   } = supplyActions;
   const {
     renderSupplyPlanningHint,
@@ -469,15 +466,15 @@ export function buildAppRenderContext({
     data: {
       companyContext,
       actions: {
-        acceptAiTask, addMasterWorks, appendPhotos, applyMaterialOverNormReason, applySupplyTemplate, autoFillNormMaterialsForWork,
+        acceptAiTask, addMasterWorks, appendPhotos, applyMaterialOverNormReason, autoFillNormMaterialsForWork,
         checkinGeo, closeAiTask, closeNotifications, confirmMaterialReceipt, createAiTask,
-        createInvoiceFromOffer, createShipmentFromOffer, createSupplyReq, deleteSupplyTemplate, fetchPriceHint,
+        createInvoiceFromOffer, createShipmentFromOffer, createSupplyReq, fetchPriceHint,
         getNotifPage, handleLogin, handleLogout, handleRegister, handleTwoFactorLogin,
         loadAll, loadPricelistItems, markMyNotificationsRead, myNotifications: readMyNotifications, navigateTo,
         materialNormOverrunReason, materialWriteoffBlockMessage, prepareWorkMaterialGroups,
         notify, openAiTaskAction, refreshData, removeEstimateWorkMaterial, removeSelectedWorkMaterial,
         renderMaterialWriteoffStatus, renderSupplyPlanningHint, renderSupplyRequestOrigin,
-        returnMaterialToProject, roleColor, saveProfile, saveSupplyTemplate,
+        returnMaterialToProject, roleColor, saveProfile,
         selectableActiveProjects, sendCompanyChatMessage, showPreview, submitEstimateWorkDone,
         submitAiTaskReport,
         toggleNotifications, updateEstimateWorkMaterialQty, updateProjectProgress,
@@ -498,6 +495,7 @@ export function buildAppRenderContext({
       },
       paymentUiState,
       projectRuntime: {
+        getProjectWorkPackageOptions: appBusinessRuntime.getProjectWorkPackageOptions,
         activeEstimatesForProject, computeNotifications, projectPlanDone, roomMeasurementCheck,
         roomMeasurementMessage
       },
