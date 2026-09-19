@@ -16,6 +16,16 @@ _OFFER_MUTATION_PATH = re.compile(
 
 def is_owned_supplier_profile_mutation(cur, user, method, path):
     """A supplier's public profile does not consume a customer's subscription."""
+    if user.get('role') == 'поставщик' and str(method).upper() == 'POST':
+        team_match = re.fullmatch(r'/supplier-team/([1-9][0-9]*)/commands/?', str(path))
+        if team_match:
+            from ..supplier_team.policy import enabled, customer_assignments_enabled, leader_policy
+            if not enabled() or not customer_assignments_enabled():
+                return False
+            sql, params = leader_policy(user.get('id'), 's.id')
+            cur.execute('SELECT s.id FROM suppliers s WHERE s.id=%s AND '+sql,
+                        [int(team_match.group(1))]+params)
+            return bool(cur.fetchone())
     if user.get('role') != 'поставщик' or str(method).upper() != 'PUT':
         return False
     match = re.fullmatch(r'/suppliers/([1-9][0-9]*)/requisites/?', str(path))

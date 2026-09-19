@@ -6554,6 +6554,8 @@ def register(data: dict, response: Response, request: Request):
         conn.close()
         raise HTTPException(status_code=400, detail="Код истёк — попросите новую ссылку")
     try:
+        from backend.features.supplier_team.invitations import validate_binding
+        team_invite = validate_binding(cur, invite, lock=True)
         project_name = (invite.get("project_name") or "").strip()
         assigned_projects = _safe_project_list(invite.get("assigned_projects"))
         assigned_packages = _safe_project_list(invite.get("assigned_packages"))
@@ -6597,8 +6599,11 @@ def register(data: dict, response: Response, request: Request):
                     (name, email, hash_password(password), role, project_id, project_name,
                      json.dumps(assigned_projects), json.dumps(assigned_packages), company_id, platform_account_id))
         user = cur.fetchone()
-        # Если регистрируется поставщик — создаём/связываем suppliers row
-        if role == 'поставщик':
+        if team_invite:
+            cur.execute("INSERT INTO supplier_team_members(supplier_id,user_id,role) VALUES(%s,%s,'manager')",
+                        (team_invite['supplier_id'], user['id']))
+        # Company owners and invited team members have separate registration paths.
+        if role == 'поставщик' and not team_invite:
             company_name = data.get("companyName") or name
             supplier_id = invite.get('supplier_id')
             supplier_payload = {
@@ -7927,6 +7932,9 @@ try:
 except ModuleNotFoundError:
     from features.invite_codes.routes import register_invite_codes_module
 
+
+from backend.features.supplier_team.routes import register_supplier_team_module
+register_supplier_team_module(app, {"get_db": get_db, "require_roles": require_roles})
 
 register_invite_codes_module(app, {
     "get_db": get_db,

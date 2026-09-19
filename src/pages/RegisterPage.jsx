@@ -22,7 +22,8 @@ export default function RegisterPage({
   setRegPassword,
   setRegSupplierData,
 }) {
-  const isSupplierInvite = regInviteInfo?.role === 'поставщик';
+  const isTeamInvite = Boolean(regInviteInfo?.supplierTeam);
+  const isSupplierInvite = regInviteInfo?.role === 'поставщик' && !isTeamInvite;
 
   return (
     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', backgroundColor: C.bg, padding: '20px' }}>
@@ -31,13 +32,13 @@ export default function RegisterPage({
           <div style={{ fontSize: '42px', marginBottom: '8px' }}>{isSupplierInvite ? '🏭' : '🏗️'}</div>
           <h2 style={{ margin: 0, color: C.text, fontSize: '22px', fontWeight: '800' }}>СтройКа</h2>
           <p style={{ color: C.textSec, fontSize: '13px', margin: '8px 0 0' }}>
-            {isSupplierInvite ? 'Регистрация поставщика' : 'Регистрация по коду приглашения'}
+            {isTeamInvite ? 'Присоединиться к команде поставщика' : isSupplierInvite ? 'Регистрация поставщика' : 'Регистрация по коду приглашения'}
           </p>
         </div>
 
         {regInviteInfo && regInviteInfo.role && (
           <div style={{ padding: '10px 12px', backgroundColor: C.successLight, border: '1.5px solid ' + C.successBorder, borderRadius: '8px', marginBottom: '14px', fontSize: '12px', color: C.text }}>
-            ✅ Приглашение действительно — роль: <b>{ROLE_LABELS[regInviteInfo.role] || regInviteInfo.role}</b>
+            ✅ Приглашение действительно — роль: <b>{isTeamInvite ? 'Менеджер поставщика' : ROLE_LABELS[regInviteInfo.role] || regInviteInfo.role}</b>
             {regInviteInfo.presetName && (
               <>
                 <br />

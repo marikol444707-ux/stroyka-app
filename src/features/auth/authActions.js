@@ -108,7 +108,7 @@ export const createAuthActions = ({
     }
     try {
       const body = {name: regName, email: regEmail, password: regPassword, code: regCode};
-      if (regInviteInfo?.role === 'поставщик') {
+      if (regInviteInfo?.role === 'поставщик' && !regInviteInfo?.supplierTeam) {
         Object.assign(body, regSupplierData);
       }
       const res = await fetch(API + '/register', {method: 'POST', credentials: 'include', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});

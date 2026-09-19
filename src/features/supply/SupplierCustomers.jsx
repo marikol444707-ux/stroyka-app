@@ -3,14 +3,18 @@ import useSupplierInbox from './useSupplierInbox';
 import { supplierCustomers } from './supplierCustomerProjection';
 import { SupplierOrderCards, supplierDocumentUrl } from './SupplierOrders';
 
-export default function SupplierCustomers({API,user,C,onOpen,fileSrc}) {
+export default function SupplierCustomers({API,user,C,onOpen,fileSrc,teamContext}) {
  const inbox=useSupplierInbox(API,user,true);
  const [selected,setSelected]=React.useState('');
- const customers=React.useMemo(()=>supplierCustomers(inbox.requests,inbox.offers,inbox.deliveries,inbox.invoices),[inbox.requests,inbox.offers,inbox.deliveries,inbox.invoices]);
+ const customers=React.useMemo(()=>{
+  const history=supplierCustomers(inbox.requests,inbox.offers,inbox.deliveries,inbox.invoices);
+  const extra=(teamContext?.customers||[]).filter(c=>!history.some(h=>String(h.id)===String(c.id)));
+  return [...history,...extra.map(c=>({...c,id:String(c.id),requests:[],orders:[],invoices:[],deliveries:[]}))];
+ },[inbox.requests,inbox.offers,inbox.deliveries,inbox.invoices,teamContext?.customers]);
  const customer=customers.find(row=>row.id===selected);
  return <section className="supplier-customers supplier-orders" aria-label="Заказчики поставщика" style={{color:C.text}}>
   <h2>Заказчики</h2><p>Компании, от которых вам доступны запросы КП.</p>
-  <button type="button" disabled={inbox.status==='loading'} onClick={inbox.reload}>Обновить заказчиков</button>
+  <button type="button" disabled={inbox.status==='loading'} onClick={()=>Promise.allSettled([inbox.reload(),teamContext?.reload?.()])}>Обновить заказчиков</button>
   {inbox.status==='loading' && <p role="status">Загружаем заказчиков и историю…</p>}
   {inbox.status==='error' && <p role="alert">Не удалось загрузить заказчиков: {inbox.error}</p>}
   {inbox.status==='ready' && <>

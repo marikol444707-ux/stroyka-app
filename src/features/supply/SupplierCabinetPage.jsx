@@ -4,6 +4,7 @@ import { supplierPublicRequisites } from './supplierPublicRequisites';
 import React from 'react';
 import SupplierRequestRegistry from './SupplierRequestRegistry';
 import SupplierOrders from './SupplierOrders';
+import SupplierTeam from './SupplierTeam';
 import SupplierCustomers from './SupplierCustomers';
 import useSupplierRequestSelection from './useSupplierRequestSelection';
 import SupplyClaims from './SupplyClaims';
@@ -48,6 +49,7 @@ export default function SupplierCabinetPage({
   inp,
   invoices = [],
   inboxState,
+  teamContext,
   invoicingOfferId,
   newCatalogItem,
   newKpResponse,
@@ -139,7 +141,10 @@ export default function SupplierCabinetPage({
         || currentUserKeys.some(key => identityKeys.includes(key));
     };
     const mySupplier = supplierGroups.find(matchesCurrentUser) || (supplierGroups.length === 1 ? supplierGroups[0] : null);
-    const supplierAccountUnlinked = isSupplierRole && !mySupplier;
+    const verifiedTeam = teamContext?.suppliers || [];
+    const teamLeader = verifiedTeam.some(s => s.role === 'leader');
+    const managerOnly = Boolean(teamContext && teamContext.status !== 'legacy' && !teamLeader);
+    const supplierAccountUnlinked = isSupplierRole && !mySupplier && !verifiedTeam.length;
     const mySupplierIds = new Set((mySupplier?._supplierIds || [mySupplier?.id]).filter(Boolean).map(id => String(id)));
     const mySupplierNames = new Set([
       ...(mySupplier?._supplierNames || []),
@@ -217,7 +222,7 @@ export default function SupplierCabinetPage({
         return next;
       });
     }, [mySupplier?.id, supplierCardRequisites, setSupplierRequisites]);
-    const supplierDisplayName = mySupplier?.name || supplierRequisites.companyName || supplierOfferFallbackName || user?.name || 'Поставщик';
+    const supplierDisplayName = verifiedTeam.map(s => s.name).join(', ') || mySupplier?.name || supplierRequisites.companyName || supplierOfferFallbackName || user?.name || 'Поставщик';
     const supplierHeaderMeta = [
       user?.name && user.name !== supplierDisplayName ? user.name : '',
       mySupplier?._duplicateCount > 1 ? 'связанных карточек: ' + mySupplier._duplicateCount : '',
@@ -268,7 +273,7 @@ export default function SupplierCabinetPage({
         || (invoiceRequestId && String(delivery.requestId || delivery.request_id || '') === String(invoiceRequestId))
       ));
     };
-    const SUPPLIER_TABS = [{id:'requests',label:'📋 Заявки'},{id:'orders',label:'📦 Заказы'},{id:'customers',label:'🏢 Заказчики'},{id:'catalog',label:'📦 Мой каталог'},{id:'offers',label:'💰 Предложения'},{id:'deliveries',label:'🚚 Отгрузки'},{id:'documents',label:'📄 Счета и накладные'},{id:'claims',label:'⚠️ Претензии'},{id:'profile',label:'⚙️ Профиль'}];
+    const SUPPLIER_TABS = [{id:'requests',label:'📋 Заявки'},{id:'orders',label:'📦 Заказы'},{id:'customers',label:'🏢 Заказчики'},{id:'catalog',label:'📦 Мой каталог'},{id:'offers',label:'💰 Предложения'},{id:'deliveries',label:'🚚 Отгрузки'},{id:'documents',label:'📄 Счета и накладные'},{id:'claims',label:'⚠️ Претензии'},{id:'profile',label:'⚙️ Профиль'}, ...(teamLeader ? [{id:'team',label:'👥 Команда'}] : [])].filter(t => !managerOnly || !['profile','catalog'].includes(t.id));
     const supplierOfferStatusStyle = (status) => {
       if (status === 'Утверждено') return {label:'Утверждено', color:C.success, bg:C.successLight};
       if (status === 'Получено') return {label:'Отправлено', color:C.info, bg:C.infoLight};
@@ -319,6 +324,9 @@ export default function SupplierCabinetPage({
             </div>
             <button onClick={()=>handleLogout()} style={{...btnG,fontSize:'12px'}}>Выйти</button>
           </div>
+          {teamContext?.status==='error' && <div role="alert" style={{...card,padding:16,marginBottom:16}}>
+            <p>{teamContext.error}</p><button type="button" onClick={teamContext.reload}>Повторить загрузку прав команды</button>
+          </div>}
           {supplierAccountUnlinked && (
             <div style={{...card,padding:'12px 14px',marginBottom:'16px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}>
               <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'4px'}}>Кабинет не связан с карточкой поставщика</b>
@@ -344,7 +352,9 @@ export default function SupplierCabinetPage({
             </div>
           </div>
 
-          {supplierTab==='customers' && <SupplierCustomers API={API} user={user} C={C} fileSrc={fileSrc} onOpen={id=>{selectRequest(id);setSupplierTab('requests');inboxState?.reload();}}/>}
+          {supplierTab==='team' && teamLeader && <SupplierTeam API={API} C={C} context={teamContext} onChanged={inboxState?.reload}/>}
+          {supplierTab==='customers' && teamLeader && <SupplierTeam API={API} C={C} context={teamContext} mode="customers" onChanged={inboxState?.reload}/>}
+          {supplierTab==='customers' && <SupplierCustomers API={API} user={user} teamContext={teamContext} C={C} fileSrc={fileSrc} onOpen={id=>{selectRequest(id);setSupplierTab('requests');inboxState?.reload();}}/>}
           {supplierTab==='orders' && <SupplierOrders API={API} user={user} C={C} fileSrc={fileSrc} onOpen={id=>{selectRequest(id);setSupplierTab('requests');inboxState?.reload();}}/>}
           {supplierTab==='requests'&&(<div>
             <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>📋 Запросы КП</b>
@@ -665,7 +675,7 @@ export default function SupplierCabinetPage({
             })()}
           </div>)}
 
-          {supplierTab==='catalog'&&(<div>
+          {supplierTab==='catalog'&&!managerOnly&&(<div>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
               <b style={{color:C.text,fontSize:'14px'}}>📦 Мой каталог</b>
               <div style={{display:'flex',gap:'8px'}}>
@@ -810,7 +820,7 @@ export default function SupplierCabinetPage({
 
           {supplierTab==='claims'&&<SupplyClaims API={API} C={C} user={user} onChanged={refreshData} />}
 
-          {supplierTab==='profile'&&(<div>
+          {supplierTab==='profile'&&!managerOnly&&(<div>
             <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>⚙️ Реквизиты компании</b>
             <div style={{...card,padding:'16px',marginBottom:'14px'}}>
               <b style={{color:C.textSec,fontSize:'12px',display:'block',marginBottom:'10px'}}>📋 Основное</b>

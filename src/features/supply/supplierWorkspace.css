@@ -39,3 +39,10 @@
 .supplier-customer-filter{display:flex;flex-direction:column;gap:8px;max-width:420px;margin-top:20px;font-size:13px}
 .supplier-customer-filter select{min-width:0;max-width:100%;padding:10px;border:1px solid #b8c4d2;border-radius:7px;background:transparent;color:inherit}
 .supplier-customer-history{overflow-wrap:anywhere}.supplier-customer-history>h4{margin:24px 0 12px}.supplier-customer-history>p{font-size:13px;line-height:1.6}
+
+.supplier-team{margin-bottom:24px}
+.supplier-team label{display:flex;flex-direction:column;gap:8px;margin:12px 0;max-width:640px}
+.supplier-team select,.supplier-team input{box-sizing:border-box;width:100%;min-width:0;padding:10px;border:1px solid #b8c4d2;border-radius:7px;background:transparent;color:inherit;font:inherit}
+.supplier-team button{margin:4px 8px 4px 0}
+.supplier-team p{overflow-wrap:anywhere}
+.supplier-team button:disabled{opacity:.55;cursor:wait}

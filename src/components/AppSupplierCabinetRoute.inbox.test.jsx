@@ -25,7 +25,7 @@ it('ignores old account responses after the supplier changes', async () => {
   const old = [];
   global.fetch = jest.fn(url => new Promise(resolve => old.push({ url, resolve })));
   const { rerender } = render(route(1));
-  await waitFor(() => expect(old).toHaveLength(4));
+  await waitFor(() => expect(old).toHaveLength(5));
   global.fetch = jest.fn(async () => ok([]));
   rerender(route(2)); await screen.findByText('ready');
   await act(async () => { old.forEach(({ url, resolve }) => resolve(ok(url.endsWith('/supplier-offers') ? [{ id: 2, requestId: 3, supplierName: 'Чужой запрос' }] : [{ id: 3 }]))); });

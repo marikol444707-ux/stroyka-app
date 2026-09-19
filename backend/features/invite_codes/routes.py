@@ -33,8 +33,11 @@ def register_invite_codes_module(app, deps):
             company_id = None
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT to_regclass('public.supplier_team_invites') AS relation")
+        has_team = cur.fetchone()['relation']
+        team_filter = ' AND NOT EXISTS(SELECT 1 FROM supplier_team_invites t WHERE t.invite_id=i.id)' if has_team else ''
         cur.execute('''SELECT i.* FROM invite_codes i LEFT JOIN supplier_invite_companies b ON b.invite_id=i.id
-                       WHERE b.invite_id IS NULL OR b.company_id=%s ORDER BY i.id DESC''', (company_id,))
+                       WHERE (b.invite_id IS NULL OR b.company_id=%s)'''+team_filter+' ORDER BY i.id DESC', (company_id,))
         rows = cur.fetchall()
         conn.close()
         return [dict(r) for r in rows]
@@ -101,6 +104,11 @@ def register_invite_codes_module(app, deps):
             cur.execute('SELECT id FROM invite_codes WHERE id=%s FOR UPDATE', (id,))
             if not cur.fetchone():
                 return {"ok": True}
+            cur.execute("SELECT to_regclass('public.supplier_team_invites')")
+            if cur.fetchone()[0]:
+                cur.execute('SELECT invite_id FROM supplier_team_invites WHERE invite_id=%s', (id,))
+                if cur.fetchone():
+                    raise HTTPException(403, 'Управляйте приглашением в кабинете поставщика')
             cur.execute('SELECT company_id FROM supplier_invite_companies WHERE invite_id=%s', (id,))
             binding = cur.fetchone()
             if binding:
@@ -128,7 +136,15 @@ def register_invite_codes_module(app, deps):
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute("SELECT * FROM invite_codes WHERE code=%s", (code.upper().strip(),))
         row = cur.fetchone()
-        conn.close()
+        team = None
+        try:
+            if row and not row.get('used'):
+                from ..supplier_team.invitations import validate_binding
+                team = validate_binding(cur, row)
+        except HTTPException:
+            return {"valid": False, "error": "Приглашение больше не действует"}
+        finally:
+            conn.close()
         if not row:
             return {"valid": False, "error": "Код не найден"}
         if row.get('used'):
@@ -137,6 +153,7 @@ def register_invite_codes_module(app, deps):
             return {"valid": False, "error": "Срок действия ссылки истёк"}
         return {
             "valid": True,
+            "supplierTeam": bool(team),
             "role": row['role'],
             "presetName": row.get('preset_name') or '',
             "presetCategory": row.get('preset_category') or '',
