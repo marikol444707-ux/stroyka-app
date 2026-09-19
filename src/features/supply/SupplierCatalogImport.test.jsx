@@ -70,3 +70,11 @@ it('keeps UTF-8 CSV names and comma decimal prices intact', async () => {
   await screen.findByText('Импортировано: 1. Пропущено совпадений: 0.');
   expect(onSaved.mock.calls[0][0]([])).toMatchObject([{ materialName: 'Песок CSV', price: 120.5 }]);
 });
+it('does not write while a manual catalogue operation owns the lock', async () => {
+  const mutationLock = { current: true };
+  render(<SupplierCatalogImport API="/api" supplierId={1} catalog={[]} onSaved={jest.fn()} mutationLock={mutationLock} />);
+  await upload([['Цемент', 'шт', 100]]);
+  fireEvent.click(screen.getByRole('button', { name: /Импортировать/ }));
+  await screen.findByText('Дождитесь завершения другой операции с каталогом.');
+  expect(global.fetch).not.toHaveBeenCalled(); expect(mutationLock.current).toBe(true);
+});

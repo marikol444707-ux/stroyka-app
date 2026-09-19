@@ -2,6 +2,7 @@ import { supplierPublicRequisites } from './supplierPublicRequisites';
 import React from 'react';
 import SupplyClaims from './SupplyClaims';
 import SupplierCatalogImport from './SupplierCatalogImport';
+import useSupplierCatalogActions from './useSupplierCatalogActions';
 import { Check, Edit2, Plus, Trash2, Upload, X } from 'lucide-react';
 import DocumentRecognitionPanel from '../../components/DocumentRecognitionPanel';
 import { groupSuppliers, normalizeSupplierPayload, supplierIdentityKeys } from '../../utils/supplierUtils';
@@ -119,6 +120,14 @@ export default function SupplierCabinetPage({
       || isMySupplierName(row?.supplierName || row?.supplier_name || row?.supplier || row?.name)
     );
     const myPrimarySupplierId = mySupplier?._supplierIds?.[0] || mySupplier?.id || supplierOfferFallbackId || 0;
+    const catalogMutationLock = React.useRef(false);
+    const catalogActions = useSupplierCatalogActions({ API, actorId: currentUserId,
+      supplierId: myPrimarySupplierId, supplierName: user?.name, setCatalog: setSupplierCatalog, mutationLock: catalogMutationLock,
+      onCreated: () => {
+        setNewCatalogItem({materialName:'',unit:'шт',price:'',minQuantity:'1',deliveryDays:'3',notes:''});
+        setShowCatalogForm(false);
+      },
+    });
     const myCatalog = isSupplierRole ? (supplierCatalog || []) : (supplierCatalog || []).filter(belongsToMySupplier);
     const myOffers = isSupplierRole ? supplierOffersList : supplierOffersList.filter(belongsToMySupplier);
     const mySupplierInvoices = isSupplierRole ? (supplierInvoices || []) : (supplierInvoices || []).filter(inv => belongsToMySupplier(inv) || isMySupplierName(inv.supplierName || user.name));
@@ -618,14 +627,15 @@ export default function SupplierCabinetPage({
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
               <b style={{color:C.text,fontSize:'14px'}}>📦 Мой каталог</b>
               <div style={{display:'flex',gap:'8px'}}>
-                <button onClick={()=>setShowCatalogForm(!showCatalogForm)} style={btnO}><Plus size={14}/>Добавить</button>
+                <button disabled={catalogActions.busy} onClick={()=>setShowCatalogForm(!showCatalogForm)} style={btnO}><Plus size={14}/>Добавить</button>
               </div>
             </div>
             <SupplierCatalogImport key={`${currentUserId}:${myPrimarySupplierId}`} API={API}
               supplierId={myPrimarySupplierId} supplierName={user.name}
               priceUrl={supplierRequisites.priceUrl} catalog={supplierCatalog || []}
-              onSaved={setSupplierCatalog} buttonStyle={btnG} />
-            {showCatalogForm&&(<div style={{...card,padding:'16px',marginBottom:'12px'}}>
+              onSaved={setSupplierCatalog} buttonStyle={btnG} mutationLock={catalogMutationLock} />
+            {catalogActions.error && <p role="alert" style={{color:C.danger}}>{catalogActions.error}</p>}
+            {showCatalogForm&&(<fieldset disabled={catalogActions.busy} style={{...card,minWidth:0,padding:'16px',marginBottom:'12px'}}>
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
                 <input placeholder='Наименование *' value={newCatalogItem.materialName} onChange={e=>setNewCatalogItem({...newCatalogItem,materialName:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
                 <select value={newCatalogItem.unit} onChange={e=>setNewCatalogItem({...newCatalogItem,unit:e.target.value})} style={{...inp,marginBottom:0}}>{UNITS.map(u=><option key={u}>{u}</option>)}</select>
@@ -635,17 +645,10 @@ export default function SupplierCabinetPage({
                 <input placeholder='Примечание' value={newCatalogItem.notes} onChange={e=>setNewCatalogItem({...newCatalogItem,notes:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
               </div>
               <div style={{display:'flex',gap:'8px',marginTop:'10px'}}>
-                <button onClick={async()=>{
-                  if(!newCatalogItem.materialName) return;
-                  const res=await fetch(API+'/supplier-catalog',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newCatalogItem,supplierId:myPrimarySupplierId||0,supplierName:user.name})});
-                  const saved=await res.json();
-                  setSupplierCatalog(prev=>[...prev,{...newCatalogItem,id:saved.id,supplierId:myPrimarySupplierId||0}]);
-                  setNewCatalogItem({materialName:'',unit:'шт',price:'',minQuantity:'1',deliveryDays:'3',notes:''});
-                  setShowCatalogForm(false);
-                }} style={btnO}><Check size={14}/>Сохранить</button>
+                <button onClick={()=>catalogActions.create(newCatalogItem)} style={btnO}><Check size={14}/>Сохранить</button>
                 <button onClick={()=>setShowCatalogForm(false)} style={btnG}><X size={14}/>Отмена</button>
               </div>
-            </div>)}
+            </fieldset>)}
             <table style={tbl}><thead><tr>
               <th style={tblH}>Наименование</th>
               <th style={tblH}>Ед.</th>
@@ -662,7 +665,7 @@ export default function SupplierCabinetPage({
                 <td style={tblC}>{item.minQuantity}</td>
                 <td style={tblC}>{item.deliveryDays+' дн.'}</td>
                 <td style={tblC}><span style={{color:item.inStock?C.success:C.danger,fontSize:'12px'}}>{item.inStock?'✅ Есть':'❌ Нет'}</span></td>
-                <td style={tblC}><button onClick={async()=>{await fetch(API+'/supplier-catalog/'+item.id,{method:'DELETE'});setSupplierCatalog(prev=>prev.filter(c=>c.id!==item.id));}} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button></td>
+                <td style={tblC}><button aria-label={'Удалить '+item.materialName} disabled={catalogActions.busy} onClick={()=>catalogActions.remove(item.id)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button></td>
               </tr>))}
             </tbody></table>
             {myCatalog.length===0&&<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'20px'}}>Каталог пуст — добавьте материалы</p>}

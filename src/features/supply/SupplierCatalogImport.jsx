@@ -1,11 +1,13 @@
 import React from 'react';
 import { MAX_IMPORT_BYTES, prepareCatalogImport, catalogItemKey, catalogResponse } from './supplierCatalogImportUtils';
 
-export default function SupplierCatalogImport({ API, supplierId, supplierName, priceUrl, catalog, onSaved, buttonStyle }) {
+export default function SupplierCatalogImport({ API, supplierId, supplierName, priceUrl, catalog, onSaved, buttonStyle, mutationLock }) {
   const [preview, setPreview] = React.useState(null);
   const [busy, setBusy] = React.useState(false);
   const [message, setMessage] = React.useState('');
   const running = React.useRef(false);
+  const fallbackLock = React.useRef(false);
+  const lock = mutationLock || fallbackLock;
   const active = React.useRef(true);
   React.useEffect(() => { active.current = true; return () => { active.current = false; }; }, []);
 
@@ -52,6 +54,8 @@ export default function SupplierCatalogImport({ API, supplierId, supplierName, p
 
   async function save() {
     if (running.current || !preview || preview.errors.length || !preview.items.length) return;
+    if (lock.current) { setMessage('Дождитесь завершения другой операции с каталогом.'); return; }
+    lock.current = true;
     running.current = true; setBusy(true); setMessage('');
     let count = 0, row = null;
     try {
@@ -76,7 +80,7 @@ export default function SupplierCatalogImport({ API, supplierId, supplierName, p
         // Never automatically retry a POST whose outcome may be unknown.
         setPreview(null);
       }
-    } finally { running.current = false; if (active.current) setBusy(false); }
+    } finally { lock.current = false; running.current = false; if (active.current) setBusy(false); }
   }
 
   return <div style={{ marginBottom: 12, overflowWrap: 'anywhere' }}>
