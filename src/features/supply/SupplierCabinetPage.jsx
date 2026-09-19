@@ -3,6 +3,7 @@ import React from 'react';
 import SupplyClaims from './SupplyClaims';
 import SupplierCatalogImport from './SupplierCatalogImport';
 import useSupplierCatalogActions from './useSupplierCatalogActions';
+import useSupplierQuoteResponse from './useSupplierQuoteResponse';
 import { Check, Edit2, Plus, Trash2, Upload, X } from 'lucide-react';
 import DocumentRecognitionPanel from '../../components/DocumentRecognitionPanel';
 import { groupSuppliers, normalizeSupplierPayload, supplierIdentityKeys } from '../../utils/supplierUtils';
@@ -15,6 +16,13 @@ const normalizeSupplierIdentity = value => String(value || '')
   .replace(/[^а-яa-z0-9]+/gi, ' ')
   .replace(/\s+/g, ' ')
   .trim();
+
+function readOfferItems(offer) {
+  try {
+    const items = typeof offer.itemsKpJson === 'string' ? JSON.parse(offer.itemsKpJson) : offer.itemsKpJson;
+    return Array.isArray(items) ? items : [];
+  } catch { return []; }
+}
 
 export default function SupplierCabinetPage({
   API,
@@ -72,6 +80,14 @@ export default function SupplierCabinetPage({
   user,
 }) {
     const currentUserId = user?.id || user?.userId || user?.user_id || '';
+    const quoteResponse = useSupplierQuoteResponse({
+      API, actorId: `${currentUserId}:${user?.role || ''}`, offerId: respondingOfferId,
+      onSaved: async () => {
+        setRespondingOfferId(null);
+        notify('КП отправлено директору', 'supply');
+        await refreshData();
+      },
+    });
     const currentUserEmail = String(user?.email || '').toLowerCase();
     const currentUserName = normalizeSupplierIdentity(user?.name);
     const isSupplierRole = (user?.role || '') === 'поставщик';
@@ -372,18 +388,18 @@ export default function SupplierCabinetPage({
                       <div>
                         {g.key==='wait' && !isResponding && (
                           <div style={{display:'flex',gap:'6px',flexWrap:'wrap',justifyContent:'flex-end'}}>
-                            <button onClick={()=>{setRespondingOfferId(o.id);setNewKpResponse({pricePerUnit:o.pricePerUnit||'',deliveryDays:o.deliveryDays||'',paymentTerms:o.paymentTerms||'Постоплата',vatIncluded:o.vatIncluded!==false,validUntil:o.validUntil||'',supplierMessage:o.supplierMessage||'',pdfUrl:o.pdfUrl||''});}} style={{...btnO,padding:'5px 12px',fontSize:'12px'}}>💰 Отправить КП</button>
+                            <button onClick={()=>{setRespondingOfferId(o.id);setNewKpResponse({pricePerUnit:o.pricePerUnit||'',deliveryDays:o.deliveryDays??'',paymentTerms:o.paymentTerms||'Постоплата',vatIncluded:o.vatIncluded!==false,validUntil:o.validUntil||'',supplierMessage:o.supplierMessage||'',pdfUrl:o.pdfUrl||'',expectedRespondedAt:o.respondedAt||null,itemsKp:readOfferItems(o)});}} style={{...btnO,padding:'5px 12px',fontSize:'12px'}}>💰 Отправить КП</button>
                             <button onClick={()=>withdrawOwnOffer(o,'Отказаться от запроса КП?')} style={{...btnG,padding:'5px 10px',fontSize:'12px'}}><X size={12}/>Отказаться</button>
                           </div>
                         )}
                         {g.key==='resp' && (
                           <div style={{display:'flex',gap:'6px',flexWrap:'wrap',justifyContent:'flex-end'}}>
-                            <button onClick={()=>{setRespondingOfferId(o.id);setNewKpResponse({pricePerUnit:o.pricePerUnit||'',deliveryDays:o.deliveryDays||'',paymentTerms:o.paymentTerms||'Постоплата',vatIncluded:o.vatIncluded!==false,validUntil:o.validUntil||'',supplierMessage:o.supplierMessage||'',pdfUrl:o.pdfUrl||''});}} style={{...btnG,padding:'4px 10px',fontSize:'11px'}}><Edit2 size={11}/>Изменить</button>
+                            <button onClick={()=>{setRespondingOfferId(o.id);setNewKpResponse({pricePerUnit:o.pricePerUnit||'',deliveryDays:o.deliveryDays??'',paymentTerms:o.paymentTerms||'Постоплата',vatIncluded:o.vatIncluded!==false,validUntil:o.validUntil||'',supplierMessage:o.supplierMessage||'',pdfUrl:o.pdfUrl||'',expectedRespondedAt:o.respondedAt||null,itemsKp:readOfferItems(o)});}} style={{...btnG,padding:'4px 10px',fontSize:'11px'}}><Edit2 size={11}/>Изменить</button>
                             <button onClick={()=>withdrawOwnOffer(o,'Отозвать отправленное КП?')} style={{...btnR,padding:'4px 10px',fontSize:'11px'}}><X size={11}/>Отозвать</button>
                           </div>
                         )}
                         {g.key==='withdrawn' && (
-                          <button onClick={()=>{setRespondingOfferId(o.id);setNewKpResponse({pricePerUnit:o.pricePerUnit||'',deliveryDays:o.deliveryDays||'',paymentTerms:o.paymentTerms||'Постоплата',vatIncluded:o.vatIncluded!==false,validUntil:o.validUntil||'',supplierMessage:o.supplierMessage||'',pdfUrl:o.pdfUrl||''});}} style={{...btnO,padding:'5px 12px',fontSize:'12px'}}>Подать заново</button>
+                          <button onClick={()=>{setRespondingOfferId(o.id);setNewKpResponse({pricePerUnit:o.pricePerUnit||'',deliveryDays:o.deliveryDays??'',paymentTerms:o.paymentTerms||'Постоплата',vatIncluded:o.vatIncluded!==false,validUntil:o.validUntil||'',supplierMessage:o.supplierMessage||'',pdfUrl:o.pdfUrl||'',expectedRespondedAt:o.respondedAt||null,itemsKp:readOfferItems(o)});}} style={{...btnO,padding:'5px 12px',fontSize:'12px'}}>Подать заново</button>
                         )}
                         {g.key==='won' && (
                           (()=>{
@@ -425,7 +441,7 @@ export default function SupplierCabinetPage({
                         arr[idx] = {...arr[idx], [field]: value};
                         setNewKpResponse({...newKpResponse, itemsKp: arr});
                       };
-                      return (<div style={{borderTop:'1.5px solid '+C.border,paddingTop:'12px',marginTop:'10px'}}>
+                      return (<fieldset disabled={quoteResponse.busy} style={{border:0,minWidth:0,padding:0,borderTop:'1.5px solid '+C.border,paddingTop:'12px',marginTop:'10px'}}>
                       <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'8px'}}>
                         💰 Ваше КП {isMulti?'(заполните цену по каждой позиции)':'на '+(reqItems[0]?.quantity||req.quantity)+' '+(reqItems[0]?.unit||req.unit)}:
                       </b>
@@ -548,22 +564,12 @@ export default function SupplierCabinetPage({
                                 supplierMessage: newKpResponse.supplierMessage,
                                 pdfUrl: newKpResponse.pdfUrl,
                               };
-                          const response = await fetch(API+'/supplier-offers/'+o.id,{
-                            method:'PUT', headers:{'Content-Type':'application/json'},
-                            body: JSON.stringify(body)
-                          });
-                          const data = await response.json().catch(() => ({}));
-                          if (!response.ok || data?.detail || data?.error) {
-                            alert('Не удалось отправить КП: ' + (data?.detail || data?.error || response.status));
-                            return;
-                          }
-                          setRespondingOfferId(null);
-                          await refreshData();
-                          notify('КП отправлено директору','supply');
-                        }} style={btnO}><Check size={14}/>Отправить КП</button>
+                          await quoteResponse.submit({ ...body, expectedRespondedAt: newKpResponse.expectedRespondedAt || null });
+                        }} style={btnO}><Check size={14}/>{quoteResponse.busy ? 'Отправляем…' : 'Отправить КП'}</button>
                         <button onClick={()=>setRespondingOfferId(null)} style={btnG}><X size={14}/>Отмена</button>
                       </div>
-                    </div>);
+                      {quoteResponse.error && <p role='alert' style={{color:C.danger,fontSize:'12px'}}>{quoteResponse.error}</p>}
+                    </fieldset>);
                     })()}
                     {/* Форма выставления счёта (Сн.3) — для выигранного КП */}
                     {invoicingOfferId===o.id && (<div style={{borderTop:'1.5px solid '+C.border,paddingTop:'12px',marginTop:'10px'}}>

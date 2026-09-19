@@ -18,6 +18,7 @@ from fastapi import Depends, Header, HTTPException
 from pydantic import BaseModel
 
 try:
+    from backend.features.supplier_offers.response_submission import submission_identity, is_submission_replay, require_current_response, log_response
     from backend.features.supplier_access.service import (
         supplier_offer_visibility_filter,
     )
@@ -27,6 +28,7 @@ try:
         resolve_resource_company_actor,
     )
 except ModuleNotFoundError:
+    from features.supplier_offers.response_submission import submission_identity, is_submission_replay, require_current_response, log_response
     from features.supplier_access.service import (
         supplier_offer_visibility_filter,
     )
@@ -387,370 +389,411 @@ def register_supplier_offers_module(app, deps):
     ):
         from datetime import datetime
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        action = data.get('action')
-        cur.execute("""
-            SELECT o.id, o.supplier_id, o.request_id, o.company_id,
-                   o.status, o.delivery_status, r.company_id AS request_company_id, r.project
-            FROM supplier_offers o
-            LEFT JOIN supply_requests r ON r.id=o.request_id
-            WHERE o.id=%s
-        """, (id,))
-        offer_access = cur.fetchone()
-        if not offer_access:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=404, detail="КП не найдено")
-        role = _current_user.get("role")
-        actor_user = _current_user
-        if role == "поставщик":
-            try:
-                _require_supplier_offer_visibility(cur, id, _current_user)
-            except Exception:
-                cur.close(); conn.close()
-                raise
-            if action not in ('respond', 'withdraw'):
-                cur.close(); conn.close()
-                raise HTTPException(status_code=403, detail="Поставщик может только ответить на своё КП или отозвать его")
-        else:
-            try:
-                company_context, actor_user = resolve_resource_company_actor(
-                    cur,
-                    _current_user,
-                    offer_access.get("company_id"),
-                    "update",
-                    x_company_id=x_company_id,
-                    x_company_mode=x_company_mode,
-                    allowed_roles=SUPPLY_INTERNAL_ROLES,
-                    forbidden_detail="Роль в выбранной компании не позволяет изменять КП",
-                    platform_staff_roles=PLATFORM_STAFF_ROLES,
-                    client_account_roles=CLIENT_ACCOUNT_ROLES,
-                )
-                role = actor_user.get("role") or ""
-                if offer_access.get("project"):
-                    require_project_or_warehouse_access(actor_user, offer_access.get("project") or "")
-            except Exception:
-                cur.close(); conn.close()
-                raise
-
-        company_id = int(offer_access.get("company_id") or 0)
         try:
-            assert_rows_company_scope(
-                [{"company_id": offer_access.get("request_company_id")}],
-                company_id,
-                "Заявка КП",
-            )
-            _ensure_supply_request_recipients_table(cur)
-            cur.execute(
-                "SELECT company_id FROM supplier_offers WHERE request_id=%s FOR UPDATE",
-                (offer_access.get("request_id"),),
-            )
-            assert_rows_company_scope(cur.fetchall(), company_id, "Коммерческие предложения заявки")
-            cur.execute(
-                "SELECT company_id FROM supply_request_recipients WHERE request_id=%s FOR UPDATE",
-                (offer_access.get("request_id"),),
-            )
-            assert_rows_company_scope(cur.fetchall(), company_id, "Получатели КП")
-        except Exception:
-            cur.close(); conn.close()
-            raise
-
-        def _offer_line_key(item):
-            return (
-                _norm_key_text((item or {}).get("materialName") or (item or {}).get("name") or ""),
-                _norm_base_unit((item or {}).get("unit") or ""),
-                _supply_work_package((item or {}).get("workPackage") or (item or {}).get("work_package") or ""),
-            )
-
-        def _require_valid_supplier_offer_for_approval():
-            cur.execute("""SELECT o.status, o.total_price, o.price_per_unit, o.items_kp_json,
-                                  r.items_json, r.quantity
-                           FROM supplier_offers o
-                           LEFT JOIN supply_requests r ON r.id=o.request_id
-                           WHERE o.id=%s""", (id,))
-            guard = cur.fetchone()
-            if not guard:
-                raise HTTPException(status_code=404, detail="КП не найдено")
-            if (guard.get("status") or "") != "Получено":
-                raise HTTPException(status_code=400, detail="Нельзя утвердить КП, пока поставщик не прислал цены")
-            request_items = _json_list_or_empty(guard.get("items_json"))
-            kp_items = _json_list_or_empty(guard.get("items_kp_json"))
-            total_price = _float_or_zero(guard.get("total_price"))
-            price_per_unit = _float_or_zero(guard.get("price_per_unit"))
-            if request_items:
-                if not kp_items:
-                    raise HTTPException(status_code=400, detail="В КП нет постатейных цен по материалам заявки")
-                request_by_key = {}
-                for req_item in request_items:
-                    if not isinstance(req_item, dict):
-                        continue
-                    request_by_key[_offer_line_key(req_item)] = req_item
-                priced_keys = set()
-                kp_total = 0.0
-                for kp_item in kp_items:
-                    if not isinstance(kp_item, dict):
-                        continue
-                    key = _offer_line_key(kp_item)
-                    req_item = request_by_key.get(key)
-                    if not req_item:
-                        continue
-                    kp_qty = _float_or_zero(kp_item.get("quantity"))
-                    req_qty = _float_or_zero(req_item.get("quantity"))
-                    price = _float_or_zero(kp_item.get("pricePerUnit"))
-                    line_total = _float_or_zero(kp_item.get("totalPrice"))
-                    if price <= 0 or line_total <= 0:
-                        continue
-                    if abs(kp_qty - req_qty) > 0.000001:
-                        raise HTTPException(
-                            status_code=400,
-                            detail="Количество в КП не совпадает с заявкой: " + str(req_item.get("materialName") or req_item.get("name") or "позиция")
-                        )
-                    expected_line_total = round(price * req_qty, 2)
-                    if abs(line_total - expected_line_total) > 0.05:
-                        raise HTTPException(
-                            status_code=400,
-                            detail="Сумма строки КП не сходится с ценой и количеством: " + str(req_item.get("materialName") or req_item.get("name") or "позиция")
-                        )
-                    kp_total += line_total
-                    priced_keys.add(key)
-                missing = []
-                for req_item in request_items:
-                    if not isinstance(req_item, dict):
-                        continue
-                    if _offer_line_key(req_item) not in priced_keys:
-                        missing.append(req_item.get("materialName") or req_item.get("name") or "позиция")
-                if missing:
-                    raise HTTPException(status_code=400, detail="В КП нет цены по позициям: " + ", ".join(missing[:5]))
-                if abs(total_price - round(kp_total, 2)) > 0.05:
-                    raise HTTPException(status_code=400, detail="Итог КП не совпадает с суммой строк заявки")
-            else:
-                request_qty = _float_or_zero(guard.get("quantity"))
-                if request_qty > 0 and price_per_unit <= 0:
-                    raise HTTPException(status_code=400, detail="В КП не указана цена за единицу")
-            if total_price <= 0:
-                raise HTTPException(status_code=400, detail="Нельзя утвердить КП с нулевой суммой")
-
-        if action == 'respond':
-            # Поставщик отвечает на КП: цена, срок, условия, НДС, PDF, комментарий
-            import json as _json
-            current_status = offer_access.get("status") or ""
-            items_kp = data.get('itemsKp') or []
-            # Если пришёл массив постатейного КП — считаем итог автоматически
-            items_kp_json = None
-            if items_kp and isinstance(items_kp, list):
-                # Нормализация: каждый item должен иметь pricePerUnit и quantity
-                normalized = []
-                calc_total = 0.0
-                for it in items_kp:
-                    if not isinstance(it, dict): continue
-                    p = float(it.get('pricePerUnit') or 0)
-                    q = float(it.get('quantity') or 0)
-                    line_total = p * q
-                    normalized.append({
-                        'materialName': it.get('materialName',''),
-                        'quantity': q,
-                        'unit': it.get('unit','шт'),
-                        'workPackage': (it.get('workPackage') or it.get('work_package') or '').strip(),
-                        'pricePerUnit': p,
-                        'totalPrice': line_total,
-                        'deliveryDays': int(it.get('deliveryDays') or 0) if it.get('deliveryDays') else None,
-                        'notes': it.get('notes','')
-                    })
-                    calc_total += line_total
-                items_kp_json = _json.dumps(normalized, ensure_ascii=False)
-                # Для совместимости: pricePerUnit = средневзвешенная, totalPrice = сумма
-                total = float(data.get('totalPrice') or calc_total)
-                ppu = float(data.get('pricePerUnit') or (calc_total / max(1, len(normalized))))
-            else:
-                # Старый путь — одна цена за единицу
-                ppu = float(data.get('pricePerUnit') or 0)
-                qty_for_total = float(data.get('quantity') or 0)
-                total = float(data.get('totalPrice') or (ppu * qty_for_total))
-                cur.execute("""SELECT items_json, material_name, quantity, unit, COALESCE(work_package,'Основная') AS work_package
-                               FROM supply_requests WHERE id=%s""", (offer_access.get("request_id"),))
-                req_line = cur.fetchone()
-                req_items = _json_list_or_empty(req_line.get("items_json") if req_line else None)
-                if not req_items and req_line:
-                    req_items = [{
-                        "materialName": req_line.get("material_name") or "",
-                        "quantity": req_line.get("quantity") or qty_for_total,
-                        "unit": req_line.get("unit") or "",
-                        "workPackage": req_line.get("work_package") or "Основная",
-                    }]
-                if len(req_items) == 1:
-                    req_item = req_items[0]
-                    req_qty = _float_or_zero(req_item.get("quantity") or qty_for_total)
-                    items_kp_json = _json.dumps([{
-                        "materialName": req_item.get("materialName") or req_item.get("name") or "",
-                        "quantity": req_qty,
-                        "unit": req_item.get("unit") or "",
-                        "workPackage": (req_item.get("workPackage") or req_item.get("work_package") or (req_line.get("work_package") if req_line else "") or "Основная").strip(),
-                        "pricePerUnit": ppu,
-                        "totalPrice": round(ppu * req_qty, 2),
-                        "deliveryDays": int(data.get("deliveryDays") or 0) if data.get("deliveryDays") else None,
-                        "notes": data.get("supplierMessage") or "",
-                    }], ensure_ascii=False)
-            cur.execute(
-                "UPDATE supplier_offers SET status=%s, price_per_unit=%s, total_price=%s, delivery_days=%s, "
-                "payment_terms=%s, vat_included=%s, pdf_url=%s, valid_until=%s, supplier_message=%s, "
-                "items_kp_json=COALESCE(%s, items_kp_json), responded_at=%s WHERE id=%s",
-                ('Получено', ppu, total, int(data.get('deliveryDays') or 0),
-                 data.get('paymentTerms') or 'Постоплата',
-                 bool(data.get('vatIncluded', True)),
-                 data.get('pdfUrl') or None,
-                 data.get('validUntil') or None,
-                 data.get('supplierMessage') or '',
-                 items_kp_json,
-                 datetime.now(), id))
-            _ensure_supply_request_recipients_table(cur)
+            action = data.get('action')
             cur.execute("""
-                UPDATE supply_request_recipients
-                   SET status=%s, responded_at=NOW()
-                 WHERE request_id=%s
-                   AND company_id=%s
-                   AND (
-                        target_supplier_id=%s
-                     OR supplier_id=%s
-                     OR COALESCE(supplier_group_ids, '{}'::int[]) && %s::int[]
-                   )
-            """, (
-                "КП получено",
-                offer_access.get("request_id"),
-                company_id,
-                offer_access.get("supplier_id"),
-                offer_access.get("supplier_id"),
-                [offer_access.get("supplier_id")],
-            ))
-            _log_supplier_offer_event(cur, id, "responded", current_status, "Получено", actor_user, data)
-        elif action == 'select':
-            # Директор выбрал это КП
-            if role not in LEADERSHIP_ROLES:
+                SELECT o.id, o.supplier_id, o.request_id, o.company_id,
+                       o.status, o.delivery_status, r.company_id AS request_company_id, r.project
+                FROM supplier_offers o
+                LEFT JOIN supply_requests r ON r.id=o.request_id
+                WHERE o.id=%s
+            """, (id,))
+            offer_access = cur.fetchone()
+            if not offer_access:
                 cur.close(); conn.close()
-                raise HTTPException(status_code=403, detail="Утвердить КП может только директор или замдиректора")
+                raise HTTPException(status_code=404, detail="КП не найдено")
+            role = _current_user.get("role")
+            actor_user = _current_user
+            if role == "поставщик":
+                try:
+                    _require_supplier_offer_visibility(cur, id, _current_user)
+                except Exception:
+                    cur.close(); conn.close()
+                    raise
+                if action not in ('respond', 'withdraw'):
+                    cur.close(); conn.close()
+                    raise HTTPException(status_code=403, detail="Поставщик может только ответить на своё КП или отозвать его")
+            else:
+                try:
+                    company_context, actor_user = resolve_resource_company_actor(
+                        cur,
+                        _current_user,
+                        offer_access.get("company_id"),
+                        "update",
+                        x_company_id=x_company_id,
+                        x_company_mode=x_company_mode,
+                        allowed_roles=SUPPLY_INTERNAL_ROLES,
+                        forbidden_detail="Роль в выбранной компании не позволяет изменять КП",
+                        platform_staff_roles=PLATFORM_STAFF_ROLES,
+                        client_account_roles=CLIENT_ACCOUNT_ROLES,
+                    )
+                    role = actor_user.get("role") or ""
+                    if offer_access.get("project"):
+                        require_project_or_warehouse_access(actor_user, offer_access.get("project") or "")
+                except Exception:
+                    cur.close(); conn.close()
+                    raise
+
+            company_id = int(offer_access.get("company_id") or 0)
             try:
-                _require_valid_supplier_offer_for_approval()
-            except HTTPException:
+                assert_rows_company_scope(
+                    [{"company_id": offer_access.get("request_company_id")}],
+                    company_id,
+                    "Заявка КП",
+                )
+                _ensure_supply_request_recipients_table(cur)
+                cur.execute(
+                    "SELECT company_id FROM supplier_offers WHERE request_id=%s FOR UPDATE",
+                    (offer_access.get("request_id"),),
+                )
+                assert_rows_company_scope(cur.fetchall(), company_id, "Коммерческие предложения заявки")
+                cur.execute(
+                    "SELECT company_id FROM supply_request_recipients WHERE request_id=%s FOR UPDATE",
+                    (offer_access.get("request_id"),),
+                )
+                assert_rows_company_scope(cur.fetchall(), company_id, "Получатели КП")
+                cur.execute('SELECT status, delivery_status FROM supplier_offers WHERE id=%s', (id,))
+                offer_access.update(cur.fetchone())
+                if _current_user.get('role') == 'поставщик':
+                    _require_supplier_offer_visibility(cur, id, _current_user)
+                else:
+                    _, actor_user = resolve_resource_company_actor(
+                        cur, _current_user, offer_access.get('company_id'), 'update',
+                        x_company_id=x_company_id, x_company_mode=x_company_mode,
+                        allowed_roles=SUPPLY_INTERNAL_ROLES,
+                        forbidden_detail='Роль в выбранной компании не позволяет изменять КП',
+                        platform_staff_roles=PLATFORM_STAFF_ROLES,
+                        client_account_roles=CLIENT_ACCOUNT_ROLES,
+                    )
+                    role = actor_user.get('role') or ''
+                    if offer_access.get('project'):
+                        require_project_or_warehouse_access(actor_user, offer_access['project'])
+            except Exception:
                 cur.close(); conn.close()
                 raise
-            cur.execute("UPDATE supplier_offers SET status=%s WHERE id=%s", ('Утверждено', id))
-            _ensure_supply_request_recipients_table(cur)
-            cur.execute("""
-                UPDATE supply_request_recipients
-                   SET status=%s
-                 WHERE request_id=%s
-                   AND company_id=%s
-                   AND (
-                        target_supplier_id=%s
-                     OR supplier_id=%s
-                     OR COALESCE(supplier_group_ids, '{}'::int[]) && %s::int[]
-                   )
-            """, (
-                "КП выбрано",
-                offer_access.get("request_id"),
-                company_id,
-                offer_access.get("supplier_id"),
-                offer_access.get("supplier_id"),
-                [offer_access.get("supplier_id")],
-            ))
-            _log_supplier_offer_event(cur, id, "selected", offer_access.get("status") or "", "Утверждено", actor_user, data)
-            # Остальные КП по этой заявке — отклонены
-            cur.execute("SELECT request_id FROM supplier_offers WHERE id=%s", (id,))
-            r = cur.fetchone()
-            if r and r['request_id']:
-                cur.execute("UPDATE supplier_offers SET status=%s WHERE request_id=%s AND company_id=%s AND id<>%s AND status<>%s",
-                    ('Отклонено', r['request_id'], company_id, id, 'Отклонено'))
+
+            def _offer_line_key(item):
+                return (
+                    _norm_key_text((item or {}).get("materialName") or (item or {}).get("name") or ""),
+                    _norm_base_unit((item or {}).get("unit") or ""),
+                    _supply_work_package((item or {}).get("workPackage") or (item or {}).get("work_package") or ""),
+                )
+
+            def _require_valid_supplier_offer_for_approval():
+                cur.execute("""SELECT o.status, o.total_price, o.price_per_unit, o.items_kp_json,
+                                      r.items_json, r.quantity
+                               FROM supplier_offers o
+                               LEFT JOIN supply_requests r ON r.id=o.request_id
+                               WHERE o.id=%s""", (id,))
+                guard = cur.fetchone()
+                if not guard:
+                    raise HTTPException(status_code=404, detail="КП не найдено")
+                if (guard.get("status") or "") != "Получено":
+                    raise HTTPException(status_code=400, detail="Нельзя утвердить КП, пока поставщик не прислал цены")
+                request_items = _json_list_or_empty(guard.get("items_json"))
+                kp_items = _json_list_or_empty(guard.get("items_kp_json"))
+                total_price = _float_or_zero(guard.get("total_price"))
+                price_per_unit = _float_or_zero(guard.get("price_per_unit"))
+                if request_items:
+                    if not kp_items:
+                        raise HTTPException(status_code=400, detail="В КП нет постатейных цен по материалам заявки")
+                    request_by_key = {}
+                    for req_item in request_items:
+                        if not isinstance(req_item, dict):
+                            continue
+                        request_by_key[_offer_line_key(req_item)] = req_item
+                    priced_keys = set()
+                    kp_total = 0.0
+                    for kp_item in kp_items:
+                        if not isinstance(kp_item, dict):
+                            continue
+                        key = _offer_line_key(kp_item)
+                        req_item = request_by_key.get(key)
+                        if not req_item:
+                            continue
+                        kp_qty = _float_or_zero(kp_item.get("quantity"))
+                        req_qty = _float_or_zero(req_item.get("quantity"))
+                        price = _float_or_zero(kp_item.get("pricePerUnit"))
+                        line_total = _float_or_zero(kp_item.get("totalPrice"))
+                        if price <= 0 or line_total <= 0:
+                            continue
+                        if abs(kp_qty - req_qty) > 0.000001:
+                            raise HTTPException(
+                                status_code=400,
+                                detail="Количество в КП не совпадает с заявкой: " + str(req_item.get("materialName") or req_item.get("name") or "позиция")
+                            )
+                        expected_line_total = round(price * req_qty, 2)
+                        if abs(line_total - expected_line_total) > 0.05:
+                            raise HTTPException(
+                                status_code=400,
+                                detail="Сумма строки КП не сходится с ценой и количеством: " + str(req_item.get("materialName") or req_item.get("name") or "позиция")
+                            )
+                        kp_total += line_total
+                        priced_keys.add(key)
+                    missing = []
+                    for req_item in request_items:
+                        if not isinstance(req_item, dict):
+                            continue
+                        if _offer_line_key(req_item) not in priced_keys:
+                            missing.append(req_item.get("materialName") or req_item.get("name") or "позиция")
+                    if missing:
+                        raise HTTPException(status_code=400, detail="В КП нет цены по позициям: " + ", ".join(missing[:5]))
+                    if abs(total_price - round(kp_total, 2)) > 0.05:
+                        raise HTTPException(status_code=400, detail="Итог КП не совпадает с суммой строк заявки")
+                else:
+                    request_qty = _float_or_zero(guard.get("quantity"))
+                    if request_qty > 0 and price_per_unit <= 0:
+                        raise HTTPException(status_code=400, detail="В КП не указана цена за единицу")
+                if total_price <= 0:
+                    raise HTTPException(status_code=400, detail="Нельзя утвердить КП с нулевой суммой")
+
+            if action == 'respond':
+                # Поставщик отвечает на КП: цена, срок, условия, НДС, PDF, комментарий
+                import json as _json
+                try:
+                    # The initial read precedes the locks: re-read both state and
+                    # access after a concurrent selection/revocation has committed.
+                    if role == 'поставщик':
+                        _require_supplier_offer_visibility(cur, id, _current_user)
+                    cur.execute('SELECT status, responded_at FROM supplier_offers WHERE id=%s', (id,))
+                    current = cur.fetchone()
+                    identity = submission_identity(data, actor_user)
+                    _ensure_supplier_offer_events_table(cur)
+                    if is_submission_replay(cur, id, identity):
+                        cur.execute(OFFERS_SELECT + ' WHERE id=%s', (id,))
+                        result = dict(cur.fetchone())
+                        result['submissionAccepted'] = True
+                        conn.commit()
+                        cur.close(); conn.close()
+                        return result
+                    require_current_response(data, current)
+                except Exception:
+                    cur.close(); conn.close()
+                    raise
+                current_status = current['status'] or ''
+                items_kp = data.get('itemsKp') or []
+                # Если пришёл массив постатейного КП — считаем итог автоматически
+                items_kp_json = None
+                if items_kp and isinstance(items_kp, list):
+                    # Нормализация: каждый item должен иметь pricePerUnit и quantity
+                    normalized = []
+                    calc_total = 0.0
+                    for it in items_kp:
+                        if not isinstance(it, dict): continue
+                        p = float(it.get('pricePerUnit') or 0)
+                        q = float(it.get('quantity') or 0)
+                        line_total = p * q
+                        normalized.append({
+                            'materialName': it.get('materialName',''),
+                            'quantity': q,
+                            'unit': it.get('unit','шт'),
+                            'workPackage': (it.get('workPackage') or it.get('work_package') or '').strip(),
+                            'pricePerUnit': p,
+                            'totalPrice': line_total,
+                            'deliveryDays': int(it.get('deliveryDays') or 0) if it.get('deliveryDays') else None,
+                            'notes': it.get('notes','')
+                        })
+                        calc_total += line_total
+                    items_kp_json = _json.dumps(normalized, ensure_ascii=False)
+                    # Для совместимости: pricePerUnit = средневзвешенная, totalPrice = сумма
+                    total = float(data.get('totalPrice') or calc_total)
+                    ppu = float(data.get('pricePerUnit') or (calc_total / max(1, len(normalized))))
+                else:
+                    # Старый путь — одна цена за единицу
+                    ppu = float(data.get('pricePerUnit') or 0)
+                    qty_for_total = float(data.get('quantity') or 0)
+                    total = float(data.get('totalPrice') or (ppu * qty_for_total))
+                    cur.execute("""SELECT items_json, material_name, quantity, unit, COALESCE(work_package,'Основная') AS work_package
+                                   FROM supply_requests WHERE id=%s""", (offer_access.get("request_id"),))
+                    req_line = cur.fetchone()
+                    req_items = _json_list_or_empty(req_line.get("items_json") if req_line else None)
+                    if not req_items and req_line:
+                        req_items = [{
+                            "materialName": req_line.get("material_name") or "",
+                            "quantity": req_line.get("quantity") or qty_for_total,
+                            "unit": req_line.get("unit") or "",
+                            "workPackage": req_line.get("work_package") or "Основная",
+                        }]
+                    if len(req_items) == 1:
+                        req_item = req_items[0]
+                        req_qty = _float_or_zero(req_item.get("quantity") or qty_for_total)
+                        items_kp_json = _json.dumps([{
+                            "materialName": req_item.get("materialName") or req_item.get("name") or "",
+                            "quantity": req_qty,
+                            "unit": req_item.get("unit") or "",
+                            "workPackage": (req_item.get("workPackage") or req_item.get("work_package") or (req_line.get("work_package") if req_line else "") or "Основная").strip(),
+                            "pricePerUnit": ppu,
+                            "totalPrice": round(ppu * req_qty, 2),
+                            "deliveryDays": int(data.get("deliveryDays") or 0) if data.get("deliveryDays") else None,
+                            "notes": data.get("supplierMessage") or "",
+                        }], ensure_ascii=False)
+                cur.execute(
+                    "UPDATE supplier_offers SET status=%s, price_per_unit=%s, total_price=%s, delivery_days=%s, "
+                    "payment_terms=%s, vat_included=%s, pdf_url=%s, valid_until=%s, supplier_message=%s, "
+                    "items_kp_json=COALESCE(%s, items_kp_json), responded_at=%s WHERE id=%s",
+                    ('Получено', ppu, total, int(data.get('deliveryDays') or 0),
+                     data.get('paymentTerms') or 'Постоплата',
+                     bool(data.get('vatIncluded', True)),
+                     data.get('pdfUrl') or None,
+                     data.get('validUntil') or None,
+                     data.get('supplierMessage') or '',
+                     items_kp_json,
+                     datetime.now(), id))
+                _ensure_supply_request_recipients_table(cur)
+                cur.execute("""
+                    UPDATE supply_request_recipients
+                       SET status=%s, responded_at=NOW()
+                     WHERE request_id=%s
+                       AND company_id=%s
+                       AND (
+                            target_supplier_id=%s
+                         OR supplier_id=%s
+                         OR COALESCE(supplier_group_ids, '{}'::int[]) && %s::int[]
+                       )
+                """, (
+                    "КП получено",
+                    offer_access.get("request_id"),
+                    company_id,
+                    offer_access.get("supplier_id"),
+                    offer_access.get("supplier_id"),
+                    [offer_access.get("supplier_id")],
+                ))
+                log_response(cur, id, current_status, actor_user, data, identity)
+            elif action == 'select':
+                # Директор выбрал это КП
+                if role not in LEADERSHIP_ROLES:
+                    cur.close(); conn.close()
+                    raise HTTPException(status_code=403, detail="Утвердить КП может только директор или замдиректора")
+                try:
+                    _require_valid_supplier_offer_for_approval()
+                except HTTPException:
+                    cur.close(); conn.close()
+                    raise
+                cur.execute("UPDATE supplier_offers SET status=%s WHERE id=%s", ('Утверждено', id))
+                _ensure_supply_request_recipients_table(cur)
                 cur.execute("""
                     UPDATE supply_request_recipients
                        SET status=%s
                      WHERE request_id=%s
                        AND company_id=%s
-                       AND status NOT IN (%s)
-                """, ("КП отклонено", r['request_id'], company_id, "КП выбрано"))
-        elif action == 'withdraw':
-            current_status = offer_access.get("status") or ""
-            if current_status == "Утверждено":
-                cur.close(); conn.close()
-                raise HTTPException(status_code=400, detail="Выигранное КП нельзя отозвать. Сначала отмените счёт/поставку через снабжение.")
-            if current_status in ("Отозвано", "Отклонено"):
-                cur.close(); conn.close()
-                raise HTTPException(status_code=400, detail="КП уже закрыто")
-            cur.execute("SELECT id FROM supplier_invoices WHERE offer_id=%s LIMIT 1", (id,))
-            has_invoice = cur.fetchone()
-            cur.execute("SELECT id FROM supply_deliveries WHERE offer_id=%s LIMIT 1", (id,))
-            has_delivery = cur.fetchone()
-            if has_invoice or has_delivery or offer_access.get("delivery_status"):
-                cur.close(); conn.close()
-                raise HTTPException(status_code=400, detail="КП уже связано со счётом или поставкой, отзыв заблокирован")
-            cur.execute("UPDATE supplier_offers SET status=%s WHERE id=%s", ('Отозвано', id))
-            _ensure_supply_request_recipients_table(cur)
-            cur.execute("""
-                UPDATE supply_request_recipients
-                   SET status=%s
-                 WHERE request_id=%s
-                   AND company_id=%s
-                   AND (
-                        target_supplier_id=%s
-                     OR supplier_id=%s
-                     OR COALESCE(supplier_group_ids, '{}'::int[]) && %s::int[]
-                   )
-            """, (
-                "КП отозвано",
-                offer_access.get("request_id"),
-                company_id,
-                offer_access.get("supplier_id"),
-                offer_access.get("supplier_id"),
-                [offer_access.get("supplier_id")],
-            ))
-            _log_supplier_offer_event(cur, id, "withdrawn", current_status, "Отозвано", actor_user, data)
-        elif action == 'reject':
-            cur.execute("UPDATE supplier_offers SET status=%s WHERE id=%s", ('Отклонено', id))
-            _ensure_supply_request_recipients_table(cur)
-            cur.execute("""
-                UPDATE supply_request_recipients
-                   SET status=%s
-                 WHERE request_id=%s
-                   AND company_id=%s
-                   AND (
-                        target_supplier_id=%s
-                     OR supplier_id=%s
-                     OR COALESCE(supplier_group_ids, '{}'::int[]) && %s::int[]
-                   )
-            """, (
-                "КП отклонено",
-                offer_access.get("request_id"),
-                company_id,
-                offer_access.get("supplier_id"),
-                offer_access.get("supplier_id"),
-                [offer_access.get("supplier_id")],
-            ))
-            _log_supplier_offer_event(cur, id, "rejected", offer_access.get("status") or "", "Отклонено", actor_user, data)
-        else:
-            if 'status' in data:
-                new_status = str(data.get('status') or '').strip()
-                if new_status in ("Утверждено", "Выбрано", "Принято") and role not in LEADERSHIP_ROLES:
+                       AND (
+                            target_supplier_id=%s
+                         OR supplier_id=%s
+                         OR COALESCE(supplier_group_ids, '{}'::int[]) && %s::int[]
+                       )
+                """, (
+                    "КП выбрано",
+                    offer_access.get("request_id"),
+                    company_id,
+                    offer_access.get("supplier_id"),
+                    offer_access.get("supplier_id"),
+                    [offer_access.get("supplier_id")],
+                ))
+                _log_supplier_offer_event(cur, id, "selected", offer_access.get("status") or "", "Утверждено", actor_user, data)
+                # Остальные КП по этой заявке — отклонены
+                cur.execute("SELECT request_id FROM supplier_offers WHERE id=%s", (id,))
+                r = cur.fetchone()
+                if r and r['request_id']:
+                    cur.execute("UPDATE supplier_offers SET status=%s WHERE request_id=%s AND company_id=%s AND id<>%s AND status<>%s",
+                        ('Отклонено', r['request_id'], company_id, id, 'Отклонено'))
+                    cur.execute("""
+                        UPDATE supply_request_recipients
+                           SET status=%s
+                         WHERE request_id=%s
+                           AND company_id=%s
+                           AND status NOT IN (%s)
+                    """, ("КП отклонено", r['request_id'], company_id, "КП выбрано"))
+            elif action == 'withdraw':
+                current_status = offer_access.get("status") or ""
+                if current_status == "Утверждено":
                     cur.close(); conn.close()
-                    raise HTTPException(status_code=403, detail="Утвердить КП может только директор или замдиректора")
-                if new_status in ("Утверждено", "Выбрано", "Принято"):
-                    try:
-                        _require_valid_supplier_offer_for_approval()
-                    except HTTPException:
+                    raise HTTPException(status_code=400, detail="Выигранное КП нельзя отозвать. Сначала отмените счёт/поставку через снабжение.")
+                if current_status in ("Отозвано", "Отклонено"):
+                    cur.close(); conn.close()
+                    raise HTTPException(status_code=400, detail="КП уже закрыто")
+                cur.execute("SELECT id FROM supplier_invoices WHERE offer_id=%s LIMIT 1", (id,))
+                has_invoice = cur.fetchone()
+                cur.execute("SELECT id FROM supply_deliveries WHERE offer_id=%s LIMIT 1", (id,))
+                has_delivery = cur.fetchone()
+                if has_invoice or has_delivery or offer_access.get("delivery_status"):
+                    cur.close(); conn.close()
+                    raise HTTPException(status_code=400, detail="КП уже связано со счётом или поставкой, отзыв заблокирован")
+                cur.execute("UPDATE supplier_offers SET status=%s WHERE id=%s", ('Отозвано', id))
+                _ensure_supply_request_recipients_table(cur)
+                cur.execute("""
+                    UPDATE supply_request_recipients
+                       SET status=%s
+                     WHERE request_id=%s
+                       AND company_id=%s
+                       AND (
+                            target_supplier_id=%s
+                         OR supplier_id=%s
+                         OR COALESCE(supplier_group_ids, '{}'::int[]) && %s::int[]
+                       )
+                """, (
+                    "КП отозвано",
+                    offer_access.get("request_id"),
+                    company_id,
+                    offer_access.get("supplier_id"),
+                    offer_access.get("supplier_id"),
+                    [offer_access.get("supplier_id")],
+                ))
+                _log_supplier_offer_event(cur, id, "withdrawn", current_status, "Отозвано", actor_user, data)
+            elif action == 'reject':
+                cur.execute("UPDATE supplier_offers SET status=%s WHERE id=%s", ('Отклонено', id))
+                _ensure_supply_request_recipients_table(cur)
+                cur.execute("""
+                    UPDATE supply_request_recipients
+                       SET status=%s
+                     WHERE request_id=%s
+                       AND company_id=%s
+                       AND (
+                            target_supplier_id=%s
+                         OR supplier_id=%s
+                         OR COALESCE(supplier_group_ids, '{}'::int[]) && %s::int[]
+                       )
+                """, (
+                    "КП отклонено",
+                    offer_access.get("request_id"),
+                    company_id,
+                    offer_access.get("supplier_id"),
+                    offer_access.get("supplier_id"),
+                    [offer_access.get("supplier_id")],
+                ))
+                _log_supplier_offer_event(cur, id, "rejected", offer_access.get("status") or "", "Отклонено", actor_user, data)
+            else:
+                if 'status' in data:
+                    new_status = str(data.get('status') or '').strip()
+                    if new_status in ("Утверждено", "Выбрано", "Принято") and role not in LEADERSHIP_ROLES:
                         cur.close(); conn.close()
-                        raise
-                cur.execute("UPDATE supplier_offers SET status=%s WHERE id=%s", (data['status'], id))
-                if new_status in ("Утверждено", "Выбрано", "Принято"):
-                    cur.execute("SELECT request_id FROM supplier_offers WHERE id=%s", (id,))
-                    r = cur.fetchone()
-                    if r and r['request_id']:
-                        cur.execute("UPDATE supplier_offers SET status=%s WHERE request_id=%s AND company_id=%s AND id<>%s AND status<>%s",
-                            ('Отклонено', r['request_id'], company_id, id, 'Отклонено'))
-                _log_supplier_offer_event(cur, id, "status_changed", offer_access.get("status") or "", data.get('status'), actor_user, data)
-            if 'deliveryStatus' in data:
-                cur.execute("UPDATE supplier_offers SET delivery_status=%s WHERE id=%s", (data['deliveryStatus'], id))
-                _log_supplier_offer_event(cur, id, "delivery_status_changed", offer_access.get("delivery_status") or "", data.get('deliveryStatus'), actor_user, data)
-        cur.execute(OFFERS_SELECT + " WHERE id=%s", (id,))
-        row = cur.fetchone()
-        conn.commit()
-        conn.close()
-        return dict(row) if row else {"ok": True}
+                        raise HTTPException(status_code=403, detail="Утвердить КП может только директор или замдиректора")
+                    if new_status in ("Утверждено", "Выбрано", "Принято"):
+                        try:
+                            _require_valid_supplier_offer_for_approval()
+                        except HTTPException:
+                            cur.close(); conn.close()
+                            raise
+                    cur.execute("UPDATE supplier_offers SET status=%s WHERE id=%s", (data['status'], id))
+                    if new_status in ("Утверждено", "Выбрано", "Принято"):
+                        cur.execute("SELECT request_id FROM supplier_offers WHERE id=%s", (id,))
+                        r = cur.fetchone()
+                        if r and r['request_id']:
+                            cur.execute("UPDATE supplier_offers SET status=%s WHERE request_id=%s AND company_id=%s AND id<>%s AND status<>%s",
+                                ('Отклонено', r['request_id'], company_id, id, 'Отклонено'))
+                    _log_supplier_offer_event(cur, id, "status_changed", offer_access.get("status") or "", data.get('status'), actor_user, data)
+                if 'deliveryStatus' in data:
+                    cur.execute("UPDATE supplier_offers SET delivery_status=%s WHERE id=%s", (data['deliveryStatus'], id))
+                    _log_supplier_offer_event(cur, id, "delivery_status_changed", offer_access.get("delivery_status") or "", data.get('deliveryStatus'), actor_user, data)
+            cur.execute(OFFERS_SELECT + " WHERE id=%s", (id,))
+            row = cur.fetchone()
+            conn.commit()
+            conn.close()
+            return dict(row) if row else {"ok": True}
+        finally:
+            cur.close()
+            conn.close()
 
     @app.post("/supplier-offers/{id}/create-invoice")
     def create_invoice_from_offer(
