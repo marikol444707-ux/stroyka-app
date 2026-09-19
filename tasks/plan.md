@@ -1,14 +1,15 @@
 # Implementation Plan: Safe Stroyka Program Improvements
 
-## Current slice: supplier quote response P2 (released 2026-09-19)
+## Current slice: notification evidence P3.1 (released 2026-09-19)
 
 Roadmap: [Supplier portal implementation plan](../docs/supplier-portal-roadmap.md).
-P1 released56c0d2ac; P2 releasedb48eff7d. Supplier responses reach the buyer;
-transactional UUID replay, draft version checks, live authorization and form recovery
-are verified. Evidence: `docs/supplier-quote-response.md`. Next P3: truthful email/MAX
-notification states and clearer buyer-side status/quote refresh. External delivery
-remains unverified. Invoices/payments remain a separate stream.
-Legacy warehouse/template ownership remains pending and is not a prerequisite here.
+P1/P2 released; P3.1 releasedb9b5cf39. Verified queue evidence, failure counts/times,
+explicit unknown references and buyer quote/notification refresh are complete.
+Evidence: `docs/supplier-notification-evidence.md`. Next P3.2: durable notification
+attempts and safe explicit retries with fake providers; external delivery is unverified.
+Production audit:12historical recipients reference missing requests, including6MAX
+queue markers. Do not resend/reassign them; current2requests are separate.
+Invoices/payments remain in another stream. Legacy warehouse/template ownership is pending.
 
 ## Overview
 
