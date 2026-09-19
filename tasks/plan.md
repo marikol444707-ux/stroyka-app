@@ -1,11 +1,11 @@
 # Implementation Plan: Safe Stroyka Program Improvements
 
-## Current slice: supplier team policy P9
+## Current slice: supplier team policy P9 released; next assignment P10
 
 Roadmap: [Supplier portal implementation plan](../docs/supplier-portal-roadmap.md).
 User deferred inbox/spam investigation and Mail support to final acceptance P14.
 P4 released a6c3d605. P5 released10576f5a: search, customer/status filters, 20-row pagination and CSV.
-P6 releaseda0f7ed8b. P7 releasedd7406367; P8 released979ef693. Next P9 team policy; confirm leader/manager permissions before implementation.
+P6 releaseda0f7ed8b. P7 releasedd7406367; P8 released979ef693. P9 releasedd2366ba0. Confirmed: leader sees all, manager only assigned. Next P10 assignment UI/history/CAS.
 P7: selected quotes projected as orders; own four-resource inbox snapshot, per-line shipped/received/remainder, scoped documents and existing request actions.
 P6 implementation: default next Mon–Fri at same Moscow time, editable before RFQ;
 nullable per-offer deadline, no historical backfill, no retry extension.
@@ -722,7 +722,7 @@ P8: derive customer list from authorized request/quote pairs; reuse order cards,
 filter history and documents by company and quote identities; test revocation,
 matching names, mobile and release without API or schema changes.
 
-## P9 — supplier team policy (active)
+## P9 — supplier team policy (released d2366ba0)
 
 Confirmed: leader sees all addressed requests; manager only assigned requests.
 1. Add separate supplier memberships/offer assignments and guarded migration.

@@ -10672,7 +10672,7 @@ change.
 - [ ] P6: Сроки ответа и карточки внимания.
 - [ ] P7: Раздел подтверждённых заказов.
 - [x] P8: Заказчики и границы доступа; release979ef693.
-- [ ] P9: Права команды компании-поставщика.
+- [x] P9: Серверные права команды компании-поставщика; releasedd2366ba0.
 - [ ] P10: Назначение ответственного и рабочие статусы.
 - [ ] P11: Приглашение и отключение сотрудников.
 - [ ] P12: Отгрузки и документы в новой навигации.
@@ -10717,4 +10717,4 @@ change.
 - [x] Confirm leader/manager visibility with user; inspect current owner binding.
 - [x] Explicit memberships/assignments and fail-closed policy.
 - [x] API reads/actions enforce scope without widening owner-only profile/catalog.
-- [ ] PostgreSQL regression and rollout verification.
+- [x] PostgreSQL regression and rollout verification; d2366ba0, original 173 tables preserved, 6 owner visibility comparisons equal.
