@@ -718,10 +718,10 @@ class WarehouseAnomalyRuntimeDisclosurePolicyTests(unittest.TestCase):
             backend_root / "db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Reviewed acceptance guards, exact rework sync and AOSR transaction boundary;
+            # Reviewed company warehouse directory replaces global warehouse CRUD;
             # warehouse preview implementation and registration are unchanged.
             backend_root / "main.py": (
-                "e99d2963c9c15a6101f8716e0e15b0533aaa4d4f9181145e3d98e626ea304bf5"
+                "6e51f58ffd507247928a4c5ef9180fe7c06f99a0bf257d9ed7cc08c0d6ee4f9a"
             ),
         }
         actual = {

@@ -16530,45 +16530,17 @@ def ai_chat(
     return {"response": answer}
 
 
-@app.get("/warehouses")
-def get_warehouses(_current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES, "главный_инженер", "бухгалтер"))):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT id,name,city,address,notes FROM warehouses ORDER BY id")
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return [{"id":r[0],"name":r[1],"city":r[2],"address":r[3],"notes":r[4]} for r in rows]
+try:
+    from backend.features.company_warehouses.routes import register_company_warehouses
+except ModuleNotFoundError:
+    from features.company_warehouses.routes import register_company_warehouses
 
-@app.post("/warehouses")
-def create_warehouse(data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES, "главный_инженер"))):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("INSERT INTO warehouses (name,city,address,notes) VALUES (%s,%s,%s,%s) RETURNING id,name,city,address,notes",
-        (data.get("name",""),data.get("city",""),data.get("address",""),data.get("notes","")))
-    conn.commit()
-    row = cur.fetchone()
-    cur.close(); conn.close()
-    return {"id":row[0],"name":row[1],"city":row[2],"address":row[3],"notes":row[4]}
-
-@app.put("/warehouses/{id}")
-def update_warehouse(id: int, data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES, "главный_инженер"))):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("UPDATE warehouses SET name=%s,city=%s,address=%s,notes=%s WHERE id=%s RETURNING id,name,city,address,notes",
-        (data.get("name",""),data.get("city",""),data.get("address",""),data.get("notes",""),id))
-    conn.commit()
-    row = cur.fetchone()
-    cur.close(); conn.close()
-    return {"id":row[0],"name":row[1],"city":row[2],"address":row[3],"notes":row[4]}
-
-@app.delete("/warehouses/{id}")
-def delete_warehouse(id: int, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES, "главный_инженер"))):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM warehouses WHERE id=%s",(id,))
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok":True}
+register_company_warehouses(app, {
+    "get_db": get_db,
+    "get_current_user": get_current_user,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
+})
 
 try:
     from backend.features.company_requisites.routes import register_company_requisites_module
