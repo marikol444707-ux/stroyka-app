@@ -1,11 +1,11 @@
 # Implementation Plan: Safe Stroyka Program Improvements
 
-## Current slice: email attempt guard P3.2a (verification 2026-09-19)
+## Current slice: email attempt guard P3.2a (released 2026-09-19)
 
 Roadmap: [Supplier portal implementation plan](../docs/supplier-portal-roadmap.md).
 P1/P2 released; P3.1 releasedb9b5cf39. Verified queue evidence, failure counts/times,
 explicit unknown references and buyer quote/notification refresh are complete.
-Evidence: `docs/supplier-notification-evidence.md`. P3.2a persists email queue/claim
+Evidence: `docs/supplier-notification-evidence.md`. P3.2a released2760bc1d: persists email queue/claim
 before SMTP; see `docs/supplier-email-attempts.md` for tests and rollback quarantine.
 Remaining P3.2: safe explicit retry after definite rejection, attempt history and
 MAX worker claims. External delivery is unverified.

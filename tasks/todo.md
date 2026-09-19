@@ -10665,7 +10665,7 @@ change.
 - [x] P1: Загрузка адресных входящих при обычном входе — released56c0d2ac, см. docs/supplier-inbox-loading.md.
 - [x] P2: Ответ поставщика и получение КП заказчиком — releasedb48eff7d; безопасный повтор, конфликт версий, транзакции, браузер и PostgreSQL, см. docs/supplier-quote-response.md.
 - [x] P3.1: Достоверные факты MAX и обновление КП/уведомлений — releasedb9b5cf39, см. docs/supplier-notification-evidence.md.
-- [ ] P3.2a: Проверить и выпустить email после COMMIT с сохранённым захватом; docs/supplier-email-attempts.md.
+- [x] P3.2a: Email после COMMIT с сохранённым захватом — released2760bc1d; docs/supplier-email-attempts.md.
 - [ ] P3.2: Сохранённые попытки email/MAX и безопасный явный повтор;12исторических получателей относятся к отсутствующим заявкам, не пересылать их.
 - [ ] P4: Реестр заявок по прототипу.
 - [ ] P5: Поиск, фильтры, пагинация и CSV.
