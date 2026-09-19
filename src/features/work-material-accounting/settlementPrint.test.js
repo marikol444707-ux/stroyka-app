@@ -97,6 +97,25 @@ test('user-supplied contract, work and defect text stays literal and cannot crea
   }
 });
 
+test('user-supplied tool fine text stays literal and cannot inject print markup', () => {
+  const act = savedAct();
+  const attack = '<img src=x onerror="alert(1)"><script>alert(2)</script>&\'"';
+  act.snapshot.fines = [{
+    source: 'tool', incidentId: '81' + attack, decisionId: '91' + attack,
+    toolName: 'Перфоратор ' + attack, reason: 'Утеря ' + attack,
+    contractEvidence: 'Договор ' + attack, priceEvidence: 'Счёт ' + attack,
+    amount: '350.25',
+  }];
+  const container = document.createElement('div');
+  container.innerHTML = buildSettlementAct(act);
+  expect(container.querySelectorAll('img, script, [onerror], [onload]')).toHaveLength(0);
+  for (const label of ['Перфоратор', 'Утеря', 'Договор', 'Счёт']) {
+    expect(container.textContent).toContain(label + ' ' + attack);
+  }
+  expect(container.textContent).toContain('происшествие №81' + attack);
+  expect(container.textContent).toContain('Решение №91' + attack);
+});
+
 test.each([undefined, null, { works: null, fines: [] }, { works: [], fines: {} }])(
   'missing or incomplete saved snapshot %p cannot print a financial act', snapshot => {
     expect(() => buildSettlementAct({ ...savedAct(), snapshot })).toThrow(/сохранённого состава/i);

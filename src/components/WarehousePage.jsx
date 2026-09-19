@@ -1,4 +1,6 @@
 import React from 'react';
+import ToolsWorkspace from '../features/tool-custody/ToolsWorkspace';
+import { toolCustodyEnabled } from '../features/tool-custody/ToolCustodyPanel';
 import WarehouseInvoicesPanel from './WarehouseInvoicesPanel';
 import WarehouseMainStockPanel from './WarehouseMainStockPanel';
 import WarehouseCompanyWarehousesPanel from './WarehouseCompanyWarehousesPanel';
@@ -329,7 +331,8 @@ export default function WarehousePage(props) {
       )}
 
       {warehouseTab === 'move' && <WarehouseDistributionPanel companyContext={companyContext} projects={projects} C={C} refreshData={refreshData} />}
-      {(warehouseTab === 'tools' || warehouseTab === 'inventory' || (warehouseTab === 'move' && !useTwoStageMovements)) && (
+      {warehouseTab === 'tools' && toolCustodyEnabled() && <ToolsWorkspace {...{ tools, toolHistory, API, companyContext, user, C, refreshData }} />}
+      {((warehouseTab === 'tools' && !toolCustodyEnabled()) || warehouseTab === 'inventory' || (warehouseTab === 'move' && !useTwoStageMovements)) && (
         <WarehouseOperationsPanel
           isMobile={isMobile}
           warehouseTab={warehouseTab}

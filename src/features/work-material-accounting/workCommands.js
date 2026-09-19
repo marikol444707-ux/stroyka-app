@@ -1,6 +1,6 @@
 const prefix = 'stroyka:work-material-batch:v2:';
 const inFlight = new Set();
-const commandPath = /^\/(work-journal(?:\/[1-9][0-9]*\/(?:acceptance|resubmit|material-corrections|material-defects(?:\/[1-9][0-9]*\/decisions)?))?|estimates\/[1-9][0-9]*|brigade-contracts\/[1-9][0-9]*\/acts(?:\/[1-9][0-9]*\/signature)?|brigade-payments)$/;
+const commandPath = /^\/(work-journal(?:\/[1-9][0-9]*\/(?:acceptance|resubmit|material-corrections|material-defects(?:\/[1-9][0-9]*\/decisions)?))?|tools\/[1-9][0-9]*\/(?:custody|incidents\/[1-9][0-9]*\/decisions)|estimates\/[1-9][0-9]*|brigade-contracts\/[1-9][0-9]*\/acts(?:\/[1-9][0-9]*\/signature)?|brigade-payments)$/;
 export const workBatchScope = (context, user) => ({ companyId: context?.selectedCompanyId, userId: user?.id });
 
 function storageKey(scope) {

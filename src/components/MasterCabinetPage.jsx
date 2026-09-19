@@ -1003,7 +1003,7 @@ export default function MasterCabinetPage(props) {
       setDailyWorkSubmitting(false);
     }
   };
-  const myTools = tools.filter(tool => tool.masterName === (masterProfile?.fullName || user.name) && tool.status.includes('У мастера'));
+  const myTools = tools.filter(tool => Number(tool.masterId) === Number(user.id) || tool.status === 'Происшествие');
   const recoverWorkDrafts = batch => {
     setDailyWorkReview(null);
     clearSubmittedDrafts(batch, {setEstimateDoneDrafts,setEstimateWorkMaterials,setEstimateWorkParams,setSelectedWorks,estimateDraftValueRef});
@@ -1993,6 +1993,10 @@ export default function MasterCabinetPage(props) {
 
         {activePage === 'materials' && (
           <MasterMaterialsPage
+            API={API}
+            companyContext={props.companyContext}
+            user={user}
+            onChanged={refreshData}
             C={C}
             badge={badge}
             btnG={btnG}
