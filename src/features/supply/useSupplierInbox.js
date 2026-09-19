@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-const empty = { status: 'loading', offers: [], requests: [], error: '' };
+const empty = { status: 'loading', offers: [], requests: [], deliveries: [], invoices: [], error: '' };
 
-export default function useSupplierInbox(API, user) {
+export default function useSupplierInbox(API, user, includeOrderData=false) {
   const actorId = user?.id || user?.userId || user?.user_id;
   const role = user?.role;
-  const scope = `${API}:${actorId}:${role}`;
+  const scope = `${API}:${actorId}:${role}:${includeOrderData}`;
   const currentScope = useRef(scope);
   currentScope.current = scope;
   const mounted = useRef(true);
@@ -31,12 +31,12 @@ export default function useSupplierInbox(API, user) {
         if (!Array.isArray(rows)) throw new Error('Сервер вернул неполный список заявок');
         return rows;
       };
-      const [requests, offers] = await Promise.all([read('/supply-requests'), read('/supplier-offers')]);
+      const [requests, offers, deliveries=[], invoices=[]] = await Promise.all([read('/supply-requests'), read('/supplier-offers'), ...(includeOrderData ? [read('/supply-deliveries'),read('/supplier-invoices')] : [])]);
       const ids = new Set(requests.map(row => String(row.id)));
       if (offers.some(offer => !ids.has(String(offer.requestId)))) {
         throw new Error('Состав заявок изменился. Повторите загрузку');
       }
-      if (current()) setSnapshot({ scope, status: 'ready', requests, offers, error: '' });
+      if (current()) setSnapshot({ scope, status: 'ready', requests, offers, deliveries, invoices, error: '' });
     } catch (error) {
       if (current()) setSnapshot({ ...empty, scope, status: 'error', error: error.name === 'AbortError'
         ? 'Не удалось загрузить заявки за 20 секунд. Повторите попытку'
@@ -45,7 +45,7 @@ export default function useSupplierInbox(API, user) {
       clearTimeout(timeout);
       abort.abort();
     }
-  }, [API, actorId, role, scope]);
+  }, [API, actorId, role, scope, includeOrderData]);
 
   useEffect(() => {
     mounted.current = true;

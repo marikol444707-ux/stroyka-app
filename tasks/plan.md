@@ -5,7 +5,7 @@
 Roadmap: [Supplier portal implementation plan](../docs/supplier-portal-roadmap.md).
 User deferred inbox/spam investigation and Mail support to final acceptance P14.
 P4 released a6c3d605. P5 released10576f5a: search, customer/status filters, 20-row pagination and CSV.
-P6 releaseda0f7ed8b. Next P7: confirmed quotes as orders, partial delivery remainder.
+P6 releaseda0f7ed8b. P7: selected quotes projected as orders; own four-resource inbox snapshot, per-line shipped/received/remainder, scoped documents and existing request actions.
 P6 implementation: default next Mon–Fri at same Moscow time, editable before RFQ;
 nullable per-offer deadline, no historical backfill, no retry extension.
 Attention filters and readiness mirror existing shipment/payment constraints.

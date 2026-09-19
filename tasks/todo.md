@@ -10694,3 +10694,11 @@ change.
 - [x] Deadline form, Moscow display, attention filtering and CSV.
 - [x] Policy, transactional PostgreSQL, migration, frontend and browser checks.
 - [x] Backed-up deploymenta0f7ed8b and read-only smoke.
+
+## P7 — confirmed orders
+
+- [x] Only selected quotes become order projections; no new business records.
+- [x] Separate material/unit/work-package balances and partial receipt status.
+- [x] Own fresh requests/offers/deliveries/invoices load with error and actor guards.
+- [x] Scoped documents and transition to current request actions.
+- [ ] Full frontend/build, real browser, backup deployment and smoke.
