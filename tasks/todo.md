@@ -10647,3 +10647,12 @@ change.
 - [x] Frontend1116 full tests +44 final targeted; backend3765/639opt-in skips.
 - [x] Browser Excel/CSV/repeat/invalid/lost-response/mobile320 checks.
 - [x] Backed-up deployment;173tables preserved; production smoke healthy.
+
+
+## 2026-09-19 — Manual supplier catalogue changes (released961e2ef8)
+
+- [x] Reproduce/fix manual create/delete showing HTTP failures as success.
+- [x] Preserve draft and rows on failure; normalize inputs and check duplicates.
+- [x] Serialize manual/import mutations; ignore stale actor/supplier callbacks.
+- [x] Full frontend180suites/1128tests; browser denied/successful create/delete/mobile320.
+- [x] Backup release;173tablespreserved; production smoke healthy/no runtimeerrors.

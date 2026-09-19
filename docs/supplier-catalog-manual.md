@@ -22,3 +22,9 @@ manual POST403 preserves name/price/notes; successful retry stores150.5,days0,in
 DELETE403 retains row, confirmed DELETE removes it. Mobile320 viewport/document320,
 form and buttons visible; screenshot inspected. Only intentionally denied requests
 and fixture preload warnings in browser console; no new application exceptions.
+
+Release961e2ef841d63b8883441e16291d6be5747ccd91 completed2026-09-19T13:05:15Z.
+Backup `/root/stroyka-catalog-manual-vZ5sS879/backup`;173tables preserved,319assetsverified.
+Smoke13:05:25Z healthy, DB11.8ms, runtimeErrors0; catalogue GET/POST without session401.
+Schema remains0033; backend runtime unchanged. Synthetic PG and auth files removed.
+Private evidence: `/Users/nikolas/.codex/tmp/supplier-catalog-manual/`.

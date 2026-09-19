@@ -1,13 +1,12 @@
 # Implementation Plan: Safe Stroyka Program Improvements
 
-## Current slice: supplier catalogue import (released 2026-09-19)
+## Current slice: manual supplier catalogue changes (released 2026-09-19)
 
-Released23c0fe6d: Excel/XLS/UTF-8 CSV preview and validation, repeated-file
-protection, confirmed save counts and stop/recheck after ambiguous responses.
-Supplier boot now loads its linked card/catalog; zero-day delivery survives reload.
-See `docs/supplier-catalog-import.md`. Previous delivery control is documented in
-`docs/supply-delivery-control.md`; full chain verification in
-`docs/supply-chain-final-check.md`.
+Released961e2ef8: manual create/delete wait for confirmed success, retain draft/rows
+on failure, validate fields and check same-supplier duplicates. One cabinet serializes
+manual operations and file imports. See `docs/supplier-catalog-manual.md`.
+Import remains documented in `docs/supplier-catalog-import.md`; delivery control in
+`docs/supply-delivery-control.md`; full chain verification in `docs/supply-chain-final-check.md`.
 Supplier invoices/payments remain a separate stream. Legacy warehouse/template
 ownership remains pending; it does not block new company-owned records.
 
