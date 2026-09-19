@@ -81,3 +81,25 @@ explicit user confirmation; do not interpret continuation as that confirmation.
   in 171 tables, leaves the historical template unowned and audit empty.
 - Private logs/scripts: `/Users/nikolas/.codex/tmp/supply-templates/`. Screenshots:
   `output/playwright/supply-templates-{mobile,master,mobile-items}.png`.
+
+
+## Production release
+
+Released `f41a2c1bcda3b7394e60b89bbc632ba6ef44ea19` at `2026-09-19T07:27:39Z` to stroyka26.pro.
+Schema `0032_supply_templates`; new backend flag `SUPPLY_TEMPLATES_ENABLED=1`,
+all previous flags retained. Production tracked checkout was clean and pinned to
+`eeb98bf3948108de684b46ff33b1df9188220806` before fast-forward. Deployment preserved
+all original columns/records in 171 tables and verified all 319 frontend files.
+Post-release health returns `f41a2c1bcda3`, DB healthy; protected template and prior
+module routes return 401 anonymously; public HTML/static hashes match, no API errors.
+No authenticated business writes were made in production for QA.
+
+Server backup: `/root/stroyka-supply-templates-0UpxKgrM/backup`. Rollback plan preserves schema/audit and blocks
+both old global template namespaces in nginx before old runtime starts. The private
+local production dump and browser session files were removed; synthetic PG stopped
+and deleted. Screenshots/logs retained without session state.
+
+Legacy template ID 1 («Штукатурка на обьект») and warehouse ID 1 («Лесной склад»)
+remain unowned pending the explicit user answer. The separate question about one
+main warehouse versus several independent warehouses also remains unanswered;
+warehouse address cards do not imply independent stock balances.

@@ -10624,5 +10624,5 @@ change.
 - [x] PostgreSQL 19, frontend 1083, build, independent review and 320px browser checks.
 - [x] Rehearse migration on private production copy; all 171 original tables unchanged.
 - [x] Canonical backend discovery: 3745 tests passed, 623 opt-in skips.
-- [ ] Release with verified rollback quarantine.
+- [x] Released f41a2c1b / schema 0032; production health, 401 guards and assets verified.
 - [ ] Attribute legacy warehouse/template only after explicit ownership confirmation.
