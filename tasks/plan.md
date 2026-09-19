@@ -1,12 +1,13 @@
 # Implementation Plan: Safe Stroyka Program Improvements
 
-## Current slice: supplier inbox P1 (released 2026-09-19)
+## Current slice: supplier quote response P2 (released 2026-09-19)
 
 Roadmap: [Supplier portal implementation plan](../docs/supplier-portal-roadmap.md).
-P1 released56c0d2ac: ordinary supplier entry loads addressed requests/offers directly;
-loading/error/empty states, retry, timeout and stale-identity protection. Verification:
-`docs/supplier-inbox-loading.md`. Next P2: supplier reply reaches the buyer. External
-notification delivery P3 remains pending. Invoices/payments remain a separate stream.
+P1 released56c0d2ac; P2 releasedb48eff7d. Supplier responses reach the buyer;
+transactional UUID replay, draft version checks, live authorization and form recovery
+are verified. Evidence: `docs/supplier-quote-response.md`. Next P3: truthful email/MAX
+notification states and clearer buyer-side status/quote refresh. External delivery
+remains unverified. Invoices/payments remain a separate stream.
 Legacy warehouse/template ownership remains pending and is not a prerequisite here.
 
 ## Overview
