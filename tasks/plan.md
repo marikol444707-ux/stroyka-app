@@ -1,11 +1,14 @@
 # Implementation Plan: Safe Stroyka Program Improvements
 
-## Current slice: company supply request templates (2026-09-19)
+## Current slice: delivery control (released 2026-09-19)
 
-Implement selected-company catalogue, server author, strict complete-row validation,
-director archive and durable retry in the existing request form. Contract and
-evidence: `docs/supply-request-templates.md`. Supplier invoices/payments remain a
-separate stream. Legacy template ID 1 and warehouse ID 1 await ownership confirmation.
+Released63fe4678: filters across the loaded delivery list, factual receipt quantities,
+unresolved claims including in-progress cases, and no repeated receipt UI after
+acceptance. See `docs/supply-delivery-control.md`. Preceding claim lifecycle and
+53-test end-to-end procurement verification are recorded in
+`docs/supply-claim-cases.md` and `docs/supply-chain-final-check.md`.
+Supplier invoices/payments remain a separate stream. Legacy warehouse/template
+ownership remains pending; it does not block new company-owned records.
 
 ## Overview
 

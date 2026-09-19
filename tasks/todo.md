@@ -10626,3 +10626,13 @@ change.
 - [x] Canonical backend discovery: 3745 tests passed, 623 opt-in skips.
 - [x] Released f41a2c1b / schema 0032; production health, 401 guards and assets verified.
 - [ ] Attribute legacy warehouse/template only after explicit ownership confirmation.
+
+
+# Delivery control — 2026-09-19
+
+- [x] Reproduce repeated receipt UI, stale form and unresolved-claim counter bugs.
+- [x] Add pre-pagination delivery filters and actual receipt/shortage quantities.
+- [x] Full frontend175 suites/1097tests, production build and independent review.
+- [x] Real browser pending/problem/claim filters and320px no-overflow verification.
+- [x] Release63fe4678; preserve173tables, verify319frontendfiles and healthy runtime.
+- [ ] Legacy ownership confirmations remain pending separately.
