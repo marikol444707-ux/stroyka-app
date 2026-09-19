@@ -730,3 +730,11 @@ Confirmed: leader sees all addressed requests; manager only assigned requests.
 3. Preserve owner behavior; no customer membership or identity-name fallback.
 4. Verify assigned/unassigned, wrong supplier, inactive/revoked user, HTTP actions,
    constraints and migration; then release with backup. P10/P11 add management UI.
+
+## Current priority: live buyer/supplier acceptance
+
+User changed manager scope to assigned customer companies (all future requests),
+then asked to verify the full chain in working buyer/supplier cabinets first.
+See docs/supply-live-acceptance.md. Existing director session works; separate
+supplier test identity/recipient must be selected before the first RFQ.
+Do not continue old per-offer assignment UI as the main workflow.
