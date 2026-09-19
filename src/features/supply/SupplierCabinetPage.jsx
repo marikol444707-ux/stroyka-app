@@ -33,6 +33,7 @@ export default function SupplierCabinetPage({
   handleLogout,
   inp,
   invoices = [],
+  inboxState,
   invoicingOfferId,
   newCatalogItem,
   newKpResponse,
@@ -302,15 +303,15 @@ export default function SupplierCabinetPage({
           <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'12px',marginBottom:'16px'}}>
             <div style={{...card,padding:'16px',textAlign:'center'}}>
               <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 4px'}}>Новых заявок</p>
-              <b style={{color:C.danger,fontSize:'24px'}}>{pendingOfferCount}</b>
+              <b style={{color:C.danger,fontSize:'24px'}}>{inboxState && inboxState.status!=='ready' ? '—' : pendingOfferCount}</b>
             </div>
             <div style={{...card,padding:'16px',textAlign:'center'}}>
               <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 4px'}}>Моих предложений</p>
-              <b style={{color:C.accent,fontSize:'24px'}}>{myOffers.length}</b>
+              <b style={{color:C.accent,fontSize:'24px'}}>{inboxState && inboxState.status!=='ready' ? '—' : myOffers.length}</b>
             </div>
             <div style={{...card,padding:'16px',textAlign:'center'}}>
               <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 4px'}}>Утверждено</p>
-              <b style={{color:C.success,fontSize:'24px'}}>{approvedOfferCount}</b>
+              <b style={{color:C.success,fontSize:'24px'}}>{inboxState && inboxState.status!=='ready' ? '—' : approvedOfferCount}</b>
             </div>
           </div>
 
@@ -320,7 +321,13 @@ export default function SupplierCabinetPage({
 
           {supplierTab==='requests'&&(<div>
             <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>📋 Запросы КП</b>
+            {inboxState && <div style={{marginBottom:12}}>
+              <button style={btnG} disabled={inboxState.status==='loading'} onClick={inboxState.reload}>Обновить заявки</button>
+              {inboxState.status==='loading' && <p role="status">Загружаем входящие заявки…</p>}
+              {inboxState.status==='error' && <p role="alert" style={{color:C.danger}}>Не удалось загрузить заявки: {inboxState.error}</p>}
+            </div>}
             {(()=>{
+              if (inboxState && inboxState.status!=='ready') return null;
               // Берём supplier_offers где я — поставщик, и группируем по статусу
               const myOffersForMe = myOffers;
               if (myOffersForMe.length===0) return (<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'20px'}}>
