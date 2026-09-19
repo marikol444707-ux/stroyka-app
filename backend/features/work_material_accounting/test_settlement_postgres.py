@@ -245,9 +245,18 @@ class MaterialSettlementPostgresTests(unittest.TestCase):
                          self.act_payload(preview, **changes), expected=409)
                 self.assertEqual(self.snapshot(), before)
 
-    def test_changed_confirmed_work_invalidates_preview_before_act_creation(self):
+    def test_external_confirmed_work_fixup_invalidates_preview_before_act_creation(self):
         payload = self.act_payload(self.preview())
-        self.api("director", "PUT", self.path, {"quantity": 0.5})
+        before = self.snapshot()
+        self.api("director", "PUT", self.path, {"quantity": 0.5}, expected=409)
+        self.assertEqual(self.snapshot(), before)
+        # An isolated historical fixup/external writer can stale a preview even
+        # though the public API now protects confirmed work from direct edits.
+        # No act includes this work yet; allocated work remains immutable.
+        self.assertEqual(self.sql("SELECT COUNT(*) FROM work_contract_act_items WHERE journal_id=%s",
+                                  (self.journal_id,)), [(0,)])
+        self.sql("UPDATE work_journal SET quantity=%s,execution_total=%s WHERE id=%s",
+                 (Decimal("0.5"), Decimal("5"), self.journal_id))
         before = self.snapshot()
         self.api("director", "POST", self.contract_path + "/acts", payload, expected=409)
         self.assertEqual(self.snapshot(), before)
