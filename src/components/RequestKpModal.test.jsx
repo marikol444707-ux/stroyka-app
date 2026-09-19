@@ -21,6 +21,10 @@ it('keeps distinct supplier IDs and changes selection only on an explicit checkb
   expect(screen.getByRole('checkbox', { name: 'Второй' })).toBeChecked();
   expect(screen.getByRole('checkbox', { name: 'Первый' })).not.toBeChecked();
   expect(send).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText('Ответить на КП до (МСК)'),{target:{value:'2000-01-01T14:00'}});
+  expect(screen.getByRole('button',{name:'Отправить (1)'})).toBeDisabled();
+  fireEvent.change(screen.getByLabelText('Ответить на КП до (МСК)'),{target:{value:'2099-09-21T14:00'}});
   fireEvent.click(screen.getByRole('button', { name: 'Отправить (1)' }));
   expect(send).toHaveBeenCalledTimes(1);
+  expect(send).toHaveBeenCalledWith('2099-09-21T14:00:00+03:00');
 });

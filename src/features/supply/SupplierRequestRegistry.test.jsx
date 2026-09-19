@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import SupplierRequestRegistry from './SupplierRequestRegistry';
 
 it('groups quotes by request and opens the selected request without inventing a deadline', () => {
@@ -57,6 +57,16 @@ it('downloads all filtered rows across pages using the same visible data project
     expect(text).toContain('Материал 25');
     expect(text.split('\r\n').filter(Boolean)).toHaveLength(26);
     expect(click).toHaveBeenCalledTimes(1);
-    jest.runOnlyPendingTimers();expect(revoke).toHaveBeenCalledWith('blob:test');
+    act(()=>jest.advanceTimersByTime(1000));expect(revoke).toHaveBeenCalledWith('blob:test');
   } finally { click.mockRestore();URL.createObjectURL=oldCreate;URL.revokeObjectURL=oldRevoke;jest.useRealTimers(); }
+});
+it('attention cards count distinct requests and filter rows without including answered deadlines',()=>{
+  const requests=[{id:1},{id:2},{id:3}];
+  const offers=[{id:1,requestId:1,status:'Ожидает ответа',responseDueAt:'2000-01-01T00:00:00Z'}, {id:2,requestId:1,status:'Ожидает ответа',responseDueAt:'2000-01-01T00:00:00Z'}, {id:3,requestId:2,status:'Получено',responseDueAt:'2000-01-01T00:00:00Z'}, {id:4,requestId:3,status:'Отозвано',responseDueAt:'2000-01-01T00:00:00Z'}];
+  render(<SupplierRequestRegistry C={{}} requests={requests} offers={offers} onOpen={()=>{}}/>);
+  fireEvent.click(screen.getByRole('button',{name:/Просрочено\s*1/}));
+  expect(screen.getAllByRole('button',{name:/Открыть заявку №/})).toHaveLength(1);
+  expect(screen.getByRole('button',{name:'Открыть заявку №1'})).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button',{name:/Ждём заказчика\s*1/}));
+  expect(screen.getByRole('button',{name:'Открыть заявку №2'})).toBeInTheDocument();
 });

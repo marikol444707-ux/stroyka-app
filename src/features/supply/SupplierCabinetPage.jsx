@@ -335,7 +335,7 @@ export default function SupplierCabinetPage({
               {inboxState.status==='error' && <p role="alert" style={{color:C.danger}}>Не удалось загрузить заявки: {inboxState.error}</p>}
             </div>}
             {(!inboxState || inboxState.status==='ready') && <>
-              <SupplierRequestRegistry C={C} requests={supplyRequests || []} offers={myOffers} selectedId={selectedRequestId} onOpen={selectRequest} busy={quoteResponse.busy} />
+              <SupplierRequestRegistry C={C} requests={supplyRequests || []} offers={myOffers} selectedId={selectedRequestId} onOpen={selectRequest} busy={quoteResponse.busy} invoices={supplierInvoices || []} deliveries={supplyDeliveries || []} />
               {selectedRequestId && <div ref={requestDetailRef}>
                 <button type="button" style={btnG} disabled={quoteResponse.busy} onClick={()=>selectRequest('')}>← К списку заявок</button>
                 <h2 style={{color:C.text,fontSize:18}}>Заявка №{selectedRequestId}</h2>

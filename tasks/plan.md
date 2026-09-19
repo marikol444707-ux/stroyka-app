@@ -5,7 +5,9 @@
 Roadmap: [Supplier portal implementation plan](../docs/supplier-portal-roadmap.md).
 User deferred inbox/spam investigation and Mail support to final acceptance P14.
 P4 released a6c3d605. P5 released10576f5a: search, customer/status filters, 20-row pagination and CSV.
-Next: P6 explicit response deadline and attention cards; inspect existing time fields before changing workflow.
+P6 implementation: default next Mon–Fri at same Moscow time, editable before RFQ;
+nullable per-offer deadline, no historical backfill, no retry extension.
+Attention filters and readiness mirror existing shipment/payment constraints.
 Use the complete authorized inbox arrays (API without limit returns all rows).
 One shared projection drives table, counts and export. No new data permissions.
 CSV exports all filtered rows, not the displayed page; quote cells and neutralize

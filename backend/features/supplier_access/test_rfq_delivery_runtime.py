@@ -17,6 +17,7 @@ from unittest.mock import Mock
 from fastapi import HTTPException, BackgroundTasks
 
 from backend.features.supplier_access import supply_request_workflow
+from backend.features.supplier_access.response_deadlines import response_deadline
 from backend.features.supply_lineage.service import (
     MaterialControlLineageError,
     material_control_request_intent,
@@ -92,6 +93,13 @@ class LedgerCursor:
             self.connection.writable_state()[table][row["id"]] = row
             self.rows = [{"id": row["id"]}]
             self.rowcount = 1
+            return
+        if sql.startswith("UPDATE supplier_offers SET response_due_at="):
+            due, ids, request_id, company_id = params
+            for offer in self.connection.writable_state()['supplier_offers'].values():
+                if offer['id'] in ids and offer['request_id']==request_id and offer['company_id']==company_id:
+                    offer['response_due_at']=due
+                    self.rowcount += 1
             return
         if sql.startswith("UPDATE supply_requests"):
             requests = self.connection.writable_state()["supply_requests"]
@@ -203,6 +211,7 @@ class RuntimeHarness:
             },
             "_notify_supply_request_recipients": self.notify,
             "_dispatch_supply_recipient_email": self.email_dispatch,
+            "response_deadline": response_deadline,
             "EMAIL_QUEUED": "В очереди email",
             "log_audit": self.audit,
             "_norm_base_unit": lambda unit: unit,

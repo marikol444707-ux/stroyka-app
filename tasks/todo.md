@@ -10686,3 +10686,11 @@ change.
 - [x] CSV contains all filtered rows, correctly escapes delimiters/newlines and formulas.
 - [x] Tests: multiple pages, refresh shrinking dataset, empty result, foreign orphan, CSV.
 - [x] Production build; real-browser search/filter/download/mobile; review and release10576f5a.
+
+## P6 — response deadlines and attention
+
+- [x] Confirm weekday/timezone rule with user (Mon–Fri, Moscow, no holidays).
+- [x] Persist per newly created quote; retry does not extend; historic null.
+- [x] Deadline form, Moscow display, attention filtering and CSV.
+- [x] Policy, transactional PostgreSQL, migration, frontend and browser checks.
+- [ ] Backed-up deployment and read-only smoke.

@@ -721,6 +721,7 @@ from backend.features.supplier_access.email_attempts import (
     EMAIL_QUEUED, prepare_email_status, dispatch_recipient_email,
 )
 from backend.features.supplier_access.request_companies import attach_request_company_names
+from backend.features.supplier_access.response_deadlines import response_deadline
 from backend.features.supplier_access.delivery_diagnostics import (
     attach_recipient_delivery_diagnostics,
 )
@@ -4179,6 +4180,7 @@ def init_db():
         ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS valid_until DATE;
         ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS supplier_message TEXT;
         ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS requested_at TIMESTAMP DEFAULT NOW();
+        ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS response_due_at TIMESTAMPTZ;
         ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS responded_at TIMESTAMP;
         ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS ai_recommended BOOLEAN DEFAULT FALSE;
         ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS delivery_status VARCHAR(100);
@@ -10186,6 +10188,7 @@ OFFERS_SELECT = ("SELECT id, request_id as \"requestId\", supplier_id as \"suppl
                  "pdf_url as \"pdfUrl\", valid_until as \"validUntil\","
                  "supplier_message as \"supplierMessage\","
                  "requested_at as \"requestedAt\", responded_at as \"respondedAt\","
+                 "response_due_at as \"responseDueAt\", "
                  "ai_recommended as \"aiRecommended\","
                  "items_kp_json as \"itemsKpJson\" "
                  "FROM supplier_offers")
@@ -10341,6 +10344,12 @@ def request_kp_from_suppliers(
         if visibility_error:
             raise HTTPException(status_code=400, detail=visibility_error)
         created = _create_supplier_offer_requests(cur, id, selected_scope_ids, company_id=company_id, targets=targets)
+        if created:
+            try:
+                due_at = response_deadline(data.get("responseDueAt"))
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc))
+            cur.execute("UPDATE supplier_offers SET response_due_at=%s WHERE id=ANY(%s) AND request_id=%s AND company_id=%s", (due_at, created, id, company_id))
         cur.execute(
             "SELECT company_id FROM supply_request_recipients WHERE request_id=%s FOR UPDATE",
             (id,),

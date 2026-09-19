@@ -1,4 +1,5 @@
 import React from 'react';
+import { defaultResponseDeadline } from '../features/supply/supplierDeadlines';
 import { Check, X } from 'lucide-react';
 
 export default function RequestKpModal({
@@ -18,6 +19,9 @@ export default function RequestKpModal({
   setSelectedSupplierIds,
   sendKpRequest,
 }) {
+  const [responseDueAt,setResponseDueAt]=React.useState('');
+  React.useEffect(()=>{if(showRequestKpModal) setResponseDueAt(defaultResponseDeadline());},[showRequestKpModal]);
+  const validDeadline=Boolean(responseDueAt) && Date.parse(responseDueAt+':00+03:00')>Date.now();
   const suggestedSupplierGroups = React.useMemo(
     () => suggestedSuppliers?.suppliers || [],
     [suggestedSuppliers]
@@ -75,6 +79,11 @@ export default function RequestKpModal({
           <div style={{padding:'10px 12px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder,borderRadius:'8px',marginBottom:'12px',fontSize:'12px',color:C.text}}>
             Поставщиков вашей компании: {suggestedSupplierGroups.length}. Отметьте адресатов запроса. Рейтинг и история поставок не подтверждают наличие нужного материала.
           </div>
+          <label style={{display:'block',marginBottom:12,color:C.text,fontSize:13}}>Ответить на КП до (МСК)
+            <input type="datetime-local" aria-label="Ответить на КП до (МСК)" value={responseDueAt} onChange={event=>setResponseDueAt(event.target.value)} style={{display:'block',maxWidth:'100%',padding:8,marginTop:6}}/>
+          </label>
+          <p style={{fontSize:12,color:C.textSec}}>По умолчанию — следующий будний день в это же время. Праздники не учитываются. Срок применяется только к новым запросам КП.</p>
+          {!validDeadline && <p role="alert" style={{color:C.danger}}>Укажите дату и время в будущем.</p>}
           {suggestedSupplierGroups.length===0 && (
             <div style={{padding:'30px',textAlign:'center',color:C.textMuted,fontSize:'13px'}}>
               В компании пока нет активных связей с поставщиками.<br/>Добавьте поставщиков в разделе «Снабжение → Поставщики».
@@ -103,7 +112,7 @@ export default function RequestKpModal({
           })}
           <div style={{display:'flex',gap:'8px',marginTop:'14px',justifyContent:'flex-end'}}>
             <button onClick={()=>setShowRequestKpModal(null)} style={btnG}><X size={14}/>Отмена</button>
-            <button onClick={sendKpRequest} disabled={selectedSupplierIds.length===0} style={{...btnO,opacity:selectedSupplierIds.length===0?0.5:1}}>
+            <button onClick={()=>sendKpRequest(responseDueAt+':00+03:00')} disabled={selectedSupplierIds.length===0 || !validDeadline} style={{...btnO,opacity:selectedSupplierIds.length===0?0.5:1}}>
               <Check size={14}/>Отправить ({selectedSupplierIds.length})
             </button>
           </div>

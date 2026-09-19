@@ -446,14 +446,14 @@ export const createSupplyActions = ({
     setRequestKpLoading(false);
   };
 
-  const sendKpRequest = async () => {
+  const sendKpRequest = async (responseDueAt) => {
     if (!showRequestKpModal || selectedSupplierIds.length === 0) { alert('Выберите хотя бы одного поставщика'); return; }
     const companyId = requireSelectedCompanyForWrite();
     if (!companyId) return;
     const r = await fetch(API + '/supply-requests/' + showRequestKpModal + '/request-kp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ supplierIds: selectedSupplierIds, aiRecommendedIds: [], companyId }),
+      body: JSON.stringify({ supplierIds: selectedSupplierIds, aiRecommendedIds: [], companyId, ...(typeof responseDueAt==='string' ? {responseDueAt} : {}) }),
     });
     const data = await r.json().catch(() => ({}));
     if (!r.ok || data.detail || data.error) { alert('Ошибка: ' + (data.detail || data.error || r.status)); return; }
