@@ -6633,6 +6633,8 @@ def register(data: dict, response: Response, request: Request):
             new_supplier = cur.fetchone()
             supplier_id = new_supplier.get("id") if isinstance(new_supplier, dict) else new_supplier[0]
             _remember_supplier_alias(cur, supplier_id, supplier_payload, source="supplier_invite")
+            from backend.features.invite_codes.supplier_relationship import link_registered_supplier
+            link_registered_supplier(cur, invite, supplier_id, user, supplier_payload)
         cur.execute("UPDATE invite_codes SET used=TRUE WHERE code=%s", (code,))
         session_token = None
         if _user_requires_2fa(user):
@@ -7931,6 +7933,8 @@ register_invite_codes_module(app, {
     "require_roles": require_roles,
     "admin_roles": LEADERSHIP_ROLES,
     "prepare_user_access_scope": _prepare_user_access_scope,
+    "platform_staff_roles": PLATFORM_STAFF_ROLES,
+    "client_account_roles": CLIENT_ACCOUNT_ROLES,
 })
 
 @app.get("/companies")
