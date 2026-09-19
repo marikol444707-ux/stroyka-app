@@ -1,7 +1,8 @@
 import { supplierPublicRequisites } from './supplierPublicRequisites';
 import React from 'react';
 import SupplyClaims from './SupplyClaims';
-import { Check, Download, Edit2, Plus, Trash2, Upload, X } from 'lucide-react';
+import SupplierCatalogImport from './SupplierCatalogImport';
+import { Check, Edit2, Plus, Trash2, Upload, X } from 'lucide-react';
 import DocumentRecognitionPanel from '../../components/DocumentRecognitionPanel';
 import { groupSuppliers, normalizeSupplierPayload, supplierIdentityKeys } from '../../utils/supplierUtils';
 import { createSupplierPortalActions } from './supplierPortalActions';
@@ -617,35 +618,13 @@ export default function SupplierCabinetPage({
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
               <b style={{color:C.text,fontSize:'14px'}}>📦 Мой каталог</b>
               <div style={{display:'flex',gap:'8px'}}>
-                <label style={{...btnG,padding:'6px 12px',fontSize:'12px',cursor:'pointer',display:'flex',alignItems:'center',gap:'4px'}}>
-                  📥 Excel
-                  <input type='file' accept='.xlsx,.xls,.csv' style={{display:'none'}} onChange={e=>{const file=e.target.files[0];if(!file)return;const reader=new FileReader();reader.onload=async ev=>{try{const XLSX=await import('xlsx');const wb=XLSX.read(ev.target.result,{type:'array'});const ws=wb.Sheets[wb.SheetNames[0]];const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});let count=0;for(let i=1;i<rows.length;i++){const r=rows[i];if(!r[0])continue;const item={materialName:String(r[0]),unit:String(r[1]||'шт'),price:Number(r[2]||0),minQuantity:Number(r[3]||1),deliveryDays:Number(r[4]||3),notes:String(r[5]||''),supplierId:myPrimarySupplierId||0,supplierName:user.name};const res=await fetch(API+'/supplier-catalog',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(item)});const saved=await res.json();setSupplierCatalog(prev=>[...prev,{...item,id:saved.id}]);count++;}alert('Импортировано '+count+' позиций!');}catch(err){alert('Ошибка: '+err.message);}};reader.readAsArrayBuffer(file);e.target.value='';}} />
-                </label>
-                {supplierRequisites.priceUrl&&(<button onClick={async()=>{
-                  try{
-                    alert('Загрузка прайса... Это может занять несколько секунд.');
-                    const res=await fetch('https://corsproxy.io/?'+encodeURIComponent(supplierRequisites.priceUrl));
-                    const blob=await res.arrayBuffer();
-                    const XLSX=await import('xlsx');
-                    const wb=XLSX.read(blob,{type:'array'});
-                    const ws=wb.Sheets[wb.SheetNames[0]];
-                    const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
-                    let count=0;
-                    for(let i=1;i<rows.length;i++){
-                      const r=rows[i];
-                      if(!r[0]) continue;
-                      const item={materialName:String(r[0]),unit:String(r[1]||'шт'),price:Number(r[2]||0),minQuantity:Number(r[3]||1),deliveryDays:Number(r[4]||3),notes:String(r[5]||''),supplierId:myPrimarySupplierId||0,supplierName:user.name};
-                      const res2=await fetch(API+'/supplier-catalog',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(item)});
-                      const saved=await res2.json();
-                      setSupplierCatalog(prev=>[...prev,{...item,id:saved.id}]);
-                      count++;
-                    }
-                    alert('Загружено '+count+' позиций!');
-                  }catch(err){alert('Ошибка загрузки: '+err.message);}
-                }} style={btnG}><Download size={14}/>По ссылке</button>)}
                 <button onClick={()=>setShowCatalogForm(!showCatalogForm)} style={btnO}><Plus size={14}/>Добавить</button>
               </div>
             </div>
+            <SupplierCatalogImport key={`${currentUserId}:${myPrimarySupplierId}`} API={API}
+              supplierId={myPrimarySupplierId} supplierName={user.name}
+              priceUrl={supplierRequisites.priceUrl} catalog={supplierCatalog || []}
+              onSaved={setSupplierCatalog} buttonStyle={btnG} />
             {showCatalogForm&&(<div style={{...card,padding:'16px',marginBottom:'12px'}}>
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
                 <input placeholder='Наименование *' value={newCatalogItem.materialName} onChange={e=>setNewCatalogItem({...newCatalogItem,materialName:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>

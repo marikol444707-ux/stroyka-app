@@ -91,6 +91,12 @@ class SupplierCatalogTest(unittest.TestCase):
         self.assertIn("WHERE supplier_id = ANY(%s)", cursor.calls[0][0])
         self.assertEqual(cursor.calls[0][1], ([5],))
 
+    def test_zero_day_delivery_survives_catalog_reload(self):
+        cursor = FakeCursor(rows=[(1, 5, 'Supplier', 'Material', 'шт', 10, 1, 0, True, '')])
+        app, _conn = build(cursor, own_ids=[5])
+        result = app.routes[("GET", "/supplier-catalog")](current_user={"role": "поставщик"})
+        self.assertEqual(result[0]['deliveryDays'], 0)
+
     def test_worker_gets_empty_catalog(self):
         cursor = FakeCursor()
         app, _conn = build(cursor)

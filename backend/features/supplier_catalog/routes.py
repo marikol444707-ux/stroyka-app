@@ -44,7 +44,7 @@ def register_supplier_catalog_module(app, deps):
             return []
         rows = cur.fetchall()
         cur.close(); conn.close()
-        return [{"id":r[0],"supplierId":r[1],"supplierName":r[2],"materialName":r[3],"unit":r[4],"price":float(r[5] or 0),"minQuantity":float(r[6] or 1),"deliveryDays":r[7] or 3,"inStock":r[8],"notes":r[9] or ""} for r in rows]
+        return [{"id":r[0],"supplierId":r[1],"supplierName":r[2],"materialName":r[3],"unit":r[4],"price":float(r[5] or 0),"minQuantity":float(r[6] or 1),"deliveryDays":r[7] if r[7] is not None else 3,"inStock":r[8],"notes":r[9] or ""} for r in rows]
 
     @app.post("/supplier-catalog")
     def create_supplier_catalog(data: dict, current_user: dict = Depends(get_current_user)):

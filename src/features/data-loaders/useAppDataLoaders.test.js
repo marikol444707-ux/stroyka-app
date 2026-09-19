@@ -355,3 +355,17 @@ test('uncertain write stays blocked through manual reload, remount and another c
   await waitFor(() => expect(remountedResult.current.qualityJournalLoadState.inspections.complete).toBe(false));
   expect(global.fetch).toHaveBeenCalledTimes(calls);
 });
+
+test('supplier initial load populates its linked card and catalog', async () => {
+  const card = { id: 5, userId: 8, name: 'Поставщик' };
+  const item = { id: 9, supplierId: 5, materialName: 'Цемент' };
+  const setSuppliers = jest.fn(), setSupplierCatalog = jest.fn();
+  global.fetch = jest.fn(async url => ({ ok: true, json: async () => url.endsWith('/suppliers') ? [card] : url.endsWith('/supplier-catalog') ? [item] : [] }));
+  const { result } = renderHook(() => useJournalHarness({}, {
+    user: { id: 8, role: 'поставщик' }, roleFlagsForUser: () => ({ role: 'поставщик' }),
+    setSuppliers, setSupplierCatalog,
+  }));
+  await act(async () => { await result.current.loadMobileInitial(); });
+  expect(setSuppliers).toHaveBeenCalledWith([card]);
+  expect(setSupplierCatalog).toHaveBeenCalledWith([item]);
+});

@@ -318,7 +318,7 @@ export const useAppDataLoaders = (ctx) => {
         const shouldLoadAccountingAtBoot = canLoadAccountingDataForRole(role) || isFinanceRole;
         const shouldLoadBrigadeAtBoot = shouldLoadPeopleAtBoot || shouldLoadAccountingAtBoot || isWorkerRole;
         const [
-          p,u,sr,ait,oe,pp,wm,wj,s,pw,ct,ia,mp,bc,abi,est,er,hwa,mij,cbj,sva,pdocs,pmeas
+          p,u,sr,ait,oe,pp,wm,wj,s,pw,ct,ia,mp,bc,abi,est,er,hwa,mij,cbj,sva,pdocs,pmeas,supplierCards,supplierItems
         ] = await Promise.all([
           role === 'поставщик' ? Promise.resolve([]) : getApi('/projects'),
           shouldLoadUsersAtBoot ? getApi('/users') : Promise.resolve([]),
@@ -343,7 +343,13 @@ export const useAppDataLoaders = (ctx) => {
           canSeeProjectDocs ? getApi('/supervisor-acts') : Promise.resolve([]),
           (isInternalRole || isFinanceRole || role === 'заказчик') ? getApi('/project-documents') : Promise.resolve([]),
           canSeeProjectDocs ? getApi('/project-measurements') : Promise.resolve([]),
+          role === 'поставщик' ? getApi('/suppliers') : Promise.resolve([]),
+          role === 'поставщик' ? getApi('/supplier-catalog') : Promise.resolve([]),
         ]);
+        if (role === 'поставщик') {
+          setSuppliers(Array.isArray(supplierCards) ? supplierCards : []);
+          setSupplierCatalog(Array.isArray(supplierItems) ? supplierItems : []);
+        }
         const safeWorkJournal = Array.isArray(wj) ? wj : [];
         setProjects(Array.isArray(p)?p:[]);
         setUsers(Array.isArray(u)?u:[]);
