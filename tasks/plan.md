@@ -1,11 +1,12 @@
 # Implementation Plan: Safe Stroyka Program Improvements
 
-## Next slice: supplier confirmed orders P7
+## Next slice: supplier customers P8
 
 Roadmap: [Supplier portal implementation plan](../docs/supplier-portal-roadmap.md).
 User deferred inbox/spam investigation and Mail support to final acceptance P14.
 P4 released a6c3d605. P5 released10576f5a: search, customer/status filters, 20-row pagination and CSV.
-P6 releaseda0f7ed8b. P7: selected quotes projected as orders; own four-resource inbox snapshot, per-line shipped/received/remainder, scoped documents and existing request actions.
+P6 releaseda0f7ed8b. P7 releasedd7406367; next P8 customers and scoped history.
+P7: selected quotes projected as orders; own four-resource inbox snapshot, per-line shipped/received/remainder, scoped documents and existing request actions.
 P6 implementation: default next Mon–Fri at same Moscow time, editable before RFQ;
 nullable per-offer deadline, no historical backfill, no retry extension.
 Attention filters and readiness mirror existing shipment/payment constraints.

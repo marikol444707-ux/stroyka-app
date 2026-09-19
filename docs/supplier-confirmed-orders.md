@@ -38,3 +38,12 @@ Unknown/cancelled shipment states, excess quantities and unmatched lines require
 reconciliation. No request or financial records are created or modified.
 
 Browser with another supplier: zero orders, no access to the tested order.
+
+## Release
+
+2026-09-19T21:35:16Z: d7406367ae2c2b24e8fbe18092c19803dd794705.
+Backup: /root/stroyka-confirmed-orders-yS0yjPxy/backup. Schema remains0034_supplier_response_due.
+173 original tables preserved; 320 frontend files verified. Health OK,
+DB 10.4ms, runtime errors 0; protected APIs401 without auth.
+Browser checks used a disposable local database; production checked via read-only
+smoke without a real supplier login. Local sessions and database removed.

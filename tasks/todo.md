@@ -10701,4 +10701,4 @@ change.
 - [x] Separate material/unit/work-package balances and partial receipt status.
 - [x] Own fresh requests/offers/deliveries/invoices load with error and actor guards.
 - [x] Scoped documents and transition to current request actions.
-- [ ] Full frontend/build, real browser, backup deployment and smoke.
+- [x] Full frontend/build, real browser, backup deploymentd7406367 and smoke.
