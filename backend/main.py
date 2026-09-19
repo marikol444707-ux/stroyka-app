@@ -717,6 +717,9 @@ from backend.features.supplier_access.supply_request_workflow import (
     validate_rfq_dispatch_request,
     validate_supply_request_transition,
 )
+from backend.features.supplier_access.email_attempts import (
+    EMAIL_QUEUED, prepare_email_status, dispatch_recipient_email,
+)
 from backend.features.supplier_access.delivery_diagnostics import (
     attach_recipient_delivery_diagnostics,
 )
@@ -2047,19 +2050,10 @@ def _notify_supply_request_recipients(cur, request_id: int, company_id: int = No
         supplier_id = int(recipient.get("target_supplier_id") or recipient.get("supplier_id") or 0)
         email = (recipient.get("email") or "").strip()
         current_email_status = (recipient.get("email_notification_status") or "").strip()
-        email_sent = False
-        if current_email_status == "Отправлено":
-            email_status = current_email_status
-        elif not email:
-            email_status = "Нет email"
-        elif _should_skip_supplier_notification_email(email):
-            email_status = "Пропущено: тестовый email"
-        elif not _smtp_configured():
-            email_status = "SMTP не настроен"
-        else:
-            subject, body = _supply_request_notification_text(request_context, recipient.get("supplier_name") or "")
-            email_sent = _send_email(email, subject, body)
-            email_status = "Отправлено" if email_sent else "Ошибка отправки"
+        email_status = prepare_email_status(
+            current_email_status, email, _smtp_configured(),
+            _should_skip_supplier_notification_email(email),
+        )
 
         offer_id = offer_by_supplier.get(supplier_id)
         current_max_status = (recipient.get("max_notification_status") or "").strip()
@@ -2074,12 +2068,11 @@ def _notify_supply_request_recipients(cur, request_id: int, company_id: int = No
         cur.execute("""
             UPDATE supply_request_recipients
                SET email_notification_status=%s,
-                   email_sent_at=CASE WHEN %s THEN COALESCE(email_sent_at,NOW()) ELSE email_sent_at END,
                    max_notification_status=%s,
                    max_outbox_id=COALESCE(%s, max_outbox_id),
                    max_queued_at=CASE WHEN %s THEN COALESCE(max_queued_at,NOW()) ELSE max_queued_at END
              WHERE id=%s
-        """, (email_status, email_sent, max_status, max_outbox_id, max_queued, recipient_id))
+        """, (email_status, max_status, max_outbox_id, max_queued, recipient_id))
         notifications.append({
             "recipientId": recipient_id,
             "supplierId": supplier_id,
@@ -2090,6 +2083,14 @@ def _notify_supply_request_recipients(cur, request_id: int, company_id: int = No
             "maxOutboxId": max_outbox_id,
         })
     return notifications
+
+def _dispatch_supply_recipient_email(request_id, company_id, recipient_id):
+    dispatch_recipient_email(
+        get_db, request_id, company_id, recipient_id,
+        configured=_smtp_configured, skip_email=_should_skip_supplier_notification_email,
+        context=_supply_request_notification_context, text=_supply_request_notification_text,
+        send=_send_email,
+    )
 
 def _resolve_work_company_context(
     cur,
@@ -10273,6 +10274,7 @@ def _log_supplier_offer_event(cur, offer_id: int, event_type: str, status_from: 
 def request_kp_from_suppliers(
     id: int,
     data: dict,
+    background_tasks: BackgroundTasks,
     x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
     x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
     _current_user: dict = Depends(get_current_user),
@@ -10360,6 +10362,11 @@ def request_kp_from_suppliers(
             raise HTTPException(status_code=409, detail="Компания заявки изменилась во время запроса КП")
         notification_rows = _notify_supply_request_recipients(cur, id, company_id=company_id)
         conn.commit()
+        for notification in notification_rows:
+            if notification.get("emailStatus") == EMAIL_QUEUED:
+                background_tasks.add_task(
+                    _dispatch_supply_recipient_email, id, company_id, notification["recipientId"],
+                )
         return {
             "ok": True,
             "created": len(created),
