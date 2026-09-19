@@ -10,6 +10,7 @@ from psycopg2.extras import Json, RealDictCursor
 from . import runtime
 from .quantities import money
 from .documents import owned_document_url
+from ..tool_custody import fines as tool_fines
 
 CONTRACT_TYPES = {'Субподрядчик', 'ГПХ', 'Самозанятый', 'ИП', 'ООО', 'Своя бригада'}
 
@@ -139,6 +140,9 @@ def preview(cur, contract, *, start=None, end=None, selected_ids=None):
                 'amount': applied, 'journalId': row['journal_id'], 'reason': row['reason'],
                 'contractEvidence': row['contract_evidence'], 'valuations': row['valuations']})
             capacity -= applied
+    tool_allocations, available_tools, capacity = tool_fines.preview(cur, contract, capacity)
+    allocations.extend(tool_allocations)
+    available_fines += available_tools
     fine = gross - capacity
     return {'eligibleWorks': works, 'grossAmount': gross, 'fineAmount': fine, 'netAmount': capacity,
             'carryFineAmount': available_fines - fine, 'fineAllocations': allocations, 'acts': acts(cur, contract)}
@@ -165,9 +169,8 @@ def create_act(cur, contract, actor, operation_id, data):
     submitted = data.get('fineAllocations')
     if not isinstance(submitted, list) or any(not isinstance(row, dict) for row in submitted):
         raise HTTPException(400, 'Подтвердите штрафы предварительного расчёта')
-    given = [(identifier(row.get('defectId'), 'акт брака'), identifier(row.get('decisionId'), 'решение'),
-              money(row.get('amount'), zero=False)) for row in submitted]
-    actual = [(row['defectId'], row['decisionId'], row['amount']) for row in current['fineAllocations']]
+    given = [tool_fines.allocation_identity(row) for row in submitted]
+    actual = [tool_fines.allocation_identity(row) for row in current['fineAllocations']]
     if given != actual:
         raise HTTPException(409, 'Состав штрафов изменился. Проверьте предварительный расчёт заново')
     snapshot = {'contractId': contract['id'], 'projectName': contract['projectName'],
@@ -186,6 +189,9 @@ def create_act(cur, contract, actor, operation_id, data):
         cur.execute('INSERT INTO work_contract_act_items(journal_id,act_id,company_id,snapshot) VALUES(%s,%s,%s,%s)',
                     (work['id'], act_id, contract['companyId'], Json(jsonable_encoder(work))))
     for allocation in current['fineAllocations']:
+        if allocation.get('source') == 'tool':
+            tool_fines.allocate(cur, act_id, contract['companyId'], allocation)
+            continue
         cur.execute('''INSERT INTO work_contract_fine_allocations(act_id,company_id,defect_id,decision_id,amount)
             VALUES(%s,%s,%s,%s,%s)''', (act_id, contract['companyId'], allocation['defectId'],
             allocation['decisionId'], allocation['amount']))
