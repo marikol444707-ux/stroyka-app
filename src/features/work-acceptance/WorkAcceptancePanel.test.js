@@ -84,4 +84,13 @@ test('lost acceptance reply retries exactly the saved command once', async () =>
   await waitFor(() => expect(requests).toHaveLength(2));
   expect(requests[1]).toEqual(requests[0]);
   await waitFor(() => expect(screen.queryByText('Есть сохранённая отправка')).not.toBeInTheDocument());
+  expect(screen.queryByText(/Связь прервалась/)).not.toBeInTheDocument();
+});
+
+test('successful manual reload clears a previous read error', async () => {
+  global.fetch.mockImplementationOnce(async () => ({ ok: false, json: async () => ({ detail: 'Временно недоступно' }) }));
+  render(<WorkAcceptancePanel {...props} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Обновить работу' }));
+  await screen.findByRole('button', { name: 'Принять объём' });
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 });

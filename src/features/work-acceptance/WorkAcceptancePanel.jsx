@@ -24,6 +24,7 @@ function AcceptanceContent({ journalId, API, companyContext, user, C, onChanged,
   const [uploading, setUploading] = useState(false);
   const { data, error, busy, submit, recovered, setError, reload } = useLedger({ API, path: path + '/acceptance',
     companyContext, user, onChanged, onRecovered: batch => {
+      setError('');
       if (batch?.commands?.slice(0, batch.next).some(command => command.path === path + '/acceptance' || command.path === path + '/resubmit')) {
         setPhotos([]); setReason(''); setComment(''); setMaterials([]); setAccepted(null);
       }
@@ -57,7 +58,7 @@ function AcceptanceContent({ journalId, API, companyContext, user, C, onChanged,
   };
   return <>
     <WorkSubmissionRecovery {...{ API, companyContext, user, C }} onRecovered={recovered} />
-    {error && <p role="alert" className="ledger-error">{error} <button disabled={busy} onClick={() => reload().catch(e => setError(e.message))}>Обновить работу</button></p>}
+    {error && <p role="alert" className="ledger-error">{error} <button disabled={busy} onClick={() => reload().then(() => setError('')).catch(e => setError(e.message))}>Обновить работу</button></p>}
     {!data && !error && <p role="status">Загрузка приёмки…</p>}
     {data && <>
       <h4>{data.description}</h4>
