@@ -10693,4 +10693,4 @@ change.
 - [x] Persist per newly created quote; retry does not extend; historic null.
 - [x] Deadline form, Moscow display, attention filtering and CSV.
 - [x] Policy, transactional PostgreSQL, migration, frontend and browser checks.
-- [ ] Backed-up deployment and read-only smoke.
+- [x] Backed-up deploymenta0f7ed8b and read-only smoke.
