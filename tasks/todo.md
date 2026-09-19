@@ -10678,3 +10678,11 @@ change.
 - [ ] P12: Отгрузки и документы в новой навигации.
 - [ ] P13: Реальные тарифы и профиль.
 - [ ] P14: Финальная сквозная приёмка и выпуск; по решению пользователя сюда перенесены проверка попадания писем во «Входящие» и при необходимости поддержка Mail.
+
+## P5 — supplier registry search and export
+
+- [x] Project authorized request/quote pairs, search Unicode text and filter customer/status.
+- [x] Page 20 rows; counts use complete matching set; reset filters returns page 1.
+- [x] CSV contains all filtered rows, correctly escapes delimiters/newlines and formulas.
+- [x] Tests: multiple pages, refresh shrinking dataset, empty result, foreign orphan, CSV.
+- [ ] Production build; real-browser search/filter/download/mobile; review and release.

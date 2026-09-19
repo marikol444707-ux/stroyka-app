@@ -1,10 +1,14 @@
 # Implementation Plan: Safe Stroyka Program Improvements
 
-## Next slice: supplier request registry P4
+## Next slice: supplier request filters P5
 
 Roadmap: [Supplier portal implementation plan](../docs/supplier-portal-roadmap.md).
 User deferred inbox/spam investigation and Mail support to final acceptance P14.
-Next product work: P4 request registry, then P5 search/filters and P6 deadlines.
+P4 released a6c3d605. P5: search, customer/status filters, 20-row pagination and CSV.
+Use the complete authorized inbox arrays (API without limit returns all rows).
+One shared projection drives table, counts and export. No new data permissions.
+CSV exports all filtered rows, not the displayed page; quote cells and neutralize
+formula/control prefixes. Then browser desktop/mobile checks and backed-up release.
 P3.2 technical remainder stays open before final release.
 P1/P2 released; P3.1 releasedb9b5cf39. Verified queue evidence, failure counts/times,
 explicit unknown references and buyer quote/notification refresh are complete.
