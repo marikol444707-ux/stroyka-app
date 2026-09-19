@@ -10685,4 +10685,4 @@ change.
 - [x] Page 20 rows; counts use complete matching set; reset filters returns page 1.
 - [x] CSV contains all filtered rows, correctly escapes delimiters/newlines and formulas.
 - [x] Tests: multiple pages, refresh shrinking dataset, empty result, foreign orphan, CSV.
-- [ ] Production build; real-browser search/filter/download/mobile; review and release.
+- [x] Production build; real-browser search/filter/download/mobile; review and release10576f5a.
