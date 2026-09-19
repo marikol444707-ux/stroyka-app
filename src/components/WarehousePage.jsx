@@ -4,7 +4,7 @@ import { toolCustodyEnabled } from '../features/tool-custody/ToolCustodyPanel';
 import InventoryWorkspace, { inventoryReconciliationEnabled } from '../features/inventory-reconciliation/InventoryWorkspace';
 import WarehouseInvoicesPanel from './WarehouseInvoicesPanel';
 import WarehouseMainStockPanel from './WarehouseMainStockPanel';
-import WarehouseCompanyWarehousesPanel from './WarehouseCompanyWarehousesPanel';
+import CompanyWarehouses from '../features/company-warehouses/CompanyWarehouses';
 import WarehouseHistoryPanel from './WarehouseHistoryPanel';
 import WarehouseOperationsPanel from './WarehouseOperationsPanel';
 import WarehouseDistributionPanel from '../features/warehouse/WarehouseDistributionPanel';
@@ -38,10 +38,6 @@ export default function WarehousePage(props) {
     showForm,
     editingItem,
     setEditingItem,
-    newWarehouse,
-    setNewWarehouse,
-    saveWarehouse,
-    deleteWarehouse,
     inp,
     btnR,
     btnGr,
@@ -181,26 +177,7 @@ export default function WarehousePage(props) {
         </>
       )}
 
-      {warehouseTab === 'warehouses' && (
-        <WarehouseCompanyWarehousesPanel
-          warehouses={props.warehouses}
-          showForm={showForm}
-          setShowForm={setShowForm}
-          editingItem={editingItem}
-          setEditingItem={setEditingItem}
-          newWarehouse={newWarehouse}
-          setNewWarehouse={setNewWarehouse}
-          saveWarehouse={saveWarehouse}
-          deleteWarehouse={deleteWarehouse}
-          C={C}
-          card={card}
-          inp={inp}
-          btnO={btnO}
-          btnB={btnB}
-          btnG={btnG}
-          btnR={btnR}
-        />
-      )}
+      {warehouseTab === 'warehouses' && <CompanyWarehouses {...{ API, companyContext, user, C }} onChanged={refreshData} />}
 
       {warehouseTab === 'objects' && (
         <WarehouseObjectsPanel
