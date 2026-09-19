@@ -1,6 +1,6 @@
 # Implementation Plan: Safe Stroyka Program Improvements
 
-## Current slice: supplier customers P8 released; next team policy P9
+## Current slice: supplier team policy P9
 
 Roadmap: [Supplier portal implementation plan](../docs/supplier-portal-roadmap.md).
 User deferred inbox/spam investigation and Mail support to final acceptance P14.
@@ -721,3 +721,12 @@ Close and strike through a task only after applicable focused tests, full backen
 P8: derive customer list from authorized request/quote pairs; reuse order cards,
 filter history and documents by company and quote identities; test revocation,
 matching names, mobile and release without API or schema changes.
+
+## P9 — supplier team policy (active)
+
+Confirmed: leader sees all addressed requests; manager only assigned requests.
+1. Add separate supplier memberships/offer assignments and guarded migration.
+2. Apply live policy to supplier request/quote/delivery/invoice reads and quote actions.
+3. Preserve owner behavior; no customer membership or identity-name fallback.
+4. Verify assigned/unassigned, wrong supplier, inactive/revoked user, HTTP actions,
+   constraints and migration; then release with backup. P10/P11 add management UI.

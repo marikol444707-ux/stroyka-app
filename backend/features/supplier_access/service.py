@@ -1,3 +1,4 @@
+from ..supplier_team.policy import enabled as team_enabled, offer_policy, leader_policy
 from .supply_request_workflow import (
     SUPPLIER_REQUEST_VISIBILITY_SQL,
     supplier_request_visibility_params,
@@ -99,6 +100,10 @@ def supplier_offer_visibility_filter(supplier_ids, supplier_user_id=None):
         normalized_ids,
         normalized_ids,
     ]
+    if team_enabled():
+        team_sql, team_params = offer_policy(user_id)
+        sql += " AND " + team_sql
+        params += team_params
     return sql, params
 
 
@@ -124,12 +129,19 @@ def supplier_invoice_visibility_filter(supplier_ids, supplier_user_id=None):
                   FROM supplier_offers
                  WHERE supplier_offers.id=si.offer_id
                    AND supplier_offers.company_id=si.company_id
+                   AND supplier_offers.supplier_id=si.supplier_id
+                   AND (si.request_id IS NULL OR supplier_offers.request_id=si.request_id)
                    AND supplier_offers.supplier_id = ANY(%s::int[])
     """ + offer_sql + """
             )
       )
     """
-    return sql, [normalized_ids, normalized_ids] + offer_params
+    params = [normalized_ids, normalized_ids] + offer_params
+    if team_enabled():
+        leader_sql, leader_params = leader_policy(user_id, 'si.supplier_id')
+        sql += " AND (si.offer_id IS NOT NULL OR " + leader_sql + ")"
+        params += leader_params
+    return sql, params
 
 
 def supplier_delivery_visibility_filter(supplier_ids, supplier_user_id=None):

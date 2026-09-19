@@ -79,6 +79,7 @@ def register_supplier_offers_module(app, deps):
     _resolve_work_company_context = deps["_resolve_work_company_context"]
     _supply_work_package = deps["_supply_work_package"]
     current_supplier_ids = deps["current_supplier_ids"]
+    supplier_owner_ids = deps.get("supplier_owner_ids", current_supplier_ids)
     has_package_access = deps["has_package_access"]
     package_access_filter = deps["package_access_filter"]
     require_project_or_warehouse_access = deps["require_project_or_warehouse_access"]
@@ -252,7 +253,9 @@ def register_supplier_offers_module(app, deps):
             actor_user = _current_user
             supplier_user_id = None
             if role == "поставщик":
-                supplier_scope_ids = current_supplier_ids(cur, _current_user)
+                supplier_scope_ids = supplier_owner_ids(cur, _current_user)
+                if not supplier_scope_ids:
+                    raise HTTPException(403, 'Менеджер отвечает только на назначенное ему КП')
                 supplier_user_id = _current_user.get("id")
             else:
                 company_context, actor_user = resolve_resource_company_actor(
@@ -1079,156 +1082,166 @@ def register_supplier_offers_module(app, deps):
     def ship_supplier_offer(id: int, data: dict, _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
         from datetime import datetime
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        _ensure_supply_runtime_columns(cur)
-        conn.commit()
-        cur.execute("""
-            SELECT o.id, o.request_id, o.supplier_id, o.price_per_unit, o.total_price,
-                   o.payment_terms, o.items_kp_json, COALESCE(o.company_id, r.company_id, 1) as company_id,
-                   s.name as supplier_name,
-                   r.project, COALESCE(r.work_package,'') as work_package,
-                   r.material_name, r.quantity, r.unit, r.items_json
-            FROM supplier_offers o
-            LEFT JOIN suppliers s ON s.id=o.supplier_id
-            LEFT JOIN supply_requests r ON r.id=o.request_id
-            WHERE o.id=%s AND o.status=%s
-        """, (id, 'Утверждено'))
-        offer = cur.fetchone()
-        if not offer:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=404, detail="Утверждённое КП не найдено")
-        role = _current_user.get("role")
-        if role == "поставщик":
-            supplier_ids = current_supplier_ids(cur, _current_user)
-            if offer.get('supplier_id') not in supplier_ids:
+        try:
+            _ensure_supply_runtime_columns(cur)
+            conn.commit()
+            cur.execute("""
+                SELECT o.id, o.request_id, o.supplier_id, o.price_per_unit, o.total_price,
+                       o.payment_terms, o.items_kp_json, COALESCE(o.company_id, r.company_id, 1) as company_id,
+                       s.name as supplier_name,
+                       r.project, COALESCE(r.work_package,'') as work_package,
+                       r.material_name, r.quantity, r.unit, r.items_json
+                FROM supplier_offers o
+                LEFT JOIN suppliers s ON s.id=o.supplier_id
+                LEFT JOIN supply_requests r ON r.id=o.request_id
+                WHERE o.id=%s AND o.status=%s
+            """, (id, 'Утверждено'))
+            offer = cur.fetchone()
+            if not offer:
                 cur.close(); conn.close()
-                raise HTTPException(status_code=403, detail="Нет доступа к КП")
-        else:
-            if role not in SUPPLY_INTERNAL_ROLES:
-                cur.close(); conn.close()
-                raise HTTPException(status_code=403, detail="Недостаточно прав для отгрузки")
-            if offer.get('project'):
-                require_project_or_warehouse_access(_current_user, offer.get('project') or "")
-        cur.execute("SELECT id, status, paid_amount, amount FROM supplier_invoices WHERE offer_id=%s ORDER BY id DESC LIMIT 1", (id,))
-        inv = cur.fetchone()
-        terms = (offer.get('payment_terms') or '').lower()
-        need_payment = ('предоплат' in terms) or ('50/50' in terms) or ('50' in terms and 'постоплат' not in terms)
-        if need_payment:
-            paid = _float_or_zero(inv['paid_amount']) if inv else 0
-            amount = _float_or_zero(inv['amount']) if inv else _float_or_zero(offer['total_price'])
-            required = amount if '100' in terms or 'предоплат' in terms else amount * 0.5
-            if not inv:
-                cur.close(); conn.close()
-                raise HTTPException(status_code=400, detail="Сначала поставщик должен выставить счёт, а бухгалтерия — оплатить по условиям КП")
-            if paid + 0.01 < required:
-                cur.close(); conn.close()
-                raise HTTPException(status_code=400, detail=f"По условиям «{offer.get('payment_terms') or ''}» перед отгрузкой нужно оплатить минимум {round(required, 2)} ₽. Сейчас оплачено {round(paid, 2)} ₽")
-        def _line_key(item):
-            if not isinstance(item, dict):
-                return ("", "", "")
-            return (
-                str(item.get("materialName") or item.get("name") or "").strip().lower(),
-                str(item.get("unit") or "").strip().lower(),
-                _supply_work_package(item.get("workPackage") or item.get("work_package")).lower(),
-            )
-
-        request_items = []
-        for item in _json_list_or_empty(offer.get("items_json")):
-            if not isinstance(item, dict):
-                continue
-            name = (item.get("materialName") or item.get("name") or "").strip()
-            qty = _float_or_zero(item.get("quantity"))
-            if name and qty > 0:
-                request_items.append({
-                    "materialName": name,
-                    "quantity": qty,
-                    "unit": item.get("unit") or offer.get("unit") or "шт",
-                    "workPackage": _supply_work_package(item.get("workPackage") or item.get("work_package") or offer.get("work_package")),
-                })
-        if not request_items:
-            request_items = [{
-                "materialName": offer.get("material_name") or "",
-                "quantity": _float_or_zero(offer.get("quantity")),
-                "unit": offer.get("unit") or "шт",
-                "workPackage": _supply_work_package(offer.get("work_package")),
-            }]
-
-        kp_by_key = {}
-        for item in _json_list_or_empty(offer.get("items_kp_json")):
-            if isinstance(item, dict):
-                kp_by_key[_line_key(item)] = item
-
-        shipped_by_key = {}
-        for item in _json_list_or_empty(data.get("shippedItems")):
-            if isinstance(item, dict):
-                shipped_by_key[_line_key(item)] = _float_or_zero(item.get("shippedQuantity") or item.get("quantity"))
-
-        has_item_kp = bool(kp_by_key)
-        fallback_total = _float_or_zero(offer.get("total_price"))
-        fallback_line_total = fallback_total / len(request_items) if request_items and fallback_total > 0 else 0
-
-        cur.execute("SELECT id, status FROM supply_deliveries WHERE offer_id=%s", (id,))
-        existing_rows = cur.fetchall()
-        if any((r.get('status') if isinstance(r, dict) else r[1]) in ('Принято', 'Проблема') for r in existing_rows):
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="Поставка уже принята. Повторная отгрузка запрещена — создайте новую заявку/КП для допоставки.")
-        if existing_rows:
-            cur.execute("DELETE FROM supply_deliveries WHERE offer_id=%s", (id,))
-
-        delivery_ids = []
-        single_request = len(request_items) == 1
-        for item in request_items:
-            key = _line_key(item)
-            kp = kp_by_key.get(key) or {}
-            planned_qty = _float_or_zero(item.get("quantity"))
-            shipped_qty = shipped_by_key.get(key)
-            if shipped_qty is None:
-                shipped_qty = _float_or_zero(data.get('shippedQuantity')) if single_request and data.get('shippedQuantity') not in (None, "") else planned_qty
-            if shipped_qty <= 0:
-                cur.close(); conn.close()
-                raise HTTPException(status_code=400, detail="Количество к отгрузке должно быть больше нуля")
-            if planned_qty > 0 and shipped_qty > planned_qty + 0.000001:
-                cur.close(); conn.close()
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Нельзя отгрузить больше заявки: {item.get('materialName') or ''} — заявлено {planned_qty:g}, отгружается {shipped_qty:g}",
+                raise HTTPException(status_code=404, detail="Утверждённое КП не найдено")
+            role = _current_user.get("role")
+            if role == "поставщик":
+                try:
+                    _require_supplier_offer_visibility(cur, id, _current_user)
+                except Exception:
+                    cur.close(); conn.close()
+                    raise
+                supplier_ids = current_supplier_ids(cur, _current_user)
+                if offer.get('supplier_id') not in supplier_ids:
+                    cur.close(); conn.close()
+                    raise HTTPException(status_code=403, detail="Нет доступа к КП")
+            else:
+                if role not in SUPPLY_INTERNAL_ROLES:
+                    cur.close(); conn.close()
+                    raise HTTPException(status_code=403, detail="Недостаточно прав для отгрузки")
+                if offer.get('project'):
+                    require_project_or_warehouse_access(_current_user, offer.get('project') or "")
+            cur.execute("SELECT id, status, paid_amount, amount FROM supplier_invoices WHERE offer_id=%s ORDER BY id DESC LIMIT 1", (id,))
+            inv = cur.fetchone()
+            terms = (offer.get('payment_terms') or '').lower()
+            need_payment = ('предоплат' in terms) or ('50/50' in terms) or ('50' in terms and 'постоплат' not in terms)
+            if need_payment:
+                paid = _float_or_zero(inv['paid_amount']) if inv else 0
+                amount = _float_or_zero(inv['amount']) if inv else _float_or_zero(offer['total_price'])
+                required = amount if '100' in terms or 'предоплат' in terms else amount * 0.5
+                if not inv:
+                    cur.close(); conn.close()
+                    raise HTTPException(status_code=400, detail="Сначала поставщик должен выставить счёт, а бухгалтерия — оплатить по условиям КП")
+                if paid + 0.01 < required:
+                    cur.close(); conn.close()
+                    raise HTTPException(status_code=400, detail=f"По условиям «{offer.get('payment_terms') or ''}» перед отгрузкой нужно оплатить минимум {round(required, 2)} ₽. Сейчас оплачено {round(paid, 2)} ₽")
+            def _line_key(item):
+                if not isinstance(item, dict):
+                    return ("", "", "")
+                return (
+                    str(item.get("materialName") or item.get("name") or "").strip().lower(),
+                    str(item.get("unit") or "").strip().lower(),
+                    _supply_work_package(item.get("workPackage") or item.get("work_package")).lower(),
                 )
-            price_per_unit = _float_or_zero(kp.get("pricePerUnit")) if has_item_kp else 0
-            line_total = _float_or_zero(kp.get("totalPrice")) if has_item_kp else 0
-            if line_total <= 0 and price_per_unit > 0:
-                line_total = round(price_per_unit * planned_qty, 2)
-            if line_total <= 0:
-                line_total = fallback_line_total if not single_request else fallback_total
-            if price_per_unit <= 0 and planned_qty > 0 and line_total > 0:
-                price_per_unit = round(line_total / planned_qty, 6)
-            shipped_line_total = round(price_per_unit * shipped_qty, 2) if price_per_unit > 0 else line_total
-            vals = (
-                offer.get('company_id') or 1,
-                offer['request_id'], offer['supplier_id'], offer['supplier_name'] or '',
-                offer['project'] or '', _supply_work_package(item.get("workPackage") or offer.get('work_package')),
-                item.get("materialName") or '',
-                planned_qty, shipped_qty, item.get("unit") or offer.get("unit") or '',
-                price_per_unit, shipped_line_total,
-                data.get('waybillNumber') or '', data.get('waybillDate') or None,
-                data.get('vehicleNumber') or '', data.get('driverName') or '',
-                data.get('documentUrl') or '', data.get('photoUrl') or '', datetime.now()
-            )
-            cur.execute("""INSERT INTO supply_deliveries
-                           (offer_id, company_id, request_id, supplier_id, supplier_name, project,
-                            work_package, material_name, planned_quantity, shipped_quantity, unit,
-                            price_per_unit, total_price, waybill_number, waybill_date,
-                            vehicle_number, driver_name, document_url, photo_url, shipped_at, status)
-                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                           RETURNING id""",
-                        (id,) + vals + ('В пути',))
-            delivery_ids.append(cur.fetchone()['id'])
-        cur.execute("UPDATE supplier_offers SET delivery_status=%s WHERE id=%s", ('В пути', id))
-        cur.execute("UPDATE supply_requests SET status=%s WHERE id=%s", ('В пути', offer['request_id']))
-        cur.execute(DELIVERY_SELECT + " WHERE d.offer_id=%s ORDER BY d.id", (id,))
-        rows = [dict(r) for r in cur.fetchall()]
-        row = rows[0] if rows else None
-        conn.commit()
-        cur.close(); conn.close()
-        if len(rows) == 1:
-            return row
-        return {"ok": True, "count": len(rows), "deliveries": rows}
+
+            request_items = []
+            for item in _json_list_or_empty(offer.get("items_json")):
+                if not isinstance(item, dict):
+                    continue
+                name = (item.get("materialName") or item.get("name") or "").strip()
+                qty = _float_or_zero(item.get("quantity"))
+                if name and qty > 0:
+                    request_items.append({
+                        "materialName": name,
+                        "quantity": qty,
+                        "unit": item.get("unit") or offer.get("unit") or "шт",
+                        "workPackage": _supply_work_package(item.get("workPackage") or item.get("work_package") or offer.get("work_package")),
+                    })
+            if not request_items:
+                request_items = [{
+                    "materialName": offer.get("material_name") or "",
+                    "quantity": _float_or_zero(offer.get("quantity")),
+                    "unit": offer.get("unit") or "шт",
+                    "workPackage": _supply_work_package(offer.get("work_package")),
+                }]
+
+            kp_by_key = {}
+            for item in _json_list_or_empty(offer.get("items_kp_json")):
+                if isinstance(item, dict):
+                    kp_by_key[_line_key(item)] = item
+
+            shipped_by_key = {}
+            for item in _json_list_or_empty(data.get("shippedItems")):
+                if isinstance(item, dict):
+                    shipped_by_key[_line_key(item)] = _float_or_zero(item.get("shippedQuantity") or item.get("quantity"))
+
+            has_item_kp = bool(kp_by_key)
+            fallback_total = _float_or_zero(offer.get("total_price"))
+            fallback_line_total = fallback_total / len(request_items) if request_items and fallback_total > 0 else 0
+
+            cur.execute("SELECT id, status FROM supply_deliveries WHERE offer_id=%s", (id,))
+            existing_rows = cur.fetchall()
+            if any((r.get('status') if isinstance(r, dict) else r[1]) in ('Принято', 'Проблема') for r in existing_rows):
+                cur.close(); conn.close()
+                raise HTTPException(status_code=400, detail="Поставка уже принята. Повторная отгрузка запрещена — создайте новую заявку/КП для допоставки.")
+            if existing_rows:
+                cur.execute("DELETE FROM supply_deliveries WHERE offer_id=%s", (id,))
+
+            delivery_ids = []
+            single_request = len(request_items) == 1
+            for item in request_items:
+                key = _line_key(item)
+                kp = kp_by_key.get(key) or {}
+                planned_qty = _float_or_zero(item.get("quantity"))
+                shipped_qty = shipped_by_key.get(key)
+                if shipped_qty is None:
+                    shipped_qty = _float_or_zero(data.get('shippedQuantity')) if single_request and data.get('shippedQuantity') not in (None, "") else planned_qty
+                if shipped_qty <= 0:
+                    cur.close(); conn.close()
+                    raise HTTPException(status_code=400, detail="Количество к отгрузке должно быть больше нуля")
+                if planned_qty > 0 and shipped_qty > planned_qty + 0.000001:
+                    cur.close(); conn.close()
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Нельзя отгрузить больше заявки: {item.get('materialName') or ''} — заявлено {planned_qty:g}, отгружается {shipped_qty:g}",
+                    )
+                price_per_unit = _float_or_zero(kp.get("pricePerUnit")) if has_item_kp else 0
+                line_total = _float_or_zero(kp.get("totalPrice")) if has_item_kp else 0
+                if line_total <= 0 and price_per_unit > 0:
+                    line_total = round(price_per_unit * planned_qty, 2)
+                if line_total <= 0:
+                    line_total = fallback_line_total if not single_request else fallback_total
+                if price_per_unit <= 0 and planned_qty > 0 and line_total > 0:
+                    price_per_unit = round(line_total / planned_qty, 6)
+                shipped_line_total = round(price_per_unit * shipped_qty, 2) if price_per_unit > 0 else line_total
+                vals = (
+                    offer.get('company_id') or 1,
+                    offer['request_id'], offer['supplier_id'], offer['supplier_name'] or '',
+                    offer['project'] or '', _supply_work_package(item.get("workPackage") or offer.get('work_package')),
+                    item.get("materialName") or '',
+                    planned_qty, shipped_qty, item.get("unit") or offer.get("unit") or '',
+                    price_per_unit, shipped_line_total,
+                    data.get('waybillNumber') or '', data.get('waybillDate') or None,
+                    data.get('vehicleNumber') or '', data.get('driverName') or '',
+                    data.get('documentUrl') or '', data.get('photoUrl') or '', datetime.now()
+                )
+                cur.execute("""INSERT INTO supply_deliveries
+                               (offer_id, company_id, request_id, supplier_id, supplier_name, project,
+                                work_package, material_name, planned_quantity, shipped_quantity, unit,
+                                price_per_unit, total_price, waybill_number, waybill_date,
+                                vehicle_number, driver_name, document_url, photo_url, shipped_at, status)
+                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                               RETURNING id""",
+                            (id,) + vals + ('В пути',))
+                delivery_ids.append(cur.fetchone()['id'])
+            cur.execute("UPDATE supplier_offers SET delivery_status=%s WHERE id=%s", ('В пути', id))
+            cur.execute("UPDATE supply_requests SET status=%s WHERE id=%s", ('В пути', offer['request_id']))
+            cur.execute(DELIVERY_SELECT + " WHERE d.offer_id=%s ORDER BY d.id", (id,))
+            rows = [dict(r) for r in cur.fetchall()]
+            row = rows[0] if rows else None
+            conn.commit()
+            cur.close(); conn.close()
+            if len(rows) == 1:
+                return row
+            return {"ok": True, "count": len(rows), "deliveries": rows}
+        finally:
+            cur.close()
+            conn.close()

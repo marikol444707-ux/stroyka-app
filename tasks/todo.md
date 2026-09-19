@@ -10711,3 +10711,10 @@ change.
 - [x] Full tests/build, two-customer browser QA and backed-up release979ef693.
 
 - [ ] Technical follow-up: health `_app_version` must support Git packed refs/worktree common refs. P8 preflight exposed the existing loose-ref-only reader after automatic Git GC; restored the identical main ref and disabled automatic GC for this release fetch. No code/history/data change in this operational recovery.
+
+## P9 — supplier team policy
+
+- [x] Confirm leader/manager visibility with user; inspect current owner binding.
+- [x] Explicit memberships/assignments and fail-closed policy.
+- [x] API reads/actions enforce scope without widening owner-only profile/catalog.
+- [ ] PostgreSQL regression and rollout verification.

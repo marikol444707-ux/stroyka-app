@@ -1481,6 +1481,11 @@ def current_supplier_ids(cur, user: dict):
     return [int(row['id'] if isinstance(row, dict) else row[0]) for row in cur.fetchall()]
 
 
+def current_supplier_access_ids(cur, user: dict):
+    from backend.features.supplier_team.policy import enabled, access_ids
+    return access_ids(cur, user) if enabled() else current_supplier_ids(cur, user)
+
+
 def current_supplier_id(cur, user: dict):
     supplier_ids = current_supplier_ids(cur, user)
     return supplier_ids[0] if supplier_ids else None
@@ -9386,19 +9391,30 @@ def get_supply_requests(
             project_params + company_filter_params + page_params,
         )
     elif role == "поставщик":
-        supplier_ids = current_supplier_ids(cur, current_user)
+        supplier_ids = current_supplier_access_ids(cur, current_user)
         if not supplier_ids:
             cur.close(); conn.close()
             return []
         _ensure_supply_request_recipients_table(cur)
+        from backend.features.supplier_team.policy import enabled as team_enabled, leader_ids
+        team_sql, team_params = '', []
+        if team_enabled():
+            visible_sql, offer_params = supplier_offer_visibility_filter(supplier_ids, current_user.get('id'))
+            unrestricted_ids = leader_ids(cur, current_user)
+            team_sql = (' AND (' + SUPPLIER_REQUEST_VISIBILITY_SQL +
+                        ' OR EXISTS (SELECT 1 FROM supplier_offers WHERE '
+                        'supplier_offers.request_id=supply_requests.id AND '
+                        'supplier_offers.company_id=supply_requests.company_id' + visible_sql + '))')
+            team_params = supplier_request_visibility_params(unrestricted_ids) + offer_params
         cur.execute(
             SUPPLY_SELECT
             + " WHERE "
             + SUPPLIER_REQUEST_VISIBILITY_SQL
+            + team_sql
             + " ORDER BY id DESC"
             + page_sql,
             supplier_request_visibility_params(supplier_ids)
-            + page_params,
+            + team_params + page_params,
         )
     elif role == "прораб":
         projects = user_project_names(current_user)
@@ -10195,7 +10211,10 @@ OFFERS_SELECT = ("SELECT id, request_id as \"requestId\", supplier_id as \"suppl
 
 def _require_supplier_offer_visibility(cur, offer_id: int, user: dict, detail: str = "Нет доступа к КП"):
     _ensure_supply_request_recipients_table(cur)
-    supplier_ids = current_supplier_ids(cur, user)
+    from backend.features.supplier_team.policy import enabled, lock_offer_access
+    if enabled():
+        lock_offer_access(cur, offer_id, user.get('id'))
+    supplier_ids = current_supplier_access_ids(cur, user)
     visibility_sql, visibility_params = supplier_offer_visibility_filter(
         supplier_ids,
         user.get("id"),
@@ -12086,7 +12105,7 @@ def list_supply_deliveries(
     role = current_user.get("role")
     page_sql, page_params = limit_offset_sql(limit, offset)
     if role == "поставщик":
-        supplier_ids = current_supplier_ids(cur, current_user)
+        supplier_ids = current_supplier_access_ids(cur, current_user)
         if not supplier_ids:
             cur.close(); conn.close()
             return []
@@ -24748,7 +24767,7 @@ def list_supplier_invoices(
         where.append("si.project_name=%s"); params.append(project_name)
     if status: where.append("si.status=%s"); params.append(status)
     if is_supplier:
-        supplier_ids = current_supplier_ids(cur, current_user)
+        supplier_ids = current_supplier_access_ids(cur, current_user)
         if not supplier_ids:
             cur.close(); conn.close()
             return []
@@ -25846,7 +25865,8 @@ register_supplier_offers_module(app, {
     "_positive_int_or_none": _positive_int_or_none,
     "_resolve_work_company_context": _resolve_work_company_context,
     "_supply_work_package": _supply_work_package,
-    "current_supplier_ids": current_supplier_ids,
+    "current_supplier_ids": current_supplier_access_ids,
+    "supplier_owner_ids": current_supplier_ids,
     "has_package_access": has_package_access,
     "package_access_filter": package_access_filter,
     "require_project_or_warehouse_access": require_project_or_warehouse_access,
