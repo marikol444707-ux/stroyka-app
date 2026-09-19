@@ -83,6 +83,28 @@ class DeliveryDiagnosticsTests(unittest.TestCase):
         self.assertEqual(params, (8, 3, [1, 2]))
         self.assertEqual(cur.execute.call_count, 2)
 
+    def test_missing_queue_reference_is_not_reported_as_queued(self):
+        cur = Mock()
+        rows = [dict(id=1, maxNotificationStatus='В очереди MAX', maxOutboxId=None)]
+        result = attach_recipient_delivery_diagnostics(cur, dict(id=8, company_id=3), rows)
+        self.assertEqual(result[0]['actualMaxQueueStatus'], 'unknown')
+        self.assertEqual(result[0]['maxQueueEvidence'], 'unconfirmed')
+        cur.execute.assert_not_called()
+
+    def test_matched_queue_exposes_failure_count_and_evidence_times(self):
+        cur = Mock()
+        cur.fetchone.return_value = {'table_name': 'messenger_outbox'}
+        cur.fetchall.return_value = [dict(recipient_id=1, status='failed', attempts=2,
+            failed_at='2026-09-19T10:00:00', updated_at='2026-09-19T10:00:00',
+            sent_at=None, created_at='2026-09-19T09:00:00')]
+        result = attach_recipient_delivery_diagnostics(cur, dict(id=8, company_id=3),
+            [dict(id=1, maxOutboxId=4, maxNotificationStatus='В очереди MAX')])
+        self.assertEqual(result[0]['maxQueueEvidence'], 'matched')
+        self.assertEqual(result[0]['maxFailedAttempts'], 2)
+        self.assertEqual(result[0]['maxFailedAt'], '2026-09-19T10:00:00')
+        self.assertIsNone(result[0]['maxSentAt'])
+        self.assertIn("o.owner_scope='company'", cur.execute.call_args.args[0])
+
     def test_missing_outbox_table_is_unknown_without_schema_writes(self):
         cur = Mock()
         cur.fetchone.return_value = {'table_name': None}

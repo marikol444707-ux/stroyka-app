@@ -1,4 +1,5 @@
 import React from 'react';
+import useSupplierOfferCheck from '../../features/supply/useSupplierOfferCheck';
 import { Bot, Check, X } from 'lucide-react';
 import {
   splitSupplierOffersByStatus,
@@ -331,10 +332,15 @@ export function RecipientDiagnosticsPanel({ C, badge, btnB, rows, onOpenSupplier
               )}
               <p style={{ color: C.textSec, margin: '3px 0 0', fontSize: '11px' }}>Доступ к запросу: {accessConfirmed ? 'разрешён' : 'не подтверждён'}</p>
               <p style={{ color: C.textSec, margin: '3px 0 0', fontSize: '11px' }}>Email: {supplierEmailNotificationLabel(row)}</p>
-              {row.emailSentAt && <p style={{ color: C.textMuted, margin: '2px 0 0', fontSize: '10px' }}>Дата передачи SMTP: <time dateTime={row.emailSentAt}>{new Date(row.emailSentAt).toLocaleString('ru-RU')}</time></p>}
+              {row.emailSentAt && <p style={{ color: C.textMuted, margin: '2px 0 0', fontSize: '10px' }}>{row.emailNotificationStatus === 'Отправлено' ? 'Дата передачи SMTP' : 'Сохранённая отметка email'}: <time dateTime={row.emailSentAt}>{new Date(row.emailSentAt).toLocaleString('ru-RU')}</time></p>}
               <p style={{ color: C.textSec, margin: '3px 0 0', fontSize: '11px' }}>MAX: {supplierMaxNotificationLabel(row)}</p>
-              {row.maxOutboxId && <p style={{ color: C.textMuted, margin: '2px 0 0', fontSize: '10px' }}>Запись очереди MAX #{row.maxOutboxId}</p>}
-              {row.maxQueuedAt && <p style={{ color: C.textMuted, margin: '2px 0 0', fontSize: '10px' }}>Дата постановки в очередь: <time dateTime={row.maxQueuedAt}>{new Date(row.maxQueuedAt).toLocaleString('ru-RU')}</time></p>}
+              {row.maxOutboxId && <p style={{ color: C.textMuted, margin: '2px 0 0', fontSize: '10px' }}>{row.maxQueueEvidence === 'unconfirmed' ? 'Сохранённый номер очереди MAX' : 'Запись очереди MAX'} #{row.maxOutboxId}</p>}
+              {row.maxQueueEvidence === 'unconfirmed' && <p style={{color:C.warning,fontSize:'11px'}}>Запись очереди MAX не подтверждена. Эта проверка не отправляет сообщения повторно.</p>}
+              {row.maxQueueEvidence === 'matched' && <>
+                {Number.isInteger(row.maxFailedAttempts) && <p style={{color:C.textMuted,fontSize:'10px'}}>Неудачных попыток MAX: {row.maxFailedAttempts}</p>}
+                {[[row.maxQueueCreatedAt, 'Поставлено в очередь MAX'], [row.maxFailedAt, 'Последняя ошибка MAX'], [row.maxSentAt, 'Передано MAX'], [row.maxQueueUpdatedAt, 'Статус MAX обновлён']].filter(([value]) => value).map(([value, label]) => <p key={label} style={{color:C.textMuted,fontSize:'10px'}}>{label}: <time dateTime={value}>{new Date(value).toLocaleString('ru-RU')}</time></p>)}
+              </>}
+              {row.maxQueuedAt && row.maxQueueEvidence !== 'matched' && <p style={{color:C.textMuted,fontSize:'10px'}}>Историческая отметка очереди: <time dateTime={row.maxQueuedAt}>{new Date(row.maxQueuedAt).toLocaleString('ru-RU')}</time></p>}
               {statusSummary && (
                 <p style={{ color: C.textMuted, margin: '2px 0 0', fontSize: '10px' }}>КП: {statusSummary}</p>
               )}
@@ -365,7 +371,8 @@ export function RecipientDiagnosticsPanel({ C, badge, btnB, rows, onOpenSupplier
   );
 }
 
-function OffersBlock({
+export function OffersBlock({
+  user,
   API,
   C,
   btnG,
@@ -391,28 +398,19 @@ function OffersBlock({
   canApprove,
   onOpenSupplierLink,
 }) {
-  const [recipientCheck, setRecipientCheck] = React.useState({ loading: false, rows: null, error: '' });
-  const offers = (supplierOffers || []).filter(o => o.requestId === request.id);
+  const scope = JSON.stringify([API, user?.id, user?.role, request.id, request.companyId,
+    companyContext?.mode, companyContext?.selectedCompanyId, companyContext?.selectedCompany?.companyId,
+    companyContext?.selectedCompany?.role]);
+  const recipientCheck = useSupplierOfferCheck({ API, scope, requestId: request.id, supplierOffers });
+  const offers = recipientCheck.offers;
   const { active: activeOffers, history: historyOffers } = splitSupplierOffersByStatus(offers);
-  if (offers.length === 0) return null;
-
-  const loadRecipientCheck = async () => {
-    setRecipientCheck(prev => ({ ...prev, loading: true, error: '' }));
-    try {
-      const res = await fetch((API || '') + '/supply-requests/' + request.id + '/recipients');
-      const data = await res.json().catch(() => []);
-      if (!res.ok) throw new Error(data.detail || data.error || ('HTTP ' + res.status));
-      setRecipientCheck({ loading: false, rows: Array.isArray(data) ? data : [], error: '' });
-    } catch (err) {
-      setRecipientCheck({ loading: false, rows: null, error: err.message || 'Не удалось проверить статусы КП' });
-    }
-  };
+  if (offers.length === 0 && recipientCheck.status === 'idle') return null;
 
   const winner = activeOffers.find(o => o.status === 'Утверждено');
   const receivedOffers = activeOffers.filter(o => o.status === 'Получено' || o.status === 'Утверждено');
   const compareResult = compareResultByReq[request.id];
   const compareLoading = compareLoadingReqId === request.id;
-  const offerCounterText = activeOffers.length + ' активн.' + (historyOffers.length ? ' · история ' + historyOffers.length : '');
+  const offerCounterText = ['loading', 'error'].includes(recipientCheck.status) ? '—' : activeOffers.length + ' активн.' + (historyOffers.length ? ' · история ' + historyOffers.length : '');
   const selectedCompanyId = companyContext?.selectedCompanyId || companyContext?.selectedCompany?.companyId;
   const projectId = uniqueScopedProjectId(projects, request.project, selectedCompanyId);
 
@@ -484,14 +482,15 @@ function OffersBlock({
           </button>
         )}
         {canApprove && (
-          <button onClick={loadRecipientCheck} disabled={recipientCheck.loading} style={{ ...btnG, padding: '4px 10px', fontSize: '11px', opacity: recipientCheck.loading ? 0.6 : 1 }}>
-            {recipientCheck.loading ? 'Проверяю...' : 'Проверить статусы КП'}
+          <button onClick={recipientCheck.reload} disabled={recipientCheck.status === 'loading'} style={{ ...btnG, padding: '4px 10px', fontSize: '11px', opacity: recipientCheck.status === 'loading' ? 0.6 : 1 }}>
+            {recipientCheck.status === 'loading' ? 'Обновляю…' : 'Обновить КП и уведомления'}
           </button>
         )}
       </div>
       <CompareResultBlock C={C} compareResult={compareResult} />
+      {recipientCheck.status === 'loading' && <p role='status'>Обновляем КП и сведения об уведомлениях…</p>}
       {recipientCheck.error && (
-        <div style={{ padding: '8px 10px', backgroundColor: C.dangerLight, borderRadius: '6px', border: '1px solid ' + C.dangerBorder, marginBottom: '8px', fontSize: '11px', color: C.danger }}>
+        <div role='alert' style={{ padding: '8px 10px', backgroundColor: C.dangerLight, borderRadius: '6px', border: '1px solid ' + C.dangerBorder, marginBottom: '8px', fontSize: '11px', color: C.danger }}>
           {recipientCheck.error}
         </div>
       )}
@@ -721,6 +720,7 @@ export function SupplyRequestCard(props) {
         />
       ))}
       <OffersBlock
+        user={user}
         API={API}
         C={C}
         btnG={btnG}
