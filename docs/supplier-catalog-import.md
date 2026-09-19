@@ -48,3 +48,14 @@ is corrected to preserve deliveryDays=0 instead of replacing it with the default
   import request; no importer exception.
 - Real CSV regression: UTF-8 names and comma decimals survive SheetJS without
   implicit numeric coercion.
+
+## Release 2026-09-19
+
+Released `23c0fe6d2229d96c29d4a25c091e1afd482a7ccc` at12:56:50Z.
+Remote backup: `/root/stroyka-catalog-import-hPJTS8xe/backup`.
+173 original tables preserved; 319 frontend files verified. Schema unchanged0033.
+Post-release smoke12:56:59Z: healthy, DB12.3ms, public asset hashes match,
+unauthenticated catalogue GET/POST401, runtimeErrors0.
+Final browser CSV stored Cyrillic name, price120.5 and days0 correctly.
+Synthetic browser database and auth-state files removed.
+Private evidence: `/Users/nikolas/.codex/tmp/supplier-catalog-import/`.

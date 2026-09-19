@@ -10636,3 +10636,14 @@ change.
 - [x] Real browser pending/problem/claim filters and320px no-overflow verification.
 - [x] Release63fe4678; preserve173tables, verify319frontendfiles and healthy runtime.
 - [ ] Legacy ownership confirmations remain pending separately.
+
+
+## 2026-09-19 — Supplier catalogue import (released23c0fe6d)
+
+- [x] Validate all rows and preview Excel/XLS/UTF-8 CSV before writes.
+- [x] Skip same-supplier name/unit matches; recheck current catalogue before saving.
+- [x] Count only confirmed writes; stop on denied or ambiguous replies.
+- [x] Load supplier card/catalog at login; preserve zero delivery days on GET.
+- [x] Frontend1116 full tests +44 final targeted; backend3765/639opt-in skips.
+- [x] Browser Excel/CSV/repeat/invalid/lost-response/mobile320 checks.
+- [x] Backed-up deployment;173tables preserved; production smoke healthy.

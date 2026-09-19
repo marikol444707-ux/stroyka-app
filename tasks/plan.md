@@ -1,12 +1,13 @@
 # Implementation Plan: Safe Stroyka Program Improvements
 
-## Current slice: delivery control (released 2026-09-19)
+## Current slice: supplier catalogue import (released 2026-09-19)
 
-Released63fe4678: filters across the loaded delivery list, factual receipt quantities,
-unresolved claims including in-progress cases, and no repeated receipt UI after
-acceptance. See `docs/supply-delivery-control.md`. Preceding claim lifecycle and
-53-test end-to-end procurement verification are recorded in
-`docs/supply-claim-cases.md` and `docs/supply-chain-final-check.md`.
+Released23c0fe6d: Excel/XLS/UTF-8 CSV preview and validation, repeated-file
+protection, confirmed save counts and stop/recheck after ambiguous responses.
+Supplier boot now loads its linked card/catalog; zero-day delivery survives reload.
+See `docs/supplier-catalog-import.md`. Previous delivery control is documented in
+`docs/supply-delivery-control.md`; full chain verification in
+`docs/supply-chain-final-check.md`.
 Supplier invoices/payments remain a separate stream. Legacy warehouse/template
 ownership remains pending; it does not block new company-owned records.
 
