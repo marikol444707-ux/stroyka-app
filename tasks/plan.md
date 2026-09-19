@@ -1,8 +1,11 @@
 # Implementation Plan: Safe Stroyka Program Improvements
 
-## Current slice: email attempt guard P3.2a (released 2026-09-19)
+## Next slice: supplier request registry P4
 
 Roadmap: [Supplier portal implementation plan](../docs/supplier-portal-roadmap.md).
+User deferred inbox/spam investigation and Mail support to final acceptance P14.
+Next product work: P4 request registry, then P5 search/filters and P6 deadlines.
+P3.2 technical remainder stays open before final release.
 P1/P2 released; P3.1 releasedb9b5cf39. Verified queue evidence, failure counts/times,
 explicit unknown references and buyer quote/notification refresh are complete.
 Evidence: `docs/supplier-notification-evidence.md`. P3.2a released2760bc1d: persists email queue/claim
