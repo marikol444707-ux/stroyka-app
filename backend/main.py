@@ -13181,7 +13181,7 @@ def _recalculate_contract_item_done_from_work_journal(cur, contract_item_id):
                    SET done_quantity = GREATEST(0, LEAST(COALESCE(quantity,0), %s))
                    WHERE id=%s""", (confirmed_qty, contract_item_id))
 
-def _recalculate_estimate_item_done_from_work_journal(cur, work_row: dict):
+def _recalculate_estimate_item_done_from_work_journal(cur, work_row: dict, *, strict_key=False):
     if not work_row:
         return False
     estimate_id = work_row.get("estimate_id") or work_row.get("estimateId")
@@ -13216,7 +13216,7 @@ def _recalculate_estimate_item_done_from_work_journal(cur, work_row: dict):
             if target_key and target_key in keys:
                 target = (section, item, section_name, item_name, target_key)
                 break
-            if name_key and item_name.lower() == name_key:
+            if not (strict_key and target_key) and name_key and item_name.lower() == name_key:
                 if not section_key or section_name.lower() == section_key:
                     target = (section, item, section_name, item_name, keys[0] if keys else "")
                     break
@@ -13439,7 +13439,7 @@ def _raise_work_journal_duplicate(duplicate):
         detail="Эта работа уже заведена" + room_part + ". Запись ЖПР №" + str(row_id) + " (" + str(master_name or "исполнитель") + ")"
     )
 
-def _room_work_duplicate(cur, project, room_id=None, room_name="", estimate_item_key="", description="", work_package="", exclude_work_journal_id=None):
+def _room_work_duplicate(cur, project, room_id=None, room_name="", estimate_item_key="", description="", work_package="", exclude_work_journal_id=None, family_journal_ids=None):
     project = (project or "").strip()
     room_name = (room_name or "").strip()
     estimate_item_key = (estimate_item_key or "").strip()
@@ -13454,6 +13454,10 @@ def _room_work_duplicate(cur, project, room_id=None, room_name="", estimate_item
     package_params = [work_package] if work_package else []
     exclude_sql = " AND COALESCE(work_journal_id,0)<>%s" if exclude_work_journal_id else ""
     exclude_params = [exclude_work_journal_id] if exclude_work_journal_id else []
+
+    if family_journal_ids:
+        exclude_sql += " AND COALESCE(work_journal_id,0)<>ALL(%s)"
+        exclude_params.append(family_journal_ids)
 
     if room_id:
         cur.execute(f"""SELECT id, master_name, status, room_name, work_package FROM room_works
@@ -13474,7 +13478,7 @@ def _room_work_duplicate(cur, project, room_id=None, room_name="", estimate_item
             return duplicate
     return None
 
-def _sync_room_work_from_journal(cur, work_row: dict):
+def _sync_room_work_from_journal(cur, work_row: dict, *, family_journal_ids=None):
     if not work_row:
         return
     work_journal_id = work_row.get("id")
@@ -13499,6 +13503,7 @@ def _sync_room_work_from_journal(cur, work_row: dict):
         description=description,
         work_package=work_package,
         exclude_work_journal_id=work_journal_id,
+        family_journal_ids=family_journal_ids,
     )
     if duplicate:
         _raise_work_journal_duplicate(duplicate)
@@ -13554,7 +13559,7 @@ def _work_journal_sync_row(cur, work_journal_id: int):
     cols = [d[0] for d in cur.description]
     return dict(zip(cols, row))
 
-def _sync_hidden_work_act_from_journal(cur, work_row: dict):
+def _sync_hidden_work_act_from_journal(cur, work_row: dict, *, exact_journal_only=False):
     if not work_row or not work_row.get("hidden_work"):
         return 0
     work_journal_id = work_row.get("id")
@@ -13569,12 +13574,12 @@ def _sync_hidden_work_act_from_journal(cur, work_row: dict):
         cur.execute("""SELECT id, COALESCE(status,'Черновик') FROM hidden_works_acts
                         WHERE company_id=%s AND work_journal_id=%s LIMIT 1""", (company_id, work_journal_id))
         existing = cur.fetchone()
-    if not existing and work_row.get("estimate_id"):
+    if not existing and not exact_journal_only and work_row.get("estimate_id"):
         cur.execute("""SELECT id, COALESCE(status,'Черновик') FROM hidden_works_acts
                        WHERE company_id=%s AND estimate_id=%s AND work_name=%s LIMIT 1""",
                     (company_id, work_row.get("estimate_id"), work_name))
         existing = cur.fetchone()
-    if not existing:
+    if not existing and not exact_journal_only:
         cur.execute("""SELECT id, COALESCE(status,'Черновик') FROM hidden_works_acts
                        WHERE company_id=%s AND project_name=%s AND work_name=%s AND COALESCE(brigade,'')=%s
                          AND work_date IS NOT DISTINCT FROM %s LIMIT 1""",
@@ -14003,6 +14008,7 @@ def _update_work_journal_with_connection(conn, id, data, x_company_id, x_company
         from backend.features.work_acceptance.policy import guard_legacy_update
     except ModuleNotFoundError:
         from features.work_acceptance.policy import guard_legacy_update
+    work_acceptance_records.guard_direct_mutation(cur, id, project_row, data)
     guard_legacy_update(project_row, _current_user, data)
     project_name = project_row.get("project") if project_row else ""
     work_settlement_guards.require_unacted_work(cur, id)
@@ -14300,6 +14306,7 @@ def delete_work_journal(
         if not work:
             conn.rollback()
             raise HTTPException(status_code=404, detail="Запись журнала не найдена")
+        work_acceptance_records.guard_direct_mutation(cur, id, work)
         work_settlement_guards.require_unacted_work(cur, id)
         if _current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(_current_user, work.get("work_package") or "Основная"):
             conn.rollback()
@@ -26497,83 +26504,93 @@ def list_hidden_works_acts(project_name: str = None, current_user: dict = Depend
 @app.put("/hidden-works-acts/{act_id}")
 def update_hidden_works_act(act_id: int, data: dict, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_CONTENT_WRITE_ROLES, *WORKER_EXECUTION_ROLES))):
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor()
-    require_row_project_access(cur, "hidden_works_acts", act_id, _current_user, "project_name")
-    if _current_user.get("role") in PACKAGE_LIMIT_ROLES:
-        require_hidden_work_actor_access(cur, act_id, _current_user)
-    if _current_user.get("role") in WORKER_EXECUTION_ROLES:
-        cur.execute("""SELECT brigade, signed_customer, signed_supervisor, signed_contractor, signed_subcontractor,
-                              signed_customer_at, signed_supervisor_at, signed_contractor_at, signed_subcontractor_at,
-                              conclusion, comments, project_docs, materials_used, photos, certificates, city, status
-                       FROM hidden_works_acts WHERE id=%s""", (act_id,))
-        own_row = cur.fetchone()
-        if not own_row:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=404, detail="АОСР не найден")
-        actor_key = (_current_user.get("name") or "").strip().lower()
-        own_names = {
-            str(own_row[0] or "").strip().lower(),
-            str(own_row[3] or "").strip().lower(),
-            str(own_row[4] or "").strip().lower(),
-        }
-        if actor_key not in own_names:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=403, detail="Исполнитель может подписывать только свой АОСР")
-        data = {
-            "status": own_row[16] or "Черновик",
-            "signedCustomer": own_row[1] or "",
-            "signedSupervisor": own_row[2] or "",
-            "signedContractor": own_row[3] or "",
-            "signedSubcontractor": (_current_user.get("name") or own_row[4] or ""),
-            "signedCustomerAt": own_row[5] or None,
-            "signedSupervisorAt": own_row[6] or None,
-            "signedContractorAt": own_row[7] or None,
-            "signedSubcontractorAt": data.get("signedSubcontractorAt") or __import__("datetime").date.today().isoformat(),
-            "conclusion": own_row[9] or "",
-            "comments": data.get("comments", own_row[10] or ""),
-            "projectDocs": own_row[11] or "",
-            "materialsUsed": own_row[12] or "",
-            "photos": own_row[13] or "",
-            "certificates": own_row[14] or "",
-            "city": own_row[15] or "",
-        }
-    # Снапшот текущего состояния перед изменением (версионирование)
     try:
-        cur.execute("SELECT row_to_json(t) FROM hidden_works_acts t WHERE id=%s", (act_id,))
-        prev_row = cur.fetchone()
-        if prev_row and prev_row[0]:
-            save_doc_version("hidden_works_act", act_id, prev_row[0],
-                             changed_by=data.get("_actor","—"),
-                             change_reason="PUT /hidden-works-acts/"+str(act_id))
-    except Exception as e:
-        print("VERSION snapshot skipped:", str(e))
-    # Подписи помогают контролю, но не являются обязательным стоп-краном.
-    sc = data.get("signedCustomer","").strip()
-    ss = data.get("signedSupervisor","").strip()
-    sk = data.get("signedContractor","").strip()
-    sb = data.get("signedSubcontractor","").strip()
-    auto_status = hidden_work_effective_status(data.get("status","Черновик"), sc, ss, sk, sb)
-    cur.execute("""UPDATE hidden_works_acts SET
-                   status=%s,
-                   signed_customer=%s, signed_supervisor=%s, signed_contractor=%s, signed_subcontractor=%s,
-                   signed_customer_at=%s, signed_supervisor_at=%s, signed_contractor_at=%s, signed_subcontractor_at=%s,
-                   conclusion=%s, comments=%s, project_docs=%s, materials_used=%s,
-                   photos=%s, certificates=%s, city=%s,
-                   ai_filled=FALSE
-                   WHERE id=%s""",
-        (auto_status,
-         sc, ss, sk, sb,
-         data.get("signedCustomerAt") or None, data.get("signedSupervisorAt") or None,
-         data.get("signedContractorAt") or None, data.get("signedSubcontractorAt") or None,
-         data.get("conclusion",""), data.get("comments",""),
-         data.get("projectDocs",""), data.get("materialsUsed",""),
-         data.get("photos",""), data.get("certificates",""), data.get("city",""),
-         act_id))
-    conn.commit(); cur.close(); conn.close()
-    log_audit(user_name=data.get("_actor","система"), user_role="—",
-              action="update", entity_type="hidden_works_act", entity_id=act_id,
-              description="Изменён АОСР, статус: "+auto_status, project_name=data.get("_project",""))
-    return {"ok": True, "status": auto_status}
+        _lock_legacy_work_settlement(cur)
+        require_row_project_access(cur, "hidden_works_acts", act_id, _current_user, "project_name")
+        if _current_user.get("role") in PACKAGE_LIMIT_ROLES:
+            require_hidden_work_actor_access(cur, act_id, _current_user)
+        if _current_user.get("role") in WORKER_EXECUTION_ROLES:
+            cur.execute("""SELECT brigade, signed_customer, signed_supervisor, signed_contractor, signed_subcontractor,
+                                  signed_customer_at, signed_supervisor_at, signed_contractor_at, signed_subcontractor_at,
+                                  conclusion, comments, project_docs, materials_used, photos, certificates, city, status
+                           FROM hidden_works_acts WHERE id=%s""", (act_id,))
+            own_row = cur.fetchone()
+            if not own_row:
+                cur.close(); conn.close()
+                raise HTTPException(status_code=404, detail="АОСР не найден")
+            actor_key = (_current_user.get("name") or "").strip().lower()
+            own_names = {
+                str(own_row[0] or "").strip().lower(),
+                str(own_row[3] or "").strip().lower(),
+                str(own_row[4] or "").strip().lower(),
+            }
+            if actor_key not in own_names:
+                cur.close(); conn.close()
+                raise HTTPException(status_code=403, detail="Исполнитель может подписывать только свой АОСР")
+            data = {
+                "status": own_row[16] or "Черновик",
+                "signedCustomer": own_row[1] or "",
+                "signedSupervisor": own_row[2] or "",
+                "signedContractor": own_row[3] or "",
+                "signedSubcontractor": (_current_user.get("name") or own_row[4] or ""),
+                "signedCustomerAt": own_row[5] or None,
+                "signedSupervisorAt": own_row[6] or None,
+                "signedContractorAt": own_row[7] or None,
+                "signedSubcontractorAt": data.get("signedSubcontractorAt") or __import__("datetime").date.today().isoformat(),
+                "conclusion": own_row[9] or "",
+                "comments": data.get("comments", own_row[10] or ""),
+                "projectDocs": own_row[11] or "",
+                "materialsUsed": own_row[12] or "",
+                "photos": own_row[13] or "",
+                "certificates": own_row[14] or "",
+                "city": own_row[15] or "",
+            }
+        work_acceptance_records.guard_hidden_act(cur, act_id)
+        # Снапшот текущего состояния перед изменением (версионирование)
+        try:
+            cur.execute("SELECT row_to_json(t) FROM hidden_works_acts t WHERE id=%s", (act_id,))
+            prev_row = cur.fetchone()
+            if prev_row and prev_row[0]:
+                save_doc_version("hidden_works_act", act_id, prev_row[0],
+                                 changed_by=data.get("_actor","—"),
+                                 change_reason="PUT /hidden-works-acts/"+str(act_id))
+        except Exception as e:
+            print("VERSION snapshot skipped:", str(e))
+        # Подписи помогают контролю, но не являются обязательным стоп-краном.
+        sc = data.get("signedCustomer","").strip()
+        ss = data.get("signedSupervisor","").strip()
+        sk = data.get("signedContractor","").strip()
+        sb = data.get("signedSubcontractor","").strip()
+        auto_status = hidden_work_effective_status(data.get("status","Черновик"), sc, ss, sk, sb)
+        cur.execute("""UPDATE hidden_works_acts SET
+                       status=%s,
+                       signed_customer=%s, signed_supervisor=%s, signed_contractor=%s, signed_subcontractor=%s,
+                       signed_customer_at=%s, signed_supervisor_at=%s, signed_contractor_at=%s, signed_subcontractor_at=%s,
+                       conclusion=%s, comments=%s, project_docs=%s, materials_used=%s,
+                       photos=%s, certificates=%s, city=%s,
+                       ai_filled=FALSE
+                       WHERE id=%s""",
+            (auto_status,
+             sc, ss, sk, sb,
+             data.get("signedCustomerAt") or None, data.get("signedSupervisorAt") or None,
+             data.get("signedContractorAt") or None, data.get("signedSubcontractorAt") or None,
+             data.get("conclusion",""), data.get("comments",""),
+             data.get("projectDocs",""), data.get("materialsUsed",""),
+             data.get("photos",""), data.get("certificates",""), data.get("city",""),
+             act_id))
+        conn.commit(); cur.close(); conn.close()
+        log_audit(user_name=data.get("_actor","система"), user_role="—",
+                  action="update", entity_type="hidden_works_act", entity_id=act_id,
+                  description="Изменён АОСР, статус: "+auto_status, project_name=data.get("_project",""))
+        return {"ok": True, "status": auto_status}
+    finally:
+        if not conn.closed:
+            conn.rollback()
+            cur.close()
+            conn.close()
+
 
 @app.post("/hidden-works-acts/{act_id}/pay")
 def pay_hidden_works_act(act_id: int, data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
@@ -27760,4 +27777,24 @@ register_contract_settlement(app, {
     "get_db": get_db, "get_current_user": get_current_user,
     "lock_actor": _lock_brigade_settlement_actor,
     "resolve_contract": _resolve_brigade_contract_actor, "has_package_access": has_package_access,
+})
+
+
+try:
+    from backend.features.work_acceptance.routes import register_work_acceptance
+    from backend.features.work_acceptance import records as work_acceptance_records
+except ModuleNotFoundError:
+    from features.work_acceptance.routes import register_work_acceptance
+    from features.work_acceptance import records as work_acceptance_records
+
+register_work_acceptance(app, {
+    "get_db": get_db, "get_current_user": get_current_user,
+    "resolve_mutation": _resolve_work_journal_mutation, "has_package_access": has_package_access,
+    "personal_balance": _personal_material_balance, "material_key": _material_control_key_resolved,
+    "norm_unit": _norm_base_unit, "estimate_keys": _estimate_item_key_candidates,
+    "force_material_package": _force_work_material_package,
+    "recalculate_contract": _recalculate_contract_item_done_from_work_journal,
+    "recalculate_estimate": _recalculate_estimate_item_done_from_work_journal,
+    "sync_room": _sync_room_work_from_journal, "sync_hidden": _sync_hidden_work_act_from_journal,
+    "locked_act_statuses": INTERIM_ACT_LOCKED_STATUSES,
 })

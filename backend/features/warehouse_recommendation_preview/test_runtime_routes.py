@@ -257,11 +257,11 @@ class WarehouseAnomalyRuntimeRouteRegistrationTests(unittest.TestCase):
         package_bytes = package_path.read_bytes()
         runtime_source = runtime_path.read_text(encoding="utf-8")
 
-        # Reviewed factual materials, contract settlement and transaction helpers;
+        # Reviewed acceptance guards, exact rework sync and AOSR transaction boundary;
         # warehouse preview implementation and registration are unchanged.
         self.assertEqual(
             hashlib.sha256(main_bytes).hexdigest(),
-            "7e8308078a176f4cfd86104ba00b44de92bbe57995d4c2446db195337b9f8f8d",
+            "e99d2963c9c15a6101f8716e0e15b0533aaa4d4f9181145e3d98e626ea304bf5",
         )
         self.assertEqual(
             hashlib.sha256(package_bytes).hexdigest(),
