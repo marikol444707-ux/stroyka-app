@@ -1,14 +1,16 @@
 # Implementation Plan: Safe Stroyka Program Improvements
 
-## Current slice: manual supplier catalogue changes (released 2026-09-19)
+## Current plan: supplier workspace prototype (2026-09-19)
 
-Released961e2ef8: manual create/delete wait for confirmed success, retain draft/rows
-on failure, validate fields and check same-supplier duplicates. One cabinet serializes
-manual operations and file imports. See `docs/supplier-catalog-manual.md`.
-Import remains documented in `docs/supplier-catalog-import.md`; delivery control in
-`docs/supply-delivery-control.md`; full chain verification in `docs/supply-chain-final-check.md`.
+Active roadmap: [Supplier portal implementation plan](../docs/supplier-portal-roadmap.md).
+User asked to refine the plan against the supplied prototype. Planning only in this
+change; P1–P14 remain pending. First: reliably load addressed incoming requests on
+normal supplier login; then verify response → buyer, notification evidence, request
+registry, orders/customers and team permissions. No new runtime release in this step.
+Latest production release961e2ef8 completed manual catalogue fixes; see
+`docs/supplier-catalog-manual.md` and `docs/supplier-catalog-import.md`.
 Supplier invoices/payments remain a separate stream. Legacy warehouse/template
-ownership remains pending; it does not block new company-owned records.
+ownership remains pending and is not a prerequisite for this roadmap.
 
 ## Overview
 
