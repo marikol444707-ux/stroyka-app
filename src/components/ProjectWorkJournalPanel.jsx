@@ -2,6 +2,8 @@ import React from 'react';
 import { Check, FileText, ImageOff, LoaderCircle, ScrollText, Search, X } from 'lucide-react';
 
 import useProtectedFileObjectUrl from '../features/uploads/useProtectedFileObjectUrl';
+import WorkAcceptancePanel from '../features/work-acceptance/WorkAcceptancePanel';
+import { usesWorkAcceptance } from '../features/work-acceptance/acceptance';
 import WorkMaterialAccountingPanel from '../features/work-material-accounting/WorkMaterialAccountingPanel';
 
 
@@ -89,6 +91,7 @@ export default function ProjectWorkJournalPanel({
   const projectName = project.name;
   const [dateFrom, setDateFrom] = React.useState('');
   const [dateTo, setDateTo] = React.useState('');
+  const [acceptanceJournal, setAcceptanceJournal] = React.useState(null);
   const [materialJournal, setMaterialJournal] = React.useState(null);
   const workExecutionTotal = (work) => Number(work?.executionTotal ?? work?.execution_total ?? 0);
   const workCustomerTotal = (work) => Number(work?.customerTotal ?? work?.customer_total ?? work?.total ?? 0);
@@ -185,7 +188,7 @@ export default function ProjectWorkJournalPanel({
                   return (
                   <div
                     key={item.id}
-                    onClick={() => setEditingJournal(item)}
+                    onClick={() => usesWorkAcceptance(item) ? setAcceptanceJournal(item) : setEditingJournal(item)}
                     style={{
                       padding: '8px 10px',
                       backgroundColor: item.unexpectedWorkId ? '#fef3c7' : C.bg,
@@ -220,7 +223,8 @@ export default function ProjectWorkJournalPanel({
                           );
                         })() : null}
                       </b>
-                      {item.materialAccountingVersion === 2 && <button type="button" style={{...btnB, margin: '6px 0'}} onClick={event => { event.stopPropagation(); setMaterialJournal(item); }}>Материалы и брак</button>}
+                      {usesWorkAcceptance(item) && <button type="button" style={{...btnB, margin: '6px'}} onClick={event => { event.stopPropagation(); setAcceptanceJournal(item); }}>{item.status === 'На проверке' && canConfirm ? 'Проверить работу' : 'Приёмка и доработка'}</button>}
+                      {item.materialAccountingVersion === 2 && item.status !== 'На доработке' && <button type="button" style={{...btnB, margin: '6px 0'}} onClick={event => { event.stopPropagation(); setMaterialJournal(item); }}>Материалы и брак</button>}
                       <p style={{color: C.textSec, margin: '1px 0', fontSize: '11px'}}>
                         {item.quantity + ' ' + item.unit + (item.roomName ? ' · ' + item.roomName : '')}
                       </p>
@@ -231,7 +235,7 @@ export default function ProjectWorkJournalPanel({
                         <b style={{display: 'block', color: C.success, fontSize: '12px'}}>{executionTotal.toLocaleString('ru-RU') + ' ₽'}</b>
                         {showCustomerTotal && <span style={{display: 'block', color: C.textMuted, fontSize: '10px'}}>заказч. {customerTotal.toLocaleString('ru-RU') + ' ₽'}</span>}
                       </div>
-                      {canConfirm && item.status === 'На проверке' && (
+                      {canConfirm && !usesWorkAcceptance(item) && item.status === 'На проверке' && (
                         <>
                           <button onClick={event => { event.stopPropagation(); openConfirmModal(item); }} style={{...btnGr, padding: '3px 8px', fontSize: '11px'}} title="Принять (можно пересчитать)">
                             <Check size={11}/>
@@ -242,10 +246,11 @@ export default function ProjectWorkJournalPanel({
                         </>
                       )}
                       {item.status === 'Подтверждено' && <span style={badge(C.success, C.successLight, C.successBorder)}>✅</span>}
+                      {item.status === 'На доработке' && <span style={badge(C.warning, C.warningLight, C.warningBorder)}>На доработке</span>}
                       {item.status === 'Отклонено' && <span style={badge(C.danger, C.dangerLight, C.dangerBorder)}>❌</span>}
                       {item.photoUrl && (
                         <WorkJournalPhotoPreview
-                          url={item.photoUrl}
+                          url={item.photoUrl.split(',')[0]}
                           fileSrc={fileSrc}
                           onOpen={setShowPhotoModal}
                           C={C}
@@ -277,6 +282,7 @@ export default function ProjectWorkJournalPanel({
       {queryMatches && workJournalPage.error && (
         <p style={{color: C.danger, fontSize:'12px', margin:'8px 0 0'}}>{workJournalPage.error}</p>
       )}
+      {acceptanceJournal && <WorkAcceptancePanel journal={acceptanceJournal} {...{API, companyContext, user, C, onChanged}} onClose={() => setAcceptanceJournal(null)} />}
       {materialJournal && <WorkMaterialAccountingPanel journal={materialJournal} {...{API, companyContext, user, C, onChanged}} onClose={() => setMaterialJournal(null)} />}
     </div>
   );

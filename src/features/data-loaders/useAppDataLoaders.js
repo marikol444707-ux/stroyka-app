@@ -598,16 +598,19 @@ export const useAppDataLoaders = (ctx) => {
       setBrigadeContracts(Array.isArray(bc)?bc:[]);
     });
     if (page === 'history') return loadMobileScopeOnce('mobile:history', async () => {
-      const [wj,h,mt] = await Promise.all([
+      const loadWorkMaterials = isWorkerRole && workMaterialAccountingEnabled();
+      const [wj,h,mt,m] = await Promise.all([
         role === 'поставщик' ? Promise.resolve([]) : getApi(pagedPath('/work-journal', {limit: WORK_JOURNAL_PAGE_LIMIT})),
 	        (isWarehouseRole || isFinanceRole || ['мастер','субподрядчик','бригадир'].includes(role)) ? getApi('/warehouse-history') : Promise.resolve([]),
 	        (isWarehouseRole || ['мастер','субподрядчик','бригадир'].includes(role)) ? getApi('/material-transfers') : Promise.resolve([]),
+        loadWorkMaterials ? getApi(pagedPath('/materials', {limit: MATERIALS_PAGE_LIMIT})) : Promise.resolve([]),
       ]);
       const safeWorkJournal = Array.isArray(wj) ? wj : [];
       setWorkJournal(safeWorkJournal);
       resetWorkJournalPage(safeWorkJournal);
       setHistory(Array.isArray(h)?h:[]);
       setMaterialTransfers(Array.isArray(mt)?mt:[]);
+      if (loadWorkMaterials) { setMaterials(Array.isArray(m)?m:[]); resetMaterialsPage(m); }
     });
     if (page === 'myexpenses') return loadMobileScopeOnce('mobile:myexpenses', async () => {
       const oe = isInternalRole ? await getApi('/own-expenses') : [];

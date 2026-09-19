@@ -56,7 +56,7 @@ export default function ConfirmWorkAcceptanceModal({
           <button onClick={()=>confirmJ(e,accepted,confirmComment)} disabled={diff<0||accepted<=0} style={{...btnO,opacity:(diff<0||accepted<=0)?0.5:1,flex:1,justifyContent:'center'}}><Check size={14}/>Принять и подтвердить</button>
           <button onClick={()=>{setConfirmingEntry(null);setConfirmAcceptedQty('');setConfirmComment('');}} style={btnG}>Отмена</button>
         </div>
-        <p style={{color:C.textMuted,fontSize:'11px',margin:'10px 0 0',lineHeight:1.4}}>После подтверждения работа уйдёт в КС-2 и в зарплатные начисления мастера. Списание материалов произойдёт автоматически.</p>
+        <p style={{color:C.textMuted,fontSize:'11px',margin:'10px 0 0',lineHeight:1.4}}>Подтверждение фиксирует принятый объём. Оплата оформляется отдельным актом; фактический расход материалов учитывается при сдаче работы.</p>
       </div>
     </div>
   );

@@ -1,4 +1,5 @@
 import React from 'react';
+import { usesWorkAcceptance } from '../features/work-acceptance/acceptance';
 import { ChevronDown, ChevronUp, Search } from 'lucide-react';
 
 export default function MasterHistoryPage({
@@ -18,6 +19,7 @@ export default function MasterHistoryPage({
   sumConfirmed,
   user,
   onOpenMaterials,
+  onOpenAcceptance,
 }) {
   const toNumber = (value) => {
     const parsed = Number(String(value ?? 0).replace(',', '.').replace(/\s+/g, ''));
@@ -147,7 +149,8 @@ export default function MasterHistoryPage({
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <b style={{ fontSize: '13px', color: C.text, display: 'block' }}>{work.description}</b>
                               <p style={{ color: C.textSec, margin: '2px 0', fontSize: '11px' }}>{fmtMeasure(work.quantity, work.unit)}</p>
-                              {work.materialAccountingVersion === 2 && onOpenMaterials && <button onClick={() => onOpenMaterials(work)} style={{...btnG, margin: '6px 0'}}>Материалы и брак</button>}
+                              {usesWorkAcceptance(work) && onOpenAcceptance && <button onClick={() => onOpenAcceptance(work)} style={{...btnG, margin: '6px'}}>{status === 'На доработке' ? 'Исправить и сдать' : 'Приёмка и замечания'}</button>}
+                              {work.materialAccountingVersion === 2 && status !== 'На доработке' && onOpenMaterials && <button onClick={() => onOpenMaterials(work)} style={{...btnG, margin: '6px 0'}}>Материалы и брак</button>}
                               <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '3px' }}>
                                 <span style={{ padding: '2px 8px', borderRadius: '8px', fontSize: '10px', fontWeight: '600', backgroundColor: statusBackground, color: statusColor }}>
                                   {statusIcon + ' ' + status}

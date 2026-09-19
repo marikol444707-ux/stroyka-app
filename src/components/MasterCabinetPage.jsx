@@ -3,6 +3,7 @@ import { clearSubmittedDrafts } from '../features/work-material-accounting/workD
 import { workMaterialAccountingEnabled } from '../features/work-material-accounting/materialSources';
 import { sendWorkBatch, clearWorkBatch, pendingWorkBatch, workBatchScope } from '../features/work-material-accounting/workCommands';
 import WorkSubmissionRecovery from '../features/work-material-accounting/WorkSubmissionRecovery';
+import WorkAcceptancePanel from '../features/work-acceptance/WorkAcceptancePanel';
 import WorkMaterialAccountingPanel from '../features/work-material-accounting/WorkMaterialAccountingPanel';
 import ContractSettlementPanel from '../features/work-material-accounting/ContractSettlementPanel';
 import React from 'react';
@@ -92,6 +93,7 @@ export const resolveMasterContractDocument = ({
 
 export default function MasterCabinetPage(props) {
   const [showProjectPicker, setShowProjectPicker] = React.useState(false);
+  const [acceptanceJournal, setAcceptanceJournal] = React.useState(null);
   const [materialJournal, setMaterialJournal] = React.useState(null);
   const [settlementContract, setSettlementContract] = React.useState(null);
   const [showEstimateChangeForm, setShowEstimateChangeForm] = React.useState(false);
@@ -1962,6 +1964,7 @@ export default function MasterCabinetPage(props) {
 
         {activePage === 'history' && (
           <MasterHistoryPage
+            onOpenAcceptance={setAcceptanceJournal}
             onOpenMaterials={setMaterialJournal}
             C={{ ...C, inp }}
             btnG={btnG}
@@ -1981,6 +1984,7 @@ export default function MasterCabinetPage(props) {
           />
         )}
 
+        {acceptanceJournal && <WorkAcceptancePanel journal={acceptanceJournal} API={API} companyContext={props.companyContext} user={user} C={C} onChanged={refreshData} materialAvailabilityMapForWork={materialAvailabilityMapForWork} prepareWorkMaterialGroups={prepareWorkMaterialGroups} onClose={() => setAcceptanceJournal(null)} />}
         {materialJournal && <WorkMaterialAccountingPanel journal={materialJournal} API={API} companyContext={props.companyContext} user={user} C={C} onChanged={refreshData} onRecovered={recoverWorkDrafts} onClose={() => setMaterialJournal(null)} />}
         {activePage === 'history' && <div style={{marginTop: 20}}>
           {(brigadeContracts || []).filter(contract => contract.settlementVersion === 2 && Number(contract.contractorId) === Number(user.id)).map(contract => <button key={contract.id} style={{...btnG, margin: 4}} onClick={() => setSettlementContract(contract)}>Акты: {contract.projectName} · договор №{contract.id}</button>)}
