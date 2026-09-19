@@ -740,7 +740,12 @@ export default function SupplierCabinetPage({
             {myOffers.length===0&&<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'20px'}}>Предложений нет</p>}
           </div>)}
 
-          {supplierTab==='deliveries'&&(<div>
+          {['deliveries','documents'].includes(supplierTab) && inboxState && <div style={{marginBottom:16}}>
+            <button type="button" disabled={inboxState.status==='loading'} onClick={inboxState.reload}>Обновить документы и отгрузки</button>
+            {inboxState.status==='loading' && <p role="status">Загружаем документы и отгрузки…</p>}
+            {inboxState.status==='error' && <p role="alert">Не удалось загрузить документы и отгрузки: {inboxState.error}</p>}
+          </div>}
+          {supplierTab==='deliveries'&&(!inboxState||inboxState.status==='ready')&&(<div>
             <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>🚚 Мои отгрузки</b>
             {myDeliveries.map(d=>{const claim=myClaims.find(c=>c.deliveryId===d.id);return(<div key={d.id} style={{...card,padding:'12px',marginBottom:'8px',borderLeft:'3px solid '+(d.status==='Принято'?C.success:d.status==='Проблема'?C.danger:C.warning)}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
@@ -756,7 +761,7 @@ export default function SupplierCabinetPage({
             {myDeliveries.length===0&&<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'20px'}}>Отгрузок пока нет</p>}
           </div>)}
 
-          {supplierTab==='documents'&&(<div>
+          {supplierTab==='documents'&&(!inboxState||inboxState.status==='ready')&&(<div>
             <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>📄 Мои счета и накладные</b>
             {mySupplierInvoices.map(inv=>{
               const linkedWarehouseId = supplierInvoiceWarehouseId(inv);

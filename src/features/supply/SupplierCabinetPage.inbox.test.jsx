@@ -17,3 +17,20 @@ it('shows an empty message only after confirmed success', () => {
   render(<SupplierCabinetPage {...props} inboxState={{ status: 'ready', reload: jest.fn() }} />);
   expect(screen.getByText(/Запросов нет/)).toBeInTheDocument();
 });
+it.each(['deliveries','documents'])('does not report missing %s when the shared inbox failed',supplierTab=>{
+ const reload=jest.fn();
+ render(<SupplierCabinetPage {...props} supplierTab={supplierTab} inboxState={{status:'error',error:'Сервис недоступен',reload}}/>);
+ expect(screen.queryByText(/Отгрузок пока нет|Счетов пока нет/)).not.toBeInTheDocument();
+ expect(screen.getByRole('alert')).toHaveTextContent('Сервис недоступен');
+ fireEvent.click(screen.getByRole('button',{name:'Обновить документы и отгрузки'}));
+ expect(reload).toHaveBeenCalledTimes(1);
+});
+it.each(['deliveries','documents'])('hides old %s cards while refreshing permissions and data',supplierTab=>{
+ render(<SupplierCabinetPage {...props} supplierTab={supplierTab} badge={()=>({})}
+  supplierInvoices={[{id:3,invoiceNumber:'PRIVATE OLD INVOICE'}]}
+  supplyDeliveries={[{id:2,materialName:'PRIVATE OLD DELIVERY'}]}
+  inboxState={{status:'loading',reload:jest.fn()}}/>);
+ expect(screen.queryByText(/PRIVATE OLD/)).not.toBeInTheDocument();
+ expect(screen.getByRole('status')).toHaveTextContent('Загружаем документы');
+ expect(screen.getByRole('button',{name:'Обновить документы и отгрузки'})).toBeDisabled();
+});

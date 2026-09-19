@@ -284,8 +284,9 @@ export function useAuthenticatedAppBootstrapEffect({
       } catch (_) {}
     };
 
-    pingOnline();
-    const pingInterval = setInterval(pingOnline, 30000);
+    // External supplier accounts are not members of the buyer workforce.
+    const pingInterval = user.role === 'поставщик' ? null : setInterval(pingOnline, 30000);
+    if (pingInterval !== null) pingOnline();
     return () => {
       clearLoadFallback();
       clearInterval(pingInterval);
