@@ -10671,7 +10671,7 @@ change.
 - [ ] P5: Поиск, фильтры, пагинация и CSV.
 - [ ] P6: Сроки ответа и карточки внимания.
 - [ ] P7: Раздел подтверждённых заказов.
-- [ ] P8: Заказчики и границы доступа.
+- [x] P8: Заказчики и границы доступа; release979ef693.
 - [ ] P9: Права команды компании-поставщика.
 - [ ] P10: Назначение ответственного и рабочие статусы.
 - [ ] P11: Приглашение и отключение сотрудников.
@@ -10708,4 +10708,6 @@ change.
 - [x] Customer projection by company ID from addressed requests.
 - [x] Separate requests/orders/document history and all-customer filter.
 - [x] Tests for equal names, foreign documents and revoked selection.
-- [ ] Full tests/build, two-customer browser QA and backed-up release.
+- [x] Full tests/build, two-customer browser QA and backed-up release979ef693.
+
+- [ ] Technical follow-up: health `_app_version` must support Git packed refs/worktree common refs. P8 preflight exposed the existing loose-ref-only reader after automatic Git GC; restored the identical main ref and disabled automatic GC for this release fetch. No code/history/data change in this operational recovery.
