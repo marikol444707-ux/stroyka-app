@@ -73,6 +73,7 @@ class TeamPolicyPostgresTests(unittest.TestCase):
         self.api('manager','POST',path+'/ship',{'shippedQuantity':1,'waybillNumber':'TEAM-'+str(a['id'])})
         self.assertEqual([r['offerId'] for r in self.api('manager','GET','/supply-deliveries')],[a['id']])
         self.sql('DELETE FROM supplier_offer_assignments WHERE offer_id=%s',(a['id'],))
+        self.api('manager','POST',path+'/ship',{'shippedQuantity':1,'waybillNumber':'TEAM-'+str(a['id'])},expected=403)
         self.assertEqual(self.api('manager','GET','/supply-deliveries'),[])
         self.assertEqual(self.api('manager','GET','/supplier-invoices'),[])
         self.sql("UPDATE supplier_team_members SET role='leader' WHERE id=%s",(self.member_id,))

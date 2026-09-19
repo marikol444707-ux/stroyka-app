@@ -1,5 +1,5 @@
 const list=value=>{if(Array.isArray(value))return value;try{const rows=JSON.parse(value);return Array.isArray(rows)?rows:[];}catch{return [];}};
-const key=row=>JSON.stringify([row.materialName || row.name || '',row.unit || '',row.workPackage || ''].map(v=>String(v).trim().toLowerCase()));
+const key=row=>JSON.stringify([row.materialName || row.name || '',row.unit || '',row.workPackage || row.work_package || 'Основная'].map(v=>String(v).trim().toLowerCase()));
 const quantity=value=>{if(value===null || value===undefined || value==='')return null;const n=Number(value);return Number.isFinite(n)&&n>=0?n:null;};
 const same=(a,b)=>a!==undefined && a!==null && b!==undefined && b!==null && String(a)===String(b);
 const linked=(row,offer,request)=>same(row.offerId,offer.id) && same(row.companyId,request.companyId) && (!row.requestId || same(row.requestId,request.id)) && (!row.supplierId || same(row.supplierId,offer.supplierId));

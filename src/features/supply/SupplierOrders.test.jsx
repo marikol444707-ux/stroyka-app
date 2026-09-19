@@ -9,7 +9,7 @@ it('renders a partial order, own documents and navigation without closing the re
  global.fetch=jest.fn(async url=>({ok:true,json:async()=>responses[url]}));
  render(<SupplierOrders API="" user={{id:3,role:'поставщик'}} C={{}} onOpen={open}/>);
  expect(await screen.findByText('Частично принято')).toBeInTheDocument();
- expect(screen.getByText(/Допоставка после приёмки/)).toBeInTheDocument();
+ expect(screen.getByText(/новой партией по этому КП/)).toBeInTheDocument();
  expect(screen.getByRole('link',{name:'Файл счёта',hidden:true}).getAttribute('href')).toBe('http://localhost/uploads/invoice.pdf');
  expect(screen.queryByText('Счёт №9')).not.toBeInTheDocument();
  fireEvent.click(screen.getByRole('button',{name:'Открыть заявку и действия'}));expect(open).toHaveBeenCalledWith(1);

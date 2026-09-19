@@ -18,3 +18,11 @@ it('respects existing payment requirements, latest invoice and shipment presence
   expect(canPrepareOffer({...offer,paymentTerms:'Постоплата'},[],[{offerId:2}])).toBe(false);
   expect(canPrepareOffer({...offer,status:'Отозвано',paymentTerms:'Постоплата'},[],[])).toBe(false);
 });
+
+it('keeps an unshipped remainder ready after partial receipt',()=>{
+ const offer={id:70,companyId:1,requestId:879,supplierId:158,status:'Утверждено',paymentTerms:'Постоплата'};
+ const request={id:879,companyId:1,materialName:'Кабель',quantity:2,unit:'м'};
+ const delivery={id:16,offerId:70,companyId:1,requestId:879,supplierId:158,materialName:'Кабель',unit:'м',shippedQuantity:1,receivedQuantity:1,status:'Принято'};
+ expect(canPrepareOffer(offer,[],[delivery],request)).toBe(true);
+ expect(canPrepareOffer(offer,[],[{...delivery,shippedQuantity:2,receivedQuantity:2}],request)).toBe(false);
+});

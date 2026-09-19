@@ -11625,54 +11625,24 @@ def _ensure_supply_delivery_invoice(cur, delivery, received_qty=None, received_a
         raise HTTPException(status_code=500, detail="Не удалось создать накладную по поставке: " + str(e))
 
 def _update_supply_flow_status_after_delivery(cur, request_id=None, offer_id=None):
-    request_id = int(request_id or 0)
-    offer_id = int(offer_id or 0)
+    from backend.features.supplier_offers.shipments import order_lines, flow_status
     if not request_id:
         return
-    cur.execute("""SELECT status, planned_quantity, received_quantity
-                   FROM supply_deliveries
-                   WHERE request_id=%s
-                   ORDER BY id""", (request_id,))
-    delivery_rows = _cursor_rows_as_dicts(cur, cur.fetchall())
-    if not delivery_rows:
+    cur.execute('SELECT material_name, quantity, unit, work_package, items_json FROM supply_requests WHERE id=%s', (request_id,))
+    request = _cursor_rows_as_dicts(cur, cur.fetchall())
+    if not request:
         return
-    statuses = [(r.get("status") or "") for r in delivery_rows]
-    done_statuses = {"Принято", "Проблема"}
-    any_done = any(s in done_statuses for s in statuses)
-    all_done = all(s in done_statuses for s in statuses)
-    any_problem = any(s == "Проблема" for s in statuses)
-    planned_total = sum(max(0.0, _float_or_zero(r.get("planned_quantity"))) for r in delivery_rows)
-    received_total = sum(max(0.0, _float_or_zero(r.get("received_quantity"))) for r in delivery_rows)
-    request_fully_received = planned_total <= 0 or received_total + 0.000001 >= planned_total
-    if all_done and request_fully_received:
-        request_status = "Проблема поставки" if any_problem else "Поставлено"
-    elif any_done:
-        request_status = "Проблема поставки" if any_problem else "Частично поставлено"
-    else:
-        request_status = "В пути"
-    cur.execute("UPDATE supply_requests SET status=%s WHERE id=%s", (request_status, request_id))
-
-    if offer_id:
-        cur.execute("""SELECT status, planned_quantity, received_quantity
-                       FROM supply_deliveries
-                       WHERE offer_id=%s
-                       ORDER BY id""", (offer_id,))
-        offer_rows = _cursor_rows_as_dicts(cur, cur.fetchall())
-        if offer_rows:
-            offer_statuses = [(r.get("status") or "") for r in offer_rows]
-            offer_all_done = all(s in done_statuses for s in offer_statuses)
-            offer_any_done = any(s in done_statuses for s in offer_statuses)
-            offer_any_problem = any(s == "Проблема" for s in offer_statuses)
-            offer_planned_total = sum(max(0.0, _float_or_zero(r.get("planned_quantity"))) for r in offer_rows)
-            offer_received_total = sum(max(0.0, _float_or_zero(r.get("received_quantity"))) for r in offer_rows)
-            offer_fully_received = offer_planned_total <= 0 or offer_received_total + 0.000001 >= offer_planned_total
-            if offer_all_done and offer_fully_received:
-                offer_status = "Проблема поставки" if offer_any_problem else "Поставлено"
-            elif offer_any_done:
-                offer_status = "Проблема поставки" if offer_any_problem else "Частично поставлено"
-            else:
-                offer_status = "В пути"
-            cur.execute("UPDATE supplier_offers SET delivery_status=%s WHERE id=%s", (offer_status, offer_id))
+    lines = order_lines(request[0])
+    for table, field, value, column in (
+        ('supply_requests', 'request_id', request_id, 'status'),
+        ('supplier_offers', 'offer_id', offer_id, 'delivery_status'),
+    ):
+        if not value:
+            continue
+        cur.execute('SELECT status, material_name, unit, work_package, received_quantity FROM supply_deliveries WHERE ' + field + '=%s ORDER BY id', (value,))
+        rows = _cursor_rows_as_dicts(cur, cur.fetchall())
+        if rows:
+            cur.execute('UPDATE ' + table + ' SET ' + column + '=%s WHERE id=%s', (flow_status(lines, rows), value))
 
 def _ensure_journal_source_columns(cur):
     try:
@@ -25841,6 +25811,7 @@ except ModuleNotFoundError:
 
 
 register_supplier_offers_module(app, {
+    "_update_supply_flow_status_after_delivery": _update_supply_flow_status_after_delivery,
     "get_db": get_db,
     "get_current_user": get_current_user,
     "require_roles": require_roles,

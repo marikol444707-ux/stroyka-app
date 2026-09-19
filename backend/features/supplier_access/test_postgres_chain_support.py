@@ -95,6 +95,13 @@ def _initialize_schema(runtime, source):
         try:
             runtime.init_db()
             runtime.ensure_agent_jobs_schema(runtime.get_db)
+            from importlib import import_module
+            conn = runtime.get_db()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(import_module('migrations.versions.0037_supplier_shipment_batches').SCHEMA_SQL)
+            finally:
+                conn.close()
             return prerequisites
         except psycopg2.errors.UndefinedTable as exc:
             missing = re.search(r'relation "([a-z_]+)" does not exist', str(exc))

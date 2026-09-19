@@ -21,7 +21,7 @@ export function registryRows(requests, offers, invoices=[], deliveries=[], now=D
     const statuses=[...new Set(quotes.map(q=>q.status || 'Статус неизвестен'))];
     const waiting=quotes.filter(q=>q.status==='Ожидает ответа');
     const dueDates=(waiting.length?waiting:quotes).map(q=>q.responseDueAt).filter(v=>v && Number.isFinite(Date.parse(v))).sort((a,b)=>Date.parse(a)-Date.parse(b));
-    return {attention:requestAttention(quotes,invoices,deliveries,now), responseDueAt:dueDates[0], id:request.id, company:String(request.companyId || ''), companyName:request.companyName || (request.companyId ? 'Компания №'+request.companyId : 'Заказчик не указан'), material, project:request.project || 'Объект не указан', requestedAt:dates[0], statuses, statusLabel:statuses.map(status=>registryStatusLabels[status] || status).join(' · ')};
+    return {attention:requestAttention(quotes,invoices,deliveries,now,request), responseDueAt:dueDates[0], id:request.id, company:String(request.companyId || ''), companyName:request.companyName || (request.companyId ? 'Компания №'+request.companyId : 'Заказчик не указан'), material, project:request.project || 'Объект не указан', requestedAt:dates[0], statuses, statusLabel:statuses.map(status=>registryStatusLabels[status] || status).join(' · ')};
   });
 }
 export function filterRegistryRows(rows,{query='',company='',status='',attention=''}={}) {

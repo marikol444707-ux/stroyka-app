@@ -1,3 +1,4 @@
+import { supplierOrders } from './supplierOrderProjection';
 const moscowParts = date => new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Moscow',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(date).replace(' ','T');
 export function defaultResponseDeadline(now=new Date()) {
   const shifted=new Date(moscowParts(now)+':00Z');
@@ -15,8 +16,12 @@ export function responseDeadlineLabel(value) {
   if(!value || !Number.isFinite(Date.parse(value))) return 'Без срока';
   return new Date(value).toLocaleString('ru-RU',{timeZone:'Europe/Moscow',dateStyle:'short',timeStyle:'short'})+' МСК';
 }
-export function canPrepareOffer(offer,invoices=[],deliveries=[]) {
-  if(offer.status!=='Утверждено' || deliveries.some(d=>String(d.offerId ?? d.offer_id)===String(offer.id))) return false;
+export function canPrepareOffer(offer,invoices=[],deliveries=[],request=null) {
+  if(offer.status!=='Утверждено') return false;
+  if(request) {
+    const order=supplierOrders([request],[offer],deliveries,invoices)[0];
+    if(!order || order.review || !order.lines.some(line=>line.toShip>0)) return false;
+  } else if(deliveries.some(d=>String(d.offerId ?? d.offer_id)===String(offer.id))) return false;
   const terms=String(offer.paymentTerms || '').toLowerCase();
   const needPay=terms.includes('предоплат') || terms.includes('50/50') || (terms.includes('50') && !terms.includes('постоплат'));
   if(!needPay) return true;
@@ -27,10 +32,10 @@ export function canPrepareOffer(offer,invoices=[],deliveries=[]) {
   const required=terms.includes('100') || terms.includes('предоплат') ? amount : amount*.5;
   return paid+.01>=required;
 }
-export function requestAttention(quotes,invoices,deliveries,now) {
+export function requestAttention(quotes,invoices,deliveries,now,request=null) {
   const states=new Set(quotes.map(q=>deadlineState(q,now)).filter(Boolean));
   if(quotes.some(q=>q.status==='Получено')) states.add('customer');
-  if(quotes.some(q=>canPrepareOffer(q,invoices,deliveries))) states.add('ready');
+  if(quotes.some(q=>canPrepareOffer(q,invoices,deliveries,request))) states.add('ready');
   return [...states];
 }
 export const attentionLabels={today:'Ответить сегодня',overdue:'Просрочено',customer:'Ждём заказчика',ready:'Можно готовить к поставке',undated:'Без срока'};

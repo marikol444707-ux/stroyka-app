@@ -544,28 +544,34 @@ export const createSupplyActions = ({
   };
 
   const createShipmentFromOffer = async (offer) => {
-    const req = supplyRequests.find(r => r.id === offer.requestId);
-    const qty = shipmentForm.shippedQuantity || req?.quantity || '';
-    if (!qty) { alert('Укажите количество отгрузки'); return; }
-    const r = await fetch(API + '/supplier-offers/' + offer.id + '/ship', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        shippedQuantity: Number(qty),
-        waybillNumber: shipmentForm.waybillNumber,
-        waybillDate: shipmentForm.waybillDate,
-        vehicleNumber: shipmentForm.vehicleNumber,
-        driverName: shipmentForm.driverName,
-        documentUrl: shipmentForm.documentUrl,
-        photoUrl: shipmentForm.photoUrl,
-      }),
-    });
-    const data = await r.json();
-    if (data.detail || data.error) { alert('Ошибка: ' + (data.detail || data.error)); return; }
-    notify('Поставка отгружена — ждёт приёмки', 'delivery');
-    setShippingOfferId(null);
-    setShipmentForm({ shippedQuantity: '', waybillNumber: '', waybillDate: new Date().toISOString().split('T')[0], vehicleNumber: '', driverName: '', documentUrl: '', photoUrl: '' });
-    await refreshData();
+    const items = shipmentForm.shippedItems;
+    const values = items ? items.map(item=>item.shippedQuantity) : [shipmentForm.shippedQuantity];
+    if (values.some(value=>value==='' || !Number.isFinite(Number(value)) || Number(value)<0) || !values.some(value=>Number(value)>0)) {
+      alert('Укажите положительное количество хотя бы для одной позиции; 0 — пропустить');
+      return false;
+    }
+    try {
+      const r = await fetch(API + '/supplier-offers/' + offer.id + '/ship', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          requestId: shipmentForm.requestId,
+          ...(items ? {shippedItems:items.map(item=>({materialName:item.materialName,unit:item.unit,workPackage:item.workPackage,shippedQuantity:Number(item.shippedQuantity)}))} : {shippedQuantity:Number(shipmentForm.shippedQuantity)}),
+          waybillNumber: shipmentForm.waybillNumber, waybillDate: shipmentForm.waybillDate,
+          vehicleNumber: shipmentForm.vehicleNumber, driverName: shipmentForm.driverName,
+          documentUrl: shipmentForm.documentUrl, photoUrl: shipmentForm.photoUrl,
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok || data.detail || data.error) { alert('Ошибка: ' + (data.detail || data.error || 'не удалось отгрузить')); return false; }
+      notify('Партия отгружена — ждёт приёмки', 'delivery');
+      setShippingOfferId(null);
+      setShipmentForm({ shippedQuantity: '', waybillNumber: '', waybillDate: new Date().toISOString().split('T')[0], vehicleNumber: '', driverName: '', documentUrl: '', photoUrl: '' });
+      await refreshData();
+      return true;
+    } catch {
+      alert('Не удалось подтвердить отгрузку. Повторите отправку этой формы: сохранённая партия не продублируется.');
+      return false;
+    }
   };
 
   const receiveSupplyDelivery = async (delivery) => {

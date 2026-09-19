@@ -30,7 +30,7 @@ export function SupplierOrderCards({orders,onOpen,fileSrc}) {
     <h4>{line.materialName} · {line.unit}{line.workPackage?' · '+line.workPackage:''}</h4>
     <dl>{[['Заказано',line.ordered],['Отгружено',line.shipped],['Принято',line.received],['Осталось отгрузить',line.toShip],['В пути',line.inTransit],['Осталось принять',line.toReceive]].map(([label,value])=><div key={label}><dt>{label}</dt><dd>{order.review && ['Осталось отгрузить','В пути','Осталось принять'].includes(label)?'Требует сверки':value}</dd></div>)}</dl>
    </div>)}</div>
-   {order.lines.some(l=>l.toReceive>0) && order.shipments.some(d=>d.receivedAt || ['Принято','Проблема','Принято с замечаниями'].includes(d.status)) && <p>Есть непринятый остаток. Допоставка после приёмки оформляется отдельной заявкой/КП.</p>}
+   {order.lines.some(l=>l.toReceive>0) && order.shipments.some(d=>d.receivedAt || ['Принято','Проблема','Принято с замечаниями'].includes(d.status)) && <p>Остаток к отгрузке можно отправить новой партией по этому КП. Недостача и брак разбираются по претензии.</p>}
    <details><summary>Поставки и документы ({order.shipments.length + order.documents.length})</summary>
     {order.shipments.map(d=><p key={'d'+d.id}>Поставка №{d.id} · {d.materialName} · {d.status}{supplierDocumentUrl(d.documentUrl,fileSrc) && <> · <a href={supplierDocumentUrl(d.documentUrl,fileSrc)} target="_blank" rel="noopener noreferrer">Накладная {d.waybillNumber || d.id}</a></>}</p>)}
     {order.documents.map(i=><p key={'i'+i.id}>Счёт №{i.invoiceNumber || i.id} · {i.status}{supplierDocumentUrl(i.fileUrl,fileSrc) && <> · <a href={supplierDocumentUrl(i.fileUrl,fileSrc)} target="_blank" rel="noopener noreferrer">Файл счёта</a></>}</p>)}

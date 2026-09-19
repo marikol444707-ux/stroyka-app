@@ -1,3 +1,5 @@
+import { supplierOrders } from './supplierOrderProjection';
+import { createShipmentForm } from './supplyInitialForms';
 import { supplierPublicRequisites } from './supplierPublicRequisites';
 import React from 'react';
 import SupplierRequestRegistry from './SupplierRequestRegistry';
@@ -85,6 +87,19 @@ export default function SupplierCabinetPage({
 }) {
     const [selectedRequestId, selectRequest] = useSupplierRequestSelection();
     const requestDetailRef = React.useRef(null);
+    const shipmentLock = React.useRef(false);
+    const [shipmentBusy, setShipmentBusy] = React.useState(false);
+    const sendShipment = async offer => {
+      if (shipmentLock.current) return;
+      shipmentLock.current = true;
+      setShipmentBusy(true);
+      try {
+        if (await createShipmentFromOffer(offer)) await inboxState?.reload();
+      } finally {
+        shipmentLock.current = false;
+        setShipmentBusy(false);
+      }
+    };
     React.useEffect(() => { if (selectedRequestId) requestDetailRef.current?.scrollIntoView?.({block:'start'}); }, [selectedRequestId, inboxState?.status]);
     const currentUserId = user?.id || user?.userId || user?.user_id || '';
     const quoteResponse = useSupplierQuoteResponse({
@@ -407,8 +422,10 @@ export default function SupplierCabinetPage({
                         )}
                         {g.key==='won' && (
                           (()=>{
-                            const hasInvoice = (supplierInvoices||[]).find(inv=>inv.offerId===o.id||inv.offer_id===o.id);
-                            const delivery = (supplyDeliveries||[]).find(d=>d.offerId===o.id);
+                            const order = supplierOrders([req], [o], supplyDeliveries || [], supplierInvoices || [])[0];
+                            const hasInvoice = order?.documents.find(inv=>inv.status!=='Аннулирован');
+                            const remaining = order?.lines.filter(line=>line.toShip>0) || [];
+                            const canShip = order && !order.review && remaining.length>0;
                             const paid = Number(hasInvoice?.paidAmount||0);
                             const amount = Number(hasInvoice?.amount||hasInvoice?.totalAmount||o.totalPrice||0);
                             const terms = String(o.paymentTerms||'').toLowerCase();
@@ -419,9 +436,16 @@ export default function SupplierCabinetPage({
                               {hasInvoice
                                 ? <span style={badge(hasInvoice.status==='Оплачен'||hasInvoice.status==='Частично оплачен'?C.success:C.info,hasInvoice.status==='Оплачен'||hasInvoice.status==='Частично оплачен'?C.successLight:C.infoLight,hasInvoice.status==='Оплачен'||hasInvoice.status==='Частично оплачен'?C.successBorder:C.infoBorder)}>💳 {hasInvoice.status}</span>
                                 : <button onClick={()=>{setInvoicingOfferId(o.id);setNewOfferInvoice({invoiceNumber:'',invoiceDate:new Date().toISOString().split('T')[0],amount:o.totalPrice||'',vatAmount:'',description:'Материал: '+req.materialName,fileUrl:''});}} style={{...btnO,padding:'5px 12px',fontSize:'12px'}}>💳 Выставить счёт</button>}
-                              {delivery
-                                ? <span style={badge(delivery.status==='Принято'?C.success:delivery.status==='Проблема'?C.danger:C.warning,delivery.status==='Принято'?C.successLight:delivery.status==='Проблема'?C.dangerLight:C.warningLight,delivery.status==='Принято'?C.successBorder:delivery.status==='Проблема'?C.dangerBorder:C.warningBorder)}>🚚 {delivery.status}</span>
-                                : <button disabled={blockedByPay} title={blockedByPay?'По условиям оплаты сначала нужна оплата бухгалтерии':''} onClick={()=>{if(blockedByPay){alert('По условиям «'+(o.paymentTerms||'')+'» сначала нужна оплата.');return;}setShippingOfferId(o.id);setShipmentForm({shippedQuantity:String(req.quantity||''),waybillNumber:'',waybillDate:new Date().toISOString().split('T')[0],vehicleNumber:'',driverName:'',documentUrl:'',photoUrl:''});}} style={{...btnGr,padding:'5px 12px',fontSize:'12px',opacity:blockedByPay?0.5:1,cursor:blockedByPay?'not-allowed':'pointer'}}>🚚 Отгрузить</button>}
+                              {order && <span style={{fontSize:12}}>{order.status}</span>}
+                              {canShip && <button disabled={blockedByPay || shipmentBusy} title={blockedByPay?'По условиям оплаты сначала нужна оплата бухгалтерии':''}
+                                onClick={()=>{setShippingOfferId(o.id);setShipmentForm(createShipmentForm({
+                                  requestId: crypto.randomUUID(),
+                                  shippedItems: remaining.map(line=>({...line,shippedQuantity:String(line.toShip)})),
+                                }));}}
+                                style={{...btnGr,padding:'5px 12px',fontSize:12}}>
+                                🚚 {order.shipments.length ? 'Отгрузить остаток' : 'Отгрузить'}
+                              </button>}
+
                             </div>);
                           })()
                         )}
@@ -605,18 +629,19 @@ export default function SupplierCabinetPage({
                         <input type='file' accept='.pdf,image/*' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0],{projectName:req.project||req.projectName,context:'supplier-invoices'});setNewOfferInvoice({...newOfferInvoice,fileUrl:url});}}}/>
                       </label>
                       <div style={{display:'flex',gap:'8px'}}>
-                        <button onClick={()=>createInvoiceFromOffer(o.id)} style={btnO}><Check size={14}/>Отправить счёт</button>
+                        <button onClick={async()=>{await createInvoiceFromOffer(o.id);await inboxState?.reload();}} style={btnO}><Check size={14}/>Отправить счёт</button>
                         <button onClick={()=>setInvoicingOfferId(null)} style={btnG}><X size={14}/>Отмена</button>
                       </div>
                     </div>)}
                     {/* Сн.4: форма отгрузки поставщика */}
-                    {shippingOfferId===o.id && (<div style={{borderTop:'1.5px solid '+C.border,paddingTop:'12px',marginTop:'10px'}}>
+                    {shippingOfferId===o.id && (<fieldset disabled={shipmentBusy} style={{border:0,minWidth:0,borderTop:'1.5px solid '+C.border,paddingTop:'12px',marginTop:'10px'}}>
                       <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'8px'}}>🚚 Отгрузка по выигранному КП</b>
                       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}}>
-                        <div>
-                          <label style={{fontSize:'11px',color:C.textSec,display:'block',marginBottom:'3px'}}>Отгружено, {req.unit}</label>
-                          <input type='number' step='any' inputMode='decimal' value={shipmentForm.shippedQuantity} onChange={e=>setShipmentForm({...shipmentForm,shippedQuantity:e.target.value})} style={{...inp,marginBottom:0}}/>
-                        </div>
+                        {(shipmentForm.shippedItems || []).map((line,index)=><label key={index} style={{fontSize:12}}>
+                          {line.materialName} · {line.workPackage || 'Основная'} — остаток {line.toShip} {line.unit}
+                          <input aria-label={'Отгрузить: '+line.materialName} type="number" min="0" max={line.toShip} step="0.0001" inputMode="decimal"
+                            value={line.shippedQuantity} onChange={e=>setShipmentForm({...shipmentForm,shippedItems:shipmentForm.shippedItems.map((item,i)=>i===index?{...item,shippedQuantity:e.target.value}:item)})} style={inp}/>
+                        </label>)}
                         <div>
                           <label style={{fontSize:'11px',color:C.textSec,display:'block',marginBottom:'3px'}}>Дата накладной</label>
                           <input type='date' value={shipmentForm.waybillDate} onChange={e=>setShipmentForm({...shipmentForm,waybillDate:e.target.value})} style={{...inp,marginBottom:0}}/>
@@ -630,10 +655,10 @@ export default function SupplierCabinetPage({
                         <input type='file' accept='.pdf,image/*' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0],{projectName:req.project||req.projectName,context:'supply-shipments'});setShipmentForm({...shipmentForm,documentUrl:url});}}}/>
                       </label>
                       <div style={{display:'flex',gap:'8px'}}>
-                        <button onClick={()=>createShipmentFromOffer(o)} style={btnO}><Check size={14}/>Отгрузить</button>
+                        <button onClick={()=>sendShipment(o)} style={btnO}><Check size={14}/>{shipmentBusy ? 'Отправляем…' : 'Отгрузить'}</button>
                         <button onClick={()=>setShippingOfferId(null)} style={btnG}><X size={14}/>Отмена</button>
                       </div>
-                    </div>)}
+                    </fieldset>)}
                   </div>);
                 })}
               </div>));
