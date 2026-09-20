@@ -1,3 +1,4 @@
+import SupplyFileLink from './SupplyFileLink';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useLedger } from '../work-material-accounting/ledgerUi';
 import { pendingWorkBatch, workBatchScope } from '../work-material-accounting/workCommands';
@@ -37,6 +38,7 @@ function ClaimCard({ claim, ...scope }) {
       <p>{data.claim.supplierName || 'Поставщик'} · {data.claim.project || 'Объект не указан'}</p>
       <p>{data.claim.status}</p>
       <p>{data.claim.description}</p>
+      <SupplyFileLink url={data.claim.photoUrl} fileSrc={url=>scope.API+url}>Скачать фото претензии</SupplyFileLink>
       <p>Ожидалось: {data.claim.expectedQuantity ?? '—'} · Принято: {data.claim.receivedQuantity ?? '—'} · Недостача: {data.claim.shortageQuantity ?? '—'}</p>
       {data.claim.resolution && <p><b>Решение:</b> {data.claim.resolution}</p>}
       <h4>История разбора</h4>

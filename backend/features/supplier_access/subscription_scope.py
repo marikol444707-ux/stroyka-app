@@ -10,7 +10,7 @@ from fastapi import HTTPException
 
 
 _OFFER_MUTATION_PATH = re.compile(
-    r"^/supplier-offers/([1-9][0-9]*)(/create-invoice|/ship)?/?$"
+    r"^/supplier-offers/([1-9][0-9]*)(/create-invoice|/ship|/files)?/?$"
 )
 
 

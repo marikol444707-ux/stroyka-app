@@ -12442,7 +12442,7 @@ except ModuleNotFoundError:
 register_supply_claim_cases_module(app, {
     "get_db": get_db,
     "get_current_user": get_current_user,
-    "current_supplier_ids": current_supplier_ids,
+    "current_supplier_ids": current_supplier_access_ids,
     "fulfilment_visibility": _fulfilment_visibility,
     "resolve_work_company_context": _resolve_work_company_context,
     "effective_company_actors": effective_company_actors,
@@ -16249,11 +16249,13 @@ register_pd_consents_module(app, {
 
 @app.post("/upload-photo")
 async def upload_photo(
+    request: Request,
     file: UploadFile = File(...),
     projectName: str = Form(default=""),
     project_name: str = Form(default=""),
     projectId: Optional[int] = Form(default=None),
     context: str = Form(default="general"),
+    supplierOfferId: Optional[int] = Form(default=None),
     x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
     x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
     _current_user: dict = Depends(get_current_user),
@@ -16280,27 +16282,37 @@ async def upload_photo(
     conn.autocommit = False
     access_cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        company_context = _resolve_work_company_context(
-            access_cur,
-            _current_user,
-            None,
-            "write",
-            x_company_id=x_company_id,
-            x_company_mode=x_company_mode,
-        )
-        actor = require_document_upload_actor(effective_company_actors(_current_user, company_context))
-        company_id = int(actor["companyId"])
-        requested_project_name = (projectName or project_name or "").strip()
-        bound_project_id, bound_project_name = document_project_reference(projectId, requested_project_name)
-        project = None
-        if bound_project_id:
-            project = resolve_project_parent(
+        if _current_user.get("role") == "поставщик":
+            try:
+                from backend.features.document_access.supplier_files import upload_scope
+            except ModuleNotFoundError:
+                from features.document_access.supplier_files import upload_scope
+            if request.url.path.rstrip("/") == "/upload-photo":
+                raise HTTPException(403, "Загрузите файл через карточку КП")
+            company_id, context, project = upload_scope(access_cur, _current_user, supplierOfferId)
+            requested_project_name = ""
+        else:
+            company_context = _resolve_work_company_context(
                 access_cur,
-                actor,
-                project_id=bound_project_id,
-                project_name=bound_project_name,
+                _current_user,
+                None,
+                "write",
+                x_company_id=x_company_id,
+                x_company_mode=x_company_mode,
             )
-            require_project_parent_access(access_cur, actor, project, BRIGADE_FULL_VIEW_ROLES)
+            actor = require_document_upload_actor(effective_company_actors(_current_user, company_context))
+            company_id = int(actor["companyId"])
+            requested_project_name = (projectName or project_name or "").strip()
+            bound_project_id, bound_project_name = document_project_reference(projectId, requested_project_name)
+            project = None
+            if bound_project_id:
+                project = resolve_project_parent(
+                    access_cur,
+                    actor,
+                    project_id=bound_project_id,
+                    project_name=bound_project_name,
+                )
+                require_project_parent_access(access_cur, actor, project, BRIGADE_FULL_VIEW_ROLES)
         namespace = document_storage_namespace(
             company_id,
             (project or {}).get("id"),
@@ -16351,6 +16363,16 @@ async def upload_photo(
     finally:
         access_cur.close()
         conn.close()
+
+
+@app.post("/supplier-offers/{offer_id}/files")
+async def upload_supplier_offer_file(
+    offer_id: int, request: Request, file: UploadFile = File(...),
+    user: dict = Depends(require_roles("поставщик")),
+):
+    return await upload_photo(request=request, file=file, projectName="", project_name="",
+                              projectId=None, context="supplier-offers", supplierOfferId=offer_id,
+                              x_company_id=None, x_company_mode=None, _current_user=user)
 
 
 import urllib.request
@@ -24862,6 +24884,8 @@ def list_supplier_invoices(
 
 @app.post("/supplier-invoices")
 def create_supplier_invoice(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "поставщик"))):
+    if _current_user.get("role") == "поставщик":
+        raise HTTPException(409, "Выставьте счёт через утверждённое КП в кабинете поставщика")
     conn = get_db()
     cur = conn.cursor()
     _ensure_invoice_document_link_columns(cur)

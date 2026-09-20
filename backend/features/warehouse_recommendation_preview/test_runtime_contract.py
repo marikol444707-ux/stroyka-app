@@ -718,10 +718,10 @@ class WarehouseAnomalyRuntimeDisclosurePolicyTests(unittest.TestCase):
             backend_root / "db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Reviewed RFQ email change persists the claim before SMTP;
+            # Reviewed supplier file upload and manager claim access changes;
             # warehouse preview implementation and registration are unchanged.
             backend_root / "main.py": (
-                "fb8ff36348c123431aabef89739c4e578b51aa84df80031689b0cd7c69c4bfc2"
+                "8fecc677acead0067300b70cf67d93513edb6fa2cdf4b2975a666639eecf5951"
             ),
         }
         actual = {

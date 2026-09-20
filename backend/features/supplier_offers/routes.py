@@ -8,6 +8,8 @@ scope come from the supplier_access and company_context features.
 The model moved here — sole user.
 """
 
+from ..document_access.supplier_files import validate_attachment
+
 import datetime as dt
 import hashlib
 import math
@@ -560,6 +562,7 @@ def register_supplier_offers_module(app, deps):
                     # access after a concurrent selection/revocation has committed.
                     if role == 'поставщик':
                         _require_supplier_offer_visibility(cur, id, _current_user)
+                        validate_attachment(cur, _current_user, id, data.get('pdfUrl'))
                     cur.execute('SELECT status, responded_at FROM supplier_offers WHERE id=%s', (id,))
                     current = cur.fetchone()
                     identity = submission_identity(data, actor_user)
@@ -853,6 +856,7 @@ def register_supplier_offers_module(app, deps):
             actor_user = _current_user
             if _current_user.get("role") == "поставщик":
                 _require_supplier_offer_visibility(cur, id, _current_user, "Нет доступа к КП для выставления счёта")
+                validate_attachment(cur, _current_user, id, data.get('fileUrl') or data.get('photoUrl'))
             else:
                 _company_context, actor_user = resolve_resource_company_actor(
                     cur,
@@ -1116,6 +1120,8 @@ def register_supplier_offers_module(app, deps):
             if role == "поставщик":
                 try:
                     _require_supplier_offer_visibility(cur, id, _current_user)
+                    validate_attachment(cur, _current_user, id, data.get('documentUrl'))
+                    validate_attachment(cur, _current_user, id, data.get('photoUrl'))
                 except Exception:
                     cur.close(); conn.close()
                     raise

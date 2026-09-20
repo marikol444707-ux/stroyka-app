@@ -23,11 +23,14 @@ export const createUploadActions = ({
     const context = meta.context || activeProjectTab || activePage || 'general';
     const fd = new FormData();
     fd.append('file', file);
+    if (meta.supplierOfferId) fd.append('supplierOfferId', String(meta.supplierOfferId));
     if (projectName) fd.append('projectName', projectName);
     if (projectId) fd.append('projectId', String(projectId));
     if (context) fd.append('context', context);
     try {
-      const res = await fetch(API + '/upload-photo', { method: 'POST', body: fd });
+      const uploadPath = meta.supplierOfferId ? '/supplier-offers/' + meta.supplierOfferId + '/files' : '/upload-photo';
+      const res = await fetch(API + uploadPath, { method: 'POST', body: fd });
+      if (res.ok === false) return '';
       const data = await res.json();
       return data.contentUrl || data.url;
     } catch {

@@ -61,15 +61,20 @@ def pin(cur, actor, claim):
     if actor['role'] != 'поставщик':
         lock_actor(cur, actor)
         return
-    cur.execute("SELECT id FROM users WHERE id=%s AND role='поставщик' AND COALESCE(active,TRUE) FOR SHARE", (actor['id'],))
-    if not cur.fetchone():
-        raise HTTPException(403, 'Кабинет поставщика отключён')
+    from ..supplier_team.policy import enabled, lock_offer_access
+    if enabled():
+        # Same supplier → actor → membership → assignment order as team changes.
+        lock_offer_access(cur, claim['offerId'], actor['id'])
+    else:
+        cur.execute("SELECT id FROM users WHERE id=%s AND role='поставщик' AND COALESCE(active,TRUE) FOR SHARE", (actor['id'],))
+        if not cur.fetchone():
+            raise HTTPException(403, 'Кабинет поставщика отключён')
+        cur.execute('SELECT id FROM suppliers WHERE id=%s AND user_id=%s FOR SHARE', (claim['supplierId'], actor['id']))
+        if not cur.fetchone():
+            raise HTTPException(403, 'Нет доступа к поставщику претензии')
     cur.execute('SELECT id FROM companies WHERE id=%s AND COALESCE(active,TRUE) FOR SHARE', (claim['companyId'],))
     if not cur.fetchone():
         raise HTTPException(403, 'Компания отключена')
-    cur.execute('SELECT id FROM suppliers WHERE id=%s AND user_id=%s FOR SHARE', (claim['supplierId'], actor['id']))
-    if not cur.fetchone():
-        raise HTTPException(403, 'Нет доступа к поставщику претензии')
 
 
 def lock_chain(cur, claim):

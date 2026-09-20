@@ -1,7 +1,9 @@
+import SupplyFileLink from './SupplyFileLink';
+import SupplierAttachmentInput from './SupplierAttachmentInput';
 import { supplierOrders } from './supplierOrderProjection';
 import { createShipmentForm } from './supplyInitialForms';
 import { supplierPublicRequisites } from './supplierPublicRequisites';
-import React from 'react';
+import React, {useCallback, useState} from 'react';
 import SupplierRequestRegistry from './SupplierRequestRegistry';
 import SupplierOrders from './SupplierOrders';
 import SupplierTeam from './SupplierTeam';
@@ -11,7 +13,7 @@ import SupplyClaims from './SupplyClaims';
 import SupplierCatalogImport from './SupplierCatalogImport';
 import useSupplierCatalogActions from './useSupplierCatalogActions';
 import useSupplierQuoteResponse from './useSupplierQuoteResponse';
-import { Check, Edit2, Plus, Trash2, Upload, X } from 'lucide-react';
+import { Check, Edit2, Plus, Trash2, X } from 'lucide-react';
 import DocumentRecognitionPanel from '../../components/DocumentRecognitionPanel';
 import { groupSuppliers, normalizeSupplierPayload, supplierIdentityKeys } from '../../utils/supplierUtils';
 import { createSupplierPortalActions } from './supplierPortalActions';
@@ -87,7 +89,14 @@ export default function SupplierCabinetPage({
   uploadPhoto,
   user,
 }) {
-    const [selectedRequestId, selectRequest] = useSupplierRequestSelection();
+  const [activeUploads, setActiveUploads] = useState(() => new Set());
+  const attachmentBusy = activeUploads.size > 0;
+  const setAttachmentBusy = useCallback((busy, key) => setActiveUploads(current => {
+    const next = new Set(current);
+    if (busy) next.add(key); else next.delete(key);
+    return next;
+  }), []);
+  const [selectedRequestId, selectRequest] = useSupplierRequestSelection();
     const requestDetailRef = React.useRef(null);
     const shipmentLock = React.useRef(false);
     const [shipmentBusy, setShipmentBusy] = React.useState(false);
@@ -366,7 +375,7 @@ export default function SupplierCabinetPage({
             {(!inboxState || inboxState.status==='ready') && <>
               <SupplierRequestRegistry C={C} requests={supplyRequests || []} offers={myOffers} selectedId={selectedRequestId} onOpen={selectRequest} busy={quoteResponse.busy} invoices={supplierInvoices || []} deliveries={supplyDeliveries || []} />
               {selectedRequestId && <div ref={requestDetailRef}>
-                <button type="button" style={btnG} disabled={quoteResponse.busy} onClick={()=>selectRequest('')}>← К списку заявок</button>
+                <button type="button" style={btnG} disabled={quoteResponse.busy || attachmentBusy} onClick={()=>selectRequest('')}>← К списку заявок</button>
                 <h2 style={{color:C.text,fontSize:18}}>Заявка №{selectedRequestId}</h2>
                 {!myOffers.some(o=>String(o.requestId)===selectedRequestId) && <p role="status">Заявка недоступна или больше не входит в ваш список.</p>}
               </div>}
@@ -461,6 +470,7 @@ export default function SupplierCabinetPage({
                         )}
                       </div>
                     </div>
+                    <SupplyFileLink url={o.pdfUrl} fileSrc={fileSrc}>Скачать файл КП</SupplyFileLink>
                     {/* Форма ответа КП — постатейная для multi-item */}
                     {isResponding && (()=>{
                       const reqItems = parseSupplyItems(req);
@@ -479,7 +489,7 @@ export default function SupplierCabinetPage({
                         arr[idx] = {...arr[idx], [field]: value};
                         setNewKpResponse({...newKpResponse, itemsKp: arr});
                       };
-                      return (<fieldset disabled={quoteResponse.busy} style={{border:0,minWidth:0,padding:0,borderTop:'1.5px solid '+C.border,paddingTop:'12px',marginTop:'10px'}}>
+                      return (<fieldset disabled={quoteResponse.busy || attachmentBusy} style={{border:0,minWidth:0,padding:0,borderTop:'1.5px solid '+C.border,paddingTop:'12px',marginTop:'10px'}}>
                       <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'8px'}}>
                         💰 Ваше КП {isMulti?'(заполните цену по каждой позиции)':'на '+(reqItems[0]?.quantity||req.quantity)+' '+(reqItems[0]?.unit||req.unit)}:
                       </b>
@@ -558,10 +568,7 @@ export default function SupplierCabinetPage({
                         </div>
                         <div style={{gridColumn:isMulti?'span 2':'span 2'}}>
                           <label style={{fontSize:'11px',color:C.textSec,display:'block',marginBottom:'3px'}}>PDF КП (опц.)</label>
-                          <label style={{...btnG,padding:'8px 12px',fontSize:'12px',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:'4px',width:'100%',justifyContent:'center'}}>
-                            <Upload size={12}/>{newKpResponse.pdfUrl?'PDF загружен':'Прикрепить PDF'}
-                            <input type='file' accept='.pdf,image/*' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0],{projectName:req.project||req.projectName,context:'supplier-offers'});setNewKpResponse({...newKpResponse,pdfUrl:url});}}}/>
-                          </label>
+                          <SupplierAttachmentInput onBusy={setAttachmentBusy} offerId={o.id} uploadPhoto={uploadPhoto} label="Прикрепить PDF" attached={newKpResponse.pdfUrl} onUploaded={url=>setNewKpResponse(current=>({...current,pdfUrl:url}))}/>
                         </div>
                       </div>
                       <textarea placeholder='Комментарий (опц.) — особенности, условия доставки' value={newKpResponse.supplierMessage} onChange={e=>setNewKpResponse({...newKpResponse,supplierMessage:e.target.value})} style={{...inp,height:'50px',resize:'vertical'}}/>
@@ -634,17 +641,14 @@ export default function SupplierCabinetPage({
                         </div>
                       </div>
                       <input value={newOfferInvoice.description} onChange={e=>setNewOfferInvoice({...newOfferInvoice,description:e.target.value})} placeholder='Описание (по умолчанию название материала)' style={inp}/>
-                      <label style={{...btnG,padding:'8px 12px',fontSize:'12px',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:'4px',marginBottom:'10px'}}>
-                        <Upload size={12}/>{newOfferInvoice.fileUrl?'PDF/Фото загружен':'Прикрепить счёт (PDF/фото)'}
-                        <input type='file' accept='.pdf,image/*' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0],{projectName:req.project||req.projectName,context:'supplier-invoices'});setNewOfferInvoice({...newOfferInvoice,fileUrl:url});}}}/>
-                      </label>
+                      <SupplierAttachmentInput onBusy={setAttachmentBusy} offerId={o.id} uploadPhoto={uploadPhoto} label="Прикрепить счёт (PDF/фото)" attached={newOfferInvoice.fileUrl} onUploaded={url=>setNewOfferInvoice(current=>({...current,fileUrl:url}))}/>
                       <div style={{display:'flex',gap:'8px'}}>
-                        <button onClick={async()=>{await createInvoiceFromOffer(o.id);await inboxState?.reload();}} style={btnO}><Check size={14}/>Отправить счёт</button>
-                        <button onClick={()=>setInvoicingOfferId(null)} style={btnG}><X size={14}/>Отмена</button>
+                        <button disabled={attachmentBusy} onClick={async()=>{await createInvoiceFromOffer(o.id);await inboxState?.reload();}} style={btnO}><Check size={14}/>Отправить счёт</button>
+                        <button disabled={attachmentBusy} onClick={()=>setInvoicingOfferId(null)} style={btnG}><X size={14}/>Отмена</button>
                       </div>
                     </div>)}
                     {/* Сн.4: форма отгрузки поставщика */}
-                    {shippingOfferId===o.id && (<fieldset disabled={shipmentBusy} style={{border:0,minWidth:0,borderTop:'1.5px solid '+C.border,paddingTop:'12px',marginTop:'10px'}}>
+                    {shippingOfferId===o.id && (<fieldset disabled={shipmentBusy || attachmentBusy} style={{border:0,minWidth:0,borderTop:'1.5px solid '+C.border,paddingTop:'12px',marginTop:'10px'}}>
                       <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'8px'}}>🚚 Отгрузка по выигранному КП</b>
                       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}}>
                         {(shipmentForm.shippedItems || []).map((line,index)=><label key={index} style={{fontSize:12}}>
@@ -660,10 +664,7 @@ export default function SupplierCabinetPage({
                         <input placeholder='Машина / госномер' value={shipmentForm.vehicleNumber} onChange={e=>setShipmentForm({...shipmentForm,vehicleNumber:e.target.value})} style={{...inp,marginBottom:0}}/>
                         <input placeholder='Водитель / контакт' value={shipmentForm.driverName} onChange={e=>setShipmentForm({...shipmentForm,driverName:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
                       </div>
-                      <label style={{...btnG,padding:'8px 12px',fontSize:'12px',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:'4px',marginBottom:'10px'}}>
-                        <Upload size={12}/>{shipmentForm.documentUrl?'Документ загружен':'Прикрепить накладную / УПД'}
-                        <input type='file' accept='.pdf,image/*' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0],{projectName:req.project||req.projectName,context:'supply-shipments'});setShipmentForm({...shipmentForm,documentUrl:url});}}}/>
-                      </label>
+                      <SupplierAttachmentInput onBusy={setAttachmentBusy} offerId={o.id} uploadPhoto={uploadPhoto} label="Прикрепить накладную / УПД" attached={shipmentForm.documentUrl} onUploaded={url=>setShipmentForm(current=>({...current,documentUrl:url}))}/>
                       <div style={{display:'flex',gap:'8px'}}>
                         <button onClick={()=>sendShipment(o)} style={btnO}><Check size={14}/>{shipmentBusy ? 'Отправляем…' : 'Отгрузить'}</button>
                         <button onClick={()=>setShippingOfferId(null)} style={btnG}><X size={14}/>Отмена</button>
@@ -752,6 +753,8 @@ export default function SupplierCabinetPage({
                 <div>
                   <b style={{fontSize:'13px',color:C.text}}>{d.materialName}</b>
                   <p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{d.shippedQuantity||d.plannedQuantity} {d.unit} · 🏗 {d.project||'—'} · накл. {d.waybillNumber||'—'}</p>
+                  <SupplyFileLink url={d.documentUrl} fileSrc={fileSrc}>Скачать накладную / УПД</SupplyFileLink>
+                  <SupplyFileLink url={d.photoUrl} fileSrc={fileSrc}>Скачать фото отгрузки</SupplyFileLink>
                   {d.receivedBy&&<p style={{color:C.textMuted,margin:0,fontSize:'11px'}}>Принял: {d.receivedBy} · принято {d.receivedQuantity||0} {d.unit}</p>}
                   {claim&&<p style={{color:C.danger,margin:'4px 0 0',fontSize:'11px'}}>⚠️ Претензия: {claim.claimType} · {claim.status}</p>}
                 </div>
@@ -810,11 +813,11 @@ export default function SupplierCabinetPage({
                   )}
                   {(inv.fileUrl||inv.photoUrl||warehouseInvoicePhoto||inv.deliveryDocumentUrl||inv.deliveryPhotoUrl)&&(
                     <div style={{display:'flex',gap:'8px',flexWrap:'wrap',marginTop:'8px'}}>
-                      {inv.fileUrl&&<a href={fileSrc(inv.fileUrl)} target='_blank' rel='noopener noreferrer' style={{fontSize:'11px',color:C.accent}}>Файл счёта</a>}
-                      {inv.photoUrl&&<a href={fileSrc(inv.photoUrl)} target='_blank' rel='noopener noreferrer' style={{fontSize:'11px',color:C.accent}}>Фото</a>}
-                      {warehouseInvoicePhoto&&<a href={fileSrc(warehouseInvoicePhoto)} target='_blank' rel='noopener noreferrer' style={{fontSize:'11px',color:C.accent}}>Фото складской накладной</a>}
-                      {inv.deliveryDocumentUrl&&<a href={fileSrc(inv.deliveryDocumentUrl)} target='_blank' rel='noopener noreferrer' style={{fontSize:'11px',color:C.accent}}>Документ отгрузки</a>}
-                      {inv.deliveryPhotoUrl&&<a href={fileSrc(inv.deliveryPhotoUrl)} target='_blank' rel='noopener noreferrer' style={{fontSize:'11px',color:C.accent}}>Фото отгрузки</a>}
+                      {inv.fileUrl&&<SupplyFileLink url={inv.fileUrl} fileSrc={fileSrc}>Файл счёта</SupplyFileLink>}
+                      {inv.photoUrl&&<SupplyFileLink url={inv.photoUrl} fileSrc={fileSrc}>Фото</SupplyFileLink>}
+                      {warehouseInvoicePhoto&&<SupplyFileLink url={warehouseInvoicePhoto} fileSrc={fileSrc}>Фото складской накладной</SupplyFileLink>}
+                      {inv.deliveryDocumentUrl&&<SupplyFileLink url={inv.deliveryDocumentUrl} fileSrc={fileSrc}>Документ отгрузки</SupplyFileLink>}
+                      {inv.deliveryPhotoUrl&&<SupplyFileLink url={inv.deliveryPhotoUrl} fileSrc={fileSrc}>Фото отгрузки</SupplyFileLink>}
                     </div>
                   )}
                 </div>
