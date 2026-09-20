@@ -36,7 +36,10 @@ function Profile({API, supplierId, C, card, inp, btnO, btnG}) {
     } catch (e) {if (mounted.current && generation.current === run && e.name !== 'AbortError') setError(e.message);}
     finally {if (mounted.current && generation.current === run) {locked.current=false; setLoading(false);}}
   }, [API, supplierId, accept]);
-  useEffect(() => {mounted.current=true; reload(); return () => {mounted.current=false; generation.current++; request.current?.abort(); locked.current=false;};}, [reload]);
+  const cancelRequests = useCallback(() => {
+    mounted.current=false; generation.current++; request.current?.abort(); locked.current=false;
+  }, []);
+  useEffect(() => {mounted.current=true; reload(); return cancelRequests;}, [reload, cancelRequests]);
   const changes = Object.fromEntries(Object.entries(draft).filter(([key,value]) => value !== saved?.fields[key]));
   return <section aria-label="Профиль поставщика" style={{color:C.text}}>
     <h2>Профиль компании</h2>
