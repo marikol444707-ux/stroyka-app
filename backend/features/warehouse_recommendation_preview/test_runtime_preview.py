@@ -949,7 +949,7 @@ class WarehouseAnomalyRuntimePreviewCompositionTests(unittest.TestCase):
             # Reviewed supplier notification history/retry/worker changes;
             # warehouse preview implementation and registration are unchanged.
             root / "backend/main.py": (
-                "76e933b0d52a89494955a807290389cb826b105f190074d9401d4c8e9c9928a6"
+                "5061030be9a28eeaf30199fdaddd97abdf36ffdb0dab40b1c2c408bd6fb76170"
             ),
         }
         self.assertEqual({

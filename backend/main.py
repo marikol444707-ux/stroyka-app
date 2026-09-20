@@ -17007,6 +17007,12 @@ def get_estimates(
                 (row_company_id, r[2] or "", r[7] or "Основная")
             )
             sections = _sanitize_worker_estimate_sections(sections, allowed_items if allowed_items else None, estimate_id=r[0])
+        if role == "заказчик":
+            try:
+                from backend.features.customer_cabinet.estimates import customer_estimate_sections
+            except ModuleNotFoundError:
+                from features.customer_cabinet.estimates import customer_estimate_sections
+            sections = customer_estimate_sections(sections)
         summary_total = _estimate_sections_total_for_summary(sections)
         if role == "бухгалтер":
             sections = []
@@ -17114,6 +17120,12 @@ def get_estimate_detail(
         )
         allowed_items = allowed_by_scope.get((r[2] or "", r[7] or "Основная"))
         sections = _sanitize_worker_estimate_sections(sections, allowed_items if allowed_items else None, estimate_id=r[0])
+    if role == "заказчик":
+        try:
+            from backend.features.customer_cabinet.estimates import customer_estimate_sections
+        except ModuleNotFoundError:
+            from features.customer_cabinet.estimates import customer_estimate_sections
+        sections = customer_estimate_sections(sections)
     summary_total = _estimate_sections_total_for_summary(sections)
     if role == "бухгалтер":
         sections = []
