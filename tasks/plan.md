@@ -1,5 +1,9 @@
 # Implementation Plan: Safe Stroyka Program Improvements
 
+Актуальный приоритет от 20.09.2026: [завершение версии без почты](platform-completion-2026-09-20.md).
+Нижележащие старые статусы P14/почты/диска исторические; поставщик и подрядчик
+закрыты по docs/supplier-contractor-final-acceptance.md.
+
 ## Current slice: P14 browser/chain acceptance released; notification delivery and disk capacity remain
 
 Roadmap: [Supplier portal implementation plan](../docs/supplier-portal-roadmap.md).

@@ -1,5 +1,8 @@
 # Task List: Safe Stroyka Program Improvements
 
+Текущий список: [завершение версии без почты](platform-completion-2026-09-20.md).
+Ниже сохранены исторические задачи, они не определяют текущую готовность.
+
 ## Task 1: Baseline Worktree Inventory
 
 **Description:** Record the current repo state before implementation so generated artifacts and unrelated local files do not get mixed into feature work.
