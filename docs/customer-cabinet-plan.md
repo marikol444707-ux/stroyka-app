@@ -343,3 +343,17 @@ INSERT audit_log сначала подтвердил частичное сохр
 Read-only production-аудит: схема0039; ровно13 одобренных документов, все scan_url
 пустые; prescriptions/warranty_defects/project_letters/project_stages пусты;
 один hidden_works_act; project_launch_drafts пусты. Ничего ещё не перенесено.
+
+## Выпуск 20.09.2026
+
+Production: abee7fd5dbda547ce8431db33fd87fb10a23d570, схема0040.
+Все13 одобренных документов перенесены company1/project1; остальные поля
+сверены до/после без изменений. Другие исторические строки не перепривязывались.
+3915 backend tests OK (745 opt-in skips); целевые PostgreSQL-прогоны отдельно.
+73 UI tests и CI build прошли. На рабочем входе проверены проекты, запуск объекта
+(13 документов,20 смет), кабинет поставщика. Ошибок страницы после перезагрузки нет.
+Сам кабинет заказчика проверялся на синтетических данных в браузере и через
+реальный authenticated HTTP/PG, не под чужой учётной записью на production.
+Health/DB/320frontend-хешей/browser проверены отдельно, verified.json записан.
+Текущий резерв/staging удалены finalizer, сохранена только квитанция.
+Артефакты: /Users/nikolas/.codex/tmp/customer-cabinet-release/.
