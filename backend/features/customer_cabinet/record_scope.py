@@ -64,6 +64,7 @@ class RecordScope:
     @contextmanager
     def transaction(self, user, request, roles, *, write=False):
         conn = self.get_db()
+        conn.autocommit = False
         try:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as context_cur:
                 headers = request.headers if request is not None else {}

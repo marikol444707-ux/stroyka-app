@@ -8,7 +8,7 @@ import { buildCustomerActPreview } from '../features/customer-cabinet/actPreview
 import CustomerDocuments, { recordLoadIssue } from '../features/customer-cabinet/CustomerDocuments';
 import CustomerWarranty from '../features/customer-cabinet/CustomerWarranty';
 import CustomerContracts from '../features/customer-cabinet/CustomerContracts';
-import ProjectHiddenWorksActSignatureModal from './ProjectHiddenWorksActSignatureModal';
+import CustomerHiddenActs from '../features/customer-cabinet/CustomerHiddenActs';
 import PreviewModal from './PreviewModal';
 import ImagePreviewModal from './ImagePreviewModal';
 import { Search, Eye, Check, X, Plus } from 'lucide-react';
@@ -36,9 +36,6 @@ export default function CustomerCabinetPage(props) {
     fileSrc,
     projectStages,
     hiddenActs,
-    editingAct,
-    setEditingAct,
-    setHiddenActs,
     unexpectedWorksList,
     isApprovedEstimateChangeStatus,
     refreshData,
@@ -319,62 +316,8 @@ export default function CustomerCabinetPage(props) {
               )}
             </div>
 
-            <div style={{ ...card, padding: '20px', marginBottom: '16px' }}>
-              <b style={{ color: C.text, fontSize: '14px', display: 'block', marginBottom: '12px' }}>
-                🔒 Акты освидетельствования скрытых работ (АОСР)
-              </b>
-              {(() => {
-                const acts = hiddenActs.filter((act) => act.projectName === myProject.name);
-                if (acts.length === 0) return <p style={{ color: C.textMuted, fontSize: '12px' }}>Актов пока нет. Появятся по ходу работ.</p>;
-                const needSign = acts.filter((act) => !act.signedCustomer);
-                return (
-                  <div>
-                    {needSign.length > 0 && (
-                      <p style={{ color: C.warning, fontSize: '12px', marginBottom: '8px', fontWeight: '600' }}>
-                        ⏳ {needSign.length} акт(ов) ждут моей подписи
-                      </p>
-                    )}
-                    {acts.slice(0, 10).map((act) => (
-                      <div
-                        key={act.id}
-                        onClick={() => setEditingAct(act)}
-                        style={{
-                          padding: '10px 12px',
-                          backgroundColor: C.bg,
-                          borderRadius: '8px',
-                          marginBottom: '6px',
-                          border: `1.5px solid ${C.border}`,
-                          cursor: 'pointer',
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          gap: '8px',
-                        }}
-                      >
-                        <div style={{ flex: 1, overflow: 'hidden' }}>
-                          <b style={{ fontSize: '12px', color: C.text }}>{`${act.actNumber} · ${act.workName}`}</b>
-                          <p style={{ color: C.textSec, margin: '2px 0', fontSize: '11px' }}>
-                            {Number(act.quantity || 0).toLocaleString('ru-RU') + ' ' + (act.unit || '') + ' · ' + (act.workDate || '')}
-                          </p>
-                        </div>
-                        <span
-                          style={{
-                            padding: '2px 8px',
-                            borderRadius: '10px',
-                            fontSize: '10px',
-                            fontWeight: '600',
-                            backgroundColor: act.signedCustomer ? C.successLight : C.warningLight,
-                            color: act.signedCustomer ? C.success : C.warning,
-                          }}
-                        >
-                          {act.signedCustomer ? '✅ Я подписал' : '⏳ Ждёт моей подписи'}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                );
-              })()}
-            </div>
+            <CustomerHiddenActs project={myProject} user={user} rows={hiddenActs}
+              loadState={customerRecordsLoadState} refresh={() => refreshData('projects')} C={C} card={card} />
 
             <div style={{ ...card, padding: '20px', marginBottom: '16px' }}>
               <b style={{ color: C.text, fontSize: '14px', display: 'block', marginBottom: '12px' }}>🆕 Изменения к смете</b>
@@ -777,17 +720,6 @@ export default function CustomerCabinetPage(props) {
           </div>
         )}
       </div>
-      <ProjectHiddenWorksActSignatureModal
-        act={editingAct}
-        mode="customer"
-        setEditingAct={setEditingAct}
-        setHiddenActs={setHiddenActs}
-        C={C}
-        card={card}
-        inp={inp}
-        btnG={btnG}
-        btnO={btnO}
-      />
       <ImagePreviewModal src={showPhotoModal} onClose={() => setShowPhotoModal(null)} />
       {previewContent && (
         <PreviewModal

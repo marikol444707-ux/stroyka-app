@@ -333,6 +333,7 @@ export default function ProjectsPage({ ctx }) {
 
                     {activeProjectTab==='Запуск объекта'&&(
                       <ProjectLaunchPanel
+                        key={`${p.companyId ?? p.company_id}:${p.id}`}
                         API={API}
                         C={C}
                         card={card}
@@ -341,7 +342,7 @@ export default function ProjectsPage({ ctx }) {
                         btnO={btnO}
                         btnR={btnR}
                         project={p}
-                        projectDocuments={(projectDocuments||[]).filter(doc=>(doc.projectName||doc.project_name)===p.name||Number(doc.projectId||doc.project_id)===Number(p.id))}
+                        projectDocuments={(projectDocuments||[]).filter(doc=>Number(doc.companyId??doc.company_id)===Number(p.companyId??p.company_id)&&Number(doc.projectId??doc.project_id)===Number(p.id))}
                         estimates={visibleEstimatesForCurrentUser(estimatesList).filter(e=>e.projectName===p.name||Number(e.projectId)===Number(p.id))}
                         isMobile={isMobile}
                         onOpenDocuments={()=>setActiveProjectTab('📁 Реестр')}

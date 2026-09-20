@@ -16608,12 +16608,17 @@ project_record_scope = RecordScope(
 try:
     from backend.features.customer_cabinet.extra_works import register_customer_extra_works
     from backend.features.customer_cabinet.payments import register_customer_payments
+    from backend.features.customer_cabinet.hidden_acts import register_customer_hidden_acts
+    from backend.features.customer_cabinet.hidden_act_access import internal_actor as hidden_act_internal_actor
 except ModuleNotFoundError:
     from features.customer_cabinet.extra_works import register_customer_extra_works
     from features.customer_cabinet.payments import register_customer_payments
+    from features.customer_cabinet.hidden_acts import register_customer_hidden_acts
+    from features.customer_cabinet.hidden_act_access import internal_actor as hidden_act_internal_actor
 
 register_customer_extra_works(app, project_record_scope, get_current_user)
 register_customer_payments(app, project_record_scope, get_current_user)
+register_customer_hidden_acts(app, project_record_scope, get_current_user, _lock_legacy_work_settlement, hidden_work_effective_status)
 
 try:
     from backend.features.project_stages.routes import register_project_stages_module
@@ -18971,7 +18976,8 @@ def delete_estimate(
                 status_code=409,
                 detail="Смета уже используется: " + ", ".join(blockers) + ". Оставьте её в архиве, чтобы не потерять историю объекта.",
             )
-        delete_estimate_technical_records(cur, estimate_id=estimate["id"])
+        delete_estimate_technical_records(cur, estimate_id=estimate["id"],
+                                          company_id=estimate["companyId"], project_id=estimate["projectId"])
         cur.execute("DELETE FROM estimates WHERE id=%s AND company_id=%s", (estimate["id"], estimate["companyId"]))
         if cur.rowcount != 1:
             raise HTTPException(status_code=409, detail="Смету не удалось удалить: запись изменилась, обновите список")
@@ -26467,9 +26473,24 @@ def ai_generate_pricelist(data: dict, _current_user: dict = Depends(require_role
     return {"ok": True, "id": pricelist_id, "name": final_name, "itemsCount": inserted}
 
 @app.get("/hidden-works-acts")
-def list_hidden_works_acts(project_name: str = None, current_user: dict = Depends(get_current_user)):
+def list_hidden_works_acts(project_name: str = None, current_user: dict = Depends(get_current_user), request: Request = None):
     conn = get_db()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as context_cur:
+            context = _resolve_work_company_context(context_cur, current_user, None, 'read',
+                x_company_id=request.headers.get('x-company-id') if request else None,
+                x_company_mode=request.headers.get('x-company-mode') if request else None)
+            actors = effective_company_actors(current_user, context)
+            actors = [a for a in actors if a.get('role') != 'заказчик']
+            if len(actors) != 1:
+                raise HTTPException(403, 'Выберите компанию с правами на внутренние акты')
+            current_user = actors[0]
+    except Exception:
+        conn.close()
+        raise
     cur = conn.cursor()
+    owner_sql = 'company_id=%s'
+    owner_params = [current_user.get('companyId') or current_user.get('company_id')]
     cols = """id, project_name, estimate_id, act_number, work_name, section_name, brigade,
               quantity, unit, price_per_unit, total, work_date, status,
               signed_customer, signed_supervisor, signed_contractor, signed_subcontractor,
@@ -26488,15 +26509,15 @@ def list_hidden_works_acts(project_name: str = None, current_user: dict = Depend
             cur.close(); conn.close()
             return []
         package_sql, package_params = package_access_filter(current_user, "work_package")
-        cur.execute(f"SELECT {cols} FROM hidden_works_acts WHERE project_name=%s{package_sql} ORDER BY id DESC", [project_name] + package_params)
+        cur.execute(f"SELECT {cols} FROM hidden_works_acts WHERE {owner_sql} AND project_name=%s{package_sql} ORDER BY id DESC", owner_params + [project_name] + package_params)
     elif allowed_projects is not None:
         if not allowed_projects:
             cur.close(); conn.close()
             return []
         package_sql, package_params = package_access_filter(current_user, "work_package")
-        cur.execute(f"SELECT {cols} FROM hidden_works_acts WHERE project_name = ANY(%s){package_sql} ORDER BY id DESC", [allowed_projects] + package_params)
+        cur.execute(f"SELECT {cols} FROM hidden_works_acts WHERE {owner_sql} AND project_name = ANY(%s){package_sql} ORDER BY id DESC", owner_params + [allowed_projects] + package_params)
     else:
-        cur.execute(f"SELECT {cols} FROM hidden_works_acts ORDER BY id DESC")
+        cur.execute(f"SELECT {cols} FROM hidden_works_acts WHERE {owner_sql} ORDER BY id DESC", owner_params)
     rows = cur.fetchall()
     cur.close(); conn.close()
     result = []
@@ -26536,12 +26557,17 @@ def list_hidden_works_acts(project_name: str = None, current_user: dict = Depend
     return result
 
 @app.put("/hidden-works-acts/{act_id}")
-def update_hidden_works_act(act_id: int, data: dict, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_CONTENT_WRITE_ROLES, *WORKER_EXECUTION_ROLES))):
+def update_hidden_works_act(act_id: int, data: dict, _current_user: dict = Depends(get_current_user), request: Request = None):
     conn = get_db()
     conn.autocommit = False
     cur = conn.cursor()
     try:
         _lock_legacy_work_settlement(cur)
+        try:
+            _current_user = hidden_act_internal_actor(cur, project_record_scope, _current_user, request, act_id, (*PROJECT_DOCUMENT_CONTENT_WRITE_ROLES, *WORKER_EXECUTION_ROLES))
+        except Exception:
+            cur.close(); conn.close()
+            raise
         require_row_project_access(cur, "hidden_works_acts", act_id, _current_user, "project_name")
         if _current_user.get("role") in PACKAGE_LIMIT_ROLES:
             require_hidden_work_actor_access(cur, act_id, _current_user)
@@ -26582,6 +26608,14 @@ def update_hidden_works_act(act_id: int, data: dict, _current_user: dict = Depen
                 "city": own_row[15] or "",
             }
         work_acceptance_records.guard_hidden_act(cur, act_id)
+        cur.execute('SELECT signed_customer,signed_customer_at,conclusion,city FROM hidden_works_acts WHERE id=%s', (act_id,))
+        confirmed = cur.fetchone()
+        if confirmed and confirmed[0]:
+            before = (str(confirmed[0]), str(confirmed[1] or ''), confirmed[2] or '', confirmed[3] or '')
+            after = (str(data.get('signedCustomer') or ''), str(data.get('signedCustomerAt') or ''),
+                     data.get('conclusion') or '', data.get('city') or '')
+            if before != after:
+                raise HTTPException(409, 'Нельзя изменять подтверждение заказчика и согласованные условия акта')
         # Снапшот текущего состояния перед изменением (версионирование)
         try:
             cur.execute("SELECT row_to_json(t) FROM hidden_works_acts t WHERE id=%s", (act_id,))
@@ -26627,56 +26661,86 @@ def update_hidden_works_act(act_id: int, data: dict, _current_user: dict = Depen
 
 
 @app.post("/hidden-works-acts/{act_id}/pay")
-def pay_hidden_works_act(act_id: int, data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
+def pay_hidden_works_act(act_id: int, data: dict, _current_user: dict = Depends(get_current_user), request: Request = None):
     """Отметить оплату в карточке АОСР без влияния на финансы объекта."""
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor()
-    require_row_project_access(cur, "hidden_works_acts", act_id, _current_user, "project_name")
-    cur.execute("SELECT project_name, act_number, total FROM hidden_works_acts WHERE id=%s", (act_id,))
-    row = cur.fetchone()
-    if not row:
+    try:
+        try:
+            _current_user = hidden_act_internal_actor(cur, project_record_scope, _current_user, request, act_id, FINANCE_ROLES)
+        except Exception:
+            cur.close(); conn.close()
+            raise
+        require_row_project_access(cur, "hidden_works_acts", act_id, _current_user, "project_name")
+        cur.execute("SELECT project_name, act_number, total FROM hidden_works_acts WHERE id=%s", (act_id,))
+        row = cur.fetchone()
+        if not row:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=404, detail="акт не найден")
+        proj, act_no, default_total = row[0] or "", row[1] or "", float(row[2] or 0)
+        amount = float(data.get("amount") or default_total)
+        paid_by = (data.get("paidBy") or "").strip()
+        paid_note = (data.get("paidNote") or "Оплата по АОСР " + act_no).strip()
+        paid_at = data.get("paidAt") or __import__("datetime").date.today().isoformat()
+        cur.execute("""UPDATE hidden_works_acts
+                       SET paid_status='Оплачен', paid_amount=%s, paid_at=%s, paid_by=%s, paid_note=%s
+                       WHERE id=%s""",
+                    (amount, paid_at, paid_by, paid_note, act_id))
+        conn.commit()
         cur.close(); conn.close()
-        raise HTTPException(status_code=404, detail="акт не найден")
-    proj, act_no, default_total = row[0] or "", row[1] or "", float(row[2] or 0)
-    amount = float(data.get("amount") or default_total)
-    paid_by = (data.get("paidBy") or "").strip()
-    paid_note = (data.get("paidNote") or "Оплата по АОСР " + act_no).strip()
-    paid_at = data.get("paidAt") or __import__("datetime").date.today().isoformat()
-    cur.execute("""UPDATE hidden_works_acts
-                   SET paid_status='Оплачен', paid_amount=%s, paid_at=%s, paid_by=%s, paid_note=%s
-                   WHERE id=%s""",
-                (amount, paid_at, paid_by, paid_note, act_id))
-    conn.commit()
-    cur.close(); conn.close()
-    log_audit(user_name=paid_by or "—", user_role="—",
-              action="pay", entity_type="hidden_works_act", entity_id=act_id,
-              description="Отмечена оплата в карточке АОСР "+act_no+" на сумму "+str(amount)+" ₽",
-              project_name=proj)
-    return {"ok": True, "paidStatus": "Оплачен", "paidAmount": amount, "paidAt": paid_at, "financeDetached": True}
+        log_audit(user_name=paid_by or "—", user_role="—",
+                  action="pay", entity_type="hidden_works_act", entity_id=act_id,
+                  description="Отмечена оплата в карточке АОСР "+act_no+" на сумму "+str(amount)+" ₽",
+                  project_name=proj)
+        return {"ok": True, "paidStatus": "Оплачен", "paidAmount": amount, "paidAt": paid_at, "financeDetached": True}
+
+    finally:
+        if not conn.closed:
+            conn.rollback()
+            cur.close(); conn.close()
 
 @app.delete("/hidden-works-acts/{act_id}")
-def delete_hidden_works_act(act_id: int, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES))):
+def delete_hidden_works_act(act_id: int, _current_user: dict = Depends(get_current_user), request: Request = None):
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor()
-    require_row_project_access(cur, "hidden_works_acts", act_id, _current_user, "project_name")
-    cur.execute("UPDATE hidden_works_acts SET status='Аннулирован' WHERE id=%s", (act_id,))
-    conn.commit(); cur.close(); conn.close()
-    return {"ok": True}
+    try:
+        try:
+            _current_user = hidden_act_internal_actor(cur, project_record_scope, _current_user, request, act_id, PROJECT_DOCUMENT_WRITE_ROLES)
+        except Exception:
+            cur.close(); conn.close()
+            raise
+        require_row_project_access(cur, "hidden_works_acts", act_id, _current_user, "project_name")
+        cur.execute("UPDATE hidden_works_acts SET status='Аннулирован' WHERE id=%s", (act_id,))
+        conn.commit(); cur.close(); conn.close()
+        return {"ok": True}
+
+    finally:
+        if not conn.closed:
+            conn.rollback()
+            cur.close(); conn.close()
 
 @app.post("/hidden-works-acts/{act_id}/ai-prefill")
-def ai_prefill_hidden_works_act(act_id: int, _current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES))):
+def ai_prefill_hidden_works_act(act_id: int, _current_user: dict = Depends(get_current_user), request: Request = None):
     import openai as oa, json as j, re
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor()
-    require_hidden_work_actor_access(cur, act_id, _current_user)
-    cur.execute("""SELECT work_name, section_name, brigade, materials_used, unit, quantity, project_name
-                   FROM hidden_works_acts WHERE id=%s""", (act_id,))
-    row = cur.fetchone()
-    if not row:
+    try:
+        _current_user = hidden_act_internal_actor(cur, project_record_scope, _current_user, request, act_id, JOURNAL_WRITE_ROLES)
+        require_hidden_work_actor_access(cur, act_id, _current_user)
+        cur.execute("""SELECT work_name, section_name, brigade, materials_used, unit, quantity, project_name
+                       FROM hidden_works_acts WHERE id=%s""", (act_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="act not found")
+        work_name, section_name, brigade, materials_used, unit, quantity, project_name = row
+        cur.execute('SELECT row_to_json(h)::text FROM hidden_works_acts h WHERE id=%s', (act_id,))
+        source_snapshot = cur.fetchone()[0]
+    finally:
+        conn.rollback()
         cur.close(); conn.close()
-        raise HTTPException(status_code=404, detail="act not found")
-    work_name, section_name, brigade, materials_used, unit, quantity, project_name = row
-    cur.close()
 
     user_text = (
         "Работа: " + (work_name or "—") + "\n"
@@ -26737,13 +26801,26 @@ def ai_prefill_hidden_works_act(act_id: int, _current_user: dict = Depends(requi
     else:
         full_conclusion = conclusion
 
+    conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor()
-    cur.execute("""UPDATE hidden_works_acts
-                   SET conclusion=%s, project_docs=%s, ai_filled=TRUE
-                   WHERE id=%s""",
-                (full_conclusion, project_docs, act_id))
-    conn.commit()
-    cur.close(); conn.close()
+    try:
+        _lock_legacy_work_settlement(cur)
+        hidden_act_internal_actor(cur, project_record_scope, _current_user, request, act_id, JOURNAL_WRITE_ROLES)
+        work_acceptance_records.guard_hidden_act(cur, act_id)
+        cur.execute('SELECT row_to_json(h)::text FROM hidden_works_acts h WHERE id=%s', (act_id,))
+        if cur.fetchone()[0] != source_snapshot:
+            raise HTTPException(409, 'Акт изменился во время подготовки текста. Обновите его и повторите запрос')
+        cur.execute('SELECT signed_customer FROM hidden_works_acts WHERE id=%s', (act_id,))
+        if cur.fetchone()[0]:
+            raise HTTPException(409, 'Подтверждённый заказчиком акт нельзя заполнять заново')
+        cur.execute("""UPDATE hidden_works_acts
+                       SET conclusion=%s, project_docs=%s, ai_filled=TRUE
+                       WHERE id=%s""", (full_conclusion, project_docs, act_id))
+        conn.commit()
+    finally:
+        conn.rollback()
+        cur.close(); conn.close()
     return {"ok": True, "conclusion": full_conclusion, "projectDocs": project_docs, "normatives": normatives, "aiFilled": True}
 
 def _generate_estimate_chat_answer_legacy(full_prompt: str, instructions: str) -> str:
@@ -27554,9 +27631,11 @@ except ModuleNotFoundError:
 
 register_project_launch_module(app, {
     "get_db": get_db,
+    "authenticated": get_current_user,
+    "scope": project_record_scope,
     "require_roles": require_roles,
     "require_project_access": require_project_access,
-    "read_roles": PROJECT_DOCUMENT_ROLES,
+    "read_roles": tuple(role for role in PROJECT_DOCUMENT_ROLES if role != "заказчик"),
     "write_roles": PROJECT_DOCUMENT_WRITE_ROLES,
     "log_audit": log_audit,
 })

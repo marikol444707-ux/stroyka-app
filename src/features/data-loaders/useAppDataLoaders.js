@@ -339,7 +339,7 @@ export const useAppDataLoaders = (ctx) => {
           shouldLoadBrigadeAtBoot ? getApi('/brigade-contract-items-all') : Promise.resolve([]),
           canLoadEstimates ? getApi(estimatesLoadPath, null) : Promise.resolve(null),
           canLoadEstimates ? getApi('/estimate-reconciliations') : Promise.resolve([]),
-          canSeeProjectDocs ? getApi('/hidden-works-acts') : Promise.resolve([]),
+          canSeeProjectDocs && role !== 'заказчик' ? getApi('/hidden-works-acts') : Promise.resolve([]),
           loadQualityJournal('inspections', canSeeProjectDocs),
           loadQualityJournal('cables', canSeeProjectDocs),
           canSeeProjectDocs ? getApi('/supervisor-acts') : Promise.resolve([]),
@@ -371,7 +371,7 @@ export const useAppDataLoaders = (ctx) => {
         setAllBrigadeItems(Array.isArray(abi)?abi:[]);
         applyLoadedEstimates(est, canLoadEstimates);
         setEstimateReconciliations(Array.isArray(er)?er:[]);
-        setHiddenActs(Array.isArray(hwa)?hwa:[]);
+        if (role !== 'заказчик') setHiddenActs(Array.isArray(hwa)?hwa:[]);
         applyQualityJournal(mij);
         applyQualityJournal(cbj);
         setSupervisorActs(Array.isArray(sva)?sva:[]);
@@ -437,7 +437,7 @@ export const useAppDataLoaders = (ctx) => {
         canSeeProjectDocs ? getApi('/estimate-reconciliations') : Promise.resolve([]),
         (canLoadPeopleData || isWorkerRole) ? getApi('/brigade-contracts') : Promise.resolve([]),
         (canLoadPeopleData || isWorkerRole) ? getApi('/brigade-contract-items-all') : Promise.resolve([]),
-        canSeeProjectDocs ? getApi('/hidden-works-acts') : Promise.resolve([]),
+        canSeeProjectDocs && role !== 'заказчик' ? getApi('/hidden-works-acts') : Promise.resolve([]),
         loadQualityJournal('inspections', canSeeProjectDocs || isWarehouseRole),
         loadQualityJournal('cables', canSeeProjectDocs || isWarehouseRole),
         canSeeProjectDocs ? getApi('/supervisor-acts') : Promise.resolve([]),
@@ -471,7 +471,7 @@ export const useAppDataLoaders = (ctx) => {
       applyLoadedEstimates(est, canSeeProjectDocs);
       if (canSeeProjectDocs && est === null) mobileLoadedScopesRef.current.delete('mobile:projects-docs');
       setEstimateReconciliations(Array.isArray(er)?er:[]); setBrigadeContracts(Array.isArray(bc)?bc:[]); setAllBrigadeItems(Array.isArray(abi)?abi:[]);
-      setHiddenActs(Array.isArray(hwa)?hwa:[]); applyQualityJournal(mij);
+      if (role !== 'заказчик') setHiddenActs(Array.isArray(hwa)?hwa:[]); applyQualityJournal(mij);
       applyQualityJournal(cbj); setSupervisorActs(Array.isArray(sva)?sva:[]);
       setInspectionOrders(Array.isArray(inspO)?inspO:[]);
       if (role !== 'заказчик') {
@@ -761,7 +761,7 @@ export const useAppDataLoaders = (ctx) => {
         canLoadEstimates ? get(estimatesLoadPath, null) : skip(null),
         canLoadEstimates ? get('/estimate-reconciliations') : skip([]),
         canLoadBrigadeData ? get('/brigade-contracts') : skip([]),
-        canSeeProjectDocs ? get('/hidden-works-acts') : skip([]),
+        canSeeProjectDocs && role !== 'заказчик' ? get('/hidden-works-acts') : skip([]),
         loadQualityJournal('inspections', canSeeProjectDocs || isWarehouseRole),
         loadQualityJournal('cables', canSeeProjectDocs || isWarehouseRole),
         canSeeProjectDocs ? get('/supervisor-acts') : skip([]),
@@ -797,7 +797,7 @@ export const useAppDataLoaders = (ctx) => {
       setLoaded(setPrescriptionsList, pres);
       if (role !== 'заказчик') setLoaded(setUnexpectedWorksList, uw);
       if (isLoaded(est)) applyLoadedEstimates(est, canLoadEstimates);
-      setLoaded(setEstimateReconciliations, er); setLoaded(setBrigadeContracts, bc); setLoaded(setHiddenActs, hwa);
+      setLoaded(setEstimateReconciliations, er); setLoaded(setBrigadeContracts, bc); if (role !== 'заказчик') setLoaded(setHiddenActs, hwa);
       applyQualityJournal(mij); applyQualityJournal(cbj); setLoaded(setSupervisorActs, sva);
       setLoaded(setInspectionOrders, inspO); setLoaded(setExpenseReports, expR); setLoaded(setSupplierInvoices, supI);
       if (role !== 'заказчик') setLoaded(setWarrantyDefects, warD);
