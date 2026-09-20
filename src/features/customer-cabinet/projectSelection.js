@@ -18,3 +18,13 @@ export function customerProject(projects, user = {}) {
   const matches = scoped.filter(project => String(project.name || '').trim() === name);
   return matches.length === 1 ? matches[0] : null;
 }
+
+export function customerRemark(record, project, user) {
+  const companyId = positiveId(project?.companyId ?? project?.company_id);
+  const projectId = positiveId(project?.id);
+  const authorId = positiveId(user?.id);
+  return Boolean(companyId && projectId && authorId
+    && positiveId(record?.companyId) === companyId
+    && positiveId(record?.projectId) === projectId
+    && positiveId(record?.createdByUserId) === authorId);
+}

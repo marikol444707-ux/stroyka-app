@@ -1,5 +1,5 @@
 import React from 'react';
-import { customerProject } from '../features/customer-cabinet/projectSelection';
+import { customerProject, customerRemark } from '../features/customer-cabinet/projectSelection';
 import useCustomerCommands from '../features/customer-cabinet/useCustomerCommands';
 import ProjectHiddenWorksActSignatureModal from './ProjectHiddenWorksActSignatureModal';
 import PreviewModal from './PreviewModal';
@@ -676,11 +676,7 @@ export default function CustomerCabinetPage(props) {
               </button>
               <div style={{ marginTop: '12px' }}>
                 {(prescriptionsList || [])
-                  .filter(
-                    (prescription) =>
-                      prescription.projectName === myProject.name &&
-                      (prescription.issuedBy === user.name || prescription.issuedByRole === 'Заказчик')
-                  )
+                  .filter((prescription) => customerRemark(prescription, myProject, user))
                   .slice(0, 10)
                   .map((prescription) => (
                     <div
