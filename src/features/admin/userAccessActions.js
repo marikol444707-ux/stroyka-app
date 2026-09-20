@@ -2,6 +2,7 @@ import { createUserForm } from '../personnel/personnelInitialForms';
 
 export const createUserAccessActions = ({
   API,
+  companyContext,
   editingItem,
   newInviteRole,
   newUser,
@@ -11,9 +12,32 @@ export const createUserAccessActions = ({
   setNewUser,
   setShowForm,
   supplierInviteForm,
-  suppliers,
   user,
 }) => {
+  const scopedFetch = async (url, options = {}) => {
+    const companyId = companyContext?.selectedCompanyId;
+    if (companyContext?.mode !== 'company' || !companyId) {
+      throw new Error('Выберите компанию для управления доступом');
+    }
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        ...options.headers,
+        'X-Company-Id': String(companyId),
+        'X-Company-Mode': 'company',
+      },
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(typeof error.detail === 'string' ? error.detail : 'Не удалось сохранить изменения');
+    }
+    return response;
+  };
+  const guarded = action => async (...args) => {
+    try { return await action(...args); }
+    catch (error) { alert(error.message || 'Не удалось сохранить изменения'); }
+  };
+
   const saveUser = async () => {
     const cleanUser = {
       ...newUser,
@@ -27,25 +51,20 @@ export const createUserAccessActions = ({
       return;
     }
     if (editingItem) {
-      const res = await fetch(API + '/users/' + editingItem.id, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(cleanUser)});
+      const res = await scopedFetch(API + '/users/' + editingItem.id, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(cleanUser)});
       if (!res.ok) {
         const e = await res.json().catch(() => ({}));
         alert(e.detail || 'Не удалось сохранить пользователя');
         return;
       }
     } else {
-      const res = await fetch(API + '/users', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(cleanUser)});
+      const res = await scopedFetch(API + '/users', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(cleanUser)});
       if (!res.ok) {
         const e = await res.json().catch(() => ({}));
         alert(e.detail || 'Не удалось создать пользователя');
         return;
       }
-      if (cleanUser.role === 'поставщик') {
-        const existing = suppliers.find(s => s.name === cleanUser.name || s.email === cleanUser.email);
-        if (!existing) {
-          await fetch(API + '/suppliers', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: cleanUser.name, email: cleanUser.email, phone: '', specialization: '', category: 'Прочее', rating: 5.0, status: 'Активный'})});
-        }
-      }
+
     }
     await refreshData();
     setNewUser(createUserForm());
@@ -61,7 +80,7 @@ export const createUserAccessActions = ({
     const label = nextActive ? 'Включить доступ пользователю?' : 'Отключить доступ пользователю? История останется в системе.';
     if (!window.confirm(label)) return;
     if (nextActive) {
-      await fetch(API + '/users/' + u.id, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
+      await scopedFetch(API + '/users/' + u.id, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
         name: u.name,
         email: u.email,
         password: '',
@@ -73,7 +92,7 @@ export const createUserAccessActions = ({
         active: true,
       })});
     } else {
-      await fetch(API + '/users/' + u.id, {method: 'DELETE'});
+      await scopedFetch(API + '/users/' + u.id, {method: 'DELETE'});
     }
     await refreshData();
   };
@@ -86,7 +105,7 @@ export const createUserAccessActions = ({
     if (!u?.id) return;
     const label = `Сбросить 2FA для ${u.name || u.email}? При следующем входе пользователь настроит код заново.`;
     if (!window.confirm(label)) return;
-    const res = await fetch(API + '/users/' + u.id + '/2fa-reset', {method: 'POST'});
+    const res = await scopedFetch(API + '/users/' + u.id + '/2fa-reset', {method: 'POST'});
     const data = await res.json().catch(() => ({}));
     if (!res.ok || data.ok === false) {
       alert(data.detail || data.error || 'Не удалось сбросить 2FA');
@@ -97,7 +116,7 @@ export const createUserAccessActions = ({
   };
 
   const createInvite = async () => {
-    await fetch(API + '/invite-codes', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({role: newInviteRole})});
+    await scopedFetch(API + '/invite-codes', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({role: newInviteRole})});
     await refreshData();
   };
 
@@ -110,7 +129,7 @@ export const createUserAccessActions = ({
       expiresInDays: supplierInviteForm.expiresInDays || 14,
       createdBy: user?.name || '',
     };
-    const r = await fetch(API + '/invite-codes', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+    const r = await scopedFetch(API + '/invite-codes', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
     const data = await r.json();
     if (data.code) {
       const link = window.location.origin + '/?invite=' + data.code;
@@ -122,17 +141,17 @@ export const createUserAccessActions = ({
   };
 
   const deleteInvite = async (id) => {
-    await fetch(API + '/invite-codes/' + id, {method: 'DELETE'});
+    await scopedFetch(API + '/invite-codes/' + id, {method: 'DELETE'});
     await refreshData();
   };
 
   return {
-    saveUser,
-    toggleUserActive,
-    deleteUser,
-    resetUserTwoFactor,
-    createInvite,
-    createSupplierInvite,
-    deleteInvite,
+    saveUser: guarded(saveUser),
+    toggleUserActive: guarded(toggleUserActive),
+    deleteUser: guarded(deleteUser),
+    resetUserTwoFactor: guarded(resetUserTwoFactor),
+    createInvite: guarded(createInvite),
+    createSupplierInvite: guarded(createSupplierInvite),
+    deleteInvite: guarded(deleteInvite),
   };
 };

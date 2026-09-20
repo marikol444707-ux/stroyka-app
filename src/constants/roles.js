@@ -53,3 +53,10 @@ export const ROLE_GROUPS = [
   {key:'заказчики',label:'Заказчики',roles:['заказчик'],color:'#06b6d4'},
   {key:'поставщики',label:'Поставщики',roles:['поставщик'],color:'#f59e0b'},
 ];
+
+// Roles administered inside a construction company; platform and supplier access have separate flows.
+export const COMPANY_USER_ROLES = [
+  'директор', 'зам_директора', 'бухгалтер', 'главный_инженер', 'сметчик',
+  'прораб', 'снабженец', 'кладовщик', 'мастер', 'субподрядчик', 'бригадир',
+  'заказчик', 'технадзор', 'стройконтроль', 'менеджер_crm',
+];

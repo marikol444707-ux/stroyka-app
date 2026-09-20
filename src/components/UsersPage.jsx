@@ -1,4 +1,5 @@
 import React from 'react';
+import { COMPANY_USER_ROLES } from '../constants/roles';
 import { Check, ChevronDown, ChevronUp, Copy, Edit2, Plus, RefreshCw, Trash2, X } from 'lucide-react';
 import { createUserForm } from '../features/personnel/personnelInitialForms';
 
@@ -188,7 +189,7 @@ function UsersPage({
     const assignedProjects = projectName ? [projectName] : [];
     setNewUser({...newUser, projectId, projectName, assignedProjects, assignedPackages: []});
   };
-  const projectScopedRoles = ['прораб','главный_инженер','технадзор','стройконтроль','мастер','субподрядчик','бригадир'];
+  const projectScopedRoles = ['заказчик','прораб','главный_инженер','технадзор','стройконтроль','мастер','субподрядчик','бригадир'];
   const packageScopedRoles = ['прораб','мастер','субподрядчик','бригадир'];
   const projectPackageOptions = Array.from(new Set(
     (estimatesList || [])
@@ -281,7 +282,7 @@ function UsersPage({
             <input type="text" placeholder={editingItem?'Новый пароль (если меняем)':'Пароль *'} value={newUser.password} onChange={e=>setNewUser({...newUser,password:e.target.value})} style={{...inp,marginBottom:0,flex:1}}/>
             <button onClick={generatePassword} title="Сгенерировать и скопировать пароль" style={{...btnG,padding:'6px 10px',margin:0}}><RefreshCw size={13}/></button>
           </div>
-          <select value={newUser.role} onChange={e=>handleRoleChange(e.target.value)} style={{...inp,marginBottom:0}}>{Object.keys(ROLES).map(r=><option key={r} value={r}>{ROLE_LABELS[r]||r}</option>)}</select>
+          <select aria-label="Роль сотрудника" value={newUser.role} onChange={e=>handleRoleChange(e.target.value)} style={{...inp,marginBottom:0}}>{COMPANY_USER_ROLES.filter(r => user?.role !== 'зам_директора' || !['директор', 'зам_директора'].includes(r)).map(r=><option key={r} value={r}>{ROLE_LABELS[r]||r}</option>)}</select>
           {projectScopedRoles.includes(newUser.role)&&(<select value={newUser.projectId} onChange={e=>updateProject(e.target.value)} style={{...inp,marginBottom:0}}><option value=''>Привязать к проекту *</option>{projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>)}
           {packageScopedRoles.includes(newUser.role)&&newUser.projectName&&(
             <div style={{gridColumn:'span 2',border:'1.5px solid '+C.border,borderRadius:'10px',padding:'10px',backgroundColor:C.bg}}>

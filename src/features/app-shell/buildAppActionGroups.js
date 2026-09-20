@@ -494,6 +494,7 @@ export function buildAppActionGroups({
 
   const userAccessActions = createUserAccessActions({
     API,
+    companyContext,
     editingItem,
     newInviteRole,
     newUser,
