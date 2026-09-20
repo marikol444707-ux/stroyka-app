@@ -1,4 +1,11 @@
-import { customerProject, customerRemark } from './projectSelection';
+import { customerProject, customerProjectRecord, customerRemark } from './projectSelection';
+test('project records require both owner IDs regardless of display names', () => {
+  const project = { id: 1, companyId: 2, name: 'New' };
+  expect(customerProjectRecord({ projectId: 1, companyId: 2, projectName: 'Old' }, project)).toBe(true);
+  for (const record of [{ projectId: 1 }, { projectId: 1, companyId: 3 }, { projectId: 3, companyId: 2 }, { projectName: 'New' }]) {
+    expect(customerProjectRecord(record, project)).toBe(false);
+  }
+});
 test('an exact assigned ID wins over an earlier matching name', () => {
   const projects = [{ id: 1, name: 'Лицей', companyId: 2 }, { id: 7, name: 'Лицей', companyId: 3 }];
   expect(customerProject(projects, { projectId: 7, projectName: 'Лицей', companyId: 3 })).toBe(projects[1]);

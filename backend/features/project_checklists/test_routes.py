@@ -1,4 +1,5 @@
 import unittest
+from contextlib import contextmanager
 
 from backend.features.company_documents.routes import register_company_documents_module
 from backend.features.project_checklists.routes import register_project_checklists_module
@@ -65,7 +66,22 @@ class FakeConnection:
 def common_deps(cursor, access_calls=None):
     connection = FakeConnection(cursor)
     access_log = access_calls if access_calls is not None else []
+    class StageScope:
+        @contextmanager
+        def transaction(self, user, request, roles, write=False):
+            yield cursor, [{'companyId': 1, 'role': 'директор'}]
+            if write:
+                connection.commit()
+
+        def visible(self, actors, roles):
+            return 'p.company_id=%s AND p.name=ANY(%s)', [1, ['Объект']]
+
+        def parent(self, cur, actor, data, roles):
+            access_log.append(data['projectName'])
+            return {'id': 7, 'companyId': 1, 'name': data['projectName']}
+
     return connection, {
+        'record_scope': StageScope(),
         "get_db": lambda: connection,
         "get_current_user": lambda: {},
         "require_roles": lambda *roles: (lambda: None),
@@ -97,11 +113,12 @@ class RegionRoutesTest(unittest.TestCase):
         connection, deps = common_deps(cursor, calls)
         register_project_stages_module(app, deps)
         result = app.routes[("POST", "/project-stages")](
-            {"projectName": "Объект", "name": "Черновая"}, _current_user={}
+            {"projectName": "Объект", "name": "Черновая"}, current_user={}
         )
         self.assertEqual(result, {"id": 4, "ok": True})
         self.assertEqual(calls, ["Объект"])
         self.assertTrue(connection.committed)
+        self.assertEqual(cursor.calls[0][1][:2], (7, 'Объект'))
 
     def test_stage_list_scopes_to_visible_projects(self):
         cursor = FakeCursor(rows=[])
@@ -109,7 +126,9 @@ class RegionRoutesTest(unittest.TestCase):
         _conn, deps = common_deps(cursor)
         register_project_stages_module(app, deps)
         app.routes[("GET", "/project-stages")](current_user={})
-        self.assertIn("project_name = ANY(%s)", cursor.calls[0][0])
+        self.assertIn('JOIN projects p ON p.id=s.project_id', cursor.calls[0][0])
+        self.assertIn('p.company_id=%s', cursor.calls[0][0])
+        self.assertEqual(cursor.calls[0][1], (1, ['Объект']))
 
     def test_checklist_delete_cascades_items_first(self):
         calls = []

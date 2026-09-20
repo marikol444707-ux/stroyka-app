@@ -1,5 +1,5 @@
 import React from 'react';
-import { customerProject, customerRemark } from '../features/customer-cabinet/projectSelection';
+import { customerProject, customerProjectRecord, customerRemark } from '../features/customer-cabinet/projectSelection';
 import useCustomerCommands from '../features/customer-cabinet/useCustomerCommands';
 import ProjectHiddenWorksActSignatureModal from './ProjectHiddenWorksActSignatureModal';
 import PreviewModal from './PreviewModal';
@@ -249,7 +249,7 @@ export default function CustomerCabinetPage(props) {
             <div style={{ ...card, padding: '20px', marginBottom: '16px' }}>
               <b style={{ color: C.text, fontSize: '14px', display: 'block', marginBottom: '12px' }}>📋 Этапы</b>
               {projectStages
-                .filter((stage) => stage.projectName === myProject.name)
+                .filter((stage) => customerProjectRecord(stage, myProject))
                 .map((stage) => (
                   <div
                     key={stage.id}
@@ -290,7 +290,7 @@ export default function CustomerCabinetPage(props) {
                     </span>
                   </div>
                 ))}
-              {projectStages.filter((stage) => stage.projectName === myProject.name).length === 0 && (
+              {projectStages.filter((stage) => customerProjectRecord(stage, myProject)).length === 0 && (
                 <p style={{ color: C.textMuted, fontSize: '12px' }}>Этапы не добавлены</p>
               )}
             </div>

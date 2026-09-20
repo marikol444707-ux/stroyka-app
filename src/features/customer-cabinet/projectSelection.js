@@ -20,11 +20,15 @@ export function customerProject(projects, user = {}) {
 }
 
 export function customerRemark(record, project, user) {
+  const authorId = positiveId(user?.id);
+  return Boolean(customerProjectRecord(record, project) && authorId
+    && positiveId(record?.createdByUserId) === authorId);
+}
+
+export function customerProjectRecord(record, project) {
   const companyId = positiveId(project?.companyId ?? project?.company_id);
   const projectId = positiveId(project?.id);
-  const authorId = positiveId(user?.id);
-  return Boolean(companyId && projectId && authorId
+  return Boolean(companyId && projectId
     && positiveId(record?.companyId) === companyId
-    && positiveId(record?.projectId) === projectId
-    && positiveId(record?.createdByUserId) === authorId);
+    && positiveId(record?.projectId) === projectId);
 }

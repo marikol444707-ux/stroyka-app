@@ -16594,20 +16594,25 @@ register_company_documents_module(app, {
 })
 
 try:
+    from backend.features.customer_cabinet.record_scope import RecordScope
+except ModuleNotFoundError:
+    from features.customer_cabinet.record_scope import RecordScope
+
+project_record_scope = RecordScope(
+    get_db, _resolve_work_company_context, effective_company_actors, visible_project_names,
+)
+
+try:
     from backend.features.project_stages.routes import register_project_stages_module
 except ModuleNotFoundError:
     from features.project_stages.routes import register_project_stages_module
 
 
 register_project_stages_module(app, {
-    "get_db": get_db,
-    "require_roles": require_roles,
+    "get_current_user": get_current_user,
+    "record_scope": project_record_scope,
     "read_roles": PROJECT_DOCUMENT_ROLES,
     "write_roles": PROJECT_WRITE_ROLES,
-    "visible_project_names": visible_project_names,
-    "project_name_from_payload": project_name_from_payload,
-    "require_project_access": require_project_access,
-    "require_row_project_access": require_row_project_access,
 })
 
 try:
@@ -16646,15 +16651,6 @@ try:
 except ModuleNotFoundError:
     from features.prescriptions.routes import register_prescriptions_module
 
-
-try:
-    from backend.features.customer_cabinet.record_scope import RecordScope
-except ModuleNotFoundError:
-    from features.customer_cabinet.record_scope import RecordScope
-
-project_record_scope = RecordScope(
-    get_db, _resolve_work_company_context, effective_company_actors, visible_project_names,
-)
 
 register_prescriptions_module(app, {
     "get_current_user": get_current_user,
