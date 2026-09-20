@@ -1,0 +1,9 @@
+[Unit]
+Description=Remove completed Stroyka deployment staging after healthy release
+After=stroyka.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/sbin/stroyka-finalize-release --all-completed --apply
+UMask=0077
+Nice=10
