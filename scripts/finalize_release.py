@@ -35,6 +35,15 @@ def referenced(path):
             pass
     return False
 
+def verification_passed(path, head):
+    try:
+        evidence = json.loads((path/'verified.json').read_text())
+        return (evidence.get('head') == head and
+                all(evidence.get('checks', {}).get(key) is True
+                    for key in ('backend', 'database', 'frontend', 'browser')))
+    except (OSError, ValueError, AttributeError):
+        return False
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--apply', action='store_true')
@@ -61,10 +70,12 @@ def main():
             sha = report.get('head', '')
             if len(sha) != 40 or any(c not in '0123456789abcdef' for c in sha):
                 skipped.append(str(path)); continue
+            if not verification_passed(path, sha):
+                skipped.append(str(path)); continue
             ancestor = subprocess.run(['git', '-C', str(ROOT), 'merge-base', '--is-ancestor', sha, head], capture_output=True)
             if ancestor.returncode or referenced(path):
                 skipped.append(str(path)); continue
-            selected.append((path, report))
+            selected.append((path, {**report, 'verification':json.loads((path/'verified.json').read_text())}))
         # Keep only small deployment receipts, never DB/env/frontend copies.
         if args.apply:
             receipts = Path('/var/log/stroyka-release-receipts')
