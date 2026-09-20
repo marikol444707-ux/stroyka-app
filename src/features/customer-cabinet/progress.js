@@ -11,16 +11,16 @@ export function customerProgress(project, estimates = [], journal = []) {
   const lines = new Map();
   let plan = 0;
   for (const estimate of estimates) {
-    estimateSectionsOf(estimate).forEach((section, sectionIndex) => {
-      (section.items || []).forEach((item, itemIndex) => {
-        if (!isEstimateWorkItem(item, section.name)) return;
+    for (const [sectionIndex, section] of estimateSectionsOf(estimate).entries()) {
+      for (const [itemIndex, item] of (section.items || []).entries()) {
+        if (!isEstimateWorkItem(item, section.name)) continue;
         const quantity = Number(item.quantity);
         const total = Number(estimateItemTotal(item));
-        if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(total) || total <= 0) return;
+        if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(total) || total <= 0) continue;
         lines.set(`${estimate.id}:${sectionIndex}:${itemIndex}`, { quantity, total, done: 0 });
         plan += total;
-      });
-    });
+      }
+    }
   }
   if (!plan) {
     const value = project?.progress;

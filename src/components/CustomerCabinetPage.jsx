@@ -3,7 +3,7 @@ import { customerProject, customerProjectRecord, customerRemark } from '../featu
 import useCustomerCommands from '../features/customer-cabinet/useCustomerCommands';
 import { customerProgress } from '../features/customer-cabinet/progress';
 import useProgressData from '../features/customer-cabinet/useProgressData';
-import CustomerDocuments from '../features/customer-cabinet/CustomerDocuments';
+import CustomerDocuments, { recordLoadIssue } from '../features/customer-cabinet/CustomerDocuments';
 import CustomerWarranty from '../features/customer-cabinet/CustomerWarranty';
 import ProjectHiddenWorksActSignatureModal from './ProjectHiddenWorksActSignatureModal';
 import PreviewModal from './PreviewModal';
@@ -372,11 +372,14 @@ export default function CustomerCabinetPage(props) {
             <div style={{ ...card, padding: '20px', marginBottom: '16px' }}>
               <b style={{ color: C.text, fontSize: '14px', display: 'block', marginBottom: '12px' }}>🆕 Изменения к смете</b>
               {(() => {
+                const issue = recordLoadIssue(customerRecordsLoadState, 'extraWorks', myProject, user);
+                if (issue) return <p role="status">{issue}</p>;
                 const pending = (unexpectedWorksList || []).filter(
-                  (row) => row.projectName === myProject.name && row.status === 'Ожидает согласования'
+                  (row) => customerProjectRecord(row, myProject) && row.status === 'Ожидает согласования'
                 );
                 const approved = (unexpectedWorksList || []).filter(
-                  (row) => row.projectName === myProject.name && isApprovedEstimateChangeStatus(row.status)
+                  (row) => customerProjectRecord(row, myProject)
+                    && (isApprovedEstimateChangeStatus(row.status) || row.status === 'Отклонено')
                 );
                 if (pending.length === 0 && approved.length === 0) {
                   return <p style={{ color: C.textMuted, fontSize: '12px' }}>Изменений нет — работаем по активной смете.</p>;
@@ -426,15 +429,9 @@ export default function CustomerCabinetPage(props) {
                               <button
                                 onClick={async () => {
                                   if (!window.confirm(`Согласовать изменение «${row.description}» на ${(row.total || 0).toLocaleString('ru-RU')} ₽?`)) return;
-                                  await commands.run('/unexpected-works/' + row.id, {
-                                    method: 'PUT',
-                                    body: {
-                                      status: 'Утверждено отдельной допработой',
-                                      price: row.price,
-                                      total: row.total,
-                                      approvedBy: user.name,
-                                      approvedAt: new Date().toISOString().split('T')[0],
-                                    },
+                                  await commands.run('/unexpected-works/' + row.id + '/customer-decision', {
+                                    method: 'POST',
+                                    body: { decision: 'approve', revision: row.revision },
                                   });
                                 }}
                                 disabled={commands.blocked}
@@ -446,13 +443,9 @@ export default function CustomerCabinetPage(props) {
                               <button
                                 onClick={async () => {
                                   if (!window.confirm(`Отказать в выполнении «${row.description}»?`)) return;
-                                  await commands.run('/unexpected-works/' + row.id, {
-                                    method: 'PUT',
-                                    body: {
-                                      status: 'Отклонено',
-                                      approvedBy: user.name,
-                                      approvedAt: new Date().toISOString().split('T')[0],
-                                    },
+                                  await commands.run('/unexpected-works/' + row.id + '/customer-decision', {
+                                    method: 'POST',
+                                    body: { decision: 'reject', revision: row.revision },
                                   });
                                 }}
                                 disabled={commands.blocked}
@@ -468,7 +461,7 @@ export default function CustomerCabinetPage(props) {
                     )}
                     {approved.length > 0 && (
                       <div>
-                        <b style={{ color: C.success, fontSize: '12px' }}>✅ Согласовано ранее ({approved.length}):</b>
+                        <b style={{ color: C.text, fontSize: '12px' }}>Принятые решения ({approved.length}):</b>
                         {approved.slice(0, 5).map((row) => (
                           <div
                             key={row.id}
@@ -485,16 +478,16 @@ export default function CustomerCabinetPage(props) {
                             }}
                           >
                             <span style={{ color: C.textSec }}>
-                              {row.description + ' · ' + (row.total || 0).toLocaleString('ru-RU') + ' ₽ · ' + row.approvedAt}
+                              {row.description + ' · ' + row.status + ' · ' + (row.total || 0).toLocaleString('ru-RU') + ' ₽ · ' + row.approvedAt}
                             </span>
-                            <button
+                            {isApprovedEstimateChangeStatus(row.status) && <button
                               onClick={() => showPreview(buildSupplementaryAgreementContent(row, myProject), 'Доп.соглашение № ' + row.id)}
                               style={{ ...btnB, padding: '3px 8px', fontSize: '10px' }}
                               title="Распечатать доп.соглашение"
                             >
                               <Eye size={10} />
                               📜
-                            </button>
+                            </button>}
                           </div>
                         ))}
                       </div>

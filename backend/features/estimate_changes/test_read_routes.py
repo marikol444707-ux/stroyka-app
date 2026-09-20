@@ -240,6 +240,18 @@ class EstimateChangeReadRouteTests(unittest.TestCase):
 
         self.assertEqual(response, [])
 
+    def test_mixed_director_customer_read_keeps_only_internal_company_rows(self):
+        cursor = FakeCursor(rows=[self._row(4, 11), self._row(8, 12)])
+        handler, _calls = self._register(FakeConnection(cursor), [
+            {'companyId': 4, 'role': 'директор'},
+            {'companyId': 8, 'role': 'заказчик', 'assignedProjects': ['Лицей']},
+        ])
+        response = handler(x_company_id=None, x_company_mode='all_companies',
+                           current_user={'id': 9, 'role': 'account_owner'})
+        self.assertEqual([row['id'] for row in response], [11])
+        self.assertIn('uw.company_id=ANY(%s)', cursor.calls[0][0])
+        self.assertEqual(cursor.calls[0][1][-1], [4])
+
     def test_non_document_membership_fails_closed(self):
         cursor = FakeCursor()
         connection = FakeConnection(cursor)

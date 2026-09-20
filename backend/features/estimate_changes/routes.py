@@ -310,6 +310,14 @@ def register_estimate_changes_module(app, deps):
                 x_company_id,
                 x_company_mode,
             )
+            if any(actor.get('role') == 'заказчик' for actor in company_actors):
+                company_actors = [actor for actor in company_actors if actor.get('role') != 'заказчик']
+                if not company_actors:
+                    raise HTTPException(status_code=403, detail='Для заказчика используйте опубликованные предложения')
+                visibility_sql = '(' + visibility_sql + ') AND uw.company_id=ANY(%s)'
+                visibility_params = [*visibility_params, [
+                    _positive_int(actor.get('companyId') or actor.get('company_id')) for actor in company_actors
+                ]]
             cur.execute(
                 f"""SELECT uw.id,uw.project_name,uw.description,uw.unit,uw.quantity,uw.price,
                             uw.total,uw.added_by,uw.added_by_role,uw.status,uw.approved_by,

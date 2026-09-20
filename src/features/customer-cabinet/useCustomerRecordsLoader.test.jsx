@@ -47,8 +47,8 @@ test('late response from previous company cannot overwrite the new scope', async
   global.fetch = jest.fn(() => new Promise(resolve => pending.push(resolve)));
   const { result, rerender } = renderHook(({ company }) => useHarness(company), { initialProps: { company: 2 } });
   rerender({ company: 3 });
-  await act(async () => { for (const resolve of pending.slice(3)) resolve({ ok: true, json: async () => [] }); });
-  await act(async () => { for (const resolve of pending.slice(0, 3)) resolve({ ok: true, json: async () => [{ companyId: 2, projectId: 3, side: 'customer' }] }); });
+  await act(async () => { for (const resolve of pending.slice(4)) resolve({ ok: true, json: async () => [] }); });
+  await act(async () => { for (const resolve of pending.slice(0, 4)) resolve({ ok: true, json: async () => [{ companyId: 2, projectId: 3, side: 'customer' }] }); });
   expect(result.current.docs).toEqual([]);
   expect(result.current.state.documents.scope).toContain('7:3:');
   expect(result.current.state.documents.status).toBe('ready');

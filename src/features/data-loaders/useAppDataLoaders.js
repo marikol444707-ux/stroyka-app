@@ -432,7 +432,7 @@ export const useAppDataLoaders = (ctx) => {
         canSeeProjectDocs ? getApi('/project-stages') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/project-checklists') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/prescriptions') : Promise.resolve([]),
-        canSeeProjectDocs ? getApi('/unexpected-works') : Promise.resolve([]),
+        role !== 'заказчик' && canSeeProjectDocs ? getApi('/unexpected-works') : Promise.resolve([]),
         canSeeProjectDocs ? getApi(estimatesLoadPath, null) : Promise.resolve(null),
         canSeeProjectDocs ? getApi('/estimate-reconciliations') : Promise.resolve([]),
         (canLoadPeopleData || isWorkerRole) ? getApi('/brigade-contracts') : Promise.resolve([]),
@@ -466,7 +466,8 @@ export const useAppDataLoaders = (ctx) => {
       setRooms(Array.isArray(ro)?ro:[]); setRoomWorks(Array.isArray(rw)?rw:[]);
       setRoomWindows(Array.isArray(rwin)?rwin:[]); setRoomDoors(Array.isArray(rdoor)?rdoor:[]);
       setProjectStages(Array.isArray(ps)?ps:[]); setChecklists(Array.isArray(pcl)?pcl:[]);
-      setPrescriptionsList(Array.isArray(pres)?pres:[]); setUnexpectedWorksList(Array.isArray(uw)?uw:[]);
+      setPrescriptionsList(Array.isArray(pres)?pres:[]);
+      if (role !== 'заказчик') setUnexpectedWorksList(Array.isArray(uw)?uw:[]);
       applyLoadedEstimates(est, canSeeProjectDocs);
       if (canSeeProjectDocs && est === null) mobileLoadedScopesRef.current.delete('mobile:projects-docs');
       setEstimateReconciliations(Array.isArray(er)?er:[]); setBrigadeContracts(Array.isArray(bc)?bc:[]); setAllBrigadeItems(Array.isArray(abi)?abi:[]);
@@ -756,7 +757,7 @@ export const useAppDataLoaders = (ctx) => {
         canSeeProjectDocs ? get('/project-stages') : skip([]),
         canSeeProjectDocs ? get('/project-checklists') : skip([]),
         canSeeProjectDocs ? get('/prescriptions') : skip([]),
-        canSeeProjectDocs ? get('/unexpected-works') : skip([]),
+        role !== 'заказчик' && canSeeProjectDocs ? get('/unexpected-works') : skip([]),
         canLoadEstimates ? get(estimatesLoadPath, null) : skip(null),
         canLoadEstimates ? get('/estimate-reconciliations') : skip([]),
         canLoadBrigadeData ? get('/brigade-contracts') : skip([]),
@@ -791,7 +792,8 @@ export const useAppDataLoaders = (ctx) => {
       if (isLoaded(cr)) applyCompanyRequisites(cr);
       setLoaded(setCompanyDocuments, cd);
       setLoaded(setProjectStages, ps); setLoaded(setChecklists, pcl);
-      setLoaded(setPrescriptionsList, pres); setLoaded(setUnexpectedWorksList, uw);
+      setLoaded(setPrescriptionsList, pres);
+      if (role !== 'заказчик') setLoaded(setUnexpectedWorksList, uw);
       if (isLoaded(est)) applyLoadedEstimates(est, canLoadEstimates);
       setLoaded(setEstimateReconciliations, er); setLoaded(setBrigadeContracts, bc); setLoaded(setHiddenActs, hwa);
       applyQualityJournal(mij); applyQualityJournal(cbj); setLoaded(setSupervisorActs, sva);
