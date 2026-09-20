@@ -112,6 +112,7 @@ export function useAppMainState() {
   const [showJournalTableModal, setShowJournalTableModal] = useState(null);
   const [materialInspections, setMaterialInspections] = useState([]);
   const [qualityJournalLoadState, setQualityJournalLoadState] = useState({});
+  const [customerRecordsLoadState, setCustomerRecordsLoadState] = useState({});
   const [editingInspection, setEditingInspection] = useState(null);
   const [cableJournal, setCableJournal] = useState([]);
   const [editingCable, setEditingCable] = useState(null);
@@ -337,7 +338,7 @@ export function useAppMainState() {
     globalSearch, hiddenActs, history, initialDataLoaded, inlineEditPl, inlineEditPlData, inlineEditPrice,
     inspectionOrders, interimActs, inventory, inviteCodes, invoices, issueToolData, journalFilter, leads,
     listSearch, manualExpenses, masterProfile, masterProfiles, masterProjectId, masterRatings, materialAliases, materialAliasesError,
-    materialInspections, qualityJournalLoadState, setQualityJournalLoadState, materialNormOverrides, materialNorms, materialTransfers, materials, materialsPage,
+    materialInspections, qualityJournalLoadState, setQualityJournalLoadState, customerRecordsLoadState, setCustomerRecordsLoadState, materialNormOverrides, materialNorms, materialTransfers, materials, materialsPage,
     measurementDraftLoadingId, measurementRoomDrafts, mobileExpandedRenderLists, newAct, newBrigadeContract,
     newBrigadeItem, newBrigadePayment, newCatalogItem, newChecklist, newChecklistItem, newClient,
     newCompanyDoc, newContract, newDoor, newExpenseReport, newInspOrder, newInventory, newInvoice,

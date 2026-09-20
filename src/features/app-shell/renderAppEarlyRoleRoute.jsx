@@ -339,6 +339,10 @@ export function renderAppEarlyRoleRoute({
           projectStages: appMainState.projectStages,
           projectPayments: appMainState.projectPayments,
           contracts: appMainState.contracts,
+          projectDocuments: appMainState.projectDocuments,
+          projectLetters: appMainState.projectLetters,
+          warrantyDefects: appMainState.warrantyDefects,
+          customerRecordsLoadState: appMainState.customerRecordsLoadState,
         }}
         actions={{
           handleLogout: actions.handleLogout,

@@ -225,6 +225,8 @@ export function useAppCoreRuntime({
   } = useAppDataLoaders({
     companyContext,
     setQualityJournalLoadState: appMainState.setQualityJournalLoadState,
+    setCustomerRecordsLoadState: appMainState.setCustomerRecordsLoadState,
+    customerProjects: appMainState.projects,
     activePage,
     API,
     AUDIT_LOG_PAGE_LIMIT,

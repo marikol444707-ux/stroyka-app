@@ -3,6 +3,8 @@ import { customerProject, customerProjectRecord, customerRemark } from '../featu
 import useCustomerCommands from '../features/customer-cabinet/useCustomerCommands';
 import { customerProgress } from '../features/customer-cabinet/progress';
 import useProgressData from '../features/customer-cabinet/useProgressData';
+import CustomerDocuments from '../features/customer-cabinet/CustomerDocuments';
+import CustomerWarranty from '../features/customer-cabinet/CustomerWarranty';
 import ProjectHiddenWorksActSignatureModal from './ProjectHiddenWorksActSignatureModal';
 import PreviewModal from './PreviewModal';
 import ImagePreviewModal from './ImagePreviewModal';
@@ -53,6 +55,10 @@ export default function CustomerCabinetPage(props) {
     previewTitle,
     setPreviewContent,
     doPrint,
+    projectDocuments,
+    projectLetters,
+    warrantyDefects,
+    customerRecordsLoadState,
   } = props;
 
   const myProject = customerProject(projects, user);
@@ -656,6 +662,11 @@ export default function CustomerCabinetPage(props) {
               )}
             </div>
 
+            <CustomerDocuments project={myProject} user={user} documents={projectDocuments} letters={projectLetters}
+              loadState={customerRecordsLoadState} refresh={refreshData} fileSrc={fileSrc} C={C} card={card} btnG={btnG} />
+            <CustomerWarranty key={`${user.id}:${myProject.companyId}:${myProject.id}`} project={myProject} user={user}
+              records={warrantyDefects} loadState={customerRecordsLoadState} refresh={refreshData} fileSrc={fileSrc}
+              C={C} card={card} inp={inp} btnB={btnB} btnG={btnG} />
             <div style={{ ...card, padding: '20px', marginBottom: '16px' }}>
               <b style={{ color: C.text, fontSize: '14px', display: 'block', marginBottom: '12px' }}>⚠️ Мои замечания подрядчику</b>
               <textarea id="client_remark" placeholder="Опишите замечание..." style={{ ...inp, height: '70px' }} />

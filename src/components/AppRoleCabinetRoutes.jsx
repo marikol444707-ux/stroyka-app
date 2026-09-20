@@ -38,6 +38,10 @@ export default function AppRoleCabinetRoutes({
     projectStages,
     projectPayments,
     contracts,
+    projectDocuments,
+    projectLetters,
+    warrantyDefects,
+    customerRecordsLoadState,
   } = data;
   const {
     handleLogout,
@@ -137,6 +141,10 @@ export default function AppRoleCabinetRoutes({
     return (
       <React.Suspense fallback={pageFallback}>
         <CustomerCabinetPage
+          projectDocuments={projectDocuments}
+          projectLetters={projectLetters}
+          warrantyDefects={warrantyDefects}
+          customerRecordsLoadState={customerRecordsLoadState}
           user={user}
           projects={projects}
           handleLogout={handleLogout}

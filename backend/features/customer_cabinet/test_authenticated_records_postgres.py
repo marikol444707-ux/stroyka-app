@@ -100,4 +100,10 @@ class AuthenticatedCustomerRecordTest(unittest.TestCase):
             'description':'Фото дефекта','photoUrl':uploaded['url']})
         rows=self.api(self.customer,'GET','/warranty-defects')
         self.assertEqual(next(row for row in rows if row['id']==request['id'])['photoUrl'],uploaded['contentUrl'])
+        self.api(self.customer, 'PUT', f'/warranty-defects/{request["id"]}', {'status': 'Устранён'}, expected=403)
+        self.api(self.fixture['users']['director'], 'PUT', f'/warranty-defects/{request["id"]}',
+                 {'status': 'Устранён', 'fixNotes': 'Исправлено, результат проверен', 'fixedAt': '2026-09-20'})
+        updated = next(row for row in self.api(self.customer, 'GET', '/warranty-defects') if row['id'] == request['id'])
+        self.assertEqual((updated['status'], updated['fixNotes']), ('Устранён', 'Исправлено, результат проверен'))
+        self.assertEqual(updated['photoUrl'], uploaded['contentUrl'])
         self.api(self.customer,'DELETE',uploaded['metadataUrl'],expected=403)

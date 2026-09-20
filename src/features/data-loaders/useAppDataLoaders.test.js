@@ -9,6 +9,32 @@ const snapshotHeaders = { get: name => name === 'X-Quality-Journal-Snapshot' ? '
 
 const company = id => ({ mode: 'company', selectedCompanyId: id, companies: [{ companyId: id, role: 'директор' }] });
 const journalRow = { id: 1, companyId: 2, projectId: 11, projectName: 'Школа', materialName: 'Кабель', cableBrand: 'ВВГ', quantity: 10, lengthReceived: 10 };
+function useCustomerHarness() {
+  const [docs, setProjectDocuments] = useState([]);
+  const [recordsState, setCustomerRecordsLoadState] = useState({});
+  const runtime = useJournalHarness(company(2), {
+    user: { id: 7, role: 'заказчик', projectId: 11, companyId: 2 },
+    customerProjects: [{ id: 11, companyId: 2, name: 'Школа' }],
+    setProjectDocuments, setCustomerRecordsLoadState,
+    roleFlagsForUser: () => ({ role: 'заказчик', canSeeProjectDocs: true }),
+  });
+  return { ...runtime, docs, recordsState };
+}
+
+test('generic customer loading neither duplicates document reads nor clears the owned snapshot', async () => {
+  const document = { id: 1, companyId: 2, projectId: 11, side: 'customer', docType: 'Visible' };
+  global.fetch = jest.fn(async url => ({ ok: true, headers: snapshotHeaders,
+    json: async () => url.endsWith('/project-documents') ? [document] : [] }));
+  const { result } = renderHook(() => useCustomerHarness());
+  await waitFor(() => expect(result.current.recordsState.documents?.status).toBe('ready'));
+  await act(async () => { await result.current.loadAll(); });
+  expect(result.current.docs).toEqual([document]);
+  expect(fetch.mock.calls.filter(([url]) => url.endsWith('/project-documents'))).toHaveLength(1);
+  await act(async () => { await result.current.refreshData('projects'); });
+  expect(result.current.docs).toEqual([document]);
+  expect(fetch.mock.calls.filter(([url]) => url.endsWith('/project-documents'))).toHaveLength(2);
+});
+
 function useJournalHarness(companyContext, overrides = {}) {
   const [inspections, setMaterialInspections] = useState([journalRow]);
   const [cables, setCableJournal] = useState([journalRow]);

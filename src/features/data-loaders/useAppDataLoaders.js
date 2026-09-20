@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react';
+import useCustomerRecordsLoader from '../customer-cabinet/useCustomerRecordsLoader';
 import { createCompanyRequisitesForm } from '../settings/settingsInitialForms';
 import { qualityJournalScopeKey, requireQualityJournalOwnership } from '../../utils/qualityJournalScope';
 import { getQualityJournalRevision, qualityJournalMutationIssue, QUALITY_JOURNAL_MUTATED } from '../../utils/qualityJournalEvents';
@@ -17,6 +18,7 @@ const canLoadAccountingDataForRole = (role) => ACCOUNTING_DATA_ROLES.includes(ro
 const assignmentsPathForRole = (role) => SYSTEM_ASSIGNMENT_ROLES.includes(role) ? '/assignments?include_system=true' : '/assignments';
 
 export const useAppDataLoaders = (ctx) => {
+  const reloadCustomerRecords = useCustomerRecordsLoader(ctx);
   const {
     companyContext = {}, setQualityJournalLoadState,
     activePage, API, AUDIT_LOG_PAGE_LIMIT, buildPagedPath, canAccessRole, createMaterialNormsPageState,
@@ -341,7 +343,7 @@ export const useAppDataLoaders = (ctx) => {
           loadQualityJournal('inspections', canSeeProjectDocs),
           loadQualityJournal('cables', canSeeProjectDocs),
           canSeeProjectDocs ? getApi('/supervisor-acts') : Promise.resolve([]),
-          (isInternalRole || isFinanceRole || role === 'заказчик') ? getApi('/project-documents') : Promise.resolve([]),
+          role !== 'заказчик' && (isInternalRole || isFinanceRole) ? getApi('/project-documents') : Promise.resolve([]),
           canSeeProjectDocs ? getApi('/project-measurements') : Promise.resolve([]),
           role === 'поставщик' ? getApi('/suppliers') : Promise.resolve([]),
           role === 'поставщик' ? getApi('/supplier-catalog') : Promise.resolve([]),
@@ -373,7 +375,7 @@ export const useAppDataLoaders = (ctx) => {
         applyQualityJournal(mij);
         applyQualityJournal(cbj);
         setSupervisorActs(Array.isArray(sva)?sva:[]);
-        setProjectDocuments(Array.isArray(pdocs)?pdocs:[]);
+        if (role !== 'заказчик') setProjectDocuments(Array.isArray(pdocs)?pdocs:[]);
         setProjectMeasurements(Array.isArray(pmeas)?pmeas:[]);
       });
     } finally {
@@ -440,9 +442,9 @@ export const useAppDataLoaders = (ctx) => {
         loadQualityJournal('cables', canSeeProjectDocs || isWarehouseRole),
         canSeeProjectDocs ? getApi('/supervisor-acts') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/inspection-orders') : Promise.resolve([]),
-        canSeeProjectDocs ? getApi('/warranty-defects') : Promise.resolve([]),
-        (isInternalRole || isFinanceRole || role==='заказчик') ? getApi('/project-documents') : Promise.resolve([]),
-        (isInternalRole || isFinanceRole || role==='заказчик') ? getApi('/project-letters') : Promise.resolve([]),
+        role !== 'заказчик' && canSeeProjectDocs ? getApi('/warranty-defects') : Promise.resolve([]),
+        role !== 'заказчик' && (isInternalRole || isFinanceRole) ? getApi('/project-documents') : Promise.resolve([]),
+        role !== 'заказчик' && (isInternalRole || isFinanceRole) ? getApi('/project-letters') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/project-measurements') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/measurement-room-drafts') : Promise.resolve([]),
         canLoadPeopleData ? getApi('/staff') : Promise.resolve([]),
@@ -470,8 +472,11 @@ export const useAppDataLoaders = (ctx) => {
       setEstimateReconciliations(Array.isArray(er)?er:[]); setBrigadeContracts(Array.isArray(bc)?bc:[]); setAllBrigadeItems(Array.isArray(abi)?abi:[]);
       setHiddenActs(Array.isArray(hwa)?hwa:[]); applyQualityJournal(mij);
       applyQualityJournal(cbj); setSupervisorActs(Array.isArray(sva)?sva:[]);
-      setInspectionOrders(Array.isArray(inspO)?inspO:[]); setWarrantyDefects(Array.isArray(warD)?warD:[]);
-      setProjectDocuments(Array.isArray(pdocs)?pdocs:[]); setProjectLetters(Array.isArray(plet)?plet:[]);
+      setInspectionOrders(Array.isArray(inspO)?inspO:[]);
+      if (role !== 'заказчик') {
+        setWarrantyDefects(Array.isArray(warD)?warD:[]);
+        setProjectDocuments(Array.isArray(pdocs)?pdocs:[]); setProjectLetters(Array.isArray(plet)?plet:[]);
+      }
       setProjectMeasurements(Array.isArray(pmeas)?pmeas:[]); setMeasurementRoomDrafts(Array.isArray(mdrafts)?mdrafts:[]);
       setStaff(Array.isArray(s)?s:[]);
       setUsers(Array.isArray(u)?u:[]);
@@ -762,7 +767,7 @@ export const useAppDataLoaders = (ctx) => {
         canSeeProjectDocs ? get('/inspection-orders') : skip([]),
         isFinanceRole ? get('/expense-reports') : skip([]),
         canSeeSupplierInvoices ? get('/supplier-invoices') : skip([]),
-        canSeeProjectDocs ? get('/warranty-defects') : skip([]),
+        role !== 'заказчик' && canSeeProjectDocs ? get('/warranty-defects') : skip([]),
         (isSupplyRole || isWarehouseRole || isFinanceRole || role === 'поставщик') ? get('/supplier-catalog') : skip([]),
         canSeeProjectDocs ? get('/ai-findings') : skip([]),
         canSeeProjectDocs ? get(assignmentsPathForRole(role)) : skip([]),
@@ -791,7 +796,8 @@ export const useAppDataLoaders = (ctx) => {
       setLoaded(setEstimateReconciliations, er); setLoaded(setBrigadeContracts, bc); setLoaded(setHiddenActs, hwa);
       applyQualityJournal(mij); applyQualityJournal(cbj); setLoaded(setSupervisorActs, sva);
       setLoaded(setInspectionOrders, inspO); setLoaded(setExpenseReports, expR); setLoaded(setSupplierInvoices, supI);
-      setLoaded(setWarrantyDefects, warD); setLoaded(setSupplierCatalog, scat);
+      if (role !== 'заказчик') setLoaded(setWarrantyDefects, warD);
+      setLoaded(setSupplierCatalog, scat);
       setLoaded(setAiFindings, aif); setLoaded(setAiTasks, ait);
       if (isLoaded(mn)) { setMaterialNorms(asArray(mn)); resetMaterialNormsPage(asArray(mn)); }
       if (!ownedAliasesEnabled()) setLoaded(setMaterialAliases, ma);
@@ -852,7 +858,7 @@ export const useAppDataLoaders = (ctx) => {
         const abp = await get('/brigade-payments');
         setLoaded(setAllBrigadePayments, abp);
       } catch(e) {}
-      if (canSeeProjectDocs || canLoadAccountingData || role==='заказчик') try {
+      if (role !== 'заказчик' && (canSeeProjectDocs || canLoadAccountingData)) try {
         const pdocs = await get('/project-documents');
         setLoaded(setProjectDocuments, pdocs);
         const plet = await get('/project-letters');
@@ -877,6 +883,7 @@ export const useAppDataLoaders = (ctx) => {
   };
 
   const refreshData = async (page = activePage) => {
+    if (user?.role === 'заказчик') await reloadCustomerRecords();
     mobileApiRequestsRef.current.clear();
     mobileLoadedScopesRef.current.delete('full');
     const scope = mobileScopeForPage(page);
