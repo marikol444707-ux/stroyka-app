@@ -2597,71 +2597,9 @@ def register_platform_admin_routes(app, deps):
 
     @app.post("/system/payments")
     def system_create_payment(data: dict, current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES))):
-        client_contract_id = _billing_document_contract_id(data)
-        company_id = data.get("companyId") or data.get("company_id")
-        amount = float(data.get("amount") or 0)
-        if not company_id:
-            raise HTTPException(status_code=400, detail="Укажите компанию")
-        if amount <= 0:
-            raise HTTPException(status_code=400, detail="Сумма должна быть больше 0")
-        conn = get_db()
-        conn.autocommit = False
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        try:
-            cur.execute(
-                "SELECT id, name, platform_account_id FROM companies WHERE id=%s",
-                (company_id,),
-            )
-            company = cur.fetchone()
-            if not company:
-                raise HTTPException(status_code=404, detail="Компания не найдена")
-            contract = _load_billing_document_contract(
-                cur,
-                client_contract_id,
-                company_id,
-                company.get("platform_account_id"),
-            )
-            cur.execute("""INSERT INTO company_payments
-                              (company_id, client_contract_id, amount, payment_date, method,
-                               invoice_number, status, period_start, period_end,
-                               notes, created_by)
-                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                           RETURNING id""",
-                (company_id, client_contract_id, amount, data.get("paymentDate") or None,
-                 data.get("method"), data.get("invoiceNumber"), data.get("status") or "paid",
-                 data.get("periodStart") or None, data.get("periodEnd") or None,
-                 data.get("notes"), data.get("createdBy")))
-            new_id = cur.fetchone()["id"]
-            if data.get("periodEnd"):
-                cur.execute("""UPDATE companies
-                               SET plan_expires_at=%s, payment_status='active',
-                                   suspended_at=NULL, suspended_reason=NULL, active=TRUE
-                               WHERE id=%s""",
-                    (data["periodEnd"], company_id))
-            _system_write_audit(cur, current_user, "payment_added", "company_payment", new_id,
-                data.get("invoiceNumber") or company.get("name"), platform_account_id=company.get("platform_account_id"),
-                company_id=company_id,
-                details={
-                    "amount": amount,
-                    "paymentDate": data.get("paymentDate"),
-                    "periodStart": data.get("periodStart"),
-                    "periodEnd": data.get("periodEnd"),
-                    "method": data.get("method"),
-                    "companyName": company.get("name"),
-                    "clientContractId": client_contract_id,
-                    "clientContractNumber": contract.get("number") if contract else None,
-                })
-            conn.commit()
-            return {"id": new_id, "ok": True}
-        except HTTPException:
-            conn.rollback()
-            raise
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            cur.close()
-            conn.close()
+        from .payment_commands import create_manual_payment
+        return create_manual_payment(get_db, data, current_user,
+            load_contract=_load_billing_document_contract, audit=_system_write_audit)
 
     @app.put("/system/payments/{id}/client-contract")
     def system_update_payment_contract(
@@ -2744,6 +2682,7 @@ def register_platform_admin_routes(app, deps):
 
     @app.post("/system/payment-events/{id}/confirm")
     def system_confirm_payment_event(id: int, data: dict = None, current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES))):
+        from .payment_commands import extend_paid_period, money, optional_date
         data = data or {}
         conn = get_db()
         conn.autocommit = False
@@ -2771,6 +2710,21 @@ def register_platform_admin_routes(app, deps):
                 raise HTTPException(status_code=400, detail="Событие не доверенное")
             if not event.get("billing_document_id"):
                 raise HTTPException(status_code=400, detail="Событие не связано с платежным документом")
+            # Different provider events for one invoice must serialize on the invoice,
+            # then read its current state after waiting for the previous confirmation.
+            cur.execute("""SELECT number AS billing_document_number, status AS billing_document_status,
+                amount AS billing_document_amount, currency AS billing_document_currency,
+                payment_provider AS billing_payment_provider, period_start AS billing_period_start,
+                period_end AS billing_period_end, client_contract_id AS billing_client_contract_id,
+                platform_account_id AS document_platform_account_id, company_id AS document_company_id
+                FROM platform_billing_documents WHERE id=%s FOR UPDATE""", (event['billing_document_id'],))
+            locked_document = cur.fetchone()
+            if not locked_document:
+                raise HTTPException(404, "Платежный документ не найден")
+            event.update(locked_document)
+            for event_key, document_key in (('company_id','document_company_id'), ('platform_account_id','document_platform_account_id')):
+                if event.get(event_key) is not None and event[event_key] != event.get(document_key):
+                    raise HTTPException(400, "Владелец события не совпадает с платежным документом")
             if not event.get("billing_document_number"):
                 raise HTTPException(status_code=404, detail="Платежный документ не найден")
             if event.get("billing_document_status") in ("closed", "cancelled"):
@@ -2781,20 +2735,28 @@ def register_platform_admin_routes(app, deps):
                 raise HTTPException(status_code=400, detail="Провайдер события не совпадает с платежным документом")
             if not _payment_event_success_status(provider, event.get("provider_status")):
                 raise HTTPException(status_code=400, detail="Статус провайдера не подтверждает успешную оплату")
-            if not _money_matches(event.get("amount"), event.get("billing_document_amount")):
+            if money(event.get("amount")) != money(event.get("billing_document_amount")):
                 raise HTTPException(status_code=400, detail="Сумма события не совпадает с платежным документом")
             event_currency = (event.get("currency") or "RUB").strip().upper()
             document_currency = (event.get("billing_document_currency") or "RUB").strip().upper()
-            if event_currency != document_currency:
+            if event_currency != document_currency or event_currency != "RUB":
                 raise HTTPException(status_code=400, detail="Валюта события не совпадает с платежным документом")
 
-            company_id = event.get("company_id") or event.get("document_company_id")
-            platform_account_id = event.get("platform_account_id") or event.get("document_platform_account_id")
+            company_id = event.get("document_company_id")
+            platform_account_id = event.get("document_platform_account_id")
             if not company_id:
                 raise HTTPException(status_code=400, detail="Не найдена компания для зачисления платежа")
+            cur.execute("SELECT id,platform_account_id FROM companies WHERE id=%s FOR UPDATE", (company_id,))
+            company = cur.fetchone()
+            if not company or company['platform_account_id'] != platform_account_id:
+                raise HTTPException(400, "Компания не соответствует владельцу счёта")
             period_start = data.get("periodStart") or data.get("period_start") or event.get("billing_period_start")
             period_end = data.get("periodEnd") or data.get("period_end") or event.get("billing_period_end")
             payment_date = data.get("paymentDate") or data.get("payment_date") or dt.date.today().isoformat()
+            period_start, period_end, payment_date = map(optional_date, (period_start, period_end, payment_date))
+            if period_start and period_end and period_start > period_end:
+                raise HTTPException(422, "Конец периода не может быть раньше начала")
+            amount = money(event.get("amount"))
             notes = (data.get("notes") or "").strip()
             base_note = "Зачислено вручную по событию провайдера #" + str(id)
             if notes:
@@ -2805,15 +2767,11 @@ def register_platform_admin_routes(app, deps):
                            VALUES (%s,%s,%s,%s,%s,%s,'paid',%s,%s,%s,%s)
                            RETURNING id""",
                         (company_id, event.get("billing_client_contract_id"),
-                         float(event.get("amount") or 0), payment_date, provider or "provider",
+                         amount, payment_date, provider or "provider",
                          event.get("billing_document_number"), period_start or None, period_end or None,
                          base_note, current_user.get("name") or current_user.get("email")))
             payment_id = cur.fetchone()["id"]
-            if period_end:
-                cur.execute("""UPDATE companies
-                               SET plan_expires_at=%s, payment_status='active',
-                                   suspended_at=NULL, suspended_reason=NULL, active=TRUE
-                               WHERE id=%s""", (period_end, company_id))
+            extend_paid_period(cur, company_id, period_end)
             cur.execute("""UPDATE platform_billing_documents
                            SET status='closed', updated_at=NOW()
                            WHERE id=%s

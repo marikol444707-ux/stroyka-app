@@ -74,7 +74,7 @@ const payment = {
 function renderCabinet() {
   return render(
     <SystemOwnerCabinet
-      user={{name: 'Биллинг', role: 'billing_admin'}}
+      user={{id: 77, name: 'Биллинг', role: 'billing_admin'}}
       setUser={jest.fn()}
       C={colors}
       card={{}}
@@ -91,6 +91,8 @@ function renderCabinet() {
 
 describe('SystemOwnerCabinet billing contract links', () => {
   beforeEach(() => {
+    sessionStorage.clear();
+    Object.defineProperty(window, 'crypto', {configurable: true, value: require('crypto').webcrypto});
     global.fetch = jest.fn(async (url, options = {}) => {
       if (url === '/system/companies') return jsonResponse([company]);
       if (url === '/system/billing-documents') {
@@ -234,7 +236,38 @@ describe('SystemOwnerCabinet billing contract links', () => {
         companyId: 42,
         clientContractId: 101,
         amount: '49900',
+        requestId: expect.stringMatching(/^[0-9a-f-]{36}$/),
       }));
     });
   });
+  test('retries the persisted payment after a lost response and page remount', async () => {
+    const fetchNormally = global.fetch.getMockImplementation();
+    let paymentAttempts = 0;
+    global.fetch.mockImplementation(async (url, options = {}) => {
+      if (url === '/system/payments' && options.method === 'POST' && ++paymentAttempts === 1) {
+        throw new TypeError('Connection lost after server committed');
+      }
+      return fetchNormally(url, options);
+    });
+    const first = renderCabinet();
+    fireEvent.click(screen.getByRole('button', {name: '💰 Платежи'}));
+    await screen.findByText(/Фактические платежи \(1\)/);
+    fireEvent.click(screen.getByRole('button', {name: '+ Зачислить платеж'}));
+    fireEvent.change(screen.getByLabelText('Компания платежа'), {target: {value: '42'}});
+    fireEvent.change(screen.getAllByPlaceholderText('Сумма ₽ *').at(-1), {target: {value: '49900'}});
+    fireEvent.click(screen.getByRole('button', {name: '✓ Зачислить'}));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Повторите зачисление');
+    first.unmount();
+    renderCabinet();
+    fireEvent.click(screen.getByRole('button', {name: '💰 Платежи'}));
+    await screen.findByText(/Фактические платежи \(1\)/);
+    expect(screen.getByLabelText('Компания платежа')).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', {name: '✓ Зачислить'}));
+    await waitFor(() => expect(screen.queryByRole('button', {name: '✓ Зачислить'})).not.toBeInTheDocument());
+    const commands = global.fetch.mock.calls.filter(([url, options]) => url === '/system/payments' && options.method === 'POST').map(([,options]) => JSON.parse(options.body));
+    expect(commands).toHaveLength(2);
+    expect(commands[1]).toEqual(commands[0]);
+    expect(sessionStorage.length).toBe(0);
+  });
+
 });

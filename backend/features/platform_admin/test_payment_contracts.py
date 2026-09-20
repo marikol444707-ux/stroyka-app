@@ -51,6 +51,12 @@ class FakeCursor:
         self.current = None
         return value
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        self.close()
+
     def close(self):
         pass
 
@@ -156,7 +162,7 @@ class PaymentContractTests(unittest.TestCase):
 
     def test_create_links_same_company_contract_and_commits(self):
         connection = FakeConnection([
-            company_row(),
+            None, None, company_row(),
             contract_row(),
             {"id": 701},
         ])
@@ -165,6 +171,7 @@ class PaymentContractTests(unittest.TestCase):
         with patch.object(routes, "_system_write_audit") as audit:
             result = handlers[("POST", "/system/payments")](
                 {
+                    "requestId": "f648835f-827b-4b79-bd39-ce313eab561f",
                     "companyId": 42,
                     "clientContractId": 101,
                     "amount": 49900,
@@ -179,21 +186,22 @@ class PaymentContractTests(unittest.TestCase):
 
         self.assertTrue(result["ok"])
         calls = connection.cursor_instance.calls
-        self.assertIn("company_id=%s AND platform_account_id=%s", calls[1][0])
-        self.assertIn("status <> 'cancelled'", calls[1][0])
-        self.assertIn("client_contract_id", calls[2][0])
-        self.assertIn(101, calls[2][1])
+        self.assertIn("company_id=%s AND platform_account_id=%s", calls[3][0])
+        self.assertIn("status <> 'cancelled'", calls[3][0])
+        self.assertIn("client_contract_id", calls[4][0])
+        self.assertIn(101, calls[4][1])
         self.assertEqual(connection.commits, 1)
         audit.assert_called_once()
         self.assertEqual(audit.call_args.kwargs["details"]["clientContractId"], 101)
 
     def test_create_rejects_foreign_or_cancelled_contract_without_insert(self):
-        connection = FakeConnection([company_row(), None])
+        connection = FakeConnection([None, None, company_row(), None])
         handlers = register_handlers(connection)
 
         with self.assertRaises(HTTPException) as raised:
             handlers[("POST", "/system/payments")](
                 {
+                    "requestId": "f648835f-827b-4b79-bd39-ce313eab561f",
                     "companyId": 42,
                     "clientContractId": 202,
                     "amount": 49900,
@@ -292,6 +300,8 @@ class PaymentContractTests(unittest.TestCase):
         }
         connection = FakeConnection([
             event,
+            {key: value for key,value in event.items() if key.startswith(("billing_", "document_"))},
+            company_row(),
             {"id": 701},
             closed_document,
             {**event, "payment_id": 701, "action_status": "payment_recorded"},
@@ -308,7 +318,7 @@ class PaymentContractTests(unittest.TestCase):
         self.assertEqual(result["paymentId"], 701)
         select_sql = connection.cursor_instance.calls[0][0]
         self.assertIn("d.client_contract_id AS billing_client_contract_id", select_sql)
-        insert_sql, insert_params = connection.cursor_instance.calls[1]
+        insert_sql, insert_params = next(call for call in connection.cursor_instance.calls if "INSERT INTO company_payments" in call[0])
         self.assertIn("client_contract_id", insert_sql)
         self.assertIn(101, insert_params)
 

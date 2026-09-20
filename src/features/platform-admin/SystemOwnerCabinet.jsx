@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   buildCompanyOnboardingResult,
   describeClientCardConfidence,
 } from './companyOnboarding';
 import ClientContractsPanel from './ClientContractsPanel';
 import './SystemOwnerCabinet.css';
+import { pendingPayment, preparePayment, finishPayment } from './paymentCommands';
 
 function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, inp, badge, API}) {
   const [tab, setTab] = useState('dashboard');
@@ -36,8 +37,12 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
   const [companyPreview, setCompanyPreview] = useState(null);
   const [companyPreviewLoading, setCompanyPreviewLoading] = useState(false);
   const [contractCompanyId, setContractCompanyId] = useState(null);
-  const [newPayment, setNewPayment] = useState({companyId:'',clientContractId:'',amount:'',paymentDate:new Date().toISOString().split('T')[0],method:'card',invoiceNumber:'',periodStart:'',periodEnd:'',notes:''});
-  const [showNewPayment, setShowNewPayment] = useState(false);
+  const [newPayment, setNewPayment] = useState(() => pendingPayment(user.id) || {companyId:'',clientContractId:'',amount:'',paymentDate:new Date().toISOString().split('T')[0],method:'card',invoiceNumber:'',periodStart:'',periodEnd:'',notes:''});
+  const [showNewPayment, setShowNewPayment] = useState(() => Boolean(pendingPayment(user.id)));
+  const [paymentWorking, setPaymentWorking] = useState(false);
+  const [paymentError, setPaymentError] = useState('');
+  const [paymentPending, setPaymentPending] = useState(() => Boolean(pendingPayment(user.id)));
+  const paymentBusy = useRef(false);
   const [newBillingDocument, setNewBillingDocument] = useState({companyId:'',clientContractId:'',documentType:'invoice',status:'draft',amount:'',issueDate:new Date().toISOString().split('T')[0],dueDate:'',periodStart:'',periodEnd:'',paymentProvider:'manual',paymentUrl:'',fileUrl:'',notes:''});
   const [showNewBillingDocument, setShowNewBillingDocument] = useState(false);
   const emptyFollowupForm = {companyId:'',billingDocumentId:'',source:'payment',channel:'call',title:'',contactName:'',contactValue:'',dueDate:new Date().toISOString().split('T')[0],status:'open',responsibleName:user.name || '',notes:'',result:''};
@@ -576,7 +581,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
     await loadAll();
   };
   const openCompanyPayment = (company) => {
-    setNewPayment({...newPayment, companyId:company.id, clientContractId:'', amount:company.monthly_fee || ''});
+    if (!paymentPending) setNewPayment({...newPayment, companyId:company.id, clientContractId:'', amount:company.monthly_fee || ''});
     setShowNewPayment(true);
     setTab('payments');
   };
@@ -1487,6 +1492,9 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
           {paymentContractNotice && <div role='status' style={{...card,padding:'10px 12px',marginBottom:'14px',color:C.success,backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}>{paymentContractNotice}</div>}
           {showNewPayment && (<div style={{...card,padding:'16px',marginBottom:'14px'}}>
             <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'10px'}}>Зачислить фактический платеж</b>
+            {paymentError && <p role='alert'>{paymentError}</p>}
+            {paymentPending && <p>Сохранён платёж для повторной проверки. Его реквизиты зафиксированы до подтверждения.</p>}
+            <fieldset disabled={paymentWorking || paymentPending} style={{border:0,padding:0,margin:0}}>
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
               <select aria-label='Компания платежа' value={newPayment.companyId} onChange={e=>setNewPayment({...newPayment,companyId:Number(e.target.value),clientContractId:''})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}>
                 <option value=''>Компания *</option>
@@ -1509,16 +1517,41 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
               <input type='date' placeholder='Период по' value={newPayment.periodEnd} onChange={e=>setNewPayment({...newPayment,periodEnd:e.target.value})} style={{...inp,marginBottom:0}}/>
             </div>
             <input placeholder='Заметки' value={newPayment.notes} onChange={e=>setNewPayment({...newPayment,notes:e.target.value})} style={{...inp,marginTop:'8px'}}/>
+            </fieldset>
             <div style={{display:'flex',gap:'8px',marginTop:'8px'}}>
-              <button onClick={async()=>{
-                if(!newPayment.companyId||!newPayment.amount) { alert('Заполните компанию и сумму'); return; }
-                const response = await sendJson('/system/payments',{method:'POST',body:JSON.stringify({...newPayment,createdBy:user.name})});
-                const data = await response.json().catch(()=>({}));
-                if(!response.ok){ alert(data.detail || 'Не удалось зачислить платеж'); return; }
-                setShowNewPayment(false);
-                setNewPayment({companyId:'',clientContractId:'',amount:'',paymentDate:new Date().toISOString().split('T')[0],method:'card',invoiceNumber:'',periodStart:'',periodEnd:'',notes:''});
-                await loadAll();
-              }} style={btnO}>✓ Зачислить</button>
+              <button disabled={paymentWorking} onClick={async()=>{
+                if (paymentBusy.current) return;
+                if(!newPayment.companyId||!newPayment.amount) { setPaymentError('Заполните компанию и сумму'); return; }
+                paymentBusy.current = true;
+                setPaymentWorking(true);
+                setPaymentError('');
+                try {
+                  const command = preparePayment(user.id, newPayment);
+                  setNewPayment(command);
+                  setPaymentPending(true);
+                  const response = await sendJson('/system/payments',{method:'POST',body:JSON.stringify(command)});
+                  const data = await response.json();
+                  if (!response.ok) {
+                    if (response.status >= 400 && response.status < 500 && response.status !== 409) {
+                      finishPayment(user.id);
+                      setPaymentPending(false);
+                    }
+                    setPaymentError(data.detail || 'Не удалось зачислить платеж');
+                    return;
+                  }
+                  if (!data.ok || !data.id) throw new Error('Ответ не содержит подтверждение зачисления');
+                  finishPayment(user.id);
+                  setPaymentPending(false);
+                  setShowNewPayment(false);
+                  setNewPayment({companyId:'',clientContractId:'',amount:'',paymentDate:new Date().toISOString().split('T')[0],method:'card',invoiceNumber:'',periodStart:'',periodEnd:'',notes:''});
+                  await loadAll();
+                } catch (error) {
+                  setPaymentError('Не удалось получить подтверждение. Повторите зачисление: сохранённый номер операции защитит от дубля.');
+                } finally {
+                  paymentBusy.current = false;
+                  setPaymentWorking(false);
+                }
+              }} style={btnO}>{paymentWorking ? 'Зачисление…' : '✓ Зачислить'}</button>
               <button onClick={()=>setShowNewPayment(false)} style={btnG}>Отмена</button>
             </div>
           </div>)}
