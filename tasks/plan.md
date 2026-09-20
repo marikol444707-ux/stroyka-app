@@ -1,6 +1,6 @@
 # Implementation Plan: Safe Stroyka Program Improvements
 
-## Current slice: P13 profile released; next P14 final acceptance
+## Current slice: P14 browser/chain acceptance released; notification delivery and disk capacity remain
 
 Roadmap: [Supplier portal implementation plan](../docs/supplier-portal-roadmap.md).
 User deferred inbox/spam investigation and Mail support to final acceptance P14.
@@ -782,5 +782,6 @@ Do not continue old per-offer assignment UI as the main workflow.
 
 - [x] 29 сценариев PostgreSQL: цепочка, частичные отгрузки, приёмка/претензии, команда, файлы, сроки, две компании и email.
 - [x] Исправлена потеря черновика/UUID операции при focus; шапка сразу обновляет сохранённое название. Независимое ревью пройдено.
-- [ ] Общие frontend проверки, выпуск и рабочий браузер.
+- [x] 201 frontend suite / 1214 tests, build, выпуск1d467fb7e040; livefocus/сохранение/шапка/восстановление,10мобильных разделов без обнаруженных ошибок;180таблиц сохранены.
+- [ ] Запас диска: после сжатия двух проверенных backup около2ГБ/77ГБ, нужен дальнейший план ёмкости/хранения.
 - [ ] Остаток P3.2 и внешняя доставляемость уведомлений остаются открытыми; см. docs/supplier-final-acceptance.md.
