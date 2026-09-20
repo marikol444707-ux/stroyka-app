@@ -19,7 +19,10 @@ ALTER TABLE {table}
     ADD CONSTRAINT {table}_project_owner_fk
         FOREIGN KEY(project_id,company_id) REFERENCES projects(id,company_id);
 CREATE INDEX {table}_owner_idx ON {table}(company_id,project_id,id);
-''' for table in TABLES)
+''' for table in TABLES) + '''
+ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS fix_photo_url TEXT;
+ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS fix_notes TEXT;
+'''
 
 
 def upgrade():

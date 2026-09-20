@@ -1163,22 +1163,8 @@ def register_crm_module(app, deps):
         try:
             lead = fetch_lead(cur, lead_id, for_update=True)
             owner = child_owner(cur, current_user, lead, "update", x_company_id, x_company_mode)
-            project_name = _text(data.get("projectName"), 255)
-            if project_name:
-                cur.execute(
-                    "SELECT id,name,company_id FROM projects WHERE name=%s AND company_id=%s LIMIT 1",
-                    (project_name, owner["companyId"]),
-                )
-            elif lead.get("projectId"):
-                cur.execute(
-                    "SELECT id,name,company_id FROM projects WHERE id=%s AND company_id=%s LIMIT 1",
-                    (lead.get("projectId"), owner["companyId"]),
-                )
-            else:
-                raise HTTPException(status_code=400, detail="Сначала укажите или создайте объект")
-            project = cur.fetchone()
-            if not project:
-                raise HTTPException(status_code=404, detail="Объект не найден")
+            from .document_transfer import document_transfer_project
+            project = document_transfer_project(cur, owner, lead, data)
             project_name = project.get("name") or ""
             raw_doc_ids = data.get("documentIds")
             if raw_doc_ids is not None and not isinstance(raw_doc_ids, list):
@@ -1211,23 +1197,24 @@ def register_crm_module(app, deps):
                 doc_type = doc.get("doc_type") or ""
                 cur.execute("""
                     SELECT id FROM project_documents
-                    WHERE project_name=%s AND COALESCE(scan_url,'')=%s AND COALESCE(doc_type,'')=%s
+                    WHERE company_id=%s AND project_id=%s AND COALESCE(scan_url,'')=%s AND COALESCE(doc_type,'')=%s
                     LIMIT 1
-                """, (project_name, file_url, doc_type))
+                """, (owner["companyId"], project["id"], file_url, doc_type))
                 existing = cur.fetchone()
                 if existing:
                     skipped.append(existing.get("id"))
                     continue
                 cur.execute("""
                     INSERT INTO project_documents (
-                        project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by
-                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id
+                        project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by,company_id,project_id,created_by_user_id
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id
                 """, (
                     project_name, side, doc_type, doc.get("number") or "",
                     doc.get("doc_date") or None, lead.get("name") or "",
                     doc.get("status") or "Загружен", file_url, lead.get("budget") or 0,
                     ("Передано из CRM-заявки #" + str(lead_id) + ". " + (doc.get("notes") or ""))[:4000],
                     current_user.get("name") or "",
+                    owner["companyId"], project["id"], current_user.get("id"),
                 ))
                 project_doc_id = cur.fetchone()["id"]
                 created.append(project_doc_id)

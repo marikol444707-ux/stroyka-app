@@ -525,8 +525,8 @@ class CrmRouteOwnershipTests(unittest.TestCase):
             "notes": "",
         }
         cursor = FakeCursor(
-            fetchone_values=[lead_row(project_id=None), {"id": 21, "name": "Объект", "company_id": 4}, None, {"id": 101}],
-            fetchall_values=[[document]],
+            fetchone_values=[lead_row(project_id=None), None, {"id": 101}],
+            fetchall_values=[[{"id": 21, "name": "Объект", "company_id": 4}], [document]],
         )
         app, connection, _, resource_calls = self.build_app(cursor)
 
@@ -540,7 +540,13 @@ class CrmRouteOwnershipTests(unittest.TestCase):
 
         project_sql, project_params = next(call for call in cursor.calls if "FROM projects" in call[0])
         self.assertIn("company_id=%s", project_sql)
-        self.assertEqual(project_params, ("Объект", 4))
+        self.assertEqual(project_params, (4, "Объект"))
+        insert_sql, insert_params = next(call for call in cursor.calls if call[0].startswith("INSERT INTO project_documents"))
+        self.assertIn("company_id,project_id,created_by_user_id", insert_sql)
+        self.assertEqual(insert_params[-3:], (4,21,9))
+        dedup_sql, dedup_params = next(call for call in cursor.calls if call[0].startswith("SELECT id FROM project_documents"))
+        self.assertIn("company_id=%s AND project_id=%s", dedup_sql)
+        self.assertEqual(dedup_params[:2], (4,21))
         docs_sql, docs_params = next(call for call in cursor.calls if call[0].startswith("SELECT * FROM crm_lead_documents"))
         self.assertIn("company_id=%s", docs_sql)
         self.assertIn("project_id IS NOT DISTINCT FROM %s", docs_sql)

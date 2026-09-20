@@ -1,85 +1,83 @@
-"""Prescription routes.
+"""Prescriptions scoped to the selected company, project and immutable author."""
+from fastapi import Depends, HTTPException, Request
 
-Extracted verbatim from backend/main.py (Task 13.1, slice 25):
-the /prescriptions quartet keeps its URLs, role guards, customer
-self-scope rules and soft-delete via status.
-"""
-
-from fastapi import Depends, HTTPException
+from ..customer_cabinet.record_scope import require_record_author
 
 
 def register_prescriptions_module(app, deps):
-    get_db = deps["get_db"]
-    require_roles = deps["require_roles"]
-    read_roles = tuple(deps.get("read_roles") or ())
-    write_roles = tuple(deps.get("write_roles") or ())
-    worker_execution_roles = tuple(deps.get("worker_execution_roles") or ())
-    visible_project_names = deps["visible_project_names"]
-    require_project_access = deps["require_project_access"]
-    require_row_project_access = deps["require_row_project_access"]
+    authenticated = deps['get_current_user']
+    read_roles = tuple(deps.get('read_roles') or ())
+    write_roles = tuple(deps.get('write_roles') or ())
+    worker_roles = tuple(deps.get('worker_execution_roles') or ())
+    scope = deps['record_scope']
+    create_roles = (*write_roles, 'заказчик')
 
-    @app.get("/prescriptions")
-    def get_prescriptions(current_user: dict = Depends(require_roles(*read_roles))):
-        conn = get_db()
-        cur = conn.cursor()
-        allowed_projects = visible_project_names(current_user)
-        if allowed_projects is not None:
-            if not allowed_projects:
-                cur.close(); conn.close()
-                return []
-            cur.execute("SELECT id,project_name,number,issued_by,issued_by_role,violation,deadline,responsible,status,photo_url,fix_photo_url,fix_notes FROM prescriptions WHERE project_name = ANY(%s) AND COALESCE(status,'') <> 'Аннулировано' ORDER BY id DESC", (allowed_projects,))
-        else:
-            cur.execute("SELECT id,project_name,number,issued_by,issued_by_role,violation,deadline,responsible,status,photo_url,fix_photo_url,fix_notes FROM prescriptions WHERE COALESCE(status,'') <> 'Аннулировано' ORDER BY id DESC")
-        rows = cur.fetchall()
-        cur.close(); conn.close()
-        return [{"id":r[0],"projectName":r[1],"number":r[2],"issuedBy":r[3],"issuedByRole":r[4],"violation":r[5],"deadline":r[6],"responsible":r[7],"status":r[8],"photoUrl":r[9],"fixPhotoUrl":r[10],"fixNotes":r[11]} for r in rows]
+    @app.get('/prescriptions')
+    def get_prescriptions(current_user: dict = Depends(authenticated), request: Request = None):
+        with scope.transaction(current_user, request, read_roles) as (cur, actors):
+            # A customer sees their own remarks and replies; internal findings are not published.
+            clauses, params = [], []
+            for actor in actors:
+                where, values = scope.visible([actor], read_roles)
+                if actor.get('role') == 'заказчик':
+                    where += ' AND r.created_by_user_id=%s'; values.append(actor.get('id'))
+                clauses.append('(' + where + ')'); params.extend(values)
+            where = ' OR '.join(clauses) or 'FALSE'
+            cur.execute('SELECT r.id,p.name,r.number,r.issued_by,r.issued_by_role,r.violation,'
+                        'r.deadline,r.responsible,r.status,r.photo_url,r.fix_photo_url,r.fix_notes,'
+                        'r.company_id,r.project_id,r.created_by_user_id FROM prescriptions r '
+                        'JOIN projects p ON p.id=r.project_id AND p.company_id=r.company_id '
+                        "WHERE COALESCE(r.status,'') <> 'Аннулировано' AND (" + where + ') ORDER BY r.id DESC', params)
+            rows = cur.fetchall()
+        keys = ('id','projectName','number','issuedBy','issuedByRole','violation','deadline','responsible',
+                'status','photoUrl','fixPhotoUrl','fixNotes','companyId','projectId','createdByUserId')
+        return [dict(zip(keys, row)) for row in rows]
 
-    @app.post("/prescriptions")
-    def create_prescription(data: dict, current_user: dict = Depends(require_roles(*write_roles, "заказчик"))):
-        project_name = data.get("projectName", "")
-        require_project_access(current_user, project_name)
-        issued_by = data.get("issuedBy","")
-        issued_by_role = data.get("issuedByRole","")
-        if current_user.get("role") == "заказчик":
-            issued_by = current_user.get("name") or issued_by
-            issued_by_role = "Заказчик"
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute("INSERT INTO prescriptions (project_name,number,issued_by,issued_by_role,violation,deadline,responsible,status,photo_url) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-            (project_name,data.get("number",""),issued_by,issued_by_role,data.get("violation",""),data.get("deadline",""),data.get("responsible",""),data.get("status","Открыто"),data.get("photoUrl","")))
-        conn.commit()
-        row = cur.fetchone()
-        cur.close(); conn.close()
-        return {"id":row[0],"ok":True}
+    @app.post('/prescriptions')
+    def create_prescription(data: dict, current_user: dict = Depends(authenticated), request: Request = None):
+        text = data.get('violation')
+        if not isinstance(text, str) or not text.strip() or len(text) > 10000:
+            raise HTTPException(status_code=422, detail='Укажите замечание длиной до 10000 символов')
+        with scope.transaction(current_user, request, create_roles, write=True) as (cur, actors):
+            actor = actors[0]
+            parent = scope.parent(cur, actor, data, create_roles)
+            customer = actor.get('role') == 'заказчик'
+            cur.execute('INSERT INTO prescriptions (project_name,number,issued_by,issued_by_role,violation,'
+                        'deadline,responsible,status,photo_url,company_id,project_id,created_by_user_id) '
+                        'VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id',
+                        (parent['name'], data.get('number',''), actor.get('name',''),
+                         'Заказчик' if customer else data.get('issuedByRole',actor.get('role','')),
+                         text.strip(), '' if customer else data.get('deadline',''),
+                         '' if customer else data.get('responsible',''),
+                         'Открыто' if customer else data.get('status','Открыто'), data.get('photoUrl',''),
+                         parent['companyId'],parent['id'],actor['id']))
+            record_id = cur.fetchone()[0]
+        return {'id':record_id,'ok':True}
 
-    @app.put("/prescriptions/{id}")
-    def update_prescription(id: int, data: dict, current_user: dict = Depends(require_roles(*read_roles))):
-        conn = get_db()
-        cur = conn.cursor()
-        require_row_project_access(cur, "prescriptions", id, current_user, "project_name")
-        role = current_user.get("role")
-        new_status = data.get("status","")
-        if role in (*worker_execution_roles, "кладовщик", "снабженец") and new_status not in ("На проверке", ""):
-            cur.close(); conn.close()
-            raise HTTPException(status_code=403, detail="Можно только отправить предписание на проверку")
-        if role == "заказчик":
-            cur.execute("SELECT issued_by, issued_by_role FROM prescriptions WHERE id=%s", (id,))
-            row = cur.fetchone()
-            if not row or (row[0] != current_user.get("name") and row[1] != "Заказчик"):
-                cur.close(); conn.close()
-                raise HTTPException(status_code=403, detail="Нет доступа к изменению предписания")
-        cur.execute("UPDATE prescriptions SET status=%s,fix_photo_url=%s,fix_notes=%s WHERE id=%s",
-            (data.get("status",""),data.get("fixPhotoUrl",""),data.get("fixNotes",""),id))
-        conn.commit()
-        cur.close(); conn.close()
-        return {"ok":True}
+    @app.put('/prescriptions/{id}')
+    def update_prescription(id: int, data: dict, current_user: dict = Depends(authenticated), request: Request = None):
+        with scope.transaction(current_user, request, read_roles, write=True) as (cur, actors):
+            actor = actors[0]
+            owner = scope.record(cur, actor, 'prescriptions', id, read_roles)
+            require_record_author(actor, owner[2])
+            status = data.get('status','')
+            if actor.get('role') in (*worker_roles,'кладовщик','снабженец') and status not in ('На проверке',''):
+                raise HTTPException(status_code=403, detail='Можно только отправить предписание на проверку')
+            if actor.get('role') == 'заказчик':
+                if status not in ('Открыто','Закрыто') or any(key in data for key in ('fixPhotoUrl','fixNotes')):
+                    raise HTTPException(status_code=403, detail='Заказчик может только закрыть или повторно открыть своё замечание')
+                cur.execute('UPDATE prescriptions SET status=%s WHERE id=%s', (status,id))
+            else:
+                fields = {'status':'status','fixPhotoUrl':'fix_photo_url','fixNotes':'fix_notes'}
+                selected = [(column,data[key]) for key,column in fields.items() if key in data]
+                if selected:
+                    cur.execute('UPDATE prescriptions SET ' + ','.join(column+'=%s' for column,_ in selected)
+                                + ' WHERE id=%s', [value for _,value in selected]+[id])
+        return {'ok':True}
 
-    @app.delete("/prescriptions/{id}")
-    def delete_prescription(id: int, current_user: dict = Depends(require_roles(*write_roles))):
-        conn = get_db()
-        cur = conn.cursor()
-        require_row_project_access(cur, "prescriptions", id, current_user, "project_name")
-        cur.execute("UPDATE prescriptions SET status='Аннулировано' WHERE id=%s", (id,))
-        conn.commit()
-        cur.close(); conn.close()
-        return {"ok": True}
+    @app.delete('/prescriptions/{id}')
+    def delete_prescription(id: int, current_user: dict = Depends(authenticated), request: Request = None):
+        with scope.transaction(current_user, request, write_roles, write=True) as (cur, actors):
+            scope.record(cur, actors[0], 'prescriptions', id, write_roles)
+            cur.execute("UPDATE prescriptions SET status='Аннулировано' WHERE id=%s", (id,))
+        return {'ok':True}

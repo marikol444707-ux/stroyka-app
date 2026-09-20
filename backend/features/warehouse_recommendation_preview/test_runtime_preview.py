@@ -946,10 +946,10 @@ class WarehouseAnomalyRuntimePreviewCompositionTests(unittest.TestCase):
             root / "backend/db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Reviewed supplier notification history/retry/worker changes;
+            # Reviewed customer record ownership and estimate projection changes;
             # warehouse preview implementation and registration are unchanged.
             root / "backend/main.py": (
-                "5061030be9a28eeaf30199fdaddd97abdf36ffdb0dab40b1c2c408bd6fb76170"
+                "f0af26b0a32c8c6fe877fdbf1f7544cee59bca011b5f187db5da7fda2a9f91bc"
             ),
         }
         self.assertEqual({
