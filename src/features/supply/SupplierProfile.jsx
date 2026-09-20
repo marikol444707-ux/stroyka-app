@@ -10,7 +10,7 @@ const groups = [
   ['Банковские реквизиты', [['bank','Банк'], ['bik','БИК'], ['korAccount','Корреспондентский счёт'], ['account','Расчётный счёт']]],
 ];
 
-function Profile({API, supplierId, C, card, inp, btnO, btnG}) {
+function Profile({API, supplierId, C, card, inp, btnO, btnG, onSaved}) {
   const [saved, setSaved] = useState(null);
   const [draft, setDraft] = useState({});
   const [busy, setBusy] = useState(false);
@@ -63,7 +63,7 @@ function Profile({API, supplierId, C, card, inp, btnO, btnG}) {
           if (!mounted.current || generation.current !== run) return;
           if (response.status===409) setConflict(true);
           if (!response.ok) throw new Error(data.detail || 'Не удалось сохранить реквизиты');
-          accept(data); setMessage('Реквизиты сохранены');
+          accept(data); onSaved?.(data); setMessage('Реквизиты сохранены');
         } catch (e) {if (mounted.current && generation.current === run && e.name!=='AbortError') setError(e.message);}
         finally {if (mounted.current && generation.current === run) {locked.current=false; setBusy(false);}}
       }}>

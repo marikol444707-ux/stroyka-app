@@ -817,7 +817,7 @@ export default function SupplierCabinetPage({
 
           {supplierTab==='claims'&&<SupplyClaims API={API} C={C} user={user} onChanged={refreshData} />}
 
-          {supplierTab==='profile'&&!managerOnly&&<SupplierProfile
+          {supplierTab==='profile'&&!managerOnly&&<SupplierProfile onSaved={teamContext?.updateProfile}
             API={API} user={user} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG}
             suppliers={teamContext?.status==='ready' ? verifiedTeam.filter(s=>s.role==='leader')
               : (suppliers||[]).filter(s=>String(s.userId||s.user_id)===String(currentUserId))} />}
