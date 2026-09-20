@@ -3,6 +3,7 @@ import json
 from typing import Optional, Union
 from fastapi import Depends, HTTPException, Request
 from pydantic import BaseModel, Field
+from ..company_limits.service import require_user_capacity
 from .access import ADMIN_ROLES, COMPANY_ROLES, transaction, target, assignments, require_role, save_membership, string_list, audit
 
 class UserModel(BaseModel):
@@ -56,6 +57,7 @@ def register_company_users(app,deps):
         if not name or not email or len(password)<5:raise HTTPException(400,'Укажите имя, email и пароль не короче 5 символов')
         with transaction(deps,user,request,True) as (cur,actor,company):
             require_role(actor,data.role)
+            if data.active is not False:require_user_capacity(cur,company)
             project_id,project_name,names,packages=assignments(cur,company,values)
             cur.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))',('user-email:'+email,))
             cur.execute('SELECT id FROM users WHERE LOWER(email)=%s',(email,))
@@ -77,6 +79,7 @@ def register_company_users(app,deps):
         active=membership.get('active') is not False if values.get('active') is None else values['active'] is not False
         if user_id==actor['id'] and (not active or role!=membership['role']):
             raise HTTPException(400,'Нельзя отключить себя или изменить собственную роль')
+        if active:require_user_capacity(cur,company,user_id)
         source=dict(values,role=role)
         if only_assignments:source.update(projectName='',projectId='')
         project_id,project_name,names,packages=assignments(cur,company,source)

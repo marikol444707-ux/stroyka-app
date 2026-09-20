@@ -600,6 +600,7 @@ def register_crm_module(app, deps):
     ):
         data = data or {}
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             lead = fetch_lead(cur, lead_id, for_update=True)
@@ -627,6 +628,8 @@ def register_crm_module(app, deps):
                 if cur.fetchone():
                     raise HTTPException(status_code=409, detail="Данные CRM имеют конфликт владельца. Сначала исправьте привязку.")
 
+            from ..company_limits.service import require_project_capacity
+            require_project_capacity(cur, owner['companyId'])
             project_name = _text(data.get("projectName") or lead.get("name") or ("Заявка #" + str(lead_id)), 255)
             client_name = _text(data.get("client") or lead.get("name") or lead.get("phone") or "", 255)
             if not project_name:

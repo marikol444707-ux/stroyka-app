@@ -5,6 +5,7 @@ import secrets
 from types import SimpleNamespace
 
 from fastapi import HTTPException
+from ..company_limits.service import require_user_capacity
 from ..company_users.access import assignments, require_role, transaction
 
 
@@ -52,6 +53,7 @@ def registration_scope(cur, invite):
         raise HTTPException(409, 'Компания приглашения недоступна')
     if invite.get('platform_account_id') and invite['platform_account_id'] != owner['platform_account_id']:
         raise HTTPException(409, 'Аккаунт приглашения не совпадает с компанией')
+    require_user_capacity(cur, company)
     values = {'role':invite['role'], 'projectName':invite.get('project_name'),
               'assignedProjects':invite.get('assigned_projects'), 'assignedPackages':invite.get('assigned_packages')}
     project_id, name, projects, packages = assignments(cur, company, values)

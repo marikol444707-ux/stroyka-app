@@ -30,11 +30,12 @@
   пользователем и погашением кода; старые приглашения без владельца не угадывают
   компанию по имени. 4 PG company tests + 5 supplier registration regression pass,
   5 UI tests pass; независимое ревью без обязательных замечаний.
-- [ ] P1: серверное исполнение maxProjects/maxUsers под блокировкой; убрать обход
-  через создание заказчика глобальным /users из projectCrudActions.
-- [ ] Полная isolated-PG цепочка: company → director invite/register → membership
+- [x] Локально: maxProjects/maxUsers под блокировкой, включая CRM/MAX/staff;
+  форма объекта использует единый сценарий приглашения заказчика.
+- [x] Полная isolated-PG цепочка: company → director invite/register → membership
   → scoped employee/access → project → foreign denial/replay/expiry/limits.
-- [ ] Компания → реквизиты → директор → сотрудники/роли → объект без ручного SQL.
+- [x] Изолированный HTTP: компания → реквизиты → директор → сотрудники/роли →
+  объект без ручного SQL для бизнес-операций. См. docs/company-onboarding-acceptance.md.
 - [ ] Две компании, отзыв доступа, повторное приглашение и восстановление входа.
 Проверка: отдельная тестовая база, HTTP и браузер; реальные приглашения не отправлять.
 Зависимость: согласованный customer scope из шага 1.

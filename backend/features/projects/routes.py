@@ -13,6 +13,7 @@ from typing import List, Optional
 import psycopg2.extras
 from fastapi import Depends, Header, HTTPException
 from pydantic import BaseModel
+from ..company_limits.service import require_project_capacity
 
 
 class ProjectModel(BaseModel):
@@ -107,32 +108,40 @@ def register_projects_module(app, deps):
     ):
         _, _, require_project_write_actor = project_access_helpers()
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        company_context = resolve_work_company_context(
-            cur,
-            current_user,
-            None,
-            "create",
-            x_company_id=x_company_id,
-            x_company_mode=x_company_mode,
-        )
-        actor = require_project_write_actor(
-            effective_company_actors(current_user, company_context),
-            project_card_write_roles,
-        )
-        company_id = int(actor.get("companyId") or actor.get("company_id"))
-        cur.execute(f"""INSERT INTO projects (company_id,name,client,status,budget,deadline,progress,tasks,pricelist_id,floors,liters)
-                         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                         RETURNING id,company_id as "companyId",name,client,status,budget,deadline,progress,tasks,
-                                   pricelist_id as "pricelistId",floors,liters,COALESCE(archived,false) as archived,
-                                   archived_at as "archivedAt",{project_public_select}""",
-                    (company_id,p.name,p.client,p.status,p.budget,p.deadline,p.progress,p.tasks,p.pricelistId,p.floors,p.liters))
-        row = cur.fetchone()
-        conn.commit()
-        cur.close(); conn.close()
-        log_audit(user_name=actor.get("name",""), user_role=actor.get("role",""),
-                  action="create", entity_type="project", entity_id=row["id"], description="Создан объект", project_name=row["name"])
-        return dict(row)
+        try:
+            company_context = resolve_work_company_context(
+                cur,
+                current_user,
+                None,
+                "create",
+                x_company_id=x_company_id,
+                x_company_mode=x_company_mode,
+            )
+            actor = require_project_write_actor(
+                effective_company_actors(current_user, company_context),
+                project_card_write_roles,
+            )
+            company_id = int(actor.get("companyId") or actor.get("company_id"))
+            require_project_capacity(cur, company_id)
+            cur.execute(f"""INSERT INTO projects (company_id,name,client,status,budget,deadline,progress,tasks,pricelist_id,floors,liters)
+                             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                             RETURNING id,company_id as "companyId",name,client,status,budget,deadline,progress,tasks,
+                                       pricelist_id as "pricelistId",floors,liters,COALESCE(archived,false) as archived,
+                                       archived_at as "archivedAt",{project_public_select}""",
+                        (company_id,p.name,p.client,p.status,p.budget,p.deadline,p.progress,p.tasks,p.pricelistId,p.floors,p.liters))
+            row = cur.fetchone()
+            conn.commit()
+            log_audit(user_name=actor.get("name",""), user_role=actor.get("role",""),
+                      action="create", entity_type="project", entity_id=row["id"], description="Создан объект", project_name=row["name"])
+            return dict(row)
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+            conn.close()
 
     @app.put("/projects/{id}")
     def update_project(

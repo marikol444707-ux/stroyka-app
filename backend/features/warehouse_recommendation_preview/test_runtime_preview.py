@@ -946,10 +946,10 @@ class WarehouseAnomalyRuntimePreviewCompositionTests(unittest.TestCase):
             root / "backend/db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Reviewed customer record ownership, file access and estimate projection changes;
+            # Reviewed company-user isolation and explicit invite registration changes;
             # warehouse preview implementation and registration are unchanged.
             root / "backend/main.py": (
-                "5729269939cf1e60f28803fde195e8f9bbc505c2e54c44040db437eae1ce40c1"
+                "366d5883b7cce756b7ca2dc9e921db0ec76f8c633b89cec7aa92251585002753"
             ),
         }
         self.assertEqual({

@@ -2968,9 +2968,10 @@ def register_messenger_module(app, deps):
         if not code or not email or not password:
             raise HTTPException(status_code=400, detail="Нужны код приглашения, email и пароль")
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
-            cur.execute("SELECT * FROM invite_codes WHERE code=%s AND used=FALSE", (code,))
+            cur.execute("SELECT * FROM invite_codes WHERE code=%s AND used=FALSE FOR UPDATE", (code,))
             invite = cur.fetchone()
             if not invite:
                 raise HTTPException(status_code=400, detail="Неверный или использованный код")
@@ -2994,15 +2995,9 @@ def register_messenger_module(app, deps):
             if cur.fetchone():
                 raise HTTPException(status_code=409, detail="Этот MAX уже привязан к другому пользователю")
 
-            project_name = _text(invite.get("project_name"), 255)
-            assigned_projects = safe_project_list(invite.get("assigned_projects"))
-            assigned_packages = safe_project_list(invite.get("assigned_packages"))
-            assigned_projects, assigned_packages = prepare_user_access_scope(cur, role, project_name, assigned_projects, assigned_packages)
-            cur.execute("SELECT id FROM projects WHERE name=%s LIMIT 1", (project_name,))
-            project_row = cur.fetchone()
-            project_id = project_row.get("id") if project_row else None
-            company_id = invite.get("company_id")
-            platform_account_id = invite.get("platform_account_id")
+            from ..invite_codes.company_membership import registration_scope
+            from ..company_users.access import save_membership
+            company_id, platform_account_id, project_id, project_name, assigned_projects, assigned_packages = registration_scope(cur, invite)
             cur.execute(
                 """
                 INSERT INTO users
@@ -3026,6 +3021,7 @@ def register_messenger_module(app, deps):
                 ),
             )
             user = cur.fetchone()
+            save_membership(cur,user['id'],company_id,role,assigned_projects,assigned_packages,True,{'is_default':True})
             contact = launch.get("contact") or {}
             cur.execute(
                 """

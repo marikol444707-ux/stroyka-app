@@ -39,6 +39,9 @@ class FakeCursor:
 
     def execute(self, sql, params=()):
         self.calls.append((" ".join(sql.split()), tuple(params or ())))
+        if 'SELECT max_projects,max_users FROM companies' in sql:
+            self.current = {'row': {'max_projects':None,'max_users':None}}
+            return
         self.current = self.effects.pop(0) if self.effects else {}
         error = self.current.get("error")
         if error is not None:
@@ -457,7 +460,7 @@ class StaffRoutesTest(unittest.TestCase):
 
         self.assertEqual(caught.exception.status_code, 409)
         self.assertIn("несколькими аккаунтами", caught.exception.detail)
-        identity_sql, identity_params = cursor.calls[1]
+        identity_sql, identity_params = next(call for call in cursor.calls if "LOWER(email)=LOWER" in call[0])
         self.assertIn("ORDER BY id", identity_sql)
         self.assertIn("LIMIT 2", identity_sql)
         self.assertIn("FOR UPDATE", identity_sql)

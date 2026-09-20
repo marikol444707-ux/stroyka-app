@@ -650,7 +650,7 @@ class CrmRouteOwnershipTests(unittest.TestCase):
             "archived_at": None,
         }
         cursor = FakeCursor(
-            fetchone_values=[lead_row(project_id=None), None, None, None, project],
+            fetchone_values=[lead_row(project_id=None), None, None, {"max_projects":None,"max_users":None}, None, project],
         )
         app, connection, _, resource_calls = self.build_app(cursor)
 

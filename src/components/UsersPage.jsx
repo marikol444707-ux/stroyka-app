@@ -233,7 +233,7 @@ function UsersPage({
               </div>
               <button onClick={()=>setMaxBindingUser(null)} style={{...btnG,padding:'6px 8px'}}><X size={14}/></button>
             </div>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,240px),1fr))',gap:'10px'}}>
               <input placeholder="MAX userId" value={maxBindingForm.externalUserId} onChange={e=>setMaxBindingForm({...maxBindingForm,externalUserId:e.target.value})} style={{...inp,marginBottom:0}}/>
               <input placeholder="MAX chatId" value={maxBindingForm.chatId} onChange={e=>setMaxBindingForm({...maxBindingForm,chatId:e.target.value})} style={{...inp,marginBottom:0}}/>
               <input placeholder="Имя в MAX" value={maxBindingForm.displayName} onChange={e=>setMaxBindingForm({...maxBindingForm,displayName:e.target.value})} style={{...inp,marginBottom:0}}/>
@@ -281,11 +281,11 @@ function UsersPage({
 
       {showForm&&(<div style={{...card,padding:'20px',marginBottom:'20px'}}>
         <h3 style={{color:C.text,marginBottom:'15px',fontWeight:'700'}}>{editingItem?'Редактировать':'Новый пользователь'}</h3>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,240px),1fr))',gap:'10px'}}>
           <input placeholder="Имя *" value={newUser.name} onChange={e=>setNewUser({...newUser,name:e.target.value})} style={{...inp,marginBottom:0}}/>
           <input type="email" placeholder="Email *" value={newUser.email} onChange={e=>setNewUser({...newUser,email:e.target.value})} style={{...inp,marginBottom:0}}/>
           <div style={{display:'flex',gap:'6px'}}>
-            <input type="text" placeholder={editingItem?'Новый пароль (если меняем)':'Пароль *'} value={newUser.password} onChange={e=>setNewUser({...newUser,password:e.target.value})} style={{...inp,marginBottom:0,flex:1}}/>
+            <input type="text" placeholder={editingItem?'Новый пароль (если меняем)':'Пароль *'} value={newUser.password} onChange={e=>setNewUser({...newUser,password:e.target.value})} style={{...inp,marginBottom:0,flex:1,minWidth:0}}/>
             <button onClick={generatePassword} title="Сгенерировать и скопировать пароль" style={{...btnG,padding:'6px 10px',margin:0}}><RefreshCw size={13}/></button>
           </div>
           <select aria-label="Роль сотрудника" value={newUser.role} onChange={e=>handleRoleChange(e.target.value)} style={{...inp,marginBottom:0}}>{companyRoles.map(r=><option key={r} value={r}>{ROLE_LABELS[r]||r}</option>)}</select>
@@ -317,7 +317,7 @@ function UsersPage({
 
       {showInvites&&(<div style={{...card,padding:'20px',marginBottom:'20px'}}>
         <h3 style={{color:C.text,marginBottom:'15px',fontWeight:'700'}}>Коды приглашений</h3>
-        <div style={{display:'flex',gap:'10px',marginBottom:'15px',alignItems:'center'}}>
+        <div style={{display:'flex',flexWrap:'wrap',gap:'10px',marginBottom:'15px',alignItems:'center'}}>
           <select aria-label="Роль приглашённого" value={newInviteRole} onChange={e=>{setNewInviteRole(e.target.value);setInviteProjectId('');setInvitePackages([]);}} style={{...inp,marginBottom:0,width:'200px'}}>{companyRoles.map(r=><option key={r} value={r}>{ROLE_LABELS[r]||r}</option>)}</select>
           {projectScopedRoles.includes(newInviteRole) && <select aria-label="Объект приглашённого" value={inviteProjectId} onChange={e=>{setInviteProjectId(e.target.value);setInvitePackages([]);}} style={inp}>
             <option value="">Выберите объект</option>{projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}

@@ -59,3 +59,23 @@ class CompanyInvitationTests(unittest.TestCase):
         response=self.client.post('/register',json={'code':'UNOWNEDCOMPANYTEST','name':'Legacy','email':'legacy@company.test','password':'test-password'})
         self.assertEqual(response.status_code,409,response.text)
         self.assertEqual(self.sql("SELECT COUNT(*) FROM users WHERE email='legacy@company.test'"),[(0,)])
+
+    def test_platform_onboarding_director_employee_and_project_chain(self):
+        self.sql("SELECT setval(pg_get_serial_sequence('companies','id'),(SELECT MAX(id) FROM companies))")
+        self.sql("SELECT setval(pg_get_serial_sequence('platform_accounts','id'),(SELECT MAX(id) FROM platform_accounts))")
+        uid=self.sql("INSERT INTO users(name,email,password,role) VALUES('Platform test','platform-onboarding@local.test','unused','system_owner') RETURNING id")[0][0]
+        operator={'id':uid,'role':'system_owner','name':'Platform test','email':'platform-onboarding@local.test'}
+        created=self.api(operator,'POST','/system/companies',{'name':'Isolated onboarding company','inn':'7707083893','contactName':'Director','contactEmail':'onboarding-director@local.test','plan':'demo'})
+        cid=created['id']
+        body={'code':created['inviteCode'],'name':'Director','email':'onboarding-director@local.test','password':'test-password'}
+        response=self.client.post('/register',json=body)
+        self.assertEqual(response.status_code,200,response.text)
+        uid=self.sql('SELECT id FROM users WHERE email=%s',(body['email'],))[0][0]
+        director={'id':uid,'role':'директор','name':'Director','email':body['email'],'companyId':cid}
+        self.assertEqual(self.sql('SELECT company_id,role FROM user_company_roles WHERE user_id=%s AND active',(uid,)),[(cid,'директор')])
+        project=self.api(director,'POST','/projects',{'name':'First onboarding project'},company=cid)
+        employee=self.api(director,'POST','/users',{'name':'Accountant','email':'onboarding-accountant@local.test','password':'test-password','role':'бухгалтер'},company=cid)
+        self.assertEqual(employee['companyId'],cid)
+        own=self.api(director,'GET','/projects',company=cid)
+        self.assertEqual([row['id'] for row in own],[project['id']])
+        self.api(director,'GET','/users',company=2,expected=403)

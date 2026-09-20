@@ -258,6 +258,7 @@ def register_staff_module(app, deps):
     def _sync_staff_access(cur, s: StaffModel, company_id, staff_id, exact_project):
         if _positive_int(staff_id) is None:
             raise HTTPException(status_code=400, detail="Некорректная связь сотрудника")
+        from ..company_limits.service import lock_company, require_user_capacity
         email = ((s.email or s.emailWork or "") or "").strip().lower()
         password = ((s.password or "") or "").strip()
         role = ((s.systemRole or "") or "").strip()
@@ -271,6 +272,7 @@ def register_staff_module(app, deps):
         if password and len(password) < 5:
             raise HTTPException(status_code=400, detail="Пароль минимум 5 символов")
 
+        lock_company(cur, company_id)
         assigned_projects = safe_project_list(s.assignedProjects or [])
         assigned_packages = safe_project_list(s.assignedPackages or [])
         project_name = exact_project["name"]
@@ -313,6 +315,7 @@ def register_staff_module(app, deps):
             )
         existing = identity_rows[0] if identity_rows else None
         user_id = _positive_int(_row_value(existing, "id", 0))
+        require_user_capacity(cur, company_id, user_id)
         full_name = (s.name or "Сотрудник").strip()
         if user_id:
             # A password and the global user identity are shared by all company
@@ -637,6 +640,7 @@ def register_staff_module(app, deps):
         _current_user: dict = Depends(require_roles(*staff_manage_roles)),
     ):
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             actor = _selected_actor(
@@ -684,6 +688,7 @@ def register_staff_module(app, deps):
         _current_user: dict = Depends(require_roles(*staff_manage_roles)),
     ):
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             actor = _selected_actor(

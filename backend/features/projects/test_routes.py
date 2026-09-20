@@ -141,13 +141,13 @@ class ProjectsRoutesTest(unittest.TestCase):
 
     def test_create_binds_actor_company_and_audits(self):
         audit = []
-        cursor = FakeCursor(fetchone_results=[dict(ROW)])
+        cursor = FakeCursor(fetchone_results=[{"max_projects":None,"max_users":None},dict(ROW)])
         app, connection = build(cursor, audit_calls=audit)
         result = app.routes[("POST", "/projects")](
             ProjectModel(name="Объект"), x_company_id="3", x_company_mode="company", current_user={}
         )
         self.assertEqual(result["companyId"], 3)
-        insert = cursor.calls[0]
+        insert = next(call for call in cursor.calls if "INSERT INTO projects" in call[0])
         self.assertEqual(insert[1][0], 3)
         self.assertEqual(audit[0]["entity_type"], "project")
         self.assertTrue(connection.committed)
