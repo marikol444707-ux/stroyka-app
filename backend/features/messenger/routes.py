@@ -3315,7 +3315,11 @@ def register_messenger_module(app, deps):
                         AND COALESCE(f.status,'') NOT IN ('Отклонено','Отозвано'))
                       AND r.email_notification_status='В очереди email' AND r.visible_to_supplier=TRUE
                       AND q.prorab_confirmed_at IS NOT NULL AND q.director_approved_at IS NOT NULL
-                      AND q.status IN ('Утверждена','КП запрошены') ORDER BY r.id LIMIT %s''',(limit,))
+                      AND q.status IN ('Утверждена','КП запрошены')
+                      AND (COALESCE(q.project,'') IN ('','Основной склад') OR
+                        (SELECT COUNT(*) FROM projects p WHERE p.company_id=q.company_id
+                         AND BTRIM(p.name)=BTRIM(q.project) AND COALESCE(p.archived,FALSE)=FALSE)=1)
+                    ORDER BY r.id LIMIT %s''',(limit,))
                 rows = cur.fetchall()
         finally:
             conn.close()

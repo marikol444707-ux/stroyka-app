@@ -50,3 +50,16 @@ class EmailRetryPostgresTests(unittest.TestCase):
             worker(limit=5,_bot={});worker(limit=5,_bot={})
             self.assertEqual(send.call_count,1)
         self.assertEqual(self.state(recipient)[0],EMAIL_UNCONFIRMED)
+
+    def test_worker_ignores_archived_project_without_burning_attempt(self):
+        rid,recipient=self.queued()
+        worker=next(r.endpoint for r in self.main.app.routes if r.path=='/max/supplier-email/dispatch')
+        self.sql('UPDATE projects SET archived=TRUE WHERE company_id=2 AND name=%s',(self.fixture['project'],))
+        try:
+            with patch.object(self.main,'_send_rfq_email') as send:
+                self.assertEqual(worker(limit=5,_bot={})['checked'],0)
+                send.assert_not_called()
+            self.assertEqual(self.sql('SELECT count(*) FROM supplier_email_attempts WHERE recipient_id=%s',(recipient,)),[(0,)])
+        finally:
+            self.sql('UPDATE projects SET archived=FALSE WHERE company_id=2 AND name=%s',(self.fixture['project'],))
+            self.sql('UPDATE supply_request_recipients SET visible_to_supplier=FALSE WHERE id=%s',(recipient,))
