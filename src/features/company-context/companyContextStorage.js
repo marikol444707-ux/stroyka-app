@@ -54,9 +54,14 @@ export const readStoredCompanyRequestContext = (storage = null) => {
 };
 
 export const withStoredCompanyContextHeaders = (init = {}, storage = null) => {
+  const headers = new Headers(init.headers || {});
+  // Resource/form actions pin their owner when opened. A later selection change
+  // must not redirect the request to another company; the server authorizes it.
+  if (headers.has(COMPANY_CONTEXT_MODE_HEADER) || headers.has(COMPANY_CONTEXT_ID_HEADER)) {
+    return { ...init, headers };
+  }
   const context = readStoredCompanyRequestContext(storage);
   if (!context) return init;
-  const headers = new Headers(init.headers || {});
   headers.set(COMPANY_CONTEXT_MODE_HEADER, context.mode);
   if (context.mode === 'company') {
     headers.set(COMPANY_CONTEXT_ID_HEADER, String(context.companyId));
