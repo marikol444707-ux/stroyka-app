@@ -1,5 +1,6 @@
 import React from 'react';
-import { API } from '../api';
+import { customerProject } from '../features/customer-cabinet/projectSelection';
+import useCustomerCommands from '../features/customer-cabinet/useCustomerCommands';
 import ProjectHiddenWorksActSignatureModal from './ProjectHiddenWorksActSignatureModal';
 import PreviewModal from './PreviewModal';
 import ImagePreviewModal from './ImagePreviewModal';
@@ -55,11 +56,12 @@ export default function CustomerCabinetPage(props) {
     doPrint,
   } = props;
 
-  const myProject = projects.find(
-    (project) =>
-      project.id === Number(user.project_id || user.projectId) ||
-      project.name === (user.project_name || user.projectName)
-  );
+  const myProject = customerProject(projects, user);
+  const commands = useCustomerCommands({
+    scope: String(user.id) + ':' + (myProject?.companyId ?? myProject?.company_id) + ':' + myProject?.id,
+    companyId: myProject?.companyId ?? myProject?.company_id,
+    refresh: refreshData,
+  });
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: C.bg, padding: '20px' }}>
@@ -77,6 +79,7 @@ export default function CustomerCabinetPage(props) {
           </button>
         </div>
 
+        {commands.error && <p role="alert" style={{ ...card, color: C.danger, padding: '12px' }}>{commands.error}</p>}
         {!myProject ? (
           <div style={{ ...card, padding: '40px', textAlign: 'center' }}>
             <p style={{ color: C.textMuted }}>Объект не найден. Обратитесь к подрядчику.</p>
@@ -406,20 +409,18 @@ export default function CustomerCabinetPage(props) {
                               <button
                                 onClick={async () => {
                                   if (!window.confirm(`Согласовать изменение «${row.description}» на ${(row.total || 0).toLocaleString('ru-RU')} ₽?`)) return;
-                                  await fetch(`${API}/unexpected-works/${row.id}`, {
+                                  await commands.run('/unexpected-works/' + row.id, {
                                     method: 'PUT',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({
+                                    body: {
                                       status: 'Утверждено отдельной допработой',
                                       price: row.price,
                                       total: row.total,
                                       approvedBy: user.name,
                                       approvedAt: new Date().toISOString().split('T')[0],
-                                    }),
+                                    },
                                   });
-                                  await refreshData();
-                                  alert('Согласовано. Подрядчик может приступать.');
                                 }}
+                                disabled={commands.blocked}
                                 style={{ ...btnGr, padding: '5px 10px', fontSize: '11px' }}
                               >
                                 <Check size={11} />
@@ -428,17 +429,16 @@ export default function CustomerCabinetPage(props) {
                               <button
                                 onClick={async () => {
                                   if (!window.confirm(`Отказать в выполнении «${row.description}»?`)) return;
-                                  await fetch(`${API}/unexpected-works/${row.id}`, {
+                                  await commands.run('/unexpected-works/' + row.id, {
                                     method: 'PUT',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({
+                                    body: {
                                       status: 'Отклонено',
                                       approvedBy: user.name,
                                       approvedAt: new Date().toISOString().split('T')[0],
-                                    }),
+                                    },
                                   });
-                                  await refreshData();
                                 }}
+                                disabled={commands.blocked}
                                 style={{ ...btnR, padding: '5px 10px', fontSize: '11px' }}
                               >
                                 <X size={11} />
@@ -651,22 +651,24 @@ export default function CustomerCabinetPage(props) {
                 onClick={async () => {
                   const text = document.getElementById('client_remark').value;
                   if (!text.trim()) return;
-                  await fetch(`${API}/prescriptions`, {
+                  await commands.run('/prescriptions', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
+                    body: {
+                      projectId: myProject.id,
                       projectName: myProject.name,
                       violation: text,
                       priority: 'Замечание заказчика',
                       issuedBy: user.name,
                       issuedByRole: 'Заказчик',
                       status: 'Открыто',
-                    }),
+                    },
+                    onSuccess: () => {
+                      const input = document.getElementById('client_remark');
+                      if (input && input.value === text) input.value = '';
+                    },
                   });
-                  await refreshData();
-                  document.getElementById('client_remark').value = '';
-                  alert('Замечание передано подрядчику');
                 }}
+                disabled={commands.blocked}
                 style={btnO}
               >
                 <Plus size={14} />
