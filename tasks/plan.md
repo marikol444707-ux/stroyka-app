@@ -1,6 +1,6 @@
 # Implementation Plan: Safe Stroyka Program Improvements
 
-## Current slice: supplier team policy P9 released; next assignment P10
+## Current slice: P13 profile released; next P14 final acceptance
 
 Roadmap: [Supplier portal implementation plan](../docs/supplier-portal-roadmap.md).
 User deferred inbox/spam investigation and Mail support to final acceptance P14.
@@ -776,4 +776,4 @@ Do not continue old per-offer assignment UI as the main workflow.
 - [x] Актуальные реквизиты, руководитель/владелец, изоляция компаний, изменённые поля и защита от конкурирующего сохранения.
 - [x] Честное состояние отсутствующего тарифа и реальные неограниченные лимиты команды; коммерческие обещания не добавлены.
 - [x] Шесть PostgreSQL и шесть UI сценариев, независимое ревью; StrictMode и ограничения полей исправлены.
-- [ ] Выпуск с резервной копией и проверка сохранения/восстановления профиля тестового поставщика в браузере.
+- [x] Выпуск b7a0b2397f27, резервная копия, 180 таблиц сохранены; live сохранение → перезагрузка → восстановление реквизитов, mobile390 без переполнения. См. docs/supplier-profile.md.
