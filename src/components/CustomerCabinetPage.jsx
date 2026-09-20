@@ -3,8 +3,11 @@ import { customerProject, customerProjectRecord, customerRemark } from '../featu
 import useCustomerCommands from '../features/customer-cabinet/useCustomerCommands';
 import { customerProgress } from '../features/customer-cabinet/progress';
 import useProgressData from '../features/customer-cabinet/useProgressData';
+import { customerActRows } from '../features/customer-cabinet/actAmounts';
+import { buildCustomerActPreview } from '../features/customer-cabinet/actPreview';
 import CustomerDocuments, { recordLoadIssue } from '../features/customer-cabinet/CustomerDocuments';
 import CustomerWarranty from '../features/customer-cabinet/CustomerWarranty';
+import CustomerContracts from '../features/customer-cabinet/CustomerContracts';
 import ProjectHiddenWorksActSignatureModal from './ProjectHiddenWorksActSignatureModal';
 import PreviewModal from './PreviewModal';
 import ImagePreviewModal from './ImagePreviewModal';
@@ -45,10 +48,7 @@ export default function CustomerCabinetPage(props) {
     sectionsOfEstimate,
     estimateItemMaterialSum,
     estimateItemTotal,
-    showKS2,
-    buildKS3Content,
     projectPayments,
-    contracts,
     prescriptionsList,
     showPhotoModal,
     previewContent,
@@ -69,6 +69,13 @@ export default function CustomerCabinetPage(props) {
     : customerProgress(myProject, progressData.estimates, confirmedJournal);
   const progressUnavailable = progressData.loading ? 'Загрузка данных…'
     : progressData.error ? 'Данные временно недоступны.' : '';
+  let actRows = null;
+  let actIssue = progressUnavailable || (myProject ? recordLoadIssue(customerRecordsLoadState, 'extraWorks', myProject, user) : 'Объект не выбран');
+  if (!actIssue) {
+    try { actRows = customerActRows(myProject, progressData.estimates, confirmedJournal, unexpectedWorksList); }
+    catch (error) { actIssue = error.message; }
+  }
+  const hasActRows = actRows && Object.values(actRows).some(rows => rows.length);
   const commands = useCustomerCommands({
     scope: String(user.id) + ':' + (myProject?.companyId ?? myProject?.company_id) + ':' + myProject?.id,
     companyId: myProject?.companyId ?? myProject?.company_id,
@@ -571,21 +578,20 @@ export default function CustomerCabinetPage(props) {
 
             <div style={{ ...card, padding: '20px', marginBottom: '16px' }}>
               <b style={{ color: C.text, fontSize: '14px', display: 'block', marginBottom: '12px' }}>
-                📄 Акты КС-2 и КС-3 на согласование
+                📄 Расчёты КС-2 и КС-3
               </b>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                <button onClick={() => showKS2(myProject)} style={btnO}>
+                <button disabled={Boolean(actIssue) || !hasActRows} onClick={() => showPreview(buildCustomerActPreview(myProject, actRows, 'ks2'), 'Расчёт КС-2 — ' + myProject.name)} style={btnO}>
                   <Eye size={14} />
                   📄 КС-2 (приёмка работ)
                 </button>
-                <button onClick={() => showPreview(buildKS3Content(myProject), 'КС-3 — ' + myProject.name)} style={btnB}>
+                <button disabled={Boolean(actIssue) || !hasActRows} onClick={() => showPreview(buildCustomerActPreview(myProject, actRows, 'ks3'), 'Расчёт КС-3 — ' + myProject.name)} style={btnB}>
                   <Eye size={14} />
                   📋 КС-3 (стоимость)
                 </button>
               </div>
               <p style={{ color: C.textMuted, fontSize: '11px', marginTop: '10px', lineHeight: 1.4 }}>
-                Формируются автоматически из выполненных позиций активной сметы. Утверждённые изменения показываются
-                отдельными разделами: дополнительные объёмы и работы вне сметы.
+                {actIssue || (!hasActRows ? 'Подтверждённых работ для расчёта пока нет.' : 'Предварительный расчёт по полному подтверждённому журналу. Допработы учитываются только после выполнения и приёмки. Подписанные акты доступны в документах.')}
               </p>
             </div>
 
@@ -719,7 +725,9 @@ export default function CustomerCabinetPage(props) {
             <div style={{ ...card, padding: '20px', marginBottom: '16px' }}>
               <b style={{ color: C.text, fontSize: '14px', display: 'block', marginBottom: '12px' }}>💰 Платежи по объекту</b>
               {(() => {
-                const payments = (projectPayments || []).filter((row) => row.projectName === myProject.name);
+                const issue = recordLoadIssue(customerRecordsLoadState, 'payments', myProject, user);
+                if (issue) return <p role="status">{issue}</p>;
+                const payments = (projectPayments || []).filter((row) => customerProjectRecord(row, myProject));
                 const paid = payments.reduce((sum, row) => sum + Number(row.amount || 0), 0);
                 const budget = Number(myProject.budget || 0);
                 const remain = budget - paid;
@@ -728,15 +736,15 @@ export default function CustomerCabinetPage(props) {
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '8px', marginBottom: '10px' }}>
                       <div style={{ padding: '10px', backgroundColor: C.bg, borderRadius: '8px' }}>
                         <p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 4px' }}>Бюджет</p>
-                        <b style={{ color: C.text, fontSize: '13px' }}>{Math.round(budget).toLocaleString('ru-RU') + ' ₽'}</b>
+                        <b style={{ color: C.text, fontSize: '13px' }}>{(budget).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽'}</b>
                       </div>
                       <div style={{ padding: '10px', backgroundColor: C.successLight, borderRadius: '8px' }}>
-                        <p style={{ color: C.success, fontSize: '10px', margin: '0 0 4px' }}>Оплачено</p>
-                        <b style={{ color: C.success, fontSize: '13px' }}>{Math.round(paid).toLocaleString('ru-RU') + ' ₽'}</b>
+                        <p style={{ color: C.success, fontSize: '10px', margin: '0 0 4px' }}>Зарегистрировано оплат</p>
+                        <b style={{ color: C.success, fontSize: '13px' }}>{(paid).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽'}</b>
                       </div>
                       <div style={{ padding: '10px', backgroundColor: C.warningLight, borderRadius: '8px' }}>
-                        <p style={{ color: C.warning, fontSize: '10px', margin: '0 0 4px' }}>Остаток</p>
-                        <b style={{ color: C.warning, fontSize: '13px' }}>{Math.round(remain).toLocaleString('ru-RU') + ' ₽'}</b>
+                        <p style={{ color: C.warning, fontSize: '10px', margin: '0 0 4px' }}>Разница с бюджетом</p>
+                        <b style={{ color: C.warning, fontSize: '13px' }}>{(remain).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽'}</b>
                       </div>
                     </div>
                     {payments.slice(0, 8).map((payment, idx) => (
@@ -752,8 +760,8 @@ export default function CustomerCabinetPage(props) {
                           fontSize: '11px',
                         }}
                       >
-                        <span>{(payment.date || '') + (payment.note ? ' · ' + payment.note : '')}</span>
-                        <b style={{ color: C.success }}>{Math.round(Number(payment.amount || 0)).toLocaleString('ru-RU') + ' ₽'}</b>
+                        <span>{payment.date || ''}</span>
+                        <b style={{ color: C.success }}>{(Number(payment.amount || 0)).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽'}</b>
                       </div>
                     ))}
                     {payments.length === 0 && (
@@ -764,45 +772,8 @@ export default function CustomerCabinetPage(props) {
               })()}
             </div>
 
-            <div style={{ ...card, padding: '20px' }}>
-              <b style={{ color: C.text, fontSize: '14px', display: 'block', marginBottom: '12px' }}>📄 Договоры</b>
-              {contracts
-                .filter((contract) => contract.projectName === myProject.name || contract.client === user.name)
-                .map((contract) => (
-                  <div
-                    key={contract.id}
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      padding: '8px 0',
-                      borderBottom: `1px solid ${C.border}`,
-                    }}
-                  >
-                    <div>
-                      <b style={{ fontSize: '13px', color: C.text }}>Договор № {contract.number}</b>
-                      <p style={{ color: C.textSec, margin: '2px 0', fontSize: '11px' }}>
-                        {Number(contract.totalAmount || 0).toLocaleString() + ' ₽ · ' + contract.status}
-                      </p>
-                    </div>
-                    <button
-                      onClick={() =>
-                        showPreview(
-                          `<h2>Договор №${contract.number}</h2><p>Заказчик: ${contract.client}</p><p>Сумма: ${Number(contract.totalAmount || 0).toLocaleString()} ₽</p>`,
-                          'Договор'
-                        )
-                      }
-                      style={{ ...btnB, padding: '4px 10px', fontSize: '11px' }}
-                    >
-                      <Eye size={11} />
-                      Открыть
-                    </button>
-                  </div>
-                ))}
-              {contracts.filter((contract) => contract.projectName === myProject.name || contract.client === user.name).length === 0 && (
-                <p style={{ color: C.textMuted, fontSize: '12px' }}>Договоров нет</p>
-              )}
-            </div>
+            <CustomerContracts project={myProject} user={user} documents={projectDocuments}
+              loadState={customerRecordsLoadState} fileSrc={fileSrc} C={C} card={card} />
           </div>
         )}
       </div>

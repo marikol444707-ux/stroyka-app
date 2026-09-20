@@ -6,6 +6,7 @@ const resources = {
   letters: ['/project-letters', 'setProjectLetters'],
   warranty: ['/warranty-defects', 'setWarrantyDefects'],
   extraWorks: ['/unexpected-works/customer-visible', 'setUnexpectedWorksList'],
+  payments: ['/project-payments/customer-visible', 'setProjectPayments'],
 };
 
 export const customerRecordsScope = (user, companyId, projectId = user?.project_id ?? user?.projectId ?? '') => [
@@ -48,7 +49,8 @@ export default function useCustomerRecordsLoader(ctx) {
         if (!response.ok || !Array.isArray(rows)) throw new Error('Не удалось загрузить раздел. Повторите загрузку.');
         if (rows.some(row => !row || Number(row.companyId) !== companyId || Number(row.projectId) !== projectId
             || (kind === 'warranty' ? Number(row.createdByUserId) !== Number(inputs.user.id)
-              : kind === 'extraWorks' ? typeof row.revision !== 'string' : row.side !== 'customer'))) {
+              : kind === 'extraWorks' ? typeof row.revision !== 'string'
+                : kind === 'payments' ? !Number.isFinite(Number(row.amount)) || Number(row.amount) <= 0 : row.side !== 'customer'))) {
           throw new Error('Сервер не подтвердил принадлежность данных. Повторите загрузку.');
         }
         if (current()) {

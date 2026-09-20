@@ -358,7 +358,7 @@ export const useAppDataLoaders = (ctx) => {
         setSupplyRequests(Array.isArray(sr)?sr:[]);
         setAiTasks(Array.isArray(ait)?ait:[]);
         setOwnExpenses(Array.isArray(oe)?oe:[]);
-        setProjectPayments(Array.isArray(pp)?pp:[]);
+        if (role !== 'заказчик') setProjectPayments(Array.isArray(pp)?pp:[]);
         setWarehouseMain(Array.isArray(wm)?wm:[]);
         setWorkJournal(safeWorkJournal);
         resetWorkJournalPage(safeWorkJournal);
@@ -598,7 +598,7 @@ export const useAppDataLoaders = (ctx) => {
         canLoadUserDirectory ? getApi('/users') : Promise.resolve([]),
         canLoadBrigadeData ? getApi('/brigade-contracts') : Promise.resolve([]),
       ]);
-      setProjectPayments(Array.isArray(pp)?pp:[]); setAccountablePayments(Array.isArray(acp)?acp:[]);
+      if (role !== 'заказчик') setProjectPayments(Array.isArray(pp)?pp:[]); setAccountablePayments(Array.isArray(acp)?acp:[]);
       setOwnExpenses(Array.isArray(oe)?oe:[]); setManualExpenses(Array.isArray(me)?me:[]);
       setContracts(Array.isArray(ct)?ct:[]); setInterimActs(Array.isArray(ia)?ia:[]);
       setExpenseReports(Array.isArray(expR)?expR:[]); setSupplierInvoices(Array.isArray(supI)?supI:[]);
@@ -646,7 +646,7 @@ export const useAppDataLoaders = (ctx) => {
         role === 'поставщик' ? Promise.resolve([]) : getApi(pagedPath('/work-journal', {limit: WORK_JOURNAL_PAGE_LIMIT})),
         canLoadEstimates ? getApi(estimatesLoadPath, null) : Promise.resolve(null),
       ]);
-      setProjectPayments(Array.isArray(pp)?pp:[]);
+      if (role !== 'заказчик') setProjectPayments(Array.isArray(pp)?pp:[]);
       setManualExpenses(Array.isArray(me)?me:[]);
       const safeWorkJournal = Array.isArray(wj) ? wj : [];
       setWorkJournal(safeWorkJournal);
@@ -780,7 +780,9 @@ export const useAppDataLoaders = (ctx) => {
       ]);
       setLoaded(setProjects, p); setLoaded(setClients, c);
       if (isLoaded(m)) { setMaterials(asArray(m)); resetMaterialsPage(asArray(m)); }
-      setLoaded(setInvoices, winv); setLoaded(setProjectPayments, pp); setLoaded(setAccountablePayments, acp);
+      setLoaded(setInvoices, winv);
+      if (role !== 'заказчик') setLoaded(setProjectPayments, pp);
+      setLoaded(setAccountablePayments, acp);
       setLoaded(setOwnExpenses, oe); setLoaded(setManualExpenses, me); setLoaded(setWarehouseMain, wm); setLoaded(setWarehouseMovements, wmov);
       setLoaded(setHistory, h); setLoaded(setStaff, s); setLoaded(setPiecework, pw); setLoaded(setUsers, u); setLoaded(setPricelists, pl);
       setLoaded(setInviteCodes, ic); setLoaded(setSuppliers, sup); setLoaded(setSupplyRequests, sr); setLoaded(setSupplierOffers, so);

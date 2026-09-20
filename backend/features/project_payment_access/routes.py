@@ -51,8 +51,13 @@ def register_project_payments_module(app, deps):
                 x_company_id=x_company_id,
                 x_company_mode=x_company_mode,
             )
+            actors = effective_company_actors(current_user, company_context)
+            if any(actor.get('role') == 'заказчик' for actor in actors):
+                actors = [actor for actor in actors if actor.get('role') != 'заказчик']
+                if not actors:
+                    raise HTTPException(status_code=403, detail='Для заказчика используйте опубликованные поступления')
             visibility_sql, params = project_payment_visibility_filter(
-                effective_company_actors(current_user, company_context),
+                actors,
                 finance_roles,
             )
             if visibility_sql == "FALSE":

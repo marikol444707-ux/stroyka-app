@@ -16607,10 +16607,13 @@ project_record_scope = RecordScope(
 
 try:
     from backend.features.customer_cabinet.extra_works import register_customer_extra_works
+    from backend.features.customer_cabinet.payments import register_customer_payments
 except ModuleNotFoundError:
     from features.customer_cabinet.extra_works import register_customer_extra_works
+    from features.customer_cabinet.payments import register_customer_payments
 
 register_customer_extra_works(app, project_record_scope, get_current_user)
+register_customer_payments(app, project_record_scope, get_current_user)
 
 try:
     from backend.features.project_stages.routes import register_project_stages_module

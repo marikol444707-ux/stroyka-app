@@ -11,27 +11,31 @@ const company = id => ({ mode: 'company', selectedCompanyId: id, companies: [{ c
 const journalRow = { id: 1, companyId: 2, projectId: 11, projectName: 'Школа', materialName: 'Кабель', cableBrand: 'ВВГ', quantity: 10, lengthReceived: 10 };
 function useCustomerHarness() {
   const [docs, setProjectDocuments] = useState([]);
+  const [payments, setProjectPayments] = useState([]);
   const [recordsState, setCustomerRecordsLoadState] = useState({});
   const runtime = useJournalHarness(company(2), {
     user: { id: 7, role: 'заказчик', projectId: 11, companyId: 2 },
     customerProjects: [{ id: 11, companyId: 2, name: 'Школа' }],
-    setProjectDocuments, setCustomerRecordsLoadState,
+    setProjectDocuments, setCustomerRecordsLoadState, setProjectPayments,
     roleFlagsForUser: () => ({ role: 'заказчик', canSeeProjectDocs: true }),
   });
-  return { ...runtime, docs, recordsState };
+  return { ...runtime, docs, payments, recordsState };
 }
 
 test('generic customer loading neither duplicates document reads nor clears the owned snapshot', async () => {
   const document = { id: 1, companyId: 2, projectId: 11, side: 'customer', docType: 'Visible' };
+  const payment = { id: 9, companyId: 2, projectId: 11, amount: 150.12 };
   global.fetch = jest.fn(async url => ({ ok: true, headers: snapshotHeaders,
-    json: async () => url.endsWith('/project-documents') ? [document] : [] }));
+    json: async () => url.endsWith('/project-documents') ? [document] : url.endsWith('/project-payments/customer-visible') ? [payment] : [] }));
   const { result } = renderHook(() => useCustomerHarness());
   await waitFor(() => expect(result.current.recordsState.documents?.status).toBe('ready'));
   await act(async () => { await result.current.loadAll(); });
   expect(result.current.docs).toEqual([document]);
+  expect(result.current.payments).toEqual([payment]);
   expect(fetch.mock.calls.filter(([url]) => url.endsWith('/project-documents'))).toHaveLength(1);
   await act(async () => { await result.current.refreshData('projects'); });
   expect(result.current.docs).toEqual([document]);
+  expect(result.current.payments).toEqual([payment]);
   expect(fetch.mock.calls.filter(([url]) => url.endsWith('/project-documents'))).toHaveLength(2);
 });
 

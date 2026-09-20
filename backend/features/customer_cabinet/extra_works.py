@@ -44,6 +44,7 @@ def register_customer_extra_works(app, scope, authenticated):
                     'projectName': row['project_name'], 'description': row['description'],
                     'unit': row['unit'], 'quantity': row['quantity'], 'price': row['price'],
                     'total': row['total'], 'changeType': row['change_type'], 'reason': row['reason'],
+                    'includedInEstimateId': row['included_in_estimate_id'],
                     'status': row['status'], 'approvedBy': row['approved_by'], 'approvedAt': row['approved_at'],
                     'addedBy': 'Подрядчик', 'revision': revision(row),
                 })
