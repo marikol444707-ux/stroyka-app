@@ -6549,49 +6549,31 @@ def register(data: dict, response: Response, request: Request):
     try:
         from backend.features.supplier_team.invitations import validate_binding
         team_invite = validate_binding(cur, invite, lock=True)
-        project_name = (invite.get("project_name") or "").strip()
-        assigned_projects = _safe_project_list(invite.get("assigned_projects"))
-        assigned_packages = _safe_project_list(invite.get("assigned_packages"))
-        assigned_projects, assigned_packages = _prepare_user_access_scope(cur, role, project_name, assigned_projects, assigned_packages)
-        cur.execute("SELECT id FROM projects WHERE name=%s LIMIT 1", (project_name,))
-        project_row = cur.fetchone()
-        project_id = project_row.get("id") if isinstance(project_row, dict) and project_row else (project_row[0] if project_row else None)
-        company_id = invite.get("company_id")
-        platform_account_id = invite.get("platform_account_id")
-        if not company_id and invite.get("preset_name"):
-            cur.execute("""SELECT id, platform_account_id
-                           FROM companies
-                           WHERE name=%s
-                           ORDER BY id DESC
-                           LIMIT 1""", (invite.get("preset_name"),))
-            company_row = cur.fetchone()
-            if company_row:
-                company_id = company_row.get("id")
-                platform_account_id = platform_account_id or company_row.get("platform_account_id")
-        if not platform_account_id and company_id:
-            cur.execute("SELECT platform_account_id FROM companies WHERE id=%s", (company_id,))
-            company_row = cur.fetchone()
-            platform_account_id = company_row.get("platform_account_id") if company_row else None
-        if role in ("account_owner", "account_admin"):
-            project_id = None
-            project_name = ""
-            assigned_projects = []
-            assigned_packages = []
-            if not platform_account_id:
-                raise HTTPException(status_code=400, detail="В приглашении не указан клиентский аккаунт")
-        if role == 'поставщик':
-            company_id = None
-            platform_account_id = None
-            project_id = None
-            project_name = ''
-            assigned_projects = []
-            assigned_packages = []
+        from backend.features.company_users.access import COMPANY_ROLES, save_membership
+        from backend.features.invite_codes.company_membership import registration_scope
+        company_id = None
+        platform_account_id = None
+        project_id = None
+        project_name = ''
+        assigned_projects = []
+        assigned_packages = []
+        if role in COMPANY_ROLES:
+            company_id, platform_account_id, project_id, project_name, assigned_projects, assigned_packages = registration_scope(cur, invite)
+        elif role in ("account_owner", "account_admin"):
+            platform_account_id = invite.get('platform_account_id')
+            cur.execute('SELECT id FROM platform_accounts WHERE id=%s AND COALESCE(active,TRUE)=TRUE FOR SHARE', (platform_account_id,))
+            if not cur.fetchone():
+                raise HTTPException(409, 'Клиентский аккаунт приглашения недоступен')
+        elif role != 'поставщик' and role not in PLATFORM_STAFF_ROLES:
+            raise HTTPException(403, 'Недопустимая роль приглашения')
         cur.execute("""INSERT INTO users
                           (name,email,password,role,project_id,project_name,assigned_projects,assigned_packages,company_id,platform_account_id)
                        VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s,%s) RETURNING *""",
                     (name, email, hash_password(password), role, project_id, project_name,
                      json.dumps(assigned_projects), json.dumps(assigned_packages), company_id, platform_account_id))
         user = cur.fetchone()
+        if role in COMPANY_ROLES:
+            save_membership(cur, user['id'], company_id, role, assigned_projects, assigned_packages, True, {'is_default':True})
         if team_invite:
             cur.execute("INSERT INTO supplier_team_members(supplier_id,user_id,role) VALUES(%s,%s,'manager')",
                         (team_invite['supplier_id'], user['id']))
@@ -7710,6 +7692,8 @@ register_supplier_team_module(app, {"get_db": get_db, "require_roles": require_r
 
 register_invite_codes_module(app, {
     "get_db": get_db,
+    "authenticated": get_current_user,
+    "resolve_context": _resolve_work_company_context, "effective_actors": effective_company_actors,
     "require_roles": require_roles,
     "admin_roles": LEADERSHIP_ROLES,
     "prepare_user_access_scope": _prepare_user_access_scope,

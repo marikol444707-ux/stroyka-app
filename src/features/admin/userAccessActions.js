@@ -115,8 +115,8 @@ export const createUserAccessActions = ({
     alert('2FA сброшена');
   };
 
-  const createInvite = async () => {
-    await scopedFetch(API + '/invite-codes', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({role: newInviteRole})});
+  const createInvite = async (scope = {}) => {
+    await scopedFetch(API + '/invite-codes', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({role: newInviteRole, projectId: scope.projectId || '', assignedPackages: scope.assignedPackages || []})});
     await refreshData();
   };
 

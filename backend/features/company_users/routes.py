@@ -1,6 +1,6 @@
 """Company-scoped replacement for legacy global /users administration."""
 import json
-from typing import Optional
+from typing import Optional, Union
 from fastapi import Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from .access import ADMIN_ROLES, COMPANY_ROLES, transaction, target, assignments, require_role, save_membership, string_list, audit
@@ -10,7 +10,7 @@ class UserModel(BaseModel):
     email:str
     password:str=''
     role:str='прораб'
-    projectId:str=''
+    projectId:Union[str,int]=''
     projectName:str=''
     assignedProjects:list[str]=Field(default_factory=list)
     assignedPackages:list[str]=Field(default_factory=list)

@@ -1,97 +1,49 @@
-"""Invite code routes.
+"""Company-owned invitations and separate supplier relationship invitations."""
 
-Extracted verbatim from backend/main.py (Task 13.1, slice 31):
-GET/POST/DELETE /invite-codes and the public
-GET /invite-codes/{code}/info keep their URLs, leadership guard,
-access-scope preparation and company/platform account resolution.
-"""
-
-import json
-import uuid
 
 import psycopg2.extras
 from fastapi import Depends, Header, HTTPException
 
 from .supplier_relationship import create_supplier_invite, directory
+from .company_membership import create_company_invite, request_headers
+from ..company_users.access import ADMIN_ROLES, COMPANY_ROLES, transaction
 
 
 def register_invite_codes_module(app, deps):
     get_db = deps["get_db"]
     require_roles = deps["require_roles"]
     admin_roles = tuple(deps.get("admin_roles") or ())
-    prepare_user_access_scope = deps["prepare_user_access_scope"]
+    authenticated = deps.get("authenticated") or require_roles(*admin_roles, "system_owner")
 
     @app.get("/invite-codes")
-    def get_invite_codes(_current_user: dict = Depends(require_roles(*admin_roles, "system_owner")),
+    def get_invite_codes(_current_user: dict = Depends(authenticated),
                          x_company_id: str = Header(None, alias='X-Company-Id'),
                          x_company_mode: str = Header(None, alias='X-Company-Mode')):
-        # Scoped invitation codes must not be disclosed to another buyer.
-        try:
-            with directory(deps).transaction(_current_user, (x_company_id, x_company_mode)) as (_cur, company, _actor):
-                company_id = company['id']
-        except HTTPException:
-            company_id = None
-        conn = get_db()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("SELECT to_regclass('public.supplier_team_invites') AS relation")
-        has_team = cur.fetchone()['relation']
-        team_filter = ' AND NOT EXISTS(SELECT 1 FROM supplier_team_invites t WHERE t.invite_id=i.id)' if has_team else ''
-        cur.execute('''SELECT i.* FROM invite_codes i LEFT JOIN supplier_invite_companies b ON b.invite_id=i.id
-                       WHERE (b.invite_id IS NULL OR b.company_id=%s)'''+team_filter+' ORDER BY i.id DESC', (company_id,))
-        rows = cur.fetchall()
-        conn.close()
-        return [dict(r) for r in rows]
+        with transaction(deps, _current_user, request_headers((x_company_id,x_company_mode))) as (cur, actor, company):
+            if actor['role'] not in ADMIN_ROLES:
+                raise HTTPException(403, 'Приглашениями управляет руководитель компании')
+            cur.execute("SELECT to_regclass('public.supplier_team_invites') AS relation")
+            has_team = cur.fetchone()['relation']
+            team_filter = ' AND NOT EXISTS(SELECT 1 FROM supplier_team_invites t WHERE t.invite_id=i.id)' if has_team else ''
+            cur.execute('''SELECT i.* FROM invite_codes i LEFT JOIN supplier_invite_companies b ON b.invite_id=i.id
+                WHERE ((b.invite_id IS NULL AND i.company_id=%s AND i.role=ANY(%s))
+                    OR b.company_id=%s)'''+team_filter+' ORDER BY i.id DESC',
+                (company,list(COMPANY_ROLES),company))
+            return [dict(row) for row in cur.fetchall()]
 
     @app.post("/invite-codes")
-    def create_invite_code(data: dict, _current_user: dict = Depends(require_roles(*admin_roles, "system_owner")),
+    def create_invite_code(data: dict, _current_user: dict = Depends(authenticated),
                            x_company_id: str = Header(None, alias='X-Company-Id'),
                            x_company_mode: str = Header(None, alias='X-Company-Mode')):
-        from datetime import datetime, timedelta
         role = data.get('role') or ''
         if not role:
             raise HTTPException(status_code=400, detail="Не указана роль")
         if role == 'поставщик':
             return create_supplier_invite(deps, _current_user, data, (x_company_id, x_company_mode))
-        conn = get_db()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        code = str(uuid.uuid4())[:8].upper()
-        expires_in_days = int(data.get('expiresInDays') or 14)
-        expires_at = datetime.now() + timedelta(days=expires_in_days)
-        project_name = (data.get("projectName") or data.get("project_name") or "").strip()
-        assigned_projects, assigned_packages = prepare_user_access_scope(
-            cur,
-            role,
-            project_name,
-            data.get("assignedProjects") or [],
-            data.get("assignedPackages") or [],
-        )
-        company_id = data.get("companyId") or data.get("company_id")
-        platform_account_id = data.get("platformAccountId") or data.get("platform_account_id")
-        try:
-            company_id = int(company_id) if company_id not in (None, "") else None
-        except Exception:
-            company_id = None
-        try:
-            platform_account_id = int(platform_account_id) if platform_account_id not in (None, "") else None
-        except Exception:
-            platform_account_id = None
-        if company_id and not platform_account_id:
-            cur.execute("SELECT platform_account_id FROM companies WHERE id=%s", (company_id,))
-            company_row = cur.fetchone()
-            if company_row:
-                platform_account_id = company_row.get("platform_account_id")
-        cur.execute(
-            "INSERT INTO invite_codes (code, role, supplier_id, preset_name, preset_category, created_by, expires_at, project_name, assigned_projects, assigned_packages, company_id, platform_account_id) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s,%s) RETURNING *",
-            (code, role, data.get('supplierId'), data.get('presetName'),
-             data.get('presetCategory'), data.get('createdBy'), expires_at, project_name,
-             json.dumps(assigned_projects), json.dumps(assigned_packages), company_id, platform_account_id))
-        row = cur.fetchone()
-        conn.close()
-        return dict(row)
+        return create_company_invite(deps, _current_user, data, (x_company_id, x_company_mode))
 
     @app.delete("/invite-codes/{id}")
-    def delete_invite_code(id: int, _current_user: dict = Depends(require_roles(*admin_roles, "system_owner")),
+    def delete_invite_code(id: int, _current_user: dict = Depends(authenticated),
                            x_company_id: str = Header(None, alias='X-Company-Id'),
                            x_company_mode: str = Header(None, alias='X-Company-Mode')):
         conn = get_db()
@@ -101,8 +53,9 @@ def register_invite_codes_module(app, deps):
             cur.execute("SET LOCAL statement_timeout='15s'")
             # Registration locks invite before company. Keep the same order,
             # including while the scoped authorization transaction is open.
-            cur.execute('SELECT id FROM invite_codes WHERE id=%s FOR UPDATE', (id,))
-            if not cur.fetchone():
+            cur.execute('SELECT company_id,role FROM invite_codes WHERE id=%s FOR UPDATE', (id,))
+            invite = cur.fetchone()
+            if not invite:
                 return {"ok": True}
             cur.execute("SELECT to_regclass('public.supplier_team_invites')")
             if cur.fetchone()[0]:
@@ -118,8 +71,13 @@ def register_invite_codes_module(app, deps):
                     cur.execute('DELETE FROM invite_codes WHERE id=%s', (id,))
                     conn.commit()
             else:
-                cur.execute("DELETE FROM invite_codes WHERE id=%s", (id,))
-                conn.commit()
+                with transaction(deps, _current_user, request_headers((x_company_id,x_company_mode)), True) as (scoped, actor, company):
+                    if invite[0] != company or invite[1] not in COMPANY_ROLES:
+                        raise HTTPException(403, 'Приглашение относится к другой компании')
+                    if actor['role']=='зам_директора' and invite[1] in ('директор','зам_директора'):
+                        raise HTTPException(403, 'Приглашениями руководителей управляет директор')
+                    cur.execute("DELETE FROM invite_codes WHERE id=%s", (id,))
+                    conn.commit()
         except Exception:
             conn.rollback()
             raise
