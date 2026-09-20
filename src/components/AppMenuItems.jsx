@@ -13,6 +13,7 @@ import {
   Package,
   ScrollText,
   Settings,
+  Shield,
   ShoppingCart,
   UserCheck,
 } from 'lucide-react';
@@ -29,6 +30,7 @@ export const buildAppMenuItems = () => [
   { id: 'supply', icon: <ShoppingCart size={18} />, label: 'Снабжение' },
   { id: 'accounting', icon: <DollarSign size={18} />, label: 'Бухгалтерия' },
   { id: 'personnel', icon: <UserCheck size={18} />, label: 'Персонал' },
+  { id: 'users', icon: <Shield size={18} />, label: 'Пользователи' },
 
   { id: 'estimates', icon: <Calculator size={18} />, label: 'Сметы' },
   { id: 'weather', icon: <CloudSun size={18} />, label: 'Погода / ЖПР' },
