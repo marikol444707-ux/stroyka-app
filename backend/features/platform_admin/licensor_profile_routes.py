@@ -133,12 +133,13 @@ def register_licensor_profile_routes(app, deps):
         except (TypeError, ValueError):
             platform_account_id = 0
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             if platform_account_id <= 0:
                 raise HTTPException(status_code=422, detail="Укажите корректный аккаунт платформы.")
             cur.execute(
-                "SELECT id FROM platform_accounts WHERE id=%s",
+                "SELECT id FROM platform_accounts WHERE id=%s FOR UPDATE",
                 (platform_account_id,),
             )
             if not cur.fetchone():

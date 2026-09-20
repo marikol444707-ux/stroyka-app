@@ -270,4 +270,19 @@ describe('SystemOwnerCabinet billing contract links', () => {
     expect(sessionStorage.length).toBe(0);
   });
 
+  test('settled invoice and provider payment keep their contract links fixed', async () => {
+    const normal = global.fetch.getMockImplementation();
+    global.fetch.mockImplementation(async (url, options = {}) => {
+      if (url === '/system/billing-documents' && !options.method) return jsonResponse([{...billingDocument,status:'closed'}]);
+      if (url === '/system/payments' && !options.method) return jsonResponse([{...payment,contract_locked:true}]);
+      return normal(url, options);
+    });
+    renderCabinet();
+    fireEvent.click(screen.getByRole('button', {name: '💰 Платежи'}));
+    await screen.findByText(/Фактические платежи \(1\)/);
+    expect(screen.getByLabelText('Договор для платежа #701')).toBeDisabled();
+    expect(screen.getByLabelText('Договор для INV-81')).toBeDisabled();
+    expect(screen.queryByRole('button', {name:'Провайдер',exact:true})).not.toBeInTheDocument();
+  });
+
 });

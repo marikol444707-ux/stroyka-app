@@ -126,6 +126,9 @@ def register_document_access_module(app, deps):
         )
 
     def authorize_file(cur, current_user, row, action_mode, x_company_id, x_company_mode):
+        from .platform_files import authorize_platform_document
+        if authorize_platform_document(cur, current_user, row, action_mode):
+            return current_user
         if current_user.get("role") == "поставщик":
             if action_mode != "read":
                 raise HTTPException(403, "Поставщик не может удалять документы заказчика")

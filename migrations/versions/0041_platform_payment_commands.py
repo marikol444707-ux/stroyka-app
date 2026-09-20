@@ -15,6 +15,8 @@ ALTER TABLE company_payments ADD CONSTRAINT company_payment_command_pair CHECK (
 );
 CREATE UNIQUE INDEX company_payment_command_uidx ON company_payments(command_id)
     WHERE command_id IS NOT NULL;
+CREATE INDEX platform_payment_events_payment_idx ON platform_payment_events(payment_id)
+    WHERE payment_id IS NOT NULL;
 '''
 
 
@@ -25,6 +27,7 @@ def upgrade():
 def downgrade():
     op.execute("""DO $$ BEGIN IF EXISTS(SELECT 1 FROM company_payments WHERE command_id IS NOT NULL)
         THEN RAISE EXCEPTION 'Payment command history must be preserved'; END IF; END $$;
+        DROP INDEX platform_payment_events_payment_idx;
         DROP INDEX company_payment_command_uidx;
         ALTER TABLE company_payments DROP CONSTRAINT company_payment_command_pair;
         ALTER TABLE company_payments DROP COLUMN command_fingerprint;

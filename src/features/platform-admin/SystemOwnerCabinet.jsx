@@ -1450,7 +1450,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
                       <select
                         aria-label={'Договор для '+(doc.number || 'документа')}
                         value={doc.client_contract_id || ''}
-                        disabled={billingContractWorkingId === doc.id}
+                        disabled={billingContractWorkingId === doc.id || ['closed','cancelled'].includes(doc.status)}
                         onChange={event=>linkBillingDocumentContract(doc,event.target.value)}
                         style={{...inp,marginBottom:0,padding:'6px 9px',fontSize:'11px',maxWidth:'320px'}}
                       >
@@ -1458,7 +1458,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
                         {billingContractOptions.filter(contract=>String(contract.company_id)===String(doc.company_id)).map(contract=><option key={contract.id} value={contract.id}>{contract.number} · {clientContractStatusLabels[contract.status] || contract.status}</option>)}
                         {doc.client_contract_id && !billingContractOptions.some(contract=>String(contract.id)===String(doc.client_contract_id)) && <option value={doc.client_contract_id}>{doc.client_contract_number || 'Связанный договор'}</option>}
                       </select>
-                      <span style={{color:C.textMuted,fontSize:'10px'}}>{billingContractWorkingId===doc.id?'Сохраняем…':'Сохраняется сразу'}</span>
+                      <span style={{color:C.textMuted,fontSize:'10px'}}>{['closed','cancelled'].includes(doc.status)?'Договор зафиксирован':billingContractWorkingId===doc.id?'Сохраняем…':'Сохраняется сразу'}</span>
                     </div>
                     {(doc.payment_provider || doc.payment_url) && <p style={{color:C.textMuted,fontSize:'11px',margin:'3px 0 0',overflowWrap:'anywhere'}}>{doc.payment_provider || 'manual'}{doc.payment_url?' · '+doc.payment_url:''}</p>}
                     {doc.file_url && <a href={fileSrc(doc.file_url)} target='_blank' rel='noreferrer' style={{color:C.info,fontSize:'11px',fontWeight:800,textDecoration:'none',display:'inline-block',marginTop:'5px'}}>Открыть PDF</a>}
@@ -1472,17 +1472,17 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
                       if(!response.ok){ alert(data.detail || 'Не удалось сформировать PDF'); return; }
                       await loadAll();
                     }} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}>PDF</button>
-                    <button onClick={async()=>{
+                    {!['closed','cancelled'].includes(doc.status) && <button onClick={async()=>{
                       const response = await sendJson('/system/billing-documents/'+doc.id+'/prepare-payment',{method:'POST',body:JSON.stringify({provider:doc.payment_provider || 'manual', paymentUrl:doc.payment_url || ''})});
                       const data = await response.json().catch(()=>({}));
                       if(!response.ok){ alert(data.detail || 'Не удалось подготовить оплату'); return; }
                       alert(data.message || 'Провайдер подготовлен');
                       await loadAll();
-                    }} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}>Провайдер</button>
+                    }} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}>Провайдер</button>}
                     {canUseFollowups && <button onClick={()=>openFollowupForm(companies.find(c=>String(c.id)===String(doc.company_id)) || {id:doc.company_id,name:doc.company_name,platform_account_name:doc.platform_account_name}, 'payment', doc)} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}>Задача</button>}
                     {doc.status === 'draft' && <button onClick={async()=>{await sendJson('/system/billing-documents/'+doc.id,{method:'PUT',body:JSON.stringify({status:'issued'})});loadAll();}} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}>Выставлен</button>}
                     {doc.status !== 'cancelled' && doc.status !== 'closed' && <button onClick={async()=>{await sendJson('/system/billing-documents/'+doc.id,{method:'PUT',body:JSON.stringify({status:'payment_expected'})});loadAll();}} style={{...btnO,padding:'5px 10px',fontSize:'11px'}}>Ждет оплату</button>}
-                    {doc.status !== 'cancelled' && <button onClick={async()=>{await sendJson('/system/billing-documents/'+doc.id,{method:'PUT',body:JSON.stringify({status:'closed'})});loadAll();}} style={{...btnGr,padding:'5px 10px',fontSize:'11px'}}>Закрыть</button>}
+                    {doc.status !== 'cancelled' && doc.status !== 'closed' && <button onClick={async()=>{await sendJson('/system/billing-documents/'+doc.id,{method:'PUT',body:JSON.stringify({status:'closed'})});loadAll();}} style={{...btnGr,padding:'5px 10px',fontSize:'11px'}}>Закрыть</button>}
                   </div>
                 </div>
               </div>);
@@ -1566,7 +1566,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
                   aria-label={'Договор для платежа #'+p.id}
                   value={p.client_contract_id || ''}
                   onChange={event=>linkPaymentContract(p,event.target.value)}
-                  disabled={paymentContractWorkingId===p.id}
+                  disabled={paymentContractWorkingId===p.id || p.contract_locked}
                   style={{...inp,margin:'6px 0 0',padding:'6px 8px',fontSize:'11px'}}
                 >
                   <option value=''>Без договора</option>

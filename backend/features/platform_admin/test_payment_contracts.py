@@ -224,6 +224,7 @@ class PaymentContractTests(unittest.TestCase):
         )
         connection = FakeConnection([
             payment_row(),
+            None,
             contract_row(),
             linked,
         ])
@@ -247,6 +248,7 @@ class PaymentContractTests(unittest.TestCase):
 
         second_connection = FakeConnection([
             linked,
+            None,
             payment_row(),
         ])
         second_handlers = register_handlers(second_connection)

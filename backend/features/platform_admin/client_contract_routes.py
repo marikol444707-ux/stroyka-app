@@ -385,39 +385,7 @@ def _actor(current_user):
     )
 
 
-def _register_contract_file(
-    cur,
-    uploaded,
-    *,
-    company_id,
-    context,
-    original_name,
-    current_user,
-):
-    if not isinstance(uploaded, dict) or not str(uploaded.get("url") or "").strip():
-        raise HTTPException(
-            status_code=502,
-            detail="Хранилище не вернуло ссылку на сохранённый договор.",
-        )
-    cur.execute(
-        """INSERT INTO file_ownership
-                  (company_id, project_id, file_url, storage_key, context,
-                   original_name, content_type, uploaded_by_id, uploaded_by)
-           VALUES (%s, NULL, %s, %s, %s, %s, 'application/pdf', %s, %s)
-           RETURNING id""",
-        (
-            company_id,
-            uploaded.get("url"),
-            uploaded.get("key") or "",
-            context,
-            original_name,
-            current_user.get("id") if isinstance(current_user, dict) else None,
-            _actor(current_user),
-        ),
-    )
-    row = cur.fetchone()
-    file_id = row.get("id") if isinstance(row, dict) else row[0]
-    return "/tenant-files/{}/content".format(file_id)
+from .document_files import register_platform_document_file as _register_contract_file
 
 
 def register_client_contract_routes(app, deps):
@@ -490,6 +458,7 @@ def register_client_contract_routes(app, deps):
             )
 
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             preview, existing = _preview(cur, data, tariff_for_plan)
@@ -620,6 +589,7 @@ def register_client_contract_routes(app, deps):
         reason = " ".join(str(data.get("reason") or "").strip().split())[:1000]
 
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             contract = _load_contract(cur, contract_id, for_update=True)
@@ -735,6 +705,7 @@ def register_client_contract_routes(app, deps):
         if not save_upload_bytes:
             raise HTTPException(status_code=503, detail="Хранилище договоров не настроено.")
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             contract = _load_contract(cur, contract_id, for_update=True)
@@ -850,6 +821,7 @@ def register_client_contract_routes(app, deps):
         )
 
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             contract = _load_contract(cur, contract_id, for_update=True)

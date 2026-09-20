@@ -25,7 +25,9 @@ class PlatformPaymentTests(unittest.TestCase):
             with conn.cursor() as cur:
                 migration=importlib.import_module('migrations.versions.0005_platform_client_contracts')
                 with patch.object(migration,'op',SimpleNamespace(execute=cur.execute)):migration.upgrade()
-                cur.execute(importlib.import_module('migrations.versions.0041_platform_payment_commands').SCHEMA_SQL)
+                cur.execute("SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='company_payments' AND column_name='command_id'")
+                if not cur.fetchone():
+                    cur.execute(importlib.import_module('migrations.versions.0041_platform_payment_commands').SCHEMA_SQL)
                 cur.execute("INSERT INTO users(name,email,password,role) VALUES('Billing test','billing-command@local.test','unused','system_owner') RETURNING id")
                 cls.operator={'id':cur.fetchone()[0],'role':'system_owner','name':'Billing test','email':'billing-command@local.test'}
             conn.commit()
@@ -140,3 +142,31 @@ class PlatformPaymentTests(unittest.TestCase):
             self.sql('UPDATE platform_billing_documents SET currency=%s WHERE id=%s',(currency,document))
             self.api(self.operator,'POST',f'/system/payment-events/{event}/confirm',{},expected=400)
             self.assertEqual(self.sql('SELECT status FROM platform_billing_documents WHERE id=%s',(document,)),[('issued',)])
+
+    def test_migration_preserves_legacy_values_and_refuses_erasing_replay_history(self):
+        migration=importlib.import_module('migrations.versions.0041_platform_payment_commands')
+        conn=self.main.get_db();conn.autocommit=False
+        try:
+            with conn.cursor() as cur:
+                namespace='billing_migration_'+uuid.uuid4().hex
+                cur.execute('CREATE SCHEMA '+namespace)
+                cur.execute('SET LOCAL search_path TO '+namespace)
+                cur.execute('CREATE TABLE company_payments(id INT,amount NUMERIC(10,2),notes TEXT)')
+                cur.execute('CREATE TABLE platform_payment_events(payment_id INT)')
+                cur.execute("INSERT INTO company_payments VALUES(7,150.12,'Historical payment')")
+                with patch.object(migration,'op',SimpleNamespace(execute=cur.execute)):
+                    migration.upgrade()
+                    cur.execute('SELECT id,amount,notes,command_id,command_fingerprint FROM company_payments')
+                    self.assertEqual(cur.fetchall(),[(7,Decimal('150.12'),'Historical payment',None,None)])
+                    migration.downgrade()
+                    migration.upgrade()
+                    cur.execute('UPDATE company_payments SET command_id=%s,command_fingerprint=%s',(str(uuid.uuid4()),'a'*64))
+                    cur.execute('SAVEPOINT before_down')
+                    with self.assertRaisesRegex(psycopg2.Error,'Payment command history must be preserved'):
+                        migration.downgrade()
+                    cur.execute('ROLLBACK TO SAVEPOINT before_down')
+                    cur.execute('SELECT COUNT(*) FROM company_payments WHERE command_id IS NOT NULL')
+                    self.assertEqual(cur.fetchone(),(1,))
+        finally:
+            conn.rollback()
+            conn.close()
