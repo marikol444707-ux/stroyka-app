@@ -1957,7 +1957,6 @@ def _queue_supply_request_max_notification(cur, recipient: dict, request_context
            AND event_type='supplier_kp_requested'
            AND entity_type='supply_request'
            AND entity_id=%s
-           AND COALESCE(status,'') NOT IN ('cancelled','failed')
          ORDER BY id DESC
          LIMIT 1
     """, (owner["companyId"], account_id, request_id))
@@ -2091,12 +2090,17 @@ def _notify_supply_request_recipients(cur, request_id: int, company_id: int = No
         })
     return notifications
 
+def _send_rfq_email(to_email, subject, text):
+    from backend.features.supplier_access.smtp_delivery import send_rfq_email
+    return send_rfq_email(to_email, subject, text, host=SMTP_HOST, port=SMTP_PORT,
+        sender=SMTP_FROM, username=SMTP_USER, password=SMTP_PASSWORD, ssl=SMTP_SSL, tls=SMTP_TLS)
+
 def _dispatch_supply_recipient_email(request_id, company_id, recipient_id):
     dispatch_recipient_email(
         get_db, request_id, company_id, recipient_id,
         configured=_smtp_configured, skip_email=_should_skip_supplier_notification_email,
         context=_supply_request_notification_context, text=_supply_request_notification_text,
-        send=_send_email,
+        send=_send_rfq_email,
     )
 
 def _resolve_work_company_context(
@@ -10429,6 +10433,40 @@ def request_kp_from_suppliers(
         cur.close()
         conn.close()
 
+@app.post("/supply-requests/{id}/recipients/{recipient_id}/retry-email")
+def retry_supply_recipient_email(
+    id: int, recipient_id: int, data: dict, background_tasks: BackgroundTasks,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
+    from backend.features.supplier_access.email_history import queue_rejected_email
+    conn = get_db()
+    conn.autocommit = False
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT id,company_id,project FROM supply_requests WHERE id=%s",(id,))
+            req = cur.fetchone()
+            if not req:
+                raise HTTPException(404,"Заявка не найдена")
+            company, actor = resolve_resource_company_actor(cur,_current_user,req['company_id'],"write",
+                x_company_id=x_company_id,x_company_mode=x_company_mode,allowed_roles=['директор','снабженец'],
+                forbidden_detail="Нет прав на повтор уведомления",platform_staff_roles=PLATFORM_STAFF_ROLES,
+                client_account_roles=CLIENT_ACCOUNT_ROLES)
+            if req.get('project'):
+                require_project_or_warehouse_access(actor,req['project'])
+            company_id = int(company['companyId'])
+            queue_rejected_email(cur,id,company_id,recipient_id,data.get('expectedAttemptId'))
+        conn.commit()
+        background_tasks.add_task(_dispatch_supply_recipient_email,id,company_id,recipient_id)
+        return {"ok":True,"status":"queued"}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 @app.get("/supply-requests/{id}/recipients")
 def get_supply_request_recipients(
     id: int,
@@ -10578,6 +10616,8 @@ def get_supply_request_recipients(
             }
         rows = [_add_supply_recipient_link_hint(row) for row in recipient_map.values()]
     try:
+        from backend.features.supplier_access.email_history import attach_email_history
+        attach_email_history(cur, req, rows)
         return attach_recipient_delivery_diagnostics(cur, req, rows)
     finally:
         cur.close()
@@ -27643,6 +27683,7 @@ except ModuleNotFoundError:
     from features.messenger import register_messenger_module
 
 register_messenger_module(app, {
+    "dispatch_supply_recipient_email": _dispatch_supply_recipient_email,
     "get_db": get_db,
     "get_current_user": get_current_user,
     "require_roles": require_roles,

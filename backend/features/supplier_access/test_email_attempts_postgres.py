@@ -42,7 +42,7 @@ class EmailAttemptsPostgresTests(unittest.TestCase):
             entered.set()
             self.assertTrue(release.wait(10))
             return True
-        with patch.object(self.main, '_smtp_configured', return_value=True), patch.object(self.main, '_send_email', side_effect=send) as smtp:
+        with patch.object(self.main, '_smtp_configured', return_value=True), patch.object(self.main, '_send_rfq_email', side_effect=send) as smtp:
             with ThreadPoolExecutor(max_workers=2) as pool:
                 first = pool.submit(self.dispatch, rid, recipient)
                 self.assertTrue(entered.wait(10))
@@ -61,7 +61,7 @@ class EmailAttemptsPostgresTests(unittest.TestCase):
         for outcome in (False, RuntimeError('lost acknowledgement')):
             rid, recipient = self.queued()
             smtp = Mock(side_effect=outcome) if isinstance(outcome, Exception) else Mock(return_value=outcome)
-            with patch.object(self.main, '_smtp_configured', return_value=True), patch.object(self.main, '_send_email', smtp):
+            with patch.object(self.main, '_smtp_configured', return_value=True), patch.object(self.main, '_send_rfq_email', smtp):
                 self.dispatch(rid, recipient)
                 self.dispatch(rid, recipient)
                 self.api('director', 'POST', f'/supply-requests/{rid}/request-kp', {'supplierIds': [self.fixture['supplierId']]})
@@ -90,18 +90,18 @@ class EmailAttemptsPostgresTests(unittest.TestCase):
                 conn = real_get_db()
                 opened.append(conn)
                 return FailedCommit(conn) if len(opened) == failure_at else conn
-            with patch.object(self.main, 'get_db', side_effect=connection), patch.object(self.main, '_smtp_configured', return_value=True), patch.object(self.main, '_send_email', return_value=True) as smtp:
+            with patch.object(self.main, 'get_db', side_effect=connection), patch.object(self.main, '_smtp_configured', return_value=True), patch.object(self.main, '_send_rfq_email', return_value=True) as smtp:
                 self.dispatch(rid, recipient)
                 self.assertEqual(smtp.call_count, expected_calls)
             self.assertEqual(self.state(recipient), (expected_status, None))
             if failure_at == 2:
-                with patch.object(self.main, '_send_email') as smtp:
+                with patch.object(self.main, '_send_rfq_email') as smtp:
                     self.dispatch(rid, recipient)
                     smtp.assert_not_called()
 
     def test_live_scope_and_visibility_prevent_transmission(self):
         rid, recipient = self.queued()
-        with patch.object(self.main, '_smtp_configured', return_value=True), patch.object(self.main, '_send_email') as smtp:
+        with patch.object(self.main, '_smtp_configured', return_value=True), patch.object(self.main, '_send_rfq_email') as smtp:
             self.dispatch(rid, recipient, company=3)
             self.sql('UPDATE supply_request_recipients SET visible_to_supplier=FALSE WHERE id=%s', (recipient,))
             self.dispatch(rid, recipient)
@@ -121,7 +121,7 @@ class EmailAttemptsPostgresTests(unittest.TestCase):
             self.assertEqual(self.sql('SELECT status FROM supply_requests WHERE id=%s', (rid,)), [('КП запрошены',)])
             self.assertEqual(self.state(recipient), (EMAIL_UNCONFIRMED, None))
             return True
-        with patch.object(self.main, '_smtp_configured', return_value=True), patch.object(self.main, '_send_email', side_effect=send) as smtp:
+        with patch.object(self.main, '_smtp_configured', return_value=True), patch.object(self.main, '_send_rfq_email', side_effect=send) as smtp:
             result = self.api('director', 'POST', f'/supply-requests/{rid}/request-kp', {'supplierIds': [self.fixture['supplierId']]})
             self.assertEqual(result['notifications'][0]['emailStatus'], EMAIL_QUEUED)
             self.assertEqual(smtp.call_count, 1)
@@ -135,7 +135,7 @@ class EmailAttemptsPostgresTests(unittest.TestCase):
         held=self.main.get_db();held.autocommit=False
         cur=held.cursor();cur.execute('SELECT id FROM supply_request_recipients WHERE id=%s FOR UPDATE',(recipient,))
         try:
-            with patch.object(self.main,'_smtp_configured',return_value=True),patch.object(self.main,'_send_email',return_value=True) as smtp:
+            with patch.object(self.main,'_smtp_configured',return_value=True),patch.object(self.main,'_send_rfq_email',return_value=True) as smtp:
                 with ThreadPoolExecutor(max_workers=1) as pool:
                     task=pool.submit(self.dispatch,rid,recipient)
                     try:

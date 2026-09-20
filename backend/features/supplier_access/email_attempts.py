@@ -8,6 +8,7 @@ import logging
 
 from psycopg2.extras import RealDictCursor
 
+EMAIL_REJECTED = 'Email отклонён: повтор разрешён'
 EMAIL_QUEUED = 'В очереди email'
 EMAIL_UNCONFIRMED = 'Передача email: результат не подтверждён'
 _RECHECKABLE = {'', EMAIL_QUEUED, 'Нет email', 'SMTP не настроен', 'Пропущено: тестовый email'}
@@ -77,6 +78,9 @@ def dispatch_recipient_email(get_db, request_id, company_id, recipient_id, *,
                     return
                 message = text(request_context, recipient['supplier_name'])
                 status = EMAIL_UNCONFIRMED
+                cur.execute('''INSERT INTO supplier_email_attempts(company_id,request_id,recipient_id)
+                    VALUES (%s,%s,%s) RETURNING id''', (company_id,request_id,recipient_id))
+                attempt_id = cur.fetchone()['id']
             cur.execute('''UPDATE supply_request_recipients SET email_notification_status=%s
                 WHERE id=%s AND request_id=%s AND company_id=%s''',
                 (status, recipient_id, request_id, company_id))
@@ -85,15 +89,24 @@ def dispatch_recipient_email(get_db, request_id, company_id, recipient_id, *,
         conn = None
         if message is None:
             return
-        if send(email, *message) is not True:
+        result = send(email, *message)
+        if result is True:
+            result = {'outcome': 'accepted', 'code': 'smtp_accepted'}
+        if not isinstance(result, dict) or result.get('outcome') not in ('accepted', 'rejected'):
             return
+        accepted = result['outcome'] == 'accepted'
         conn = get_db()
         conn.autocommit = False
         with conn.cursor() as cur:
             cur.execute('''UPDATE supply_request_recipients
-                SET email_notification_status='Отправлено', email_sent_at=COALESCE(email_sent_at,NOW())
+                SET email_notification_status=%s,
+                    email_sent_at=CASE WHEN %s THEN COALESCE(email_sent_at,NOW()) ELSE email_sent_at END
                 WHERE id=%s AND request_id=%s AND company_id=%s AND email_notification_status=%s''',
-                (recipient_id, request_id, company_id, EMAIL_UNCONFIRMED))
+                ('Отправлено' if accepted else EMAIL_REJECTED, accepted,
+                 recipient_id, request_id, company_id, EMAIL_UNCONFIRMED))
+            cur.execute('''UPDATE supplier_email_attempts SET outcome=%s,code=%s,finished_at=NOW()
+                WHERE id=%s AND company_id=%s AND request_id=%s AND recipient_id=%s''',
+                (result['outcome'], result.get('code','smtp_rejected'), attempt_id,company_id,request_id,recipient_id))
         conn.commit()
     except Exception:
         # No addresses, message bodies, credentials or raw provider exceptions.

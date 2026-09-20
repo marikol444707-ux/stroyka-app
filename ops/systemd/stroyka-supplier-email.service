@@ -1,0 +1,11 @@
+[Unit]
+Description=Resume committed RFQ email queue
+After=network-online.target stroyka.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/var/www/stroyka-app
+ExecStart=/usr/bin/flock -n -E 75 /var/lock/stroyka-deploy.lock /var/www/stroyka-app/.venv/bin/python scripts/dispatch-max-outbox.py --supplier-email --limit 5
+SuccessExitStatus=75
+TimeoutStartSec=40min
+UMask=0077

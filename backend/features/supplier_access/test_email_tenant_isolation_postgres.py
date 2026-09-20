@@ -43,7 +43,7 @@ class EmailTenantIsolationPostgresTests(unittest.TestCase):
         def send(address, subject, body):
             captured.append((address, subject, body))
             return 'PRIVATE COMPANY A' in body
-        with patch.object(self.main, '_smtp_configured', return_value=True), patch.object(self.main, '_send_email', side_effect=send):
+        with patch.object(self.main, '_smtp_configured', return_value=True), patch.object(self.main, '_send_rfq_email', side_effect=send):
             # Cross-company and cross-request combinations cannot claim anything.
             self.dispatch(request_a, recipient_a, company=3)
             self.dispatch(request_b, recipient_b, company=2)

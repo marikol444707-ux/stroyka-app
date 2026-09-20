@@ -1,0 +1,10 @@
+[Unit]
+Description=Resume RFQ email queue every minute
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+Unit=stroyka-supplier-email.service
+
+[Install]
+WantedBy=timers.target

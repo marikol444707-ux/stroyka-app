@@ -1,4 +1,5 @@
 import React from 'react';
+import SupplierEmailAttempts from './SupplierEmailAttempts';
 import useSupplierOfferCheck from '../../features/supply/useSupplierOfferCheck';
 import { Bot, Check, X } from 'lucide-react';
 import {
@@ -294,7 +295,7 @@ function CompareResultBlock({ C, compareResult }) {
   );
 }
 
-export function RecipientDiagnosticsPanel({ C, badge, btnB, rows, onOpenSupplierLink }) {
+export function RecipientDiagnosticsPanel({ C, badge, btnB, rows, onOpenSupplierLink, API, onRefresh, canRetry }) {
   if (!rows) return null;
   if (rows.length === 0) {
     return (
@@ -332,6 +333,7 @@ export function RecipientDiagnosticsPanel({ C, badge, btnB, rows, onOpenSupplier
               )}
               <p style={{ color: C.textSec, margin: '3px 0 0', fontSize: '11px' }}>Доступ к запросу: {accessConfirmed ? 'разрешён' : 'не подтверждён'}</p>
               <p style={{ color: C.textSec, margin: '3px 0 0', fontSize: '11px' }}>Email: {supplierEmailNotificationLabel(row)}</p>
+              <SupplierEmailAttempts key={String(row.companyId) + ':' + row.id} row={row} API={API} onRefresh={onRefresh} canRetry={canRetry} />
               {row.emailSentAt && <p style={{ color: C.textMuted, margin: '2px 0 0', fontSize: '10px' }}>{row.emailNotificationStatus === 'Отправлено' ? 'Дата передачи SMTP' : 'Сохранённая отметка email'}: <time dateTime={row.emailSentAt}>{new Date(row.emailSentAt).toLocaleString('ru-RU')}</time></p>}
               <p style={{ color: C.textSec, margin: '3px 0 0', fontSize: '11px' }}>MAX: {supplierMaxNotificationLabel(row)}</p>
               {row.maxOutboxId && <p style={{ color: C.textMuted, margin: '2px 0 0', fontSize: '10px' }}>{row.maxQueueEvidence === 'unconfirmed' ? 'Сохранённый номер очереди MAX' : 'Запись очереди MAX'} #{row.maxOutboxId}</p>}
@@ -494,7 +496,7 @@ export function OffersBlock({
           {recipientCheck.error}
         </div>
       )}
-      <RecipientDiagnosticsPanel C={C} badge={badge} btnB={btnB} rows={recipientCheck.rows} onOpenSupplierLink={onOpenSupplierLink} />
+      <RecipientDiagnosticsPanel C={C} badge={badge} btnB={btnB} rows={recipientCheck.rows} onOpenSupplierLink={onOpenSupplierLink} API={API} onRefresh={recipientCheck.reload} canRetry={canApprove} />
       {activeOffers.length === 0 && historyOffers.length > 0 && (
         <div style={{ padding: '8px 10px', backgroundColor: C.warningLight, borderRadius: '6px', border: '1px solid ' + C.warningBorder, marginBottom: '8px', fontSize: '11px', color: C.text }}>
           Активных КП нет. Последние отозванные и отклоненные предложения сохранены ниже в истории.
