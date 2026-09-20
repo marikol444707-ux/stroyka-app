@@ -43,6 +43,9 @@ class CompanyUserTests(unittest.TestCase):
         self.assertEqual(self.sql('SELECT role,active FROM user_company_roles WHERE user_id=%s AND company_id=3',(uid,)),[('бухгалтер',True)])
         self.assertEqual(self.sql('SELECT active FROM users WHERE id=%s',(uid,)),[(True,)])
         self.assertEqual(self.sql('SELECT COUNT(*) FROM user_company_roles WHERE user_id=%s AND company_id=2 AND active',(uid,)),[(0,)])
+        self.api(director,'PUT',f'/users/{uid}',dict(body,active=True))
+        self.assertEqual(self.sql('SELECT role,active FROM user_company_roles WHERE user_id=%s AND company_id=2 AND active',(uid,)),[('сметчик',True)])
+        self.assertEqual(self.sql('SELECT role,active FROM user_company_roles WHERE user_id=%s AND company_id=3',(uid,)),[('бухгалтер',True)])
 
     def test_platform_and_account_identities_cannot_be_converted_or_reset(self):
         director=self.fixture['users']['director']
