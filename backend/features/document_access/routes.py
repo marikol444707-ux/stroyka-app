@@ -144,6 +144,11 @@ def register_document_access_module(app, deps):
         if row.get("project_id"):
             project = resolve_project_parent(cur, actor, project_id=row["project_id"])
             require_project_parent_access(cur, actor, project, project_full_view_roles)
+        if actor.get("role") == "заказчик":
+            if action_mode != "read":
+                raise HTTPException(403, "Заказчик не может удалять вложения объекта")
+            from .customer_files import authorize_customer_read
+            authorize_customer_read(cur, actor, row)
         return actor
 
     def load_file(cur, file_id, *, for_update=False):

@@ -44,13 +44,15 @@ def register_warranty_defects_module(app, deps):
             actor = actors[0]
             parent = scope.parent(cur, actor, data, read_roles)
             customer = actor.get('role') == 'заказчик'
+            from ..document_access.customer_files import customer_attachment
+            photo_url = customer_attachment(cur, actor, parent, data.get('photoUrl'))
             cur.execute('INSERT INTO warranty_defects '
                         '(project_name,description,found_at,reported_by,reporter_phone,status,assigned_to,'
                         'photo_url,severity,company_id,project_id,created_by_user_id) '
                         'VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id',
                         (parent['name'],text.strip(),data.get('foundAt') or None,actor.get('name',''),
                          data.get('reporterPhone',''),'Открыт' if customer else data.get('status','Открыт'),
-                         '' if customer else data.get('assignedTo',''),data.get('photoUrl',''),
+                         '' if customer else data.get('assignedTo',''),photo_url,
                          '' if customer else data.get('severity',''),parent['companyId'],parent['id'],actor['id']))
             record_id = cur.fetchone()[0]
         return {'id':record_id,'ok':True}

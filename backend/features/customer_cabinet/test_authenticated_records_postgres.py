@@ -55,3 +55,49 @@ class AuthenticatedCustomerRecordTest(unittest.TestCase):
         self.assertNotIn('notes',next(row for row in documents if row['id']==public['id']))
         self.api(director,'POST','/project-letters',{'projectId':project_id,'side':'customer','body':'Согласование'})
         self.assertEqual(len(self.api(self.customer,'GET','/project-letters')),1)
+
+    def test_direct_file_url_requires_customer_publication(self):
+        project_id=self.fixture['projectId']
+        director=self.fixture['users']['director']
+        conn=self.main.get_db()
+        try:
+            with conn.cursor() as cur:
+                cur.execute('''INSERT INTO file_ownership(company_id,project_id,file_url,context,original_name,
+                    content_type,uploaded_by_id) VALUES(2,%s,%s,'general','private.pdf','application/pdf',%s) RETURNING id''',
+                    (project_id,f'/uploads/company-2-project-{project_id}-general/private.pdf',director['id']))
+                file_id=cur.fetchone()[0]
+            conn.commit()
+        finally:
+            conn.close()
+        self.api(self.customer,'GET',f'/tenant-files/{file_id}',expected=403)
+        self.api(self.customer,'GET',f'/tenant-files/{file_id}/content',expected=403)
+        # Knowing an ID must not let a customer publish a private file by attaching it to a remark.
+        self.api(self.customer,'POST','/prescriptions',{'projectId':project_id,
+            'violation':'Подмена вложения','photoUrl':f'/tenant-files/{file_id}/content'},expected=403)
+        published=self.api(director,'POST','/project-documents',{'projectId':project_id,'side':'customer',
+            'scanUrl':f'/tenant-files/{file_id}/content'})
+        metadata=self.api(self.customer,'GET',f'/tenant-files/{file_id}')
+        self.assertEqual(metadata['projectId'],project_id)
+        self.api(director,'DELETE',f'/project-documents/{published["id"]}')
+        self.api(self.customer,'GET',f'/tenant-files/{file_id}',expected=403)
+
+    def test_customer_upload_is_private_request_attachment_and_can_be_linked(self):
+        import base64
+        image=base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=')
+        token=self.main.create_auth_token(self.customer,two_factor_passed=True)
+        response=self.client.post('/upload-photo',headers={'Authorization':'Bearer '+token,'X-Company-Id':'2'},
+            data={'projectId':str(self.fixture['projectId']),'context':'internal'},
+            files={'file':('photo.png',image,'image/png')})
+        self.assertEqual(response.status_code,200,response.text)
+        uploaded=response.json()
+        self.assertEqual(uploaded['context'],'customer-request')
+        metadata=self.api(self.customer,'GET',uploaded['metadataUrl'])
+        self.assertEqual(metadata['context'],'customer-request')
+        response=self.client.get(uploaded['contentUrl'],headers={'Authorization':'Bearer '+token,'X-Company-Id':'2'})
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertEqual(response.content,image)
+        request=self.api(self.customer,'POST','/warranty-defects',{'projectId':self.fixture['projectId'],
+            'description':'Фото дефекта','photoUrl':uploaded['url']})
+        rows=self.api(self.customer,'GET','/warranty-defects')
+        self.assertEqual(next(row for row in rows if row['id']==request['id'])['photoUrl'],uploaded['contentUrl'])
+        self.api(self.customer,'DELETE',uploaded['metadataUrl'],expected=403)

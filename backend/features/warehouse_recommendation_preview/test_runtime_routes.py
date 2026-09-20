@@ -257,11 +257,11 @@ class WarehouseAnomalyRuntimeRouteRegistrationTests(unittest.TestCase):
         package_bytes = package_path.read_bytes()
         runtime_source = runtime_path.read_text(encoding="utf-8")
 
-        # Reviewed customer record ownership and estimate projection changes;
+        # Reviewed customer record ownership, file access and estimate projection changes;
         # warehouse preview implementation and registration are unchanged.
         self.assertEqual(
             hashlib.sha256(main_bytes).hexdigest(),
-            "f0af26b0a32c8c6fe877fdbf1f7544cee59bca011b5f187db5da7fda2a9f91bc",
+            "903e19b43ccc0eb23f511746897ade19c57144954ea6ec6f3cb988aeff6a7f4e",
         )
         self.assertEqual(
             hashlib.sha256(package_bytes).hexdigest(),

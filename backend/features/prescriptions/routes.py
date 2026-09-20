@@ -42,6 +42,8 @@ def register_prescriptions_module(app, deps):
             actor = actors[0]
             parent = scope.parent(cur, actor, data, create_roles)
             customer = actor.get('role') == 'заказчик'
+            from ..document_access.customer_files import customer_attachment
+            photo_url = customer_attachment(cur, actor, parent, data.get('photoUrl'))
             cur.execute('INSERT INTO prescriptions (project_name,number,issued_by,issued_by_role,violation,'
                         'deadline,responsible,status,photo_url,company_id,project_id,created_by_user_id) '
                         'VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id',
@@ -49,7 +51,7 @@ def register_prescriptions_module(app, deps):
                          'Заказчик' if customer else data.get('issuedByRole',actor.get('role','')),
                          text.strip(), '' if customer else data.get('deadline',''),
                          '' if customer else data.get('responsible',''),
-                         'Открыто' if customer else data.get('status','Открыто'), data.get('photoUrl',''),
+                         'Открыто' if customer else data.get('status','Открыто'), photo_url,
                          parent['companyId'],parent['id'],actor['id']))
             record_id = cur.fetchone()[0]
         return {'id':record_id,'ok':True}

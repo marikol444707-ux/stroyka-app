@@ -16353,6 +16353,10 @@ async def upload_photo(
                     project_name=bound_project_name,
                 )
                 require_project_parent_access(access_cur, actor, project, BRIGADE_FULL_VIEW_ROLES)
+            if actor.get("role") == "заказчик":
+                if not project:
+                    raise HTTPException(400, "Для вложения заказчика выберите объект")
+                context = "customer-request"
         namespace = document_storage_namespace(
             company_id,
             (project or {}).get("id"),

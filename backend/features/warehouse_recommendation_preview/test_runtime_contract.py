@@ -718,10 +718,10 @@ class WarehouseAnomalyRuntimeDisclosurePolicyTests(unittest.TestCase):
             backend_root / "db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Reviewed customer record ownership and estimate projection changes;
+            # Reviewed customer record ownership, file access and estimate projection changes;
             # warehouse preview implementation and registration are unchanged.
             backend_root / "main.py": (
-                "f0af26b0a32c8c6fe877fdbf1f7544cee59bca011b5f187db5da7fda2a9f91bc"
+                "903e19b43ccc0eb23f511746897ade19c57144954ea6ec6f3cb988aeff6a7f4e"
             ),
         }
         actual = {
