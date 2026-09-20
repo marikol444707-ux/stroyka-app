@@ -12568,7 +12568,8 @@ def get_work_journal(
                               wj.ai_filled as "aiFilled",wj.unexpected_work_id as "unexpectedWorkId",
                               wj.work_package as "workPackage",wj.room_id as "roomId",wj.room_name as "roomName",
                               wj.surface,wj.estimate_item_name as "estimateItemName",
-                              wj.estimate_item_key as "estimateItemKey",wj.company_id as "_companyId"
+                              wj.estimate_item_key as "estimateItemKey",wj.company_id as "_companyId",
+                              p.id as "projectId"
                          FROM work_journal wj
                          JOIN (
                              SELECT company_id,name,MIN(id) AS id
@@ -12607,8 +12608,10 @@ def get_work_journal(
         result = []
         for source_row in cur.fetchall() or []:
             row = dict(source_row)
-            actor = actors_by_company.get(int(row.pop("_companyId", 0) or 0))
+            company_id = int(row.pop("_companyId", 0) or 0)
+            actor = actors_by_company.get(company_id)
             if actor:
+                row['companyId'] = company_id
                 result.append(mask_work_journal_money(row, actor, WORKER_EXECUTION_ROLES))
         return result
     finally:

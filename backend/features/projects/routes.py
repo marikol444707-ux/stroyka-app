@@ -86,7 +86,10 @@ def register_projects_module(app, deps):
         for r in rows:
             d = dict(r)
             row_actor = actors_by_company.get(int(d.get("companyId") or 0), current_user)
-            if row_actor.get("role") in worker_execution_roles:
+            if row_actor.get('role') == 'заказчик':
+                from ..customer_cabinet.projections import customer_project_card
+                d = customer_project_card(d)
+            elif row_actor.get("role") in worker_execution_roles:
                 d["budget"] = 0
                 d["pricelistId"] = None
                 d["warrantyStartDate"] = ""

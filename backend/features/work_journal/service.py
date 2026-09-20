@@ -139,6 +139,9 @@ def work_journal_visibility_filter(
 def mask_work_journal_money(row, actor, worker_roles):
     item = dict(row or {})
     role = str((actor or {}).get("role") or "")
+    if role == 'заказчик':
+        from ..customer_cabinet.projections import customer_journal_entry
+        item = customer_journal_entry(item)
     if role in ("заказчик", "технадзор", "стройконтроль"):
         for key in (
             "pricePerUnit", "total", "executionPricePerUnit", "executionTotal",

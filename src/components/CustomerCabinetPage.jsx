@@ -1,6 +1,8 @@
 import React from 'react';
 import { customerProject, customerProjectRecord, customerRemark } from '../features/customer-cabinet/projectSelection';
 import useCustomerCommands from '../features/customer-cabinet/useCustomerCommands';
+import { customerProgress } from '../features/customer-cabinet/progress';
+import useProgressData from '../features/customer-cabinet/useProgressData';
 import ProjectHiddenWorksActSignatureModal from './ProjectHiddenWorksActSignatureModal';
 import PreviewModal from './PreviewModal';
 import ImagePreviewModal from './ImagePreviewModal';
@@ -27,7 +29,6 @@ export default function CustomerCabinetPage(props) {
     fmtMeasure,
     setShowPhotoModal,
     fileSrc,
-    projectRealProgress,
     projectStages,
     hiddenActs,
     editingAct,
@@ -38,8 +39,6 @@ export default function CustomerCabinetPage(props) {
     refreshData,
     showPreview,
     buildSupplementaryAgreementContent,
-    activeEstimatesForProject,
-    projectPlanDone,
     estimatePackage,
     sectionsOfEstimate,
     estimateItemMaterialSum,
@@ -57,6 +56,13 @@ export default function CustomerCabinetPage(props) {
   } = props;
 
   const myProject = customerProject(projects, user);
+  const progressData = useProgressData(myProject, user.id, workJournal);
+  const confirmedJournal = progressData.journal;
+  const progress = progressData.loading || progressData.error
+    ? { percent: null, plan: null, done: null, source: progressData.error ? 'error' : 'loading' }
+    : customerProgress(myProject, progressData.estimates, confirmedJournal);
+  const progressUnavailable = progressData.loading ? 'Загрузка данных…'
+    : progressData.error ? 'Данные временно недоступны.' : '';
   const commands = useCustomerCommands({
     scope: String(user.id) + ':' + (myProject?.companyId ?? myProject?.company_id) + ':' + myProject?.id,
     companyId: myProject?.companyId ?? myProject?.company_id,
@@ -80,6 +86,7 @@ export default function CustomerCabinetPage(props) {
         </div>
 
         {commands.error && <p role="alert" style={{ ...card, color: C.danger, padding: '12px' }}>{commands.error}</p>}
+        {progressData.error && <p role="alert" style={{ ...card, color: C.danger, padding: '12px' }}>{progressData.error}</p>}
         {!myProject ? (
           <div style={{ ...card, padding: '40px', textAlign: 'center' }}>
             <p style={{ color: C.textMuted }}>Объект не найден. Обратитесь к подрядчику.</p>
@@ -122,9 +129,6 @@ export default function CustomerCabinetPage(props) {
             })()}
 
             {(() => {
-              const confirmedJournal = (workJournal || []).filter(
-                (entry) => entry.project === myProject.name && entry.status === 'Подтверждено'
-              );
               const last30 = confirmedJournal.filter((entry) => {
                 const date = new Date(entry.confirmedAt || entry.date || 0);
                 return Date.now() - date.getTime() < 30 * 24 * 3600 * 1000;
@@ -224,12 +228,19 @@ export default function CustomerCabinetPage(props) {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '12px', marginBottom: '16px' }}>
               <div style={{ ...card, padding: '16px', textAlign: 'center' }}>
                 <p style={{ color: C.textSec, fontSize: '12px', margin: '0 0 4px' }}>Прогресс</p>
-                <b style={{ color: C.accent, fontSize: '24px' }}>{projectRealProgress(myProject)}%</b>
+                <b style={{ color: C.accent, fontSize: '24px' }}>{progress.percent === null ? '—' : `${progress.percent}%`}</b>
+                <p style={{ color: C.textSec, fontSize: '11px' }}>
+                  {progress.source === 'confirmed' ? 'По подтверждённым объёмам работ сметы'
+                    : progress.source === 'unlinked' ? 'Есть работы без связи с активной сметой'
+                      : progress.source === 'loading' ? 'Загрузка данных'
+                        : progress.source === 'conflict' ? 'Требуется уточнить активную смету'
+                      : progress.percent === null ? 'Нет данных для расчёта' : 'Оценка подрядчика'}
+                </p>
                 <div style={{ backgroundColor: C.bgGray, borderRadius: '6px', height: '6px', marginTop: '8px' }}>
                   <div
                     style={{
                       backgroundColor: C.accent,
-                      width: `${projectRealProgress(myProject)}%`,
+                      width: `${progress.percent ?? 0}%`,
                       height: '100%',
                       borderRadius: '6px',
                     }}
@@ -490,12 +501,13 @@ export default function CustomerCabinetPage(props) {
             <div style={{ ...card, padding: '20px', marginBottom: '16px' }}>
               <b style={{ color: C.text, fontSize: '14px', display: 'block', marginBottom: '12px' }}>📐 Смета объекта</b>
               {(() => {
-                const activeEstimates = activeEstimatesForProject(myProject, 'Заказчик');
+                if (progressUnavailable) return <p>{progressUnavailable}</p>;
+                const activeEstimates = progressData.estimates;
                 const estimate = activeEstimates[0];
                 if (activeEstimates.length === 0) {
                   return <p style={{ color: C.textMuted, fontSize: '12px' }}>Смета подрядчиком ещё не загружена.</p>;
                 }
-                const planDone = projectPlanDone(myProject);
+                const planDone = progress;
                 return (
                   <div>
                     <p style={{ color: C.text, fontSize: '13px', margin: '0 0 8px' }}>
@@ -504,12 +516,12 @@ export default function CustomerCabinetPage(props) {
                     </p>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '10px' }}>
                       <div style={{ padding: '10px', backgroundColor: C.bg, borderRadius: '8px' }}>
-                        <p style={{ color: C.textSec, fontSize: '11px', margin: '0 0 4px' }}>По смете</p>
-                        <b style={{ color: C.text, fontSize: '14px' }}>{Math.round(planDone.plan).toLocaleString('ru-RU') + ' ₽'}</b>
+                        <p style={{ color: C.textSec, fontSize: '11px', margin: '0 0 4px' }}>Работы по смете</p>
+                        <b style={{ color: C.text, fontSize: '14px' }}>{planDone.plan === null ? 'Нет точного расчёта' : Math.round(planDone.plan).toLocaleString('ru-RU') + ' ₽'}</b>
                       </div>
                       <div style={{ padding: '10px', backgroundColor: C.successLight, borderRadius: '8px' }}>
                         <p style={{ color: C.success, fontSize: '11px', margin: '0 0 4px' }}>Выполнено</p>
-                        <b style={{ color: C.success, fontSize: '14px' }}>{Math.round(planDone.done).toLocaleString('ru-RU') + ' ₽'}</b>
+                        <b style={{ color: C.success, fontSize: '14px' }}>{planDone.done === null ? 'Нет точного расчёта' : Math.round(planDone.done).toLocaleString('ru-RU') + ' ₽'}</b>
                       </div>
                     </div>
                     <button
@@ -581,7 +593,8 @@ export default function CustomerCabinetPage(props) {
             <div style={{ ...card, padding: '20px', marginBottom: '16px' }}>
               <b style={{ color: C.text, fontSize: '14px', display: 'block', marginBottom: '12px' }}>📷 Фото-отчёт</b>
               {(() => {
-                const photos = workJournal.filter((entry) => entry.project === myProject.name && entry.photoUrl).slice(0, 12);
+                if (progressUnavailable) return <p>{progressUnavailable}</p>;
+                const photos = confirmedJournal.filter((entry) => entry.photoUrl).slice(0, 12);
                 if (photos.length === 0) {
                   return <p style={{ color: C.textMuted, fontSize: '12px' }}>Подрядчик пока не загружал фото работ.</p>;
                 }
@@ -616,8 +629,7 @@ export default function CustomerCabinetPage(props) {
               <b style={{ color: C.text, fontSize: '14px', display: 'block', marginBottom: '12px' }}>
                 📖 Журнал производства работ (последние 10)
               </b>
-              {workJournal
-                .filter((entry) => entry.project === myProject.name)
+              {confirmedJournal
                 .slice(0, 10)
                 .map((entry) => (
                   <div key={entry.id} style={{ padding: '8px 0', borderBottom: `1px solid ${C.border}` }}>
@@ -635,12 +647,12 @@ export default function CustomerCabinetPage(props) {
                       ) : null}
                     </b>
                     <p style={{ color: C.textSec, margin: '2px 0', fontSize: '11px' }}>
-                      {(entry.masterName || '') + ' · ' + (entry.date || '') + ' · ' + (entry.status || '')}
+                      {(entry.date || '') + ' · ' + (entry.status || '')}
                     </p>
                   </div>
                 ))}
-              {workJournal.filter((entry) => entry.project === myProject.name).length === 0 && (
-                <p style={{ color: C.textMuted, fontSize: '12px' }}>Записей нет</p>
+              {confirmedJournal.length === 0 && (
+                <p style={{ color: C.textMuted, fontSize: '12px' }}>{progressUnavailable || 'Записей нет'}</p>
               )}
             </div>
 

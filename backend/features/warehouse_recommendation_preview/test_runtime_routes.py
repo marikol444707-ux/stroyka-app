@@ -261,7 +261,7 @@ class WarehouseAnomalyRuntimeRouteRegistrationTests(unittest.TestCase):
         # warehouse preview implementation and registration are unchanged.
         self.assertEqual(
             hashlib.sha256(main_bytes).hexdigest(),
-            "ec26325b4d8ed2eca31788fbabbf6a6cd633b78d9238ecf4ed40d9fdfac20b0e",
+            "11599275950aaccdcbc5165ebd7014694097883a53d46fb10250a0b112e15357",
         )
         self.assertEqual(
             hashlib.sha256(package_bytes).hexdigest(),

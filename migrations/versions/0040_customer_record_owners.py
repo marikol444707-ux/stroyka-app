@@ -22,6 +22,8 @@ CREATE INDEX {table}_owner_idx ON {table}(company_id,project_id,id);
 ''' for table in TABLES) + '''
 ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS fix_photo_url TEXT;
 ALTER TABLE prescriptions ADD COLUMN IF NOT EXISTS fix_notes TEXT;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS floors INTEGER DEFAULT 1;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS liters TEXT DEFAULT '';
 '''
 
 

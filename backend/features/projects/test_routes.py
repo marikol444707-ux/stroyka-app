@@ -95,6 +95,16 @@ ROW = {"id": 1, "companyId": 3, "name": "Объект", "client": "Клиент"
 
 
 class ProjectsRoutesTest(unittest.TestCase):
+    def test_customer_card_contains_only_customer_fields(self):
+        row = {**ROW, 'futurePrivateField': 'secret'}
+        app, _conn = build(FakeCursor(rows=[row]), actors=[{'companyId': 3, 'role': 'заказчик'}])
+        result = app.routes[('GET', '/projects')](current_user={})[0]
+        for key in ('tasks', 'pricelistId', 'publicShowOnSite', 'futurePrivateField', 'archivedAt'):
+            self.assertNotIn(key, result)
+        for key in ('id', 'companyId', 'name', 'status', 'budget', 'deadline', 'progress',
+                    'warrantyStartDate', 'warrantyEndDate', 'warrantyContact'):
+            self.assertEqual(result[key], row[key])
+
     def test_all_urls_registered(self):
         app, _conn = build(FakeCursor())
         for key in [("GET", "/projects"), ("POST", "/projects"),
