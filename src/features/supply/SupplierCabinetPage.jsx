@@ -2,7 +2,7 @@ import SupplyFileLink from './SupplyFileLink';
 import SupplierAttachmentInput from './SupplierAttachmentInput';
 import { supplierOrders } from './supplierOrderProjection';
 import { createShipmentForm } from './supplyInitialForms';
-import { supplierPublicRequisites } from './supplierPublicRequisites';
+import SupplierProfile from './SupplierProfile';
 import React, {useCallback, useState} from 'react';
 import SupplierRequestRegistry from './SupplierRequestRegistry';
 import SupplierOrders from './SupplierOrders';
@@ -14,9 +14,7 @@ import SupplierCatalogImport from './SupplierCatalogImport';
 import useSupplierCatalogActions from './useSupplierCatalogActions';
 import useSupplierQuoteResponse from './useSupplierQuoteResponse';
 import { Check, Edit2, Plus, Trash2, X } from 'lucide-react';
-import DocumentRecognitionPanel from '../../components/DocumentRecognitionPanel';
 import { groupSuppliers, normalizeSupplierPayload, supplierIdentityKeys } from '../../utils/supplierUtils';
-import { createSupplierPortalActions } from './supplierPortalActions';
 
 const normalizeSupplierIdentity = value => String(value || '')
   .toLowerCase()
@@ -290,15 +288,6 @@ export default function SupplierCabinetPage({
       if (status === 'Отклонено') return {label:'Отклонено', color:C.danger, bg:C.dangerLight};
       return {label:status || 'Ожидает', color:C.warning, bg:C.warningLight};
     };
-    const {
-      createOwnSupplierDocumentFromRecognition,
-      supplierRequisitesPatchFromRecognition,
-    } = createSupplierPortalActions({
-      API,
-      mySupplier,
-      refreshData,
-      user,
-    });
     const withdrawOwnOffer = async (offer, label) => {
       if (!window.confirm(label)) return;
       const res = await fetch(API + '/supplier-offers/' + offer.id, {
@@ -828,66 +817,10 @@ export default function SupplierCabinetPage({
 
           {supplierTab==='claims'&&<SupplyClaims API={API} C={C} user={user} onChanged={refreshData} />}
 
-          {supplierTab==='profile'&&!managerOnly&&(<div>
-            <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>⚙️ Реквизиты компании</b>
-            <div style={{...card,padding:'16px',marginBottom:'14px'}}>
-              <b style={{color:C.textSec,fontSize:'12px',display:'block',marginBottom:'10px'}}>📋 Основное</b>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
-                <input placeholder='Название компании' value={supplierRequisites.companyName} onChange={e=>setSupplierRequisites({...supplierRequisites,companyName:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
-                <input placeholder='ИНН' value={supplierRequisites.inn} onChange={e=>setSupplierRequisites({...supplierRequisites,inn:e.target.value})} style={{...inp,marginBottom:0}}/>
-                <input placeholder='КПП' value={supplierRequisites.kpp} onChange={e=>setSupplierRequisites({...supplierRequisites,kpp:e.target.value})} style={{...inp,marginBottom:0}}/>
-                <input placeholder='ОГРН/ОГРНИП' value={supplierRequisites.ogrn||''} onChange={e=>setSupplierRequisites({...supplierRequisites,ogrn:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
-                <input placeholder='Юридический адрес' value={supplierRequisites.address} onChange={e=>setSupplierRequisites({...supplierRequisites,address:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
-                <input placeholder='Фактический адрес' value={supplierRequisites.actualAddress||''} onChange={e=>setSupplierRequisites({...supplierRequisites,actualAddress:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
-                <input placeholder='Директор (ФИО)' value={supplierRequisites.directorName||''} onChange={e=>setSupplierRequisites({...supplierRequisites,directorName:e.target.value})} style={{...inp,marginBottom:0}}/>
-                <input placeholder='Должность директора' value={supplierRequisites.directorPosition||''} onChange={e=>setSupplierRequisites({...supplierRequisites,directorPosition:e.target.value})} style={{...inp,marginBottom:0}}/>
-                <input placeholder='Телефон' value={supplierRequisites.phone} onChange={e=>setSupplierRequisites({...supplierRequisites,phone:e.target.value})} style={{...inp,marginBottom:0}}/>
-                <input placeholder='Email' value={supplierRequisites.email} onChange={e=>setSupplierRequisites({...supplierRequisites,email:e.target.value})} style={{...inp,marginBottom:0}}/>
-                <input placeholder='Сайт (опц.)' value={supplierRequisites.website||''} onChange={e=>setSupplierRequisites({...supplierRequisites,website:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
-                <input placeholder='Специализация (что поставляете)' value={supplierRequisites.specialization||''} onChange={e=>setSupplierRequisites({...supplierRequisites,specialization:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
-              </div>
-              <b style={{color:C.textSec,fontSize:'12px',display:'block',marginBottom:'8px',marginTop:'12px'}}>🏦 Банковские реквизиты</b>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
-                <input placeholder='Банк' value={supplierRequisites.bank} onChange={e=>setSupplierRequisites({...supplierRequisites,bank:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
-                <input placeholder='БИК' value={supplierRequisites.bik} onChange={e=>setSupplierRequisites({...supplierRequisites,bik:e.target.value})} style={{...inp,marginBottom:0}}/>
-                <input placeholder='Корр. счёт' value={supplierRequisites.korAccount||''} onChange={e=>setSupplierRequisites({...supplierRequisites,korAccount:e.target.value})} style={{...inp,marginBottom:0}}/>
-                <input placeholder='Расчётный счёт' value={supplierRequisites.account} onChange={e=>setSupplierRequisites({...supplierRequisites,account:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
-              </div>
-              <p style={{color:C.textSec,fontSize:'12px'}}>Договоры и условия относятся к конкретному заказчику и хранятся в документах сделки.</p>
-              <DocumentRecognitionPanel
-                C={C}
-                card={card}
-                inp={inp}
-                btnG={btnG}
-                btnO={btnO}
-                btnB={btnB}
-                uploadPhoto={uploadPhoto}
-                fileSrc={fileSrc}
-                projectName={supplierRequisites.companyName || user.name || 'Поставщик'}
-                context="supplier-documents"
-                entityType="supplier"
-                currentFields={supplierRequisites}
-                onApplyExtracted={result => setSupplierRequisites(prev => ({...prev, ...supplierRequisitesPatchFromRecognition(result, prev)}))}
-                applyExtractedLabel="Заполнить реквизиты"
-                onCreateRecognizedDocument={myPrimarySupplierId ? createOwnSupplierDocumentFromRecognition : null}
-                createRecognizedDocumentLabel="Добавить в документы"
-              />
-              <button onClick={async()=>{
-                if (!myPrimarySupplierId) {
-                  alert('Кабинет не связан с карточкой поставщика. Обратитесь к администратору платформы для проверки привязки.');
-                  return;
-                }
-                const res = await fetch(API+'/suppliers/'+(myPrimarySupplierId||0)+'/requisites',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(supplierPublicRequisites(supplierRequisites))});
-                if (res.ok) {
-                  localStorage.setItem('supplierReq_'+user.id,JSON.stringify(supplierRequisites));
-                  alert('Реквизиты сохранены!');
-                  await refreshData();
-                } else {
-                  alert('Ошибка сохранения');
-                }
-              }} style={{...btnO,marginTop:'14px',width:'100%',justifyContent:'center',padding:'12px'}}><Check size={14}/>Сохранить реквизиты</button>
-            </div>
-          </div>)}
+          {supplierTab==='profile'&&!managerOnly&&<SupplierProfile
+            API={API} user={user} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG}
+            suppliers={teamContext?.status==='ready' ? verifiedTeam.filter(s=>s.role==='leader')
+              : (suppliers||[]).filter(s=>String(s.userId||s.user_id)===String(currentUserId))} />}
           </main>
         </div>
       </div>

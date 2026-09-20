@@ -13,7 +13,7 @@ import re
 from typing import Optional
 
 import psycopg2.extras
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, Header, HTTPException, Response
 from pydantic import BaseModel
 
 from .company_directory import CompanySupplierDirectory, PUBLIC_FIELDS
@@ -390,35 +390,33 @@ def register_supplier_directory_module(app, deps):
             cur.close()
             conn.close()
 
+    @app.get("/suppliers/{id}/requisites")
+    def get_supplier_requisites(id: int, response: Response, current_user: dict = Depends(get_current_user)):
+        from . import profile
+        response.headers["Cache-Control"] = "no-store"
+        conn = get_db()
+        try:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                profile.authorize(cur, current_user, id)
+                return profile.load(cur, id)
+        finally:
+            conn.close()
+
     @app.put("/suppliers/{id}/requisites")
     def update_supplier_requisites(id: int, data: dict, current_user: dict = Depends(get_current_user)):
+        from . import profile
         conn = get_db()
-        cur = conn.cursor()
-        role = current_user.get("role")
-        if role == "поставщик":
-            supplier_ids = current_supplier_ids(cur, current_user)
-            if id not in supplier_ids:
-                cur.close(); conn.close()
-                raise HTTPException(status_code=403, detail="Нет доступа к этому поставщику")
-        elif role not in SUPPLIER_IDENTITY_MANAGE_ROLES:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=403, detail="Недостаточно прав")
+        conn.autocommit = False
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
+            profile.authorize(cur, current_user, id, write=True)
             reject_global_commercial_fields(data)
-            fields = {**PUBLIC_FIELDS, 'phone': 'phone', 'email': 'email', 'specialization': 'specialization'}
-            if 'address' in data and 'legalAddress' not in data:
-                data = {**data, 'legalAddress': data['address']}
-            values = [(column, str(data[key] or '').strip()) for key, column in fields.items() if key in data]
-            if not values:
-                raise HTTPException(422, 'Нет реквизитов для обновления')
-            if any(len(value) > 500 for _, value in values):
-                raise HTTPException(422, 'Реквизиты слишком длинные')
-            cur.execute('UPDATE suppliers SET ' + ','.join(column + '=%s' for column, _ in values) + ' WHERE id=%s',
-                        [value for _, value in values] + [id])
+            result = profile.update(cur, id, data)
             conn.commit()
-            return {'ok': True}
+            return result
         except Exception:
             conn.rollback()
             raise
         finally:
-            cur.close(); conn.close()
+            cur.close()
+            conn.close()

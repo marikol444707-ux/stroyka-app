@@ -31,6 +31,11 @@ def is_owned_supplier_profile_mutation(cur, user, method, path):
     match = re.fullmatch(r'/suppliers/([1-9][0-9]*)/requisites/?', str(path))
     if not match:
         return False
+    from ..supplier_team.policy import enabled, leader_policy
+    if enabled():
+        sql, params = leader_policy(user.get('id'), 's.id')
+        cur.execute('SELECT s.id FROM suppliers s WHERE s.id=%s AND '+sql,[int(match.group(1))]+params)
+        return bool(cur.fetchone())
     cur.execute('SELECT id FROM suppliers WHERE id=%s AND user_id=%s', (int(match.group(1)), user.get('id')))
     return bool(cur.fetchone())
 
