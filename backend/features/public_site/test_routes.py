@@ -367,5 +367,38 @@ class PublicLeadNotesTests(unittest.TestCase):
         self.assertEqual(database_calls, [])
 
 
+    def test_idea_lead_from_mobile_does_not_trigger_agent(self):
+        """Ensure a public-site lead that represents an idea doesn't start AI/agent jobs."""
+        app = _FakeApp()
+        statements = []
+
+        def get_db():
+            return _FakeConnection(statements)
+
+        register_public_site_routes(app, {
+            "get_db": get_db,
+            "require_roles": lambda *_roles: lambda: {},
+            "leadership_roles": ("директор",),
+            "require_project_access": lambda *_args: None,
+            "project_public_select": "",
+            "system_project_name": "Система",
+            "public_site_company_id": 1,
+        })
+
+        request = SimpleNamespace(headers={}, client=SimpleNamespace(host="127.0.0.1"))
+
+        created = app.routes[("POST", "/site/leads")]({
+            "name": "Идея с телефона",
+            "phone": "+70000000001",
+            "consentAccepted": True,
+            "calculation": {"typeLabel": "Есть идея", "stage": "idea"},
+        }, request)
+
+        # Should create a lead and must not create any ai/agent related rows
+        assert created["ok"] is True
+        assert (created.get("attachments") is None) or (created.get("attachments") == 0)
+        assert not any(query.startswith("INSERT INTO ai_tasks") or query.startswith("INSERT INTO agent_jobs")
+                       for query, _params in statements)
+
 if __name__ == "__main__":
     unittest.main()
