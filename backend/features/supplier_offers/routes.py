@@ -81,6 +81,9 @@ def register_supplier_offers_module(app, deps):
     package_access_filter = deps["package_access_filter"]
     require_project_or_warehouse_access = deps["require_project_or_warehouse_access"]
     user_project_names = deps["user_project_names"]
+    # Allow tests / injection to override company context helpers; fall back to imported names.
+    resolve_resource_company_actor = deps.get("resolve_resource_company_actor") or globals().get("resolve_resource_company_actor")
+    assert_rows_company_scope = deps.get("assert_rows_company_scope") or globals().get("assert_rows_company_scope")
 
 
     @app.get("/supplier-offers")
@@ -401,6 +404,11 @@ def register_supplier_offers_module(app, deps):
             cur.close(); conn.close()
             raise HTTPException(status_code=404, detail="КП не найдено")
         role = _current_user.get("role")
+        # Offer must have its own company_id; legacy offers without company must not default to 1
+        offer_company_id = int(offer.get('company_id') or 0)
+        if offer_company_id <= 0:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=409, detail="КП не привязано к компании")
         actor_user = _current_user
         if role == "поставщик":
             try:
@@ -1041,10 +1049,11 @@ def register_supplier_offers_module(app, deps):
         conn.commit()
         cur.execute("""
             SELECT o.id, o.request_id, o.supplier_id, o.price_per_unit, o.total_price,
-                   o.payment_terms, o.items_kp_json, COALESCE(o.company_id, r.company_id, 1) as company_id,
+                   o.payment_terms, o.items_kp_json, o.company_id as company_id,
                    s.name as supplier_name,
                    r.project, COALESCE(r.work_package,'') as work_package,
-                   r.material_name, r.quantity, r.unit, r.items_json
+                   r.material_name, r.quantity, r.unit, r.items_json,
+                   r.company_id AS request_company_id
             FROM supplier_offers o
             LEFT JOIN suppliers s ON s.id=o.supplier_id
             LEFT JOIN supply_requests r ON r.id=o.request_id
@@ -1055,6 +1064,11 @@ def register_supplier_offers_module(app, deps):
             cur.close(); conn.close()
             raise HTTPException(status_code=404, detail="Утверждённое КП не найдено")
         role = _current_user.get("role")
+        # Offer must have its own company_id; legacy offers without company must not default to 1
+        offer_company_id = int(offer.get('company_id') or 0)
+        if offer_company_id <= 0:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=409, detail="КП не привязано к компании")
         if role == "поставщик":
             supplier_ids = current_supplier_ids(cur, _current_user)
             if offer.get('supplier_id') not in supplier_ids:
@@ -1064,10 +1078,43 @@ def register_supplier_offers_module(app, deps):
             if role not in SUPPLY_INTERNAL_ROLES:
                 cur.close(); conn.close()
                 raise HTTPException(status_code=403, detail="Недостаточно прав для отгрузки")
-            if offer.get('project'):
-                require_project_or_warehouse_access(_current_user, offer.get('project') or "")
-        cur.execute("SELECT id, status, paid_amount, amount FROM supplier_invoices WHERE offer_id=%s ORDER BY id DESC LIMIT 1", (id,))
+            # For internal roles we must resolve and assert company ownership explicitly.
+            try:
+                company_context, effective_user = resolve_resource_company_actor(
+                    cur,
+                    _current_user,
+                    offer.get('company_id'),
+                    "update",
+                    x_company_id=None,
+                    x_company_mode=None,
+                    allowed_roles=SUPPLY_INTERNAL_ROLES,
+                    forbidden_detail="Роль в выбранной компании не позволяет отгружать",
+                    platform_staff_roles=PLATFORM_STAFF_ROLES,
+                    client_account_roles=CLIENT_ACCOUNT_ROLES,
+                )
+                company_id = int(company_context.get("companyId"))
+                # Ensure the request and related offer rows belong to the same company
+                assert_rows_company_scope(
+                    [{"company_id": offer.get("request_company_id")}],
+                    company_id,
+                    "Заявка КП",
+                )                # Do not lock or assert sibling rows; only the current offer/request chain is validated above.
+                if offer.get('project'):
+                    require_project_or_warehouse_access(effective_user, offer.get('project') or "")
+            except Exception:
+                cur.close(); conn.close()
+                raise
+        # Determine company context for invoice lookup: for suppliers use offer's company, for internal flow use resolved company_id
+        if role == 'поставщик':
+            company_id = offer_company_id
+        # select latest invoice that belongs to the same company as the offer
+        cur.execute("SELECT id, status, paid_amount, amount, company_id FROM supplier_invoices WHERE offer_id=%s AND company_id=%s ORDER BY id DESC LIMIT 1", (id, company_id))
         inv = cur.fetchone()
+        # If invoice exists, ensure it belongs to the same company as the offer/request
+        if inv and int(inv.get('company_id') or 0) != offer_company_id:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=409, detail="Счёт относится к другой компании")
+
         terms = (offer.get('payment_terms') or '').lower()
         need_payment = ('предоплат' in terms) or ('50/50' in terms) or ('50' in terms and 'постоплат' not in terms)
         if need_payment:
@@ -1160,7 +1207,7 @@ def register_supplier_offers_module(app, deps):
                 price_per_unit = round(line_total / planned_qty, 6)
             shipped_line_total = round(price_per_unit * shipped_qty, 2) if price_per_unit > 0 else line_total
             vals = (
-                offer.get('company_id') or 1,
+                offer_company_id,
                 offer['request_id'], offer['supplier_id'], offer['supplier_name'] or '',
                 offer['project'] or '', _supply_work_package(item.get("workPackage") or offer.get('work_package')),
                 item.get("materialName") or '',
