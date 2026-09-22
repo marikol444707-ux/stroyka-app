@@ -141,12 +141,8 @@ class ShipTenantIsolationTests(unittest.TestCase):
                     raise HTTPException(status_code=403)
         app, deps = build({'get_db': get_db, 'resolve_resource_company_actor': resolve_resource_company_actor, 'assert_rows_company_scope': assert_rows_company_scope})
         handler = app.routes[('POST', '/supplier-offers/{id}/ship')]
-        # Should not raise HTTPException during ownership checks; subsequent logic may raise due to our minimal cursor
-        try:
-            handler(12, {}, {'role':'директор'})
-        except HTTPException:
-            # Subsequent logic may raise due to minimal fake cursor; ownership checks succeeded if we reached here.
-            pass
+        # Call handler and do NOT swallow HTTPException — ownership checks must succeed without raising.
+        handler(12, {}, {'role':'директор'})
 
 
 if __name__ == '__main__':
