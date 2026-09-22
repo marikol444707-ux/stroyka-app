@@ -1074,6 +1074,13 @@ def register_supplier_offers_module(app, deps):
             if offer.get('supplier_id') not in supplier_ids:
                 cur.close(); conn.close()
                 raise HTTPException(status_code=403, detail="Нет доступа к КП")
+            # For supplier requests we must ensure the stored offer company matches the request company.
+            # Fail closed if offer.company_id is missing or does not match request.company_id.
+            offer_req_company = int(offer.get('request_company_id') or 0)
+            offer_company = int(offer.get('company_id') or 0)
+            if offer_company <= 0 or offer_req_company <= 0 or offer_company != offer_req_company:
+                cur.close(); conn.close()
+                raise HTTPException(status_code=403, detail="КП относится к другой компании или не привязано к компании")
         else:
             if role not in SUPPLY_INTERNAL_ROLES:
                 cur.close(); conn.close()
