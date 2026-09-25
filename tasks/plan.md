@@ -692,3 +692,13 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
 - [ ] Task A14: Put model access behind a provider-neutral gateway; keep the cloud model first and evaluate a local model only after quality/load/cost measurements.
 
 Close and strike through a task only after applicable focused tests, full backend/frontend verification, manual browser checks, tenant/role isolation and production smoke. Record the evidence in `tasks/todo.md`.
+
+
+**Owner status**
+- Closed: major tenant-isolation slices and domain audits marked with production runtimes and post-audits (see checked items in the M6.x, M7.x, M3.x, M2.x groups). These items keep their recorded evidence and runtimes; I did not change or remove any evidence.
+- Remains to Beta: items explicitly left unchecked or marked as deferred (for example `Task M6.6f1`, `M6.6f2`, `Task 14`, `Task 16`, `Task 17`, `Task 18`, and a few `Checkpoint` checklist items). Items that mention a remaining protected/prod smoke or checkpoint are left open until the corresponding protected smoke and post-audit entries exist.
+
+Notes:
+- I only added this Owner status snapshot. I did not alter existing status/evidence lines, strike-throughs, or runtimes.
+- Where a parent task is marked open but all child tasks show as closed, I left the parent open unless there is explicit evidence in this repo that the parent's acceptance criteria are complete.
+- Where code exists but production smoke/protected-checkpoint is pending, tasks remain open and a short reason is indicated above.
