@@ -17,6 +17,8 @@ class FakeCursor:
             return self._rows.get('offer')
         if 'FROM supplier_invoices' in (self._last or ''):
             return self._rows.get('invoice')
+        if 'INSERT INTO supply_deliveries' in (self._last or ''):
+            return {'id': 1}
         return None
     def fetchall(self):
         return []
@@ -129,7 +131,24 @@ class ShipTenantIsolationTests(unittest.TestCase):
             handler(11, {}, {'role':'директор'})
 
     def test_correct_offer_of_own_company_continues(self):
-        rows = {'offer': {'id': 12, 'request_id': 102, 'supplier_id': 5, 'company_id': 1, 'request_company_id': 1, 'payment_terms': '', 'items_json': '[]', 'total_price': 100.0, 'status':'Утверждено'}, 'invoice': None}
+        rows = {'offer': {
+            'id': 12,
+            'request_id': 102,
+            'supplier_id': 5,
+            'supplier_name': 'Test supplier',
+            'company_id': 1,
+            'request_company_id': 1,
+            'payment_terms': '',
+            'items_json': '[]',
+            'items_kp_json': '[]',
+            'total_price': 100.0,
+            'status': 'Утверждено',
+            'project': '',
+            'work_package': '',
+            'material_name': 'Test material',
+            'quantity': 1,
+            'unit': 'шт',
+        }, 'invoice': None}
         conn = FakeConn(rows)
         def get_db():
             return conn
@@ -142,7 +161,11 @@ class ShipTenantIsolationTests(unittest.TestCase):
         app, deps = build({'get_db': get_db, 'resolve_resource_company_actor': resolve_resource_company_actor, 'assert_rows_company_scope': assert_rows_company_scope})
         handler = app.routes[('POST', '/supplier-offers/{id}/ship')]
         # Call handler and do NOT swallow HTTPException — ownership checks must succeed without raising.
-        handler(12, {}, {'role':'директор'})
+        handler(
+            12,
+            {'shippedQuantity': 1},
+            {'role': 'директор'},
+        )
 
 
 if __name__ == '__main__':

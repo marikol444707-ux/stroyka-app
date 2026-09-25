@@ -404,11 +404,6 @@ def register_supplier_offers_module(app, deps):
             cur.close(); conn.close()
             raise HTTPException(status_code=404, detail="КП не найдено")
         role = _current_user.get("role")
-        # Offer must have its own company_id; legacy offers without company must not default to 1
-        offer_company_id = int(offer.get('company_id') or 0)
-        if offer_company_id <= 0:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=409, detail="КП не привязано к компании")
         actor_user = _current_user
         if role == "поставщик":
             try:
