@@ -364,7 +364,7 @@ def register_client_account_routes(app, deps):
                            FROM companies c
                            LEFT JOIN projects p ON p.company_id=c.id
                            LEFT JOIN users u ON u.company_id=c.id AND NOT (COALESCE(u.role,'') = ANY(%s))
-                           WHERE c.platform_account_id=%s AND c.id<>1
+                           WHERE c.platform_account_id=%s
                            GROUP BY c.id
                            ORDER BY COALESCE(c.active,TRUE) DESC, c.name""",
                 (list(PLATFORM_STAFF_ROLES), account_id))
