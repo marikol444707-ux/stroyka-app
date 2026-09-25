@@ -10807,7 +10807,12 @@ def _warehouse_invoice_items_signature(items) -> str:
     return "||".join(sorted(sig for sig in signatures if sig.strip("|")))
 
 def _find_existing_warehouse_invoice_duplicate(cur, *, company_id, invoice_number, invoice_date, supplier_id, supplier_name, total_with_vat, items):
-    company_id = _positive_int_or_none(company_id) or 1
+    # Do NOT default missing company_id to 1. Treat absence of company_id as unknown
+    # to avoid accidental cross-tenant matching. If company_id is not provided,
+    # return no duplicate (do not map NULL->1). This prevents mixing tenant data.
+    company_id = _positive_int_or_none(company_id)
+    if company_id is None:
+        return None
     supplier_id = _positive_int_or_none(supplier_id)
     supplier_name_key = _normalize_supplier_name_key(supplier_name or "")
     input_total = _float_or_zero(total_with_vat)
@@ -10820,7 +10825,7 @@ def _find_existing_warehouse_invoice_duplicate(cur, *, company_id, invoice_numbe
         SELECT id,supplier_id,supplier_name,total_with_vat,total_base,items,location,project,number,date
           FROM warehouse_invoices
          WHERE COALESCE(status,'Принята') <> 'Аннулирована'
-           AND COALESCE(company_id,1)=%s
+           AND company_id=%s
            AND (
                 COALESCE(date::text,'')=COALESCE(%s::text,'')
                 OR regexp_replace(upper(COALESCE(number,'')), '[^[:alnum:]]', '', 'g')=ANY(%s)
@@ -10860,7 +10865,12 @@ def _find_existing_warehouse_invoice_duplicate(cur, *, company_id, invoice_numbe
     return None
 
 def _find_existing_supplier_invoice_duplicate(cur, *, company_id, invoice_number, invoice_date, project_name, supplier_id=None, supplier_name="", amount=0, warehouse_invoice_id=None, request_id=None, offer_id=None):
-    company_id = _positive_int_or_none(company_id) or 1
+    # Do NOT default missing company_id to 1. Treat absence of company_id as unknown
+    # to avoid accidental cross-tenant matching. If company_id is not provided,
+    # return no duplicate (do not map NULL->1). This prevents mixing tenant data.
+    company_id = _positive_int_or_none(company_id)
+    if company_id is None:
+        return None
     warehouse_invoice_id = _positive_int_or_none(warehouse_invoice_id)
     supplier_id = _positive_int_or_none(supplier_id)
     supplier_name_key = _normalize_supplier_name_key(supplier_name or "")
@@ -10894,7 +10904,7 @@ def _find_existing_supplier_invoice_duplicate(cur, *, company_id, invoice_number
             SELECT id, warehouse_invoice_id, supplier_id, supplier_name, amount
               FROM supplier_invoices
              WHERE COALESCE(status,'') <> 'Аннулирован'
-               AND COALESCE(company_id,1)=%s
+               AND company_id=%s
                AND warehouse_invoice_id=%s
              ORDER BY id DESC
              LIMIT 1
@@ -10920,7 +10930,7 @@ def _find_existing_supplier_invoice_duplicate(cur, *, company_id, invoice_number
                request_id, offer_id, invoice_number, invoice_date
           FROM supplier_invoices
          WHERE COALESCE(status,'') <> 'Аннулирован'
-           AND COALESCE(company_id,1)=%s
+           AND company_id=%s
            AND regexp_replace(upper(COALESCE(invoice_number,'')), '[^[:alnum:]]', '', 'g')=ANY(%s::text[])
            AND COALESCE(invoice_date::text,'')=COALESCE(%s::text,'')
          ORDER BY id DESC
@@ -19949,7 +19959,7 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
         if invoice_number:
             cur.execute("""SELECT id FROM warehouse_invoices
                            WHERE COALESCE(status,'Принята') <> 'Аннулирована'
-                             AND COALESCE(company_id,1)=%s
+                             AND company_id=%s
                              AND number=%s
                              AND COALESCE(date::text,'')=COALESCE(%s::text,'')
                              AND COALESCE(supplier_name,'')=%s
@@ -20519,7 +20529,7 @@ def _sync_supplier_invoice_from_warehouse(warehouse_invoice_id: int, payload: di
                 SELECT id, warehouse_invoice_id
                   FROM supplier_invoices
                  WHERE COALESCE(status,'') <> 'Аннулирован'
-                   AND COALESCE(company_id,1)=%s
+                   AND company_id=%s
                    AND COALESCE(invoice_number,'')=%s
                    AND COALESCE(invoice_date::text,'')=COALESCE(%s::text,'')
                    AND COALESCE(project_name,'')=%s
@@ -20838,7 +20848,7 @@ def dedupe_supplier_accounting_documents(data: dict = None, _current_user: dict 
                        payment_terms, material_name, work_package, description, paid_note
                   FROM supplier_invoices
                  WHERE COALESCE(status,'') <> 'Аннулирован'
-                   AND COALESCE(company_id,1)=%s
+                   AND company_id=%s
                    AND COALESCE(invoice_number,'')=%s
                    AND COALESCE(invoice_date::text,'')=%s
                    AND COALESCE(project_name,'')=%s
