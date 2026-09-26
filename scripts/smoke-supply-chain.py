@@ -797,6 +797,78 @@ def assert_supply_company_lineage(candidate, offer_id, supplier_invoice_id, deli
         conn.close()
 
 
+
+def record_payment_for_received_invoice(token, candidate, supplier_invoice_id, warehouse_invoice_id, stamp):
+    """Complete the test-only chain with a same-company project payment."""
+    expected_company_id = int(
+        (candidate.get("request") or {}).get("companyId")
+        or (candidate.get("request") or {}).get("company_id")
+        or 0
+    )
+    if expected_company_id <= 0:
+        raise RuntimeError("Нельзя проверить оплату без компании исходной заявки")
+
+    conn = db_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT company_id, amount FROM supplier_invoices WHERE id=%s",
+            (supplier_invoice_id,),
+        )
+        invoice_row = cur.fetchone()
+        cur.close()
+    finally:
+        conn.close()
+    if not invoice_row or int(invoice_row[0] or 0) != expected_company_id:
+        raise RuntimeError("Счёт поставщика перед оплатой относится к другой компании")
+    payment_amount = round(as_float(invoice_row[1]), 2)
+    if payment_amount <= 0:
+        raise RuntimeError("Счёт поставщика не содержит положительную сумму для smoke-оплаты")
+
+    _, result = api_json(
+        "PUT",
+        f"/warehouse-invoices/{warehouse_invoice_id}/accounting",
+        token=token,
+        headers={
+            "X-Company-Mode": "company",
+            "X-Company-Id": str(expected_company_id),
+        },
+        data={
+            "accountingStatus": "К оплате",
+            "supplierInvoiceId": supplier_invoice_id,
+            "paymentAmount": payment_amount,
+            "paidAt": dt.date.today().isoformat(),
+            "photos": [f"/uploads/codex-qa-supply-payment-{stamp}.jpg"],
+        },
+        expected=200,
+    )
+    payment_id = int(result.get("paymentId") or 0)
+    if payment_id <= 0:
+        raise RuntimeError(f"Финансовый шаг не создал project_payment: {result}")
+
+    conn = db_conn()
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(
+            """SELECT id, company_id, project_name, amount
+                 FROM project_payments
+                WHERE id=%s""",
+            (payment_id,),
+        )
+        payment = cur.fetchone()
+        cur.close()
+    finally:
+        conn.close()
+    if not payment:
+        raise RuntimeError("Созданный project_payment не найден")
+    if int(payment.get("company_id") or 0) != expected_company_id:
+        raise RuntimeError("Оплата записана в другую компанию")
+    if str(payment.get("project_name") or "").strip() != str(candidate.get("projectName") or "").strip():
+        raise RuntimeError("Оплата записана не в тот объект")
+    if abs(as_float(payment.get("amount")) - payment_amount) > 0.01:
+        raise RuntimeError("Сумма project_payment не совпадает со счётом поставщика")
+    return payment_id
+
 def assert_supplier_offer_withdraw_and_resubmit(admin_token, supplier_token, supplier_id, candidate, stamp, created):
     extra = dict(candidate)
     request, error = create_supply_request_for_candidate(admin_token, supplier_id, extra, stamp + "-withdraw")
@@ -1902,6 +1974,7 @@ def cleanup(created):
             "offerId": created.get("offerId"),
             "requestId": created.get("requestId"),
             "supplierInvoiceId": created.get("supplierInvoiceId"),
+            "paymentId": created.get("paymentId"),
             "withdrawOfferId": created.get("withdrawOfferId"),
             "withdrawRequestId": created.get("withdrawRequestId"),
             "diagnosticOfferId": created.get("diagnosticOfferId"),
@@ -1924,6 +1997,8 @@ def cleanup(created):
             "supplierId": created.get("supplierId"),
         }
         cleanup_request_outbox(cur, created)
+        if ids["paymentId"]:
+            cur.execute("DELETE FROM project_payments WHERE id=%s", (ids["paymentId"],))
         for document_id in created.get("supplierDocumentIds") or []:
             cur.execute("DELETE FROM supplier_documents WHERE id=%s", (document_id,))
         if ids["dedupeSupplierInvoiceDuplicateId"]:
@@ -2110,6 +2185,10 @@ def main():
         created["invoiceId"] = invoice_id
         supplier_invoice_view = assert_supplier_invoice_scope(token, supplier_token, candidate, offer_id, supplier_invoice_id, invoice_id)
         company_lineage = assert_supply_company_lineage(candidate, offer_id, supplier_invoice_id, delivery_id, invoice_id)
+        payment_id = record_payment_for_received_invoice(
+            token, candidate, supplier_invoice_id, invoice_id, stamp
+        )
+        created["paymentId"] = payment_id
         assert_supplier_offer_withdraw_and_resubmit(token, supplier_token, supplier_id, candidate, stamp, created)
         assert_unlinked_supplier_recipient_diagnostics(token, candidate, stamp, created)
         manual_invoice_id, manual_material_name = assert_visible_chain(token, candidate, delivery_id, invoice_id)
@@ -2147,6 +2226,7 @@ def main():
             "supplierInvoiceId": supplier_invoice_id,
             "deliveryId": delivery_id,
             "invoiceId": invoice_id,
+            "paymentId": payment_id,
             "supplierWarehouseInvoiceNumber": supplier_invoice_view.get("warehouseInvoiceNumber"),
             "companyLineage": company_lineage,
             "manualInvoiceId": manual_invoice_id,
@@ -2183,6 +2263,7 @@ def main():
                 "supplier invoice list keeps internal company scope and supplier cross-client identity scope",
                 "linked delivery and warehouse document stay in the supplier invoice company",
                 "request, KP, supplier invoice, delivery, warehouse invoice and histories keep one company and exact receipt source",
+                "linked warehouse invoice creates a same-company project payment and returns paymentId",
                 "supplier shipment created",
                 "receipt created automatic invoice",
                 "supplier cabinet sees linked invoice, warehouse receipt, received quantity and receipt items",
