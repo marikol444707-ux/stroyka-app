@@ -668,12 +668,14 @@ def get_current_user(request: Request, authorization: Optional[str] = Header(def
         return _current_user_from_bearer(authorization)
     return _current_user_from_session_cookie(request)
 
-def require_csrf_for_cookie_mutation(
+def _require_csrf_for_cookie_mutation(
     request: Request,
-    authorization: Optional[str] = Header(default=None),
-    x_csrf_token: Optional[str] = Header(default=None, alias="X-CSRF-Token"),
+    authorization: Optional[str],
+    x_csrf_token: Optional[str],
+    *,
+    enabled: bool,
 ) -> None:
-    if not CSRF_LOGOUT_ENFORCED:
+    if not enabled:
         return None
     if authorization and authorization.lower().startswith("bearer "):
         return None
@@ -683,6 +685,32 @@ def require_csrf_for_cookie_mutation(
     if not _valid_csrf_token(x_csrf_token or "", session_token):
         raise HTTPException(status_code=403, detail="CSRF token missing or invalid")
     return None
+
+
+def require_csrf_for_cookie_mutation(
+    request: Request,
+    authorization: Optional[str] = Header(default=None),
+    x_csrf_token: Optional[str] = Header(default=None, alias="X-CSRF-Token"),
+) -> None:
+    return _require_csrf_for_cookie_mutation(
+        request,
+        authorization,
+        x_csrf_token,
+        enabled=CSRF_LOGOUT_ENFORCED,
+    )
+
+
+def require_csrf_for_cookie_mutation_strict(
+    request: Request,
+    authorization: Optional[str] = Header(default=None),
+    x_csrf_token: Optional[str] = Header(default=None, alias="X-CSRF-Token"),
+) -> None:
+    return _require_csrf_for_cookie_mutation(
+        request,
+        authorization,
+        x_csrf_token,
+        enabled=True,
+    )
 
 def require_roles(*roles: str):
     allowed = set(roles)
@@ -16205,6 +16233,7 @@ register_project_chat_module(app, {
     "get_db": get_db,
     "get_current_user": get_current_user,
     "require_project_access": require_project_access,
+    "require_csrf_for_cookie_mutation": require_csrf_for_cookie_mutation_strict,
 })
 
 
