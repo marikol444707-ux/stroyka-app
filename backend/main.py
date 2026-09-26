@@ -654,6 +654,23 @@ def _current_user_from_session_cookie(request: Optional[Request]) -> dict:
         cur.execute("UPDATE user_sessions SET last_seen_at=NOW() WHERE id=%s", (user.get("auth_session_id"),))
         user = enrich_worker_project_links(cur, user)
         conn.commit()
+    # Prefer explicit company membership role when available.
+    try:
+        from backend.features.company_context.service import user_company_memberships
+        memberships = user_company_memberships(cur, user, include_inactive=False)
+        if memberships:
+            # memberships are ordered with is_default first; take the first as effective membership
+            membership = memberships[0]
+            # override role/company fields from membership to produce correct effective role
+            user["role"] = membership.get("role") or user.get("role")
+            user["companyId"] = membership.get("companyId") or membership.get("company_id") or user.get("companyId") or user.get("company_id")
+            user["company_id"] = user.get("companyId")
+            # expose membership id for downstream usages if needed
+            user["membership_id"] = membership.get("membership_id")
+    except Exception:
+        # If anything goes wrong, fall back to legacy user row without failing authentication
+        pass
+    conn.commit()
     cur.close(); conn.close()
     if not user:
         raise HTTPException(status_code=401, detail="Сессия недействительна. Войдите заново.")
