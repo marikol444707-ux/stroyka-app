@@ -692,3 +692,22 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
 - [ ] Task A14: Put model access behind a provider-neutral gateway; keep the cloud model first and evaluate a local model only after quality/load/cost measurements.
 
 Close and strike through a task only after applicable focused tests, full backend/frontend verification, manual browser checks, tenant/role isolation and production smoke. Record the evidence in `tasks/todo.md`.
+## Owner status — 2026-09-26
+
+### ЗАКРЫТО
+- `Task 15`: CI проверяет backend compile/tests, frontend tests и frontend build; общий ложный warehouse hash-baseline исправлен в PR #64, полный CI PR #64 зелёный.
+- `M6.5a–M6.5d`: ownership и company-scope журнала работ подтверждены указанными в плане production runtime/post-audit evidence (`e74dafc5d0f6`, `2a559a9149fe`, `0f0575f69aaa`).
+- `M7j`: production read-only post-audit `supplier_invoices` и `supply_deliveries` проверил `53/53` строк без review rows.
+
+### В РАБОТЕ
+- `M4.2–M4.9`: company isolation склада в плане отмечена как implemented locally / release pending; до попадания и проверки в `main` родительские пункты остаются открытыми.
+- `M6.2d`: дочерние protected-file slices уже закрывались по отдельности, но родитель остаётся открытым до полного usage audit и безопасного перехода новых S3 objects на private storage.
+
+### ЖДЁТ ПРОВЕРКИ
+- `M6.6f1–M6.6f2`: public smoke уже зафиксирован в плане, но combined protected single/batch/event и negative cross-company smoke ещё deferred.
+- Open PR не считаются частью `main`: #42 (company fallback), #44 (CSRF), #45 (supply→payment smoke), #57 (bounded query audit), #62 (project-document company scope) требуют отдельного review/merge решения.
+
+### БЛОКИРУЕТ BETA
+- Закрыть protected negative cross-company smoke для `M6.6f1–M6.6f2`.
+- Довести release/verification `M4.2–M4.9`, чтобы складские чтения/изменения были доказанно company-scoped в `main`.
+- Не считать high-risk tenant/security PR закрытыми только по зелёному CI: перед merge нужен review diff + regression evidence.
