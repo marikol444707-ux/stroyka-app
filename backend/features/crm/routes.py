@@ -979,6 +979,20 @@ def register_crm_module(app, deps):
                     lead.get("corrAccount"), lead.get("signerName"), lead.get("signerBasis"),
                     ("Создан из CRM-заявки #" + str(lead_id) + "\n\n" + (lead.get("notes") or ""))[:4000],
                 ))
+            # If this is a supplier invite and the supplier already has an active
+            # supplier-account link for this company, do not create a duplicate invite.
+            # This prevents creating multiple active supplier accounts for the same
+            # company and surfaces a clear conflict to the inviter.
+            if role == "поставщик" and supplier_id:
+                cur.execute(
+                    "SELECT id, active FROM company_supplier_links WHERE company_id=%s AND supplier_id=%s LIMIT 1",
+                    (owner["companyId"], supplier_id),
+                )
+                existing_link = cur.fetchone()
+                if existing_link and (existing_link.get("active") is None or existing_link.get("active") is True):
+                    # rollback the insert of invite and return a conflict
+                    conn.rollback()
+                    raise HTTPException(status_code=409, detail="Supplier already has an active account in this company")
                 supplier = cur.fetchone()
                 if supplier_remember_alias:
                     supplier_remember_alias(cur, supplier["id"], supplier_payload, "crm_supplier")
@@ -1048,6 +1062,20 @@ def register_crm_module(app, deps):
                     lead.get("bank"), lead.get("bik"), lead.get("corrAccount"),
                     ("Создан из CRM-заявки #" + str(lead_id) + "\n\n" + (lead.get("notes") or ""))[:4000],
                 ))
+            # If this is a supplier invite and the supplier already has an active
+            # supplier-account link for this company, do not create a duplicate invite.
+            # This prevents creating multiple active supplier accounts for the same
+            # company and surfaces a clear conflict to the inviter.
+            if role == "поставщик" and supplier_id:
+                cur.execute(
+                    "SELECT id, active FROM company_supplier_links WHERE company_id=%s AND supplier_id=%s LIMIT 1",
+                    (owner["companyId"], supplier_id),
+                )
+                existing_link = cur.fetchone()
+                if existing_link and (existing_link.get("active") is None or existing_link.get("active") is True):
+                    # rollback the insert of invite and return a conflict
+                    conn.rollback()
+                    raise HTTPException(status_code=409, detail="Supplier already has an active account in this company")
                 staff = cur.fetchone()
             cur.execute("""
                 UPDATE crm_leads
@@ -1229,6 +1257,20 @@ def register_crm_module(app, deps):
                     ("Передано из CRM-заявки #" + str(lead_id) + ". " + (doc.get("notes") or ""))[:4000],
                     current_user.get("name") or "",
                 ))
+            # If this is a supplier invite and the supplier already has an active
+            # supplier-account link for this company, do not create a duplicate invite.
+            # This prevents creating multiple active supplier accounts for the same
+            # company and surfaces a clear conflict to the inviter.
+            if role == "поставщик" and supplier_id:
+                cur.execute(
+                    "SELECT id, active FROM company_supplier_links WHERE company_id=%s AND supplier_id=%s LIMIT 1",
+                    (owner["companyId"], supplier_id),
+                )
+                existing_link = cur.fetchone()
+                if existing_link and (existing_link.get("active") is None or existing_link.get("active") is True):
+                    # rollback the insert of invite and return a conflict
+                    conn.rollback()
+                    raise HTTPException(status_code=409, detail="Supplier already has an active account in this company")
                 project_doc_id = cur.fetchone()["id"]
                 created.append(project_doc_id)
                 cur.execute(
