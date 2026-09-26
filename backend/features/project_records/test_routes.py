@@ -7,12 +7,23 @@ class FakeApp:
     def __init__(self):
         self.routes = {}
 
-    def get(self, path):
+    def _register(self, method, path):
         def decorator(handler):
-            self.routes[("GET", path)] = handler
+            self.routes[(method, path)] = handler
             return handler
-
         return decorator
+
+    def get(self, path):
+        return self._register("GET", path)
+
+    def post(self, path):
+        return self._register("POST", path)
+
+    def put(self, path):
+        return self._register("PUT", path)
+
+    def delete(self, path):
+        return self._register("DELETE", path)
 
 
 class FakeCursor:
@@ -20,10 +31,13 @@ class FakeCursor:
         self.calls = []
 
     def execute(self, sql, params=()):
-        self.calls.append((" ".join(sql.split()), params))
+        self.calls.append((" ".join(sql.split()), tuple(params)))
 
     def fetchall(self):
         return []
+
+    def fetchone(self):
+        return (1,)
 
     def close(self):
         pass
@@ -36,38 +50,45 @@ class FakeConnection:
     def cursor(self):
         return self._cur
 
+    def commit(self):
+        pass
+
     def close(self):
         pass
 
 
+def build_handler(visible_projects):
+    cur = FakeCursor()
+    conn = FakeConnection(cur)
+    app = FakeApp()
+    deps = {
+        "get_db": lambda: conn,
+        "require_roles": (lambda *roles: (lambda: None)),
+        "require_project_access": lambda *args, **kwargs: None,
+        "require_row_project_access": lambda *args, **kwargs: None,
+        "visible_project_names": (lambda _user: visible_projects),
+        "read_roles": (),
+        "write_roles": (),
+        "worker_execution_roles": (),
+    }
+    register_project_records_module(app, deps)
+    return app.routes[("GET", "/project-documents")], cur
+
+
 class ProjectDocumentsRouteTests(unittest.TestCase):
-    def test_all_projects_scoped_by_company(self):
-        cur = FakeCursor()
-        conn = FakeConnection(cur)
-        app = FakeApp()
+    def test_broad_project_documents_are_scoped_by_company(self):
+        handler, cur = build_handler(None)
+        handler(project_name=None, _current_user={"companyId": 4, "role": "директор"})
+        sql, params = cur.calls[0]
+        self.assertIn("WHERE company_id=%s", sql)
+        self.assertEqual(4, params[0])
 
-        deps = {
-            "get_db": lambda: conn,
-            "require_roles": (lambda *r: (lambda: None)),
-            "require_project_access": lambda *a, **k: None,
-            "require_row_project_access": lambda *a, **k: None,
-            "visible_project_names": (lambda user: None),
-            "read_roles": (),
-            "write_roles": (),
-            "worker_execution_roles": (),
-        }
-
-        register_project_records_module(app, deps)
-
-        # simulate calling the route with a user who has a company_id
-        handler = app.routes[("GET", "/project-documents")]
-        handler_params = {"project_name": None, "_current_user": {"company_id": 4, "role": "директор"}}
-        # call the handler
-        handler(**handler_params)
-
-        # the executed SQL should include company_id=%s
-        executed = cur.calls[0][0]
-        self.assertIn("company_id=%s", executed)
+    def test_named_project_document_is_scoped_by_company_even_with_same_name(self):
+        handler, cur = build_handler(None)
+        handler(project_name="Одинаковое имя", _current_user={"company_id": 7, "role": "директор"})
+        sql, params = cur.calls[0]
+        self.assertIn("WHERE company_id=%s AND project_name=%s", sql)
+        self.assertEqual((7, "Одинаковое имя"), params[:2])
 
 
 if __name__ == "__main__":
