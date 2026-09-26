@@ -249,9 +249,13 @@ def user_company_memberships(
         return []
     where = ["m.user_id=%s"]
     values = [user_id]
+    # Exclude roleless (blank or whitespace-only) memberships from membership lists.
+    # This prevents building company contexts from memberships that have no verified role.
     if not include_inactive:
         where.append("COALESCE(m.active,TRUE)=TRUE")
         where.append("COALESCE(c.active,TRUE)=TRUE")
+    # Always exclude empty/blank roles (trimmed) from effective membership sets.
+    where.append("COALESCE(NULLIF(TRIM(COALESCE(m.role, '')), ''), '')<>'')
     cur.execute(f"""
         SELECT m.id AS membership_id, m.user_id, m.company_id, m.staff_id,
                COALESCE(m.platform_account_id,c.platform_account_id) AS platform_account_id,
