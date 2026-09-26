@@ -210,6 +210,29 @@ def register_supplier_directory_module(app, deps):
             supplier_rating = float(data.get("rating") if "rating" in data and data.get("rating") not in (None, "") else (existing.get("rating") or 5.0))
         except (TypeError, ValueError):
             supplier_rating = float(existing.get("rating") or 5.0)
+        # If this supplier already has an approved company link, block critical identity/bank/contract changes
+        cur.execute("SELECT id FROM company_supplier_links WHERE supplier_id=%s LIMIT 1", (id,))
+        approved_link = cur.fetchone()
+        if approved_link:
+            critical = ["inn", "ogrn", "bank", "bik", "account", "korAccount", "contractNumber", "contractUrl", "contractDate"]
+            for field_name in critical:
+                camel = field_name
+                snake = field_name
+                if camel == "korAccount":
+                    snake = "kor_account"
+                if camel == "contractNumber":
+                    snake = "contract_number"
+                if camel == "contractUrl":
+                    snake = "contract_url"
+                if camel == "contractDate":
+                    snake = "contract_date"
+                if camel in data or snake in data:
+                    new_val = data.get(camel) if camel in data else data.get(snake)
+                    new_val_norm = (new_val or "")
+                    old_val = existing.get(snake) or existing.get(camel) or ""
+                    if str(new_val_norm) != str(old_val):
+                        cur.close(); conn.close()
+                        raise HTTPException(status_code=409, detail="Критическое изменение реквизитов запрещено после утверждения поставщика")
         cur.execute("""
             UPDATE suppliers SET
                 name=%s,phone=%s,email=%s,specialization=%s,category=%s,rating=%s,status=%s,
@@ -504,6 +527,34 @@ def register_supplier_directory_module(app, deps):
             cur.close(); conn.close()
             raise HTTPException(status_code=403, detail="Недостаточно прав")
         # Расширенный апдейт реквизитов: все поля опциональные
+        # If supplier already approved (company link exists), prevent critical changes from being applied silently
+        cur.execute("SELECT id FROM company_supplier_links WHERE supplier_id=%s LIMIT 1", (id,))
+        approved_link = cur.fetchone()
+        if approved_link:
+            critical_keys = ("inn", "ogrn", "bank", "bik", "account", "korAccount", "contractNumber", "contractUrl", "contractDate")
+            # fetch current values
+            cur.execute("SELECT inn,kpp,ogrn,bank,bik,account,kor_account,contract_number,contract_url,contract_date FROM suppliers WHERE id=%s", (id,))
+            existing_vals = cur.fetchone() or {}
+            for k in critical_keys:
+                # normalize key names
+                new_val = None
+                if k in data:
+                    new_val = data.get(k)
+                elif k == 'korAccount' and 'kor_account' in data:
+                    new_val = data.get('kor_account')
+                elif k == 'contractNumber' and 'contract_number' in data:
+                    new_val = data.get('contract_number')
+                elif k == 'contractDate' and 'contract_date' in data:
+                    new_val = data.get('contract_date')
+                if new_val is not None:
+                    old_key = k
+                    if k == 'korAccount': old_key = 'kor_account'
+                    if k == 'contractNumber': old_key = 'contract_number'
+                    if k == 'contractDate': old_key = 'contract_date'
+                    old_val = existing_vals.get(old_key) or ""
+                    if str(new_val or "") != str(old_val):
+                        cur.close(); conn.close()
+                        raise HTTPException(status_code=409, detail="Критическое изменение реквизитов запрещено после утверждения поставщика")
         cur.execute("""UPDATE suppliers SET
             inn=COALESCE(%s, inn), kpp=COALESCE(%s, kpp), ogrn=COALESCE(%s, ogrn),
             legal_address=COALESCE(%s, legal_address),
