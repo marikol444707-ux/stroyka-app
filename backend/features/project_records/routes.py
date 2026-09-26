@@ -3,7 +3,10 @@ import json
 import os
 import re
 
-import psycopg2.extras
+try:
+    import psycopg2.extras
+except Exception:
+    psycopg2 = None
 from fastapi import Depends, Header, HTTPException
 
 from backend.features.model_gateway.contract import (
@@ -303,33 +306,61 @@ def register_project_records_module(app, deps):
                 cur.close()
                 conn.close()
                 return []
-            params = [company_id, project_name]
+            # Fail-closed: only allow when the project name exists in the selected company
+            # and does not exist in any other company. Use EXISTS/NOT EXISTS to avoid
+            # multiplicative joins when projects are duplicated.
+            params = [company_id, company_id, project_name]
             if side_filter:
                 params.append(side_filter)
             params.extend(worker_doc_params)
-            cur.execute("SELECT id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by,created_at FROM project_documents WHERE company_id=%s AND project_name=%s" + side_sql + worker_doc_sql + " ORDER BY id DESC", tuple(params))
+            q = (
+                "SELECT id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by,created_at "
+                "FROM project_documents "
+                "WHERE EXISTS(SELECT 1 FROM projects p WHERE p.name = project_documents.project_name AND p.company_id=%s) "
+                "AND NOT EXISTS(SELECT 1 FROM projects p2 WHERE p2.name = project_documents.project_name AND p2.company_id<>%s) "
+                "AND project_name=%s"
+            )
+            q += side_sql + worker_doc_sql + " ORDER BY id DESC"
+            cur.execute(q, tuple(params))
         elif allowed_projects is not None:
             if not allowed_projects:
                 cur.close()
                 conn.close()
                 return []
-            params = [company_id, allowed_projects]
+            # Broad list: include documents whose project_name maps uniquely to the selected company.
+            params = [company_id, company_id]
             if side_filter:
                 params.append(side_filter)
             params.extend(worker_doc_params)
-            cur.execute("SELECT id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by,created_at FROM project_documents WHERE company_id=%s AND project_name = ANY(%s)" + side_sql + worker_doc_sql + " ORDER BY id DESC", tuple(params))
+            q = (
+                "SELECT id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by,created_at "
+                "FROM project_documents "
+                "WHERE EXISTS(SELECT 1 FROM projects p WHERE p.name = project_documents.project_name AND p.company_id=%s) "
+                "AND NOT EXISTS(SELECT 1 FROM projects p2 WHERE p2.name = project_documents.project_name AND p2.company_id<>%s) "
+                "AND project_name = ANY(%s)"
+            )
+            q += side_sql + worker_doc_sql + " ORDER BY id DESC"
+            params.append(allowed_projects)
+            cur.execute(q, tuple(params))
         else:
-            params = [company_id]
+            params = [company_id, company_id]
             if side_filter:
                 params.append(side_filter)
             params.extend(worker_doc_params)
-            where_parts = ["company_id=%s"]
+            # Unfiltered (allowed_projects is None): return documents whose project_name
+            # is uniquely associated with the selected company.
+            q = (
+                "SELECT id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by,created_at "
+                "FROM project_documents "
+                "WHERE EXISTS(SELECT 1 FROM projects p WHERE p.name = project_documents.project_name AND p.company_id=%s) "
+                "AND NOT EXISTS(SELECT 1 FROM projects p2 WHERE p2.name = project_documents.project_name AND p2.company_id<>%s)"
+            )
             if side_filter:
-                where_parts.append("side=%s")
+                q += " AND side=%s"
             if worker_doc_sql:
-                where_parts.append(worker_doc_sql.strip()[4:])
-            where_sql = " WHERE " + " AND ".join(where_parts)
-            cur.execute("SELECT id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by,created_at FROM project_documents" + where_sql + " ORDER BY id DESC", tuple(params))
+                q += " AND (" + worker_doc_sql.strip()[4:] + ")"
+            q += " ORDER BY id DESC"
+            cur.execute(q, tuple(params))
         rows = cur.fetchall()
         cur.close()
         conn.close()

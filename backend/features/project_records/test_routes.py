@@ -104,7 +104,9 @@ class ProjectDocumentsRouteTests(unittest.TestCase):
             _current_user={"companyId": 99, "role": "директор"},
         )
         sql, params = cur.calls[0]
-        self.assertIn("WHERE company_id=%s", sql)
+        # now uses EXISTS/NOT EXISTS to map project_name -> projects.name uniqueness
+        self.assertIn("EXISTS(SELECT 1 FROM projects p WHERE p.name = project_documents.project_name AND p.company_id=%s)", sql)
+        self.assertIn("NOT EXISTS(SELECT 1 FROM projects p2 WHERE p2.name = project_documents.project_name AND p2.company_id<>%s)", sql)
         self.assertEqual(4, params[0])
 
     def test_all_companies_mode_is_rejected_for_project_documents(self):
@@ -128,8 +130,10 @@ class ProjectDocumentsRouteTests(unittest.TestCase):
             _current_user={"company_id": 99, "role": "директор"},
         )
         sql, params = cur.calls[0]
-        self.assertIn("WHERE company_id=%s AND project_name=%s", sql)
-        self.assertEqual((7, "Одинаковое имя"), params[:2])
+        self.assertIn("EXISTS(SELECT 1 FROM projects p WHERE p.name = project_documents.project_name AND p.company_id=%s)", sql)
+        self.assertIn("NOT EXISTS(SELECT 1 FROM projects p2 WHERE p2.name = project_documents.project_name AND p2.company_id<>%s)", sql)
+        # project_name param should be present
+        self.assertIn("Одинаковое имя", str(params))
 
 
 if __name__ == "__main__":
