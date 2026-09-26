@@ -1,8 +1,14 @@
-import pytest
+import unittest
+
 from backend.db import limit_offset_sql
 
-def test_limit_offset_sql_default_none():
-    sql, params = limit_offset_sql(None, 0)
-    assert sql.strip().upper().startswith('LIMIT')
-    assert params[0] == 200
-    assert params[1] == 0
+
+class LimitOffsetSqlTests(unittest.TestCase):
+    def test_default_none_uses_bounded_page_size(self):
+        sql, params = limit_offset_sql(None, 0)
+        self.assertTrue(sql.strip().upper().startswith("LIMIT"))
+        self.assertEqual([200, 0], params)
+
+
+if __name__ == "__main__":
+    unittest.main()
