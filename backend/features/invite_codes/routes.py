@@ -18,6 +18,9 @@ def register_invite_codes_module(app, deps):
     require_roles = deps["require_roles"]
     admin_roles = tuple(deps.get("admin_roles") or ())
     prepare_user_access_scope = deps["prepare_user_access_scope"]
+    # Optional helpers for resolving the selected-company context server-side.
+    resolve_work_company_context = deps.get("resolve_work_company_context")
+    effective_company_actors = deps.get("effective_company_actors")
 
     @app.get("/invite-codes")
     def get_invite_codes(_current_user: dict = Depends(require_roles(*admin_roles, "system_owner"))):
@@ -29,7 +32,12 @@ def register_invite_codes_module(app, deps):
         return [dict(r) for r in rows]
 
     @app.post("/invite-codes")
-    def create_invite_code(data: dict, _current_user: dict = Depends(require_roles(*admin_roles, "system_owner"))):
+    def create_invite_code(
+        data: dict,
+        x_company_id: str = None,
+        x_company_mode: str = None,
+        _current_user: dict = Depends(require_roles(*admin_roles, "system_owner")),
+    ):
         from datetime import datetime, timedelta
         role = data.get('role') or ''
         if not role:
@@ -47,16 +55,41 @@ def register_invite_codes_module(app, deps):
             data.get("assignedProjects") or [],
             data.get("assignedPackages") or [],
         )
-        company_id = data.get("companyId") or data.get("company_id")
+        body_company_id = data.get("companyId") or data.get("company_id")
         platform_account_id = data.get("platformAccountId") or data.get("platform_account_id")
         try:
-            company_id = int(company_id) if company_id not in (None, "") else None
+            company_id = int(body_company_id) if body_company_id not in (None, "") else None
         except Exception:
             company_id = None
         try:
             platform_account_id = int(platform_account_id) if platform_account_id not in (None, "") else None
         except Exception:
             platform_account_id = None
+        # If server-side company resolver is provided, resolve selected company
+        # and verify the current user's active membership+role in that company.
+        if resolve_work_company_context:
+            context = resolve_work_company_context(
+                cur,
+                _current_user,
+                company_id,
+                "create",
+                x_company_id=x_company_id,
+                x_company_mode=x_company_mode,
+            )
+            # Must be a concrete selected company (mode == 'company')
+            if (context or {}).get("mode") != "company":
+                raise HTTPException(status_code=400, detail="Для создания приглашения выберите конкретную компанию")
+            # Ensure we can resolve at least one active actor for this company with allowed role
+            if not effective_company_actors:
+                raise HTTPException(status_code=500, detail="Ошибка конфигурации сервера: missing effective_company_actors")
+            actors = effective_company_actors(_current_user, context) or []
+            # find matching actor for the selected company
+            selected_company_id = int((context.get("companyId") or context.get("company_id") or 0) or 0)
+            matches = [a for a in actors if int((a.get("companyId") or a.get("company_id") or 0) or 0) == selected_company_id]
+            if len(matches) != 1:
+                raise HTTPException(status_code=403, detail="Компания пользователя не определена")
+            # override company_id with validated selected company
+            company_id = selected_company_id
         if company_id and not platform_account_id:
             cur.execute("SELECT platform_account_id FROM companies WHERE id=%s", (company_id,))
             company_row = cur.fetchone()
