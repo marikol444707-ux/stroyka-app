@@ -27,12 +27,8 @@ def get_db():
 
 
 def limit_offset_sql(limit: Optional[int] = None, offset: int = 0):
-    # Safety: when callers pass no explicit limit, treat as a reasonable
-    # default page size to avoid unbounded queries that may load large
-    # resultsets into memory. Tests and some features expect a default
-    # of 200 (see feature tests that mock this helper), so use 200.
     if limit is None:
-        limit = 200
+        return "", []
     try:
         limit_value = int(limit)
     except Exception:
