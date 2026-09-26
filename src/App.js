@@ -163,20 +163,6 @@ function App() {
     visibleActiveProjects,
     visibleEstimatesForCurrentUser
   } = appCoreRuntime;
-
-  const setInitialDataLoaded = appMainState?.setInitialDataLoaded;
-
-  // Clear mobile request caches and initial data when company selection changes
-  useEffect(() => {
-    // companyContext.selectedCompanyId may be `null` for all_companies; respond to any change
-    mobileApiRequestsRef.current && mobileApiRequestsRef.current.clear && mobileApiRequestsRef.current.clear();
-    mobileLoadedScopesRef.current && mobileLoadedScopesRef.current.clear && mobileLoadedScopesRef.current.clear();
-    // reset main initial data flag so loaders will refetch under new company context
-    if (typeof setInitialDataLoaded === 'function') {
-      setInitialDataLoaded(false);
-    }
-  }, [companyContext.mode, companyContext.selectedCompanyId, setInitialDataLoaded]);
-
   const appBusinessRuntime = useAppBusinessRuntime({
     API,
     user,
