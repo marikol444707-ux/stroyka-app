@@ -13,7 +13,7 @@ import re
 from typing import Optional
 
 import psycopg2.extras
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Header
 from pydantic import BaseModel
 
 
@@ -491,18 +491,65 @@ def register_supplier_directory_module(app, deps):
             conn.close()
 
     @app.put("/suppliers/{id}/requisites")
-    def update_supplier_requisites(id: int, data: dict, current_user: dict = Depends(get_current_user)):
+    def update_supplier_requisites(
+        id: int,
+        data: dict,
+        current_user: dict = Depends(get_current_user),
+        x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    ):
         conn = get_db()
         cur = conn.cursor()
+        # Resolve selected company context server-side and enforce membership-scoped actor
+        resolve_work_company_context = deps.get("resolve_work_company_context")
+        if resolve_work_company_context:
+            company_context = resolve_work_company_context(cur, current_user, None, "write", x_company_id=x_company_id, x_company_mode=x_company_mode)
+        else:
+            company_context = {}
+
+        # Effective actor roles are derived from the selected company membership
+        try:
+            from backend.features.company_context.service import effective_company_actors
+        except Exception:
+            from features.company_context.service import effective_company_actors
+
+        actors = effective_company_actors(current_user, company_context)
+        actor_roles = {a.get("role") for a in actors}
+
         role = current_user.get("role")
         if role == "поставщик":
             supplier_ids = current_supplier_ids(cur, current_user)
             if id not in supplier_ids:
                 cur.close(); conn.close()
                 raise HTTPException(status_code=403, detail="Нет доступа к этому поставщику")
-        elif role not in ("директор", "зам_директора", "снабженец", "кладовщик", "бухгалтер"):
-            cur.close(); conn.close()
-            raise HTTPException(status_code=403, detail="Недостаточно прав")
+        else:
+            # For company-scoped edits require a selected company and an active company membership
+            if (company_context or {}).get("mode") != "company":
+                cur.close(); conn.close()
+                raise HTTPException(status_code=409, detail="Компания не выбрана")
+            company_id = company_context.get("companyId") or company_context.get("company_id")
+            try:
+                company_id = int(company_id) if company_id not in (None, "") else None
+            except Exception:
+                company_id = None
+            if not company_id:
+                cur.close(); conn.close()
+                raise HTTPException(status_code=409, detail="Компания не определена")
+
+            # actor role must come from selected company membership (fail closed)
+            allowed = {"директор", "зам_директора", "снабженец", "кладовщик", "бухгалтер"}
+            if not (actor_roles & allowed):
+                cur.close(); conn.close()
+                raise HTTPException(status_code=403, detail="Недостаточно прав в выбранной компании")
+
+            # supplier must be linked actively to the selected company
+            cur.execute(
+                "SELECT 1 FROM company_supplier_links WHERE company_id=%s AND supplier_id=%s AND COALESCE(active, TRUE)=TRUE LIMIT 1",
+                (company_id, id),
+            )
+            if not cur.fetchone():
+                cur.close(); conn.close()
+                raise HTTPException(status_code=403, detail="Поставщик не привязан к выбранной компании")
         # Расширенный апдейт реквизитов: все поля опциональные
         cur.execute("""UPDATE suppliers SET
             inn=COALESCE(%s, inn), kpp=COALESCE(%s, kpp), ogrn=COALESCE(%s, ogrn),
