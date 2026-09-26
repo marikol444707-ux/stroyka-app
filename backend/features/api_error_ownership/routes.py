@@ -57,6 +57,12 @@ def register_api_errors_module(app, deps):
 
     @app.post("/client-errors")
     def log_client_error(data: dict, request: Request):
+        from backend.security.redact import redact_dict
+        try:
+            data = redact_dict(dict(data or {}))
+        except Exception:
+            data = dict(data or {})
+
         if not client_error_logging_enabled:
             return {"ok": True, "disabled": True}
         client_ip = request.client.host if request.client else ""
