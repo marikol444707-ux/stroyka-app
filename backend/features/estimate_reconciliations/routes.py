@@ -384,11 +384,11 @@ def register_estimate_reconciliations_module(app, deps):
             )
             cur.execute(
                 """INSERT INTO project_documents
-                   (project_name,side,doc_type,number,doc_date,counterparty,sign_status,
+                   (project_id,company_id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,
                     scan_url,amount,notes,uploaded_by)
-                   VALUES (%s,%s,%s,%s,CURRENT_DATE,%s,%s,%s,%s,%s,%s)""",
+                   VALUES (%s,%s,%s,%s,%s,%s,CURRENT_DATE,%s,%s,%s,%s,%s,%s)""",
                 (
-                    project_name,
+                    base_parent["projectId"], base_parent["companyId"], project_name,
                     "customer",
                     "Сверка смет",
                     "СС-" + str(reconciliation_id),

@@ -337,11 +337,38 @@ def register_project_records_module(app, deps):
 
     @app.post("/project-documents")
     def create_project_document(data: dict, _current_user: dict = Depends(write_access)):
-        require_project_access(_current_user, data.get("projectName", ""))
+        # Ensure user has access to the named project and resolve canonical project id/company id
+        project_name = data.get("projectName", "")
+        require_project_access(_current_user, project_name)
         conn = get_db()
         cur = conn.cursor()
-        cur.execute("INSERT INTO project_documents (project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-            (data.get("projectName", ""), data.get("side", "customer"), data.get("docType", ""), data.get("number", ""),
+        # Resolve selected company context for this write (fail-closed if ambiguous)
+        company_context = resolve_work_company_context(cur, _current_user, None, "write")
+        if (company_context or {}).get("mode") != "company":
+            cur.close()
+            conn.close()
+            raise HTTPException(status_code=400, detail="Для документов выберите конкретную компанию")
+        selected_company_id = (company_context or {}).get("companyId") or (company_context or {}).get("company_id")
+        if not selected_company_id:
+            cur.close()
+            conn.close()
+            raise HTTPException(status_code=403, detail="Компания пользователя не определена")
+        # Resolve project row to get canonical id and company ownership
+        cur.execute("SELECT id,company_id FROM projects WHERE name=%s", (project_name,))
+        proj_row = cur.fetchone()
+        if not proj_row:
+            cur.close()
+            conn.close()
+            raise HTTPException(status_code=404, detail="Объект не найден")
+        project_id = proj_row[0] if not isinstance(proj_row, dict) else proj_row.get("id")
+        project_company_id = proj_row[1] if not isinstance(proj_row, dict) else proj_row.get("company_id")
+        # Fail-closed: client cannot spoof company; project must belong to selected company
+        if project_company_id is None or int(project_company_id) != int(selected_company_id):
+            cur.close()
+            conn.close()
+            raise HTTPException(status_code=403, detail="Объект не принадлежит выбранной компании")
+        cur.execute("INSERT INTO project_documents (project_id,company_id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+            (project_id, selected_company_id, project_name, data.get("side", "customer"), data.get("docType", ""), data.get("number", ""),
              data.get("docDate") or None, data.get("counterparty", ""), data.get("signStatus", "Не подписан"),
              data.get("scanUrl", ""), data.get("amount") or 0, data.get("notes", ""), data.get("uploadedBy", "")))
         new_id = cur.fetchone()[0]
