@@ -136,7 +136,7 @@ def effective_company_user(user: dict, context: dict) -> dict:
         else ""
     )
     actor.update({
-        "role": (context or {}).get("effectiveRole") or (context or {}).get("role") or actor.get("role") or "",
+        "role": (context or {}).get("effectiveRole") or (context or {}).get("role") or "",
         "membershipId": _as_int(
             (context or {}).get("membershipId")
             or (context or {}).get("membership_id")
@@ -422,10 +422,20 @@ def resolve_request_company_context(
         client_account_roles=client_account_roles,
     )
     _assert_platform_account_boundary(user, context)
+    # Fail-closed: when a concrete company mode is selected the membership role
+    # must be present and verified. Do not fall back to the global user.role
+    # — that would elevate access unexpectedly.
+    if context.get("mode") == "company":
+        resolved_role = (context or {}).get("role") or ""
+        if not str(resolved_role).strip():
+            raise HTTPException(status_code=403, detail="Роль в выбранной компании не определена")
+
     return {
         **context,
         "companyIds": company_ids_for_context(context),
-        "effectiveRole": context.get("role") or user.get("role") or "",
+        # Use only the role resolved from the verified company context. Never
+        # fall back to the global user role here.
+        "effectiveRole": (context or {}).get("role") or "",
         "requestedMode": requested_mode,
     }
 
