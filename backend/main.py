@@ -9419,15 +9419,16 @@ def create_supply_request(
             x_company_id=x_company_id,
             x_company_mode=x_company_mode,
         )
-        # Fail-closed: do not fallback to company_id=1. Require an explicit company
-        # from the resolved company context or the requested_company_id.
-        _ctx_company = company_context.get("companyId") if company_context else None
-        if _ctx_company:
-            company_id = int(_ctx_company)
-        elif requested_company_id:
-            company_id = int(requested_company_id)
-        else:
-            raise HTTPException(status_code=403, detail="Company selection is required")
+        _ctx_company = _positive_int_or_none(
+            (company_context or {}).get("companyId")
+            or (company_context or {}).get("company_id")
+        )
+        if (company_context or {}).get("mode") == "all_companies" or not _ctx_company:
+            raise HTTPException(
+                status_code=403,
+                detail="Для создания заявки требуется проверенная конкретная компания",
+            )
+        company_id = int(_ctx_company)
         project_id = _positive_int_or_none(r.projectId)
         if is_material_control_request:
             try:
