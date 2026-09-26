@@ -690,15 +690,22 @@ def create_supplier_card(
     if supplier_id <= 0:
         raise RuntimeError("Supplier creation did not return id")
     # Creating a catalogue card does not infer the supplier cabinet identity.
-    # Link the isolated smoke user explicitly before dispatching a request.
-    api_json(
-        "POST",
-        f"/suppliers/{supplier_id}/link-user",
-        base_url=base_url,
-        token=director_token,
-        data={"userId": int(supplier_user["id"])},
-        expected=200,
-    )
+    # The public link-user route is intentionally platform-admin-only, so the
+    # isolated smoke fixture links its own test user in the setup transaction.
+    conn = db_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "UPDATE suppliers SET user_id=%s, status='Активный' WHERE id=%s",
+            (int(supplier_user["id"]), supplier_id),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
     return supplier_id
 
 
