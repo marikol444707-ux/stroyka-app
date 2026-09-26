@@ -422,10 +422,14 @@ def resolve_request_company_context(
         client_account_roles=client_account_roles,
     )
     _assert_platform_account_boundary(user, context)
+    # effectiveRole MUST come only from the server-resolved context.role.
+    # Do NOT fall back to user.role or any client-provided value — that
+    # would be a fail-open elevation vector. This enforces that the
+    # effective role is only the role verified for the selected company.
     return {
         **context,
         "companyIds": company_ids_for_context(context),
-        "effectiveRole": context.get("role") or user.get("role") or "",
+        "effectiveRole": context.get("role") or "",
         "requestedMode": requested_mode,
     }
 
