@@ -1,6 +1,9 @@
 import unittest
 
-from fastapi import HTTPException
+from typing import Optional
+
+from fastapi import FastAPI, Header, HTTPException
+from fastapi.testclient import TestClient
 
 from backend.features.project_chat.routes import register_project_chat_module
 
@@ -70,6 +73,7 @@ def build(cursor, access_calls):
         "get_db": lambda: connection,
         "get_current_user": lambda: {},
         "require_project_access": require_project_access,
+        "require_csrf_for_cookie_mutation": lambda: None,
     })
     return app, connection
 
@@ -94,6 +98,49 @@ class ProjectChatRoutesTest(unittest.TestCase):
             app.routes[("POST", "/project-chat")]({"projectName": "чужой", "text": "привет"}, current_user={"id": 42})
         self.assertEqual(ctx.exception.status_code, 403)
         self.assertEqual(cursor.calls, [])
+
+    def test_post_csrf_dependency_is_enforced_but_get_remains_readable(self):
+        cursor = FakeCursor(row=(15,))
+        connection = FakeConnection(cursor)
+        app = FastAPI()
+
+        def get_current_user():
+            return {"id": 42, "name": "Тест", "role": "прораб"}
+
+        def csrf_guard(
+            x_csrf_token: Optional[str] = Header(default=None, alias="X-CSRF-Token"),
+        ):
+            if x_csrf_token != "good-token":
+                raise HTTPException(status_code=403, detail="CSRF token missing or invalid")
+
+        register_project_chat_module(app, {
+            "get_db": lambda: connection,
+            "get_current_user": get_current_user,
+            "require_project_access": lambda *_args, **_kwargs: None,
+            "require_csrf_for_cookie_mutation": csrf_guard,
+        })
+        client = TestClient(app)
+
+        self.assertEqual(200, client.get("/project-chat/Объект").status_code)
+        self.assertEqual(
+            403,
+            client.post("/project-chat", json={"projectName": "Объект", "text": "привет"}).status_code,
+        )
+        self.assertEqual(
+            403,
+            client.post(
+                "/project-chat",
+                headers={"X-CSRF-Token": "bad-token"},
+                json={"projectName": "Объект", "text": "привет"},
+            ).status_code,
+        )
+        response = client.post(
+            "/project-chat",
+            headers={"X-CSRF-Token": "good-token"},
+            json={"projectName": "Объект", "text": "привет"},
+        )
+        self.assertEqual(200, response.status_code)
+        self.assertTrue(response.json()["ok"])
 
     def test_post_stores_author_snapshot(self):
         calls = []
