@@ -41,6 +41,15 @@ export default function AccountingIncomingDocumentsPanel({
   badge,
   toNum,
 }) {
+  // Ensure theme tokens are used locally when callers pass empty style objects
+  const localCard = { ...(card||{}), backgroundColor: (card && (card.backgroundColor || card.background || card.bg)) || C.bgCard || C.card || C.bg, border: (card && card.border) || ('1.5px solid ' + C.border) };
+  const localBtnB = { ...(btnB || {}), backgroundColor: (btnB && (btnB.backgroundColor || btnB.bg)) || C.bgCard || C.bgAlt || C.bg, color: (btnB && btnB.color) || C.text };
+  const localBtnG = { ...(btnG || {}), backgroundColor: (btnG && (btnG.backgroundColor || btnG.bg)) || C.successLight || C.accentLight || C.bgAlt, color: (btnG && btnG.color) || C.text };
+  const localBtnGr = { ...(btnGr || {}), backgroundColor: (btnGr && (btnGr.backgroundColor || btnGr.bg)) || C.bgAlt, color: (btnGr && btnGr.color) || C.text };
+  const localBtnO = { ...(btnO || {}), backgroundColor: (btnO && (btnO.backgroundColor || btnO.bg)) || C.accent, color: (btnO && btnO.color) || C.text };
+  const localBtnR = { ...(btnR || {}), backgroundColor: (btnR && (btnR.backgroundColor || btnR.bg)) || C.danger, color: (btnR && btnR.color) || C.text };
+  const localInp = { ...(inp || {}), backgroundColor: (inp && (inp.backgroundColor || inp.bg)) || C.bgAlt || C.bg, color: (inp && inp.color) || C.text, border: (inp && inp.border) || ('1px solid ' + C.border) };
+
   const [activeStatus, setActiveStatus] = React.useState('Нет фото');
   const [openedId, setOpenedId] = React.useState(null);
   const [busyId, setBusyId] = React.useState(null);
@@ -513,10 +522,10 @@ export default function AccountingIncomingDocumentsPanel({
           aria-expanded={isOpened}
           disabled={disabled}
           onClick={() => setOpenedId(isOpened ? null : row.invoice.id)}
-          style={{ ...btnB, padding: '6px 10px', fontSize: '11px' }}
+          style={{ ...localBtnB, padding: '6px 10px', fontSize: '11px' }}
         ><Eye size={12} />{isOpened ? 'Свернуть' : 'Открыть'}</button>
         {row.photos.length === 0 && (
-          <label style={{ ...btnG, padding: '6px 10px', fontSize: '11px', cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.6 : 1 }}>
+          <label style={{ ...localBtnG, padding: '6px 10px', fontSize: '11px', cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.6 : 1 }}>
             <Upload size={12} />Добавить фото
             <input type="file" accept="image/*" multiple disabled={disabled} onChange={event => { attachPhotos(row, event.target.files); event.target.value = ''; }} style={{ display: 'none' }} />
           </label>
@@ -554,7 +563,7 @@ export default function AccountingIncomingDocumentsPanel({
       .filter(supplier => Number(supplier?.id || 0) > 0)
       .sort((left, right) => String(left.name || '').localeCompare(String(right.name || ''), 'ru'));
     return (
-      <div id={'accounting-invoice-detail-' + inv.id} style={{ ...card, padding: '14px', marginBottom: '14px', backgroundColor: C.bg, border: '1.5px solid ' + C.accentBorder }}>
+      <div id={'accounting-invoice-detail-' + inv.id} style={{ ...localCard, padding: '14px', marginBottom: '14px', backgroundColor: C.bg, border: '1.5px solid ' + C.accentBorder }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: '12px' }}>
           <div>
             <b style={{ color: C.text, fontSize: '15px' }}>Накладная № {inv.number || inv.id}</b>
@@ -594,7 +603,7 @@ export default function AccountingIncomingDocumentsPanel({
           ) : supplierInvoiceCandidates.length ? (
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '8px' }}>
               {supplierInvoiceCandidates.map(candidate => (
-                <button key={candidate.id} disabled={busyId === inv.id} onClick={() => linkSupplierInvoice(row, candidate)} style={{ ...btnB, padding: '6px 10px', fontSize: '11px' }}>
+                <button key={candidate.id} disabled={busyId === inv.id} onClick={() => linkSupplierInvoice(row, candidate)} style={{ ...localBtnB, padding: '6px 10px', fontSize: '11px' }}>
                   <Link2 size={12} />Связать: {candidate.invoiceNumber || candidate.id}
                 </button>
               ))}
@@ -666,7 +675,7 @@ export default function AccountingIncomingDocumentsPanel({
         {inv.accountingComment && <p style={{ color: C.textSec, fontSize: '12px', margin: '0 0 12px' }}>Комментарий: {inv.accountingComment}</p>}
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
           {renderActions(row)}
-          {showPreview && buildInvoiceContent && <button onClick={() => showPreview(buildInvoiceContent(inv), 'Накладная № ' + (inv.number || inv.id))} style={{ ...btnB, padding: '6px 10px', fontSize: '11px' }}><FileText size={12} />Печать</button>}
+          {showPreview && buildInvoiceContent && <button onClick={() => showPreview(buildInvoiceContent(inv), 'Накладная № ' + (inv.number || inv.id))} style={{ ...localBtnB, padding: '6px 10px', fontSize: '11px' }}><FileText size={12} />Печать</button>}
         </div>
       </div>
     );
@@ -691,7 +700,7 @@ export default function AccountingIncomingDocumentsPanel({
         })}
       </div>
 
-      <div style={{ ...card, padding: '12px', marginBottom: '14px', backgroundColor: C.bg }}>
+      <div style={{ ...localCard, padding: '12px', marginBottom: '14px', backgroundColor: C.bg }}>
         <b style={{ color: C.text, fontSize: '14px' }}>Входящие документы · {activeStatus === 'Все' ? 'все' : accountingStatusGroupLabels[activeStatus]}</b>
       </div>
 
@@ -706,7 +715,7 @@ export default function AccountingIncomingDocumentsPanel({
             const tone = statusTone(row.status, C);
             const linkedSupplierInvoice = getLinkedSupplierInvoice(row);
             return (
-              <div key={inv.id} style={{ ...card, padding: '14px', border: '1.5px solid ' + tone.border, backgroundColor: C.bg }}>
+              <div key={inv.id} style={{ ...localCard, padding: '14px', border: '1.5px solid ' + tone.border, backgroundColor: C.bg }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))', gap: '12px', alignItems: 'start' }}>
                   <div>
                     <b style={{ color: C.text, fontSize: '13px' }}>№ {inv.number || inv.id} · {inv.date || 'без даты'}</b>
