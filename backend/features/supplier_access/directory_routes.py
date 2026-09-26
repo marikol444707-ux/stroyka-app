@@ -492,48 +492,78 @@ def register_supplier_directory_module(app, deps):
 
     @app.put("/suppliers/{id}/requisites")
     def update_supplier_requisites(id: int, data: dict, current_user: dict = Depends(get_current_user)):
+        """Partial, atomic and mapping-safe update of supplier requisites.
+
+        Behavior:
+        - Absent field -> no change.
+        - Present field with null/empty -> explicit clear (NULL or empty string as supplied).
+        - Row is locked FOR UPDATE to avoid lost-update races for requisites only.
+        - Proper 404 when supplier missing and 403 when tenant/supplier role lacks access.
+        """
+        data = data or {}
         conn = get_db()
-        cur = conn.cursor()
+        # use RealDictCursor for mapping-friendly reads
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         role = current_user.get("role")
-        if role == "поставщик":
-            supplier_ids = current_supplier_ids(cur, current_user)
-            if id not in supplier_ids:
-                cur.close(); conn.close()
-                raise HTTPException(status_code=403, detail="Нет доступа к этому поставщику")
-        elif role not in ("директор", "зам_директора", "снабженец", "кладовщик", "бухгалтер"):
+        try:
+            # role-based access: suppliers limited to their own supplier ids
+            if role == "поставщик":
+                supplier_ids = current_supplier_ids(cur, current_user)
+                if id not in supplier_ids:
+                    raise HTTPException(status_code=403, detail="Нет доступа к этому поставщику")
+            elif role not in ("директор", "зам_директора", "снабженец", "кладовщик", "бухгалтер"):
+                raise HTTPException(status_code=403, detail="Недостаточно прав")
+
+            # ensure supplier exists and lock the row to make update atomic
+            cur.execute("SELECT * FROM suppliers WHERE id=%s FOR UPDATE", (id,))
+            existing = cur.fetchone()
+            if not existing:
+                raise HTTPException(status_code=404, detail="Поставщик не найден")
+
+            # Allowed mapping from request keys (camel or snake) to DB columns
+            mapping = [
+                ("inn", "inn"), ("kpp", "kpp"), ("ogrn", "ogrn"),
+                ("legalAddress", "legal_address"), ("address", "legal_address"),
+                ("actualAddress", "actual_address"),
+                ("bank", "bank"), ("bik", "bik"), ("account", "account"), ("korAccount", "kor_account"),
+                ("directorName", "director_name"), ("directorPosition", "director_position"),
+                ("contractUrl", "contract_url"), ("contractNumber", "contract_number"), ("contractDate", "contract_date"),
+                ("licenseUrl", "license_url"), ("priceUrl", "price_url"), ("website", "website"), ("notes", "notes"),
+                ("phone", "phone"), ("email", "email"), ("category", "category"), ("specialization", "specialization"),
+            ]
+
+            # Build SET clause only for fields explicitly present in the incoming JSON
+            set_fragments = []
+            params = []
+            seen_columns = set()
+            for key, col in mapping:
+                if key in data:
+                    # avoid duplicate column from alias keys (e.g., address vs legalAddress)
+                    if col in seen_columns:
+                        continue
+                    seen_columns.add(col)
+                    # explicit set to provided value (including None) -> use %s
+                    set_fragments.append(f"{col}=%s")
+                    # special-case: accept alternate key 'address' as alias for legalAddress
+                    if key == "address":
+                        params.append(data.get("address"))
+                    else:
+                        params.append(data.get(key))
+
+            if not set_fragments:
+                # nothing to change
+                return {"ok": True}
+
+            sql = "UPDATE suppliers SET " + ", ".join(set_fragments) + " WHERE id=%s"
+            params.append(id)
+            cur.execute(sql, tuple(params))
+            conn.commit()
+            return {"ok": True}
+        except HTTPException:
+            conn.rollback()
+            raise
+        except Exception as exc:
+            conn.rollback()
+            raise HTTPException(status_code=400, detail=str(exc))
+        finally:
             cur.close(); conn.close()
-            raise HTTPException(status_code=403, detail="Недостаточно прав")
-        # Расширенный апдейт реквизитов: все поля опциональные
-        cur.execute("""UPDATE suppliers SET
-            inn=COALESCE(%s, inn), kpp=COALESCE(%s, kpp), ogrn=COALESCE(%s, ogrn),
-            legal_address=COALESCE(%s, legal_address),
-            actual_address=COALESCE(%s, actual_address),
-            bank=COALESCE(%s, bank), bik=COALESCE(%s, bik),
-            account=COALESCE(%s, account), kor_account=COALESCE(%s, kor_account),
-            director_name=COALESCE(%s, director_name),
-            director_position=COALESCE(%s, director_position),
-            contract_url=COALESCE(%s, contract_url),
-            contract_number=COALESCE(%s, contract_number),
-            contract_date=COALESCE(%s, contract_date),
-            license_url=COALESCE(%s, license_url),
-            price_url=COALESCE(%s, price_url),
-            website=COALESCE(%s, website),
-            notes=COALESCE(%s, notes),
-            phone=COALESCE(%s, phone), email=COALESCE(%s, email),
-            category=COALESCE(%s, category), specialization=COALESCE(%s, specialization)
-            WHERE id=%s""",
-            (data.get("inn"), data.get("kpp"), data.get("ogrn"),
-             data.get("legalAddress") or data.get("address"),
-             data.get("actualAddress"),
-             data.get("bank"), data.get("bik"),
-             data.get("account"), data.get("korAccount"),
-             data.get("directorName"), data.get("directorPosition"),
-             data.get("contractUrl"), data.get("contractNumber"), data.get("contractDate") or None,
-             data.get("licenseUrl"), data.get("priceUrl"),
-             data.get("website"), data.get("notes"),
-             data.get("phone"), data.get("email"),
-             data.get("category"), data.get("specialization"),
-             id))
-        conn.commit()
-        cur.close(); conn.close()
-        return {"ok": True}
