@@ -13,6 +13,7 @@ export const createUserAccessActions = ({
   supplierInviteForm,
   suppliers,
   user,
+  companyContext,
 }) => {
   const saveUser = async () => {
     const cleanUser = {
@@ -107,6 +108,7 @@ export const createUserAccessActions = ({
       presetName: supplierInviteForm.presetName || '',
       presetCategory: supplierInviteForm.presetCategory || '',
       supplierId: supplierInviteForm.supplierId,
+      companyId: companyContext?.selectedCompanyId || companyContext?.selectedCompany?.companyId || null,
       expiresInDays: supplierInviteForm.expiresInDays || 14,
       createdBy: user?.name || '',
     };
