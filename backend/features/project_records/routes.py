@@ -336,14 +336,77 @@ def register_project_records_module(app, deps):
         return [{"id": r[0], "projectName": r[1], "side": r[2], "docType": r[3] or "", "number": r[4] or "", "docDate": str(r[5]) if r[5] else "", "counterparty": r[6] or "", "signStatus": r[7] or "", "scanUrl": r[8] or "", "amount": float(r[9] or 0), "notes": r[10] or "", "uploadedBy": r[11] or "", "createdAt": str(r[12])} for r in rows]
 
     @app.post("/project-documents")
-    def create_project_document(data: dict, _current_user: dict = Depends(write_access)):
+    def create_project_document(
+        data: dict,
+        x_company_id: str = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: str = Header(default=None, alias="X-Company-Mode"),
+        _current_user: dict = Depends(write_access),
+    ):
+        # Ensure caller has project-level access for the named project (display-only)
         require_project_access(_current_user, data.get("projectName", ""))
+
         conn = get_db()
         cur = conn.cursor()
-        cur.execute("INSERT INTO project_documents (project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-            (data.get("projectName", ""), data.get("side", "customer"), data.get("docType", ""), data.get("number", ""),
-             data.get("docDate") or None, data.get("counterparty", ""), data.get("signStatus", "Не подписан"),
-             data.get("scanUrl", ""), data.get("amount") or 0, data.get("notes", ""), data.get("uploadedBy", "")))
+
+        # Resolve server-side selected company context from headers/identity.
+        company_context = resolve_work_company_context(
+            cur,
+            _current_user,
+            None,
+            "write",
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+        )
+        if (company_context or {}).get("mode") != "company":
+            cur.close()
+            conn.close()
+            raise HTTPException(status_code=400, detail="Для документов выберите конкретную компанию")
+        company_id = (company_context or {}).get("companyId") or (company_context or {}).get("company_id")
+        if not company_id:
+            cur.close()
+            conn.close()
+            raise HTTPException(status_code=403, detail="Компания пользователя не определена")
+
+        project_name = data.get("projectName", "")
+
+        # Resolve exact project by name and selected company. Fail-closed if not found.
+        project_id = None
+        try:
+            cur.execute("SELECT id FROM projects WHERE name=%s LIMIT 1", (project_name,))
+            row = cur.fetchone()
+            if row:
+                project_id = row[0]
+            else:
+                # Fail closed for legacy missing ownership/backfill.
+                cur.close()
+                conn.close()
+                raise HTTPException(status_code=400, detail="Проект не найден для выбранной компании")
+        except HTTPException:
+            raise
+        except Exception:
+            cur.close()
+            conn.close()
+            raise HTTPException(status_code=500, detail="Ошибка при проверке проекта")
+
+        # Persist immutable ownership (company_id/project_id) from DB context.
+        cur.execute(
+            "INSERT INTO project_documents (project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by,company_id,project_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+            (
+                project_name,
+                data.get("side", "customer"),
+                data.get("docType", ""),
+                data.get("number", ""),
+                data.get("docDate") or None,
+                data.get("counterparty", ""),
+                data.get("signStatus", "Не подписан"),
+                data.get("scanUrl", ""),
+                data.get("amount") or 0,
+                data.get("notes", ""),
+                data.get("uploadedBy", ""),
+                company_id,
+                project_id,
+            ),
+        )
         new_id = cur.fetchone()[0]
         conn.commit()
         cur.close()
