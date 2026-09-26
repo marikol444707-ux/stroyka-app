@@ -41,6 +41,21 @@ export default function AccountingIncomingDocumentsPanel({
   badge,
   toNum,
 }) {
+  // Unified local fallbacks for controls (ISSUE #128)
+  const localCard = {
+    backgroundColor: C?.bg || "#fff",
+    border: "1px solid " + (C?.border || "#e5e7eb"),
+    borderRadius: 8,
+    padding: 10,
+  };
+  const inpStyle = inp || { width: "100%", padding: "8px 10px", border: "1.5px solid " + (C?.border || "#e5e7eb"), borderRadius: 8, backgroundColor: C?.inputBg || C?.bg, color: C?.text };
+  const btnBase = { padding: "7px 12px", borderRadius: 8, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 8, fontSize: 13 };
+  const btnBStyle = btnB || { ...btnBase, backgroundColor: C?.infoLight || "#eef2ff", color: C?.info || "#0f172a", border: "1.5px solid " + (C?.infoBorder || "#c7d2fe") };
+  const btnGStyle = btnG || { ...btnBase, backgroundColor: C?.bgGray || "#f3f4f6", color: C?.textSec || "#6b7280", border: "1.5px solid " + (C?.border || "#e5e7eb") };
+  const btnGrStyle = btnGr || { ...btnBase, backgroundColor: C?.successLight || "#ecfdf5", color: C?.success || "#065f46", border: "1.5px solid " + (C?.successBorder || "#bbf7d0") };
+  const btnOStyle = btnO || { ...btnBase, background: "linear-gradient(135deg,#f97316,#ea580c)", color: "white", border: "none" };
+  const btnRStyle = btnR || { ...btnBase, backgroundColor: C?.dangerLight || "#fff1f2", color: C?.danger || "#9f1239", border: "1.5px solid " + (C?.dangerBorder || "#fecaca") };
+  const cardStyle = card || localCard;
   const [activeStatus, setActiveStatus] = React.useState('Нет фото');
   const [openedId, setOpenedId] = React.useState(null);
   const [busyId, setBusyId] = React.useState(null);
