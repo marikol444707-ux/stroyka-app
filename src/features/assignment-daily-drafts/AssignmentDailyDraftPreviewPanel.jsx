@@ -1,4 +1,5 @@
 import React from 'react';
+import { effectiveStyle, btnG as btnGDefault, btnO as btnODefault, card as cardDefault, inp as inpDefault } from '../../constants/uiTheme';
 import { Eye, FileText, Printer } from 'lucide-react';
 
 import {
@@ -181,6 +182,12 @@ export default function AssignmentDailyDraftPreviewPanel({
 
   const selectedVersion = versions.find(item => String(item.id) === String(versionId)) || null;
 
+  // resolve style fallbacks: accept undefined or EMPTY OBJECT as legacy contract
+  const btnGE = effectiveStyle(btnG, btnGDefault);
+  const btnOE = effectiveStyle(btnO, btnODefault);
+  const cardE = effectiveStyle(card, cardDefault);
+  const inpE = effectiveStyle(inp, inpDefault);
+
   const requestPreview = async () => {
     if (loadingPreview || loadingVersions) return;
     if (!project) {
@@ -256,7 +263,7 @@ export default function AssignmentDailyDraftPreviewPanel({
   const grid = { display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(4, minmax(0, 1fr))', gap: '10px' };
 
   return (
-    <section style={{ ...card, padding: isMobile ? '14px' : '16px', marginBottom: '14px' }}>
+    <section style={{ ...cardE, padding: isMobile ? '14px' : '16px', marginBottom: '14px' }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
         <div>
           <h3 style={{ margin: 0, color: C.text, fontSize: '17px', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -267,7 +274,7 @@ export default function AssignmentDailyDraftPreviewPanel({
           </p>
         </div>
         {result && (
-          <button type="button" onClick={openPrintable} style={btnG}>
+          <button type="button" onClick={openPrintable} style={btnGE}>
             <Printer size={14} />Печатная версия
           </button>
         )}
@@ -276,14 +283,14 @@ export default function AssignmentDailyDraftPreviewPanel({
       <div style={grid}>
         <label style={labelStyle}>
           Объект
-          <select value={projectId} onChange={event => { setProjectId(event.target.value); resetPreview(); }} style={inp}>
+          <select value={projectId} onChange={event => { setProjectId(event.target.value); resetPreview(); }} style={inpE}>
             {projectOptions.length === 0 && <option value="">Нет доступных объектов</option>}
             {projectOptions.map(item => <option key={item.id} value={item.id}>{item.name || `Объект ${item.id}`}</option>)}
           </select>
         </label>
         <label style={labelStyle}>
           Активная смета заказчика
-          <select value={estimateId} onChange={event => { setEstimateId(event.target.value); resetPreview(); }} style={inp}>
+          <select value={estimateId} onChange={event => { setEstimateId(event.target.value); resetPreview(); }} style={inpE}>
             {estimateOptions.length === 0 && <option value="">Нет подходящей сметы</option>}
             {estimateOptions.map(item => (
               <option key={item.id} value={item.id}>{item.name} · {item.workPackage}</option>
@@ -292,19 +299,19 @@ export default function AssignmentDailyDraftPreviewPanel({
         </label>
         <label style={labelStyle}>
           Сохранённая версия
-          <select value={versionId} onChange={event => { setVersionId(event.target.value); resetPreview(); }} style={inp} disabled={loadingVersions}>
+          <select value={versionId} onChange={event => { setVersionId(event.target.value); resetPreview(); }} style={inpE} disabled={loadingVersions}>
             {versions.length === 0 && <option value="">{loadingVersions ? 'Загрузка…' : 'Нет версий'}</option>}
             {versions.map(item => <option key={item.id} value={item.id}>{item.versionLabel}</option>)}
           </select>
         </label>
         <label style={labelStyle}>
           Дата подтверждённых работ
-          <input type="date" value={date} onChange={event => { setDate(event.target.value); resetPreview(); }} style={inp} />
+          <input type="date" value={date} onChange={event => { setDate(event.target.value); resetPreview(); }} style={inpE} />
         </label>
       </div>
 
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '12px' }}>
-        <button type="button" onClick={requestPreview} disabled={loadingPreview || loadingVersions} style={{ ...btnO, opacity: loadingPreview || loadingVersions ? 0.6 : 1 }}>
+        <button type="button" onClick={requestPreview} disabled={loadingPreview || loadingVersions} style={{ ...btnOE, opacity: loadingPreview || loadingVersions ? 0.6 : 1 }}>
           <Eye size={14} />{loadingPreview ? 'Формирование…' : 'Сформировать предпросмотр'}
         </button>
       </div>
