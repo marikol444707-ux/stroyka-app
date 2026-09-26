@@ -18,6 +18,7 @@ def register_invite_codes_module(app, deps):
     require_roles = deps["require_roles"]
     admin_roles = tuple(deps.get("admin_roles") or ())
     prepare_user_access_scope = deps["prepare_user_access_scope"]
+    resolve_work_company_context = deps.get("resolve_work_company_context")
 
     @app.get("/invite-codes")
     def get_invite_codes(_current_user: dict = Depends(require_roles(*admin_roles, "system_owner"))):
@@ -29,7 +30,12 @@ def register_invite_codes_module(app, deps):
         return [dict(r) for r in rows]
 
     @app.post("/invite-codes")
-    def create_invite_code(data: dict, _current_user: dict = Depends(require_roles(*admin_roles, "system_owner"))):
+    def create_invite_code(
+        data: dict,
+        x_company_id: str | None = Header(None),
+        x_company_mode: str | None = Header(None),
+        _current_user: dict = Depends(require_roles(*admin_roles, "system_owner")),
+    ):
         from datetime import datetime, timedelta
         role = data.get('role') or ''
         if not role:
@@ -47,21 +53,32 @@ def register_invite_codes_module(app, deps):
             data.get("assignedProjects") or [],
             data.get("assignedPackages") or [],
         )
-        company_id = data.get("companyId") or data.get("company_id")
-        platform_account_id = data.get("platformAccountId") or data.get("platform_account_id")
-        try:
-            company_id = int(company_id) if company_id not in (None, "") else None
-        except Exception:
-            company_id = None
-        try:
-            platform_account_id = int(platform_account_id) if platform_account_id not in (None, "") else None
-        except Exception:
-            platform_account_id = None
-        if company_id and not platform_account_id:
+        # Resolve authoritative company context from authenticated selected-company resolver.
+        # The request body `companyId` is only a claim and must not be relied upon.
+        company_id = None
+        platform_account_id = None
+        if resolve_work_company_context:
+            context = resolve_work_company_context(cur, _current_user, None, "company", x_company_id=x_company_id, x_company_mode=x_company_mode)
+            # Fail closed when no concrete selected company
+            if not context or context.get("mode") != "company" or not context.get("companyId"):
+                cur.close(); conn.close()
+                raise HTTPException(status_code=403, detail="Выберите конкретную компанию (selected company) перед созданием приглашения")
+            company_id = int(context.get("companyId"))
+            # derive platform_account_id server-side
             cur.execute("SELECT platform_account_id FROM companies WHERE id=%s", (company_id,))
             company_row = cur.fetchone()
             if company_row:
                 platform_account_id = company_row.get("platform_account_id")
+        else:
+            # fallback: try body, but this should not be relied upon
+            try:
+                company_id = int(data.get("companyId") or data.get("company_id"))
+            except Exception:
+                company_id = None
+            try:
+                platform_account_id = int(data.get("platformAccountId") or data.get("platform_account_id"))
+            except Exception:
+                platform_account_id = None
         cur.execute(
             "INSERT INTO invite_codes (code, role, supplier_id, preset_name, preset_category, created_by, expires_at, project_name, assigned_projects, assigned_packages, company_id, platform_account_id) "
             "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s,%s) RETURNING *",
