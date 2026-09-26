@@ -9419,7 +9419,16 @@ def create_supply_request(
             x_company_id=x_company_id,
             x_company_mode=x_company_mode,
         )
-        company_id = int(company_context.get("companyId") or requested_company_id or 1)
+        _ctx_company = _positive_int_or_none(
+            (company_context or {}).get("companyId")
+            or (company_context or {}).get("company_id")
+        )
+        if (company_context or {}).get("mode") == "all_companies" or not _ctx_company:
+            raise HTTPException(
+                status_code=403,
+                detail="Для создания заявки требуется проверенная конкретная компания",
+            )
+        company_id = int(_ctx_company)
         project_id = _positive_int_or_none(r.projectId)
         if is_material_control_request:
             try:
