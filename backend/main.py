@@ -6600,8 +6600,24 @@ def register(data: dict, response: Response, request: Request):
                 cur.execute("SELECT id FROM suppliers WHERE id=%s LIMIT 1", (supplier_id,))
                 supplier_row = cur.fetchone()
                 if supplier_row:
+                    # Обновляем данные поставщика и привязываем аккаунт
                     _update_supplier_missing_fields(cur, supplier_id, supplier_payload, user_id=user['id'])
                     _remember_supplier_alias(cur, supplier_id, supplier_payload, source="supplier_invite")
+                    # Убедимся, что связь company <-> supplier существует и принадлежит той же компании,
+                    # которая задана в приглашении (tenant isolation). Если invite содержит company_id,
+                    # используем его как компанию владельца; иначе используем company из созданного user.
+                    invite_company_id = invite.get('company_id')
+                    link_company_id = invite_company_id if invite_company_id else user.get('company_id')
+                    try:
+                        if link_company_id:
+                            cur.execute(
+                                "INSERT INTO company_supplier_links (company_id, supplier_id, platform_account_id, source_type, source_detail) "
+                                "VALUES (%s,%s,%s,%s,%s) ON CONFLICT (company_id,supplier_id) DO NOTHING",
+                                (link_company_id, supplier_id, invite.get('platform_account_id'), 'invite_link', 'Привязка поставщика при регистрации по приглашению')
+                            )
+                    except Exception:
+                        # Не ломаем регистрацию из-за несущественной ошибки линка; запись аудита будет в любом случае.
+                        pass
             else:
                 existing_supplier = _supplier_find_match(cur, supplier_payload)
                 if existing_supplier:
