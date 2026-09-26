@@ -6596,12 +6596,34 @@ def register(data: dict, response: Response, request: Request):
                 "sourceDetail": "Регистрация поставщика по ссылке приглашения",
             }
             if supplier_id:
-                # Привязываем к существующей компании
+                # Привязываем к существующему поставщику, but verify company ownership server-side.
                 cur.execute("SELECT id FROM suppliers WHERE id=%s LIMIT 1", (supplier_id,))
                 supplier_row = cur.fetchone()
                 if supplier_row:
+                    # Do not trust invite.company_id alone. Verify existing company<->supplier links.
+                    invite_company_id = invite.get('company_id')
+                    # Check if supplier is already linked to some company other than the invite company.
+                    cur.execute("SELECT company_id FROM company_supplier_links WHERE supplier_id=%s LIMIT 2", (supplier_id,))
+                    links = cur.fetchall() or []
+                    linked_company_ids = { (l.get('company_id') if isinstance(l, dict) else l[0]) for l in links }
+                    # If linked to a different company, block the operation.
+                    if linked_company_ids and invite_company_id and any((cid is not None and cid != invite_company_id) for cid in linked_company_ids):
+                        raise HTTPException(status_code=403, detail="Нельзя привязать поставщика: уже связан с другой компанией")
+
+                    # Safe to update supplier record and create link if needed.
                     _update_supplier_missing_fields(cur, supplier_id, supplier_payload, user_id=user['id'])
                     _remember_supplier_alias(cur, supplier_id, supplier_payload, source="supplier_invite")
+
+                    # Ensure a company_supplier_links row exists for this company<->supplier pair when company context is known.
+                    if invite.get('company_id'):
+                        cur.execute("SELECT id FROM company_supplier_links WHERE company_id=%s AND supplier_id=%s LIMIT 1",
+                                    (invite.get('company_id'), supplier_id))
+                        link_row = cur.fetchone()
+                        if not link_row:
+                            cur.execute(
+                                "INSERT INTO company_supplier_links (company_id, supplier_id, platform_account_id, source_type, source_detail, created_at) VALUES (%s,%s,%s,%s,%s,NOW()) RETURNING id",
+                                (invite.get('company_id'), supplier_id, invite.get('platform_account_id'), 'invite_link', 'Привязка поставщика через ссылку приглашения')
+                            )
             else:
                 existing_supplier = _supplier_find_match(cur, supplier_payload)
                 if existing_supplier:
