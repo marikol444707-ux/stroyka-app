@@ -136,7 +136,7 @@ def effective_company_user(user: dict, context: dict) -> dict:
         else ""
     )
     actor.update({
-        "role": (context or {}).get("effectiveRole") or (context or {}).get("role") or actor.get("role") or "",
+        "role": (context or {}).get("effectiveRole") or (context or {}).get("role") or "",
         "membershipId": _as_int(
             (context or {}).get("membershipId")
             or (context or {}).get("membership_id")
@@ -425,7 +425,7 @@ def resolve_request_company_context(
     return {
         **context,
         "companyIds": company_ids_for_context(context),
-        "effectiveRole": context.get("role") or user.get("role") or "",
+        "effectiveRole": context.get("role") or "",
         "requestedMode": requested_mode,
     }
 
