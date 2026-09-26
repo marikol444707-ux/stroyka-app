@@ -19,6 +19,8 @@ export default function RequestKpModal({
   setSelectedSupplierIds,
   sendKpRequest,
 }) {
+  const [stage, setStage] = React.useState('select'); // select -> confirm -> result
+  const [kpResult, setKpResult] = React.useState(null);
   const suggestedSupplierGroups = React.useMemo(
     () => groupSuppliers(suggestedSuppliers?.suppliers || []),
     [suggestedSuppliers]

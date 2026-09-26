@@ -485,9 +485,9 @@ export const createSupplyActions = ({
   };
 
   const sendKpRequest = async () => {
-    if (!showRequestKpModal || selectedSupplierIds.length === 0) { alert('Выберите хотя бы одного поставщика'); return; }
+    if (!showRequestKpModal || selectedSupplierIds.length === 0) { alert('Выберите хотя бы одного поставщика'); return null; }
     const companyId = requireSelectedCompanyForWrite();
-    if (!companyId) return;
+    if (!companyId) return null;
     const aiIds = (suggestedSuppliers?.suppliers || []).filter(s => s.aiRecommend).map(s => s.id);
     const r = await fetch(API + '/supply-requests/' + showRequestKpModal + '/request-kp', {
       method: 'POST',
@@ -495,12 +495,9 @@ export const createSupplyActions = ({
       body: JSON.stringify({ supplierIds: selectedSupplierIds, aiRecommendedIds: aiIds, companyId }),
     });
     const data = await r.json().catch(() => ({}));
-    if (!r.ok || data.detail || data.error) { alert('Ошибка: ' + (data.detail || data.error || r.status)); return; }
-    notify(supplyNotificationSummary(data), 'supply');
-    setShowRequestKpModal(null);
-    setSelectedSupplierIds([]);
-    setSuggestedSuppliers(null);
-    await refreshData();
+    if (!r.ok || data.detail || data.error) { alert('Ошибка: ' + (data.detail || data.error || r.status)); return null; }
+    // Return server response to caller (UI will decide whether to close modal / show per-supplier statuses)
+    return data;
   };
 
   const selectSupplierOffer = async (offerId) => {
