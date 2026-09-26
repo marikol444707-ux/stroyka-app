@@ -1,4 +1,6 @@
+import ast
 import unittest
+from pathlib import Path
 
 from typing import Optional
 
@@ -98,6 +100,23 @@ class ProjectChatRoutesTest(unittest.TestCase):
             app.routes[("POST", "/project-chat")]({"projectName": "чужой", "text": "привет"}, current_user={"id": 42})
         self.assertEqual(ctx.exception.status_code, 403)
         self.assertEqual(cursor.calls, [])
+
+    def test_main_wires_project_chat_to_strict_csrf_guard(self):
+        main_path = Path(__file__).resolve().parents[2] / "main.py"
+        source = main_path.read_text(encoding="utf-8")
+        self.assertIn(
+            '"require_csrf_for_cookie_mutation": require_csrf_for_cookie_mutation_strict',
+            source,
+        )
+        tree = ast.parse(source, filename=str(main_path))
+        strict = next(
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "require_csrf_for_cookie_mutation_strict"
+        )
+        strict_source = ast.get_source_segment(source, strict) or ""
+        self.assertIn("enabled=True", strict_source)
+        self.assertNotIn("CSRF_LOGOUT_ENFORCED", strict_source)
 
     def test_post_csrf_dependency_is_enforced_but_get_remains_readable(self):
         cursor = FakeCursor(row=(15,))
