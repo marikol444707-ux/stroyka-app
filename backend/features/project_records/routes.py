@@ -294,11 +294,16 @@ def register_project_records_module(app, deps):
             params.extend(worker_doc_params)
             cur.execute("SELECT id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by,created_at FROM project_documents WHERE project_name = ANY(%s)" + side_sql + worker_doc_sql + " ORDER BY id DESC", tuple(params))
         else:
+            # visible_project_names returned None => user has broad visibility roles
+            # Still scope queries to the current user's company to preserve tenant isolation.
             params = []
             if side_filter:
                 params.append(side_filter)
             params.extend(worker_doc_params)
             where_parts = []
+            # restrict to current company
+            where_parts.append("company_id=%s")
+            params.insert(0, _current_user.get("company_id"))
             if side_filter:
                 where_parts.append("side=%s")
             if worker_doc_sql:
