@@ -689,6 +689,16 @@ def create_supplier_card(
     supplier_id = int(body.get("id") or 0)
     if supplier_id <= 0:
         raise RuntimeError("Supplier creation did not return id")
+    # Creating a catalogue card does not infer the supplier cabinet identity.
+    # Link the isolated smoke user explicitly before dispatching a request.
+    api_json(
+        "POST",
+        f"/suppliers/{supplier_id}/link-user",
+        base_url=base_url,
+        token=director_token,
+        data={"userId": int(supplier_user["id"])},
+        expected=200,
+    )
     return supplier_id
 
 
