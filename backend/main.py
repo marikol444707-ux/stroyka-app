@@ -24293,14 +24293,19 @@ def create_supplier_invoice(data: dict, _current_user: dict = Depends(require_ro
     if warehouse_invoice_id:
         cur.execute("""SELECT project, location, supplier_invoice_id, company_id
                        FROM warehouse_invoices
-                       WHERE id=%s AND COALESCE(status,'') <> 'Аннулирована'""", (warehouse_invoice_id,))
+                       WHERE id=%s AND COALESCE(status,'') <> 'Аннулирована' FOR UPDATE""", (warehouse_invoice_id,))
         warehouse_invoice_row = cur.fetchone()
         if not warehouse_invoice_row:
             cur.close(); conn.close()
             raise HTTPException(status_code=404, detail="Складская накладная для связи не найдена")
         warehouse_project = (_row_get(warehouse_invoice_row, "project", 0, "") or _row_get(warehouse_invoice_row, "location", 1, "") or "").strip()
         existing_supplier_invoice_id = _row_get(warehouse_invoice_row, "supplier_invoice_id", 2)
-        company_id = company_id or _positive_int_or_none(_row_get(warehouse_invoice_row, "company_id", 3))
+        # ensure warehouse invoice ownership is compatible with the supplier invoice company context
+        warehouse_company = _positive_int_or_none(_row_get(warehouse_invoice_row, "company_id", 3))
+        if company_id and warehouse_company and warehouse_company != company_id:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=409, detail="Складская накладная относится к другой компании")
+        company_id = company_id or warehouse_company
         if project_name and warehouse_project and warehouse_project != project_name:
             cur.close(); conn.close()
             raise HTTPException(status_code=400, detail="Складская накладная относится к другому объекту")
