@@ -239,6 +239,15 @@ def register_brigade_payments_module(app, deps):
                     status_code=409,
                     detail="Связанная денежная проводка не найдена в компании. Нужна ручная сверка.",
                 )
+            # The locked payment serializes this check with ledger registration.
+            # Pre-0017 databases keep legacy behavior; notes are not ownership.
+            cur.execute("SELECT to_regclass('public.supplier_payment_operations') IS NOT NULL")
+            if cur.fetchone()[0]:
+                cur.execute('''SELECT id FROM supplier_payment_operations
+                               WHERE project_payment_id=%s AND company_id=%s''',
+                            (linked_project_payment_id, company_id))
+                if cur.fetchone():
+                    raise HTTPException(409, 'Платёж связан с журналом оплат поставщика. Используйте сторно исходной операции.')
             if project_payment[3] is None:
                 raise HTTPException(
                     status_code=409,

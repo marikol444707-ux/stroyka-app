@@ -9,9 +9,11 @@ from psycopg2.extras import RealDictCursor
 try:
     from backend.db import get_db
     from backend.features.director_agent.policy import DIRECTOR_AGENT_READ_TOOLS
+    from backend.features.director_agent.result_policy import PAYMENTS_SCOPE_NOTE
 except ModuleNotFoundError:
     from db import get_db
     from features.director_agent.policy import DIRECTOR_AGENT_READ_TOOLS
+    from features.director_agent.result_policy import PAYMENTS_SCOPE_NOTE
 
 
 def _number(value):
@@ -324,10 +326,14 @@ class _DirectorAgentReadToolset:
         names = [row.get("name") for row in projects if row.get("name")]
         if not names:
             return []
+        schema = self.query("SELECT to_regclass('public.supplier_payment_operations') IS NOT NULL AS ledger_exists")
+        ledger_exclusion = ("AND NOT EXISTS (SELECT 1 FROM public.supplier_payment_operations ledger "
+                            "WHERE ledger.project_payment_id=pp.id)") if schema[0]['ledger_exists'] else ""
         payments = self.query(
-            """SELECT company_id, project_name, COALESCE(SUM(amount),0) AS total
-               FROM project_payments
+            f"""SELECT company_id, project_name, COALESCE(SUM(amount),0) AS total
+               FROM project_payments pp
                WHERE company_id = ANY(%s) AND project_name = ANY(%s)
+               {ledger_exclusion}
                GROUP BY company_id, project_name""",
             (company_ids, names),
         )
@@ -347,6 +353,7 @@ class _DirectorAgentReadToolset:
                 ), 2),
                 "manualExpenses": None,
                 "manualExpensesScoped": False,
+                "paymentsScopeNote": PAYMENTS_SCOPE_NOTE,
             }
             for row in projects
         ]

@@ -5,6 +5,7 @@ import unittest
 from uuid import uuid4
 from concurrent.futures import ThreadPoolExecutor
 from backend.features.supplier_offers import test_response_postgres as support
+from .test_retry_support import api_after_busy
 
 
 @unittest.skipUnless(os.environ.get('SUPPLY_CHAIN_RUN_POSTGRES') == '1', 'Requires isolated PostgreSQL')
@@ -61,7 +62,7 @@ class ShipmentPostgresTests(unittest.TestCase):
         offer, path, items = self.approved(multi=True)
         body = dict(requestId=str(uuid4()), shippedItems=[dict(items[0], shippedQuantity=1), dict(items[1], shippedQuantity=0)])
         with ThreadPoolExecutor(max_workers=2) as pool:
-            first, replay = list(pool.map(lambda _: self.api('supplier', 'POST', path, body), range(2)))
+            first, replay = list(pool.map(lambda _: api_after_busy(self, 'supplier', 'POST', path, body), range(2)))
         self.assertEqual(first['id'], replay['id'])
         with ThreadPoolExecutor(max_workers=2) as pool:
             receiving = pool.submit(self.receipt, first, 1)

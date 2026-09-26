@@ -54,6 +54,7 @@ def _file_record(row):
         "deletion_status",
         "deletion_error",
         "deletion_requested_at",
+        "retained_at",
     )
     return {field: row[index] if len(row) > index else None for index, field in enumerate(fields)}
 
@@ -132,7 +133,11 @@ def register_document_access_module(app, deps):
         if current_user.get("role") == "поставщик":
             if action_mode != "read":
                 raise HTTPException(403, "Поставщик не может удалять документы заказчика")
-            from .supplier_files import authorize_read
+            from .supplier_files import authorize_read, supplier_ids
+            if deps.get('supplier_contract_files_enabled'):
+                from ..supplier_access.contract_files import supplier_contract_file_visible
+                if supplier_contract_file_visible(cur, current_user, row, supplier_ids(cur, current_user)):
+                    return current_user
             return authorize_read(cur, current_user, row)
         _context, actor = resolve_resource_company_actor(
             cur,
@@ -160,7 +165,8 @@ def register_document_access_module(app, deps):
             """SELECT id,company_id,project_id,file_url,storage_key,context,original_name,content_type,
                       uploaded_by_id,uploaded_by,created_at,
                       COALESCE(deletion_status,'active') AS deletion_status,
-                      deletion_error,deletion_requested_at
+                      deletion_error,deletion_requested_at,
+                      to_jsonb(file_ownership)->>'retained_at' AS retained_at
                  FROM file_ownership WHERE id=%s""" + lock_sql,
             (file_id,),
         )
@@ -174,7 +180,8 @@ def register_document_access_module(app, deps):
             """SELECT id,company_id,project_id,file_url,storage_key,context,original_name,content_type,
                       uploaded_by_id,uploaded_by,created_at,
                       COALESCE(deletion_status,'active') AS deletion_status,
-                      deletion_error,deletion_requested_at
+                      deletion_error,deletion_requested_at,
+                      to_jsonb(file_ownership)->>'retained_at' AS retained_at
                  FROM file_ownership WHERE file_url=%s""",
             (file_url,),
         )
@@ -257,6 +264,8 @@ def register_document_access_module(app, deps):
         try:
             row = load_file(cur, file_id, for_update=True)
             actor = authorize_file(cur, current_user, row, "delete", x_company_id, x_company_mode)
+            if row.get('retained_at'):
+                raise HTTPException(409, 'Файл сохранён в истории договора и не может быть удалён')
             is_owner = _positive_int(row.get("uploaded_by_id")) == _positive_int(current_user.get("id"))
             if actor.get("role") not in leadership_roles and not is_owner:
                 raise HTTPException(

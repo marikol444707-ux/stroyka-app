@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { CheckCircle2, CreditCard, FileText, Printer, Save, Search } from 'lucide-react';
 import { API } from '../api';
+import { isSupplierLedgerPayment } from '../utils/projectPaymentUtils';
 
 const toNumber = value => Number(String(value ?? 0).replace(',', '.')) || 0;
 const money = value => Math.round(toNumber(value)).toLocaleString('ru-RU') + ' ₽';
@@ -61,6 +62,7 @@ const missingActWorkIds = (act, actGroup) => {
 const canAmendAct = act => act && !lockedActStatuses.has(safeText(act.status));
 
 const performerPaymentAmount = (payment, group, month) => {
+  if (isSupplierLedgerPayment(payment)) return 0;
   const amount = paymentSignedAmount(payment);
   if (amount >= 0) return 0;
   if (safeText(payment.projectName || payment.project) !== group.project) return 0;

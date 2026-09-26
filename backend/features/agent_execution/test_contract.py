@@ -189,6 +189,7 @@ class AgentExecutionContractTests(unittest.TestCase):
             "status": "В работе",
             "budget": 1000.0,
             "paymentsNet": 250.0,
+            "paymentsScopeNote": "Платежи поставщикам и их сторно не включены; это не полная финансовая сводка.",
             "manualExpenses": None,
             "manualExpensesScoped": False,
         }])

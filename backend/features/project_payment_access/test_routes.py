@@ -27,10 +27,12 @@ class FakeApp:
 
 
 class FakeCursor:
-    def __init__(self, rows=(), fetchone_results=()):
+    def __init__(self, rows=(), fetchone_results=(), ledger_operation=None, ledger_exists=False):
         self.rows = list(rows)
         self.fetchone_results = list(fetchone_results)
         self.calls = []
+        self.ledger_operation = ledger_operation
+        self.ledger_exists = ledger_exists or ledger_operation is not None
 
     def execute(self, sql, params=()):
         self.calls.append((" ".join(sql.split()), tuple(params)))
@@ -39,6 +41,10 @@ class FakeCursor:
         return list(self.rows)
 
     def fetchone(self):
+        if 'to_regclass' in self.calls[-1][0]:
+            return {'ledger_exists': self.ledger_exists}
+        if 'FROM supplier_payment_operations' in self.calls[-1][0]:
+            return self.ledger_operation
         return self.fetchone_results.pop(0) if self.fetchone_results else None
 
     def close(self):
@@ -68,7 +74,7 @@ def build(cursor, visibility=("pp.company_id=%s", [3])):
     app = FakeApp()
     connection = FakeConnection(cursor)
 
-    def fake_visibility(actors, roles):
+    def fake_visibility(actors, roles, **kwargs):
         sql, params = visibility
         return sql, list(params)
 
@@ -92,6 +98,20 @@ def build(cursor, visibility=("pp.company_id=%s", [3])):
 
 
 class ProjectPaymentRoutesTest(unittest.TestCase):
+    def test_ledger_payment_cannot_be_reversed_through_legacy_endpoint(self):
+        row = {'company_id': 3, 'project_name': 'Объект', 'work_package': '', 'amount': 500}
+        cursor = FakeCursor(fetchone_results=[row, None, {'id': 88}], ledger_operation={'id': 12})
+        app, connection, _ = build(cursor)
+        with patch('backend.features.project_payment_access.routes.resolve_resource_company_actor',
+                   lambda *a, **kw: ({}, {'name': 'Тест', 'role': 'директор'})):
+            with self.assertRaises(HTTPException) as error:
+                app.routes[('DELETE', '/project-payments/{id}')](
+                    id=5, x_company_id='3', x_company_mode='company', _current_user={})
+        self.assertEqual(error.exception.status_code, 409)
+        self.assertTrue(connection.rolled_back)
+        self.assertFalse(connection.committed)
+        self.assertFalse(any(sql.startswith('INSERT') for sql, _ in cursor.calls))
+
     def test_registers_same_urls(self):
         app, _conn, _v = build(FakeCursor())
         for key in [("GET", "/project-payments"), ("POST", "/project-payments"), ("DELETE", "/project-payments/{id}")]:
@@ -130,7 +150,7 @@ class ProjectPaymentRoutesTest(unittest.TestCase):
     def test_delete_creates_negative_reversal(self):
         row = {"company_id": 3, "project_name": "Объект", "work_package": "",
                "amount": 500, "note": "оплата", "date": "2026-07-28", "added_by": "Тест"}
-        cursor = FakeCursor(fetchone_results=[row, None, {"id": 88}])
+        cursor = FakeCursor(fetchone_results=[row, None, {"id": 88}], ledger_exists=True)
         app, connection, _v = build(cursor)
         with patch("backend.features.project_payment_access.routes.resolve_resource_company_actor",
                    lambda *a, **kw: ({"mode": "company", "companyId": 3}, {"name": "Тест", "role": "директор"})):
@@ -143,6 +163,19 @@ class ProjectPaymentRoutesTest(unittest.TestCase):
         insert = [c for c in cursor.calls if c[0].startswith("INSERT INTO project_payments")][0]
         self.assertEqual(insert[1][3], -500)
         self.assertIn("Сторно платежа #5", insert[1][4])
+
+    def test_denied_actor_is_not_told_whether_payment_is_managed(self):
+        row = {'company_id': 3, 'project_name': 'Объект', 'work_package': '', 'amount': 500}
+        cursor = FakeCursor(fetchone_results=[row], ledger_operation={'id': 12})
+        app, connection, _ = build(cursor)
+        with patch('backend.features.project_payment_access.routes.resolve_resource_company_actor',
+                   side_effect=HTTPException(403, 'Denied')):
+            with self.assertRaises(HTTPException) as error:
+                app.routes[('DELETE', '/project-payments/{id}')](
+                    id=5, x_company_id='3', x_company_mode='company', _current_user={})
+        self.assertEqual(error.exception.status_code, 403)
+        self.assertTrue(connection.rolled_back)
+        self.assertFalse(any('supplier_payment_operations' in sql for sql, _ in cursor.calls))
 
     def test_delete_already_reversed_is_idempotent(self):
         row = {"company_id": 3, "project_name": "Объект", "work_package": "",

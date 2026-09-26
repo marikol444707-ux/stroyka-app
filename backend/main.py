@@ -1928,11 +1928,12 @@ def _supply_request_notification_text(request_context: dict, supplier_name: str 
     lines.extend(["", "Открыть запрос: " + _supply_kp_public_url(request_id)])
     return title, "\n".join(lines)
 
-def _queue_supply_request_max_notification(cur, recipient: dict, request_context: dict, offer_id=None) -> tuple:
+def _queue_supply_request_max_notification(cur, recipient: dict, request_context: dict, offer_id=None, *, ensure_schema=True) -> tuple:
     supplier_user_id = recipient.get("supplier_user_id") or recipient.get("supplierUserId")
     if not supplier_user_id:
         return None, "MAX не привязан"
-    _ensure_supply_notification_messenger_tables(cur)
+    if ensure_schema:
+        _ensure_supply_notification_messenger_tables(cur)
     cur.execute("""
         SELECT id, external_user_id, chat_id
           FROM messenger_accounts
@@ -2003,8 +2004,9 @@ def _queue_supply_request_max_notification(cur, recipient: dict, request_context
     row = cur.fetchone()
     return int(_row_get(row, "id", 0, 0) or 0), "В очереди MAX"
 
-def _notify_supply_request_recipients(cur, request_id: int, company_id: int = None) -> list:
-    _ensure_supply_request_recipients_table(cur)
+def _notify_supply_request_recipients(cur, request_id: int, company_id: int = None, *, ensure_schema=True) -> list:
+    if ensure_schema:
+        _ensure_supply_request_recipients_table(cur)
     request_context = _supply_request_notification_context(cur, request_id)
     if not request_context:
         return []
@@ -2069,7 +2071,8 @@ def _notify_supply_request_recipients(cur, request_id: int, company_id: int = No
             max_status = current_max_status
             max_queued = False
         else:
-            max_outbox_id, max_status = _queue_supply_request_max_notification(cur, recipient, request_context, offer_id)
+            max_outbox_id, max_status = _queue_supply_request_max_notification(
+                cur, recipient, request_context, offer_id, ensure_schema=ensure_schema)
             max_queued = bool(max_outbox_id and max_status == "В очереди MAX")
         cur.execute("""
             UPDATE supply_request_recipients
@@ -7923,6 +7926,7 @@ def _normalize_supplier_ids(value) -> list:
 
 def _create_supplier_offer_requests(cur, request_id: int, supplier_ids, ai_ids=None, company_id=None, *, targets=None) -> list:
     created = []
+    ledger_present = _payment_ledger_available(cur)
     if company_id is None:
         cur.execute("SELECT company_id FROM supply_requests WHERE id=%s LIMIT 1", (request_id,))
         company_id = _row_get(cur.fetchone(), "company_id", 0, None)
@@ -7931,11 +7935,27 @@ def _create_supplier_offer_requests(cur, request_id: int, supplier_ids, ai_ids=N
         scope_ids = target["scope_ids"] or [supplier_id]
         ai_recommended = bool(target.get("ai_recommended"))
         cur.execute(
-            "SELECT id, status FROM supplier_offers WHERE request_id=%s AND supplier_id = ANY(%s) ORDER BY id DESC LIMIT 1",
+            "SELECT id, status, company_id FROM supplier_offers WHERE request_id=%s AND supplier_id = ANY(%s) ORDER BY id DESC LIMIT 1"
+            + (" FOR UPDATE" if ledger_present else ""),
             (request_id, scope_ids))
         existing = cur.fetchone()
         if existing:
+            if ledger_present and existing['company_id'] != company_id:
+                raise HTTPException(409, 'Компания КП не совпадает с компанией заявки')
             if (existing.get("status") or "") in ("Отозвано", "Отклонено"):
+                if ledger_present:
+                    # The caller holds the company lock before request/offer
+                    # locks. Check ALL bound invoices, including cancelled and
+                    # zero-paid rows, and their forward/reverse warehouse links.
+                    # A request-only invoice has no unambiguous offer attribution:
+                    # its registered evidence must also prevent financial reset.
+                    cur.execute('''SELECT id,company_id FROM supplier_invoices
+                        WHERE offer_id=%s OR (request_id=%s AND offer_id IS NULL)
+                        ORDER BY id FOR UPDATE''', (existing['id'], request_id))
+                    for invoice in cur.fetchall():
+                        if invoice['company_id'] != company_id:
+                            raise HTTPException(409, 'Компания счёта КП требует сверки')
+                        _require_unmanaged_payment_document(cur, 'invoice', invoice['id'])
                 cur.execute(
                     "UPDATE supplier_offers SET supplier_id=%s, company_id=%s, status=%s, price_per_unit=NULL, total_price=NULL, delivery_days=NULL, "
                     "notes=NULL, payment_terms=%s, vat_included=TRUE, pdf_url=NULL, valid_until=NULL, "
@@ -9977,8 +9997,9 @@ OFFERS_SELECT = ("SELECT id, request_id as \"requestId\", supplier_id as \"suppl
                  "items_kp_json as \"itemsKpJson\" "
                  "FROM supplier_offers")
 
-def _require_supplier_offer_visibility(cur, offer_id: int, user: dict, detail: str = "Нет доступа к КП"):
-    _ensure_supply_request_recipients_table(cur)
+def _require_supplier_offer_visibility(cur, offer_id: int, user: dict, detail: str = "Нет доступа к КП", *, ensure_schema=True):
+    if ensure_schema:
+        _ensure_supply_request_recipients_table(cur)
     from backend.features.supplier_team.policy import enabled, lock_offer_access
     if enabled():
         lock_offer_access(cur, offer_id, user.get('id'))
@@ -10084,12 +10105,43 @@ def request_kp_from_suppliers(
     conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        _ensure_supply_runtime_columns(cur)
+        ledger_present = _payment_ledger_available(cur)
+        locked_company = None
+        if ledger_present:
+            cur.execute('SHOW transaction_isolation')
+            if cur.fetchone()['transaction_isolation'] != 'read committed':
+                raise HTTPException(409, 'Запрос КП требует новой транзакции')
+            cur.execute('SELECT company_id FROM supply_requests WHERE id=%s', (id,))
+            initial = cur.fetchone()
+            if not initial:
+                raise HTTPException(404, 'Заявка не найдена')
+            locked_company = _positive_int_or_none(initial['company_id'])
+            if not locked_company:
+                raise HTTPException(409, 'Компания заявки требует сверки')
+            cur.execute('SELECT pg_advisory_xact_lock(%s,%s)', (1735289201, locked_company))
+            # Refresh current authority after any company-lock wait; do not use
+            # stale HTTP roles/memberships to reset financial offer evidence.
+            cur.execute('''SELECT id,name,email,role,company_id,platform_account_id,
+                project_name,assigned_projects,assigned_packages,active
+                FROM users WHERE id=%s AND active=TRUE FOR SHARE''', (_current_user.get('id'),))
+            fresh_user = cur.fetchone()
+            if not fresh_user:
+                raise HTTPException(403, 'Пользователь отключён или не найден')
+            _current_user = dict(fresh_user)
+            cur.execute('SELECT id FROM companies WHERE id=%s FOR SHARE', (locked_company,))
+            cur.fetchall()
+            cur.execute('''SELECT id FROM user_company_roles WHERE user_id=%s AND company_id=%s
+                ORDER BY id FOR SHARE''', (_current_user['id'], locked_company))
+            locked_memberships = {row['id'] for row in cur.fetchall()}
+        else:
+            _ensure_supply_runtime_columns(cur)
         # Получаем количество из заявки для preview total
         cur.execute("SELECT quantity, project, status, company_id, prorab_confirmed_at, director_approved_at FROM supply_requests WHERE id=%s FOR UPDATE", (id,))
         req = cur.fetchone()
         if not req:
             raise HTTPException(status_code=404, detail="Заявка не найдена")
+        if ledger_present and req['company_id'] != locked_company:
+            raise HTTPException(409, 'Компания заявки изменилась. Повторите запрос')
         claimed_company_id = data.get("companyId") if "companyId" in data else data.get("company_id")
         company_context, effective_user = resolve_resource_company_actor(
             cur,
@@ -10104,6 +10156,11 @@ def request_kp_from_suppliers(
             platform_staff_roles=PLATFORM_STAFF_ROLES,
             client_account_roles=CLIENT_ACCOUNT_ROLES,
         )
+        if ledger_present and (company_context.get('source') != 'membership'
+                or company_context.get('membershipId') not in locked_memberships
+                or not company_context.get('active') or not company_context.get('companyActive')
+                or company_context.get('readOnly')):
+            raise HTTPException(403, 'Требуется активное членство в компании')
         try:
             validate_rfq_dispatch_role(
                 effective_user.get("role") or "",
@@ -10125,7 +10182,14 @@ def request_kp_from_suppliers(
             raise HTTPException(status_code=exc.status_code, detail=exc.detail)
         targets = explicit_supplier_targets(cur, company_id, supplier_ids)
         selected_scope_ids = supplier_ids
-        recipient_rows = _upsert_supply_request_recipients(cur, id, company_id, selected_scope_ids, targets=targets)
+        if ledger_present:
+            # Validate before upsert can rewrite a corrupt existing owner.
+            for table in ('supplier_offers', 'supply_request_recipients'):
+                cur.execute(f'SELECT company_id FROM {table} WHERE request_id=%s ORDER BY id FOR UPDATE', (id,))
+                if any(row['company_id'] != company_id for row in cur.fetchall()):
+                    raise HTTPException(409, 'Связи заявки относятся к другой компании')
+        recipient_rows = _upsert_supply_request_recipients(
+            cur, id, company_id, selected_scope_ids, ensure_schema=not ledger_present, targets=targets)
         assert_rows_company_scope(recipient_rows, company_id, "Получатели КП")
         visibility_error = _recipient_visibility_error(recipient_rows)
         if visibility_error:
@@ -10159,7 +10223,8 @@ def request_kp_from_suppliers(
             ('КП запрошены', selected_scope_ids, id, company_id))
         if cur.rowcount != 1:
             raise HTTPException(status_code=409, detail="Компания заявки изменилась во время запроса КП")
-        notification_rows = _notify_supply_request_recipients(cur, id, company_id=company_id)
+        notification_rows = _notify_supply_request_recipients(
+            cur, id, company_id=company_id, ensure_schema=not ledger_present)
         conn.commit()
         for notification in notification_rows:
             if notification.get("emailStatus") == EMAIL_QUEUED:
@@ -11039,6 +11104,22 @@ WAREHOUSE_INVOICE_ACCOUNTING_STATUSES = {
     "Отклонена",
 }
 
+try:
+    from backend.features.supplier_payments.guards import (
+        ledger_available as _payment_ledger_available,
+        lock_document_writer as _lock_payment_document_writer,
+        lock_legacy_supply_writer as _lock_legacy_supply_writer,
+        require_unmanaged_document as _require_unmanaged_payment_document,
+    )
+except ModuleNotFoundError:
+    from features.supplier_payments.guards import (
+        ledger_available as _payment_ledger_available,
+        lock_document_writer as _lock_payment_document_writer,
+        lock_legacy_supply_writer as _lock_legacy_supply_writer,
+        require_unmanaged_document as _require_unmanaged_payment_document,
+    )
+
+
 def _ensure_warehouse_invoice_accounting_columns(cur):
     cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS accounting_status VARCHAR(100)")
     cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS accounting_comment TEXT")
@@ -11054,7 +11135,26 @@ def _ensure_invoice_document_link_columns(cur):
     cur.execute("ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS warehouse_invoice_id INT")
     cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS supplier_invoice_id INT")
 
-def _find_supplier_invoice_for_supply(cur, request_id=None, offer_id=None):
+def _find_supplier_invoice_for_supply(cur, request_id=None, offer_id=None, delivery=None):
+    delivery = delivery or {}
+    source_id = delivery.get('source_supplier_invoice_id')
+    if source_id is not None or delivery.get('contract_version_id') is not None:
+        # A frozen shipment must never be rebound to a newer invoice on receipt.
+        cur.execute("""SELECT id FROM supplier_invoices
+                       WHERE id=%s AND company_id=%s AND supplier_id=%s
+                         AND request_id=%s AND offer_id=%s AND contract_version_id=%s
+                         AND project_name=%s
+                         AND COALESCE(NULLIF(work_package,''),'Основная')=%s
+                         AND COALESCE(status,'') <> 'Аннулирован'
+                       FOR SHARE""",
+                    (source_id, delivery.get('company_id'), delivery.get('supplier_id'),
+                     delivery.get('request_id'), delivery.get('offer_id'),
+                     delivery.get('contract_version_id'), delivery.get('project'),
+                     delivery.get('work_package') or 'Основная'))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(409, 'Исходный счёт поставки не найден или связь документов нарушена')
+        return _row_get(row, 'id', 0)
     offer_id = int(offer_id or 0)
     request_id = int(request_id or 0)
     if offer_id:
@@ -11294,26 +11394,75 @@ def _create_supply_delivery_history(cur, delivery, status=None, received_qty=Non
         except Exception as legacy_error:
             print("SUPPLY HISTORY LEGACY INSERT ERROR:", str(legacy_error))
 
+def _guard_delivery_accounting_write(cur, delivery):
+    """Authorized caller holds stock, company and delivery locks, in that order."""
+    company_id = delivery.get('company_id')
+    invoice_id = _find_supplier_invoice_for_supply(
+        cur, request_id=delivery.get('request_id'),
+        offer_id=delivery.get('offer_id'), delivery=delivery,
+    )
+    cur.execute('''SELECT id,company_id,supplier_invoice_id,status FROM warehouse_invoices
+                   WHERE supply_delivery_id=%s ORDER BY id LIMIT 2 FOR UPDATE''', (delivery['id'],))
+    warehouses = cur.fetchall()
+    if len(warehouses) > 1:
+        raise HTTPException(409, 'У поставки несколько накладных. Нужна сверка')
+    warehouse_id = warehouses[0]['id'] if warehouses else None
+    for warehouse in warehouses:
+        if (warehouse['company_id'] != company_id
+                or warehouse['supplier_invoice_id'] not in (None, invoice_id)
+                or warehouse['status'] == 'Аннулирована'):
+            raise HTTPException(409, 'Связь накладной поставки требует сверки')
+        _require_unmanaged_payment_document(cur, 'warehouse', warehouse['id'], proposed_link=invoice_id)
+    if invoice_id:
+        cur.execute('''SELECT company_id,warehouse_invoice_id,status FROM supplier_invoices
+                       WHERE id=%s FOR UPDATE''', (invoice_id,))
+        invoice = cur.fetchone()
+        if (not invoice or invoice['company_id'] != company_id
+                or invoice['warehouse_invoice_id'] not in (None, warehouse_id)
+                or invoice['status'] == 'Аннулирован'):
+            raise HTTPException(409, 'Связь счёта поставки требует сверки')
+        _require_unmanaged_payment_document(cur, 'invoice', invoice_id, proposed_link=warehouse_id)
+    return invoice_id
+
+
 def _ensure_supply_delivery_invoice(cur, delivery, received_qty=None, received_at=None, accepted_by=None):
-    import json as _json
-    from datetime import date as _date
     delivery_id = delivery.get('id')
     if not delivery_id:
         return None
+    ledger_present = _payment_ledger_available(cur)
+    source_invoice_id = None
+    if ledger_present:
+        source_invoice_id = _guard_delivery_accounting_write(cur, delivery)
     try:
-        cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1")
-        cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS source_type VARCHAR(100)")
-        cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS source_id INT")
-        cur.execute("ALTER TABLE warehouse_invoices ALTER COLUMN source_id TYPE TEXT USING source_id::text")
-        cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS supply_delivery_id INT")
-        cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS supply_request_id INT")
-        cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS warehouse_target VARCHAR(50)")
-        cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS selected_action VARCHAR(100)")
-        cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS material_match_json TEXT")
-        _ensure_warehouse_invoice_accounting_columns(cur)
-        _ensure_invoice_document_link_columns(cur)
+        if not ledger_present:
+            _prepare_legacy_delivery_invoice_columns(cur)
     except Exception as e:
         raise HTTPException(status_code=500, detail="Не удалось подготовить поля накладной поставки: " + str(e))
+    return _ensure_supply_delivery_invoice_prepared(
+        cur, delivery, received_qty, received_at, accepted_by,
+        source_checked=ledger_present, source_invoice_id=source_invoice_id,
+    )
+
+
+def _prepare_legacy_delivery_invoice_columns(cur):
+    cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1")
+    cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS source_type VARCHAR(100)")
+    cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS source_id INT")
+    cur.execute("ALTER TABLE warehouse_invoices ALTER COLUMN source_id TYPE TEXT USING source_id::text")
+    cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS supply_delivery_id INT")
+    cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS supply_request_id INT")
+    cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS warehouse_target VARCHAR(50)")
+    cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS selected_action VARCHAR(100)")
+    cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS material_match_json TEXT")
+    _ensure_warehouse_invoice_accounting_columns(cur)
+    _ensure_invoice_document_link_columns(cur)
+
+
+def _ensure_supply_delivery_invoice_prepared(cur, delivery, received_qty=None, received_at=None, accepted_by=None,
+                                            *, source_checked=False, source_invoice_id=None):
+    import json as _json
+    from datetime import date as _date
+    delivery_id = delivery['id']
     try:
         cur.execute(
             "SELECT pg_advisory_xact_lock(hashtext(%s))",
@@ -11325,7 +11474,7 @@ def _ensure_supply_delivery_invoice(cur, delivery, received_qty=None, received_a
             detail="Не удалось безопасно проверить повторную приёмку поставки",
         ) from None
     try:
-        cur.execute("SELECT id FROM warehouse_invoices WHERE supply_delivery_id=%s LIMIT 1", (delivery_id,))
+        cur.execute("SELECT id,company_id,supplier_invoice_id FROM warehouse_invoices WHERE supply_delivery_id=%s LIMIT 1", (delivery_id,))
         existing = cur.fetchone()
         if existing:
             existing_id = existing['id'] if isinstance(existing, dict) else existing[0]
@@ -11334,12 +11483,15 @@ def _ensure_supply_delivery_invoice(cur, delivery, received_qty=None, received_a
                 delivery.get('project') or "",
                 explicit=delivery.get('company_id') or delivery.get('companyId'),
             )
-            cur.execute("UPDATE warehouse_invoices SET company_id=%s WHERE id=%s", (company_id, existing_id))
-            linked_supplier_invoice_id = _find_supplier_invoice_for_supply(
+            linked_supplier_invoice_id = source_invoice_id if source_checked else _find_supplier_invoice_for_supply(
                 cur,
                 request_id=delivery.get('request_id'),
                 offer_id=delivery.get('offer_id'),
+                delivery=delivery,
             )
+            if (_row_get(existing, 'company_id', 1) != company_id
+                    or _row_get(existing, 'supplier_invoice_id', 2) not in (None, linked_supplier_invoice_id)):
+                raise HTTPException(409, 'Накладная уже связана с другой компанией или счётом. Нужна проверка')
             if linked_supplier_invoice_id:
                 cur.execute("""UPDATE warehouse_invoices
                                SET supplier_invoice_id=COALESCE(supplier_invoice_id,%s)
@@ -11394,10 +11546,11 @@ def _ensure_supply_delivery_invoice(cur, delivery, received_qty=None, received_a
         )
         _enforce_supply_estimate_control(items, source="накладная поставки")
     number = delivery.get('waybill_number') or ("Поставка-" + str(delivery_id))
-    linked_supplier_invoice_id = _find_supplier_invoice_for_supply(
+    linked_supplier_invoice_id = source_invoice_id if source_checked else _find_supplier_invoice_for_supply(
         cur,
         request_id=delivery.get('request_id'),
         offer_id=delivery.get('offer_id'),
+        delivery=delivery,
     )
     try:
         cur.execute("""INSERT INTO warehouse_invoices
@@ -11965,7 +12118,11 @@ def receive_supply_delivery(
         # Runtime schema helpers also lock receipt/supply relations. Take the
         # stock lock first and retain it through acceptance, including replay.
         lock_distribution_compatible_stock(cur)
-        _ensure_supply_runtime_columns(cur)
+        ledger_present = _payment_ledger_available(cur)
+        if ledger_present:
+            _lock_payment_document_writer(cur, 'delivery', id)
+        else:
+            _ensure_supply_runtime_columns(cur)
         cur.execute("SELECT * FROM supply_deliveries WHERE id=%s FOR UPDATE", (id,))
         delivery = cur.fetchone()
         if not delivery:
@@ -12001,6 +12158,8 @@ def receive_supply_delivery(
             conn.rollback()
             cur.close(); conn.close()
             raise HTTPException(status_code=403, detail="Нет доступа к пакету поставки")
+        if ledger_present:
+            _guard_delivery_accounting_write(cur, delivery)
         source_project_id = prepare_delivery_sources(cur, _current_user, delivery) if owned_sources else None
         if delivery['status'] in ('Принято', 'Проблема') or delivery.get('received_at'):
             if not owned_quality:
@@ -12020,7 +12179,7 @@ def receive_supply_delivery(
                     delivery.get('received_by') or ''
                 )
             except Exception as e:
-                if owned_quality:
+                if owned_quality or ledger_present or delivery.get('source_supplier_invoice_id') is not None or delivery.get('contract_version_id') is not None:
                     raise
                 print("DELIVERY INVOICE RECOVERY ERROR:", str(e))
                 invoice_id = None
@@ -16256,10 +16415,15 @@ def ai_chat(
             cur2.execute("SELECT project_name, brigade_name, status FROM brigade_contracts WHERE FALSE")
         brigades = cur2.fetchall()
         if payment_visibility_sql != "FALSE":
+            cur2.execute("SELECT to_regclass('public.supplier_payment_operations') IS NOT NULL")
+            payment_ledger_exclusion = (
+                "AND NOT EXISTS (SELECT 1 FROM public.supplier_payment_operations ledger "
+                "WHERE ledger.project_payment_id=pp.id)"
+            ) if cur2.fetchone()[0] else ""
             cur2.execute(
                 f"""SELECT pp.project_name, pp.amount, pp.note
                     FROM project_payments pp
-                    WHERE {payment_visibility_sql}
+                    WHERE ({payment_visibility_sql}) {payment_ledger_exclusion}
                     ORDER BY pp.id DESC LIMIT 10""",
                 tuple(payment_visibility_params),
             )
@@ -16275,6 +16439,7 @@ def ai_chat(
         context += "МАТЕРИАЛЫ НА ОБЪЕКТАХ: "+", ".join([m[0]+": "+str(m[1])+" "+m[2]+" ("+str(m[3])+")" for m in obj_materials[:20]])+"\n"
         context += "НАРЯДЫ: "+", ".join([b[0]+": "+b[1]+" - "+b[2] for b in brigades[:10]])+"\n"
         context += "ОПЛАТЫ: "+", ".join([pay[0]+": "+str(int(pay[1]))+" руб - "+str(pay[2]) for pay in payments[:10]])+"\n"
+        context += "Платежи поставщикам и их сторно не включены; это не полная финансовая сводка.\n"
     import openai as oa
     client = oa.OpenAI(api_key=API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=FOLDER_ID)
     user_text = messages[-1].get("content","") if messages else ""
@@ -20211,6 +20376,7 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
     conn = get_db()
     cur = conn.cursor()
     conn.autocommit = False
+    accounting_link = None
     try:
         try:
             from backend.features.material_traceability.guards import lock_distribution_compatible_stock
@@ -20219,7 +20385,10 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
         # Must precede even schema preparation and project lookups: a receipt
         # DDL lock followed by stock access reverses distribution's lock order.
         lock_distribution_compatible_stock(cur)
-        _ensure_invoice_document_link_columns(cur)
+        ledger_present = _payment_ledger_available(cur)
+        if not ledger_present:
+            _ensure_invoice_document_link_columns(cur)
+            _ensure_warehouse_invoice_accounting_columns(cur)
         source_type = (data.get("sourceType") or "").strip()
         source_id = data.get("sourceId") or None
         supply_delivery_id = data.get("supplyDeliveryId") or None
@@ -20284,6 +20453,10 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
         if (actor.get("role") or "") not in WAREHOUSE_ROLES:
             raise HTTPException(status_code=403, detail="Роль в выбранной компании не позволяет принимать складские накладные")
         current_user = actor
+        if ledger_present:
+            # Stock-table locks precede company serialization; no document or
+            # project row locks have been acquired by this receipt yet.
+            cur.execute('SELECT pg_advisory_xact_lock(%s,%s)', (1735289201, company_id))
         if target_project:
             try:
                 from backend.features.project_access.service import resolve_project_parent
@@ -20312,6 +20485,12 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
             require_project_or_warehouse_access(current_user, target_project)
         if supplier_invoice_id and current_user.get("role") not in FINANCE_ROLES:
             raise HTTPException(status_code=403, detail="Связать накладную со счётом поставщика может только бухгалтерия или руководство выбранной компании")
+        if supplier_invoice_id and ledger_present:
+            cur.execute('SELECT company_id,warehouse_invoice_id,status FROM supplier_invoices WHERE id=%s FOR UPDATE', (supplier_invoice_id,))
+            live_invoice = cur.fetchone()
+            if not live_invoice or live_invoice[0] != company_id or live_invoice[1] or live_invoice[2] == 'Аннулирован':
+                raise HTTPException(409, 'Связь счёта изменилась. Повторите проверку документов')
+            _require_unmanaged_payment_document(cur, 'invoice', supplier_invoice_id)
         if not target_project and current_user.get("role") not in MAIN_WAREHOUSE_WRITE_ROLES:
             raise HTTPException(
                 status_code=403,
@@ -20667,6 +20846,12 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
                 ):
                     cables_added += 1
 
+        if accounting_required and data.get("syncSupplierInvoice") is not False and data.get("sync_supplier_invoice") is not False:
+            # Accounting is part of receipt creation: failure must also roll
+            # back stock, history, journals and any supplier enrichment.
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as accounting_cur:
+                accounting_link = _sync_supplier_invoice_from_warehouse_in_transaction(
+                    accounting_cur, invoice_id, data, current_user)
         conn.commit()
     except Exception:
         conn.rollback()
@@ -20686,19 +20871,37 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
         "inspectionsAdded": inspections_added,
         "cablesAdded": cables_added,
     }
-    if accounting_required and (data or {}).get("syncSupplierInvoice") is not False and (data or {}).get("sync_supplier_invoice") is not False:
-        try:
-            accounting_link = _sync_supplier_invoice_from_warehouse(invoice_id, data, current_user)
-            result["supplierInvoiceId"] = accounting_link.get("id")
-            result["accountingStatus"] = accounting_link.get("accountingStatus") or "На проверке"
-            result["supplierId"] = accounting_link.get("supplierId")
-            result["supplierName"] = accounting_link.get("supplierName")
-        except Exception as exc:
-            result["accountingWarning"] = getattr(exc, "detail", str(exc)) or "Не удалось связать бухгалтерскую первичку"
+    if accounting_link:
+        result["supplierInvoiceId"] = accounting_link.get("id")
+        result["accountingStatus"] = accounting_link.get("accountingStatus") or "На проверке"
+        result["supplierId"] = accounting_link.get("supplierId")
+        result["supplierName"] = accounting_link.get("supplierName")
     return result
 
 
 def _sync_supplier_invoice_from_warehouse(warehouse_invoice_id: int, payload: dict = None, actor: dict = None):
+    """Own a transaction for backfill callers; receipt creation uses the worker."""
+    conn = get_db()
+    conn.autocommit = False
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            if not _payment_ledger_available(cur):
+                _ensure_warehouse_invoice_accounting_columns(cur)
+                _ensure_invoice_document_link_columns(cur)
+            result = _sync_supplier_invoice_from_warehouse_in_transaction(cur, warehouse_invoice_id, payload, actor)
+        conn.commit()
+        return result
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def _sync_supplier_invoice_from_warehouse_in_transaction(cur, warehouse_invoice_id, payload=None, actor=None):
+    """Caller owns transaction and schema preparation; no lifecycle or postcommit effects."""
+    if cur.connection.autocommit:
+        raise RuntimeError('Accounting sync requires an explicit transaction')
     payload = payload or {}
     actor = actor or {}
     review_uncertain_supplier_match = bool(
@@ -20707,304 +20910,195 @@ def _sync_supplier_invoice_from_warehouse(warehouse_invoice_id: int, payload: di
         or payload.get("backfillReview")
         or payload.get("backfill_review")
     )
-    conn = get_db()
-    conn.autocommit = False
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        _ensure_warehouse_invoice_accounting_columns(cur)
-        _ensure_invoice_document_link_columns(cur)
-        cur.execute(
-            """
-            SELECT id,number,date,supplier_id,supplier_name,location,project,items,
-                   total_base,total_vat,total_with_vat,photo_url,photo_urls,
-                   supplier_invoice_id,source_type,company_id
-              FROM warehouse_invoices
-             WHERE id=%s AND COALESCE(status,'Принята') <> 'Аннулирована'
-             FOR UPDATE
-            """,
-            (warehouse_invoice_id,),
-        )
-        warehouse_invoice = cur.fetchone()
-        if not warehouse_invoice:
-            raise HTTPException(status_code=404, detail="Складская накладная для бухгалтерии не найдена")
-        existing_supplier_invoice_id = warehouse_invoice.get("supplier_invoice_id")
-        if existing_supplier_invoice_id and warehouse_invoice_accounting_required(warehouse_invoice):
-            conn.commit()
-            return {"id": existing_supplier_invoice_id, "ok": True, "alreadyExists": True}
-        if not warehouse_invoice_accounting_required(warehouse_invoice):
-            raise HTTPException(
-                status_code=409,
-                detail="Приход на основной склад без поставщика не создаёт первичку и задолженность",
-            )
-
-        items = _json_list_or_empty(warehouse_invoice.get("items"))
-        first_item = items[0] if items and isinstance(items[0], dict) else {}
-        project_name = (
-            warehouse_invoice.get("project")
-            or (warehouse_invoice.get("location") if warehouse_invoice.get("location") != "Основной склад" else "")
-            or ""
-        )
-        company_id = (
-            _positive_int_or_none(payload.get("companyId") or payload.get("company_id"))
-            or _positive_int_or_none(warehouse_invoice.get("company_id"))
-            or _company_id_for_project_or_user(cur, project_name, actor)
-        )
-        supplier_name = (
-            payload.get("supplierName")
-            or payload.get("supplier")
-            or warehouse_invoice.get("supplier_name")
-            or ""
-        ).strip()
-        supplier_payload = {
-            **payload,
-            "supplierName": supplier_name,
-            "supplier": payload.get("supplier") or supplier_name,
-            "sourceType": "max_invoice" if str(warehouse_invoice.get("source_type") or "").startswith("max_") else "warehouse_invoice",
-            "sourceDetail": "Создано/обновлено из складской накладной #" + str(warehouse_invoice_id),
-        }
-        if warehouse_invoice.get("supplier_id") and not (supplier_payload.get("supplierId") or supplier_payload.get("supplier_id")):
-            supplier_payload["supplierId"] = warehouse_invoice.get("supplier_id")
-
-        supplier_id = warehouse_invoice.get("supplier_id")
-        legal_supplier_identity = has_legal_supplier_identity(supplier_payload)
-        if legal_supplier_identity and not supplier_id:
-            identity_requisites = _supplier_extract_requisites(supplier_payload)
-            identity_key = (
-                "inn:" + identity_requisites["inn"]
-                if identity_requisites["inn"]
-                else "ogrn:" + identity_requisites["ogrn"]
-            )
-            cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("supplier:" + identity_key,))
-        matched_supplier = _supplier_find_match(
-            cur,
-            supplier_payload,
-            allow_alias_name_match=not legal_supplier_identity,
-            allow_contact_match=False,
-        )
-        created_supplier = False
-        if matched_supplier:
-            supplier_id = matched_supplier["id"]
-            supplier_name = matched_supplier["name"] or supplier_name
-            _update_supplier_missing_fields(cur, supplier_id, supplier_payload)
-            _remember_supplier_alias(cur, supplier_id, supplier_payload, source="warehouse_accounting")
-        elif supplier_name:
-            req = _supplier_extract_requisites(supplier_payload)
-            if legal_supplier_identity:
-                cur.execute(
-                    """
-                    INSERT INTO suppliers
-                        (name,phone,email,specialization,category,rating,status,
-                         inn,kpp,ogrn,notes,source_type,source_detail)
-                    VALUES (%s,'','','','Материалы',5.0,'На проверке',%s,%s,%s,%s,%s,%s)
-                    RETURNING id,name
-                    """,
-                    (
-                        supplier_name,
-                        req.get("inn") or "",
-                        req.get("kpp") or "",
-                        req.get("ogrn") or "",
-                        "Создано из складской накладной #" + str(warehouse_invoice_id),
-                        supplier_payload["sourceType"],
-                        supplier_payload["sourceDetail"],
-                    ),
-                )
-                supplier_row = cur.fetchone()
-                supplier_id = supplier_row.get("id")
-                supplier_name = supplier_row.get("name") or supplier_name
-                created_supplier = True
-                _remember_supplier_alias(cur, supplier_id, supplier_payload, source="warehouse_accounting")
-
-        review_state = {"needsReview": False, "reviewReason": "", "accountingStatus": "На проверке", "supplierInvoiceStatus": "На утверждении"}
-        if review_uncertain_supplier_match or (supplier_name and not supplier_id):
-            review_state = _supplier_backfill_review_state(
-                cur,
-                warehouse_invoice,
-                supplier_payload,
-                supplier_id=supplier_id,
-                matched_supplier=matched_supplier,
-                created_supplier=created_supplier,
-            )
-        supplier_invoice_status = review_state.get("supplierInvoiceStatus") or "На утверждении"
-        accounting_status = review_state.get("accountingStatus") or "На проверке"
-        accounting_comment = (
-            "Нужно уточнение: " + review_state.get("reviewReason")
-            if review_state.get("needsReview") and review_state.get("reviewReason")
-            else "Первичка создана автоматически из складской накладной. Проверить реквизиты, сумму и фото перед оплатой."
+    ledger_present = _payment_ledger_available(cur)
+    if ledger_present:
+        _lock_payment_document_writer(cur, 'warehouse', warehouse_invoice_id)
+    cur.execute(
+        """
+        SELECT id,number,date,supplier_id,supplier_name,location,project,items,
+               total_base,total_vat,total_with_vat,photo_url,photo_urls,
+               supplier_invoice_id,source_type,company_id
+          FROM warehouse_invoices
+         WHERE id=%s AND COALESCE(status,'Принята') <> 'Аннулирована'
+         FOR UPDATE
+        """,
+        (warehouse_invoice_id,),
+    )
+    warehouse_invoice = cur.fetchone()
+    if not warehouse_invoice:
+        raise HTTPException(status_code=404, detail="Складская накладная для бухгалтерии не найдена")
+    company_id = _positive_int_or_none(warehouse_invoice.get('company_id'))
+    if not company_id:
+        raise HTTPException(409, 'Компания складской накладной требует сверки')
+    for key in ('companyId', 'company_id'):
+        if key in payload and _positive_int_or_none(payload[key]) != company_id:
+            raise HTTPException(409, 'Компания запроса не совпадает с компанией накладной')
+    if ledger_present:
+        _require_unmanaged_payment_document(cur, 'warehouse', warehouse_invoice_id)
+    existing_supplier_invoice_id = warehouse_invoice.get("supplier_invoice_id")
+    if existing_supplier_invoice_id and warehouse_invoice_accounting_required(warehouse_invoice):
+        existing_link = _lock_warehouse_sync_candidate(cur, existing_supplier_invoice_id, company_id,
+                                                     warehouse_invoice_id, ledger_present)
+        if existing_link.get('warehouse_invoice_id') != warehouse_invoice_id:
+            raise HTTPException(409, 'Обратная связь счёта и накладной требует сверки')
+        return {"id": existing_supplier_invoice_id, "ok": True, "alreadyExists": True}
+    if not warehouse_invoice_accounting_required(warehouse_invoice):
+        raise HTTPException(
+            status_code=409,
+            detail="Приход на основной склад без поставщика не создаёт первичку и задолженность",
         )
 
-        invoice_number = str(payload.get("invoiceNumber") or payload.get("number") or warehouse_invoice.get("number") or "").strip()
-        invoice_date = payload.get("invoiceDate") or payload.get("date") or warehouse_invoice.get("date") or None
-        amount = _float_or_zero(payload.get("amount") or payload.get("totalWithVat") or warehouse_invoice.get("total_with_vat") or warehouse_invoice.get("total_base"))
-        vat_amount = _float_or_zero(payload.get("vatAmount") or payload.get("totalVat") or warehouse_invoice.get("total_vat"))
-        work_package = (
-            payload.get("workPackage")
-            or payload.get("work_package")
-            or first_item.get("workPackage")
-            or first_item.get("work_package")
-            or ""
-        )
-        material_name = payload.get("materialName") or first_item.get("name") or ""
-        photo_urls = _json_list_or_empty(warehouse_invoice.get("photo_urls"))
-        photo_url = payload.get("photoUrl") or warehouse_invoice.get("photo_url") or (photo_urls[0] if photo_urls else "")
-        file_url = payload.get("fileUrl") or payload.get("file_url") or ""
-        description = payload.get("description") or (
-            "Первичка по складской накладной #" + str(warehouse_invoice_id)
-            + (" из MAX" if str(warehouse_invoice.get("source_type") or "").startswith("max_") else "")
-        )
+    items = _json_list_or_empty(warehouse_invoice.get("items"))
+    first_item = items[0] if items and isinstance(items[0], dict) else {}
+    project_name = (
+        warehouse_invoice.get("project")
+        or (warehouse_invoice.get("location") if warehouse_invoice.get("location") != "Основной склад" else "")
+        or ""
+    )
+    supplier_name = (
+        payload.get("supplierName")
+        or payload.get("supplier")
+        or warehouse_invoice.get("supplier_name")
+        or ""
+    ).strip()
+    supplier_payload = {
+        **payload,
+        "supplierName": supplier_name,
+        "supplier": payload.get("supplier") or supplier_name,
+        "sourceType": "max_invoice" if str(warehouse_invoice.get("source_type") or "").startswith("max_") else "warehouse_invoice",
+        "sourceDetail": "Создано/обновлено из складской накладной #" + str(warehouse_invoice_id),
+    }
+    if warehouse_invoice.get("supplier_id") and not (supplier_payload.get("supplierId") or supplier_payload.get("supplier_id")):
+        supplier_payload["supplierId"] = warehouse_invoice.get("supplier_id")
 
-        duplicate_invoice = _find_existing_supplier_invoice_duplicate(
-            cur,
-            company_id=company_id,
-            invoice_number=invoice_number,
-            invoice_date=invoice_date,
-            project_name=project_name,
-            supplier_id=supplier_id,
-            supplier_name=supplier_name,
-            amount=amount,
-            warehouse_invoice_id=warehouse_invoice_id,
+    supplier_id = warehouse_invoice.get("supplier_id")
+    legal_supplier_identity = has_legal_supplier_identity(supplier_payload)
+    if legal_supplier_identity and not supplier_id:
+        identity_requisites = _supplier_extract_requisites(supplier_payload)
+        identity_key = (
+            "inn:" + identity_requisites["inn"]
+            if identity_requisites["inn"]
+            else "ogrn:" + identity_requisites["ogrn"]
         )
-        if duplicate_invoice:
-            supplier_invoice_id = duplicate_invoice.get("id")
-            linked_warehouse_id = _positive_int_or_none(duplicate_invoice.get("warehouseInvoiceId"))
-            if not linked_warehouse_id:
-                cur.execute(
-                    """
-                    UPDATE supplier_invoices
-                       SET company_id=%s,
-                           warehouse_invoice_id=%s,
-                           supplier_id=COALESCE(supplier_id,%s),
-                           supplier_name=COALESCE(NULLIF(supplier_name,''),%s),
-                           status=CASE WHEN %s THEN %s ELSE status END
-                     WHERE id=%s
-                    """,
-                    (company_id, warehouse_invoice_id, supplier_id, supplier_name, bool(review_state.get("needsReview")), supplier_invoice_status, supplier_invoice_id),
-                )
-            else:
-                cur.execute(
-                    """
-                    UPDATE supplier_invoices
-                       SET company_id=%s,
-                           supplier_id=COALESCE(supplier_id,%s),
-                           supplier_name=COALESCE(NULLIF(supplier_name,''),%s),
-                           status=CASE WHEN %s THEN %s ELSE status END
-                     WHERE id=%s
-                    """,
-                    (company_id, supplier_id, supplier_name, bool(review_state.get("needsReview")), supplier_invoice_status, supplier_invoice_id),
-                )
-            actor_name = actor.get("name") or actor.get("email") or "MAX"
+        cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("supplier:" + identity_key,))
+    matched_supplier = _supplier_find_match(
+        cur,
+        supplier_payload,
+        allow_alias_name_match=not legal_supplier_identity,
+        allow_contact_match=False,
+    )
+    created_supplier = False
+    if matched_supplier:
+        supplier_id = matched_supplier["id"]
+        supplier_name = matched_supplier["name"] or supplier_name
+        _update_supplier_missing_fields(cur, supplier_id, supplier_payload)
+        _remember_supplier_alias(cur, supplier_id, supplier_payload, source="warehouse_accounting")
+    elif supplier_name:
+        req = _supplier_extract_requisites(supplier_payload)
+        if legal_supplier_identity:
             cur.execute(
                 """
-                UPDATE warehouse_invoices
-                   SET company_id=%s,
-                       supplier_invoice_id=%s,
-                       supplier_id=COALESCE(supplier_id,%s),
-                       supplier_name=COALESCE(NULLIF(supplier_name,''),%s),
-                       accounting_status=CASE WHEN %s THEN %s ELSE COALESCE(NULLIF(accounting_status,''),'На проверке') END,
-                       accounting_comment=COALESCE(NULLIF(accounting_comment,''),'Первичка связана с уже существующим счетом поставщика без создания дубля.'),
-                       accounting_updated_by=%s,
-                       accounting_updated_at=NOW()
-                 WHERE id=%s
+                INSERT INTO suppliers
+                    (name,phone,email,specialization,category,rating,status,
+                     inn,kpp,ogrn,notes,source_type,source_detail)
+                VALUES (%s,'','','','Материалы',5.0,'На проверке',%s,%s,%s,%s,%s,%s)
+                RETURNING id,name
                 """,
                 (
-                    company_id,
-                    supplier_invoice_id,
-                    supplier_id,
                     supplier_name,
-                    bool(review_state.get("needsReview")),
-                    accounting_status,
-                    actor_name,
-                    warehouse_invoice_id,
+                    req.get("inn") or "",
+                    req.get("kpp") or "",
+                    req.get("ogrn") or "",
+                    "Создано из складской накладной #" + str(warehouse_invoice_id),
+                    supplier_payload["sourceType"],
+                    supplier_payload["sourceDetail"],
                 ),
             )
-            conn.commit()
-            return {
-                "id": supplier_invoice_id,
-                "ok": True,
-                "alreadyExists": True,
-                "duplicateDocument": True,
-                "supplierId": supplier_id,
-                "supplierName": supplier_name,
-                "warehouseInvoiceId": warehouse_invoice_id,
-                "accountingStatus": accounting_status,
-                "needsReview": bool(review_state.get("needsReview")),
-                "reviewReason": review_state.get("reviewReason") or "",
-            }
+            supplier_row = cur.fetchone()
+            supplier_id = supplier_row.get("id")
+            supplier_name = supplier_row.get("name") or supplier_name
+            created_supplier = True
+            _remember_supplier_alias(cur, supplier_id, supplier_payload, source="warehouse_accounting")
 
-        supplier_invoice_id = None
-        if invoice_number and (supplier_id or supplier_name):
-            supplier_match_sql = []
-            supplier_match_params = []
-            if supplier_id:
-                supplier_match_sql.append("supplier_id=%s")
-                supplier_match_params.append(supplier_id)
-            if supplier_name:
-                supplier_match_sql.append("COALESCE(supplier_name,'')=%s")
-                supplier_match_params.append(supplier_name)
-            cur.execute(
-                f"""
-                SELECT id, warehouse_invoice_id
-                  FROM supplier_invoices
-                 WHERE COALESCE(status,'') <> 'Аннулирован'
-                   AND COALESCE(company_id,1)=%s
-                   AND COALESCE(invoice_number,'')=%s
-                   AND COALESCE(invoice_date::text,'')=COALESCE(%s::text,'')
-                   AND COALESCE(project_name,'')=%s
-                   AND ({" OR ".join(supplier_match_sql)})
-                 ORDER BY id DESC
-                 LIMIT 1
-                """,
-                (company_id, invoice_number, invoice_date, project_name, *supplier_match_params),
-            )
-            existing = cur.fetchone()
-            if existing:
-                linked_warehouse_id = existing.get("warehouse_invoice_id")
-                if linked_warehouse_id and int(linked_warehouse_id) != int(warehouse_invoice_id):
-                    raise HTTPException(status_code=409, detail="Счет поставщика уже связан с другой складской накладной")
-                supplier_invoice_id = existing.get("id")
+    review_state = {"needsReview": False, "reviewReason": "", "accountingStatus": "На проверке", "supplierInvoiceStatus": "На утверждении"}
+    if review_uncertain_supplier_match or (supplier_name and not supplier_id):
+        review_state = _supplier_backfill_review_state(
+            cur,
+            warehouse_invoice,
+            supplier_payload,
+            supplier_id=supplier_id,
+            matched_supplier=matched_supplier,
+            created_supplier=created_supplier,
+        )
+    supplier_invoice_status = review_state.get("supplierInvoiceStatus") or "На утверждении"
+    accounting_status = review_state.get("accountingStatus") or "На проверке"
+    accounting_comment = (
+        "Нужно уточнение: " + review_state.get("reviewReason")
+        if review_state.get("needsReview") and review_state.get("reviewReason")
+        else "Первичка создана автоматически из складской накладной. Проверить реквизиты, сумму и фото перед оплатой."
+    )
 
-        if supplier_invoice_id:
+    invoice_number = str(payload.get("invoiceNumber") or payload.get("number") or warehouse_invoice.get("number") or "").strip()
+    invoice_date = payload.get("invoiceDate") or payload.get("date") or warehouse_invoice.get("date") or None
+    amount = _float_or_zero(payload.get("amount") or payload.get("totalWithVat") or warehouse_invoice.get("total_with_vat") or warehouse_invoice.get("total_base"))
+    vat_amount = _float_or_zero(payload.get("vatAmount") or payload.get("totalVat") or warehouse_invoice.get("total_vat"))
+    work_package = (
+        payload.get("workPackage")
+        or payload.get("work_package")
+        or first_item.get("workPackage")
+        or first_item.get("work_package")
+        or ""
+    )
+    material_name = payload.get("materialName") or first_item.get("name") or ""
+    photo_urls = _json_list_or_empty(warehouse_invoice.get("photo_urls"))
+    photo_url = payload.get("photoUrl") or warehouse_invoice.get("photo_url") or (photo_urls[0] if photo_urls else "")
+    file_url = payload.get("fileUrl") or payload.get("file_url") or ""
+    description = payload.get("description") or (
+        "Первичка по складской накладной #" + str(warehouse_invoice_id)
+        + (" из MAX" if str(warehouse_invoice.get("source_type") or "").startswith("max_") else "")
+    )
+
+    duplicate_invoice = _find_existing_supplier_invoice_duplicate(
+        cur,
+        company_id=company_id,
+        invoice_number=invoice_number,
+        invoice_date=invoice_date,
+        project_name=project_name,
+        supplier_id=supplier_id,
+        supplier_name=supplier_name,
+        amount=amount,
+        warehouse_invoice_id=warehouse_invoice_id,
+    )
+    if duplicate_invoice:
+        supplier_invoice_id = duplicate_invoice.get("id")
+        live_candidate = _lock_warehouse_sync_candidate(cur, supplier_invoice_id, company_id,
+                                                      warehouse_invoice_id, ledger_present)
+        linked_warehouse_id = live_candidate.get('warehouse_invoice_id')
+        if not linked_warehouse_id:
             cur.execute(
                 """
                 UPDATE supplier_invoices
                    SET company_id=%s,
                        warehouse_invoice_id=%s,
+                       supplier_id=COALESCE(supplier_id,%s),
+                       supplier_name=COALESCE(NULLIF(supplier_name,''),%s),
                        status=CASE WHEN %s THEN %s ELSE status END
                  WHERE id=%s
                 """,
-                (company_id, warehouse_invoice_id, bool(review_state.get("needsReview")), supplier_invoice_status, supplier_invoice_id),
+                (company_id, warehouse_invoice_id, supplier_id, supplier_name, bool(review_state.get("needsReview")), supplier_invoice_status, supplier_invoice_id),
             )
         else:
             cur.execute(
                 """
-                INSERT INTO supplier_invoices
-                    (company_id,supplier_id,supplier_name,project_name,invoice_number,invoice_date,
-                     amount,vat_amount,description,file_url,photo_url,status,
-                     offer_id,request_id,payment_terms,material_name,work_package,warehouse_invoice_id)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                        NULL,NULL,%s,%s,%s,%s)
-                RETURNING id
+                UPDATE supplier_invoices
+                   SET company_id=%s,
+                       supplier_id=COALESCE(supplier_id,%s),
+                       supplier_name=COALESCE(NULLIF(supplier_name,''),%s),
+                       status=CASE WHEN %s THEN %s ELSE status END
+                 WHERE id=%s
                 """,
-                (
-                    company_id,
-                    supplier_id,
-                    supplier_name,
-                    project_name,
-                    invoice_number,
-                    invoice_date or None,
-                    amount,
-                    vat_amount,
-                    description,
-                    file_url,
-                    photo_url,
-                    supplier_invoice_status,
-                    payload.get("paymentTerms") or payload.get("payment_terms") or "",
-                    material_name,
-                    work_package,
-                    warehouse_invoice_id,
-                ),
+                (company_id, supplier_id, supplier_name, bool(review_state.get("needsReview")), supplier_invoice_status, supplier_invoice_id),
             )
-            supplier_invoice_id = cur.fetchone().get("id")
-
         actor_name = actor.get("name") or actor.get("email") or "MAX"
         cur.execute(
             """
@@ -21014,7 +21108,7 @@ def _sync_supplier_invoice_from_warehouse(warehouse_invoice_id: int, payload: di
                    supplier_id=COALESCE(supplier_id,%s),
                    supplier_name=COALESCE(NULLIF(supplier_name,''),%s),
                    accounting_status=CASE WHEN %s THEN %s ELSE COALESCE(NULLIF(accounting_status,''),'На проверке') END,
-                   accounting_comment=COALESCE(NULLIF(accounting_comment,''),%s),
+                   accounting_comment=COALESCE(NULLIF(accounting_comment,''),'Первичка связана с уже существующим счетом поставщика без создания дубля.'),
                    accounting_updated_by=%s,
                    accounting_updated_at=NOW()
              WHERE id=%s
@@ -21026,15 +21120,15 @@ def _sync_supplier_invoice_from_warehouse(warehouse_invoice_id: int, payload: di
                 supplier_name,
                 bool(review_state.get("needsReview")),
                 accounting_status,
-                accounting_comment,
                 actor_name,
                 warehouse_invoice_id,
             ),
         )
-        conn.commit()
         return {
             "id": supplier_invoice_id,
             "ok": True,
+            "alreadyExists": True,
+            "duplicateDocument": True,
             "supplierId": supplier_id,
             "supplierName": supplier_name,
             "warehouseInvoiceId": warehouse_invoice_id,
@@ -21042,12 +21136,132 @@ def _sync_supplier_invoice_from_warehouse(warehouse_invoice_id: int, payload: di
             "needsReview": bool(review_state.get("needsReview")),
             "reviewReason": review_state.get("reviewReason") or "",
         }
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        cur.close()
-        conn.close()
+
+    supplier_invoice_id = None
+    if invoice_number and (supplier_id or supplier_name):
+        supplier_match_sql = []
+        supplier_match_params = []
+        if supplier_id:
+            supplier_match_sql.append("supplier_id=%s")
+            supplier_match_params.append(supplier_id)
+        if supplier_name:
+            supplier_match_sql.append("COALESCE(supplier_name,'')=%s")
+            supplier_match_params.append(supplier_name)
+        cur.execute(
+            f"""
+            SELECT id, warehouse_invoice_id
+              FROM supplier_invoices
+             WHERE COALESCE(status,'') <> 'Аннулирован'
+               AND COALESCE(company_id,1)=%s
+               AND COALESCE(invoice_number,'')=%s
+               AND COALESCE(invoice_date::text,'')=COALESCE(%s::text,'')
+               AND COALESCE(project_name,'')=%s
+               AND ({" OR ".join(supplier_match_sql)})
+             ORDER BY id DESC
+             LIMIT 1
+            """,
+            (company_id, invoice_number, invoice_date, project_name, *supplier_match_params),
+        )
+        existing = cur.fetchone()
+        if existing:
+            linked_warehouse_id = existing.get("warehouse_invoice_id")
+            if linked_warehouse_id and int(linked_warehouse_id) != int(warehouse_invoice_id):
+                raise HTTPException(status_code=409, detail="Счет поставщика уже связан с другой складской накладной")
+            supplier_invoice_id = existing.get("id")
+
+    if supplier_invoice_id:
+        _lock_warehouse_sync_candidate(cur, supplier_invoice_id, company_id, warehouse_invoice_id, ledger_present)
+        cur.execute(
+            """
+            UPDATE supplier_invoices
+               SET company_id=%s,
+                   warehouse_invoice_id=%s,
+                   status=CASE WHEN %s THEN %s ELSE status END
+             WHERE id=%s
+            """,
+            (company_id, warehouse_invoice_id, bool(review_state.get("needsReview")), supplier_invoice_status, supplier_invoice_id),
+        )
+    else:
+        cur.execute(
+            """
+            INSERT INTO supplier_invoices
+                (company_id,supplier_id,supplier_name,project_name,invoice_number,invoice_date,
+                 amount,vat_amount,description,file_url,photo_url,status,
+                 offer_id,request_id,payment_terms,material_name,work_package,warehouse_invoice_id)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+                    NULL,NULL,%s,%s,%s,%s)
+            RETURNING id
+            """,
+            (
+                company_id,
+                supplier_id,
+                supplier_name,
+                project_name,
+                invoice_number,
+                invoice_date or None,
+                amount,
+                vat_amount,
+                description,
+                file_url,
+                photo_url,
+                supplier_invoice_status,
+                payload.get("paymentTerms") or payload.get("payment_terms") or "",
+                material_name,
+                work_package,
+                warehouse_invoice_id,
+            ),
+        )
+        supplier_invoice_id = cur.fetchone().get("id")
+
+    actor_name = actor.get("name") or actor.get("email") or "MAX"
+    cur.execute(
+        """
+        UPDATE warehouse_invoices
+           SET company_id=%s,
+               supplier_invoice_id=%s,
+               supplier_id=COALESCE(supplier_id,%s),
+               supplier_name=COALESCE(NULLIF(supplier_name,''),%s),
+               accounting_status=CASE WHEN %s THEN %s ELSE COALESCE(NULLIF(accounting_status,''),'На проверке') END,
+               accounting_comment=COALESCE(NULLIF(accounting_comment,''),%s),
+               accounting_updated_by=%s,
+               accounting_updated_at=NOW()
+         WHERE id=%s
+        """,
+        (
+            company_id,
+            supplier_invoice_id,
+            supplier_id,
+            supplier_name,
+            bool(review_state.get("needsReview")),
+            accounting_status,
+            accounting_comment,
+            actor_name,
+            warehouse_invoice_id,
+        ),
+    )
+    return {
+        "id": supplier_invoice_id,
+        "ok": True,
+        "supplierId": supplier_id,
+        "supplierName": supplier_name,
+        "warehouseInvoiceId": warehouse_invoice_id,
+        "accountingStatus": accounting_status,
+        "needsReview": bool(review_state.get("needsReview")),
+        "reviewReason": review_state.get("reviewReason") or "",
+    }
+
+def _lock_warehouse_sync_candidate(cur, invoice_id, company_id, warehouse_invoice_id, ledger_present):
+    """Company is already serialized when ledger exists; recheck before reuse."""
+    cur.execute('''SELECT company_id,warehouse_invoice_id,status FROM supplier_invoices
+                   WHERE id=%s FOR UPDATE''', (invoice_id,))
+    row = cur.fetchone()
+    if (not row or row.get('company_id') != company_id or row.get('status') == 'Аннулирован'
+            or row.get('warehouse_invoice_id') not in (None, warehouse_invoice_id)):
+        raise HTTPException(409, 'Связь счёта и складской накладной требует сверки')
+    if ledger_present:
+        _require_unmanaged_payment_document(cur, 'invoice', invoice_id, proposed_link=warehouse_invoice_id)
+    return row
+
 
 @app.post("/warehouse-invoices")
 def create_warehouse_invoice(
@@ -21169,22 +21383,33 @@ def backfill_supplier_documents(data: dict = None, _current_user: dict = Depends
     }
 
 @app.post("/supplier-documents/dedupe")
-def dedupe_supplier_accounting_documents(data: dict = None, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
+def dedupe_supplier_accounting_documents(
+    data: dict = None,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
     """Находит и безопасно схлопывает старые дубли бухгалтерской первички без удаления склада/оплат."""
     data = data or {}
     apply_changes = bool(data.get("apply") or data.get("commit"))
     force_review = bool(data.get("force") or data.get("forceReview"))
     project_filter = str(data.get("projectName") or data.get("project_name") or "").strip()
-    raw_ids = data.get("supplierInvoiceIds") or data.get("supplier_invoice_ids") or []
+    raw_ids = data.get("supplierInvoiceIds", data.get("supplier_invoice_ids", []))
     if not isinstance(raw_ids, list):
         raw_ids = [raw_ids]
-    raw_single_id = data.get("supplierInvoiceId") or data.get("supplier_invoice_id")
-    if raw_single_id:
+    else:
+        raw_ids = list(raw_ids)
+    raw_single_id = data.get("supplierInvoiceId", data.get("supplier_invoice_id"))
+    if raw_single_id is not None:
         raw_ids.append(raw_single_id)
     target_ids = []
     for raw_id in raw_ids:
-        value = _positive_int_or_none(raw_id)
-        if value and value not in target_ids:
+        if not (type(raw_id) is int or (isinstance(raw_id, str) and raw_id.isdecimal())):
+            raise HTTPException(422, "Некорректный идентификатор счёта")
+        value = int(raw_id)
+        if not 0 < value <= 2147483647:
+            raise HTTPException(422, "Некорректный идентификатор счёта")
+        if value not in target_ids:
             target_ids.append(value)
     try:
         limit = int(data.get("limit") or 50)
@@ -21193,16 +21418,61 @@ def dedupe_supplier_accounting_documents(data: dict = None, _current_user: dict 
     limit = max(1, min(limit, 200))
 
     conn = get_db()
-    conn.autocommit = False
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur = None
     try:
-        _ensure_invoice_document_link_columns(cur)
-        _ensure_warehouse_invoice_accounting_columns(cur)
+        conn.autocommit = False
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        context = _resolve_work_company_context(cur, _current_user, None, "write",
+            x_company_id=x_company_id, x_company_mode=x_company_mode)
+        if (context.get("mode") != "company" or context.get("source") != "membership"
+                or not context.get("active") or not context.get("companyActive")
+                or not context.get("membershipId") or context.get("role") not in FINANCE_ROLES):
+            raise HTTPException(403, "Для сверки документов требуется финансовая роль в выбранной компании")
+        company_id = context["companyId"]
+        membership_id = context["membershipId"]
+        cur.execute("SHOW transaction_isolation")
+        if cur.fetchone()["transaction_isolation"] != "read committed":
+            raise HTTPException(409, "Сверка документов требует новой транзакции")
+        ledger_present = _payment_ledger_available(cur)
+        if not ledger_present:
+            # Legacy writers prepare schema before taking the company lock.
+            # Keep the same order; all business changes still share this txn.
+            _ensure_invoice_document_link_columns(cur)
+            _ensure_warehouse_invoice_accounting_columns(cur)
+        # Collection discovery has no document root. Use the payment engine's
+        # company lock BEFORE membership/document row locks. With 0017, no DDL.
+        cur.execute("SELECT pg_advisory_xact_lock(%s,%s)", (1735289201, company_id))
+        cur.execute("SELECT * FROM users WHERE id=%s AND active=TRUE FOR SHARE", (_current_user["id"],))
+        fresh_user = cur.fetchone()
+        if not fresh_user:
+            raise HTTPException(403, "Пользователь отключён")
+        _current_user = dict(fresh_user)
+        cur.execute("SELECT id FROM companies WHERE id=%s FOR SHARE", (company_id,))
+        cur.fetchone()
+        cur.execute("SELECT id FROM user_company_roles WHERE id=%s AND user_id=%s AND company_id=%s FOR SHARE",
+                    (membership_id, _current_user["id"], company_id))
+        if not cur.fetchone():
+            raise HTTPException(403, "Членство больше не действует")
+        context, actor = resolve_resource_company_actor(cur, _current_user, company_id, "update",
+            claimed_company_id=data.get("companyId", data.get("company_id")),
+            x_company_id=x_company_id, x_company_mode=x_company_mode, allowed_roles=FINANCE_ROLES,
+            platform_staff_roles=PLATFORM_STAFF_ROLES, client_account_roles=CLIENT_ACCOUNT_ROLES)
+        if (context.get("source") != "membership" or context.get("membershipId") != membership_id
+                or not context.get("active") or not context.get("companyActive")):
+            raise HTTPException(403, "Членство больше не действует")
+        _current_user = actor
+        if target_ids:
+            cur.execute("SELECT id,company_id FROM supplier_invoices WHERE id=ANY(%s)", (target_ids,))
+            seeds = cur.fetchall()
+            if len(seeds) != len(target_ids):
+                raise HTTPException(404, "Счёт не найден")
+            assert_rows_company_scope(seeds, company_id, "Выбранные счета")
         where = [
+            "company_id=%s",
             "COALESCE(status,'') <> 'Аннулирован'",
             "COALESCE(invoice_number,'') <> ''",
         ]
-        params = []
+        params = [company_id]
         if project_filter:
             require_project_access(_current_user, project_filter)
             where.append("COALESCE(project_name,'')=%s")
@@ -21212,7 +21482,7 @@ def dedupe_supplier_accounting_documents(data: dict = None, _current_user: dict 
             seed_params = params + [target_ids]
             cur.execute(
                 f"""
-                SELECT DISTINCT COALESCE(company_id,1) AS company_id,
+                SELECT DISTINCT company_id,
                        COALESCE(invoice_number,'') AS invoice_number,
                        COALESCE(invoice_date::text,'') AS invoice_date_key,
                        COALESCE(project_name,'') AS project_name,
@@ -21229,7 +21499,7 @@ def dedupe_supplier_accounting_documents(data: dict = None, _current_user: dict 
         else:
             cur.execute(
                 f"""
-                SELECT COALESCE(company_id,1) AS company_id,
+                SELECT company_id,
                        COALESCE(invoice_number,'') AS invoice_number,
                        COALESCE(invoice_date::text,'') AS invoice_date_key,
                        COALESCE(project_name,'') AS project_name,
@@ -21238,7 +21508,7 @@ def dedupe_supplier_accounting_documents(data: dict = None, _current_user: dict 
                        MAX(id) AS latest_id
                   FROM supplier_invoices
                  WHERE {" AND ".join(where)}
-                 GROUP BY COALESCE(company_id,1), COALESCE(invoice_number,''),
+                 GROUP BY company_id, COALESCE(invoice_number,''),
                           COALESCE(invoice_date::text,''), COALESCE(project_name,''),
                           ROUND(COALESCE(amount,0)::numeric, 2)
                 HAVING COUNT(*) > 1
@@ -21249,6 +21519,7 @@ def dedupe_supplier_accounting_documents(data: dict = None, _current_user: dict 
             )
         keys = [dict(row) for row in cur.fetchall() or []]
         groups = []
+        plans = []
         applied_groups = 0
         annulled_rows = 0
         linked_warehouse_rows = 0
@@ -21264,15 +21535,15 @@ def dedupe_supplier_accounting_documents(data: dict = None, _current_user: dict 
                        payment_terms, material_name, work_package, description, paid_note
                   FROM supplier_invoices
                  WHERE COALESCE(status,'') <> 'Аннулирован'
-                   AND COALESCE(company_id,1)=%s
+                   AND company_id=%s
                    AND COALESCE(invoice_number,'')=%s
                    AND COALESCE(invoice_date::text,'')=%s
                    AND COALESCE(project_name,'')=%s
                    AND ROUND(COALESCE(amount,0)::numeric, 2)=%s
-                 ORDER BY id
+                 ORDER BY id FOR UPDATE
                 """,
                 (
-                    key.get("company_id") or 1,
+                    company_id,
                     key.get("invoice_number") or "",
                     key.get("invoice_date_key") or "",
                     project_name,
@@ -21288,7 +21559,7 @@ def dedupe_supplier_accounting_documents(data: dict = None, _current_user: dict 
             canonical_id = canonical.get("id") if canonical else None
             duplicate_rows = [row for row in rows if int(row.get("id") or 0) != int(canonical_id or 0)]
             group = {
-                "companyId": key.get("company_id") or 1,
+                "companyId": company_id,
                 "invoiceNumber": key.get("invoice_number") or "",
                 "invoiceDate": key.get("invoice_date_key") or "",
                 "projectName": project_name,
@@ -21301,72 +21572,106 @@ def dedupe_supplier_accounting_documents(data: dict = None, _current_user: dict 
                 "rows": [_supplier_invoice_duplicate_summary(row) for row in rows],
             }
             if apply_changes and canonical_id and (safety.get("safe") or force_review):
-                canonical_warehouse_id = _positive_int_or_none(canonical.get("warehouse_invoice_id"))
-                actor_note = "Схлопнуто как дубль бухгалтерской первички в счет #" + str(canonical_id)
-                for duplicate in duplicate_rows:
-                    duplicate_id = int(duplicate.get("id") or 0)
-                    if not duplicate_id:
-                        continue
-                    duplicate_warehouse_id = _positive_int_or_none(duplicate.get("warehouse_invoice_id"))
+                row_ids = [row["id"] for row in rows]
+                forward_ids = sorted({row["warehouse_invoice_id"] for row in rows if row.get("warehouse_invoice_id")})
+                cur.execute("""SELECT id,company_id,supplier_invoice_id FROM warehouse_invoices
+                    WHERE id=ANY(%s::int[]) OR supplier_invoice_id=ANY(%s::int[]) ORDER BY id""",
+                    (forward_ids, row_ids))
+                warehouses = cur.fetchall()
+                assert_rows_company_scope(warehouses, company_id, "Связанные накладные")
+                warehouse_ids = [row["id"] for row in warehouses]
+                if not set(forward_ids).issubset(warehouse_ids):
+                    raise HTTPException(409, "Связанная накладная не найдена")
+                cur.execute("""SELECT id,company_id,supplier_invoice_id FROM warehouse_invoices
+                    WHERE company_id=%s AND id=ANY(%s::int[]) ORDER BY id FOR UPDATE""",
+                    (company_id, warehouse_ids))
+                warehouses = cur.fetchall()
+                if [row["id"] for row in warehouses] != warehouse_ids:
+                    raise HTTPException(409, "Принадлежность накладных изменилась. Повторите запрос")
+                # Reverse warehouses may themselves have other forward/reverse
+                # invoice neighbours. Check them even when 0017 is absent.
+                neighbor_ids = [row["supplier_invoice_id"] for row in warehouses if row.get("supplier_invoice_id")]
+                cur.execute("""SELECT id,company_id FROM supplier_invoices
+                    WHERE id=ANY(%s::int[]) OR warehouse_invoice_id=ANY(%s::int[])""",
+                    (neighbor_ids, warehouse_ids))
+                assert_rows_company_scope(cur.fetchall(), company_id, "Связанные счета")
+                if ledger_present:
+                    for row_id in row_ids:
+                        _require_unmanaged_payment_document(cur, 'invoice', row_id)
+                    for warehouse_id in warehouse_ids:
+                        _require_unmanaged_payment_document(cur, 'warehouse', warehouse_id)
+                plans.append((canonical, duplicate_rows, group))
+            groups.append(group)
+        # Preflight the entire batch before any document changes. A conflict in
+        # any group (including forceReview) aborts this single transaction.
+        for canonical, duplicate_rows, group in plans:
+            canonical_id = canonical["id"]
+            canonical_warehouse_id = _positive_int_or_none(canonical.get("warehouse_invoice_id"))
+            actor_note = "Схлопнуто как дубль бухгалтерской первички в счет #" + str(canonical_id)
+            for duplicate in duplicate_rows:
+                duplicate_id = int(duplicate.get("id") or 0)
+                if not duplicate_id:
+                    continue
+                duplicate_warehouse_id = _positive_int_or_none(duplicate.get("warehouse_invoice_id"))
+                cur.execute(
+                    """
+                    UPDATE supplier_invoices
+                       SET supplier_id=COALESCE(supplier_id,%s),
+                           supplier_name=COALESCE(NULLIF(supplier_name,''),%s),
+                           offer_id=COALESCE(offer_id,%s),
+                           request_id=COALESCE(request_id,%s),
+                           warehouse_invoice_id=COALESCE(warehouse_invoice_id,%s),
+                           file_url=COALESCE(NULLIF(file_url,''),%s),
+                           photo_url=COALESCE(NULLIF(photo_url,''),%s),
+                           payment_terms=COALESCE(NULLIF(payment_terms,''),%s),
+                           material_name=COALESCE(NULLIF(material_name,''),%s),
+                           work_package=COALESCE(NULLIF(work_package,''),%s)
+                     WHERE id=%s AND company_id=%s
+                    """,
+                    (
+                        duplicate.get("supplier_id"),
+                        duplicate.get("supplier_name") or "",
+                        duplicate.get("offer_id"),
+                        duplicate.get("request_id"),
+                        duplicate_warehouse_id,
+                        duplicate.get("file_url") or "",
+                        duplicate.get("photo_url") or "",
+                        duplicate.get("payment_terms") or "",
+                        duplicate.get("material_name") or "",
+                        duplicate.get("work_package") or "",
+                        canonical_id,
+                        company_id,
+                    ),
+                )
+                if duplicate_warehouse_id:
                     cur.execute(
-                        """
-                        UPDATE supplier_invoices
-                           SET supplier_id=COALESCE(supplier_id,%s),
-                               supplier_name=COALESCE(NULLIF(supplier_name,''),%s),
-                               offer_id=COALESCE(offer_id,%s),
-                               request_id=COALESCE(request_id,%s),
-                               warehouse_invoice_id=COALESCE(warehouse_invoice_id,%s),
-                               file_url=COALESCE(NULLIF(file_url,''),%s),
-                               photo_url=COALESCE(NULLIF(photo_url,''),%s),
-                               payment_terms=COALESCE(NULLIF(payment_terms,''),%s),
-                               material_name=COALESCE(NULLIF(material_name,''),%s),
-                               work_package=COALESCE(NULLIF(work_package,''),%s)
-                         WHERE id=%s
-                        """,
-                        (
-                            duplicate.get("supplier_id"),
-                            duplicate.get("supplier_name") or "",
-                            duplicate.get("offer_id"),
-                            duplicate.get("request_id"),
-                            duplicate_warehouse_id,
-                            duplicate.get("file_url") or "",
-                            duplicate.get("photo_url") or "",
-                            duplicate.get("payment_terms") or "",
-                            duplicate.get("material_name") or "",
-                            duplicate.get("work_package") or "",
-                            canonical_id,
-                        ),
-                    )
-                    if duplicate_warehouse_id:
-                        cur.execute(
-                            "UPDATE warehouse_invoices SET supplier_invoice_id=%s WHERE id=%s AND COALESCE(status,'') <> 'Аннулирована'",
-                            (canonical_id, duplicate_warehouse_id),
-                        )
-                        linked_warehouse_rows += cur.rowcount
-                        if not canonical_warehouse_id:
-                            cur.execute("UPDATE supplier_invoices SET warehouse_invoice_id=%s WHERE id=%s", (duplicate_warehouse_id, canonical_id))
-                            canonical_warehouse_id = duplicate_warehouse_id
-                    cur.execute(
-                        "UPDATE warehouse_invoices SET supplier_invoice_id=%s WHERE supplier_invoice_id=%s AND COALESCE(status,'') <> 'Аннулирована'",
-                        (canonical_id, duplicate_id),
+                        "UPDATE warehouse_invoices SET supplier_invoice_id=%s WHERE id=%s AND company_id=%s AND COALESCE(status,'') <> 'Аннулирована'",
+                        (canonical_id, duplicate_warehouse_id, company_id),
                     )
                     linked_warehouse_rows += cur.rowcount
-                    cur.execute(
-                        """
-                        UPDATE supplier_invoices
-                           SET status='Аннулирован',
-                               paid_note=COALESCE(NULLIF(paid_note,''),'') ||
-                                   CASE WHEN COALESCE(paid_note,'')<>'' THEN E'\n' ELSE '' END || %s
-                         WHERE id=%s
-                           AND COALESCE(status,'') <> 'Аннулирован'
-                           AND COALESCE(paid_amount,0)=0
-                        """,
-                        (actor_note, duplicate_id),
-                    )
-                    annulled_rows += cur.rowcount
-                group["applied"] = True
-                applied_groups += 1
-            groups.append(group)
+                    if not canonical_warehouse_id:
+                        cur.execute("UPDATE supplier_invoices SET warehouse_invoice_id=%s WHERE id=%s AND company_id=%s", (duplicate_warehouse_id, canonical_id, company_id))
+                        canonical_warehouse_id = duplicate_warehouse_id
+                cur.execute(
+                    "UPDATE warehouse_invoices SET supplier_invoice_id=%s WHERE supplier_invoice_id=%s AND company_id=%s AND COALESCE(status,'') <> 'Аннулирована'",
+                    (canonical_id, duplicate_id, company_id),
+                )
+                linked_warehouse_rows += cur.rowcount
+                cur.execute(
+                    """
+                    UPDATE supplier_invoices
+                       SET status='Аннулирован',
+                           paid_note=COALESCE(NULLIF(paid_note,''),'') ||
+                               CASE WHEN COALESCE(paid_note,'')<>'' THEN E'\n' ELSE '' END || %s
+                     WHERE id=%s AND company_id=%s
+                       AND COALESCE(status,'') <> 'Аннулирован'
+                       AND COALESCE(paid_amount,0)=0
+                    """,
+                    (actor_note, duplicate_id, company_id),
+                )
+                annulled_rows += cur.rowcount
+            group["applied"] = True
+            applied_groups += 1
         if apply_changes:
             conn.commit()
         else:
@@ -21384,7 +21689,8 @@ def dedupe_supplier_accounting_documents(data: dict = None, _current_user: dict 
         conn.rollback()
         raise
     finally:
-        cur.close()
+        if cur is not None:
+            cur.close()
         conn.close()
 
 @app.put("/warehouse-invoices/{id}/accounting")
@@ -21399,8 +21705,14 @@ def update_warehouse_invoice_accounting(
     conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        _ensure_warehouse_invoice_accounting_columns(cur)
-        _ensure_invoice_document_link_columns(cur)
+        ledger_present = _payment_ledger_available(cur)
+        if ledger_present:
+            # 0017 requires an initialized finance schema. Runtime DDL here
+            # would take table locks ahead of the engine's company lock.
+            _lock_payment_document_writer(cur, 'warehouse', id)
+        else:
+            _ensure_warehouse_invoice_accounting_columns(cur)
+            _ensure_invoice_document_link_columns(cur)
         cur.execute("""SELECT id, number, date, supplier_id, supplier_name, location, project, items,
                               total_base, total_vat, total_with_vat, status, photo_url, photo_urls,
                               accounting_status, accounting_comment, paid_amount, supplier_invoice_id,
@@ -21434,6 +21746,12 @@ def update_warehouse_invoice_accounting(
         target_project = row.get("project") or (row.get("location") if row.get("location") != "Основной склад" else "")
         if target_project:
             require_project_access(_current_user, target_project)
+
+        if ledger_present:
+            proposed_link = data.get('supplierInvoiceId')
+            if proposed_link is None:
+                proposed_link = data.get('supplier_invoice_id')
+            _require_unmanaged_payment_document(cur, 'warehouse', id, proposed_link=proposed_link)
 
         supplier_payload_present = "supplierId" in data or "supplier_id" in data
         requested_supplier_id = None
@@ -21903,7 +22221,11 @@ def delete_warehouse_invoice(
         except ModuleNotFoundError:
             from features.material_traceability.guards import lock_distribution_compatible_stock
         lock_distribution_compatible_stock(cur)
-        _ensure_invoice_document_link_columns(cur)
+        ledger_present = _payment_ledger_available(cur)
+        if ledger_present:
+            _lock_payment_document_writer(cur, 'warehouse', id)
+        else:
+            _ensure_invoice_document_link_columns(cur)
         cur.execute("""SELECT id, COALESCE(project,'') AS project, COALESCE(location,'') AS location,
                               COALESCE(status,'') AS status, items, COALESCE(accepted_by,'') AS accepted_by,
                               COALESCE(added_by,'') AS added_by, date, supply_delivery_id, supplier_invoice_id,
@@ -21925,6 +22247,11 @@ def delete_warehouse_invoice(
             client_account_roles=CLIENT_ACCOUNT_ROLES,
         )
         _current_user = actor
+        target_project = row.get("project") or (row.get("location") if row.get("location") != "Основной склад" else "")
+        if target_project:
+            require_project_or_warehouse_access(_current_user, target_project)
+        if ledger_present:
+            _require_unmanaged_payment_document(cur, 'warehouse', id)
         if row.get("supply_delivery_id"):
             raise HTTPException(status_code=409, detail="Накладная создана при приёмке поставки. Исправляйте поставку/претензию, а не удаляйте накладную отдельно.")
         if row.get("status") == "Аннулирована":
@@ -24717,204 +25044,294 @@ def list_supplier_invoices(
     return result
 
 @app.post("/supplier-invoices")
-def create_supplier_invoice(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "поставщик"))):
+def create_supplier_invoice(
+    data: dict,
+    _current_user: dict = Depends(get_current_user),
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+):
+    # This legacy writer may enrich/relink existing documents: even "already
+    # exists" is a mutation, not an immutable payment-operation replay.
     if _current_user.get("role") == "поставщик":
         raise HTTPException(409, "Выставьте счёт через утверждённое КП в кабинете поставщика")
+    data = dict(data)
     conn = get_db()
-    cur = conn.cursor()
-    _ensure_invoice_document_link_columns(cur)
-    _ensure_supply_runtime_columns(cur)
-    conn.commit()
-    project_name = data.get("projectName", "")
-    invoice_work_package = (data.get("workPackage") or data.get("work_package") or "").strip()
-    offer_id = int(data.get("offerId") or data.get("offer_id") or 0)
-    request_id = int(data.get("requestId") or data.get("request_id") or 0)
-    company_id = _positive_int_or_none(data.get("companyId") or data.get("company_id"))
-    if _current_user.get("role") == "поставщик":
-        supplier_ids = current_supplier_ids(cur, _current_user)
-        if not supplier_ids:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=403, detail="поставщик не найден")
-        if not project_name:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="объект обязателен")
-        data["supplierId"] = supplier_ids[0]
-        data["_supplierAccessIds"] = supplier_ids
-    else:
-        if project_name:
-            require_project_access(_current_user, project_name)
-    linked_offer = None
-    if project_name:
-        if not offer_id:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="Счёт по объекту создаётся только из утверждённого КП/заявки. Откройте КП поставщика и выставьте счёт оттуда.")
-        cur.execute("""SELECT o.id, o.request_id, o.supplier_id, o.total_price, o.payment_terms,
-                              s.name AS supplier_name, r.project, COALESCE(r.work_package,'') AS work_package,
-                              r.material_name, COALESCE(o.company_id, r.company_id, 1) AS company_id
-                       FROM supplier_offers o
-                       LEFT JOIN suppliers s ON s.id=o.supplier_id
-                       LEFT JOIN supply_requests r ON r.id=o.request_id
-                       WHERE o.id=%s AND o.status=%s
-                       LIMIT 1""", (offer_id, 'Утверждено'))
-        linked_offer = cur.fetchone()
-        if not linked_offer:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="Утверждённое КП для счёта не найдено")
-        offer_project = linked_offer[6] if not isinstance(linked_offer, dict) else linked_offer.get("project")
-        offer_request_id = linked_offer[1] if not isinstance(linked_offer, dict) else linked_offer.get("request_id")
-        offer_supplier_id = linked_offer[2] if not isinstance(linked_offer, dict) else linked_offer.get("supplier_id")
-        offer_total = _float_or_zero(linked_offer[3] if not isinstance(linked_offer, dict) else linked_offer.get("total_price"))
-        offer_package = (linked_offer[7] if not isinstance(linked_offer, dict) else linked_offer.get("work_package")) or ""
-        company_id = company_id or _positive_int_or_none(linked_offer[9] if not isinstance(linked_offer, dict) else linked_offer.get("company_id"))
-        if offer_project != project_name:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="КП относится к другому объекту")
-        if request_id and request_id != offer_request_id:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="КП не относится к указанной заявке")
-        if _current_user.get("role") == "поставщик":
-            if int(offer_supplier_id or 0) not in (data.get("_supplierAccessIds") or []):
-                cur.close(); conn.close()
-                raise HTTPException(status_code=403, detail="Нет доступа к КП")
-            data["supplierId"] = offer_supplier_id
-        elif data.get("supplierId") and int(data.get("supplierId") or 0) != int(offer_supplier_id or 0):
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="Поставщик счёта не совпадает с поставщиком КП")
-        if invoice_work_package and offer_package and invoice_work_package != offer_package:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="Раздел счёта не совпадает с разделом заявки/КП")
-        amount = _float_or_zero(data.get("amount", offer_total))
-        if offer_total > 0 and amount > offer_total + max(1, offer_total * 0.02):
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="Сумма счёта больше суммы утверждённого КП")
-        cur.execute("""SELECT id FROM supplier_invoices
-                       WHERE offer_id=%s AND COALESCE(status,'') <> 'Аннулирован'
-                       ORDER BY id DESC LIMIT 1""", (offer_id,))
-        existing_invoice = cur.fetchone()
-        if existing_invoice:
-            existing_id = existing_invoice[0] if not isinstance(existing_invoice, dict) else existing_invoice.get("id")
-            cur.execute("""SELECT id FROM warehouse_invoices
-                           WHERE supply_request_id=%s
-                             AND COALESCE(status,'') <> 'Аннулирована'
-                             AND (supplier_invoice_id IS NULL OR supplier_invoice_id=%s)
-                           ORDER BY id DESC LIMIT 1""", (offer_request_id, existing_id))
-            existing_warehouse_invoice_id = _row_get(cur.fetchone(), "id", 0)
-            if existing_warehouse_invoice_id:
-                cur.execute("UPDATE supplier_invoices SET company_id=%s, warehouse_invoice_id=%s WHERE id=%s", (company_id or 1, existing_warehouse_invoice_id, existing_id))
-                cur.execute("UPDATE warehouse_invoices SET company_id=%s, supplier_invoice_id=%s WHERE id=%s", (company_id or 1, existing_id, existing_warehouse_invoice_id))
-                conn.commit()
-            cur.close(); conn.close()
-            return {"id": existing_id, "ok": True, "alreadyExists": True}
-        data["amount"] = amount if amount > 0 else offer_total
-        data["supplierId"] = offer_supplier_id
-        data["supplierName"] = linked_offer[5] if not isinstance(linked_offer, dict) else linked_offer.get("supplier_name")
-        data["requestId"] = offer_request_id
-        invoice_work_package = invoice_work_package or offer_package
-        if not data.get("description"):
-            data["description"] = "Материал: " + ((linked_offer[8] if not isinstance(linked_offer, dict) else linked_offer.get("material_name")) or "")
-    warehouse_invoice_id = int(data.get("warehouseInvoiceId") or data.get("warehouse_invoice_id") or 0) or None
-    if not warehouse_invoice_id and data.get("requestId"):
-        cur.execute("""SELECT id FROM warehouse_invoices
-                       WHERE supply_request_id=%s AND COALESCE(status,'') <> 'Аннулирована'
-                       ORDER BY id DESC LIMIT 1""", (data.get("requestId"),))
-        warehouse_invoice_id = _row_get(cur.fetchone(), "id", 0)
-    if warehouse_invoice_id:
-        cur.execute("""SELECT project, location, supplier_invoice_id, company_id
-                       FROM warehouse_invoices
-                       WHERE id=%s AND COALESCE(status,'') <> 'Аннулирована'""", (warehouse_invoice_id,))
-        warehouse_invoice_row = cur.fetchone()
-        if not warehouse_invoice_row:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=404, detail="Складская накладная для связи не найдена")
-        warehouse_project = (_row_get(warehouse_invoice_row, "project", 0, "") or _row_get(warehouse_invoice_row, "location", 1, "") or "").strip()
-        existing_supplier_invoice_id = _row_get(warehouse_invoice_row, "supplier_invoice_id", 2)
-        company_id = company_id or _positive_int_or_none(_row_get(warehouse_invoice_row, "company_id", 3))
-        if project_name and warehouse_project and warehouse_project != project_name:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="Складская накладная относится к другому объекту")
-        if existing_supplier_invoice_id:
-            conn.commit()
-            cur.close(); conn.close()
-            return {"id": existing_supplier_invoice_id, "ok": True, "alreadyExists": True}
-    supplier_lookup_payload = {
-        **(data or {}),
-        "supplierName": data.get("supplierName") or data.get("supplier") or "",
-        "supplier": data.get("supplier") or data.get("supplierName") or "",
-    }
-    matched_supplier = _supplier_find_match(cur, supplier_lookup_payload)
-    if matched_supplier:
-        data["supplierId"] = matched_supplier["id"]
-        data["supplierName"] = matched_supplier["name"] or data.get("supplierName") or ""
-        _update_supplier_missing_fields(cur, matched_supplier["id"], supplier_lookup_payload)
-        _remember_supplier_alias(cur, matched_supplier["id"], supplier_lookup_payload, source="supplier_invoice")
-    if not company_id and data.get("requestId"):
-        cur.execute("SELECT company_id FROM supply_requests WHERE id=%s", (data.get("requestId"),))
-        company_id = _positive_int_or_none(_row_get(cur.fetchone(), "company_id", 0))
-    company_id = company_id or _company_id_for_project_or_user(cur, project_name, _current_user)
-    duplicate_invoice = _find_existing_supplier_invoice_duplicate(
-        cur,
-        company_id=company_id,
-        invoice_number=data.get("invoiceNumber", ""),
-        invoice_date=data.get("invoiceDate") or None,
-        project_name=project_name,
-        supplier_id=data.get("supplierId"),
-        supplier_name=data.get("supplierName", ""),
-        amount=data.get("amount", 0),
-        warehouse_invoice_id=warehouse_invoice_id,
-        request_id=data.get("requestId"),
-        offer_id=offer_id,
-    )
-    if duplicate_invoice:
-        existing_id = duplicate_invoice.get("id")
-        linked_warehouse_id = _positive_int_or_none(duplicate_invoice.get("warehouseInvoiceId"))
-        cur.execute(
-            """
-            UPDATE supplier_invoices
-               SET company_id=%s,
-                   offer_id=COALESCE(offer_id,%s),
-                   request_id=COALESCE(request_id,%s),
-                   supplier_id=COALESCE(supplier_id,%s),
-                   supplier_name=COALESCE(NULLIF(supplier_name,''),%s),
-                   work_package=COALESCE(NULLIF(work_package,''),%s)
-             WHERE id=%s
-            """,
-            (
-                company_id,
-                offer_id or None,
-                data.get("requestId") or None,
-                data.get("supplierId"),
-                data.get("supplierName", ""),
-                invoice_work_package,
-                existing_id,
-            ),
-        )
+    conn.autocommit = False
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        ledger_present = _payment_ledger_available(cur)
+        if not ledger_present:
+            _lock_legacy_supply_writer(cur)
+            _ensure_invoice_document_link_columns(cur)
+            _ensure_supply_runtime_columns(cur)
+        cur.execute('SHOW transaction_isolation')
+        if cur.fetchone()['transaction_isolation'] != 'read committed':
+            raise HTTPException(409, 'Создание счёта требует новой транзакции')
+        project_name = (data.get("projectName") or "").strip()
+        invoice_work_package = (data.get("workPackage") or data.get("work_package") or "").strip()
+        def source_id(camel, snake):
+            values = []
+            for key in (camel, snake):
+                value = data.get(key)
+                if value is None or value == '':
+                    continue
+                if (isinstance(value, bool) or not isinstance(value, (int, str))
+                        or not str(value).isascii() or not str(value).isdigit()
+                        or len(str(value)) > 10 or not 0 < int(value) <= 2147483647):
+                    raise HTTPException(422, 'Некорректная ссылка: ' + key)
+                values.append(int(value))
+            if len(set(values)) > 1:
+                raise HTTPException(422, 'Ссылки документа не совпадают: ' + camel)
+            return values[0] if values else None
+
+        offer_id = source_id('offerId', 'offer_id')
+        request_id = source_id('requestId', 'request_id')
+        warehouse_invoice_id = source_id('warehouseInvoiceId', 'warehouse_invoice_id')
+        claimed_company = data.get("companyId") if "companyId" in data else data.get("company_id")
+        claimed_id = _positive_int_or_none(claimed_company)
+        if claimed_company not in (None, "") and not claimed_id:
+            raise HTTPException(400, 'companyId должен быть положительным целым числом')
+        if project_name and not offer_id:
+            raise HTTPException(400, 'Счёт по объекту создаётся только из утверждённого КП/заявки')
+
+        # Discovery is read-only. Serialize the authoritative company BEFORE
+        # user/membership, offer/request, invoice or warehouse row locks.
+        source_owners = []
+        for table, source_id in (('supplier_offers', offer_id), ('supply_requests', request_id),
+                                 ('warehouse_invoices', warehouse_invoice_id)):
+            if source_id:
+                cur.execute(f'SELECT company_id FROM {table} WHERE id=%s', (source_id,))
+                row = cur.fetchone()
+                if not row:
+                    raise HTTPException(404, 'Исходный документ не найден')
+                if not _positive_int_or_none(row['company_id']):
+                    raise HTTPException(409, 'Компания исходного документа требует сверки')
+                source_owners.append(row['company_id'])
+        company_id = source_owners[0] if source_owners else (
+            claimed_id or _company_id_for_project_or_user(cur, project_name, _current_user))
+        if any(owner != company_id for owner in source_owners) or (claimed_id and claimed_id != company_id):
+            raise HTTPException(409, 'Компания исходных документов не совпадает с companyId')
+        cur.execute('SELECT pg_advisory_xact_lock(%s,%s)', (1735289201, company_id))
+        cur.execute('''SELECT id,name,email,role,company_id,platform_account_id,
+            project_name,assigned_projects,assigned_packages,active
+            FROM users WHERE id=%s AND active=TRUE FOR SHARE''', (_current_user.get('id'),))
+        actor = cur.fetchone()
+        if not actor:
+            raise HTTPException(403, 'Пользователь отключён или не найден')
+        actor = dict(actor)
+        cur.execute('SELECT id,active FROM companies WHERE id=%s FOR SHARE', (company_id,))
+        company = cur.fetchone()
+        if not company or not company['active']:
+            raise HTTPException(403, 'Компания недоступна')
+        cur.execute('''SELECT id FROM user_company_roles WHERE user_id=%s AND company_id=%s
+            ORDER BY id FOR SHARE''', (actor['id'], company_id))
+        memberships = {row['id'] for row in cur.fetchall()}
+        is_supplier = actor.get('role') == 'поставщик'
+        if is_supplier:
+            if not offer_id:
+                raise HTTPException(403, 'Поставщик выставляет счёт только по доступному КП')
+        else:
+            context, actor = resolve_resource_company_actor(
+                cur, actor, company_id, "create", claimed_company_id=claimed_company,
+                x_company_id=x_company_id if isinstance(x_company_id, str) else None,
+                x_company_mode=x_company_mode if isinstance(x_company_mode, str) else None,
+                allowed_roles=FINANCE_ROLES, platform_staff_roles=PLATFORM_STAFF_ROLES,
+                client_account_roles=CLIENT_ACCOUNT_ROLES,
+                forbidden_detail="Роль в компании не позволяет создавать счёт")
+            if ledger_present and (context.get('source') != 'membership' or context.get('membershipId') not in memberships
+                    or not context.get('active') or not context.get('companyActive') or context.get('readOnly')):
+                raise HTTPException(403, 'Требуется активное членство в компании')
+
+        linked_offer = None
+        if offer_id:
+            cur.execute('LOCK TABLE supply_requests, supplier_offers IN ROW SHARE MODE')
+            cur.execute('''SELECT o.*,r.company_id AS request_company_id,r.project,
+                COALESCE(r.work_package,'') AS work_package,r.material_name,s.name AS supplier_name
+                FROM supplier_offers o JOIN supply_requests r ON r.id=o.request_id
+                LEFT JOIN suppliers s ON s.id=o.supplier_id WHERE o.id=%s FOR UPDATE OF o,r''', (offer_id,))
+            linked_offer = cur.fetchone()
+            if (not linked_offer or linked_offer['company_id'] != company_id
+                    or linked_offer['request_company_id'] != company_id or linked_offer['status'] != 'Утверждено'):
+                raise HTTPException(409, 'Утверждённое КП и компания заявки требуют сверки')
+            if request_id and request_id != linked_offer['request_id']:
+                raise HTTPException(409, 'КП относится к другой заявке')
+            request_id = linked_offer['request_id']
+            if project_name and project_name != linked_offer['project']:
+                raise HTTPException(409, 'КП относится к другому объекту')
+            project_name = linked_offer['project'] or ''
+            if is_supplier:
+                cur.execute('SELECT id FROM supply_request_recipients WHERE request_id=%s ORDER BY id FOR SHARE',
+                            (request_id,))
+                cur.fetchall()
+                visibility, params = supplier_offer_visibility_filter(current_supplier_ids(cur, actor), actor['id'])
+                cur.execute('SELECT id FROM supplier_offers WHERE id=%s' + visibility, [offer_id] + params)
+                if not cur.fetchone():
+                    raise HTTPException(403, 'Нет доступа к КП для выставления счёта')
+            elif data.get('supplierId') and int(data['supplierId']) != linked_offer['supplier_id']:
+                raise HTTPException(409, 'Поставщик счёта не совпадает с поставщиком КП')
+            offer_package = linked_offer['work_package']
+            if invoice_work_package and offer_package and invoice_work_package != offer_package:
+                raise HTTPException(409, 'Раздел счёта не совпадает с разделом КП')
+            invoice_work_package = invoice_work_package or offer_package
+            offer_total = _float_or_zero(linked_offer['total_price'])
+            amount = _float_or_zero(data.get('amount', offer_total))
+            if offer_total > 0 and amount > offer_total + max(1, offer_total * .02):
+                raise HTTPException(400, 'Сумма счёта больше суммы утверждённого КП')
+            data.update(supplierId=linked_offer['supplier_id'], supplierName=linked_offer['supplier_name'],
+                        amount=amount if amount > 0 else offer_total)
+            if not data.get('description'):
+                data['description'] = 'Материал: ' + (linked_offer['material_name'] or '')
+        elif request_id:
+            cur.execute('SELECT company_id,project FROM supply_requests WHERE id=%s FOR UPDATE', (request_id,))
+            request = cur.fetchone()
+            if not request or request['company_id'] != company_id:
+                raise HTTPException(409, 'Компания заявки изменилась')
+            if request['project']:
+                raise HTTPException(400, 'Счёт по объекту создаётся только из утверждённого КП')
+        if project_name and not is_supplier:
+            require_project_access(actor, project_name)
+            if not has_package_access(actor, invoice_work_package or 'Основная'):
+                raise HTTPException(403, 'Нет доступа к пакету счёта')
+        bindings_requested = os.getenv('SUPPLIER_DOCUMENT_CONTRACT_BINDINGS_ENABLED', '0') == '1'
+        if offer_id and (bindings_requested or 'contractVersionId' in data):
+            # The offer module owns contract selection and its prerequisite
+            # flags. Never downgrade a binding request into an unbound invoice.
+            raise HTTPException(409, 'Для счёта по КП используйте /supplier-offers/'
+                                + str(offer_id) + '/create-invoice с проверенной версией договора')
+        if 'contractVersionId' in data:
+            raise HTTPException(409, 'Счёт с договором создаётся через /supplier-offers/{id}/create-invoice')
+        data['requestId'] = request_id
+
+        if not warehouse_invoice_id and request_id:
+            cur.execute('''SELECT id FROM warehouse_invoices WHERE supply_request_id=%s
+                AND COALESCE(status,'') <> 'Аннулирована' ORDER BY id DESC LIMIT 1''', (request_id,))
+            warehouse_invoice_id = _row_get(cur.fetchone(), 'id', 0)
+
+        def lock_warehouse(document_id):
+            cur.execute('SELECT * FROM warehouse_invoices WHERE id=%s FOR UPDATE', (document_id,))
+            row = cur.fetchone()
+            if (not row or row['company_id'] != company_id or row['status'] == 'Аннулирована'
+                    or (request_id and row.get('supply_request_id') not in (None, request_id))):
+                raise HTTPException(409, 'Складская накладная и компания требуют сверки')
+            # location is a warehouse display label, not an object identity.
+            warehouse_project = row.get('project') or ''
+            if warehouse_project and (not linked_offer or warehouse_project != project_name):
+                raise HTTPException(409, 'Для объектной накладной требуется утверждённое КП того же объекта')
+            if row.get('warehouse_target') == 'object' and not warehouse_project:
+                raise HTTPException(409, 'Объект складской накладной требует сверки')
+            if project_name and warehouse_project != project_name:
+                raise HTTPException(409, 'Складская накладная относится к другому объекту')
+            if ledger_present:
+                _require_unmanaged_payment_document(cur, 'warehouse', document_id)
+            return row
+
+        warehouse = lock_warehouse(warehouse_invoice_id) if warehouse_invoice_id else None
+        existing_id = None
+        if offer_id:
+            cur.execute('''SELECT id FROM supplier_invoices WHERE offer_id=%s
+                AND COALESCE(status,'') <> 'Аннулирован' ORDER BY id DESC LIMIT 1''', (offer_id,))
+            existing_id = _row_get(cur.fetchone(), 'id', 0)
+        if warehouse and warehouse['supplier_invoice_id']:
+            if existing_id and existing_id != warehouse['supplier_invoice_id']:
+                raise HTTPException(409, 'Складская накладная связана с другим счётом')
+            existing_id = warehouse['supplier_invoice_id']
+        supplier_payload = {**data, 'supplierName': data.get('supplierName') or data.get('supplier') or '',
+                            'supplier': data.get('supplier') or data.get('supplierName') or ''}
+        matched_supplier = _supplier_find_match(cur, supplier_payload)
+        if matched_supplier:
+            if linked_offer and matched_supplier['id'] != linked_offer['supplier_id']:
+                raise HTTPException(409, 'Поставщик КП требует сверки')
+            data['supplierId'] = matched_supplier['id']
+            data['supplierName'] = matched_supplier['name'] or data.get('supplierName') or ''
+        duplicate = None
+        if not existing_id:
+            duplicate = _find_existing_supplier_invoice_duplicate(
+                cur, company_id=company_id, invoice_number=data.get('invoiceNumber', ''),
+                invoice_date=data.get('invoiceDate') or None, project_name=project_name,
+                supplier_id=data.get('supplierId'), supplier_name=data.get('supplierName', ''),
+                amount=data.get('amount', 0), warehouse_invoice_id=warehouse_invoice_id,
+                request_id=request_id, offer_id=offer_id)
+            existing_id = duplicate.get('id') if duplicate else None
+        if existing_id:
+            cur.execute('SELECT * FROM supplier_invoices WHERE id=%s FOR UPDATE', (existing_id,))
+            existing = cur.fetchone()
+            if (not existing or existing['company_id'] != company_id or existing['status'] == 'Аннулирован'
+                    or (offer_id and existing.get('offer_id') not in (None, offer_id))
+                    or (request_id and existing.get('request_id') not in (None, request_id))
+                    or (existing.get('project_name') or '') != project_name):
+                raise HTTPException(409, 'Исходный счёт и компания требуют сверки')
+            if existing.get('offer_id') and (bindings_requested or existing.get('contract_version_id') is not None):
+                raise HTTPException(409, 'Для счёта по КП используйте /supplier-offers/'
+                                    + str(existing['offer_id']) + '/create-invoice')
+            if (not _positive_int_or_none(data.get('supplierId'))
+                    or existing.get('supplier_id') != int(data['supplierId'])):
+                raise HTTPException(409, 'Поставщик исходного счёта не совпадает с поставщиком операции')
+            linked_id = existing['warehouse_invoice_id']
+            if linked_id:
+                if warehouse_invoice_id and linked_id != warehouse_invoice_id:
+                    raise HTTPException(409, 'Счёт связан с другой накладной')
+                warehouse_invoice_id = linked_id
+                warehouse = lock_warehouse(linked_id)
+                if warehouse['supplier_invoice_id'] != existing_id:
+                    raise HTTPException(409, 'Нарушена взаимная связь счёта и накладной')
+            elif warehouse and warehouse['supplier_invoice_id']:
+                raise HTTPException(409, 'Нарушена взаимная связь счёта и накладной')
+            cur.execute('''SELECT id FROM warehouse_invoices WHERE supplier_invoice_id=%s
+                AND id IS DISTINCT FROM %s ORDER BY id''', (existing_id, linked_id))
+            if cur.fetchone():
+                raise HTTPException(409, 'Обратная связь счёта требует сверки')
+            if ledger_present:
+                _require_unmanaged_payment_document(cur, 'invoice', existing_id, proposed_link=warehouse_invoice_id)
         if warehouse_invoice_id:
-            cur.execute("UPDATE warehouse_invoices SET company_id=%s, supplier_invoice_id=%s WHERE id=%s", (company_id, existing_id, warehouse_invoice_id))
-            if not linked_warehouse_id:
-                cur.execute("UPDATE supplier_invoices SET warehouse_invoice_id=%s WHERE id=%s", (warehouse_invoice_id, existing_id))
+            if (not _positive_int_or_none(data.get('supplierId'))
+                    or warehouse.get('supplier_id') != int(data['supplierId'])):
+                raise HTTPException(409, 'Поставщик складской накладной не совпадает с поставщиком счёта')
+            cur.execute('''SELECT id FROM supplier_invoices WHERE warehouse_invoice_id=%s
+                AND id IS DISTINCT FROM %s ORDER BY id''', (warehouse_invoice_id, existing_id))
+            if cur.fetchone():
+                raise HTTPException(409, 'Накладная связана с другим счётом')
+
+        # No enrichment or document writes until every selected/reused link
+        # has passed current ownership, lifecycle and payment-ledger checks.
+        if matched_supplier:
+            _update_supplier_missing_fields(cur, matched_supplier['id'], supplier_payload)
+            _remember_supplier_alias(cur, matched_supplier['id'], supplier_payload, source='supplier_invoice')
+        if existing_id:
+            cur.execute('''UPDATE supplier_invoices SET offer_id=COALESCE(offer_id,%s),
+                request_id=COALESCE(request_id,%s),supplier_id=COALESCE(supplier_id,%s),
+                supplier_name=COALESCE(NULLIF(supplier_name,''),%s),
+                work_package=COALESCE(NULLIF(work_package,''),%s),
+                warehouse_invoice_id=COALESCE(warehouse_invoice_id,%s) WHERE id=%s''',
+                (offer_id, request_id, data.get('supplierId'), data.get('supplierName', ''),
+                 invoice_work_package, warehouse_invoice_id, existing_id))
+            result = dict(id=existing_id, ok=True, alreadyExists=True)
+            if duplicate:
+                result['duplicateDocument'] = True
+        else:
+            cur.execute('''INSERT INTO supplier_invoices
+                (company_id,supplier_id,supplier_name,project_name,invoice_number,invoice_date,amount,
+                 vat_amount,description,file_url,photo_url,status,offer_id,request_id,payment_terms,
+                 material_name,work_package,warehouse_invoice_id)
+                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id''',
+                (company_id,data.get('supplierId'),data.get('supplierName',''),project_name,
+                 data.get('invoiceNumber',''),data.get('invoiceDate') or None,float(data.get('amount',0)),
+                 float(data.get('vatAmount',0)),data.get('description',''),data.get('fileUrl',''),
+                 data.get('photoUrl',''),data.get('status','На утверждении'),offer_id,request_id,
+                 linked_offer.get('payment_terms') if linked_offer else '',
+                 linked_offer.get('material_name') if linked_offer else data.get('materialName',''),
+                 invoice_work_package,warehouse_invoice_id))
+            result = dict(id=cur.fetchone()['id'], ok=True)
+        if warehouse_invoice_id:
+            cur.execute('UPDATE warehouse_invoices SET supplier_invoice_id=%s WHERE id=%s',
+                        (result['id'], warehouse_invoice_id))
         conn.commit()
-        cur.close(); conn.close()
-        return {"id": existing_id, "ok": True, "alreadyExists": True, "duplicateDocument": True}
-    cur.execute("""INSERT INTO supplier_invoices
-                   (company_id, supplier_id, supplier_name, project_name, invoice_number, invoice_date,
-                    amount, vat_amount, description, file_url, photo_url, status,
-                    offer_id, request_id, payment_terms, material_name, work_package, warehouse_invoice_id)
-		                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-                (company_id, data.get("supplierId"), data.get("supplierName",""), project_name,
-                 data.get("invoiceNumber",""), data.get("invoiceDate") or None,
-                 float(data.get("amount",0)), float(data.get("vatAmount",0)),
-                 data.get("description",""), data.get("fileUrl",""), data.get("photoUrl",""),
-                 data.get("status","На утверждении"), offer_id or None, data.get("requestId") or None,
-                 (linked_offer[4] if linked_offer and not isinstance(linked_offer, dict) else (linked_offer.get("payment_terms") if linked_offer else "")),
-                 (linked_offer[8] if linked_offer and not isinstance(linked_offer, dict) else (linked_offer.get("material_name") if linked_offer else data.get("materialName", ""))),
-                 invoice_work_package, warehouse_invoice_id))
-    row = cur.fetchone()
-    supplier_invoice_id = row[0] if not isinstance(row, dict) else row.get("id")
-    if warehouse_invoice_id:
-        cur.execute("UPDATE warehouse_invoices SET company_id=%s, supplier_invoice_id=%s WHERE id=%s", (company_id, supplier_invoice_id, warehouse_invoice_id))
-    conn.commit()
-    cur.close(); conn.close()
-    return {"id": supplier_invoice_id, "ok": True}
+        return result
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
 
 @app.put("/supplier-invoices/{id}")
 def update_supplier_invoice(
@@ -24925,261 +25342,331 @@ def update_supplier_invoice(
     _current_user: dict = Depends(get_current_user),
 ):
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor()
-    _ensure_invoice_document_link_columns(cur)
-    conn.commit()
-    cur.execute("""SELECT si.amount, si.paid_amount, si.work_package, si.offer_id, o.total_price, COALESCE(r.work_package,''),
-                          COALESCE(si.payment_terms, o.payment_terms, ''), si.warehouse_invoice_id,
-                          si.project_name, si.supplier_name, si.company_id,
-                          si.supplier_id
-                   FROM supplier_invoices si
-                   LEFT JOIN supplier_offers o ON o.id=si.offer_id
-                   LEFT JOIN supply_requests r ON r.id=o.request_id
-                   WHERE si.id=%s""", (id,))
-    invoice_guard = cur.fetchone()
-    if not invoice_guard:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=404, detail="Счёт не найден")
-    supplier_company_id = _positive_int_or_none(invoice_guard[10])
-    _company_context, actor = resolve_resource_company_actor(
-        cur,
-        _current_user,
-        supplier_company_id,
-        "update",
-        claimed_company_id=(
-            data.get("companyId")
-            if "companyId" in data
-            else data.get("company_id")
-        ),
-        x_company_id=x_company_id,
-        x_company_mode=x_company_mode,
-        allowed_roles=FINANCE_ROLES,
-        forbidden_detail="Роль в выбранной компании не позволяет изменять счёт поставщика",
-        platform_staff_roles=PLATFORM_STAFF_ROLES,
-        client_account_roles=CLIENT_ACCOUNT_ROLES,
-    )
-    _current_user = actor
-    require_row_project_access(cur, "supplier_invoices", id, _current_user, "project_name")
-    current_amount = _float_or_zero(invoice_guard[0])
-    current_paid = _float_or_zero(invoice_guard[1])
-    offer_id = invoice_guard[3]
-    offer_total = _float_or_zero(invoice_guard[4])
-    offer_package = invoice_guard[5] or ""
-    payment_terms = str(invoice_guard[6] or "").lower()
-    current_warehouse_invoice_id = invoice_guard[7]
-    supplier_project_name = invoice_guard[8] or ""
-    supplier_name = invoice_guard[9] or ""
-    supplier_supplier_id = _positive_int_or_none(invoice_guard[11])
-    next_amount = _float_or_zero(data.get("amount", current_amount))
-    next_paid = _float_or_zero(data.get("paidAmount", current_paid))
-    next_package = (data.get("workPackage") if "workPackage" in data else invoice_guard[2]) or ""
-    link_payload_present = "warehouseInvoiceId" in data or "warehouse_invoice_id" in data
-    automatic_exception_repair = data.get("accountingExceptionRepair") is True
-    next_warehouse_invoice_id = current_warehouse_invoice_id
-    if link_payload_present:
-        raw_warehouse_invoice_id = data.get("warehouseInvoiceId")
-        if raw_warehouse_invoice_id is None:
-            raw_warehouse_invoice_id = data.get("warehouse_invoice_id")
-        next_warehouse_invoice_id = int(raw_warehouse_invoice_id or 0) or None
-    if next_warehouse_invoice_id:
-        cur.execute("""SELECT id, project, location, supplier_invoice_id, status,
-                              company_id, supplier_id, supplier_name,
-                              total_with_vat, total_base
-                       FROM warehouse_invoices
-                       WHERE id=%s FOR UPDATE""", (next_warehouse_invoice_id,))
-        warehouse_invoice_row = cur.fetchone()
-        if not warehouse_invoice_row:
+    try:
+        ledger_present = _payment_ledger_available(cur)
+        if ledger_present:
+            _lock_payment_document_writer(cur, 'invoice', id)
+        else:
+            _ensure_invoice_document_link_columns(cur)
+            conn.commit()
+        cur.execute("""SELECT si.amount, si.paid_amount, si.work_package, si.offer_id, o.total_price, COALESCE(r.work_package,''),
+                              COALESCE(si.payment_terms, o.payment_terms, ''), si.warehouse_invoice_id,
+                              si.project_name, si.supplier_name, si.company_id,
+                              si.supplier_id
+                       FROM supplier_invoices si
+                       LEFT JOIN supplier_offers o ON o.id=si.offer_id
+                       LEFT JOIN supply_requests r ON r.id=o.request_id
+                       WHERE si.id=%s""", (id,))
+        invoice_guard = cur.fetchone()
+        if not invoice_guard:
             cur.close(); conn.close()
-            raise HTTPException(status_code=404, detail="Складская накладная для связи не найдена")
-        if (_row_get(warehouse_invoice_row, "status", 4, "") or "") == "Аннулирована":
-            cur.close(); conn.close()
-            raise HTTPException(status_code=409, detail="Аннулированную накладную нельзя связать со счётом")
-        warehouse_company_id = _positive_int_or_none(
-            _row_get(warehouse_invoice_row, "company_id", 5),
+            raise HTTPException(status_code=404, detail="Счёт не найден")
+        supplier_company_id = _positive_int_or_none(invoice_guard[10])
+        _company_context, actor = resolve_resource_company_actor(
+            cur,
+            _current_user,
+            supplier_company_id,
+            "update",
+            claimed_company_id=(
+                data.get("companyId")
+                if "companyId" in data
+                else data.get("company_id")
+            ),
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+            allowed_roles=FINANCE_ROLES,
+            forbidden_detail="Роль в выбранной компании не позволяет изменять счёт поставщика",
+            platform_staff_roles=PLATFORM_STAFF_ROLES,
+            client_account_roles=CLIENT_ACCOUNT_ROLES,
         )
-        if warehouse_company_id != supplier_company_id:
+        _current_user = actor
+        require_row_project_access(cur, "supplier_invoices", id, _current_user, "project_name")
+        if ledger_present:
+            proposed_link = data.get('warehouseInvoiceId')
+            if proposed_link is None:
+                proposed_link = data.get('warehouse_invoice_id')
+            _require_unmanaged_payment_document(cur, 'invoice', id, proposed_link=proposed_link)
+        current_amount = _float_or_zero(invoice_guard[0])
+        current_paid = _float_or_zero(invoice_guard[1])
+        offer_id = invoice_guard[3]
+        offer_total = _float_or_zero(invoice_guard[4])
+        offer_package = invoice_guard[5] or ""
+        payment_terms = str(invoice_guard[6] or "").lower()
+        current_warehouse_invoice_id = invoice_guard[7]
+        supplier_project_name = invoice_guard[8] or ""
+        supplier_name = invoice_guard[9] or ""
+        supplier_supplier_id = _positive_int_or_none(invoice_guard[11])
+        next_amount = _float_or_zero(data.get("amount", current_amount))
+        next_paid = _float_or_zero(data.get("paidAmount", current_paid))
+        try:
+            try:
+                from backend.features.supplier_deal_parties.payment_schedule import invoice_advance_amount, schedule_paid_amount
+            except ModuleNotFoundError:
+                from features.supplier_deal_parties.payment_schedule import invoice_advance_amount, schedule_paid_amount
+            scheduled_advance = invoice_advance_amount(cur, id, supplier_company_id, next_amount)
+        except ValueError:
             cur.close(); conn.close()
-            raise HTTPException(status_code=409, detail="Складская накладная относится к другой компании")
-        warehouse_project = (_row_get(warehouse_invoice_row, "project", 1, "") or _row_get(warehouse_invoice_row, "location", 2, "") or "").strip()
-        existing_supplier_invoice_id = _row_get(warehouse_invoice_row, "supplier_invoice_id", 3)
-        if supplier_project_name and warehouse_project and warehouse_project != supplier_project_name:
+            raise HTTPException(409, 'Сохранённый график оплаты требует проверки')
+        try:
+            scheduled_paid = schedule_paid_amount(data.get('paidAmount', current_paid)) if scheduled_advance is not None else None
+        except ValueError:
             cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="Складская накладная относится к другому объекту")
-        if existing_supplier_invoice_id and int(existing_supplier_invoice_id) != int(id):
+            raise HTTPException(422, 'Сумма оплаты должна быть неотрицательной и точной до копейки')
+        try:
+            try:
+                from backend.features.supplier_access.fulfilment import invoice_payment_status
+            except ModuleNotFoundError:
+                from features.supplier_access.fulfilment import invoice_payment_status
+            normalized_status = invoice_payment_status(data.get('status'), next_amount, next_paid)
+            if 'status' in data:
+                data = {**data, 'status': normalized_status}
+        except Exception:
             cur.close(); conn.close()
-            raise HTTPException(status_code=409, detail="Складская накладная уже связана с другим счётом поставщика")
-        if automatic_exception_repair:
-            current_link_id = _positive_int_or_none(current_warehouse_invoice_id)
-            if current_link_id and current_link_id != next_warehouse_invoice_id:
-                cur.execute(
-                    "SELECT id FROM warehouse_invoices WHERE id=%s LIMIT 1",
-                    (current_link_id,),
+            raise
+        next_package = (data.get("workPackage") if "workPackage" in data else invoice_guard[2]) or ""
+        link_payload_present = "warehouseInvoiceId" in data or "warehouse_invoice_id" in data
+        automatic_exception_repair = data.get("accountingExceptionRepair") is True
+        next_warehouse_invoice_id = current_warehouse_invoice_id
+        if link_payload_present:
+            raw_warehouse_invoice_id = data.get("warehouseInvoiceId")
+            if raw_warehouse_invoice_id is None:
+                raw_warehouse_invoice_id = data.get("warehouse_invoice_id")
+            next_warehouse_invoice_id = int(raw_warehouse_invoice_id or 0) or None
+        if next_warehouse_invoice_id:
+            cur.execute("""SELECT id, project, location, supplier_invoice_id, status,
+                                  company_id, supplier_id, supplier_name,
+                                  total_with_vat, total_base
+                           FROM warehouse_invoices
+                           WHERE id=%s FOR UPDATE""", (next_warehouse_invoice_id,))
+            warehouse_invoice_row = cur.fetchone()
+            if not warehouse_invoice_row:
+                cur.close(); conn.close()
+                raise HTTPException(status_code=404, detail="Складская накладная для связи не найдена")
+            if (_row_get(warehouse_invoice_row, "status", 4, "") or "") == "Аннулирована":
+                cur.close(); conn.close()
+                raise HTTPException(status_code=409, detail="Аннулированную накладную нельзя связать со счётом")
+            warehouse_company_id = _positive_int_or_none(
+                _row_get(warehouse_invoice_row, "company_id", 5),
+            )
+            if warehouse_company_id != supplier_company_id:
+                cur.close(); conn.close()
+                raise HTTPException(status_code=409, detail="Складская накладная относится к другой компании")
+            warehouse_project = (_row_get(warehouse_invoice_row, "project", 1, "") or _row_get(warehouse_invoice_row, "location", 2, "") or "").strip()
+            existing_supplier_invoice_id = _row_get(warehouse_invoice_row, "supplier_invoice_id", 3)
+            if supplier_project_name and warehouse_project and warehouse_project != supplier_project_name:
+                cur.close(); conn.close()
+                raise HTTPException(status_code=400, detail="Складская накладная относится к другому объекту")
+            if existing_supplier_invoice_id and int(existing_supplier_invoice_id) != int(id):
+                cur.close(); conn.close()
+                raise HTTPException(status_code=409, detail="Складская накладная уже связана с другим счётом поставщика")
+            if automatic_exception_repair:
+                current_link_id = _positive_int_or_none(current_warehouse_invoice_id)
+                if current_link_id and current_link_id != next_warehouse_invoice_id:
+                    cur.execute(
+                        "SELECT id FROM warehouse_invoices WHERE id=%s LIMIT 1",
+                        (current_link_id,),
+                    )
+                    if cur.fetchone():
+                        cur.close(); conn.close()
+                        raise HTTPException(
+                            status_code=409,
+                            detail="Текущая связь существует и требует ручной проверки",
+                        )
+                warehouse_supplier_id = _positive_int_or_none(
+                    _row_get(warehouse_invoice_row, "supplier_id", 6),
                 )
-                if cur.fetchone():
+                warehouse_supplier_name = _row_get(
+                    warehouse_invoice_row, "supplier_name", 7, "",
+                ) or ""
+                supplier_matches = (
+                    supplier_supplier_id == warehouse_supplier_id
+                    if supplier_supplier_id and warehouse_supplier_id
+                    else bool(
+                        _normalize_supplier_name_key(supplier_name)
+                        and _normalize_supplier_name_key(supplier_name)
+                        == _normalize_supplier_name_key(warehouse_supplier_name)
+                    )
+                )
+                warehouse_amount = _float_or_zero(
+                    _row_get(warehouse_invoice_row, "total_with_vat", 8)
+                    or _row_get(warehouse_invoice_row, "total_base", 9)
+                )
+                exact_amount = (
+                    current_amount > 0
+                    and warehouse_amount > 0
+                    and round(current_amount * 100) == round(warehouse_amount * 100)
+                )
+                if not (
+                    supplier_project_name
+                    and warehouse_project == supplier_project_name
+                    and supplier_matches
+                    and exact_amount
+                ):
                     cur.close(); conn.close()
                     raise HTTPException(
                         status_code=409,
-                        detail="Текущая связь существует и требует ручной проверки",
+                        detail="Документы не прошли безопасную автоматическую сверку",
                     )
-            warehouse_supplier_id = _positive_int_or_none(
-                _row_get(warehouse_invoice_row, "supplier_id", 6),
-            )
-            warehouse_supplier_name = _row_get(
-                warehouse_invoice_row, "supplier_name", 7, "",
-            ) or ""
-            supplier_matches = (
-                supplier_supplier_id == warehouse_supplier_id
-                if supplier_supplier_id and warehouse_supplier_id
-                else bool(
-                    _normalize_supplier_name_key(supplier_name)
-                    and _normalize_supplier_name_key(supplier_name)
-                    == _normalize_supplier_name_key(warehouse_supplier_name)
-                )
-            )
-            warehouse_amount = _float_or_zero(
-                _row_get(warehouse_invoice_row, "total_with_vat", 8)
-                or _row_get(warehouse_invoice_row, "total_base", 9)
-            )
-            exact_amount = (
-                current_amount > 0
-                and warehouse_amount > 0
-                and round(current_amount * 100) == round(warehouse_amount * 100)
-            )
-            if not (
-                supplier_project_name
-                and warehouse_project == supplier_project_name
-                and supplier_matches
-                and exact_amount
-            ):
+        if offer_id:
+            if offer_total > 0 and next_amount > offer_total + max(1, offer_total * 0.02):
                 cur.close(); conn.close()
-                raise HTTPException(
-                    status_code=409,
-                    detail="Документы не прошли безопасную автоматическую сверку",
-                )
-    if offer_id:
-        if offer_total > 0 and next_amount > offer_total + max(1, offer_total * 0.02):
+                raise HTTPException(status_code=400, detail="Сумма счёта больше суммы утверждённого КП")
+            if offer_package and next_package and next_package != offer_package:
+                cur.close(); conn.close()
+                raise HTTPException(status_code=400, detail="Раздел счёта нельзя менять: он должен совпадать с заявкой/КП")
+            cur.execute("""SELECT
+                                  COALESCE(SUM(CASE WHEN status IN ('Принято','Проблема')
+                                                    THEN COALESCE(received_quantity,0) * COALESCE(price_per_unit,0)
+                                                    ELSE 0 END),0) AS accepted_amount,
+                                  SUM(CASE WHEN status IN ('Принято','Проблема') THEN 1 ELSE 0 END) AS received_rows,
+                                  SUM(CASE WHEN status='Проблема' THEN 1 ELSE 0 END) AS problem_rows
+                           FROM supply_deliveries
+                           WHERE offer_id=%s""", (offer_id,))
+            delivery_guard = cur.fetchone()
+            accepted_amount = _float_or_zero(delivery_guard[0]) if delivery_guard else 0
+            received_rows = int(delivery_guard[1] or 0) if delivery_guard else 0
+            problem_rows = int(delivery_guard[2] or 0) if delivery_guard else 0
+            is_prepay_terms = any(word in payment_terms for word in ("предоплат", "аванс", "50/50"))
+            if scheduled_advance is not None and received_rows <= 0 and next_paid > current_paid and scheduled_paid > scheduled_advance:
+                cur.close(); conn.close()
+                raise HTTPException(400, f'До приёмки по графику можно оплатить не больше {scheduled_advance:.2f} ₽')
+            if scheduled_advance is None and received_rows <= 0 and next_paid > current_paid + 0.01 and not is_prepay_terms:
+                cur.close(); conn.close()
+                raise HTTPException(status_code=400, detail="Постоплатный счёт нельзя оплачивать до приёмки поставки")
+            if next_paid > current_paid and received_rows > 0 and next_paid > accepted_amount + max(1.0, accepted_amount * 0.02):
+                cur.close(); conn.close()
+                raise HTTPException(status_code=400, detail=f"Оплата выше фактически принятой поставки: принято на {round(accepted_amount, 2)} ₽")
+            if next_paid > current_paid and problem_rows > 0 and next_paid > accepted_amount + 0.01:
+                cur.close(); conn.close()
+                raise HTTPException(status_code=400, detail="По поставке есть претензия. Оплата доступна только в пределах принятого количества")
+        if next_paid > next_amount + 0.01:
             cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="Сумма счёта больше суммы утверждённого КП")
-        if offer_package and next_package and next_package != offer_package:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="Раздел счёта нельзя менять: он должен совпадать с заявкой/КП")
-        cur.execute("""SELECT
-                              COALESCE(SUM(CASE WHEN status IN ('Принято','Проблема')
-                                                THEN COALESCE(received_quantity,0) * COALESCE(price_per_unit,0)
-                                                ELSE 0 END),0) AS accepted_amount,
-                              SUM(CASE WHEN status IN ('Принято','Проблема') THEN 1 ELSE 0 END) AS received_rows,
-                              SUM(CASE WHEN status='Проблема' THEN 1 ELSE 0 END) AS problem_rows
-                       FROM supply_deliveries
-                       WHERE offer_id=%s""", (offer_id,))
-        delivery_guard = cur.fetchone()
-        accepted_amount = _float_or_zero(delivery_guard[0]) if delivery_guard else 0
-        received_rows = int(delivery_guard[1] or 0) if delivery_guard else 0
-        problem_rows = int(delivery_guard[2] or 0) if delivery_guard else 0
-        is_prepay_terms = any(word in payment_terms for word in ("предоплат", "аванс", "50/50"))
-        if received_rows <= 0 and next_paid > current_paid + 0.01 and not is_prepay_terms:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="Постоплатный счёт нельзя оплачивать до приёмки поставки")
-        if received_rows > 0 and next_paid > accepted_amount + max(1.0, accepted_amount * 0.02):
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail=f"Оплата выше фактически принятой поставки: принято на {round(accepted_amount, 2)} ₽")
-        if problem_rows > 0 and next_paid > accepted_amount + 0.01:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="По поставке есть претензия. Оплата доступна только в пределах принятого количества")
-    if next_paid > next_amount + 0.01:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=400, detail="Оплаченная сумма не может быть больше суммы счёта")
-    fields_map = [('status','status'),('approvedBy','approved_by'),('approvedAt','approved_at'),
-                  ('paidAt','paid_at'),('paidBy','paid_by'),('paidNote','paid_note'),
-                  ('description','description'),('amount','amount'),('vatAmount','vat_amount'),
-                  ('paidAmount','paid_amount'),('workPackage','work_package')]
-    sets, vals = [], []
-    for js_key, db_col in fields_map:
-        if js_key in data:
-            sets.append(db_col + "=%s")
-            v = data[js_key]
-            if js_key in ('approvedAt','paidAt') and not v: v = None
-            vals.append(v)
-    if link_payload_present:
-        sets.append("warehouse_invoice_id=%s")
-        vals.append(next_warehouse_invoice_id)
-    if not sets:
-        cur.close(); conn.close(); return {"ok": True}
-    vals.append(id)
-    cur.execute("UPDATE supplier_invoices SET " + ", ".join(sets) + " WHERE id=%s", vals)
-    if current_warehouse_invoice_id and current_warehouse_invoice_id != next_warehouse_invoice_id:
-        cur.execute("""UPDATE warehouse_invoices
-                       SET supplier_invoice_id=NULL
-                       WHERE id=%s AND supplier_invoice_id=%s""", (current_warehouse_invoice_id, id))
-    if next_warehouse_invoice_id:
-        warehouse_status = None
-        next_status_value = data.get("status")
-        if next_status_value == "Оплачен":
-            warehouse_status = "Оплачена"
-        elif next_status_value == "Частично оплачен":
-            warehouse_status = "Частично оплачена"
-        elif next_status_value == "Утверждён":
-            warehouse_status = "К оплате"
-        warehouse_sets = ["supplier_invoice_id=%s"]
-        warehouse_vals = [id]
-        if "paidAmount" in data:
-            warehouse_sets.append("paid_amount=GREATEST(COALESCE(paid_amount,0),%s)")
-            warehouse_vals.append(next_paid)
-        if warehouse_status:
-            warehouse_sets.append("accounting_status=%s")
-            warehouse_vals.append(warehouse_status)
-        if data.get("paidAt"):
-            warehouse_sets.append("paid_at=%s")
-            warehouse_vals.append(data.get("paidAt"))
-        if data.get("paidBy"):
-            warehouse_sets.append("paid_by=%s")
-            warehouse_vals.append(data.get("paidBy"))
-        warehouse_vals.append(next_warehouse_invoice_id)
-        cur.execute("UPDATE warehouse_invoices SET " + ", ".join(warehouse_sets) + " WHERE id=%s", warehouse_vals)
-    link_changed = (
-        link_payload_present
-        and _positive_int_or_none(current_warehouse_invoice_id)
-        != _positive_int_or_none(next_warehouse_invoice_id)
-    )
-    conn.commit()
-    cur.close(); conn.close()
-    if link_changed:
-        log_audit(
-            user_name=_current_user.get("name") or _current_user.get("email") or "—",
-            user_role=_current_user.get("role") or "—",
-            action="accounting_supplier_warehouse_link_repaired",
-            entity_type="supplier_invoice",
-            entity_id=id,
-            description=(
-                "Исправлена связь со складской накладной №"
-                + str(next_warehouse_invoice_id or "—")
-            ),
-            project_name=supplier_project_name,
-            user_id=_current_user.get("id"),
-            company_id=supplier_company_id,
+            raise HTTPException(status_code=400, detail="Оплаченная сумма не может быть больше суммы счёта")
+        fields_map = [('status','status'),('approvedBy','approved_by'),('approvedAt','approved_at'),
+                      ('paidAt','paid_at'),('paidBy','paid_by'),('paidNote','paid_note'),
+                      ('description','description'),('amount','amount'),('vatAmount','vat_amount'),
+                      ('paidAmount','paid_amount'),('workPackage','work_package')]
+        sets, vals = [], []
+        for js_key, db_col in fields_map:
+            if js_key in data:
+                sets.append(db_col + "=%s")
+                v = data[js_key]
+                if js_key in ('approvedAt','paidAt') and not v: v = None
+                vals.append(v)
+        if link_payload_present:
+            sets.append("warehouse_invoice_id=%s")
+            vals.append(next_warehouse_invoice_id)
+        if not sets:
+            cur.close(); conn.close(); return {"ok": True}
+        vals.append(id)
+        cur.execute("UPDATE supplier_invoices SET " + ", ".join(sets) + " WHERE id=%s", vals)
+        if current_warehouse_invoice_id and current_warehouse_invoice_id != next_warehouse_invoice_id:
+            cur.execute("""UPDATE warehouse_invoices
+                           SET supplier_invoice_id=NULL
+                           WHERE id=%s AND supplier_invoice_id=%s""", (current_warehouse_invoice_id, id))
+        if next_warehouse_invoice_id:
+            warehouse_status = None
+            next_status_value = data.get("status")
+            if next_status_value == "Оплачен":
+                warehouse_status = "Оплачена"
+            elif next_status_value == "Частично оплачен":
+                warehouse_status = "Частично оплачена"
+            elif next_status_value == "Утверждён":
+                warehouse_status = "К оплате"
+            warehouse_sets = ["supplier_invoice_id=%s"]
+            warehouse_vals = [id]
+            if "paidAmount" in data:
+                warehouse_sets.append("paid_amount=GREATEST(COALESCE(paid_amount,0),%s)")
+                warehouse_vals.append(next_paid)
+            if warehouse_status:
+                warehouse_sets.append("accounting_status=%s")
+                warehouse_vals.append(warehouse_status)
+            if data.get("paidAt"):
+                warehouse_sets.append("paid_at=%s")
+                warehouse_vals.append(data.get("paidAt"))
+            if data.get("paidBy"):
+                warehouse_sets.append("paid_by=%s")
+                warehouse_vals.append(data.get("paidBy"))
+            warehouse_vals.append(next_warehouse_invoice_id)
+            cur.execute("UPDATE warehouse_invoices SET " + ", ".join(warehouse_sets) + " WHERE id=%s", warehouse_vals)
+        link_changed = (
+            link_payload_present
+            and _positive_int_or_none(current_warehouse_invoice_id)
+            != _positive_int_or_none(next_warehouse_invoice_id)
         )
-    if 'status' in data:
-        log_audit(user_name=data.get("approvedBy") or data.get("paidBy") or "—", user_role="—",
-                  action="status_change", entity_type="supplier_invoice", entity_id=id,
-                  description="Новый статус: "+data.get('status',''),
-                  project_name="")
-    return {"ok": True}
+        conn.commit()
+        cur.close(); conn.close()
+        if link_changed:
+            log_audit(
+                user_name=_current_user.get("name") or _current_user.get("email") or "—",
+                user_role=_current_user.get("role") or "—",
+                action="accounting_supplier_warehouse_link_repaired",
+                entity_type="supplier_invoice",
+                entity_id=id,
+                description=(
+                    "Исправлена связь со складской накладной №"
+                    + str(next_warehouse_invoice_id or "—")
+                ),
+                project_name=supplier_project_name,
+                user_id=_current_user.get("id"),
+                company_id=supplier_company_id,
+            )
+        if 'status' in data:
+            log_audit(user_name=data.get("approvedBy") or data.get("paidBy") or "—", user_role="—",
+                      action="status_change", entity_type="supplier_invoice", entity_id=id,
+                      description="Новый статус: "+data.get('status',''),
+                      project_name="")
+        return {"ok": True}
+    finally:
+        conn.close()
 
 @app.delete("/supplier-invoices/{id}")
-def delete_supplier_invoice(id: int, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
+def delete_supplier_invoice(
+    id: int,
+    _current_user: dict = Depends(get_current_user),
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+):
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor()
-    _ensure_invoice_document_link_columns(cur)
-    require_row_project_access(cur, "supplier_invoices", id, _current_user, "project_name")
-    cur.execute("SELECT warehouse_invoice_id FROM supplier_invoices WHERE id=%s", (id,))
-    warehouse_invoice_id = _row_get(cur.fetchone(), "warehouse_invoice_id", 0)
-    cur.execute("UPDATE supplier_invoices SET status='Аннулирован' WHERE id=%s", (id,))
-    if warehouse_invoice_id:
-        cur.execute("""UPDATE warehouse_invoices
-                       SET supplier_invoice_id=NULL
-                       WHERE id=%s AND supplier_invoice_id=%s""", (warehouse_invoice_id, id))
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok": True}
+    try:
+        ledger_present = _payment_ledger_available(cur)
+        if ledger_present:
+            _lock_payment_document_writer(cur, 'invoice', id)
+        else:
+            _ensure_invoice_document_link_columns(cur)
+            conn.commit()
+        cur.execute("SELECT company_id, warehouse_invoice_id, work_package FROM supplier_invoices WHERE id=%s FOR UPDATE", (id,))
+        invoice = cur.fetchone()
+        if not invoice:
+            raise HTTPException(404, "Счёт не найден")
+        company_id = _row_get(invoice, "company_id", 0)
+        _context, actor = resolve_resource_company_actor(
+            cur, _current_user, company_id, "delete", x_company_id=x_company_id, x_company_mode=x_company_mode,
+            allowed_roles=FINANCE_ROLES, platform_staff_roles=PLATFORM_STAFF_ROLES,
+            client_account_roles=CLIENT_ACCOUNT_ROLES)
+        require_row_project_access(cur, "supplier_invoices", id, actor, "project_name")
+        if not has_package_access(actor, _row_get(invoice, "work_package", 2) or "Основная"):
+            raise HTTPException(403, "Нет доступа к пакету счёта")
+        if ledger_present:
+            _require_unmanaged_payment_document(cur, 'invoice', id)
+        warehouse_invoice_id = _row_get(invoice, "warehouse_invoice_id", 1)
+        cur.execute("UPDATE supplier_invoices SET status='Аннулирован' WHERE id=%s", (id,))
+        if warehouse_invoice_id:
+            cur.execute("""UPDATE warehouse_invoices SET supplier_invoice_id=NULL
+                           WHERE id=%s AND supplier_invoice_id=%s AND company_id=%s""",
+                        (warehouse_invoice_id, id, company_id))
+        conn.commit()
+        return {"ok": True}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
 
 try:
     from backend.features.warranty_defects.routes import register_warranty_defects_module
@@ -25678,7 +26165,43 @@ except ModuleNotFoundError:
     from features.supplier_offers.routes import register_supplier_offers_module
 
 
+# Inert until schema rehearsal and the deal-document rollout checkpoint.
+if os.getenv("SUPPLIER_DEAL_PARTIES_ENABLED", "0") == "1":
+    try:
+        from backend.features.supplier_deal_parties.routes import register_supplier_deal_parties_module
+    except ModuleNotFoundError:
+        from features.supplier_deal_parties.routes import register_supplier_deal_parties_module
+    supplier_deal_dependencies = {
+        "get_db": get_db,
+        "get_current_user": get_current_user,
+        "resolve_resource_company_actor": resolve_resource_company_actor,
+        "current_supplier_ids": current_supplier_access_ids,
+        "require_project_access": require_project_or_warehouse_access,
+        "has_package_access": has_package_access,
+        "platform_staff_roles": PLATFORM_STAFF_ROLES,
+        "client_account_roles": CLIENT_ACCOUNT_ROLES,
+    }
+    register_supplier_deal_parties_module(app, supplier_deal_dependencies)
+    # Separate checkpoint: requires migration 0010; never enabled implicitly.
+    if os.getenv("SUPPLIER_CONTRACT_SNAPSHOTS_ENABLED", "0") == "1":
+        try:
+            from backend.features.supplier_deal_parties.contracts import register_supplier_contracts_module
+        except ModuleNotFoundError:
+            from features.supplier_deal_parties.contracts import register_supplier_contracts_module
+        register_supplier_contracts_module(app, supplier_deal_dependencies)
+        if os.getenv('SUPPLIER_DOCUMENT_CONTRACT_BINDINGS_ENABLED', '0') == '1':
+            try:
+                from backend.features.supplier_deal_parties.document_routes import register_document_contract_routes
+            except ModuleNotFoundError:
+                from features.supplier_deal_parties.document_routes import register_document_contract_routes
+            register_document_contract_routes(app, supplier_deal_dependencies)
+
 register_supplier_offers_module(app, {
+    "contract_bindings_enabled": (
+        os.getenv('SUPPLIER_DOCUMENT_CONTRACT_BINDINGS_ENABLED', '0') == '1'
+        and os.getenv('SUPPLIER_DEAL_PARTIES_ENABLED', '0') == '1'
+        and os.getenv('SUPPLIER_CONTRACT_SNAPSHOTS_ENABLED', '0') == '1'
+    ),
     "_update_supply_flow_status_after_delivery": _update_supply_flow_status_after_delivery,
     "get_db": get_db,
     "get_current_user": get_current_user,
@@ -25695,6 +26218,7 @@ register_supplier_offers_module(app, {
     "supplier_group_scope_ids": supplier_group_scope_ids,
     "_require_supplier_offer_visibility": _require_supplier_offer_visibility,
     "_log_supplier_offer_event": _log_supplier_offer_event,
+    "_supplier_offer_event_payload": _supplier_offer_event_payload,
     "_ensure_supplier_offer_events_table": _ensure_supplier_offer_events_table,
     "_ensure_supply_request_recipients_table": _ensure_supply_request_recipients_table,
     "_ensure_supply_runtime_columns": _ensure_supply_runtime_columns,
@@ -27415,7 +27939,11 @@ except ModuleNotFoundError:
         resolve_project_parent as resolve_document_project_parent,
     )
 
-register_document_access_module(app, {
+document_access_dependencies = {
+    "supplier_contract_files_enabled": (
+        os.getenv("SUPPLIER_DEAL_PARTIES_ENABLED", "0") == "1"
+        and os.getenv("SUPPLIER_CONTRACT_SNAPSHOTS_ENABLED", "0") == "1"
+    ),
     "get_db": get_db,
     "get_current_user": get_current_user,
     "resolve_resource_company_actor": resolve_resource_company_actor,
@@ -27454,7 +27982,20 @@ register_document_access_module(app, {
         secret_key=S3_SECRET_ACCESS_KEY,
     ),
     "protected_legacy_uploads_enabled": not PUBLIC_UPLOADS_MOUNT_ENABLED,
-})
+}
+register_document_access_module(app, document_access_dependencies)
+
+# Text-only preview is an independent opt-in, not an automatic OCR rollout.
+if (os.getenv("SUPPLIER_DEAL_PARTIES_ENABLED", "0") == "1"
+        and os.getenv("SUPPLIER_CONTRACT_SNAPSHOTS_ENABLED", "0") == "1"
+        and os.getenv("SUPPLIER_CONTRACT_RECOGNITION_ENABLED", "0") == "1"):
+    try:
+        from backend.features.supplier_deal_parties.contract_recognition import register_contract_recognition
+    except ModuleNotFoundError:
+        from features.supplier_deal_parties.contract_recognition import register_contract_recognition
+    supplier_deal_dependencies['recognize_contract'] = register_contract_recognition(
+        app, {**supplier_deal_dependencies, **document_access_dependencies})
+
 
 try:
     from backend.features.project_records import register_project_records_module

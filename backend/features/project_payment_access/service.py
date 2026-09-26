@@ -20,7 +20,7 @@ def _values(value):
     return []
 
 
-def project_payment_visibility_filter(company_actors, finance_roles):
+def project_payment_visibility_filter(company_actors, finance_roles, *, ledger_exists=False):
     """Build a fail-closed payment read filter for effective company memberships."""
     allowed_finance_roles = {
         str(role or "").strip()
@@ -46,7 +46,8 @@ def project_payment_visibility_filter(company_actors, finance_roles):
             projects = sorted(set(projects + [legacy_project]))
         if not projects:
             continue
-        clauses.append("(pp.company_id=%s AND pp.amount > 0 AND pp.project_name = ANY(%s))")
+        ledger_exclusion = 'ledger.id IS NULL AND ' if ledger_exists else ''
+        clauses.append(f"(pp.company_id=%s AND {ledger_exclusion}pp.amount > 0 AND pp.project_name = ANY(%s))")
         params.extend([company_id, projects])
     if not clauses:
         return "FALSE", []

@@ -8,12 +8,14 @@ try:
     from backend.features.director_agent.policy import DIRECTOR_AGENT_READ_TOOLS
     from backend.features.director_agent.result_policy import (
         DirectorAgentResultPolicyError,
+        PAYMENTS_SCOPE_NOTE,
         sanitize_director_agent_tool_result,
     )
 except ModuleNotFoundError:
     from features.director_agent.policy import DIRECTOR_AGENT_READ_TOOLS
     from features.director_agent.result_policy import (
         DirectorAgentResultPolicyError,
+        PAYMENTS_SCOPE_NOTE,
         sanitize_director_agent_tool_result,
     )
 
@@ -369,6 +371,7 @@ def build_director_daily_brief(*, brief_date, tool_results):
         "schemaVersion": 1,
         "briefDate": parsed_date.isoformat(),
         "mode": "deterministic_read_only",
+        "paymentsScopeNote": PAYMENTS_SCOPE_NOTE,
         "summary": {
             "total": sum(severity_counts.values()),
             **severity_counts,

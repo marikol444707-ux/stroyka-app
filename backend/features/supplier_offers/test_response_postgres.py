@@ -5,6 +5,7 @@ import unittest
 from uuid import uuid4
 from concurrent.futures import ThreadPoolExecutor
 from backend.features.supplier_access import test_postgres_chain as chain_support
+from .test_retry_support import api_after_busy
 
 
 @unittest.skipUnless(os.environ.get('SUPPLY_CHAIN_RUN_POSTGRES') == '1', 'Requires isolated PostgreSQL')
@@ -47,7 +48,7 @@ class SupplierResponsePostgresTests(unittest.TestCase):
     def test_concurrent_retry_one_event_buyer_visibility_and_selected_offer_immutable(self):
         offer, path, body = self.quote()
         with ThreadPoolExecutor(max_workers=2) as pool:
-            results = list(pool.map(lambda _: self.api('supplier', 'PUT', path, body), range(2)))
+            results = list(pool.map(lambda _: api_after_busy(self, 'supplier', 'PUT', path, body), range(2)))
         self.assertEqual([r['id'] for r in results], [offer['id']] * 2)
         self.assertEqual(self.sql("SELECT COUNT(*) FROM supplier_offer_events WHERE offer_id=%s AND event_type='responded'", (offer['id'],)), [(1,)])
         buyer = next(o for o in self.api('director', 'GET', '/supplier-offers') if o['id'] == offer['id'])

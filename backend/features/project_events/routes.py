@@ -199,8 +199,13 @@ def register_project_events_module(app, deps):
 
             finance_where, finance_params = ["company_id=%s", "project_name=%s"], [company_id, project["name"]]
             _append_date_filter(finance_where, finance_params, "created_at", date_from, date_to)
+            cur.execute("SELECT to_regclass('public.supplier_payment_operations') IS NOT NULL AS ledger_exists")
+            if cur.fetchone()['ledger_exists']:
+                # Authoritative identity, even if its recorded company is malformed.
+                finance_where.append("NOT EXISTS (SELECT 1 FROM public.supplier_payment_operations ledger "
+                                     "WHERE ledger.project_payment_id=pp.id)")
             cur.execute(
-                """SELECT id,amount,note,date,added_by,work_package,created_at FROM project_payments WHERE """
+                """SELECT id,amount,note,date,added_by,work_package,created_at FROM project_payments pp WHERE """
                 + " AND ".join(finance_where) + " ORDER BY created_at DESC LIMIT %s", tuple(finance_params + [source_limit]),
             )
             for row in cur.fetchall() or []:

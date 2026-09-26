@@ -7,6 +7,14 @@ FINANCE_ROLES = ("директор", "зам_директора", "бухгал�
 
 
 class ProjectPaymentVisibilityFilterTests(unittest.TestCase):
+    def test_customer_excludes_ledger_before_positive_amount_filter(self):
+        sql, params = project_payment_visibility_filter(
+            [{'companyId': 2, 'role': 'заказчик', 'assignedProjects': ['Объект']}],
+            FINANCE_ROLES, ledger_exists=True)
+        self.assertIn('ledger.id IS NULL', sql)
+        self.assertLess(sql.index('ledger.id IS NULL'), sql.index('pp.amount > 0'))
+        self.assertEqual(params, [2, ['Объект']])
+
     def test_finance_membership_sees_only_its_company(self):
         sql, params = project_payment_visibility_filter(
             [{"companyId": 4, "role": "бухгалтер"}],

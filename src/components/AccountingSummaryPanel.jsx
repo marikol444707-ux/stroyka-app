@@ -1,4 +1,5 @@
 import React from 'react';
+import { isSupplierLedgerPayment, projectPaymentOutgoingAmount } from '../utils/projectPaymentUtils';
 import {
   ACCOUNTING_INVOICE_STATUSES,
   accountingStatusGroupLabels,
@@ -22,29 +23,15 @@ export default function AccountingSummaryPanel({
   warehouseInvoiceEstimateControl,
   setAccountingTab,
 }) {
-  const projectPaymentSignedAmount = (payment) => {
-    const amount = Number(payment?.amount || 0);
-    const note = String(payment?.note || '').trim().toLowerCase();
-    const outgoing = amount < 0 ||
-      note.startsWith('оплата счёта') ||
-      note.startsWith('оплата бригаде') ||
-      note.startsWith('возмещение') ||
-      note.startsWith('выплата исполнителю');
-    return outgoing ? -Math.abs(amount) : Math.max(0, amount);
-  };
-
   const activeProjectsCount = (projects || []).filter(project => project.status === 'В работе').length;
   const totalBudget = (projects || []).reduce((sum, project) => sum + Number(project.budget || 0), 0);
-  const totalPayIn = (projectPayments || []).reduce((sum, payment) => sum + projectPaymentInAmount(payment), 0);
-  const outgoingProjectPayments = (projectPayments || []).filter(payment => projectPaymentSignedAmount(payment) < 0);
-  const totalProjectPaymentsOut = (projectPayments || []).reduce((sum, payment) => {
-    const signed = projectPaymentSignedAmount(payment);
-    return signed < 0 ? sum + Math.abs(signed) : sum;
-  }, 0);
+  const totalPayIn = (projectPayments || []).reduce((sum, payment) => sum + (isSupplierLedgerPayment(payment) ? 0 : projectPaymentInAmount(payment)), 0);
+  const outgoingProjectPayments = (projectPayments || []).filter(payment => projectPaymentOutgoingAmount(payment) !== 0);
+  const totalProjectPaymentsOut = outgoingProjectPayments.reduce((sum, payment) => sum + projectPaymentOutgoingAmount(payment), 0);
   const projectPaymentsOutByPurpose = outgoingProjectPayments.reduce((acc, payment) => {
     const note = String(payment?.note || '').trim().toLowerCase();
-    const amount = Math.abs(projectPaymentSignedAmount(payment));
-    if (note.startsWith('оплата счёта')) acc.suppliers += amount;
+    const amount = projectPaymentOutgoingAmount(payment);
+    if (isSupplierLedgerPayment(payment) || note.startsWith('оплата счёта')) acc.suppliers += amount;
     else if (note.startsWith('оплата бригаде') || note.startsWith('выплата исполнителю')) acc.brigades += amount;
     else if (note.startsWith('возмещение')) acc.reimbursements += amount;
     else acc.other += amount;

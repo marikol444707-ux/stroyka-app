@@ -26,10 +26,12 @@ class FakeApp:
 
 
 class FakeCursor:
-    def __init__(self, rows=(), fetchone_results=()):
+    def __init__(self, rows=(), fetchone_results=(), ledger_exists=False, ledger_operation=None):
         self.rows = list(rows)
         self.fetchone_results = list(fetchone_results)
         self.calls = []
+        self.ledger_exists = ledger_exists
+        self.ledger_operation = ledger_operation
 
     def execute(self, sql, params=()):
         self.calls.append((" ".join(sql.split()), tuple(params)))
@@ -38,6 +40,10 @@ class FakeCursor:
         return list(self.rows)
 
     def fetchone(self):
+        if 'to_regclass' in self.calls[-1][0]:
+            return (self.ledger_exists,)
+        if 'FROM supplier_payment_operations' in self.calls[-1][0]:
+            return self.ledger_operation
         return self.fetchone_results.pop(0) if self.fetchone_results else None
 
     def close(self):
@@ -106,6 +112,46 @@ def build(cursor, scope=("bc.company_id=%s", [3]), contract=None, resolve_error=
 
 
 class BrigadePaymentRoutesTest(unittest.TestCase):
+    def deletion_cursor(self, **kwargs):
+        return FakeCursor(fetchone_results=[
+            (7,), ('Тест', 3, 22),
+            (22, 'Объект', '', 300, 'Оплата поставщику', '2026-09-18', 'Тест'),
+            None, (44,),
+        ], **kwargs)
+
+    def delete(self, app):
+        return app.routes[('DELETE', '/brigade-payments/{id}')](
+            id=11, x_company_id='3', x_company_mode='company', _current_user={})
+
+    def test_delete_ledger_link_rejected_before_any_mutation(self):
+        cursor = self.deletion_cursor(ledger_exists=True, ledger_operation=(91,))
+        app, connection = build(cursor)
+        with self.assertRaises(HTTPException) as error:
+            self.delete(app)
+        self.assertEqual(error.exception.status_code, 409)
+        self.assertTrue(connection.rolled_back)
+        self.assertFalse(connection.committed)
+        self.assertFalse(any(sql.startswith(('DELETE', 'INSERT', 'UPDATE')) for sql, _ in cursor.calls))
+
+    def test_delete_authorization_precedes_ledger_lookup(self):
+        cursor = self.deletion_cursor(ledger_exists=True, ledger_operation=(91,))
+        app, connection = build(cursor, resolve_error=HTTPException(403, 'Forbidden'))
+        with self.assertRaises(HTTPException) as error:
+            self.delete(app)
+        self.assertEqual(error.exception.status_code, 403)
+        self.assertFalse(any('supplier_payment_operations' in sql for sql, _ in cursor.calls))
+        self.assertTrue(connection.rolled_back)
+
+    def test_delete_unmanaged_payment_with_or_without_ledger_schema(self):
+        for exists in (False, True):
+            with self.subTest(ledger_exists=exists):
+                cursor = self.deletion_cursor(ledger_exists=exists)
+                app, connection = build(cursor)
+                self.assertEqual(self.delete(app)['projectPaymentReversalId'], 44)
+                self.assertTrue(connection.committed)
+                insert = next(params for sql, params in cursor.calls if sql.startswith('INSERT INTO project_payments'))
+                self.assertEqual(insert[3], -300)
+
     def test_registers_same_urls(self):
         app, _conn = build(FakeCursor())
         for key in [("GET", "/brigade-payments"), ("POST", "/brigade-payments"), ("DELETE", "/brigade-payments/{id}")]:

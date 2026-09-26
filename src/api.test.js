@@ -91,6 +91,24 @@ describe('installAuthFetch', () => {
     }
   });
 
+  it.each(['/companies/2/supplier-payments', '/companies/2/supplier-payment-documents/invoice/12'])(
+    'keeps captured supplier payment company and CSRF after company switch: %s', async path => {
+      localStorage.setItem('user', JSON.stringify({ id: 42 }));
+      localStorage.setItem('stroyka.companyContext.v1.42', JSON.stringify({ mode: 'all_companies', companyId: null }));
+      const nativeFetch = jest.fn()
+        .mockResolvedValueOnce(new Response('{"csrfToken":"synthetic-csrf"}', { status: 200 }))
+        .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+      window.fetch = nativeFetch;
+      installAuthFetch();
+      await window.fetch(path, { method: 'POST', headers: { 'X-Company-Id': '2' } });
+      const headers = new Headers(nativeFetch.mock.calls[1][1].headers);
+      expect(headers.get('X-Company-Id')).toBe('2');
+      expect(headers.get('X-Company-Mode')).toBe('company');
+      expect(headers.get('X-CSRF-Token')).toBe('synthetic-csrf');
+      expect(headers.has('Authorization')).toBe(false);
+    },
+  );
+
   it('adds a CSRF token to protected mutating cookie requests', async () => {
     localStorage.setItem('authToken', 'legacy-token');
     const nativeFetch = jest.fn()

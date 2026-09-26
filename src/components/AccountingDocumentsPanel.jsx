@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Eye, FileText } from 'lucide-react';
 import { uniqueStoredProjectForName } from '../features/estimates/projectEstimateOwnership';
+import { projectPaymentOutgoingAmount } from '../utils/projectPaymentUtils';
 
 const DOC_BUTTONS = ['Паспорт', 'КС-2', 'КС-3', 'ЖПР', 'М-29', 'АОСК', 'КС-11', 'КС-14', 'ИГД', '📦 Пакет', '📋 НДС', 'М-2', 'М-8', '📦 Потребность', '🔥 Свар', '🧱 Бет', '⚙️ Монт', '🛡 АКЗ', '❄️ Изол', '⛓ Свай'];
 
@@ -46,16 +47,6 @@ export default function AccountingDocumentsPanel({
 }) {
   const [journalError, setJournalError] = useState(null);
   const selectedProject = uniqueStoredProjectForName(projects, accountingDocProject);
-  const projectPaymentSignedAmount = (payment) => {
-    const amount = Number(payment?.amount || 0);
-    const note = String(payment?.note || '').trim().toLowerCase();
-    const outgoing = amount < 0 ||
-      note.startsWith('оплата счёта') ||
-      note.startsWith('оплата бригаде') ||
-      note.startsWith('возмещение') ||
-      note.startsWith('выплата исполнителю');
-    return outgoing ? -Math.abs(amount) : Math.max(0, amount);
-  };
 
   const handleDocAction = (doc, project) => {
     if (doc === 'Паспорт') showPreview(buildPassportContent(project), 'Паспорт объекта');
@@ -123,10 +114,7 @@ export default function AccountingDocumentsPanel({
     const brigExp = (brigadeContracts || []).filter(contract => contract.projectName === accountingDocProject).reduce((sum, contract) => sum + Number(contract.paidAmount || 0), 0);
     const paymentJournalOut = (projectPayments || [])
       .filter(payment => payment.projectName === accountingDocProject)
-      .reduce((sum, payment) => {
-        const signed = projectPaymentSignedAmount(payment);
-        return signed < 0 ? sum + Math.abs(signed) : sum;
-      }, 0);
+      .reduce((sum, payment) => sum + projectPaymentOutgoingAmount(payment), 0);
     const factCost = accExp + paymentJournalOut + directExp;
     const margin = planDone.done - factCost;
     const materialControl = materialControlSummaryForProject(selectedProject);

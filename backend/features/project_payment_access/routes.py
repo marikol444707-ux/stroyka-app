@@ -15,9 +15,11 @@ from fastapi import Depends, Header, HTTPException
 try:
     from backend.features.project_payment_access.service import project_payment_visibility_filter
     from backend.features.company_context.service import resolve_resource_company_actor
+    from backend.features.supplier_payments.access import build_payment_access
 except ModuleNotFoundError:
     from features.project_payment_access.service import project_payment_visibility_filter
     from features.company_context.service import resolve_resource_company_actor
+    from features.supplier_payments.access import build_payment_access
 
 
 def register_project_payments_module(app, deps):
@@ -32,6 +34,8 @@ def register_project_payments_module(app, deps):
     positive_int_or_none = deps["positive_int_or_none"]
     require_project_access = deps["require_project_access"]
     has_package_access = deps["has_package_access"]
+    ledger_read_access = build_payment_access({**deps,
+        'resolve_resource_company_actor': resolve_resource_company_actor}, operation='read')
 
     @app.get("/project-payments")
     def get_project_payments(
@@ -41,6 +45,7 @@ def register_project_payments_module(app, deps):
         current_user: dict = Depends(get_current_user),
     ):
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             company_context = resolve_work_company_context(
@@ -66,23 +71,62 @@ def register_project_payments_module(app, deps):
             if project_name:
                 where.append("pp.project_name=%s")
                 params.append(project_name)
+            cur.execute("SELECT to_regclass('public.supplier_payment_operations') IS NOT NULL AS ledger_exists")
+            ledger_exists = cur.fetchone()['ledger_exists']
+            if ledger_exists:
+                where[0], params = project_payment_visibility_filter(
+                    effective_company_actors(current_user, company_context), finance_roles,
+                    ledger_exists=True)
+                if project_name:
+                    params.append(project_name)
+            ledger_join = ("LEFT JOIN supplier_payment_operations ledger ON ledger.project_payment_id=pp.id "
+                           "AND ledger.company_id=pp.company_id") if ledger_exists else ""
+            # Equal ledger instalments are distinct events, unlike the old
+            # display-only deduplication of unlinked project expenses.
+            ledger_identity = "ledger.id," if ledger_exists else ""
+            ledger_columns = ("ledger.id AS operation_id,ledger.kind AS operation_kind,"
+                              "ledger.reverses_id,ledger.payer_company_id") if ledger_exists else (
+                              "NULL::bigint AS operation_id,NULL::text AS operation_kind,"
+                              "NULL::bigint AS reverses_id,NULL::integer AS payer_company_id")
             cur.execute(f"""SELECT id,company_id,project_name,amount,note,date,added_by,
+                                   operation_id,operation_kind,reverses_id,payer_company_id,
                                    COALESCE(work_package,'') AS work_package
                             FROM (
                                 SELECT DISTINCT ON (
+                                    {ledger_identity}
                                     pp.company_id, pp.project_name, COALESCE(pp.work_package,''),
                                     pp.amount, COALESCE(pp.note,''), pp.date, COALESCE(pp.added_by,'')
                                 )
                                     pp.id,pp.company_id,pp.project_name,pp.amount,pp.note,pp.date,
-                                    pp.added_by,pp.work_package
+                                    pp.added_by,pp.work_package,{ledger_columns}
                                 FROM project_payments pp
+                                {ledger_join}
                                 WHERE {' AND '.join(where)}
-                                ORDER BY pp.company_id, pp.project_name, COALESCE(pp.work_package,''),
+                                ORDER BY {ledger_identity} pp.company_id, pp.project_name, COALESCE(pp.work_package,''),
                                          pp.amount, COALESCE(pp.note,''), pp.date,
                                          COALESCE(pp.added_by,''), pp.id DESC
                             ) p
                             ORDER BY id DESC""", tuple(params))
             rows = cur.fetchall()
+            # Ledger expenses require current financial authority in both legal
+            # entities. Cache only within this transaction while auth locks live.
+            allowed_scopes = {}
+            visible = []
+            for row in rows:
+                if row.get('operation_id') is not None:
+                    scope = (row['company_id'], row['project_name'], row.get('work_package') or '',
+                             row['payer_company_id'])
+                    if scope not in allowed_scopes:
+                        try:
+                            ledger_read_access(cur, current_user['id'], *scope)
+                            allowed_scopes[scope] = True
+                        except HTTPException as exc:
+                            if exc.status_code != 403:
+                                raise
+                            allowed_scopes[scope] = False
+                    if not allowed_scopes[scope]:
+                        continue
+                visible.append(row)
             return [{
                 "id": row.get("id"),
                 "companyId": row.get("company_id"),
@@ -92,8 +136,13 @@ def register_project_payments_module(app, deps):
                 "date": str(row.get("date")) if row.get("date") else "",
                 "addedBy": row.get("added_by") or "",
                 "workPackage": row.get("work_package") or "",
-            } for row in rows]
+                "sourceKind": 'supplier_payment_ledger' if row.get('operation_id') is not None else None,
+                "operationId": row.get('operation_id'),
+                "operationKind": row.get('operation_kind'),
+                "reversesId": row.get('reverses_id'),
+            } for row in visible]
         finally:
+            conn.rollback()
             cur.close(); conn.close()
 
     @app.post("/project-payments")
@@ -186,6 +235,15 @@ def register_project_payments_module(app, deps):
                 raise HTTPException(status_code=403, detail="Нет доступа к пакету платежа")
             if deps.get('require_legacy_project_payment'):
                 deps['require_legacy_project_payment'](cur, id)
+            # Pre-0017 installations keep their existing flow. Once a payment
+            # belongs to the ledger, a standalone negative expense would leave
+            # its invoice balances unchanged. Never infer ownership from notes.
+            cur.execute("SELECT to_regclass('public.supplier_payment_operations') IS NOT NULL AS ledger_exists")
+            if cur.fetchone()['ledger_exists']:
+                cur.execute('''SELECT id FROM supplier_payment_operations
+                               WHERE project_payment_id=%s AND company_id=%s''', (id, company_id))
+                if cur.fetchone():
+                    raise HTTPException(409, 'Платёж связан с журналом оплат поставщика. Используйте сторно исходной операции.')
             amount = row.get("amount") or 0
             note = row.get("note") or ""
             reversal_note = "Сторно платежа #" + str(id)

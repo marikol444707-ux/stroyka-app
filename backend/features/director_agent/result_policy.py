@@ -7,6 +7,9 @@ except ModuleNotFoundError:
     from features.director_agent.policy import DIRECTOR_AGENT_READ_TOOLS
 
 
+PAYMENTS_SCOPE_NOTE = 'Платежи поставщикам и их сторно не включены; это не полная финансовая сводка.'
+
+
 class DirectorAgentResultPolicyError(ValueError):
     pass
 
@@ -156,7 +159,12 @@ def sanitize_director_agent_tool_result(tool_name, value):
         raise DirectorAgentResultPolicyError("tool has no result policy")
     list_schema = _LIST_RESULT_SCHEMAS.get(tool_name)
     if list_schema is not None:
-        return _records(value, *list_schema)
+        records = _records(value, *list_schema)
+        if tool_name == 'finances':
+            # Server-owned scope, never a completeness claim supplied by a model.
+            for record in records:
+                record['paymentsScopeNote'] = PAYMENTS_SCOPE_NOTE
+        return records
     if not isinstance(value, dict):
         raise DirectorAgentResultPolicyError("tool result must be an object")
     result = {}

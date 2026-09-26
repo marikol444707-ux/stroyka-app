@@ -190,6 +190,7 @@ class RuntimeHarness:
             "json": json,
             "psycopg2": SimpleNamespace(extras=SimpleNamespace(RealDictCursor=object)),
             "get_db": lambda: self.connection,
+            "_payment_ledger_available": lambda _cur: False,
             "_ensure_supply_runtime_columns": lambda _cur: None,
             "_ensure_supply_request_recipients_table": lambda _cur: None,
             "resolve_resource_company_actor": company_actor,

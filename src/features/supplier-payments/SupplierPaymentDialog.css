@@ -1,0 +1,47 @@
+.supplier-payment-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgb(0 0 0 / 45%);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+.supplier-payment-dialog {
+  box-sizing: border-box;
+  width: min(100%, 640px);
+  min-width: 0;
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  padding: 16px;
+  border: 1px solid var(--border-color, #ccd4dc);
+  border-radius: 8px;
+  background: var(--bg-card, #fff);
+  color: var(--text-primary, #182536);
+  overflow-wrap: anywhere;
+}
+.supplier-payment-dialog header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.supplier-payment-dialog h2 { margin: 0; font-size: 1.25rem; }
+.supplier-payment-dialog h3 { font-size: 1.05rem; }
+.supplier-payment-dialog fieldset { display: grid; gap: 12px; min-width: 0; border: 0; padding: 0; margin: 16px 0; }
+.supplier-payment-dialog label { display: grid; gap: 4px; }
+.supplier-payment-dialog input, .supplier-payment-dialog textarea, .supplier-payment-dialog button {
+  box-sizing: border-box;
+  min-height: 40px;
+  min-width: 0;
+  font: inherit;
+  color: inherit;
+  background: var(--bg-card, #fff);
+  border: 1px solid var(--border-color, #ccd4dc);
+  border-radius: 4px;
+  padding: 8px 12px;
+}
+.supplier-payment-dialog input, .supplier-payment-dialog textarea { width: 100%; }
+.supplier-payment-dialog textarea { min-height: 80px; resize: vertical; }
+.supplier-payment-dialog button { cursor: pointer; }
+.supplier-payment-dialog :disabled { opacity: .6; cursor: not-allowed; }
+.supplier-payment-dialog :focus-visible { outline: 2px solid var(--primary-color, #126797); outline-offset: 2px; }
+.supplier-payment-dialog [role="alert"] { color: var(--danger-color, #a12622); }
+.supplier-payment-dialog pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; border: 1px solid var(--border-color, #ccd4dc); }
+.supplier-payment-dialog-summary { border-block: 1px solid var(--border-color, #ccd4dc); }
+.supplier-payment-dialog ul { padding-left: 20px; }

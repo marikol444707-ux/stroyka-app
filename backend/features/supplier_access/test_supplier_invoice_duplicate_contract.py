@@ -43,12 +43,14 @@ class SupplierInvoiceDuplicateContractTests(unittest.TestCase):
         self.assertNotIn("amount_matches", source)
 
     def test_supply_delivery_invoice_is_serialized_by_exact_delivery(self):
-        source = self.functions["_ensure_supply_delivery_invoice"]
+        wrapper = self.functions["_ensure_supply_delivery_invoice"]
+        self.assertIn('_ensure_supply_delivery_invoice_prepared', wrapper)
+        source = self.functions["_ensure_supply_delivery_invoice_prepared"]
 
         self.assertIn("pg_advisory_xact_lock", source)
         self.assertLess(
             source.index("pg_advisory_xact_lock"),
-            source.index("SELECT id FROM warehouse_invoices"),
+            source.index("SELECT id,company_id,supplier_invoice_id FROM warehouse_invoices"),
         )
         self.assertNotIn("SUPPLY INVOICE CHECK ERROR", source)
 

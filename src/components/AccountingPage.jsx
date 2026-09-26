@@ -227,6 +227,7 @@ export default function AccountingPage(props) {
 
       {accountingTab === 'payments' && (
         <AccountingPaymentsPanel
+          companyContext={companyContext}
           C={C}
           card={card}
           inp={inp}

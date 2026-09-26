@@ -12,6 +12,7 @@ import {
 import { isOpenAiStatus } from '../../utils/statusMetaUtils';
 import {useLatestDirectorDailyBrief} from './useLatestDirectorDailyBrief';
 import SubscriptionExpiryNotice from './SubscriptionExpiryNotice';
+import { projectPaymentOutgoingAmount } from '../../utils/projectPaymentUtils';
 
 export default function DashboardPage({
   actions = {},
@@ -76,7 +77,6 @@ export default function DashboardPage({
     normalizeDocDate,
     openEstimateControlReport,
     projectBudgetSpent,
-    projectPaymentSignedAmount,
     projectRealProgress,
     setAccountingTab,
     setActivePage,
@@ -209,9 +209,6 @@ export default function DashboardPage({
   const getProjectBudgetSpent = typeof projectBudgetSpent === 'function'
     ? projectBudgetSpent
     : () => ({ works: 0, materials: 0, unexpected: 0, total: 0 });
-  const getProjectPaymentSignedAmount = typeof projectPaymentSignedAmount === 'function'
-    ? projectPaymentSignedAmount
-    : () => 0;
   const getProjectRealProgress = typeof projectRealProgress === 'function'
     ? projectRealProgress
     : (project) => Math.max(0, Math.min(100, Number(project?.progress || 0)));
@@ -269,10 +266,7 @@ export default function DashboardPage({
   const dashboardBudgetSpentById = new Map(dashboardBudgetSpent.map(x=>[String(x.projectId),x.spent]));
   const dashboardBudgetSpentByName = new Map(dashboardBudgetSpent.map(x=>[x.projectName,x.spent]));
   const totalDone = dashboardBudgetSpent.reduce((s,x)=>s+Number(x.spent?.total||0),0);
-  const dashboardJournalExpenses = projectPaymentsList.reduce((sum,pay)=>{
-    const signed = getProjectPaymentSignedAmount(pay);
-    return signed < 0 ? sum + Math.abs(signed) : sum;
-  },0);
+  const dashboardJournalExpenses = projectPaymentsList.reduce((sum, pay) => sum + projectPaymentOutgoingAmount(pay), 0);
   const dashboardDirectExpenses = manualExpensesList
     .filter(expense=>!expense.ownExpenseId&&expense.source!=='own_expense')
     .reduce((sum,expense)=>sum+Number(expense.amount||0),0);

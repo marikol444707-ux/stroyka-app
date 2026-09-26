@@ -1,4 +1,5 @@
 import React from 'react';
+import { isSupplierLedgerPayment, projectPaymentSignedAmountValue } from '../../utils/projectPaymentUtils';
 
 export default function ProjectScheduleTab({
   C,
@@ -72,18 +73,25 @@ export default function ProjectScheduleTab({
         {projectPaymentRows.length > 0 && (
           <div style={{ marginTop: '12px' }}>
             <b style={{ color: C.textSec, fontSize: '12px', display: 'block', marginBottom: '8px' }}>История оплат:</b>
-            {projectPaymentRows.map(payment => (
+            {projectPaymentRows.map(payment => {
+              const ledger = isSupplierLedgerPayment(payment);
+              const signed = projectPaymentSignedAmountValue(payment);
+              const label = ledger ? (payment.operationKind === 'reversal' ? 'Сторно расхода поставщику' : 'Расход поставщику') : '';
+              return (
               <div key={payment.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid ' + C.border }}>
                 <div>
-                  <span style={{ fontSize: '12px', color: C.text }}>{payment.note || 'Оплата'}</span>
+                  <span style={{ fontSize: '12px', color: C.text }}>{label ? label + (payment.note ? ' · ' + payment.note : '') : payment.note || 'Оплата'}</span>
                   {(payment.workPackage || payment.work_package) && (
                     <span style={{ fontSize: '11px', color: C.info, marginLeft: '8px' }}>📁 {payment.workPackage || payment.work_package}</span>
                   )}
                   <span style={{ fontSize: '11px', color: C.textMuted, marginLeft: '8px' }}>{payment.date}</span>
                 </div>
-                <b style={{ fontSize: '12px', color: C.success }}>+{Number(payment.amount).toLocaleString() + ' ₽'}</b>
+                <b style={{ fontSize: '12px', color: ledger && signed < 0 ? C.danger : C.success }}>{ledger
+                  ? (signed >= 0 ? '+' : '') + signed.toLocaleString('ru-RU') + ' ₽'
+                  : '+' + Number(payment.amount).toLocaleString() + ' ₽'}</b>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
