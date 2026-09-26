@@ -307,7 +307,7 @@ def register_project_records_module(app, deps):
             if side_filter:
                 params.append(side_filter)
             params.extend(worker_doc_params)
-            cur.execute("SELECT id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by,created_at FROM project_documents WHERE company_id=%s AND project_name=%s" + side_sql + worker_doc_sql + " ORDER BY id DESC", tuple(params))
+            cur.execute("SELECT id,company_id,project_id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by,created_at FROM project_documents WHERE company_id=%s AND project_name=%s" + side_sql + worker_doc_sql + " ORDER BY id DESC", tuple(params))
         elif allowed_projects is not None:
             if not allowed_projects:
                 cur.close()
@@ -317,7 +317,7 @@ def register_project_records_module(app, deps):
             if side_filter:
                 params.append(side_filter)
             params.extend(worker_doc_params)
-            cur.execute("SELECT id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by,created_at FROM project_documents WHERE company_id=%s AND project_name = ANY(%s)" + side_sql + worker_doc_sql + " ORDER BY id DESC", tuple(params))
+            cur.execute("SELECT id,company_id,project_id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by,created_at FROM project_documents WHERE company_id=%s AND project_name = ANY(%s)" + side_sql + worker_doc_sql + " ORDER BY id DESC", tuple(params))
         else:
             params = [company_id]
             if side_filter:
@@ -329,19 +329,32 @@ def register_project_records_module(app, deps):
             if worker_doc_sql:
                 where_parts.append(worker_doc_sql.strip()[4:])
             where_sql = " WHERE " + " AND ".join(where_parts)
-            cur.execute("SELECT id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by,created_at FROM project_documents" + where_sql + " ORDER BY id DESC", tuple(params))
+            cur.execute("SELECT id,company_id,project_id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by,created_at FROM project_documents" + where_sql + " ORDER BY id DESC", tuple(params))
         rows = cur.fetchall()
         cur.close()
         conn.close()
-        return [{"id": r[0], "projectName": r[1], "side": r[2], "docType": r[3] or "", "number": r[4] or "", "docDate": str(r[5]) if r[5] else "", "counterparty": r[6] or "", "signStatus": r[7] or "", "scanUrl": r[8] or "", "amount": float(r[9] or 0), "notes": r[10] or "", "uploadedBy": r[11] or "", "createdAt": str(r[12])} for r in rows]
+        return [{"id": r[0], "companyId": r[1], "projectId": r[2], "projectName": r[3], "side": r[4], "docType": r[5] or "", "number": r[6] or "", "docDate": str(r[7]) if r[7] else "", "counterparty": r[8] or "", "signStatus": r[9] or "", "scanUrl": r[10] or "", "amount": float(r[11] or 0), "notes": r[12] or "", "uploadedBy": r[13] or "", "createdAt": str(r[14])} for r in rows]
 
     @app.post("/project-documents")
     def create_project_document(data: dict, _current_user: dict = Depends(write_access)):
         require_project_access(_current_user, data.get("projectName", ""))
         conn = get_db()
         cur = conn.cursor()
-        cur.execute("INSERT INTO project_documents (project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-            (data.get("projectName", ""), data.get("side", "customer"), data.get("docType", ""), data.get("number", ""),
+        project_name = data.get("projectName", "")
+        require_project_access(_current_user, project_name)
+        # resolve company context and effective actor
+        company_context = resolve_work_company_context(cur, _current_user, None, "write")
+        company_id = (company_context or {}).get("companyId") or (company_context or {}).get("company_id")
+        if not company_id:
+            cur.close(); conn.close(); raise HTTPException(status_code=403, detail="Компания пользователя не определена")
+        # resolve project id server-side, fail closed if not found
+        cur.execute("SELECT id FROM projects WHERE name=%s AND company_id=%s", (project_name, company_id))
+        proj = cur.fetchone()
+        if not proj:
+            cur.close(); conn.close(); raise HTTPException(status_code=400, detail="Проект не найден для выбранной компании")
+        project_id = proj[0]
+        cur.execute("INSERT INTO project_documents (company_id,project_id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+            (company_id, project_id, project_name, data.get("side", "customer"), data.get("docType", ""), data.get("number", ""),
              data.get("docDate") or None, data.get("counterparty", ""), data.get("signStatus", "Не подписан"),
              data.get("scanUrl", ""), data.get("amount") or 0, data.get("notes", ""), data.get("uploadedBy", "")))
         new_id = cur.fetchone()[0]
