@@ -6602,12 +6602,40 @@ def register(data: dict, response: Response, request: Request):
                 if supplier_row:
                     _update_supplier_missing_fields(cur, supplier_id, supplier_payload, user_id=user['id'])
                     _remember_supplier_alias(cur, supplier_id, supplier_payload, source="supplier_invite")
+                    # Ensure a company_supplier_links row exists for the invite's company_id
+                    try:
+                        if company_id:
+                            cur.execute("SELECT id FROM company_supplier_links WHERE company_id=%s AND supplier_id=%s LIMIT 1", (company_id, supplier_id))
+                            link_row = cur.fetchone()
+                            if not link_row:
+                                cur.execute(
+                                    "INSERT INTO company_supplier_links (company_id, supplier_id, active, source_type, source_detail, platform_account_id) VALUES (%s,%s,TRUE,%s,%s,%s)",
+                                    (company_id, supplier_id, 'invite_registration', 'Создана при регистрации по приглашению', platform_account_id)
+                                )
+                    except Exception:
+                        # Fail closed on any DB error during link creation
+                        conn.rollback()
+                        raise
             else:
                 existing_supplier = _supplier_find_match(cur, supplier_payload)
                 if existing_supplier:
                     supplier_id = int(existing_supplier.get("id") or 0)
                     _update_supplier_missing_fields(cur, supplier_id, supplier_payload, user_id=user['id'])
                     _remember_supplier_alias(cur, supplier_id, supplier_payload, source="supplier_invite")
+                    # Ensure a company_supplier_links row exists for the invite's company_id
+                    try:
+                        if company_id:
+                            cur.execute("SELECT id FROM company_supplier_links WHERE company_id=%s AND supplier_id=%s LIMIT 1", (company_id, supplier_id))
+                            link_row = cur.fetchone()
+                            if not link_row:
+                                cur.execute(
+                                    "INSERT INTO company_supplier_links (company_id, supplier_id, active, source_type, source_detail, platform_account_id) VALUES (%s,%s,TRUE,%s,%s,%s)",
+                                    (company_id, supplier_id, 'invite_registration', 'Создана при регистрации по приглашению', platform_account_id)
+                                )
+                    except Exception:
+                        # Fail closed on any DB error during link creation
+                        conn.rollback()
+                        raise
                 else:
                     # Создаём новую компанию
                     cur.execute(
@@ -6626,6 +6654,20 @@ def register(data: dict, response: Response, request: Request):
                     new_supplier = cur.fetchone()
                     supplier_id = new_supplier.get("id") if isinstance(new_supplier, dict) else new_supplier[0]
                     _remember_supplier_alias(cur, supplier_id, supplier_payload, source="supplier_invite")
+                    # Ensure a company_supplier_links row exists for the invite's company_id
+                    try:
+                        if company_id:
+                            cur.execute("SELECT id FROM company_supplier_links WHERE company_id=%s AND supplier_id=%s LIMIT 1", (company_id, supplier_id))
+                            link_row = cur.fetchone()
+                            if not link_row:
+                                cur.execute(
+                                    "INSERT INTO company_supplier_links (company_id, supplier_id, active, source_type, source_detail, platform_account_id) VALUES (%s,%s,TRUE,%s,%s,%s)",
+                                    (company_id, supplier_id, 'invite_registration', 'Создана при регистрации по приглашению', platform_account_id)
+                                )
+                    except Exception:
+                        # Fail closed on any DB error during link creation
+                        conn.rollback()
+                        raise
         cur.execute("UPDATE invite_codes SET used=TRUE WHERE code=%s", (code,))
         session_token = None
         if _user_requires_2fa(user):
