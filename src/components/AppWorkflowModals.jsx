@@ -130,6 +130,9 @@ export default function AppWorkflowModals({ ui, constants, state, actions }) {
     sendAiAssistantMessage,
     sendEstimateChatMessage,
     sendKpRequest,
+    notify,
+    refreshData,
+    setSuggestedSuppliers,
     setActivePage,
     setAddExpenseProject,
     setAiInput,
@@ -240,6 +243,9 @@ export default function AppWorkflowModals({ ui, constants, state, actions }) {
           selectedSupplierIds={selectedSupplierIds}
           setSelectedSupplierIds={setSelectedSupplierIds}
           sendKpRequest={sendKpRequest}
+          notify={notify}
+          refreshData={refreshData}
+          setSuggestedSuppliers={setSuggestedSuppliers}
         />
       )}
 
