@@ -16205,6 +16205,7 @@ register_project_chat_module(app, {
     "get_db": get_db,
     "get_current_user": get_current_user,
     "require_project_access": require_project_access,
+    "require_csrf_for_cookie_mutation": require_csrf_for_cookie_mutation,
 })
 
 
