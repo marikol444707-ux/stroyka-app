@@ -135,8 +135,14 @@ def effective_company_user(user: dict, context: dict) -> dict:
         if (context or {}).get("isDefault") and not assigned_projects
         else ""
     )
+    # Determine effective role strictly from the resolved context. Do NOT
+    # silently fall back to the global user role for selected company scopes.
+    # Allow global role only in legacy contexts where the membership model
+    # is intentionally absent (compatibility mode).
+    ctx_effective = (context or {}).get("effectiveRole") or (context or {}).get("role") or ""
+    legacy_ok = (context or {}).get("requestedMode") == "legacy" or (context or {}).get("source") == "legacy"
     actor.update({
-        "role": (context or {}).get("effectiveRole") or (context or {}).get("role") or actor.get("role") or "",
+        "role": ctx_effective or (actor.get("role") if legacy_ok else ""),
         "membershipId": _as_int(
             (context or {}).get("membershipId")
             or (context or {}).get("membership_id")
@@ -422,10 +428,19 @@ def resolve_request_company_context(
         client_account_roles=client_account_roles,
     )
     _assert_platform_account_boundary(user, context)
+    # Only allow global user role as a fallback for legacy requests where
+    # the membership model is not present (compatibility mode). For explicit
+    # selected company modes the effective role must come from the resolved
+    # company context and must not silently fall back to the global user role.
+    effective_from_context = context.get("role") or ""
+    legacy_fallback = ""
+    if requested_mode == "legacy" and (context.get("source") == "legacy" or not effective_from_context):
+        # preserve old behaviour for legacy requests: allow global user role
+        legacy_fallback = user.get("role") or ""
     return {
         **context,
         "companyIds": company_ids_for_context(context),
-        "effectiveRole": context.get("role") or user.get("role") or "",
+        "effectiveRole": effective_from_context or legacy_fallback,
         "requestedMode": requested_mode,
     }
 
