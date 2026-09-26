@@ -268,6 +268,10 @@ def register_project_records_module(app, deps):
     ):
         conn = get_db()
         cur = conn.cursor()
+        # Determine allowed projects for this user (visible_project_names returns
+        # None for all-companies mode, or a list for scoped projects). We do NOT
+        # trust a client-supplied company id alone for document access — ownership
+        # is resolved through the authoritative `projects` table.
         company_context = resolve_work_company_context(
             cur,
             _current_user,
@@ -276,17 +280,14 @@ def register_project_records_module(app, deps):
             x_company_id=x_company_id,
             x_company_mode=x_company_mode,
         )
-        if (company_context or {}).get("mode") != "company":
+        effective_user = effective_company_user(_current_user, company_context)
+        allowed_projects = visible_project_names(effective_user)
+
+        # Disallow all-companies mode for documents until ownership is unambiguous.
+        if allowed_projects is None:
             cur.close()
             conn.close()
             raise HTTPException(status_code=400, detail="Для документов выберите конкретную компанию")
-        company_id = (company_context or {}).get("companyId") or (company_context or {}).get("company_id")
-        if not company_id:
-            cur.close()
-            conn.close()
-            raise HTTPException(status_code=403, detail="Компания пользователя не определена")
-        effective_user = effective_company_user(_current_user, company_context)
-        allowed_projects = visible_project_names(effective_user)
         side_filter = None
         if effective_user.get("role") == "заказчик":
             side_filter = "customer"
@@ -298,12 +299,25 @@ def register_project_records_module(app, deps):
         if effective_user.get("role") in worker_execution_roles:
             worker_doc_sql = " AND (counterparty=%s OR uploaded_by=%s)"
             worker_doc_params = [effective_user.get("name") or "", effective_user.get("name") or ""]
+        # If a specific project was requested, verify access and resolve the
+        # authoritative company via the `projects` table. Only return documents
+        # whose `company_id` matches that resolved company. This avoids granting
+        # access based on client-supplied headers or legacy NULL company_id rows.
         if project_name:
             if allowed_projects is not None and project_name not in allowed_projects:
                 cur.close()
                 conn.close()
                 return []
-            params = [company_id, project_name]
+            # verify project and fetch its company_id
+            cur.execute("SELECT company_id FROM projects WHERE project_name=%s", (project_name,))
+            proj = cur.fetchone()
+            if not proj or not proj[0]:
+                cur.close()
+                conn.close()
+                # ambiguous or missing ownership -> fail-closed
+                return []
+            resolved_company_id = proj[0]
+            params = [resolved_company_id, project_name]
             if side_filter:
                 params.append(side_filter)
             params.extend(worker_doc_params)
@@ -313,23 +327,26 @@ def register_project_records_module(app, deps):
                 cur.close()
                 conn.close()
                 return []
-            params = [company_id, allowed_projects]
+            # Join through the projects table to ensure we only return documents
+            # whose company_id matches the authoritative project.company_id.
+            params = [allowed_projects]
+            join_sql = " JOIN projects p ON p.project_name = project_documents.project_name AND p.company_id = project_documents.company_id"
+            where_sql = " WHERE p.project_name = ANY(%s)"
             if side_filter:
+                where_sql += " AND project_documents.side=%s"
                 params.append(side_filter)
-            params.extend(worker_doc_params)
-            cur.execute("SELECT id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by,created_at FROM project_documents WHERE company_id=%s AND project_name = ANY(%s)" + side_sql + worker_doc_sql + " ORDER BY id DESC", tuple(params))
-        else:
-            params = [company_id]
-            if side_filter:
-                params.append(side_filter)
-            params.extend(worker_doc_params)
-            where_parts = ["company_id=%s"]
-            if side_filter:
-                where_parts.append("side=%s")
             if worker_doc_sql:
-                where_parts.append(worker_doc_sql.strip()[4:])
-            where_sql = " WHERE " + " AND ".join(where_parts)
-            cur.execute("SELECT id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by,created_at FROM project_documents" + where_sql + " ORDER BY id DESC", tuple(params))
+                # worker_doc_sql contains a leading ' AND (...' when present; adapt
+                # by appending the inner condition.
+                where_sql += " AND (" + worker_doc_sql.strip()[4:] + ")"
+                # extend params with worker params
+                params.extend(worker_doc_params)
+            cur.execute("SELECT project_documents.id,project_documents.project_name,project_documents.side,project_documents.doc_type,project_documents.number,project_documents.doc_date,project_documents.counterparty,project_documents.sign_status,project_documents.scan_url,project_documents.amount,project_documents.notes,project_documents.uploaded_by,project_documents.created_at FROM project_documents" + join_sql + where_sql + " ORDER BY project_documents.id DESC", tuple(params))
+        else:
+            # We should never reach here because allowed_projects==None was rejected
+            cur.close()
+            conn.close()
+            raise HTTPException(status_code=400, detail="Для документов выберите конкретную компанию")
         rows = cur.fetchall()
         cur.close()
         conn.close()

@@ -96,7 +96,7 @@ def build_handler(visible_projects, selected_company_id=4, selected_role="дир
 
 class ProjectDocumentsRouteTests(unittest.TestCase):
     def test_broad_project_documents_are_scoped_by_company(self):
-        handler, cur = build_handler(None)
+        handler, cur = build_handler(["Проект A", "Проект B"])
         handler(
             project_name=None,
             x_company_id="4",
@@ -104,8 +104,8 @@ class ProjectDocumentsRouteTests(unittest.TestCase):
             _current_user={"companyId": 99, "role": "директор"},
         )
         sql, params = cur.calls[0]
-        self.assertIn("WHERE company_id=%s", sql)
-        self.assertEqual(4, params[0])
+        self.assertIn("p.project_name = ANY(%s)", sql)
+        self.assertEqual((["Проект A", "Проект B"],), (params,))
 
     def test_all_companies_mode_is_rejected_for_project_documents(self):
         handler, cur = build_handler(None)
@@ -120,16 +120,20 @@ class ProjectDocumentsRouteTests(unittest.TestCase):
         self.assertEqual([], cur.calls)
 
     def test_named_project_document_is_scoped_by_company_even_with_same_name(self):
-        handler, cur = build_handler(None)
+        handler, cur = build_handler(["Одинаковое имя"])
         handler(
             project_name="Одинаковое имя",
             x_company_id="7",
             x_company_mode="company",
             _current_user={"company_id": 99, "role": "директор"},
         )
-        sql, params = cur.calls[0]
-        self.assertIn("WHERE company_id=%s AND project_name=%s", sql)
-        self.assertEqual((7, "Одинаковое имя"), params[:2])
+        # first query should resolve project ownership
+        sql0, params0 = cur.calls[0]
+        self.assertIn("SELECT company_id FROM projects", sql0)
+        # second query is the documents select constrained by resolved company
+        sql1, params1 = cur.calls[1]
+        self.assertIn("WHERE company_id=%s AND project_name=%s", sql1)
+        self.assertEqual(("Одинаковое имя",), params0[0:1])
 
 
 if __name__ == "__main__":
