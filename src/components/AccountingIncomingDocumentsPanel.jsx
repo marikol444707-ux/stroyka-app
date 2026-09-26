@@ -41,6 +41,33 @@ export default function AccountingIncomingDocumentsPanel({
   badge,
   toNum,
 }) {
+  // Defensive defaults to avoid regressions when parent passes empty/absent props
+  const safeC = React.useMemo(() => ({
+    text: '#000', textSec: '#444', textMuted: '#666', bg: '#fff', bgAlt: '#fafafa', card: '#fff',
+    border: '#e6e6e6', accent: '#2b7cff', accentLight: '#e6f0ff', accentBorder: '#bfe0ff', warning: '#ff9900',
+    warningLight: '#fff4e6', warningBorder: '#ffd9b3', success: '#00a86b', successLight: '#e6fbf1', successBorder: '#b3f0d6',
+    danger: '#ff4d4f', dangerLight: '#fff0f0', dangerBorder: '#ffc9c9', info: '#3b82f6', infoLight: '#ebf5ff', infoBorder: '#cfe3ff',
+  }), []);
+
+  C = C || safeC;
+  // style helpers expected to be objects/functions — provide safe defaults
+  card = card || { backgroundColor: C.card || C.bg, borderRadius: 8 };
+  btnO = btnO || { background: 'transparent' };
+  btnG = btnG || { background: 'transparent' };
+  btnB = btnB || { background: 'transparent' };
+  btnR = btnR || { background: 'transparent' };
+  btnGr = btnGr || { background: 'transparent' };
+  inp = inp || {};
+  invoices = invoices || [];
+  supplierInvoices = supplierInvoices || [];
+  suppliers = suppliers || [];
+  warehouseInvoiceEstimateControl = warehouseInvoiceEstimateControl || (/* istanbul ignore next */ () => []);
+  fileSrc = fileSrc || (v => v);
+  uploadPhoto = uploadPhoto || (/* istanbul ignore next */ async () => null);
+  refreshData = refreshData || (/* istanbul ignore next */ async () => {});
+  badge = badge || null;
+  toNum = typeof toNum === 'function' ? toNum : (v => Number(v) || 0);
+
   const [activeStatus, setActiveStatus] = React.useState('Нет фото');
   const [openedId, setOpenedId] = React.useState(null);
   const [busyId, setBusyId] = React.useState(null);
