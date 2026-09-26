@@ -26824,6 +26824,8 @@ register_project_records_module(app, {
     "require_project_access": require_project_access,
     "require_row_project_access": require_row_project_access,
     "visible_project_names": visible_project_names,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_user": effective_company_user,
     "read_roles": PROJECT_DOCUMENT_ROLES,
     "write_roles": PROJECT_DOCUMENT_WRITE_ROLES,
     "worker_execution_roles": WORKER_EXECUTION_ROLES,
