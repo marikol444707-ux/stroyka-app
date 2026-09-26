@@ -13,7 +13,7 @@ def register_project_chat_module(app, deps):
     get_db = deps["get_db"]
     get_current_user = deps["get_current_user"]
     require_project_access = deps["require_project_access"]
-    require_csrf_for_cookie_mutation = deps.get("require_csrf_for_cookie_mutation")
+    require_csrf_for_cookie_mutation = deps["require_csrf_for_cookie_mutation"]
 
     @app.get("/project-chat/{project_name}")
     def get_project_chat(project_name: str, current_user: dict = Depends(get_current_user)):
@@ -29,7 +29,7 @@ def register_project_chat_module(app, deps):
     def create_project_chat(
         data: dict,
         current_user: dict = Depends(get_current_user),
-        _csrf: None = Depends(require_csrf_for_cookie_mutation) if require_csrf_for_cookie_mutation else None,
+        _csrf: None = Depends(require_csrf_for_cookie_mutation),
     ):
         project_name = data.get("projectName", "")
         require_project_access(current_user, project_name)
