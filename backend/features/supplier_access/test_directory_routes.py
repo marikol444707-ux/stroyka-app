@@ -193,5 +193,17 @@ class SupplierDirectoryTest(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 403)
 
 
+    def test_supplier_can_update_own_requisites_and_commits(self):
+        # Supplier with access to id=7 should be able to update requisites
+        cursor = FakeCursor()
+        app, connection = build(cursor, supplier_ids=[7])
+        result = app.routes[("PUT", "/suppliers/{id}/requisites")](
+            id=7, data={"inn": "1234567890", "phone": "+70001112233"}, current_user={"role": "поставщик"}
+        )
+        # Handler should execute an UPDATE and commit the transaction
+        self.assertTrue(connection.committed)
+        self.assertIn("UPDATE suppliers SET", " ".join(cursor.calls[0][0].split()))
+        self.assertEqual(result, {"ok": True})
+
 if __name__ == "__main__":
     unittest.main()
