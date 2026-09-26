@@ -273,42 +273,42 @@ def register_project_records_module(app, deps):
         if _current_user.get("role") in worker_execution_roles:
             worker_doc_sql = " AND (counterparty=%s OR uploaded_by=%s)"
             worker_doc_params = [_current_user.get("name") or "", _current_user.get("name") or ""]
+        company_id = _current_user.get("companyId") or _current_user.get("company_id")
+        if not company_id:
+            cur.close()
+            conn.close()
+            return []
         if project_name:
             if allowed_projects is not None and project_name not in allowed_projects:
                 cur.close()
                 conn.close()
                 return []
-            params = [project_name]
+            params = [company_id, project_name]
             if side_filter:
                 params.append(side_filter)
             params.extend(worker_doc_params)
-            cur.execute("SELECT id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by,created_at FROM project_documents WHERE project_name=%s" + side_sql + worker_doc_sql + " ORDER BY id DESC", tuple(params))
+            cur.execute("SELECT id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by,created_at FROM project_documents WHERE company_id=%s AND project_name=%s" + side_sql + worker_doc_sql + " ORDER BY id DESC", tuple(params))
         elif allowed_projects is not None:
             if not allowed_projects:
                 cur.close()
                 conn.close()
                 return []
-            params = [allowed_projects]
+            params = [company_id, allowed_projects]
             if side_filter:
                 params.append(side_filter)
             params.extend(worker_doc_params)
-            cur.execute("SELECT id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by,created_at FROM project_documents WHERE project_name = ANY(%s)" + side_sql + worker_doc_sql + " ORDER BY id DESC", tuple(params))
+            cur.execute("SELECT id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by,created_at FROM project_documents WHERE company_id=%s AND project_name = ANY(%s)" + side_sql + worker_doc_sql + " ORDER BY id DESC", tuple(params))
         else:
-            # visible_project_names returned None => user has broad visibility roles
-            # Still scope queries to the current user's company to preserve tenant isolation.
-            params = []
+            params = [company_id]
             if side_filter:
                 params.append(side_filter)
             params.extend(worker_doc_params)
-            where_parts = []
-            # restrict to current company
-            where_parts.append("company_id=%s")
-            params.insert(0, _current_user.get("company_id"))
+            where_parts = ["company_id=%s"]
             if side_filter:
                 where_parts.append("side=%s")
             if worker_doc_sql:
                 where_parts.append(worker_doc_sql.strip()[4:])
-            where_sql = " WHERE " + " AND ".join(where_parts) if where_parts else ""
+            where_sql = " WHERE " + " AND ".join(where_parts)
             cur.execute("SELECT id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by,created_at FROM project_documents" + where_sql + " ORDER BY id DESC", tuple(params))
         rows = cur.fetchall()
         cur.close()
