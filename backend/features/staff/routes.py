@@ -296,6 +296,20 @@ def register_staff_module(app, deps):
                     detail="Один из объектов доступа не найден в выбранной компании",
                 )
 
+        # Prefer an existing linked user for this staff in the current company
+        cur.execute(
+            """SELECT user_id
+                 FROM public.user_company_roles
+                WHERE company_id=%s AND staff_id=%s AND COALESCE(active,TRUE)=TRUE
+                LIMIT 1 FOR UPDATE""",
+            (company_id, staff_id),
+        )
+        linked = cur.fetchone()
+        linked_user_id = _positive_int(_row_value(linked, "user_id", 0))
+
+        # Find users with the given email (to detect duplicates). If we already
+        # have a linked user prefer to lock that row as well; exclude it from
+        # duplicate detection below.
         cur.execute(
             """SELECT id,company_id
                  FROM public.users
@@ -313,11 +327,34 @@ def register_staff_module(app, deps):
             )
         existing = identity_rows[0] if identity_rows else None
         user_id = _positive_int(_row_value(existing, "id", 0))
+        # If there is an existing linked user for this staff prefer it.
+        if linked_user_id is not None:
+            user_id = linked_user_id
         full_name = (s.name or "Сотрудник").strip()
         if user_id:
-            # A password and the global user identity are shared by all company
-            # memberships. A manager of one company must never rewrite them.
+            # Update the global user identity when editing staff-linked access
+            # fields. This keeps the linked user email/role/password in sync
+            # with the staff card while still respecting uniqueness checks.
             action = "updated"
+            updates = []
+            params = []
+            if full_name:
+                updates.append("name=%s")
+                params.append(full_name)
+            # If email differs from current user's email, we'll update it later
+            if password:
+                updates.append("password=%s")
+                params.append(hash_password(password))
+            if role:
+                updates.append("role=%s")
+                params.append(role)
+            if updates:
+                # Ensure we update the user row we locked/found
+                params.append(user_id)
+                cur.execute(
+                    "UPDATE public.users SET " + ",".join(updates) + " WHERE id=%s",
+                    tuple(params),
+                )
         else:
             if not password:
                 raise HTTPException(status_code=400, detail="Для нового доступа сотрудника нужен пароль")
