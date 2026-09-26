@@ -1,16 +1,16 @@
 ЗАКРЫТО
-- Верификация отсутствия внешних пробелов в секретах: тест `backend/test_auth_secret_configuration.py::test_short_or_whitespace_wrapped_secret_is_rejected` подтверждает поведение. (см. `backend/test_auth_secret_configuration.py`).
+- Базовый CI-контур уже есть: backend compile/tests, frontend tests и frontend build входят в обязательную проверку. Evidence: `.github/workflows/ci.yml`, `tasks/plan.md` Task 15.
+- Изоляция журнала работ закрывалась отдельными срезами `M6.5a–M6.5d`; в плане записаны production runtime/post-audit evidence для create/read/update/delete. Evidence: `tasks/plan.md`.
+- Read-only post-audit по `supplier_invoices` и `supply_deliveries` в `M7j` проверил `53/53` строк без review rows. Evidence: `tasks/plan.md`.
 
 ОБЯЗАТЕЛЬНО ДО BETA
-- Исправить случаи неканоничных snapshot-хэшей (пробелы/регистр): тест `backend/features/brigade_lineage/test_readiness_report.py::test_snapshot_hash_must_be_canonical_lowercase_without_whitespace` указывает на риск несовместимости хэшей. (см. `backend/features/brigade_lineage/test_readiness_report.py`).
-- Обработать legacy имена проектов с завершающими пробелами: `backend/features/ai_ownership/test_ownership_report.py::test_exact_legacy_project_name_with_trailing_space_is_verified` и `backend/features/ai_ownership/test_ownership_report.py::test_whitespace_only_near_match_does_not_cross_link_projects` демонстрируют случаи, которые должны пройти валидацию. (см. `backend/features/ai_ownership/test_ownership_report.py`).
-- Runtime trimming project names в supply workflow: `backend/features/supplier_access/test_supply_request_workflow_smoke.py::test_runtime_project_names_trim_legacy_whitespace` показывает где фронтенд/бэкенд должны согласовать поведение. (см. `backend/features/supplier_access/test_supply_request_workflow_smoke.py`).
-- Whitespace-sensitive deparser for material capability schemas: контракт описан в `backend/features/supply_recommendation_preview/material_capability_schema_contract.py` — внешние пробелы должны быть лишь обрезаны, не менять внутреннее представление. (см. `backend/features/supply_recommendation_preview/material_capability_schema_contract.py`).
+- `M4.2–M4.9`: warehouse company isolation в текущем плане всё ещё помечена `implemented locally; release pending`. До release/verification эти пункты нельзя считать закрытыми. Evidence: `tasks/plan.md`.
+- `M6.6f1–M6.6f2`: public smoke зафиксирован, но combined protected single/batch/event и negative cross-company smoke остаётся deferred. Evidence: `tasks/plan.md`.
+- `M6.2d`: parent protected-file migration остаётся открытым до полного usage audit и безопасного private-storage cutover для новых S3 objects. Evidence: `tasks/plan.md`.
 
 МОЖНО ПОСЛЕ BETA
-- CI/ops скрипты, отвергающие корневые симлинки с завершающим слэшем — тесты в `scripts/test-publish-frontend.py` (`test_rejects_source_root_symlink_with_trailing_slash`, `test_rejects_target_root_symlink_with_trailing_slash`) можно рассмотреть позже. (см. `scripts/test-publish-frontend.py`).
-- Документы и канарии по проверкам вводимых значений (leading-zero, whitespace) — примеры в `docs/accounting-exception-checks-canary.md` и `docs/human-approved-actions-canary.md` можно сделать менее приоритетными. (см. `docs/accounting-exception-checks-canary.md`, `docs/human-approved-actions-canary.md`).
+- `Task 14` (перенос одного low-risk `init_db()` schema slice в Alembic) можно делать после ограниченной Beta, если он не нужен конкретному Beta-fix. Evidence: `tasks/plan.md`.
+- `Task A14` прямо предполагает оценку local model только после quality/load/cost measurements; это не prerequisite первой Beta. Evidence: `tasks/plan.md`.
 
 НУЖНО РЕШЕНИЕ ВЛАДЕЛЬЦА
-- Поведение при встрече legacy строк, принадлежащих разным компаниям: нужно строгое правило владельца по тому, как тримить/сопоставлять имена (risk: кросс-tenant linkage). Evidence: `docs/supply-request-workflow-e2e-smoke-a8-5-2.md` и тесты ownership в `backend/features/ai_ownership`. (см. `docs/supply-request-workflow-e2e-smoke-a8-5-2.md`, `backend/features/ai_ownership/test_ownership_report.py`).
-- Приоритет canonicalization vs. user-visible names: нужно решение — автоматически canonicalize (низкий регистр + trim) или показывать оригинал владельцу при расхождении. Evidence: `docs/decisions/0001-brigade-assignment-lineage.md` и `backend/features/brigade_lineage/test_readiness_report.py`. (см. `docs/decisions/0001-brigade-assignment-lineage.md`, `backend/features/brigade_lineage/test_readiness_report.py`).
+- Отдельного продуктового решения сейчас не требуется: сначала закрываются технические пункты выше. Правило проекта уже требует не закрывать задачу без focused/full tests, manual checks, tenant/role isolation и production smoke. Evidence: финальное правило в `tasks/plan.md`.
