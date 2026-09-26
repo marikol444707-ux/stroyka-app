@@ -215,6 +215,7 @@ def _company_context_row(
         "platformAccountId": platform_account_id,
         "platform_account_id": platform_account_id,
         "role": role,
+        "roleVerified": bool(str(role or "").strip()),
         "active": item.get("active") is not False,
         "companyActive": item.get("company_active") is not False,
         "isDefault": bool(item.get("is_default")),
@@ -343,7 +344,8 @@ def resolve_company_context(
     role = user.get("role") or ""
     if role in platform_staff_roles:
         if mode == "summary":
-            return {"mode": "all_companies", "companyId": None, "role": role, "readOnly": True}
+            return {"mode": "all_companies", "companyId": None, "role": role,
+        "roleVerified": bool(str(role or "").strip()), "readOnly": True}
         raise HTTPException(status_code=403, detail="Платформенная роль не может выполнять рабочее действие без support-сессии компании")
     memberships = user_company_memberships(
         cur,
@@ -351,6 +353,12 @@ def resolve_company_context(
         platform_staff_roles=platform_staff_roles,
         client_account_roles=client_account_roles,
     )
+    # raw memberships may include entries with blank/unverified roles.
+    # For public listing and default selection we must exclude those (fail-closed).
+    # Keep raw memberships (may include roleless records). For public/export purposes
+    # filter out entries with no verified role. When a specific company is requested
+    # and it has an unverified role, deny access.
+    memberships_public = [m for m in memberships if m.get('roleVerified')]
     if role in client_account_roles and not memberships:
         account_companies = account_company_contexts(cur, user, client_account_roles=client_account_roles)
         if requested_id:
@@ -360,21 +368,25 @@ def resolve_company_context(
                     raise HTTPException(status_code=403, detail="Роль уровня аккаунта пока имеет только обзор. Для рабочих действий назначьте роль в компании.")
                 return {**selected, "mode": "company"}
         if mode == "summary":
-            return {"mode": "all_companies", "companyId": None, "role": role, "readOnly": True, "companies": account_companies}
+            return {"mode": "all_companies", "companyId": None, "role": role,
+        "roleVerified": bool(str(role or "").strip()), "readOnly": True, "companies": account_companies}
         raise HTTPException(status_code=400, detail="Выберите компанию и рабочую роль для действия")
     if requested_id:
         selected = next((row for row in memberships if _as_int(row.get("companyId")) == requested_id), None)
         if not selected:
             raise HTTPException(status_code=403, detail="Нет доступа к выбранной компании")
+        if not selected.get('roleVerified'):
+            raise HTTPException(status_code=403, detail="Роль в выбранной компании не назначена")
         return {**selected, "mode": "company"}
-    if memberships and mode == "summary":
-        return {"mode": "all_companies", "companyId": None, "role": role, "readOnly": True, "companies": memberships}
-    default_company = next((row for row in memberships if row.get("isDefault")), None)
+    if memberships_public and mode == "summary":
+        return {"mode": "all_companies", "companyId": None, "role": role,
+        "roleVerified": bool(str(role or "").strip()), "readOnly": True, "companies": memberships_public}
+    default_company = next((row for row in memberships_public if row.get("isDefault")), None)
     if default_company:
         return {**default_company, "mode": "company"}
-    if len(memberships) == 1:
-        return {**memberships[0], "mode": "company"}
-    if memberships:
+    if len(memberships_public) == 1:
+        return {**memberships_public[0], "mode": "company"}
+    if memberships_public:
         raise HTTPException(status_code=400, detail="Выберите компанию для рабочего действия")
     raise HTTPException(status_code=403, detail="Компания пользователя не назначена")
 
@@ -498,6 +510,7 @@ def build_company_context_response(
             item.update({
                 "membership_id": None,
                 "role": role,
+        "roleVerified": bool(str(role or "").strip()),
                 "assigned_projects": [],
                 "assigned_packages": [],
                 "active": True,
@@ -516,6 +529,7 @@ def build_company_context_response(
             platform_staff_roles=platform_staff_roles,
             client_account_roles=client_account_roles,
         )
+        companies = [c for c in companies if c.get('roleVerified')]
         if role in client_account_roles:
             known_ids = {_as_int(item.get("companyId")) for item in companies}
             for item in account_company_contexts(cur, current_user, client_account_roles=client_account_roles):
@@ -538,6 +552,7 @@ def build_company_context_response(
             "name": current_user.get("name") or "",
             "email": current_user.get("email") or "",
             "role": role,
+        "roleVerified": bool(str(role or "").strip()),
             "companyId": current_user.get("companyId") or current_user.get("company_id"),
             "platformAccountId": platform_account_id,
         },
