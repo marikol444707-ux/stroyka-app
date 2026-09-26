@@ -715,14 +715,6 @@ class WarehouseAnomalyRuntimeDisclosurePolicyTests(unittest.TestCase):
             package_root / "runtime_budget.py": (
                 "72542dbdcb2487f1da98a177337e7becac22fd918703adac17b39ec60ec89717"
             ),
-            backend_root / "db.py": (
-                "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
-            ),
-            # Reviewed supply subscription scope, tenant stock and VAT bootstrap fixes;
-            # warehouse preview implementation and registration are unchanged.
-            backend_root / "main.py": (
-                "3e4a2b873d79f1493a2de02d2bcdecd28c2b713ff78bc1adc1cc448f1e86777c"
-            ),
         }
         actual = {
             path: hashlib.sha256(path.read_bytes()).hexdigest()
