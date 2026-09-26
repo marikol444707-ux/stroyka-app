@@ -4,7 +4,7 @@ import os
 import re
 
 import psycopg2.extras
-from fastapi import Depends, HTTPException
+from fastapi import Depends, Header, HTTPException
 
 from backend.features.model_gateway.contract import (
     MODEL_GATEWAY_PROVIDER_FAILED,
@@ -247,6 +247,8 @@ def register_project_records_module(app, deps):
     require_project_access = deps["require_project_access"]
     require_row_project_access = deps["require_row_project_access"]
     visible_project_names = deps["visible_project_names"]
+    resolve_work_company_context = deps["resolve_work_company_context"]
+    effective_company_user = deps["effective_company_user"]
     read_roles = deps["read_roles"]
     write_roles = deps["write_roles"]
     worker_execution_roles = deps["worker_execution_roles"]
@@ -258,26 +260,44 @@ def register_project_records_module(app, deps):
     write_access = require_roles(*write_roles)
 
     @app.get("/project-documents")
-    def get_project_documents(project_name: str = None, _current_user: dict = Depends(read_access)):
+    def get_project_documents(
+        project_name: str = None,
+        x_company_id: str = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: str = Header(default=None, alias="X-Company-Mode"),
+        _current_user: dict = Depends(read_access),
+    ):
         conn = get_db()
         cur = conn.cursor()
-        allowed_projects = visible_project_names(_current_user)
+        company_context = resolve_work_company_context(
+            cur,
+            _current_user,
+            None,
+            "read",
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+        )
+        if (company_context or {}).get("mode") != "company":
+            cur.close()
+            conn.close()
+            raise HTTPException(status_code=400, detail="Для документов выберите конкретную компанию")
+        company_id = (company_context or {}).get("companyId") or (company_context or {}).get("company_id")
+        if not company_id:
+            cur.close()
+            conn.close()
+            raise HTTPException(status_code=403, detail="Компания пользователя не определена")
+        effective_user = effective_company_user(_current_user, company_context)
+        allowed_projects = visible_project_names(effective_user)
         side_filter = None
-        if _current_user.get("role") == "заказчик":
+        if effective_user.get("role") == "заказчик":
             side_filter = "customer"
-        elif _current_user.get("role") in worker_execution_roles:
+        elif effective_user.get("role") in worker_execution_roles:
             side_filter = "contractor"
         side_sql = " AND side=%s" if side_filter else ""
         worker_doc_sql = ""
         worker_doc_params = []
-        if _current_user.get("role") in worker_execution_roles:
+        if effective_user.get("role") in worker_execution_roles:
             worker_doc_sql = " AND (counterparty=%s OR uploaded_by=%s)"
-            worker_doc_params = [_current_user.get("name") or "", _current_user.get("name") or ""]
-        company_id = _current_user.get("companyId") or _current_user.get("company_id")
-        if not company_id:
-            cur.close()
-            conn.close()
-            return []
+            worker_doc_params = [effective_user.get("name") or "", effective_user.get("name") or ""]
         if project_name:
             if allowed_projects is not None and project_name not in allowed_projects:
                 cur.close()
