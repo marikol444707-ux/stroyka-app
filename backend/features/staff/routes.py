@@ -296,41 +296,94 @@ def register_staff_module(app, deps):
                     detail="Один из объектов доступа не найден в выбранной компании",
                 )
 
+        # First: prefer an exact active membership link by company+staff.
         cur.execute(
-            """SELECT id,company_id
-                 FROM public.users
-                WHERE LOWER(email)=LOWER(%s)
-                ORDER BY id
-                LIMIT 2
+            """SELECT user_id
+                 FROM public.user_company_roles
+                WHERE company_id=%s AND staff_id=%s
+                  AND COALESCE(active,TRUE)=TRUE
+                LIMIT 1
                 FOR UPDATE""",
-            (email,),
+            (company_id, staff_id),
         )
-        identity_rows = cur.fetchall()
-        if len(identity_rows) > 1:
-            raise HTTPException(
-                status_code=409,
-                detail="Email связан с несколькими аккаунтами — сначала устраните дубликат",
-            )
-        existing = identity_rows[0] if identity_rows else None
-        user_id = _positive_int(_row_value(existing, "id", 0))
+        membership_link = cur.fetchone()
+        user_id = _positive_int(_row_value(membership_link, "user_id", 0))
         full_name = (s.name or "Сотрудник").strip()
+
         if user_id:
-            # A password and the global user identity are shared by all company
-            # memberships. A manager of one company must never rewrite them.
+            # Use the exact linked identity. Lock the user row for safety.
+            cur.execute(
+                "SELECT id,LOWER(email) AS email
+                     FROM public.users
+                    WHERE id=%s
+                    FOR UPDATE",
+                (user_id,),
+            )
+            user_row = cur.fetchone()
+            if _positive_int(_row_value(user_row, "id", 0)) is None:
+                raise HTTPException(status_code=409, detail="Связанная учётная запись не найдена")
+
+            existing_email = str(_row_value(user_row, "email", 1) or "").strip().lower()
+
+            # If this user has active memberships in other companies, forbid
+            # changes to global identity fields (email/password) from this flow.
+            cur.execute(
+                """SELECT COUNT(1)
+                     FROM public.user_company_roles
+                    WHERE user_id=%s AND COALESCE(active,TRUE)=TRUE
+                      AND company_id<>%s""",
+                (user_id, company_id),
+            )
+            other_memberships = cur.fetchone()
+            other_count = int(other_memberships[0]) if other_memberships else 0
+
+            # If caller supplied a new email that's different, or a password, and
+            # the identity is shared across companies — block the change.
+            incoming_email = (email or "").strip().lower()
+            if other_count > 0 and ((incoming_email and incoming_email != existing_email) or password):
+                raise HTTPException(
+                    status_code=409,
+                    detail="Нельзя менять email/password глобальной учётной записи, используемой в других компаниях",
+                )
+
             action = "updated"
         else:
-            if not password:
-                raise HTTPException(status_code=400, detail="Для нового доступа сотрудника нужен пароль")
-            cur.execute("""
-                INSERT INTO public.users
-                    (name,email,password,role,project_id,project_name,
-                     assigned_projects,assigned_packages,active,company_id)
-                VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,TRUE,%s)
-                RETURNING id
-            """, (full_name, email, hash_password(password), role, project_id, project_name,
-                  json.dumps(assigned_projects), json.dumps(assigned_packages), company_id))
-            new_row = cur.fetchone()
-            user_id = _positive_int(_row_value(new_row, "id", 0))
+            # No exact membership link found: fall back to searching users by email.
+            cur.execute(
+                """SELECT id,company_id
+                     FROM public.users
+                    WHERE LOWER(email)=LOWER(%s)
+                    ORDER BY id
+                    LIMIT 2
+                    FOR UPDATE""",
+                (email,),
+            )
+            identity_rows = cur.fetchall()
+            if len(identity_rows) > 1:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Email связан с несколькими аккаунтами — сначала устраните дубликат",
+                )
+            existing = identity_rows[0] if identity_rows else None
+            user_id = _positive_int(_row_value(existing, "id", 0))
+            if user_id:
+                action = "updated"
+            else:
+                if not password:
+                    raise HTTPException(status_code=400, detail="Для нового доступа сотрудника нужен пароль")
+                cur.execute("""
+                    INSERT INTO public.users
+                        (name,email,password,role,project_id,project_name,
+                         assigned_projects,assigned_packages,active,company_id)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,TRUE,%s)
+                    RETURNING id
+                """, (full_name, email, hash_password(password), role, project_id, project_name,
+                      json.dumps(assigned_projects), json.dumps(assigned_packages), company_id))
+                new_row = cur.fetchone()
+                user_id = _positive_int(_row_value(new_row, "id", 0))
+                if user_id is None:
+                    raise HTTPException(status_code=400, detail="Не удалось создать доступ сотрудника")
+                action = "created"ue(new_row, "id", 0))
             if user_id is None:
                 raise HTTPException(status_code=400, detail="Не удалось создать доступ сотрудника")
             action = "created"
