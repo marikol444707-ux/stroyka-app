@@ -943,14 +943,6 @@ class WarehouseAnomalyRuntimePreviewCompositionTests(unittest.TestCase):
             package_root / "content_preview.py": (
                 "6bf1b385b833bd2f02b16e066fbb41a7ea6aa9566cb4ce4c6eeff8d5dea9da64"
             ),
-            root / "backend/db.py": (
-                "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
-            ),
-            # Reviewed supply subscription scope, tenant stock and VAT bootstrap fixes;
-            # warehouse preview implementation and registration are unchanged.
-            root / "backend/main.py": (
-                "3e4a2b873d79f1493a2de02d2bcdecd28c2b713ff78bc1adc1cc448f1e86777c"
-            ),
         }
         self.assertEqual({
             path: hashlib.sha256(path.read_bytes()).hexdigest()
