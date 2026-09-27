@@ -122,8 +122,16 @@ def effective_company_user(user: dict, context: dict) -> dict:
     context = context or {}
     # An explicitly empty effective role is a denial, not a fallback request.
     raw_role = context.get("effectiveRole") if "effectiveRole" in context else context.get("role")
-    role = str(raw_role or "").strip()
-    if not role or context.get("active") is False or context.get("companyActive") is False:
+    role = str(raw_role or "")
+    normalized_role = role.strip()
+    # Blank or non-canonical padded roles are invalid. Never normalize malformed
+    # stored values into a privileged canonical role.
+    if (
+        not normalized_role
+        or role != normalized_role
+        or context.get("active") is False
+        or context.get("companyActive") is False
+    ):
         raise HTTPException(status_code=403, detail="Нет действующей роли в выбранной компании")
     actor = dict(user or {})
     company_id = _as_int((context or {}).get("companyId") or (context or {}).get("company_id"))
@@ -206,7 +214,7 @@ def _company_context_row(
     read_only: bool = False,
 ) -> dict:
     item = dict(row or {})
-    role = str(item.get("role") or "").strip()
+    role = str(item.get("role") or "")
     company_id = item.get("company_id") or item.get("id")
     platform_account_id = item.get("platform_account_id")
     context = {
@@ -276,7 +284,8 @@ def user_company_memberships(
     if rows:
         return [
             row for row in rows
-            if row.get("role")
+            if str(row.get("role") or "").strip()
+            and str(row.get("role") or "") == str(row.get("role") or "").strip()
             and (include_inactive or (row.get("active") and row.get("companyActive")))
         ]
     legacy_company_id = _as_int(user.get("companyId") or user.get("company_id"))
