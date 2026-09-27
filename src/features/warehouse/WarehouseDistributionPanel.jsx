@@ -158,7 +158,7 @@ function CompanyDistribution({ companyId, editable, projects = [], refreshData, 
     setSelectedSources(sourceOptions.filter(s => next.some(r => Number(r.lotId) === s.lotId)));
   };
   const closeReturn = () => { setReturning(null); setReturnQuantity(''); setReturnReason(''); setConfirmed(false); };
-  return <section className="warehouse-distribution" style={{ '--wd-text': C.text, '--wd-muted': C.textMuted, '--wd-border': C.border, '--wd-surface': C.card, '--wd-accent': C.accent }} aria-label="Распределение по объектам">
+  return <section className="warehouse-distribution" style={{ '--wd-text': C.text, '--wd-muted': C.textSec || C.textMuted, '--wd-border': C.border, '--wd-surface': C.bgWhite || C.card, '--wd-accent': C.accent }} aria-label="Распределение по объектам">
     <div className="wd-heading"><h3>Распределение по объектам</h3><button type="button" disabled={busy || loading} onClick={load}>Обновить</button></div>
     <p>Движение с общего склада — не новый долг поставщику. Осталось по распределению — выданное минус возвраты и отправки на другие объекты, а не фактический остаток на объекте.</p>
     {loading && <p role="status">Загрузка партий и распределений…</p>}
