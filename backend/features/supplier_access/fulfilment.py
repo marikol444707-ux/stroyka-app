@@ -1,7 +1,19 @@
 """Tenant-aware visibility for fulfilment rows; SQL identifiers are code-owned."""
 from fastapi import HTTPException
+import math
 import psycopg2.extras
 
+
+def invoice_payment_status(status, amount, paid):
+    if (not math.isfinite(amount) or not math.isfinite(paid)
+            or amount < 0 or paid < 0 or paid > amount + 0.01):
+        raise HTTPException(400, 'Некорректная сумма счёта или оплаты')
+    if status not in ('Оплачен', 'Частично оплачен'):
+        return status
+    if paid <= 0:
+        raise HTTPException(400, 'Для статуса оплаты укажите положительную оплаченную сумму')
+    # A validation tolerance must not forgive an unpaid kopeck.
+    return 'Оплачен' if paid >= amount else 'Частично оплачен'
 
 
 

@@ -199,7 +199,7 @@ class CompanyDirectoryPostgresTests(unittest.TestCase):
         response = self.client.post('/register', json={'code': 'CATALOG-NEW-SUPPLIER', 'name': 'New supplier',
             'companyName': 'New independent supplier', 'inn': '7722223333',
             'email': 'new-independent@example.invalid', 'password': 'Synthetic-only-Password123!'})
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 200, response.text)
         rows = self.sql("SELECT u.id,u.company_id,u.platform_account_id,s.id FROM users u JOIN suppliers s ON s.user_id=u.id WHERE u.email='new-independent@example.invalid'")
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0][1:3], (None, None))

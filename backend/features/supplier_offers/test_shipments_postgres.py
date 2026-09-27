@@ -66,8 +66,29 @@ class ShipmentPostgresTests(unittest.TestCase):
         self.assertEqual(first['id'], replay['id'])
         with ThreadPoolExecutor(max_workers=2) as pool:
             receiving = pool.submit(self.receipt, first, 1)
-            shipping = pool.submit(self.api, 'supplier', 'POST', path, dict(requestId=str(uuid4()), shippedItems=[dict(items[1], shippedQuantity=1)]))
+            shipping = pool.submit(api_after_busy, self, 'supplier', 'POST', path, dict(requestId=str(uuid4()), shippedItems=[dict(items[1], shippedQuantity=1)]))
             receiving.result(timeout=20)
             second = shipping.result(timeout=20)
         self.receipt(second, 1)
         self.assertEqual(self.sql('SELECT status FROM supply_requests WHERE id=%s', (offer['requestId'],)), [('Поставлено',)])
+
+    def test_postpayment_after_receipt_and_partial_payment_status(self):
+        offer, ship_path, _ = self.approved()
+        invoice = self.api('supplier', 'POST', ship_path.removesuffix('/ship') + '/create-invoice',
+                           dict(invoiceNumber='POSTPAY-TEST', amount=100, vatAmount=0))
+        invoice_path = '/supplier-invoices/%s' % invoice['id']
+        delivery = self.api('supplier', 'POST', ship_path,
+                            dict(requestId=str(uuid4()), shippedQuantity=1))
+        self.receipt(delivery, 1)
+        self.assertEqual(self.sql('SELECT paid_amount FROM supplier_invoices WHERE id=%s',
+                                  (invoice['id'],)), [(0,)])
+        self.api('stranger', 'PUT', invoice_path,
+                 dict(status='Оплачен', paidAmount=100), expected=403)
+        self.api('accountant', 'PUT', invoice_path, dict(status='Утверждён'))
+        self.api('accountant', 'PUT', invoice_path, dict(status='Оплачен', paidAmount=40))
+        self.assertEqual(self.sql('SELECT status,paid_amount FROM supplier_invoices WHERE id=%s',
+                                  (invoice['id'],)), [('Частично оплачен', 40)])
+        self.api('accountant', 'PUT', invoice_path, dict(status='Оплачен', paidAmount=101), expected=400)
+        self.api('accountant', 'PUT', invoice_path, dict(status='Оплачен', paidAmount=100))
+        self.assertEqual(self.sql('SELECT company_id,status,paid_amount FROM supplier_invoices WHERE id=%s',
+                                  (invoice['id'],)), [(self.fixture['companyId'], 'Оплачен', 100)])
