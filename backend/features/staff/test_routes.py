@@ -361,36 +361,35 @@ class StaffRoutesTest(unittest.TestCase):
         self.assertEqual(update_params[-2:], (5, 4))
         self.assertEqual(conn.commits, 1)
 
-    def test_existing_cross_company_user_identity_is_not_rewritten(self):
+    def test_existing_cross_company_password_change_is_rejected(self):
         app, conn, cursor = build([
             {"row": {"id": 7}},
-            {"rows": [{"id": 41, "company_id": 5}]},
-            {"row": None},
-            {"row": None},
-            {"rowcount": 1},
-            {"rowcount": 1},
+            {"rows": [{"id": 41, "company_id": 5, "email": "shared@example.test"}]},
         ])
-        created = call(
-            app.routes[("POST", "/staff")],
-            StaffModel(
+        with self.assertRaises(HTTPException) as caught:
+            call(app.routes[("POST", "/staff")], StaffModel(
                 name="Новый", role="мастер", email="shared@example.test",
-                password="NEW SECRET", systemRole="мастер",
-            ),
-        )
+                password="NEW SECRET", systemRole="мастер"))
+        self.assertEqual(caught.exception.status_code, 409)
+        self.assertFalse(any(sql.startswith("UPDATE public.users") for sql, _ in cursor.calls))
+        self.assertEqual(conn.rollbacks, 1)
+
+    def test_shared_identity_membership_can_change_without_password(self):
+        app, conn, cursor = build([
+            {"row": {"id": 7}},
+            {"rows": [{"id": 41, "company_id": 5, "email": "shared@example.test"}]},
+            {"row": None}, {"row": None}, {"rowcount": 1}, {"rowcount": 1},
+        ])
+        created = call(app.routes[("POST", "/staff")], StaffModel(
+            name="Новый", role="мастер", email="shared@example.test", systemRole="мастер"))
         self.assertEqual(created["access"]["action"], "updated")
-        self.assertFalse(any(
-            sql.startswith("UPDATE public.users") for sql, _params in cursor.calls
-        ))
-        self.assertTrue(any(
-            "INSERT INTO public.user_company_roles" in sql
-            for sql, _params in cursor.calls
-        ))
+        self.assertFalse(any(sql.startswith("UPDATE public.users") for sql, _ in cursor.calls))
         self.assertEqual(conn.commits, 1)
 
     def test_staff_access_membership_is_explicitly_linked_to_staff_record(self):
         app, conn, cursor = build([
             {"row": {"id": 7}},
-            {"rows": [{"id": 42, "company_id": 4}]},
+            {"rows": [{"id": 42, "company_id": 4, "shared": True}]},
             {"row": None},
             {"row": None},
             {"rowcount": 1},
@@ -418,7 +417,7 @@ class StaffRoutesTest(unittest.TestCase):
     def test_staff_access_rejects_link_owned_by_another_active_account(self):
         app, conn, cursor = build([
             {"row": {"id": 7}},
-            {"rows": [{"id": 42, "company_id": 4}]},
+            {"rows": [{"id": 42, "company_id": 4, "shared": True}]},
             {"row": {"user_id": 99}},
         ])
 
@@ -444,7 +443,7 @@ class StaffRoutesTest(unittest.TestCase):
         app, conn, cursor = build([
             {"row": {"id": 7}},
             {"rows": [
-                {"id": 42, "company_id": 4},
+                {"id": 42, "company_id": 4, "shared": True},
                 {"id": 43, "company_id": 4},
             ]},
         ])
@@ -459,18 +458,18 @@ class StaffRoutesTest(unittest.TestCase):
             )
 
         self.assertEqual(caught.exception.status_code, 409)
-        self.assertIn("несколькими аккаунтами", caught.exception.detail)
-        identity_sql, identity_params = next(call for call in cursor.calls if "LOWER(email)=LOWER" in call[0])
+        self.assertIn("другим аккаунтом", caught.exception.detail)
+        identity_sql, identity_params = next(call for call in cursor.calls if "LOWER(u.email)=LOWER" in call[0])
         self.assertIn("ORDER BY id", identity_sql)
         self.assertIn("LIMIT 2", identity_sql)
         self.assertIn("FOR UPDATE", identity_sql)
-        self.assertEqual(identity_params, ("worker@example.test",))
+        self.assertEqual(identity_params, (4, "worker@example.test", 4, 7))
         self.assertEqual(conn.rollbacks, 1)
 
     def test_staff_access_does_not_move_account_from_another_staff_record(self):
         app, conn, cursor = build([
             {"row": {"id": 7}},
-            {"rows": [{"id": 42, "company_id": 4}]},
+            {"rows": [{"id": 42, "company_id": 4, "shared": True}]},
             {"row": None},
             {"row": {"staff_id": 6}},
         ])

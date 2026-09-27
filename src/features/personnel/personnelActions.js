@@ -64,6 +64,11 @@ export const createPersonnelActions = ({
   const staffPackageRequiredRoles = ['мастер','субподрядчик','бригадир'];
 
   const findUserForStaff = (st) => findUserForStaffRow(st, users);
+  const linkedAccessForStaff = (row = {}) => {
+    if (row.accessUserId) return findUserForStaff(row);
+    const emails = [row.emailWork, row.emailPersonal, row.email].map(value => String(value || '').trim().toLowerCase()).filter(Boolean);
+    return (users || []).find(account => emails.includes(String(account.email || '').trim().toLowerCase()));
+  };
 
   const linkCurrentUserToStaff = async () => {
     const result = await readApiResult(await fetch(API + '/staff/current-user-link', {
@@ -84,7 +89,12 @@ export const createPersonnelActions = ({
     const cleanPassword = String(password||'').trim();
     if (!cleanEmail || !role) throw new Error('Нужны системная роль и email');
     if (!staffAccessRoles.includes(role)) throw new Error('Недопустимая системная роль: '+role);
-    const existing = (users||[]).find(u=>String(u.email||'').trim().toLowerCase()===cleanEmail);
+    const linked = linkedAccessForStaff(staffRow);
+    const emailOwner = (users||[]).find(u=>String(u.email||'').trim().toLowerCase()===cleanEmail);
+    if (linked?.id && emailOwner?.id && String(linked.id) !== String(emailOwner.id)) {
+      throw new Error('Email уже используется другим сотрудником');
+    }
+    const existing = linked || emailOwner;
     if (!existing && !cleanPassword) throw new Error('Для нового пользователя нужен пароль');
     if (cleanPassword && cleanPassword.length < 5) throw new Error('Пароль минимум 5 символов');
     const project = projectName || staffRow.project || existing?.projectName || existing?.project_name || '';
@@ -209,9 +219,13 @@ export const createPersonnelActions = ({
     const hasEmail = !!accessEmail;
     const hasPassword = !!accessPassword;
     const hasRole = !!newStaff.systemRole;
-    const existingAccess = accessEmail
-      ? (users || []).find(u => String(u.email || '').trim().toLowerCase() === accessEmail)
-      : findUserForStaff(editingItem || newStaff);
+    const linkedAccess = linkedAccessForStaff(editingItem || newStaff);
+    const emailOwner = (users || []).find(u => String(u.email || '').trim().toLowerCase() === accessEmail);
+    if (linkedAccess?.id && emailOwner?.id && String(linkedAccess.id) !== String(emailOwner.id)) {
+      alert('Email уже используется другим сотрудником');
+      return;
+    }
+    const existingAccess = linkedAccess || emailOwner;
     if ((hasEmail || hasPassword || hasRole) && !(hasEmail && hasRole && (hasPassword || existingAccess?.id))) {
       alert('Для нового доступа нужны системная роль + email + пароль. Для уже созданного доступа пароль можно оставить пустым.');
       return;
@@ -301,7 +315,7 @@ export const createPersonnelActions = ({
 
   const deleteStaff = async (id) => {
     if (window.confirm('Отключить сотрудника? Запись останется в истории, доступ в систему будет выключен.')) {
-      await fetch(API + '/staff/' + id, {method: 'DELETE'});
+      await readApiResult(await fetch(API + '/staff/' + id, {method: 'DELETE'}));
       await refreshData();
     }
   };
@@ -448,6 +462,11 @@ export const createPersonnelActions = ({
     setShowForm(false);
   };
 
+  const reportStaffError = action => async (...args) => {
+    try { return await action(...args); }
+    catch (error) { alert('Не удалось сохранить изменения: ' + (error.message || error)); }
+  };
+
   return {
     addPiecework,
     addStaffDoc,
@@ -457,7 +476,7 @@ export const createPersonnelActions = ({
     deleteContract,
     deleteInterimAct,
     deletePiecework,
-    deleteStaff,
+    deleteStaff: reportStaffError(deleteStaff),
     findUserForStaff,
     linkCurrentUserToStaff,
     openStaffProfile,
@@ -465,7 +484,7 @@ export const createPersonnelActions = ({
     ratemaster,
     resetStaffAccessPassword,
     resolveContractPerformer,
-    saveStaff,
+    saveStaff: reportStaffError(saveStaff),
     setPayrollExtra,
     setSalaryEdit,
     toggleDay,

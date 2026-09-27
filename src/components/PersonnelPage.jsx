@@ -720,8 +720,8 @@ export default function PersonnelPage({
                                     {hasAccess
                                       ? <button onClick={()=>resetStaffAccessPassword(hasAccess,s)} style={{...btnG,padding:'6px 9px',fontSize:'11px'}}>🔑 Пароль</button>
                                       : <button onClick={()=>createStaffAccessFromPrompt(s)} style={{...btnB,padding:'6px 9px',fontSize:'11px'}}>🔐 Доступ</button>}
-                                    <button onClick={()=>openStaffEdit(s)} style={{...btnG,padding:'6px 9px',fontSize:'11px'}}><Edit2 size={11}/>Изменить</button>
-                                    <button onClick={()=>deleteStaff(s.id)} style={{...btnR,padding:'6px 9px',fontSize:'11px'}}><Trash2 size={11}/>Удалить</button>
+                                    <button aria-label={"Изменить сотрудника " + s.name} title="Изменить данные, email и роль" onClick={()=>openStaffEdit(s)} style={{...btnG,padding:'6px 9px',fontSize:'11px'}}><Edit2 size={11}/>Изменить</button>
+                                    <button aria-label={"Отключить сотрудника " + s.name} title="Отключить доступ, сохранить историю" onClick={()=>deleteStaff(s.id)} style={{...btnR,padding:'6px 9px',fontSize:'11px'}}><Trash2 size={11}/>Удалить</button>
                                   </div>
                                 </div>
                               )}
@@ -797,8 +797,8 @@ export default function PersonnelPage({
                           </td>
                           <td style={tblC} onClick={e=>e.stopPropagation()}>
                             <div style={{display:'flex',gap:'4px'}}>
-                              <button onClick={()=>openStaffEdit(s)} style={{...btnG,padding:'3px 7px'}}><Edit2 size={11}/></button>
-                              <button onClick={()=>deleteStaff(s.id)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button>
+                              <button aria-label={"Изменить сотрудника " + s.name} title="Изменить данные, email и роль" onClick={()=>openStaffEdit(s)} style={{...btnG,padding:'3px 7px'}}><Edit2 size={11}/></button>
+                              <button aria-label={"Отключить сотрудника " + s.name} title="Отключить доступ, сохранить историю" onClick={()=>deleteStaff(s.id)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button>
                             </div>
                           </td>
                         </tr>
