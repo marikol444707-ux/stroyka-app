@@ -139,6 +139,10 @@ class CompanyMembershipPostgresTests(unittest.TestCase):
                     with self.subTest(action=action):
                         self.assert_forbidden(lambda: self.selected(action=action))
 
+    def test_padded_privileged_role_is_denied_not_normalized(self):
+        self.add_member(role=" директор ")
+        self.assert_forbidden(self.selected)
+
     def test_inactive_membership_and_company_fail_closed(self):
         self.add_member(role="директор", active=False)
         self.assert_forbidden(self.selected)
@@ -211,6 +215,7 @@ class CompanyMembershipPostgresTests(unittest.TestCase):
         for context in (
             {"companyId": 7},
             {"companyId": 7, "role": ""},
+            {"companyId": 7, "role": " директор "},
             {"companyId": 7, "role": "директор", "effectiveRole": ""},
             {"companyId": 7, "role": "директор", "active": False},
             {"companyId": 7, "role": "директор", "companyActive": False},
