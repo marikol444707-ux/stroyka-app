@@ -107,7 +107,7 @@ def build_invoice_line_spec(request_json, offer_json, *, invoice_amount, offer_a
             offered = _index(_rows(offer_json), package)
             _require(requested.keys() == offered.keys())
             lines, total = [], Decimal(0)
-            for key, (request_position, _, quantity) in requested.items():
+            for key, (request_position, request_row, quantity) in requested.items():
                 offer_position, row, offer_quantity = offered[key]
                 _require(quantity == offer_quantity)
                 price = _aliases(row, ('pricePerUnit', 'price_per_unit', 'unitPrice', 'unit_price'),
@@ -118,9 +118,13 @@ def build_invoice_line_spec(request_json, offer_json, *, invoice_amount, offer_a
                     _require(line_amount == _aliases(row, amount_keys, lambda value: _number(value, '0.01')))
                 total += line_amount
                 _require(total < _MONEY_LIMIT)
-                lines.append(dict(lineNo=request_position + 1, sourceRequestPosition=request_position,
-                    sourceOfferPosition=offer_position, materialName=key[0], unit=key[1], workPackage=package,
+                request_source = int(_number(request_row['requestPosition'], '1', limit=Decimal(2000), zero=True)) if 'requestPosition' in request_row else request_position
+                offer_source = int(_number(row['quotePosition'], '1', limit=Decimal(2000), zero=True)) if 'quotePosition' in row else offer_position
+                lines.append(dict(lineNo=request_position + 1, sourceRequestPosition=request_source,
+                    sourceOfferPosition=offer_source, materialName=key[0], unit=key[1], workPackage=package,
                     quantity=format(quantity, '.6f'), unitPrice=format(price, '.6f'), amount=format(line_amount, '.2f')))
+            _require(len({line["sourceRequestPosition"] for line in lines}) == len(lines))
+            _require(len({line["sourceOfferPosition"] for line in lines}) == len(lines))
             _require(total == amount)
             return dict(amount=format(amount, '.2f'), workPackage=package, lines=lines)
     except (ValueError, TypeError, DecimalException, OverflowError, RecursionError):

@@ -446,14 +446,14 @@ export const createSupplyActions = ({
     setRequestKpLoading(false);
   };
 
-  const sendKpRequest = async (responseDueAt) => {
+  const sendKpRequest = async (responseDueAt, supplierItems) => {
     if (!showRequestKpModal || selectedSupplierIds.length === 0) { alert('Выберите хотя бы одного поставщика'); return; }
     const companyId = requireSelectedCompanyForWrite();
     if (!companyId) return;
     const r = await fetch(API + '/supply-requests/' + showRequestKpModal + '/request-kp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ supplierIds: selectedSupplierIds, aiRecommendedIds: [], companyId, ...(typeof responseDueAt==='string' ? {responseDueAt} : {}) }),
+      body: JSON.stringify({ supplierIds: selectedSupplierIds, aiRecommendedIds: [], companyId, ...(supplierItems ? {supplierItems} : {}), ...(typeof responseDueAt==='string' ? {responseDueAt} : {}) }),
     });
     const data = await r.json().catch(() => ({}));
     if (!r.ok || data.detail || data.error) { alert('Ошибка: ' + (data.detail || data.error || r.status)); return; }
@@ -464,12 +464,12 @@ export const createSupplyActions = ({
     await refreshData();
   };
 
-  const selectSupplierOffer = async (offerId) => {
-    if (!window.confirm('Выбрать это КП? Остальные КП по этой заявке будут отклонены.')) return;
+  const selectSupplierOffer = async (offerId, itemPositions) => {
+    if (!window.confirm(itemPositions ? 'Заказать выбранные позиции у этого поставщика? Состав заказа будет зафиксирован.' : 'Выбрать это КП? Остальные КП по этой заявке будут отклонены.')) return;
     const response = await fetch(API + '/supplier-offers/' + offerId, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'select' }),
+      body: JSON.stringify({ action: 'select', ...(itemPositions ? {itemPositions} : {}) }),
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data?.detail || data?.error) {

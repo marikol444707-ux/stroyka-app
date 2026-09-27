@@ -518,8 +518,16 @@ def register_supplier_offers_module(app, deps):
             approval_requested = action == 'select' or (
                 action not in ('respond', 'select', 'withdraw', 'reject')
                 and str(data.get('status') or '').strip() in ('Утверждено', 'Выбрано', 'Принято'))
+            from .item_scopes import offer_scope, validate_response_items, award
+            item_scope = offer_scope(cur, id)
+            if item_scope.get('awarded') and action not in ('respond',):
+                raise HTTPException(409, 'Состав утверждённого заказа зафиксирован. Изменения требуют отдельного заказа')
+            if item_scope.get('requested') and 'status' in data and action not in ('respond', 'select', 'withdraw', 'reject'):
+                raise HTTPException(409, 'Используйте выбор позиций или отклонение КП')
             if approval_requested and role not in LEADERSHIP_ROLES:
                 raise HTTPException(status_code=403, detail="Утвердить КП может только директор или замдиректора")
+            if approval_requested:
+                action = 'select'
 
             if action == 'respond':
                 try:
@@ -573,7 +581,7 @@ def register_supplier_offers_module(app, deps):
 
             def _require_valid_supplier_offer_for_approval():
                 cur.execute("""SELECT o.status, o.total_price, o.price_per_unit, o.items_kp_json,
-                                      r.items_json, r.quantity
+                                      COALESCE(to_jsonb(o)->>'requested_items_json',r.items_json) AS items_json, r.quantity
                                FROM supplier_offers o
                                LEFT JOIN supply_requests r ON r.id=o.request_id
                                WHERE o.id=%s""", (id,))
@@ -645,18 +653,21 @@ def register_supplier_offers_module(app, deps):
                 require_current_response(data, current)
                 current_status = current['status'] or ''
                 items_kp = data.get('itemsKp') or []
+                if item_scope.get('requested'):
+                    items_kp = validate_response_items(item_scope['requested'], items_kp)
                 # Если пришёл массив постатейного КП — считаем итог автоматически
                 items_kp_json = None
                 if items_kp and isinstance(items_kp, list):
                     # Нормализация: каждый item должен иметь pricePerUnit и quantity
                     normalized = []
                     calc_total = 0.0
-                    for it in items_kp:
+                    for quote_position, it in enumerate(items_kp):
                         if not isinstance(it, dict): continue
                         p = float(it.get('pricePerUnit') or 0)
                         q = float(it.get('quantity') or 0)
-                        line_total = p * q
+                        line_total = round(p * q, 2) if item_scope.get('requested') else p * q
                         normalized.append({
+                            **({'quotePosition': quote_position} if item_scope.get('requested') else {}),
                             'materialName': it.get('materialName',''),
                             'quantity': q,
                             'unit': it.get('unit','шт'),
@@ -669,7 +680,7 @@ def register_supplier_offers_module(app, deps):
                         calc_total += line_total
                     items_kp_json = _json.dumps(normalized, ensure_ascii=False)
                     # Для совместимости: pricePerUnit = средневзвешенная, totalPrice = сумма
-                    total = float(data.get('totalPrice') or calc_total)
+                    total = float(calc_total if item_scope.get('requested') else (data.get('totalPrice') or calc_total))
                     ppu = float(data.get('pricePerUnit') or (calc_total / max(1, len(normalized))))
                 else:
                     # Старый путь — одна цена за единицу
@@ -736,7 +747,9 @@ def register_supplier_offers_module(app, deps):
                 if role not in LEADERSHIP_ROLES:
                     raise HTTPException(status_code=403, detail="Утвердить КП может только директор или замдиректора")
                 _require_valid_supplier_offer_for_approval()
-                cur.execute("UPDATE supplier_offers SET status=%s WHERE id=%s", ('Утверждено', id))
+                scoped_award = award(cur, id, offer_access['request_id'], company_id, data.get('itemPositions'))
+                if not scoped_award:
+                    cur.execute("UPDATE supplier_offers SET status=%s WHERE id=%s", ('Утверждено', id))
                 cur.execute("""
                     UPDATE supply_request_recipients
                        SET status=%s
@@ -759,7 +772,7 @@ def register_supplier_offers_module(app, deps):
                 # Остальные КП по этой заявке — отклонены
                 cur.execute("SELECT request_id FROM supplier_offers WHERE id=%s", (id,))
                 r = cur.fetchone()
-                if r and r['request_id']:
+                if r and r['request_id'] and not scoped_award:
                     cur.execute("UPDATE supplier_offers SET status=%s WHERE request_id=%s AND company_id=%s AND id<>%s AND status<>%s",
                         ('Отклонено', r['request_id'], company_id, id, 'Отклонено'))
                     cur.execute("""
@@ -912,7 +925,8 @@ def register_supplier_offers_module(app, deps):
                 "SELECT o.id, o.supplier_id, o.request_id, o.total_price, o.payment_terms, o.vat_included, "
                 "o.company_id, r.company_id AS request_company_id, "
                 "s.name as supplier_name, r.project as project_name, r.material_name, "
-                "COALESCE(r.work_package,'') AS work_package, r.items_json "
+                "COALESCE(r.work_package,'') AS work_package, "
+                "COALESCE(to_jsonb(o)->>'awarded_items_json',r.items_json) AS items_json "
                 + (", o.items_kp_json, o.total_price::text AS exact_offer_total " if line_specs_enabled else "") +
                 "FROM supplier_offers o "
                 "LEFT JOIN suppliers s ON s.id=o.supplier_id "
@@ -1278,7 +1292,8 @@ def register_supplier_offers_module(app, deps):
                        o.payment_terms, o.items_kp_json, o.company_id, r.company_id AS request_company_id,
                        s.name as supplier_name,
                        r.project, COALESCE(r.work_package,'') as work_package,
-                       r.material_name, r.quantity, r.unit, r.items_json
+                       r.material_name, r.quantity, r.unit,
+                       COALESCE(to_jsonb(o)->>'awarded_items_json',r.items_json) AS items_json
                 FROM supplier_offers o
                 LEFT JOIN suppliers s ON s.id=o.supplier_id
                 JOIN supply_requests r ON r.id=o.request_id

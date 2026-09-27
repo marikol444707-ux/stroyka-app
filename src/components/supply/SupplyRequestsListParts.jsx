@@ -1,4 +1,5 @@
 import React from 'react';
+import OfferLineSelection from './OfferLineSelection';
 import SupplierEmailAttempts from './SupplierEmailAttempts';
 import useSupplierOfferCheck from '../../features/supply/useSupplierOfferCheck';
 import { Bot, Check, X } from 'lucide-react';
@@ -461,7 +462,8 @@ export function OffersBlock({
             <span style={badge(stC, stBg, stBd)}>{o.status}</span>
             {o.status === 'Получено' && canApprove && !compact && (
               <>
-                <button onClick={() => selectSupplierOffer(o.id)} style={{ ...btnGr, padding: '3px 8px', fontSize: '11px' }}><Check size={11} />Выбрать</button>
+                {o.requestedItemsJson ? <OfferLineSelection offer={o} offers={activeOffers} onSelect={selectSupplierOffer} C={C} buttonStyle={btnGr}/>
+                  : <button onClick={() => selectSupplierOffer(o.id)} style={{ ...btnGr, padding: '3px 8px', fontSize: '11px' }}><Check size={11} />Выбрать</button>}
                 <button onClick={() => rejectSupplierOffer(o.id)} style={{ ...btnR, padding: '3px 8px', fontSize: '11px' }}><X size={11} /></button>
               </>
             )}
@@ -478,7 +480,7 @@ export function OffersBlock({
     <div style={{ borderTop: '1.5px dashed ' + C.border, paddingTop: '10px', marginTop: '10px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', gap: '8px', flexWrap: 'wrap' }}>
         <b style={{ color: C.text, fontSize: '12px' }}>📊 КП от поставщиков ({offerCounterText}){winner ? ' · ✅ выбрано' : ''}</b>
-        {receivedOffers.length >= 2 && canApprove && !winner && (
+        {receivedOffers.length >= 2 && canApprove && (
           <button onClick={() => runCompareKp(request.id)} disabled={compareLoading} style={{ ...btnGr, padding: '4px 10px', fontSize: '11px', opacity: compareLoading ? 0.6 : 1 }}>
             <Bot size={11} />{compareLoading ? 'AI сравнивает...' : '🤖 Сравнить через AI'}
           </button>

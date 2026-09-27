@@ -33,6 +33,16 @@ class InvoiceLineSpecTests(unittest.TestCase):
                  unit='шт', workPackage='Основная', quantity='1.000000', unitPrice='2.000000', amount='2.00'),
         ]))
 
+    def test_selected_subset_preserves_original_request_and_quote_positions(self):
+        first = dict(self.request(), requestPosition=4)
+        second = dict(self.request(), materialName='Труба', requestPosition=9)
+        first_quote = dict(self.offer(), requestPosition=4, quotePosition=7)
+        second_quote = dict(self.offer(), materialName='Труба', requestPosition=9, quotePosition=2)
+        result = self.build([first, second], [second_quote, first_quote],
+                            invoice_amount='5.00', offer_amount='5.00')
+        self.assertEqual([(line['lineNo'], line['sourceRequestPosition'], line['sourceOfferPosition'])
+                          for line in result['lines']], [(1, 4, 7), (2, 9, 2)])
+
     def test_raw_json_decimals_are_not_binary_floats(self):
         request = '[{"name":"A","unit":"m","work_package":"P","quantity":0.1}]'
         offer = '[{"name":"A","unit":"m","work_package":"P","quantity":0.1,"pricePerUnit":0.2}]'

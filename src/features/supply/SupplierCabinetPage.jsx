@@ -14,6 +14,7 @@ import SupplierCatalogImport from './SupplierCatalogImport';
 import useSupplierCatalogActions from './useSupplierCatalogActions';
 import useSupplierQuoteResponse from './useSupplierQuoteResponse';
 import { Check, Edit2, Plus, Trash2, X } from 'lucide-react';
+import {requestForOffer} from './offerItemScopes';
 import { groupSuppliers, normalizeSupplierPayload, supplierIdentityKeys } from '../../utils/supplierUtils';
 
 const normalizeSupplierIdentity = value => String(value || '')
@@ -391,7 +392,7 @@ export default function SupplierCabinetPage({
               return groups.filter(g=>g.items.length>0).map(g=>(<div key={g.key} style={{marginBottom:'16px'}}>
                 <b style={{color:g.color,fontSize:'12px',display:'block',marginBottom:'8px'}}>{g.title} ({g.items.length})</b>
                 {g.items.map(o=>{
-                  const req = supplyRequests.find(r=>r.id===o.requestId);
+                  const req = requestForOffer(supplyRequests.find(r=>r.id===o.requestId), o);
                   if (!req) return null;
                   const isResponding = respondingOfferId===o.id;
                   return (<div key={o.id} style={{padding:'12px',backgroundColor:g.bg,borderRadius:'8px',marginBottom:'8px',border:'1.5px solid '+g.bd}}>

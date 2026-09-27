@@ -1849,7 +1849,7 @@ def _ensure_supply_notification_messenger_tables(cur):
     cur.execute("CREATE INDEX IF NOT EXISTS idx_messenger_outbox_account ON messenger_outbox(messenger_account_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_messenger_outbox_entity ON messenger_outbox(entity_type, entity_id)")
 
-def _supply_request_notification_context(cur, request_id: int) -> dict:
+def _supply_request_notification_context(cur, request_id: int, supplier_id=None) -> dict:
     cur.execute("""
         SELECT id, material_name, quantity, unit, project, work_package, notes, items_json, company_id
           FROM supply_requests
@@ -1860,6 +1860,15 @@ def _supply_request_notification_context(cur, request_id: int) -> dict:
     if not row:
         return {}
     items = _json_list_or_empty(_row_get(row, "items_json", 7, None))
+    scoped_items = None
+    if supplier_id:
+        cur.execute("""SELECT to_jsonb(o)->>'requested_items_json' AS requested
+            FROM supplier_offers o WHERE request_id=%s AND supplier_id=%s AND company_id=%s ORDER BY id DESC LIMIT 1""",
+            (request_id, supplier_id, _row_get(row, 'company_id', 8, None)))
+        offer = cur.fetchone()
+        if offer and _row_get(offer, 'requested', 0, None):
+            scoped_items = _json_list_or_empty(_row_get(offer, 'requested', 0, None))
+            items = scoped_items
     item_lines = []
     for item in items[:5]:
         if not isinstance(item, dict):
@@ -1874,6 +1883,10 @@ def _supply_request_notification_context(cur, request_id: int) -> dict:
     material = _row_get(row, "material_name", 1, "") or ""
     quantity = _row_get(row, "quantity", 2, "") or ""
     unit = _row_get(row, "unit", 3, "") or ""
+    if scoped_items:
+        material = scoped_items[0]['materialName'] if len(scoped_items) == 1 else f'{len(scoped_items)} позиций'
+        quantity = scoped_items[0]['quantity'] if len(scoped_items) == 1 else len(scoped_items)
+        unit = scoped_items[0]['unit'] if len(scoped_items) == 1 else 'поз.'
     project = _row_get(row, "project", 4, "") or ""
     company_id = _row_get(row, "company_id", 8, None)
     project_id = None
@@ -2072,7 +2085,7 @@ def _notify_supply_request_recipients(cur, request_id: int, company_id: int = No
             max_queued = False
         else:
             max_outbox_id, max_status = _queue_supply_request_max_notification(
-                cur, recipient, request_context, offer_id, ensure_schema=ensure_schema)
+                cur, recipient, _supply_request_notification_context(cur, request_id, supplier_id), offer_id, ensure_schema=ensure_schema)
             max_queued = bool(max_outbox_id and max_status == "В очереди MAX")
         cur.execute("""
             UPDATE supply_request_recipients
@@ -9231,6 +9244,9 @@ def get_supply_requests(
         return []
     rows = cur.fetchall()
     if role == "поставщик":
+        from backend.features.supplier_offers.item_scopes import supplier_request_scopes
+        item_visibility, item_params = supplier_offer_visibility_filter(supplier_ids, current_user.get('id'))
+        rows = supplier_request_scopes(cur, rows, supplier_ids, item_visibility, item_params)
         rows = attach_request_company_names(cur, rows)
     if is_internal_supply_reader:
         rows = attach_supply_allocation_projection(cur, rows)
@@ -9998,7 +10014,9 @@ OFFERS_SELECT = ("SELECT id, request_id as \"requestId\", supplier_id as \"suppl
                  "requested_at as \"requestedAt\", responded_at as \"respondedAt\","
                  "response_due_at as \"responseDueAt\", "
                  "ai_recommended as \"aiRecommended\","
-                 "items_kp_json as \"itemsKpJson\" "
+                 "items_kp_json as \"itemsKpJson\", "
+                 "to_jsonb(supplier_offers)->>'requested_items_json' as \"requestedItemsJson\", "
+                 "to_jsonb(supplier_offers)->>'awarded_items_json' as \"awardedItemsJson\" "
                  "FROM supplier_offers")
 
 def _require_supplier_offer_visibility(cur, offer_id: int, user: dict, detail: str = "Нет доступа к КП", *, ensure_schema=True):
@@ -10063,7 +10081,7 @@ def _supplier_offer_event_payload(data: dict) -> str:
         "action", "pricePerUnit", "totalPrice", "deliveryDays", "paymentTerms",
         "vatIncluded", "validUntil", "supplierMessage", "pdfUrl", "itemsKp",
         "status", "deliveryStatus", "invoiceId", "invoiceNumber", "amount",
-        "vatAmount", "duplicateDocument",
+        "vatAmount", "duplicateDocument", "itemPositions",
     }
     payload = {k: data.get(k) for k in allowed if k in data}
     return json.dumps(payload, ensure_ascii=False, default=str)
@@ -10140,7 +10158,7 @@ def request_kp_from_suppliers(
         else:
             _ensure_supply_runtime_columns(cur)
         # Получаем количество из заявки для preview total
-        cur.execute("SELECT quantity, project, status, company_id, prorab_confirmed_at, director_approved_at FROM supply_requests WHERE id=%s FOR UPDATE", (id,))
+        cur.execute("SELECT quantity, material_name, unit, work_package, items_json, project, status, company_id, prorab_confirmed_at, director_approved_at FROM supply_requests WHERE id=%s FOR UPDATE", (id,))
         req = cur.fetchone()
         if not req:
             raise HTTPException(status_code=404, detail="Заявка не найдена")
@@ -10185,6 +10203,8 @@ def request_kp_from_suppliers(
         except SupplyRequestWorkflowViolation as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.detail)
         targets = explicit_supplier_targets(cur, company_id, supplier_ids)
+        from backend.features.supplier_offers.item_scopes import dispatch_scopes, persist_scopes
+        item_scopes = dispatch_scopes(req, supplier_ids, data.get('supplierItems'))
         selected_scope_ids = supplier_ids
         if ledger_present:
             # Validate before upsert can rewrite a corrupt existing owner.
@@ -10199,6 +10219,7 @@ def request_kp_from_suppliers(
         if visibility_error:
             raise HTTPException(status_code=400, detail=visibility_error)
         created = _create_supplier_offer_requests(cur, id, selected_scope_ids, company_id=company_id, targets=targets)
+        persist_scopes(cur, id, company_id, item_scopes, created)
         if created:
             try:
                 due_at = response_deadline(data.get("responseDueAt"))
@@ -11596,10 +11617,16 @@ def _update_supply_flow_status_after_delivery(cur, request_id=None, offer_id=Non
     ):
         if not value:
             continue
+        scoped_lines = lines
+        if table == 'supplier_offers':
+            cur.execute("SELECT to_jsonb(o)->>'awarded_items_json' AS items_json FROM supplier_offers o WHERE id=%s", (value,))
+            awarded = _cursor_rows_as_dicts(cur, cur.fetchall())
+            if awarded and awarded[0].get('items_json'):
+                scoped_lines = order_lines(awarded[0])
         cur.execute('SELECT status, material_name, unit, work_package, received_quantity FROM supply_deliveries WHERE ' + field + '=%s ORDER BY id', (value,))
         rows = _cursor_rows_as_dicts(cur, cur.fetchall())
         if rows:
-            cur.execute('UPDATE ' + table + ' SET ' + column + '=%s WHERE id=%s', (flow_status(lines, rows), value))
+            cur.execute('UPDATE ' + table + ' SET ' + column + '=%s WHERE id=%s', (flow_status(scoped_lines, rows), value))
 
 def _ensure_journal_source_columns(cur):
     try:

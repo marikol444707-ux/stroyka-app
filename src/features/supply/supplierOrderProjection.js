@@ -11,7 +11,7 @@ export function supplierOrders(requests,offers,deliveries,invoices) {
   const candidates=deliveries.filter(d=>same(d.offerId,offer.id));
   const shipments=candidates.filter(d=>linked(d,offer,request));
   let review=candidates.length!==shipments.length;
-  let items=list(request.itemsJson || request.items);
+  let items=list(offer.awardedItemsJson || request.itemsJson || request.items);
   if(!items.length)items=[request];
   const grouped=new Map();
   for(const item of items){

@@ -2,6 +2,11 @@ import { supplierOrders } from './supplierOrderProjection';
 const request={id:1,companyId:2,items:[{materialName:'Кабель',unit:'м',quantity:10},{materialName:'Крепёж',unit:'шт',quantity:5}]};
 const offer={id:4,requestId:1,companyId:2,supplierId:3,status:'Утверждено'};
 const delivery={id:7,offerId:4,requestId:1,companyId:2,supplierId:3,materialName:'Кабель',unit:'м',shippedQuantity:6,receivedQuantity:4,status:'Принято'};
+it('uses only awarded lines for each supplier order',()=>{
+ const scoped={...offer,awardedItemsJson:JSON.stringify([request.items[0]])};
+ const order=supplierOrders([request],[scoped],[{...delivery,shippedQuantity:10,receivedQuantity:10}],[])[0];
+ expect(order.lines).toHaveLength(1);expect(order.status).toBe('Принято полностью');
+});
 it('keeps partial orders open and separates each material quantity',()=>{
  const [order]=supplierOrders([request],[offer],[delivery],[]);
  expect(order.status).toBe('Частично принято');

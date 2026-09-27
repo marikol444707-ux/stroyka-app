@@ -20,7 +20,10 @@ export default function RequestKpModal({
   sendKpRequest,
 }) {
   const [responseDueAt,setResponseDueAt]=React.useState('');
-  React.useEffect(()=>{if(showRequestKpModal) setResponseDueAt(defaultResponseDeadline());},[showRequestKpModal]);
+  const [supplierItems,setSupplierItems]=React.useState({});
+  const [sending,setSending]=React.useState(false);
+  const [sendError,setSendError]=React.useState('');
+  React.useEffect(()=>{if(showRequestKpModal) {setResponseDueAt(defaultResponseDeadline());setSupplierItems({});setSendError('');}},[showRequestKpModal]);
   const validDeadline=Boolean(responseDueAt) && Date.parse(responseDueAt+':00+03:00')>Date.now();
   const suggestedSupplierGroups = React.useMemo(
     () => suggestedSuppliers?.suppliers || [],
@@ -42,6 +45,8 @@ export default function RequestKpModal({
 
   const req = supplyRequests.find(r=>r.id===showRequestKpModal);
   const items = req ? parseSupplyItems(req) : [];
+  const selectedPositions = id => supplierItems[id] ?? items.map((_,index)=>index);
+  const validPositions = selectedSupplierIds.every(id => selectedPositions(id).length > 0);
 
   const renderTitleMeta = () => {
     if (!req) return null;
@@ -51,7 +56,7 @@ export default function RequestKpModal({
     }
     return (
       <div style={{margin:'4px 0 0'}}>
-        <p style={{color:C.textSec,margin:'0 0 4px',fontSize:'12px'}}>📋 Пакет из {items.length} позиций · 🏗 {req.project||''} — отправим одним запросом</p>
+        <p style={{color:C.textSec,margin:'0 0 4px',fontSize:'12px'}}>📋 Заявка из {items.length} позиций · 🏗 {req.project||''}. Выберите материалы для каждого поставщика.</p>
         <ol style={{margin:0,paddingLeft:'18px',color:C.textSec,fontSize:'11px'}}>
           {items.slice(0,5).map((it,i)=><li key={i}>{it.materialName} <span>— {it.quantity} {it.unit}</span></li>)}
           {items.length>5 && <li style={{listStyle:'none',fontStyle:'italic'}}>...и ещё {items.length-5}</li>}
@@ -92,7 +97,7 @@ export default function RequestKpModal({
           {suggestedSupplierGroups.map(s=>{
             const checked = selectedSupplierIds.includes(s.id);
             return (
-              <label key={s.id} style={{padding:'10px 12px',marginBottom:'6px',borderRadius:'8px',backgroundColor:checked?C.successLight:C.bg,border:'1.5px solid '+(checked?C.successBorder:C.border),cursor:s.alreadyRequested?'not-allowed':'pointer',display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',opacity:s.alreadyRequested?0.5:1}}>
+              <div key={s.id} style={{padding:'10px 12px',marginBottom:'6px',borderRadius:'8px',backgroundColor:checked?C.successLight:C.bg,border:'1.5px solid '+(checked?C.successBorder:C.border),opacity:s.alreadyRequested?0.5:1}}>
                 <div style={{display:'flex',alignItems:'center',gap:'10px',flex:1}}>
                   <input type='checkbox' aria-label={s.name} checked={checked} onChange={()=>{
                     if (s.alreadyRequested) return;
@@ -107,15 +112,24 @@ export default function RequestKpModal({
                     <p style={{color:C.textMuted,margin:0,fontSize:'10px'}}>⭐ {s.rating ?? 'нет'} · 📦 успешных поставок: {s.deliveriesCount ?? 0}</p>
                   </div>
                 </div>
-              </label>
+                {checked && !s.alreadyRequested && <fieldset disabled={sending} style={{marginTop:8,border:0,padding:0}}>
+                  <legend>Позиции для {s.name}</legend>
+                  {items.map((item,index)=><label key={index} style={{display:'flex',gap:8,marginTop:6,color:C.text,fontSize:12}}>
+                    <input type="checkbox" aria-label={`${s.name}: ${item.materialName}`} checked={selectedPositions(s.id).includes(index)} onChange={()=>setSupplierItems(prev=>({...prev,[s.id]:selectedPositions(s.id).includes(index)?selectedPositions(s.id).filter(p=>p!==index):[...selectedPositions(s.id),index].sort((a,b)=>a-b)}))}/>
+                    {item.materialName} · {item.quantity} {item.unit}
+                  </label>)}
+                </fieldset>}
+              </div>
             );
           })}
           <div style={{display:'flex',gap:'8px',marginTop:'14px',justifyContent:'flex-end'}}>
             <button onClick={()=>setShowRequestKpModal(null)} style={btnG}><X size={14}/>Отмена</button>
-            <button onClick={()=>sendKpRequest(responseDueAt+':00+03:00')} disabled={selectedSupplierIds.length===0 || !validDeadline} style={{...btnO,opacity:selectedSupplierIds.length===0?0.5:1}}>
+            <button onClick={async()=>{setSending(true);setSendError('');try {await sendKpRequest(responseDueAt+':00+03:00',Object.fromEntries(selectedSupplierIds.map(id=>[id,selectedPositions(id)])));} catch (error) {setSendError('Не удалось отправить запрос. Проверьте соединение и повторите.');} finally {setSending(false);}}} disabled={sending || selectedSupplierIds.length===0 || !validDeadline || !validPositions} style={{...btnO,opacity:selectedSupplierIds.length===0?0.5:1}}>
               <Check size={14}/>Отправить ({selectedSupplierIds.length})
             </button>
           </div>
+          {sendError && <p role="alert" style={{color:C.danger}}>{sendError}</p>}
+          {!validPositions && <p role="alert" style={{color:C.danger}}>Выберите хотя бы одну позицию для каждого поставщика.</p>}
         </>)}
       </div>
     </div>

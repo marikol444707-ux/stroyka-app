@@ -28,7 +28,8 @@ class InvoiceLineCreationPostgresTests(unittest.TestCase):
             with conn, conn.cursor() as cur:
                 for name in ('0045_supplier_payment_ledger.py', '0046_supplier_payment_attachments.py',
                              '0047_supplier_payment_packages.py', '0048_supplier_payment_cancellations.py',
-                             '0049_supplier_payment_allocations.py', '0050_supplier_invoice_line_specs.py'):
+                             '0049_supplier_payment_allocations.py', '0050_supplier_invoice_line_specs.py',
+                             '0051_supplier_offer_item_scopes.py'):
                     migration(cur, name)
                 # Independent per-test offers must not exhaust the two-unit
                 # estimate seeded by the shared, unchanged fixture builder.
@@ -96,6 +97,20 @@ class InvoiceLineCreationPostgresTests(unittest.TestCase):
             self.assertEqual(after[table], before[table], table)
         self.assertEqual(len(after['supplier_invoices']), len(before['supplier_invoices']) + 1)
         self.assertEqual(len(after['supplier_offer_events']), len(before['supplier_offer_events']) + 1)
+
+    def test_scoped_invoice_uses_award_not_original_request_with_ledger_enabled(self):
+        assigned = [dict(self.request_items[0], requestPosition=4)]
+        quoted = [dict(self.kp_items[0], requestPosition=4, quotePosition=2)]
+        original = [dict(self.request_items[0], materialName='Other unawarded material'), *self.request_items]
+        self.sql('UPDATE supply_requests SET items_json=%s WHERE id=%s',
+                 (json.dumps(original), self.request_id))
+        self.sql('''UPDATE supplier_offers SET requested_items_json=%s,awarded_items_json=%s,
+                    items_kp_json=%s WHERE id=%s''',
+                 (json.dumps(assigned), json.dumps(quoted), json.dumps(quoted), self.offer_id))
+        result = self.create()
+        self.assertEqual(self.sql('''SELECT l.line_no,l.source_request_position,l.source_offer_position,l.amount
+            FROM supplier_invoice_lines l JOIN supplier_invoice_line_specs s ON s.id=l.spec_id
+            WHERE s.invoice_id=%s''', (result['id'],)), [(1, 4, 2, 200)])
 
     def test_existing_invoice_replay_does_not_recompute_after_raw_source_change(self):
         saved = self.create(); specs = self.specifications()

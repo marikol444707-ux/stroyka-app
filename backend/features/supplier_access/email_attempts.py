@@ -52,7 +52,7 @@ def dispatch_recipient_email(get_db, request_id, company_id, recipient_id, *,
                 return
             # Fresh READ COMMITTED snapshot after waiting for the recipient.
             # Hold identity/contact rows stable until the claim is committed.
-            cur.execute('''SELECT r.id, r.email_notification_status,
+            cur.execute('''SELECT r.id, r.email_notification_status, r.target_supplier_id,
                        COALESCE(s.name,'') AS supplier_name,
                        COALESCE(NULLIF(s.email,''),NULLIF(u.email,''),'') AS email
                 FROM supply_request_recipients r
@@ -73,7 +73,7 @@ def dispatch_recipient_email(get_db, request_id, company_id, recipient_id, *,
             status = prepare_email_status(EMAIL_QUEUED, email, configured(), skip_email(email))
             message = None
             if status == EMAIL_QUEUED:
-                request_context = context(cur, request_id)
+                request_context = context(cur, request_id, recipient['target_supplier_id'])
                 if not request_context or request_context.get('companyId') != company_id:
                     return
                 message = text(request_context, recipient['supplier_name'])
