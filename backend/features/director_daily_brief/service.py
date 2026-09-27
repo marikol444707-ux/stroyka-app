@@ -45,11 +45,6 @@ _TERMINAL_PROJECT_STATUSES = {
     "закрыт",
     "закрыто",
 }
-_UNCONFIRMED_ESTIMATE_STATUSES = {
-    "",
-    "черновик",
-    "на проверке",
-}
 _TERMINAL_SUPPLY_STATUSES = {
     "отклонена",
     "отменена",
@@ -181,20 +176,8 @@ def _shortages(warehouse, supply):
     return items
 
 
-def _documents(estimates, supply):
+def _documents(supply):
     items = []
-    for estimate in estimates:
-        if _normalize_status(estimate["status"]) not in _UNCONFIRMED_ESTIMATE_STATUSES:
-            continue
-        items.append(_item(
-            "estimate.unconfirmed",
-            "warning",
-            estimate["name"],
-            project=estimate["project"],
-            status=estimate["status"] or "Без статуса",
-            currentValue=_round_number(estimate["total"]),
-            metricUnit="RUB",
-        ))
     for status, count in supply["requestStatusCounts"].items():
         if count <= 0 or _normalize_status(status) in _TERMINAL_SUPPLY_STATUSES:
             continue
@@ -354,7 +337,7 @@ def build_director_daily_brief(*, brief_date, tool_results):
         "overdue": _project_overdue(facts["projects"], parsed_date)
         + _task_overdue(facts["ai_tasks"]["tasks"], parsed_date),
         "shortages": _shortages(facts["warehouse"], facts["supply"]),
-        "documents": _documents(facts["estimates"], facts["supply"]),
+        "documents": _documents(facts["supply"]),
         "estimateDeviations": _estimate_deviations(facts["estimates"]),
         "payments": _payments(facts["finances"]),
         "tasks": _tasks(facts["ai_tasks"]),

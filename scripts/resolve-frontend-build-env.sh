@@ -3,6 +3,7 @@ set -euo pipefail
 
 service_environment="${1-}"
 backend_env_path="${2-}"
+python3 "$(dirname "$0")/resolve-warehouse-build-env.py" "$service_environment" "$backend_env_path"
 http_enabled=""
 company_ids=""
 http_was_set=false
