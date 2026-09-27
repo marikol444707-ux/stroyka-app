@@ -28,6 +28,7 @@ class SupplierRegistrationPostgresTests(unittest.TestCase):
                 catalog = importlib.import_module('migrations.versions.0022_supplier_company_catalog')
                 with patch.object(catalog, 'op', SimpleNamespace(execute=cur.execute)):
                     catalog.upgrade()
+                cur.execute(importlib.import_module('migrations.versions.0035_supplier_team_policy').SCHEMA_SQL)
                 cur.execute(importlib.import_module('migrations.versions.0036_supplier_invite_company').SCHEMA_SQL)
             conn.commit()
         finally:
@@ -103,6 +104,29 @@ class SupplierRegistrationPostgresTests(unittest.TestCase):
         self.assertEqual(response.status_code, 409, response.text)
         self.assertEqual(self.sql('SELECT id FROM users WHERE email=%s', (payload['email'],)), [])
         self.assertEqual(self.sql('SELECT used FROM invite_codes WHERE id=%s', (invite['id'],)), [(False,)])
+
+    def test_invite_claims_only_unregistered_own_catalog_card(self):
+        sid = self.sql("INSERT INTO suppliers(name,inn) VALUES('Unregistered invoice card','7799887766') RETURNING id")[0][0]
+        self.sql("INSERT INTO company_supplier_links(company_id,supplier_id,platform_account_id,profile) VALUES(2,%s,1,'{\"notes\":\"Keep invoice history\"}')", (sid,))
+        invite = self.api('director', 'POST', '/invite-codes', {'role': 'поставщик', 'supplierId': sid}, **{'X-Company-Id': '2'})
+        second = self.api('director', 'POST', '/invite-codes', {'role': 'поставщик', 'supplierId': sid}, **{'X-Company-Id': '2'})
+        payload = self.registration(invite, inn='7799887766')
+        response = self.client.post('/register', json=payload)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.sql('SELECT id FROM suppliers WHERE inn=%s', ('7799887766',)), [(sid,)])
+        self.assertEqual(self.sql('SELECT s.id FROM suppliers s JOIN users u ON u.id=s.user_id WHERE u.email=%s', (payload['email'],)), [(sid,)])
+        self.assertEqual(self.sql("SELECT profile->>'notes' FROM company_supplier_links WHERE supplier_id=%s", (sid,)), [('Keep invoice history',)])
+        self.api('director', 'POST', '/invite-codes', {'role': 'поставщик', 'supplierId': sid}, expected=409, **{'X-Company-Id': '2'})
+        again = self.client.post('/register', json=self.registration(second))
+        self.assertEqual(again.status_code, 409, again.text)
+        self.client.cookies.clear()
+
+    def test_invite_rejects_foreign_and_shared_unclaimed_card(self):
+        sid = self.sql("INSERT INTO suppliers(name) VALUES('Foreign invoice card') RETURNING id")[0][0]
+        self.sql('INSERT INTO company_supplier_links(company_id,supplier_id,platform_account_id) VALUES(3,%s,1)', (sid,))
+        self.api('director', 'POST', '/invite-codes', {'role': 'поставщик', 'supplierId': sid}, expected=404, **{'X-Company-Id': '2'})
+        self.sql('INSERT INTO company_supplier_links(company_id,supplier_id,platform_account_id) VALUES(2,%s,1)', (sid,))
+        self.api('director', 'POST', '/invite-codes', {'role': 'поставщик', 'supplierId': sid}, expected=409, **{'X-Company-Id': '2'})
 
     def test_delete_during_signup_finishes_without_deadlock(self):
         from backend.features.invite_codes import supplier_relationship

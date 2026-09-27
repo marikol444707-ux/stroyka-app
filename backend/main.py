@@ -6597,24 +6597,28 @@ def register(data: dict, response: Response, request: Request):
             requisites = _supplier_extract_requisites(supplier_payload)
             for identity in sorted({requisites.get(key, '') for key in ('inn', 'ogrn')} - {''}):
                 cur.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))', ('supplier-legal:' + identity,))
-            if supplier_id or _supplier_find_match(cur, supplier_payload):
-                raise HTTPException(409, 'Приглашение не подтверждает право управлять существующей организацией поставщика. Войдите в её кабинет или обратитесь к администратору платформы для проверки привязки')
-            # Создаём новую компанию
-            cur.execute(
-                "INSERT INTO suppliers (name, phone, email, category, specialization, "
-                "inn, kpp, ogrn, legal_address, bank, bik, account, director_name, "
-                "status, rating, user_id, registered_at, source_type, source_detail) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),%s,%s) RETURNING id",
-                (company_name, data.get("phone",""), email,
-                 invite.get('preset_category') or data.get("category",""),
-                 data.get("specialization",""),
-                 data.get("inn"), data.get("kpp"), data.get("ogrn"),
-                 data.get("legalAddress"), data.get("bank"), data.get("bik"),
-                 data.get("account"), data.get("directorName"),
-                 'Активный', 5.0, user['id'],
-                 "invite_link", "Регистрация поставщика по ссылке приглашения"))
-            new_supplier = cur.fetchone()
-            supplier_id = new_supplier.get("id") if isinstance(new_supplier, dict) else new_supplier[0]
+            if supplier_id:
+                from backend.features.invite_codes.supplier_relationship import claim_invited_supplier
+                supplier_id = claim_invited_supplier(cur, invite, user, requisites)
+            else:
+                if _supplier_find_match(cur, supplier_payload):
+                    raise HTTPException(409, 'Приглашение не подтверждает право управлять существующей организацией поставщика. Войдите в её кабинет или обратитесь к администратору платформы для проверки привязки')
+                # Создаём новую компанию
+                cur.execute(
+                    "INSERT INTO suppliers (name, phone, email, category, specialization, "
+                    "inn, kpp, ogrn, legal_address, bank, bik, account, director_name, "
+                    "status, rating, user_id, registered_at, source_type, source_detail) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),%s,%s) RETURNING id",
+                    (company_name, data.get("phone",""), email,
+                     invite.get('preset_category') or data.get("category",""),
+                     data.get("specialization",""),
+                     data.get("inn"), data.get("kpp"), data.get("ogrn"),
+                     data.get("legalAddress"), data.get("bank"), data.get("bik"),
+                     data.get("account"), data.get("directorName"),
+                     'Активный', 5.0, user['id'],
+                     "invite_link", "Регистрация поставщика по ссылке приглашения"))
+                new_supplier = cur.fetchone()
+                supplier_id = new_supplier.get("id") if isinstance(new_supplier, dict) else new_supplier[0]
             _remember_supplier_alias(cur, supplier_id, supplier_payload, source="supplier_invite")
             from backend.features.invite_codes.supplier_relationship import link_registered_supplier
             link_registered_supplier(cur, invite, supplier_id, user, supplier_payload)
