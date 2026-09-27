@@ -106,6 +106,10 @@ class MembershipSecurityTests(unittest.TestCase):
         self.add_member(role=" \t\n")
         self.assert_forbidden(self.selected)
 
+    def test_padded_privileged_role_is_denied_not_normalized(self):
+        self.add_member(role=" директор ")
+        self.assert_forbidden(self.selected)
+
     def test_inactive_membership_cannot_reenter_via_legacy_company(self):
         self.add_member(role="директор", active=False)
         self.assert_forbidden(self.selected)
@@ -159,6 +163,7 @@ class MembershipSecurityTests(unittest.TestCase):
             {"companyId": 7, "role": None},
             {"companyId": 7, "role": ""},
             {"companyId": 7, "role": " \t"},
+            {"companyId": 7, "role": " директор "},
             {"companyId": 7, "role": "директор", "effectiveRole": ""},
             {"companyId": 7, "role": "директор", "active": False},
             {"companyId": 7, "role": "директор", "companyActive": False},
