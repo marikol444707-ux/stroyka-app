@@ -242,11 +242,17 @@ export default function WarehouseOperationsPanel({
           <div style={{ display: 'flex', gap: '8px', marginTop: '10px', flexWrap:'wrap' }}>
             <button
               onClick={async () => {
-                await applyWarehouseMovement();
-                showPreview(
-                  buildMovementDoc(newMovement, (newMovement.selectedMaterials || []).filter(item => item.quantity)),
-                  'Накладная М-11'
-                );
+                const movementResult = await applyWarehouseMovement();
+                // Only show/print M-11 when the operation was confirmed by server for all items
+                if (movementResult && movementResult.success && movementResult.moved && movementResult.failed && movementResult.failed.length === 0) {
+                  showPreview(
+                    buildMovementDoc(newMovement, (newMovement.selectedMaterials || []).filter(item => item.quantity)),
+                    'Накладная М-11'
+                  );
+                } else {
+                  // If some or all failed, show a clear message and avoid printing
+                  alert('Перемещение не полностью подтверждено сервером. Печать отключена. Проверьте ошибки и повторите для неподтверждённых позиций.');
+                }
               }}
               style={{...btnO,...(compactRows ? {flex:'1 1 100%',justifyContent:'center'} : {})}}
             >
