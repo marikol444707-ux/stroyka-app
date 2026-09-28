@@ -7860,6 +7860,7 @@ register_invite_codes_module(app, {
     "require_roles": require_roles,
     "admin_roles": LEADERSHIP_ROLES,
     "prepare_user_access_scope": _prepare_user_access_scope,
+    "resolve_work_company_context": _resolve_work_company_context,
 })
 
 @app.get("/companies")
