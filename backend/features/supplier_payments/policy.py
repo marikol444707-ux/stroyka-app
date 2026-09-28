@@ -17,7 +17,7 @@ from .documents import TABLES, _snapshot
 from .statuses import payment_status_eligible
 
 
-def validate_new_payment(cur, context, command, signed_amount):
+def validate_new_payment(cur, context, command, signed_amount, *, snapshot_document=_snapshot):
     """Recheck live identity for both directions; approval gates payments only.
 
     No DDL, writes, commits, receipt queries or deadline calculations. A reversal
@@ -43,7 +43,7 @@ def validate_new_payment(cur, context, command, signed_amount):
         row = cur.fetchone()
         if not row:
             raise HTTPException(409, 'Документ оплаты больше не существует')
-        live = _snapshot(doc['kind'], row, doc['payerCompanyId'], cur=cur)
+        live = snapshot_document(doc['kind'], row, doc['payerCompanyId'], cur=cur)
         if any(doc.get(key) != value for key, value in live.items()):
             raise HTTPException(409, 'Реквизиты документа изменились после проверки доступа')
         if kind in ('reversal','refund'):

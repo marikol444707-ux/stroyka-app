@@ -146,3 +146,56 @@ class MixedBindingTests(MixedScopeSchemaTests):
         finally:
             self.sql('DROP TRIGGER synthetic_mixed_commit_failure ON supplier_mixed_opening_bindings')
             self.sql('DROP FUNCTION synthetic_mixed_commit_failure()')
+
+    def test_mixed_opening_payment_and_reversal_keep_one_cash_operation(self):
+        from .mixed_openings import confirm
+        from .mixed_payments import build_resolver, validate_new
+        from .access import build_payment_access
+        from .engine import execute
+        from fastapi import HTTPException
+        self.cur.execute("UPDATE warehouse_invoices SET accounting_status='К оплате' WHERE id=%s",(self.warehouse,))
+        evidence=self.insert()
+        self.conn.commit()
+        actor=self.fixture['users']['accountant']['id']
+        access=build_payment_access(self.main._supplier_payment_access_deps)
+        confirm(self.main.get_db,access,actor,2,dict(requestId=str(uuid4()),
+            invoiceId=self.invoice,reviewId=evidence['id'],reason='Сверено'))
+        resolver=build_resolver(access)
+        payment=dict(requestId=str(uuid4()),documentKind='invoice',documentId=self.invoice,
+                     kind='payment',amount='20.00',paidAt='2026-09-28',reason='Доплата')
+        before=self.sql('SELECT count(*),sum(amount) FROM project_payments')[0]
+        result=execute(self.main.get_db,resolver,actor,2,payment,validate_new=validate_new)
+        self.assertEqual(execute(self.main.get_db,resolver,actor,2,payment,validate_new=validate_new),result)
+        self.assertEqual(self.sql('SELECT paid_amount FROM supplier_invoices WHERE id=%s',(self.invoice,)),[(70,)])
+        self.assertEqual(self.sql('SELECT paid_amount FROM warehouse_invoices WHERE id=%s',(self.warehouse,)),[(70,)])
+        self.assertEqual(self.sql('SELECT count(*) FROM project_payments')[0][0],before[0]+1)
+        deps=dict(self.main._supplier_payment_access_deps)
+        deps['has_package_access']=lambda actor,package:package!='Электрика'
+        with self.assertRaises(HTTPException) as error:
+            execute(self.main.get_db,build_resolver(build_payment_access(deps)),actor,2,payment,validate_new=validate_new)
+        self.assertEqual(error.exception.status_code,403)
+        original_items=self.sql('SELECT items FROM warehouse_invoices WHERE id=%s',(self.warehouse,))[0][0]
+        try:
+            self.sql('UPDATE warehouse_invoices SET items=%s WHERE id=%s',
+                     ('[{"workPackage":"Другое"},{"workPackage":"Электрика"}]',self.warehouse))
+            with self.assertRaises(HTTPException) as error:
+                execute(self.main.get_db,resolver,actor,2,payment,validate_new=validate_new)
+            self.assertEqual(error.exception.status_code,409)
+        finally:
+            self.sql('UPDATE warehouse_invoices SET items=%s WHERE id=%s',(original_items,self.warehouse))
+        reverse=dict(requestId=str(uuid4()),documentKind='invoice',documentId=self.invoice,
+                     kind='reversal',reversesId=result['operationId'],paidAt='2026-09-28',reason='Отмена доплаты')
+        with self.assertRaises(HTTPException) as error:
+            execute(self.main.get_db,resolver,actor,2,dict(payment,requestId=str(uuid4()),amount='131.00'),validate_new=validate_new)
+        self.assertEqual(error.exception.status_code,400)
+        with self.assertRaises(HTTPException) as error:
+            execute(self.main.get_db,build_resolver(build_payment_access(deps)),actor,2,reverse,validate_new=validate_new)
+        self.assertEqual(error.exception.status_code,403)
+        self.sql("UPDATE supplier_invoices SET status='Аннулирован' WHERE id=%s",(self.invoice,))
+        self.sql("UPDATE warehouse_invoices SET status='Аннулирована' WHERE id=%s",(self.warehouse,))
+        execute(self.main.get_db,resolver,actor,2,reverse,validate_new=validate_new)
+        self.assertEqual(self.sql('SELECT status FROM supplier_invoices WHERE id=%s',(self.invoice,)),[('Аннулирован',)])
+        self.assertEqual(self.sql('SELECT status FROM warehouse_invoices WHERE id=%s',(self.warehouse,)),[('Аннулирована',)])
+        self.assertEqual(self.sql('SELECT paid_amount FROM supplier_invoices WHERE id=%s',(self.invoice,)),[(50,)])
+        self.assertEqual(self.sql('SELECT paid_amount FROM warehouse_invoices WHERE id=%s',(self.warehouse,)),[(50,)])
+        self.assertEqual(self.sql('SELECT COALESCE(sum(amount),0) FROM project_payments')[0][0],before[1] or 0)

@@ -242,3 +242,28 @@ preview; its unregistered-source checks remain in the preview. This internal
 writer has no HTTP route or UI activation yet. Payment, reversal, document
 projection and legacy report consumers still require bound mixed-scope support
 before exposing it. Production remains unchanged.
+
+
+## Internal payment and reversal adapter
+
+mixed_payments.build_resolver and validate_new now connect a confirmed mixed
+opening to the existing cash engine. They are internal and not selected by HTTP
+routes yet. Only invoice-target payment and reversal commands are accepted.
+Current scopes and recorded scopes/payer are authorized before UUID replay.
+The exact original source snapshots must still match apart from the explicit
+payment/status fields the engine updates. Changed items, identities or links
+require review; original full package scope is preserved.
+
+The warehouse snapshot uses the invoice header as the accounting anchor only
+after the binding and original scope have been validated. The shared policy
+accepts a server-only snapshot adapter, while ordinary routes retain their
+strict single-package snapshot by default. Status, remaining-debt bounds,
+paired impacts, single cash row, immutable UUID and reversal conservation stay
+in the existing engine/policy. Ledger, opening, review and binding guards must
+be present and enabled.
+
+A synthetic chain proves opening 50 → payment 20 → paid 70 → reversal → paid 50
+on both physical documents. Retry creates no extra cash; revoked package scope
+blocks retry/reversal, overpayment is rejected, and reversal preserves cancelled
+statuses. Public document/history/legacy report integration and UI remain
+outstanding; no production changes or real financial writes were made.

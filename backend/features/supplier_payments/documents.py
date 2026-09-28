@@ -100,14 +100,16 @@ def _discover(cur, kind, document_id):
     return rows
 
 
-def _snapshot(kind, row, payer, *, cur=None):
+def _snapshot(kind, row, payer, *, cur=None, validated_package=None):
     if kind == 'invoice':
         project, package = row['project_name'], row['work_package'] or ''
         amount = row['amount']
     else:
         project = row['project'] or row['location'] or ''
-        package = (_warehouse_package(row['items']) if cur is None
-                   else warehouse_payment_package(cur, row['items']))
+        # Only the internal bound-mixed adapter supplies a package after
+        # checking immutable original scope and both current source identities.
+        package = validated_package if validated_package is not None else (
+            _warehouse_package(row['items']) if cur is None else warehouse_payment_package(cur, row['items']))
         amount = row['total_with_vat'] or row['total_base']
     _require(isinstance(project, str) and bool(project.strip()) and isinstance(package, str))
     _require(type(row['supplier_id']) is int and row['supplier_id'] > 0)
