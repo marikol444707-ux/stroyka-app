@@ -1,3 +1,4 @@
+import CompanyDocumentArchive from '../features/counterparty-documents/CompanyDocumentArchive';
 import React, { useEffect, useRef, useState } from 'react';
 import { Check, Eye, FileText, Plus, Trash2, Upload, X } from 'lucide-react';
 import SettingsTabsNav from './SettingsTabsNav';
@@ -173,6 +174,8 @@ export default function SettingsPage({
         })}
         {companyId&&visibleDocuments.length===0&&<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}><FileText size={48} style={{marginBottom:'15px',opacity:0.3}}/><p>Документов нет — загрузите первый!</p></div>}
       </div>)}
+
+      {settingsTab==='archive'&&canManageSitePricing&&<CompanyDocumentArchive API={API} companyId={companyId} C={C} card={card} inp={inp} btnG={btnG} setShowPhotoModal={setShowPhotoModal}/>}
 
       {settingsTab==='sitePricing'&&canManageSitePricing&&(
         <SitePricingSettingsPanel API={API} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG}/>

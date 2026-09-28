@@ -16613,6 +16613,7 @@ register_counterparty_document_archive(app, {
     "get_current_user": get_current_user,
     "resolve_work_company_context": _resolve_work_company_context,
     "effective_company_actors": effective_company_actors,
+    "project_full_view_roles": BRIGADE_FULL_VIEW_ROLES,
 })
 
 project_record_scope = RecordScope(

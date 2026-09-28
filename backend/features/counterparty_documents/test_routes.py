@@ -1,6 +1,6 @@
 import unittest
-from unittest.mock import MagicMock
-from fastapi import FastAPI
+from unittest.mock import MagicMock, patch
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from .routes import register_counterparty_document_archive
 
@@ -41,7 +41,7 @@ class ArchiveTests(unittest.TestCase):
         self.cur.fetchall.side_effect=[[
             ('company',1,1,'Charter','Устав',None,{'file_url':'/tenant-files/8/content'}),
             ('supplier',1,1,'Invoice','Счёт',None,{'file_url':'https://private.invalid/file'}),
-            ('supplier',2,1,'Without file','Счёт',None,{})], [(8,)]]
+            ('supplier',2,1,'Without file','Счёт',None,{})], [(8,None)]]
         items=self.client.get('/company-document-archive').json()['items']
         self.assertEqual([r['fileStatus'] for r in items],['available','needs_review','not_attached'])
         self.assertEqual(items[0]['fileUrl'],'/tenant-files/8/content')
@@ -70,13 +70,34 @@ class ArchiveTests(unittest.TestCase):
         self.cur.fetchall.side_effect=[[
             ('warehouse',4,1,'Pages','Накладная',None,{
                 'photo_url':'/tenant-files/8/content',
-                'photo_urls':'["/tenant-files/8/content","/tenant-files/9/content","/tenant-files/10/content"]'})],[(8,),(9,)]]
+                'photo_urls':'["/tenant-files/8/content","/tenant-files/9/content","/tenant-files/10/content"]'})],[(8,None),(9,None)]]
         item=self.client.get('/company-document-archive').json()['items'][0]
         self.assertEqual(len(item['attachments']),2)
         self.assertEqual(item['unavailableAttachments'],1)
         self.assertEqual(item['fileStatus'],'needs_review')
         sql,args=self.cur.execute.call_args.args
         self.assertIn('company_id=%s',sql)
-        self.assertIn('project_id IS NULL',sql)
+        self.assertIn('SELECT id,project_id',sql)
         self.assertEqual(args[0],1)
         self.assertNotIn('/tenant-files/10/content',str(item))
+
+    def test_project_files_require_exact_parent_access_and_cache_per_project(self):
+        self.cur.fetchall.side_effect=[[
+            ('warehouse',4,1,'Pages','Накладная',None,{
+                'photo_urls':'["/tenant-files/8/content","/tenant-files/9/content","/tenant-files/10/content"]'})],[(8,44),(9,44),(10,55)]]
+        with patch('backend.features.counterparty_documents.routes.resolve_project_parent') as resolve, patch('backend.features.counterparty_documents.routes.require_project_parent_access') as authorize:
+            resolve.side_effect=[{'id':44,'companyId':1}, HTTPException(404,'Foreign or missing')]
+            item=self.client.get('/company-document-archive').json()['items'][0]
+            self.assertEqual(resolve.call_count,2)
+            authorize.assert_called_once()
+            self.assertEqual([f['fileId'] for f in item['attachments']],[8,9])
+            self.assertEqual(item['unavailableAttachments'],1)
+
+    def test_denied_project_never_exposes_file(self):
+        self.cur.fetchall.side_effect=[[
+            ('offer',1,1,'Offer','КП',None,{'pdf_url':'/tenant-files/8/content'})],[(8,44)]]
+        with patch('backend.features.counterparty_documents.routes.resolve_project_parent',return_value={'id':44}), patch('backend.features.counterparty_documents.routes.require_project_parent_access',side_effect=HTTPException(403,'Denied')):
+            item=self.client.get('/company-document-archive').json()['items'][0]
+            self.assertEqual(item['attachments'],[])
+            self.assertIsNone(item['fileUrl'])
+            self.assertEqual(item['fileStatus'],'needs_review')

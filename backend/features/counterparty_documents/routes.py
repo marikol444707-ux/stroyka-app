@@ -3,6 +3,7 @@ import json
 from typing import Literal, Optional
 
 from .procurement_inventory import attachments
+from ..project_access.service import resolve_project_parent, require_project_parent_access
 
 from fastapi import Depends, Header, HTTPException, Query
 
@@ -73,12 +74,25 @@ def register_counterparty_document_archive(app, deps):
                 references.extend(urls)
             safe_files = {}
             if references:
-                cur.execute("""SELECT id FROM file_ownership
-                    WHERE company_id=%s AND project_id IS NULL
+                cur.execute("""SELECT id,project_id FROM file_ownership
+                    WHERE company_id=%s
                       AND COALESCE(deletion_status,'active')='active'
                       AND '/tenant-files/' || id || '/content'=ANY(%s)""",
                             (company_id, list(set(references))))
-                safe_files = {f'/tenant-files/{r[0]}/content': r[0] for r in cur.fetchall()}
+                candidates = cur.fetchall()
+                project_access = {}
+                for file_id, project_id in candidates:
+                    if project_id is not None and project_id not in project_access:
+                        try:
+                            project = resolve_project_parent(cur, actors[0], project_id=project_id)
+                            require_project_parent_access(cur, actors[0], project, deps.get('project_full_view_roles', ()))
+                            project_access[project_id] = True
+                        except HTTPException as error:
+                            if error.status_code not in (400, 403, 404, 409):
+                                raise
+                            project_access[project_id] = False
+                    if project_id is None or project_access[project_id]:
+                        safe_files[f'/tenant-files/{file_id}/content'] = file_id
             items = []
             for row, urls, malformed in parsed:
                 source, source_id, owner, title, kind, created, _ = row

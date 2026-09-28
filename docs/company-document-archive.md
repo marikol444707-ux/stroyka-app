@@ -13,7 +13,7 @@ it is intended for interactive browsing, not export or migration.
 
 Response items carry a stable composite ID, source/sourceId, companyId, title,
 documentType, createdAt, fileUrl and fileStatus. Statuses:
-- available: exact active protected file owned by the same company, no project scope;
+- available: exact active protected file owned by the same company, with project access verified where applicable;
 - not_attached: no attachment reference;
 - needs_review: a reference exists but cannot safely be exposed by this projection.
 
@@ -27,9 +27,7 @@ this endpoint does not yet expand relationships between different records.
 
 Each item also has attachments (deduplicated protected file IDs/URLs) and
 unavailableAttachments. A partially available set has fileStatus needs_review,
-while its individually verified attachments remain accessible. A project-scoped
-file is currently withheld, even for leadership: project-aware archive access
-must be implemented and tested before exposing those references. Malformed page
+while its individually verified attachments remain accessible. Project-scoped files require resolve_project_parent and require_project_parent_access, using the same full-view roles as the content endpoint. Missing or denied projects withhold the file; authorization is cached per project within a request only. Malformed page
 arrays are marked for review, not silently dropped as missing files.
 
 Verification: five API unit tests cover scope, effective role, query parameters,
@@ -41,3 +39,5 @@ Procurement increment: seven route tests passed. Read-only SQL rehearsal returne
 100 rows on company 1's first page and two company 2 records, with no owner mixing.
 Two project-scoped attachments remain withheld by the conservative file filter.
 This increment is local and has not been deployed or browser-verified.
+
+Project-access/UI increment: nine route tests and six interface tests passed. Read-only SQL rehearsal returned five available attachments for company 1 (including two project files), no cross-company rows. Settings now has a leadership-only Archive tab; existing legal document editing remains in its original tab. Customer documents, reusable contract bindings and source navigation are pending. Browser verification and deployment of the archive remain pending.
