@@ -47,3 +47,8 @@ test('foreign conflict history cannot release pending intent',async()=>{
  fetcher.mockResolvedValueOnce(response({detail:'Конфликт'},409)).mockResolvedValueOnce(response({items:[{...row,companyId:2}]}));
  await expect(client().save('parties',body)).rejects.toThrow();expect(client().pending()).not.toBeNull();
 });
+test('recognition rejects other files and companies before applying fields',async()=>{
+ const context={partyVersion:2,expectedVersion:0};
+ fetcher.mockResolvedValue(response({companyId:2,offerId:71,sourceFileId:8,partyVersion:2,expectedVersion:0}));
+ await expect(client().recognize(8,context)).rejects.toThrow();
+});

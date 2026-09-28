@@ -22,6 +22,9 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
  const [review,setReview]=useState(null),[legal,setLegal]=useState({});
  const [number,setNumber]=useState(''),[date,setDate]=useState(''),[terms,setTerms]=useState(''),[reason,setReason]=useState('');
  const [file,setFile]=useState(null),[checked,setChecked]=useState(false);
+ const [recognition,setRecognition]=useState(null),[recognitionMessage,setRecognitionMessage]=useState('');
+ const autoFields=useRef([]);
+ const recognitionEnabled=process.env.REACT_APP_SUPPLIER_CONTRACT_RECOGNITION_ENABLED==='true';
  const blocked=disabled || busy || loading || fatal;
  const loadReview=async()=>{
   const value=await client.reviewContext();
@@ -67,7 +70,8 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
   await loadParties();await loadReview();
  });};
  const saveContract=e=>{e.preventDefault();if(pending || !checked || !file || !number.trim() || !date || !reason.trim())return;act(async()=>{
-  const body={partyVersion:review.partyVersion,expectedVersion:review.expectedVersion,sourceFileId:file.fileId,
+  const acceptedFields=recognition ? autoFields.current.filter(item=>legal[item.side][item.field]===item.value).map(({side,field})=>({side,field})) : [];
+  const body={...(acceptedFields.length ? {recognitionReview:{sourceContentHash:recognition.sourceContentHash,acceptedFields}} : {}),partyVersion:review.partyVersion,expectedVersion:review.expectedVersion,sourceFileId:file.fileId,
    number:number.trim(),date,reviewConfirmed:true,paymentTerms:terms.trim(),reason:reason.trim(),
    ...Object.fromEntries(Object.keys(sides).map(side=>[side,Object.fromEntries(legalFields.map(k=>[k,legal[side][k].trim()]))]))};
   await client.save('contract',body);if(live.current)onSaved?.();
@@ -79,7 +83,36 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
  });
  const upload=event=>{
   const selected=event.target.files?.[0];if(!selected)return;
-  act(async()=>{const result=await client.upload(selected);if(live.current){setFile({...result,name:selected.name});setChecked(false);}});
+  act(async()=>{
+   const result=await client.upload(selected);if(!live.current)return;
+   setFile({...result,name:selected.name});setChecked(false);setRecognition(null);
+   const previous=autoFields.current;autoFields.current=[];
+   setLegal(current=>{
+    const next=Object.fromEntries(Object.entries(current).map(([side,fields])=>[side,{...fields}]));
+    for(const item of previous)if(next[item.side][item.field]===item.value)next[item.side][item.field]='';
+    return next;
+   });
+   if(!recognitionEnabled){setRecognitionMessage('Оригинал загружен. Автозаполнение пока недоступно.');return;}
+   setRecognitionMessage('Распознаём договор…');
+   try{
+    const found=await client.recognize(result.fileId,review);if(!live.current)return;
+    setRecognition(found);
+    const candidates=[];
+    for(const side of Object.keys(sides)){
+     const party=found.parties[side];
+     if(party.status==='matched' && party.fields.inn?.value===review[side].inn)
+      for(const [field,item] of Object.entries(party.fields))if(field!=='inn' && field!=='fullName')candidates.push({side,field,value:item.value});
+    }
+    setLegal(current=>{
+     const next=Object.fromEntries(Object.entries(current).map(([side,fields])=>[side,{...fields}]));
+     const applied=[];
+     for(const item of candidates)if(!next[item.side][item.field]){next[item.side][item.field]=item.value;applied.push(item);}
+     autoFields.current=applied;return next;
+    });
+    const mismatched=Object.values(found.parties).some(p=>p.status==='identity_mismatch');
+    setRecognitionMessage(mismatched?'Есть расхождение ИНН с выбранной организацией. Проверьте стороны договора.':candidates.length?'Найденные реквизиты добавлены в пустые поля. Проверьте их по оригиналу; номер, дату и условия оплаты укажите вручную.':'Реквизиты не удалось уверенно определить. Оригинал сохранён; заполните поля вручную.');
+   }catch(e){if(live.current)setRecognitionMessage('Оригинал сохранён. Распознавание: '+e.message);}
+  });
   event.target.value='';
  };
  return <section className="supplier-contract-review" aria-label="Проверка договора поставки">
@@ -110,6 +143,7 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
     <p>Названия и ИНН взяты из карточек организаций. Сверьте их с оригиналом. Если ИНН отличается, исправьте выбор стороны или её карточку.</p>
     <label>Оригинал договора<input type="file" accept=".pdf,.txt,.doc,.docx,.jpg,.jpeg,.png" onChange={upload}/></label>
     {file && <p>Загружен: {file.name}</p>}
+    {recognitionMessage && <p role="status">{recognitionMessage}</p>}
     <label>Номер договора<input required maxLength={100} value={number} onChange={e=>{setNumber(e.target.value);setChecked(false);}}/></label>
     <label>Дата договора<input required type="date" value={date} onChange={e=>{setDate(e.target.value);setChecked(false);}}/></label>
     {Object.entries(sides).map(([side,label])=><fieldset key={side}><legend>{label}</legend>

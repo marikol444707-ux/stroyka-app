@@ -99,5 +99,22 @@ export function createContractReviewClient(scope, {fetcher=window.fetch,storage=
        || !Number.isSafeInteger(value.expectedVersion) || value.expectedVersion<0)fail('Контекст проверки договора изменился.');
     return value;
   };
-  return {pending,save,upload,load,reviewContext};
+  const recognize=async(fileId,context)=>{
+    const body={sourceFileId:fileId,partyVersion:context.partyVersion,expectedVersion:context.expectedVersion};
+    const value=await request(base+'/contract-recognition',{method:'POST',body});
+    if(value.companyId!==companyId || value.offerId!==offerId || value.sourceFileId!==fileId
+      || value.partyVersion!==body.partyVersion || value.expectedVersion!==body.expectedVersion
+      || !/^[a-f0-9]{64}$/.test(value.sourceContentHash || '') || value.reviewConfirmed!==false
+      || value.appliedToAccounting!==false || !value.parties)fail('Результат распознавания не соответствует договору.');
+    for(const side of ['buyer','payer','supplier']){
+      const party=value.parties[side];
+      if(!party || !['matched','missing','ambiguous','identity_mismatch'].includes(party.status) || !party.fields)fail('Некорректный результат распознавания.');
+      for(const [key,item] of Object.entries(party.fields)){
+        if(!legalFields.includes(key) || typeof item?.value!=='string' || item.value.length>2000
+          || !Number.isSafeInteger(item.line) || item.line<1 || typeof item.quote!=='string')fail('Некорректный реквизит договора.');
+      }
+    }
+    return value;
+  };
+  return {pending,save,upload,load,reviewContext,recognize};
 }

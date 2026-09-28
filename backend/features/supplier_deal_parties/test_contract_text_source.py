@@ -90,3 +90,15 @@ class ContractTextSourceTest(unittest.TestCase):
         self.deps['s3_urls_for_key'] = lambda key: (self.row['file_url'],)
         self.assert_error(503)
         self.assertFalse(self.stream.closed)
+
+    def test_universal_word_keeps_original_hash_and_scoped_storage(self):
+        import zipfile
+        output=io.BytesIO()
+        with zipfile.ZipFile(output,'w') as z:
+            z.writestr('word/document.xml','<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:r><w:t>Договор</w:t></w:r></w:p></w:document>')
+        content=output.getvalue();self.row['original_name']='contract.docx';self.stream=io.BytesIO(content)
+        self.deps['open_local_file']=lambda url:(self.stream,len(content))
+        with patch.dict('os.environ',SUPPLIER_CONTRACT_DOCUMENT_READER_ENABLED='1'):
+            text,digest=read_contract_text(self.row,self.deps)
+        self.assertEqual(text,'Договор');self.assertEqual(digest,hashlib.sha256(content).hexdigest())
+        self.assertTrue(self.stream.closed)

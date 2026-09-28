@@ -1,5 +1,6 @@
 """Bounded TXT/PDF source reader; ownership must be authorized before calling."""
 import hashlib
+import os
 import time
 from contextlib import closing
 from pathlib import PurePath
@@ -8,6 +9,7 @@ from fastapi import HTTPException
 
 from ..document_access.service import require_document_storage_identity
 from .contract_pdf import MAX_PDF_BYTES, extract_pdf_text
+from .contract_document import extract_document_text, MAX_DOCUMENT_BYTES
 
 
 MAX_TEXT_BYTES = 256000
@@ -16,9 +18,11 @@ MAX_TEXT_CHARACTERS = 64000
 
 def read_contract_text(row, deps):
     extension = PurePath(row.get('original_name') or '').suffix.lower()
-    if extension not in ('.txt', '.pdf'):
+    universal = os.getenv('SUPPLIER_CONTRACT_DOCUMENT_READER_ENABLED', '0') == '1'
+    supported = ('.txt','.pdf','.doc','.docx','.jpg','.jpeg','.png') if universal else ('.txt','.pdf')
+    if extension not in supported:
         raise HTTPException(415, 'Поддерживаются TXT в UTF-8 и PDF с текстовым слоем; изображения требуют OCR')
-    max_bytes = MAX_PDF_BYTES if extension == '.pdf' else MAX_TEXT_BYTES
+    max_bytes = MAX_DOCUMENT_BYTES if extension != '.txt' else MAX_TEXT_BYTES
     key = str(row.get('storage_key') or '').strip()
     require_document_storage_identity(
         row['company_id'], row.get('project_id'), row.get('context') or 'general',
@@ -52,6 +56,8 @@ def read_contract_text(row, deps):
                 raise HTTPException(409, 'Размер файла изменился во время чтения')
     except (OSError, TimeoutError):
         raise HTTPException(503, 'Не удалось прочитать файл договора') from None
+    if universal and extension != '.txt':
+        return extract_document_text(content, extension), hashlib.sha256(content).hexdigest()
     if extension == '.pdf':
         return extract_pdf_text(content), hashlib.sha256(content).hexdigest()
     try:

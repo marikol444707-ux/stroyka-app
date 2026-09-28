@@ -43,3 +43,23 @@ test('existing parties can continue without creating another version',async()=>{
  fireEvent.click(await screen.findByText('Перейти к проверке договора'));
  await screen.findByLabelText('Оригинал договора');expect(client.save).not.toHaveBeenCalled();
 });
+test('upload recognizes matched requisites without confirming or replacing manual fields',async()=>{
+ const flag=process.env.REACT_APP_SUPPLIER_CONTRACT_RECOGNITION_ENABLED;process.env.REACT_APP_SUPPLIER_CONTRACT_RECOGNITION_ENABLED='true';
+ try{
+  client.load.mockResolvedValue({parties:{version:1,buyerCompanyId:1,payerCompanyId:1},companies:[{companyId:1,companyName:'Наша компания'}]});
+  client.recognize=jest.fn(async()=>({sourceContentHash:'a'.repeat(64),parties:{buyer:{status:'missing',fields:{}},payer:{status:'missing',fields:{}},supplier:{status:'matched',fields:{inn:{value:ctx.supplier.inn},bankName:{value:'Распознанный банк'},directorName:{value:'Из оригинала'}}}}}));
+  render(<Panel {...props}/>);fireEvent.click(await screen.findByText('Перейти к проверке договора'));await screen.findByLabelText('Оригинал договора');
+  fireEvent.change(screen.getAllByLabelText('ФИО подписанта')[2],{target:{value:'Введено вручную'}});
+  fireEvent.change(screen.getByLabelText('Оригинал договора'),{target:{files:[new File(['test'],'scan.png')]}});
+  await screen.findByText(/Найденные реквизиты/);
+  expect(client.recognize).toHaveBeenCalledWith(10,ctx);
+  expect(screen.getAllByLabelText('Банк')[2].value).toBe('Распознанный банк');
+  expect(screen.getAllByLabelText('ФИО подписанта')[2].value).toBe('Введено вручную');
+  expect(screen.getByLabelText('Реквизиты и условия сверены с загруженным оригиналом').checked).toBe(false);
+  client.recognize.mockRejectedValueOnce(new Error('Нечитаемый скан'));
+  fireEvent.change(screen.getByLabelText('Оригинал договора'),{target:{files:[new File(['test'],'replacement.png')]}});
+  await screen.findByText(/Нечитаемый скан/);
+  expect(screen.getAllByLabelText('Банк')[2].value).toBe('');
+  expect(screen.getAllByLabelText('ФИО подписанта')[2].value).toBe('Введено вручную');
+ }finally{if(flag===undefined)delete process.env.REACT_APP_SUPPLIER_CONTRACT_RECOGNITION_ENABLED;else process.env.REACT_APP_SUPPLIER_CONTRACT_RECOGNITION_ENABLED=flag;}
+});
