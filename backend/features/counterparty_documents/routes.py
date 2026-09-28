@@ -18,6 +18,7 @@ SOURCES = {
     'invoice': ('supplier', 'supplier_invoices', "'Счёт №' || COALESCE(NULLIF(d.invoice_number,''),d.id::text)", "'Счёт'", 'd.created_at', 'TRUE', ('file_url','photo_url')),
     'delivery': ('supplier', 'supply_deliveries', "'Отгрузка №' || COALESCE(NULLIF(d.waybill_number,''),d.id::text)", "'Отгрузка'", 'd.created_at', 'TRUE', ('document_url','photo_url')),
     'warehouse': ('supplier', 'warehouse_invoices', "'Накладная №' || COALESCE(NULLIF(d.number,''),d.id::text)", "'Накладная'", 'd.created_at', 'TRUE', ('photo_url','photo_urls')),
+    'customer': ('customer', 'project_documents', "COALESCE(d.doc_type,'Документ') || ' №' || COALESCE(NULLIF(d.number,''),d.id::text)", "COALESCE(d.doc_type,'Документ')", 'd.created_at', "d.side='customer' AND EXISTS (SELECT 1 FROM projects p WHERE p.id=d.project_id AND p.company_id=d.company_id)", ('scan_url',)),
 }
 
 
@@ -25,7 +26,7 @@ SOURCES = {
 def register_counterparty_document_archive(app, deps):
     @app.get('/company-document-archive')
     def list_archive(
-        section: Literal['all', 'company', 'supplier'] = 'all',
+        section: Literal['all', 'company', 'supplier', 'customer'] = 'all',
         q: str = Query('', max_length=200),
         limit: int = Query(50, ge=1, le=100),
         offset: int = Query(0, ge=0, le=100000),
@@ -51,7 +52,7 @@ def register_counterparty_document_archive(app, deps):
             for key, (group, table, title, kind, date, active, file_fields) in SOURCES.items():
                 if section not in ('all', group):
                     continue
-                fields = ','.join(f"'{field}',to_jsonb(d)->'{field}'" for field in file_fields)
+                fields = ','.join(f"'{field}',to_jsonb(d)->'{field}'" for field in (*file_fields, 'project_id', 'project_name', 'sign_status'))
                 queries.append(f"""SELECT '{key}' AS source,d.id,d.company_id,
                     {title} AS title,{kind} AS kind,{date} AS created_at,
                     jsonb_build_object({fields}) AS files
@@ -92,15 +93,21 @@ def register_counterparty_document_archive(app, deps):
                                 raise
                             project_access[project_id] = False
                     if project_id is None or project_access[project_id]:
-                        safe_files[f'/tenant-files/{file_id}/content'] = file_id
+                        safe_files[f'/tenant-files/{file_id}/content'] = (file_id, project_id)
             items = []
             for row, urls, malformed in parsed:
                 source, source_id, owner, title, kind, created, _ = row
-                files = [{'fileId': safe_files[url], 'fileUrl': url} for url in urls if url in safe_files]
-                unresolved = malformed + sum(url not in safe_files for url in urls)
+                payload = json.loads(row[6]) if isinstance(row[6], str) else (row[6] or {})
+                def eligible(url):
+                    return url in safe_files and (source != 'customer' or safe_files[url][1] == payload.get('project_id'))
+                files = [{'fileId': safe_files[url][0], 'fileUrl': url} for url in urls if eligible(url)]
+                unresolved = malformed + sum(not eligible(url) for url in urls)
                 items.append({'id': f'{source}:{source_id}', 'source': source, 'sourceId': source_id,
                               'companyId': owner, 'title': title, 'documentType': kind,
                               'createdAt': str(created) if created else None,
+                              'projectId': payload.get('project_id') if source == 'customer' else None,
+                              'projectName': payload.get('project_name') if source == 'customer' else None,
+                              'status': payload.get('sign_status') if source == 'customer' else None,
                               'attachments': files, 'unavailableAttachments': unresolved,
                               'fileUrl': files[0]['fileUrl'] if files else None,
                               'fileStatus': 'needs_review' if unresolved else 'available' if files else 'not_attached'})

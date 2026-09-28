@@ -35,7 +35,7 @@ class ArchiveTests(unittest.TestCase):
         sql,args=self.cur.execute.call_args.args
         self.assertNotIn("' OR TRUE --",sql)
         self.assertEqual(args[:3],(1,"' OR TRUE --","' OR TRUE --"))
-        self.assertEqual(sql.count('d.company_id=%s'),6)
+        self.assertEqual(sql.count('d.company_id=%s'),7)
 
     def test_unsafe_links_are_withheld_and_missing_file_is_distinct(self):
         self.cur.fetchall.side_effect=[[
@@ -100,4 +100,19 @@ class ArchiveTests(unittest.TestCase):
             item=self.client.get('/company-document-archive').json()['items'][0]
             self.assertEqual(item['attachments'],[])
             self.assertIsNone(item['fileUrl'])
+            self.assertEqual(item['fileStatus'],'needs_review')
+
+    def test_customer_section_requires_exact_project_company_and_side(self):
+        self.client.get('/company-document-archive?section=customer')
+        query=self.cur.execute.call_args.args[0]
+        self.assertIn("d.side='customer'",query)
+        self.assertIn('p.id=d.project_id AND p.company_id=d.company_id',query)
+        self.assertNotIn('FROM supplier_invoices',query)
+
+    def test_customer_document_cannot_open_a_different_project_attachment(self):
+        self.cur.fetchall.side_effect=[[
+            ('customer',4,1,'Contract','Договор',None,{'scan_url':'/tenant-files/8/content','project_id':44})],[(8,55)]]
+        with patch('backend.features.counterparty_documents.routes.resolve_project_parent',return_value={'id':55}), patch('backend.features.counterparty_documents.routes.require_project_parent_access'):
+            item=self.client.get('/company-document-archive?section=customer').json()['items'][0]
+            self.assertEqual(item['attachments'],[])
             self.assertEqual(item['fileStatus'],'needs_review')

@@ -6,7 +6,7 @@ cabinet API. All-company context returns `requiresCompanySelection: true` with
 no items. Global role alone does not authorize access: use the effective selected
 company actor. No new table or original file copy is created.
 
-Parameters: section `all|company|supplier`, literal text search `q` (max 200),
+Parameters: section `all|company|supplier|customer`, literal text search `q` (max 200),
 limit 1–100 (default 50), offset 0–100000. Ordering: created_at descending,
 source, source ID descending. Offset pagination can shift under concurrent inserts;
 it is intended for interactive browsing, not export or migration.
@@ -41,3 +41,17 @@ Two project-scoped attachments remain withheld by the conservative file filter.
 This increment is local and has not been deployed or browser-verified.
 
 Project-access/UI increment: nine route tests and six interface tests passed. Read-only SQL rehearsal returned five available attachments for company 1 (including two project files), no cross-company rows. Settings now has a leadership-only Archive tab; existing legal document editing remains in its original tab. Customer documents, reusable contract bindings and source navigation are pending. Browser verification and deployment of the archive remain pending.
+
+Customer increment: project_documents with side=customer are included only when
+project_id resolves to the same company in SQL. Leadership archive preserves
+sign_status (including annulled history); this is not automatic publication to the
+customer cabinet. File project ID must equal the source document project ID.
+Records include projectId/projectName/status. Read-only SQL rehearsal: company 1
+has 15 customer documents, company 2 has none, no attached scans in these records.
+
+Verification: 16 server tests and 3 archive UI tests passed. A standalone real-browser
+fixture using the actual React component and synthetic fetch responses passed
+section selection, file-open callback, company switch, empty search, mobile
+390/390 viewport/scroll width. The fixture does not validate production authentication
+or actual PDF rendering; its only console error was a missing fixture favicon.
+The shared archive is still not deployed; release browser checks remain necessary.
