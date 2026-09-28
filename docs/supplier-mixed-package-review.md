@@ -131,8 +131,9 @@ immutable guards blocks retries as well as new saves. A late commit failure
 rolls the review back. No ledger baseline, cash, opening or application of paid
 balance occurs; response explicitly returns `openingConfirmed=false`.
 
-This worker is internal and has no public POST route or UI button. It is a
-prerequisite for financial admission, not implementation of that admission.
+The worker is exposed through the default-off POST route described below; there
+is no UI button yet. It is a prerequisite for financial admission, not
+implementation of that admission.
 The existing guards still reject mixed-package cash baselines. Future transfer
 must bind review evidence to the baseline and ensure every financial consumer
 uses the complete package scope, including legacy reports and reversal/replay.
@@ -140,3 +141,19 @@ uses the complete package scope, including legacy reports and reversal/replay.
 Verified: 2 command-validation tests, 5 isolated PostgreSQL save/retry/concurrency/
 rollback tests, and 4 existing authenticated mixed-review PostgreSQL regressions.
 No production migration, deployment, review save or financial write was performed.
+
+
+## Authenticated save endpoint
+
+POST /companies/{company_id}/supplier-opening-confirmations/package-review
+accepts the strict save command above. It requires the payments, opening
+confirmations and mixed review flags, selected-company headers and a server
+injected financial update authorizer. It never falls back to read authority.
+The application supplies this authorizer from the existing payment access policy.
+All package checks, stale evidence checks and UUID retry handling run inside the
+same database transaction as the immutable evidence insert. Responses are
+no-store. This endpoint only saves evidence: it does not confirm an opening.
+
+Local validation covers HTTP company/flag/write-authority boundaries and an
+HTTP → real PostgreSQL save/retry/revoked-package scenario, in addition to the
+existing transactional rollback/concurrency checks. Production remains unchanged.

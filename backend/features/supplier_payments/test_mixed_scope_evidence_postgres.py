@@ -86,3 +86,29 @@ class MixedScopeEvidenceTests(unittest.TestCase):
         finally:
             self.sql('DROP TRIGGER synthetic_review_failure ON supplier_mixed_scope_reviews')
             self.sql('DROP FUNCTION synthetic_review_commit_failure()')
+
+    def test_http_save_retry_and_revoked_scope_preserve_single_evidence_no_cash(self):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from unittest.mock import patch
+        from .routes import register_supplier_payment_routes
+        deps=dict(self.main._supplier_payment_access_deps)
+        allowed={'Электрика':True}
+        deps['has_package_access']=lambda actor,package:allowed.get(package,True)
+        app=FastAPI()
+        register_supplier_payment_routes(app,dict(get_db=self.main.get_db,
+            get_current_user=lambda: {'id':self.actor},
+            authorize_write=build_payment_access(deps,operation='update')))
+        before=self.sql('SELECT count(*),sum(amount) FROM project_payments')
+        path='/companies/2/supplier-opening-confirmations/package-review'
+        with TestClient(app) as client, patch.dict(os.environ,SUPPLIER_PAYMENTS_ENABLED='1',
+                SUPPLIER_OPENING_CONFIRMATIONS_ENABLED='1',SUPPLIER_MIXED_OPENING_REVIEW_ENABLED='1'):
+            first=client.post(path,json=self.body,headers={'X-Company-Id':'2'})
+            self.assertEqual(first.status_code,200,first.text)
+            self.assertFalse(first.json()['openingConfirmed'])
+            again=client.post(path,json=self.body,headers={'X-Company-Id':'2'})
+            self.assertEqual(again.json(),first.json())
+            allowed['Электрика']=False
+            self.assertEqual(client.post(path,json=self.body,headers={'X-Company-Id':'2'}).status_code,403)
+        self.assertEqual(self.sql('SELECT count(*) FROM supplier_mixed_scope_reviews WHERE invoice_id=%s',(self.invoice,)),[(1,)])
+        self.assertEqual(self.sql('SELECT count(*),sum(amount) FROM project_payments'),before)

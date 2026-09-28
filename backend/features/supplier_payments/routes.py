@@ -177,6 +177,22 @@ def register_supplier_payment_routes(app, deps):
         with reads.transaction(deps, company_id) as cur:
             return review(cur, deps['authorize_read'], user['id'], company_id, invoice_id)
 
+    @router.post('/companies/{company_id}/supplier-opening-confirmations/package-review')
+    def save_mixed_opening_review(request: Request, response: Response, body: Any = Body(...),
+                                 company_id: int = Path(..., ge=1, le=2147483647),
+                                 user: dict = Depends(authenticate)):
+        if (os.getenv('SUPPLIER_OPENING_CONFIRMATIONS_ENABLED') != '1'
+                or os.getenv('SUPPLIER_MIXED_OPENING_REVIEW_ENABLED') != '1'):
+            raise HTTPException(404, 'Not found')
+        _headers(request, company_id)
+        _query(request, ())
+        response.headers['Cache-Control'] = 'no-store'
+        authorize_write = deps.get('authorize_write')
+        if not callable(authorize_write):
+            raise HTTPException(503, 'Сервис сохранения сверки не подготовлен')
+        from .mixed_scope_evidence import save_review
+        return save_review(deps['get_db'], authorize_write, user['id'], company_id, body)
+
     @router.post('/companies/{company_id}/supplier-opening-confirmations')
     def opening_confirm(request: Request, response: Response, body: Any = Body(...),
                         company_id: int = Path(..., ge=1, le=2147483647), user: dict = Depends(authenticate)):

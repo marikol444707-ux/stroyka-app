@@ -28336,6 +28336,7 @@ _supplier_payment_access_deps = {
 register_supplier_payment_routes(app, {
     'get_db': get_db, 'get_current_user': get_current_user,
     'resolve_documents': build_document_resolver(build_payment_access(_supplier_payment_access_deps)),
+    'authorize_write': build_payment_access(_supplier_payment_access_deps, operation='update'),
     'authorize_read': build_payment_access(_supplier_payment_access_deps, operation='read'),
 })
 

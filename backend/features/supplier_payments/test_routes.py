@@ -125,3 +125,35 @@ class RouteBoundaryTests(unittest.TestCase):
             response = client.get(self.path, headers=self.headers)
             self.assertEqual(response.status_code, 503)
         self.db.assert_not_called()
+
+    def test_mixed_review_save_requires_write_authority_and_selected_company(self):
+        path='/companies/2/supplier-opening-confirmations/package-review'
+        body=dict(requestId=str(uuid4()), invoiceId=8, evidenceHash='a'*64, reason='Проверено')
+        with patch.dict(os.environ, SUPPLIER_OPENING_CONFIRMATIONS_ENABLED='1',
+                        SUPPLIER_MIXED_OPENING_REVIEW_ENABLED='0'):
+            self.assertEqual(self.client.post(path,json=body,headers=self.headers).status_code,404)
+        with patch.dict(os.environ, SUPPLIER_OPENING_CONFIRMATIONS_ENABLED='1',
+                        SUPPLIER_MIXED_OPENING_REVIEW_ENABLED='1'):
+            self.assertEqual(self.client.post(path,json=body).status_code,400)
+            self.assertEqual(self.client.post(path,json=body,headers={'X-Company-Id':'3'}).status_code,409)
+            self.assertEqual(self.client.post(path+'?force=1',json=body,headers=self.headers).status_code,422)
+            self.assertEqual(self.client.post(path,json=body,headers=self.headers).status_code,503)
+        self.db.assert_not_called()
+
+    def test_mixed_review_save_uses_server_writer_and_does_not_confirm_opening(self):
+        from .routes import register_supplier_payment_routes
+        app=FastAPI()
+        writer=Mock()
+        register_supplier_payment_routes(app,dict(get_db=self.db,
+            get_current_user=lambda: {'id':7},authorize_read=Mock(),authorize_write=writer))
+        body=dict(requestId=str(uuid4()),invoiceId=8,evidenceHash='a'*64,reason='Проверено')
+        with TestClient(app) as client, patch.dict(os.environ,
+                SUPPLIER_OPENING_CONFIRMATIONS_ENABLED='1',SUPPLIER_MIXED_OPENING_REVIEW_ENABLED='1'), patch(
+                'backend.features.supplier_payments.mixed_scope_evidence.save_review',
+                return_value=dict(reviewId=1,openingConfirmed=False,newCashAmount='0.00')) as save:
+            response=client.post('/companies/2/supplier-opening-confirmations/package-review',
+                                 json=body,headers=self.headers)
+            self.assertEqual(response.status_code,200,response.text)
+            self.assertFalse(response.json()['openingConfirmed'])
+            self.assertEqual(response.headers['cache-control'],'no-store')
+            save.assert_called_once_with(self.db,writer,7,2,body)
