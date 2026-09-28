@@ -108,12 +108,12 @@ line specifications (`test_legacy_contract_chain_postgres.py`):
   verifies the safe rejection and unchanged shipment count; it does NOT claim this
   user journey is complete.
 
-Do not enable the legacy binding feature in production yet. Next implement an
-explicitly reviewed source for legacy invoice lines/VAT, with distinct provenance
-from original new-invoice birth evidence, then prove prepayment -> shipment ->
-partial/full receipt -> settlement with replay and foreign-company denial. Do not
-backfill the new-invoice-only specification helper or infer quantities/VAT from
-invoice totals. Keep existing accounting review requirements.
+The unused-invoice line-review implementation is now available locally in
+[the 0063 increment](supplier-legacy-line-review-2026-09-28.md). It resolves the
+prepayment path when original-document review is completed before approval and
+payment. The blocking regression above still applies when that review is omitted.
+Production activation remains gated on the complete new-invoice contract workflow
+and the deployment checks documented in the 0063 increment.
 
 VIST invoice 161 still needs the user's actual contract and item evidence; tests
 never modified it. Production remains 6225f667 / 0061 with contract prerequisites,
