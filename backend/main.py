@@ -16603,6 +16603,18 @@ try:
 except ModuleNotFoundError:
     from features.customer_cabinet.record_scope import RecordScope
 
+try:
+    from backend.features.counterparty_documents.routes import register_counterparty_document_archive
+except ModuleNotFoundError:
+    from features.counterparty_documents.routes import register_counterparty_document_archive
+
+register_counterparty_document_archive(app, {
+    "get_db": get_db,
+    "get_current_user": get_current_user,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
+})
+
 project_record_scope = RecordScope(
     get_db, _resolve_work_company_context, effective_company_actors, visible_project_names,
 )
