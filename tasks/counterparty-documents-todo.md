@@ -97,3 +97,4 @@
 - Added exact source/recordId archive lookup; both parameters required together, source allowlisted, ID bounded. Existing company/role/file authorization remains in every query.
 - Invoice can open its verified contract; invoice/contract can open its quotation. Return restores the original section/search/page. Focused response must match requested source and ID; stale responses remain ignored.
 - 14 route and 5 UI tests passed. Read-only SQL rehearsal verified exact contract lookup against actual schema (synthetic leadership context, not auth proof).
+- Deployed `45fae9209e10`. Authenticated browser search362 -> contract -> quotation71 -> return preserved query362 and original result. No JS errors. Invoice-to-contract covered by UI test. 14 server tests, 251 assets, unchanged data hashes, health/DB passed; all four release gates recorded and backup/staging removed.

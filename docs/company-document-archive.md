@@ -17,14 +17,19 @@ Contract records show number/version and offerId; their source offer must belong
 the same company. The file comes from source_file_id. Invoice offerId is resolved
 within the same company. Its contractNumber/contractVersion are returned only for
 an exact contract_version_id with matching company and offer. No inference by
-name, amount or supplier. Reverse navigation and a canonical contract registry
-remain pending.
+name, amount or supplier. Invoice-to-contract and contract/invoice-to-quotation navigation is available inside
+the archive. Reverse lists of invoices per contract and a canonical contract
+registry remain pending.
 
 ## API and files
 
 Parameters: section all|company|supplier|customer; literal search q (max 200);
 limit 1–100 (default 50); offset 0–100000. Sort: created_at DESC NULLS LAST, source,
 id DESC. Offset pages may shift with concurrent inserts; this is not an export API.
+
+Optional source and recordId select one exact record; both are required together,
+source is allowlisted and ID is bounded. Company/role and file checks still apply.
+The UI preserves the prior search/section/page when returning from a related record.
 
 Each row has stable source/sourceId identity, companyId, title, documentType,
 createdAt, attachments, unavailableAttachments, fileUrl and fileStatus:
