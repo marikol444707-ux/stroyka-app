@@ -422,3 +422,16 @@ class ContractPostgresTest(unittest.TestCase):
         with self.conn.cursor() as cur:
             cur.execute('SELECT COUNT(*) FROM file_ownership WHERE id<>31 AND retained_at IS NOT NULL')
             self.assertEqual(cur.fetchone()[0],0)
+
+    def test_addendum_preserves_existing_payment_schedule(self):
+        schedule={'schemaVersion':1,'stages':[{'title':'Оплата','percentBasisPoints':10000,'event':'after_acceptance','daysAfter':5}]}
+        with patch.dict(os.environ,{'SUPPLIER_PAYMENT_SCHEDULES_ENABLED':'1','SUPPLIER_DOCUMENT_CONTRACT_BINDINGS_ENABLED':'1'}):
+            response=self.review(paymentSchedule=schedule)
+        self.assertEqual(response.status_code,200,response.text)
+        first=response.json()
+        with self.conn.cursor() as cur:
+            cur.execute('INSERT INTO file_ownership (id,company_id) VALUES (36,12)')
+        response=self.review(expectedVersion=1,revisesContractId=first['id'],addendum={'sourceFileId':36,'number':'1','date':'2026-09-20'})
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertEqual(response.json()['snapshot']['paymentSchedule'],schedule)
+        self.assertEqual(self.history().json()['items'][-1],first)

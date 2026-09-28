@@ -215,6 +215,8 @@ def register_supplier_contracts_module(app, deps):
             snapshot = build_snapshot(data, parties)
             if addenda:
                 snapshot['addenda'] = addenda
+                if data.paymentSchedule is None and registry_source['snapshot_json'].get('paymentSchedule'):
+                    snapshot['paymentSchedule'] = registry_source['snapshot_json']['paymentSchedule']
             if revised_from is not None:
                 snapshot['revises'] = revised_from
             if reused_from is not None:
