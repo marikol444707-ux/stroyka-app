@@ -206,6 +206,58 @@ def register_supplier_directory_module(app, deps):
         if not existing:
             cur.close(); conn.close()
             raise HTTPException(status_code=404, detail="Поставщик не найден")
+
+        # Guarded update: contract fields are company-specific and must be
+        # written to the company_supplier_links row for the selected company.
+        # If contract fields are present in the payload then require explicit
+        # company context (companyId or company_id) and an active link. Fail
+        # closed when company context is missing or link not active.
+        def has_key(*keys):
+            return any(k in data for k in keys)
+
+        contract_keys = ("contractUrl", "contract_url", "contractNumber", "contract_number", "contractDate", "contract_date")
+        company_id = None
+        if has_key(*contract_keys):
+            # prefer camel then snake
+            company_id = data.get("companyId") or data.get("company_id")
+            try:
+                company_id = int(company_id) if company_id is not None else None
+            except (TypeError, ValueError):
+                company_id = None
+            if not company_id or company_id <= 0:
+                cur.close(); conn.close()
+                raise HTTPException(status_code=400, detail="companyId/company_id required for contract updates")
+
+            # verify exact active company_supplier_links row exists
+            cur.execute(
+                "SELECT * FROM company_supplier_links WHERE company_id=%s AND supplier_id=%s LIMIT 1",
+                (company_id, id),
+            )
+            link = cur.fetchone()
+            if not link or (link.get("status") or "") != "Активный":
+                cur.close(); conn.close()
+                raise HTTPException(status_code=409, detail="Active company link not found for this supplier and company")
+
+            # perform company-specific update on company_supplier_links
+            # map camel/snake aliases
+            c_url = data.get("contractUrl") or data.get("contract_url")
+            c_number = data.get("contractNumber") or data.get("contract_number")
+            c_date = data.get("contractDate") or data.get("contract_date")
+            cur.execute(
+                """
+                UPDATE company_supplier_links SET
+                    contract_url=COALESCE(%s, contract_url),
+                    contract_number=COALESCE(%s, contract_number),
+                    contract_date=COALESCE(%s, contract_date)
+                WHERE id=%s
+                RETURNING *
+                """,
+                (c_url, c_number, c_date or None, link.get("id")),
+            )
+            row = cur.fetchone()
+            conn.commit()
+            cur.close(); conn.close()
+            return dict(row)
         try:
             supplier_rating = float(data.get("rating") if "rating" in data and data.get("rating") not in (None, "") else (existing.get("rating") or 5.0))
         except (TypeError, ValueError):
