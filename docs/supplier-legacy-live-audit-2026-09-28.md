@@ -84,3 +84,27 @@ these findings warrants automatic production balance changes.
 
 Detailed read-only evidence is local, mode 0600:
 `/tmp/stroyka-legacy-details-20260928.json`. Raw document values are not committed.
+
+## Post-release follow-up — 2026-09-28
+
+Refreshed operator audit on deployed 6225f667, read-only with rollback: 49
+invoices; 17 mixed-package pairs, 7 matched pairs, 1 standalone, 24 blocked.
+Blocked breakdown: 20 balance mismatches, 2 identity mismatches (15,83),
+2 ambiguous links (144,160). Candidate classification is not runtime admission.
+
+Direct scoped read established the additional blocker for VIST invoice 161:
+company 1, supplier 159, offer 71, request 880; amount 263000, paid 0,
+status На утверждении, project Кисловодск Лицей 4, package Отделка.
+Offer 71 is Утверждено. Invoice contract_version_id and warehouse_invoice_id
+are null; no supplier_contract_versions exist for offer 71.
+The payment resolver intentionally rejects an offer-backed invoice without a
+bound contract. This is not evidence of a paid-balance mismatch.
+
+Code inspection: reissuing the invoice with a contract would reject the existing
+invoice's different/null binding; it does not retrofit the old invoice. Therefore
+simply approving the invoice or retrying invoice creation is not a demonstrated
+repair. A reviewed legacy contract-binding workflow needs explicit design and
+validation, preserving invoice identity and verifying absent payments/receipts
+and current company/offer/party authority. Do not silently attach the latest
+contract, erase offer_id, annul/recreate, or change financial values.
+No production records were changed in this follow-up.
