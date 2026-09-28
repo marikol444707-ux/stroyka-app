@@ -84,3 +84,40 @@ backend/database/frontend/authenticated-browser verification and backup cleanup.
 
 Real VIST invoice 161 requires its actual original contract and invoice. No test
 attests those documents, edits VAT or imports historical paid balances.
+
+## New-deal entry points — local continuation
+
+Added customer contract review entry directly to approved offers (no invoice
+required), scoped to the selected editable company. Supplier invoice form loads
+latest reviewed contract and current deal parties, requires explicit selection,
+and submits contractVersionId only for the matching offer. Missing, foreign,
+unreviewed and stale-party versions cannot be selected. Reload clears selection.
+The build resolver now exports DOCUMENT_CONTRACT_BINDINGS and requires both
+DEAL_PARTIES and CONTRACT_SNAPSHOTS for it.
+
+Local checks: 27 frontend tests across five suites passed (contract choice,
+preparation, invoice contract payload, existing invoice tax payload and cabinet
+offers); 11 build resolver tests passed. Production build with document contract
+bindings enabled compiled successfully. No deployment in this continuation.
+Remaining release gate: real API/database and browser verification of customer
+contract preparation before a new supplier invoice, then controlled release of
+migrations 0062/0063 and flags. Frontend unit checks do not close that gate.
+
+Additional verification: all 14 isolated PostgreSQL invoice creation tests passed.
+Headed Chromium exercised the real SupplierInvoiceContractChoice and
+createSupplyActions against real local API/database: invoice disabled before
+explicit selection; reviewed contract selected; invoice created successfully.
+Database assertions confirmed amount 200, paid amount 0, exact selected contract
+and one immutable specification. No production data touched. Final browser run
+had no console errors (development JSX transform warning only). Initial harness
+missed a build-time environment definition; corrected harness and reran before
+recording success. Disposable database/server/bundle stopped and removed.
+Customer preparation entry still needs browser verification before release.
+
+Customer-side local browser gate passed: real preparation entry opened from an
+approved synthetic offer without an invoice; accessible buyer/payer saved; a
+synthetic original uploaded; number/date/terms and explicit review confirmation
+saved through real API. Database asserted exactly one contract version and zero
+invoices for this offer. Browser had zero console errors (development transform
+warning only). This was an isolated component page, not production UI. Temporary
+PostgreSQL instance and browser bundle removed after assertions passed.

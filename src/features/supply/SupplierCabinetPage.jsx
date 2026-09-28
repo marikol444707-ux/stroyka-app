@@ -1,3 +1,4 @@
+import SupplierInvoiceContractChoice from './SupplierInvoiceContractChoice';
 import SupplyFileLink from './SupplyFileLink';
 import SupplierAttachmentInput from './SupplierAttachmentInput';
 import InvoiceLineTaxFields from './InvoiceLineTaxFields';
@@ -635,9 +636,12 @@ export default function SupplierCabinetPage({
                         <InvoiceLineTaxFields items={readOfferItems(o)} values={newOfferInvoice.lineTaxes}
                           inputStyle={inp} onChange={lineTaxes=>setNewOfferInvoice(current=>({...current,lineTaxes}))}/>}
                       <input value={newOfferInvoice.description} onChange={e=>setNewOfferInvoice({...newOfferInvoice,description:e.target.value})} placeholder='Описание (по умолчанию название материала)' style={inp}/>
+                      <SupplierInvoiceContractChoice API={API} userId={user.id} companyId={o.companyId} offerId={o.id}
+                        disabled={attachmentBusy} value={newOfferInvoice.contractOfferId===o.id?newOfferInvoice.contractVersionId:null}
+                        onChange={id=>setNewOfferInvoice(current=>({...current,contractVersionId:id,contractOfferId:id?o.id:null}))}/>
                       <SupplierAttachmentInput onBusy={setAttachmentBusy} offerId={o.id} uploadPhoto={uploadPhoto} label="Прикрепить счёт (PDF/фото)" attached={newOfferInvoice.fileUrl} onUploaded={url=>setNewOfferInvoice(current=>({...current,fileUrl:url}))}/>
                       <div style={{display:'flex',gap:'8px'}}>
-                        <button disabled={attachmentBusy} onClick={async()=>{await createInvoiceFromOffer(o.id);await inboxState?.reload();}} style={btnO}><Check size={14}/>Отправить счёт</button>
+                        <button disabled={attachmentBusy || (process.env.REACT_APP_SUPPLIER_DOCUMENT_CONTRACT_BINDINGS_ENABLED==='true' && (!newOfferInvoice.contractVersionId || newOfferInvoice.contractOfferId!==o.id))} onClick={async()=>{await createInvoiceFromOffer(o.id);await inboxState?.reload();}} style={btnO}><Check size={14}/>Отправить счёт</button>
                         <button disabled={attachmentBusy} onClick={()=>setInvoicingOfferId(null)} style={btnG}><X size={14}/>Отмена</button>
                       </div>
                     </div>)}

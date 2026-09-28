@@ -1,4 +1,5 @@
 import React from 'react';
+import SupplierOfferContractPreparation from '../../features/supply/SupplierOfferContractPreparation';
 import OfferLineSelection from './OfferLineSelection';
 import SupplierEmailAttempts from './SupplierEmailAttempts';
 import useSupplierOfferCheck from '../../features/supply/useSupplierOfferCheck';
@@ -443,6 +444,7 @@ export function OffersBlock({
             {o.supplierMessage && <p style={{ color: C.textSec, margin: '4px 0 0', fontSize: '11px', fontStyle: 'italic' }}>💬 «{o.supplierMessage}»</p>}
             {o.pdfUrl && <a href={fileSrc(o.pdfUrl)} target='_blank' rel='noopener noreferrer' style={{ fontSize: '11px', color: C.accent, display: 'inline-block', marginTop: '4px' }}>📄 PDF</a>}
             <OfferItemsDetails C={C} offer={o} parseOfferItems={parseOfferItems} />
+            {!compact && <SupplierOfferContractPreparation API={API} user={user} companyContext={companyContext} request={request} offer={o}/>}
             {!compact && (
               <SupplyTechnicalComparisonPanel
                 API={API}

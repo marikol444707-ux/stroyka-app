@@ -26,7 +26,8 @@ def resolve(service_environment, backend_env_path):
         if value not in ('0', '1'):
             raise ValueError(f'{key}: ожидается 0 или 1')
     enabled = lambda name: values.get(f'SUPPLIER_{name}_ENABLED', '0') == '1'
-    dependencies = {'LEGACY_LINE_REVIEW': ('PAYMENTS', 'DEAL_PARTIES', 'CONTRACT_SNAPSHOTS', 'DOCUMENT_CONTRACT_BINDINGS'),
+    dependencies = {'DOCUMENT_CONTRACT_BINDINGS': ('DEAL_PARTIES', 'CONTRACT_SNAPSHOTS'),
+                    'LEGACY_LINE_REVIEW': ('PAYMENTS', 'DEAL_PARTIES', 'CONTRACT_SNAPSHOTS', 'DOCUMENT_CONTRACT_BINDINGS'),
                     'LEGACY_CONTRACT_BINDING': ('PAYMENTS', 'DEAL_PARTIES', 'CONTRACT_SNAPSHOTS', 'DOCUMENT_CONTRACT_BINDINGS'),
                     'INVOICE_LINE_SPECS': ('DEAL_PARTIES', 'CONTRACT_SNAPSHOTS', 'DOCUMENT_CONTRACT_BINDINGS'),
                     'OPENING_CONFIRMATIONS': ('PAYMENTS',),
@@ -37,7 +38,7 @@ def resolve(service_environment, backend_env_path):
             for name in required:
                 if not enabled(name):
                     raise ValueError(f'SUPPLIER_{feature}_ENABLED требует SUPPLIER_{name}_ENABLED=1')
-    return [f'REACT_APP_SUPPLIER_{name}_ENABLED={str(enabled(name)).lower()}' for name in (*NAMES[:3], 'MIXED_OPENINGS', 'LEGACY_CONTRACT_BINDING', 'LEGACY_LINE_REVIEW')]
+    return [f'REACT_APP_SUPPLIER_{name}_ENABLED={str(enabled(name)).lower()}' for name in (*NAMES[:3], 'MIXED_OPENINGS', 'LEGACY_CONTRACT_BINDING', 'LEGACY_LINE_REVIEW', 'DOCUMENT_CONTRACT_BINDINGS')]
 
 
 if __name__ == '__main__':

@@ -520,10 +520,15 @@ export const createSupplyActions = ({
 
   const createInvoiceFromOffer = async (offerId) => {
     if (!newOfferInvoice.invoiceNumber || !newOfferInvoice.amount) { alert('Заполните номер счёта и сумму'); return; }
+    const contractRequired=process.env.REACT_APP_SUPPLIER_DOCUMENT_CONTRACT_BINDINGS_ENABLED==='true';
+    if(contractRequired && (!Number.isSafeInteger(newOfferInvoice.contractVersionId) || newOfferInvoice.contractVersionId<=0 || newOfferInvoice.contractOfferId!==offerId)) {
+      alert('Выберите проверенную версию договора для этого КП');return;
+    }
     const r = await fetch(API + '/supplier-offers/' + offerId + '/create-invoice', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        ...(contractRequired?{contractVersionId:newOfferInvoice.contractVersionId}:{}),
         invoiceNumber: newOfferInvoice.invoiceNumber,
         invoiceDate: newOfferInvoice.invoiceDate,
         amount: String(newOfferInvoice.amount),
@@ -540,7 +545,7 @@ export const createSupplyActions = ({
       alert('Ошибка: ' + (data.detail || data.error || 'не удалось выставить счёт'));
       return;
     }
-    notify('Счёт выставлен — ждёт оплаты бухгалтером', 'supply');
+    notify('Счёт выставлен — передан на проверку и утверждение', 'supply');
     setInvoicingOfferId(null);
     setNewOfferInvoice({ invoiceNumber: '', invoiceDate: new Date().toISOString().split('T')[0], amount: '', vatAmount: '', description: '', fileUrl: '' });
     await refreshData();
