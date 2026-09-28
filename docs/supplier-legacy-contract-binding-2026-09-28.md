@@ -70,13 +70,51 @@ Receipt: /var/log/stroyka-release-receipts/supplier-line-spec-config-20260928.js
 The frontend configuration resolver now rejects this unsupported combination and
 requires all contract dependencies for the new binding feature too.
 
-## Remaining release gates
+## Customer contract form (local, 2026-09-28)
 
-Do not enable the new production feature independently of the contract workflow.
-VIST invoice 161 has no reviewed contract version. A usable customer-side form for
-selecting parties and reviewing the original contract is still required; showing
-an explanation in the binding panel does not provide that missing workflow.
-Also rehearse the complete post-binding invoice approval, payment, shipment,
-receipt and accounting path, including historical invoices without sealed lines.
-Binding is not proof of historical VAT/line quantities and must not fabricate them.
-The actual VIST invoice and its amount remain unchanged.
+The binding panel now opens a customer-side form for selecting accessible buyer
+and payer companies, uploading an original and manually reviewing a contract.
+Company choices come from `/users/company-context`, not the global company list.
+Names/INNs come from authorized review context; signer and bank details remain
+blank until explicitly entered. Saving a reviewed version neither binds the
+invoice nor records signatures, money or stock. Binding remains a separate action.
+The form is behind the same disabled-by-default legacy binding build switch.
+
+Versioned commands are persisted before sending and protected by Web Locks.
+Lost responses retry the same payload and reconcile the exact immutable revision.
+A conflicting scoped revision releases the unsuccessful command and refreshes
+parties. A first-attempt schema rejection permits field correction. Network,
+foreign-response and uncertain retry failures retain the command for reconciliation.
+No uncertain payload can be overwritten by edits.
+
+Validation: 152 UI tests in 15 suites passed; optimized build compiled successfully.
+Headed Chromium + real authenticated FastAPI + disposable PostgreSQL completed
+party version saving, original upload, manual contract review and separate invoice
+binding. DB assertions confirmed one binding and unchanged amount 200 / paid 0.
+The fixture console had development React notices and an absent favicon; no form
+API error occurred. This is a local test, not a production release.
+
+## Post-binding chain evidence and remaining release gate
+
+Two persistent PostgreSQL/HTTP regression tests cover old invoices without sealed
+line specifications (`test_legacy_contract_chain_postgres.py`):
+
+- Postpayment works after full receipt, original waybill upload and accountant
+  approval of the linked warehouse invoice. Payment then records 200 against the
+  invoice; no line specification is invented. Trying to pay before that review
+  correctly fails eligibility; approval without a waybill correctly fails too.
+- Prepayment records against the bound invoice, but subsequent shipment is still
+  blocked because the ledger document has no sealed material lines. The regression
+  verifies the safe rejection and unchanged shipment count; it does NOT claim this
+  user journey is complete.
+
+Do not enable the legacy binding feature in production yet. Next implement an
+explicitly reviewed source for legacy invoice lines/VAT, with distinct provenance
+from original new-invoice birth evidence, then prove prepayment -> shipment ->
+partial/full receipt -> settlement with replay and foreign-company denial. Do not
+backfill the new-invoice-only specification helper or infer quantities/VAT from
+invoice totals. Keep existing accounting review requirements.
+
+VIST invoice 161 still needs the user's actual contract and item evidence; tests
+never modified it. Production remains 6225f667 / 0061 with contract prerequisites,
+legacy binding and invoice-line creation disabled as described above.

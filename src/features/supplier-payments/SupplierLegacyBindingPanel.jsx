@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { paymentRequest } from './paymentClient';
+import SupplierContractReviewPanel from './SupplierContractReviewPanel';
 
 export default function SupplierLegacyBindingPanel(props) {
   if (process.env.REACT_APP_SUPPLIER_LEGACY_CONTRACT_BINDING_ENABLED !== 'true') return null;
@@ -8,6 +9,7 @@ export default function SupplierLegacyBindingPanel(props) {
 
 function BindingContent({API, userId, companyId, invoiceId, disabled, onBlocked, onSuccess}) {
   const [context, setContext] = useState(null);
+  const [preparing, setPreparing] = useState(false);
   const [reason, setReason] = useState('');
   const [confirmed, setConfirmed] = useState(false);
   const [pending, setPending] = useState(null);
@@ -104,10 +106,11 @@ function BindingContent({API, userId, companyId, invoiceId, disabled, onBlocked,
     <p>Для неоплаченного счёта на утверждении, по которому ещё нет отгрузок и приёмок.</p>
     {error && <p role="alert">{error}</p>}
     {storageError && <p role="alert">{storageError} Отправка заблокирована.</p>}
-    {!pending && <button type="button" disabled={disabled || busy || !!storageError} onClick={load}>Проверить договор для привязки</button>}
+    {!pending && <button type="button" disabled={disabled || busy || preparing || !!storageError} onClick={load}>Проверить договор для привязки</button>}
     {context && !pending && <>
       {context.boundContractId ? <p>Счёт уже связан с версией договора #{context.boundContractId}.</p>
-        : !context.contract ? <p>Проверенной версии договора пока нет. Сначала укажите стороны сделки и проверьте договор по оригиналу. Утверждение КП не заменяет эту проверку.</p>
+        : !context.contract ? <><p>Проверенной версии договора пока нет. Сначала укажите стороны сделки и проверьте договор по оригиналу. Утверждение КП не заменяет эту проверку.</p>
+          {!preparing && <button type="button" disabled={disabled || busy} onClick={()=>setPreparing(true)}>Подготовить и проверить договор</button>}</>
           : <><p>КП #{context.offerId} · сумма счёта {context.amount} ₽</p>
             <p>Договор № {context.contract.snapshot?.number} от {context.contract.snapshot?.date} · версия {context.contract.version}</p>
             <p>Проверил: {context.contract.reviewedBy}</p>
@@ -115,10 +118,14 @@ function BindingContent({API, userId, companyId, invoiceId, disabled, onBlocked,
             <p>Плательщик: {context.contract.snapshot?.payer?.fullName} · ИНН {context.contract.snapshot?.payer?.inn}</p>
             <p>Поставщик: {context.contract.snapshot?.supplier?.fullName} · ИНН {context.contract.snapshot?.supplier?.inn}</p>
             <label>Основание привязки<input value={reason} maxLength={1000} onChange={e=>setReason(e.target.value)} /></label></>}
-      <button type="button" disabled={busy} onClick={()=>{setContext(null);setConfirmed(false);}}>Закрыть проверку</button>
+      {!preparing && <button type="button" disabled={busy} onClick={()=>{setContext(null);setConfirmed(false);}}>Закрыть проверку</button>}
+      {!preparing && context.contract && !context.boundContractId && <button type="button" disabled={disabled || busy}
+        onClick={()=>{setPreparing(true);setConfirmed(false);}}>Проверить новую версию договора</button>}
     </>}
+    {preparing && context && <SupplierContractReviewPanel API={API} userId={userId} companyId={companyId} offerId={context.offerId}
+      disabled={disabled || busy} onClose={()=>setPreparing(false)} onSaved={()=>{setPreparing(false);load();}}/>}
     {pending && <p>Сохранённый запрос: версия договора #{pending.contractVersionId}, счёт {pending.expectedAmount} ₽. Основание: {pending.reason}</p>}
-    {(pending || (context?.contract && !context.boundContractId)) && <>
+    {!preparing && (pending || (context?.contract && !context.boundContractId)) && <>
       <label><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)} />Счёт и выбранная версия договора проверены</label>
       <button type="button" disabled={disabled || busy || !!storageError || !confirmed || (!pending && !reason.trim())} onClick={send}>
         {pending ? 'Повторить сохранённую привязку' : 'Привязать договор к счёту'}</button>
