@@ -88,7 +88,7 @@ class PartiesPostgresTest(unittest.TestCase):
             'buyerCompanyId':12, 'payerCompanyId':payer, 'expectedVersion':version, 'reason':'Плательщик по договору'})
 
     def test_versioned_history_and_pagination_preserve_original_owner(self):
-        first = self.put()
+        first = self.put(payer=12)
         self.assertEqual(first.status_code, 200, first.text)
         second = self.put(1, 12)
         self.assertEqual(second.status_code, 200, second.text)
@@ -96,27 +96,27 @@ class PartiesPostgresTest(unittest.TestCase):
         self.assertEqual(history['items'][0]['payerCompanyId'], 12)
         self.assertEqual(history['nextBeforeVersion'], 2)
         older = self.client.get('/supplier-offers/40/parties/history?beforeVersion=2').json()
-        self.assertEqual(older['items'][0]['payerCompanyId'], 99)
+        self.assertEqual(older['items'][0]['payerCompanyId'], 12)
         self.assertIsNone(older['nextBeforeVersion'])
         with self.conn.cursor() as cur:
             cur.execute('SELECT company_id,supplier_id,request_id FROM supplier_offers WHERE id=40')
             self.assertEqual(cur.fetchone(), (12,5,20))
 
     def test_payer_membership_does_not_grant_owner_document_access(self):
-        self.assertEqual(self.put().status_code, 200)
+        self.assertEqual(self.put(payer=12).status_code, 200)
         self.user = {**self.user, 'id':9, 'companyId':99}
         self.assertEqual(self.client.get('/supplier-offers/40/parties').status_code, 403)
 
     def test_cross_account_payer_and_stale_write_leave_no_extra_versions(self):
         self.assertEqual(self.put(payer=101).status_code, 403)
-        self.assertEqual(self.put().status_code, 200)
-        self.assertEqual(self.put().status_code, 409)
+        self.assertEqual(self.put(payer=12).status_code, 200)
+        self.assertEqual(self.put(payer=12).status_code, 409)
         with self.conn.cursor() as cur:
             cur.execute('SELECT count(*) FROM supplier_deal_parties')
             self.assertEqual(cur.fetchone()[0], 1)
 
     def test_schema_rejects_cross_supplier_link_and_destructive_downgrade(self):
-        self.assertEqual(self.put().status_code, 200)
+        self.assertEqual(self.put(payer=12).status_code, 200)
         with self.conn.cursor() as cur:
             with self.assertRaises(psycopg2.errors.ForeignKeyViolation):
                 cur.execute('''INSERT INTO supplier_deal_parties
@@ -164,7 +164,7 @@ class PartiesPostgresTest(unittest.TestCase):
             def save():
                 with TestClient(app) as client:
                     return client.put('/supplier-offers/40/parties', json={
-                        'buyerCompanyId':12, 'payerCompanyId':99, 'expectedVersion':0,
+                        'buyerCompanyId':12, 'payerCompanyId':12, 'expectedVersion':0,
                         'reason':'Concurrent proposal'}).status_code
 
             with ThreadPoolExecutor(max_workers=2) as pool:
