@@ -55,3 +55,5 @@ section selection, file-open callback, company switch, empty search, mobile
 390/390 viewport/scroll width. The fixture does not validate production authentication
 or actual PDF rendering; its only console error was a missing fixture favicon.
 The shared archive is still not deployed; release browser checks remain necessary.
+
+Released 2026-09-28 at dcadb4d8: Settings > Archive documents. Production nginx must proxy /company-document-archive to the API (added and validated during release); the SPA fallback is not an API response. Public API smoke now includes this route. Live browser verified own/customer/supplier sections, search, pagination, file opening, denied foreign company and mobile width. Existing source data unchanged. Earlier not-deployed notes above describe intermediate checks.

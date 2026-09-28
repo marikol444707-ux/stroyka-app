@@ -76,6 +76,7 @@ echo "Public API proxy check: $BASE_URL"
 check_json "site pricing" "/site/pricing" 'import json,sys; data=json.load(sys.stdin); sys.exit(0 if isinstance(data.get("rules"), list) else 1)'
 check_json "site projects" "/site/projects" 'import json,sys; data=json.load(sys.stdin); sys.exit(0 if isinstance(data, list) else 1)'
 check_json "site publications" "/site/publications?limit=1" 'import json,sys; data=json.load(sys.stdin); sys.exit(0 if isinstance(data, list) else 1)'
+check_not_spa "company document archive route" "/company-document-archive" "401 403 429"
 check_not_spa "site leads route" "/site/leads" "405 429"
 check_post_not_spa "site lead files route" "/site/lead-files" "422 429"
 check_not_spa "site price rules route" "/site-price-rules" "401 403 429"
