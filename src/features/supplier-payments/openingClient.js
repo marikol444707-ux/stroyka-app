@@ -11,6 +11,7 @@ const keyFor = scope => {
 };
 function verifyPreview(preview, scope) {
   if (preview?.companyId !== scope.companyId || preview?.invoiceId !== scope.invoiceId
+      || ('warehouseId' in preview && !id(preview.warehouseId))
       || !/^[a-f0-9]{64}$/.test(preview.reviewedHash || '') || preview.newCashAmount !== '0.00'
       || !['amount', 'openingPaid', 'remainingAmount'].every(field => typeof preview[field] === 'string'
         && /^\d+\.\d{2}$/.test(preview[field]) && paymentKopecks(preview[field]) !== null)
@@ -77,6 +78,7 @@ export async function submitOpening({ scope, preview, reason, expectedPending,
     if (result?.companyId !== scope.companyId || result?.invoiceId !== scope.invoiceId
         || result?.requestId !== saved.body.requestId || !Number.isSafeInteger(result?.confirmationId)
         || result.confirmationId <= 0 || result.newCashAmount !== '0.00'
+        || result.warehouseId !== saved.preview.warehouseId
         || result.amount !== saved.preview.amount || result.openingPaid !== saved.preview.openingPaid) {
       fail('Результат не подтверждён. Повторите сохранённую сверку.');
     }

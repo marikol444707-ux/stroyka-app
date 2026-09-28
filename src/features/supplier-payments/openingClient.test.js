@@ -66,3 +66,14 @@ test('global context wrapper preserves explicit company for opening routes', () 
   expect(init.headers.get('X-Company-Id')).toBe('2');
   expect(init.headers.get('X-Company-Mode')).toBe('company');
 });
+
+test('paired result must match the reviewed receipt before clearing the attempt', async () => {
+  const paired = { ...preview, warehouseId: 42 };
+  fetcher.mockResolvedValueOnce(response({ ...result, warehouseId: 43 }));
+  await expect(submitOpening({ ...options, preview: paired })).rejects.toThrow('не подтверждён');
+  const saved = readOpeningPending(scope, storage);
+  expect(saved.preview.warehouseId).toBe(42);
+  fetcher.mockResolvedValueOnce(response({ ...result, warehouseId: 42 }));
+  await expect(submitOpening({ ...options, expectedPending: saved })).resolves.toMatchObject({ warehouseId: 42 });
+  expect(readOpeningPending(scope, storage)).toBeNull();
+});

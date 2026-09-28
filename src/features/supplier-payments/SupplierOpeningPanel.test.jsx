@@ -66,3 +66,10 @@ test('stale review is discarded and requires a fresh preview and confirmation', 
   expect(await screen.findByText('Подтвердить начальный остаток')).toBeDisabled();
   expect(screen.getByLabelText('Суммы сверены с документами')).not.toBeChecked();
 });
+
+test('paired preview names the receipt and explains one opening amount', async () => {
+  previewOpening.mockResolvedValue({ ...preview, warehouseId: 42 });
+  render(<Panel {...props} />);
+  fireEvent.click(screen.getByText('Сверить прежнюю оплату'));
+  expect(await screen.findByText(/Связанная накладная #42/)).toHaveTextContent('прежняя оплата не суммируется');
+});
