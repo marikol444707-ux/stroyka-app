@@ -15,6 +15,7 @@ from .review_context import register_contract_review_context
 from .contract_provenance import RecognitionReview, prepare_contract_provenance
 from .payment_schedule import PaymentSchedule
 from .contract_registry import attach_registry
+from .contract_addenda import Addendum, reviewed_addenda
 from .contract_applicability import ContractApplicability, offer_project, eligible_applicability
 
 
@@ -53,11 +54,14 @@ class ContractReview(BaseModel):
     recognitionReview: Optional[RecognitionReview] = None
     reusedFromContractId: Optional[int] = Field(default=None, strict=True, gt=0, le=MAX_ID)
     revisesContractId: Optional[int] = Field(default=None, strict=True, gt=0, le=MAX_ID)
+    addendum: Optional[Addendum] = None
     paymentSchedule: Optional[PaymentSchedule] = None
     applicability: Optional[ContractApplicability] = None
 
     @model_validator(mode='after')
     def one_source(self):
+        if self.addendum is not None and self.revisesContractId is None:
+            raise ValueError('Для допсоглашения выберите текущий договор')
         if self.reusedFromContractId is not None and self.revisesContractId is not None:
             raise ValueError('Выберите один исходный договор')
         return self
@@ -207,7 +211,10 @@ def register_supplier_contracts_module(app, deps):
                 registry_source = source
                 reused_from = {'contractId': source['id'], 'offerId': source['offer_id'],
                                'version': source['version'], 'snapshotHash': source['snapshot_hash']}
+            addenda = reviewed_addenda(cur, registry_source, data, offer['company_id'], project)
             snapshot = build_snapshot(data, parties)
+            if addenda:
+                snapshot['addenda'] = addenda
             if revised_from is not None:
                 snapshot['revises'] = revised_from
             if reused_from is not None:

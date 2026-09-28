@@ -80,3 +80,16 @@ test('saved applicability must match before clearing pending intent',async()=>{
  await expect(client().save('contract',command)).resolves.toMatchObject({id:10});
  expect(client().pending()).toBeNull();
 });
+
+test('addendum file must match saved snapshot before clearing command',async()=>{
+ const party=legalDraft({fullName:'Компания',inn:'7701234567'});
+ const addendum={number:'1',date:'2026-09-20',sourceFileId:10};
+ const command={revisesContractId:8,partyVersion:1,expectedVersion:1,sourceFileId:9,number:'Д-1',date:'2026-09-01',paymentTerms:'',reason:'Сверено',buyer:party,payer:party,supplier:party,addendum};
+ const saved={id:11,companyId:1,offerId:71,version:2,partyVersion:1,sourceFileId:9,status:'reviewed',reason:command.reason,snapshot:{...command,revises:{contractId:8},addenda:[{...addendum,sourceFileId:99}]}};
+ fetcher.mockResolvedValue(response(saved));
+ await expect(client().save('contract',command)).rejects.toThrow('не совпадает');
+ expect(client().pending()).not.toBeNull();
+ fetcher.mockResolvedValue(response({...saved,snapshot:{...saved.snapshot,addenda:[addendum]}}));
+ await expect(client().save('contract',command)).resolves.toMatchObject({id:11});
+ expect(client().pending()).toBeNull();
+});

@@ -77,6 +77,8 @@ def build_contract_review_context(deps):
             existing_original = ({'archived':current.get('archived',False),'contractId':current['id'],'sourceFileId':current['source_file_id'],
                                   'number':current['snapshot_json']['number'],
                                   'date':current['snapshot_json']['date'],
+                                  'addenda':current['snapshot_json'].get('addenda',[]),
+                                  'paymentTerms':current['snapshot_json'].get('paymentTerms',''),
                                   'applicability':current['snapshot_json'].get('applicability'),
                                   'version':current['version']} if current else None)
             reusable = reusable_contracts(cur, offer, identities, load_offer, current_user, x_company_id, x_company_mode, project['id'] if project else None)

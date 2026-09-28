@@ -168,3 +168,23 @@ test('existing original restores document fields without upload or assumed unlim
  await waitFor(()=>expect(client.save).toHaveBeenCalledTimes(1));
  expect(client.save.mock.calls[0][1]).toMatchObject({revisesContractId:9,sourceFileId:99,expectedVersion:1});
 });
+
+test('addendum uploads separately and retains original and payment terms',async()=>{
+ client.load.mockResolvedValue({parties:{version:1,buyerCompanyId:1,payerCompanyId:1},companies:[{companyId:1,companyName:'Компания'}]});
+ client.reviewContext.mockResolvedValue({...ctx,expectedVersion:1,existingOriginal:{contractId:9,sourceFileId:99,number:'362',date:'2026-09-01',version:1,applicability,paymentTerms:'После доставки'}});
+ render(<Panel {...props}/>);
+ fireEvent.click(await screen.findByText('Перейти к проверке договора'));
+ fireEvent.click(await screen.findByText('Использовать сохранённый оригинал'));
+ fireEvent.click(screen.getByText('Добавить допсоглашение'));
+ expect(screen.getByLabelText('Оригинал договора').disabled).toBe(true);
+ expect(screen.getByLabelText('Номер договора').readOnly).toBe(true);
+ fireEvent.change(screen.getByLabelText('Файл допсоглашения'),{target:{files:[new File(['extra'],'extra.pdf',{type:'application/pdf'})]}});
+ await screen.findByText('Допсоглашение: extra.pdf');
+ fireEvent.change(screen.getByLabelText('Номер допсоглашения'),{target:{value:'1'}});
+ fireEvent.change(screen.getByLabelText('Дата допсоглашения'),{target:{value:'2026-09-20'}});
+ fireEvent.click(screen.getByLabelText('Реквизиты и условия сверены с загруженным оригиналом'));
+ fireEvent.click(screen.getByText('Сохранить проверенную версию договора'));
+ await waitFor(()=>expect(client.save).toHaveBeenCalledTimes(1));
+ expect(client.save.mock.calls[0][1]).toMatchObject({sourceFileId:99,revisesContractId:9,number:'362',paymentTerms:'После доставки',addendum:{sourceFileId:10,number:'1',date:'2026-09-20'}});
+ expect(client.upload).toHaveBeenCalledTimes(1);
+});

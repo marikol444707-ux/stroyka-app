@@ -91,6 +91,7 @@ function Archive({API,companyId,C,card,inp,btnG,setShowPhotoModal}) {
     {row.applicability.term==='open_ended'?' · бессрочно':` по ${row.applicability.endsOn?.split('-').reverse().join('.')}`}
    </p>}
    {row.registryState?.archived&&<p style={{color:C.textSec}}>В архиве · недоступен для новых КП</p>}
+   {row.addenda?.length>0&&<p style={{color:C.textSec}}>Допсоглашения: {row.addenda.map(a=>`№ ${a.number} от ${a.date.split('-').reverse().join('.')}`).join('; ')}</p>}
    {row.offerId&&<p style={{color:C.textSec,margin:'6px 0'}}>КП № {row.offerId}{row.contractVersion ? ` · Договор № ${row.contractNumber || 'без номера'}, версия ${row.contractVersion}`:''}</p>}
    <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:8}}>
     {row.source==='contract'&&row.registryId&&row.registryState&&<button disabled={saving||!!decision} style={btnG} onClick={()=>{setDecision(row);setDecisionError('');}}>{row.registryState.archived?'Восстановить':'В архив'}</button>}
@@ -103,7 +104,7 @@ function Archive({API,companyId,C,card,inp,btnG,setShowPhotoModal}) {
    {row.projectName&&<p style={{color:C.textSec}}>{row.projectName}{row.status?` · ${row.status}`:''}</p>}
    {row.fileStatus==='not_attached'&&<span>Файл не прикреплён</span>}
    {row.fileStatus==='needs_review'&&<p>Часть вложений недоступна — требуется проверка.</p>}
-   <div style={{display:'flex',flexWrap:'wrap',gap:8}}>{row.attachments.map((file,index)=><button key={file.fileId} style={btnG} onClick={()=>setShowPhotoModal(file.fileUrl)}>{row.attachments.length===1?'Открыть файл':`Открыть файл ${index+1}`}</button>)}</div>
+   <div style={{display:'flex',flexWrap:'wrap',gap:8}}>{row.attachments.map((file,index)=><button key={file.fileId} style={btnG} onClick={()=>setShowPhotoModal(file.fileUrl)}>{row.source==='contract'&&row.addenda?.length?(row.addenda.find(a=>a.sourceFileId===file.fileId)?`Допсоглашение № ${row.addenda.find(a=>a.sourceFileId===file.fileId).number}`:'Основной договор'):row.attachments.length===1?'Открыть файл':`Открыть файл ${index+1}`}</button>)}</div>
   </article>)}
   {data&&related&&<div style={{display:'flex',gap:8,marginTop:16}}>
    <button style={btnG} disabled={related.offset===0} onClick={()=>setRelated(v=>({...v,offset:Math.max(0,v.offset-30)}))}>Назад</button>

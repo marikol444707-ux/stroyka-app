@@ -217,3 +217,13 @@ test('uncertain archive response requires status refresh and prevents blind retr
  fireEvent.click(screen.getByText('Закрыть и проверить статус'));
  expect(screen.queryByRole('dialog')).toBeNull();
 });
+
+test('separate named original and addendum links open their authorized files',async()=>{
+ const row={id:'contract:9',source:'contract',sourceId:9,companyId:1,title:'Договор',attachments:[{fileId:99,fileUrl:'/tenant-files/99/content'},{fileId:10,fileUrl:'/tenant-files/10/content'}],addenda:[{sourceFileId:10,number:'1',date:'2026-09-20'}]};
+ global.fetch=jest.fn().mockResolvedValue({ok:true,json:async()=>({companyId:1,items:[row],hasMore:false})});
+ render(<Archive {...props}/>);
+ fireEvent.click(await screen.findByText('Основной договор'));
+ expect(props.setShowPhotoModal).toHaveBeenLastCalledWith('/tenant-files/99/content');
+ fireEvent.click(screen.getByText('Допсоглашение № 1'));
+ expect(props.setShowPhotoModal).toHaveBeenLastCalledWith('/tenant-files/10/content');
+});

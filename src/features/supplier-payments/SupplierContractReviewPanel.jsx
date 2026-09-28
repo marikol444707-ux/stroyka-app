@@ -26,6 +26,7 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
  const [applicability,setApplicability]=useState(emptyApplicability);
  const applicabilityReady=Boolean(applicability.scope&&applicability.term&&applicability.startsOn&&(applicability.term==='open_ended'||(applicability.endsOn&&applicability.endsOn>=applicability.startsOn)));
  const changeApplicability=values=>{setApplicability(current=>({...current,...values}));setChecked(false);};
+ const [addendum,setAddendum]=useState(null),[addendumFile,setAddendumFile]=useState(null);
  const [activeSide,setActiveSide]=useState('supplier');
  const separatePayer=Boolean(parties?.version && parties.buyerCompanyId!==parties.payerCompanyId);
  const visibleSides=separatePayer?sides:{buyer:'Покупатель и плательщик',supplier:'Поставщик'};
@@ -33,7 +34,7 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
  const blocked=disabled || busy || loading || fatal;
  const loadReview=async()=>{
   const value=await client.reviewContext();
-  if(live.current){setReusedFrom(null);setRevises(null);setApplicability(emptyApplicability());setDraftEdited(false);setReview(value);setLegal(Object.fromEntries(Object.keys(sides).map(side=>[side,legalDraft(value[side])])));setChecked(false);setRecognition(null);setRecognitionMessage('');autoFields.current=[];setFile(null);}
+  if(live.current){setAddendum(null);setAddendumFile(null);setReusedFrom(null);setRevises(null);setApplicability(emptyApplicability());setDraftEdited(false);setReview(value);setLegal(Object.fromEntries(Object.keys(sides).map(side=>[side,legalDraft(value[side])])));setChecked(false);setRecognition(null);setRecognitionMessage('');autoFields.current=[];setFile(null);}
  };
  const loadParties=async()=>{
   const value=await client.load();
@@ -74,9 +75,9 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
   await client.save('parties',{buyerCompanyId:Number(buyer),payerCompanyId:Number(separatePayer?payer:buyer),expectedVersion:parties.version,reason:partyReason.trim()});
   await loadParties();await loadReview();
  });};
- const saveContract=e=>{e.preventDefault();if(pending || !applicabilityReady || !checked || !file || !number.trim() || !date || !reason.trim())return;act(async()=>{
+ const saveContract=e=>{e.preventDefault();if((addendum && (!addendumFile || !addendum.number.trim() || !addendum.date)) || pending || !applicabilityReady || !checked || !file || !number.trim() || !date || !reason.trim())return;act(async()=>{
   const acceptedFields=recognition ? autoFields.current.filter(item=>(separatePayer || item.side!=='payer') && legal[item.side][item.field]===item.value).map(({side,field})=>({side,field})) : [];
-  const body={...(revises?{revisesContractId:revises}:{}),...(reusedFrom?{reusedFromContractId:reusedFrom}:{}),...(acceptedFields.length ? {recognitionReview:{sourceContentHash:recognition.sourceContentHash,acceptedFields}} : {}),partyVersion:review.partyVersion,expectedVersion:review.expectedVersion,sourceFileId:file.fileId,
+  const body={...(addendum?{addendum:{...addendum,number:addendum.number.trim(),sourceFileId:addendumFile.fileId}}:{}),...(revises?{revisesContractId:revises}:{}),...(reusedFrom?{reusedFromContractId:reusedFrom}:{}),...(acceptedFields.length ? {recognitionReview:{sourceContentHash:recognition.sourceContentHash,acceptedFields}} : {}),partyVersion:review.partyVersion,expectedVersion:review.expectedVersion,sourceFileId:file.fileId,
    number:number.trim(),date,applicability,reviewConfirmed:true,paymentTerms:terms.trim(),reason:reason.trim(),
    ...Object.fromEntries(Object.keys(sides).map(side=>[side,Object.fromEntries(legalFields.map(k=>[k,legal[side==='payer' && !separatePayer?'buyer':side][k].trim()]))]))};
   await client.save('contract',body);if(live.current)onSaved?.();
@@ -162,7 +163,7 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
      <button type="button" onClick={()=>{
       const original=review.existingOriginal;setRevises(original.contractId);setReusedFrom(null);
       setFile({fileId:original.sourceFileId,name:`Договор № ${original.number} · версия ${original.version}`});
-      setNumber(original.number);setDate(original.date);setApplicability(original.applicability || emptyApplicability());
+      setNumber(original.number);setDate(original.date);setTerms(original.paymentTerms || '');setApplicability(original.applicability || emptyApplicability());
       setReason('Уточнение условий сохранённого договора');setChecked(false);
      }} disabled={review.existingOriginal.archived}>Использовать сохранённый оригинал</button>
      {review.existingOriginal.archived&&<p>Договор в архиве. Руководитель может восстановить его в архиве документов.</p>}
@@ -179,14 +180,28 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
       setRecognitionMessage('Используется сохранённый оригинал. Повторная загрузка и распознавание не нужны.');
      }}>Договор № {contract.snapshot.number} от {contract.snapshot.date} · версия {contract.version}</button>)}
     </div>}
-    <div className="contract-upload-card"><span className="contract-eyebrow">01 / ОРИГИНАЛ</span><label>Оригинал договора<input type="file" accept=".pdf,.txt,.doc,.docx,.jpg,.jpeg,.png" onChange={upload}/></label>
+    <div className="contract-upload-card"><span className="contract-eyebrow">01 / ОРИГИНАЛ</span><label>Оригинал договора<input disabled={Boolean(addendum)} type="file" accept=".pdf,.txt,.doc,.docx,.jpg,.jpeg,.png" onChange={upload}/></label>
     {file && <p>Загружен: {file.name}</p>}
     <p className="contract-hint">PDF, Word, скан или фото · до 10 МБ. Распознавание скана может занять до двух минут.</p>
     {recognitionMessage && <p className="contract-recognition-status" role="status">{recognitionMessage}</p>}
     {file && recognitionEnabled && <button type="button" onClick={()=>act(()=>recognize(file.fileId))}>Повторить распознавание</button>}
-    </div><div className="contract-field-grid contract-document-meta">
-    <label>Номер договора<input required maxLength={100} value={number} onChange={e=>{setNumber(e.target.value);setChecked(false);}}/></label>
-    <label>Дата договора<input required type="date" value={date} onChange={e=>{setDate(e.target.value);setChecked(false);}}/></label>
+    </div>
+    {revises&&<div className="contract-upload-card">
+     <h4>Дополнительное соглашение</h4>
+     <p className="contract-hint">Основной договор остаётся. Загрузите соглашение и проверьте итоговые условия ниже. Старые счета не изменятся.</p>
+     {!addendum?<button type="button" onClick={()=>{setAddendum({number:'',date:''});setChecked(false);}}>Добавить допсоглашение</button>:<>
+      <label>Файл допсоглашения<input type="file" accept=".pdf,.txt,.doc,.docx,.jpg,.jpeg,.png" onChange={e=>{const selected=e.target.files?.[0];e.target.value='';if(selected)act(async()=>{const result=await client.upload(selected);if(live.current){setAddendumFile({...result,name:selected.name});setChecked(false);}});}}/></label>
+      {addendumFile&&<p>Допсоглашение: {addendumFile.name}</p>}
+      <div className="contract-field-grid">
+       <label>Номер допсоглашения<input required maxLength={100} value={addendum.number} onChange={e=>{setAddendum({...addendum,number:e.target.value});setChecked(false);}}/></label>
+       <label>Дата допсоглашения<input required type="date" min={date} value={addendum.date} onChange={e=>{setAddendum({...addendum,date:e.target.value});setChecked(false);}}/></label>
+      </div>
+      <button type="button" onClick={()=>{setAddendum(null);setAddendumFile(null);setChecked(false);}}>Убрать из проверки</button>
+     </>}
+    </div>}
+    <div className="contract-field-grid contract-document-meta">
+    <label>Номер договора<input readOnly={Boolean(addendum)} required maxLength={100} value={number} onChange={e=>{setNumber(e.target.value);setChecked(false);}}/></label>
+    <label>Дата договора<input readOnly={Boolean(addendum)} required type="date" value={date} onChange={e=>{setDate(e.target.value);setChecked(false);}}/></label>
     </div>
     <div className="contract-upload-card">
      <h4>Где и до какого срока действует договор</h4>

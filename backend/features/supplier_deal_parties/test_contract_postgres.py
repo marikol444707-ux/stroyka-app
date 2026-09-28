@@ -384,3 +384,41 @@ class ContractPostgresTest(unittest.TestCase):
             self.assertEqual(cur.fetchone(),(False,0))
             cur.execute('SELECT COUNT(*) FROM supplier_contract_registry_events')
             self.assertEqual(cur.fetchone()[0],0)
+
+    def test_addendum_creates_new_snapshot_keeps_original_and_reuses_full_chain(self):
+        conditions={'scope':'company','term':'open_ended','startsOn':'2020-01-01'}
+        first=self.review(applicability=conditions).json()
+        with self.conn.cursor() as cur:
+            cur.execute("INSERT INTO file_ownership (id,company_id) VALUES (36,12),(37,12)")
+        supplement={'sourceFileId':36,'number':'1','date':'2026-09-20'}
+        second=self.review(expectedVersion=1,revisesContractId=first['id'],addendum=supplement,applicability=conditions)
+        self.assertEqual(second.status_code,200,second.text)
+        second=second.json()
+        self.assertEqual(second['sourceFileId'],31)
+        self.assertEqual(second['registryId'],first['registryId'])
+        self.assertEqual(second['snapshot']['addenda'],[supplement])
+        third=self.review(expectedVersion=2,revisesContractId=second['id'],addendum={**supplement,'sourceFileId':37,'number':'2'},applicability=conditions)
+        self.assertEqual(third.status_code,200,third.text)
+        self.assertEqual(len(third.json()['snapshot']['addenda']),2)
+        self.assertEqual(self.history().json()['items'][-1],first)
+        self.second_offer()
+        reused=self.contract_client.post('/supplier-offers/41/contracts',json={**payload(),'applicability':conditions,'reusedFromContractId':third.json()['id']})
+        self.assertEqual(reused.status_code,200,reused.text)
+        self.assertEqual(reused.json()['snapshot']['addenda'],third.json()['snapshot']['addenda'])
+        with self.conn.cursor() as cur:
+            cur.execute('SELECT COUNT(*) FROM file_ownership WHERE id IN (31,36,37) AND retained_at IS NOT NULL')
+            self.assertEqual(cur.fetchone()[0],3)
+
+    def test_addendum_rejects_foreign_project_duplicate_and_stale_files_atomically(self):
+        first=self.review().json()
+        supplement={'sourceFileId':32,'number':'1','date':'2026-09-20'}
+        for file_id,code in ((32,403),(33,422),(34,403),(31,422),(99999,403)):
+            response=self.review(expectedVersion=1,revisesContractId=first['id'],addendum={**supplement,'sourceFileId':file_id})
+            self.assertEqual(response.status_code,code,response.text)
+        self.assertEqual(self.review(expectedVersion=1,addendum=supplement).status_code,422)
+        self.assertEqual(self.review(expectedVersion=1,revisesContractId=first['id'],number='OTHER',addendum=supplement).status_code,422)
+        self.assertEqual(self.review(expectedVersion=1,revisesContractId=first['id'],addendum={**supplement,'date':'2020-01-01'}).status_code,422)
+        self.assertEqual(self.history().json()['items'],[first])
+        with self.conn.cursor() as cur:
+            cur.execute('SELECT COUNT(*) FROM file_ownership WHERE id<>31 AND retained_at IS NOT NULL')
+            self.assertEqual(cur.fetchone()[0],0)
