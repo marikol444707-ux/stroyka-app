@@ -57,3 +57,12 @@ class SupplierBuildFlagsTests(unittest.TestCase):
         result = self.resolve('SUPPLIER_PAYMENTS_ENABLED=true')
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('SUPPLIER_PAYMENTS_ENABLED', result.stderr)
+
+    def test_mixed_openings_require_payments_openings_and_review(self):
+        names=('PAYMENTS','OPENING_CONFIRMATIONS','MIXED_OPENINGS','MIXED_OPENING_REVIEW')
+        result=self.resolve(' '.join(f'SUPPLIER_{name}_ENABLED=1' for name in names))
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertIn('REACT_APP_SUPPLIER_MIXED_OPENINGS_ENABLED=true',result.stdout)
+        result=self.resolve(' '.join(f'SUPPLIER_{name}_ENABLED=1' for name in names if name!='MIXED_OPENING_REVIEW'))
+        self.assertNotEqual(result.returncode,0)
+        self.assertEqual(result.stdout,'')

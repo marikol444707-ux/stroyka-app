@@ -77,3 +77,50 @@ test('paired result must match the reviewed receipt before clearing the attempt'
   await expect(submitOpening({ ...options, expectedPending: saved })).resolves.toMatchObject({ warehouseId: 42 });
   expect(readOpeningPending(scope, storage)).toBeNull();
 });
+
+test('mixed confirmation resumes saved review after losing the confirmation response', async () => {
+  const mixed = { ...preview, mixed: true, evidenceHash: preview.reviewedHash, warehouseId: 42,
+    requiredPackages: ['', 'Электрика'] };
+  const review = { reviewId: 77, companyId: 2, invoiceId: 12, warehouseId: 42, requestId,
+    evidenceHash: preview.reviewedHash, newCashAmount: '0.00', openingConfirmed: false };
+  fetcher.mockResolvedValueOnce(response(review)).mockRejectedValueOnce(new TypeError('offline'));
+  await expect(submitOpening({ ...options, preview: mixed })).rejects.toThrow('offline');
+  const saved = readOpeningPending(scope, storage);
+  expect(saved.reviewId).toBe(77);
+  fetcher.mockResolvedValueOnce(response({ ...result, warehouseId: 42 }));
+  await submitOpening({ ...options, expectedPending: saved });
+  expect(fetcher.mock.calls.map(call => call[0])).toEqual([
+    '/api/companies/2/supplier-opening-confirmations/package-review',
+    '/api/companies/2/supplier-opening-confirmations/mixed',
+    '/api/companies/2/supplier-opening-confirmations/mixed']);
+  expect(fetcher.mock.calls[1][1].body).toBe(fetcher.mock.calls[2][1].body);
+  expect(readOpeningPending(scope, storage)).toBeNull();
+});
+
+test('mixed preview fallback is explicit and validates complete scope', async () => {
+  const old = process.env.REACT_APP_SUPPLIER_MIXED_OPENINGS_ENABLED;
+  process.env.REACT_APP_SUPPLIER_MIXED_OPENINGS_ENABLED = 'true';
+  try {
+    const mixed = { ...preview, reviewedHash: undefined, evidenceHash: preview.reviewedHash,
+      scenario: 'mixedPackageLegacyPair', warehouseId: 42, requiredPackages: ['', 'Электрика'] };
+    fetcher.mockResolvedValueOnce(response({ detail: 'Смешанная накладная' }, 409))
+      .mockResolvedValueOnce(response(mixed));
+    await expect(previewOpening(scope, { fetcher })).resolves.toMatchObject({ mixed: true, warehouseId: 42 });
+    fetcher.mockReset().mockResolvedValue(response({ detail: 'Нет доступа' }, 403));
+    await expect(previewOpening(scope, { fetcher })).rejects.toThrow('Нет доступа');
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  } finally {
+    if (old === undefined) delete process.env.REACT_APP_SUPPLIER_MIXED_OPENINGS_ENABLED;
+    else process.env.REACT_APP_SUPPLIER_MIXED_OPENINGS_ENABLED = old;
+  }
+});
+
+test('foreign mixed review cannot be used to confirm an opening', async () => {
+  const mixed = { ...preview, mixed: true, evidenceHash: preview.reviewedHash, warehouseId: 42,
+    requiredPackages: ['', 'Электрика'] };
+  fetcher.mockResolvedValue(response({ reviewId: 77, companyId: 3, invoiceId: 12, warehouseId: 42,
+    requestId, evidenceHash: preview.reviewedHash, newCashAmount: '0.00', openingConfirmed: false }));
+  await expect(submitOpening({ ...options, preview: mixed })).rejects.toThrow('не подтверждён');
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  expect(readOpeningPending(scope, storage)).not.toHaveProperty('reviewId');
+});

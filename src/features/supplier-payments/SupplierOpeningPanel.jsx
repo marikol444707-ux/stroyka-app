@@ -81,6 +81,8 @@ function OpeningPanel({ API, userId, companyId, invoiceId, registered, disabled,
         onClick={load}>{error ? 'Обновить сверку' : 'Сверить прежнюю оплату'}</button>}
       {shown && <>
         {shown.warehouseId && <p>Связанная накладная #{shown.warehouseId}. Счёт и накладная учитываются вместе; прежняя оплата не суммируется.</p>}
+        {shown.mixed && <p>Разделы накладной: {shown.requiredPackages.map(value => value || 'Без раздела').join(', ')}.
+          Начальный остаток подтверждается на весь документ.</p>}
         <dl><dt>Сумма счёта</dt><dd>{money(shown.amount)}</dd>
           <dt>Уже оплачено</dt><dd>{money(shown.openingPaid)}</dd>
           <dt>Остаток долга на момент сверки</dt><dd>{money(shown.remainingAmount)}</dd></dl>

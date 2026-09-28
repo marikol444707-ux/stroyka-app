@@ -12,6 +12,9 @@ const keyFor = scope => {
 function verifyPreview(preview, scope) {
   if (preview?.companyId !== scope.companyId || preview?.invoiceId !== scope.invoiceId
       || ('warehouseId' in preview && !id(preview.warehouseId))
+      || (preview.mixed === true && (!id(preview.warehouseId) || preview.evidenceHash !== preview.reviewedHash
+        || !Array.isArray(preview.requiredPackages) || preview.requiredPackages.length < 2
+        || !preview.requiredPackages.every(value => typeof value === 'string')))
       || !/^[a-f0-9]{64}$/.test(preview.reviewedHash || '') || preview.newCashAmount !== '0.00'
       || !['amount', 'openingPaid', 'remainingAmount'].every(field => typeof preview[field] === 'string'
         && /^\d+\.\d{2}$/.test(preview[field]) && paymentKopecks(preview[field]) !== null)
@@ -31,6 +34,7 @@ export function readOpeningPending(scope, storage = window.localStorage) {
       || saved.invoiceId !== scope.invoiceId || saved.API !== scope.API || body?.invoiceId !== scope.invoiceId
       || !uuidPattern.test(body?.requestId || '') || typeof body?.reason !== 'string'
       || !body.reason.trim() || body.reason.length > 1000 || body.reviewedHash !== saved.preview?.reviewedHash
+      || (saved.reviewId !== undefined && (!Number.isSafeInteger(saved.reviewId) || saved.reviewId <= 0 || saved.preview?.mixed !== true))
       || Object.keys(body).sort().join(',') !== 'invoiceId,reason,requestId,reviewedHash') {
     fail('Сохранённая сверка не соответствует выбранному счёту.');
   }
@@ -39,8 +43,16 @@ export function readOpeningPending(scope, storage = window.localStorage) {
 }
 export async function previewOpening(scope, options) {
   keyFor(scope);
-  return verifyPreview(await paymentRequest(scope.API, scope.companyId,
-    `${openingPath(scope.companyId)}/preview/${scope.invoiceId}`, options), scope);
+  try {
+    return verifyPreview(await paymentRequest(scope.API, scope.companyId,
+      `${openingPath(scope.companyId)}/preview/${scope.invoiceId}`, options), scope);
+  } catch (error) {
+    if (error.status !== 409 || process.env.REACT_APP_SUPPLIER_MIXED_OPENINGS_ENABLED !== 'true') throw error;
+    const value = await paymentRequest(scope.API, scope.companyId,
+      `${openingPath(scope.companyId)}/package-review/${scope.invoiceId}`, options);
+    if (value?.scenario !== 'mixedPackageLegacyPair') fail('Состав накладной требует проверки.');
+    return verifyPreview({ ...value, mixed: true, reviewedHash: value.evidenceHash }, scope);
+  }
 }
 export async function submitOpening({ scope, preview, reason, expectedPending,
   storage = window.localStorage, locks = window.navigator.locks,
@@ -66,8 +78,27 @@ export async function submitOpening({ scope, preview, reason, expectedPending,
     const unchanged = () => JSON.stringify(readOpeningPending(scope, storage)) === JSON.stringify(saved);
     let result;
     try {
-      result = await paymentRequest(scope.API, scope.companyId, openingPath(scope.companyId),
-        { body: saved.body, fetcher, signal });
+      if (saved.preview.mixed === true && saved.reviewId === undefined) {
+        const reviewed = await paymentRequest(scope.API, scope.companyId,
+          `${openingPath(scope.companyId)}/package-review`, { body: {
+            requestId: saved.body.requestId, invoiceId: scope.invoiceId,
+            evidenceHash: saved.body.reviewedHash, reason: saved.body.reason }, fetcher, signal });
+        if (reviewed?.companyId !== scope.companyId || reviewed?.invoiceId !== scope.invoiceId
+            || reviewed?.warehouseId !== saved.preview.warehouseId || reviewed?.requestId !== saved.body.requestId
+            || reviewed?.evidenceHash !== saved.body.reviewedHash || reviewed?.newCashAmount !== '0.00'
+            || reviewed?.openingConfirmed !== false || !Number.isSafeInteger(reviewed?.reviewId) || reviewed.reviewId <= 0) {
+          fail('Результат сверки не подтверждён. Повторите сохранённый запрос.');
+        }
+        if (!unchanged()) fail('Сохранённая сверка изменилась. Отправка заблокирована.');
+        saved = { ...saved, reviewId: reviewed.reviewId };
+        const encoded = JSON.stringify(saved);
+        storage.setItem(key, encoded);
+        if (storage.getItem(key) !== encoded) fail('Не удалось сохранить результат сверки. Отправка заблокирована.');
+      }
+      const mixed = saved.preview.mixed === true;
+      result = await paymentRequest(scope.API, scope.companyId, openingPath(scope.companyId) + (mixed ? '/mixed' : ''),
+        { body: mixed ? { requestId: saved.body.requestId, invoiceId: scope.invoiceId,
+          reviewId: saved.reviewId, reason: saved.body.reason } : saved.body, fetcher, signal });
     } catch (error) {
       // A received 409 rolls back this attempt. A late earlier attempt cannot
       // duplicate an opening: the server uniquely registers each invoice.

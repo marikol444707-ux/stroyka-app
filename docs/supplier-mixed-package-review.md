@@ -295,3 +295,28 @@ it now asserts the already-existing 403 published-receipts policy.
 
 Frontend integration, browser verification and production rollout remain pending.
 No production flags, migrations, balances or payments were changed.
+
+## Opening form and resumable two-stage submission
+
+The existing opening panel now displays all reviewed receipt packages and one
+total balance. With REACT_APP_SUPPLIER_MIXED_OPENINGS_ENABLED=true, an ordinary
+preview conflict can request the mixed review; permission errors do not trigger
+fallback. Build flag resolution requires payments, opening confirmations and
+mixed review on the backend before enabling the mixed frontend flag.
+
+The client first saves review evidence, validates the response identity, then
+persists its review ID before sending the opening confirmation. Both stages use
+one stable UUID in their separate server ledgers. A network failure preserves
+the exact pending state across reload. A retry after the review was saved sends
+only the original confirmation. Foreign review responses never advance to
+confirmation. The existing Web Lock and company/user/invoice storage scope
+remain in effect.
+
+Validation: supplier-payment frontend tests and build-flag tests; optimized
+production build; headed Chromium against an isolated synthetic fixture:
+preview packages and 200/50/150 totals, simulated lost confirmation response,
+page reload, restored pending command, retry and confirmed 50. The browser
+fixture used synthetic responses, not a live production database. Earlier
+authenticated PostgreSQL HTTP tests cover the real backend separately.
+Production deployment and a combined browser-to-real-test-database rehearsal
+remain outstanding.
