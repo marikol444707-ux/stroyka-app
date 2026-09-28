@@ -8,6 +8,7 @@ from fastapi import Depends, Header, HTTPException, Path
 from ..company_requisites.service import company_requisites_to_api
 from .access import build_deal_access
 from .routes import MAX_ID
+from .reusable_contracts import reusable_contracts
 
 
 def build_contract_review_context(deps):
@@ -59,8 +60,10 @@ def build_contract_review_context(deps):
                 **legal_identity(supplier, 'name'), 'supplierId': offer['supplier_id'],
             }
             cur.execute('SELECT COALESCE(MAX(version),0) AS version FROM supplier_contract_versions WHERE offer_id=%s', (id,))
+            expected_version = cur.fetchone()['version']
+            reusable = reusable_contracts(cur, offer, identities, load_offer, current_user, x_company_id, x_company_mode)
             return {'offerId': id, 'companyId': offer['company_id'], 'partyVersion': parties['version'],
-                    'expectedVersion': cur.fetchone()['version'], 'identitySource': 'company_profiles', **identities}
+                    'expectedVersion': expected_version, 'reusableContracts': reusable, 'identitySource': 'company_profiles', **identities}
         finally:
             cur.close()
             conn.close()

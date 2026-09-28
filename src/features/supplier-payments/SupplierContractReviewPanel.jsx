@@ -18,7 +18,7 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
  const [buyer,setBuyer]=useState(''),[payer,setPayer]=useState(''),[partyReason,setPartyReason]=useState('');
  const [review,setReview]=useState(null),[legal,setLegal]=useState({});
  const [number,setNumber]=useState(''),[date,setDate]=useState(''),[terms,setTerms]=useState(''),[reason,setReason]=useState('');
- const [file,setFile]=useState(null),[checked,setChecked]=useState(false);
+ const [file,setFile]=useState(null),[checked,setChecked]=useState(false),[draftEdited,setDraftEdited]=useState(false);
  const [recognition,setRecognition]=useState(null),[recognitionMessage,setRecognitionMessage]=useState('');
  const autoFields=useRef([]);
  const [activeSide,setActiveSide]=useState('supplier');
@@ -28,7 +28,7 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
  const blocked=disabled || busy || loading || fatal;
  const loadReview=async()=>{
   const value=await client.reviewContext();
-  if(live.current){setReview(value);setLegal(Object.fromEntries(Object.keys(sides).map(side=>[side,legalDraft(value[side])])));setChecked(false);setRecognition(null);setRecognitionMessage('');autoFields.current=[];setFile(null);}
+  if(live.current){setDraftEdited(false);setReview(value);setLegal(Object.fromEntries(Object.keys(sides).map(side=>[side,legalDraft(value[side])])));setChecked(false);setRecognition(null);setRecognitionMessage('');autoFields.current=[];setFile(null);}
  };
  const loadParties=async()=>{
   const value=await client.load();
@@ -121,7 +121,7 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
  };
  return <section className="supplier-contract-review" aria-label="Проверка договора поставки">
   <header className="contract-review-header"><div><span className="contract-eyebrow">ДОГОВОР ПОСТАВКИ · КП #{offerId}</span>
-   <h3>Проверим реквизиты</h3><p>Загрузите договор, сверьте распознанные данные и сохраните проверенную версию.</p></div>
+   <h3>Проверим реквизиты</h3><p>Выберите сохранённый договор или загрузите новый, сверьте данные и сохраните проверенную версию.</p></div>
    <span className="contract-draft-badge">Черновик проверки</span></header>
   <ol className="contract-review-steps" aria-label="Этапы проверки"><li className={!review?'is-current':'is-complete'}>1. Стороны</li><li className={review&&!file?'is-current':file?'is-complete':''}>2. Документ</li><li className={file?'is-current':''}>3. Сверка</li></ol>
   {loading && <p role="status">Загрузка сторон сделки…</p>}
@@ -144,13 +144,25 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
     <label>Основание выбора сторон<input required maxLength={1000} value={partyReason} onChange={e=>setPartyReason(e.target.value)}/></label>
     <button type="submit" disabled={!partyReason.trim() || !buyer || !payer}>Сохранить выбранные стороны</button>
    </fieldset>
-  </form> : !pending && review && <form onSubmit={saveContract} onInvalid={event=>{
+  </form> : !pending && review && <form onSubmit={saveContract} onChange={()=>setDraftEdited(true)} onInvalid={event=>{
     const panel=event.target.closest('[role="tabpanel"]');
     if(panel){setActiveSide(panel.id.replace('contract-party-',''));const target=event.target;setTimeout(()=>target.focus(),0);}
    }}>
    <fieldset className="contract-review-content" disabled={blocked}>
     <legend className="contract-visually-hidden">Оригинал и реквизиты договора</legend>
 
+    {review.reusableContracts?.length>0 && !file && !draftEdited && <div className="contract-upload-card">
+     <h4>Использовать сохранённый договор</h4>
+     <p className="contract-hint">Те же стороны, оригинал уже загружен. Выбор заполнит поля данными проверенной версии; перед сохранением сверьте их с текущими реквизитами.</p>
+     {review.reusableContracts.map(contract=><button key={contract.id} type="button" onClick={()=>{
+      setFile({fileId:contract.sourceFileId,name:`Договор № ${contract.snapshot.number} · версия ${contract.version}`});
+      setNumber(contract.snapshot.number);setDate(contract.snapshot.date);setTerms(contract.snapshot.paymentTerms || '');
+      setLegal(Object.fromEntries(Object.keys(sides).map(side=>[side,legalDraft(contract.snapshot[side])])));
+      setReason(`Повторное использование договора из КП № ${contract.offerId}, версия ${contract.version}`);
+      setChecked(false);setRecognition(null);autoFields.current=[];
+      setRecognitionMessage('Используется сохранённый оригинал. Повторная загрузка и распознавание не нужны.');
+     }}>Договор № {contract.snapshot.number} от {contract.snapshot.date} · версия {contract.version}</button>)}
+    </div>}
     <div className="contract-upload-card"><span className="contract-eyebrow">01 / ОРИГИНАЛ</span><label>Оригинал договора<input type="file" accept=".pdf,.txt,.doc,.docx,.jpg,.jpeg,.png" onChange={upload}/></label>
     {file && <p>Загружен: {file.name}</p>}
     <p className="contract-hint">PDF, Word, скан или фото · до 10 МБ. Распознавание скана может занять до двух минут.</p>
@@ -173,7 +185,7 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
       <button type="button" onClick={()=>{setLegal(v=>({...v,payer:{...v.buyer}}));autoFields.current=autoFields.current.filter(item=>item.side!=='payer');setChecked(false);}}>Взять реквизиты покупателя</button></div>}
      <ContractPartyFields side={side} value={legal[side]} profile={review[side]} recognized={recognition?.parties[side]}
       onChange={(field,value)=>{setLegal(v=>({...v,[side]:{...v[side],[field]:value}}));setChecked(false);}}
-      onApply={(field,value)=>{setLegal(v=>({...v,[side]:{...v[side],[field]:value}}));autoFields.current=[...autoFields.current.filter(item=>!(item.side===side&&item.field===field)),{side,field,value}];setChecked(false);}}/>
+      onApply={(field,value)=>{setDraftEdited(true);setLegal(v=>({...v,[side]:{...v[side],[field]:value}}));autoFields.current=[...autoFields.current.filter(item=>!(item.side===side&&item.field===field)),{side,field,value}];setChecked(false);}}/>
     </div>)}
     <div className="contract-final-review"><span className="contract-eyebrow">03 / ПОДТВЕРЖДЕНИЕ</span>
     <label>Условия оплаты по договору<textarea maxLength={4000} value={terms} onChange={e=>{setTerms(e.target.value);setChecked(false);}}/></label>

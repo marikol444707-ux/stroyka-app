@@ -66,6 +66,31 @@ class ContractPostgresTest(unittest.TestCase):
     def history(self, query=''):
         return self.contract_client.get('/supplier-offers/40/contracts' + query)
 
+    def test_reviewed_original_reused_for_second_offer_without_new_file(self):
+        original = self.review()
+        self.assertEqual(original.status_code, 200, original.text)
+        with self.conn.cursor() as cur:
+            cur.execute("INSERT INTO supplier_offers VALUES (41,12,20,5,'Утверждено')")
+            cur.execute("""INSERT INTO supplier_deal_parties
+                (offer_id,company_id,request_id,supplier_id,buyer_company_id,payer_company_id,
+                 version,reason,created_by_id,created_by)
+                VALUES (41,12,20,5,12,99,1,'Historical pair',8,'Test')""")
+            cur.execute('SELECT COUNT(*) FROM file_ownership')
+            before_files = cur.fetchone()[0]
+        context = self.contract_client.get('/supplier-offers/41/contract-review-context')
+        self.assertEqual(context.status_code, 200, context.text)
+        candidates = context.json()['reusableContracts']
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(candidates[0]['sourceFileId'], 31)
+        saved = self.contract_client.post('/supplier-offers/41/contracts', json=payload())
+        self.assertEqual(saved.status_code, 200, saved.text)
+        self.assertEqual(saved.json()['sourceFileId'], original.json()['sourceFileId'])
+        with self.conn.cursor() as cur:
+            cur.execute('SELECT COUNT(*) FROM file_ownership')
+            self.assertEqual(cur.fetchone()[0], before_files)
+            cur.execute("UPDATE file_ownership SET deletion_status='deleting' WHERE id=31")
+        self.assertEqual(self.contract_client.get('/supplier-offers/41/contract-review-context').json()['reusableContracts'], [])
+
     def test_snapshot_survives_profile_change_and_retains_source(self):
         response = self.review()
         self.assertEqual(response.status_code, 200, response.text)

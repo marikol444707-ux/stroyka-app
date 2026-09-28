@@ -52,3 +52,15 @@ test('recognition rejects other files and companies before applying fields',asyn
  fetcher.mockResolvedValue(response({companyId:2,offerId:71,sourceFileId:8,partyVersion:2,expectedVersion:0}));
  await expect(client().recognize(8,context)).rejects.toThrow();
 });
+
+test('review context rejects saved contract from another company or party',async()=>{
+ const identity={companyId:1,inn:'111'};
+ const context={companyId:1,offerId:71,partyVersion:1,expectedVersion:0,buyer:identity,payer:identity,supplier:{supplierId:2,inn:'222'}};
+ const candidate={id:4,offerId:60,companyId:1,version:1,sourceFileId:9,snapshot:{buyer:identity,payer:identity,supplier:context.supplier}};
+ fetcher.mockResolvedValue(response({...context,reusableContracts:[candidate]}));
+ expect((await client().reviewContext()).reusableContracts).toHaveLength(1);
+ fetcher.mockResolvedValue(response({...context,reusableContracts:[{...candidate,companyId:2}]}));
+ await expect(client().reviewContext()).rejects.toThrow('другим сторонам');
+ fetcher.mockResolvedValue(response({...context,reusableContracts:[{...candidate,snapshot:{...candidate.snapshot,payer:{...identity,companyId:2}}}]}));
+ await expect(client().reviewContext()).rejects.toThrow('другим сторонам');
+});

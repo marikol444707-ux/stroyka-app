@@ -97,6 +97,14 @@ export function createContractReviewClient(scope, {fetcher=window.fetch,storage=
     const value=await request(base+'/contract-review-context');
     if(value.companyId!==companyId || value.offerId!==offerId || !id(value.partyVersion)
        || !Number.isSafeInteger(value.expectedVersion) || value.expectedVersion<0)fail('Контекст проверки договора изменился.');
+    for(const contract of value.reusableContracts || []){
+      if(contract.companyId!==companyId || !id(contract.id) || !id(contract.offerId)
+         || !id(contract.sourceFileId) || !id(contract.version) || !contract.snapshot
+         || ['buyer','payer','supplier'].some(side=>contract.snapshot[side]?.inn!==value[side]?.inn)
+         || ['buyer','payer'].some(side=>contract.snapshot[side]?.companyId!==value[side]?.companyId)
+         || contract.snapshot.supplier?.supplierId!==value.supplier?.supplierId)
+        fail('Сохранённый договор относится к другим сторонам.');
+    }
     return value;
   };
   const recognize=async(fileId,context)=>{

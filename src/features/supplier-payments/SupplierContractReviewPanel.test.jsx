@@ -98,3 +98,29 @@ test('company profile prepopulates draft without auto-confirming the contract',a
  expect(screen.getByLabelText('Реквизиты и условия сверены с загруженным оригиналом').checked).toBe(false);
  expect(client.save).not.toHaveBeenCalled();
 });
+
+test('reuses reviewed original without upload or OCR and requires fresh confirmation',async()=>{
+ client.load.mockResolvedValue({parties:{version:1,buyerCompanyId:1,payerCompanyId:1},companies:[{companyId:1,companyName:'Наша компания'}]});
+ client.reviewContext.mockResolvedValue({...ctx,reusableContracts:[{id:3,offerId:60,version:2,sourceFileId:99,
+ snapshot:{...ctx,number:'Д-старый',date:'2026-09-01',paymentTerms:'После доставки'}}]});
+ const saved=jest.fn();render(<Panel {...props} onSaved={saved}/>);
+ fireEvent.click(await screen.findByText('Перейти к проверке договора'));
+ fireEvent.click(await screen.findByRole('button',{name:/Договор № Д-старый/}));
+ expect(client.upload).not.toHaveBeenCalled();
+ expect(screen.getByLabelText('Номер договора').value).toBe('Д-старый');
+ expect(screen.getByText('Сохранить проверенную версию договора').disabled).toBe(true);
+ fireEvent.click(screen.getByLabelText('Реквизиты и условия сверены с загруженным оригиналом'));
+ fireEvent.click(screen.getByText('Сохранить проверенную версию договора'));
+ await waitFor(()=>expect(saved).toHaveBeenCalledTimes(1));
+ expect(client.save.mock.calls[0][1]).toMatchObject({sourceFileId:99,number:'Д-старый',paymentTerms:'После доставки',expectedVersion:0});
+});
+
+test('existing contract choice cannot overwrite a manually edited draft',async()=>{
+ client.load.mockResolvedValue({parties:{version:1,buyerCompanyId:1,payerCompanyId:1},companies:[{companyId:1,companyName:'Наша компания'}]});
+ client.reviewContext.mockResolvedValue({...ctx,reusableContracts:[{id:3,offerId:60,version:2,sourceFileId:99,snapshot:{...ctx,number:'Old',date:'2026-09-01'}}]});
+ render(<Panel {...props}/>);fireEvent.click(await screen.findByText('Перейти к проверке договора'));
+ await screen.findByRole('button',{name:/Договор № Old/});
+ fireEvent.change(screen.getByLabelText('Номер договора'),{target:{value:'Вручную'}});
+ expect(screen.queryByRole('button',{name:/Договор № Old/})).toBeNull();
+ expect(screen.getByLabelText('Номер договора').value).toBe('Вручную');
+});

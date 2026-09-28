@@ -9,11 +9,11 @@ class ReviewProfileTests(unittest.TestCase):
         cur.fetchone.side_effect = [
             {'buyer_company_id': 1, 'payer_company_id': 1, 'version': 2},
             supplier or {'name': 'Supplier', 'inn': '7701234567'}, {'version': 3}]
-        cur.fetchall.return_value = [profile]
+        cur.fetchall.side_effect = [[profile], []]
         conn = MagicMock()
         conn.cursor.return_value = cur
         actor = MagicMock()
-        offer = {'company_id': 1, 'supplier_id': 9, 'status': 'Утверждено'}
+        offer = {'id': 4, 'company_id': 1, 'supplier_id': 9, 'status': 'Утверждено'}
         with patch('backend.features.supplier_deal_parties.review_context.build_deal_access',
                    return_value=(actor, lambda *a: (offer, None))):
             result = build_contract_review_context({'get_db': lambda: conn})(4, {'role': 'директор'})
