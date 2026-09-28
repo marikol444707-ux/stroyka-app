@@ -133,3 +133,17 @@ class ArchiveTests(unittest.TestCase):
         sql=self.cur.execute.call_args_list[0].args[0]
         self.assertIn('c.company_id=d.company_id AND c.offer_id=d.offer_id',sql)
         self.assertIn('o.id=d.offer_id AND o.company_id=d.company_id',sql)
+
+    def test_exact_document_lookup_is_scoped_and_parameterized(self):
+        response=self.client.get('/company-document-archive?source=contract&recordId=9')
+        self.assertEqual(response.status_code,200,response.text)
+        sql,args=self.cur.execute.call_args.args
+        self.assertIn('WHERE source=%s AND id=%s',sql)
+        self.assertEqual(args[-4:],('contract',9,51,0))
+        self.assertEqual(sql.count('d.company_id=%s'),8)
+        self.assertEqual(response.json()['items'],[])
+
+    def test_incomplete_or_invalid_lookup_is_rejected(self):
+        for query in ('source=contract','recordId=9','source=unknown&recordId=9','source=contract&recordId=-1'):
+            self.assertEqual(self.client.get('/company-document-archive?'+query).status_code,422)
+        self.cur.execute.assert_not_called()

@@ -1,5 +1,5 @@
 import React from 'react';
-import {render,screen,waitFor} from '@testing-library/react';
+import {render,screen,waitFor,fireEvent} from '@testing-library/react';
 import Archive from './CompanyDocumentArchive';
 const props={API:'',companyId:1,C:{},card:{},inp:{},btnG:{},setShowPhotoModal:jest.fn()};
 const response=(companyId,title)=>({ok:true,json:async()=>({companyId,items:[{id:'company:1',companyId,title,documentType:'Устав',attachments:[],fileStatus:'not_attached'}],hasMore:false})});
@@ -35,4 +35,20 @@ test('shows stored quotation and contract version beside an invoice',async()=>{
  render(<Archive {...props}/>);
  await screen.findByText('КП № 71 · Договор № 362, версия 2');
  expect(screen.queryByText('Открыть файл')).toBeNull();
+});
+
+test('opens exact related contract and returns to the previous list',async()=>{
+ const invoice={id:'invoice:161',source:'invoice',sourceId:161,companyId:1,title:'Счёт В-1',attachments:[],contractId:9};
+ const contract={id:'contract:9',source:'contract',sourceId:9,companyId:1,title:'Договор 362',attachments:[]};
+ const wrap=item=>({ok:true,json:async()=>({companyId:1,items:[item],hasMore:false})});
+ global.fetch=jest.fn().mockResolvedValueOnce(wrap(invoice)).mockResolvedValueOnce(wrap(contract)).mockResolvedValueOnce(wrap(invoice));
+ render(<Archive {...props}/>);
+ fireEvent.click(await screen.findByText('Показать договор'));
+ await screen.findByText('Договор 362');
+ const params=new URLSearchParams(global.fetch.mock.calls[1][0].split('?')[1]);
+ expect(params.get('source')).toBe('contract');expect(params.get('recordId')).toBe('9');
+ expect(global.fetch.mock.calls[1][1].headers['X-Company-Id']).toBe('1');
+ fireEvent.click(screen.getByText('Вернуться к списку'));
+ await screen.findByText('Счёт В-1');
+ expect(global.fetch.mock.calls[2][0]).toBe(global.fetch.mock.calls[0][0]);
 });

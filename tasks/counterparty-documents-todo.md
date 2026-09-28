@@ -92,3 +92,8 @@
 - Invoice rows display quotation and bound contract number/version only through exact same-company, same-offer joins. Unlinked old invoices remain unlinked.
 - 12 archive route tests, 4 UI tests passed. Read-only SQL rehearsal with synthetic leadership context found one actual reviewed contract and its quotation; not an authentication proof. Reverse navigation and canonical registry still pending.
 - Deployed `7f159bbc729d`. Authenticated production archive search362 shows contract362 version1 and offer71; original file opens HTTP200, zero JS errors. 12 server tests rerun on production, 251 assets and unchanged source/financial/stock hashes verified. Health/DB OK. Backup/staging removed after four release gates; receipt retained. Invoice relation rendering tested synthetically; unbound production invoices are not altered.
+
+## 2026-09-29 — archive relationship navigation
+- Added exact source/recordId archive lookup; both parameters required together, source allowlisted, ID bounded. Existing company/role/file authorization remains in every query.
+- Invoice can open its verified contract; invoice/contract can open its quotation. Return restores the original section/search/page. Focused response must match requested source and ID; stale responses remain ignored.
+- 14 route and 5 UI tests passed. Read-only SQL rehearsal verified exact contract lookup against actual schema (synthetic leadership context, not auth proof).

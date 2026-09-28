@@ -29,12 +29,16 @@ def register_counterparty_document_archive(app, deps):
     def list_archive(
         section: Literal['all', 'company', 'supplier', 'customer'] = 'all',
         q: str = Query('', max_length=200),
+        source: Optional[Literal['company','supplier','offer','invoice','delivery','warehouse','contract','customer']] = None,
+        recordId: Optional[int] = Query(None, gt=0, le=2147483647),
         limit: int = Query(50, ge=1, le=100),
         offset: int = Query(0, ge=0, le=100000),
         current_user: dict = Depends(deps['get_current_user']),
         x_company_id: Optional[str] = Header(None, alias='X-Company-Id'),
         x_company_mode: Optional[str] = Header(None, alias='X-Company-Mode'),
     ):
+        if (source is None) != (recordId is None):
+            raise HTTPException(422, 'Укажите документ для перехода')
         conn = deps['get_db']()
         cur = conn.cursor()
         try:
@@ -60,6 +64,7 @@ def register_counterparty_document_archive(app, deps):
                     fields += ", 'offer_id',(SELECT o.id FROM supplier_offers o WHERE o.id=d.offer_id AND o.company_id=d.company_id)"
                     fields += ", 'contract_number',(SELECT c.snapshot_json->>'number' FROM supplier_contract_versions c WHERE c.id=d.contract_version_id AND c.company_id=d.company_id AND c.offer_id=d.offer_id)"
                     fields += ", 'contract_version',(SELECT c.version FROM supplier_contract_versions c WHERE c.id=d.contract_version_id AND c.company_id=d.company_id AND c.offer_id=d.offer_id)"
+                    fields += ", 'contract_id',(SELECT c.id FROM supplier_contract_versions c WHERE c.id=d.contract_version_id AND c.company_id=d.company_id AND c.offer_id=d.offer_id)"
                 queries.append(f"""SELECT '{key}' AS source,d.id,d.company_id,
                     {title} AS title,{kind} AS kind,{date} AS created_at,
                     jsonb_build_object({fields}) AS files
@@ -68,8 +73,12 @@ def register_counterparty_document_archive(app, deps):
                       AND (POSITION(LOWER(%s) IN LOWER({title}))>0
                            OR POSITION(LOWER(%s) IN LOWER({kind}))>0)""")
                 params.extend((company_id, q.strip(), q.strip()))
+            selection = ''
+            if source is not None:
+                selection = ' WHERE source=%s AND id=%s'
+                params.extend((source, recordId))
             cur.execute('SELECT * FROM (' + ' UNION ALL '.join(queries) +
-                        ') archive ORDER BY created_at DESC NULLS LAST,source,id DESC LIMIT %s OFFSET %s',
+                        ') archive' + selection + ' ORDER BY created_at DESC NULLS LAST,source,id DESC LIMIT %s OFFSET %s',
                         (*params, limit + 1, offset))
             rows = cur.fetchall()
             page_rows = rows[:limit]
@@ -115,6 +124,7 @@ def register_counterparty_document_archive(app, deps):
                               'projectId': payload.get('project_id') if source == 'customer' else None,
                               'projectName': payload.get('project_name') if source == 'customer' else None,
                               'offerId': payload.get('offer_id') if source in ('contract', 'invoice') else None,
+                              'contractId': payload.get('contract_id') if source == 'invoice' else None,
                               'contractNumber': payload.get('contract_number') if source == 'invoice' else None,
                               'contractVersion': payload.get('contract_version') if source == 'invoice' else None,
                               'status': payload.get('sign_status') if source == 'customer' else None,
