@@ -112,7 +112,7 @@ test('reuses reviewed original without upload or OCR and requires fresh confirma
  fireEvent.click(screen.getByLabelText('Реквизиты и условия сверены с загруженным оригиналом'));
  fireEvent.click(screen.getByText('Сохранить проверенную версию договора'));
  await waitFor(()=>expect(saved).toHaveBeenCalledTimes(1));
- expect(client.save.mock.calls[0][1]).toMatchObject({sourceFileId:99,number:'Д-старый',paymentTerms:'После доставки',expectedVersion:0});
+ expect(client.save.mock.calls[0][1]).toMatchObject({reusedFromContractId:3,sourceFileId:99,number:'Д-старый',paymentTerms:'После доставки',expectedVersion:0});
 });
 
 test('existing contract choice cannot overwrite a manually edited draft',async()=>{

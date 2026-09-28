@@ -49,6 +49,7 @@ class ContractReview(BaseModel):
     paymentTerms: str = Field(default='', max_length=4000)
     reason: str = Field(min_length=1, max_length=1000)
     recognitionReview: Optional[RecognitionReview] = None
+    reusedFromContractId: Optional[int] = Field(default=None, strict=True, gt=0, le=MAX_ID)
     paymentSchedule: Optional[PaymentSchedule] = None
 
     @field_validator('reviewConfirmed')
@@ -152,7 +153,28 @@ def register_supplier_contracts_module(app, deps):
             if (parties['buyer_company_id'] == parties['payer_company_id']
                     and data.buyer != data.payer):
                 raise HTTPException(409, 'Реквизиты покупателя и плательщика одной компании должны совпадать')
+            reused_from = None
+            if data.reusedFromContractId is not None:
+                cur.execute('SELECT * FROM supplier_contract_versions WHERE id=%s AND company_id=%s',
+                            (data.reusedFromContractId, offer['company_id']))
+                source = cur.fetchone()
+                if not source or source['offer_id'] == id or source['source_file_id'] != data.sourceFileId:
+                    raise HTTPException(409, 'Выбранный договор недоступен. Выберите его заново')
+                load_offer(cur, source['offer_id'], current_user, 'read', x_company_id, x_company_mode)
+                old = source['snapshot_json']
+                if (file['project_id'] or old.get('paymentSchedule') or any(
+                    old.get(side, {}).get(key) != value for side, key, value in (
+                        ('buyer', 'companyId', parties['buyer_company_id']),
+                        ('payer', 'companyId', parties['payer_company_id']),
+                        ('supplier', 'supplierId', offer['supplier_id']),
+                        ('buyer', 'inn', data.buyer.inn), ('payer', 'inn', data.payer.inn),
+                        ('supplier', 'inn', data.supplier.inn)))):
+                    raise HTTPException(409, 'Этот договор не подходит к выбранной сделке')
+                reused_from = {'contractId': source['id'], 'offerId': source['offer_id'],
+                               'version': source['version'], 'snapshotHash': source['snapshot_hash']}
             snapshot = build_snapshot(data, parties)
+            if reused_from is not None:
+                snapshot['reusedFrom'] = reused_from
             if evidence is not None:
                 snapshot['recognitionReview'] = evidence
             encoded = json.dumps(snapshot, sort_keys=True, ensure_ascii=False, separators=(',', ':'))

@@ -21,6 +21,7 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
  const [file,setFile]=useState(null),[checked,setChecked]=useState(false),[draftEdited,setDraftEdited]=useState(false);
  const [recognition,setRecognition]=useState(null),[recognitionMessage,setRecognitionMessage]=useState('');
  const autoFields=useRef([]);
+ const [reusedFrom,setReusedFrom]=useState(null);
  const [activeSide,setActiveSide]=useState('supplier');
  const separatePayer=Boolean(parties?.version && parties.buyerCompanyId!==parties.payerCompanyId);
  const visibleSides=separatePayer?sides:{buyer:'Покупатель и плательщик',supplier:'Поставщик'};
@@ -28,7 +29,7 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
  const blocked=disabled || busy || loading || fatal;
  const loadReview=async()=>{
   const value=await client.reviewContext();
-  if(live.current){setDraftEdited(false);setReview(value);setLegal(Object.fromEntries(Object.keys(sides).map(side=>[side,legalDraft(value[side])])));setChecked(false);setRecognition(null);setRecognitionMessage('');autoFields.current=[];setFile(null);}
+  if(live.current){setReusedFrom(null);setDraftEdited(false);setReview(value);setLegal(Object.fromEntries(Object.keys(sides).map(side=>[side,legalDraft(value[side])])));setChecked(false);setRecognition(null);setRecognitionMessage('');autoFields.current=[];setFile(null);}
  };
  const loadParties=async()=>{
   const value=await client.load();
@@ -71,7 +72,7 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
  });};
  const saveContract=e=>{e.preventDefault();if(pending || !checked || !file || !number.trim() || !date || !reason.trim())return;act(async()=>{
   const acceptedFields=recognition ? autoFields.current.filter(item=>(separatePayer || item.side!=='payer') && legal[item.side][item.field]===item.value).map(({side,field})=>({side,field})) : [];
-  const body={...(acceptedFields.length ? {recognitionReview:{sourceContentHash:recognition.sourceContentHash,acceptedFields}} : {}),partyVersion:review.partyVersion,expectedVersion:review.expectedVersion,sourceFileId:file.fileId,
+  const body={...(reusedFrom?{reusedFromContractId:reusedFrom}:{}),...(acceptedFields.length ? {recognitionReview:{sourceContentHash:recognition.sourceContentHash,acceptedFields}} : {}),partyVersion:review.partyVersion,expectedVersion:review.expectedVersion,sourceFileId:file.fileId,
    number:number.trim(),date,reviewConfirmed:true,paymentTerms:terms.trim(),reason:reason.trim(),
    ...Object.fromEntries(Object.keys(sides).map(side=>[side,Object.fromEntries(legalFields.map(k=>[k,legal[side==='payer' && !separatePayer?'buyer':side][k].trim()]))]))};
   await client.save('contract',body);if(live.current)onSaved?.();
@@ -114,7 +115,7 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
   const selected=event.target.files?.[0];if(!selected)return;
   act(async()=>{
    const result=await client.upload(selected);if(!live.current)return;
-   setFile({...result,name:selected.name});setChecked(false);setRecognition(null);
+   setReusedFrom(null);setFile({...result,name:selected.name});setChecked(false);setRecognition(null);
    await recognize(result.fileId);
   });
   event.target.value='';
@@ -155,7 +156,7 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
      <h4>Использовать сохранённый договор</h4>
      <p className="contract-hint">Те же стороны, оригинал уже загружен. Выбор заполнит поля данными проверенной версии; перед сохранением сверьте их с текущими реквизитами.</p>
      {review.reusableContracts.map(contract=><button key={contract.id} type="button" onClick={()=>{
-      setFile({fileId:contract.sourceFileId,name:`Договор № ${contract.snapshot.number} · версия ${contract.version}`});
+      setReusedFrom(contract.id);setFile({fileId:contract.sourceFileId,name:`Договор № ${contract.snapshot.number} · версия ${contract.version}`});
       setNumber(contract.snapshot.number);setDate(contract.snapshot.date);setTerms(contract.snapshot.paymentTerms || '');
       setLegal(Object.fromEntries(Object.keys(sides).map(side=>[side,legalDraft(contract.snapshot[side])])));
       setReason(`Повторное использование договора из КП № ${contract.offerId}, версия ${contract.version}`);

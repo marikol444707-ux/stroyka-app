@@ -80,3 +80,8 @@
 - Unconfirmed operation keeps readable operation/document/amount summary; raw saved command remains available under technical details. Retry/cancel semantics unchanged.
 - 29 relevant UI tests passed; dialog tests repeated after adding the pending-operation summary.
 - Installed `1098f2493bbd`. Production payment window confirmed updated copy; local real-browser pending-operation fixture verified collapsed technical details, toggle, readable amount and retry availability. 251 assets and unchanged data hashes verified; health/DB passed. No business mutations submitted. Receipt retained; release backup/staging removed after all four gates.
+
+## 2026-09-29 — explicit reused-contract lineage
+- Contract review accepts optional source contract ID. Server resolves source within the owner company, checks source offer access, same original and exact buyer/payer/supplier IDs and INNs; project originals and deal schedules remain excluded.
+- Immutable snapshot records source contract ID, offer, version and snapshot hash. Client sends selection and verifies it on response/retry; new upload clears selection. Existing snapshots stay unchanged.
+- 13 real isolated PostgreSQL tests passed, including reuse and rejected missing source/wrong original; 18 UI/client tests passed. Full shared-contract registry and expanded archive navigation remain pending.

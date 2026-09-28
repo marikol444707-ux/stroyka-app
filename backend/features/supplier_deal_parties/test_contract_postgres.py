@@ -82,9 +82,15 @@ class ContractPostgresTest(unittest.TestCase):
         candidates = context.json()['reusableContracts']
         self.assertEqual(len(candidates), 1)
         self.assertEqual(candidates[0]['sourceFileId'], 31)
-        saved = self.contract_client.post('/supplier-offers/41/contracts', json=payload())
+        for change in ({'reusedFromContractId': 999999},
+                       {'reusedFromContractId': original.json()['id'], 'sourceFileId': 35}):
+            rejected = self.contract_client.post('/supplier-offers/41/contracts', json={**payload(), **change})
+            self.assertEqual(rejected.status_code, 409, rejected.text)
+        saved = self.contract_client.post('/supplier-offers/41/contracts', json={**payload(), 'reusedFromContractId':original.json()['id']})
         self.assertEqual(saved.status_code, 200, saved.text)
         self.assertEqual(saved.json()['sourceFileId'], original.json()['sourceFileId'])
+        self.assertEqual(saved.json()['snapshot']['reusedFrom']['contractId'], original.json()['id'])
+        self.assertEqual(saved.json()['snapshot']['reusedFrom']['snapshotHash'], original.json()['snapshotHash'])
         with self.conn.cursor() as cur:
             cur.execute('SELECT COUNT(*) FROM file_ownership')
             self.assertEqual(cur.fetchone()[0], before_files)
