@@ -47,7 +47,10 @@ It does not replace these remaining checks:
    Correction to the initial preflight: invoice-line specification tables were
    introduced in 0050, so their presence is compatible with 0051. Migration 0052
    introduces receipt proofs, not invoice specifications. Verify the audit's
-   full dependencies before running it; the production audit is still pending.
+   full dependencies before running it. Production read-only audit is now
+   complete: see supplier-legacy-live-audit-2026-09-28.md. Of 49 invoices, 8 are
+   matching/standalone review candidates and 41 have blocking evidence issues;
+   no opening confirmations or repairs were performed.
 3. Verify financial report projections and the complete current invoice →
    partial receipt → allocation → refund flow in the integrated app, not only
    the isolated payment dialog. Determine the release switches as a set.

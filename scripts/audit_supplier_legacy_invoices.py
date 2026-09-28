@@ -44,7 +44,7 @@ def audit(connection, company_id):
                 FROM supplier_invoices i WHERE i.company_id=%s ORDER BY i.id''', (company_id,))
             rows = cur.fetchall()
             cur.execute("""SELECT i.id AS root_invoice_id, w.id, w.company_id, w.supplier_id,
-                w.project, w.location, w.items, w.supplier_invoice_id,
+                w.project, w.location, w.items::text AS items, w.supplier_invoice_id,
                 COALESCE(NULLIF(w.total_with_vat,0),w.total_base)::text AS review_amount,
                 w.paid_amount::text AS review_paid,
                 EXISTS(SELECT 1 FROM supplier_payment_documents d WHERE

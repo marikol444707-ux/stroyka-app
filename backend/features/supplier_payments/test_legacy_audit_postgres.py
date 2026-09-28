@@ -126,3 +126,18 @@ class LegacyAuditTests(unittest.TestCase):
         row=next(r for r in result['invoices'] if r['invoiceId']==invoice)
         self.assertEqual(row['financialReview']['reason'],'invalidReceiptPackage')
         self.assertGreater(len(result['invoices']),1)
+
+
+@unittest.skipUnless(os.getenv('SUPPLY_CHAIN_RUN_POSTGRES') == '1', 'isolated PostgreSQL opt-in')
+class LegacyJsonAuditTests(LegacyAuditTests):
+    """Run the same read-only contracts with production-style JSONB items."""
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        connection = cls.main.get_db()
+        try:
+            with connection, connection.cursor() as cur:
+                cur.execute('ALTER TABLE warehouse_invoices ALTER COLUMN items DROP DEFAULT')
+                cur.execute("ALTER TABLE warehouse_invoices ALTER COLUMN items TYPE jsonb USING NULLIF(items::text,'')::jsonb")
+        finally:
+            connection.close()
