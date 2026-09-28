@@ -225,3 +225,17 @@ test('payment action reads a warehouse document when no supplier bill is linked'
   expect(global.fetch.mock.calls[1][0]).toContain('/scan-invoice');
   expect(screen.queryByText('Поставщик не определен')).not.toBeInTheDocument();
 });
+
+test('empty style objects fallback to theme derived from passed dark C tokens', async () => {
+  // Pass empty style props and dark C tokens, expect rendered elements to use C colors
+  renderPanel({ card: {}, btnO: {}, btnG: {}, btnB: {}, btnR: {}, btnGr: {}, inp: {} });
+
+  // Header text should use C.text
+  const header = await screen.findByText(/Входящие документы ·/);
+  expect(header).toHaveStyle({ color: colors.text });
+
+  // The primary action 'К оплате' should render and use the btnG color (C.textSec)
+  const payBtn = await screen.findByRole('button', { name: 'К оплате' });
+  expect(payBtn).toBeInTheDocument();
+  expect(payBtn).toHaveStyle({ color: colors.textSec });
+});

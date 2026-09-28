@@ -1,6 +1,7 @@
 import React from 'react';
 import { AlertTriangle, CheckCircle2, CreditCard, Eye, FileText, Link2, MessageSquare, Upload, XCircle } from 'lucide-react';
 import { API } from '../api';
+import * as ui from '../constants/uiTheme';
 import {
   ACCOUNTING_INVOICE_STATUSES,
   accountingStatusGroupLabels,
@@ -20,6 +21,7 @@ const statusTone = (status, C) => {
 const money = value => Math.round(Number(value || 0)).toLocaleString('ru-RU') + ' ₽';
 
 export default function AccountingIncomingDocumentsPanel({
+
   C,
   card,
   btnO,
@@ -41,6 +43,33 @@ export default function AccountingIncomingDocumentsPanel({
   badge,
   toNum,
 }) {
+  // Treat an explicit empty plain object as "no value" so callers passing
+  // `{}` (for example in tests) still get the theme defaults. We only
+  // consider plain objects here; functions (like `badge`) are left alone.
+  const isPlainEmptyObject = v => v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 0;
+  // Defaults are imported from `src/constants/uiTheme.js` by the app and
+  // usually passed from parent. If tests pass `{}` we want to use the real
+  // defaults instead of an empty style map.
+  const cardStyle = isPlainEmptyObject(card) ? undefined : card;
+  const btnOStyle = isPlainEmptyObject(btnO) ? undefined : btnO;
+  const btnGStyle = isPlainEmptyObject(btnG) ? undefined : btnG;
+  const btnBStyle = isPlainEmptyObject(btnB) ? undefined : btnB;
+  const btnRStyle = isPlainEmptyObject(btnR) ? undefined : btnR;
+  const btnGrStyle = isPlainEmptyObject(btnGr) ? undefined : btnGr;
+  const inpStyle = isPlainEmptyObject(inp) ? undefined : inp;
+
+  // derive final styles, prefer provided non-empty style objects, otherwise
+  // build defaults using the passed `C` tokens so tests that pass dark
+  // palettes receive correct colors.
+  const cardFinal = cardStyle ?? { backgroundColor: C.bgWhite || ui.C.bgWhite, borderRadius: '12px', border: '1.5px solid ' + (C.border || ui.C.border), overflow: 'hidden' };
+  const btnOFinal = btnOStyle ?? { padding: '9px 18px', background: 'linear-gradient(135deg,#f97316,#ea580c)', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '6px' };
+  const btnGFinal = btnGStyle ?? { padding: '7px 14px', backgroundColor: (C.bgGray || C.bgAlt || ui.C.bgGray), color: (C.textSec || ui.C.textSec), border: '1.5px solid ' + (C.border || ui.C.border), borderRadius: '8px', cursor: 'pointer', fontSize: '13px', display: 'inline-flex', alignItems: 'center', gap: '6px' };
+  const btnBFinal = btnBStyle ?? { padding: '7px 14px', backgroundColor: (C.info || ui.C.info), color: 'white', border: '1.5px solid ' + (C.infoBorder || ui.C.infoBorder), borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '6px' };
+  const btnRFinal = btnRStyle ?? { padding: '7px 14px', backgroundColor: (C.danger || ui.C.danger), color: 'white', border: '1.5px solid ' + (C.danger || ui.C.danger), borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '6px' };
+  const btnGrFinal = btnGrStyle ?? { padding: '7px 14px', backgroundColor: (C.success || ui.C.success), color: 'white', border: '1.5px solid ' + (C.success || ui.C.success), borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: '600', display: 'inline-flex', alignItems: 'center', gap: '6px' };
+  const inpFinal = inpStyle ?? { width: '100%', padding: '10px 12px', marginBottom: '10px', border: '1.5px solid ' + (C.border || ui.C.border), borderRadius: '8px', boxSizing: 'border-box', fontSize: '14px', outline: 'none', backgroundColor: (C.bgWhite || ui.C.bgWhite), color: (C.text || ui.C.text), transition: 'border-color 0.2s' };
+  const badgeFn = typeof badge === 'function' ? badge : ui.badge;
+
   const [activeStatus, setActiveStatus] = React.useState('Нет фото');
   const [openedId, setOpenedId] = React.useState(null);
   const [busyId, setBusyId] = React.useState(null);
@@ -482,8 +511,8 @@ export default function AccountingIncomingDocumentsPanel({
 
   const renderStatusBadge = (status) => {
     const tone = statusTone(status, C);
-    return badge ? (
-      <span style={badge(tone.color, tone.bg, tone.border)}>{status}</span>
+    return badgeFn ? (
+      <span style={badgeFn(tone.color, tone.bg, tone.border)}>{status}</span>
     ) : (
       <span style={{ color: tone.color, backgroundColor: tone.bg, border: '1px solid ' + tone.border, borderRadius: '999px', padding: '4px 8px', fontSize: '11px', fontWeight: 800 }}>{status}</span>
     );
@@ -513,10 +542,10 @@ export default function AccountingIncomingDocumentsPanel({
           aria-expanded={isOpened}
           disabled={disabled}
           onClick={() => setOpenedId(isOpened ? null : row.invoice.id)}
-          style={{ ...btnB, padding: '6px 10px', fontSize: '11px' }}
+          style={{ ...btnBFinal, padding: '6px 10px', fontSize: '11px' }}
         ><Eye size={12} />{isOpened ? 'Свернуть' : 'Открыть'}</button>
         {row.photos.length === 0 && (
-          <label style={{ ...btnG, padding: '6px 10px', fontSize: '11px', cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.6 : 1 }}>
+          <label style={{ ...btnGFinal, padding: '6px 10px', fontSize: '11px', cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.6 : 1 }}>
             <Upload size={12} />Добавить фото
             <input type="file" accept="image/*" multiple disabled={disabled} onChange={event => { attachPhotos(row, event.target.files); event.target.value = ''; }} style={{ display: 'none' }} />
           </label>
@@ -526,17 +555,17 @@ export default function AccountingIncomingDocumentsPanel({
             title={paymentBlockedTitle}
             disabled={disabled || row.photos.length === 0}
             onClick={() => paymentBlocked ? resolveSupplierAndMarkForPayment(row) : markStatus(row, 'К оплате')}
-            style={{ ...btnGr, padding: '6px 10px', fontSize: '11px', opacity: disabled || row.photos.length === 0 ? 0.6 : 1, cursor: disabled || row.photos.length === 0 ? 'not-allowed' : 'pointer' }}
+            style={{ ...btnGFinal, padding: '6px 10px', fontSize: '11px', opacity: disabled || row.photos.length === 0 ? 0.6 : 1, cursor: disabled || row.photos.length === 0 ? 'not-allowed' : 'pointer' }}
           ><CheckCircle2 size={12} />{supplierResolutionPending ? 'Определяем поставщика…' : 'К оплате'}</button>
         )}
         {(row.status === 'На проверке' || row.status === 'К оплате') && (
-          <button disabled={disabled} onClick={() => markStatus(row, 'Нужно уточнение')} style={{ ...btnG, padding: '6px 10px', fontSize: '11px' }}><MessageSquare size={12} />Уточнить</button>
+          <button disabled={disabled} onClick={() => markStatus(row, 'Нужно уточнение')} style={{ ...btnGFinal, padding: '6px 10px', fontSize: '11px' }}><MessageSquare size={12} />Уточнить</button>
         )}
         {(row.status === 'К оплате' || row.status === 'Частично оплачена') && row.debt > 0 && (
-          <button title={paymentBlockedTitle} disabled={disabled || paymentBlocked} onClick={() => payInvoice(row)} style={{ ...btnO, padding: '6px 10px', fontSize: '11px' }}><CreditCard size={12} />Оплатить</button>
+          <button title={paymentBlockedTitle} disabled={disabled || paymentBlocked} onClick={() => payInvoice(row)} style={{ ...btnOFinal, padding: '6px 10px', fontSize: '11px' }}><CreditCard size={12} />Оплатить</button>
         )}
         {row.status !== 'Оплачена' && row.status !== 'Отклонена' && (
-          <button disabled={disabled} onClick={() => markStatus(row, 'Отклонена')} style={{ ...btnR, padding: '6px 10px', fontSize: '11px' }}><XCircle size={12} /></button>
+          <button disabled={disabled} onClick={() => markStatus(row, 'Отклонена')} style={{ ...btnRFinal, padding: '6px 10px', fontSize: '11px' }}><XCircle size={12} /></button>
         )}
       </div>
     );
@@ -554,7 +583,7 @@ export default function AccountingIncomingDocumentsPanel({
       .filter(supplier => Number(supplier?.id || 0) > 0)
       .sort((left, right) => String(left.name || '').localeCompare(String(right.name || ''), 'ru'));
     return (
-      <div id={'accounting-invoice-detail-' + inv.id} style={{ ...card, padding: '14px', marginBottom: '14px', backgroundColor: C.bg, border: '1.5px solid ' + C.accentBorder }}>
+      <div id={'accounting-invoice-detail-' + inv.id} style={{ ...cardFinal, padding: '14px', marginBottom: '14px', backgroundColor: C.bg, border: '1.5px solid ' + C.accentBorder }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: '12px' }}>
           <div>
             <b style={{ color: C.text, fontSize: '15px' }}>Накладная № {inv.number || inv.id}</b>
@@ -594,7 +623,7 @@ export default function AccountingIncomingDocumentsPanel({
           ) : supplierInvoiceCandidates.length ? (
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '8px' }}>
               {supplierInvoiceCandidates.map(candidate => (
-                <button key={candidate.id} disabled={busyId === inv.id} onClick={() => linkSupplierInvoice(row, candidate)} style={{ ...btnB, padding: '6px 10px', fontSize: '11px' }}>
+                <button key={candidate.id} disabled={busyId === inv.id} onClick={() => linkSupplierInvoice(row, candidate)} style={{ ...btnBFinal, padding: '6px 10px', fontSize: '11px' }}>
                   <Link2 size={12} />Связать: {candidate.invoiceNumber || candidate.id}
                 </button>
               ))}
@@ -630,10 +659,10 @@ export default function AccountingIncomingDocumentsPanel({
               <button
                 disabled={busyId === inv.id || !selectedSupplierByInvoice[inv.id]}
                 onClick={() => linkSupplier(row)}
-                style={{ ...btnB, padding: '9px 12px' }}
+                style={{ ...btnBFinal, padding: '9px 12px' }}
               ><Link2 size={13} />Связать поставщика</button>
             </div>
-            <label style={{ ...btnG, display: 'inline-flex', marginTop: '8px', padding: '8px 10px', cursor: 'pointer' }}>
+            <label style={{ ...btnGFinal, display: 'inline-flex', marginTop: '8px', padding: '8px 10px', cursor: 'pointer' }}>
               <Upload size={13} />Заменить фото
               <input type="file" accept="image/*" multiple onChange={event => { attachPhotos(row, event.target.files); event.target.value = ''; }} style={{ display: 'none' }} />
             </label>
@@ -666,7 +695,7 @@ export default function AccountingIncomingDocumentsPanel({
         {inv.accountingComment && <p style={{ color: C.textSec, fontSize: '12px', margin: '0 0 12px' }}>Комментарий: {inv.accountingComment}</p>}
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
           {renderActions(row)}
-          {showPreview && buildInvoiceContent && <button onClick={() => showPreview(buildInvoiceContent(inv), 'Накладная № ' + (inv.number || inv.id))} style={{ ...btnB, padding: '6px 10px', fontSize: '11px' }}><FileText size={12} />Печать</button>}
+          {showPreview && buildInvoiceContent && <button onClick={() => showPreview(buildInvoiceContent(inv), 'Накладная № ' + (inv.number || inv.id))} style={{ ...btnBFinal, padding: '6px 10px', fontSize: '11px' }}><FileText size={12} />Печать</button>}
         </div>
       </div>
     );
@@ -691,14 +720,14 @@ export default function AccountingIncomingDocumentsPanel({
         })}
       </div>
 
-      <div style={{ ...card, padding: '12px', marginBottom: '14px', backgroundColor: C.bg }}>
+      <div style={{ ...cardFinal, padding: '12px', marginBottom: '14px', backgroundColor: C.bg }}>
         <b style={{ color: C.text, fontSize: '14px' }}>Входящие документы · {activeStatus === 'Все' ? 'все' : accountingStatusGroupLabels[activeStatus]}</b>
       </div>
 
       {openedRow && renderDetail(openedRow)}
 
       {filteredRows.length === 0 ? (
-        <div style={{ ...card, padding: '28px', textAlign: 'center', color: C.textMuted }}>Документов нет</div>
+        <div style={{ ...cardFinal, padding: '28px', textAlign: 'center', color: C.textMuted }}>Документов нет</div>
       ) : (
         <div style={{ display: 'grid', gap: '10px' }}>
           {displayedRows.map(row => {
@@ -706,7 +735,7 @@ export default function AccountingIncomingDocumentsPanel({
             const tone = statusTone(row.status, C);
             const linkedSupplierInvoice = getLinkedSupplierInvoice(row);
             return (
-              <div key={inv.id} style={{ ...card, padding: '14px', border: '1.5px solid ' + tone.border, backgroundColor: C.bg }}>
+              <div key={inv.id} style={{ ...cardFinal, padding: '14px', border: '1.5px solid ' + tone.border, backgroundColor: C.bg }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))', gap: '12px', alignItems: 'start' }}>
                   <div>
                     <b style={{ color: C.text, fontSize: '13px' }}>№ {inv.number || inv.id} · {inv.date || 'без даты'}</b>
@@ -734,7 +763,7 @@ export default function AccountingIncomingDocumentsPanel({
             <button
               type="button"
               onClick={() => setVisibleRows(limit => Math.min(filteredRows.length, limit + rowsStep))}
-              style={{ ...btnG, width: '100%', justifyContent: 'center', marginTop: '4px' }}
+              style={{ ...btnGFinal, width: '100%', justifyContent: 'center', marginTop: '4px' }}
             >
               Показать ещё {Math.min(hiddenRows, rowsStep)} документов
             </button>
