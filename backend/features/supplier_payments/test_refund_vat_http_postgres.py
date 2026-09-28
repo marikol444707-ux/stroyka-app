@@ -84,6 +84,42 @@ class RefundVatHTTPTests(unittest.TestCase):
         self.assertEqual(self.sql('SELECT to_jsonb(p) FROM supplier_receipt_line_proofs p ORDER BY receipt_relation_id'),before)
         self.assertEqual(self.sql('SELECT count(*),sum(quantity) FROM materials WHERE company_id=2'),stock)
 
+    def test_full_http_chain_projects_net_supplier_expense_without_second_receipt_debt(self):
+        """Real shipment/receipt fixture -> explicit allocation -> refund -> accounting."""
+        from decimal import Decimal
+        stock = self.sql('SELECT to_jsonb(m) FROM materials m WHERE company_id=2 ORDER BY id')
+        proofs = self.sql('SELECT to_jsonb(p) FROM supplier_receipt_line_proofs p ORDER BY receipt_relation_id')
+        body = dict(requestId=str(uuid4()), groupId=self.group, expectedVersion=0,
+            reason='Assign the actual payment to two partial receipts', rows=[
+                dict(paymentId=self.payment, receiptId=self.receipts[0], amount='80.00'),
+                dict(paymentId=self.payment, receiptId=self.receipts[1], amount='20.00')])
+        path = '/companies/2/supplier-payments/allocations'
+        saved = self.api('accountant', 'POST', path, body)
+        self.assertEqual(self.api('accountant', 'POST', path, body), saved)
+        context = self.api('accountant', 'GET',
+            f'/companies/2/supplier-payments/refund-context/{self.invoice}')
+        self.assertEqual(context['version'], 1)
+        self.assertEqual(context['allocations'], body['rows'])
+        refund = self.refund_http(self.refund_body(expectedVersion=1, amount='25.00',
+            unallocatedAmount='5.00', releases=[dict(receiptId=self.receipts[0], amount='20.00')]))
+        document = self.api('accountant', 'GET',
+            f'/companies/2/supplier-payment-documents/invoice/{self.invoice}')
+        self.assertEqual((document['amount'], document['paidAmount'], document['remainingAmount']),
+            ('200.00', '95.00', '105.00'))
+        view = self.api('accountant', 'GET', f'/companies/2/supplier-payments/allocation-groups/{self.group}')
+        self.assertEqual((view['paid'], view['allocated'], view['unallocatedPayments']),
+            ('95.00', '80.00', '15.00'))
+        operation_ids = [self.payment, refund['operationId']]
+        cash_ids = {row[0] for row in self.sql(
+            'SELECT project_payment_id FROM supplier_payment_operations WHERE id=ANY(%s)', (operation_ids,))}
+        report = [row for row in self.api('accountant', 'GET', '/project-payments') if row['id'] in cash_ids]
+        self.assertEqual(len(report), 2)
+        self.assertEqual({row['operationKind'] for row in report}, {'payment', 'refund'})
+        self.assertTrue(all(row['sourceKind'] == 'supplier_payment_ledger' for row in report))
+        self.assertEqual(sum(Decimal(str(row['amount'])) for row in report), Decimal('95.00'))
+        self.assertEqual(self.sql('SELECT to_jsonb(m) FROM materials m WHERE company_id=2 ORDER BY id'), stock)
+        self.assertEqual(self.sql('SELECT to_jsonb(p) FROM supplier_receipt_line_proofs p ORDER BY receipt_relation_id'), proofs)
+
     def refund_body(self, **changes):
         return dict(dict(requestId=str(uuid4()),groupId=self.group,expectedVersion=0,paymentId=self.payment,
             amount='10',unallocatedAmount='10',paidAt='2026-09-28',reason='HTTP cash refund',releases=[]),**changes)

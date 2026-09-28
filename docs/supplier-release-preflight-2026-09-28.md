@@ -103,3 +103,45 @@ receipt/allocation/refund verification; this checkpoint does not close it.
 
 Latest read-only production recheck: HEAD 780798ab, service active, 53 GB free,
 tracked tree clean; pre-existing untracked files retained. No production changes.
+
+
+## Receipt → allocation → refund → accounting checkpoint
+
+Added an authenticated full-app HTTP regression to RefundVatHTTPTests. Its fixture
+creates current invoice lines, ships and receives two partial VAT deliveries, and
+records payment 120. The test calls the application's allocation route (80 + 20),
+replays the same allocation UUID, reads the refund context, then refunds 25
+(release 20 from the first receipt plus 5 free). Public invoice, allocation and
+legacy accounting reads agree: total 200, paid/net expense 95, debt 105,
+allocated 80, free 15. Two cash rows carry authoritative payment/refund kinds.
+Exact material and receipt-tax-proof snapshots do not change with the refund.
+
+Verification on disposable PostgreSQL: partial-receipt runtime 14 tests passed;
+updated refund/VAT HTTP class 12 tests passed. Accounting summary/payment panels
+and cash classification: 24 frontend tests passed, including a new 120 minus 25
+summary check with invoice paidAmount 95. Expense is counted once; refund is not
+customer income. Fixture logs still contain missing-owner background-task and
+old api_errors schema warnings; these runs do not verify those background paths.
+
+### Open user-flow gap (release blocker)
+
+Source inspection found no browser caller of POST supplier-payments/allocations
+or an allocation editor. The refund panel can release existing allocations, but
+the earlier browser fixture seeded those allocations through server code. Thus
+its success does not prove an accountant can complete the whole flow in the UI.
+This gap must be closed before declaring the block complete.
+
+Required next increment: add an explicit payment-to-receipt allocation editor
+reachable from the invoice payment dialog. Show each physical receipt, current
+assignment and available payment/receipt amounts; never assign automatically.
+Submit the complete replacement revision with expectedVersion and stable UUID,
+persist uncertain submissions for exact retry, preserve company/user/invoice
+scope and prevent concurrent payment/refund edits. Enforce capacities and access
+on the server; stale revisions must require refreshed review. Reuse the existing
+allocation API and financial permission checks. This is monetary attribution to
+receipts, distinct from moving materials between warehouses/objects.
+
+Then use the real browser to perform receipt → allocation → refund and inspect
+accounting projections without pre-seeding allocations. Only after that finish
+the release flag set, deployment and authenticated production checks. No release
+or production business-data change was made in this checkpoint.

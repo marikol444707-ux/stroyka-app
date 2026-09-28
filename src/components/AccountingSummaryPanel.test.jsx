@@ -21,3 +21,20 @@ test('legacy brigade and act expenses retain their category', () => {
     ]} />);
   expect(screen.getByText('Оплачено бригадам').parentElement.querySelector('b')).toHaveTextContent(/^50 ₽$/);
 });
+
+
+test('partial receipt chain shows net supplier cash once after an allocated refund', () => {
+  render(<AccountingSummaryPanel C={{}} card={{}} projects={[]} invoices={[]} isLeadership
+    supplierInvoices={[{ id: 1, paidAmount: 95 }]}
+    projectPaymentInAmount={projectPaymentIncomingAmount}
+    projectPayments={[
+      { sourceKind: 'supplier_payment_ledger', operationKind: 'payment', amount: 120, note: 'Аванс' },
+      { sourceKind: 'supplier_payment_ledger', operationKind: 'refund', amount: -25, note: 'Возврат поставщиком' },
+    ]} />);
+  const value = label => screen.getByText(label).parentElement.querySelector('b');
+  expect(value('Поступило от заказчиков')).toHaveTextContent(/^0 ₽$/);
+  expect(value('Оплачено поставщикам')).toHaveTextContent(/^95 ₽$/);
+  expect(value('Платежи по журналу')).toHaveTextContent(/^95 ₽$/);
+  expect(value('Всего расходов')).toHaveTextContent(/^95 ₽$/);
+  expect(value('Чистая прибыль')).toHaveTextContent(/^-95 ₽$/);
+});
