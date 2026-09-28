@@ -190,6 +190,11 @@ def build_document_resolver(authorize):
                             (document_id,))
                 if cur.fetchone():
                     raise HTTPException(409, 'Эта накладная входит в поставку по счёту. Оплату оформляйте по общему счёту поставщика')
+            cur.execute("SELECT to_regclass('public.supplier_receipt_exceptions') AS ready")
+            if cur.fetchone()['ready']:
+                cur.execute('SELECT delivery_id FROM supplier_receipt_exceptions WHERE warehouse_invoice_id=%s', (document_id,))
+                if cur.fetchone():
+                    raise HTTPException(409, 'Непринятая поставка не создаёт отдельного долга. Расчёты ведутся по счёту поставщика')
         return dict(actorName=actor['name'], documents=documents, contract=contract)
 
     return resolve

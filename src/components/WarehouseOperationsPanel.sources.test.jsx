@@ -41,3 +41,13 @@ test('unidentified source offers no selector and explains why', () => {
   expect(screen.queryByRole('option', { name: /Накладная/ })).not.toBeInTheDocument();
   expect(screen.getByText(/Нет доступных строк с подтверждённым индексом/)).toBeInTheDocument();
 });
+
+test('a rejected receipt is not offered as a source even when matching good stock exists', () => {
+  const material = { id:1,name:'Кабель',unit:'м',quantity:10 };
+  render(<WarehouseOperationsPanel warehouseTab="move" C={{}} card={{}} inp={{}}
+    projects={[]} visibleActiveProjects={v=>v} warehouseMain={[material]} materials={[]}
+    newMovement={{fromLocation:'Основной склад',selectedMaterials:[{...material,quantity:'1'}]}}
+    warehouseMovements={[]} warehouseInvoices={[{id:5,location:'Основной склад',receiptAccepted:false,
+      items:[{...material,invoiceLineIndex:0}]}]} />);
+  expect(screen.queryByRole('option',{name:/Накладная/})).not.toBeInTheDocument();
+});

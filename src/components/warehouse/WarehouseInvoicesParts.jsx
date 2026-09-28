@@ -459,7 +459,7 @@ export function WarehouseInvoiceCard({
       const sameProject = (transfer.projectName || transfer.fromLocation) === projectName;
       if (possiblySameMaterial && !transferInvoice && sameProject) verified = false;
     }
-    const received = toNum(item.quantity);
+    const received = inv.receiptAccepted === false ? 0 : toNum(item.quantity);
     return {
       unit,
       received,
@@ -482,7 +482,7 @@ export function WarehouseInvoiceCard({
           </p>
           <p style={{color:C.textSec,margin:'0',fontSize:'12px'}}>{'Принял: '+inv.acceptedBy+' · '+inv.vat+' · позиций: '+items.length}</p>
           {inv.accountingRequired === false && <p style={{color:C.success,margin:'3px 0 0',fontSize:'11px',fontWeight:'700'}}>Без поставщика · не является документом к оплате</p>}
-          {inv.status && <p style={{color:inv.status==='Аннулирована'?C.danger:C.textSec,margin:'2px 0 0',fontSize:'11px',fontWeight:'700'}}>{'Статус: '+inv.status}</p>}
+          {inv.status && <p style={{color:inv.status==='Аннулирована'?C.danger:C.textSec,margin:'2px 0 0',fontSize:'11px',fontWeight:'700'}}>{inv.receiptAccepted === false ? 'Не принято на склад: '+inv.receiptQualityStatus : 'Статус: '+inv.status}</p>}
           {packagingReviewItems.length > 0 && <p style={{color:C.warning,margin:'3px 0 0',fontSize:'11px',fontWeight:'700'}}>Упаковок на проверке: {packagingReviewItems.length} · пока учтена единица документа</p>}
           {isSupplyDeliveryInvoice(inv) && <p style={{color:C.success,margin:'3px 0 0',fontSize:'11px',fontWeight:'700'}}>Из поставки снабжения #{inv.supplyDeliveryId||inv.sourceId}{inv.supplyRequestId?' · заявка #'+inv.supplyRequestId:''}</p>}
           {inv.sourceType === 'manual_project_invoice' && <p style={{color:C.info,margin:'3px 0 0',fontSize:'11px',fontWeight:'700'}}>Ручной приход на объект · прямой заказ / распоряжение директора</p>}
@@ -505,7 +505,7 @@ export function WarehouseInvoiceCard({
           <b style={{color:C.success,fontSize:'14px'}}>{(inv.totalWithVat||inv.totalBase||0).toLocaleString()+' ₽'}</b>
           <div style={{display:'flex',gap:'6px',flexWrap:'wrap',justifyContent:isMobile?'flex-end':'flex-start'}}>
             {onPrepareTransfer && projectName && items.length > 0 && (
-              <button onClick={onPrepareTransfer} style={{...btnG,padding:'6px 9px'}} title="Подготовить выдачу по материалам этой накладной">
+              <button disabled={inv.receiptAccepted === false} onClick={onPrepareTransfer} style={{...btnG,padding:'6px 9px'}} title="Подготовить выдачу по материалам этой накладной">
                 <Truck size={13}/>
                 В выдачу
               </button>

@@ -72,7 +72,7 @@ export default function WarehouseOperationsPanel({
     const normalizeSourceText = (value) => String(value || '').trim().toLocaleLowerCase('ru-RU');
     const sourceCandidatesForMaterial = (material) => (warehouseInvoices || []).flatMap((invoice) => {
       const invoiceLocation = invoice.project || invoice.location || '';
-      if (invoiceLocation !== newMovement.fromLocation || invoice.status === 'Аннулирована') return [];
+      if (invoiceLocation !== newMovement.fromLocation || invoice.status === 'Аннулирована' || invoice.receiptAccepted === false) return [];
       return identifiedInvoiceLines(invoice.items).flatMap((item) => (
         normalizeSourceText(item?.name) === normalizeSourceText(material?.name)
           && normalizeSourceText(item?.unit) === normalizeSourceText(material?.unit)

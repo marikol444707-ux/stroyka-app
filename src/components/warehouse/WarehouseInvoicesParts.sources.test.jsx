@@ -61,3 +61,9 @@ describe.each([false, true])('source balances mobile=%s', mobile => {
     expect(remaining(mobile)[0]).toMatch(/не подтверждено$/);
   });
 });
+
+test.each([false,true])('rejected receipt has no available quantity, mobile=%s', mobile => {
+  show(mobile,[],[line(2)],{status:'Принята',receiptAccepted:false,receiptQualityStatus:'Брак'});
+  expect(screen.getByText('Не принято на склад: Брак')).toBeInTheDocument();
+  expect(remaining(mobile)[0]).toMatch(/0 м$/);
+});

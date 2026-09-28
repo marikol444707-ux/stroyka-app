@@ -538,6 +538,7 @@ export default function AccountingIncomingDocumentsPanel({
         {process.env.REACT_APP_SUPPLIER_PAYMENTS_ENABLED !== 'true' && (row.status === 'К оплате' || row.status === 'Частично оплачена') && row.debt > 0 && (
           <button title={paymentBlockedTitle} disabled={disabled || paymentBlocked} onClick={() => payInvoice(row)} style={{ ...btnO, padding: '6px 10px', fontSize: '11px' }}><CreditCard size={12} />Оплатить</button>
         )}
+        {row.invoice.receiptAccepted === false && <span style={{ color: C.warning, fontSize: '12px' }}>Не принято на склад: {row.invoice.receiptQualityStatus}. Оформлена претензия поставщику.</span>}
         {row.invoice.settlementInvoiceId && <span style={{ color: C.textMuted, fontSize: '12px' }}>Оплата учитывается по счёту № {linkedSupplierInvoice?.invoiceNumber || row.invoice.settlementInvoiceId}. Накладная не создаёт отдельного долга.</span>}
         <SupplierPaymentButton document={row.invoice.settlementInvoiceId ? { ...row.invoice, id: row.invoice.settlementInvoiceId } : row.invoice} documentKind={row.invoice.settlementInvoiceId ? "invoice" : "warehouse"} companyContext={companyContext} user={user} onSuccess={refreshData} disabled={disabled || paymentBlocked} style={btnO} />
         {!row.invoice.settlementInvoiceId && row.status !== 'Оплачена' && row.status !== 'Отклонена' && (
@@ -722,7 +723,7 @@ export default function AccountingIncomingDocumentsPanel({
                     </p>
                   </div>
                   <div>
-                    <p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 4px' }}>{inv.settlementInvoiceId ? 'Стоимость поступления' : 'Сумма / долг'}</p>
+                    <p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 4px' }}>{inv.receiptAccepted === false ? 'Стоимость непринятого товара' : inv.settlementInvoiceId ? 'Стоимость поступления' : 'Сумма / долг'}</p>
                     <b style={{ color: C.text, fontSize: '13px' }}>{money(row.amount)}</b>
                     {row.debt > 0 && row.paidAmount > 0 && <p style={{ color: C.warning, fontSize: '11px', margin: '3px 0 0' }}>долг {money(row.debt)}</p>}
                   </div>

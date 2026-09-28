@@ -20,6 +20,7 @@ class PartialReceiptRuntimeTests(unittest.TestCase):
             with conn,conn.cursor() as cur:
                 cls.main._ensure_journal_source_columns(cur)
                 migration(cur, '0023_quality_journal_owners.py')
+                migration(cur, '0053_supplier_receipt_exceptions.py')
         finally:
             conn.close()
     sql = base.InvoiceLineCreationPostgresTests.sql
@@ -131,8 +132,120 @@ class PartialReceiptRuntimeTests(unittest.TestCase):
             self.api('supplier','POST',self.path+'/ship',dict(requestId=str(uuid4()),shippedQuantity=1),expected=409)
         self.assertEqual(self.physical_state(),before)
 
-    def test_problem_receipt_is_not_silently_registered_as_accepted(self):
+    def test_rejected_receipt_creates_claim_and_quality_but_not_stock_or_payment(self):
+        did=self.ship()
+        before=self.sql('SELECT count(*),sum(amount) FROM project_payments')
+        accepted=self.api('foreman','PUT',f'/supply-deliveries/{did}/receive',dict(
+            receivedQuantity=1,qualityStatus='Брак'))
+        self.assertTrue(accepted['claimId']);self.assertTrue(accepted['invoiceId'])
+        self.assertEqual(self.sql("SELECT count(*) FROM warehouse_history WHERE source_type='supply_delivery' AND source_id=%s",(did,)),[(0,)])
+        self.assertEqual(self.sql('SELECT rejected_quantity,shortage_quantity FROM supplier_receipt_exceptions WHERE delivery_id=%s',(did,)),[(1,0)])
+        self.assertEqual(self.sql('SELECT count(*),sum(amount) FROM project_payments'),before)
+        state=self.physical_state()
+        replay=self.api('foreman','PUT',f'/supply-deliveries/{did}/receive',dict(receivedQuantity=1,qualityStatus='Брак'))
+        self.assertTrue(replay['alreadyReceived']);self.assertEqual(self.physical_state(),state)
+
+    def test_shortage_registers_only_accepted_quantity_with_claim(self):
+        did=self.ship()
+        response=self.api('foreman','PUT',f'/supply-deliveries/{did}/receive',dict(
+            receivedQuantity=0.5,qualityStatus='Недостача'))
+        self.assertTrue(response['claimId'])
+        self.assertEqual(self.sql("SELECT quantity FROM warehouse_history WHERE source_type='supply_delivery' AND source_id=%s",(did,)),[(0.5,)])
+        self.assertEqual(self.sql('SELECT p.quantity,p.amount FROM supplier_receipt_line_proofs p JOIN supplier_payment_receipt_relations r ON r.id=p.receipt_relation_id WHERE r.source_delivery_id=%s',(did,)),[(0.5,50)])
+        self.assertTrue(self.api('foreman','PUT',f'/supply-deliveries/{did}/receive',dict(receivedQuantity=0.5,qualityStatus='Недостача'))['alreadyReceived'])
+
+    def test_zero_receipt_creates_claim_without_invoice_stock_or_quality_quantity(self):
+        did=self.ship()
+        response=self.api('foreman','PUT',f'/supply-deliveries/{did}/receive',dict(receivedQuantity=0,qualityStatus='Недостача'))
+        self.assertTrue(response['claimId']);self.assertIsNone(response['invoiceId'])
+        self.assertEqual(self.sql('SELECT rejected_quantity,shortage_quantity FROM supplier_receipt_exceptions WHERE delivery_id=%s',(did,)),[(0,1)])
+        self.assertEqual(self.sql("SELECT count(*) FROM warehouse_history WHERE source_type='supply_delivery' AND source_id=%s",(did,)),[(0,)])
+        self.assertTrue(self.api('foreman','PUT',f'/supply-deliveries/{did}/receive',dict(receivedQuantity=0,qualityStatus='Недостача'))['alreadyReceived'])
+
+    def test_nonconforming_material_is_not_available_stock(self):
+        did=self.ship()
+        response=self.api('foreman','PUT',f'/supply-deliveries/{did}/receive',dict(receivedQuantity=1,qualityStatus='Несоответствие'))
+        self.assertTrue(response['claimId'])
+        self.assertEqual(self.sql("SELECT count(*) FROM warehouse_history WHERE source_type='supply_delivery' AND source_id=%s",(did,)),[(0,)])
+        listed=self.api('director','GET','/warehouse-invoices')
+        invoice=next(row for row in listed if row['id']==response['invoiceId'])
+        self.assertEqual((invoice['settlementInvoiceId'],invoice['receiptAccepted'],invoice['receiptQualityStatus']),
+                         (self.invoice,False,'Несоответствие'))
+        from .contract_context import load_invoice_contract,load_invoice_receipts
+        from psycopg2.extras import RealDictCursor
+        conn=self.main.get_db();conn.autocommit=False
+        try:
+            with conn,conn.cursor(cursor_factory=RealDictCursor) as cur:
+                state=load_invoice_receipts(cur,load_invoice_contract(cur,self.invoice,2))
+                self.assertEqual(state['acceptedAmount'],0);self.assertTrue(state['hasProblem'])
+        finally:conn.close()
+
+    def test_exception_failure_rolls_back_claim_and_quality_too(self):
+        from fastapi import HTTPException
         did=self.ship();before=self.physical_state()
-        self.api('foreman','PUT',f'/supply-deliveries/{did}/receive',dict(
-            receivedQuantity=1,qualityStatus='Брак'),expected=409)
+        claims=self.sql('SELECT count(*) FROM supply_claims')
+        with patch('backend.features.supplier_payments.receipt_exceptions.register_receipt_exception',
+                   side_effect=HTTPException(409,'Synthetic late rejection conflict')):
+            self.api('foreman','PUT',f'/supply-deliveries/{did}/receive',dict(receivedQuantity=1,qualityStatus='Брак'),expected=409)
+        self.assertEqual(self.physical_state(),before)
+        self.assertEqual(self.sql('SELECT count(*) FROM supply_claims'),claims)
+
+    def test_exception_sources_and_claim_identity_are_immutable(self):
+        from psycopg2 import Error
+        did=self.ship()
+        result=self.api('foreman','PUT',f'/supply-deliveries/{did}/receive',dict(receivedQuantity=1,qualityStatus='Брак'))
+        for query,params in (
+            ('UPDATE supply_deliveries SET received_quantity=0 WHERE id=%s',(did,)),
+            ('UPDATE warehouse_invoices SET paid_amount=100 WHERE id=%s',(result['invoiceId'],)),
+            ('DELETE FROM supplier_receipt_exceptions WHERE delivery_id=%s',(did,)),
+            ('UPDATE supply_claims SET received_quantity=0 WHERE id=%s',(result['claimId'],)),
+            ('TRUNCATE supply_claims',()),
+        ):
+            with self.subTest(query=query),self.assertRaises(Error):self.sql(query,params)
+        # Resolving a claim may change its workflow status, never its source quantities.
+        self.sql("UPDATE supply_claims SET status='Закрыта' WHERE id=%s",(result['claimId'],))
+
+    def test_rejected_warehouse_cannot_be_paid_even_by_finance(self):
+        did=self.ship()
+        result=self.api('foreman','PUT',f'/supply-deliveries/{did}/receive',dict(receivedQuantity=1,qualityStatus='Брак'))
+        self.api('accountant','POST','/companies/2/supplier-payments',dict(requestId=str(uuid4()),
+            documentKind='warehouse',documentId=result['invoiceId'],kind='payment',amount='100.00',
+            paidAt='2026-09-28',reason='Rejected warehouse must not be payable'),expected=409)
+        self.assertEqual(self.sql('SELECT paid_amount FROM supplier_invoices WHERE id=%s',(self.invoice,)),[(40,)])
+
+    def test_rejected_receipt_is_not_a_stock_source_or_separate_payment_baseline(self):
+        from fastapi import HTTPException
+        from psycopg2 import Error
+        from psycopg2.extras import RealDictCursor
+        from .receipt_exceptions import assert_stock_source
+        did=self.ship()
+        result=self.api('foreman','PUT',f'/supply-deliveries/{did}/receive',dict(receivedQuantity=1,qualityStatus='Брак'))
+        conn=self.main.get_db();conn.autocommit=False
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                with self.assertRaises(HTTPException) as error:
+                    assert_stock_source(cur,company_id=2,warehouse_id=result['invoiceId'])
+                self.assertEqual(error.exception.status_code,409)
+        finally:conn.rollback();conn.close()
+        with self.assertRaises(Error):
+            self.sql("""INSERT INTO supplier_payment_documents
+                (company_id,document_kind,document_id,payer_company_id,supplier_id,project_name,work_package,amount,opening_paid)
+                SELECT company_id,'warehouse',%s,payer_company_id,supplier_id,project_name,work_package,100,0
+                FROM supplier_payment_documents WHERE document_kind='invoice' AND document_id=%s""",(result['invoiceId'],self.invoice))
+
+    def test_exception_migration_downgrade_refuses_to_discard_evidence(self):
+        from .test_cancellations_postgres import migration
+        from psycopg2 import Error
+        did=self.ship()
+        self.api('foreman','PUT',f'/supply-deliveries/{did}/receive',dict(receivedQuantity=1,qualityStatus='Брак'))
+        conn=self.main.get_db();conn.autocommit=False
+        try:
+            with conn.cursor() as cur,self.assertRaises(Error):
+                migration(cur,'0053_supplier_receipt_exceptions.py','downgrade')
+        finally:conn.rollback();conn.close()
+
+    def test_managed_shipment_requires_owned_quality_runtime(self):
+        before=self.physical_state()
+        with patch.dict(os.environ,OWNED_DELIVERY_QUALITY_ENABLED='0'):
+            self.api('supplier','POST',self.path+'/ship',dict(requestId=str(uuid4()),shippedQuantity=1),expected=503)
         self.assertEqual(self.physical_state(),before)

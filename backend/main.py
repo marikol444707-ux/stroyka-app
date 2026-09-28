@@ -6956,6 +6956,11 @@ def _apply_warehouse_movement(cur, m, company_id, _current_user):
             source_reference = resolve_invoice_line_source(source_invoice_id, source_invoice_line_index, invoice_row)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
+        try:
+            from backend.features.supplier_payments.receipt_exceptions import assert_stock_source
+        except ModuleNotFoundError:
+            from features.supplier_payments.receipt_exceptions import assert_stock_source
+        assert_stock_source(cur, company_id=company_id, warehouse_id=source_invoice_id)
         invoice_location = (invoice_row.get("project") or "").strip() or (invoice_row.get("location") or "").strip()
         if invoice_location != from_location:
             raise HTTPException(status_code=400, detail="Выбранная строка накладной относится к другому складу или объекту")
@@ -12261,6 +12266,8 @@ def receive_supply_delivery(
         planned_qty = _float_or_zero(delivery['planned_quantity'])
         shipped_qty = _float_or_zero(delivery['shipped_quantity']) or planned_qty
         quality_status = data.get('qualityStatus') or 'Принято'
+        if quality_status not in ('Принято', 'Брак', 'Несоответствие', 'Недостача', 'Частично'):
+            raise HTTPException(400, 'Неизвестный результат проверки качества')
         if received_qty < 0:
             conn.rollback()
             cur.close(); conn.close()
@@ -12309,7 +12316,7 @@ def receive_supply_delivery(
             cur.execute("UPDATE supply_deliveries SET claim_id=%s WHERE id=%s", (claim_id, id))
         _create_supply_delivery_history(cur, updated, status, received_qty, data.get('receivedBy') or '')
         invoice_id = _ensure_supply_delivery_invoice(cur, updated, received_qty, received_at, data.get('receivedBy') or '')
-        if received_qty > 0 and quality_status not in ('Брак',):
+        if received_qty > 0 and quality_status not in ('Брак', 'Несоответствие'):
             _add_project_material(cur, delivery['material_name'], delivery['unit'], received_qty,
                                   _float_or_zero(delivery['price_per_unit']), delivery['project'],
                                   delivery.get('work_package') or delivery.get('workPackage') or "",
@@ -19669,6 +19676,11 @@ def create_material_transfer(
                 raise HTTPException(status_code=400, detail=str(exc))
             if not invoice_row:
                 raise HTTPException(status_code=400, detail="Накладная для выдачи не найдена или аннулирована")
+            try:
+                from backend.features.supplier_payments.receipt_exceptions import assert_stock_source
+            except ModuleNotFoundError:
+                from features.supplier_payments.receipt_exceptions import assert_stock_source
+            assert_stock_source(cur, company_id=company_id, warehouse_id=invoice_id)
             invoice_project = (invoice_row.get("project") or "").strip() or (
                 (invoice_row.get("location") or "").strip()
                 if (invoice_row.get("location") or "") != "Основной склад"
@@ -20378,10 +20390,10 @@ def get_warehouse_invoices(
         cur.execute(f"SELECT {invoice_cols} FROM warehouse_invoices WHERE TRUE{company_filter_sql} ORDER BY id DESC", company_filter_params)
     rows = cur.fetchall()
     try:
-        from backend.features.supplier_payments.partial_receipt_runtime import receipt_settlement_ids
+        from backend.features.supplier_payments.partial_receipt_runtime import receipt_settlement_context
     except ModuleNotFoundError:
-        from features.supplier_payments.partial_receipt_runtime import receipt_settlement_ids
-    settlement_ids = receipt_settlement_ids(cur, [row[0] for row in rows])
+        from features.supplier_payments.partial_receipt_runtime import receipt_settlement_context
+    settlement_ids = receipt_settlement_context(cur, [row[0] for row in rows])
     cur.close(); conn.close()
     result = []
     for r in rows:
@@ -20416,7 +20428,7 @@ def get_warehouse_invoices(
         invoice_result = {"id":r[0],"number":r[1],"date":str(r[2]) if r[2] else "","supplierId":r[3],"supplierName":r[4] or "","acceptedBy":r[5] or "","location":r[6] or "","project":r[7] or "","vat":r[8] or "Без НДС","items":items,"totalBase":total_base,"totalVat":total_vat,"totalWithVat":total_with_vat,"status":r[13] or "Принята","addedBy":r[14] or "","photoUrl":r[15] or "","photos":photo_urls,"pagesCount":r[21] or len(photo_urls) or 1,"sourceType":r[16] or "","sourceId":r[17],"supplyDeliveryId":r[18],"supplyRequestId":r[19],"warehouseTarget":(r[22] if len(r) > 22 else "") or ("object" if r[7] else "main"),"selectedAction":(r[23] if len(r) > 23 else "") or "","materialMatch":material_match,"accountingStatus":(r[25] if len(r) > 25 else "") or "","accountingComment":(r[26] if len(r) > 26 else "") or "","accountingUpdatedBy":(r[27] if len(r) > 27 else "") or "","accountingUpdatedAt":str(r[28]) if len(r) > 28 and r[28] else "","paidAmount":float(r[29] or 0) if len(r) > 29 else 0,"paidAt":(r[30] if len(r) > 30 else "") or "","paidBy":(r[31] if len(r) > 31 else "") or "","supplierInvoiceId":r[32] if len(r) > 32 else None,"companyId":r[33] if len(r) > 33 else None}
         invoice_result["accountingRequired"] = warehouse_invoice_accounting_required(invoice_result)
         if r[0] in settlement_ids:
-            invoice_result['settlementInvoiceId'] = settlement_ids[r[0]]
+            invoice_result.update(settlement_ids[r[0]])
         result.append(invoice_result)
     return result
 

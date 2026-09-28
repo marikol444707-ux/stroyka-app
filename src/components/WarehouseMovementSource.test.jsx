@@ -56,3 +56,8 @@ test('does not expose invoice debt or payment deadline in warehouse history', ()
   show({}, [{ ...invoice, totalWithVat: 9000, paidAmount: 100, paymentDeadline: { status: 'active' } }]);
   expect(screen.queryByText(/9000|8900|Отсрочка/)).not.toBeInTheDocument();
 });
+
+test('a rejected receipt cannot appear as a valid stock movement source', () => {
+  show({},[{...invoice,receiptAccepted:false}]);
+  expect(screen.getByText(/требует проверки/)).toBeInTheDocument();
+});

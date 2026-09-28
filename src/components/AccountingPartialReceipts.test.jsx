@@ -31,3 +31,13 @@ test('both partial receipts open the same invoice payment and have no separate d
     else process.env.REACT_APP_SUPPLIER_PAYMENTS_ENABLED = flag;
   }
 });
+
+test('rejected receipt is labelled as not accepted instead of available material', () => {
+  render(<AccountingIncomingDocumentsPanel C={{}} card={{}} btnO={{}} btnG={{}} btnB={{}}
+    btnR={{}} btnGr={{}} inp={{}} warehouseInvoiceEstimateControl={() => []}
+    invoices={[{id:91,companyId:2,settlementInvoiceId:4,receiptAccepted:false,receiptQualityStatus:'Брак',
+      supplierId:3,project:'Объект',totalWithVat:100,items:[]}]} />);
+  expect(screen.getByText('Стоимость непринятого товара')).toBeInTheDocument();
+  expect(screen.getByText(/Не принято на склад: Брак/)).toBeInTheDocument();
+  expect(screen.getByText('Без отдельного долга')).toBeInTheDocument();
+});

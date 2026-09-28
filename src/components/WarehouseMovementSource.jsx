@@ -17,7 +17,7 @@ export default function WarehouseMovementSource({ movement, invoices = [], C = {
   const invoice = matches.length === 1 ? matches[0] : null;
   if (!invoice || !isInvoiceLineIndex(line)
     || !identifiedInvoiceLines(invoice.items).some(item => item.invoiceLineIndex === line)
-    || invoice.status === 'Аннулирована') {
+    || invoice.status === 'Аннулирована' || invoice.receiptAccepted === false) {
     return <div style={{ ...style, color: C.warning }}>Источник поступления требует проверки или недоступен</div>;
   }
   return <div style={style}>

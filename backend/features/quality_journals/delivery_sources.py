@@ -34,7 +34,7 @@ def prepare_delivery_sources(cur, actor, delivery):
             if (invoice['company_id'] != delivery['company_id'] or invoice['project_id'] != project_id
                     or invoice['source_type'] != 'supply_delivery' or str(invoice['source_id']) != str(delivery['id'])):
                 raise HTTPException(409, 'Принадлежность накладной поставки не подтверждена')
-        expected_movement = positive and delivery.get('quality_status') != 'Брак'
+        expected_movement = positive and delivery.get('quality_status') not in ('Брак', 'Несоответствие')
         if len(movements) != int(expected_movement):
             raise HTTPException(409, 'Нарушена связь приёмки со складом')
         for movement in movements:
@@ -63,6 +63,6 @@ def bind_new_delivery_sources(cur, delivery, project_id, invoice_id):
         WHERE company_id=%s AND source_type='supply_delivery' AND source_id=%s
           AND source_invoice_id=%s AND project_id IS NULL""",
         (project_id, delivery['company_id'], delivery['id'], invoice_id))
-    expected = (delivery.get('received_quantity') or 0) > 0 and delivery.get('quality_status') != 'Брак'
+    expected = (delivery.get('received_quantity') or 0) > 0 and delivery.get('quality_status') not in ('Брак', 'Несоответствие')
     if cur.rowcount != int(expected):
         raise HTTPException(409, 'Не удалось подтвердить принадлежность складского движения')

@@ -116,7 +116,8 @@ def load_invoice_receipts(cur, context):
             # the same receipt a new valuation at half-kopeck boundaries.
             if value != value.quantize(Decimal('.01')):
                 raise HTTPException(409, 'Стоимость дробного количества требует сверки с накладной')
-            accepted += value
+            if row.get('quality_status') not in ('Брак', 'Несоответствие'):
+                accepted += value
         except (ValueError, InvalidOperation):
             raise HTTPException(409, 'Количество или стоимость приёмки требуют проверки')
         received_count += 1
