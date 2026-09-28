@@ -144,3 +144,21 @@ test('cancelled attempt is distinct from confirmed money operation', () => {
   expect(screen.getByText('Попытка отменена. Денежная операция не проведена.')).toBeInTheDocument();
   expect(screen.queryByText(/Платёж подтверждён|Сторно подтверждено/)).not.toBeInTheDocument();
 });
+
+
+test('opening review remains reachable when an unregistered mixed document cannot load', () => {
+  const previous = process.env.REACT_APP_SUPPLIER_OPENING_CONFIRMATIONS_ENABLED;
+  process.env.REACT_APP_SUPPLIER_OPENING_CONFIRMATIONS_ENABLED = 'true';
+  try {
+    state.snapshot = null; state.history = null; state.error = 'Пакет накладной требует сверки';
+    const { rerender } = render(<SupplierPaymentDialog {...props} documentKind="invoice" documentId={9} />);
+    expect(screen.getByRole('button', { name: 'Сверить прежнюю оплату' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Записать платёж' })).toBeDisabled();
+    state = { ...state, busy: true };
+    rerender(<SupplierPaymentDialog {...props} documentKind="invoice" documentId={9} />);
+    expect(screen.getByRole('button', { name: 'Сверить прежнюю оплату' })).toBeDisabled();
+  } finally {
+    if (previous === undefined) delete process.env.REACT_APP_SUPPLIER_OPENING_CONFIRMATIONS_ENABLED;
+    else process.env.REACT_APP_SUPPLIER_OPENING_CONFIRMATIONS_ENABLED = previous;
+  }
+});

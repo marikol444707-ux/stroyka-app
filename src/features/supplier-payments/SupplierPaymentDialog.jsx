@@ -57,7 +57,9 @@ function PaymentDialogContent(props) {
       {props.documentKind === 'invoice' && <SupplierOpeningPanel API={props.API} userId={props.userId}
         companyId={props.companyId} invoiceId={props.documentId}
         registered={state.snapshot?.openingPaidAmount != null}
-        disabled={refundBlocked || state.busy || state.loading || !!state.pending || !!state.storageError || !state.snapshot}
+        // Opening preview has its own server authorization and must remain reachable
+        // when the payment read rejects an unregistered mixed-package receipt.
+        disabled={refundBlocked || state.busy || state.loading || !!state.pending || !!state.reversal || !!state.storageError}
         onBlocked={setOpeningBlocked} onSuccess={() => { state.reload(); props.onSuccess?.(); }} />}
       {props.documentKind === 'invoice' && <SupplierRefundPanel API={props.API} userId={props.userId}
         companyId={props.companyId} invoiceId={props.documentId}

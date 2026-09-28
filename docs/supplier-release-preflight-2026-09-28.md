@@ -17,12 +17,13 @@
 
 ## Corrected release configuration
 
-`resolve-frontend-build-env.sh` now exports the three supplier UI switches from
+`resolve-frontend-build-env.sh` now exports the four supplier UI switches from
 the explicitly allowlisted backend settings. Defaults are explicit false.
 Systemd values override the file; duplicate file settings use the first value,
 matching backend.config. Secrets are never exported.
 
-Openings require payments. Allocated refunds require payments, allocations and
+Openings require payments. Mixed openings additionally require opening confirmations
+and mixed review. Allocated refunds require payments, allocations and
 settlements. Invalid values or missing dependencies stop the build. All flag
 output is withheld until the complete configuration, including the existing
 A10 allowlist, validates. This also fixes pre-existing partial output from the
@@ -37,7 +38,7 @@ No frontend component or financial posting code changed in this increment.
 The earlier UI/API evidence is recorded in supplier-refund-form-2026-09-28.md.
 It does not replace these remaining checks:
 
-1. Completed on a populated synthetic database: actual Alembic 0051 → 0059,
+1. Completed on a populated synthetic database: actual Alembic 0051 → 0061,
    downgrade to 0051 before any new-feature writes, and upgrade again. Exact
    JSON snapshots of invoices, receipts, deliveries, stock, cash, payment
    documents/operations/impacts and allocation history were unchanged. Old
@@ -48,8 +49,9 @@ It does not replace these remaining checks:
    introduced in 0050, so their presence is compatible with 0051. Migration 0052
    introduces receipt proofs, not invoice specifications. Verify the audit's
    full dependencies before running it. Production read-only audit is now
-   complete: see supplier-legacy-live-audit-2026-09-28.md. Of 49 invoices, 8 are
-   matching/standalone review candidates and 41 have blocking evidence issues;
+   complete: see supplier-legacy-live-audit-2026-09-28.md. Of 49 invoices, 25 are
+   review candidates (17 matching mixed, 7 matching single, 1 standalone) and
+   24 have blocking evidence issues;
    no opening confirmations or repairs were performed.
 3. Verify financial report projections and the complete current invoice →
    partial receipt → allocation → refund flow in the integrated app, not only
@@ -60,9 +62,9 @@ It does not replace these remaining checks:
 
 Current status: release preparation advanced; production activation not ready.
 
-Latest local schema head is now 0060 (immutable mixed-package review evidence).
+Latest local schema head is 0061 (atomic mixed opening bindings).
 The populated Alembic upgrade/empty-review rollback/re-upgrade rehearsal was
-extended through 0060 and passed. See supplier-mixed-package-review.md. Production
+extended through 0061 and passed. See supplier-mixed-package-review.md. Production
 remains unmodified; review evidence alone does not enable financial transfer.
 
 ## Migration rehearsal finding and fix
@@ -74,7 +76,7 @@ Changed the unreleased revision ID to `0057_supplier_openings` and updated the
 0058 parent. The filename stays unchanged. Production was confirmed at 0051;
 no deployed revision was renamed or stamped.
 
-Added a regression for the whole Alembic graph (single 0059 head, every ID fits
+Added a regression for the whole Alembic graph (single head, now 0061, every ID fits
 32 characters) and a disposable PostgreSQL upgrade/rollback/replay regression.
 Both passed. The integration fixture includes the actual pre-existing 0027 and
 0033 dependency migrations rather than omitting their tables. Live read-only
@@ -87,3 +89,17 @@ database after applying the baseline fixture. That operation must never be used
 as a production substitute for running migrations. A rollback after writing
 new opening/refund evidence is a separate guarded case, not covered by this
 pre-activation rollback rehearsal.
+
+
+## Combined browser checkpoint
+
+The real browser → real authenticated API → disposable PostgreSQL mixed opening,
+payment and reversal rehearsal passed, including reload/retry after a lost
+post-commit confirmation response. It uncovered and fixed a dialog dependency
+that disabled review before the mixed document could be registered. Frontend
+regression: 122 tests passed. See supplier-mixed-package-review.md for exact SQL
+balances and the scope of this evidence. Gate 3 above still requires integrated
+receipt/allocation/refund verification; this checkpoint does not close it.
+
+Latest read-only production recheck: HEAD 780798ab, service active, 53 GB free,
+tracked tree clean; pre-existing untracked files retained. No production changes.

@@ -320,3 +320,45 @@ fixture used synthetic responses, not a live production database. Earlier
 authenticated PostgreSQL HTTP tests cover the real backend separately.
 Production deployment and a combined browser-to-real-test-database rehearsal
 remain outstanding.
+
+
+## Combined browser and disposable PostgreSQL rehearsal (2026-09-28)
+
+Headed Chromium rendered the actual SupplierPaymentDialog and called the real
+FastAPI app with an authenticated synthetic accountant against a socket-only
+PostgreSQL fixture through 0061. No financial endpoint response was mocked.
+The local HTTP bridge deliberately closed the first successful mixed-confirmation
+connection **after** the database commit, before returning its response.
+
+The rehearsal exposed a UI deadlock: a mixed document read correctly returns
+409 before review, but the dialog required that read to succeed before enabling
+opening review. Opening review now depends on its own authorized preview API,
+not the payment snapshot. Loading, active operations, saved payment attempts,
+reversal drafts and storage errors still block it. New payment remains disabled
+without a valid document/history. A regression reproduced the disabled button
+before the fix and passed afterwards.
+
+Observed UI and SQL results:
+
+| Step | Invoice paid | Receipt paid | Cash rows / net | Opening count |
+| --- | --- | --- | --- | --- |
+| Initial mixed fixture (total 200) | 50 | 50 | 0 / 0 | 0 |
+| Confirmation committed, response lost | 50 | 50 | 0 / 0 | 1 |
+| Reload and retry saved confirmation | 50 | 50 | 0 / 0 | 1 |
+| New payment 20 through browser | 70 | 70 | 1 / 20 | 1 |
+| Reversal through browser | 50 | 50 | 2 / 0 | 1 |
+
+The preview showed all three scopes (empty/header, Отделка, Электрика).
+After reload the exact pending confirmation reappeared and blocked new payment
+until retry succeeded. History retained the original payment and its reversal,
+with no second reversal action for that payment; remaining debt returned to 150.
+Console after the fixture build correction contained only expected pre-review
+409s and the deliberately injected empty response; no subsequent runtime error.
+The first fixture build omitted a frontend flag and raised a process reference
+error; that fixture-only error was corrected before the rehearsal.
+
+Frontend regression: 122 tests in 10 suites passed; optimized production build
+compiled successfully. The temporary browser and PostgreSQL fixture were stopped
+and its database directory removed. Production data, flags and
+schema were not changed. This verifies the mixed opening/payment/reversal dialog,
+not the still-pending integrated partial receipt/allocation/refund workflow.
