@@ -16593,7 +16593,8 @@ except ModuleNotFoundError:
 register_company_documents_module(app, {
     "get_db": get_db,
     "get_current_user": get_current_user,
-    "require_roles": require_roles,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
     "finance_roles": FINANCE_ROLES,
 })
 

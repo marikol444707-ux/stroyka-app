@@ -100,8 +100,12 @@ class RegionRoutesTest(unittest.TestCase):
         cursor = FakeCursor(rows=[(1, 2, "Устав", "устав", "/f.pdf", "", "Тест")])
         app = FakeApp()
         connection, deps = common_deps(cursor)
+        deps['resolve_work_company_context'] = lambda *a, **kw: {'mode': 'company', 'companyId': 2}
+        deps['effective_company_actors'] = lambda user, context: [{**user, 'companyId': 2}]
         register_company_documents_module(app, deps)
-        self.assertEqual(app.routes[("GET", "/company-documents")](current_user={"role": "мастер"}), [])
+        with self.assertRaises(Exception) as denied:
+            app.routes[("GET", "/company-documents")](current_user={"role": "мастер"})
+        self.assertEqual(denied.exception.status_code, 403)
         self.assertEqual(cursor.calls, [])
         rows = app.routes[("GET", "/company-documents")](current_user={"role": "директор"})
         self.assertEqual(rows[0]["docType"], "устав")
