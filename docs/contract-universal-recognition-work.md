@@ -30,9 +30,27 @@ source/hash regression (10 source tests), 11 build resolver tests passed.
 Linux real fixtures passed text PDF, scanned PDF, PNG, DOCX and DOC. Headed browser
 against disposable real API/database uploaded TXT, autofilled bank/BIK/signatory,
 saved contract, and database confirmed original line/quote provenance. No real
-contract was used or confirmed. Production rollout checks remain separate.
+contract was used or confirmed. Production rollout verification is recorded below.
 
 Limits: conservative explicit labelled requisites blocks only. Arbitrary layouts
 may yield no suggestions; number/date/payment terms are still manual. OCR is not
-proof of legal accuracy and never confirms/signs a contract. JPEG uses the same
-OCR path as PNG but has not yet had a separate real-format check.
+proof of legal accuracy and never confirms/signs a contract. JPEG also passed a separate real OCR check.
+
+
+## Production follow-up
+
+Installed recognition and OCR, then corrected duplicate /Info metadata from the
+user scanner PDF (bounded pypdf non-strict parsing; dedicated regression passes).
+Original PDF extraction now returns 27226 characters without changing the file.
+Added a conservative OCR-requisites fallback restricted to explicit requisites
+sections, exact distinct buyer/supplier INNs and numeric bank fields. Every INN/KPP
+row bounds the previous block, including unknown third parties. Conflicting numeric
+fields are omitted. Payer is never inferred from buyer. Both new boundary tests
+pass; all 21 extraction tests pass. No original or financial record is modified.
+
+Production final head: 8bc22a56f8bdfa913815d0818712a96e23378e9b. Authenticated
+recognition preview for existing original276/offer71 returned200 with buyer and
+supplier matched; fields INN,KPP,rs,ks,BIK. Payer absent (not inferred). No live
+contract saved. Public/backend health, unchanged schema0063, 251 frontend hashes,
+and before/after invoice/payment/warehouse/material hashes passed. Temporary OCR
+fixtures and release backup removed only after verification; small receipt retained.
