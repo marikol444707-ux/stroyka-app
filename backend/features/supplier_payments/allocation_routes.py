@@ -116,6 +116,43 @@ def register_supplier_allocation_routes(app, deps):
         return {**result, 'companyId': company_id, 'requestId': command['requestId'],
                 'paymentId': command['paymentId']}
 
+    @router.get('/companies/{company_id}/supplier-payments/refund-context/{invoice_id}')
+    def refund_context(request: Request, company_id: int = Path(..., ge=1, le=2147483647),
+                       invoice_id: int = Path(..., ge=1, le=2147483647), user: dict = Depends(authenticate)):
+        _headers(request, company_id)
+        _query(request, ())
+        resolver = deps.get('resolve_documents_read')
+        if not callable(resolver):
+            raise _unavailable()
+        authorize = _authorize(deps, 'read')
+        conn = deps['get_db']()
+        try:
+            conn.set_session(isolation_level='READ COMMITTED', autocommit=False)
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SET LOCAL lock_timeout='3s'")
+                cur.execute("SET LOCAL statement_timeout='15s'")
+                cur.execute('SELECT pg_advisory_xact_lock(%s,%s)', (1735289201,company_id))
+                resolver(cur,user['id'],company_id,dict(documentKind='invoice',documentId=invoice_id))
+                deps['require_allocation_schema'](cur)
+                cur.execute('''SELECT g.id FROM supplier_payment_allocation_groups g
+                    JOIN supplier_payment_documents d ON d.id=g.invoice_record_id
+                    WHERE d.company_id=%s AND d.document_kind='invoice' AND d.document_id=%s''',
+                    (company_id,invoice_id))
+                group = cur.fetchone()
+                if not group:
+                    return dict(companyId=company_id,invoiceId=invoice_id,groupId=None)
+                result = allocation_store.read_allocations_in_transaction(cur,authorize,user['id'],company_id,group['id'])
+                cur.execute('SELECT id,warehouse_invoice_id FROM supplier_payment_receipt_relations WHERE group_id=%s AND company_id=%s',
+                            (group['id'],company_id))
+                receipts = {row['id']:row['warehouse_invoice_id'] for row in cur.fetchall()}
+                result['receipts'] = [dict(row,warehouseId=receipts[row['receiptId']]) for row in result['receipts']]
+                return dict(result,companyId=company_id,invoiceId=invoice_id)
+        finally:
+            try:
+                conn.rollback()
+            finally:
+                conn.close()
+
     @router.get('/companies/{company_id}/supplier-payments/allocation-groups/{group_id}')
     def read(request: Request, company_id: int = Path(..., ge=1, le=2147483647),
              group_id: int = Path(..., ge=1, le=9223372036854775807), user: dict = Depends(authenticate)):

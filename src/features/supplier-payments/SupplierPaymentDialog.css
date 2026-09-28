@@ -48,3 +48,8 @@
 .supplier-opening-panel { padding-block: 8px 16px; border-bottom: 1px solid var(--border-color, #ccd4dc); }
 .supplier-opening-panel dl { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; }
 .supplier-opening-panel dd { margin: 0; text-align: right; font-weight: 600; }
+.supplier-refund-panel { padding-block: 8px 16px; border-bottom: 1px solid var(--border-color, #ccd4dc); }
+.supplier-refund-panel select { width: 100%; }
+.supplier-refund-panel small { font-size: .875rem; }
+.supplier-refund-panel .supplier-refund-check { display: flex; align-items: flex-start; gap: 8px; margin-block: 12px; }
+.supplier-refund-panel .supplier-refund-check input { flex: 0 0 auto; width: 20px; min-height: 20px; margin: 0; }

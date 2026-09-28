@@ -28343,6 +28343,7 @@ register_supplier_payment_routes(app, {
 # feature is enabled. The refund worker separately gates new refund operations.
 register_supplier_allocation_routes(app, {
     'get_db': get_db, 'get_current_user': get_current_user,
+    'resolve_documents_read': build_document_resolver(build_payment_access(_supplier_payment_access_deps, operation='read')),
     'resolve_documents': build_document_resolver(build_payment_access(_supplier_payment_access_deps)),
     'authorize_allocation_write': build_allocation_access(_supplier_payment_access_deps, operation='update'),
     'authorize_allocation_read': build_allocation_access(_supplier_payment_access_deps, operation='read'),

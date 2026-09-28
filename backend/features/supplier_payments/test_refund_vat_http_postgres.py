@@ -211,3 +211,30 @@ class RefundVatHTTPTests(unittest.TestCase):
             self.sql('DROP TRIGGER reject_refund_http ON supplier_payment_refund_links')
             self.sql('DROP FUNCTION reject_refund_http()')
         self.refund_http(body)
+
+    def test_refund_form_context_has_source_capacities_and_physical_receipt_numbers(self):
+        path=f'/companies/2/supplier-payments/refund-context/{self.invoice}'
+        context=self.api('accountant','GET',path)
+        self.assertEqual((context['companyId'],context['invoiceId'],context['groupId']),(2,self.invoice,self.group))
+        payment=context['payments'][0]
+        self.assertEqual((payment['paymentId'],payment['amount'],payment['unallocatedAmount']),
+                         (self.payment,'120.00','120.00'))
+        self.assertTrue(all(row['warehouseId']>0 for row in context['receipts']))
+        self.refund_http(self.refund_body())
+        payment=self.api('accountant','GET',path)['payments'][0]
+        self.assertEqual((payment['refundedAmount'],payment['remainingAmount']),('10.00','110.00'))
+        self.api('supplier','GET',path,expected=403)
+
+    def test_pending_allocated_refund_can_be_cancelled_or_confirmed_without_duplicate(self):
+        body=self.refund_body()
+        cash=dict(requestId=body['requestId'],kind='refund',documentKind='invoice',documentId=self.invoice,
+                  amount=body['amount'],paidAt=body['paidAt'],reason=body['reason'])
+        result=self.api('accountant','POST','/companies/2/supplier-payments/cancel-request',cash)
+        self.assertEqual(result['status'],'cancelled')
+        self.refund_http(body,expected=409)
+        self.assertEqual(self.read()['version'],0)
+        body=self.refund_body(); saved=self.refund_http(body)
+        cash['requestId']=body['requestId']
+        result=self.api('accountant','POST','/companies/2/supplier-payments/cancel-request',cash)
+        self.assertEqual(result['status'],'confirmed')
+        self.assertEqual(result['result']['operationId'],saved['operationId'])

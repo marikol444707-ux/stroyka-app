@@ -3,6 +3,7 @@ import { paymentKopecks, paymentLabel } from '../../utils/paymentMoney';
 import useSupplierPaymentDialog from './useSupplierPaymentDialog';
 import './SupplierPaymentDialog.css';
 import SupplierOpeningPanel from './SupplierOpeningPanel';
+import SupplierRefundPanel from './SupplierRefundPanel';
 
 const documentLabel = kind => ({ invoice: 'счёт', warehouse: 'накладная' }[kind] || 'документ');
 const operationLabel = kind => ({payment:'Платёж',refund:'Возврат денег',credit:'Уменьшение суммы счёта',reversal:'Сторно'}[kind] || 'Операция');
@@ -15,6 +16,7 @@ const money = amount => {
 function PaymentDialogContent(props) {
   const state = useSupplierPaymentDialog(props);
   const [openingBlocked, setOpeningBlocked] = useState(false);
+  const [refundBlocked, setRefundBlocked] = useState(false);
   const titleId = useId();
   const root = useRef(null);
   const close = useRef(null);
@@ -32,7 +34,7 @@ function PaymentDialogContent(props) {
     if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
   };
-  const blocked = openingBlocked || state.busy || state.loading || !!state.storageError || !state.snapshot;
+  const blocked = refundBlocked || openingBlocked || state.busy || state.loading || !!state.storageError || !state.snapshot;
   const reversingPayment = state.reversal?.operation.kind === 'payment';
   const reversalTitle = reversingPayment ? 'Сторно платежа' : 'Сторно операции';
   return <div className="supplier-payment-dialog-backdrop">
@@ -55,8 +57,12 @@ function PaymentDialogContent(props) {
       {props.documentKind === 'invoice' && <SupplierOpeningPanel API={props.API} userId={props.userId}
         companyId={props.companyId} invoiceId={props.documentId}
         registered={state.snapshot?.openingPaidAmount != null}
-        disabled={state.busy || state.loading || !!state.pending || !!state.storageError || !state.snapshot}
+        disabled={refundBlocked || state.busy || state.loading || !!state.pending || !!state.storageError || !state.snapshot}
         onBlocked={setOpeningBlocked} onSuccess={() => { state.reload(); props.onSuccess?.(); }} />}
+      {props.documentKind === 'invoice' && <SupplierRefundPanel API={props.API} userId={props.userId}
+        companyId={props.companyId} invoiceId={props.documentId}
+        disabled={openingBlocked || state.busy || state.loading || !!state.pending || !!state.reversal || !!state.storageError || !state.snapshot}
+        onBlocked={setRefundBlocked} onSuccess={() => { state.reload(); props.onSuccess?.(); }} />}
       {state.pending && <section aria-label="Незавершённая операция">
         <h3>Сохранённый запрос</h3>
         <p>Результат ещё не подтверждён. Запрос может относиться к другому документу этой компании. Повтор отправляет ту же команду с тем же UUID.</p>
@@ -95,7 +101,7 @@ function PaymentDialogContent(props) {
         </fieldset>
         <button type="button" disabled={state.busy || !!state.storageError} onClick={state.cancelReversal}>Отменить черновик сторно</button>
       </form>}
-      {!state.pending && !state.success && !state.reversal && <form aria-label="Запись платежа" onSubmit={event => { event.preventDefault(); state.submit(); }}>
+      {!refundBlocked && !state.pending && !state.success && !state.reversal && <form aria-label="Запись платежа" onSubmit={event => { event.preventDefault(); state.submit(); }}>
         <fieldset disabled={blocked}>
           <legend>{state.draft.kind && state.draft.kind!=='payment' ? operationLabel(state.draft.kind) : 'Новый платёж'}</legend>
           {state.snapshot?.settlementsEnabled && <label>Вид операции<select value={state.draft.kind || 'payment'}

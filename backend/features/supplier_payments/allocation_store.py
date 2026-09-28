@@ -200,5 +200,16 @@ def read_allocations_in_transaction(cur, authorize_and_lock, actor_id, company_i
         target = reversed_rows if row['paymentId'] in reversed_ids else active
         target.append(dict(paymentId=row['paymentId'], receiptId=row['receiptId'],
                            amount=format(Decimal(row['amount']), '.2f')))
+    from .refund_allocation_plan import _net_payments
+    original = {payment.id: Decimal(payment.amount) for payment in snapshot['payments']}
+    payments = []
+    for payment in _net_payments(snapshot['scope'], snapshot['payments'], snapshot.get('refunds', [])):
+        if payment.reversed:
+            continue
+        net = Decimal(payment.amount)
+        allocated = sum((Decimal(row['amount']) for row in active if row['paymentId'] == payment.id), Decimal(0))
+        payments.append(dict(paymentId=payment.id, amount=format(original[payment.id], '.2f'),
+            refundedAmount=format(original[payment.id] - net, '.2f'), remainingAmount=format(net, '.2f'),
+            allocatedAmount=format(allocated, '.2f'), unallocatedAmount=format(net - allocated, '.2f')))
     return dict(projection, groupId=group_id, version=latest['version'] if latest else 0,
-                allocations=active, reversedAllocations=reversed_rows)
+                allocations=active, reversedAllocations=reversed_rows, payments=payments)
