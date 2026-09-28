@@ -121,3 +121,22 @@ saved through real API. Database asserted exactly one contract version and zero
 invoices for this offer. Browser had zero console errors (development transform
 warning only). This was an isolated component page, not production UI. Temporary
 PostgreSQL instance and browser bundle removed after assertions passed.
+
+## Production release 2026-09-28
+
+Installed 7bd914d849d6ab38bd59562fff9e068a5c3ca6fa; schema upgraded from
+0061 to 0063. Enabled deal parties, contract snapshots/document bindings,
+legacy binding/review and new invoice line specifications; frontend flags resolved
+with the same backend configuration, VAT UI enabled. Public/backend health passed;
+251 installed frontend files matched the build. Read-only hashes for supplier
+invoices, payment operations, project payments, warehouse invoices and materials
+matched before/after; new review tables empty. No historical records backfilled.
+
+Authenticated production browser: approved VIST offer71 exposes preparation and
+loads accessible buyer/payer. Invoice161 payment history opens with expected409
+for missing checked contract; legacy-binding read explicitly reports no checked
+version and offers preparation. No production contract/payment/stock writes.
+Console network409 is the displayed business guard, not a failed migration.
+Existing public-page unused-preload warnings remain. Customer save and supplier
+invoice creation were exercised against isolated real API/PostgreSQL, not live
+financial records. Release receipt records verification scope and cleanup.
