@@ -114,4 +114,5 @@
 ## 2026-09-29 — archive document category filter
 - Added “Вид документа”: supply contracts, quotations, invoices, shipments, warehouse waybills and company/counterparty document records. Server filters before pagination under existing company scope; incompatible filters rejected.
 - Related navigation preserves category/search/page; company and section switch clear category. Client rejects unexpected source rows.
-- 20 route tests passed including isolated PostgreSQL; 11 UI tests passed. Deployment/browser checks pending.
+- 20 route tests passed including isolated PostgreSQL; 11 UI tests passed.
+- Deployed `618493dbc5a8`. Authenticated browser: contract category -> offer71 -> return preserved filter; invoices pages30+19 contain only company1 invoices; section change resets category. Mobile390/page390 visually checked, zero JS errors. 19 production tests passed (isolated PG skipped), 251 assets matched, source/financial/stock hashes unchanged, health/DB OK. Four gates recorded; stage and backup removed, receipt retained.
