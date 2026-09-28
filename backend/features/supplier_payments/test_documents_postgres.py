@@ -118,7 +118,10 @@ class DocumentTests(unittest.TestCase):
 
     def test_unbound_offer_invoice_never_infers_payer(self):
         self.cur.execute('UPDATE supplier_invoices SET offer_id=%s WHERE id=%s', (self.offer_id, self.invoice))
-        self.reject()
+        with self.assertRaises(HTTPException) as error:
+            self.resolve()
+        self.assertEqual(error.exception.status_code, 409)
+        self.assertIn('не связан с проверенной версией договора', error.exception.detail)
 
     def test_bound_invoice_uses_exact_contract(self):
         result = self.resolve(document_id=type(self).invoice_id)

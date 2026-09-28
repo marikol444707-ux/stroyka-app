@@ -26297,6 +26297,12 @@ if os.getenv("SUPPLIER_DEAL_PARTIES_ENABLED", "0") == "1":
             except ModuleNotFoundError:
                 from features.supplier_deal_parties.document_routes import register_document_contract_routes
             register_document_contract_routes(app, supplier_deal_dependencies)
+            if os.getenv('SUPPLIER_LEGACY_CONTRACT_BINDING_ENABLED', '0') == '1':
+                try:
+                    from backend.features.supplier_deal_parties.legacy_binding_routes import register_legacy_binding_routes
+                except ModuleNotFoundError:
+                    from features.supplier_deal_parties.legacy_binding_routes import register_legacy_binding_routes
+                register_legacy_binding_routes(app, supplier_deal_dependencies)
 
 register_supplier_offers_module(app, {
     "contract_bindings_enabled": (

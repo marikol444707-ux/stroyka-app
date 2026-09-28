@@ -19,7 +19,7 @@ class ReleaseRevisionGraphTests(unittest.TestCase):
         config = Config(str(root / 'alembic.ini'))
         config.set_main_option('script_location', str(root / 'migrations'))
         graph = ScriptDirectory.from_config(config)
-        self.assertEqual(graph.get_heads(), ['0061_supplier_mixed_bindings'])
+        self.assertEqual(graph.get_heads(), ['0062_supplier_legacy_binding'])
         for revision in graph.walk_revisions():
             self.assertLessEqual(len(revision.revision), 32, revision.revision)
 
@@ -100,3 +100,10 @@ class SupplierReleaseUpgradeTests(unittest.TestCase):
         self.pay('5.00')
         self.assertEqual(self.sql('SELECT paid_amount FROM supplier_invoices WHERE id=%s',
                                  (self.invoice,)), [(105,)])
+        before_binding_release = self.snapshot(), self.snapshot(allocations=True)
+        self.alembic('upgrade', '0062_supplier_legacy_binding')
+        self.assertEqual(self.sql('SELECT version_num FROM alembic_version'), [('0062_supplier_legacy_binding',)])
+        self.assertEqual(self.sql('SELECT count(*) FROM supplier_legacy_contract_bindings'), [(0,)])
+        self.assertEqual((self.snapshot(), self.snapshot(allocations=True)), before_binding_release)
+        self.assertEqual(execute(self.main.get_db, self.payment_resolver, self.actor, 2, body,
+                                validate_new=validate_new_payment), original)

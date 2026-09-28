@@ -180,7 +180,8 @@ def build_document_resolver(authorize):
                 contract = load_invoice_contract(cur, invoice['id'], company_id)
                 payer = contract['payerCompanyId']
             else:
-                _require(invoice.get('offer_id') is None)
+                if invoice.get('offer_id') is not None:
+                    raise HTTPException(409, 'Счёт по КП не связан с проверенной версией договора. Сначала проверьте договор и оформите привязку счёта; повторное выставление счёта не создаёт эту связь')
         documents = [_snapshot(current, row, payer, cur=cur)
                      for current, rows in locked.items() for row in rows]
         _require(len({tuple(d[key] for key in ('supplierId', 'projectName', 'workPackage',

@@ -66,3 +66,21 @@ class SupplierBuildFlagsTests(unittest.TestCase):
         result=self.resolve(' '.join(f'SUPPLIER_{name}_ENABLED=1' for name in names if name!='MIXED_OPENING_REVIEW'))
         self.assertNotEqual(result.returncode,0)
         self.assertEqual(result.stdout,'')
+
+    def test_legacy_binding_requires_all_contract_dependencies(self):
+        names=('PAYMENTS','DEAL_PARTIES','CONTRACT_SNAPSHOTS','DOCUMENT_CONTRACT_BINDINGS','LEGACY_CONTRACT_BINDING')
+        for missing in (None,*names[:-1]):
+            result=self.resolve(' '.join(f'SUPPLIER_{name}_ENABLED=1' for name in names if name!=missing))
+            if missing:
+                self.assertNotEqual(result.returncode,0)
+                self.assertEqual(result.stdout,'')
+            else:
+                self.assertEqual(result.returncode,0,result.stderr)
+                self.assertIn('REACT_APP_SUPPLIER_LEGACY_CONTRACT_BINDING_ENABLED=true',result.stdout)
+
+    def test_line_specs_cannot_ship_without_contract_modules(self):
+        result=self.resolve('SUPPLIER_INVOICE_LINE_SPECS_ENABLED=1')
+        self.assertNotEqual(result.returncode,0)
+        self.assertEqual(result.stdout,'')
+        names=('INVOICE_LINE_SPECS','DEAL_PARTIES','CONTRACT_SNAPSHOTS','DOCUMENT_CONTRACT_BINDINGS')
+        self.assertEqual(self.resolve(' '.join(f'SUPPLIER_{n}_ENABLED=1' for n in names)).returncode,0)

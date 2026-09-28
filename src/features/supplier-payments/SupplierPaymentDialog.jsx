@@ -5,6 +5,7 @@ import './SupplierPaymentDialog.css';
 import SupplierOpeningPanel from './SupplierOpeningPanel';
 import SupplierRefundPanel from './SupplierRefundPanel';
 import SupplierAllocationPanel from './SupplierAllocationPanel';
+import SupplierLegacyBindingPanel from './SupplierLegacyBindingPanel';
 
 const documentLabel = kind => ({ invoice: 'счёт', warehouse: 'накладная' }[kind] || 'документ');
 const operationLabel = kind => ({payment:'Платёж',refund:'Возврат денег',credit:'Уменьшение суммы счёта',reversal:'Сторно'}[kind] || 'Операция');
@@ -19,6 +20,7 @@ function PaymentDialogContent(props) {
   const [openingBlocked, setOpeningBlocked] = useState(false);
   const [refundBlocked, setRefundBlocked] = useState(false);
   const [allocationBlocked, setAllocationBlocked] = useState(false);
+  const [bindingBlocked, setBindingBlocked] = useState(false);
   const titleId = useId();
   const root = useRef(null);
   const close = useRef(null);
@@ -36,7 +38,7 @@ function PaymentDialogContent(props) {
     if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
   };
-  const blocked = allocationBlocked || refundBlocked || openingBlocked || state.busy || state.loading || !!state.storageError || !state.snapshot;
+  const blocked = bindingBlocked || allocationBlocked || refundBlocked || openingBlocked || state.busy || state.loading || !!state.storageError || !state.snapshot;
   const reversingPayment = state.reversal?.operation.kind === 'payment';
   const reversalTitle = reversingPayment ? 'Сторно платежа' : 'Сторно операции';
   return <div className="supplier-payment-dialog-backdrop">
@@ -56,20 +58,24 @@ function PaymentDialogContent(props) {
         {Number(state.snapshot.creditAmount)>0 && <p>Исходная сумма: {money(state.snapshot.amount)} · Уменьшение: {money(state.snapshot.creditAmount)} · К расчёту: {money(state.snapshot.effectiveAmount)}</p>}
         {Number(state.snapshot.overpaidAmount)>0 && <p>Переплата поставщику: <strong>{money(state.snapshot.overpaidAmount)}</strong>. Возврат денег фиксируется после фактического получения.</p>}
       </div>}
+      {props.documentKind === 'invoice' && <SupplierLegacyBindingPanel API={props.API} userId={props.userId}
+        companyId={props.companyId} invoiceId={props.documentId}
+        disabled={allocationBlocked || refundBlocked || openingBlocked || state.busy || state.loading || !!state.pending || !!state.reversal || !!state.storageError}
+        onBlocked={setBindingBlocked} onSuccess={() => { state.reload(); props.onSuccess?.(); }} />}
       {props.documentKind === 'invoice' && <SupplierOpeningPanel API={props.API} userId={props.userId}
         companyId={props.companyId} invoiceId={props.documentId}
         registered={state.snapshot?.openingPaidAmount != null}
         // Opening preview has its own server authorization and must remain reachable
         // when the payment read rejects an unregistered mixed-package receipt.
-        disabled={allocationBlocked || refundBlocked || state.busy || state.loading || !!state.pending || !!state.reversal || !!state.storageError}
+        disabled={bindingBlocked || allocationBlocked || refundBlocked || state.busy || state.loading || !!state.pending || !!state.reversal || !!state.storageError}
         onBlocked={setOpeningBlocked} onSuccess={() => { state.reload(); props.onSuccess?.(); }} />}
       {props.documentKind === 'invoice' && <SupplierAllocationPanel API={props.API} userId={props.userId}
         companyId={props.companyId} invoiceId={props.documentId}
-        disabled={openingBlocked || refundBlocked || state.busy || state.loading || !!state.pending || !!state.reversal || !!state.storageError}
+        disabled={bindingBlocked || openingBlocked || refundBlocked || state.busy || state.loading || !!state.pending || !!state.reversal || !!state.storageError}
         onBlocked={setAllocationBlocked} onSuccess={() => { state.reload(); props.onSuccess?.(); }} />}
       {props.documentKind === 'invoice' && <SupplierRefundPanel API={props.API} userId={props.userId}
         companyId={props.companyId} invoiceId={props.documentId}
-        disabled={allocationBlocked || openingBlocked || state.busy || state.loading || !!state.pending || !!state.reversal || !!state.storageError || !state.snapshot}
+        disabled={bindingBlocked || allocationBlocked || openingBlocked || state.busy || state.loading || !!state.pending || !!state.reversal || !!state.storageError || !state.snapshot}
         onBlocked={setRefundBlocked} onSuccess={() => { state.reload(); props.onSuccess?.(); }} />}
       {state.pending && <section aria-label="Незавершённая операция">
         <h3>Сохранённый запрос</h3>

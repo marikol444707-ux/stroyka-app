@@ -4,7 +4,9 @@ import sys
 from pathlib import Path
 
 NAMES = ('PAYMENTS', 'OPENING_CONFIRMATIONS', 'ALLOCATED_REFUNDS',
-         'PAYMENT_ALLOCATIONS', 'SETTLEMENTS', 'MIXED_OPENINGS', 'MIXED_OPENING_REVIEW')
+         'PAYMENT_ALLOCATIONS', 'SETTLEMENTS', 'MIXED_OPENINGS', 'MIXED_OPENING_REVIEW',
+         'LEGACY_CONTRACT_BINDING', 'DEAL_PARTIES', 'CONTRACT_SNAPSHOTS', 'DOCUMENT_CONTRACT_BINDINGS',
+         'INVOICE_LINE_SPECS')
 KEYS = {f'SUPPLIER_{name}_ENABLED' for name in NAMES}
 
 
@@ -24,7 +26,9 @@ def resolve(service_environment, backend_env_path):
         if value not in ('0', '1'):
             raise ValueError(f'{key}: ожидается 0 или 1')
     enabled = lambda name: values.get(f'SUPPLIER_{name}_ENABLED', '0') == '1'
-    dependencies = {'OPENING_CONFIRMATIONS': ('PAYMENTS',),
+    dependencies = {'LEGACY_CONTRACT_BINDING': ('PAYMENTS', 'DEAL_PARTIES', 'CONTRACT_SNAPSHOTS', 'DOCUMENT_CONTRACT_BINDINGS'),
+                    'INVOICE_LINE_SPECS': ('DEAL_PARTIES', 'CONTRACT_SNAPSHOTS', 'DOCUMENT_CONTRACT_BINDINGS'),
+                    'OPENING_CONFIRMATIONS': ('PAYMENTS',),
                     'MIXED_OPENINGS': ('PAYMENTS', 'OPENING_CONFIRMATIONS', 'MIXED_OPENING_REVIEW'),
                     'ALLOCATED_REFUNDS': ('PAYMENTS', 'PAYMENT_ALLOCATIONS', 'SETTLEMENTS')}
     for feature, required in dependencies.items():
@@ -32,7 +36,7 @@ def resolve(service_environment, backend_env_path):
             for name in required:
                 if not enabled(name):
                     raise ValueError(f'SUPPLIER_{feature}_ENABLED требует SUPPLIER_{name}_ENABLED=1')
-    return [f'REACT_APP_SUPPLIER_{name}_ENABLED={str(enabled(name)).lower()}' for name in (*NAMES[:3], 'MIXED_OPENINGS')]
+    return [f'REACT_APP_SUPPLIER_{name}_ENABLED={str(enabled(name)).lower()}' for name in (*NAMES[:3], 'MIXED_OPENINGS', 'LEGACY_CONTRACT_BINDING')]
 
 
 if __name__ == '__main__':
