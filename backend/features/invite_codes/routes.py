@@ -47,21 +47,25 @@ def register_invite_codes_module(app, deps):
             data.get("assignedProjects") or [],
             data.get("assignedPackages") or [],
         )
+        # Do not trust client-provided company/platform ids. Parse inputs then
+        # validate company existence server-side and derive platform account
+        # exclusively from the validated company. If no valid company is
+        # provided, ignore any platform_account_id from the client.
         company_id = data.get("companyId") or data.get("company_id")
-        platform_account_id = data.get("platformAccountId") or data.get("platform_account_id")
         try:
             company_id = int(company_id) if company_id not in (None, "") else None
         except Exception:
             company_id = None
-        try:
-            platform_account_id = int(platform_account_id) if platform_account_id not in (None, "") else None
-        except Exception:
-            platform_account_id = None
-        if company_id and not platform_account_id:
-            cur.execute("SELECT platform_account_id FROM companies WHERE id=%s", (company_id,))
+
+        # Ignore client-supplied platform account id; derive it only from a
+        # validated company. This prevents spoofing A->B tenant linkage.
+        platform_account_id = None
+        if company_id:
+            cur.execute("SELECT id, platform_account_id FROM companies WHERE id=%s", (company_id,))
             company_row = cur.fetchone()
-            if company_row:
-                platform_account_id = company_row.get("platform_account_id")
+            if not company_row:
+                raise HTTPException(status_code=404, detail="Компания не найдена")
+            platform_account_id = company_row.get("platform_account_id")
         cur.execute(
             "INSERT INTO invite_codes (code, role, supplier_id, preset_name, preset_category, created_by, expires_at, project_name, assigned_projects, assigned_packages, company_id, platform_account_id) "
             "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s,%s) RETURNING *",
