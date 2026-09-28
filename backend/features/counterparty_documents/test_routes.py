@@ -191,6 +191,7 @@ class ArchiveTests(unittest.TestCase):
                               dbname=os.environ['DB_NAME'],user=os.environ['DB_USER'])
         try:
             with conn.cursor() as cur:
+                cur.execute('CREATE TEMP TABLE projects (id int, company_id int, name text)')
                 cur.execute('CREATE TEMP TABLE supplier_offers (id int, company_id int)')
                 cur.execute('CREATE TEMP TABLE supplier_contract_versions (id int, company_id int, offer_id int, version int, source_file_id int, snapshot_hash text, snapshot_json jsonb, reviewed_at timestamp)')
                 cur.execute('INSERT INTO supplier_offers VALUES (71,1),(72,1)')

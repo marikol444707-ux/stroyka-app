@@ -1,4 +1,4 @@
-import {createContractReviewClient} from './contractReviewClient';
+import {createContractReviewClient,legalDraft} from './contractReviewClient';
 const scope={API:'',userId:7,companyId:1,offerId:71};
 const body={buyerCompanyId:1,payerCompanyId:1,expectedVersion:0,reason:'Проверено'};
 const row={offerId:71,companyId:1,version:1,buyerCompanyId:1,payerCompanyId:1,reason:'Проверено'};
@@ -63,4 +63,17 @@ test('review context rejects saved contract from another company or party',async
  await expect(client().reviewContext()).rejects.toThrow('другим сторонам');
  fetcher.mockResolvedValue(response({...context,reusableContracts:[{...candidate,snapshot:{...candidate.snapshot,payer:{...identity,companyId:2}}}]}));
  await expect(client().reviewContext()).rejects.toThrow('другим сторонам');
+});
+
+test('saved applicability must match before clearing pending intent',async()=>{
+ const party=legalDraft({fullName:'Компания',inn:'7701234567'});
+ const applicability={scope:'company',projectId:null,term:'open_ended',startsOn:'2020-01-01',endsOn:null};
+ const command={partyVersion:1,expectedVersion:0,sourceFileId:9,number:'Д-1',date:'2026-09-01',paymentTerms:'',reason:'Сверено',buyer:party,payer:party,supplier:party,applicability};
+ const saved={id:10,companyId:1,offerId:71,version:1,partyVersion:1,sourceFileId:9,status:'reviewed',reason:command.reason,snapshot:{...command,applicability:{...applicability,term:'fixed',endsOn:'2026-12-31'}}};
+ fetcher.mockResolvedValue(response(saved));
+ await expect(client().save('contract',command)).rejects.toThrow('не совпадает');
+ expect(client().pending()).not.toBeNull();
+ fetcher.mockResolvedValue(response({...saved,snapshot:{...saved.snapshot,applicability}}));
+ await expect(client().save('contract',command)).resolves.toMatchObject({id:10});
+ expect(client().pending()).toBeNull();
 });

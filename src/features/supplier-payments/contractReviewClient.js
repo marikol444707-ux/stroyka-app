@@ -39,6 +39,7 @@ export function createContractReviewClient(scope, {fetcher=window.fetch,storage=
     return id(value.id) && value.status==='reviewed' && value.partyVersion===body.partyVersion
       && value.sourceFileId===body.sourceFileId && value.snapshot
       && (value.snapshot.reusedFrom?.contractId || null)===(body.reusedFromContractId || null)
+      && (body.applicability ? ['scope','projectId','term','startsOn','endsOn'].every(k=>(value.snapshot.applicability?.[k] ?? null)===(body.applicability[k] ?? null)) : !value.snapshot.applicability)
       && ['number','date','paymentTerms'].every(k=>value.snapshot[k]===body[k])
       && ['buyer','payer','supplier'].every(side=>legalFields.every(k=>value.snapshot[side]?.[k]===body[side]?.[k]));
   };

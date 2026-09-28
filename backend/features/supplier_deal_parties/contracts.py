@@ -14,6 +14,7 @@ from .routes import MAX_ID
 from .review_context import register_contract_review_context
 from .contract_provenance import RecognitionReview, prepare_contract_provenance
 from .payment_schedule import PaymentSchedule
+from .contract_applicability import ContractApplicability, offer_project, eligible_applicability
 
 
 class LegalParty(BaseModel):
@@ -51,6 +52,7 @@ class ContractReview(BaseModel):
     recognitionReview: Optional[RecognitionReview] = None
     reusedFromContractId: Optional[int] = Field(default=None, strict=True, gt=0, le=MAX_ID)
     paymentSchedule: Optional[PaymentSchedule] = None
+    applicability: Optional[ContractApplicability] = None
 
     @field_validator('reviewConfirmed')
     @classmethod
@@ -74,6 +76,8 @@ def build_snapshot(review, parties):
         for field in ('legalAddress','bankName','bik','rs','ks','directorName','basis')
         if not result[side][field]
     ]
+    if review.applicability is not None:
+        result['applicability'] = review.applicability.model_dump(mode='json')
     if review.paymentSchedule is not None:
         result['paymentSchedule'] = review.paymentSchedule.model_dump()
     return result
@@ -153,6 +157,12 @@ def register_supplier_contracts_module(app, deps):
             if (parties['buyer_company_id'] == parties['payer_company_id']
                     and data.buyer != data.payer):
                 raise HTTPException(409, 'Реквизиты покупателя и плательщика одной компании должны совпадать')
+            project = offer_project(cur, offer) if data.applicability is not None else None
+            if data.applicability is not None:
+                if data.applicability.scope == 'project' and (not project or project['id'] != data.applicability.projectId):
+                    raise HTTPException(422, 'Выберите объект этой сделки')
+                if file['project_id'] and (data.applicability.scope != 'project' or data.applicability.projectId != file['project_id']):
+                    raise HTTPException(422, 'Этот оригинал доступен только для своего объекта')
             reused_from = None
             if data.reusedFromContractId is not None:
                 cur.execute('SELECT * FROM supplier_contract_versions WHERE id=%s AND company_id=%s',
@@ -162,7 +172,11 @@ def register_supplier_contracts_module(app, deps):
                     raise HTTPException(409, 'Выбранный договор недоступен. Выберите его заново')
                 load_offer(cur, source['offer_id'], current_user, 'read', x_company_id, x_company_mode)
                 old = source['snapshot_json']
-                if (file['project_id'] or old.get('paymentSchedule') or any(
+                if (not eligible_applicability(old, project['id'] if project else None)
+                    or data.applicability is None
+                    or data.applicability.model_dump(mode='json') != old.get('applicability')):
+                    raise HTTPException(422, 'Срок или область действия договора не подходят. Проверьте новую версию договора')
+                if (old.get('paymentSchedule') or any(
                     old.get(side, {}).get(key) != value for side, key, value in (
                         ('buyer', 'companyId', parties['buyer_company_id']),
                         ('payer', 'companyId', parties['payer_company_id']),

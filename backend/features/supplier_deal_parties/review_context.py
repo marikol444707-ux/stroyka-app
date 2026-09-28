@@ -9,6 +9,7 @@ from ..company_requisites.service import company_requisites_to_api
 from .access import build_deal_access
 from .routes import MAX_ID
 from .reusable_contracts import reusable_contracts
+from .contract_applicability import offer_project
 
 
 def build_contract_review_context(deps):
@@ -61,8 +62,9 @@ def build_contract_review_context(deps):
             }
             cur.execute('SELECT COALESCE(MAX(version),0) AS version FROM supplier_contract_versions WHERE offer_id=%s', (id,))
             expected_version = cur.fetchone()['version']
-            reusable = reusable_contracts(cur, offer, identities, load_offer, current_user, x_company_id, x_company_mode)
-            return {'offerId': id, 'companyId': offer['company_id'], 'partyVersion': parties['version'],
+            project = offer_project(cur, offer)
+            reusable = reusable_contracts(cur, offer, identities, load_offer, current_user, x_company_id, x_company_mode, project['id'] if project else None)
+            return {'project': project, 'offerId': id, 'companyId': offer['company_id'], 'partyVersion': parties['version'],
                     'expectedVersion': expected_version, 'reusableContracts': reusable, 'identitySource': 'company_profiles', **identities}
         finally:
             cur.close()

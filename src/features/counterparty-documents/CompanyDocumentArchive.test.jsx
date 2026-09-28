@@ -142,3 +142,11 @@ test('rejects rows from a different category',async()=>{
  await screen.findByRole('alert');
  expect(screen.queryByText('Устав компании')).toBeNull();
 });
+
+test('shows reviewed scope and term from contract snapshot',async()=>{
+ global.fetch=jest.fn().mockResolvedValue({ok:true,json:async()=>({companyId:1,hasMore:false,items:[{
+  id:'contract:9',source:'contract',sourceId:9,companyId:1,title:'Договор 362',attachments:[],
+  applicability:{scope:'project',projectId:44,term:'fixed',startsOn:'2026-09-01',endsOn:'2026-12-31'},scopeProjectName:'Лицей'}]})});
+ render(<Archive {...props}/>);
+ await screen.findByText('Объект: Лицей · с 01.09.2026 по 31.12.2026');
+});

@@ -68,6 +68,7 @@ def register_counterparty_document_archive(app, deps):
                 fields = ','.join(f"'{field}',to_jsonb(d)->'{field}'" for field in (*file_fields, 'project_id', 'project_name', 'sign_status'))
                 if key == 'contract':
                     fields = "'file_url','/tenant-files/' || d.source_file_id || '/content','offer_id',d.offer_id,'version',d.version"
+                    fields += ", 'applicability',d.snapshot_json->'applicability','scope_project_name',(SELECT p.name FROM projects p WHERE p.company_id=d.company_id AND p.id::text=d.snapshot_json #>> '{applicability,projectId}')"
                     fields += """, 'origin_contract_id',(SELECT c.id FROM supplier_contract_versions c
                         WHERE c.id::text=d.snapshot_json #>> '{reusedFrom,contractId}'
                           AND c.company_id=d.company_id AND c.id<>d.id
@@ -146,6 +147,8 @@ def register_counterparty_document_archive(app, deps):
                               'projectName': payload.get('project_name') if source == 'customer' else None,
                               'offerId': payload.get('offer_id') if source in ('contract', 'invoice') else None,
                               'contractId': payload.get('contract_id') if source == 'invoice' else None,
+                              'applicability': payload.get('applicability') if source == 'contract' else None,
+                              'scopeProjectName': payload.get('scope_project_name') if source == 'contract' else None,
                               'originContractId': payload.get('origin_contract_id') if source == 'contract' else None,
                               'contractNumber': payload.get('contract_number') if source == 'invoice' else None,
                               'contractVersion': payload.get('contract_version') if source == 'invoice' else None,

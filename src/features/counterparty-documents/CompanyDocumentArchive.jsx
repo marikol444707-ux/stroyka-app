@@ -60,6 +60,11 @@ function Archive({API,companyId,C,card,inp,btnG,setShowPhotoModal}) {
   {data?.items.map(row=><article key={row.id} style={{borderBottom:`1px solid ${C.border}`,padding:'14px 0'}}>
    <strong style={{color:C.text}}>{row.title || row.documentType}</strong>
    <p style={{color:C.textSec,margin:'6px 0'}}>{row.documentType}{row.createdAt ? ` · ${new Date(row.createdAt).toLocaleDateString('ru-RU')}`:''}</p>
+   {row.applicability&&<p style={{color:C.textSec,margin:'6px 0'}}>
+    {row.applicability.scope==='company'?'Все объекты компании':`Объект: ${row.scopeProjectName || 'не указан'}`}
+    {' · с '}{row.applicability.startsOn?.split('-').reverse().join('.')}
+    {row.applicability.term==='open_ended'?' · бессрочно':` по ${row.applicability.endsOn?.split('-').reverse().join('.')}`}
+   </p>}
    {row.offerId&&<p style={{color:C.textSec,margin:'6px 0'}}>КП № {row.offerId}{row.contractVersion ? ` · Договор № ${row.contractNumber || 'без номера'}, версия ${row.contractVersion}`:''}</p>}
    <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:8}}>
     {row.source==='contract'&&<button style={btnG} onClick={()=>setRelated({id:row.sourceId,title:row.title,offset:0})}>Счета по этой версии</button>}

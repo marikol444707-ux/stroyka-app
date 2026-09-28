@@ -3,6 +3,7 @@ import {createContractReviewClient,legalDraft,legalFields} from './contractRevie
 import ContractPartyFields from './ContractPartyFields';
 import './SupplierContractReviewPanel.css';
 
+const emptyApplicability=()=>({scope:'',projectId:null,term:'',startsOn:'',endsOn:null});
 const sides={buyer:'Покупатель',payer:'Плательщик',supplier:'Поставщик'};
 
 export default function SupplierContractReviewPanel(props) {
@@ -22,6 +23,9 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
  const [recognition,setRecognition]=useState(null),[recognitionMessage,setRecognitionMessage]=useState('');
  const autoFields=useRef([]);
  const [reusedFrom,setReusedFrom]=useState(null);
+ const [applicability,setApplicability]=useState(emptyApplicability);
+ const applicabilityReady=Boolean(applicability.scope&&applicability.term&&applicability.startsOn&&(applicability.term==='open_ended'||(applicability.endsOn&&applicability.endsOn>=applicability.startsOn)));
+ const changeApplicability=values=>{setApplicability(current=>({...current,...values}));setChecked(false);};
  const [activeSide,setActiveSide]=useState('supplier');
  const separatePayer=Boolean(parties?.version && parties.buyerCompanyId!==parties.payerCompanyId);
  const visibleSides=separatePayer?sides:{buyer:'Покупатель и плательщик',supplier:'Поставщик'};
@@ -29,7 +33,7 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
  const blocked=disabled || busy || loading || fatal;
  const loadReview=async()=>{
   const value=await client.reviewContext();
-  if(live.current){setReusedFrom(null);setDraftEdited(false);setReview(value);setLegal(Object.fromEntries(Object.keys(sides).map(side=>[side,legalDraft(value[side])])));setChecked(false);setRecognition(null);setRecognitionMessage('');autoFields.current=[];setFile(null);}
+  if(live.current){setReusedFrom(null);setApplicability(emptyApplicability());setDraftEdited(false);setReview(value);setLegal(Object.fromEntries(Object.keys(sides).map(side=>[side,legalDraft(value[side])])));setChecked(false);setRecognition(null);setRecognitionMessage('');autoFields.current=[];setFile(null);}
  };
  const loadParties=async()=>{
   const value=await client.load();
@@ -70,10 +74,10 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
   await client.save('parties',{buyerCompanyId:Number(buyer),payerCompanyId:Number(separatePayer?payer:buyer),expectedVersion:parties.version,reason:partyReason.trim()});
   await loadParties();await loadReview();
  });};
- const saveContract=e=>{e.preventDefault();if(pending || !checked || !file || !number.trim() || !date || !reason.trim())return;act(async()=>{
+ const saveContract=e=>{e.preventDefault();if(pending || !applicabilityReady || !checked || !file || !number.trim() || !date || !reason.trim())return;act(async()=>{
   const acceptedFields=recognition ? autoFields.current.filter(item=>(separatePayer || item.side!=='payer') && legal[item.side][item.field]===item.value).map(({side,field})=>({side,field})) : [];
   const body={...(reusedFrom?{reusedFromContractId:reusedFrom}:{}),...(acceptedFields.length ? {recognitionReview:{sourceContentHash:recognition.sourceContentHash,acceptedFields}} : {}),partyVersion:review.partyVersion,expectedVersion:review.expectedVersion,sourceFileId:file.fileId,
-   number:number.trim(),date,reviewConfirmed:true,paymentTerms:terms.trim(),reason:reason.trim(),
+   number:number.trim(),date,applicability,reviewConfirmed:true,paymentTerms:terms.trim(),reason:reason.trim(),
    ...Object.fromEntries(Object.keys(sides).map(side=>[side,Object.fromEntries(legalFields.map(k=>[k,legal[side==='payer' && !separatePayer?'buyer':side][k].trim()]))]))};
   await client.save('contract',body);if(live.current)onSaved?.();
  });};
@@ -157,7 +161,7 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
      <p className="contract-hint">Те же стороны, оригинал уже загружен. Выбор заполнит поля данными проверенной версии; перед сохранением сверьте их с текущими реквизитами.</p>
      {review.reusableContracts.map(contract=><button key={contract.id} type="button" onClick={()=>{
       setReusedFrom(contract.id);setFile({fileId:contract.sourceFileId,name:`Договор № ${contract.snapshot.number} · версия ${contract.version}`});
-      setNumber(contract.snapshot.number);setDate(contract.snapshot.date);setTerms(contract.snapshot.paymentTerms || '');
+      setApplicability(contract.snapshot.applicability || emptyApplicability());setNumber(contract.snapshot.number);setDate(contract.snapshot.date);setTerms(contract.snapshot.paymentTerms || '');
       setLegal(Object.fromEntries(Object.keys(sides).map(side=>[side,legalDraft(contract.snapshot[side])])));
       setReason(`Повторное использование договора из КП № ${contract.offerId}, версия ${contract.version}`);
       setChecked(false);setRecognition(null);autoFields.current=[];
@@ -172,6 +176,23 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
     </div><div className="contract-field-grid contract-document-meta">
     <label>Номер договора<input required maxLength={100} value={number} onChange={e=>{setNumber(e.target.value);setChecked(false);}}/></label>
     <label>Дата договора<input required type="date" value={date} onChange={e=>{setDate(e.target.value);setChecked(false);}}/></label>
+    </div>
+    <div className="contract-upload-card">
+     <h4>Где и до какого срока действует договор</h4>
+     <p className="contract-hint">Укажите условия из оригинала. Они определяют, для каких новых КП можно выбрать этот договор.</p>
+     <div className="contract-field-grid">
+      <label>Область действия<select required disabled={Boolean(reusedFrom)} value={applicability.scope} onChange={e=>changeApplicability({scope:e.target.value,projectId:e.target.value==='project'?review.project?.id:null})}>
+       <option value="">Выберите</option><option value="company">Все объекты компании</option>
+       {review.project&&<option value="project">Объект: {review.project.name}</option>}
+      </select></label>
+      <label>Срок договора<select required disabled={Boolean(reusedFrom)} value={applicability.term} onChange={e=>changeApplicability({term:e.target.value,endsOn:e.target.value==='open_ended'?null:applicability.endsOn})}>
+       <option value="">Выберите</option><option value="open_ended">Бессрочный</option><option value="fixed">До даты</option>
+      </select></label>
+      <label>Действует с<input required disabled={Boolean(reusedFrom)} type="date" value={applicability.startsOn} onChange={e=>changeApplicability({startsOn:e.target.value})}/></label>
+      {applicability.term==='fixed'&&<label>Действует по<input required disabled={Boolean(reusedFrom)} type="date" min={applicability.startsOn} value={applicability.endsOn || ''} onChange={e=>changeApplicability({endsOn:e.target.value})}/></label>}
+     </div>
+     {reusedFrom&&<p className="contract-hint">Срок и объект взяты из выбранной версии. Изменённые условия оформляются новой проверенной версией договора.</p>}
+     {!review.project&&<p className="contract-hint">Объект сделки не определён однозначно. Для договора одного объекта сначала уточните объект заявки.</p>}
     </div>
     <div className="contract-section-heading"><div><span className="contract-eyebrow">02 / СТОРОНЫ ДОГОВОРА</span><h4>Сверьте данные каждой стороны</h4></div><p className="contract-hint">Заполненные вручную поля сохраняются при распознавании.</p></div>
     <div className="contract-party-tabs" role="tablist" aria-label="Сторона договора">{Object.entries(visibleSides).map(([side,label])=>
@@ -193,7 +214,7 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
     <label>Основание проверки<textarea required maxLength={1000} value={reason} onChange={e=>setReason(e.target.value)}/></label>
     <label className="supplier-refund-check"><input type="checkbox" checked={checked} onChange={e=>setChecked(e.target.checked)}/>Реквизиты и условия сверены с загруженным оригиналом</label>
     <p className="contract-hint">Сохранение реквизитов не подтверждает подпись, оплату или получение материала.</p>
-    <div className="contract-actions"><button className="contract-primary" type="submit" disabled={!checked || !file || !number.trim() || !date || !reason.trim()}>Сохранить проверенную версию договора</button>
+    <div className="contract-actions"><button className="contract-primary" type="submit" disabled={!applicabilityReady || !checked || !file || !number.trim() || !date || !reason.trim()}>Сохранить проверенную версию договора</button>
     <button type="button" onClick={()=>{setReview(null);setChecked(false);}}>Вернуться к сторонам</button></div></div>
    </fieldset>
   </form>}

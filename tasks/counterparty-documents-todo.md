@@ -116,3 +116,9 @@
 - Related navigation preserves category/search/page; company and section switch clear category. Client rejects unexpected source rows.
 - 20 route tests passed including isolated PostgreSQL; 11 UI tests passed.
 - Deployed `618493dbc5a8`. Authenticated browser: contract category -> offer71 -> return preserved filter; invoices pages30+19 contain only company1 invoices; section change resets category. Mobile390/page390 visually checked, zero JS errors. 19 production tests passed (isolated PG skipped), 251 assets matched, source/financial/stock hashes unchanged, health/DB OK. Four gates recorded; stage and backup removed, receipt retained.
+
+## 2026-09-29 — D3 explicit term and project scope
+- Review records explicit company/project scope and fixed/open-ended dates in immutable snapshot; UI never assumes missing means unlimited. Archive displays reviewed conditions.
+- Reuse checks inclusive Moscow dates and exact authorized project, and revalidates unchanged conditions on save. Project originals supported only within the same project; ambiguous legacy names cannot establish scope. Unknown/expired/future contracts excluded from reuse.
+- Compatibility: older review commands may omit conditions and remain non-reusable; existing documents/snapshots are unchanged. Canonical pair-level registry, addenda/archive and other issuance-path expiry controls remain pending.
+- 52 backend tests passed including 16 contract PostgreSQL and archive PostgreSQL cases; UI/client tests and browser/deployment verification recorded below.

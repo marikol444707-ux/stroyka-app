@@ -6,6 +6,7 @@ jest.mock('./contractReviewClient',()=>({...jest.requireActual('./contractReview
 const props={API:'',userId:7,companyId:1,offerId:71};
 const ctx={offerId:71,companyId:1,partyVersion:1,expectedVersion:0,
  buyer:{fullName:'Заказчик',inn:'7701111111',companyId:1},payer:{fullName:'Заказчик',inn:'7701111111',companyId:1},supplier:{fullName:'ВИСТ тест',inn:'7702222222',supplierId:159}};
+const applicability={scope:'company',projectId:null,term:'open_ended',startsOn:'2020-01-01',endsOn:null};
 let client;
 beforeEach(()=>{client={pending:jest.fn(()=>null),load:jest.fn(async()=>({parties:{version:0},companies:[{companyId:1,companyName:'Наша компания'}]})),
  reviewContext:jest.fn(async()=>ctx),save:jest.fn(async()=>({id:8})),upload:jest.fn(async()=>({companyId:1,fileId:10}))};createContractReviewClient.mockReturnValue(client);});
@@ -23,11 +24,14 @@ test('explicit parties then original and reviewed legal identities are required'
  await screen.findByText('Загружен: original.txt');
  fireEvent.change(screen.getByLabelText('Номер договора'),{target:{value:'Д-1'}});
  fireEvent.change(screen.getByLabelText('Дата договора'),{target:{value:'2026-09-28'}});
+ fireEvent.change(screen.getByLabelText('Область действия'),{target:{value:'company'}});
+ fireEvent.change(screen.getByLabelText('Срок договора'),{target:{value:'open_ended'}});
+ fireEvent.change(screen.getByLabelText('Действует с'),{target:{value:'2020-01-01'}});
  fireEvent.change(screen.getByLabelText('Основание проверки'),{target:{value:'Сверено'}});
  fireEvent.click(screen.getByLabelText('Реквизиты и условия сверены с загруженным оригиналом'));
  fireEvent.click(screen.getByText('Сохранить проверенную версию договора'));
  await waitFor(()=>expect(saved).toHaveBeenCalledTimes(1));
- expect(client.save.mock.calls[1][1]).toEqual({partyVersion:1,expectedVersion:0,sourceFileId:10,number:'Д-1',date:'2026-09-28',reviewConfirmed:true,paymentTerms:'',reason:'Сверено',
+ expect(client.save.mock.calls[1][1]).toEqual({partyVersion:1,expectedVersion:0,sourceFileId:10,number:'Д-1',date:'2026-09-28',applicability,reviewConfirmed:true,paymentTerms:'',reason:'Сверено',
  buyer:legalDraft(ctx.buyer),payer:legalDraft(ctx.payer),supplier:legalDraft(ctx.supplier)});
 });
 test('retained command replaces editing until it is resolved',async()=>{
@@ -102,11 +106,14 @@ test('company profile prepopulates draft without auto-confirming the contract',a
 test('reuses reviewed original without upload or OCR and requires fresh confirmation',async()=>{
  client.load.mockResolvedValue({parties:{version:1,buyerCompanyId:1,payerCompanyId:1},companies:[{companyId:1,companyName:'Наша компания'}]});
  client.reviewContext.mockResolvedValue({...ctx,reusableContracts:[{id:3,offerId:60,version:2,sourceFileId:99,
- snapshot:{...ctx,number:'Д-старый',date:'2026-09-01',paymentTerms:'После доставки'}}]});
+ snapshot:{...ctx,applicability,number:'Д-старый',date:'2026-09-01',paymentTerms:'После доставки'}}]});
  const saved=jest.fn();render(<Panel {...props} onSaved={saved}/>);
  fireEvent.click(await screen.findByText('Перейти к проверке договора'));
  fireEvent.click(await screen.findByRole('button',{name:/Договор № Д-старый/}));
  expect(client.upload).not.toHaveBeenCalled();
+ expect(screen.getByLabelText('Срок договора').value).toBe('open_ended');
+ expect(screen.getByLabelText('Срок договора').disabled).toBe(true);
+ expect(screen.getByLabelText('Область действия').disabled).toBe(true);
  expect(screen.getByLabelText('Номер договора').value).toBe('Д-старый');
  expect(screen.getByText('Сохранить проверенную версию договора').disabled).toBe(true);
  fireEvent.click(screen.getByLabelText('Реквизиты и условия сверены с загруженным оригиналом'));
@@ -123,4 +130,21 @@ test('existing contract choice cannot overwrite a manually edited draft',async()
  fireEvent.change(screen.getByLabelText('Номер договора'),{target:{value:'Вручную'}});
  expect(screen.queryByRole('button',{name:/Договор № Old/})).toBeNull();
  expect(screen.getByLabelText('Номер договора').value).toBe('Вручную');
+});
+
+test('scope and term are explicit and changing conditions clears confirmation',async()=>{
+ client.load.mockResolvedValue({parties:{version:1,buyerCompanyId:1,payerCompanyId:1},companies:[{companyId:1,companyName:'Наша компания'}]});
+ client.reviewContext.mockResolvedValue({...ctx,project:{id:44,name:'Объект А'}});
+ render(<Panel {...props}/>);
+ fireEvent.click(await screen.findByText('Перейти к проверке договора'));
+ await screen.findByLabelText('Область действия');
+ expect(screen.getByLabelText('Область действия').value).toBe('');
+ expect(screen.getByLabelText('Срок договора').value).toBe('');
+ fireEvent.change(screen.getByLabelText('Область действия'),{target:{value:'project'}});
+ fireEvent.change(screen.getByLabelText('Срок договора'),{target:{value:'fixed'}});
+ expect(screen.getByLabelText('Действует по').required).toBe(true);
+ fireEvent.click(screen.getByLabelText('Реквизиты и условия сверены с загруженным оригиналом'));
+ fireEvent.change(screen.getByLabelText('Действует с'),{target:{value:'2026-09-01'}});
+ expect(screen.getByLabelText('Реквизиты и условия сверены с загруженным оригиналом').checked).toBe(false);
+ expect(client.save).not.toHaveBeenCalled();
 });

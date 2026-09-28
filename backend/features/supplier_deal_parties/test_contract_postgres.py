@@ -67,7 +67,8 @@ class ContractPostgresTest(unittest.TestCase):
         return self.contract_client.get('/supplier-offers/40/contracts' + query)
 
     def test_reviewed_original_reused_for_second_offer_without_new_file(self):
-        original = self.review()
+        applicability={'scope':'company','term':'open_ended','startsOn':'2020-01-01','projectId':None,'endsOn':None}
+        original = self.review(applicability=applicability)
         self.assertEqual(original.status_code, 200, original.text)
         with self.conn.cursor() as cur:
             cur.execute("INSERT INTO supplier_offers VALUES (41,12,20,5,'Утверждено')")
@@ -86,7 +87,7 @@ class ContractPostgresTest(unittest.TestCase):
                        {'reusedFromContractId': original.json()['id'], 'sourceFileId': 35}):
             rejected = self.contract_client.post('/supplier-offers/41/contracts', json={**payload(), **change})
             self.assertEqual(rejected.status_code, 409, rejected.text)
-        saved = self.contract_client.post('/supplier-offers/41/contracts', json={**payload(), 'reusedFromContractId':original.json()['id']})
+        saved = self.contract_client.post('/supplier-offers/41/contracts', json={**payload(), 'applicability':applicability, 'reusedFromContractId':original.json()['id']})
         self.assertEqual(saved.status_code, 200, saved.text)
         self.assertEqual(saved.json()['sourceFileId'], original.json()['sourceFileId'])
         self.assertEqual(saved.json()['snapshot']['reusedFrom']['contractId'], original.json()['id'])
@@ -204,3 +205,52 @@ class ContractPostgresTest(unittest.TestCase):
         history = self.contract_client.get('/supplier-offers/40/contracts').json()['items']
         self.assertEqual(history[0]['snapshot'], saved['snapshot'])
         self.assertEqual(history[0]['snapshot']['buyer']['bankName'], 'Original bank')
+
+    def second_offer(self):
+        with self.conn.cursor() as cur:
+            cur.execute("INSERT INTO supplier_offers VALUES (41,12,20,5,'Утверждено')")
+            cur.execute("""INSERT INTO supplier_deal_parties
+                (offer_id,company_id,request_id,supplier_id,buyer_company_id,payer_company_id,
+                 version,reason,created_by_id,created_by)
+                VALUES (41,12,20,5,12,99,1,'Historical pair',8,'Test')""")
+
+    def test_project_original_reusable_only_for_exact_scope_and_dates_immutable(self):
+        applicability={'scope':'project','projectId':44,'term':'open_ended','startsOn':'2020-01-01','endsOn':None}
+        first=self.review(sourceFileId=35,applicability=applicability)
+        self.assertEqual(first.status_code,200,first.text)
+        self.second_offer()
+        context=self.contract_client.get('/supplier-offers/41/contract-review-context').json()
+        self.assertEqual(context['project']['id'],44)
+        self.assertEqual(len(context['reusableContracts']),1)
+        body={**payload(),'sourceFileId':35,'applicability':applicability,'reusedFromContractId':first.json()['id']}
+        for change in ({'projectId':45},{'startsOn':'2020-02-01'}):
+            rejected=self.contract_client.post('/supplier-offers/41/contracts',json={**body,'applicability':{**applicability,**change}})
+            self.assertEqual(rejected.status_code,422,rejected.text)
+        saved=self.contract_client.post('/supplier-offers/41/contracts',json=body)
+        self.assertEqual(saved.status_code,200,saved.text)
+        self.assertEqual(saved.json()['snapshot']['applicability'],applicability)
+        with self.conn.cursor() as cur:
+            cur.execute("UPDATE supply_requests SET project='Other object' WHERE id=20")
+        self.assertEqual(self.contract_client.get('/supplier-offers/41/contract-review-context').json()['reusableContracts'],[])
+        self.assertEqual(self.history().json()['items'][0]['snapshot']['applicability'],applicability)
+
+    def test_expired_and_unknown_contracts_not_reused(self):
+        expired={'scope':'company','term':'fixed','startsOn':'2020-01-01','endsOn':'2020-01-02','projectId':None}
+        original=self.review(applicability=expired)
+        self.assertEqual(original.status_code,200,original.text)
+        self.second_offer()
+        self.assertEqual(self.contract_client.get('/supplier-offers/41/contract-review-context').json()['reusableContracts'],[])
+        rejected=self.contract_client.post('/supplier-offers/41/contracts',json={**payload(),'applicability':expired,'reusedFromContractId':original.json()['id']})
+        self.assertEqual(rejected.status_code,422,rejected.text)
+        unknown=self.review(expectedVersion=1)
+        self.assertEqual(unknown.status_code,200,unknown.text)
+        self.assertNotIn('applicability',unknown.json()['snapshot'])
+        self.assertEqual(self.contract_client.get('/supplier-offers/41/contract-review-context').json()['reusableContracts'],[])
+
+    def test_project_scope_rejects_foreign_ambiguous_and_company_scope_file(self):
+        base={'scope':'project','projectId':45,'term':'open_ended','startsOn':'2020-01-01'}
+        self.assertEqual(self.review(applicability=base).status_code,422)
+        self.assertEqual(self.review(sourceFileId=35,applicability={**base,'scope':'company','projectId':None}).status_code,422)
+        with self.conn.cursor() as cur:
+            cur.execute("INSERT INTO projects VALUES (46,12,'Object A')")
+        self.assertEqual(self.review(applicability={**base,'projectId':44}).status_code,422)

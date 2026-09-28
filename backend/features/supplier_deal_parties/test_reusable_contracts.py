@@ -13,6 +13,7 @@ class ReusableContractsTests(unittest.TestCase):
         self.row = dict(id=7, offer_id=8, company_id=1, version=2,
                         source_file_id=9, snapshot_hash='hash',
                         snapshot_json=copy.deepcopy(self.identities))
+        self.row['snapshot_json']['applicability'] = {'scope':'company','term':'open_ended','startsOn':'2020-01-01','projectId':None,'endsOn':None}
         self.cur = Mock()
         self.access = Mock()
 
@@ -27,7 +28,7 @@ class ReusableContractsTests(unittest.TestCase):
         self.assertEqual(result[0]['sourceFileId'], 9)
         self.access.assert_called_with(self.cur, 8, {'id': 3}, 'read', '1', 'company')
         sql, params = self.cur.execute.call_args.args
-        self.assertEqual(params, (1, 2, 10))
+        self.assertEqual(params, (1, 2, 10, None))
         self.assertIn('f.project_id IS NULL', sql)
         self.assertIn('newer.version>c.version', sql)
 

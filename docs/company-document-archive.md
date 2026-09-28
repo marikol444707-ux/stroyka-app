@@ -66,3 +66,23 @@ Contract increment: 12 route tests and 4 UI tests passed. Read-only SQL rehearsa
 with synthetic leadership context found the existing contract and quotation;
 this alone is not authentication evidence. Release results are recorded in
 tasks/counterparty-documents-todo.md and server release receipts.
+
+## Reviewed contract applicability
+
+New review UI explicitly asks for company-wide or current-project scope and a
+start date with either an end date or an explicit open-ended term. Conditions are
+saved in immutable snapshot.applicability and displayed in the archive. Legacy
+versions remain unchanged; missing applicability is unknown, never open-ended.
+
+Reuse requires current validity (inclusive dates, Europe/Moscow), exact parties
+and INNs, and the matching authorized project when restricted. Project originals
+can only be reviewed for their own project and cannot become company-wide. Legacy
+request project names must resolve uniquely inside the already authorized company;
+otherwise the project option is unavailable. Saving revalidates eligibility and
+requires unchanged applicability from the selected version. Deal-specific payment
+schedules remain excluded from reuse.
+
+The legacy API still accepts reviews without applicability for compatibility, but
+these versions are not candidates for reuse. No historic invoices are rebound.
+This extends existing offer-bound versions; a canonical pair-level registry,
+archiving, addenda and expiry controls for other issuance paths remain pending.
