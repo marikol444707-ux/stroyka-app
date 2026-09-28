@@ -19,10 +19,25 @@ documentType, createdAt, fileUrl and fileStatus. Statuses:
 
 The file content endpoint retains its independent authorization. Original external
 or legacy URLs are never returned. Archived supplier records are excluded.
-Current sources: company_documents and supplier_documents only. Quotes, invoices,
-deliveries, project documents and reusable contracts are not included yet.
+Current sources: company_documents, supplier_documents, supplier_offers,
+supplier_invoices, supply_deliveries and warehouse_invoices. The supplier section
+includes all procurement sources. Project documents and reusable contracts are
+not included yet. Source/sourceId remain the identity of the business record;
+this endpoint does not yet expand relationships between different records.
+
+Each item also has attachments (deduplicated protected file IDs/URLs) and
+unavailableAttachments. A partially available set has fileStatus needs_review,
+while its individually verified attachments remain accessible. A project-scoped
+file is currently withheld, even for leadership: project-aware archive access
+must be implemented and tested before exposing those references. Malformed page
+arrays are marked for review, not silently dropped as missing files.
 
 Verification: five API unit tests cover scope, effective role, query parameters,
 unsafe URLs and pagination. A read-only SQL rehearsal against existing data returned
 three records for company 1, zero for company 2. Rehearsal used synthetic actors;
 it does not replace authenticated browser and production authorization checks.
+
+Procurement increment: seven route tests passed. Read-only SQL rehearsal returned
+100 rows on company 1's first page and two company 2 records, with no owner mixing.
+Two project-scoped attachments remain withheld by the conservative file filter.
+This increment is local and has not been deployed or browser-verified.
