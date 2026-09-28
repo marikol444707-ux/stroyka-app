@@ -86,3 +86,8 @@
 - Immutable snapshot records source contract ID, offer, version and snapshot hash. Client sends selection and verifies it on response/retry; new upload clears selection. Existing snapshots stay unchanged.
 - 13 real isolated PostgreSQL tests passed, including reuse and rejected missing source/wrong original; 18 UI/client tests passed. Full shared-contract registry and expanded archive navigation remain pending.
 - Deployed `1aa160bb62d2`. Local browser fixture submitted original file9/source contract3 and verified response. Production VIST review form opened read-only without alerts/JS errors, save remains disabled until review. 251 assets and unchanged data hashes verified, health/DB OK. Four release gates recorded, staging/backup removed, receipt retained.
+
+## 2026-09-29 — reviewed contracts in company archive
+- Added reviewed contract versions to supplier archive, with original protected file and originating quotation. No file copies or data migration.
+- Invoice rows display quotation and bound contract number/version only through exact same-company, same-offer joins. Unlinked old invoices remain unlinked.
+- 12 archive route tests, 4 UI tests passed. Read-only SQL rehearsal with synthetic leadership context found one actual reviewed contract and its quotation; not an authentication proof. Reverse navigation and canonical registry still pending.

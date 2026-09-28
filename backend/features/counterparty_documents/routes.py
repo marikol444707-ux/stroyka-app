@@ -18,6 +18,7 @@ SOURCES = {
     'invoice': ('supplier', 'supplier_invoices', "'Счёт №' || COALESCE(NULLIF(d.invoice_number,''),d.id::text)", "'Счёт'", 'd.created_at', 'TRUE', ('file_url','photo_url')),
     'delivery': ('supplier', 'supply_deliveries', "'Отгрузка №' || COALESCE(NULLIF(d.waybill_number,''),d.id::text)", "'Отгрузка'", 'd.created_at', 'TRUE', ('document_url','photo_url')),
     'warehouse': ('supplier', 'warehouse_invoices', "'Накладная №' || COALESCE(NULLIF(d.number,''),d.id::text)", "'Накладная'", 'd.created_at', 'TRUE', ('photo_url','photo_urls')),
+    'contract': ('supplier', 'supplier_contract_versions', "'Договор №' || COALESCE(d.snapshot_json->>'number',d.id::text) || ' · версия ' || d.version", "'Договор'", 'd.reviewed_at', 'EXISTS (SELECT 1 FROM supplier_offers o WHERE o.id=d.offer_id AND o.company_id=d.company_id)', ('file_url',)),
     'customer': ('customer', 'project_documents', "COALESCE(d.doc_type,'Документ') || ' №' || COALESCE(NULLIF(d.number,''),d.id::text)", "COALESCE(d.doc_type,'Документ')", 'd.created_at', "d.side='customer' AND EXISTS (SELECT 1 FROM projects p WHERE p.id=d.project_id AND p.company_id=d.company_id)", ('scan_url',)),
 }
 
@@ -53,6 +54,12 @@ def register_counterparty_document_archive(app, deps):
                 if section not in ('all', group):
                     continue
                 fields = ','.join(f"'{field}',to_jsonb(d)->'{field}'" for field in (*file_fields, 'project_id', 'project_name', 'sign_status'))
+                if key == 'contract':
+                    fields = "'file_url','/tenant-files/' || d.source_file_id || '/content','offer_id',d.offer_id,'version',d.version"
+                elif key == 'invoice':
+                    fields += ", 'offer_id',(SELECT o.id FROM supplier_offers o WHERE o.id=d.offer_id AND o.company_id=d.company_id)"
+                    fields += ", 'contract_number',(SELECT c.snapshot_json->>'number' FROM supplier_contract_versions c WHERE c.id=d.contract_version_id AND c.company_id=d.company_id AND c.offer_id=d.offer_id)"
+                    fields += ", 'contract_version',(SELECT c.version FROM supplier_contract_versions c WHERE c.id=d.contract_version_id AND c.company_id=d.company_id AND c.offer_id=d.offer_id)"
                 queries.append(f"""SELECT '{key}' AS source,d.id,d.company_id,
                     {title} AS title,{kind} AS kind,{date} AS created_at,
                     jsonb_build_object({fields}) AS files
@@ -107,6 +114,9 @@ def register_counterparty_document_archive(app, deps):
                               'createdAt': str(created) if created else None,
                               'projectId': payload.get('project_id') if source == 'customer' else None,
                               'projectName': payload.get('project_name') if source == 'customer' else None,
+                              'offerId': payload.get('offer_id') if source in ('contract', 'invoice') else None,
+                              'contractNumber': payload.get('contract_number') if source == 'invoice' else None,
+                              'contractVersion': payload.get('contract_version') if source == 'invoice' else None,
                               'status': payload.get('sign_status') if source == 'customer' else None,
                               'attachments': files, 'unavailableAttachments': unresolved,
                               'fileUrl': files[0]['fileUrl'] if files else None,

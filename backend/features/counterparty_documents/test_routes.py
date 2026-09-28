@@ -35,7 +35,7 @@ class ArchiveTests(unittest.TestCase):
         sql,args=self.cur.execute.call_args.args
         self.assertNotIn("' OR TRUE --",sql)
         self.assertEqual(args[:3],(1,"' OR TRUE --","' OR TRUE --"))
-        self.assertEqual(sql.count('d.company_id=%s'),7)
+        self.assertEqual(sql.count('d.company_id=%s'),8)
 
     def test_unsafe_links_are_withheld_and_missing_file_is_distinct(self):
         self.cur.fetchall.side_effect=[[
@@ -116,3 +116,20 @@ class ArchiveTests(unittest.TestCase):
             item=self.client.get('/company-document-archive?section=customer').json()['items'][0]
             self.assertEqual(item['attachments'],[])
             self.assertEqual(item['fileStatus'],'needs_review')
+
+    def test_contract_original_and_verified_invoice_relationships(self):
+        self.cur.fetchall.side_effect = [[
+            ('contract',9,1,'Договор №362 · версия 1','Договор',None,
+             {'file_url':'/tenant-files/88/content','offer_id':71}),
+            ('invoice',161,1,'Счёт №В-1','Счёт',None,
+             {'offer_id':71,'contract_number':'362','contract_version':1})],[(88,None)]]
+        response=self.client.get('/company-document-archive?section=supplier')
+        self.assertEqual(response.status_code,200,response.text)
+        contract,invoice=response.json()['items']
+        self.assertEqual(contract['fileUrl'],'/tenant-files/88/content')
+        self.assertEqual(contract['offerId'],71)
+        self.assertEqual(invoice['contractNumber'],'362')
+        self.assertEqual(invoice['contractVersion'],1)
+        sql=self.cur.execute.call_args_list[0].args[0]
+        self.assertIn('c.company_id=d.company_id AND c.offer_id=d.offer_id',sql)
+        self.assertIn('o.id=d.offer_id AND o.company_id=d.company_id',sql)

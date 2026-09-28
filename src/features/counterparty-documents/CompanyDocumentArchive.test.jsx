@@ -27,3 +27,12 @@ test('late previous company response is ignored',async()=>{
  await waitFor(()=>expect(screen.queryByText('Первая компания')).toBeNull());
  expect(screen.getByText('Вторая компания')).not.toBeNull();
 });
+
+test('shows stored quotation and contract version beside an invoice',async()=>{
+ global.fetch=jest.fn().mockResolvedValue({ok:true,json:async()=>({companyId:1,hasMore:false,items:[{
+  id:'invoice:161',companyId:1,title:'Счёт №В-1',documentType:'Счёт',attachments:[],fileStatus:'not_attached',
+  offerId:71,contractNumber:'362',contractVersion:2}]})});
+ render(<Archive {...props}/>);
+ await screen.findByText('КП № 71 · Договор № 362, версия 2');
+ expect(screen.queryByText('Открыть файл')).toBeNull();
+});

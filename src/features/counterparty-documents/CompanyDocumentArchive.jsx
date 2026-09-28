@@ -35,6 +35,7 @@ function Archive({API,companyId,C,card,inp,btnG,setShowPhotoModal}) {
   {data?.items.map(row=><article key={row.id} style={{borderBottom:`1px solid ${C.border}`,padding:'14px 0'}}>
    <strong style={{color:C.text}}>{row.title || row.documentType}</strong>
    <p style={{color:C.textSec,margin:'6px 0'}}>{row.documentType}{row.createdAt ? ` · ${new Date(row.createdAt).toLocaleDateString('ru-RU')}`:''}</p>
+   {row.offerId&&<p style={{color:C.textSec,margin:'6px 0'}}>КП № {row.offerId}{row.contractVersion ? ` · Договор № ${row.contractNumber || 'без номера'}, версия ${row.contractVersion}`:''}</p>}
    {row.projectName&&<p style={{color:C.textSec}}>{row.projectName}{row.status?` · ${row.status}`:''}</p>}
    {row.fileStatus==='not_attached'&&<span>Файл не прикреплён</span>}
    {row.fileStatus==='needs_review'&&<p>Часть вложений недоступна — требуется проверка.</p>}
