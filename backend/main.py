@@ -26303,6 +26303,12 @@ if os.getenv("SUPPLIER_DEAL_PARTIES_ENABLED", "0") == "1":
                 except ModuleNotFoundError:
                     from features.supplier_deal_parties.legacy_binding_routes import register_legacy_binding_routes
                 register_legacy_binding_routes(app, supplier_deal_dependencies)
+            if os.getenv('SUPPLIER_LEGACY_LINE_REVIEW_ENABLED', '0') == '1':
+                try:
+                    from backend.features.supplier_payments.legacy_line_routes import register_legacy_line_review_routes
+                except ModuleNotFoundError:
+                    from features.supplier_payments.legacy_line_routes import register_legacy_line_review_routes
+                register_legacy_line_review_routes(app, supplier_deal_dependencies)
 
 register_supplier_offers_module(app, {
     "contract_bindings_enabled": (
