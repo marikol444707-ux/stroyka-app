@@ -212,11 +212,33 @@ An incomplete transaction rolls back both baselines. Bindings cannot be changed,
 deleted, truncated or discarded by downgrade. Empty-schema downgrade restores
 the exact previous baseline guard.
 
-This is database admission only, tested with synthetic direct SQL. No application
-writer calls it yet. Runtime resolver, new-payment policy and history still reject
+The database admission was first tested with synthetic direct SQL. The internal
+application writer described below now calls it. Runtime resolver, new-payment policy and history still reject
 mixed receipt packages; financial WRITE authorization over all packages and
 idempotent confirmation must be integrated before exposing an opening action.
 No production migration or historical-data mutation was performed.
 
 The populated release rehearsal now covers actual Alembic 0051 → 0061 → 0051 →
 0061, unchanged financial snapshots, replay of an old payment and a new payment.
+
+
+## Internal application confirmation worker
+
+mixed_openings.confirm accepts only requestId, invoiceId, reviewId and reason;
+actor/company and financial update authority come from the server. It locks and
+authorizes both current sources and every package before retry lookup. New
+confirmation requires eligible accounting statuses and a still-current saved
+review, then inserts the binding, both numeric baselines and opening evidence
+in one transaction. A deferred commit failure rolls the entire operation back.
+No cash operation is inserted.
+
+The UUID fingerprint includes actor, company, review and reason. Retry requires
+the same persisted binding and current access to both current and recorded
+package scopes, including the recorded payer. It returns the original opening
+amount without another baseline or payment. Missing evidence guards fail closed.
+
+The common source-locking/authorization stage was extracted from the read-only
+preview; its unregistered-source checks remain in the preview. This internal
+writer has no HTTP route or UI activation yet. Payment, reversal, document
+projection and legacy report consumers still require bound mixed-scope support
+before exposing it. Production remains unchanged.

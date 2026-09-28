@@ -24,3 +24,17 @@ class MixedScopeCommandTests(unittest.TestCase):
                     save_review(db,Mock(),1,2,command)
                 self.assertEqual(error.exception.status_code,422)
                 db.assert_not_called()
+
+
+class MixedOpeningCommandTests(unittest.TestCase):
+    def test_invalid_opening_command_never_opens_database(self):
+        from .mixed_openings import confirm, normalize
+        body=dict(requestId=str(uuid4()),invoiceId=4,reviewId=7,reason=' Проверено ')
+        self.assertEqual(normalize(body)['reason'],'Проверено')
+        for command in (None,{},dict(body,companyId=2),dict(body,invoiceId=True),
+                        dict(body,reviewId=0),dict(body,requestId='bad'),dict(body,reason='')):
+            db=Mock(side_effect=AssertionError('No database expected'))
+            with self.subTest(command=command),self.assertRaises(HTTPException) as error:
+                confirm(db,Mock(),1,2,command)
+            self.assertEqual(error.exception.status_code,422)
+            db.assert_not_called()

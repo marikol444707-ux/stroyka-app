@@ -7,7 +7,7 @@ from .contract_context import load_invoice_contract
 from .legacy_package_review import package_review, mixed_reconciliation_preview
 
 
-def review(cur, authorize, actor_id, company_id, invoice_id):
+def lock_authorized_pair(cur, authorize, actor_id, company_id, invoice_id):
     positive_id(actor_id); positive_id(company_id); positive_id(invoice_id)
     if cur.connection.autocommit:
         raise RuntimeError('Mixed review requires a transaction')
@@ -28,12 +28,14 @@ def review(cur, authorize, actor_id, company_id, invoice_id):
     _require(all(row['company_id'] == company_id for rows in locked.values() for row in rows))
     _require(len(locked['invoice']) == 1 and len(locked['warehouse']) == 1)
     invoice, warehouse = locked['invoice'][0], locked['warehouse'][0]
+    _require(invoice['warehouse_invoice_id'] == warehouse['id']
+             and warehouse['supplier_invoice_id'] == invoice['id'])
     payer = company_id
     if invoice.get('contract_version_id') is not None:
         payer = load_invoice_contract(cur, invoice_id, company_id)['payerCompanyId']
     else:
         _require(invoice.get('offer_id') is None)
-    authorize(cur, actor_id, company_id, invoice['project_name'], invoice['work_package'] or '', payer_company_id=payer)
+    actor = authorize(cur, actor_id, company_id, invoice['project_name'], invoice['work_package'] or '', payer_company_id=payer)
     cur.execute('SELECT items::text AS items FROM warehouse_invoices WHERE id=%s', (warehouse['id'],))
     raw = cur.fetchone()['items']
     try:
@@ -43,6 +45,12 @@ def review(cur, authorize, actor_id, company_id, invoice_id):
     for group in packages['groups']:
         authorize(cur, actor_id, company_id, warehouse['project'] or warehouse['location'] or '',
                   group['workPackage'], payer_company_id=payer)
+    return invoice, warehouse, raw, payer, actor
+
+
+def review(cur, authorize, actor_id, company_id, invoice_id):
+    invoice, warehouse, raw, _, _ = lock_authorized_pair(
+        cur, authorize, actor_id, company_id, invoice_id)
     # No amounts or package list is returned until every current scope passes.
     cur.execute('''SELECT document_kind,document_id FROM supplier_payment_documents
         WHERE (document_kind='invoice' AND document_id=%s)
