@@ -1,7 +1,8 @@
-import React, { useEffect, useId, useRef } from 'react';
+import React, { useEffect, useId, useRef, useState } from 'react';
 import { paymentKopecks, paymentLabel } from '../../utils/paymentMoney';
 import useSupplierPaymentDialog from './useSupplierPaymentDialog';
 import './SupplierPaymentDialog.css';
+import SupplierOpeningPanel from './SupplierOpeningPanel';
 
 const documentLabel = kind => ({ invoice: 'счёт', warehouse: 'накладная' }[kind] || 'документ');
 const operationLabel = kind => ({payment:'Платёж',refund:'Возврат денег',credit:'Уменьшение суммы счёта',reversal:'Сторно'}[kind] || 'Операция');
@@ -13,6 +14,7 @@ const money = amount => {
 
 function PaymentDialogContent(props) {
   const state = useSupplierPaymentDialog(props);
+  const [openingBlocked, setOpeningBlocked] = useState(false);
   const titleId = useId();
   const root = useRef(null);
   const close = useRef(null);
@@ -30,7 +32,7 @@ function PaymentDialogContent(props) {
     if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
   };
-  const blocked = state.busy || state.loading || !!state.storageError || !state.snapshot;
+  const blocked = openingBlocked || state.busy || state.loading || !!state.storageError || !state.snapshot;
   const reversingPayment = state.reversal?.operation.kind === 'payment';
   const reversalTitle = reversingPayment ? 'Сторно платежа' : 'Сторно операции';
   return <div className="supplier-payment-dialog-backdrop">
@@ -46,9 +48,15 @@ function PaymentDialogContent(props) {
         <p>Документ оплаты: {documentLabel(state.snapshot.canonicalTarget.documentKind)} #{state.snapshot.canonicalTarget.documentId}</p>
         <p>Поставщик #{state.snapshot.scope?.supplierId} · {state.snapshot.scope?.projectName || 'Без объекта'} · {state.snapshot.scope?.workPackage || 'Без пакета'}</p>
         <p>Остаток долга: <strong>{money(state.snapshot.remainingAmount)}</strong></p>
+        {Number(state.snapshot.openingPaidAmount)>0 && <p>Прежняя оплата на момент регистрации: {money(state.snapshot.openingPaidAmount)}</p>}
         {Number(state.snapshot.creditAmount)>0 && <p>Исходная сумма: {money(state.snapshot.amount)} · Уменьшение: {money(state.snapshot.creditAmount)} · К расчёту: {money(state.snapshot.effectiveAmount)}</p>}
         {Number(state.snapshot.overpaidAmount)>0 && <p>Переплата поставщику: <strong>{money(state.snapshot.overpaidAmount)}</strong>. Возврат денег фиксируется после фактического получения.</p>}
       </div>}
+      {props.documentKind === 'invoice' && <SupplierOpeningPanel API={props.API} userId={props.userId}
+        companyId={props.companyId} invoiceId={props.documentId}
+        registered={state.snapshot?.openingPaidAmount != null}
+        disabled={state.busy || state.loading || !!state.pending || !!state.storageError || !state.snapshot}
+        onBlocked={setOpeningBlocked} onSuccess={() => { state.reload(); props.onSuccess?.(); }} />}
       {state.pending && <section aria-label="Незавершённая операция">
         <h3>Сохранённый запрос</h3>
         <p>Результат ещё не подтверждён. Запрос может относиться к другому документу этой компании. Повтор отправляет ту же команду с тем же UUID.</p>

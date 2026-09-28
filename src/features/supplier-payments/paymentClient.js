@@ -7,7 +7,7 @@ const allowed = new Set(['requestId', 'kind', 'documentKind', 'documentId', 'amo
 export const paymentPath = companyId => `/companies/${companyId}/supplier-payments`;
 
 export function withSupplierPaymentContext(path, init) {
-  const company = path.match(/^\/companies\/([1-9][0-9]*)\/supplier-(?:payments|payment-documents)(?:[/?]|$)/)?.[1];
+  const company = path.match(/^\/companies\/([1-9][0-9]*)\/supplier-(?:payments|payment-documents|opening-confirmations)(?:[/?]|$)/)?.[1];
   if (!company) return init;
   const headers = new Headers(init.headers || {});
   headers.set('X-Company-Id', company);
