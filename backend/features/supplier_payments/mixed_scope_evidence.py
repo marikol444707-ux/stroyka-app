@@ -32,13 +32,7 @@ def save_review(get_db, authorize_write, actor_id, company_id, body):
         current=review(cur,authorize_write,actor_id,company_id,command['invoiceId'])
         if current['evidenceHash']!=command['evidenceHash']:
             raise HTTPException(409,'Документы изменились после просмотра. Выполните сверку повторно')
-        cur.execute('''SELECT to_regclass('public.supplier_mixed_scope_reviews') IS NOT NULL
-            AND NOT EXISTS(SELECT 1 FROM (VALUES ('supplier_mixed_scope_insert'),
-                ('supplier_mixed_scope_no_truncate')) required(name)
-                WHERE NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid=to_regclass('public.supplier_mixed_scope_reviews')
-                    AND tgname=required.name AND tgenabled IN ('O','A'))) AS ready''')
-        if not cur.fetchone()['ready']:
-            raise HTTPException(503,'Схема сохранения сверки не подготовлена')
+        require_schema(cur)
         cur.execute('SELECT * FROM supplier_mixed_scope_reviews WHERE company_id=%s AND request_id=%s',
                     (company_id,command['requestId']))
         previous=cur.fetchone()
@@ -68,3 +62,39 @@ def save_review(get_db, authorize_write, actor_id, company_id, body):
         return dict(reviewId=review_id,companyId=company_id,invoiceId=command['invoiceId'],
                     warehouseId=current['warehouseId'],requestId=command['requestId'],
                     evidenceHash=command['evidenceHash'],newCashAmount='0.00',openingConfirmed=False)
+
+
+def require_schema(cur):
+    cur.execute('''SELECT to_regclass('public.supplier_mixed_scope_reviews') IS NOT NULL
+        AND NOT EXISTS(SELECT 1 FROM (VALUES ('supplier_mixed_scope_insert'),
+            ('supplier_mixed_scope_no_truncate')) required(name)
+            WHERE NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid=to_regclass('public.supplier_mixed_scope_reviews')
+                AND tgname=required.name AND tgenabled IN ('O','A'))) AS ready''')
+    if not cur.fetchone()['ready']:
+        raise HTTPException(503,'Схема сохранения сверки не подготовлена')
+
+
+def load_current_review(cur, authorize, actor_id, company_id, invoice_id, review_id):
+    """Revalidate immutable evidence under caller-owned company/document locks.
+
+    This returns evidence only, never permission to insert a financial baseline.
+    Current authority is checked before revealing whether the review exists.
+    """
+    positive_id(review_id, maximum=9223372036854775807)
+    current = review(cur, authorize, actor_id, company_id, invoice_id)
+    require_schema(cur)
+    cur.execute("""SELECT r.id, r.reason, r.request_id,
+            r.invoice_snapshot=to_jsonb(i) AND r.warehouse_snapshot=to_jsonb(w)
+            AND r.package_scope=supplier_mixed_package_scope(w.items::text,i.work_package) AS same
+        FROM supplier_mixed_scope_reviews r
+        JOIN supplier_invoices i ON i.id=r.invoice_id AND i.company_id=r.company_id
+        JOIN warehouse_invoices w ON w.id=r.warehouse_id AND w.company_id=r.company_id
+        WHERE r.id=%s AND r.company_id=%s AND r.invoice_id=%s AND r.warehouse_id=%s""",
+        (review_id, company_id, invoice_id, current['warehouseId']))
+    saved = cur.fetchone()
+    if not saved:
+        raise HTTPException(404, 'Сверка выбранного счёта не найдена')
+    if not saved['same']:
+        raise HTTPException(409, 'Документы изменились после сохранения сверки. Выполните новую сверку')
+    return dict(current, reviewId=saved['id'], requestId=str(saved['request_id']),
+                reason=saved['reason'], openingConfirmed=False)

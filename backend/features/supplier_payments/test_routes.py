@@ -157,3 +157,13 @@ class RouteBoundaryTests(unittest.TestCase):
             self.assertFalse(response.json()['openingConfirmed'])
             self.assertEqual(response.headers['cache-control'],'no-store')
             save.assert_called_once_with(self.db,writer,7,2,body)
+
+    def test_saved_mixed_review_validates_scope_headers_before_database(self):
+        path='/companies/2/supplier-opening-confirmations/package-review/8/saved/1'
+        with patch.dict(os.environ,SUPPLIER_OPENING_CONFIRMATIONS_ENABLED='1',
+                        SUPPLIER_MIXED_OPENING_REVIEW_ENABLED='1'):
+            self.assertEqual(self.client.get(path).status_code,400)
+            self.assertEqual(self.client.get(path+'?force=1',headers=self.headers).status_code,422)
+        with patch.dict(os.environ,SUPPLIER_MIXED_OPENING_REVIEW_ENABLED='0'):
+            self.assertEqual(self.client.get(path,headers=self.headers).status_code,404)
+        self.db.assert_not_called()

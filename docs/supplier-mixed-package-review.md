@@ -157,3 +157,20 @@ no-store. This endpoint only saves evidence: it does not confirm an opening.
 Local validation covers HTTP company/flag/write-authority boundaries and an
 HTTP → real PostgreSQL save/retry/revoked-package scenario, in addition to the
 existing transactional rollback/concurrency checks. Production remains unchanged.
+
+
+## Revalidating saved evidence
+
+GET /companies/{company_id}/supplier-opening-confirmations/package-review/{invoice_id}/saved/{review_id}
+restores a saved review only after authorizing all current document scopes and
+locking the source pair. Company, invoice and receipt identity must match.
+Stored exact JSON snapshots and the complete SQL-derived package scope must
+still match the current sources; otherwise the endpoint returns 409 and requires
+a new review. Missing or foreign evidence returns 404 after document authority
+checks. Read responses are no-store and the transaction always rolls back.
+
+The same load_current_review helper can be called from a future opening writer
+with its financial WRITE authorizer while retaining the transaction locks.
+A successful read is not financial admission: confirmationAvailable and
+openingConfirmed remain false. Binding evidence to both ledger records and
+updating every payment/history/reversal scope consumer is still outstanding.

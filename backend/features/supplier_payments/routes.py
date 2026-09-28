@@ -177,6 +177,23 @@ def register_supplier_payment_routes(app, deps):
         with reads.transaction(deps, company_id) as cur:
             return review(cur, deps['authorize_read'], user['id'], company_id, invoice_id)
 
+    @router.get('/companies/{company_id}/supplier-opening-confirmations/package-review/{invoice_id}/saved/{review_id}')
+    def saved_mixed_opening_review(request: Request, response: Response,
+                                  company_id: int = Path(..., ge=1, le=2147483647),
+                                  invoice_id: int = Path(..., ge=1, le=2147483647),
+                                  review_id: int = Path(..., ge=1, le=9223372036854775807),
+                                  user: dict = Depends(authenticate)):
+        if (os.getenv('SUPPLIER_OPENING_CONFIRMATIONS_ENABLED') != '1'
+                or os.getenv('SUPPLIER_MIXED_OPENING_REVIEW_ENABLED') != '1'):
+            raise HTTPException(404, 'Not found')
+        _headers(request, company_id)
+        _query(request, ())
+        response.headers['Cache-Control'] = 'no-store'
+        from .mixed_scope_evidence import load_current_review
+        with reads.transaction(deps, company_id) as cur:
+            return load_current_review(cur, deps['authorize_read'], user['id'],
+                                       company_id, invoice_id, review_id)
+
     @router.post('/companies/{company_id}/supplier-opening-confirmations/package-review')
     def save_mixed_opening_review(request: Request, response: Response, body: Any = Body(...),
                                  company_id: int = Path(..., ge=1, le=2147483647),

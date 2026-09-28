@@ -98,7 +98,8 @@ class MixedScopeEvidenceTests(unittest.TestCase):
         app=FastAPI()
         register_supplier_payment_routes(app,dict(get_db=self.main.get_db,
             get_current_user=lambda: {'id':self.actor},
-            authorize_write=build_payment_access(deps,operation='update')))
+            authorize_write=build_payment_access(deps,operation='update'),
+            authorize_read=build_payment_access(deps,operation='read')))
         before=self.sql('SELECT count(*),sum(amount) FROM project_payments')
         path='/companies/2/supplier-opening-confirmations/package-review'
         with TestClient(app) as client, patch.dict(os.environ,SUPPLIER_PAYMENTS_ENABLED='1',
@@ -108,7 +109,33 @@ class MixedScopeEvidenceTests(unittest.TestCase):
             self.assertFalse(first.json()['openingConfirmed'])
             again=client.post(path,json=self.body,headers={'X-Company-Id':'2'})
             self.assertEqual(again.json(),first.json())
+            saved_path=f"{path}/{self.invoice}/saved/{first.json()['reviewId']}"
+            restored=client.get(saved_path,headers={'X-Company-Id':'2'})
+            self.assertEqual(restored.status_code,200,restored.text)
+            self.assertEqual(restored.json()['reviewId'],first.json()['reviewId'])
+            self.assertFalse(restored.json()['confirmationAvailable'])
             allowed['Электрика']=False
+            self.assertEqual(client.get(saved_path,headers={'X-Company-Id':'2'}).status_code,403)
             self.assertEqual(client.post(path,json=self.body,headers={'X-Company-Id':'2'}).status_code,403)
         self.assertEqual(self.sql('SELECT count(*) FROM supplier_mixed_scope_reviews WHERE invoice_id=%s',(self.invoice,)),[(1,)])
         self.assertEqual(self.sql('SELECT count(*),sum(amount) FROM project_payments'),before)
+
+    def test_saved_review_revalidation_rejects_stale_evidence_and_foreign_identity(self):
+        from .mixed_scope_evidence import load_current_review
+        saved=self.save()
+        def load(company=2, review_id=None, authorize=None):
+            with transaction(dict(get_db=self.main.get_db,authorize_read=authorize or self.authorize),company) as cur:
+                return load_current_review(cur,authorize or self.authorize,self.actor,company,
+                                           self.invoice,review_id or saved['reviewId'])
+        current=load()
+        self.assertEqual(current['reviewId'],saved['reviewId'])
+        self.assertEqual(current['evidenceHash'],saved['evidenceHash'])
+        self.assertFalse(current['confirmationAvailable'])
+        self.denied(lambda:load(company=1),404)
+        self.denied(lambda:load(review_id=2147483647),404)
+        deps=dict(self.main._supplier_payment_access_deps)
+        deps['has_package_access']=lambda actor,package:package!='Электрика'
+        self.denied(lambda:load(authorize=build_payment_access(deps,operation='update')),403)
+        self.sql('UPDATE supplier_invoices SET paid_amount=51 WHERE id=%s',(self.invoice,))
+        self.sql('UPDATE warehouse_invoices SET paid_amount=51 WHERE id=%s',(self.warehouse,))
+        self.denied(load,409)
