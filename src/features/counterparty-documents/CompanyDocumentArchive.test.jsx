@@ -150,3 +150,32 @@ test('shows reviewed scope and term from contract snapshot',async()=>{
  render(<Archive {...props}/>);
  await screen.findByText('Объект: Лицей · с 01.09.2026 по 31.12.2026');
 });
+
+test('registry versions open their invoices and return to the same registry',async()=>{
+ const wrap=items=>({ok:true,json:async()=>({companyId:1,items,hasMore:false})});
+ const original={id:'contract:9',source:'contract',sourceId:9,companyId:1,registryId:7,title:'Договор 362',attachments:[]};
+ const revised={...original,id:'contract:10',sourceId:10,title:'Договор 362 — новая версия'};
+ global.fetch=jest.fn().mockResolvedValueOnce(wrap([original])).mockResolvedValueOnce(wrap([revised]))
+  .mockResolvedValueOnce(wrap([])).mockResolvedValueOnce(wrap([revised])).mockResolvedValueOnce(wrap([original]));
+ render(<Archive {...props}/>);
+ fireEvent.click(await screen.findByText('Все версии договора'));
+ await screen.findByText('Договор 362 — новая версия');
+ expect(new URLSearchParams(global.fetch.mock.calls[1][0].split('?')[1]).get('registryId')).toBe('7');
+ fireEvent.click(screen.getByText('Счета по этой версии'));
+ await screen.findByText('К этой версии договора счета ещё не привязаны.');
+ fireEvent.click(screen.getByText('Вернуться к списку'));
+ await screen.findByText('Договор 362 — новая версия');
+ expect(global.fetch.mock.calls[3][0]).toBe(global.fetch.mock.calls[1][0]);
+ fireEvent.click(screen.getByText('Вернуться к списку'));
+ await screen.findByText('Все версии договора');
+ expect(global.fetch.mock.calls[4][0]).toBe(global.fetch.mock.calls[0][0]);
+});
+
+test('registry response cannot include a different contract family',async()=>{
+ const wrap=items=>({ok:true,json:async()=>({companyId:1,items,hasMore:false})});
+ const original={id:'contract:9',source:'contract',sourceId:9,companyId:1,registryId:7,title:'Договор 362',attachments:[]};
+ global.fetch=jest.fn().mockResolvedValueOnce(wrap([original])).mockResolvedValueOnce(wrap([{...original,registryId:8,title:'Чужая история'}]));
+ render(<Archive {...props}/>);
+ fireEvent.click(await screen.findByText('Все версии договора'));
+ await screen.findByRole('alert');expect(screen.queryByText('Чужая история')).toBeNull();
+});

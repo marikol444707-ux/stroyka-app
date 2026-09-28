@@ -192,6 +192,7 @@ class ArchiveTests(unittest.TestCase):
         try:
             with conn.cursor() as cur:
                 cur.execute('CREATE TEMP TABLE projects (id int, company_id int, name text)')
+                cur.execute('CREATE TEMP TABLE supplier_contract_registry_versions (contract_version_id int, registry_id int, company_id int)')
                 cur.execute('CREATE TEMP TABLE supplier_offers (id int, company_id int)')
                 cur.execute('CREATE TEMP TABLE supplier_contract_versions (id int, company_id int, offer_id int, version int, source_file_id int, snapshot_hash text, snapshot_json jsonb, reviewed_at timestamp)')
                 cur.execute('INSERT INTO supplier_offers VALUES (71,1),(72,1)')
@@ -214,6 +215,18 @@ class ArchiveTests(unittest.TestCase):
                 cur.execute('UPDATE supplier_contract_versions SET source_file_id=88 WHERE id=9')
                 cur.execute('UPDATE supplier_offers SET company_id=2 WHERE id=71')
                 self.assertIsNone(origin(valid))
+                cur.execute('INSERT INTO supplier_contract_registry_versions VALUES (9,7,1),(10,7,1)')
+                cur.execute('INSERT INTO supplier_offers VALUES (73,2)')
+                cur.execute("INSERT INTO supplier_contract_versions VALUES (11,2,73,1,88,'foreign','{}',NULL)")
+                cur.execute('INSERT INTO supplier_contract_registry_versions VALUES (11,7,2)')
+                self.client.get('/company-document-archive?registryId=7')
+                registry_sql,registry_args=self.cur.execute.call_args.args
+                cur.execute(registry_sql,registry_args)
+                rows=cur.fetchall()
+                # Offer71 was deliberately made foreign above, so only the authorized
+                # remaining version10 is visible even with a corrupted foreign link.
+                self.assertEqual([row[1] for row in rows],[10])
+                self.assertEqual(rows[0][6]['registry_id'],7)
         finally:
             conn.rollback()
             conn.close()
@@ -233,5 +246,19 @@ class ArchiveTests(unittest.TestCase):
         for query in ('category=unknown','category=invoice&section=company',
                       'category=invoice&section=customer','category=invoice&contractId=9',
                       'category=invoice&source=contract&recordId=9'):
+            self.assertEqual(self.client.get('/company-document-archive?'+query).status_code,422,query)
+        self.cur.execute.assert_not_called()
+
+    def test_registry_history_is_company_scoped_and_parameterized(self):
+        response=self.client.get('/company-document-archive?registryId=7&offset=30&limit=30')
+        self.assertEqual(response.status_code,200,response.text)
+        sql,args=self.cur.execute.call_args.args
+        self.assertEqual(args,(1,'','',7,31,30))
+        self.assertIn('m.contract_version_id=d.id AND m.company_id=d.company_id AND m.registry_id=%s',sql)
+        self.assertNotIn('UNION ALL',sql)
+
+    def test_registry_history_rejects_mixed_filters(self):
+        for query in ('registryId=0','registryId=7&category=contract','registryId=7&contractId=1',
+                      'registryId=7&source=contract&recordId=9','registryId=7&section=customer'):
             self.assertEqual(self.client.get('/company-document-archive?'+query).status_code,422,query)
         self.cur.execute.assert_not_called()

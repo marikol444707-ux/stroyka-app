@@ -4,10 +4,15 @@ from .contract_applicability import eligible_applicability
 
 
 def reusable_contracts(cur, offer, identities, load_offer, user, header_id, header_mode, project_id=None):
-    cur.execute('''SELECT c.* FROM supplier_contract_versions c
+    cur.execute('''SELECT c.*,m.registry_id FROM supplier_contract_versions c
         JOIN supplier_offers o ON o.id=c.offer_id AND o.company_id=c.company_id
         JOIN file_ownership f ON f.id=c.source_file_id AND f.company_id=c.company_id
-        WHERE c.company_id=%s AND o.supplier_id=%s AND c.offer_id<>%s
+        LEFT JOIN supplier_contract_registry_versions m ON m.contract_version_id=c.id AND m.company_id=c.company_id
+        WHERE (m.registry_id IS NULL OR NOT EXISTS (
+            SELECT 1 FROM supplier_contract_registry_versions newer_member
+            WHERE newer_member.registry_id=m.registry_id AND newer_member.company_id=m.company_id
+              AND newer_member.contract_version_id>c.id))
+          AND c.company_id=%s AND o.supplier_id=%s AND c.offer_id<>%s
           AND COALESCE(f.deletion_status,'active')='active'
           AND (f.project_id IS NULL OR f.project_id=%s)
           AND NOT EXISTS (SELECT 1 FROM supplier_contract_versions newer

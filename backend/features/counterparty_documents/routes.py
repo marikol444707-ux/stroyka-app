@@ -32,6 +32,7 @@ def register_counterparty_document_archive(app, deps):
         q: str = Query('', max_length=200),
         source: Optional[ArchiveSource] = None,
         category: Optional[ArchiveSource] = None,
+        registryId: Optional[int] = Query(None, gt=0, le=2147483647),
         contractId: Optional[int] = Query(None, gt=0, le=2147483647),
         recordId: Optional[int] = Query(None, gt=0, le=2147483647),
         limit: int = Query(50, ge=1, le=100),
@@ -47,6 +48,8 @@ def register_counterparty_document_archive(app, deps):
         if category is not None and (source is not None or contractId is not None
                                      or section not in ('all', SOURCES[category][0])):
             raise HTTPException(422, 'Выберите вид документа в соответствующем разделе архива')
+        if registryId is not None and (source is not None or category is not None or contractId is not None or section not in ('all','supplier')):
+            raise HTTPException(422, 'Откройте историю договора отдельно от других документов')
         conn = deps['get_db']()
         cur = conn.cursor()
         try:
@@ -63,11 +66,12 @@ def register_counterparty_document_archive(app, deps):
                 raise HTTPException(403, 'Компания архива не определена')
             queries, params = [], []
             for key, (group, table, title, kind, date, active, file_fields) in SOURCES.items():
-                if (category is not None and key != category) or (contractId is not None and key != 'invoice') or section not in ('all', group):
+                if (registryId is not None and key != 'contract') or (category is not None and key != category) or (contractId is not None and key != 'invoice') or section not in ('all', group):
                     continue
                 fields = ','.join(f"'{field}',to_jsonb(d)->'{field}'" for field in (*file_fields, 'project_id', 'project_name', 'sign_status'))
                 if key == 'contract':
                     fields = "'file_url','/tenant-files/' || d.source_file_id || '/content','offer_id',d.offer_id,'version',d.version"
+                    fields += ", 'registry_id',(SELECT m.registry_id FROM supplier_contract_registry_versions m WHERE m.contract_version_id=d.id AND m.company_id=d.company_id)"
                     fields += ", 'applicability',d.snapshot_json->'applicability','scope_project_name',(SELECT p.name FROM projects p WHERE p.company_id=d.company_id AND p.id::text=d.snapshot_json #>> '{applicability,projectId}')"
                     fields += """, 'origin_contract_id',(SELECT c.id FROM supplier_contract_versions c
                         WHERE c.id::text=d.snapshot_json #>> '{reusedFrom,contractId}'
@@ -85,6 +89,8 @@ def register_counterparty_document_archive(app, deps):
                 relation = ''
                 if contractId is not None:
                     relation = ' AND EXISTS (SELECT 1 FROM supplier_contract_versions c WHERE c.id=%s AND c.id=d.contract_version_id AND c.company_id=d.company_id AND c.offer_id=d.offer_id)'
+                if registryId is not None:
+                    relation = ' AND EXISTS (SELECT 1 FROM supplier_contract_registry_versions m WHERE m.contract_version_id=d.id AND m.company_id=d.company_id AND m.registry_id=%s)'
                 queries.append(f"""SELECT '{key}' AS source,d.id,d.company_id,
                     {title} AS title,{kind} AS kind,{date} AS created_at,
                     jsonb_build_object({fields}) AS files
@@ -95,6 +101,8 @@ def register_counterparty_document_archive(app, deps):
                 params.extend((company_id, q.strip(), q.strip()))
                 if contractId is not None:
                     params.append(contractId)
+                if registryId is not None:
+                    params.append(registryId)
             selection = ''
             if source is not None:
                 selection = ' WHERE source=%s AND id=%s'
@@ -147,6 +155,7 @@ def register_counterparty_document_archive(app, deps):
                               'projectName': payload.get('project_name') if source == 'customer' else None,
                               'offerId': payload.get('offer_id') if source in ('contract', 'invoice') else None,
                               'contractId': payload.get('contract_id') if source == 'invoice' else None,
+                              'registryId': payload.get('registry_id') if source == 'contract' else None,
                               'applicability': payload.get('applicability') if source == 'contract' else None,
                               'scopeProjectName': payload.get('scope_project_name') if source == 'contract' else None,
                               'originContractId': payload.get('origin_contract_id') if source == 'contract' else None,

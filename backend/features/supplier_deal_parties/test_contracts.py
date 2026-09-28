@@ -28,7 +28,7 @@ class ContractReviewTest(unittest.TestCase):
                 ContractReview(**{**payload(), 'reviewConfirmed': value})
 
     def test_rejects_bad_ids_extra_fields_and_blank_number(self):
-        for change in ({'sourceFileId':True}, {'partyVersion':0}, {'signed':True}, {'number':' '}):
+        for change in ({'reusedFromContractId':1,'revisesContractId':2}, {'sourceFileId':True}, {'partyVersion':0}, {'signed':True}, {'number':' '}):
             with self.subTest(change=change), self.assertRaises(ValidationError):
                 ContractReview(**{**payload(), **change})
 

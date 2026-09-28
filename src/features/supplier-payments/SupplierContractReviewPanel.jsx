@@ -22,7 +22,7 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
  const [file,setFile]=useState(null),[checked,setChecked]=useState(false),[draftEdited,setDraftEdited]=useState(false);
  const [recognition,setRecognition]=useState(null),[recognitionMessage,setRecognitionMessage]=useState('');
  const autoFields=useRef([]);
- const [reusedFrom,setReusedFrom]=useState(null);
+ const [reusedFrom,setReusedFrom]=useState(null),[revises,setRevises]=useState(null);
  const [applicability,setApplicability]=useState(emptyApplicability);
  const applicabilityReady=Boolean(applicability.scope&&applicability.term&&applicability.startsOn&&(applicability.term==='open_ended'||(applicability.endsOn&&applicability.endsOn>=applicability.startsOn)));
  const changeApplicability=values=>{setApplicability(current=>({...current,...values}));setChecked(false);};
@@ -33,7 +33,7 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
  const blocked=disabled || busy || loading || fatal;
  const loadReview=async()=>{
   const value=await client.reviewContext();
-  if(live.current){setReusedFrom(null);setApplicability(emptyApplicability());setDraftEdited(false);setReview(value);setLegal(Object.fromEntries(Object.keys(sides).map(side=>[side,legalDraft(value[side])])));setChecked(false);setRecognition(null);setRecognitionMessage('');autoFields.current=[];setFile(null);}
+  if(live.current){setReusedFrom(null);setRevises(null);setApplicability(emptyApplicability());setDraftEdited(false);setReview(value);setLegal(Object.fromEntries(Object.keys(sides).map(side=>[side,legalDraft(value[side])])));setChecked(false);setRecognition(null);setRecognitionMessage('');autoFields.current=[];setFile(null);}
  };
  const loadParties=async()=>{
   const value=await client.load();
@@ -76,7 +76,7 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
  });};
  const saveContract=e=>{e.preventDefault();if(pending || !applicabilityReady || !checked || !file || !number.trim() || !date || !reason.trim())return;act(async()=>{
   const acceptedFields=recognition ? autoFields.current.filter(item=>(separatePayer || item.side!=='payer') && legal[item.side][item.field]===item.value).map(({side,field})=>({side,field})) : [];
-  const body={...(reusedFrom?{reusedFromContractId:reusedFrom}:{}),...(acceptedFields.length ? {recognitionReview:{sourceContentHash:recognition.sourceContentHash,acceptedFields}} : {}),partyVersion:review.partyVersion,expectedVersion:review.expectedVersion,sourceFileId:file.fileId,
+  const body={...(revises?{revisesContractId:revises}:{}),...(reusedFrom?{reusedFromContractId:reusedFrom}:{}),...(acceptedFields.length ? {recognitionReview:{sourceContentHash:recognition.sourceContentHash,acceptedFields}} : {}),partyVersion:review.partyVersion,expectedVersion:review.expectedVersion,sourceFileId:file.fileId,
    number:number.trim(),date,applicability,reviewConfirmed:true,paymentTerms:terms.trim(),reason:reason.trim(),
    ...Object.fromEntries(Object.keys(sides).map(side=>[side,Object.fromEntries(legalFields.map(k=>[k,legal[side==='payer' && !separatePayer?'buyer':side][k].trim()]))]))};
   await client.save('contract',body);if(live.current)onSaved?.();
@@ -160,7 +160,7 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
      <h4>Оригинал уже загружен</h4>
      <p className="contract-hint">Можно уточнить условия и сохранить новую версию. Реквизиты для сверки взяты из карточек компаний; повторная загрузка файла не нужна.</p>
      <button type="button" onClick={()=>{
-      const original=review.existingOriginal;
+      const original=review.existingOriginal;setRevises(original.contractId);setReusedFrom(null);
       setFile({fileId:original.sourceFileId,name:`Договор № ${original.number} · версия ${original.version}`});
       setNumber(original.number);setDate(original.date);setApplicability(original.applicability || emptyApplicability());
       setReason('Уточнение условий сохранённого договора');setChecked(false);
@@ -170,7 +170,7 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
      <h4>Использовать сохранённый договор</h4>
      <p className="contract-hint">Те же стороны, оригинал уже загружен. Выбор заполнит поля данными проверенной версии; перед сохранением сверьте их с текущими реквизитами.</p>
      {review.reusableContracts.map(contract=><button key={contract.id} type="button" onClick={()=>{
-      setReusedFrom(contract.id);setFile({fileId:contract.sourceFileId,name:`Договор № ${contract.snapshot.number} · версия ${contract.version}`});
+      setRevises(null);setReusedFrom(contract.id);setFile({fileId:contract.sourceFileId,name:`Договор № ${contract.snapshot.number} · версия ${contract.version}`});
       setApplicability(contract.snapshot.applicability || emptyApplicability());setNumber(contract.snapshot.number);setDate(contract.snapshot.date);setTerms(contract.snapshot.paymentTerms || '');
       setLegal(Object.fromEntries(Object.keys(sides).map(side=>[side,legalDraft(contract.snapshot[side])])));
       setReason(`Повторное использование договора из КП № ${contract.offerId}, версия ${contract.version}`);

@@ -7,13 +7,14 @@ from typing import Annotated, Optional
 
 import psycopg2.extras
 from fastapi import Depends, Header, HTTPException, Path, Query
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .access import build_deal_access
 from .routes import MAX_ID
 from .review_context import register_contract_review_context
 from .contract_provenance import RecognitionReview, prepare_contract_provenance
 from .payment_schedule import PaymentSchedule
+from .contract_registry import attach_registry
 from .contract_applicability import ContractApplicability, offer_project, eligible_applicability
 
 
@@ -51,8 +52,15 @@ class ContractReview(BaseModel):
     reason: str = Field(min_length=1, max_length=1000)
     recognitionReview: Optional[RecognitionReview] = None
     reusedFromContractId: Optional[int] = Field(default=None, strict=True, gt=0, le=MAX_ID)
+    revisesContractId: Optional[int] = Field(default=None, strict=True, gt=0, le=MAX_ID)
     paymentSchedule: Optional[PaymentSchedule] = None
     applicability: Optional[ContractApplicability] = None
+
+    @model_validator(mode='after')
+    def one_source(self):
+        if self.reusedFromContractId is not None and self.revisesContractId is not None:
+            raise ValueError('Выберите один исходный договор')
+        return self
 
     @field_validator('reviewConfirmed')
     @classmethod
@@ -85,6 +93,7 @@ def build_snapshot(review, parties):
 
 def serialize_contract(row):
     return {
+        'registryId': row.get('registry_id'),
         'id': row['id'], 'offerId': row['offer_id'], 'companyId': row['company_id'],
         'version': row['version'], 'partyVersion': row['party_version'],
         'sourceFileId': row['source_file_id'],
@@ -119,6 +128,7 @@ def register_supplier_contracts_module(app, deps):
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             offer, actor = load_offer(cur, id, current_user, 'update', x_company_id, x_company_mode)
+            cur.execute('SELECT pg_advisory_xact_lock(73164,%s)', (offer['company_id'],))
             if offer['status'] != 'Утверждено':
                 raise HTTPException(409, 'Договор привязывается к утверждённому КП')
             cur.execute('SELECT * FROM supplier_deal_parties WHERE offer_id=%s ORDER BY version DESC LIMIT 1', (id,))
@@ -163,6 +173,16 @@ def register_supplier_contracts_module(app, deps):
                     raise HTTPException(422, 'Выберите объект этой сделки')
                 if file['project_id'] and (data.applicability.scope != 'project' or data.applicability.projectId != file['project_id']):
                     raise HTTPException(422, 'Этот оригинал доступен только для своего объекта')
+            registry_source = None
+            revised_from = None
+            if data.revisesContractId is not None:
+                cur.execute('SELECT * FROM supplier_contract_versions WHERE id=%s AND company_id=%s AND offer_id=%s AND version=%s',
+                            (data.revisesContractId,offer['company_id'],id,data.expectedVersion))
+                registry_source = cur.fetchone()
+                if registry_source is None:
+                    raise HTTPException(422, 'Исходная версия договора изменилась. Откройте договор заново')
+                revised_from = {'contractId':registry_source['id'],'offerId':id,
+                                'version':registry_source['version'],'snapshotHash':registry_source['snapshot_hash']}
             reused_from = None
             if data.reusedFromContractId is not None:
                 cur.execute('SELECT * FROM supplier_contract_versions WHERE id=%s AND company_id=%s',
@@ -184,9 +204,12 @@ def register_supplier_contracts_module(app, deps):
                         ('buyer', 'inn', data.buyer.inn), ('payer', 'inn', data.payer.inn),
                         ('supplier', 'inn', data.supplier.inn)))):
                     raise HTTPException(409, 'Этот договор не подходит к выбранной сделке')
+                registry_source = source
                 reused_from = {'contractId': source['id'], 'offerId': source['offer_id'],
                                'version': source['version'], 'snapshotHash': source['snapshot_hash']}
             snapshot = build_snapshot(data, parties)
+            if revised_from is not None:
+                snapshot['revises'] = revised_from
             if reused_from is not None:
                 snapshot['reusedFrom'] = reused_from
             if evidence is not None:
@@ -199,7 +222,9 @@ def register_supplier_contracts_module(app, deps):
                 VALUES (%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s,%s) RETURNING *''',
                         (id,offer['company_id'],data.partyVersion,version+1,data.sourceFileId,
                          encoded,digest,data.reason,actor['id'],actor.get('name') or actor.get('email') or ''))
-            result = serialize_contract(cur.fetchone())
+            saved = cur.fetchone()
+            registry_id = attach_registry(cur, saved, parties, registry_source)
+            result = serialize_contract({**saved,'registry_id':registry_id})
             cur.execute('UPDATE file_ownership SET retained_at=COALESCE(retained_at,NOW()) WHERE id=%s', (data.sourceFileId,))
             conn.commit()
             return result
@@ -223,8 +248,9 @@ def register_supplier_contracts_module(app, deps):
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             load_offer(cur, id, current_user, 'read', x_company_id, x_company_mode)
-            cur.execute('''SELECT * FROM supplier_contract_versions WHERE offer_id=%s
-                           AND version < %s ORDER BY version DESC LIMIT %s''',
+            cur.execute('''SELECT c.*,m.registry_id FROM supplier_contract_versions c
+                           LEFT JOIN supplier_contract_registry_versions m ON m.contract_version_id=c.id AND m.company_id=c.company_id
+                           WHERE c.offer_id=%s AND c.version < %s ORDER BY c.version DESC LIMIT %s''',
                         (id,beforeVersion if beforeVersion is not None else MAX_ID + 1,limit+1))
             rows = cur.fetchall()
             items = [serialize_contract(row) for row in rows[:limit]]

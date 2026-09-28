@@ -71,7 +71,7 @@ def build_contract_review_context(deps):
                   AND (f.project_id IS NULL OR f.project_id=%s)''',
                         (id,offer['company_id'],expected_version,project['id'] if project else None))
             current = cur.fetchone()
-            existing_original = ({'sourceFileId':current['source_file_id'],
+            existing_original = ({'contractId':current['id'],'sourceFileId':current['source_file_id'],
                                   'number':current['snapshot_json']['number'],
                                   'date':current['snapshot_json']['date'],
                                   'applicability':current['snapshot_json'].get('applicability'),

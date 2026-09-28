@@ -151,7 +151,7 @@ test('scope and term are explicit and changing conditions clears confirmation',a
 
 test('existing original restores document fields without upload or assumed unlimited term',async()=>{
  client.load.mockResolvedValue({parties:{version:1,buyerCompanyId:1,payerCompanyId:1},companies:[{companyId:1,companyName:'Наша компания'}]});
- client.reviewContext.mockResolvedValue({...ctx,expectedVersion:1,existingOriginal:{sourceFileId:99,number:'362',date:'2026-09-01',version:1,applicability:null}});
+ client.reviewContext.mockResolvedValue({...ctx,expectedVersion:1,existingOriginal:{contractId:9,sourceFileId:99,number:'362',date:'2026-09-01',version:1,applicability:null}});
  render(<Panel {...props}/>);
  fireEvent.click(await screen.findByText('Перейти к проверке договора'));
  fireEvent.click(await screen.findByText('Использовать сохранённый оригинал'));
@@ -160,4 +160,11 @@ test('existing original restores document fields without upload or assumed unlim
  expect(screen.getByLabelText('Область действия').value).toBe('');
  expect(screen.getByLabelText('Срок договора').disabled).toBe(false);
  expect(client.upload).not.toHaveBeenCalled();expect(client.save).not.toHaveBeenCalled();
+ fireEvent.change(screen.getByLabelText('Область действия'),{target:{value:'company'}});
+ fireEvent.change(screen.getByLabelText('Срок договора'),{target:{value:'open_ended'}});
+ fireEvent.change(screen.getByLabelText('Действует с'),{target:{value:'2020-01-01'}});
+ fireEvent.click(screen.getByLabelText('Реквизиты и условия сверены с загруженным оригиналом'));
+ fireEvent.click(screen.getByText('Сохранить проверенную версию договора'));
+ await waitFor(()=>expect(client.save).toHaveBeenCalledTimes(1));
+ expect(client.save.mock.calls[0][1]).toMatchObject({revisesContractId:9,sourceFileId:99,expectedVersion:1});
 });

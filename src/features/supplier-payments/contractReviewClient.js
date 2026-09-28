@@ -38,6 +38,7 @@ export function createContractReviewClient(scope, {fetcher=window.fetch,storage=
     if(kind==='parties')return value.buyerCompanyId===body.buyerCompanyId && value.payerCompanyId===body.payerCompanyId;
     return id(value.id) && value.status==='reviewed' && value.partyVersion===body.partyVersion
       && value.sourceFileId===body.sourceFileId && value.snapshot
+      && (value.snapshot.revises?.contractId || null)===(body.revisesContractId || null)
       && (value.snapshot.reusedFrom?.contractId || null)===(body.reusedFromContractId || null)
       && (body.applicability ? ['scope','projectId','term','startsOn','endsOn'].every(k=>(value.snapshot.applicability?.[k] ?? null)===(body.applicability[k] ?? null)) : !value.snapshot.applicability)
       && ['number','date','paymentTerms'].every(k=>value.snapshot[k]===body[k])
@@ -99,7 +100,7 @@ export function createContractReviewClient(scope, {fetcher=window.fetch,storage=
     const value=await request(base+'/contract-review-context');
     if(value.companyId!==companyId || value.offerId!==offerId || !id(value.partyVersion)
        || !Number.isSafeInteger(value.expectedVersion) || value.expectedVersion<0)fail('Контекст проверки договора изменился.');
-    if(value.existingOriginal && (!id(value.existingOriginal.sourceFileId)
+    if(value.existingOriginal && (!id(value.existingOriginal.contractId) || !id(value.existingOriginal.sourceFileId)
        || value.existingOriginal.version!==value.expectedVersion))fail('Версия сохранённого оригинала изменилась.');
     for(const contract of value.reusableContracts || []){
       if(contract.companyId!==companyId || !id(contract.id) || !id(contract.offerId)

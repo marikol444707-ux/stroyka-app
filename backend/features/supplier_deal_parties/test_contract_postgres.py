@@ -16,8 +16,8 @@ from .test_contracts import payload
 from . import test_postgres as parties_tests
 
 
-def statements(method):
-    path = Path(__file__).resolve().parents[3] / 'migrations/versions/0043_supplier_contract_versions.py'
+def statements(method, filename='0043_supplier_contract_versions.py'):
+    path = Path(__file__).resolve().parents[3] / 'migrations/versions' / filename
     spec = importlib.util.spec_from_file_location('contract_migration', path)
     module = importlib.util.module_from_spec(spec)
     result = []
@@ -48,7 +48,7 @@ class ContractPostgresTest(unittest.TestCase):
                 company_id INTEGER, project_id INTEGER, deletion_status TEXT DEFAULT 'active')''')
             cur.execute("""INSERT INTO file_ownership VALUES (31,12,NULL,'active'),
                 (32,99,NULL,'active'),(33,12,45,'active'),(34,12,NULL,'deleting'),(35,12,44,'active')""")
-            for statement in statements('upgrade'):
+            for statement in statements('upgrade') + statements('upgrade','0064_supplier_contract_registry.py'):
                 cur.execute(statement.replace('public.', 'pg_temp.'))
         # Historical split-payer contract fixture: new API requests cannot create it.
         with self.conn.cursor() as cur:
@@ -159,7 +159,8 @@ class ContractPostgresTest(unittest.TestCase):
 
     def test_empty_migration_downgrade_and_upgrade(self):
         with self.conn.cursor() as cur:
-            for statement in statements('downgrade') + statements('upgrade'):
+            for statement in (statements('downgrade','0064_supplier_contract_registry.py') + statements('downgrade')
+                              + statements('upgrade') + statements('upgrade','0064_supplier_contract_registry.py')):
                 cur.execute(statement.replace('public.', 'pg_temp.'))
         self.assertEqual(self.review().status_code, 200)
 
@@ -262,7 +263,7 @@ class ContractPostgresTest(unittest.TestCase):
         self.assertEqual(context['existingOriginal']['sourceFileId'],31)
         self.assertIsNone(context['existingOriginal']['applicability'])
         conditions={'scope':'company','term':'open_ended','startsOn':'2020-01-01'}
-        saved=self.review(expectedVersion=1,applicability=conditions)
+        saved=self.review(expectedVersion=1,applicability=conditions,revisesContractId=original.json()['id'])
         self.assertEqual(saved.status_code,200,saved.text)
         history=self.history().json()['items']
         self.assertEqual(len(history),2)
@@ -271,3 +272,55 @@ class ContractPostgresTest(unittest.TestCase):
         with self.conn.cursor() as cur:
             cur.execute("UPDATE file_ownership SET deletion_status='deleting' WHERE id=31")
         self.assertIsNone(self.contract_client.get('/supplier-offers/40/contract-review-context').json()['existingOriginal'])
+
+    def test_registry_groups_explicit_reuse_and_revision_and_rejects_stale_source(self):
+        conditions={'scope':'company','term':'open_ended','startsOn':'2020-01-01','projectId':None,'endsOn':None}
+        first=self.review(applicability=conditions).json()
+        self.second_offer()
+        second=self.contract_client.post('/supplier-offers/41/contracts',json={**payload(),'applicability':conditions,'reusedFromContractId':first['id']})
+        self.assertEqual(second.status_code,200,second.text)
+        self.assertEqual(second.json()['registryId'],first['registryId'])
+        third=self.contract_client.post('/supplier-offers/41/contracts',json={**payload(),'expectedVersion':1,'applicability':conditions,'revisesContractId':second.json()['id']})
+        self.assertEqual(third.status_code,200,third.text)
+        self.assertEqual(third.json()['registryId'],first['registryId'])
+        self.assertEqual(third.json()['snapshot']['revises']['contractId'],second.json()['id'])
+        stale=self.review(expectedVersion=1,applicability=conditions,revisesContractId=first['id'])
+        self.assertEqual(stale.status_code,422,stale.text)
+        with self.conn.cursor() as cur:
+            cur.execute('SELECT COUNT(*) FROM supplier_contract_registry')
+            self.assertEqual(cur.fetchone()[0],1)
+            cur.execute('SELECT COUNT(*) FROM supplier_contract_registry_versions')
+            self.assertEqual(cur.fetchone()[0],3)
+            cur.execute('SELECT COUNT(*) FROM supplier_contract_versions')
+            self.assertEqual(cur.fetchone()[0],3)
+        # The latest global version is offered, not an older copy from another CP.
+        candidates=self.contract_client.get('/supplier-offers/40/contract-review-context').json()['reusableContracts']
+        self.assertEqual([c['id'] for c in candidates],[third.json()['id']])
+
+    def test_same_number_does_not_implicitly_merge_contracts(self):
+        first=self.review().json()
+        second=self.review(expectedVersion=1).json()
+        self.assertNotEqual(first['registryId'],second['registryId'])
+        self.assertEqual(first['snapshot']['number'],second['snapshot']['number'])
+
+    def test_registry_constraints_and_downgrade_protect_history(self):
+        first=self.review().json()
+        with self.conn.cursor() as cur:
+            with self.assertRaises(psycopg2.errors.ForeignKeyViolation):
+                cur.execute('UPDATE supplier_contract_registry_versions SET company_id=99')
+            with self.assertRaises(psycopg2.errors.RaiseException):
+                cur.execute(statements('downgrade','0064_supplier_contract_registry.py')[0].replace('public.','pg_temp.'))
+        rejected=self.review(expectedVersion=1,revisesContractId=999999)
+        self.assertEqual(rejected.status_code,422)
+        self.assertEqual(self.history().json()['items'][0]['registryId'],first['registryId'])
+
+    def test_legacy_source_is_linked_only_on_explicit_review(self):
+        first=self.review().json()
+        with self.conn.cursor() as cur:
+            cur.execute('DELETE FROM supplier_contract_registry_versions')
+            cur.execute('DELETE FROM supplier_contract_registry')
+        revised=self.review(expectedVersion=1,revisesContractId=first['id'])
+        self.assertEqual(revised.status_code,200,revised.text)
+        history=self.history().json()['items']
+        self.assertEqual(history[0]['registryId'],history[1]['registryId'])
+        self.assertEqual(history[1]['snapshot'],first['snapshot'])

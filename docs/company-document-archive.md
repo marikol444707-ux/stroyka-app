@@ -92,3 +92,22 @@ original for the current offer. “Использовать сохранённы
 file reference, number/date and known applicability without uploading or assuming
 missing conditions. Requisites remain from current profiles; human confirmation
 saves an appended version. Older bound versions are not rewritten.
+
+## Contract registry (migration 0064)
+
+supplier_contract_registry identifies the exact owner/buyer/payer/supplier pair.
+supplier_contract_registry_versions links immutable review IDs with composite
+company FKs. No migration backfill or grouping by name/number is performed. New
+reviews create identities; explicit reuse or revisesContractId continues the
+source identity, attaching a legacy source only when that action is confirmed.
+The append and registry links commit atomically. A company-scoped transaction
+advisory lock serializes grouping; stale source versions are rejected.
+
+The archive registryId lookup returns the authorized contract versions with
+original quotation and invoice navigation. “Все версии договора” opens that
+history and the invoice subview returns to it. Eligibility selects the latest
+registered version; older copies cannot silently reappear after a change.
+
+Upgrade 0064 before starting this code. Migration adds tables/indexes only; an
+application rollback may leave them in place. Downgrade refuses populated
+registry history. Archived status, addenda and cabinet publication remain pending.
