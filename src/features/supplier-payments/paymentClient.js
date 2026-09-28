@@ -69,6 +69,7 @@ export async function paymentRequest(API, companyId, path, { body, fetcher = win
     const error = new Error(typeof message === 'string' ? message : 'Не удалось выполнить операцию.');
     if (typeof data?.detail?.code === 'string') error.code = data.detail.code;
     error.status = response.status;
+    error.detail = data?.detail;
     throw error;
   }
   return data;

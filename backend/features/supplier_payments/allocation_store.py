@@ -143,10 +143,20 @@ again because their reversals do not increment allocation version.
         return _result(replay)
     latest = _latest(cur, company_id, command['groupId'])
     version = latest['version'] if latest else 0
-    if command['expectedVersion'] != version:
-        _conflict('Распределение уже изменено; обновите данные перед сохранением')
-    snapshot = _snapshot(cur, company_id, command['groupId'], new_revision=True)
-    _project(snapshot, command['rows'], new_revision=True)
+    try:
+        if command['expectedVersion'] != version:
+            _conflict('Распределение уже изменено; обновите данные перед сохранением')
+        snapshot = _snapshot(cur, company_id, command['groupId'], new_revision=True)
+        _project(snapshot, command['rows'], new_revision=True)
+    except HTTPException as exc:
+        if exc.status_code != 409:
+            raise
+        # This receipt is issued only after current authority and UUID lookup,
+        # before any insert. It must never replace uncertain commit errors or
+        # conflicts with an already-saved UUID belonging to another command.
+        message = exc.detail.get('message') if isinstance(exc.detail, dict) else str(exc.detail)
+        raise HTTPException(409, dict(code='allocation_not_saved', message=message,
+            companyId=company_id, groupId=command['groupId'], requestId=command['requestId'])) from exc
     cur.execute('''INSERT INTO supplier_payment_allocation_revisions
         (company_id,group_id,version,previous_revision_id,request_id,fingerprint,actor_id,reason,row_count)
         VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *''',

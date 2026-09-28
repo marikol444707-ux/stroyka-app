@@ -123,7 +123,7 @@ summary check with invoice paidAmount 95. Expense is counted once; refund is not
 customer income. Fixture logs still contain missing-owner background-task and
 old api_errors schema warnings; these runs do not verify those background paths.
 
-### Open user-flow gap (release blocker)
+### User-flow gap found before the allocation editor (resolved below)
 
 Source inspection found no browser caller of POST supplier-payments/allocations
 or an allocation editor. The refund panel can release existing allocations, but
@@ -145,3 +145,52 @@ Then use the real browser to perform receipt → allocation → refund and inspe
 accounting projections without pre-seeding allocations. Only after that finish
 the release flag set, deployment and authenticated production checks. No release
 or production business-data change was made in this checkpoint.
+
+
+## Allocation editor implemented and exercised
+
+SupplierAllocationPanel is now mounted in the invoice payment dialog under the
+existing default-off REACT_APP_SUPPLIER_ALLOCATED_REFUNDS_ENABLED switch. That
+release switch already requires backend payments, allocations and settlements.
+It reuses the authorized refund-context projection (all active payments and
+physical receipt IDs), and POST allocations for the complete replacement map.
+The user selects a payment and enters receipt amounts; existing assignments for
+other payments are preserved. Zero removes a designation. Reason and explicit
+confirmation are required. No payment or stock movement is created by allocation.
+
+The client checks payment and receipt capacities in exact kopecks, persists the
+complete scope/context/UUID/body before sending and reads it back, uses Web Locks,
+restores pending intent after reload and verifies the response company, group,
+UUID, revision and version before clearing it. Pending/open editing blocks
+payment, reversal and refund actions in the dialog. Company/user/invoice changes
+remount the panel and abort old requests. Storage failures block sends.
+
+After current authorization and UUID replay lookup, the allocation transaction
+now emits a scoped allocation_not_saved 409 for stale-version or rejected
+projection checks before any INSERT. Only this matching company/group/UUID
+rejection lets the client discard that failed attempt and require a fresh review.
+Generic conflicts, saved-UUID fingerprint conflicts and uncertain connection or
+commit failures retain the command. An old successful UUID still replays normally.
+
+Validation:
+- 136 frontend tests in 12 supplier-payment suites passed.
+- 13 real PostgreSQL refund/VAT HTTP tests passed, including the new scoped
+  non-save/replay/fingerprint regression (which failed before the server change).
+- 15 allocation store/route unit tests passed.
+- Optimized production build with payment/opening/refund/mixed UI flags compiled.
+- Headed Chromium with the actual dialog and authenticated real FastAPI/isolated
+  PostgreSQL: fixture created two genuine partial VAT receipts and payment 120;
+  no allocation was pre-seeded. Browser assigned 80 + 20, HTTP bridge discarded
+  the response after commit, reload restored pending intent, retry returned
+  revision 1 without a duplicate. Browser then refunded 25 (release 20 + free 5).
+  Database and UI agreed: paid 95, debt 105, allocated 80, free 15, cash net 95;
+  stock remained 2 units and receipt VAT 34. Mobile viewport 390×844 was inspected.
+- A separate authenticated test request advanced the revision while the browser
+  held an old draft. Browser save returned the explicit stale rejection, retained
+  no uncertain pending command, and required reloading rather than overwriting.
+  Only expected injected empty-response and stale 409 console errors occurred.
+
+The browser and disposable database were stopped and cleaned. This closes the
+missing allocation-editor gap. These are isolated dialog/full API checks, not an
+authenticated deployed full-application receipt workflow. Production is unchanged;
+release configuration, deployment and live authenticated verification remain.

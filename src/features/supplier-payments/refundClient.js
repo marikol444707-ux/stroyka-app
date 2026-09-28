@@ -12,7 +12,7 @@ const keyFor = scope => {
   if (![scope.userId, scope.companyId, scope.invoiceId].every(id) || typeof scope.API !== 'string') fail('Не определён контекст возврата.');
   return `supplier-refund:v1:${JSON.stringify([scope.API, scope.userId, scope.companyId, scope.invoiceId])}`;
 };
-function verifyContext(value, scope) {
+export function verifyContext(value, scope) {
   if (value?.companyId !== scope.companyId || value?.invoiceId !== scope.invoiceId) fail('Ответ относится к другому счёту.');
   if (value.groupId === null) return value;
   if (!id(value.groupId) || !Number.isInteger(value.version) || value.version < 0 || value.version >= 2147483647

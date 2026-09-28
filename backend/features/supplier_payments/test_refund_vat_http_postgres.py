@@ -120,6 +120,20 @@ class RefundVatHTTPTests(unittest.TestCase):
         self.assertEqual(self.sql('SELECT to_jsonb(m) FROM materials m WHERE company_id=2 ORDER BY id'), stock)
         self.assertEqual(self.sql('SELECT to_jsonb(p) FROM supplier_receipt_line_proofs p ORDER BY receipt_relation_id'), proofs)
 
+    def test_allocation_non_save_receipt_is_scoped_and_never_replaces_uuid_replay(self):
+        body = dict(requestId=str(uuid4()), groupId=self.group, expectedVersion=0,
+            reason='Allocation form', rows=[])
+        path = '/companies/2/supplier-payments/allocations'
+        saved = self.api('accountant', 'POST', path, body)
+        rejected = dict(body, requestId=str(uuid4()))
+        error = self.api('accountant', 'POST', path, rejected, expected=409)['detail']
+        self.assertEqual(error['code'], 'allocation_not_saved')
+        self.assertEqual((error['companyId'], error['groupId'], error['requestId']),
+            (2, self.group, rejected['requestId']))
+        self.assertEqual(self.api('accountant', 'POST', path, body), saved)
+        conflict = self.api('accountant', 'POST', path, dict(body, reason='Changed'), expected=409)['detail']
+        self.assertNotEqual(conflict['code'], 'allocation_not_saved')
+
     def refund_body(self, **changes):
         return dict(dict(requestId=str(uuid4()),groupId=self.group,expectedVersion=0,paymentId=self.payment,
             amount='10',unallocatedAmount='10',paidAt='2026-09-28',reason='HTTP cash refund',releases=[]),**changes)
