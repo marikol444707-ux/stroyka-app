@@ -147,4 +147,43 @@ def register_supplier_payment_routes(app, deps):
         with reads.transaction(deps, company_id) as cur:
             return reads.document(cur, deps, user['id'], company_id, kind, id)
 
+    @router.get('/companies/{company_id}/supplier-opening-confirmations/preview/{invoice_id}')
+    def opening_preview(request: Request, response: Response,
+                        company_id: int = Path(..., ge=1, le=2147483647),
+                        invoice_id: int = Path(..., ge=1, le=2147483647), user: dict = Depends(authenticate)):
+        if os.getenv('SUPPLIER_OPENING_CONFIRMATIONS_ENABLED') != '1':
+            raise HTTPException(404, 'Not found')
+        _headers(request, company_id)
+        _query(request, ())
+        response.headers['Cache-Control'] = 'no-store'
+        from .documents import build_document_resolver
+        from .openings import candidate
+        with reads.transaction(deps, company_id) as cur:
+            context = build_document_resolver(deps['authorize_read'])(cur, user['id'], company_id,
+                dict(documentKind='invoice', documentId=invoice_id))
+            return candidate(cur, context, company_id, invoice_id)[2]
+
+    @router.post('/companies/{company_id}/supplier-opening-confirmations')
+    def opening_confirm(request: Request, response: Response, body: Any = Body(...),
+                        company_id: int = Path(..., ge=1, le=2147483647), user: dict = Depends(authenticate)):
+        if os.getenv('SUPPLIER_OPENING_CONFIRMATIONS_ENABLED') != '1':
+            raise HTTPException(404, 'Not found')
+        _headers(request, company_id)
+        _query(request, ())
+        response.headers['Cache-Control'] = 'no-store'
+        from .openings import confirm
+        resolver = deps.get('resolve_documents')
+        if not callable(resolver):
+            raise HTTPException(503, 'Сервис сверки не подготовлен')
+        def authorize(cur, actor_id, owner_id, command):
+            context = resolver(cur, actor_id, owner_id, command)
+            reads.require_schema(cur, deps)
+            return context
+        try:
+            return confirm(deps['get_db'], authorize, user['id'], company_id, body)
+        except DatabaseError as error:
+            if error.pgcode == '23514':
+                raise HTTPException(409, 'Начальный остаток не подтверждён: проверьте исходные данные') from None
+            raise HTTPException(503, 'Результат сверки не подтверждён. Повторите тот же UUID') from None
+
     app.include_router(router)
