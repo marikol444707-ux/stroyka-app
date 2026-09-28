@@ -127,6 +127,8 @@ export default function AppSecondaryPages({ activePage, ui, constants, state, ac
 
       {activePage === 'settings' && isFinanceUser && (
         <SettingsPage
+          key={companyContext?.selectedCompanyId || 'no-company'}
+          selectedCompanyId={companyContext?.selectedCompanyId}
           API={API}
           C={C}
           btnB={btnB}
