@@ -60,6 +60,10 @@ def warehouse_payment_package(cur, raw, *, legacy_literal=False):
     # A savepoint converts the helper's 23514 into a domain conflict without
     # leaving read-only callers with an aborted transaction. Outer writes still
     # roll back on HTTPException; no prior mutation is committed here.
+    # psycopg decodes JSONB into lists/dicts; text-backed legacy rows stay raw.
+    # Both storage types must pass the same strict database package validator.
+    if isinstance(raw, (list, dict)):
+        raw = json.dumps(raw, ensure_ascii=False, allow_nan=False)
     cur.execute('SAVEPOINT supplier_payment_package_validation')
     try:
         cur.execute('SELECT public.supplier_payment_warehouse_package(%s::text) AS package', (raw,))

@@ -61,6 +61,25 @@ class PackageIntegrationTests(unittest.TestCase):
                 ('supplier_payment_documents','supplier_payment_operations','supplier_payment_impacts',
                  'supplier_payment_attachments','project_payments')}
 
+    def test_native_jsonb_items_use_same_strict_sql_validator(self):
+        from .documents import warehouse_payment_package
+        conn = self.main.get_db()
+        try:
+            conn.autocommit = False
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute('SELECT %s::jsonb AS items', (json.dumps([{'workPackage': 'Основная'}]),))
+                raw = cur.fetchone()['items']
+                self.assertIsInstance(raw, list)
+                self.assertEqual(warehouse_payment_package(cur, raw), 'Основная')
+                for invalid in ({'workPackage': 'Основная'}, [{'workPackage': 'Основная'}, {'workPackage': 'Чужая'}]):
+                    with self.assertRaises(HTTPException) as error:
+                        warehouse_payment_package(cur, invalid)
+                    self.assertEqual(error.exception.status_code, 409)
+                cur.execute('SELECT 1 AS alive')
+                self.assertEqual(cur.fetchone()['alive'], 1)
+        finally:
+            conn.rollback(); conn.close()
+
     def test_full_pair_payment_and_replay_use_exact_package(self):
         warehouse = self.warehouse()
         body = self.body()
