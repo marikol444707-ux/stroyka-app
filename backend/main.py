@@ -7857,6 +7857,9 @@ except ModuleNotFoundError:
 
 register_invite_codes_module(app, {
     "get_db": get_db,
+    "get_current_user": get_current_user,
+    "resolve_work_company_context": resolve_request_company_context,
+    "effective_company_user": effective_company_user,
     "require_roles": require_roles,
     "admin_roles": LEADERSHIP_ROLES,
     "prepare_user_access_scope": _prepare_user_access_scope,
