@@ -48,7 +48,7 @@ class ContractPostgresTest(unittest.TestCase):
                 company_id INTEGER, project_id INTEGER, deletion_status TEXT DEFAULT 'active')''')
             cur.execute("""INSERT INTO file_ownership VALUES (31,12,NULL,'active'),
                 (32,99,NULL,'active'),(33,12,45,'active'),(34,12,NULL,'deleting'),(35,12,44,'active')""")
-            for statement in statements('upgrade') + statements('upgrade','0064_supplier_contract_registry.py'):
+            for statement in statements('upgrade') + statements('upgrade','0064_supplier_contract_registry.py') + statements('upgrade','0065_contract_archive.py'):
                 cur.execute(statement.replace('public.', 'pg_temp.'))
         # Historical split-payer contract fixture: new API requests cannot create it.
         with self.conn.cursor() as cur:
@@ -159,8 +159,8 @@ class ContractPostgresTest(unittest.TestCase):
 
     def test_empty_migration_downgrade_and_upgrade(self):
         with self.conn.cursor() as cur:
-            for statement in (statements('downgrade','0064_supplier_contract_registry.py') + statements('downgrade')
-                              + statements('upgrade') + statements('upgrade','0064_supplier_contract_registry.py')):
+            for statement in (statements('downgrade','0065_contract_archive.py') + statements('downgrade','0064_supplier_contract_registry.py') + statements('downgrade')
+                              + statements('upgrade') + statements('upgrade','0064_supplier_contract_registry.py') + statements('upgrade','0065_contract_archive.py')):
                 cur.execute(statement.replace('public.', 'pg_temp.'))
         self.assertEqual(self.review().status_code, 200)
 
@@ -324,3 +324,63 @@ class ContractPostgresTest(unittest.TestCase):
         history=self.history().json()['items']
         self.assertEqual(history[0]['registryId'],history[1]['registryId'])
         self.assertEqual(history[1]['snapshot'],first['snapshot'])
+
+    def archive_client(self):
+        from ..counterparty_documents.contract_archive import register_contract_archive
+        from ..company_context.service import resolve_request_company_context, effective_company_actors
+        app=FastAPI()
+        register_contract_archive(app,{**self.deps,
+            'resolve_work_company_context':resolve_request_company_context,
+            'effective_company_actors':effective_company_actors})
+        return TestClient(app)
+
+    def test_archive_restore_preserves_snapshots_and_blocks_stale_review(self):
+        conditions={'scope':'company','term':'open_ended','startsOn':'2020-01-01'}
+        first=self.review(applicability=conditions).json()
+        self.second_offer()
+        with self.conn.cursor() as cur:
+            cur.execute("UPDATE user_company_roles SET role='директор' WHERE user_id=8 AND company_id=12")
+        client=self.archive_client()
+        url=f"/supplier-contract-registry/{first['registryId']}/archive"
+        headers={'X-Company-Id':'12','X-Company-Mode':'company'}
+        archived=client.put(url,headers=headers,json={'archived':True,'expectedVersion':0})
+        self.assertEqual(archived.status_code,200,archived.text)
+        self.assertEqual(archived.json()['stateVersion'],1)
+        self.assertEqual(self.history().json()['items'][0],first)
+        context=self.contract_client.get('/supplier-offers/41/contract-review-context').json()
+        self.assertEqual(context['reusableContracts'],[])
+        self.assertTrue(self.contract_client.get('/supplier-offers/40/contract-review-context').json()['existingOriginal']['archived'])
+        rejected=self.review(expectedVersion=1,revisesContractId=first['id'])
+        self.assertEqual(rejected.status_code,422,rejected.text)
+        rejected=self.contract_client.post('/supplier-offers/41/contracts',json={**payload(),'applicability':conditions,'reusedFromContractId':first['id']})
+        self.assertEqual(rejected.status_code,422,rejected.text)
+        self.assertEqual(len(self.history().json()['items']),1)
+        # An uncertain/repeated old command never reverses a newer decision.
+        self.assertEqual(client.put(url,headers=headers,json={'archived':False,'expectedVersion':0}).status_code,409)
+        self.assertEqual(client.put(url,headers=headers,json={'archived':False,'expectedVersion':1}).status_code,200)
+        self.assertEqual(client.put(url,headers=headers,json={'archived':True,'expectedVersion':0}).status_code,409)
+        self.assertEqual(len(self.contract_client.get('/supplier-offers/41/contract-review-context').json()['reusableContracts']),1)
+        with self.conn.cursor() as cur:
+            cur.execute('SELECT version,archived,actor_id,company_id FROM supplier_contract_registry_events ORDER BY version')
+            self.assertEqual(cur.fetchall(),[(1,True,8,12),(2,False,8,12)])
+            with self.assertRaises(psycopg2.errors.RaiseException):
+                cur.execute(statements('downgrade','0065_contract_archive.py')[0].replace('public.','pg_temp.'))
+
+    def test_archive_checks_effective_role_owner_and_input(self):
+        first=self.review().json()
+        client=self.archive_client()
+        url=f"/supplier-contract-registry/{first['registryId']}/archive"
+        body={'archived':True,'expectedVersion':0}
+        self.assertEqual(client.put(url,json=body).status_code,403)
+        with self.conn.cursor() as cur:
+            cur.execute("UPDATE user_company_roles SET role='директор' WHERE user_id=8")
+        self.assertEqual(client.put(url,headers={'X-Company-Id':'99'},json=body).status_code,404)
+        self.assertEqual(client.put(url,headers={'X-Company-Id':'101'},json=body).status_code,403)
+        self.assertEqual(client.put(url,headers={'X-Company-Mode':'all_companies'},json=body).status_code,400)
+        for invalid in ({**body,'expectedVersion':True},{**body,'archived':'true'},{**body,'extra':1}):
+            self.assertEqual(client.put(url,json=invalid).status_code,422)
+        with self.conn.cursor() as cur:
+            cur.execute('SELECT archived,state_version FROM supplier_contract_registry')
+            self.assertEqual(cur.fetchone(),(False,0))
+            cur.execute('SELECT COUNT(*) FROM supplier_contract_registry_events')
+            self.assertEqual(cur.fetchone()[0],0)

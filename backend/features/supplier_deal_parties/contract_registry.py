@@ -20,6 +20,8 @@ def attach_registry(cur, contract, parties, source=None):
                     (source['id'], company_id))
         registry = cur.fetchone()
         if registry:
+            if registry['archived']:
+                raise HTTPException(422, 'Договор в архиве. Сначала восстановите его в архиве документов')
             if (registry['supplier_id'],registry['buyer_company_id'],registry['payer_company_id']) != identity:
                 raise HTTPException(422, 'Договор относится к другим сторонам')
             cur.execute('''SELECT MAX(contract_version_id) AS latest

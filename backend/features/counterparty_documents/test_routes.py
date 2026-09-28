@@ -192,6 +192,7 @@ class ArchiveTests(unittest.TestCase):
         try:
             with conn.cursor() as cur:
                 cur.execute('CREATE TEMP TABLE projects (id int, company_id int, name text)')
+                cur.execute('CREATE TEMP TABLE supplier_contract_registry (id BIGINT,company_id INTEGER,archived BOOLEAN,state_version INTEGER)')
                 cur.execute('CREATE TEMP TABLE supplier_contract_registry_versions (contract_version_id int, registry_id int, company_id int)')
                 cur.execute('CREATE TEMP TABLE supplier_offers (id int, company_id int)')
                 cur.execute('CREATE TEMP TABLE supplier_contract_versions (id int, company_id int, offer_id int, version int, source_file_id int, snapshot_hash text, snapshot_json jsonb, reviewed_at timestamp)')

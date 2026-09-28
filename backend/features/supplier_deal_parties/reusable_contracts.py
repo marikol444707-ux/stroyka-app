@@ -12,6 +12,8 @@ def reusable_contracts(cur, offer, identities, load_offer, user, header_id, head
             SELECT 1 FROM supplier_contract_registry_versions newer_member
             WHERE newer_member.registry_id=m.registry_id AND newer_member.company_id=m.company_id
               AND newer_member.contract_version_id>c.id))
+          AND NOT EXISTS (SELECT 1 FROM supplier_contract_registry registry
+              WHERE registry.id=m.registry_id AND registry.company_id=m.company_id AND registry.archived)
           AND c.company_id=%s AND o.supplier_id=%s AND c.offer_id<>%s
           AND COALESCE(f.deletion_status,'active')='active'
           AND (f.project_id IS NULL OR f.project_id=%s)

@@ -164,7 +164,8 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
       setFile({fileId:original.sourceFileId,name:`Договор № ${original.number} · версия ${original.version}`});
       setNumber(original.number);setDate(original.date);setApplicability(original.applicability || emptyApplicability());
       setReason('Уточнение условий сохранённого договора');setChecked(false);
-     }}>Использовать сохранённый оригинал</button>
+     }} disabled={review.existingOriginal.archived}>Использовать сохранённый оригинал</button>
+     {review.existingOriginal.archived&&<p>Договор в архиве. Руководитель может восстановить его в архиве документов.</p>}
     </div>}
     {review.reusableContracts?.length>0 && !file && !draftEdited && <div className="contract-upload-card">
      <h4>Использовать сохранённый договор</h4>

@@ -179,3 +179,41 @@ test('registry response cannot include a different contract family',async()=>{
  fireEvent.click(await screen.findByText('Все версии договора'));
  await screen.findByRole('alert');expect(screen.queryByText('Чужая история')).toBeNull();
 });
+
+
+test('archives whole registry with confirmation then restores using current state version',async()=>{
+ let state={archived:false,version:0};
+ const row=()=>({id:'contract:9',source:'contract',sourceId:9,companyId:1,registryId:7,registryState:state,title:'Договор 362',attachments:[]});
+ global.fetch=jest.fn().mockImplementation(async(url,options)=>{
+  if(options?.method==='PUT') {
+   const body=JSON.parse(options.body);expect(body.expectedVersion).toBe(state.version);
+   expect(options.headers['X-Company-Id']).toBe('1');
+   state={archived:body.archived,version:state.version+1};
+   return {ok:true,json:async()=>({companyId:1,registryId:7,archived:state.archived,stateVersion:state.version})};
+  }
+  return {ok:true,json:async()=>({companyId:1,items:[row()],hasMore:false})};
+ });
+ render(<Archive {...props}/>);
+ fireEvent.click(await screen.findByText('В архив'));
+ expect(global.fetch.mock.calls.filter(([,o])=>o?.method==='PUT')).toHaveLength(0);
+ fireEvent.click(screen.getByText('Подтвердить'));
+ fireEvent.click(await screen.findByText('Восстановить'));
+ fireEvent.click(screen.getByText('Подтвердить'));
+ await screen.findByText('В архив');
+ expect(state).toEqual({archived:false,version:2});
+});
+
+test('uncertain archive response requires status refresh and prevents blind retry',async()=>{
+ const row={id:'contract:9',source:'contract',sourceId:9,companyId:1,registryId:7,registryState:{archived:false,version:0},title:'Договор',attachments:[]};
+ global.fetch=jest.fn().mockImplementation(async(url,options)=>{
+  if(options?.method==='PUT')throw new Error('Связь потеряна');
+  return {ok:true,json:async()=>({companyId:1,items:[row],hasMore:false})};
+ });
+ render(<Archive {...props}/>);
+ fireEvent.click(await screen.findByText('В архив'));
+ fireEvent.click(screen.getByText('Подтвердить'));
+ await screen.findByText('Связь потеряна');
+ expect(screen.getByText('Подтвердить').disabled).toBe(true);
+ fireEvent.click(screen.getByText('Закрыть и проверить статус'));
+ expect(screen.queryByRole('dialog')).toBeNull();
+});

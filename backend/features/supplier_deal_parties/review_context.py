@@ -63,7 +63,10 @@ def build_contract_review_context(deps):
             cur.execute('SELECT COALESCE(MAX(version),0) AS version FROM supplier_contract_versions WHERE offer_id=%s', (id,))
             expected_version = cur.fetchone()['version']
             project = offer_project(cur, offer)
-            cur.execute('''SELECT c.id,c.version,c.source_file_id,c.snapshot_json
+            cur.execute('''SELECT c.id,c.version,c.source_file_id,c.snapshot_json,
+                EXISTS (SELECT 1 FROM supplier_contract_registry r JOIN supplier_contract_registry_versions m
+                  ON m.registry_id=r.id AND m.company_id=r.company_id
+                  WHERE m.contract_version_id=c.id AND m.company_id=c.company_id AND r.archived) AS archived
                 FROM supplier_contract_versions c JOIN file_ownership f
                   ON f.id=c.source_file_id AND f.company_id=c.company_id
                 WHERE c.offer_id=%s AND c.company_id=%s AND c.version=%s
@@ -71,7 +74,7 @@ def build_contract_review_context(deps):
                   AND (f.project_id IS NULL OR f.project_id=%s)''',
                         (id,offer['company_id'],expected_version,project['id'] if project else None))
             current = cur.fetchone()
-            existing_original = ({'contractId':current['id'],'sourceFileId':current['source_file_id'],
+            existing_original = ({'archived':current.get('archived',False),'contractId':current['id'],'sourceFileId':current['source_file_id'],
                                   'number':current['snapshot_json']['number'],
                                   'date':current['snapshot_json']['date'],
                                   'applicability':current['snapshot_json'].get('applicability'),

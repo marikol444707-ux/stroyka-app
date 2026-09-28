@@ -17,6 +17,7 @@ export default function CompanyDocumentArchive(props) {
 function Archive({API,companyId,C,card,inp,btnG,setShowPhotoModal}) {
  const [section,setSection]=useState('all'),[query,setQuery]=useState(''),[search,setSearch]=useState(''),[offset,setOffset]=useState(0);
  const [category,setCategory]=useState('');
+ const [refresh,setRefresh]=useState(0),[decision,setDecision]=useState(null),[saving,setSaving]=useState(false),[decisionError,setDecisionError]=useState('');
  const [focused,setFocused]=useState(null),[related,setRelated]=useState(null);
  const [data,setData]=useState(null),[error,setError]=useState(''),[loading,setLoading]=useState(false);
  useEffect(()=>{
@@ -35,7 +36,21 @@ function Archive({API,companyId,C,card,inp,btnG,setShowPhotoModal}) {
    .catch(e=>{if(active && e.name!=='AbortError')setError(e.message);})
    .finally(()=>{if(active)setLoading(false);});
   return()=>{active=false;controller.abort();};
- },[API,companyId,section,search,offset,focused,related,category]);
+ },[API,companyId,section,search,offset,focused,related,category,refresh]);
+ async function changeArchive() {
+  if(saving||!decision)return;
+  setSaving(true);setDecisionError('');
+  try {
+   const response=await fetch(`${API}/supplier-contract-registry/${decision.registryId}/archive`,{
+    method:'PUT',headers:{'Content-Type':'application/json','X-Company-Id':String(companyId),'X-Company-Mode':'company'},
+    body:JSON.stringify({archived:!decision.registryState.archived,expectedVersion:decision.registryState.version})});
+   const value=await response.json();
+   if(!response.ok)throw new Error(typeof value.detail==='string'?value.detail:'Не удалось изменить статус договора');
+   if(Number(value.companyId)!==Number(companyId)||Number(value.registryId)!==Number(decision.registryId)||value.archived!==!decision.registryState.archived||value.stateVersion!==decision.registryState.version+1)throw new Error('Не удалось подтвердить изменение. Обновите список и проверьте статус договора.');
+   setDecision(null);
+  } catch(e) {setDecisionError(e.message || 'Не удалось подтвердить изменение. Обновите список и проверьте статус договора.');}
+  finally {setSaving(false);setRefresh(v=>v+1);}
+ }
  if(!companyId)return <p role="status">Выберите компанию, чтобы открыть её архив.</p>;
  return <section style={{...card,padding:20}} aria-label="Архив документов компании">
   <h3 style={{color:C.text}}>Архив документов</h3>
@@ -54,6 +69,16 @@ function Archive({API,companyId,C,card,inp,btnG,setShowPhotoModal}) {
   </form>
   {(focused||related)&&<button style={{...btnG,marginTop:16}} onClick={()=>{if(related)setRelated(related.parent || null);else setFocused(null);}}>Вернуться к списку</button>}
   {related&&<p><strong>{related.kind==='versions'?'История договора':'Счета'}: {related.title}</strong></p>}
+  {decision&&<div role="dialog" aria-label="Статус договора" style={{...card,padding:16,marginTop:16,border:`1px solid ${C.border}`}}>
+   <strong>{decision.registryState.archived?'Восстановить договор?':'Перенести договор в архив?'}</strong>
+   <p>{decision.title}</p>
+   <p>{decision.registryState.archived?'Договор снова можно будет использовать, если его срок и условия подходят к новому КП.':'Все версии останутся в истории. Для новых КП этот договор будет недоступен. Старые счета сохранятся.'}</p>
+   {decisionError&&<p role="alert">{decisionError}</p>}
+   <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+    <button style={btnG} disabled={saving||!!decisionError} onClick={changeArchive}>{saving?'Сохраняем…':'Подтвердить'}</button>
+    <button style={btnG} disabled={saving} onClick={()=>{setDecision(null);setDecisionError('');}}>{decisionError?'Закрыть и проверить статус':'Отмена'}</button>
+   </div>
+  </div>}
   {loading&&<p role="status">Загружаем документы…</p>}
   {error&&<p role="alert">{error}</p>}
   {data?.items.length===0&&<p>{related?(related.kind==='versions'?'Версии договора недоступны в выбранной компании.':'К этой версии договора счета ещё не привязаны.'):focused?'Документ недоступен в выбранной компании.':'Документы не найдены.'}</p>}
@@ -65,8 +90,10 @@ function Archive({API,companyId,C,card,inp,btnG,setShowPhotoModal}) {
     {' · с '}{row.applicability.startsOn?.split('-').reverse().join('.')}
     {row.applicability.term==='open_ended'?' · бессрочно':` по ${row.applicability.endsOn?.split('-').reverse().join('.')}`}
    </p>}
+   {row.registryState?.archived&&<p style={{color:C.textSec}}>В архиве · недоступен для новых КП</p>}
    {row.offerId&&<p style={{color:C.textSec,margin:'6px 0'}}>КП № {row.offerId}{row.contractVersion ? ` · Договор № ${row.contractNumber || 'без номера'}, версия ${row.contractVersion}`:''}</p>}
    <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:8}}>
+    {row.source==='contract'&&row.registryId&&row.registryState&&<button disabled={saving||!!decision} style={btnG} onClick={()=>{setDecision(row);setDecisionError('');}}>{row.registryState.archived?'Восстановить':'В архив'}</button>}
     {row.source==='contract'&&<button style={btnG} onClick={()=>setRelated({id:row.sourceId,title:row.title,offset:0,parent:related?.kind==='versions'?related:null})}>Счета по этой версии</button>}
     {row.registryId&&related?.kind!=='versions'&&<button style={btnG} onClick={()=>setRelated({kind:'versions',id:row.registryId,title:row.title,offset:0})}>Все версии договора</button>}
     {row.originContractId&&<button style={btnG} onClick={()=>{setRelated(null);setFocused({source:'contract',id:row.originContractId});}}>Исходный договор</button>}
