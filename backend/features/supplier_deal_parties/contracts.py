@@ -149,6 +149,9 @@ def register_supplier_contracts_module(app, deps):
                             (file['project_id'], offer['company_id'], offer['project']))
                 if not cur.fetchone():
                     raise HTTPException(403, 'Файл относится к другому объекту')
+            if (parties['buyer_company_id'] == parties['payer_company_id']
+                    and data.buyer != data.payer):
+                raise HTTPException(409, 'Реквизиты покупателя и плательщика одной компании должны совпадать')
             snapshot = build_snapshot(data, parties)
             if evidence is not None:
                 snapshot['recognitionReview'] = evidence

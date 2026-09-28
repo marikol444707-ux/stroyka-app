@@ -95,15 +95,29 @@ class DealPartiesTest(unittest.TestCase):
     def test_create_keeps_source_owner_supplier_and_request(self):
         client, cursor, conn, checks = build()
         response = client.put('/supplier-offers/40/parties', json={
-            'buyerCompanyId': 12, 'payerCompanyId': 99, 'expectedVersion': 0, 'reason': 'По договору'})
+            'buyerCompanyId': 12, 'payerCompanyId': 12, 'expectedVersion': 0, 'reason': 'По договору'})
         self.assertEqual(response.status_code, 200, response.text)
         row = response.json()
-        self.assertEqual((row['companyId'], row['requestId'], row['supplierId'], row['payerCompanyId']), (12,20,5,99))
+        self.assertEqual((row['companyId'], row['requestId'], row['supplierId'], row['payerCompanyId']), (12,20,5,12))
         self.assertEqual(row['version'], 1)
         self.assertEqual(row['status'], 'draft')
-        self.assertIn(99, checks)
+        self.assertIn(12, checks)
         self.assertEqual(conn.commits, 1)
         self.assertFalse(any(sql.startswith('UPDATE') for sql, _ in cursor.calls))
+
+    def test_new_distinct_payer_is_rejected_even_with_access(self):
+        client, cursor, conn, _ = build()
+        response = client.put('/supplier-offers/40/parties', json={
+            'buyerCompanyId':12,'payerCompanyId':99,'expectedVersion':0,'reason':'New'})
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(conn.commits, 0)
+
+    def test_existing_distinct_parties_can_be_retained(self):
+        client, cursor, conn, _ = build(latest={'version':1,'buyer_company_id':12,'payer_company_id':99})
+        response = client.put('/supplier-offers/40/parties', json={
+            'buyerCompanyId':12,'payerCompanyId':99,'expectedVersion':1,'reason':'Keep historical parties'})
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()['payerCompanyId'],99)
 
     def test_foreign_payer_is_not_authorized_by_being_selected(self):
         client, cursor, conn, _ = build(allowed=(12,))

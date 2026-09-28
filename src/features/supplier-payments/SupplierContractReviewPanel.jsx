@@ -22,6 +22,8 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
  const [recognition,setRecognition]=useState(null),[recognitionMessage,setRecognitionMessage]=useState('');
  const autoFields=useRef([]);
  const [activeSide,setActiveSide]=useState('supplier');
+ const separatePayer=Boolean(parties?.version && parties.buyerCompanyId!==parties.payerCompanyId);
+ const visibleSides=separatePayer?sides:{buyer:'Покупатель и плательщик',supplier:'Поставщик'};
  const recognitionEnabled=process.env.REACT_APP_SUPPLIER_CONTRACT_RECOGNITION_ENABLED==='true';
  const blocked=disabled || busy || loading || fatal;
  const loadReview=async()=>{
@@ -64,14 +66,14 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
   }
  };
  const saveParties=e=>{e.preventDefault();if(pending || !partyReason.trim() || !choices.some(c=>c.companyId===Number(buyer)) || !choices.some(c=>c.companyId===Number(payer)))return;act(async()=>{
-  await client.save('parties',{buyerCompanyId:Number(buyer),payerCompanyId:Number(payer),expectedVersion:parties.version,reason:partyReason.trim()});
+  await client.save('parties',{buyerCompanyId:Number(buyer),payerCompanyId:Number(separatePayer?payer:buyer),expectedVersion:parties.version,reason:partyReason.trim()});
   await loadParties();await loadReview();
  });};
  const saveContract=e=>{e.preventDefault();if(pending || !checked || !file || !number.trim() || !date || !reason.trim())return;act(async()=>{
-  const acceptedFields=recognition ? autoFields.current.filter(item=>legal[item.side][item.field]===item.value).map(({side,field})=>({side,field})) : [];
+  const acceptedFields=recognition ? autoFields.current.filter(item=>(separatePayer || item.side!=='payer') && legal[item.side][item.field]===item.value).map(({side,field})=>({side,field})) : [];
   const body={...(acceptedFields.length ? {recognitionReview:{sourceContentHash:recognition.sourceContentHash,acceptedFields}} : {}),partyVersion:review.partyVersion,expectedVersion:review.expectedVersion,sourceFileId:file.fileId,
    number:number.trim(),date,reviewConfirmed:true,paymentTerms:terms.trim(),reason:reason.trim(),
-   ...Object.fromEntries(Object.keys(sides).map(side=>[side,Object.fromEntries(legalFields.map(k=>[k,legal[side][k].trim()]))]))};
+   ...Object.fromEntries(Object.keys(sides).map(side=>[side,Object.fromEntries(legalFields.map(k=>[k,legal[side==='payer' && !separatePayer?'buyer':side][k].trim()]))]))};
   await client.save('contract',body);if(live.current)onSaved?.();
  });};
  const retry=()=>act(async()=>{
@@ -130,12 +132,13 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
   </> : !review && parties ? <form onSubmit={saveParties}>
    <fieldset className="contract-review-content" disabled={blocked}>
     <legend>1. Покупатель и плательщик</legend>
-    <label>Покупатель<select required value={buyer} onChange={e=>setBuyer(e.target.value)}>
+    <label>Покупатель<select required value={buyer} onChange={e=>{setBuyer(e.target.value);if(!separatePayer)setPayer(e.target.value);}}>
      <option value="">Выберите компанию</option>{choices.map(c=><option key={c.companyId} value={c.companyId}>{c.shortName || c.companyName}</option>)}
     </select></label>
-    <label>Плательщик<select required value={payer} onChange={e=>setPayer(e.target.value)}>
+    {separatePayer&&<label>Плательщик<select required value={payer} disabled onChange={e=>setPayer(e.target.value)}>
      <option value="">Выберите компанию</option>{choices.map(c=><option key={c.companyId} value={c.companyId}>{c.shortName || c.companyName}</option>)}
-    </select></label>
+    </select></label>}
+    {!separatePayer&&<p className="contract-hint">Покупатель одновременно является плательщиком.</p>}
     {parties.version>0 && Number(buyer)===parties.buyerCompanyId && Number(payer)===parties.payerCompanyId &&
       <button type="button" onClick={()=>act(loadReview)}>Перейти к проверке договора</button>}
     <label>Основание выбора сторон<input required maxLength={1000} value={partyReason} onChange={e=>setPartyReason(e.target.value)}/></label>
@@ -158,11 +161,11 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
     <label>Дата договора<input required type="date" value={date} onChange={e=>{setDate(e.target.value);setChecked(false);}}/></label>
     </div>
     <div className="contract-section-heading"><div><span className="contract-eyebrow">02 / СТОРОНЫ ДОГОВОРА</span><h4>Сверьте данные каждой стороны</h4></div><p className="contract-hint">Заполненные вручную поля сохраняются при распознавании.</p></div>
-    <div className="contract-party-tabs" role="tablist" aria-label="Сторона договора">{Object.entries(sides).map(([side,label])=>
+    <div className="contract-party-tabs" role="tablist" aria-label="Сторона договора">{Object.entries(visibleSides).map(([side,label])=>
      <button key={side} type="button" role="tab" id={`contract-tab-${side}`} aria-selected={activeSide===side} aria-controls={`contract-party-${side}`} onClick={()=>setActiveSide(side)}>
       <strong>{label}</strong><span>{legal[side].fullName || 'Организация'}</span>
      </button>)}</div>
-    {Object.entries(sides).map(([side,label])=><div key={side} id={`contract-party-${side}`} role="tabpanel" aria-labelledby={`contract-tab-${side}`} hidden={activeSide!==side}>
+    {Object.entries(visibleSides).map(([side,label])=><div key={side} id={`contract-party-${side}`} role="tabpanel" aria-labelledby={`contract-tab-${side}`} hidden={activeSide!==side}>
      <div className="contract-party-summary"><strong>{label}</strong><span>ИНН {legal[side].inn}</span>
       {recognition && <span className="contract-draft-badge">{recognition.parties[side].status==='matched'?'ИНН совпадает':recognition.parties[side].status==='identity_mismatch'?'ИНН отличается — проверьте':'Сторона не распознана'}</span>}
      </div>

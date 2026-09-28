@@ -90,6 +90,11 @@ def register_supplier_deal_parties_module(app, deps):
             version = previous['version'] if previous else 0
             if data.expectedVersion != version:
                 raise HTTPException(409, 'Стороны сделки уже изменены. Обновите карточку')
+            if data.buyerCompanyId != data.payerCompanyId and not (
+                previous and previous['buyer_company_id'] == data.buyerCompanyId
+                and previous['payer_company_id'] == data.payerCompanyId
+            ):
+                raise HTTPException(409, 'В новой сделке покупатель одновременно является плательщиком')
             cur.execute('''INSERT INTO supplier_deal_parties
                            (offer_id,company_id,request_id,supplier_id,buyer_company_id,
                             payer_company_id,version,reason,created_by_id,created_by)

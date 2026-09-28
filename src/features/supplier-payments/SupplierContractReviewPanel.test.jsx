@@ -49,21 +49,21 @@ test('upload recognizes matched requisites without confirming or replacing manua
   client.load.mockResolvedValue({parties:{version:1,buyerCompanyId:1,payerCompanyId:1},companies:[{companyId:1,companyName:'Наша компания'}]});
   client.recognize=jest.fn(async()=>({sourceContentHash:'a'.repeat(64),parties:{buyer:{status:'missing',fields:{}},payer:{status:'missing',fields:{}},supplier:{status:'matched',fields:{inn:{value:ctx.supplier.inn},bankName:{value:'Распознанный банк'},directorName:{value:'Из оригинала'}}}}}));
   render(<Panel {...props}/>);fireEvent.click(await screen.findByText('Перейти к проверке договора'));await screen.findByLabelText('Оригинал договора');
-  fireEvent.change(screen.getAllByLabelText('ФИО подписанта')[2],{target:{value:'Введено вручную'}});
+  fireEvent.change(screen.getAllByLabelText('ФИО подписанта')[1],{target:{value:'Введено вручную'}});
   fireEvent.change(screen.getByLabelText('Оригинал договора'),{target:{files:[new File(['test'],'scan.png')]}});
   await screen.findByText(/Найденные реквизиты/);
   expect(client.recognize).toHaveBeenCalledWith(10,ctx);
-  expect(screen.getAllByLabelText('Банк')[2].value).toBe('Распознанный банк');
-  expect(screen.getAllByLabelText('ФИО подписанта')[2].value).toBe('Введено вручную');
+  expect(screen.getAllByLabelText('Банк')[1].value).toBe('Распознанный банк');
+  expect(screen.getAllByLabelText('ФИО подписанта')[1].value).toBe('Введено вручную');
   expect(screen.getByLabelText('Реквизиты и условия сверены с загруженным оригиналом').checked).toBe(false);
   client.recognize.mockRejectedValueOnce(new Error('Нечитаемый скан'));
   fireEvent.change(screen.getByLabelText('Оригинал договора'),{target:{files:[new File(['test'],'replacement.png')]}});
   await screen.findByText(/Нечитаемый скан/);
-  expect(screen.getAllByLabelText('Банк')[2].value).toBe('');
-  expect(screen.getAllByLabelText('ФИО подписанта')[2].value).toBe('Введено вручную');
+  expect(screen.getAllByLabelText('Банк')[1].value).toBe('');
+  expect(screen.getAllByLabelText('ФИО подписанта')[1].value).toBe('Введено вручную');
  }finally{if(flag===undefined)delete process.env.REACT_APP_SUPPLIER_CONTRACT_RECOGNITION_ENABLED;else process.env.REACT_APP_SUPPLIER_CONTRACT_RECOGNITION_ENABLED=flag;}
 });
-test('retry uses the same uploaded original and keeps manual edits; payer copying is explicit',async()=>{
+test('retry uses the same uploaded original and keeps manual edits; duplicate payer tab is absent',async()=>{
  const flag=process.env.REACT_APP_SUPPLIER_CONTRACT_RECOGNITION_ENABLED;process.env.REACT_APP_SUPPLIER_CONTRACT_RECOGNITION_ENABLED='true';
  try{
   client.load.mockResolvedValue({parties:{version:1,buyerCompanyId:1,payerCompanyId:1},companies:[{companyId:1,companyName:'Наша компания'}]});
@@ -79,9 +79,8 @@ test('retry uses the same uploaded original and keeps manual edits; payer copyin
   await screen.findByText(/Найденные реквизиты/);
   expect(client.upload).toHaveBeenCalledTimes(1);
   expect(screen.getAllByLabelText('Банк')[0].value).toBe('Уточнённый банк');
-  fireEvent.click(screen.getByRole('tab',{name:/Плательщик/}));
-  fireEvent.click(screen.getByText('Взять реквизиты покупателя'));
-  expect(screen.getAllByLabelText('Банк')[1].value).toBe('Уточнённый банк');
+  expect(screen.queryByRole('tab',{name:/^Плательщик/})).toBeNull();
+  expect(screen.getAllByLabelText('Банк')).toHaveLength(2);
   expect(screen.getByLabelText('Реквизиты и условия сверены с загруженным оригиналом').checked).toBe(false);
  }finally{if(flag===undefined)delete process.env.REACT_APP_SUPPLIER_CONTRACT_RECOGNITION_ENABLED;else process.env.REACT_APP_SUPPLIER_CONTRACT_RECOGNITION_ENABLED=flag;}
 });
@@ -95,7 +94,7 @@ test('company profile prepopulates draft without auto-confirming the contract',a
  expect(screen.getAllByLabelText('Банк')[0].value).toBe('Банк компании');
  expect(screen.getAllByLabelText('Расчётный счёт')[0].value).toBe('4'.repeat(20));
  expect(screen.getAllByLabelText('ФИО подписанта')[0].value).toBe('Подписант компании');
- expect(screen.getAllByLabelText('Банк')[2].value).toBe('');
+ expect(screen.getAllByLabelText('Банк')[1].value).toBe('');
  expect(screen.getByLabelText('Реквизиты и условия сверены с загруженным оригиналом').checked).toBe(false);
  expect(client.save).not.toHaveBeenCalled();
 });
