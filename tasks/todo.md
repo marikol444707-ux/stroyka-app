@@ -10725,4 +10725,4 @@ change.
 ## Документы контрагентов — 28.09.2026
 
 - [x] Структура кабинетов и правило покупатель = плательщик проработаны.
-- [ ] Выполнить D1–D5 из [counterparty-documents-todo.md](counterparty-documents-todo.md).
+- [ ] Выполнить D0–D6 из [counterparty-documents-todo.md](counterparty-documents-todo.md).
