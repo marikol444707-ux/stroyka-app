@@ -4488,6 +4488,8 @@ def init_db():
         );
         CREATE TABLE IF NOT EXISTS project_documents (
             id SERIAL PRIMARY KEY,
+            company_id INT,
+            project_id INT,
             project_name VARCHAR(255),
             side VARCHAR(20) DEFAULT 'customer',
             doc_type VARCHAR(100),
@@ -4501,6 +4503,8 @@ def init_db():
             uploaded_by VARCHAR(255),
             created_at TIMESTAMP DEFAULT NOW()
         );
+        ALTER TABLE project_documents ADD COLUMN IF NOT EXISTS company_id INT;
+        ALTER TABLE project_documents ADD COLUMN IF NOT EXISTS project_id INT;
         CREATE TABLE IF NOT EXISTS project_measurements (
             id SERIAL PRIMARY KEY,
             project_name VARCHAR(255),
