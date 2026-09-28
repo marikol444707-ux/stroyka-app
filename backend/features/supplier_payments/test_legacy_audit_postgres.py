@@ -127,6 +127,23 @@ class LegacyAuditTests(unittest.TestCase):
         self.assertEqual(row['financialReview']['reason'],'invalidReceiptPackage')
         self.assertGreater(len(result['invoices']),1)
 
+    def test_mixed_packages_keep_one_balance_without_registering_or_rewriting(self):
+        invoice,warehouse=self.legacy_pair()
+        raw=json.dumps([{'workPackage':self.fixture['workPackage']}, {'workPackage':'Электрика'}])
+        self.sql('UPDATE warehouse_invoices SET items=%s WHERE id=%s',(raw,warehouse))
+        before=self.sql('SELECT items::text,paid_amount FROM warehouse_invoices WHERE id=%s',(warehouse,))
+        count=self.sql('SELECT count(*) FROM supplier_payment_documents')
+        row=next(r for r in self.report()['invoices'] if r['invoiceId']==invoice)
+        review=row['financialReview']
+        self.assertEqual(review['scenario'],'mixedPackageLegacyPair')
+        self.assertEqual(review['openingPaid'],'50.00')
+        self.assertEqual(review['newCashAmount'],'0.00')
+        self.assertFalse(review['admissionGranted'])
+        self.assertEqual(review['packageReview']['packageCount'],2)
+        self.assertIn('mixedPackageConfirmationRequired',row['reasons'])
+        self.assertEqual(self.sql('SELECT items::text,paid_amount FROM warehouse_invoices WHERE id=%s',(warehouse,)),before)
+        self.assertEqual(self.sql('SELECT count(*) FROM supplier_payment_documents'),count)
+
 
 @unittest.skipUnless(os.getenv('SUPPLY_CHAIN_RUN_POSTGRES') == '1', 'isolated PostgreSQL opt-in')
 class LegacyJsonAuditTests(LegacyAuditTests):

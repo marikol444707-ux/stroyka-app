@@ -13,6 +13,7 @@ import sys
 # Also support direct execution from outside the repository.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from backend.features.supplier_payments.legacy_reconciliation import reconciliation_preview
+from backend.features.supplier_payments.legacy_package_review import package_review, mixed_reconciliation_preview
 from backend.features.supplier_payments.documents import warehouse_payment_package
 from fastapi import HTTPException
 
@@ -57,6 +58,7 @@ def audit(connection, company_id):
                 WHERE i.company_id=%s ORDER BY i.id,w.id""", (company_id,))
             groups = {}
             invalid_packages = set()
+            mixed_sources = {}
             ambiguous_groups = set()
             for warehouse in cur.fetchall():
                 root = warehouse['root_invoice_id']
@@ -67,7 +69,13 @@ def audit(connection, company_id):
                     try:
                         package = warehouse_payment_package(cur, warehouse['items'])
                     except HTTPException:
-                        invalid_packages.add(root)
+                        try:
+                            if package_review(warehouse['items'])['packageCount'] > 1:
+                                mixed_sources[root] = warehouse['items']
+                            else:
+                                invalid_packages.add(root)
+                        except ValueError:
+                            invalid_packages.add(root)
                 groups.setdefault(root, []).append(dict(id=warehouse['id'],
                     companyId=warehouse['company_id'], supplierId=warehouse['supplier_id'],
                     projectName=warehouse['project'] or warehouse['location'] or '',
@@ -92,11 +100,16 @@ def audit(connection, company_id):
                     reasons.append('historicalPaymentWithoutLedger')
             except (InvalidOperation, TypeError):
                 reasons.append('invalidOrMissingPaidAmount')
-            preview = reconciliation_preview(dict(id=row['id'], companyId=company_id,
+            invoice = dict(id=row['id'], companyId=company_id,
                 supplierId=row['supplier_id'], projectName=row['project_name'],
                 workPackage=row['work_package'] or '', amount=row['amount'],
                 paidAmount=row['paid_amount'], warehouseId=row['warehouse_invoice_id'],
-                registered=row['registered']), groups.get(row['id'], []))
+                registered=row['registered'])
+            if row['id'] in mixed_sources:
+                preview = mixed_reconciliation_preview(invoice, groups.get(row['id'], []), mixed_sources[row['id']])
+                reasons.append('mixedPackageConfirmationRequired')
+            else:
+                preview = reconciliation_preview(invoice, groups.get(row['id'], []))
             if row['id'] in invalid_packages or row['id'] in ambiguous_groups:
                 preview = dict(scenario='blocked', admissionGranted=False,
                     reason='invalidReceiptPackage' if row['id'] in invalid_packages else 'ambiguousReceiptLinks')

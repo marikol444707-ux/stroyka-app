@@ -10,6 +10,11 @@ def reconciliation_preview(invoice, warehouses):
     A matched pair represents ONE obligation, never two additive paid balances.
     This does not validate contracts, payment evidence, roles or tax allocation.
     """
+    return _reconciliation_preview(invoice, warehouses, compare_package=True)
+
+
+def _reconciliation_preview(invoice, warehouses, *, compare_package):
+    """Shared money/link checks; mixed-package caller supplies separate evidence."""
     def blocked(reason):
         return dict(scenario='blocked', admissionGranted=False, reason=reason)
 
@@ -25,8 +30,8 @@ def reconciliation_preview(invoice, warehouses):
             return blocked('nonReciprocalReceiptLink')
         if warehouse['registered']:
             return blocked('receiptAlreadyRegistered')
-        if any(invoice[key] != warehouse[key] for key in
-               ('companyId','supplierId','projectName','workPackage')):
+        keys = ('companyId','supplierId','projectName') + (('workPackage',) if compare_package else ())
+        if any(invoice[key] != warehouse[key] for key in keys):
             return blocked('receiptIdentityMismatch')
     try:
         with localcontext(Context(prec=64)):
