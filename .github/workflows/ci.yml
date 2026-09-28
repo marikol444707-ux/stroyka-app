@@ -9,6 +9,20 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: stroyka_company_context_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d stroyka_company_context_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - name: Checkout
@@ -31,6 +45,12 @@ jobs:
 
       - name: Run backend tests
         run: PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python -m unittest discover -s backend -p "test_*.py" -t .
+
+      - name: Run company-context PostgreSQL isolation tests
+        env:
+          COMPANY_CONTEXT_RUN_POSTGRES_INTEGRATION: "1"
+          COMPANY_CONTEXT_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/stroyka_company_context_test
+        run: PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python -m unittest backend.features.company_context.test_membership_security_postgres -v
 
       - name: Set up Node
         uses: actions/setup-node@v4

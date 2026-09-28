@@ -119,6 +119,20 @@ def assert_rows_company_scope(rows, expected_company_id, resource_label="свя�
 
 def effective_company_user(user: dict, context: dict) -> dict:
     """Overlay the authenticated identity with the selected membership scope."""
+    context = context or {}
+    # An explicitly empty effective role is a denial, not a fallback request.
+    raw_role = context.get("effectiveRole") if "effectiveRole" in context else context.get("role")
+    role = str(raw_role or "")
+    normalized_role = role.strip()
+    # Blank or non-canonical padded roles are invalid. Never normalize malformed
+    # stored values into a privileged canonical role.
+    if (
+        not normalized_role
+        or role != normalized_role
+        or context.get("active") is False
+        or context.get("companyActive") is False
+    ):
+        raise HTTPException(status_code=403, detail="Нет действующей роли в выбранной компании")
     actor = dict(user or {})
     company_id = _as_int((context or {}).get("companyId") or (context or {}).get("company_id"))
     platform_account_id = _as_int(
@@ -136,7 +150,7 @@ def effective_company_user(user: dict, context: dict) -> dict:
         else ""
     )
     actor.update({
-        "role": (context or {}).get("effectiveRole") or (context or {}).get("role") or actor.get("role") or "",
+        "role": role,
         "membershipId": _as_int(
             (context or {}).get("membershipId")
             or (context or {}).get("membership_id")
@@ -200,7 +214,7 @@ def _company_context_row(
     read_only: bool = False,
 ) -> dict:
     item = dict(row or {})
-    role = item.get("role") or ""
+    role = str(item.get("role") or "")
     company_id = item.get("company_id") or item.get("id")
     platform_account_id = item.get("platform_account_id")
     context = {
@@ -249,9 +263,8 @@ def user_company_memberships(
         return []
     where = ["m.user_id=%s"]
     values = [user_id]
-    if not include_inactive:
-        where.append("COALESCE(m.active,TRUE)=TRUE")
-        where.append("COALESCE(c.active,TRUE)=TRUE")
+    # Read raw membership rows before filtering. A rejected/revoked membership
+    # must not become "no memberships" and re-enter through legacy user.company_id.
     cur.execute(f"""
         SELECT m.id AS membership_id, m.user_id, m.company_id, m.staff_id,
                COALESCE(m.platform_account_id,c.platform_account_id) AS platform_account_id,
@@ -269,7 +282,12 @@ def user_company_memberships(
         for row in cur.fetchall()
     ]
     if rows:
-        return rows
+        return [
+            row for row in rows
+            if str(row.get("role") or "").strip()
+            and str(row.get("role") or "") == str(row.get("role") or "").strip()
+            and (include_inactive or (row.get("active") and row.get("companyActive")))
+        ]
     legacy_company_id = _as_int(user.get("companyId") or user.get("company_id"))
     if not legacy_company_id or user.get("role") in platform_staff_roles:
         return []
@@ -282,6 +300,10 @@ def user_company_memberships(
     if not company:
         return []
     legacy = _cursor_row_mapping(cur, company)
+    if not str(user.get("role") or "").strip():
+        return []
+    if not include_inactive and legacy.get("company_active") is False:
+        return []
     legacy.update({
         "membership_id": None,
         "role": user.get("role") or "",
@@ -425,7 +447,7 @@ def resolve_request_company_context(
     return {
         **context,
         "companyIds": company_ids_for_context(context),
-        "effectiveRole": context.get("role") or user.get("role") or "",
+        "effectiveRole": context.get("role") or "",
         "requestedMode": requested_mode,
     }
 
