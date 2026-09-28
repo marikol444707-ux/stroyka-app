@@ -13,6 +13,7 @@ from psycopg2.extras import RealDictCursor
 from .documents import build_document_resolver, warehouse_payment_package, TABLES
 from .attachment_projection import balance_source
 from .engine import _require_same_document_group
+from . import settlements
 
 
 def require_schema(cur, deps, *, require_cancellations=False):
@@ -132,11 +133,13 @@ def document(cur, deps, actor_id, company_id, kind, document_id):
                 (document_id, company_id))
     status = cur.fetchone()
     _require(status is not None)
+    settlement = settlements.projection(cur,doc)
+    settlement['settlementsEnabled'] = settlement['settlementsEnabled'] and len(documents)==1 and record is not None
     return dict(schemaVersion=1, companyId=company_id, documentKind=kind, documentId=document_id,
         canonicalTarget=dict(documentKind=canonical['kind'], documentId=canonical['id']),
         scope={key: doc[key] for key in ('payerCompanyId', 'supplierId', 'projectName', 'workPackage')},
         amount=format(doc['amount'], '.2f'), paidAmount=format(doc['paidAmount'], '.2f'),
-        remainingAmount=format(doc['amount'] - doc['paidAmount'], '.2f'),
+        **settlement,
         openingPaidAmount=format(source['opening_paid'], '.2f') if source else None,
         registered=record is not None, isMirror=bool(record and source['id'] != record['id']),
         status=status['status'], accountingStatus=status['accounting_status'])
@@ -199,6 +202,7 @@ def history(cur, deps, actor_id, company_id, *, limit, before_id=None, request_i
                (mirror.document_kind=%s AND mirror.document_id=%s)))''')
         params.extend([documentKind, documentId, documentKind, documentId])
     cur.execute('''SELECT o.*,d.project_name,d.work_package,
+        (SELECT impact.delta FROM supplier_payment_impacts impact WHERE impact.operation_id=o.id LIMIT 1) AS cash_delta,
         (SELECT r.id FROM supplier_payment_operations r WHERE r.reverses_id=o.id AND r.company_id=o.company_id) AS reversed_by_id
         FROM supplier_payment_operations o LEFT JOIN supplier_payment_documents d
           ON d.company_id=o.company_id AND d.document_kind=o.document_kind AND d.document_id=o.document_id
@@ -219,7 +223,7 @@ def history(cur, deps, actor_id, company_id, *, limit, before_id=None, request_i
     items = [dict(operationId=r['id'], projectPaymentId=r['project_payment_id'], companyId=company_id,
         requestId=str(r['request_id']), documentKind=r['document_kind'], documentId=r['document_id'],
         kind=r['kind'], amount=format(r['amount'], '.2f'),
-        signedAmount=format(-r['amount'] if r['kind'] == 'reversal' else r['amount'], '.2f'),
+        signedAmount=format(r['cash_delta'], '.2f'),nonCash=r['project_payment_id'] is None,
         payerCompanyId=r['payer_company_id'], supplierId=r['supplier_id'], projectName=r['project_name'],
         workPackage=r['work_package'], paidAt=r['payment_date'].isoformat(), createdAt=r['created_at'].isoformat(),
         actorId=r['actor_id'], actorName=r['actor_name'], reason=r['reason'],

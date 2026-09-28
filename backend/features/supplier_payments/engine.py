@@ -13,6 +13,7 @@ from .commands import normalize_command, command_fingerprint, positive_id
 from .attachment_projection import attachments_available, balance_source, canonical_records
 from .statuses import payment_status_eligible
 from .cancellations import require_uncancelled
+from . import settlements
 from ..supplier_deal_parties.payment_schedule import schedule_paid_amount
 
 
@@ -69,7 +70,8 @@ def _baseline(cur, doc, company_id):
 
 def _result(operation):
     return dict(operationId=operation['id'], projectPaymentId=operation['project_payment_id'],
-                kind=operation['kind'], amount=format(operation['amount'], '.2f'))
+                kind=operation['kind'], amount=format(operation['amount'], '.2f'),
+                **({'nonCash':True} if operation['project_payment_id'] is None else {}))
 
 
 def _require_same_document_group(cur, records, company_id):
@@ -128,7 +130,7 @@ def execute(get_db, authorize_and_lock, actor_id, company_id, body, *, validate_
                 cur.execute('SELECT * FROM supplier_payment_operations WHERE id=%s AND company_id=%s',
                             (command['reversesId'], company_id))
                 original = cur.fetchone()
-                if not original or original['kind'] != 'payment':
+                if not original or original['kind'] not in ('payment','refund','credit'):
                     raise HTTPException(409, 'Исходный платёж не найден')
                 if (original['document_kind'], original['document_id']) != (command['documentKind'], command['documentId']):
                     raise HTTPException(409, 'Сторно относится к другому документу')
@@ -138,11 +140,13 @@ def execute(get_db, authorize_and_lock, actor_id, company_id, body, *, validate_
                 amount = original['amount']
             else:
                 amount = Decimal(command['amount'])
-            signed = -amount if original else amount
+            signed = settlements.cash_amount(command['kind'],amount,original['kind'] if original else None)
+            context['reversedKind'] = original['kind'] if original else None
             validate_new(cur, context, command, signed)
             records = [_baseline(cur, doc, company_id) for doc in documents]
             records = canonical_records(cur, records, company_id, command)
             _require_same_document_group(cur, records, company_id)
+            effective = settlements.prepare(cur,documents,command,original,amount)
             if original:
                 cur.execute('SELECT document_record_id FROM supplier_payment_impacts WHERE operation_id=%s', (original['id'],))
                 if {r['document_record_id'] for r in cur.fetchall()} != {r['id'] for r in records}:
@@ -150,9 +154,11 @@ def execute(get_db, authorize_and_lock, actor_id, company_id, body, *, validate_
             for doc in documents:
                 if not 0 <= doc['paidAmount'] + signed <= doc['amount']:
                     raise HTTPException(400, 'Сумма выходит за пределы долга документа')
+                if command['kind']=='payment' and doc['paidAmount']+signed>effective[(doc['kind'],doc['id'])]:
+                    raise HTTPException(400,'Платёж превышает остаток с учётом корректировки')
             reversal_statuses = {}
             recalculate_statuses = True
-            if original:
+            if original or command['kind']=='refund':
                 # Callbacks need not carry status metadata. Re-read the already
                 # locked physical group: undoing money must not approve a held,
                 # pending or cancelled document (or reopen its financial mirror).
@@ -168,12 +174,14 @@ def execute(get_db, authorize_and_lock, actor_id, company_id, body, *, validate_
                         'status' if doc['kind'] == 'invoice' else 'accounting_status']
                     recalculate_statuses = recalculate_statuses and payment_status_eligible(doc['kind'], live)
             first = documents[0]
-            cur.execute('''INSERT INTO project_payments
+            payment_id = None
+            if signed != 0:
+                cur.execute('''INSERT INTO project_payments
                 (company_id,project_name,work_package,amount,note,date,added_by)
                 VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id''',
                 (company_id,first['projectName'],first['workPackage'],signed,command['reason'],
                  command['paidAt'],context['actorName']))
-            payment_id = cur.fetchone()['id']
+                payment_id = cur.fetchone()['id']
             cur.execute('''INSERT INTO supplier_payment_operations
                 (company_id,request_id,fingerprint,document_kind,document_id,kind,amount,
                  payer_company_id,supplier_id,project_payment_id,reverses_id,actor_id,actor_name,reason,payment_date)
@@ -190,9 +198,15 @@ def execute(get_db, authorize_and_lock, actor_id, company_id, body, *, validate_
             for doc in documents:
                 paid = doc['paidAmount'] + signed
                 if doc['kind'] == 'invoice':
-                    status = 'Оплачен' if paid == doc['amount'] else 'Частично оплачен' if paid > 0 else 'Утверждён'
+                    status = 'Оплачен' if paid >= effective[(doc['kind'],doc['id'])] else 'Частично оплачен' if paid > 0 else 'Утверждён'
                     if not recalculate_statuses:
                         status = reversal_statuses[(doc['kind'], doc['id'])]
+                    if signed == 0:
+                        cur.execute('UPDATE supplier_invoices SET status=%s WHERE id=%s AND company_id=%s',
+                                    (status,doc['id'],company_id))
+                        if cur.rowcount != 1:
+                            raise HTTPException(409,'Документ изменился во время корректировки')
+                        continue
                     cur.execute('''UPDATE supplier_invoices SET paid_amount=%s,status=%s,paid_by=%s,paid_at=%s
                                    WHERE id=%s AND company_id=%s''',
                                 (paid,status,context['actorName'],command['paidAt'],doc['id'],company_id))

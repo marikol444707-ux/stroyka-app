@@ -4,6 +4,7 @@ import useSupplierPaymentDialog from './useSupplierPaymentDialog';
 import './SupplierPaymentDialog.css';
 
 const documentLabel = kind => ({ invoice: 'счёт', warehouse: 'накладная' }[kind] || 'документ');
+const operationLabel = kind => ({payment:'Платёж',refund:'Возврат денег',credit:'Уменьшение суммы счёта',reversal:'Сторно'}[kind] || 'Операция');
 
 const money = amount => {
   const cents = paymentKopecks(amount);
@@ -23,13 +24,15 @@ function PaymentDialogContent(props) {
   const keyDown = event => {
     if (event.key === 'Escape') { event.stopPropagation(); props.onClose?.(); }
     if (event.key !== 'Tab') return;
-    const nodes = [...root.current.querySelectorAll('button, input, textarea, [tabindex="0"]')]
+    const nodes = [...root.current.querySelectorAll('button, input, select, textarea, [tabindex="0"]')]
       .filter(node => !node.matches(':disabled'));
     const first = nodes[0], last = nodes[nodes.length - 1];
     if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
   };
   const blocked = state.busy || state.loading || !!state.storageError || !state.snapshot;
+  const reversingPayment = state.reversal?.operation.kind === 'payment';
+  const reversalTitle = reversingPayment ? 'Сторно платежа' : 'Сторно операции';
   return <div className="supplier-payment-dialog-backdrop">
     <section className="supplier-payment-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}
       ref={root} onKeyDown={keyDown}>
@@ -43,6 +46,8 @@ function PaymentDialogContent(props) {
         <p>Документ оплаты: {documentLabel(state.snapshot.canonicalTarget.documentKind)} #{state.snapshot.canonicalTarget.documentId}</p>
         <p>Поставщик #{state.snapshot.scope?.supplierId} · {state.snapshot.scope?.projectName || 'Без объекта'} · {state.snapshot.scope?.workPackage || 'Без пакета'}</p>
         <p>Остаток долга: <strong>{money(state.snapshot.remainingAmount)}</strong></p>
+        {Number(state.snapshot.creditAmount)>0 && <p>Исходная сумма: {money(state.snapshot.amount)} · Уменьшение: {money(state.snapshot.creditAmount)} · К расчёту: {money(state.snapshot.effectiveAmount)}</p>}
+        {Number(state.snapshot.overpaidAmount)>0 && <p>Переплата поставщику: <strong>{money(state.snapshot.overpaidAmount)}</strong>. Возврат денег фиксируется после фактического получения.</p>}
       </div>}
       {state.pending && <section aria-label="Незавершённая операция">
         <h3>Сохранённый запрос</h3>
@@ -60,37 +65,46 @@ function PaymentDialogContent(props) {
       {state.success && <section>
         {state.success.status === 'cancelled'
           ? <p role="status">Попытка отменена. Денежная операция не проведена.</p>
-          : <p role="status">{state.success.kind === 'reversal' ? 'Сторно подтверждено.' : 'Платёж подтверждён.'} Операция #{state.success.operationId}.</p>}
+          : <p role="status">{state.success.kind === 'reversal' ? 'Сторно подтверждено.' : state.success.kind === 'payment' ? 'Платёж подтверждён.' : `${operationLabel(state.success.kind)}: запись подтверждена.`} Операция #{state.success.operationId}.</p>}
         <button type="button" disabled={blocked || !!state.error || !!state.pending} onClick={state.startNext}>Новый платёж</button>
       </section>}
-      {!state.pending && !state.success && state.reversal && <form aria-label="Сторно платежа"
+      {!state.pending && !state.success && state.reversal && <form aria-label={reversalTitle}
         onSubmit={event => { event.preventDefault(); state.submitReversal(); }}>
         <fieldset disabled={blocked}>
-          <legend>Сторно платежа</legend>
-          <p>Исходный платёж #{state.reversal.operation.operationId}: {money(state.reversal.operation.amount)} от {state.reversal.operation.paidAt}</p>
+          <legend>{reversalTitle}</legend>
+          <p>{state.reversal.operation.kind==='payment' ? 'Исходный платёж' : operationLabel(state.reversal.operation.kind)} #{state.reversal.operation.operationId}: {money(state.reversal.operation.amount)} от {state.reversal.operation.paidAt}</p>
           <p>Документ исходной операции: {documentLabel(state.reversal.operation.documentKind)} #{state.reversal.operation.documentId}. Сумма сторно определяется сервером; исходная запись сохраняется.</p>
+          {state.reversal.operation.kind==='credit' && <p>Сумма счёта к оплате увеличится обратно. Денежного движения не будет.</p>}
+          {state.reversal.operation.kind==='refund' && <p>Записанный возврат отменится, оплаченная сумма увеличится. Банковский перевод не выполняется.</p>}
           <label>Дата сторно<input type="date" required value={state.reversal.paidAt}
             onChange={event => state.updateReversal({ paidAt: event.target.value })} /></label>
           <label>Причина сторно<textarea required maxLength={1000} value={state.reversal.reason}
             onChange={event => state.updateReversal({ reason: event.target.value })} /></label>
           <label><input type="checkbox" required checked={state.reversal.confirmed}
             style={{ width: 'auto', minHeight: 0, justifySelf: 'start' }}
-            onChange={event => state.updateReversal({ confirmed: event.target.checked })} />Подтверждаю сторно выбранного платежа</label>
+            onChange={event => state.updateReversal({ confirmed: event.target.checked })} />{reversingPayment ? 'Подтверждаю сторно выбранного платежа' : 'Подтверждаю сторно выбранной операции'}</label>
           <button type="submit">{state.busy ? 'Запись сторно…' : 'Подтвердить сторно'}</button>
         </fieldset>
         <button type="button" disabled={state.busy || !!state.storageError} onClick={state.cancelReversal}>Отменить черновик сторно</button>
       </form>}
       {!state.pending && !state.success && !state.reversal && <form aria-label="Запись платежа" onSubmit={event => { event.preventDefault(); state.submit(); }}>
         <fieldset disabled={blocked}>
-          <legend>Новый платёж</legend>
+          <legend>{state.draft.kind && state.draft.kind!=='payment' ? operationLabel(state.draft.kind) : 'Новый платёж'}</legend>
+          {state.snapshot?.settlementsEnabled && <label>Вид операции<select value={state.draft.kind || 'payment'}
+            onChange={event => state.updateDraft({kind:event.target.value,amount:''})}>
+            <option value="payment">Платёж поставщику</option><option value="refund">Возврат денег от поставщика</option>
+            <option value="credit">Уменьшение суммы счёта</option>
+          </select></label>}
           <label>Сумма, ₽<input inputMode="decimal" autoComplete="off" required value={state.draft.amount}
             onChange={event => state.updateDraft({ amount: event.target.value })} /></label>
-          <label>Дата оплаты<input type="date" required value={state.draft.paidAt}
+          <label>{state.draft.kind && state.draft.kind!=='payment' ? 'Дата операции' : 'Дата оплаты'}<input type="date" required value={state.draft.paidAt}
             onChange={event => state.updateDraft({ paidAt: event.target.value })} /></label>
-          <label>Основание платежа<textarea required maxLength={1000} value={state.draft.reason}
+          <label>{state.draft.kind && state.draft.kind!=='payment' ? 'Основание и номер документа' : 'Основание платежа'}<textarea required maxLength={1000} value={state.draft.reason}
             onChange={event => state.updateDraft({ reason: event.target.value })} /></label>
-          <p>Можно оплатить частями или раньше срока. График не ограничивает сумму платежа; остаток долга проверяется сервером.</p>
-          <button type="submit">{state.busy ? 'Запись…' : 'Записать платёж'}</button>
+          <p>{state.draft.kind==='credit' ? 'Укажите основание и номер корректирующего документа. Уменьшается обязательство; деньги и склад не меняются.'
+            : state.draft.kind==='refund' ? 'Запишите только фактически полученный возврат, с датой и основанием. Стоимость счёта не меняется.'
+            : 'Можно оплатить частями или раньше срока. График не ограничивает сумму платежа; остаток долга проверяется сервером.'}</p>
+          <button type="submit">{state.busy ? 'Запись…' : state.draft.kind==='credit' ? 'Записать корректировку' : state.draft.kind==='refund' ? 'Записать возврат' : 'Записать платёж'}</button>
         </fieldset>
       </form>}
       {state.busy && <p role="status">Ожидаем подтверждение. При закрытии окна сохранённый запрос останется доступен для повтора.</p>}
@@ -98,12 +112,12 @@ function PaymentDialogContent(props) {
         <h3>Последние операции</h3>
         {!state.history.items.length && <p>Платежей пока нет.</p>}
         <ul>{state.history.items.map(item => <li key={item.operationId}>
-          <p>{item.kind === 'reversal' ? `Сторно платежа #${item.reversesId}` : `Платёж #${item.operationId}`} · {money(item.amount)} · {item.paidAt}</p>
+          <p>{item.kind === 'reversal' ? `Сторно операции #${item.reversesId}` : `${operationLabel(item.kind)} #${item.operationId}`} · {money(item.amount)} · {item.paidAt}</p>
           <p>{item.reason}</p>
           {item.reversedById && <p>Сторнирован операцией #{item.reversedById}</p>}
-          {item.kind === 'payment' && item.reversedById === null && <button type="button"
+          {['payment','refund','credit'].includes(item.kind) && item.reversedById === null && <button type="button"
             disabled={blocked || !!state.pending || !!state.reversal} onClick={() => state.beginReversal(item.operationId)}>
-            Сторнировать платёж #{item.operationId}</button>}
+            {item.kind==='payment' ? 'Сторнировать платёж' : 'Сторнировать операцию'} #{item.operationId}</button>}
         </li>)}</ul>
         {state.history.hasMore && <p>Показаны только последние 50 операций; история не полная.</p>}
       </section>}

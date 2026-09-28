@@ -38,7 +38,7 @@ export const buildDirectorBriefReportDocContent = (date, context = {}) => {
     invoice.status === 'На утверждении' || invoice.status === 'Утверждён' || invoice.status === 'Частично оплачен' || !invoice.status
   ));
   const supplierDebt = supplierInvoiceRows.reduce((sum, invoice) => (
-    sum + Math.max(0, Number(invoice.amount || invoice.totalAmount || 0) - Number(invoice.paidAmount || 0))
+    sum + Math.max(0, Number(invoice.effectiveAmount ?? invoice.amount ?? invoice.totalAmount ?? 0) - Number(invoice.paidAmount || 0))
   ), 0);
   const totalBudget = activeProjects.reduce((sum, project) => sum + Number(project.budget || 0), 0);
   const totalSpent = activeProjects.reduce((sum, project) => sum + projectBudgetSpent(project).total, 0);

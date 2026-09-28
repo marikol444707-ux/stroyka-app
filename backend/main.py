@@ -25073,6 +25073,11 @@ def list_supplier_invoices(
     params += page_params
     cur.execute(q, params)
     rows = cur.fetchall()
+    try:
+        from backend.features.supplier_payments.settlements import invoice_reductions, invoice_fields
+    except ModuleNotFoundError:
+        from features.supplier_payments.settlements import invoice_reductions, invoice_fields
+    reductions = invoice_reductions(cur, rows)
     cur.close(); conn.close()
     result = []
     for r in rows:
@@ -25097,6 +25102,7 @@ def list_supplier_invoices(
             "projectName": r.get("project_name") or "", "invoiceNumber": r.get("invoice_number") or "",
             "invoiceDate": str(r.get("invoice_date")) if r.get("invoice_date") else "",
             "amount": float(r.get("amount") or 0), "totalAmount": float(r.get("amount") or 0),
+            **invoice_fields(r, reductions),
             "vatAmount": float(r.get("vat_amount") or 0), "description": r.get("description") or "",
             "fileUrl": r.get("file_url") or "", "photoUrl": r.get("photo_url") or "",
             "status": r.get("status") or "На утверждении", "approvedBy": r.get("approved_by") or "",

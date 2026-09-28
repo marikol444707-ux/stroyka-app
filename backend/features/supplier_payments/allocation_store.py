@@ -52,6 +52,10 @@ def _snapshot(cur, company_id, group_id, *, new_revision=False):
     root = cur.fetchone()
     if not root or root['document_kind'] != 'invoice':
         _conflict('Группа распределения недоступна')
+    cur.execute("SELECT 1 FROM supplier_payment_operations o WHERE company_id=%s AND document_kind='invoice' AND document_id=%s AND kind IN ('credit','refund') AND NOT EXISTS(SELECT 1 FROM supplier_payment_operations r WHERE r.reverses_id=o.id) LIMIT 1",
+                (company_id,root['document_id']))
+    if cur.fetchone():
+        _conflict('Распределение по поступлениям после возврата или корректировки требует отдельной сверки; итоговые расчёты доступны по счёту')
     cur.execute('''SELECT company_id,supplier_id,status,amount,COALESCE(paid_amount,0) AS paid_amount,
         COALESCE(project_name,'') AS project_name,COALESCE(work_package,'') AS work_package
         FROM supplier_invoices WHERE id=%s FOR UPDATE''', (root['document_id'],))

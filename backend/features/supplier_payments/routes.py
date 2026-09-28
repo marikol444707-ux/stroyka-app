@@ -65,7 +65,9 @@ def register_supplier_payment_routes(app, deps):
         try:
             result = execute(deps['get_db'], authorize, user['id'], company_id, body,
                              validate_new=validate_new_payment)
-        except DatabaseError:
+        except DatabaseError as error:
+            if error.pgcode == '23514':
+                raise HTTPException(409,'Операция не проведена: проверьте остаток, корректировки и распределения оплаты') from None
             raise HTTPException(503, 'Результат оплаты не подтверждён. Повторите тот же UUID') from None
         return {**result, 'companyId': company_id, 'requestId': command['requestId'],
                 'documentKind': command['documentKind'], 'documentId': command['documentId']}

@@ -439,7 +439,7 @@ export default function SupplierCabinetPage({
                             const amount = Number(hasInvoice?.amount||hasInvoice?.totalAmount||o.totalPrice||0);
                             const terms = String(o.paymentTerms||'').toLowerCase();
                             const needPay = terms.includes('предоплат') || terms.includes('50/50');
-                            const required = terms.includes('50/50') ? amount*0.5 : amount;
+                            const required = Math.min(terms.includes('50/50') ? amount*0.5 : amount, Number(hasInvoice?.effectiveAmount ?? amount));
                             const blockedByPay = needPay && (!hasInvoice || paid + 0.01 < required);
                             return (<div style={{display:'flex',gap:'6px',flexWrap:'wrap',justifyContent:'flex-end'}}>
                               {hasInvoice
@@ -774,6 +774,8 @@ export default function SupplierCabinetPage({
                       <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{(inv.invoiceDate||'')+' · '+Number(inv.amount||0).toLocaleString('ru-RU')+' ₽ · '+(inv.projectName||'—')}</p>
                       {inv.materialName&&<p style={{color:C.textMuted,margin:'2px 0',fontSize:'11px'}}>Материал: {inv.materialName}</p>}
                       {inv.paidAmount>0&&<p style={{color:C.success,margin:0,fontSize:'11px'}}>Оплачено: {Number(inv.paidAmount||0).toLocaleString('ru-RU')} ₽</p>}
+                      {Number(inv.creditAmount)>0&&<p style={{color:C.textSec,margin:0,fontSize:'11px'}}>С учётом уменьшения: {Number(inv.effectiveAmount).toLocaleString('ru-RU')} ₽</p>}
+                      {Number(inv.overpaidAmount)>0&&<p style={{color:C.warning,margin:0,fontSize:'11px'}}>Переплата заказчика: {Number(inv.overpaidAmount).toLocaleString('ru-RU')} ₽</p>}
                     </div>
                     <span style={badge(inv.status==='Оплачен'?C.success:inv.status==='Частично оплачен'?C.warning:C.info,inv.status==='Оплачен'?C.successLight:inv.status==='Частично оплачен'?C.warningLight:C.infoLight,inv.status==='Оплачен'?C.successBorder:inv.status==='Частично оплачен'?C.warningBorder:C.infoBorder)}>{inv.status}</span>
                   </div>

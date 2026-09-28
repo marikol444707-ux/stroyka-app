@@ -23,7 +23,7 @@ function keyFor({ userId, companyId }) {
 function normalizeBody(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)
       || Object.keys(body).some(key => !allowed.has(key)) || !uuidPattern.test(body.requestId || '')
-      || !['payment', 'reversal'].includes(body.kind) || !['invoice', 'warehouse'].includes(body.documentKind)
+      || !['payment', 'reversal', 'refund', 'credit'].includes(body.kind) || !['invoice', 'warehouse'].includes(body.documentKind)
       || !positiveId(body.documentId) || body.documentId > 2147483647) fail('Некорректная операция оплаты.');
   const date = typeof body.paidAt === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.paidAt)
     ? new Date(body.paidAt + 'T00:00:00Z') : null;
@@ -34,7 +34,7 @@ function normalizeBody(body) {
   }
   const normalized = { requestId: body.requestId, kind: body.kind, documentKind: body.documentKind,
     documentId: body.documentId, paidAt: body.paidAt, reason: body.reason.trim() };
-  if (body.kind === 'payment') {
+  if (body.kind !== 'reversal') {
     const cents = paymentKopecks(body.amount);
     if (!Number.isSafeInteger(cents) || cents <= 0 || 'reversesId' in body) fail('Некорректная сумма платежа.');
     normalized.amount = `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, '0')}`;
@@ -78,10 +78,12 @@ function verifyResult(result, command) {
   const { body } = command;
   if (result?.companyId !== command.companyId || result?.requestId !== body.requestId
       || result?.documentKind !== body.documentKind || result?.documentId !== body.documentId
-      || result?.kind !== body.kind || !positiveId(result?.operationId) || !positiveId(result?.projectPaymentId)
+      || result?.kind !== body.kind || !positiveId(result?.operationId)
+      || !(positiveId(result?.projectPaymentId) || (result?.projectPaymentId === null && result?.nonCash === true && ['credit','reversal'].includes(body.kind)))
+      || (body.kind === 'credit' && (result?.projectPaymentId !== null || result?.nonCash !== true))
       || typeof result?.amount !== 'string' || !/^\d+\.\d{2}$/.test(result.amount)
       || !(paymentKopecks(result.amount) > 0)
-      || (body.kind === 'payment' && result.amount !== body.amount)) {
+      || (body.kind !== 'reversal' && result.amount !== body.amount)) {
     fail('Ответ требует сверки. Повторите сохранённый запрос — новый платёж не создан автоматически.');
   }
 }

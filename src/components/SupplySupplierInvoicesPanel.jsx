@@ -38,8 +38,8 @@ function SupplySupplierInvoicesPanel({
   const pending = filtered.filter(invoice=>invoice.status==='На утверждении');
   const approved = filtered.filter(invoice=>invoice.status==='Утверждён'||invoice.status==='Частично оплачен');
   const paid = filtered.filter(invoice=>invoice.status==='Оплачен');
-  const totalPending = pending.reduce((sum, invoice)=>sum+Number(invoice.amount||0),0);
-  const totalDebt = approved.reduce((sum, invoice)=>sum+(Number(invoice.amount||0)-Number(invoice.paidAmount||0)),0);
+  const totalPending = pending.reduce((sum, invoice)=>sum+Number(invoice.effectiveAmount ?? invoice.amount ?? 0),0);
+  const totalDebt = approved.reduce((sum, invoice)=>sum+Math.max(0,Number(invoice.effectiveAmount ?? invoice.amount ?? 0)-Number(invoice.paidAmount||0)),0);
   const supplierOptions = React.useMemo(() => groupSuppliers(suppliers), [suppliers]);
 
   const byProject = {};
@@ -196,7 +196,7 @@ function SupplySupplierInvoicesPanel({
         <div style={{...card,padding:'30px',textAlign:'center',color:C.textMuted}}>Счетов нет</div>
       ) : projectNames.map(projectName=>{
         const list = byProject[projectName];
-        const sumTotal = list.reduce((sum, invoice)=>sum+Number(invoice.amount||0),0);
+        const sumTotal = list.reduce((sum, invoice)=>sum+Number(invoice.effectiveAmount ?? invoice.amount ?? 0),0);
         const sumPaid = list.reduce((sum, invoice)=>sum+Number(invoice.paidAmount||0),0);
         const sumDebt = Math.max(0,sumTotal-sumPaid);
         const isOpen = expandedProject==='sup-'+projectName;
@@ -215,7 +215,7 @@ function SupplySupplierInvoicesPanel({
             {isOpen&&(
               <div style={{borderTop:'1px solid '+C.border}}>
                 {list.map(invoice=>{
-                  const total = Number(invoice.amount||0);
+                  const total = Number(invoice.effectiveAmount ?? invoice.amount ?? 0);
                   const paidAmount = Number(invoice.paidAmount||0);
                   const owe = Math.max(0,total-paidAmount);
                   return (
@@ -229,6 +229,8 @@ function SupplySupplierInvoicesPanel({
                           <div style={{display:'flex',gap:'10px',marginTop:'4px',flexWrap:'wrap'}}>
                             <span style={{fontSize:'12px',color:C.text}}>{'Сумма: '+Math.round(total).toLocaleString('ru-RU')+' ₽'}</span>
                             {paidAmount>0&&<span style={{fontSize:'12px',color:C.success}}>{'Оплачено: '+Math.round(paidAmount).toLocaleString('ru-RU')+' ₽'}</span>}
+                            {Number(invoice.creditAmount)>0&&<span style={{fontSize:'12px',color:C.textSec}}>Исходный счёт: {Number(invoice.amount).toLocaleString('ru-RU')} ₽ · Уменьшение: {Number(invoice.creditAmount).toLocaleString('ru-RU')} ₽</span>}
+                            {Number(invoice.overpaidAmount)>0&&<span style={{fontSize:'12px',color:C.warning}}>Переплата: {Number(invoice.overpaidAmount).toLocaleString('ru-RU')} ₽</span>}
                             {owe>0&&paidAmount>0&&<span style={{fontSize:'12px',color:C.danger,fontWeight:'700',padding:'2px 8px',borderRadius:'6px',backgroundColor:C.dangerLight}}>{'⚠️ Недоплата: '+Math.round(owe).toLocaleString('ru-RU')+' ₽'}</span>}
                           </div>
                         </div>

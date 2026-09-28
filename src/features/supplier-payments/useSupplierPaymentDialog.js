@@ -58,7 +58,7 @@ export default function useSupplierPaymentDialog({ API, userId, companyId, docum
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
-  const eligible = operation => operation?.companyId === companyId && operation.kind === 'payment'
+  const eligible = operation => operation?.companyId === companyId && ['payment','refund','credit'].includes(operation.kind)
     && operation.reversedById === null && positiveId(operation.operationId) && targetValid(operation);
   const send = async mode => {
     const cancelling = mode === 'cancel', retry = mode === 'retry', reversing = mode === 'reversal';
@@ -86,8 +86,11 @@ export default function useSupplierPaymentDialog({ API, userId, companyId, docum
         } else {
           if (value.reversal) throw new Error('Сначала закройте черновик сторно.');
           const cents = paymentKopecks(value.draft.amount);
-          if (!(cents > 0) || cents > paymentKopecks(value.snapshot.remainingAmount)) throw new Error('Укажите точную положительную сумму в пределах остатка долга.');
-          input = { ...value.draft, ...value.snapshot.canonicalTarget, kind: 'payment',
+          const kind = value.draft.kind || 'payment';
+          if (kind !== 'payment' && !value.snapshot.settlementsEnabled) throw new Error('Возврат или корректировка недоступны для этого счёта.');
+          const ceiling = kind === 'refund' ? value.snapshot.paidAmount : kind === 'credit' ? value.snapshot.effectiveAmount : value.snapshot.remainingAmount;
+          if (!(cents > 0) || cents > paymentKopecks(ceiling)) throw new Error('Укажите точную положительную сумму в пределах доступного остатка.');
+          input = { ...value.draft, ...value.snapshot.canonicalTarget, kind,
             amount: `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, '0')}` };
         }
       }

@@ -24,6 +24,29 @@ test('default-off does not render or start the hook', () => {
   const { container } = render(<SupplierPaymentDialog {...props} />);
   expect(container).toBeEmptyDOMElement(); expect(useSupplierPaymentDialog).not.toHaveBeenCalled();
 });
+
+test('credit form separates invoice reduction from cash refund and shows overpayment', () => {
+  state.snapshot={...state.snapshot,settlementsEnabled:true,amount:'100.00',creditAmount:'80.00',effectiveAmount:'20.00',overpaidAmount:'20.00'};
+  state.draft={kind:'credit',amount:'',paidAt:'',reason:''};
+  render(<SupplierPaymentDialog {...props} />);
+  expect(screen.getByLabelText('Вид операции')).toHaveValue('credit');
+  expect(screen.getByText(/Переплата поставщику/)).toBeInTheDocument();
+  expect(screen.getByText(/деньги и склад не меняются/)).toBeInTheDocument();
+  expect(screen.getByLabelText('Основание и номер документа')).toBeInTheDocument();
+  expect(screen.getByRole('button',{name:'Записать корректировку'})).toBeInTheDocument();
+});
+test.each([
+  ['credit', /Денежного движения не будет/],
+  ['refund', /Банковский перевод не выполняется/],
+])('reversal of %s explains what will change', (kind, explanation) => {
+  state.reversal={operation:{kind,operationId:35,amount:'20.00',paidAt:'2026-09-28',documentKind:'invoice',documentId:9},paidAt:'2026-09-28',reason:'',confirmed:false};
+  state.updateReversal=jest.fn();
+  render(<SupplierPaymentDialog {...props} />);
+  expect(screen.getByRole('form',{name:'Сторно операции'})).toBeInTheDocument();
+  expect(screen.getByText(explanation)).toBeInTheDocument();
+  fireEvent.click(screen.getByLabelText('Подтверждаю сторно выбранной операции'));
+  expect(state.updateReversal).toHaveBeenCalledWith({confirmed:true});
+});
 test('canonical scope, labelled exact-money fields, and keyboard close', () => {
   render(<SupplierPaymentDialog {...props} />);
   expect(screen.getByText(/счёт #9/)).toBeInTheDocument();
@@ -62,7 +85,7 @@ test('history distinguishes reversal and does not claim first page complete', ()
   state.history = { hasMore: true, items: [{ operationId: 31, kind: 'reversal', amount: '10.00',
     paidAt: '2026-09-18', reason: 'Ошибка суммы', reversesId: 30 }] };
   render(<SupplierPaymentDialog {...props} />);
-  expect(screen.getByText(/Сторно платежа #30/)).toBeInTheDocument();
+  expect(screen.getByText(/Сторно операции #30/)).toBeInTheDocument();
   expect(screen.getByText('Ошибка суммы')).toBeInTheDocument();
   expect(screen.getByText(/Показаны только последние/)).toBeInTheDocument();
 });

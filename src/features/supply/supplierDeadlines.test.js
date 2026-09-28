@@ -1,4 +1,11 @@
 import { defaultResponseDeadline, deadlineState, canPrepareOffer } from './supplierDeadlines';
+it('caps prepayment by the corrected invoice obligation',()=>{
+  const offer={id:2,status:'Утверждено',paymentTerms:'50/50',totalPrice:100};
+  const invoice={id:1,offerId:2,amount:100,effectiveAmount:20,paidAmount:20};
+  expect(canPrepareOffer(offer,[invoice],[])).toBe(true);
+  expect(canPrepareOffer(offer,[{...invoice,paidAmount:19}],[])).toBe(false);
+  expect(canPrepareOffer({...offer,paymentTerms:'Предоплата'},[invoice],[])).toBe(true);
+});
 it('uses Moscow weekdays and keeps Friday time across a weekend',()=>{
   expect(defaultResponseDeadline(new Date('2026-09-18T11:00:00Z'))).toBe('2026-09-21T14:00');
   expect(defaultResponseDeadline(new Date('2026-09-21T21:30:00Z'))).toBe('2026-09-23T00:30');

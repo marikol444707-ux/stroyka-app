@@ -1383,9 +1383,15 @@ def register_supplier_offers_module(app, deps):
                     offer['payment_terms'] = bound_contract['snapshot_json']['paymentTerms']
             terms = (offer.get('payment_terms') or '').lower()
             scheduled_advance = None
+            effective_amount = None
+            if inv:
+                from ..supplier_payments.settlements import credits
+                effective_amount = Decimal(str(inv['amount'])) - credits(cur,locked_company,inv['id'])
             if bound_contract:
                 try:
                     scheduled_advance = advance_amount(bound_contract['snapshot_json'], inv['amount'])
+                    if scheduled_advance is not None:
+                        scheduled_advance = min(scheduled_advance,effective_amount)
                 except ValueError:
                     raise HTTPException(409, 'График оплаты счёта требует проверки')
             if scheduled_advance is not None:
@@ -1397,6 +1403,8 @@ def register_supplier_offers_module(app, deps):
                 paid = _float_or_zero(inv['paid_amount']) if inv else 0
                 amount = _float_or_zero(inv['amount']) if inv else _float_or_zero(offer['total_price'])
                 required = amount if '100' in terms or 'предоплат' in terms else amount * 0.5
+                if effective_amount is not None:
+                    required = min(required,float(effective_amount))
                 if not inv:
                     raise HTTPException(status_code=400, detail="Сначала поставщик должен выставить счёт, а бухгалтерия — оплатить по условиям КП")
                 if paid + 0.01 < required:

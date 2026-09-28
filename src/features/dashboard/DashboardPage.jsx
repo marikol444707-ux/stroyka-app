@@ -289,7 +289,7 @@ export default function DashboardPage({
   }) : [];
   const supplyOffersToReview = showDashboardExtra ? supplierOffersList.filter(o=>o.status==='Получено') : [];
   const supplyInvoicesToPay = showDashboardExtra ? supplierInvoicesList.filter(i=>i.status==='На утверждении'||i.status==='Утверждён'||i.status==='Частично оплачен'||!i.status) : [];
-  const supplyInvoiceDebt = showDashboardExtra ? supplyInvoicesToPay.reduce((s,i)=>s+Math.max(0,Number(i.amount||i.totalAmount||0)-Number(i.paidAmount||0)),0) : 0;
+  const supplyInvoiceDebt = showDashboardExtra ? supplyInvoicesToPay.reduce((s,i)=>s+Math.max(0,Number(i.effectiveAmount ?? i.amount ?? i.totalAmount ?? 0)-Number(i.paidAmount||0)),0) : 0;
   const supplyControlIssueRowsRaw = showDashboardExtra ? getSupplyControlIssues() : [];
   const supplyControlIssueRows = Array.isArray(supplyControlIssueRowsRaw) ? supplyControlIssueRowsRaw : [];
   if (showDashboardExtra && supplyControlIssueRows.length > 0) risks.push({icon:'🛒',text:'Снабжение требует внимания: '+supplyControlIssueRows.length+' замеч.',severity:'danger',page:'supply'});

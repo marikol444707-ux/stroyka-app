@@ -24,13 +24,13 @@ def normalize_command(body):
     except (KeyError, TypeError, ValueError, AttributeError):
         raise HTTPException(422, 'Нужны UUID операции и дата YYYY-MM-DD')
     kind = body.get('kind')
-    if kind not in ('payment', 'reversal') or body.get('documentKind') not in ('invoice', 'warehouse'):
+    if kind not in ('payment', 'reversal', 'refund', 'credit') or body.get('documentKind') not in ('invoice', 'warehouse'):
         raise HTTPException(422, 'Недопустимый вид операции или документа')
     reason = body.get('reason')
     if not isinstance(reason, str) or not reason.strip() or len(reason) > 1000:
         raise HTTPException(422, 'Укажите основание операции, до 1000 символов')
     amount, reverses_id = None, None
-    if kind == 'payment':
+    if kind != 'reversal':
         if 'reversesId' in body:
             raise HTTPException(422, 'Платёж не является сторно')
         try:

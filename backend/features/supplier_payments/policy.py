@@ -27,9 +27,10 @@ def validate_new_payment(cur, context, command, signed_amount):
     if cur.connection.autocommit:
         raise RuntimeError('Payment policy requires the engine transaction')
     kind = command.get('kind')
-    if (kind not in ('payment', 'reversal') or not isinstance(signed_amount, Decimal)
-            or not signed_amount.is_finite() or signed_amount == 0
-            or (signed_amount > 0) != (kind == 'payment')):
+    from .settlements import cash_amount
+    expected = cash_amount(kind,Decimal(1),context.get('reversedKind') or 'payment')
+    if (not isinstance(signed_amount, Decimal) or not signed_amount.is_finite()
+            or (signed_amount>0)!=(expected>0) or (signed_amount<0)!=(expected<0)):
         raise HTTPException(409, 'Направление операции оплаты требует сверки')
     documents = context.get('documents')
     if not isinstance(documents, list) or not 1 <= len(documents) <= 2:
@@ -45,7 +46,7 @@ def validate_new_payment(cur, context, command, signed_amount):
         live = _snapshot(doc['kind'], row, doc['payerCompanyId'], cur=cur)
         if any(doc.get(key) != value for key, value in live.items()):
             raise HTTPException(409, 'Реквизиты документа изменились после проверки доступа')
-        if kind == 'reversal':
+        if kind in ('reversal','refund'):
             continue
         if not payment_status_eligible(doc['kind'], row):
             raise HTTPException(409, 'Документ не утверждён к оплате или требует сверки')

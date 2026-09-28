@@ -30,6 +30,20 @@ test('persists exact command before the only POST, clears only verified success'
   expect(readPending(scope, storage)).toBeNull();
 });
 
+test.each(['refund','credit'])('preserves exact %s command and validates cash identity', async kind => {
+  const recorded={...result,kind,projectPaymentId:kind==='credit'?null:2,...(kind==='credit'?{nonCash:true}:{})};
+  fetcher.mockResolvedValue({ok:true,json:async()=>recorded});
+  await expect(submitPayment({...options,input:{...input,kind}})).resolves.toEqual(recorded);
+  expect(JSON.parse(fetcher.mock.calls[0][1].body)).toMatchObject({kind,amount:'10.20'});
+  expect(readPending(scope,storage)).toBeNull();
+});
+
+test('a credit response with a cash payment id never clears the pending request', async () => {
+  fetcher.mockResolvedValue({ok:true,json:async()=>({...result,kind:'credit'})});
+  await expect(submitPayment({...options,input:{...input,kind:'credit'}})).rejects.toThrow();
+  expect(readPending(scope,storage).body.kind).toBe('credit');
+});
+
 test('lost response survives reload and retry sends the identical UUID/body', async () => {
   fetcher.mockRejectedValueOnce(new Error('Lost response'));
   await expect(submitPayment(options)).rejects.toThrow('Lost response');

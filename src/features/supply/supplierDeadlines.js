@@ -29,7 +29,7 @@ export function canPrepareOffer(offer,invoices=[],deliveries=[],request=null) {
   if(!invoice) return false;
   const amount=Number(invoice.amount ?? offer.totalPrice),paid=Number(invoice.paidAmount ?? invoice.paid_amount ?? 0);
   if(!Number.isFinite(amount) || amount<=0 || !Number.isFinite(paid)) return false;
-  const required=terms.includes('100') || terms.includes('предоплат') ? amount : amount*.5;
+  const required=Math.min(terms.includes('100') || terms.includes('предоплат') ? amount : amount*.5, Number(invoice.effectiveAmount ?? amount));
   return paid+.01>=required;
 }
 export function requestAttention(quotes,invoices,deliveries,now,request=null) {
