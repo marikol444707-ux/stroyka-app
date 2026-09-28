@@ -68,9 +68,12 @@ test('review context rejects saved contract from another company or party',async
 test('saved applicability must match before clearing pending intent',async()=>{
  const party=legalDraft({fullName:'Компания',inn:'7701234567'});
  const applicability={scope:'company',projectId:null,term:'open_ended',startsOn:'2020-01-01',endsOn:null};
- const command={partyVersion:1,expectedVersion:0,sourceFileId:9,number:'Д-1',date:'2026-09-01',paymentTerms:'',reason:'Сверено',buyer:party,payer:party,supplier:party,applicability};
- const saved={id:10,companyId:1,offerId:71,version:1,partyVersion:1,sourceFileId:9,status:'reviewed',reason:command.reason,snapshot:{...command,applicability:{...applicability,term:'fixed',endsOn:'2026-12-31'}}};
+ const command={revisesContractId:8,partyVersion:1,expectedVersion:0,sourceFileId:9,number:'Д-1',date:'2026-09-01',paymentTerms:'',reason:'Сверено',buyer:party,payer:party,supplier:party,applicability};
+ const saved={id:10,companyId:1,offerId:71,version:1,partyVersion:1,sourceFileId:9,status:'reviewed',reason:command.reason,snapshot:{...command,revises:{contractId:8},applicability:{...applicability,term:'fixed',endsOn:'2026-12-31'}}};
  fetcher.mockResolvedValue(response(saved));
+ await expect(client().save('contract',command)).rejects.toThrow('не совпадает');
+ expect(client().pending()).not.toBeNull();
+ fetcher.mockResolvedValue(response({...saved,snapshot:{...saved.snapshot,applicability,revises:{contractId:7}}}));
  await expect(client().save('contract',command)).rejects.toThrow('не совпадает');
  expect(client().pending()).not.toBeNull();
  fetcher.mockResolvedValue(response({...saved,snapshot:{...saved.snapshot,applicability}}));
