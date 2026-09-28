@@ -50,3 +50,37 @@ Full monetary audit output was saved locally with mode 0600 at
 `/tmp/stroyka-legacy-audit-20260928.json`; it is not committed. This document keeps
 only classifications and IDs. Audit results are a point-in-time observation and
 must be refreshed before executing any later confirmed reconciliation.
+
+## Detailed follow-up: causes, not automatic corrections
+
+Additional read-only examination clarified the primary blockers:
+
+- All 28 package failures are `Warehouse contains mixed packages`. Package
+  fields exist: real combinations include Основная/Отопление, Отделка/Электрика,
+  and Вентиляция/Отделка. They must not be described as missing packages or
+  normalized into one arbitrary package. The one-package opening model lacks
+  support for these historical documents. Preserve document identity, line
+  packages, permissions and one cash balance when designing that support.
+- For the 10 balance mismatches, invoice and warehouse TOTALS are numerically
+  equal (compare Decimal, not text such as 45000.00 versus 45000.0). Every invoice
+  has paid=0 while its linked warehouse is fully paid. Invoice IDs are
+  82,145,146,147,148,149,150,151,152,157; warehouse IDs are respectively
+  2,3,4,5,6,7,8,9,10,15. Verify original payment evidence before recognizing an
+  opening; copying warehouse paid into invoice paid without evidence is not an
+  authorized repair. Additional balance issues may exist within mixed packages.
+- Invoice 15 has no supplier, empty invoice project, and warehouse 37 is labelled
+  Основной склад. Numeric totals agree. This needs explicit general-warehouse
+  context and supplier evidence, not a fabricated construction project.
+- Ambiguous IDs 144 and 160 have explicit test labels. Invoice 144 (200) points
+  forward to warehouse 167, whose reverse link points to invoice 160 (100).
+  Warehouse 166 (100) points back to 144. Invoice 160 also points to 167. This
+  explains the ambiguity; labels alone do not authorize deletion or prove which
+  correction is intended. No test documents or links were modified.
+
+Priority: design historical multi-package review without weakening package
+access, then reconcile paid-balance evidence and general-warehouse identity.
+Handle the two test links as a separate, explicitly reviewed repair. None of
+these findings warrants automatic production balance changes.
+
+Detailed read-only evidence is local, mode 0600:
+`/tmp/stroyka-legacy-details-20260928.json`. Raw document values are not committed.
