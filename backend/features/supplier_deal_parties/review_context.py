@@ -34,7 +34,7 @@ def build_contract_review_context(deps):
             cur.execute('SELECT * FROM company_requisites WHERE company_id=ANY(%s)',
                         ([parties['buyer_company_id'], parties['payer_company_id']],))
             companies = {row['company_id']: row for row in cur.fetchall()}
-            cur.execute('SELECT name,inn FROM suppliers WHERE id=%s', (offer['supplier_id'],))
+            cur.execute('SELECT * FROM suppliers WHERE id=%s', (offer['supplier_id'],))
             supplier = cur.fetchone() or {}
 
             def legal_identity(row, name):
@@ -48,7 +48,16 @@ def build_contract_review_context(deps):
                                     if key not in ('id', 'companyId', 'shortName', 'actualAddress')},
                                  **legal_identity(companies.get(parties[side + '_company_id'], {}), 'full_name'),
                                  'companyId': parties[side + '_company_id']} for side in ('buyer', 'payer')}
-            identities['supplier'] = {**legal_identity(supplier, 'name'), 'supplierId': offer['supplier_id']}
+            supplier_profile = company_requisites_to_api({
+                **supplier, 'full_name': supplier.get('name'),
+                'bank_name': supplier.get('bank'), 'rs': supplier.get('account'),
+                'ks': supplier.get('kor_account'),
+            })
+            identities['supplier'] = {
+                **{key: value for key, value in supplier_profile.items()
+                   if key not in ('id', 'companyId', 'shortName', 'actualAddress')},
+                **legal_identity(supplier, 'name'), 'supplierId': offer['supplier_id'],
+            }
             cur.execute('SELECT COALESCE(MAX(version),0) AS version FROM supplier_contract_versions WHERE offer_id=%s', (id,))
             return {'offerId': id, 'companyId': offer['company_id'], 'partyVersion': parties['version'],
                     'expectedVersion': cur.fetchone()['version'], 'identitySource': 'company_profiles', **identities}

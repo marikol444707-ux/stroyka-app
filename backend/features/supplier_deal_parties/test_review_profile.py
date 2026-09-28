@@ -4,11 +4,11 @@ from .review_context import build_contract_review_context
 
 
 class ReviewProfileTests(unittest.TestCase):
-    def context(self, profile):
+    def context(self, profile, supplier=None):
         cur = MagicMock()
         cur.fetchone.side_effect = [
             {'buyer_company_id': 1, 'payer_company_id': 1, 'version': 2},
-            {'name': 'Supplier', 'inn': '7701234567'}, {'version': 3}]
+            supplier or {'name': 'Supplier', 'inn': '7701234567'}, {'version': 3}]
         cur.fetchall.return_value = [profile]
         conn = MagicMock()
         conn.cursor.return_value = cur
@@ -30,7 +30,7 @@ class ReviewProfileTests(unittest.TestCase):
             self.assertEqual(result[side]['legalAddress'], 'Address')
             self.assertEqual(result[side]['directorName'], 'Signer')
             self.assertEqual(result[side]['basis'], 'Power of attorney')
-        self.assertNotIn('bankName', result['supplier'])
+        self.assertEqual(result['supplier']['bankName'], '')
         self.assertEqual(result['expectedVersion'], 3)
 
     def test_missing_signer_and_authority_are_not_invented(self):
@@ -38,3 +38,14 @@ class ReviewProfileTests(unittest.TestCase):
         self.assertEqual(result['buyer']['directorPosition'], '')
         self.assertEqual(result['buyer']['basis'], '')
         self.assertEqual(result['buyer']['rs'], '')
+
+    def test_supplier_uses_own_bank_columns_without_inventing_authority(self):
+        result = self.context({'company_id': 1, 'full_name': 'Buyer', 'inn': '7707654321'},
+            {'name': 'Supplier', 'inn': '7701234567', 'bank': 'Supplier bank',
+             'account': '4'*20, 'kor_account': '3'*20, 'director_name': 'Supplier signer'})
+        self.assertEqual(result['supplier']['bankName'], 'Supplier bank')
+        self.assertEqual(result['supplier']['rs'], '4'*20)
+        self.assertEqual(result['supplier']['ks'], '3'*20)
+        self.assertEqual(result['supplier']['directorName'], 'Supplier signer')
+        self.assertEqual(result['supplier']['basis'], '')
+        self.assertEqual(result['buyer']['bankName'], '')

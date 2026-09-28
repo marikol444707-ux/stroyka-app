@@ -168,7 +168,7 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
      </div>
      {side==='payer' && review.payer.inn===review.buyer.inn && <div className="contract-payer-help"><p>Покупатель и плательщик — одна организация. Можно перенести уже проверенные вами реквизиты покупателя.</p>
       <button type="button" onClick={()=>{setLegal(v=>({...v,payer:{...v.buyer}}));autoFields.current=autoFields.current.filter(item=>item.side!=='payer');setChecked(false);}}>Взять реквизиты покупателя</button></div>}
-     <ContractPartyFields side={side} value={legal[side]} recognized={recognition?.parties[side]}
+     <ContractPartyFields side={side} value={legal[side]} profile={review[side]} recognized={recognition?.parties[side]}
       onChange={(field,value)=>{setLegal(v=>({...v,[side]:{...v[side],[field]:value}}));setChecked(false);}}
       onApply={(field,value)=>{setLegal(v=>({...v,[side]:{...v[side],[field]:value}}));autoFields.current=[...autoFields.current.filter(item=>!(item.side===side&&item.field===field)),{side,field,value}];setChecked(false);}}/>
     </div>)}
