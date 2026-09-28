@@ -1,4 +1,5 @@
 """Authenticated read-only mixed-package review; never admits a baseline write."""
+import hashlib
 from fastapi import HTTPException
 from .commands import positive_id
 from .documents import TABLES, _discover, _require
@@ -59,5 +60,18 @@ def review(cur, authorize, actor_id, company_id, invoice_id):
     result = mixed_reconciliation_preview(source, [receipt], raw)
     if result['scenario'] != 'mixedPackageLegacyPair':
         raise HTTPException(409, 'Связи, реквизиты или остатки документов требуют сверки')
+    evidence = source_evidence(cur, company_id, invoice_id, warehouse['id'])
     return dict(result, companyId=company_id, invoiceId=invoice_id, warehouseId=warehouse['id'],
+                evidenceHash=evidence['hash'],
                 readOnly=True, confirmationAvailable=False)
+
+
+def source_evidence(cur, company_id, invoice_id, warehouse_id):
+    """Internal locked-source serialization; never return snapshots to a client."""
+    cur.execute('''SELECT to_jsonb(i)::text AS invoice, to_jsonb(w)::text AS warehouse
+        FROM supplier_invoices i JOIN warehouse_invoices w ON w.id=%s
+        WHERE i.id=%s AND i.company_id=%s AND w.company_id=%s''',
+        (warehouse_id,invoice_id,company_id,company_id))
+    row=cur.fetchone()
+    _require(row is not None)
+    return dict(row, hash=hashlib.sha256((row['invoice']+'\n'+row['warehouse']).encode('utf-8')).hexdigest())

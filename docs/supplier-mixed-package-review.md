@@ -114,3 +114,29 @@ Actual Alembic 0051 → 0060 → 0051 → 0060 also passed on a populated synthe
 database: complete financial snapshots unchanged, old payment UUID replay did
 not duplicate cash, and a new payment remained valid. This tests pre-activation
 rollback with empty review storage; evidence-bearing downgrade remains blocked.
+
+## Internal atomic review save
+
+`mixed_scope_evidence.save_review` saves one immutable review under the company
+lock, with current financial WRITE authority for the header and all receipt
+packages. The command accepts only UUID, invoice ID, evidence hash and reason;
+company and actor are server arguments. The preview now exposes `evidenceHash`
+over PostgreSQL's exact JSON text snapshots (not Python float reserialization).
+It still does not expose the old opening writer's `reviewedHash`.
+
+Any source change requires a new review before saving. UUID reuse checks actor,
+document identities, reason and exact stored snapshots/scope. Concurrent retries
+serialize and return the same review ID. Revoked package access or missing
+immutable guards blocks retries as well as new saves. A late commit failure
+rolls the review back. No ledger baseline, cash, opening or application of paid
+balance occurs; response explicitly returns `openingConfirmed=false`.
+
+This worker is internal and has no public POST route or UI button. It is a
+prerequisite for financial admission, not implementation of that admission.
+The existing guards still reject mixed-package cash baselines. Future transfer
+must bind review evidence to the baseline and ensure every financial consumer
+uses the complete package scope, including legacy reports and reversal/replay.
+
+Verified: 2 command-validation tests, 5 isolated PostgreSQL save/retry/concurrency/
+rollback tests, and 4 existing authenticated mixed-review PostgreSQL regressions.
+No production migration, deployment, review save or financial write was performed.
