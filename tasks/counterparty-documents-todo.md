@@ -98,3 +98,8 @@
 - Invoice can open its verified contract; invoice/contract can open its quotation. Return restores the original section/search/page. Focused response must match requested source and ID; stale responses remain ignored.
 - 14 route and 5 UI tests passed. Read-only SQL rehearsal verified exact contract lookup against actual schema (synthetic leadership context, not auth proof).
 - Deployed `45fae9209e10`. Authenticated browser search362 -> contract -> quotation71 -> return preserved query362 and original result. No JS errors. Invoice-to-contract covered by UI test. 14 server tests, 251 assets, unchanged data hashes, health/DB passed; all four release gates recorded and backup/staging removed.
+
+## 2026-09-29 — invoices by exact contract version
+- Contract archive rows offer “Счета по этой версии”. New bounded contractId filter selects invoice rows using exact contract ID, company and offer, never inferred names or amounts. Conflicting lookup modes rejected.
+- Separate pagination and back preserve prior list/contract context. Foreign-version response rejected. Empty state explains missing bindings.
+- 16 route tests and7 UI tests passed. Read-only SQL rehearsal: current contract362 has zero bound invoices; no data modified.

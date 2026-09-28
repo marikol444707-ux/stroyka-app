@@ -147,3 +147,17 @@ class ArchiveTests(unittest.TestCase):
         for query in ('source=contract','recordId=9','source=unknown&recordId=9','source=contract&recordId=-1'):
             self.assertEqual(self.client.get('/company-document-archive?'+query).status_code,422)
         self.cur.execute.assert_not_called()
+
+    def test_contract_invoice_filter_requires_exact_owner_offer_and_version(self):
+        response=self.client.get('/company-document-archive?contractId=9&offset=30&limit=30')
+        self.assertEqual(response.status_code,200,response.text)
+        sql,args=self.cur.execute.call_args.args
+        self.assertEqual(args,(1,'','',9,31,30))
+        self.assertIn('c.id=%s AND c.id=d.contract_version_id AND c.company_id=d.company_id AND c.offer_id=d.offer_id',sql)
+        self.assertNotIn('UNION ALL',sql)
+        self.assertEqual(response.json()['items'],[])
+
+    def test_contract_invoice_filter_rejects_conflicting_modes(self):
+        for query in ('contractId=9&source=contract&recordId=9','contractId=9&section=company','contractId=0'):
+            self.assertEqual(self.client.get('/company-document-archive?'+query).status_code,422)
+        self.cur.execute.assert_not_called()

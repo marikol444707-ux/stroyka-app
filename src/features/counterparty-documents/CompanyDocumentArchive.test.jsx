@@ -52,3 +52,26 @@ test('opens exact related contract and returns to the previous list',async()=>{
  await screen.findByText('Счёт В-1');
  expect(global.fetch.mock.calls[2][0]).toBe(global.fetch.mock.calls[0][0]);
 });
+
+test('lists invoices for exact contract version and returns to contract list',async()=>{
+ const wrap=items=>({ok:true,json:async()=>({companyId:1,items,hasMore:false})});
+ const contract={id:'contract:9',source:'contract',sourceId:9,companyId:1,title:'Договор 362',attachments:[]};
+ global.fetch=jest.fn().mockResolvedValueOnce(wrap([contract])).mockResolvedValueOnce(wrap([])).mockResolvedValueOnce(wrap([contract]));
+ render(<Archive {...props}/>);
+ fireEvent.click(await screen.findByText('Счета по этой версии'));
+ await screen.findByText('К этой версии договора счета ещё не привязаны.');
+ expect(new URLSearchParams(global.fetch.mock.calls[1][0].split('?')[1]).get('contractId')).toBe('9');
+ fireEvent.click(screen.getByText('Вернуться к списку'));
+ await screen.findByText('Договор 362');
+ expect(global.fetch.mock.calls[2][0]).toBe(global.fetch.mock.calls[0][0]);
+});
+
+test('rejects invoice belonging to another contract version',async()=>{
+ const wrap=items=>({ok:true,json:async()=>({companyId:1,items,hasMore:false})});
+ global.fetch=jest.fn().mockResolvedValueOnce(wrap([{id:'contract:9',source:'contract',sourceId:9,companyId:1,title:'Договор 362',attachments:[]}]))
+  .mockResolvedValueOnce(wrap([{id:'invoice:161',source:'invoice',sourceId:161,companyId:1,contractId:10,title:'Другой счёт',attachments:[]}]));
+ render(<Archive {...props}/>);
+ fireEvent.click(await screen.findByText('Счета по этой версии'));
+ await screen.findByRole('alert');
+ expect(screen.queryByText('Другой счёт')).toBeNull();
+});

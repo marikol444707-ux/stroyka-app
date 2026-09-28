@@ -30,6 +30,7 @@ def register_counterparty_document_archive(app, deps):
         section: Literal['all', 'company', 'supplier', 'customer'] = 'all',
         q: str = Query('', max_length=200),
         source: Optional[Literal['company','supplier','offer','invoice','delivery','warehouse','contract','customer']] = None,
+        contractId: Optional[int] = Query(None, gt=0, le=2147483647),
         recordId: Optional[int] = Query(None, gt=0, le=2147483647),
         limit: int = Query(50, ge=1, le=100),
         offset: int = Query(0, ge=0, le=100000),
@@ -39,6 +40,8 @@ def register_counterparty_document_archive(app, deps):
     ):
         if (source is None) != (recordId is None):
             raise HTTPException(422, 'Укажите документ для перехода')
+        if contractId is not None and (source is not None or section not in ('all','supplier')):
+            raise HTTPException(422, 'Выберите счета по договору отдельно от других документов')
         conn = deps['get_db']()
         cur = conn.cursor()
         try:
@@ -55,7 +58,7 @@ def register_counterparty_document_archive(app, deps):
                 raise HTTPException(403, 'Компания архива не определена')
             queries, params = [], []
             for key, (group, table, title, kind, date, active, file_fields) in SOURCES.items():
-                if section not in ('all', group):
+                if (contractId is not None and key != 'invoice') or section not in ('all', group):
                     continue
                 fields = ','.join(f"'{field}',to_jsonb(d)->'{field}'" for field in (*file_fields, 'project_id', 'project_name', 'sign_status'))
                 if key == 'contract':
@@ -65,14 +68,19 @@ def register_counterparty_document_archive(app, deps):
                     fields += ", 'contract_number',(SELECT c.snapshot_json->>'number' FROM supplier_contract_versions c WHERE c.id=d.contract_version_id AND c.company_id=d.company_id AND c.offer_id=d.offer_id)"
                     fields += ", 'contract_version',(SELECT c.version FROM supplier_contract_versions c WHERE c.id=d.contract_version_id AND c.company_id=d.company_id AND c.offer_id=d.offer_id)"
                     fields += ", 'contract_id',(SELECT c.id FROM supplier_contract_versions c WHERE c.id=d.contract_version_id AND c.company_id=d.company_id AND c.offer_id=d.offer_id)"
+                relation = ''
+                if contractId is not None:
+                    relation = ' AND EXISTS (SELECT 1 FROM supplier_contract_versions c WHERE c.id=%s AND c.id=d.contract_version_id AND c.company_id=d.company_id AND c.offer_id=d.offer_id)'
                 queries.append(f"""SELECT '{key}' AS source,d.id,d.company_id,
                     {title} AS title,{kind} AS kind,{date} AS created_at,
                     jsonb_build_object({fields}) AS files
                     FROM {table} d
                     WHERE d.company_id=%s AND {active}
                       AND (POSITION(LOWER(%s) IN LOWER({title}))>0
-                           OR POSITION(LOWER(%s) IN LOWER({kind}))>0)""")
+                           OR POSITION(LOWER(%s) IN LOWER({kind}))>0){relation}""")
                 params.extend((company_id, q.strip(), q.strip()))
+                if contractId is not None:
+                    params.append(contractId)
             selection = ''
             if source is not None:
                 selection = ' WHERE source=%s AND id=%s'
