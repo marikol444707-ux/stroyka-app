@@ -52,3 +52,33 @@ remain in local mode-0600 /tmp/stroyka-mixed-review-20260928.json, not version c
 Validation: 9 pure preview/parser tests; PostgreSQL audit suites cover both
 text and JSONB storage, mixed balance conservation, no registration/mutation,
 company isolation, malformed packages and prior single-package scenarios.
+
+## Authenticated review increment
+
+Added GET `/companies/{company_id}/supplier-opening-confirmations/package-review/{invoice_id}`.
+It requires payment and opening flags plus the new default-off
+`SUPPLIER_MIXED_OPENING_REVIEW_ENABLED=1`. No UI flag or production activation.
+
+The existing financial read transaction validates schema, holds the company
+advisory lock and always rolls back. Root owner/project/header-package authority
+is checked before detailed link discovery. Both documents are locked and links
+rechecked. Cross-company and ambiguous links fail closed. Contract payer scope
+is resolved server-side; current authority is then checked for each receipt
+package on its actual project, including the payer company, before returning
+any balances or package list. Existing-ledger or sealed-line documents are
+excluded from this legacy preview.
+
+Response explicitly has `readOnly=true`, `confirmationAvailable=false`, and
+`admissionGranted=false`. It deliberately contains no `reviewedHash` accepted by
+the existing single-package confirmation writer. That writer, payment resolver,
+and database package guards have not been weakened.
+
+Still required: immutable multi-package baseline evidence and database guards,
+current all-package authority on every later read/payment/reversal/replay, then
+confirmation UI and an integrated end-to-end test. Enabling a mixed opening
+before those consumers understand its complete scope would be unsafe.
+
+Verified: 14 boundary/parser tests and 4 real PostgreSQL tests (actual HTTP,
+no-write snapshots, real financial authority with one denied package, revoked
+membership/roles/default-off, mismatched balances and nonreciprocal links).
+No production code, flags, schema or financial records changed in this increment.

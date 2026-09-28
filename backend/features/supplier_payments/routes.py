@@ -163,6 +163,20 @@ def register_supplier_payment_routes(app, deps):
                 dict(documentKind='invoice', documentId=invoice_id))
             return candidate(cur, context, company_id, invoice_id)[2]
 
+    @router.get('/companies/{company_id}/supplier-opening-confirmations/package-review/{invoice_id}')
+    def mixed_opening_preview(request: Request, response: Response,
+                              company_id: int = Path(..., ge=1, le=2147483647),
+                              invoice_id: int = Path(..., ge=1, le=2147483647), user: dict = Depends(authenticate)):
+        if (os.getenv('SUPPLIER_OPENING_CONFIRMATIONS_ENABLED') != '1'
+                or os.getenv('SUPPLIER_MIXED_OPENING_REVIEW_ENABLED') != '1'):
+            raise HTTPException(404, 'Not found')
+        _headers(request, company_id)
+        _query(request, ())
+        response.headers['Cache-Control'] = 'no-store'
+        from .mixed_opening_review import review
+        with reads.transaction(deps, company_id) as cur:
+            return review(cur, deps['authorize_read'], user['id'], company_id, invoice_id)
+
     @router.post('/companies/{company_id}/supplier-opening-confirmations')
     def opening_confirm(request: Request, response: Response, body: Any = Body(...),
                         company_id: int = Path(..., ge=1, le=2147483647), user: dict = Depends(authenticate)):

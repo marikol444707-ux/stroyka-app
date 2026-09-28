@@ -35,6 +35,16 @@ class RouteBoundaryTests(unittest.TestCase):
                 self.assertEqual(self.client.request(method, path, json=self.body).status_code, 404)
         self.db.assert_not_called()
 
+    def test_mixed_review_flags_headers_and_query_are_checked_before_database(self):
+        path='/companies/2/supplier-opening-confirmations/package-review/8'
+        with patch.dict(os.environ,SUPPLIER_OPENING_CONFIRMATIONS_ENABLED='1',SUPPLIER_MIXED_OPENING_REVIEW_ENABLED='0'):
+            self.assertEqual(self.client.get(path,headers=self.headers).status_code,404)
+        with patch.dict(os.environ,SUPPLIER_OPENING_CONFIRMATIONS_ENABLED='1',SUPPLIER_MIXED_OPENING_REVIEW_ENABLED='1'):
+            self.assertEqual(self.client.get(path).status_code,400)
+            self.assertEqual(self.client.get(path,headers={**self.headers,'X-Company-Id':'3'}).status_code,409)
+            self.assertEqual(self.client.get(path+'?companyId=3',headers=self.headers).status_code,422)
+        self.db.assert_not_called()
+
     def test_selected_headers_required_and_must_match_for_reads_and_writes(self):
         for method in ('GET', 'POST'):
             for headers, status in [({}, 400), ({'X-Company-Id': '3'}, 409),
