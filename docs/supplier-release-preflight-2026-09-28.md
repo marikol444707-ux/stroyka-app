@@ -194,3 +194,35 @@ The browser and disposable database were stopped and cleaned. This closes the
 missing allocation-editor gap. These are isolated dialog/full API checks, not an
 authenticated deployed full-application receipt workflow. Production is unchanged;
 release configuration, deployment and live authenticated verification remain.
+
+
+## Production release completed — 2026-09-28
+
+Installed runtime: `6225f667d1b8f0492a7ddf58398cae89307a762d`.
+Frontend: allocation editor build from `f91c9d82`; subsequent change was backend/test only.
+
+- Migrated to `0061_supplier_mixed_bindings`. Fingerprints of original columns in
+  15 business tables remained unchanged. Enabled the staged supplier finance gates.
+- Verified 146 frontend files and 3 public manifest/entrypoint checks against the
+  production build. Read-only production smoke check passed.
+- Backend health reports the installed SHA and healthy database; app and job worker
+  are active. Initial deployment stopped on missing remote `rg`; rollback restored
+  the previous app before DB changes. Resume reused the same stage and build.
+- Authenticated production browser, company 1: invoice 24 payment history reads
+  correctly; opening preview shows linked warehouse 46, paid 989398, remaining 0.
+  Allocation context correctly reports no receipt group for this historical invoice.
+  No financial confirmation, payment, allocation or refund was written in production.
+- Browser verification exposed native JSONB warehouse item adaptation failure.
+  Fixed serialization before the existing strict SQL package validator. Regression
+  reproduced the failure first; all 7 real PostgreSQL package tests then passed,
+  including malformed/mixed-package rejection and transaction recovery.
+- VIST invoice 161 remains blocked for document ownership/link/requisite review.
+  Historical financial discrepancies were not inferred or repaired.
+- After backend, database, frontend and browser evidence passed, finalized only
+  `/root/stroyka-supplier-finance-20260928-f91c9d82`. Backup and staging were removed;
+  small receipt retained in `/var/log/stroyka-release-receipts/`. Free disk: 53 GB.
+
+The technical release is complete. Historical balance confirmations and disputed
+source-document links remain business review work; this release does not certify
+those amounts. Financial writes were exercised only in the isolated test workflow
+recorded above.
