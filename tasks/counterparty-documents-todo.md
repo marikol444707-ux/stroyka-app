@@ -91,3 +91,4 @@
 - Added reviewed contract versions to supplier archive, with original protected file and originating quotation. No file copies or data migration.
 - Invoice rows display quotation and bound contract number/version only through exact same-company, same-offer joins. Unlinked old invoices remain unlinked.
 - 12 archive route tests, 4 UI tests passed. Read-only SQL rehearsal with synthetic leadership context found one actual reviewed contract and its quotation; not an authentication proof. Reverse navigation and canonical registry still pending.
+- Deployed `7f159bbc729d`. Authenticated production archive search362 shows contract362 version1 and offer71; original file opens HTTP200, zero JS errors. 12 server tests rerun on production, 251 assets and unchanged source/financial/stock hashes verified. Health/DB OK. Backup/staging removed after four release gates; receipt retained. Invoice relation rendering tested synthetically; unbound production invoices are not altered.
