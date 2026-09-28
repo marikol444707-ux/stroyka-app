@@ -11510,6 +11510,7 @@ def _prepare_legacy_delivery_invoice_columns(cur):
 def _ensure_supply_delivery_invoice_prepared(cur, delivery, received_qty=None, received_at=None, accepted_by=None,
                                             *, source_checked=False, source_invoice_id=None):
     import json as _json
+    from decimal import Decimal
     from datetime import date as _date
     delivery_id = delivery['id']
     try:
@@ -11561,6 +11562,15 @@ def _ensure_supply_delivery_invoice_prepared(cur, delivery, received_qty=None, r
         return None
     price = _float_or_zero(delivery.get('price_per_unit'))
     total = round(received_qty * price, 2)
+    try:
+        from backend.features.supplier_payments.receipt_vat_runtime import receipt_vat
+    except ModuleNotFoundError:
+        from features.supplier_payments.receipt_vat_runtime import receipt_vat
+    receipt_tax = receipt_vat(cur, delivery, received_qty)
+    receipt_base = Decimal(receipt_tax['baseAmount']) if receipt_tax else total
+    receipt_vat_amount = Decimal(receipt_tax['vatAmount']) if receipt_tax else 0
+    if receipt_tax:
+        total = float(receipt_tax['amount'])
     received_at = received_at or delivery.get('received_at') or _date.today()
     if hasattr(received_at, "date"):
         date_value = received_at.date().isoformat()
@@ -11610,8 +11620,8 @@ def _ensure_supply_delivery_invoice_prepared(cur, delivery, received_qty=None, r
 	                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
 	                       RETURNING id""",
 	                    (company_id, number, date_value, delivery.get('supplier_id'), delivery.get('supplier_name') or "",
-		                     accepted_by or delivery.get('received_by') or "", project, project, "Без НДС",
-		                     _json.dumps(items, ensure_ascii=False), total, 0, total,
+                         accepted_by or delivery.get('received_by') or "", project, project, "НДС по строке счёта" if receipt_tax else "Без НДС",
+                         _json.dumps(items, ensure_ascii=False), receipt_base, receipt_vat_amount, total,
 		                     "Принята", accepted_by or delivery.get('received_by') or "Снабжение",
 		                     delivery.get('photo_url') or "", "supply_delivery", delivery_id,
 		                     delivery_id, delivery.get('request_id'),

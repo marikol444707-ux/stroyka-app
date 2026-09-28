@@ -1,5 +1,6 @@
 import SupplyFileLink from './SupplyFileLink';
 import SupplierAttachmentInput from './SupplierAttachmentInput';
+import InvoiceLineTaxFields from './InvoiceLineTaxFields';
 import { supplierOrders } from './supplierOrderProjection';
 import { createShipmentForm } from './supplyInitialForms';
 import SupplierProfile from './SupplierProfile';
@@ -626,10 +627,13 @@ export default function SupplierCabinetPage({
                           <input type='number' step='any' inputMode='decimal' value={newOfferInvoice.amount} onChange={e=>setNewOfferInvoice({...newOfferInvoice,amount:e.target.value})} style={{...inp,marginBottom:0}}/>
                         </div>
                         <div>
-                          <label style={{fontSize:'11px',color:C.textSec,display:'block',marginBottom:'3px'}}>в т.ч. НДС (₽)</label>
+                          <label style={{fontSize:'11px',color:C.textSec,display:'block',marginBottom:'3px'}}>в т.ч. НДС (₽); без НДС — 0</label>
                           <input type='number' step='any' inputMode='decimal' value={newOfferInvoice.vatAmount} onChange={e=>setNewOfferInvoice({...newOfferInvoice,vatAmount:e.target.value})} style={{...inp,marginBottom:0}}/>
                         </div>
                       </div>
+                      {process.env.REACT_APP_SUPPLIER_VAT_RECEIPTS_ENABLED==='true' && o.vatIncluded===true &&
+                        <InvoiceLineTaxFields items={readOfferItems(o)} values={newOfferInvoice.lineTaxes}
+                          inputStyle={inp} onChange={lineTaxes=>setNewOfferInvoice(current=>({...current,lineTaxes}))}/>}
                       <input value={newOfferInvoice.description} onChange={e=>setNewOfferInvoice({...newOfferInvoice,description:e.target.value})} placeholder='Описание (по умолчанию название материала)' style={inp}/>
                       <SupplierAttachmentInput onBusy={setAttachmentBusy} offerId={o.id} uploadPhoto={uploadPhoto} label="Прикрепить счёт (PDF/фото)" attached={newOfferInvoice.fileUrl} onUploaded={url=>setNewOfferInvoice(current=>({...current,fileUrl:url}))}/>
                       <div style={{display:'flex',gap:'8px'}}>

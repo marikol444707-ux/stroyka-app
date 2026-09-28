@@ -1061,6 +1061,8 @@ def register_supplier_offers_module(app, deps):
                     conn.rollback()
                     raise HTTPException(409, 'Счёт уже выставлен с другой привязкой к договору')
                 existing_id = existing_invoice.get('id') if isinstance(existing_invoice, dict) else existing_invoice[0]
+                from ..supplier_payments.invoice_line_creation import verify_existing_invoice_tax
+                verify_existing_invoice_tax(cur,existing_id,company_id,data)
                 conn.commit()
                 return {"ok": True, "id": existing_id, "alreadyExists": True}
             bound_contract = None
@@ -1097,6 +1099,8 @@ def register_supplier_offers_module(app, deps):
             )
             if duplicate_invoice:
                 existing_id = int(duplicate_invoice.get("id") or 0)
+                from ..supplier_payments.invoice_line_creation import verify_existing_invoice_tax
+                verify_existing_invoice_tax(cur,existing_id,company_id,data)
                 cur.execute(
                     """
                     SELECT id, company_id, supplier_id, offer_id, request_id, status, warehouse_invoice_id""" + binding_column + """
@@ -1198,7 +1202,7 @@ def register_supplier_offers_module(app, deps):
                     raise HTTPException(503, 'Товарные строки требуют подготовленной схемы и привязки к договору')
                 require_invoice_line_schema(cur)
                 line_spec, line_source = prepare_invoice_line_spec(offer, data, invoice_package)
-                amount, vat_amount = Decimal(line_spec['amount']), Decimal('0.00')
+                amount, vat_amount = Decimal(line_spec['amount']), Decimal(line_spec.get('vatAmount','0.00'))
             cur.execute(
                 "INSERT INTO supplier_invoices "
                 "(company_id, supplier_id, supplier_name, project_name, invoice_number, invoice_date, "

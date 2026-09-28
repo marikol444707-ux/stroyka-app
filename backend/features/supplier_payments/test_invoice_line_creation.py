@@ -1,7 +1,8 @@
 """Small boundary tests; atomic creation is verified separately on PostgreSQL."""
 import json
+import os
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from fastapi import HTTPException
 
@@ -9,6 +10,16 @@ from .invoice_line_creation import prepare_invoice_line_spec, require_invoice_li
 
 
 class InvoiceLineCreationTests(unittest.TestCase):
+    def test_taxable_invoice_requires_explicit_tax_even_when_zero(self):
+        offer={**self.offer(),'vat_included':True}
+        with patch.dict(os.environ,SUPPLIER_VAT_RECEIPTS_ENABLED='1'):
+            for data in ({},{'vatAmount':''},{'vatAmount':None}):
+                with self.subTest(data=data),self.assertRaises(HTTPException) as caught:
+                    prepare_invoice_line_spec(offer,data,'Основная')
+                self.assertEqual(caught.exception.status_code,409)
+            spec,_=prepare_invoice_line_spec(offer,{'vatAmount':'0.00'},'Основная')
+            self.assertEqual(spec['vatAmount'],'0.00')
+
     def offer(self):
         item = dict(materialName='Кирпич', unit='шт', workPackage='Основная', quantity='2')
         return dict(items_json=json.dumps([item]), items_kp_json=json.dumps([

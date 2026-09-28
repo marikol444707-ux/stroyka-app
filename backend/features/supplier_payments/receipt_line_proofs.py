@@ -2,8 +2,9 @@
 
 Caller authorizes the current warehouse actor and owns the entire receipt
 transaction, including stock locks before the company lock. Never call after
-committing receipt/stock creation. Only immutable exact no-VAT source lines are
-supported; ambiguous or historical invoices without a specification fail closed.
+committing receipt/stock creation. Only immutable exact source lines are supported;
+VAT requires the separate schema/runtime adapter. Ambiguous or historical
+invoices without a specification fail closed.
 """
 from fastapi import HTTPException
 from psycopg2.errors import CheckViolation
@@ -57,9 +58,12 @@ def register_receipt_line(cur, *, company_id, invoice_id, warehouse_id):
             if proof['invoice_line_id'] != line['id'] or proof['company_id'] != company_id:
                 raise HTTPException(409, 'Сохранённая связь строки приёмки требует сверки')
         else:
+            cur.execute("SELECT to_regclass('supplier_vat_guard_versions') AS ready")
+            tax_ready=bool(cur.fetchone()['ready'])
             cur.execute('''INSERT INTO supplier_receipt_line_proofs
-                (receipt_relation_id,invoice_line_id,company_id,quantity,amount)
-                SELECT %s,%s,%s,received_quantity,received_quantity*price_per_unit
+                (receipt_relation_id,invoice_line_id,company_id,quantity,amount''' + (',vat_amount' if tax_ready else '') + ''')
+                SELECT %s,%s,%s,received_quantity,received_quantity*price_per_unit''' +
+                (', (SELECT total_vat FROM warehouse_invoices WHERE supply_delivery_id=supply_deliveries.id)' if tax_ready else '') + '''
                 FROM supply_deliveries WHERE id=%s''',
                 (relation['id'], line['id'], company_id, line['delivery_id']))
     except CheckViolation:

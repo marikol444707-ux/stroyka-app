@@ -3,7 +3,7 @@
 Amounts include tax. Rates and exemptions must come from the source document;
 this module neither infers them nor distributes invoice tax between unrelated
 lines. Caller must serialize receipts and provide their complete prior amount.
-It grants no authority, writes no data and is not yet connected to live receipts.
+It grants no authority and writes no data; the flagged runtime adapter owns I/O.
 """
 from decimal import Context, Decimal, DecimalException, ROUND_HALF_UP, localcontext
 

@@ -526,8 +526,11 @@ export const createSupplyActions = ({
       body: JSON.stringify({
         invoiceNumber: newOfferInvoice.invoiceNumber,
         invoiceDate: newOfferInvoice.invoiceDate,
-        amount: Number(newOfferInvoice.amount),
-        vatAmount: Number(newOfferInvoice.vatAmount || 0),
+        amount: String(newOfferInvoice.amount),
+        vatAmount: process.env.REACT_APP_SUPPLIER_VAT_RECEIPTS_ENABLED==='true'
+          ? String(newOfferInvoice.vatAmount ?? '') : String(newOfferInvoice.vatAmount || 0),
+        ...(process.env.REACT_APP_SUPPLIER_VAT_RECEIPTS_ENABLED==='true' && newOfferInvoice.lineTaxes
+          ? {lineTaxes:newOfferInvoice.lineTaxes} : {}),
         description: newOfferInvoice.description,
         fileUrl: newOfferInvoice.fileUrl,
       }),
