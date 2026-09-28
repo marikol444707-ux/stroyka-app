@@ -1,3 +1,5 @@
+import os
+import json
 import unittest
 from unittest.mock import MagicMock, patch
 from fastapi import FastAPI, HTTPException
@@ -161,3 +163,58 @@ class ArchiveTests(unittest.TestCase):
         for query in ('contractId=9&source=contract&recordId=9','contractId=9&section=company','contractId=0'):
             self.assertEqual(self.client.get('/company-document-archive?'+query).status_code,422)
         self.cur.execute.assert_not_called()
+
+    def test_reused_contract_exposes_only_verified_source_relationship(self):
+        self.cur.fetchall.return_value = [
+            ('contract',10,1,'Повторный договор','Договор',None,{'origin_contract_id':9}),
+            ('contract',11,1,'Без связи','Договор',None,{}),
+            ('invoice',12,1,'Счёт','Счёт',None,{'origin_contract_id':9})]
+        response=self.client.get('/company-document-archive?section=supplier')
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertEqual([i['originContractId'] for i in response.json()['items']],[9,None,None])
+        sql=self.cur.execute.call_args.args[0]
+        for predicate in ("c.id::text=d.snapshot_json #>> '{reusedFrom,contractId}'",
+                          'c.company_id=d.company_id AND c.id<>d.id',
+                          'c.source_file_id=d.source_file_id',
+                          "c.snapshot_hash=d.snapshot_json #>> '{reusedFrom,snapshotHash}'",
+                          "c.offer_id::text=d.snapshot_json #>> '{reusedFrom,offerId}'",
+                          "c.version::text=d.snapshot_json #>> '{reusedFrom,version}'",
+                          'o.id=c.offer_id AND o.company_id=c.company_id'):
+            self.assertIn(predicate,sql)
+
+    @unittest.skipUnless(os.environ.get('RUN_SUPPLIER_DEAL_PG_TESTS') == '1', 'isolated PostgreSQL only')
+    def test_reuse_lineage_in_postgresql(self):
+        import psycopg2
+        from .routes import SOURCES
+        with patch.dict(SOURCES, {'contract': SOURCES['contract']}, clear=True):
+            self.client.get('/company-document-archive')
+        sql,args=self.cur.execute.call_args.args
+        conn=psycopg2.connect(host=os.environ['DB_HOST'],port=os.environ['DB_PORT'],
+                              dbname=os.environ['DB_NAME'],user=os.environ['DB_USER'])
+        try:
+            with conn.cursor() as cur:
+                cur.execute('CREATE TEMP TABLE supplier_offers (id int, company_id int)')
+                cur.execute('CREATE TEMP TABLE supplier_contract_versions (id int, company_id int, offer_id int, version int, source_file_id int, snapshot_hash text, snapshot_json jsonb, reviewed_at timestamp)')
+                cur.execute('INSERT INTO supplier_offers VALUES (71,1),(72,1)')
+                cur.execute("INSERT INTO supplier_contract_versions VALUES (9,1,71,2,88,'saved-hash','{}',NULL),(10,1,72,1,88,'new-hash','{}',NULL)")
+                valid={'contractId':9,'offerId':71,'version':2,'snapshotHash':'saved-hash'}
+                def origin(lineage):
+                    cur.execute('UPDATE supplier_contract_versions SET snapshot_json=%s WHERE id=10',
+                                (json.dumps({'reusedFrom':lineage}),))
+                    cur.execute(sql,args)
+                    return next(r[6]['origin_contract_id'] for r in cur.fetchall() if r[1]==10)
+                self.assertEqual(origin(valid),9)
+                for field,value in (('contractId','invalid'),('contractId',999),('contractId',10),
+                                    ('offerId',999),('version',1),('snapshotHash','changed')):
+                    self.assertIsNone(origin({**valid,field:value}),field)
+                self.assertIsNone(origin(None))
+                cur.execute('UPDATE supplier_contract_versions SET company_id=2 WHERE id=9')
+                self.assertIsNone(origin(valid))
+                cur.execute('UPDATE supplier_contract_versions SET company_id=1,source_file_id=99 WHERE id=9')
+                self.assertIsNone(origin(valid))
+                cur.execute('UPDATE supplier_contract_versions SET source_file_id=88 WHERE id=9')
+                cur.execute('UPDATE supplier_offers SET company_id=2 WHERE id=71')
+                self.assertIsNone(origin(valid))
+        finally:
+            conn.rollback()
+            conn.close()

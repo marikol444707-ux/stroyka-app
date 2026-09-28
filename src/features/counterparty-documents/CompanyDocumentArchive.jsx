@@ -43,6 +43,7 @@ function Archive({API,companyId,C,card,inp,btnG,setShowPhotoModal}) {
    {row.offerId&&<p style={{color:C.textSec,margin:'6px 0'}}>КП № {row.offerId}{row.contractVersion ? ` · Договор № ${row.contractNumber || 'без номера'}, версия ${row.contractVersion}`:''}</p>}
    <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:8}}>
     {row.source==='contract'&&<button style={btnG} onClick={()=>setRelated({id:row.sourceId,title:row.title,offset:0})}>Счета по этой версии</button>}
+    {row.originContractId&&<button style={btnG} onClick={()=>{setRelated(null);setFocused({source:'contract',id:row.originContractId});}}>Исходный договор</button>}
     {row.contractId&&<button style={btnG} onClick={()=>{setRelated(null);setFocused({source:'contract',id:row.contractId});}}>Показать договор</button>}
     {row.offerId&&<button style={btnG} onClick={()=>{setRelated(null);setFocused({source:'offer',id:row.offerId});}}>Показать КП</button>}
    </div>

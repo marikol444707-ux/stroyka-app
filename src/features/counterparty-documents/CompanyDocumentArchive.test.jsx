@@ -75,3 +75,19 @@ test('rejects invoice belonging to another contract version',async()=>{
  await screen.findByRole('alert');
  expect(screen.queryByText('Другой счёт')).toBeNull();
 });
+
+test('opens verified original contract and restores list on return',async()=>{
+ const wrap=item=>({ok:true,json:async()=>({companyId:1,items:[item],hasMore:false})});
+ const reused={id:'contract:10',source:'contract',sourceId:10,companyId:1,title:'Повторный договор',attachments:[],originContractId:9};
+ const original={id:'contract:9',source:'contract',sourceId:9,companyId:1,title:'Первый договор',attachments:[]};
+ global.fetch=jest.fn().mockResolvedValueOnce(wrap(reused)).mockResolvedValueOnce(wrap(original)).mockResolvedValueOnce(wrap(reused));
+ render(<Archive {...props}/>);
+ fireEvent.click(await screen.findByText('Исходный договор'));
+ await screen.findByText('Первый договор');
+ expect(screen.queryByText('Исходный договор')).toBeNull();
+ const params=new URLSearchParams(global.fetch.mock.calls[1][0].split('?')[1]);
+ expect(params.get('source')).toBe('contract');expect(params.get('recordId')).toBe('9');
+ fireEvent.click(screen.getByText('Вернуться к списку'));
+ await screen.findByText('Повторный договор');
+ expect(global.fetch.mock.calls[2][0]).toBe(global.fetch.mock.calls[0][0]);
+});

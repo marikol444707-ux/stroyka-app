@@ -104,3 +104,8 @@
 - Separate pagination and back preserve prior list/contract context. Foreign-version response rejected. Empty state explains missing bindings.
 - 16 route tests and7 UI tests passed. Read-only SQL rehearsal: current contract362 has zero bound invoices; no data modified.
 - Deployed `91f68d0c0e2f`. Authenticated browser contract362 -> invoices for version -> correct empty state -> back preserved search362. Zero JS errors. 16 server tests, 251 files, unchanged data hashes, health/DB passed. No invoice binding changed. Four verification gates recorded; backup/staging removed.
+
+## 2026-09-29 — original contract navigation
+- Reused versions link to the original reviewed version only through validated same-company source ID, offer, version, snapshot hash and original file. No inference or old data rewriting.
+- Archive button “Исходный договор” uses exact scoped lookup and preserves list filters on return.
+- 18 route tests passed including real isolated PostgreSQL lineage rejection cases; 8 UI tests passed. Browser/build/deployment verification pending.

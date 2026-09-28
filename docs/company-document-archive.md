@@ -19,6 +19,9 @@ within the same company. Its contractNumber/contractVersion are returned only fo
 an exact contract_version_id with matching company and offer. No inference by
 name, amount or supplier. Invoice-to-contract and contract/invoice-to-quotation navigation is available inside
 the archive. Each contract version also opens its bound invoices, with separate pagination.
+Reused versions expose originContractId only when the recorded source ID, offer,
+version and hash match a same-company contract with the same original file.
+“Исходный договор” opens that exact version. Missing or invalid lineage has no link.
 A canonical contract registry remains pending.
 
 ## API and files

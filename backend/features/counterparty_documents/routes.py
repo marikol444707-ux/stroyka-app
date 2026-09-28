@@ -63,6 +63,14 @@ def register_counterparty_document_archive(app, deps):
                 fields = ','.join(f"'{field}',to_jsonb(d)->'{field}'" for field in (*file_fields, 'project_id', 'project_name', 'sign_status'))
                 if key == 'contract':
                     fields = "'file_url','/tenant-files/' || d.source_file_id || '/content','offer_id',d.offer_id,'version',d.version"
+                    fields += """, 'origin_contract_id',(SELECT c.id FROM supplier_contract_versions c
+                        WHERE c.id::text=d.snapshot_json #>> '{reusedFrom,contractId}'
+                          AND c.company_id=d.company_id AND c.id<>d.id
+                          AND c.source_file_id=d.source_file_id
+                          AND c.snapshot_hash=d.snapshot_json #>> '{reusedFrom,snapshotHash}'
+                          AND c.offer_id::text=d.snapshot_json #>> '{reusedFrom,offerId}'
+                          AND c.version::text=d.snapshot_json #>> '{reusedFrom,version}'
+                          AND EXISTS (SELECT 1 FROM supplier_offers o WHERE o.id=c.offer_id AND o.company_id=c.company_id))"""
                 elif key == 'invoice':
                     fields += ", 'offer_id',(SELECT o.id FROM supplier_offers o WHERE o.id=d.offer_id AND o.company_id=d.company_id)"
                     fields += ", 'contract_number',(SELECT c.snapshot_json->>'number' FROM supplier_contract_versions c WHERE c.id=d.contract_version_id AND c.company_id=d.company_id AND c.offer_id=d.offer_id)"
@@ -133,6 +141,7 @@ def register_counterparty_document_archive(app, deps):
                               'projectName': payload.get('project_name') if source == 'customer' else None,
                               'offerId': payload.get('offer_id') if source in ('contract', 'invoice') else None,
                               'contractId': payload.get('contract_id') if source == 'invoice' else None,
+                              'originContractId': payload.get('origin_contract_id') if source == 'contract' else None,
                               'contractNumber': payload.get('contract_number') if source == 'invoice' else None,
                               'contractVersion': payload.get('contract_version') if source == 'invoice' else None,
                               'status': payload.get('sign_status') if source == 'customer' else None,
