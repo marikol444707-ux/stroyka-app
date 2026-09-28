@@ -43,3 +43,16 @@ Browser fixture exercises upload, tab/copy flow, checked save; 390 px dark and
 invoice. The supplied seven-page scanned PDF is tested privately on the server;
 remaining OCR letter errors require original-document review. No customer PDF,
 requisites or extracted text is committed to the repository.
+
+## Production verification
+
+Deployed `9e27be235d44ac896a0b94b035ccb70553e973d8`; schema remains 0063.
+Authenticated read-only recognition of the existing original returned HTTP 200:
+14 suggested fields each for supplier/buyer; payer remained explicitly missing.
+Production dark UI was checked at desktop and 390 px mobile width, party tabs
+work and the panel has no horizontal overflow. No browser console errors.
+All 251 new frontend files matched deployed bytes; financial, stock and contract
+version snapshots were unchanged before/after verification. Services healthy.
+Release backups/staging and the private temporary document copy were removed only
+after all four gates passed. Runtime models remain installed. Receipt:
+`/var/log/stroyka-release-receipts/stroyka-contract-layout-9e27be23.json`.
