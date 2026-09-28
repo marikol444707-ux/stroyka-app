@@ -60,6 +60,11 @@ It does not replace these remaining checks:
 
 Current status: release preparation advanced; production activation not ready.
 
+Latest local schema head is now 0060 (immutable mixed-package review evidence).
+The populated Alembic upgrade/empty-review rollback/re-upgrade rehearsal was
+extended through 0060 and passed. See supplier-mixed-package-review.md. Production
+remains unmodified; review evidence alone does not enable financial transfer.
+
 ## Migration rehearsal finding and fix
 
 The real Alembic runner failed at 0057 because its original revision identifier
