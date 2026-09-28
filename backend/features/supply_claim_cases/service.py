@@ -7,7 +7,7 @@ from psycopg2.extras import Json
 DIRECTORS = ('директор', 'зам_директора')
 WRITERS = (*DIRECTORS, 'снабженец', 'кладовщик', 'прораб')
 ACTIONS = {'start': 'canStart', 'comment': 'canComment', 'reply': 'canReply',
-           'resolve': 'canResolve', 'reopen': 'canReopen'}
+           'resolve': 'canResolve', 'reopen': 'canReopen', 'return': 'canReturn', 'replace': 'canReplace'}
 
 
 def enabled():
@@ -25,11 +25,16 @@ def capabilities(role, status):
 
 def validate(data):
     if set(data) - {'action', 'text', 'expectedVersion', 'requestId', 'expectedCompanyId',
-                    'expectedActorId', 'materialAccountingVersion'}:
+                    'expectedActorId', 'materialAccountingVersion', 'quantity'}:
         raise HTTPException(400, 'Переданы неизвестные поля претензии')
     action, text = data.get('action'), data.get('text')
     if not isinstance(action, str) or action not in ACTIONS:
         raise HTTPException(400, 'Выберите действие с претензией')
+    if action in ('return','replace'):
+        from .fulfilment import quantity
+        quantity(data.get('quantity'))
+    elif 'quantity' in data:
+        raise HTTPException(400, 'Количество допустимо только для возврата или замены')
     if not isinstance(text, str) or not text.strip() or len(text) > 4000 or '\x00' in text:
         raise HTTPException(400, 'Введите сообщение от 1 до 4000 символов')
     for field in ('expectedVersion', 'expectedCompanyId', 'expectedActorId'):
@@ -40,10 +45,15 @@ def validate(data):
 
 def command(cur, claim, actor, data, operation_id):
     action, text = validate(data)
-    if not capabilities(actor['role'], claim['status'])[ACTIONS[action]]:
+    physical = action in ('return','replace')
+    if not physical and not capabilities(actor['role'], claim['status'])[ACTIONS[action]]:
         raise HTTPException(403, 'Действие недоступно для вашей роли или состояния претензии')
     if data['expectedVersion'] != claim['version']:
         raise HTTPException(409, 'Претензия изменилась. Обновите карточку перед новой отправкой')
+    physical_result = {}
+    if physical:
+        from . import fulfilment
+        physical_result = fulfilment.execute(cur,claim,actor,data)
     before = {key: claim[key] for key in ('status', 'version', 'resolution')}
     status = {'start': 'В работе', 'resolve': 'Решена', 'reopen': 'Открыта'}.get(action, claim['status'])
     resolution = text if action == 'resolve' else (None if action == 'reopen' else claim['resolution'])
@@ -51,9 +61,13 @@ def command(cur, claim, actor, data, operation_id):
         resolved_at=CASE WHEN %s='resolve' THEN now() WHEN %s='reopen' THEN NULL ELSE resolved_at END,
         version=version+1,updated_at=now() WHERE id=%s''', (status, resolution, action, action, claim['id']))
     after = dict(status=status, version=claim['version']+1, resolution=resolution)
+    after.update(physical_result)
     cur.execute('''INSERT INTO supply_claim_events(claim_id,delivery_id,company_id,operation_id,
         actor_id,actor_name,action,text,before_state,after_state)
         VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id''',
         (claim['id'], claim['deliveryId'], actor['companyId'], operation_id, actor['id'], actor.get('name') or '',
          action, text, Json(before), Json(after)))
-    return {'ok': True, 'id': claim['id'], 'eventId': cur.fetchone()['id']}
+    event_id = cur.fetchone()['id']
+    if physical:
+        fulfilment.record(cur,claim,action,event_id,physical_result)
+    return {'ok': True, 'id': claim['id'], 'eventId': event_id, **physical_result}

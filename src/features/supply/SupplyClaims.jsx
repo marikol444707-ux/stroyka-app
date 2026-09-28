@@ -9,6 +9,8 @@ const actions = [
   ['start', 'canStart', 'Взять в работу'], ['comment', 'canComment', 'Добавить комментарий'],
   ['reply', 'canReply', 'Ответить на претензию'], ['resolve', 'canResolve', 'Признать урегулированной'],
   ['reopen', 'canReopen', 'Открыть повторно'],
+  ['return', 'canReturn', 'Вернуть непринятый товар'],
+  ['replace', 'canReplace', 'Отгрузить замену / допоставку'],
 ];
 
 function ClaimCard({ claim, ...scope }) {
@@ -20,6 +22,7 @@ function ClaimCard({ claim, ...scope }) {
       if (batch.next !== batch.commands.length) return;
       setDraft(current => batch.commands.some(command => command.path === path
         && command.payload.action === current.action && command.payload.text === current.text.trim()
+        && (!['return','replace'].includes(current.action) || command.payload.quantity === current.quantity)
         && command.payload.expectedVersion === current.version)
         ? { action: '', text: '', version: null } : current);
     },
@@ -39,7 +42,9 @@ function ClaimCard({ claim, ...scope }) {
       <p>{data.claim.status}</p>
       <p>{data.claim.description}</p>
       <SupplyFileLink url={data.claim.photoUrl} fileSrc={url=>scope.API+url}>Скачать фото претензии</SupplyFileLink>
-      <p>Ожидалось: {data.claim.expectedQuantity ?? '—'} · Принято: {data.claim.receivedQuantity ?? '—'} · Недостача: {data.claim.shortageQuantity ?? '—'}</p>
+      <p>Ожидалось: {data.claim.expectedQuantity ?? '—'} · Фактически получено: {data.claim.receivedQuantity ?? '—'} · Недостача: {data.claim.shortageQuantity ?? '—'}</p>
+      {data.returnRemaining !== undefined && <p>Осталось вернуть непринятого: {data.returnRemaining} {data.unit}.
+        Осталось отгрузить по претензии: {data.replacementRemaining} {data.unit}.</p>}
       {data.claim.resolution && <p><b>Решение:</b> {data.claim.resolution}</p>}
       <h4>История разбора</h4>
       {data.history.length === 0 && <p>Сообщений пока нет.</p>}
@@ -48,18 +53,28 @@ function ClaimCard({ claim, ...scope }) {
         <p><b>{event.actorName}</b> · {actions.find(([value]) => value === event.action)?.[2] || event.action}
           {' · '}{new Date(event.createdAt).toLocaleString('ru-RU')}</p>
         <p className="supply-claim-text">{event.text}</p>
+        {event.afterState?.quantity && <p>Количество: {event.afterState.quantity} {data.unit}
+          {event.afterState.replacementDeliveryId && ` · Поставка №${event.afterState.replacementDeliveryId}`}</p>}
       </li>)}</ol>
       {available.length > 0 && <form onSubmit={async event => {
         event.preventDefault();
         const version = draft.version ?? data.claim.version;
         setDraft(current => ({ ...current, action, version }));
-        await submit(path, { action, text: draft.text.trim(), expectedVersion: version });
+        await submit(path, { action, text: draft.text.trim(), expectedVersion: version,
+          ...(['return','replace'].includes(action) ? { quantity: draft.quantity || '' } : {}) });
       }}>
         <p>Сообщение увидят участники претензии, включая поставщика.</p>
         <fieldset disabled={busy}>
           <label>Действие<select value={action} onChange={event => change({ action: event.target.value })}>
             {available.map(([value,, label]) => <option key={value} value={value}>{label}</option>)}
           </select></label>
+          {['return','replace'].includes(action) && <>
+            <label>Количество<input type="number" required min="0.0001" step="0.0001"
+              max={action==='return' ? data.returnRemaining : data.replacementRemaining}
+              value={draft.quantity || ''} onChange={event => change({ quantity: event.target.value })} /></label>
+            <p>{action==='return' ? 'Подтвердите фактическую передачу непринятого товара поставщику. Доступный склад и платежи не меняются.'
+              : 'Будет создана поставка замены по исходному счёту. Материал поступит на склад после приёмки.'}</p>
+          </>}
           <label>Сообщение<textarea required maxLength={4000} value={draft.text}
             onChange={event => change({ text: event.target.value })} /></label>
           {action === 'resolve' && <p>Фиксируется результат разбора. Допоставку, возврат или возмещение нужно оформить соответствующим документом.</p>}

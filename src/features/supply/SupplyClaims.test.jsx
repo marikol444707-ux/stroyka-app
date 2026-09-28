@@ -31,6 +31,28 @@ beforeEach(() => {
 });
 afterEach(() => { delete process.env.REACT_APP_WORK_MATERIAL_ACCOUNTING_ENABLED; });
 
+test('physical return sends exact quantity with claim version and shows remaining balance', async () => {
+  const posts = [];
+  global.fetch = jest.fn(async (url, options = {}) => {
+    if (options.method === 'POST') {
+      posts.push(JSON.parse(options.body));
+      return response({ ok: true, id: 7, eventId: 82 });
+    }
+    return response(url.endsWith('/cases') ? list() : detail({ canReturn: true,
+      returnRemaining: '1.5', replacementRemaining: '2', unit: 'шт' }));
+  });
+  render(<SupplyClaims {...props} />);
+  await openClaim();
+  expect(screen.getByText(/Осталось вернуть непринятого: 1.5 шт/)).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Действие'), { target: { value: 'return' } });
+  fireEvent.change(screen.getByLabelText('Количество'), { target: { value: '0.5' } });
+  fireEvent.change(screen.getByLabelText('Сообщение'), { target: { value: 'Передали по акту 15' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }));
+  await waitFor(() => expect(posts).toHaveLength(1));
+  expect(posts[0]).toEqual(expect.objectContaining({ action: 'return', quantity: '0.5', expectedVersion: 3,
+    expectedCompanyId: 2, expectedActorId: 9 }));
+});
+
 async function openClaim(id = 7) {
   fireEvent.click(await screen.findByRole('button', { name: `Открыть претензию ${id}` }));
   const card = await screen.findByRole('region', { name: `Претензия ${id}` });

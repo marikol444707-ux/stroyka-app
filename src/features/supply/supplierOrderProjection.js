@@ -30,9 +30,10 @@ export function supplierOrders(requests,offers,deliveries,invoices) {
     const s=quantity(d.shippedQuantity),r=quantity(d.receivedQuantity ?? 0);
     if(s===null || r===null || r>s){review=true;continue;}
     if(r>0 && !d.receivedAt && !['Принято','Проблема','Принято с замечаниями'].includes(d.status))review=true;
-    shipped+=s;received+=r;
+    if(!d.replacementClaimId)shipped+=s;
+    if(!['Брак','Несоответствие'].includes(d.qualityStatus))received+=r;
     if(!['Принято','Проблема','Принято с замечаниями'].includes(d.status) && !d.receivedAt)inTransit+=Math.max(0,s-r);
-    if(['Проблема','Принято с замечаниями'].includes(d.status))review=true;
+    if(['Проблема','Принято с замечаниями'].includes(d.status) && !d.claimResolved)review=true;
    }
    if(received>item.ordered+0.000001 || shipped>item.ordered+0.000001)review=true;
    return {...item,materialName:item.materialName || item.name,shipped:clean(shipped),received:clean(received),inTransit:clean(inTransit),toShip:clean(Math.max(0,item.ordered-shipped)),toReceive:clean(Math.max(0,item.ordered-received))};

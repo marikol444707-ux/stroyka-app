@@ -1412,6 +1412,11 @@ def register_supplier_offers_module(app, deps):
                         row.get('contract_version_id') != bound_contract['id']
                         or row.get('source_supplier_invoice_id') != inv['id'] for row in existing_rows):
                     raise HTTPException(409, 'Предыдущая отгрузка связана с другим счётом или договором')
+            cur.execute("SELECT to_regclass('supply_claim_fulfilments') AS ready")
+            if cur.fetchone()['ready']:
+                cur.execute('SELECT replacement_delivery_id FROM supply_claim_fulfilments WHERE company_id=%s AND replacement_delivery_id=ANY(%s)', (locked_company,[row['id'] for row in existing_rows]))
+                replacement_ids = {row['replacement_delivery_id'] for row in cur.fetchall()}
+                existing_rows = [row for row in existing_rows if row['id'] not in replacement_ids]
             requested = shipment_lines(request_items, existing_rows, data)
             has_item_kp = bool(kp_by_key)
             fallback_total = _float_or_zero(offer.get("total_price"))

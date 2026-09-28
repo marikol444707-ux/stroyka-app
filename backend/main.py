@@ -11647,9 +11647,14 @@ def _update_supply_flow_status_after_delivery(cur, request_id=None, offer_id=Non
             awarded = _cursor_rows_as_dicts(cur, cur.fetchall())
             if awarded and awarded[0].get('items_json'):
                 scoped_lines = order_lines(awarded[0])
-        cur.execute('SELECT status, material_name, unit, work_package, received_quantity FROM supply_deliveries WHERE ' + field + '=%s ORDER BY id', (value,))
+        cur.execute('SELECT id, status, material_name, unit, work_package, received_quantity FROM supply_deliveries WHERE ' + field + '=%s ORDER BY id', (value,))
         rows = _cursor_rows_as_dicts(cur, cur.fetchall())
         if rows:
+            try:
+                from backend.features.supply_claim_cases.fulfilment import effective_status_rows
+            except ModuleNotFoundError:
+                from features.supply_claim_cases.fulfilment import effective_status_rows
+            rows = effective_status_rows(cur,rows)
             cur.execute('UPDATE ' + table + ' SET ' + column + '=%s WHERE id=%s', (flow_status(scoped_lines, rows), value))
 
 def _ensure_journal_source_columns(cur):
@@ -12107,6 +12112,11 @@ def list_supply_deliveries(
             raise
     try:
         rows = [dict(r) for r in cur.fetchall()]
+        try:
+            from backend.features.supply_claim_cases.fulfilment import enrich_deliveries
+        except ModuleNotFoundError:
+            from features.supply_claim_cases.fulfilment import enrich_deliveries
+        enrich_deliveries(cur, rows)
         if os.getenv('SUPPLIER_DOCUMENT_CONTRACT_BINDINGS_ENABLED') == '1':
             try:
                 from backend.features.supplier_deal_parties.payment_deferral import enrich_delivery_deadlines
@@ -12454,6 +12464,7 @@ except ModuleNotFoundError:
     from features.supply_claim_cases.routes import register_supply_claim_cases_module
 
 register_supply_claim_cases_module(app, {
+    "update_supply_status": _update_supply_flow_status_after_delivery,
     "get_db": get_db,
     "get_current_user": get_current_user,
     "current_supplier_ids": current_supplier_access_ids,

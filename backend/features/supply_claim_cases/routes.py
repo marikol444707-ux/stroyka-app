@@ -5,7 +5,7 @@ from fastapi import Depends, Header, HTTPException, Response
 from psycopg2 import Error as DatabaseError
 from psycopg2.extras import RealDictCursor
 
-from . import access, service
+from . import access, service, fulfilment
 from ..work_material_accounting import runtime
 
 
@@ -43,19 +43,25 @@ def register_supply_claim_cases_module(app, deps):
                         (claim_id, claim['companyId']))
                     history = [dict(row) for row in cur.fetchall()]
                     caps = service.capabilities(actor['role'], claim['status'])
+                    physical = fulfilment.context(cur,claim,actor['role'])
                     return {'claim': claim, 'history': list(reversed(history[:200])), 'historyTruncated': len(history)>200,
+                            **physical,
                             **{key: value and service.enabled() for key, value in caps.items()}}
                 if not service.enabled():
                     raise HTTPException(409, 'Изменения претензий временно отключены')
                 action, _ = service.validate(data)
                 # Authorize role before replay; state/version are checked only
                 # for new commands so a successful closing command can replay.
-                allowed = ('reply',) if actor['role'] == 'поставщик' else (
-                    ('start','comment','resolve','reopen') if actor['role'] in service.DIRECTORS else
+                allowed = ('reply','replace') if actor['role'] == 'поставщик' else (
+                    ('start','comment','resolve','reopen','return') if actor['role'] in service.DIRECTORS else
+                    ('start','comment','return') if actor['role'] in ('кладовщик','прораб') else
                     ('start','comment') if actor['role'] in service.WRITERS else ())
                 if action not in allowed:
                     raise HTTPException(403, 'Роль не позволяет выполнить действие с претензией')
                 access.pin(cur, actor, claim)
+                cur.execute("SELECT to_regprocedure('supplier_allocation_lock(integer)') AS ready")
+                if cur.fetchone()['ready']:
+                    cur.execute('SELECT supplier_allocation_lock(%s)', (claim['companyId'],))
                 cur.execute('SELECT pg_advisory_xact_lock(178993,%s)', (claim['companyId'],))
                 access.lock_chain(cur, claim)
                 current = access.visible_rows(cur, user, company, mode, deps, claim_id)
@@ -68,11 +74,15 @@ def register_supply_claim_cases_module(app, deps):
                     conn.commit()
                     return replay
                 result = service.command(cur, current[0], actor, data, operation_id)
+                if action in ('replace','resolve','reopen') and fulfilment.has_fulfilment(cur,claim):
+                    deps['update_supply_status'](cur,claim['requestId'],claim['offerId'])
                 runtime.finish_operation(cur, operation_id, result)
                 conn.commit()
                 return result
         except DatabaseError as error:
             conn.rollback()
+            if error.pgcode == '23514':
+                raise HTTPException(409, 'Документы или количество по претензии требуют сверки. Обновите карточку') from error
             if error.pgcode in ('23505', '40P01', '40001', '55P03'):
                 raise HTTPException(409, 'Претензию меняет другой пользователь. Повторите исходную отправку') from error
             raise
