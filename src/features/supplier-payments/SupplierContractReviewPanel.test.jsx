@@ -85,3 +85,17 @@ test('retry uses the same uploaded original and keeps manual edits; payer copyin
   expect(screen.getByLabelText('Реквизиты и условия сверены с загруженным оригиналом').checked).toBe(false);
  }finally{if(flag===undefined)delete process.env.REACT_APP_SUPPLIER_CONTRACT_RECOGNITION_ENABLED;else process.env.REACT_APP_SUPPLIER_CONTRACT_RECOGNITION_ENABLED=flag;}
 });
+
+test('company profile prepopulates draft without auto-confirming the contract',async()=>{
+ client.load.mockResolvedValue({parties:{version:1,buyerCompanyId:1,payerCompanyId:1},companies:[{companyId:1,companyName:'Наша компания'}]});
+ client.reviewContext.mockResolvedValue({...ctx,buyer:{...ctx.buyer,bankName:'Банк компании',rs:'4'.repeat(20),directorName:'Подписант компании'}});
+ render(<Panel {...props}/>);
+ fireEvent.click(await screen.findByText('Перейти к проверке договора'));
+ await screen.findByLabelText('Оригинал договора');
+ expect(screen.getAllByLabelText('Банк')[0].value).toBe('Банк компании');
+ expect(screen.getAllByLabelText('Расчётный счёт')[0].value).toBe('4'.repeat(20));
+ expect(screen.getAllByLabelText('ФИО подписанта')[0].value).toBe('Подписант компании');
+ expect(screen.getAllByLabelText('Банк')[2].value).toBe('');
+ expect(screen.getByLabelText('Реквизиты и условия сверены с загруженным оригиналом').checked).toBe(false);
+ expect(client.save).not.toHaveBeenCalled();
+});

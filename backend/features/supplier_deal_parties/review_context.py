@@ -5,6 +5,7 @@ from typing import Annotated, Optional
 import psycopg2.extras
 from fastapi import Depends, Header, HTTPException, Path
 
+from ..company_requisites.service import company_requisites_to_api
 from .access import build_deal_access
 from .routes import MAX_ID
 
@@ -30,7 +31,7 @@ def build_contract_review_context(deps):
                 raise HTTPException(409, 'Сначала выберите покупателя и плательщика сделки')
             for company_id in sorted({parties['buyer_company_id'], parties['payer_company_id']} - {offer['company_id']}):
                 company_actor(cur, current_user, company_id, 'update')
-            cur.execute('SELECT company_id,full_name,inn FROM company_requisites WHERE company_id=ANY(%s)',
+            cur.execute('SELECT * FROM company_requisites WHERE company_id=ANY(%s)',
                         ([parties['buyer_company_id'], parties['payer_company_id']],))
             companies = {row['company_id']: row for row in cur.fetchall()}
             cur.execute('SELECT name,inn FROM suppliers WHERE id=%s', (offer['supplier_id'],))
@@ -42,7 +43,10 @@ def build_contract_review_context(deps):
                     raise HTTPException(409, 'Заполните корректный ИНН всех сторон в карточках организаций')
                 return {'fullName': str(row.get(name) or '').strip(), 'inn': inn}
 
-            identities = {side: {**legal_identity(companies.get(parties[side + '_company_id'], {}), 'full_name'),
+            identities = {side: {**{key: value for key, value in company_requisites_to_api(
+                                    companies.get(parties[side + '_company_id'], {})).items()
+                                    if key not in ('id', 'companyId', 'shortName', 'actualAddress')},
+                                 **legal_identity(companies.get(parties[side + '_company_id'], {}), 'full_name'),
                                  'companyId': parties[side + '_company_id']} for side in ('buyer', 'payer')}
             identities['supplier'] = {**legal_identity(supplier, 'name'), 'supplierId': offer['supplier_id']}
             cur.execute('SELECT COALESCE(MAX(version),0) AS version FROM supplier_contract_versions WHERE offer_id=%s', (id,))
