@@ -11421,11 +11421,18 @@ def _create_supply_delivery_history(cur, delivery, status=None, received_qty=Non
 
 def _guard_delivery_accounting_write(cur, delivery):
     """Authorized caller holds stock, company and delivery locks, in that order."""
+    try:
+        from backend.features.supplier_payments.partial_receipt_runtime import supports_managed_receipts, verify_existing_receipt
+    except ModuleNotFoundError:
+        from features.supplier_payments.partial_receipt_runtime import supports_managed_receipts, verify_existing_receipt
     company_id = delivery.get('company_id')
     invoice_id = _find_supplier_invoice_for_supply(
         cur, request_id=delivery.get('request_id'),
         offer_id=delivery.get('offer_id'), delivery=delivery,
     )
+    managed = supports_managed_receipts(cur, company_id, invoice_id)
+    if managed and delivery.get('source_supplier_invoice_id') != invoice_id:
+        raise HTTPException(409, 'Поставка не привязана к сохранённому счёту')
     cur.execute('''SELECT id,company_id,supplier_invoice_id,status FROM warehouse_invoices
                    WHERE supply_delivery_id=%s ORDER BY id LIMIT 2 FOR UPDATE''', (delivery['id'],))
     warehouses = cur.fetchall()
@@ -11437,7 +11444,12 @@ def _guard_delivery_accounting_write(cur, delivery):
                 or warehouse['supplier_invoice_id'] not in (None, invoice_id)
                 or warehouse['status'] == 'Аннулирована'):
             raise HTTPException(409, 'Связь накладной поставки требует сверки')
-        _require_unmanaged_payment_document(cur, 'warehouse', warehouse['id'], proposed_link=invoice_id)
+        if managed:
+            if warehouse['supplier_invoice_id'] is not None:
+                raise HTTPException(409, 'У накладной осталась старая связь со счётом')
+            verify_existing_receipt(cur, company_id, invoice_id, warehouse['id'])
+        else:
+            _require_unmanaged_payment_document(cur, 'warehouse', warehouse['id'], proposed_link=invoice_id)
     if invoice_id:
         cur.execute('''SELECT company_id,warehouse_invoice_id,status FROM supplier_invoices
                        WHERE id=%s FOR UPDATE''', (invoice_id,))
@@ -11446,7 +11458,8 @@ def _guard_delivery_accounting_write(cur, delivery):
                 or invoice['warehouse_invoice_id'] not in (None, warehouse_id)
                 or invoice['status'] == 'Аннулирован'):
             raise HTTPException(409, 'Связь счёта поставки требует сверки')
-        _require_unmanaged_payment_document(cur, 'invoice', invoice_id, proposed_link=warehouse_id)
+        if not managed:
+            _require_unmanaged_payment_document(cur, 'invoice', invoice_id, proposed_link=warehouse_id)
     return invoice_id
 
 
@@ -11458,6 +11471,12 @@ def _ensure_supply_delivery_invoice(cur, delivery, received_qty=None, received_a
     source_invoice_id = None
     if ledger_present:
         source_invoice_id = _guard_delivery_accounting_write(cur, delivery)
+        try:
+            from backend.features.supplier_payments.partial_receipt_runtime import supports_managed_receipts
+        except ModuleNotFoundError:
+            from features.supplier_payments.partial_receipt_runtime import supports_managed_receipts
+        if supports_managed_receipts(cur, delivery.get('company_id'), source_invoice_id):
+            source_invoice_id = None  # Separate receipts share the invoice debt, not a legacy mirror.
     try:
         if not ledger_present:
             _prepare_legacy_delivery_invoice_columns(cur)
@@ -12129,6 +12148,10 @@ def receive_supply_delivery(
 ):
     from datetime import datetime
     try:
+        from backend.features.supplier_payments.partial_receipt_runtime import finalize_receipt
+    except ModuleNotFoundError:
+        from features.supplier_payments.partial_receipt_runtime import finalize_receipt
+    try:
         from backend.features.quality_journals.delivery_sources import delivery_sources_enabled, prepare_delivery_sources, bind_new_delivery_sources
         from backend.features.quality_journals.delivery_receipt import delivery_quality_enabled, create_delivery_quality
     except ModuleNotFoundError:
@@ -12224,6 +12247,7 @@ def receive_supply_delivery(
             except Exception as e:
                 print("DELIVERY RECOVERY SELECT ERROR:", str(e))
                 row = None
+            finalize_receipt(cur, delivery, invoice_id)
             conn.commit()
             cur.close(); conn.close()
             return {
@@ -12299,6 +12323,7 @@ def receive_supply_delivery(
                 project_id=source_project_id, invoice_id=invoice_id,
                 cable_info=_detect_cable_info(delivery['material_name']), expected_quantity=received_qty,
                 normalize_unit=_norm_base_unit)
+        finalize_receipt(cur, updated, invoice_id)
         _update_supply_flow_status_after_delivery(cur, delivery['request_id'], delivery['offer_id'])
         cur.execute(DELIVERY_SELECT + " WHERE d.id=%s", (id,))
         row = cur.fetchone()
@@ -20352,6 +20377,11 @@ def get_warehouse_invoices(
     else:
         cur.execute(f"SELECT {invoice_cols} FROM warehouse_invoices WHERE TRUE{company_filter_sql} ORDER BY id DESC", company_filter_params)
     rows = cur.fetchall()
+    try:
+        from backend.features.supplier_payments.partial_receipt_runtime import receipt_settlement_ids
+    except ModuleNotFoundError:
+        from features.supplier_payments.partial_receipt_runtime import receipt_settlement_ids
+    settlement_ids = receipt_settlement_ids(cur, [row[0] for row in rows])
     cur.close(); conn.close()
     result = []
     for r in rows:
@@ -20385,6 +20415,8 @@ def get_warehouse_invoices(
         material_match = _json_list_or_empty(r[24]) if len(r) > 24 else []
         invoice_result = {"id":r[0],"number":r[1],"date":str(r[2]) if r[2] else "","supplierId":r[3],"supplierName":r[4] or "","acceptedBy":r[5] or "","location":r[6] or "","project":r[7] or "","vat":r[8] or "Без НДС","items":items,"totalBase":total_base,"totalVat":total_vat,"totalWithVat":total_with_vat,"status":r[13] or "Принята","addedBy":r[14] or "","photoUrl":r[15] or "","photos":photo_urls,"pagesCount":r[21] or len(photo_urls) or 1,"sourceType":r[16] or "","sourceId":r[17],"supplyDeliveryId":r[18],"supplyRequestId":r[19],"warehouseTarget":(r[22] if len(r) > 22 else "") or ("object" if r[7] else "main"),"selectedAction":(r[23] if len(r) > 23 else "") or "","materialMatch":material_match,"accountingStatus":(r[25] if len(r) > 25 else "") or "","accountingComment":(r[26] if len(r) > 26 else "") or "","accountingUpdatedBy":(r[27] if len(r) > 27 else "") or "","accountingUpdatedAt":str(r[28]) if len(r) > 28 and r[28] else "","paidAmount":float(r[29] or 0) if len(r) > 29 else 0,"paidAt":(r[30] if len(r) > 30 else "") or "","paidBy":(r[31] if len(r) > 31 else "") or "","supplierInvoiceId":r[32] if len(r) > 32 else None,"companyId":r[33] if len(r) > 33 else None}
         invoice_result["accountingRequired"] = warehouse_invoice_accounting_required(invoice_result)
+        if r[0] in settlement_ids:
+            invoice_result['settlementInvoiceId'] = settlement_ids[r[0]]
         result.append(invoice_result)
     return result
 

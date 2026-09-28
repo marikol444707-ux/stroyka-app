@@ -6,6 +6,7 @@ export const ACCOUNTING_INVOICE_STATUSES = [
   'Частично оплачена',
   'Оплачена',
   'Отклонена',
+  'Расчёты по счёту',
 ];
 
 export const buildScanDraftInvoiceNumber = (date = new Date()) => {
@@ -88,6 +89,7 @@ export const accountingStatusGroupLabels = {
   'Частично оплачена': 'Частично оплачены',
   'Оплачена': 'Оплачены',
   'Отклонена': 'Отклонены',
+  'Расчёты по счёту': 'Поступления по счетам',
 };
 
 export const invoicePhotos = (invoice = {}) => {
@@ -112,12 +114,14 @@ export const invoiceAmount = (invoice = {}) => {
 export const invoicePaidAmount = (invoice = {}) => Number(invoice.paidAmount || invoice.paid_amount || 0);
 
 export const invoiceDebtAmount = (invoice = {}) => {
+  if (invoice.settlementInvoiceId) return 0;
   const amount = invoiceAmount(invoice);
   const paid = invoicePaidAmount(invoice);
   return Math.max(0, Math.round((amount - paid) * 100) / 100);
 };
 
 export const invoiceAccountingStatus = (invoice = {}, controls = []) => {
+  if (invoice.settlementInvoiceId) return 'Расчёты по счёту';
   const amount = invoiceAmount(invoice);
   const paid = invoicePaidAmount(invoice);
   if (amount > 0 && paid + 0.01 >= amount) return 'Оплачена';

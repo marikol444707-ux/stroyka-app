@@ -73,3 +73,14 @@ describe('warehouse invoice accounting policy', () => {
       .toBe('ПРИХОД-20260715-101112013');
   });
 });
+
+test('partial receipt remains visible without creating a second payable debt', () => {
+  const rows = buildAccountingInvoiceRows([
+    { id: 91, settlementInvoiceId: 12, supplierId: 3, project: 'Объект', totalWithVat: 100, paidAmount: 0 },
+    { id: 92, settlementInvoiceId: 12, supplierId: 3, project: 'Объект', totalWithVat: 100, paidAmount: 0 },
+  ]);
+  expect(rows).toHaveLength(2);
+  expect(rows.map(row => row.status)).toEqual(['Расчёты по счёту', 'Расчёты по счёту']);
+  expect(rows.reduce((sum, row) => sum + row.debt, 0)).toBe(0);
+  expect(rows.reduce((sum, row) => sum + row.amount, 0)).toBe(200);
+});

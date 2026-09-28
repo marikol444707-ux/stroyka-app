@@ -183,6 +183,13 @@ def build_document_resolver(authorize):
         actor = authorize(cur, actor_id, company_id, first['projectName'], first['workPackage'],
                           payer_company_id=payer)
         _require(isinstance(actor, dict) and isinstance(actor.get('name'), str) and bool(actor['name'].strip()))
+        if kind == 'warehouse':
+            cur.execute("SELECT to_regclass('public.supplier_payment_receipt_relations') AS ready")
+            if cur.fetchone()['ready']:
+                cur.execute('SELECT id FROM supplier_payment_receipt_relations WHERE warehouse_invoice_id=%s',
+                            (document_id,))
+                if cur.fetchone():
+                    raise HTTPException(409, 'Эта накладная входит в поставку по счёту. Оплату оформляйте по общему счёту поставщика')
         return dict(actorName=actor['name'], documents=documents, contract=contract)
 
     return resolve

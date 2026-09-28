@@ -1360,7 +1360,9 @@ def register_supplier_offers_module(app, deps):
                     if invoice['company_id'] != locked_company:
                         raise HTTPException(409, 'Счета КП относятся к другой компании и требуют сверки')
                     try:
-                        require_unmanaged_document(cur, 'invoice', invoice['id'])
+                        from ..supplier_payments.partial_receipt_runtime import supports_managed_receipts
+                        if not supports_managed_receipts(cur, locked_company, invoice['id']):
+                            require_unmanaged_document(cur, 'invoice', invoice['id'])
                     except HTTPException as error:
                         if error.status_code != 409:
                             raise
@@ -1441,19 +1443,19 @@ def register_supplier_offers_module(app, deps):
                     data.get('vehicleNumber') or '', data.get('driverName') or '',
                     data.get('documentUrl') or '', data.get('photoUrl') or '', datetime.now()
                 )
-                cur.execute("""INSERT INTO supply_deliveries
+                contract_columns = ',contract_version_id,source_supplier_invoice_id' if bindings_enabled else ''
+                contract_values = ',%s,%s' if bindings_enabled else ''
+                contract_params = ((bound_contract['id'] if bound_contract else None,
+                                    inv['id'] if bound_contract and inv else None) if bindings_enabled else ())
+                cur.execute(f"""INSERT INTO supply_deliveries
                                (offer_id, company_id, request_id, supplier_id, supplier_name, project,
                                 work_package, material_name, planned_quantity, shipped_quantity, unit,
                                 price_per_unit, total_price, waybill_number, waybill_date,
-                                vehicle_number, driver_name, document_url, photo_url, shipped_at, status)
-                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                                vehicle_number, driver_name, document_url, photo_url, shipped_at, status{contract_columns})
+                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s{contract_values})
                                RETURNING id""",
-                            (id,) + vals + ('В пути',))
+                            (id,) + vals + ('В пути',) + contract_params)
                 delivery_id = cur.fetchone()['id']
-                if bindings_enabled:
-                    cur.execute('UPDATE supply_deliveries SET contract_version_id=%s, source_supplier_invoice_id=%s WHERE id=%s',
-                                (bound_contract['id'] if bound_contract else None,
-                                 inv['id'] if bound_contract and inv else None, delivery_id))
                 delivery_ids.append(delivery_id)
             cur.execute("""INSERT INTO supplier_shipment_batches
                 (offer_id, company_id, request_key, payload_hash, delivery_ids, created_by_user_id)
