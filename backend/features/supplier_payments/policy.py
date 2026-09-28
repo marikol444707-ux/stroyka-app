@@ -1,4 +1,4 @@
-"""Internal new-operation policy, not registered with any runtime route.
+"""New-operation policy used by the default-off payment HTTP routes.
 
 Use ONLY after build_document_resolver in the engine-owned transaction. The
 resolver supplies current owner/payer authorization and retains physical locks.

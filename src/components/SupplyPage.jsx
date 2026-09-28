@@ -241,6 +241,7 @@ export default function SupplyPage({
 
       {curTab === 'invoices' && (
         <SupplySupplierInvoicesPanel
+          companyContext={companyContext}
           C={C}
           card={card}
           inp={inp}

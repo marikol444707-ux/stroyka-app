@@ -1,4 +1,5 @@
 import React from 'react';
+import SupplierPaymentButton from '../features/supplier-payments/SupplierPaymentButton';
 import { Check, ChevronDown, ChevronUp, FileCheck2, Plus, Search, Trash2 } from 'lucide-react';
 import { API } from '../api';
 import { createSupplierInvoiceForm } from '../features/supply/supplyInitialForms';
@@ -24,6 +25,7 @@ function SupplySupplierInvoicesPanel({
   expandedProject,
   setExpandedProject,
   canPay,
+  companyContext,
   matchSearch,
   loadAll,
   toNum,
@@ -233,7 +235,8 @@ function SupplySupplierInvoicesPanel({
                         <div style={{display:'flex',gap:'4px',alignItems:'center',flexWrap:'wrap'}}>
                           <span style={invoiceBadge(invoice)}>{invoice.status}</span>
                           {canPay&&invoice.status==='На утверждении'&&<button onClick={()=>approveInvoice(invoice)} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}>✅</button>}
-                          {canPay&&(invoice.status==='Утверждён'||invoice.status==='Частично оплачен')&&owe>0&&<button onClick={()=>payInvoice(invoice, total, paidAmount, owe)} style={{...btnO,padding:'4px 8px',fontSize:'11px'}}>💰 {owe<total?'Доплатить':'Оплатить'}</button>}
+                          {process.env.REACT_APP_SUPPLIER_PAYMENTS_ENABLED !== 'true' && canPay&&(invoice.status==='Утверждён'||invoice.status==='Частично оплачен')&&owe>0&&<button onClick={()=>payInvoice(invoice, total, paidAmount, owe)} style={{...btnO,padding:'4px 8px',fontSize:'11px'}}>💰 {owe<total?'Доплатить':'Оплатить'}</button>}
+                          {canPay && <SupplierPaymentButton document={invoice} documentKind="invoice" companyContext={companyContext} user={user} onSuccess={loadAll} style={btnO} />}
                           {canPay&&<button onClick={()=>deleteInvoice(invoice)} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button>}
                         </div>
                       </div>

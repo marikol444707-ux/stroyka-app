@@ -31,7 +31,8 @@ class PaymentHTTPTests(unittest.TestCase):
     def setUpClass(cls):
         policy_tests.PolicyPostgresTests.setUpClass.__func__(cls)
         for name in ('0046_supplier_payment_attachments.py', '0047_supplier_payment_packages.py',
-                     '0048_supplier_payment_cancellations.py'):
+                     '0048_supplier_payment_cancellations.py', '0049_supplier_payment_allocations.py',
+                     '0050_supplier_invoice_line_specs.py', '0051_supplier_offer_item_scopes.py'):
             path = Path(__file__).resolve().parents[3] / 'migrations/versions' / name
             tree = ast.parse(path.read_text())
             conn = cls.main.get_db()
@@ -44,17 +45,12 @@ class PaymentHTTPTests(unittest.TestCase):
                     namespace['upgrade']()
             finally:
                 conn.close()
-        from .access import build_payment_access
-        from .documents import build_document_resolver
-        from .routes import register_supplier_payment_routes
-        access_deps = dict(resolve_resource_company_actor=cls.main.resolve_resource_company_actor,
-            finance_roles=cls.main.FINANCE_ROLES, platform_staff_roles=cls.main.PLATFORM_STAFF_ROLES,
-            client_account_roles=cls.main.CLIENT_ACCOUNT_ROLES,
-            require_project_access=cls.main.require_project_access, has_package_access=cls.main.has_package_access)
-        register_supplier_payment_routes(cls.main.app, dict(get_db=cls.main.get_db,
-            get_current_user=cls.main.get_current_user,
-            resolve_documents=build_document_resolver(build_payment_access(access_deps)),
-            authorize_read=build_payment_access(access_deps, operation='read')))
+        # Exercise the real main application's registration, not a test-only router.
+        routes = [route for route in cls.main.app.routes
+                  if getattr(route, 'path', '') == '/companies/{company_id}/supplier-payments'
+                  and 'POST' in (getattr(route, 'methods', set()) or set())]
+        if len(routes) != 1:
+            raise AssertionError('The main application must mount exactly one payment writer')
 
     def setUp(self):
         policy_tests.PolicyPostgresTests.setUp(self)
@@ -69,6 +65,17 @@ class PaymentHTTPTests(unittest.TestCase):
 
     def doc(self, kind='invoice', document_id=None, **kwargs):
         return self.call(path=f'/companies/2/supplier-payment-documents/{kind}/{document_id or self.invoice}', **kwargs)
+
+    def test_current_release_gate_paid_offer_cannot_ship_until_receipt_integration(self):
+        # This is a fail-closed release gate, not a successful fulfilment chain.
+        self.invoice = type(self).invoice_id
+        self.sql("UPDATE supplier_invoices SET status='Утверждён' WHERE id=%s", (self.invoice,))
+        self.call('POST', body=self.body())
+        before = self.sql('SELECT to_jsonb(d) FROM supply_deliveries d ORDER BY id')
+        result = self.api('supplier', 'POST', f'/supplier-offers/{type(self).offer_id}/ship',
+                          dict(requestId=str(uuid4())), expected=409)
+        self.assertIn('Приёмка таких документов пока не поддерживается', result['detail'])
+        self.assertEqual(self.sql('SELECT to_jsonb(d) FROM supply_deliveries d ORDER BY id'), before)
 
     def test_default_off_all_routes_leave_database_unchanged(self):
         before = self.snapshot()
@@ -398,7 +405,13 @@ class PaymentHTTPTests(unittest.TestCase):
             # The newer, otherwise authorized row is also corrupt: all recorded
             # scopes (including lookahead) must be checked before any conflicts.
             self.sql('UPDATE supplier_invoices SET company_id=3 WHERE id=%s', (own_invoice,))
+            from psycopg2.errors import CheckViolation
             for physical_company in (2, 3):
+                if physical_company == 3:
+                    # Current schema rejects corrupt cross-company links at write time.
+                    with self.assertRaises(CheckViolation):
+                        self.sql('UPDATE warehouse_invoices SET company_id=3 WHERE id=%s', (warehouse,))
+                    continue
                 self.sql('UPDATE warehouse_invoices SET company_id=%s WHERE id=%s', (physical_company, warehouse))
                 before = self.snapshot()
                 for query in ('?requestId=' + warehouse_body['requestId'],

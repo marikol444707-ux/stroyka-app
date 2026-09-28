@@ -1,1 +1,1 @@
-"""Internal payment ledger; no runtime routes until writer migration is complete."""
+"""Payment ledger; application routes are mounted but default-off until fulfilment is ready."""

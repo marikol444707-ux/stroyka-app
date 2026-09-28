@@ -1,4 +1,4 @@
-"""Internal read-only resolver; deliberately not registered with any route.
+"""Read-only document resolver for the default-off payment HTTP routes.
 
 Caller owns an explicit READ COMMITTED transaction and already holds the engine
 company advisory lock (1735289201, company_id). All physical link writers must

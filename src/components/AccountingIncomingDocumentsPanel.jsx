@@ -1,4 +1,5 @@
 import React from 'react';
+import SupplierPaymentButton from '../features/supplier-payments/SupplierPaymentButton';
 import { AlertTriangle, CheckCircle2, CreditCard, Eye, FileText, Link2, MessageSquare, Upload, XCircle } from 'lucide-react';
 import { API } from '../api';
 import {
@@ -40,6 +41,8 @@ export default function AccountingIncomingDocumentsPanel({
   refreshData,
   badge,
   toNum,
+  companyContext,
+  user,
 }) {
   const [activeStatus, setActiveStatus] = React.useState('Нет фото');
   const [openedId, setOpenedId] = React.useState(null);
@@ -532,9 +535,10 @@ export default function AccountingIncomingDocumentsPanel({
         {(row.status === 'На проверке' || row.status === 'К оплате') && (
           <button disabled={disabled} onClick={() => markStatus(row, 'Нужно уточнение')} style={{ ...btnG, padding: '6px 10px', fontSize: '11px' }}><MessageSquare size={12} />Уточнить</button>
         )}
-        {(row.status === 'К оплате' || row.status === 'Частично оплачена') && row.debt > 0 && (
+        {process.env.REACT_APP_SUPPLIER_PAYMENTS_ENABLED !== 'true' && (row.status === 'К оплате' || row.status === 'Частично оплачена') && row.debt > 0 && (
           <button title={paymentBlockedTitle} disabled={disabled || paymentBlocked} onClick={() => payInvoice(row)} style={{ ...btnO, padding: '6px 10px', fontSize: '11px' }}><CreditCard size={12} />Оплатить</button>
         )}
+        <SupplierPaymentButton document={row.invoice} documentKind="warehouse" companyContext={companyContext} user={user} onSuccess={refreshData} disabled={disabled || paymentBlocked} style={btnO} />
         {row.status !== 'Оплачена' && row.status !== 'Отклонена' && (
           <button disabled={disabled} onClick={() => markStatus(row, 'Отклонена')} style={{ ...btnR, padding: '6px 10px', fontSize: '11px' }}><XCircle size={12} /></button>
         )}

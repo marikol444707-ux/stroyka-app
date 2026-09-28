@@ -225,3 +225,20 @@ test('payment action reads a warehouse document when no supplier bill is linked'
   expect(global.fetch.mock.calls[1][0]).toContain('/scan-invoice');
   expect(screen.queryByText('Поставщик не определен')).not.toBeInTheDocument();
 });
+
+test('activated ledger replaces the legacy payment action in accounting', () => {
+  const previous = process.env.REACT_APP_SUPPLIER_PAYMENTS_ENABLED;
+  process.env.REACT_APP_SUPPLIER_PAYMENTS_ENABLED = 'true';
+  try {
+    renderPanel({companyContext:{mode:'company',selectedCompanyId:2},user:{id:7},
+      invoices:[{id:42,companyId:2,supplierId:3,supplierName:'Тест',project:'Объект',
+        accountingStatus:'К оплате',photos:['/test.jpg'],totalWithVat:100,paidAmount:0,
+        items:[{name:'Материал',quantity:1,unit:'шт',price:100}]}],supplierInvoices:[]});
+    fireEvent.click(screen.getByRole('button',{name:/К оплате/}));
+    expect(screen.queryByRole('button',{name:'Оплатить'})).not.toBeInTheDocument();
+    expect(screen.getByRole('button',{name:'Оплата и история'})).toBeEnabled();
+  } finally {
+    if(previous===undefined) delete process.env.REACT_APP_SUPPLIER_PAYMENTS_ENABLED;
+    else process.env.REACT_APP_SUPPLIER_PAYMENTS_ENABLED=previous;
+  }
+});

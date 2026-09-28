@@ -28238,3 +28238,26 @@ register_work_acceptance(app, {
     "sync_room": _sync_room_work_from_journal, "sync_hidden": _sync_hidden_work_act_from_journal,
     "locked_act_statuses": INTERIM_ACT_LOCKED_STATUSES,
 })
+
+# Routes remain disabled unless SUPPLIER_PAYMENTS_ENABLED=1. Activation follows
+# the payment/receipt release checks; registering the router performs no writes.
+try:
+    from backend.features.supplier_payments.access import build_payment_access
+    from backend.features.supplier_payments.documents import build_document_resolver
+    from backend.features.supplier_payments.routes import register_supplier_payment_routes
+except ModuleNotFoundError:
+    from features.supplier_payments.access import build_payment_access
+    from features.supplier_payments.documents import build_document_resolver
+    from features.supplier_payments.routes import register_supplier_payment_routes
+
+_supplier_payment_access_deps = {
+    'resolve_resource_company_actor': resolve_resource_company_actor,
+    'finance_roles': FINANCE_ROLES, 'platform_staff_roles': PLATFORM_STAFF_ROLES,
+    'client_account_roles': CLIENT_ACCOUNT_ROLES,
+    'require_project_access': require_project_access, 'has_package_access': has_package_access,
+}
+register_supplier_payment_routes(app, {
+    'get_db': get_db, 'get_current_user': get_current_user,
+    'resolve_documents': build_document_resolver(build_payment_access(_supplier_payment_access_deps)),
+    'authorize_read': build_payment_access(_supplier_payment_access_deps, operation='read'),
+})

@@ -181,6 +181,8 @@ export default function AccountingPage(props) {
         <>
         <WarehouseDistributionPanel companyContext={companyContext} projects={projects} C={C} readOnly />
         <AccountingIncomingDocumentsPanel
+          companyContext={companyContext}
+          user={user}
           C={C}
           card={card}
           btnO={btnO}
