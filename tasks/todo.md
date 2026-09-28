@@ -10721,3 +10721,8 @@ change.
 - [x] Explicit memberships/assignments and fail-closed policy.
 - [x] API reads/actions enforce scope without widening owner-only profile/catalog.
 - [x] PostgreSQL regression and rollout verification; d2366ba0, original 173 tables preserved, 6 owner visibility comparisons equal.
+
+## Документы контрагентов — 28.09.2026
+
+- [x] Структура кабинетов и правило покупатель = плательщик проработаны.
+- [ ] Выполнить D1–D5 из [counterparty-documents-todo.md](counterparty-documents-todo.md).
