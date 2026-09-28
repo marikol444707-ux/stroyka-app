@@ -69,7 +69,7 @@ class DocumentProjectionTests(unittest.TestCase):
     def test_unregistered_opening_is_not_invented(self):
         from .reads import document
         self.cur.fetchall.return_value = []
-        self.cur.fetchone.return_value = {'status': 'Частично оплачен', 'accounting_status': None}
+        self.cur.fetchone.return_value = {'status': 'Частично оплачен', 'accounting_status': None, 'ready': False}
         result = document(self.cur, self.deps, 7, 2, 'invoice', 8)
         self.assertEqual(result['openingPaidAmount'], None)
         self.assertFalse(result['registered'])

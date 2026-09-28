@@ -37,3 +37,9 @@ Validation: 49 tests passed (refund commands, refund planner, allocation project
 allocation commands). This is command validation only, not saved-UUID replay,
 rollback, concurrent write, database authorization or end-to-end verification.
 The atomic database integration and runtime activation remain outstanding.
+
+## Storage follow-up
+
+Atomic internal storage and migration 0059 are implemented locally; see
+[supplier-refund-storage-2026-09-28.md](supplier-refund-storage-2026-09-28.md)
+for verified behavior and the remaining authority/API/UI/release gates.

@@ -52,10 +52,17 @@ def _snapshot(cur, company_id, group_id, *, new_revision=False):
     root = cur.fetchone()
     if not root or root['document_kind'] != 'invoice':
         _conflict('Группа распределения недоступна')
-    cur.execute("SELECT 1 FROM supplier_payment_operations o WHERE company_id=%s AND document_kind='invoice' AND document_id=%s AND kind IN ('credit','refund') AND NOT EXISTS(SELECT 1 FROM supplier_payment_operations r WHERE r.reverses_id=o.id) LIMIT 1",
-                (company_id,root['document_id']))
+    cur.execute("SELECT to_regclass('supplier_payment_refund_links') IS NOT NULL AS ready")
+    linked_refunds = cur.fetchone()['ready']
+    linked_clause = ("AND NOT EXISTS(SELECT 1 FROM supplier_payment_refund_links l WHERE l.refund_operation_id=o.id)"
+                     if linked_refunds else '')
+    cur.execute(f"""SELECT 1 FROM supplier_payment_operations o WHERE company_id=%s
+        AND document_kind='invoice' AND document_id=%s
+        AND (kind='credit' OR (kind='refund' {linked_clause}))
+        AND NOT EXISTS(SELECT 1 FROM supplier_payment_operations r WHERE r.reverses_id=o.id) LIMIT 1""",
+        (company_id,root['document_id']))
     if cur.fetchone():
-        _conflict('Распределение по поступлениям после возврата или корректировки требует отдельной сверки; итоговые расчёты доступны по счёту')
+        _conflict('Распределение после возврата без исходного платежа или корректировки требует сверки')
     cur.execute('''SELECT company_id,supplier_id,status,amount,COALESCE(paid_amount,0) AS paid_amount,
         COALESCE(project_name,'') AS project_name,COALESCE(work_package,'') AS work_package
         FROM supplier_invoices WHERE id=%s FOR UPDATE''', (root['document_id'],))
@@ -86,8 +93,20 @@ def _snapshot(cur, company_id, group_id, *, new_revision=False):
     payments = [Payment(scope, row['id'], row['amount'], row['reversed']) for row in payment_rows]
     # No invented due date: the deadline adapter is a separate integration gate.
     receipts = [Receipt(scope, row['id'], row['amount']) for row in receipt_rows]
-    return dict(scope=scope, invoice_amount=root['amount'], opening_paid=root['opening_paid'],
-                payments=payments, receipts=receipts)
+    snapshot = dict(scope=scope, invoice_amount=root['amount'], opening_paid=root['opening_paid'],
+                    payments=payments, receipts=receipts)
+    if linked_refunds:
+        from .refund_allocation_plan import Refund
+        cur.execute("""SELECT o.id,l.payment_operation_id,o.amount,
+            EXISTS(SELECT 1 FROM supplier_payment_operations r WHERE r.reverses_id=o.id) AS reversed
+            FROM supplier_payment_refund_links l JOIN supplier_payment_operations o ON o.id=l.refund_operation_id
+            WHERE l.company_id=%s AND l.group_id=%s ORDER BY o.id LIMIT 10001""", (company_id,group_id))
+        rows = cur.fetchall()
+        if len(rows) > 10000:
+            _conflict('Объём возвратов требует отдельной обработки')
+        snapshot['refunds'] = [Refund(scope,row['id'],row['payment_operation_id'],row['amount'],row['reversed']) for row in rows]
+    return snapshot
+
 
 
 def _project(snapshot, rows, *, new_revision):
@@ -97,6 +116,9 @@ def _project(snapshot, rows, *, new_revision):
     allocations = [Allocation(snapshot['scope'], index, row['paymentId'], row['receiptId'], row['amount'])
                    for index, row in enumerate(rows, 1)]
     try:
+        if 'refunds' in snapshot:
+            from .refund_allocation_plan import refund_projection
+            return refund_projection(**snapshot, allocations=allocations)
         return allocation_projection(**snapshot, allocations=allocations)
     except ValueError:
         _conflict('Суммы или принадлежность распределения требуют сверки')
