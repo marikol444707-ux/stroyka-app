@@ -50,7 +50,12 @@ class ContractPostgresTest(unittest.TestCase):
                 (32,99,NULL,'active'),(33,12,45,'active'),(34,12,NULL,'deleting'),(35,12,44,'active')""")
             for statement in statements('upgrade'):
                 cur.execute(statement.replace('public.', 'pg_temp.'))
-        self.assertEqual(self.put().status_code, 200)
+        # Historical split-payer contract fixture: new API requests cannot create it.
+        with self.conn.cursor() as cur:
+            cur.execute("""INSERT INTO supplier_deal_parties
+                (offer_id,company_id,request_id,supplier_id,buyer_company_id,payer_company_id,
+                 version,reason,created_by_id,created_by)
+                VALUES (40,12,20,5,12,99,1,'Historical fixture',8,'Test')""")
         app = FastAPI()
         register_supplier_contracts_module(app, self.deps)
         self.contract_client = TestClient(app)
@@ -133,7 +138,7 @@ class ContractPostgresTest(unittest.TestCase):
         self.assertEqual((data['partyVersion'], data['expectedVersion']), (1,0))
         self.assertEqual(data['payer']['companyId'], 99)
         self.assertEqual(data['buyer']['inn'], '7701234567')
-        self.assertNotIn('basis', data['buyer'])
+        self.assertEqual(data['buyer']['basis'], '')
         self.assertEqual(self.review().status_code, 200)
         self.assertEqual(self.contract_client.get('/supplier-offers/40/contract-review-context').json()['expectedVersion'], 1)
 
@@ -151,3 +156,20 @@ class ContractPostgresTest(unittest.TestCase):
         with self.conn.cursor() as cur:
             cur.execute('DELETE FROM supplier_deal_parties')
         self.assertEqual(self.contract_client.get('/supplier-offers/40/contract-review-context').status_code, 409)
+
+    def test_new_unified_deal_rejects_conflicting_bank_and_freezes_snapshot(self):
+        with self.conn.cursor() as cur:
+            cur.execute('DELETE FROM supplier_deal_parties')
+        self.assertEqual(self.put(payer=99).status_code, 409)
+        self.assertEqual(self.put(payer=12).status_code, 200)
+        buyer = {**payload()['buyer'], 'bankName':'Original bank'}
+        conflict = {**buyer, 'bankName':'Other bank'}
+        self.assertEqual(self.review(buyer=buyer, payer=conflict).status_code, 409)
+        response = self.review(buyer=buyer, payer=buyer)
+        self.assertEqual(response.status_code, 200, response.text)
+        saved = response.json()
+        with self.conn.cursor() as cur:
+            cur.execute("UPDATE company_requisites SET full_name='Updated company' WHERE company_id=12")
+        history = self.contract_client.get('/supplier-offers/40/contracts').json()['items']
+        self.assertEqual(history[0]['snapshot'], saved['snapshot'])
+        self.assertEqual(history[0]['snapshot']['buyer']['bankName'], 'Original bank')
