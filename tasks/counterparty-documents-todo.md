@@ -79,3 +79,4 @@
 - Simplified opening balance, refund, receipt allocation and cancellation explanations; removed UUID/server implementation wording from the main flow.
 - Unconfirmed operation keeps readable operation/document/amount summary; raw saved command remains available under technical details. Retry/cancel semantics unchanged.
 - 29 relevant UI tests passed; dialog tests repeated after adding the pending-operation summary.
+- Installed `1098f2493bbd`. Production payment window confirmed updated copy; local real-browser pending-operation fixture verified collapsed technical details, toggle, readable amount and retry availability. 251 assets and unchanged data hashes verified; health/DB passed. No business mutations submitted. Receipt retained; release backup/staging removed after all four gates.
