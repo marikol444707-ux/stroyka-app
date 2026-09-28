@@ -8,7 +8,7 @@ class ReviewProfileTests(unittest.TestCase):
         cur = MagicMock()
         cur.fetchone.side_effect = [
             {'buyer_company_id': 1, 'payer_company_id': 1, 'version': 2},
-            supplier or {'name': 'Supplier', 'inn': '7701234567'}, {'version': 3}]
+            supplier or {'name': 'Supplier', 'inn': '7701234567'}, {'version': 3}, None]
         cur.fetchall.side_effect = [[profile], [], []]
         conn = MagicMock()
         conn.cursor.return_value = cur

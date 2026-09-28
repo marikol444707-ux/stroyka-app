@@ -254,3 +254,20 @@ class ContractPostgresTest(unittest.TestCase):
         with self.conn.cursor() as cur:
             cur.execute("INSERT INTO projects VALUES (46,12,'Object A')")
         self.assertEqual(self.review(applicability={**base,'projectId':44}).status_code,422)
+
+    def test_existing_original_can_be_reviewed_without_upload(self):
+        original=self.review()
+        self.assertEqual(original.status_code,200,original.text)
+        context=self.contract_client.get('/supplier-offers/40/contract-review-context').json()
+        self.assertEqual(context['existingOriginal']['sourceFileId'],31)
+        self.assertIsNone(context['existingOriginal']['applicability'])
+        conditions={'scope':'company','term':'open_ended','startsOn':'2020-01-01'}
+        saved=self.review(expectedVersion=1,applicability=conditions)
+        self.assertEqual(saved.status_code,200,saved.text)
+        history=self.history().json()['items']
+        self.assertEqual(len(history),2)
+        self.assertNotIn('applicability',history[1]['snapshot'])
+        self.assertEqual(history[0]['sourceFileId'],history[1]['sourceFileId'])
+        with self.conn.cursor() as cur:
+            cur.execute("UPDATE file_ownership SET deletion_status='deleting' WHERE id=31")
+        self.assertIsNone(self.contract_client.get('/supplier-offers/40/contract-review-context').json()['existingOriginal'])

@@ -63,8 +63,21 @@ def build_contract_review_context(deps):
             cur.execute('SELECT COALESCE(MAX(version),0) AS version FROM supplier_contract_versions WHERE offer_id=%s', (id,))
             expected_version = cur.fetchone()['version']
             project = offer_project(cur, offer)
+            cur.execute('''SELECT c.id,c.version,c.source_file_id,c.snapshot_json
+                FROM supplier_contract_versions c JOIN file_ownership f
+                  ON f.id=c.source_file_id AND f.company_id=c.company_id
+                WHERE c.offer_id=%s AND c.company_id=%s AND c.version=%s
+                  AND COALESCE(f.deletion_status,'active')='active'
+                  AND (f.project_id IS NULL OR f.project_id=%s)''',
+                        (id,offer['company_id'],expected_version,project['id'] if project else None))
+            current = cur.fetchone()
+            existing_original = ({'sourceFileId':current['source_file_id'],
+                                  'number':current['snapshot_json']['number'],
+                                  'date':current['snapshot_json']['date'],
+                                  'applicability':current['snapshot_json'].get('applicability'),
+                                  'version':current['version']} if current else None)
             reusable = reusable_contracts(cur, offer, identities, load_offer, current_user, x_company_id, x_company_mode, project['id'] if project else None)
-            return {'project': project, 'offerId': id, 'companyId': offer['company_id'], 'partyVersion': parties['version'],
+            return {'existingOriginal': existing_original, 'project': project, 'offerId': id, 'companyId': offer['company_id'], 'partyVersion': parties['version'],
                     'expectedVersion': expected_version, 'reusableContracts': reusable, 'identitySource': 'company_profiles', **identities}
         finally:
             cur.close()

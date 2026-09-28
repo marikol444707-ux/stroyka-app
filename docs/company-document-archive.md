@@ -86,3 +86,9 @@ The legacy API still accepts reviews without applicability for compatibility, bu
 these versions are not candidates for reuse. No historic invoices are rebound.
 This extends existing offer-bound versions; a canonical pair-level registry,
 archiving, addenda and expiry controls for other issuance paths remain pending.
+
+The review context also returns existingOriginal from the latest active, authorized
+original for the current offer. “Использовать сохранённый оригинал” restores the
+file reference, number/date and known applicability without uploading or assuming
+missing conditions. Requisites remain from current profiles; human confirmation
+saves an appended version. Older bound versions are not rewritten.

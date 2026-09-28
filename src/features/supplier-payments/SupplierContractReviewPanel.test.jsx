@@ -148,3 +148,16 @@ test('scope and term are explicit and changing conditions clears confirmation',a
  expect(screen.getByLabelText('Реквизиты и условия сверены с загруженным оригиналом').checked).toBe(false);
  expect(client.save).not.toHaveBeenCalled();
 });
+
+test('existing original restores document fields without upload or assumed unlimited term',async()=>{
+ client.load.mockResolvedValue({parties:{version:1,buyerCompanyId:1,payerCompanyId:1},companies:[{companyId:1,companyName:'Наша компания'}]});
+ client.reviewContext.mockResolvedValue({...ctx,expectedVersion:1,existingOriginal:{sourceFileId:99,number:'362',date:'2026-09-01',version:1,applicability:null}});
+ render(<Panel {...props}/>);
+ fireEvent.click(await screen.findByText('Перейти к проверке договора'));
+ fireEvent.click(await screen.findByText('Использовать сохранённый оригинал'));
+ expect(screen.getByLabelText('Номер договора').value).toBe('362');
+ expect(screen.getByLabelText('Срок договора').value).toBe('');
+ expect(screen.getByLabelText('Область действия').value).toBe('');
+ expect(screen.getByLabelText('Срок договора').disabled).toBe(false);
+ expect(client.upload).not.toHaveBeenCalled();expect(client.save).not.toHaveBeenCalled();
+});

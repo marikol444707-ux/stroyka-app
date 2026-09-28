@@ -99,6 +99,8 @@ export function createContractReviewClient(scope, {fetcher=window.fetch,storage=
     const value=await request(base+'/contract-review-context');
     if(value.companyId!==companyId || value.offerId!==offerId || !id(value.partyVersion)
        || !Number.isSafeInteger(value.expectedVersion) || value.expectedVersion<0)fail('Контекст проверки договора изменился.');
+    if(value.existingOriginal && (!id(value.existingOriginal.sourceFileId)
+       || value.existingOriginal.version!==value.expectedVersion))fail('Версия сохранённого оригинала изменилась.');
     for(const contract of value.reusableContracts || []){
       if(contract.companyId!==companyId || !id(contract.id) || !id(contract.offerId)
          || !id(contract.sourceFileId) || !id(contract.version) || !contract.snapshot

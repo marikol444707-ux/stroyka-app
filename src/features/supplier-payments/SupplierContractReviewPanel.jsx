@@ -156,6 +156,16 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
    <fieldset className="contract-review-content" disabled={blocked}>
     <legend className="contract-visually-hidden">Оригинал и реквизиты договора</legend>
 
+    {review.existingOriginal&&!file&&!draftEdited&&<div className="contract-upload-card">
+     <h4>Оригинал уже загружен</h4>
+     <p className="contract-hint">Можно уточнить условия и сохранить новую версию. Реквизиты для сверки взяты из карточек компаний; повторная загрузка файла не нужна.</p>
+     <button type="button" onClick={()=>{
+      const original=review.existingOriginal;
+      setFile({fileId:original.sourceFileId,name:`Договор № ${original.number} · версия ${original.version}`});
+      setNumber(original.number);setDate(original.date);setApplicability(original.applicability || emptyApplicability());
+      setReason('Уточнение условий сохранённого договора');setChecked(false);
+     }}>Использовать сохранённый оригинал</button>
+    </div>}
     {review.reusableContracts?.length>0 && !file && !draftEdited && <div className="contract-upload-card">
      <h4>Использовать сохранённый договор</h4>
      <p className="contract-hint">Те же стороны, оригинал уже загружен. Выбор заполнит поля данными проверенной версии; перед сохранением сверьте их с текущими реквизитами.</p>
