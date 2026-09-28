@@ -96,8 +96,11 @@ def _require(condition):
 
 def document(cur, deps, actor_id, company_id, kind, document_id):
     """Return one debt, not a sum of the invoice and its physical mirror."""
-    context = build_document_resolver(deps['authorize_read'])(cur, actor_id, company_id,
-        dict(documentKind=kind, documentId=document_id))
+    from .mixed_payments import resolve_if_bound
+    command = dict(documentKind=kind, documentId=document_id)
+    context = resolve_if_bound(cur, deps['authorize_read'], actor_id, company_id, command)
+    if context is None:
+        context = build_document_resolver(deps['authorize_read'])(cur, actor_id, company_id, command)
     documents = context['documents']
     by_key = {(d['kind'], d['id']): d for d in documents}
     predicates = ' OR '.join('(document_kind=%s AND document_id=%s)' for _ in documents)
@@ -194,6 +197,11 @@ def _authorize_operations(cur, deps, actor_id, company_id, rows):
         if row['document_kind'] == 'warehouse':
             # Shared helper uses a savepoint and maps SQLSTATE 23514 to domain
             # 409 without poisoning the caller's transaction.
+            from .mixed_payments import resolve_if_bound
+            bound = resolve_if_bound(cur, authorize, actor_id, company_id,
+                                     dict(documentKind='warehouse',documentId=row['document_id']))
+            if bound is not None:
+                continue
             package = warehouse_payment_package(cur, physical['items'])
             authorize(cur, actor_id, company_id, physical['project'], package,
                       payer_company_id=row['payer_company_id'])

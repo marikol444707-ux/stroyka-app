@@ -69,3 +69,38 @@ def validate_new(cur, context, command, signed_amount):
     if command['kind'] not in ('payment','reversal'):
         raise HTTPException(409,'Недопустимая операция смешанной накладной')
     return validate_new_payment(cur,context,command,signed_amount,snapshot_document=bound_snapshot)
+
+
+def resolve_if_bound(cur, authorize, actor_id, company_id, command):
+    """Default-off dispatch; never infer certification from mixed item JSON."""
+    import os
+    if os.getenv('SUPPLIER_MIXED_OPENINGS_ENABLED') != '1':
+        return None
+    cur.execute("SELECT to_regclass('public.supplier_mixed_opening_bindings') AS ready")
+    if not cur.fetchone()['ready']:
+        raise HTTPException(503,'Схема смешанных начальных остатков не подготовлена')
+    kind=command['documentKind']
+    column={'invoice':'invoice_id','warehouse':'warehouse_id'}.get(kind)
+    if column is None:
+        raise HTTPException(422,'Недопустимый вид документа')
+    cur.execute(f"""SELECT r.invoice_id FROM supplier_mixed_opening_bindings b
+        JOIN supplier_mixed_scope_reviews r ON r.id=b.review_id AND r.company_id=b.company_id
+        WHERE b.company_id=%s AND r.{column}=%s""",(company_id,command['documentId']))
+    binding=cur.fetchone()
+    if not binding:
+        return None
+    if not callable(authorize):
+        raise HTTPException(503,'Проверка финансовых прав не подготовлена')
+    # Read projections may enter through either physical document. Cash writes
+    # remain invoice-only in build_resolver.
+    target=dict(command)
+    if 'kind' not in target:
+        target.update(kind='payment',documentKind='invoice',documentId=binding['invoice_id'])
+    context=build_resolver(authorize)(cur,actor_id,company_id,target)
+    return dict(context,mixedBound=True)
+
+
+def validate_dispatch(cur, context, command, signed_amount):
+    if context.get('mixedBound'):
+        return validate_new(cur,context,command,signed_amount)
+    return validate_new_payment(cur,context,command,signed_amount)

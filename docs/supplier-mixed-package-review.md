@@ -267,3 +267,31 @@ on both physical documents. Retry creates no extra cash; revoked package scope
 blocks retry/reversal, overpayment is rejected, and reversal preserves cancelled
 statuses. Public document/history/legacy report integration and UI remain
 outstanding; no production changes or real financial writes were made.
+
+## Default-off HTTP and read integration
+
+SUPPLIER_MIXED_OPENINGS_ENABLED=1 enables bound-document dispatch on the existing
+payment and cancellation routes, document projections and history. Payment
+routes still require SUPPLIER_PAYMENTS_ENABLED. POST
+/companies/{company_id}/supplier-opening-confirmations/mixed additionally requires
+SUPPLIER_OPENING_CONFIRMATIONS_ENABLED and a server financial WRITE authorizer.
+It accepts the strict internal opening command. Without a certified binding,
+ordinary documents continue through the original resolver and policy.
+
+Both invoice and warehouse read projections resolve the one certified pair;
+cash writes remain invoice-target only. History authorizes the complete bound
+pair for impacted warehouse rows, including UUID lookup and pagination lookahead.
+The legacy /project-payments list independently checks every immutable recorded
+package/payer before exposing mixed ledger cash rows, even if the mixed runtime
+flag is later disabled. A cached header-only permission never grants access to
+another operation's complete scope.
+
+Real authenticated HTTP tests cover confirmation → payment → both projections →
+history → reversal, original cash visibility in legacy accounting, nonfinancial
+role denial and default-off confirmation. Ordinary payment HTTP regression
+includes the concurrent UUID-lookup test, updated to intercept the new policy
+dispatch point. An older customer test expected internal expenses to be visible;
+it now asserts the already-existing 403 published-receipts policy.
+
+Frontend integration, browser verification and production rollout remain pending.
+No production flags, migrations, balances or payments were changed.

@@ -487,7 +487,7 @@ class PaymentHTTPTests(unittest.TestCase):
             if not release.wait(4):
                 raise AssertionError('Test failed to release payment transaction')
 
-        with patch('backend.features.supplier_payments.routes.validate_new_payment', side_effect=pause_policy), \
+        with patch('backend.features.supplier_payments.routes.validate_dispatch', side_effect=pause_policy), \
                 ThreadPoolExecutor(max_workers=2) as pool:
             payment = pool.submit(self.call, 'POST', body=body)
             try:

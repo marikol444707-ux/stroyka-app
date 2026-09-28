@@ -15,7 +15,7 @@ from psycopg2 import DatabaseError
 from .commands import normalize_command
 from .cancellations import cancel_request
 from .engine import execute
-from .policy import validate_new_payment
+from .mixed_payments import resolve_if_bound, validate_dispatch
 from . import reads
 
 
@@ -60,11 +60,12 @@ def register_supplier_payment_routes(app, deps):
 
         def authorize(cur, actor_id, owner_id, normalized):
             reads.require_schema(cur, deps)
-            return resolver(cur, actor_id, owner_id, normalized)
+            bound = resolve_if_bound(cur, deps.get('authorize_write'), actor_id, owner_id, normalized)
+            return bound if bound is not None else resolver(cur, actor_id, owner_id, normalized)
 
         try:
             result = execute(deps['get_db'], authorize, user['id'], company_id, body,
-                             validate_new=validate_new_payment)
+                             validate_new=validate_dispatch)
         except DatabaseError as error:
             if error.pgcode == '23514':
                 raise HTTPException(409,'Операция не проведена: проверьте остаток, корректировки и распределения оплаты') from None
@@ -89,7 +90,9 @@ def register_supplier_payment_routes(app, deps):
                 # cancel_request holds the engine company lock and owns the
                 # transaction. Current WRITE authority precedes schema/UUID
                 # conflicts; a read-only subscription must not cancel attempts.
-                context = resolver(cur, actor_id, owner_id, normalized)
+                context = resolve_if_bound(cur, deps.get('authorize_write'), actor_id, owner_id, normalized)
+                if context is None:
+                    context = resolver(cur, actor_id, owner_id, normalized)
                 reads.require_schema(cur, deps, require_cancellations=True)
                 return context
 
@@ -209,6 +212,22 @@ def register_supplier_payment_routes(app, deps):
             raise HTTPException(503, 'Сервис сохранения сверки не подготовлен')
         from .mixed_scope_evidence import save_review
         return save_review(deps['get_db'], authorize_write, user['id'], company_id, body)
+
+    @router.post('/companies/{company_id}/supplier-opening-confirmations/mixed')
+    def mixed_confirm(request: Request, response: Response, body: Any = Body(...),
+                      company_id: int = Path(..., ge=1, le=2147483647),
+                      user: dict = Depends(authenticate)):
+        if (os.getenv('SUPPLIER_OPENING_CONFIRMATIONS_ENABLED') != '1'
+                or os.getenv('SUPPLIER_MIXED_OPENINGS_ENABLED') != '1'):
+            raise HTTPException(404, 'Not found')
+        _headers(request, company_id)
+        _query(request, ())
+        response.headers['Cache-Control'] = 'no-store'
+        authorize = deps.get('authorize_write')
+        if not callable(authorize):
+            raise HTTPException(503, 'Сервис подтверждения не подготовлен')
+        from .mixed_openings import confirm
+        return confirm(deps['get_db'], authorize, user['id'], company_id, body)
 
     @router.post('/companies/{company_id}/supplier-opening-confirmations')
     def opening_confirm(request: Request, response: Response, body: Any = Body(...),

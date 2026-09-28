@@ -71,8 +71,11 @@ def register_project_payments_module(app, deps):
             if project_name:
                 where.append("pp.project_name=%s")
                 params.append(project_name)
-            cur.execute("SELECT to_regclass('public.supplier_payment_operations') IS NOT NULL AS ledger_exists")
-            ledger_exists = cur.fetchone()['ledger_exists']
+            cur.execute("SELECT to_regclass('public.supplier_payment_operations') IS NOT NULL AS ledger_exists, "
+                        "to_regclass('public.supplier_mixed_opening_bindings') IS NOT NULL AS mixed_exists")
+            schema = cur.fetchone()
+            ledger_exists = schema['ledger_exists']
+            mixed_exists = schema.get('mixed_exists', False)
             if ledger_exists:
                 where[0], params = project_payment_visibility_filter(
                     effective_company_actors(current_user, company_context), finance_roles,
@@ -108,6 +111,20 @@ def register_project_payments_module(app, deps):
                             ) p
                             ORDER BY id DESC""", tuple(params))
             rows = cur.fetchall()
+            mixed_scopes = {}
+            if mixed_exists:
+                operation_ids = [row['operation_id'] for row in rows if row.get('operation_id') is not None]
+                if operation_ids:
+                    cur.execute('''SELECT DISTINCT impact.operation_id,r.id,r.package_scope,
+                        r.invoice_snapshot->>'project_name' AS project,d.payer_company_id,b.company_id
+                        FROM supplier_payment_impacts impact
+                        JOIN supplier_mixed_opening_bindings b ON b.company_id=impact.company_id
+                            AND impact.document_record_id IN (b.invoice_record_id,b.warehouse_record_id)
+                        JOIN supplier_mixed_scope_reviews r ON r.id=b.review_id
+                        JOIN supplier_payment_documents d ON d.id=b.invoice_record_id AND d.company_id=b.company_id
+                        WHERE impact.operation_id=ANY(%s::bigint[])''',(operation_ids,))
+                    for evidence in cur.fetchall():
+                        mixed_scopes.setdefault(evidence['operation_id'], []).append(evidence)
             # Ledger expenses require current financial authority in both legal
             # entities. Cache only within this transaction while auth locks live.
             allowed_scopes = {}
@@ -125,6 +142,15 @@ def register_project_payments_module(app, deps):
                                 raise
                             allowed_scopes[scope] = False
                     if not allowed_scopes[scope]:
+                        continue
+                    try:
+                        for evidence in mixed_scopes.get(row['operation_id'], []):
+                            for package in evidence['package_scope']['requiredPackages']:
+                                ledger_read_access(cur,current_user['id'],evidence['company_id'],
+                                    evidence['project'],package,evidence['payer_company_id'])
+                    except HTTPException as exc:
+                        if exc.status_code != 403:
+                            raise
                         continue
                 visible.append(row)
             return [{

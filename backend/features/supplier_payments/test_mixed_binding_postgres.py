@@ -199,3 +199,35 @@ class MixedBindingTests(MixedScopeSchemaTests):
         self.assertEqual(self.sql('SELECT paid_amount FROM supplier_invoices WHERE id=%s',(self.invoice,)),[(50,)])
         self.assertEqual(self.sql('SELECT paid_amount FROM warehouse_invoices WHERE id=%s',(self.warehouse,)),[(50,)])
         self.assertEqual(self.sql('SELECT COALESCE(sum(amount),0) FROM project_payments')[0][0],before[1] or 0)
+
+    def test_http_mixed_confirmation_payment_document_history_and_reversal(self):
+        from unittest.mock import patch
+        self.cur.execute("UPDATE warehouse_invoices SET accounting_status='К оплате' WHERE id=%s",(self.warehouse,))
+        evidence=self.insert()
+        self.conn.commit()
+        base='/companies/2'
+        opening=dict(requestId=str(uuid4()),invoiceId=self.invoice,reviewId=evidence['id'],reason='Подтверждено')
+        with patch.dict(os.environ,SUPPLIER_PAYMENTS_ENABLED='1',SUPPLIER_OPENING_CONFIRMATIONS_ENABLED='1',
+                        SUPPLIER_MIXED_OPENINGS_ENABLED='1'):
+            first=self.api('accountant','POST',base+'/supplier-opening-confirmations/mixed',opening)
+            self.assertEqual(first['openingPaid'],'50.00')
+            payment=dict(requestId=str(uuid4()),documentKind='invoice',documentId=self.invoice,
+                         kind='payment',amount='20.00',paidAt='2026-09-28',reason='Доплата')
+            paid=self.api('accountant','POST',base+'/supplier-payments',payment)
+            view=self.api('accountant','GET',base+'/supplier-payment-documents/invoice/'+str(self.invoice))
+            self.assertEqual(view['paidAmount'],'70.00')
+            mirror=self.api('accountant','GET',base+'/supplier-payment-documents/warehouse/'+str(self.warehouse))
+            self.assertEqual(mirror['paidAmount'],'70.00')
+            history=self.api('accountant','GET',base+'/supplier-payments?requestId='+payment['requestId'])
+            self.assertEqual(len(history['items']),1)
+            legacy=self.api('accountant','GET','/project-payments')
+            self.assertIn(paid['projectPaymentId'],[row['id'] for row in legacy])
+            self.api('foreman','GET',base+'/supplier-payments?requestId='+payment['requestId'],expected=403)
+            self.api('foreman','GET',base+'/supplier-payment-documents/invoice/'+str(self.invoice),expected=403)
+            reverse=dict(requestId=str(uuid4()),documentKind='invoice',documentId=self.invoice,kind='reversal',
+                         reversesId=paid['operationId'],paidAt='2026-09-28',reason='Сторно')
+            self.api('accountant','POST',base+'/supplier-payments',reverse)
+            view=self.api('accountant','GET',base+'/supplier-payment-documents/invoice/'+str(self.invoice))
+            self.assertEqual(view['paidAmount'],'50.00')
+        with patch.dict(os.environ,SUPPLIER_MIXED_OPENINGS_ENABLED='0'):
+            self.api('accountant','POST',base+'/supplier-opening-confirmations/mixed',opening,expected=404)

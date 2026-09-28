@@ -26,9 +26,9 @@ class LegacyLedgerRoutesTests(unittest.TestCase):
         self.sql("UPDATE users SET role='заказчик' WHERE id=%s", (uid,))
         self.sql("UPDATE user_company_roles SET role='заказчик' WHERE user_id=%s", (uid,))
         try:
-            visible = {r['id'] for r in self.api('foreman', 'GET', '/project-payments')}
-            self.assertIn(legacy['id'], visible)
-            self.assertFalse({paid['projectPaymentId'], reversed_payment['projectPaymentId']} & visible)
+            # Customer access now uses published receipts, not the internal
+            # project-expense list (including otherwise unmanaged expenses).
+            self.api('foreman', 'GET', '/project-payments', expected=403)
         finally:
             self.sql("UPDATE users SET role='прораб' WHERE id=%s", (uid,))
             self.sql("UPDATE user_company_roles SET role='прораб' WHERE user_id=%s", (uid,))

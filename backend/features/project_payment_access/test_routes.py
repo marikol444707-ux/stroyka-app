@@ -190,6 +190,30 @@ class ProjectPaymentRoutesTest(unittest.TestCase):
         self.assertTrue(result["alreadyReversed"])
         self.assertFalse(connection.committed)
 
+    def test_mixed_expense_requires_every_recorded_package_even_with_same_header_scope(self):
+        class MixedCursor(FakeCursor):
+            def fetchone(self):
+                if 'to_regclass' in self.calls[-1][0]:
+                    return {'ledger_exists': True, 'mixed_exists': True}
+                return super().fetchone()
+            def fetchall(self):
+                if 'SELECT DISTINCT impact.operation_id' in self.calls[-1][0]:
+                    return [dict(operation_id=1,id=10,company_id=3,project='Объект',payer_company_id=3,
+                                 package_scope={'requiredPackages':['','Закрытый']})]
+                return super().fetchall()
+        rows=[dict(id=i,operation_id=i,company_id=3,project_name='Объект',work_package='',
+                   payer_company_id=3,amount=100) for i in (1,2)]
+        def authorize(cur,actor,company,project,package,payer):
+            if package=='Закрытый':
+                raise HTTPException(403,'Нет доступа')
+        with patch('backend.features.project_payment_access.routes.build_payment_access',return_value=authorize):
+            app,connection,visibility=build(MixedCursor(rows=rows))
+        with patch('backend.features.project_payment_access.routes.project_payment_visibility_filter',visibility):
+            result=app.routes[('GET','/project-payments')](project_name='',x_company_id='3',
+                                                         x_company_mode='company',current_user={'id':7})
+        self.assertEqual([row['id'] for row in result],[2])
+        self.assertTrue(connection.rolled_back)
+
 
 if __name__ == "__main__":
     unittest.main()
