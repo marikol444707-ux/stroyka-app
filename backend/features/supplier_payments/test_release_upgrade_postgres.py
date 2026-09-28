@@ -19,7 +19,7 @@ class ReleaseRevisionGraphTests(unittest.TestCase):
         config = Config(str(root / 'alembic.ini'))
         config.set_main_option('script_location', str(root / 'migrations'))
         graph = ScriptDirectory.from_config(config)
-        self.assertEqual(graph.get_heads(), ['0060_supplier_mixed_scopes'])
+        self.assertEqual(graph.get_heads(), ['0061_supplier_mixed_bindings'])
         for revision in graph.walk_revisions():
             self.assertLessEqual(len(revision.revision), 32, revision.revision)
 
@@ -78,18 +78,18 @@ class SupplierReleaseUpgradeTests(unittest.TestCase):
         # disposable Alembic version metadata needs initializing; never stamp
         # a deployed database or use stamping as a substitute for an upgrade.
         self.alembic('stamp', '0051_supplier_offer_item_scopes')
-        result = self.alembic('upgrade', '0060_supplier_mixed_scopes')
-        for number in range(52, 61):
+        result = self.alembic('upgrade', '0061_supplier_mixed_bindings')
+        for number in range(52, 62):
             self.assertIn(f'00{number}_', result.stderr)
         self.assertEqual(self.sql('SELECT version_num FROM alembic_version'),
-                         [('0060_supplier_mixed_scopes',)])
+                         [('0061_supplier_mixed_bindings',)])
         self.assertEqual((self.snapshot(), self.snapshot(allocations=True)), before)
         for table in ('supplier_receipt_line_proofs', 'supplier_opening_confirmations',
-                      'supplier_payment_refund_links', 'supplier_mixed_scope_reviews'):
+                      'supplier_payment_refund_links', 'supplier_mixed_scope_reviews', 'supplier_mixed_opening_bindings'):
             self.assertEqual(self.sql(f'SELECT count(*) FROM {table}'), [(0,)])
         self.alembic('downgrade', '0051_supplier_offer_item_scopes')
         self.assertEqual((self.snapshot(), self.snapshot(allocations=True)), before)
-        self.alembic('upgrade', '0060_supplier_mixed_scopes')
+        self.alembic('upgrade', '0061_supplier_mixed_bindings')
         replay = execute(self.main.get_db, self.payment_resolver, self.actor, 2, body,
                          validate_new=validate_new_payment)
         self.assertEqual(replay, original)

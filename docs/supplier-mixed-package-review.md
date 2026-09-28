@@ -191,3 +191,32 @@ Regression coverage includes malformed paired receipts, revoked current receipt
 package access, and malformed attached mirrors through both operation and
 attachment UUID lookup. This is a history safety fix; mixed opening admission
 remains disabled and the old single-package baseline guard is unchanged.
+
+## Database binding to a paired opening (0061)
+
+Migration 0061 adds immutable supplier_mixed_opening_bindings connecting one
+0060 review to the invoice ledger record, receipt ledger record and opening
+confirmation. Their IDs are reserved before insertion; deferred foreign keys
+and a deferred completeness trigger require the complete chain in one commit.
+The insert guard locks the company and sources, requires exact current evidence,
+and rejects already registered documents, sealed invoice lines and foreign
+companies. The existing paired-opening guard still validates reciprocal links,
+equal identity/balances, same-transaction baseline creation and exact snapshots.
+
+The warehouse baseline guard accepts the invoice header as its accounting anchor
+only through this same-transaction binding. It retains strict single-package
+validation without a binding. Full original package scope remains in the review;
+it is never replaced by the header or split into invented monetary subtotals.
+Completion checks exact current snapshots again and rejects any payment impacts.
+An incomplete transaction rolls back both baselines. Bindings cannot be changed,
+deleted, truncated or discarded by downgrade. Empty-schema downgrade restores
+the exact previous baseline guard.
+
+This is database admission only, tested with synthetic direct SQL. No application
+writer calls it yet. Runtime resolver, new-payment policy and history still reject
+mixed receipt packages; financial WRITE authorization over all packages and
+idempotent confirmation must be integrated before exposing an opening action.
+No production migration or historical-data mutation was performed.
+
+The populated release rehearsal now covers actual Alembic 0051 → 0061 → 0051 →
+0061, unchanged financial snapshots, replay of an old payment and a new payment.
