@@ -110,3 +110,8 @@
 - Archive button “Исходный договор” uses exact scoped lookup and preserves list filters on return.
 - 18 route tests passed including real isolated PostgreSQL lineage rejection cases; 8 UI tests passed. Local browser fixture verified original version and return.
 - Deployed `df168115e06a`. Authenticated production archive contract362 -> quotation71 -> return preserved search362; original HTTP200, zero JS errors. Existing contract has no reuse source; positive lineage remains local PostgreSQL/browser evidence. 17 production tests passed (isolated PG test skipped), 251 assets matched, data hashes unchanged, health/DB OK. Four gates recorded; staging/backup removed and receipt retained.
+
+## 2026-09-29 — archive document category filter
+- Added “Вид документа”: supply contracts, quotations, invoices, shipments, warehouse waybills and company/counterparty document records. Server filters before pagination under existing company scope; incompatible filters rejected.
+- Related navigation preserves category/search/page; company and section switch clear category. Client rejects unexpected source rows.
+- 20 route tests passed including isolated PostgreSQL; 11 UI tests passed. Deployment/browser checks pending.

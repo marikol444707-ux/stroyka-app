@@ -185,9 +185,7 @@ class ArchiveTests(unittest.TestCase):
     @unittest.skipUnless(os.environ.get('RUN_SUPPLIER_DEAL_PG_TESTS') == '1', 'isolated PostgreSQL only')
     def test_reuse_lineage_in_postgresql(self):
         import psycopg2
-        from .routes import SOURCES
-        with patch.dict(SOURCES, {'contract': SOURCES['contract']}, clear=True):
-            self.client.get('/company-document-archive')
+        self.client.get('/company-document-archive?category=contract')
         sql,args=self.cur.execute.call_args.args
         conn=psycopg2.connect(host=os.environ['DB_HOST'],port=os.environ['DB_PORT'],
                               dbname=os.environ['DB_NAME'],user=os.environ['DB_USER'])
@@ -218,3 +216,21 @@ class ArchiveTests(unittest.TestCase):
         finally:
             conn.rollback()
             conn.close()
+
+    def test_category_filters_before_pagination_with_company_scope(self):
+        from .routes import SOURCES
+        for category,(_,table,*_) in SOURCES.items():
+            response=self.client.get('/company-document-archive',params={'category':category,'q':'362','offset':30,'limit':30})
+            self.assertEqual(response.status_code,200,response.text)
+            sql,args=self.cur.execute.call_args.args
+            self.assertEqual(args,(1,'362','362',31,30))
+            self.assertIn('FROM '+table+' d',sql)
+            self.assertNotIn('UNION ALL',sql)
+            self.assertEqual(sql.count('d.company_id=%s'),1)
+
+    def test_invalid_category_or_conflicting_lookup_rejected(self):
+        for query in ('category=unknown','category=invoice&section=company',
+                      'category=invoice&section=customer','category=invoice&contractId=9',
+                      'category=invoice&source=contract&recordId=9'):
+            self.assertEqual(self.client.get('/company-document-archive?'+query).status_code,422,query)
+        self.cur.execute.assert_not_called()

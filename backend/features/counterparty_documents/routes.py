@@ -10,6 +10,7 @@ from fastapi import Depends, Header, HTTPException, Query
 
 # Administrative archive only. Other cabinets retain their narrower existing APIs.
 ROLES = {'директор', 'зам_директора'}
+ArchiveSource = Literal['company','supplier','offer','invoice','delivery','warehouse','contract','customer']
 # Section, table, title SQL, type SQL, date SQL, active predicate, file columns.
 SOURCES = {
     'company': ('company', 'company_documents', "COALESCE(d.name,'')", "COALESCE(d.doc_type,'')", 'd.created_at', 'TRUE', ('file_url',)),
@@ -29,7 +30,8 @@ def register_counterparty_document_archive(app, deps):
     def list_archive(
         section: Literal['all', 'company', 'supplier', 'customer'] = 'all',
         q: str = Query('', max_length=200),
-        source: Optional[Literal['company','supplier','offer','invoice','delivery','warehouse','contract','customer']] = None,
+        source: Optional[ArchiveSource] = None,
+        category: Optional[ArchiveSource] = None,
         contractId: Optional[int] = Query(None, gt=0, le=2147483647),
         recordId: Optional[int] = Query(None, gt=0, le=2147483647),
         limit: int = Query(50, ge=1, le=100),
@@ -42,6 +44,9 @@ def register_counterparty_document_archive(app, deps):
             raise HTTPException(422, 'Укажите документ для перехода')
         if contractId is not None and (source is not None or section not in ('all','supplier')):
             raise HTTPException(422, 'Выберите счета по договору отдельно от других документов')
+        if category is not None and (source is not None or contractId is not None
+                                     or section not in ('all', SOURCES[category][0])):
+            raise HTTPException(422, 'Выберите вид документа в соответствующем разделе архива')
         conn = deps['get_db']()
         cur = conn.cursor()
         try:
@@ -58,7 +63,7 @@ def register_counterparty_document_archive(app, deps):
                 raise HTTPException(403, 'Компания архива не определена')
             queries, params = [], []
             for key, (group, table, title, kind, date, active, file_fields) in SOURCES.items():
-                if (contractId is not None and key != 'invoice') or section not in ('all', group):
+                if (category is not None and key != category) or (contractId is not None and key != 'invoice') or section not in ('all', group):
                     continue
                 fields = ','.join(f"'{field}',to_jsonb(d)->'{field}'" for field in (*file_fields, 'project_id', 'project_name', 'sign_status'))
                 if key == 'contract':

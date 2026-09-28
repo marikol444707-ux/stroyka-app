@@ -91,3 +91,54 @@ test('opens verified original contract and restores list on return',async()=>{
  await screen.findByText('Повторный договор');
  expect(global.fetch.mock.calls[2][0]).toBe(global.fetch.mock.calls[0][0]);
 });
+
+test('category filters the full archive and survives related navigation',async()=>{
+ const wrap=(items,hasMore=false)=>({ok:true,json:async()=>({companyId:1,items,hasMore,nextOffset:30})});
+ const invoice={id:'invoice:161',source:'invoice',sourceId:161,companyId:1,title:'Счёт В-1',attachments:[],contractId:9};
+ const contract={id:'contract:9',source:'contract',sourceId:9,companyId:1,title:'Договор 362',attachments:[]};
+ global.fetch=jest.fn().mockResolvedValueOnce(wrap([])).mockResolvedValueOnce(wrap([invoice],true))
+  .mockResolvedValueOnce(wrap([invoice])).mockResolvedValueOnce(wrap([contract])).mockResolvedValueOnce(wrap([invoice]));
+ render(<Archive {...props}/>);
+ await screen.findByText('Документы не найдены.');
+ fireEvent.change(screen.getByLabelText('Вид документа'),{target:{value:'invoice'}});
+ await screen.findByText('Счёт В-1');
+ fireEvent.click(screen.getByText('Далее'));
+ await waitFor(()=>expect(global.fetch).toHaveBeenCalledTimes(3));
+ await screen.findByText('Счёт В-1');
+ let params=new URLSearchParams(global.fetch.mock.calls[2][0].split('?')[1]);
+ expect(params.get('category')).toBe('invoice');expect(params.get('offset')).toBe('30');
+ fireEvent.click(screen.getByText('Показать договор'));
+ await screen.findByText('Договор 362');
+ expect(new URLSearchParams(global.fetch.mock.calls[3][0].split('?')[1]).has('category')).toBe(false);
+ fireEvent.click(screen.getByText('Вернуться к списку'));
+ await screen.findByText('Счёт В-1');
+ expect(global.fetch.mock.calls[4][0]).toBe(global.fetch.mock.calls[2][0]);
+ expect(screen.getByLabelText('Вид документа').value).toBe('invoice');
+});
+
+test('changing section or company clears category',async()=>{
+ global.fetch=jest.fn().mockImplementation((_url,options)=>Promise.resolve({ok:true,json:async()=>({companyId:Number(options.headers['X-Company-Id']),items:[],hasMore:false})}));
+ const view=render(<Archive {...props}/>);
+ await screen.findByText('Документы не найдены.');
+ fireEvent.change(screen.getByLabelText('Вид документа'),{target:{value:'invoice'}});
+ await waitFor(()=>expect(global.fetch).toHaveBeenCalledTimes(2));
+ fireEvent.click(screen.getByText('Моя компания'));
+ await waitFor(()=>expect(global.fetch).toHaveBeenCalledTimes(3));
+ expect(screen.getByLabelText('Вид документа').value).toBe('');
+ expect(screen.queryByRole('option',{name:'Счета',exact:true})).toBeNull();
+ fireEvent.change(screen.getByLabelText('Вид документа'),{target:{value:'company'}});
+ await waitFor(()=>expect(global.fetch).toHaveBeenCalledTimes(4));
+ view.rerender(<Archive {...props} companyId={2}/>);
+ await waitFor(()=>expect(global.fetch).toHaveBeenCalledTimes(5));
+ expect(screen.getByLabelText('Вид документа').value).toBe('');
+ expect(new URLSearchParams(global.fetch.mock.calls[4][0].split('?')[1]).has('category')).toBe(false);
+});
+
+test('rejects rows from a different category',async()=>{
+ global.fetch=jest.fn().mockResolvedValue(response(1,'Устав компании'));
+ render(<Archive {...props}/>);
+ await screen.findByText('Устав компании');
+ fireEvent.change(screen.getByLabelText('Вид документа'),{target:{value:'invoice'}});
+ await screen.findByRole('alert');
+ expect(screen.queryByText('Устав компании')).toBeNull();
+});

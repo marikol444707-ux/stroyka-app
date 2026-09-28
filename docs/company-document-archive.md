@@ -30,6 +30,12 @@ Parameters: section all|company|supplier|customer; literal search q (max 200);
 limit 1–100 (default 50); offset 0–100000. Sort: created_at DESC NULLS LAST, source,
 id DESC. Offset pages may shift with concurrent inserts; this is not an export API.
 
+Optional category filters one source family before pagination (same allowlist as
+source). It must match the selected section and cannot be combined with exact
+record or contract-invoice navigation. UI labels distinguish supply contracts,
+quotations, invoices, shipments and warehouse waybills; returning from a linked
+record preserves category/search/page. Company or section switch clears category.
+
 Optional source and recordId select one exact record; both are required together,
 source is allowlisted and ID is bounded. Company/role and file checks still apply.
 The UI preserves the prior search/section/page when returning from a related record.
