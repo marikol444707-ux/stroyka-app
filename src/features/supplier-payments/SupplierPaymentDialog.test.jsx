@@ -50,7 +50,7 @@ test.each([
 test('canonical scope, labelled exact-money fields, and keyboard close', () => {
   render(<SupplierPaymentDialog {...props} />);
   expect(screen.getByText(/счёт #9/)).toBeInTheDocument();
-  expect(screen.getByText(/накладная #7/)).toBeInTheDocument();
+  expect(screen.getByText(/накладная № 7/)).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText('Сумма, ₽'), { target: { value: '10,01' } });
   expect(state.updateDraft).toHaveBeenCalledWith({ amount: '10,01' });
   expect(screen.getByLabelText('Дата оплаты')).toHaveAttribute('type', 'date');

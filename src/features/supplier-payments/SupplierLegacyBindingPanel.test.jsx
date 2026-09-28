@@ -12,33 +12,33 @@ beforeEach(()=>{process.env.REACT_APP_SUPPLIER_LEGACY_CONTRACT_BINDING_ENABLED='
 afterEach(()=>delete process.env.REACT_APP_SUPPLIER_LEGACY_CONTRACT_BINDING_ENABLED);
 test('missing reviewed contract explains prerequisite without write action',async()=>{
   paymentRequest.mockResolvedValue({...context,contract:null});render(<SupplierLegacyBindingPanel {...props}/>);
-  fireEvent.click(screen.getByText('Проверить договор для привязки'));
-  expect(await screen.findByText(/Проверенной версии договора пока нет/)).toBeTruthy();
-  expect(screen.queryByText('Привязать договор к счёту')).toBeNull();
+  fireEvent.click(screen.getByText('Выбрать договор'));
+  expect(await screen.findByText(/Сначала добавьте договор/)).toBeTruthy();
+  expect(screen.queryByText('Подтвердить договор')).toBeNull();
 });
 test('explicit confirmation and reason are required; successful response clears saved request',async()=>{
   paymentRequest.mockResolvedValueOnce(context).mockImplementationOnce(async(api,company,path,{body})=>({
     invoiceId:161,companyId:1,requestId:body.requestId,contractVersionId:8,bindingStatus:'bound'}));
   const success=jest.fn();render(<SupplierLegacyBindingPanel {...props} onSuccess={success}/>);
-  fireEvent.click(screen.getByText('Проверить договор для привязки'));await screen.findByText(/Договор №/);
-  expect(screen.getByText('Привязать договор к счёту').disabled).toBe(true);
-  fireEvent.change(screen.getByLabelText('Основание привязки'),{target:{value:'Проверено'}});
-  fireEvent.click(screen.getByLabelText('Счёт и выбранная версия договора проверены'));
-  fireEvent.click(screen.getByText('Привязать договор к счёту'));
+  fireEvent.click(screen.getByText('Выбрать договор'));await screen.findByText(/Договор №/);
+  expect(screen.getByText('Подтвердить договор').disabled).toBe(true);
+  fireEvent.change(screen.getByLabelText('Комментарий'),{target:{value:'Проверено'}});
+  fireEvent.click(screen.getByLabelText('Договор подходит к этому счёту'));
+  fireEvent.click(screen.getByText('Подтвердить договор'));
   await waitFor(()=>expect(success).toHaveBeenCalledTimes(1));expect(localStorage.length).toBe(0);
 });
 test('lost response survives remount and repeats the same request id',async()=>{
   paymentRequest.mockResolvedValueOnce(context).mockRejectedValueOnce(new TypeError('Сеть'));
   const view=render(<SupplierLegacyBindingPanel {...props}/>);
-  fireEvent.click(screen.getByText('Проверить договор для привязки'));await screen.findByText(/Договор №/);
-  fireEvent.change(screen.getByLabelText('Основание привязки'),{target:{value:'Проверено'}});
-  fireEvent.click(screen.getByLabelText('Счёт и выбранная версия договора проверены'));
-  fireEvent.click(screen.getByText('Привязать договор к счёту'));await screen.findByRole('alert');
+  fireEvent.click(screen.getByText('Выбрать договор'));await screen.findByText(/Договор №/);
+  fireEvent.change(screen.getByLabelText('Комментарий'),{target:{value:'Проверено'}});
+  fireEvent.click(screen.getByLabelText('Договор подходит к этому счёту'));
+  fireEvent.click(screen.getByText('Подтвердить договор'));await screen.findByRole('alert');
   const body=paymentRequest.mock.calls[1][3].body;view.unmount();
   paymentRequest.mockResolvedValueOnce({invoiceId:161,companyId:1,requestId:body.requestId,contractVersionId:8,bindingStatus:'bound'});
   render(<SupplierLegacyBindingPanel {...props}/>);
-  fireEvent.click(screen.getByLabelText('Счёт и выбранная версия договора проверены'));
-  fireEvent.click(screen.getByText('Повторить сохранённую привязку'));
+  fireEvent.click(screen.getByLabelText('Договор подходит к этому счёту'));
+  fireEvent.click(screen.getByText('Повторить подтверждение'));
   await waitFor(()=>expect(paymentRequest).toHaveBeenCalledTimes(3));
   expect(paymentRequest.mock.calls[2][3].body).toEqual(body);
 });
@@ -51,9 +51,9 @@ test('scoped non-save rejection releases the intent for a fresh review',async()=
     throw Object.assign(new Error('Сумма изменилась'),{status:409,detail:{code:'legacy_binding_not_saved',companyId:1,invoiceId:161,requestId:body.requestId}});
   });
   render(<SupplierLegacyBindingPanel {...props}/>);
-  fireEvent.click(screen.getByText('Проверить договор для привязки'));await screen.findByText(/Договор №/);
-  fireEvent.change(screen.getByLabelText('Основание привязки'),{target:{value:'Проверено'}});
-  fireEvent.click(screen.getByLabelText('Счёт и выбранная версия договора проверены'));
-  fireEvent.click(screen.getByText('Привязать договор к счёту'));
+  fireEvent.click(screen.getByText('Выбрать договор'));await screen.findByText(/Договор №/);
+  fireEvent.change(screen.getByLabelText('Комментарий'),{target:{value:'Проверено'}});
+  fireEvent.click(screen.getByLabelText('Договор подходит к этому счёту'));
+  fireEvent.click(screen.getByText('Подтвердить договор'));
   expect(await screen.findByText(/Привязка не сохранена/)).toBeTruthy();expect(localStorage.length).toBe(0);
 });

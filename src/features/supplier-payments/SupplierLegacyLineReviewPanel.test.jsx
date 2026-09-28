@@ -11,7 +11,7 @@ beforeEach(()=>{process.env.REACT_APP_SUPPLIER_LEGACY_LINE_REVIEW_ENABLED='true'
 afterEach(()=>{delete process.env.REACT_APP_SUPPLIER_LEGACY_LINE_REVIEW_ENABLED;});
 test('requires original, explicit row VAT and human confirmation before saving',async()=>{
  const onSuccess=jest.fn();render(<Panel {...props} onSuccess={onSuccess}/>);
- fireEvent.click(screen.getByText('Сверить состав с оригиналом'));
+ fireEvent.click(screen.getByText('Проверить позиции'));
  const vat=await screen.findByLabelText('НДС строки 1, ₽');expect(vat.value).toBe('');
  expect(screen.getByText('Подтвердить состав счёта').disabled).toBe(true);
  fireEvent.change(screen.getByLabelText('Оригинал счёта'),{target:{files:[new File(['test'],'original.txt')]}});

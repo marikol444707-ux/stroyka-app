@@ -34,11 +34,11 @@ function Review({API,userId,companyId,invoiceId,disabled,onBlocked,onSuccess}){
   contractVersionId:draft.contractVersionId,sourceFileId:file.fileId,expectedAmount:draft.amount,vatAmount:draft.vatAmount,
   reason:reason.trim(),confirmed:true,lines:draft.lines.map(({lineNo,...row},index)=>({...row,vatAmount:tax(taxes[index])}))}));};
  return <section aria-label="Сверка состава старого счёта">
-  <h3>Состав старого счёта</h3>
-  <p>Сверьте позиции с оригиналом до утверждения, оплаты и отгрузки. Сумма счёта и история оплат не изменяются.</p>
+  <h3>Позиции счёта</h3>
+  <p>Проверьте товары, количество, цены и НДС по счёту поставщика.</p>
   {error && <p role="alert">{error}</p>}
   {done && <p role="status">Состав и НДС подтверждены.</p>}
-  {!draft && !pending && !done && <button type="button" disabled={blocked} onClick={load}>Сверить состав с оригиналом</button>}
+  {!draft && !pending && !done && <button type="button" disabled={blocked} onClick={load}>Проверить позиции</button>}
   {pending ? <><p>Сохранён запрос сверки. Повтор проверит его результат без создания второй записи.</p>
     <button type="button" disabled={blocked} onClick={()=>act(()=>finish(client.pending()))}>Проверить и повторить сверку</button></>
    : draft && <fieldset disabled={blocked}>

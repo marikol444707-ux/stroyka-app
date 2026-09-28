@@ -56,3 +56,41 @@
 
 .supplier-payment-dialog .supplier-original-review-check { display: flex; align-items: flex-start; gap: 10px; }
 .supplier-payment-dialog .supplier-original-review-check input { flex: 0 0 auto; width: 20px; min-height: 20px; margin: 0; }
+
+/* Use the application's theme tokens and a consistent size inside embedded pages. */
+.supplier-payment-dialog.supplier-payment-dialog {
+  --bg-card: var(--c-bg-white, #fff);
+  --border-color: var(--c-border, #e2e8f0);
+  --text-primary: var(--c-text, #182536);
+  width: min(100%, 760px);
+  padding: clamp(16px, 3vw, 28px);
+  border-radius: 20px;
+  font: 14px/1.5 system-ui, -apple-system, sans-serif;
+  box-shadow: 0 24px 80px rgb(0 0 0 / 25%);
+}
+.supplier-payment-dialog.supplier-payment-dialog > header { margin-bottom: 8px; }
+.supplier-payment-dialog.supplier-payment-dialog h2 { font-size: 22px; letter-spacing: -.4px; }
+.supplier-payment-dialog.supplier-payment-dialog h3 { margin: 0 0 8px; font-size: 17px; }
+.supplier-payment-dialog.supplier-payment-dialog p { margin: 8px 0 14px; }
+.supplier-payment-dialog.supplier-payment-dialog > section,
+.supplier-payment-dialog.supplier-payment-dialog > form {
+  padding: 20px; margin-top: 16px; border: 1px solid var(--c-border, #e2e8f0);
+  border-radius: 14px; background: var(--c-bg, #f8fafc);
+}
+.supplier-payment-dialog.supplier-payment-dialog > [role="alert"] {
+  padding: 14px 16px; border-radius: 12px;
+  border: 1px solid var(--c-border, #e2e8f0);
+  background: var(--c-bg, #f8fafc); color: var(--c-text, #182536);
+}
+.supplier-payment-dialog.supplier-payment-dialog button { border-radius: 9px; font-size: 14px; max-width: 100%; margin: 4px 6px 4px 0; }
+.supplier-payment-dialog.supplier-payment-dialog label { font-size: 13px; margin: 12px 0; }
+.supplier-payment-dialog.supplier-payment-dialog input,
+.supplier-payment-dialog.supplier-payment-dialog select,
+.supplier-payment-dialog.supplier-payment-dialog textarea { font-size: 16px; border-radius: 9px; }
+.supplier-payment-dialog.supplier-payment-dialog .payment-primary { background: #c2410c; color: white; border-color: #c2410c; font-weight: 650; }
+@media (max-width: 520px) {
+  .supplier-payment-dialog-backdrop { padding: 8px; }
+  .supplier-payment-dialog.supplier-payment-dialog { max-height: calc(100dvh - 16px); border-radius: 16px; }
+  .supplier-payment-dialog.supplier-payment-dialog > section,
+  .supplier-payment-dialog.supplier-payment-dialog > form { padding: 14px; }
+}

@@ -68,3 +68,8 @@
 - Verification: 8 focused Python tests; 13 real isolated PostgreSQL tests including second-offer save with unchanged file count; 18 UI/client tests; production build; local real-browser fixture at 390px without overflow, selection does not confirm/save automatically.
 - Remaining D3: canonical contract/version registry and machine-readable reuse lineage, project-scoped eligibility, deal-specific schedule handling. No claim that whole document plan is complete.
 - Installed `92de983efaba` on production. Server tests 8/8; 251 frontend files matched; financial/stock/document hashes unchanged. Authenticated browser opened VIST offer #71 review context and form with zero errors/no alerts; no eligible saved contracts currently, so positive reuse remains isolated-test evidence. Closed form without mutation. All four release gates recorded; finalizer removed stage/backup and retained receipt. Health/DB OK after cleanup.
+
+## 2026-09-29 — payment window readability
+- Replaced technical contract-binding language with choose/confirm contract, shortened blocked-payment explanation, placed contract before invoice lines, omitted duplicate same-company payer.
+- Payment dialog now uses c-* application theme tokens, fixed readable typography, compact cards, clear confirmation action and responsive spacing. Removed redundant choose button after opening a contract; secondary actions follow confirmation.
+- 27 existing UI tests passed. Local browser at 390px: no horizontal overflow, same-company payer omitted. No accounting rules or API authorization changed; backend change is error wording only.

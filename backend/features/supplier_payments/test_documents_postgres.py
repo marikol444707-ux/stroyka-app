@@ -121,7 +121,7 @@ class DocumentTests(unittest.TestCase):
         with self.assertRaises(HTTPException) as error:
             self.resolve()
         self.assertEqual(error.exception.status_code, 409)
-        self.assertIn('не связан с проверенной версией договора', error.exception.detail)
+        self.assertIn('выберите и подтвердите договор', error.exception.detail)
 
     def test_bound_invoice_uses_exact_contract(self):
         result = self.resolve(document_id=type(self).invoice_id)

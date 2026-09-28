@@ -47,11 +47,11 @@ function PaymentDialogContent(props) {
     <section className="supplier-payment-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}
       ref={root} onKeyDown={keyDown}>
       <header><h2 id={titleId}>Оплата поставщику</h2><button type="button" ref={close} onClick={props.onClose}>Закрыть</button></header>
-      <p>Компания #{props.companyId} · {documentLabel(props.documentKind)} #{props.documentId}</p>
+      <p>{documentLabel(props.documentKind)} № {props.documentId}</p>
       {state.loading && <p role="status">Загрузка документа и истории…</p>}
       {state.error && <p role="alert">{state.error}</p>}
       {state.storageError && <p role="alert">{state.storageError} Отправка заблокирована.</p>}
-      {(state.error || state.storageError) && <button type="button" disabled={state.busy || state.loading} onClick={state.reload}>Обновить документ и историю</button>}
+      {(state.error || state.storageError) && <button type="button" disabled={state.busy || state.loading} onClick={state.reload}>Обновить</button>}
       {state.snapshot && <div className="supplier-payment-dialog-summary">
         <p>Документ оплаты: {documentLabel(state.snapshot.canonicalTarget.documentKind)} #{state.snapshot.canonicalTarget.documentId}</p>
         <p>Поставщик #{state.snapshot.scope?.supplierId} · {state.snapshot.scope?.projectName || 'Без объекта'} · {state.snapshot.scope?.workPackage || 'Без пакета'}</p>
@@ -60,14 +60,14 @@ function PaymentDialogContent(props) {
         {Number(state.snapshot.creditAmount)>0 && <p>Исходная сумма: {money(state.snapshot.amount)} · Уменьшение: {money(state.snapshot.creditAmount)} · К расчёту: {money(state.snapshot.effectiveAmount)}</p>}
         {Number(state.snapshot.overpaidAmount)>0 && <p>Переплата поставщику: <strong>{money(state.snapshot.overpaidAmount)}</strong>. Возврат денег фиксируется после фактического получения.</p>}
       </div>}
-      {props.documentKind === 'invoice' && <SupplierLegacyLineReviewPanel API={props.API} userId={props.userId}
-        companyId={props.companyId} invoiceId={props.documentId}
-        disabled={bindingBlocked || allocationBlocked || openingBlocked || refundBlocked || state.busy || state.loading || !!state.pending || !!state.reversal || !!state.storageError}
-        onBlocked={setLineReviewBlocked} onSuccess={() => { state.reload(); props.onSuccess?.(); }} />}
       {props.documentKind === 'invoice' && <SupplierLegacyBindingPanel API={props.API} userId={props.userId}
         companyId={props.companyId} invoiceId={props.documentId}
         disabled={lineReviewBlocked || allocationBlocked || refundBlocked || openingBlocked || state.busy || state.loading || !!state.pending || !!state.reversal || !!state.storageError}
         onBlocked={setBindingBlocked} onSuccess={() => { state.reload(); props.onSuccess?.(); }} />}
+      {props.documentKind === 'invoice' && <SupplierLegacyLineReviewPanel API={props.API} userId={props.userId}
+        companyId={props.companyId} invoiceId={props.documentId}
+        disabled={bindingBlocked || allocationBlocked || openingBlocked || refundBlocked || state.busy || state.loading || !!state.pending || !!state.reversal || !!state.storageError}
+        onBlocked={setLineReviewBlocked} onSuccess={() => { state.reload(); props.onSuccess?.(); }} />}
       {props.documentKind === 'invoice' && <SupplierOpeningPanel API={props.API} userId={props.userId}
         companyId={props.companyId} invoiceId={props.documentId}
         registered={state.snapshot?.openingPaidAmount != null}
@@ -137,7 +137,7 @@ function PaymentDialogContent(props) {
             onChange={event => state.updateDraft({ reason: event.target.value })} /></label>
           <p>{state.draft.kind==='credit' ? 'Укажите основание и номер корректирующего документа. Уменьшается обязательство; деньги и склад не меняются.'
             : state.draft.kind==='refund' ? 'Запишите только фактически полученный возврат, с датой и основанием. Стоимость счёта не меняется.'
-            : 'Можно оплатить частями или раньше срока. График не ограничивает сумму платежа; остаток долга проверяется сервером.'}</p>
+            : 'Можно указать всю сумму или оплатить часть.'}</p>
           <button type="submit">{state.busy ? 'Запись…' : state.draft.kind==='credit' ? 'Записать корректировку' : state.draft.kind==='refund' ? 'Записать возврат' : 'Записать платёж'}</button>
         </fieldset>
       </form>}
