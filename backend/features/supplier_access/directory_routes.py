@@ -503,37 +503,71 @@ def register_supplier_directory_module(app, deps):
         elif role not in ("директор", "зам_директора", "снабженец", "кладовщик", "бухгалтер"):
             cur.close(); conn.close()
             raise HTTPException(status_code=403, detail="Недостаточно прав")
-        # Расширенный апдейт реквизитов: все поля опциональные
+        # Расширенный апдейт реквизитов: все поля опциональные.
+        # Distinguish between absent keys (no change) and present keys (explicit set/clear).
+        cur.execute("SELECT * FROM suppliers WHERE id=%s", (id,))
+        existing = cur.fetchone() or {}
+
+        def pick(key, alt_keys=(), snake=None):
+            # If the client provided the key (camel or snake), use that value (even if None/empty)
+            # Otherwise preserve existing value.
+            if key in data:
+                return data.get(key)
+            for k in alt_keys:
+                if k in data:
+                    return data.get(k)
+            # fallback to snake (DB column) from existing row
+            if snake:
+                return existing.get(snake)
+            return existing.get(key)
+
+        inn = pick("inn")
+        kpp = pick("kpp")
+        ogrn = pick("ogrn")
+        legal_address = pick("legalAddress", ("address",), snake="legal_address")
+        actual_address = pick("actualAddress", (), snake="actual_address")
+        bank = pick("bank")
+        bik = pick("bik")
+        account = pick("account")
+        kor_account = pick("korAccount", (), snake="kor_account")
+        director_name = pick("directorName", (), snake="director_name")
+        director_position = pick("directorPosition", (), snake="director_position")
+        contract_url = pick("contractUrl", (), snake="contract_url")
+        contract_number = pick("contractNumber", (), snake="contract_number")
+        contract_date = pick("contractDate", (), snake="contract_date")
+        license_url = pick("licenseUrl", (), snake="license_url")
+        price_url = pick("priceUrl", (), snake="price_url")
+        website = pick("website")
+        notes = pick("notes")
+        phone = pick("phone")
+        email = pick("email")
+        category = pick("category")
+        specialization = pick("specialization")
+
         cur.execute("""UPDATE suppliers SET
-            inn=COALESCE(%s, inn), kpp=COALESCE(%s, kpp), ogrn=COALESCE(%s, ogrn),
-            legal_address=COALESCE(%s, legal_address),
-            actual_address=COALESCE(%s, actual_address),
-            bank=COALESCE(%s, bank), bik=COALESCE(%s, bik),
-            account=COALESCE(%s, account), kor_account=COALESCE(%s, kor_account),
-            director_name=COALESCE(%s, director_name),
-            director_position=COALESCE(%s, director_position),
-            contract_url=COALESCE(%s, contract_url),
-            contract_number=COALESCE(%s, contract_number),
-            contract_date=COALESCE(%s, contract_date),
-            license_url=COALESCE(%s, license_url),
-            price_url=COALESCE(%s, price_url),
-            website=COALESCE(%s, website),
-            notes=COALESCE(%s, notes),
-            phone=COALESCE(%s, phone), email=COALESCE(%s, email),
-            category=COALESCE(%s, category), specialization=COALESCE(%s, specialization)
+            inn=%s, kpp=%s, ogrn=%s,
+            legal_address=%s, actual_address=%s,
+            bank=%s, bik=%s,
+            account=%s, kor_account=%s,
+            director_name=%s, director_position=%s,
+            contract_url=%s, contract_number=%s, contract_date=%s,
+            license_url=%s, price_url=%s, website=%s,
+            notes=%s, phone=%s, email=%s,
+            category=%s, specialization=%s
             WHERE id=%s""",
-            (data.get("inn"), data.get("kpp"), data.get("ogrn"),
-             data.get("legalAddress") or data.get("address"),
-             data.get("actualAddress"),
-             data.get("bank"), data.get("bik"),
-             data.get("account"), data.get("korAccount"),
-             data.get("directorName"), data.get("directorPosition"),
-             data.get("contractUrl"), data.get("contractNumber"), data.get("contractDate") or None,
-             data.get("licenseUrl"), data.get("priceUrl"),
-             data.get("website"), data.get("notes"),
-             data.get("phone"), data.get("email"),
-             data.get("category"), data.get("specialization"),
-             id))
+            (
+                inn, kpp, ogrn,
+                legal_address, actual_address,
+                bank, bik,
+                account, kor_account,
+                director_name, director_position,
+                contract_url, contract_number, contract_date or None,
+                license_url, price_url, website,
+                notes, phone, email,
+                category, specialization,
+                id,
+            ),
+        )
         conn.commit()
         cur.close(); conn.close()
         return {"ok": True}
