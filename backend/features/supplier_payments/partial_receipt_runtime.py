@@ -8,7 +8,49 @@ def managed_receipts_enabled():
     return os.getenv('SUPPLIER_PARTIAL_RECEIPTS_ENABLED') == '1'
 
 
+def _register_unpaid_invoice(cur, company_id, invoice_id):
+    """Caller already authorized the shipment/receipt and holds its company lock.
+
+    Register only exact new invoice evidence; never import historical paid sums
+    or invent a payment. The caller commits or rolls back this baseline together
+    with the shipment/receipt. Cross-company payers require separate admission.
+    """
+    if os.getenv('SUPPLIER_UNPAID_RECEIPTS_ENABLED') != '1':
+        return None
+    if cur.connection.autocommit:
+        raise RuntimeError('Unpaid invoice registration requires a caller-owned transaction')
+    cur.execute('SELECT public.supplier_allocation_lock(%s)', (company_id,))
+    cur.execute('''SELECT 1 FROM supplier_invoice_line_specs
+        WHERE company_id=%s AND invoice_id=%s''', (company_id, invoice_id))
+    if not cur.fetchone():
+        return None
+    cur.execute("SELECT id FROM supplier_payment_documents WHERE company_id=%s AND document_kind='invoice' AND document_id=%s",
+                (company_id, invoice_id))
+    existing = cur.fetchone()
+    if existing:
+        return existing
+    if any(os.getenv(flag) != '1' for flag in
+           ('OWNED_DELIVERY_SOURCES_ENABLED', 'OWNED_DELIVERY_QUALITY_ENABLED')):
+        raise HTTPException(503, 'Для неоплаченной поставки включите принадлежность и журнал качества')
+    from .contract_context import load_invoice_contract
+    from .documents import _snapshot
+    from .engine import _baseline
+    context = load_invoice_contract(cur, invoice_id, company_id)
+    invoice = context['invoice']
+    if context['payerCompanyId'] != company_id:
+        raise HTTPException(409, 'Неоплаченный счёт с другим плательщиком требует отдельной сверки')
+    if invoice['status'] != 'Утверждён' or (invoice.get('paid_amount') or 0) != 0:
+        raise HTTPException(409, 'Для регистрации неоплаченной поставки нужен утверждённый счёт без оплат')
+    if invoice.get('warehouse_invoice_id') is not None:
+        raise HTTPException(409, 'У счёта уже есть накладная; нужна сверка')
+    cur.execute('SELECT id FROM warehouse_invoices WHERE supplier_invoice_id=%s LIMIT 1', (invoice_id,))
+    if cur.fetchone():
+        raise HTTPException(409, 'У счёта уже есть накладная; нужна сверка')
+    return _baseline(cur, _snapshot('invoice', invoice, context['payerCompanyId'], cur=cur), company_id)
+
+
 def supports_managed_receipts(cur, company_id, invoice_id):
+    """Authorized writer probe; may register an unpaid baseline in its transaction."""
     if not managed_receipts_enabled() or not invoice_id:
         return False
     cur.execute("SELECT to_regclass('public.supplier_receipt_line_proofs') IS NOT NULL AND to_regclass('public.supplier_receipt_exceptions') IS NOT NULL AS ready")
@@ -19,6 +61,8 @@ def supports_managed_receipts(cur, company_id, invoice_id):
         WHERE d.company_id=%s AND d.document_kind='invoice' AND d.document_id=%s''',
         (company_id, invoice_id))
     root = cur.fetchone()
+    if not root:
+        root = _register_unpaid_invoice(cur, company_id, invoice_id)
     if not root:
         return False
     if any(os.getenv(flag) != '1' for flag in ('OWNED_DELIVERY_SOURCES_ENABLED','OWNED_DELIVERY_QUALITY_ENABLED')):
