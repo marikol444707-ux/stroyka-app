@@ -140,3 +140,16 @@ class ContractExtractionTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class ScannedRequisitesTests(unittest.TestCase):
+    def test_two_column_ocr_uses_exact_unique_inn_and_preserves_lines(self):
+        text='12. РЕКВИЗИТЫ И ПОДПИСИ СТОРОН\nПОСТАВЩИК ПОКУПАТЕЛЬ\nИНП/KIL 7709876543/770901001\nр/с 40702810400000000001\nБИК 044525411\nПоставщик\nИИП/КИИ 7701234567/770101001\nр/с 40702810400000000002\nБИК 044525104'
+        result=extract_contract_parties(text,{'supplier':'7709876543','buyer':'7701234567','payer':'7701234567'})
+        self.assertEqual(result['parties']['supplier']['fields']['rs']['value'],'40702810400000000001')
+        self.assertEqual(result['parties']['buyer']['fields']['rs']['value'],'40702810400000000002')
+        self.assertEqual(result['parties']['buyer']['fields']['rs']['line'],8)
+        self.assertEqual(result['parties']['payer']['status'],'missing')
+    def test_unknown_inn_stops_known_party_bank_block(self):
+        text='РЕКВИЗИТЫ СТОРОН\nПОСТАВЩИК ПОКУПАТЕЛЬ\nИНН/КПП 7709876543/770901001\nИНН/КПП 7709999999/770901001\nр/с 40702810400000000099'
+        result=extract_contract_parties(text,{'supplier':'7709876543','buyer':'7701234567','payer':'7701234567'})
+        self.assertNotIn('rs',result['parties']['supplier']['fields'])

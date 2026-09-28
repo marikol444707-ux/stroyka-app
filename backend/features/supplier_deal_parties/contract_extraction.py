@@ -103,5 +103,47 @@ def extract_contract_parties(text, expected_inns):
                 'status': 'ambiguous' if side_blocks else 'missing', 'fields': {},
                 'warnings': ['multiple_party_blocks' if side_blocks else 'party_block_not_found'],
             }
+    _scanned_requisites(text, expected_inns, parties)
     return {'source': 'labelled_text', 'parties': parties, 'warnings': warnings,
             'reviewConfirmed': False, 'appliedToAccounting': False}
+
+
+def _scanned_requisites(text, expected_inns, parties):
+    """Conservative fallback for OCR blocks in an explicit requisites section.
+
+    Never repairs INN/account digits, infers a payer, or crosses any INN/KPP row.
+    Only a unique exact selected identity and unambiguous numeric fields qualify.
+    """
+    lines=text.splitlines()
+    starts=[i for i,line in enumerate(lines) if re.search(r'реквизит\w*.*сторон',line,re.I)]
+    if not starts:return
+    start=starts[-1]
+    section=lines[start:start+200]
+    headings=' '.join(section[:5]).lower()
+    if not ('поставщик' in headings and 'покупатель' in headings):return
+    identity=re.compile(r'(?<!\d)(\d{10}|\d{12})\s*/\s*(\d{9})(?!\d)')
+    boundaries=[]
+    for index,line in enumerate(section):
+        found=list(identity.finditer(line))
+        if found:boundaries.append((index,found))
+    for side in ('supplier','buyer'):
+        if parties[side]['status']=='matched':continue
+        expected=expected_inns[side]
+        other='buyer' if side=='supplier' else 'supplier'
+        if expected==expected_inns[other]:continue
+        matches=[(position,index,hits[0]) for position,(index,hits) in enumerate(boundaries)
+                 if len(hits)==1 and hits[0][1]==expected]
+        if len(matches)!=1:continue
+        position,index,match=matches[0]
+        end=boundaries[position+1][0] if position+1<len(boundaries) else len(section)
+        def item(value,offset):return {'value':value,'line':start+offset+1,'quote':section[offset]}
+        fields={'inn':item(match[1],index),'kpp':item(match[2],index)}
+        patterns={'rs':r'^[рp]\s*/\s*[сc]\s*:?\s*(\d{20})\s*$',
+                  'ks':r'^[кk]\s*/\s*[сc]\s*:?\s*(\d{20})\s*$',
+                  'bik':r'^БИК\s*:?\s*(\d{9})\s*$'}
+        for field,pattern in patterns.items():
+            found=[(i,re.fullmatch(pattern,section[i].strip(),re.I)) for i in range(index+1,end)]
+            found=[(i,m) for i,m in found if m]
+            if len({m[1] for _,m in found})==1:
+                i,m=found[0];fields[field]=item(m[1],i)
+        parties[side]={'status':'matched','fields':fields,'warnings':['ocr_requisites_require_review']}
