@@ -1218,12 +1218,13 @@ def register_crm_module(app, deps):
                 if existing:
                     skipped.append(existing.get("id"))
                     continue
+                # Persist immutable project_id/company_id derived from owner context
                 cur.execute("""
                     INSERT INTO project_documents (
-                        project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by
-                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id
+                        project_id,company_id,project_name,side,doc_type,number,doc_date,counterparty,sign_status,scan_url,amount,notes,uploaded_by
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id
                 """, (
-                    project_name, side, doc_type, doc.get("number") or "",
+                    owner["projectId"], owner["companyId"], project_name, side, doc_type, doc.get("number") or "",
                     doc.get("doc_date") or None, lead.get("name") or "",
                     doc.get("status") or "Загружен", file_url, lead.get("budget") or 0,
                     ("Передано из CRM-заявки #" + str(lead_id) + ". " + (doc.get("notes") or ""))[:4000],
