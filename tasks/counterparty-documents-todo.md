@@ -108,4 +108,5 @@
 ## 2026-09-29 — original contract navigation
 - Reused versions link to the original reviewed version only through validated same-company source ID, offer, version, snapshot hash and original file. No inference or old data rewriting.
 - Archive button “Исходный договор” uses exact scoped lookup and preserves list filters on return.
-- 18 route tests passed including real isolated PostgreSQL lineage rejection cases; 8 UI tests passed. Browser/build/deployment verification pending.
+- 18 route tests passed including real isolated PostgreSQL lineage rejection cases; 8 UI tests passed. Local browser fixture verified original version and return.
+- Deployed `df168115e06a`. Authenticated production archive contract362 -> quotation71 -> return preserved search362; original HTTP200, zero JS errors. Existing contract has no reuse source; positive lineage remains local PostgreSQL/browser evidence. 17 production tests passed (isolated PG test skipped), 251 assets matched, data hashes unchanged, health/DB OK. Four gates recorded; staging/backup removed and receipt retained.
