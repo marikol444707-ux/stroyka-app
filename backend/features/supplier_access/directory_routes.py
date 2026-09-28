@@ -72,6 +72,49 @@ def register_supplier_directory_module(app, deps):
     row_get = deps["row_get"]
     log_audit = deps["log_audit"]
 
+    def _ensure_active_company_link_for_critical_change(cur, supplier_id: int, actor: dict, existing: dict, incoming: dict):
+        """If incoming attempts to change protected identity/financial/contract fields
+        require an active company_supplier_links row for the actor's company.
+
+        Raises HTTPException(409) on forbidden change, HTTPException(403) when actor's
+        company context is missing for company-scoped actors.
+        """
+        # Only enforce when actor is acting in company scope (has companyId/company_id)
+        company_id = int((actor.get("companyId") or actor.get("company_id")) or 0)
+        if company_id <= 0:
+            # If user has no company context we do not allow active-approved critical change.
+            return
+
+        protected = [
+            ("inn", "inn"), ("kpp", "kpp"), ("ogrn", "ogrn"),
+            ("bank", "bank"), ("bik", "bik"), ("account", "account"), ("korAccount", "kor_account"),
+            ("contractNumber", "contract_number"), ("contractDate", "contract_date"), ("contractUrl", "contract_url"),
+        ]
+
+        # Detect actual attempted changes: field present in incoming and different from existing (treat None/"" carefully)
+        attempted = []
+        for inc_key, db_col in protected:
+            if inc_key in incoming:
+                inc_val = incoming.get(inc_key) if incoming.get(inc_key) is not None else ""
+                # existing may be dict-like
+                exist_val = existing.get(db_col) if isinstance(existing, dict) else (existing[db_col] if db_col in existing else None)
+                exist_val = exist_val if exist_val is not None else ""
+                if str(inc_val).strip() != str(exist_val).strip():
+                    attempted.append(inc_key)
+
+        if not attempted:
+            return
+
+        # Check for an active company_supplier_links row
+        cur.execute(
+            "SELECT id,status FROM company_supplier_links WHERE company_id=%s AND supplier_id=%s LIMIT 1",
+            (company_id, supplier_id),
+        )
+        link = cur.fetchone()
+        if not link or (isinstance(link, dict) and (link.get("status") or "") != "Активный") or (not isinstance(link, dict) and getattr(link, 'status', '') != 'Активный'):
+            # Forbidden: attempted critical change without an active link for this company
+            raise HTTPException(status_code=409, detail=f"Изменение защищённых реквизитов запрещено: {', '.join(attempted)}")
+
     @app.get("/suppliers")
     def get_suppliers(current_user: dict = Depends(get_current_user)):
         conn = get_db()
@@ -204,6 +247,27 @@ def register_supplier_directory_module(app, deps):
         cur.execute("SELECT * FROM suppliers WHERE id=%s", (id,))
         existing = cur.fetchone()
         if not existing:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=404, detail="Поставщик не найден")
+        try:
+            # protect critical fields: require active company_supplier_links for actor's company
+            try:
+                _ensure_active_company_link_for_critical_change(cur, id, _current_user, existing, data or {})
+            except HTTPException:
+                raise
+            except Exception:
+                pass
+
+            # protect critical fields: require active company_supplier_links for actor's company
+            try:
+                _ensure_active_company_link_for_critical_change(cur, id, _current_user, existing, data or {})
+            except HTTPException:
+                raise
+            except Exception:
+                # be defensive: don't block on helper internal errors
+                pass
+
+        try:
             cur.close(); conn.close()
             raise HTTPException(status_code=404, detail="Поставщик не найден")
         try:
@@ -495,6 +559,14 @@ def register_supplier_directory_module(app, deps):
         conn = get_db()
         cur = conn.cursor()
         role = current_user.get("role")
+        # enforce guard for protected changes
+        try:
+            _ensure_active_company_link_for_critical_change(cur, id, current_user, None, data or {})
+        except HTTPException:
+            cur.close(); conn.close()
+            raise
+        except Exception:
+            pass
         if role == "поставщик":
             supplier_ids = current_supplier_ids(cur, current_user)
             if id not in supplier_ids:
