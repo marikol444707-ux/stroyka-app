@@ -26,7 +26,7 @@ def ocr(path):
 
 def pdf(data,folder):
     from pypdf import PdfReader
-    reader=PdfReader(io.BytesIO(data),strict=True)
+    reader=PdfReader(io.BytesIO(data),strict=False)
     if reader.is_encrypted:raise Encrypted()
     if not 0<len(reader.pages)<=30:raise Limit()
     source=folder/'input.pdf';source.write_bytes(data);texts=[]

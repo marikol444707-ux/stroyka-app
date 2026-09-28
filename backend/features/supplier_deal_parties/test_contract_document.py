@@ -18,3 +18,11 @@ class ContractDocumentTests(unittest.TestCase):
     def test_disguised_and_unsupported_files_fail(self):
         for suffix in ('.jpg','.png','.doc','.docx','.exe'):
             with self.subTest(suffix=suffix),self.assertRaises(HTTPException):extract_document_text(b'not a document',suffix)
+
+    def test_scanner_pdf_duplicate_metadata_can_still_be_read(self):
+        import re
+        from .test_contract_pdf import synthetic_pdf
+        data=synthetic_pdf(['Договор тест'])
+        data,count=re.subn(rb'/Info\s+\d+\s+0\s+R',lambda m:m[0]+b' '+m[0],data,count=1)
+        self.assertEqual(count,1)
+        self.assertIn('Договор тест',extract_document_text(data,'.pdf'))
