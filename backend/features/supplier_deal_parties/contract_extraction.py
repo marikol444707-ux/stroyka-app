@@ -1,11 +1,10 @@
-"""Conservative text-only suggestions, not OCR, authorization or legal verification.
+"""Unconfirmed text/OCR suggestions, bound to server-selected party identities.
 
-Only contiguous, explicitly labelled requisites blocks are supported. Unknown
-lines end a block: guessing their relationship could attach another party's bank
-account. Callers must authorize the source and obtain expected INNs themselves.
-This module performs no I/O and is deliberately not wired to a public endpoint.
+Explicit labelled blocks and separated requisites columns preserve source quotes.
+This module performs no I/O, signature verification or accounting changes.
 """
 import re
+from .contract_columns import extract_columns
 
 
 SIDES = {'покупатель': 'buyer', 'плательщик': 'payer', 'поставщик': 'supplier'}
@@ -103,12 +102,13 @@ def extract_contract_parties(text, expected_inns):
                 'status': 'ambiguous' if side_blocks else 'missing', 'fields': {},
                 'warnings': ['multiple_party_blocks' if side_blocks else 'party_block_not_found'],
             }
-    _scanned_requisites(text, expected_inns, parties)
+    handled = extract_columns(text, expected_inns, parties)
+    _scanned_requisites(text, expected_inns, parties, handled)
     return {'source': 'labelled_text', 'parties': parties, 'warnings': warnings,
             'reviewConfirmed': False, 'appliedToAccounting': False}
 
 
-def _scanned_requisites(text, expected_inns, parties):
+def _scanned_requisites(text, expected_inns, parties, handled=()):
     """Conservative fallback for OCR blocks in an explicit requisites section.
 
     Never repairs INN/account digits, infers a payer, or crosses any INN/KPP row.
@@ -127,7 +127,7 @@ def _scanned_requisites(text, expected_inns, parties):
         found=list(identity.finditer(line))
         if found:boundaries.append((index,found))
     for side in ('supplier','buyer'):
-        if parties[side]['status']=='matched':continue
+        if side in handled or parties[side]['status']=='matched':continue
         expected=expected_inns[side]
         other='buyer' if side=='supplier' else 'supplier'
         if expected==expected_inns[other]:continue

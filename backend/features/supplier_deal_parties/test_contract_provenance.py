@@ -83,6 +83,19 @@ class ProvenancePostgresTest(unittest.TestCase):
                         'JOIN file_ownership f ON f.id=v.source_file_id')
             self.assertEqual(cur.fetchone(), (8, True))
 
+    def test_multiline_column_evidence_survives_review_and_storage(self):
+        from .test_contract_layout import TEXT as column_text
+        self.content = column_text.encode('utf-8')
+        bank = 'в Филиале «Тестовый» ПАО «Банк», г. Москва'
+        response = self.save(supplier={**payload()['supplier'], 'bankName': bank},
+            recognitionReview={'sourceContentHash': hashlib.sha256(self.content).hexdigest(),
+                               'acceptedFields': [{'side': 'supplier', 'field': 'bankName'}]})
+        self.assertEqual(response.status_code, 200, response.text)
+        evidence = response.json()['snapshot']['recognitionReview']['acceptedFields'][0]
+        self.assertEqual(evidence['value'], bank)
+        self.assertIn('\n', evidence['quote'])
+        self.assertTrue('\n'.join(column_text.splitlines()[evidence['line']-1:]).startswith(evidence['quote']))
+
     def test_wrong_hash_or_edited_value_leave_no_partial_save(self):
         self.assertEqual(self.save(recognitionReview=selection()).status_code, 409)
         self.assertEqual(self.save(buyer=payload()['buyer']).status_code, 409)

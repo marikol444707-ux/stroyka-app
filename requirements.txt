@@ -9,3 +9,4 @@ SQLAlchemy==2.0.31
 alembic==1.13.2
 reportlab==4.2.5
 pypdf==6.18.1
+Pillow==12.3.0
