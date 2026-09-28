@@ -1,7 +1,7 @@
 """Confirm reciprocal legacy invoice/receipt openings without cash or relinking."""
 from alembic import op
 revision = '0058_supplier_paired_openings'
-down_revision = '0057_supplier_opening_confirmations'
+down_revision = '0057_supplier_openings'
 branch_labels = None
 depends_on = None
 

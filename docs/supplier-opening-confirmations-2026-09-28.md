@@ -45,7 +45,7 @@
 
 ## Подготовка
 
-- Миграция `0057_supplier_opening_confirmations` после 0056.
+- Миграция `0057_supplier_openings` после 0056 (файл `0057_supplier_opening_confirmations.py`).
 - `SUPPLIER_PAYMENTS_ENABLED=1` и новый флаг
   `SUPPLIER_OPENING_CONFIRMATIONS_ENABLED=1`; по умолчанию новый путь выключен.
 - Рабочие ограничения журнала и доказательств обязательны. При недоступной

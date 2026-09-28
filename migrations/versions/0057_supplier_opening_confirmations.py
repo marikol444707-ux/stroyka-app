@@ -1,7 +1,7 @@
 """Explicit immutable legacy opening confirmations; no historical backfill."""
 from alembic import op
 
-revision = '0057_supplier_opening_confirmations'
+revision = '0057_supplier_openings'
 down_revision = '0056_supplier_receipt_vat'
 branch_labels = None
 depends_on = None
