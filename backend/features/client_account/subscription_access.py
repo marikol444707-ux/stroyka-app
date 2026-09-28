@@ -74,6 +74,7 @@ def load_company_billing_state(cur, company_id, *, today=None):
 def _error_response(status_code, code, detail, **extra):
     return JSONResponse(
         status_code=status_code,
+        headers={"Cache-Control": "no-store"},
         content={"ok": False, "code": code, "detail": detail, **extra},
     )
 

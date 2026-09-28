@@ -1,4 +1,4 @@
-"""Explicit, default-off allocation HTTP adapter; no runtime registration.
+"""Explicit, default-off allocation and linked-refund HTTP adapter.
 
 The future mount must retain the existing session/CSRF middleware. Inject
 get_db, get_current_user, distinct authorize_allocation_write/read callbacks,
@@ -12,9 +12,12 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Path, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
+from psycopg2 import DatabaseError
 from psycopg2.extras import RealDictCursor
 
-from . import allocation_store
+from . import allocation_store, refund_store
+from .refund_commands import normalize_refund_command
+from .policy import validate_new_payment
 from .allocation_commands import normalize_allocation_command
 from .routes import _headers, _query
 
@@ -30,6 +33,7 @@ class _AllocationRoute(APIRoute):
         original = super().get_route_handler()
 
         async def handle(request):
+            is_refund = request.url.path.endswith('/allocated-refunds')
             try:
                 if any(os.getenv(flag, '0') != '1' for flag in
                        ('SUPPLIER_PAYMENTS_ENABLED', 'SUPPLIER_PAYMENT_ALLOCATIONS_ENABLED')):
@@ -37,21 +41,30 @@ class _AllocationRoute(APIRoute):
                 response = await original(request)
             except RequestValidationError:
                 response = JSONResponse(status_code=422, content={'detail': {
-                    'code': 'invalid_allocation_command', 'message': 'Некорректный запрос распределения'}})
+                    'code': 'invalid_refund_command' if is_refund else 'invalid_allocation_command',
+                    'message': 'Некорректный запрос возврата' if is_refund else 'Некорректный запрос распределения'}})
             except HTTPException as exc:
                 code = {400: 'invalid_company_headers', 401: 'authentication_required',
                         403: 'access_denied', 404: 'allocation_not_found', 409: 'allocation_conflict',
                         422: 'invalid_allocation_command', 503: 'allocation_unavailable'}.get(exc.status_code, 'allocation_failed')
-                detail = exc.detail if isinstance(exc.detail, dict) else dict(code=code, message=str(exc.detail))
+                detail = dict(exc.detail) if isinstance(exc.detail, dict) else dict(code=code, message=str(exc.detail))
+                if is_refund and isinstance(detail.get('code'), str):
+                    detail['code'] = detail['code'].replace('allocation', 'refund')
                 response = JSONResponse(status_code=exc.status_code, content={'detail': detail}, headers=exc.headers)
-            except Exception:
-                # Includes connection/commit uncertainty. Never replace the UUID
-                # or expose driver details; the same command is the safe retry.
-                message = ('Результат распределения не подтверждён. Сохраните и повторите тот же UUID и команду'
-                           if request.method == 'POST' else 'Распределение временно недоступно; обновите данные')
-                response = JSONResponse(status_code=503, content={'detail': {
-                    'code': 'allocation_unconfirmed' if request.method == 'POST' else 'allocation_unavailable',
-                    'message': message}})
+            except Exception as exc:
+                # A PostgreSQL constraint rejection is a confirmed rollback.
+                # Connection/commit uncertainty requires the exact same UUID.
+                if is_refund and isinstance(exc, DatabaseError) and exc.pgcode == '23514':
+                    response = JSONResponse(status_code=409, content={'detail': {
+                        'code': 'refund_conflict', 'message': 'Возврат не проведён: обновите остаток и распределение оплаты'}})
+                else:
+                    message = ('Результат распределения не подтверждён. Сохраните и повторите тот же UUID и команду'
+                               if request.method == 'POST' else 'Распределение временно недоступно; обновите данные')
+                    code = 'allocation_unconfirmed' if request.method == 'POST' else 'allocation_unavailable'
+                    if is_refund:
+                        code = 'refund_unconfirmed'
+                        message = 'Результат возврата не подтверждён. Повторите тот же UUID и команду'
+                    response = JSONResponse(status_code=503, content={'detail': {'code': code, 'message': message}})
             response.headers['Cache-Control'] = 'no-store'
             return response
 
@@ -88,6 +101,20 @@ def register_supplier_allocation_routes(app, deps):
         result = allocation_store.replace_allocations(deps['get_db'], _authorize(deps, 'write'),
                                                        user['id'], company_id, command)
         return {**result, 'companyId': company_id}
+
+    @router.post('/companies/{company_id}/supplier-payments/allocated-refunds')
+    def refund(request: Request, body: Any = Body(...),
+               company_id: int = Path(..., ge=1, le=2147483647), user: dict = Depends(authenticate)):
+        _headers(request, company_id)
+        _query(request, ())
+        command = normalize_refund_command(body)
+        resolver = deps.get('resolve_documents')
+        if not callable(resolver):
+            raise _unavailable()
+        result = refund_store.refund(deps['get_db'], _authorize(deps, 'write'), resolver,
+            user['id'], company_id, command, validate_new=validate_new_payment)
+        return {**result, 'companyId': company_id, 'requestId': command['requestId'],
+                'paymentId': command['paymentId']}
 
     @router.get('/companies/{company_id}/supplier-payments/allocation-groups/{group_id}')
     def read(request: Request, company_id: int = Path(..., ge=1, le=2147483647),

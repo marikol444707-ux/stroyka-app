@@ -12,6 +12,7 @@ from fastapi import HTTPException
 from .access import build_payment_access
 from .commands import positive_id
 from .documents import build_document_resolver
+from .allocation_receipt_proofs import receipt_taxes
 
 
 def _require(condition):
@@ -161,6 +162,7 @@ def build_allocation_access(deps, operation='update'):
             (warehouse_ids, warehouse_ids))
         _require(not cur.fetchone()['linked'])
         _require(sum(row['amount'] for row in relations) <= doc['amount'])
+        taxes = receipt_taxes(cur, invoice, relations, warehouses, deliveries)
         for relation in relations:
             row = warehouses.get(relation['warehouse_invoice_id'])
             _require(relation['company_id'] == company_id and row is not None and row['company_id'] == company_id)
@@ -172,8 +174,9 @@ def build_allocation_access(deps, operation='update'):
                      and (delivery['project'] or '') == doc['projectName']
                      and packages[row['id']] == doc['workPackage']
                      and (delivery['work_package'] or '') == doc['workPackage'])
-            _require(relation['amount'] > 0 and row['total_base'] == relation['amount']
-                     and row['total_with_vat'] == relation['amount'] and row['total_vat'] == 0
+            _require(relation['amount'] > 0 and row['total_base'] is not None and row['total_vat'] is not None
+                     and row['total_base'] + row['total_vat'] == relation['amount']
+                     and row['total_with_vat'] == relation['amount'] and row['total_vat'] == taxes.get(relation['id'], 0)
                      and (row['paid_amount'] or 0) == 0 and row['supplier_invoice_id'] is None
                      and row['status'] == 'Принята' and delivery['status'] == 'Принято'
                      and delivery['quality_status'] == 'Принято' and delivery['received_at'] is not None)

@@ -51,3 +51,11 @@ for current sealed invoice-line receipts (0052/0056), including VAT and current
 scope denial. Then add the API boundary, lost-response recovery UI, full browser
 workflow, deployment and production verification. Credits/VAT corrections remain
 separate from cash refunds; this increment does not enable them for allocations.
+
+## API follow-up
+
+The current sealed-receipt/VAT authority and default-off application API have now
+been implemented and tested locally. See
+[supplier-refund-api-2026-09-28.md](supplier-refund-api-2026-09-28.md).
+The earlier authority/API release gates above are satisfied by that increment;
+UI, browser verification and deployment remain outstanding.

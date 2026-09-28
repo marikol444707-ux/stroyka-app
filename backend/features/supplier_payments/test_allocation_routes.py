@@ -189,6 +189,7 @@ class AllocationRouteTests(unittest.TestCase):
         self.assertNotIn('from backend import main', source)
         self.assertEqual({route.path for route in self.app.routes if 'supplier-payments' in route.path}, {
             '/companies/{company_id}/supplier-payments/allocations',
+            '/companies/{company_id}/supplier-payments/allocated-refunds',
             '/companies/{company_id}/supplier-payments/allocation-groups/{group_id}'})
 
 

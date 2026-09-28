@@ -28316,10 +28316,16 @@ try:
     from backend.features.supplier_payments.access import build_payment_access
     from backend.features.supplier_payments.documents import build_document_resolver
     from backend.features.supplier_payments.routes import register_supplier_payment_routes
+    from backend.features.supplier_payments.allocation_access import build_allocation_access
+    from backend.features.supplier_payments.allocation_routes import register_supplier_allocation_routes
+    from backend.features.supplier_payments.allocation_schema import require_allocation_schema
 except ModuleNotFoundError:
     from features.supplier_payments.access import build_payment_access
     from features.supplier_payments.documents import build_document_resolver
     from features.supplier_payments.routes import register_supplier_payment_routes
+    from features.supplier_payments.allocation_access import build_allocation_access
+    from features.supplier_payments.allocation_routes import register_supplier_allocation_routes
+    from features.supplier_payments.allocation_schema import require_allocation_schema
 
 _supplier_payment_access_deps = {
     'resolve_resource_company_actor': resolve_resource_company_actor,
@@ -28331,4 +28337,14 @@ register_supplier_payment_routes(app, {
     'get_db': get_db, 'get_current_user': get_current_user,
     'resolve_documents': build_document_resolver(build_payment_access(_supplier_payment_access_deps)),
     'authorize_read': build_payment_access(_supplier_payment_access_deps, operation='read'),
+})
+
+# Both allocation routes and linked refunds remain hidden unless the allocation
+# feature is enabled. The refund worker separately gates new refund operations.
+register_supplier_allocation_routes(app, {
+    'get_db': get_db, 'get_current_user': get_current_user,
+    'resolve_documents': build_document_resolver(build_payment_access(_supplier_payment_access_deps)),
+    'authorize_allocation_write': build_allocation_access(_supplier_payment_access_deps, operation='update'),
+    'authorize_allocation_read': build_allocation_access(_supplier_payment_access_deps, operation='read'),
+    'require_allocation_schema': require_allocation_schema,
 })
