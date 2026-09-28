@@ -31,7 +31,7 @@ test('credit form separates invoice reduction from cash refund and shows overpay
   render(<SupplierPaymentDialog {...props} />);
   expect(screen.getByLabelText('Вид операции')).toHaveValue('credit');
   expect(screen.getByText(/Переплата поставщику/)).toBeInTheDocument();
-  expect(screen.getByText(/деньги и склад не меняются/)).toBeInTheDocument();
+  expect(screen.getByText(/Это не возврат денег/)).toBeInTheDocument();
   expect(screen.getByLabelText('Основание и номер документа')).toBeInTheDocument();
   expect(screen.getByRole('button',{name:'Записать корректировку'})).toBeInTheDocument();
 });
@@ -87,7 +87,7 @@ test('history distinguishes reversal and does not claim first page complete', ()
   render(<SupplierPaymentDialog {...props} />);
   expect(screen.getByText(/Сторно операции #30/)).toBeInTheDocument();
   expect(screen.getByText('Ошибка суммы')).toBeInTheDocument();
-  expect(screen.getByText(/Показаны только последние/)).toBeInTheDocument();
+  expect(screen.getByText(/Показаны последние/)).toBeInTheDocument();
 });
 test('focus is trapped and restored on close', () => {
   const opener = document.createElement('button'); document.body.appendChild(opener); opener.focus();
@@ -129,7 +129,7 @@ test('cancellation warns explicitly; marked request exposes only cancellation re
   state.pending = { body: { kind: 'payment', requestId: 'saved' } };
   state.confirmCancellation = jest.fn(); state.cancelPending = jest.fn();
   const { rerender } = render(<SupplierPaymentDialog {...props} />);
-  expect(screen.getByText('Если операция уже проведена, получим подтверждение; сторно автоматически не выполняется')).toBeInTheDocument();
+  expect(screen.getByText('Повторная проверка не создаст второй платёж и не отменит записанную операцию.')).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Отменить попытку' })).toBeDisabled();
   fireEvent.click(screen.getByRole('checkbox', { name: 'Подтверждаю отмену сохранённой попытки' }));
   expect(state.confirmCancellation).toHaveBeenCalledWith(true);

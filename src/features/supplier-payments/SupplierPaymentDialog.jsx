@@ -56,7 +56,7 @@ function PaymentDialogContent(props) {
         <p>Документ оплаты: {documentLabel(state.snapshot.canonicalTarget.documentKind)} #{state.snapshot.canonicalTarget.documentId}</p>
         <p>Поставщик #{state.snapshot.scope?.supplierId} · {state.snapshot.scope?.projectName || 'Без объекта'} · {state.snapshot.scope?.workPackage || 'Без пакета'}</p>
         <p>Остаток долга: <strong>{money(state.snapshot.remainingAmount)}</strong></p>
-        {Number(state.snapshot.openingPaidAmount)>0 && <p>Прежняя оплата на момент регистрации: {money(state.snapshot.openingPaidAmount)}</p>}
+        {Number(state.snapshot.openingPaidAmount)>0 && <p>Ранее оплачено: {money(state.snapshot.openingPaidAmount)}</p>}
         {Number(state.snapshot.creditAmount)>0 && <p>Исходная сумма: {money(state.snapshot.amount)} · Уменьшение: {money(state.snapshot.creditAmount)} · К расчёту: {money(state.snapshot.effectiveAmount)}</p>}
         {Number(state.snapshot.overpaidAmount)>0 && <p>Переплата поставщику: <strong>{money(state.snapshot.overpaidAmount)}</strong>. Возврат денег фиксируется после фактического получения.</p>}
       </div>}
@@ -85,10 +85,11 @@ function PaymentDialogContent(props) {
         onBlocked={setRefundBlocked} onSuccess={() => { state.reload(); props.onSuccess?.(); }} />}
       {state.pending && <section aria-label="Незавершённая операция">
         <h3>Сохранённый запрос</h3>
-        <p>Результат ещё не подтверждён. Запрос может относиться к другому документу этой компании. Повтор отправляет ту же команду с тем же UUID.</p>
-        <pre aria-label="Сохранённая команда" tabIndex={0}>{JSON.stringify(state.pending, null, 2)}</pre>
+        <p>Не удалось получить подтверждение. Проверьте результат предыдущей попытки, прежде чем записывать новый платёж. Она может относиться к другому счёту вашей компании.</p>
+        {state.pending.body && <p><strong>{operationLabel(state.pending.body.kind)}</strong> · {documentLabel(state.pending.body.documentKind)} № {state.pending.body.documentId}{state.pending.body.amount != null && <> · {money(state.pending.body.amount)}</>}</p>}
+        <details className="payment-technical-details"><summary>Технические сведения</summary><pre aria-label="Сохранённая команда" tabIndex={0}>{JSON.stringify(state.pending, null, 2)}</pre></details>
         {!state.pending.cancelRequested && <button type="button" disabled={state.busy || !!state.storageError} onClick={state.retry}>Повторить сохранённый запрос</button>}
-        <p>Если операция уже проведена, получим подтверждение; сторно автоматически не выполняется</p>
+        <p>Повторная проверка не создаст второй платёж и не отменит записанную операцию.</p>
         {!state.pending.cancelRequested && <label><input type="checkbox" checked={!!state.cancellationConfirmed}
           style={{ width: 'auto', minHeight: 0, justifySelf: 'start' }} disabled={state.busy || !!state.storageError}
           onChange={event => state.confirmCancellation(event.target.checked)} />Подтверждаю отмену сохранённой попытки</label>}
@@ -107,7 +108,7 @@ function PaymentDialogContent(props) {
         <fieldset disabled={blocked}>
           <legend>{reversalTitle}</legend>
           <p>{state.reversal.operation.kind==='payment' ? 'Исходный платёж' : operationLabel(state.reversal.operation.kind)} #{state.reversal.operation.operationId}: {money(state.reversal.operation.amount)} от {state.reversal.operation.paidAt}</p>
-          <p>Документ исходной операции: {documentLabel(state.reversal.operation.documentKind)} #{state.reversal.operation.documentId}. Сумма сторно определяется сервером; исходная запись сохраняется.</p>
+          <p>Документ исходной операции: {documentLabel(state.reversal.operation.documentKind)} #{state.reversal.operation.documentId}. Будет отменена вся сумма операции. Запись останется в истории.</p>
           {state.reversal.operation.kind==='credit' && <p>Сумма счёта к оплате увеличится обратно. Денежного движения не будет.</p>}
           {state.reversal.operation.kind==='refund' && <p>Записанный возврат отменится, оплаченная сумма увеличится. Банковский перевод не выполняется.</p>}
           <label>Дата сторно<input type="date" required value={state.reversal.paidAt}
@@ -135,7 +136,7 @@ function PaymentDialogContent(props) {
             onChange={event => state.updateDraft({ paidAt: event.target.value })} /></label>
           <label>{state.draft.kind && state.draft.kind!=='payment' ? 'Основание и номер документа' : 'Основание платежа'}<textarea required maxLength={1000} value={state.draft.reason}
             onChange={event => state.updateDraft({ reason: event.target.value })} /></label>
-          <p>{state.draft.kind==='credit' ? 'Укажите основание и номер корректирующего документа. Уменьшается обязательство; деньги и склад не меняются.'
+          <p>{state.draft.kind==='credit' ? 'Укажите документ, по которому уменьшилась сумма счёта. Это не возврат денег.'
             : state.draft.kind==='refund' ? 'Запишите только фактически полученный возврат, с датой и основанием. Стоимость счёта не меняется.'
             : 'Можно указать всю сумму или оплатить часть.'}</p>
           <button type="submit">{state.busy ? 'Запись…' : state.draft.kind==='credit' ? 'Записать корректировку' : state.draft.kind==='refund' ? 'Записать возврат' : 'Записать платёж'}</button>
@@ -153,7 +154,7 @@ function PaymentDialogContent(props) {
             disabled={blocked || !!state.pending || !!state.reversal} onClick={() => state.beginReversal(item.operationId)}>
             {item.kind==='payment' ? 'Сторнировать платёж' : 'Сторнировать операцию'} #{item.operationId}</button>}
         </li>)}</ul>
-        {state.history.hasMore && <p>Показаны только последние 50 операций; история не полная.</p>}
+        {state.history.hasMore && <p>Показаны последние 50 операций.</p>}
       </section>}
     </section>
   </div>;

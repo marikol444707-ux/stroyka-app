@@ -72,7 +72,7 @@ function OpeningPanel({ API, userId, companyId, invoiceId, registered, disabled,
   if (registered && !pending && !error && !storageError && !success) return null;
   const shown = pending?.preview || preview;
   return <section className="supplier-opening-panel" aria-label="Сверка прежней оплаты">
-    <h3>Прежняя оплата по счёту</h3>
+    <h3>Оплачено раньше</h3>
     <p>Если часть счёта оплачена раньше, укажите уже оплаченную сумму.</p>
     {error && <p role="alert">{error}</p>}
     {storageError && <p role="alert">{storageError}</p>}
@@ -102,7 +102,7 @@ function OpeningPanel({ API, userId, companyId, invoiceId, registered, disabled,
         </form>}
       </>}
     </>}
-    {busy && <p role="status">Ожидаем ответ сервера…</p>}
+    {busy && <p role="status">Сохраняем…</p>}
   </section>;
 }
 export default function SupplierOpeningPanel(props) {

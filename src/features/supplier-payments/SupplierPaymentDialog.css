@@ -94,3 +94,6 @@
   .supplier-payment-dialog.supplier-payment-dialog > section,
   .supplier-payment-dialog.supplier-payment-dialog > form { padding: 14px; }
 }
+.supplier-payment-dialog .payment-technical-details { margin: 12px 0; color: var(--c-text-sec, #64748b); font-size: 12px; }
+.supplier-payment-dialog .payment-technical-details summary { cursor: pointer; padding: 8px 0; }
+.supplier-payment-dialog .payment-technical-details pre { max-height: 220px; overflow: auto; }

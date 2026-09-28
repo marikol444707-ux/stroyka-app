@@ -74,3 +74,8 @@
 - Payment dialog now uses c-* application theme tokens, fixed readable typography, compact cards, clear confirmation action and responsive spacing. Removed redundant choose button after opening a contract; secondary actions follow confirmation.
 - 27 existing UI tests passed. Local browser at 390px: no horizontal overflow, same-company payer omitted. No accounting rules or API authorization changed; backend change is error wording only.
 - Deployed `0130f76714c4`. Production browser invoice #161: 14px typography, actual dark theme background rgb(30,41,59), short prerequisite message, contract #362 loaded, duplicate payer absent, explicit confirmation still required. No mutation submitted. 251 frontend files matched, table hashes unchanged, health/DB passed. Verified receipt written; release staging/backup removed.
+
+## 2026-09-29 — payment window copy follow-up
+- Simplified opening balance, refund, receipt allocation and cancellation explanations; removed UUID/server implementation wording from the main flow.
+- Unconfirmed operation keeps readable operation/document/amount summary; raw saved command remains available under technical details. Retry/cancel semantics unchanged.
+- 29 relevant UI tests passed; dialog tests repeated after adding the pending-operation summary.

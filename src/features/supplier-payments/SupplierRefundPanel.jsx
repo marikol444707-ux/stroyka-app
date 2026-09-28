@@ -70,9 +70,9 @@ function RefundPanel({ API, userId, companyId, invoiceId, disabled, onBlocked, o
     } finally { cycle.busy = false; if (cycle.active) setBusy(false); }
   };
   const blocked = busy || disabled || !!storageError;
-  return <section className="supplier-refund-panel" aria-label="Возврат по исходной оплате">
-    <h3>Возврат по исходной оплате</h3>
-    <p>Запишите фактически полученные деньги. Выберите оплату и приёмки, с которых снимается её распределение.</p>
+  return <section className="supplier-refund-panel" aria-label="Возврат денег">
+    <h3>Возврат денег</h3>
+    <p>Укажите, сколько денег вернул поставщик и за какую оплату. Если оплата относится к накладным, укажите сумму возврата по каждой.</p>
     {error && <p role="alert">{error}</p>}{storageError && <p role="alert">{storageError}</p>}
     {success ? <p role="status">{success.status === 'cancelled' ? 'Попытка отменена. Возврат не записан.'
       : `Возврат подтверждён: ${money((success.result || success).amount)}. Операция #${(success.result || success).operationId}.`}</p>
@@ -85,10 +85,10 @@ function RefundPanel({ API, userId, companyId, invoiceId, disabled, onBlocked, o
           disabled={blocked} onChange={event => setCancelConfirmed(event.target.checked)} />Подтверждаю отмену попытки возврата</label>}
         <button type="button" disabled={blocked || (!pending.cancelRequested && !cancelConfirmed)} onClick={() => send(true)}>
           {pending.cancelRequested ? 'Повторить отмену попытки' : 'Отменить попытку возврата'}</button>
-        <p>Если возврат уже записан, получим подтверждение. Сторно автоматически не выполняется.</p>
+        <p>Повторная проверка не создаст второй возврат.</p>
       </> : <>
         {!context && <button type="button" disabled={blocked} onClick={load}>Оформить возврат по оплате</button>}
-        {context?.groupId === null && <p>У счёта пока нет связанных приёмок. Используйте обычную форму возврата ниже.</p>}
+        {context?.groupId === null && <p>По этому счёту ещё нет принятых накладных. Запишите возврат в форме ниже.</p>}
         {context?.groupId && <form aria-label="Возврат по приёмкам" onSubmit={event => { event.preventDefault(); send(false); }}>
           <fieldset disabled={blocked}>
             <label>Исходная оплата<select value={paymentId} required onChange={event => {

@@ -67,9 +67,9 @@ function AllocationPanel({ API, userId, companyId, invoiceId, disabled, onBlocke
   };
   const payment = context?.payments?.find(row => row.paymentId === Number(paymentId));
   const blocked = busy || disabled || !!storageError;
-  return <section className="supplier-refund-panel" aria-label="Распределение оплаты по приёмкам">
-    <h3>Распределение оплаты по приёмкам</h3>
-    <p>Укажите, какую часть каждой оплаты отнести к накладным. Деньги и склад от этого не меняются. Ноль снимает распределение.</p>
+  return <section className="supplier-refund-panel" aria-label="Оплата по накладным">
+    <h3>Оплата по накладным</h3>
+    <p>Укажите, какая сумма оплачена по каждой накладной. Чтобы убрать сумму с накладной, укажите 0. Повторной оплаты не будет.</p>
     {error && <p role="alert">{error}</p>}{storageError && <p role="alert">{storageError}</p>}
     {success && <p role="status">Распределение сохранено. Новый платёж не создан.</p>}
     {pending ? <>
@@ -82,10 +82,10 @@ function AllocationPanel({ API, userId, companyId, invoiceId, disabled, onBlocke
       <button type="button" disabled={blocked} onClick={send}>Повторить сохранённое распределение</button>
     </> : !context?.groupId ? <>
       <button type="button" disabled={blocked} onClick={load}>Распределить оплату по приёмкам</button>
-      {context && <p>У счёта пока нет группы приёмок для распределения.</p>}
+      {context && <p>По этому счёту ещё нет принятых накладных.</p>}
     </> : <form aria-label="Распределение оплаты" onSubmit={event => { event.preventDefault(); send(); }}>
       <fieldset disabled={blocked}>
-        {!context.payments.length || !context.receipts.length ? <p>Для распределения нужны проведённая оплата и принятая накладная.</p> : <>
+        {!context.payments.length || !context.receipts.length ? <p>Сначала запишите оплату и примите материал по накладной.</p> : <>
           <label>Оплата для распределения<select value={paymentId} onChange={event => setPaymentId(event.target.value)}>
             <option value="">Выберите оплату</option>
             {context.payments.map(row => <option key={row.paymentId} value={row.paymentId}>Оплата #{row.paymentId} · {money(row.remainingAmount)}</option>)}
