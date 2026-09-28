@@ -1,9 +1,3 @@
 .supplier-contract-preparation { margin-top: 12px; color: inherit; }
-.supplier-contract-preparation fieldset { min-width: 0; margin: 12px 0; padding: 12px; border: 1px solid currentColor; border-radius: 6px; }
-.supplier-contract-preparation label { display: grid; gap: 6px; margin: 10px 0; }
-.supplier-contract-preparation input, .supplier-contract-preparation select, .supplier-contract-preparation textarea, .supplier-contract-preparation button { box-sizing: border-box; max-width: 100%; font: inherit; color: inherit; background: transparent; border: 1px solid currentColor; border-radius: 6px; padding: 10px; }
-.supplier-contract-preparation input, .supplier-contract-preparation select, .supplier-contract-preparation textarea { width: 100%; }
-.supplier-contract-preparation button { margin: 4px 8px 4px 0; cursor: pointer; }
-.supplier-contract-preparation button:disabled { opacity: .55; cursor: default; }
-.supplier-contract-preparation .supplier-refund-check { display: flex; align-items: flex-start; gap: 10px; }
-.supplier-contract-preparation input[type=checkbox] { width: 20px; min-height: 20px; flex: 0 0 auto; }
+.supplier-contract-preparation > button { font: inherit; color: inherit; background: transparent; border: 1px solid currentColor; border-radius: 6px; padding: 10px; cursor: pointer; }
+.supplier-contract-preparation > button:disabled { opacity: .55; cursor: default; }

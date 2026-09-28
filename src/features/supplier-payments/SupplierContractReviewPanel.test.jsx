@@ -13,7 +13,7 @@ test('explicit parties then original and reviewed legal identities are required'
  const saved=jest.fn();render(<Panel {...props} onSaved={saved}/>);
  await screen.findByLabelText('Покупатель');
  fireEvent.change(screen.getByLabelText('Основание выбора сторон'),{target:{value:'По договору'}});
- fireEvent.submit(screen.getByText('Сохранить выбранные стороны').closest('form'));
+ fireEvent.click(screen.getByText('Сохранить выбранные стороны'));
  await screen.findByLabelText('Оригинал договора');
  expect(client.save).toHaveBeenCalledWith('parties',{buyerCompanyId:1,payerCompanyId:1,expectedVersion:0,reason:'По договору'});
  expect(screen.getByText('Сохранить проверенную версию договора').disabled).toBe(true);
@@ -25,7 +25,7 @@ test('explicit parties then original and reviewed legal identities are required'
  fireEvent.change(screen.getByLabelText('Дата договора'),{target:{value:'2026-09-28'}});
  fireEvent.change(screen.getByLabelText('Основание проверки'),{target:{value:'Сверено'}});
  fireEvent.click(screen.getByLabelText('Реквизиты и условия сверены с загруженным оригиналом'));
- fireEvent.submit(screen.getByText('Сохранить проверенную версию договора').closest('form'));
+ fireEvent.click(screen.getByText('Сохранить проверенную версию договора'));
  await waitFor(()=>expect(saved).toHaveBeenCalledTimes(1));
  expect(client.save.mock.calls[1][1]).toEqual({partyVersion:1,expectedVersion:0,sourceFileId:10,number:'Д-1',date:'2026-09-28',reviewConfirmed:true,paymentTerms:'',reason:'Сверено',
  buyer:legalDraft(ctx.buyer),payer:legalDraft(ctx.payer),supplier:legalDraft(ctx.supplier)});
@@ -61,5 +61,27 @@ test('upload recognizes matched requisites without confirming or replacing manua
   await screen.findByText(/Нечитаемый скан/);
   expect(screen.getAllByLabelText('Банк')[2].value).toBe('');
   expect(screen.getAllByLabelText('ФИО подписанта')[2].value).toBe('Введено вручную');
+ }finally{if(flag===undefined)delete process.env.REACT_APP_SUPPLIER_CONTRACT_RECOGNITION_ENABLED;else process.env.REACT_APP_SUPPLIER_CONTRACT_RECOGNITION_ENABLED=flag;}
+});
+test('retry uses the same uploaded original and keeps manual edits; payer copying is explicit',async()=>{
+ const flag=process.env.REACT_APP_SUPPLIER_CONTRACT_RECOGNITION_ENABLED;process.env.REACT_APP_SUPPLIER_CONTRACT_RECOGNITION_ENABLED='true';
+ try{
+  client.load.mockResolvedValue({parties:{version:1,buyerCompanyId:1,payerCompanyId:1},companies:[{companyId:1,companyName:'Наша компания'}]});
+  client.recognize=jest.fn(async()=>({sourceContentHash:'a'.repeat(64),parties:{buyer:{status:'matched',fields:{inn:{value:ctx.buyer.inn},bankName:{value:'Банк заказчика',quote:'Банк: Банк заказчика'}}},payer:{status:'missing',fields:{}},supplier:{status:'missing',fields:{}}}}));
+  render(<Panel {...props}/>);fireEvent.click(await screen.findByText('Перейти к проверке договора'));
+  fireEvent.change(await screen.findByLabelText('Оригинал договора'),{target:{files:[new File(['test'],'scan.png')]}});
+  await screen.findByText(/Найденные реквизиты/);
+  expect(screen.getAllByLabelText('Банк')[1].value).toBe('');
+  fireEvent.click(screen.getByRole('tab',{name:/Покупатель/}));
+  fireEvent.change(screen.getAllByLabelText('Банк')[0],{target:{value:'Уточнённый банк'}});
+  fireEvent.click(screen.getByText('Повторить распознавание'));
+  await waitFor(()=>expect(client.recognize).toHaveBeenCalledTimes(2));
+  await screen.findByText(/Найденные реквизиты/);
+  expect(client.upload).toHaveBeenCalledTimes(1);
+  expect(screen.getAllByLabelText('Банк')[0].value).toBe('Уточнённый банк');
+  fireEvent.click(screen.getByRole('tab',{name:/Плательщик/}));
+  fireEvent.click(screen.getByText('Взять реквизиты покупателя'));
+  expect(screen.getAllByLabelText('Банк')[1].value).toBe('Уточнённый банк');
+  expect(screen.getByLabelText('Реквизиты и условия сверены с загруженным оригиналом').checked).toBe(false);
  }finally{if(flag===undefined)delete process.env.REACT_APP_SUPPLIER_CONTRACT_RECOGNITION_ENABLED;else process.env.REACT_APP_SUPPLIER_CONTRACT_RECOGNITION_ENABLED=flag;}
 });

@@ -1,12 +1,9 @@
 import React, {useEffect,useMemo,useRef,useState} from 'react';
 import {createContractReviewClient,legalDraft,legalFields} from './contractReviewClient';
+import ContractPartyFields from './ContractPartyFields';
+import './SupplierContractReviewPanel.css';
 
-const labels={fullName:'Полное наименование',inn:'ИНН',kpp:'КПП',ogrn:'ОГРН / ОГРНИП',legalAddress:'Юридический адрес',
- bankName:'Банк',bik:'БИК',rs:'Расчётный счёт',ks:'Корреспондентский счёт',directorName:'ФИО подписанта',
- directorPosition:'Должность подписанта',basis:'Основание полномочий',phone:'Телефон',email:'Email'};
 const sides={buyer:'Покупатель',payer:'Плательщик',supplier:'Поставщик'};
-const limits={fullName:500,kpp:9,ogrn:15,legalAddress:2000,bankName:500,bik:9,rs:20,ks:20,directorName:255,directorPosition:255,basis:1000,phone:100,email:255};
-const patterns={inn:'(?:[0-9]{10}|[0-9]{12})',kpp:'[0-9]{9}',ogrn:'(?:[0-9]{13}|[0-9]{15})',bik:'[0-9]{9}',rs:'[0-9]{20}',ks:'[0-9]{20}'};
 
 export default function SupplierContractReviewPanel(props) {
  return <ReviewContent key={`${props.API}:${props.userId}:${props.companyId}:${props.offerId}`} {...props}/>;
@@ -24,11 +21,12 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
  const [file,setFile]=useState(null),[checked,setChecked]=useState(false);
  const [recognition,setRecognition]=useState(null),[recognitionMessage,setRecognitionMessage]=useState('');
  const autoFields=useRef([]);
+ const [activeSide,setActiveSide]=useState('supplier');
  const recognitionEnabled=process.env.REACT_APP_SUPPLIER_CONTRACT_RECOGNITION_ENABLED==='true';
  const blocked=disabled || busy || loading || fatal;
  const loadReview=async()=>{
   const value=await client.reviewContext();
-  if(live.current){setReview(value);setLegal(Object.fromEntries(Object.keys(sides).map(side=>[side,legalDraft(value[side])])));setChecked(false);}
+  if(live.current){setReview(value);setLegal(Object.fromEntries(Object.keys(sides).map(side=>[side,legalDraft(value[side])])));setChecked(false);setRecognition(null);setRecognitionMessage('');autoFields.current=[];setFile(null);}
  };
  const loadParties=async()=>{
   const value=await client.load();
@@ -81,11 +79,8 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
   await client.save(saved.kind,saved.body);
   if(saved.kind==='contract'){if(live.current)onSaved?.();}else{await loadParties();await loadReview();}
  });
- const upload=event=>{
-  const selected=event.target.files?.[0];if(!selected)return;
-  act(async()=>{
-   const result=await client.upload(selected);if(!live.current)return;
-   setFile({...result,name:selected.name});setChecked(false);setRecognition(null);
+ const recognize=async fileId=>{
+   setChecked(false);setRecognition(null);
    const previous=autoFields.current;autoFields.current=[];
    setLegal(current=>{
     const next=Object.fromEntries(Object.entries(current).map(([side,fields])=>[side,{...fields}]));
@@ -95,7 +90,7 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
    if(!recognitionEnabled){setRecognitionMessage('Оригинал загружен. Автозаполнение пока недоступно.');return;}
    setRecognitionMessage('Распознаём договор…');
    try{
-    const found=await client.recognize(result.fileId,review);if(!live.current)return;
+    const found=await client.recognize(fileId,review);if(!live.current)return;
     setRecognition(found);
     const candidates=[];
     for(const side of Object.keys(sides)){
@@ -112,19 +107,28 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
     const mismatched=Object.values(found.parties).some(p=>p.status==='identity_mismatch');
     setRecognitionMessage(mismatched?'Есть расхождение ИНН с выбранной организацией. Проверьте стороны договора.':candidates.length?'Найденные реквизиты добавлены в пустые поля. Проверьте их по оригиналу; номер, дату и условия оплаты укажите вручную.':'Реквизиты не удалось уверенно определить. Оригинал сохранён; заполните поля вручную.');
    }catch(e){if(live.current)setRecognitionMessage('Оригинал сохранён. Распознавание: '+e.message);}
+ };
+ const upload=event=>{
+  const selected=event.target.files?.[0];if(!selected)return;
+  act(async()=>{
+   const result=await client.upload(selected);if(!live.current)return;
+   setFile({...result,name:selected.name});setChecked(false);setRecognition(null);
+   await recognize(result.fileId);
   });
   event.target.value='';
  };
  return <section className="supplier-contract-review" aria-label="Проверка договора поставки">
-  <h3>Проверка договора поставки</h3>
-  <p>КП #{offerId}. Эта проверка сохраняет реквизиты договора; она не подтверждает подпись, оплату или получение материала.</p>
+  <header className="contract-review-header"><div><span className="contract-eyebrow">ДОГОВОР ПОСТАВКИ · КП #{offerId}</span>
+   <h3>Проверим реквизиты</h3><p>Загрузите договор, сверьте распознанные данные и сохраните проверенную версию.</p></div>
+   <span className="contract-draft-badge">Черновик проверки</span></header>
+  <ol className="contract-review-steps" aria-label="Этапы проверки"><li className={!review?'is-current':'is-complete'}>1. Стороны</li><li className={review&&!file?'is-current':file?'is-complete':''}>2. Документ</li><li className={file?'is-current':''}>3. Сверка</li></ol>
   {loading && <p role="status">Загрузка сторон сделки…</p>}
   {error && <p role="alert">{error}</p>}
   {pending ? <>
    <p>Есть сохранённый запрос: {pending.kind==='parties'?'выбор сторон':'проверка договора'}. Основание: {pending.body.reason}</p>
    <button type="button" disabled={blocked} onClick={retry}>Проверить и повторить сохранённый запрос</button>
   </> : !review && parties ? <form onSubmit={saveParties}>
-   <fieldset disabled={blocked}>
+   <fieldset className="contract-review-content" disabled={blocked}>
     <legend>1. Покупатель и плательщик</legend>
     <label>Покупатель<select required value={buyer} onChange={e=>setBuyer(e.target.value)}>
      <option value="">Выберите компанию</option>{choices.map(c=><option key={c.companyId} value={c.companyId}>{c.shortName || c.companyName}</option>)}
@@ -137,28 +141,44 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
     <label>Основание выбора сторон<input required maxLength={1000} value={partyReason} onChange={e=>setPartyReason(e.target.value)}/></label>
     <button type="submit" disabled={!partyReason.trim() || !buyer || !payer}>Сохранить выбранные стороны</button>
    </fieldset>
-  </form> : !pending && review && <form onSubmit={saveContract}>
-   <fieldset disabled={blocked}>
-    <legend>2. Оригинал и реквизиты договора</legend>
-    <p>Названия и ИНН взяты из карточек организаций. Сверьте их с оригиналом. Если ИНН отличается, исправьте выбор стороны или её карточку.</p>
-    <label>Оригинал договора<input type="file" accept=".pdf,.txt,.doc,.docx,.jpg,.jpeg,.png" onChange={upload}/></label>
+  </form> : !pending && review && <form onSubmit={saveContract} onInvalid={event=>{
+    const panel=event.target.closest('[role="tabpanel"]');
+    if(panel){setActiveSide(panel.id.replace('contract-party-',''));const target=event.target;setTimeout(()=>target.focus(),0);}
+   }}>
+   <fieldset className="contract-review-content" disabled={blocked}>
+    <legend className="contract-visually-hidden">Оригинал и реквизиты договора</legend>
+
+    <div className="contract-upload-card"><span className="contract-eyebrow">01 / ОРИГИНАЛ</span><label>Оригинал договора<input type="file" accept=".pdf,.txt,.doc,.docx,.jpg,.jpeg,.png" onChange={upload}/></label>
     {file && <p>Загружен: {file.name}</p>}
-    {recognitionMessage && <p role="status">{recognitionMessage}</p>}
+    <p className="contract-hint">PDF, Word, скан или фото · до 10 МБ. Распознавание скана может занять до двух минут.</p>
+    {recognitionMessage && <p className="contract-recognition-status" role="status">{recognitionMessage}</p>}
+    {file && recognitionEnabled && <button type="button" onClick={()=>act(()=>recognize(file.fileId))}>Повторить распознавание</button>}
+    </div><div className="contract-field-grid contract-document-meta">
     <label>Номер договора<input required maxLength={100} value={number} onChange={e=>{setNumber(e.target.value);setChecked(false);}}/></label>
     <label>Дата договора<input required type="date" value={date} onChange={e=>{setDate(e.target.value);setChecked(false);}}/></label>
-    {Object.entries(sides).map(([side,label])=><fieldset key={side}><legend>{label}</legend>
-     {['fullName','inn'].map(k=><label key={k}>{labels[k]}<input required readOnly={k==='inn'} pattern={patterns[k]} maxLength={limits[k] || 12}
-       value={legal[side][k]} onChange={e=>{setLegal(v=>({...v,[side]:{...v[side],[k]:e.target.value}}));setChecked(false);}}/></label>)}
-     <details><summary>Банковские реквизиты и подписант</summary>
-      {legalFields.filter(k=>!['fullName','inn'].includes(k)).map(k=><label key={k}>{labels[k]}<input pattern={patterns[k]} maxLength={limits[k]} value={legal[side][k]}
-       onChange={e=>{setLegal(v=>({...v,[side]:{...v[side],[k]:e.target.value}}));setChecked(false);}}/></label>)}
-     </details>
-    </fieldset>)}
+    </div>
+    <div className="contract-section-heading"><div><span className="contract-eyebrow">02 / СТОРОНЫ ДОГОВОРА</span><h4>Сверьте данные каждой стороны</h4></div><p className="contract-hint">Заполненные вручную поля сохраняются при распознавании.</p></div>
+    <div className="contract-party-tabs" role="tablist" aria-label="Сторона договора">{Object.entries(sides).map(([side,label])=>
+     <button key={side} type="button" role="tab" id={`contract-tab-${side}`} aria-selected={activeSide===side} aria-controls={`contract-party-${side}`} onClick={()=>setActiveSide(side)}>
+      <strong>{label}</strong><span>{legal[side].fullName || 'Организация'}</span>
+     </button>)}</div>
+    {Object.entries(sides).map(([side,label])=><div key={side} id={`contract-party-${side}`} role="tabpanel" aria-labelledby={`contract-tab-${side}`} hidden={activeSide!==side}>
+     <div className="contract-party-summary"><strong>{label}</strong><span>ИНН {legal[side].inn}</span>
+      {recognition && <span className="contract-draft-badge">{recognition.parties[side].status==='matched'?'ИНН совпадает':recognition.parties[side].status==='identity_mismatch'?'ИНН отличается — проверьте':'Сторона не распознана'}</span>}
+     </div>
+     {side==='payer' && review.payer.inn===review.buyer.inn && <div className="contract-payer-help"><p>Покупатель и плательщик — одна организация. Можно перенести уже проверенные вами реквизиты покупателя.</p>
+      <button type="button" onClick={()=>{setLegal(v=>({...v,payer:{...v.buyer}}));autoFields.current=autoFields.current.filter(item=>item.side!=='payer');setChecked(false);}}>Взять реквизиты покупателя</button></div>}
+     <ContractPartyFields side={side} value={legal[side]} recognized={recognition?.parties[side]}
+      onChange={(field,value)=>{setLegal(v=>({...v,[side]:{...v[side],[field]:value}}));setChecked(false);}}
+      onApply={(field,value)=>{setLegal(v=>({...v,[side]:{...v[side],[field]:value}}));autoFields.current=[...autoFields.current.filter(item=>!(item.side===side&&item.field===field)),{side,field,value}];setChecked(false);}}/>
+    </div>)}
+    <div className="contract-final-review"><span className="contract-eyebrow">03 / ПОДТВЕРЖДЕНИЕ</span>
     <label>Условия оплаты по договору<textarea maxLength={4000} value={terms} onChange={e=>{setTerms(e.target.value);setChecked(false);}}/></label>
     <label>Основание проверки<textarea required maxLength={1000} value={reason} onChange={e=>setReason(e.target.value)}/></label>
     <label className="supplier-refund-check"><input type="checkbox" checked={checked} onChange={e=>setChecked(e.target.checked)}/>Реквизиты и условия сверены с загруженным оригиналом</label>
-    <button type="submit" disabled={!checked || !file || !number.trim() || !date || !reason.trim()}>Сохранить проверенную версию договора</button>
-    <button type="button" onClick={()=>{setReview(null);setChecked(false);}}>Вернуться к сторонам</button>
+    <p className="contract-hint">Сохранение реквизитов не подтверждает подпись, оплату или получение материала.</p>
+    <div className="contract-actions"><button className="contract-primary" type="submit" disabled={!checked || !file || !number.trim() || !date || !reason.trim()}>Сохранить проверенную версию договора</button>
+    <button type="button" onClick={()=>{setReview(null);setChecked(false);}}>Вернуться к сторонам</button></div></div>
    </fieldset>
   </form>}
   <button type="button" disabled={busy} onClick={onClose}>Закрыть подготовку договора</button>
