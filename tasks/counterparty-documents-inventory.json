@@ -1,6 +1,6 @@
 {
   "date": "2026-09-28",
-  "scope": "Initial four document sources only; invoices, quotations and delivery attachments remain to inventory",
+  "scope": "Eight primary document/procurement tables; explicit attachment columns and selected ID links. Does not assert existence of scans, generated PDFs, or correctness of all business relationships.",
   "sources": {
     "company_documents": {
       "count": 3,
@@ -47,6 +47,91 @@
       "unresolvedFileReference": 0,
       "ownerNeedsReview": 0,
       "inactiveFile": 0
+    }
+  },
+  "procurementSources": {
+    "supplier_offers": {
+      "count": 7,
+      "sha256": "1a98d232f7ce37a80bfa1efcecabecb6e887c56f04c8af42f2cda6d4b3e7445f",
+      "owners": [
+        {
+          "companyId": 1,
+          "count": 5
+        },
+        {
+          "companyId": 2,
+          "count": 2
+        }
+      ],
+      "malformedAttachmentFields": 0,
+      "withoutAttachments": 6,
+      "uniqueReferencesWithinRecords": 1,
+      "protectedReferences": 1,
+      "ownerMismatch": 0,
+      "inactiveFiles": 0
+    },
+    "supplier_invoices": {
+      "count": 49,
+      "sha256": "121f287813106dd6d6b5e354eb9d2e1d0170d18a6e21113dd82fbd71f182bbbc",
+      "owners": [
+        {
+          "companyId": 1,
+          "count": 49
+        }
+      ],
+      "malformedAttachmentFields": 0,
+      "withoutAttachments": 48,
+      "uniqueReferencesWithinRecords": 1,
+      "protectedReferences": 1,
+      "ownerMismatch": 0,
+      "inactiveFiles": 0,
+      "links": {
+        "offer_id": {
+          "unlinked": 47,
+          "linked": 2
+        }
+      }
+    },
+    "supply_deliveries": {
+      "count": 2,
+      "sha256": "01fdaa3b5da0c2aec596fd828d8d463b43bb715683b0ce406578e509795551e8",
+      "owners": [
+        {
+          "companyId": 1,
+          "count": 2
+        }
+      ],
+      "malformedAttachmentFields": 0,
+      "withoutAttachments": 2,
+      "uniqueReferencesWithinRecords": 0,
+      "links": {
+        "offer_id": {
+          "linked": 2
+        }
+      }
+    },
+    "warehouse_invoices": {
+      "count": 54,
+      "sha256": "07267367fcf71de733b540133ba744f7b31d084f09786a0208232095ac8ea2e2",
+      "owners": [
+        {
+          "companyId": 1,
+          "count": 54
+        }
+      ],
+      "malformedAttachmentFields": 0,
+      "withoutAttachments": 54,
+      "uniqueReferencesWithinRecords": 0,
+      "links": {
+        "supply_delivery_id": {
+          "unlinked": 52,
+          "linked": 2
+        },
+        "supplier_invoice_id": {
+          "linked": 48,
+          "unlinked": 6
+        }
+      }
     }
   }
 }
