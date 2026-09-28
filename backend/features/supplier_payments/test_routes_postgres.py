@@ -311,6 +311,14 @@ class PaymentHTTPTests(unittest.TestCase):
         lookup = self.call(path=self.path + '?requestId=' + attachment_id)
         self.assertEqual(lookup['lookup']['status'], 'used_for_attachment')
         self.assertEqual(self.snapshot(), before)
+        original_items=self.sql('SELECT items FROM warehouse_invoices WHERE id=%s',(warehouse,))[0][0]
+        try:
+            self.sql("UPDATE warehouse_invoices SET items='not json' WHERE id=%s",(warehouse,))
+            self.call(path=self.path+'?requestId='+attachment_id,expected=409)
+            self.call(path=self.path+'?requestId='+str(original['requestId']),expected=409)
+        finally:
+            self.sql('UPDATE warehouse_invoices SET items=%s WHERE id=%s',(original_items,warehouse))
+
 
     def test_current_payer_membership_is_required_for_reads_and_replay(self):
         from psycopg2.extras import RealDictCursor
@@ -557,3 +565,33 @@ class PaymentHTTPTests(unittest.TestCase):
         self.assertEqual(doc['paidAmount'], '10.00')
         page = self.call(path=self.path + f'?documentKind=warehouse&documentId={warehouse}')
         self.assertEqual(page['items'][0]['workPackage'], 'Основная')
+
+    def test_invoice_history_validates_impacted_warehouse_scope(self):
+        warehouse = self.sql("""INSERT INTO warehouse_invoices(company_id,supplier_id,project,items,
+            total_with_vat,paid_amount,status,accounting_status,supplier_invoice_id)
+            SELECT company_id,supplier_id,project_name,
+                json_build_array(json_build_object('workPackage',work_package))::text,
+                amount,paid_amount,'Принято','К оплате',id
+            FROM supplier_invoices WHERE id=%s RETURNING id""", (self.invoice,))[0][0]
+        self.sql('UPDATE supplier_invoices SET warehouse_invoice_id=%s WHERE id=%s',(warehouse,self.invoice))
+        body=self.body()
+        self.call('POST',body=body)
+        self.call(path=self.path+'?requestId='+body['requestId'])
+        original=self.sql('SELECT items FROM warehouse_invoices WHERE id=%s',(warehouse,))[0][0]
+        try:
+            self.sql("UPDATE warehouse_invoices SET items='not json' WHERE id=%s",(warehouse,))
+            self.call(path=self.path+'?requestId='+body['requestId'],expected=409)
+            from fastapi import HTTPException
+            from .reads import transaction, history
+            def scoped(cur, actor, company, project, package, **kwargs):
+                if package == 'Закрытый раздел':
+                    raise HTTPException(403, 'Нет доступа к разделу')
+            self.sql('UPDATE warehouse_invoices SET items=%s WHERE id=%s',
+                     ('[{"workPackage":"Закрытый раздел"}]',warehouse))
+            deps=dict(get_db=self.main.get_db,authorize_read=scoped)
+            with transaction(deps,2) as cur:
+                with self.assertRaises(HTTPException) as error:
+                    history(cur,deps,self.actor,2,limit=50,request_id=body['requestId'])
+                self.assertEqual(error.exception.status_code,403)
+        finally:
+            self.sql('UPDATE warehouse_invoices SET items=%s WHERE id=%s',(original,warehouse))

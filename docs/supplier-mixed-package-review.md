@@ -174,3 +174,20 @@ with its financial WRITE authorizer while retaining the transaction locks.
 A successful read is not financial admission: confirmationAvailable and
 openingConfirmed remain false. Binding evidence to both ledger records and
 updating every payment/history/reversal scope consumer is still outstanding.
+
+
+## History authority prerequisite
+
+The history reader previously checked only the operation target. A PostgreSQL
+HTTP regression reproduced an invoice-target payment returning 200 after its
+impacted warehouse document became malformed. History now expands the bounded
+operation set to all impacted ledger documents and attached receipt mirrors,
+then applies recorded and current financial authority before returning results.
+UUID lookup (including attachment UUIDs) and pagination lookahead use the same
+checks. Warehouse items are selected as original text for the SQL validator,
+including installations storing items as JSONB.
+
+Regression coverage includes malformed paired receipts, revoked current receipt
+package access, and malformed attached mirrors through both operation and
+attachment UUID lookup. This is a history safety fix; mixed opening admission
+remains disabled and the old single-package baseline guard is unchanged.

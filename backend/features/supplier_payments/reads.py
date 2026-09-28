@@ -149,6 +149,27 @@ def _authorize_operations(cur, deps, actor_id, company_id, rows):
     # Authorize the entire bounded set, including lookahead/UUID evidence, before
     # any physical conflict can disclose state to a denied recorded payer/scope.
     authorize = deps['authorize_read']
+    # Include every impacted ledger document and attached receipt. The operation
+    # target alone does not describe the complete financial authority scope.
+    operation_ids = [row['id'] for row in rows if 'kind' in row]
+    attachment_ids = [row['id'] for row in rows if 'invoice_record_id' in row]
+    if operation_ids or attachment_ids:
+        cur.execute('''WITH sources AS (
+            SELECT document_record_id AS id FROM supplier_payment_impacts
+            WHERE company_id=%s AND operation_id=ANY(%s::bigint[])
+            UNION
+            SELECT invoice_record_id FROM supplier_payment_attachments
+            WHERE company_id=%s AND id=ANY(%s::bigint[])
+        ), records AS (
+            SELECT id FROM sources
+            UNION
+            SELECT a.warehouse_record_id FROM supplier_payment_attachments a
+            JOIN sources s ON s.id=a.invoice_record_id WHERE a.company_id=%s
+        )
+        SELECT d.* FROM supplier_payment_documents d JOIN records r ON r.id=d.id
+        WHERE d.company_id=%s ORDER BY d.id''',
+        (company_id, operation_ids, company_id, attachment_ids, company_id, company_id))
+        rows = list(rows) + list(cur.fetchall())
     for row in rows:
         authorize(cur, actor_id, company_id, row['project_name'] or '', row['work_package'] or '',
                   payer_company_id=row['payer_company_id'])
@@ -157,7 +178,7 @@ def _authorize_operations(cur, deps, actor_id, company_id, rows):
         kind = row['document_kind']
         table = TABLES[kind][0]
         columns = ("project_name AS project,COALESCE(work_package,'') AS package" if kind == 'invoice'
-                   else "COALESCE(NULLIF(project,''),location,'') AS project,items")
+                   else "COALESCE(NULLIF(project,''),location,'') AS project,items::text AS items")
         cur.execute(f'SELECT company_id,{columns} FROM {table} WHERE id=%s FOR SHARE', (row['document_id'],))
         physical = cur.fetchone()
         physical_rows.append(physical)
