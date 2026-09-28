@@ -103,3 +103,4 @@
 - Contract archive rows offer “Счета по этой версии”. New bounded contractId filter selects invoice rows using exact contract ID, company and offer, never inferred names or amounts. Conflicting lookup modes rejected.
 - Separate pagination and back preserve prior list/contract context. Foreign-version response rejected. Empty state explains missing bindings.
 - 16 route tests and7 UI tests passed. Read-only SQL rehearsal: current contract362 has zero bound invoices; no data modified.
+- Deployed `91f68d0c0e2f`. Authenticated browser contract362 -> invoices for version -> correct empty state -> back preserved search362. Zero JS errors. 16 server tests, 251 files, unchanged data hashes, health/DB passed. No invoice binding changed. Four verification gates recorded; backup/staging removed.

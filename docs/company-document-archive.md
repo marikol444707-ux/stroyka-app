@@ -18,8 +18,8 @@ the same company. The file comes from source_file_id. Invoice offerId is resolve
 within the same company. Its contractNumber/contractVersion are returned only for
 an exact contract_version_id with matching company and offer. No inference by
 name, amount or supplier. Invoice-to-contract and contract/invoice-to-quotation navigation is available inside
-the archive. Reverse lists of invoices per contract and a canonical contract
-registry remain pending.
+the archive. Each contract version also opens its bound invoices, with separate pagination.
+A canonical contract registry remains pending.
 
 ## API and files
 
@@ -30,6 +30,10 @@ id DESC. Offset pages may shift with concurrent inserts; this is not an export A
 Optional source and recordId select one exact record; both are required together,
 source is allowlisted and ID is bounded. Company/role and file checks still apply.
 The UI preserves the prior search/section/page when returning from a related record.
+
+Optional contractId lists invoices for one exact contract version using matching
+company and offer. It cannot be combined with source/recordId or a non-supplier
+section. Unbound invoices stay absent. The client validates each returned binding.
 
 Each row has stable source/sourceId identity, companyId, title, documentType,
 createdAt, attachments, unavailableAttachments, fileUrl and fileStatus:
