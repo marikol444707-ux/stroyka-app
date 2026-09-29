@@ -21,13 +21,16 @@ class CustomerFileSubmissionTest(unittest.TestCase):
                 (6,12,1,8,'customer-request','deleted',NULL)""")
             cur.execute('''CREATE TEMP TABLE project_letters(id SERIAL PRIMARY KEY,project_name TEXT,company_id INT,
                 project_id INT,created_by_user_id INT,side TEXT,direction TEXT,subject TEXT,body TEXT,
-                counterparty TEXT,letter_date DATE,file_url TEXT,author TEXT,status TEXT,created_at TIMESTAMPTZ DEFAULT NOW())''')
+                counterparty TEXT,letter_date DATE,file_url TEXT,author TEXT,status TEXT,created_at TIMESTAMPTZ DEFAULT NOW(),
+                correction_reason TEXT,correction_requested_at TIMESTAMPTZ,correction_requested_by_id INT,
+                correction_requested_by_name TEXT,corrected_by_letter_id INT,replaces_letter_id INT UNIQUE)''')
         self.user.update(role='заказчик',projectId=1,assignedProjects=['Same name'])
         def context(cur,user,*args,**kwargs):
             if kwargs.get('x_company_id') != str(user['companyId']):raise HTTPException(403,'Company mismatch')
             return user
         scope=RecordScope(self.deps['get_db'],context,lambda user,ctx:[ctx],lambda actor:None if actor.get('role')=='директор' else actor.get('assignedProjects',[]))
-        app=FastAPI();register_customer_file_submission(app,scope,lambda:self.user)
+        app=FastAPI();register_customer_file_submission(app,scope,lambda:self.user,
+            ('директор','заказчик'),('директор',))
         from ..project_records.owned_routes import register_owned_record_routes
         register_owned_record_routes(app,{'record_scope':scope,'get_current_user':lambda:self.user,
             'read_roles':('директор','заказчик'),'write_roles':('директор',),'worker_execution_roles':()})
@@ -71,3 +74,44 @@ class CustomerFileSubmissionTest(unittest.TestCase):
     def test_no_financial_or_status_fields_and_empty_subject(self):
         for changes in ({'subject':'  '},{'status':'Подписан'},{'amount':100},{'companyId':99},{'fileId':True}):
             response=self.send(**changes);self.assertEqual(response.status_code,422,response.text)
+
+    def test_director_requests_correction_and_customer_replaces_without_overwriting_original(self):
+        original=self.send().json()['id']
+        self.user.update(role='директор',id=3,name='Директор')
+        requested=self.client.post(f'/project-letters/{original}/request-correction',
+            json={'reason':'Загрузите подписанный лист полностью'},headers={'X-Company-Id':'12'})
+        self.assertEqual(requested.status_code,200,requested.text)
+        self.user.update(role='заказчик',id=8,name='Заказчик')
+        corrections=self.client.get('/project-letters/corrections',headers={'X-Company-Id':'12'}).json()
+        self.assertEqual(corrections,[{'letterId':original,'reason':'Загрузите подписанный лист полностью',
+            'requestedBy':'Директор','requestedAt':corrections[0]['requestedAt'],'replacementLetterId':None,
+            'resolvedAt':''}])
+        replaced=self.send(fileId=7,replacesLetterId=original,subject='Чертёж — исправлено')
+        self.assertEqual(replaced.status_code,403)  # The new file must still be owned and active.
+        with self.conn.cursor() as cur:
+            cur.execute("INSERT INTO file_ownership VALUES(7,12,1,8,'customer-request','active',NULL)")
+        replaced=self.send(fileId=7,replacesLetterId=original,subject='Чертёж — исправлено')
+        self.assertEqual(replaced.status_code,200,replaced.text)
+        with self.conn.cursor() as cur:
+            cur.execute('SELECT subject,file_url,replaces_letter_id FROM project_letters ORDER BY id')
+            self.assertEqual(cur.fetchall(),[('Чертёж','/tenant-files/1/content',None),
+                ('Чертёж — исправлено','/tenant-files/7/content',original)])
+            cur.execute('SELECT corrected_by_letter_id FROM project_letters WHERE id=%s',(original,))
+            self.assertEqual(cur.fetchone()[0],replaced.json()['id'])
+
+    def test_customer_cannot_request_correction_and_cross_company_record_is_hidden(self):
+        original=self.send().json()['id']
+        denied=self.client.post(f'/project-letters/{original}/request-correction',json={'reason':'Нет'},
+            headers={'X-Company-Id':'12'})
+        self.assertEqual(denied.status_code,403)
+        self.user.update(role='директор',id=3,name='Директор',companyId=99,projectId=2)
+        hidden=self.client.post(f'/project-letters/{original}/request-correction',json={'reason':'Чужой файл'},
+            headers={'X-Company-Id':'99'})
+        self.assertEqual(hidden.status_code,404)
+
+    def test_replacement_requires_an_open_request_for_the_same_customer_and_project(self):
+        original=self.send().json()['id']
+        with self.conn.cursor() as cur:
+            cur.execute("INSERT INTO file_ownership VALUES(7,12,1,8,'customer-request','active',NULL)")
+        response=self.send(fileId=7,replacesLetterId=original)
+        self.assertEqual(response.status_code,409,response.text)

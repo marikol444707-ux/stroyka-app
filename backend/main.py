@@ -16637,7 +16637,8 @@ try:
     from backend.features.customer_cabinet.document_submission import register_customer_file_submission
 except ModuleNotFoundError:
     from features.customer_cabinet.document_submission import register_customer_file_submission
-register_customer_file_submission(app, project_record_scope, get_current_user)
+register_customer_file_submission(app, project_record_scope, get_current_user,
+                                  PROJECT_DOCUMENT_ROLES, PROJECT_WRITE_ROLES)
 
 register_customer_hidden_acts(app, project_record_scope, get_current_user, _lock_legacy_work_settlement, hidden_work_effective_status)
 
