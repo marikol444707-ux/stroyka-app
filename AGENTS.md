@@ -44,3 +44,21 @@ health endpoint alone is insufficient. Missing/failed verification retains backu
   must not expose the other company's entire archive or internal purchase data.
 - Completion requires cross-company, profile-change/reprint, manual-edit and
   end-to-end tests from the matrix. A written plan is not proof of implementation.
+
+# Repository rules
+
+- GitHub is the source of truth. Inspect and extend the existing architecture;
+  keep changes small and scoped.
+- Never modify production data directly, deploy automatically, run destructive
+  database operations, or apply production migrations automatically.
+- Never expose or commit secrets, API keys, passwords, tokens, or `.env` files.
+- Tenant isolation is mandatory. Preserve `company_id`, enforce ownership on the
+  server, and never add fallback ownership such as `company_id=1`.
+- LLMs use restricted backend tools and never access the database directly.
+  Deterministic code calculates authoritative business values.
+- Keep `uvicorn backend.main:app` working and avoid broad rewrites of
+  `backend/main.py` while its domains are being extracted.
+- Bug fixes require practical regression tests. Run narrow checks first, then the
+  relevant backend tests and frontend build/tests.
+- Work on a dedicated branch or worktree and never write directly to `main`.
+  Report changed files, tests, failures, and remaining risks.

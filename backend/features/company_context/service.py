@@ -283,7 +283,10 @@ def user_company_memberships(
         # Explicit memberships remain authoritative even when all are revoked
         # or their companies are inactive. Legacy fallback is only for users
         # with no membership records, not an alternative grant after revocation.
-        return rows if include_inactive else [row for row in rows if row['active'] and row['companyActive']]
+        return [row for row in rows
+            if str(row.get('role') or '').strip()
+            and str(row.get('role') or '') == str(row.get('role') or '').strip()
+            and (include_inactive or (row['active'] and row['companyActive']))]
     legacy_company_id = _as_int(user.get("companyId") or user.get("company_id"))
     if not legacy_company_id or user.get("role") in platform_staff_roles:
         return []
