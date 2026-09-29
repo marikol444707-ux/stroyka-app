@@ -1,5 +1,4 @@
 import React, {useEffect,useState} from 'react';
-import PublishContractButton from './PublishContractButton';
 
 const categories=[
  ['company','Документы компании','company'],
@@ -102,7 +101,6 @@ function Archive({API,companyId,C,card,inp,btnG,setShowPhotoModal}) {
     {row.contractId&&<button style={btnG} onClick={()=>{setRelated(null);setFocused({source:'contract',id:row.contractId});}}>Показать договор</button>}
     {row.offerId&&<button style={btnG} onClick={()=>{setRelated(null);setFocused({source:'offer',id:row.offerId});}}>Показать КП</button>}
    </div>
-   {row.source==='contract'&&row.offerId&&<PublishContractButton API={API} companyId={companyId} row={row} buttonStyle={btnG} onPublished={()=>setRefresh(v=>v+1)}/>}
    {row.projectName&&<p style={{color:C.textSec}}>{row.projectName}{row.status?` · ${row.status}`:''}</p>}
    {row.fileStatus==='not_attached'&&<span>Файл не прикреплён</span>}
    {row.fileStatus==='needs_review'&&<p>Часть вложений недоступна — требуется проверка.</p>}

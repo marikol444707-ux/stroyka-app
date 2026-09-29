@@ -32,7 +32,10 @@ health endpoint alone is insufficient. Missing/failed verification retains backu
   Reprints and exports use the saved snapshot, never today's mutable profile.
 - Show conflicting contract/profile bank details before preparing a new payment;
   do not silently switch accounts. File uploads must not post payments or stock.
-- Share only explicitly addressed document versions. Supplier/customer cabinets
+- A checked supplier contract becomes available to its exact supplier on save;
+  do not add a separate transfer/confirmation step. Auto-select the current checked
+  contract for an invoice; preserve server-side party/version checks.
+- Share only addressed document versions. Supplier/customer cabinets
   must not expose the other company's entire archive or internal purchase data.
 - Completion requires cross-company, profile-change/reprint, manual-edit and
   end-to-end tests from the matrix. A written plan is not proof of implementation.

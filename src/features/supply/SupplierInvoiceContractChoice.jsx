@@ -3,7 +3,7 @@ export default function SupplierInvoiceContractChoice(props){
  if(process.env.REACT_APP_SUPPLIER_DOCUMENT_CONTRACT_BINDINGS_ENABLED!=='true')return null;
  return <Choice key={`${props.API}:${props.userId}:${props.companyId}:${props.offerId}`} {...props}/>;
 }
-function Choice({API,offerId,companyId,value,onChange,disabled}){
+function Choice({API,offerId,companyId,onChange,disabled}){
  const [state,setState]=useState({loading:true}),[reload,setReload]=useState(0);
  const changed=useRef(onChange);changed.current=onChange;
  useEffect(()=>{
@@ -19,10 +19,11 @@ function Choice({API,offerId,companyId,value,onChange,disabled}){
    if(!live)return;
    if(parties.companyId!==companyId || parties.offerId!==offerId)throw new Error('Стороны относятся к другой сделке.');
    const contract=history.items?.[0];
-   if(!contract){setState({loading:false,error:'Заказчик ещё не передал договор. Попросите его проверить версию и нажать «Передать поставщику» в архиве документов.'});return;}
+   if(!contract){setState({loading:false,error:'Договор ещё не проверен. Попросите заказчика проверить и сохранить его.'});return;}
    if(contract.companyId!==companyId || contract.offerId!==offerId || !Number.isSafeInteger(contract.id) || contract.id<=0 || contract.status!=='reviewed')throw new Error('Версия договора не подтверждена для этой сделки.');
    if(contract.partyVersion!==parties.version)throw new Error('Стороны изменились. Заказчику нужно проверить новую версию договора.');
    setState({loading:false,contract});
+   changed.current(contract.id);
   }).catch(error=>{if(live)setState({loading:false,error:error.message});});
   return()=>{live=false;controller.abort();};
  },[API,companyId,offerId,reload]);
@@ -36,7 +37,7 @@ function Choice({API,offerId,companyId,value,onChange,disabled}){
    <p>Покупатель: {contract.snapshot?.buyer?.fullName}.{!(contract.snapshot?.buyer?.companyId && contract.snapshot.buyer.companyId===contract.snapshot?.payer?.companyId)&&` Плательщик: ${contract.snapshot?.payer?.fullName}.`}</p>
    {Number.isSafeInteger(contract.sourceFileId)&&<p><a href={`${API}/tenant-files/${contract.sourceFileId}/content`} target="_blank" rel="noopener noreferrer">Основной договор</a></p>}
    {contract.snapshot?.addenda?.map(a=>Number.isSafeInteger(a.sourceFileId)&&<p key={a.sourceFileId}><a href={`${API}/tenant-files/${a.sourceFileId}/content`} target="_blank" rel="noopener noreferrer">Допсоглашение № {a.number}</a></p>)}
-   <label><input type="checkbox" checked={value===contract.id} onChange={e=>changed.current(e.target.checked?contract.id:null)}/>Выставить счёт по этой версии договора</label>
+   <p>Договор выбран автоматически.</p>
   </>}
   <button type="button" onClick={()=>{changed.current(null);setState({loading:true});setReload(v=>v+1);}}>Обновить договор</button>
  </fieldset>;

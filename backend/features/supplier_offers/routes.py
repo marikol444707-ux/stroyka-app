@@ -1073,7 +1073,7 @@ def register_supplier_offers_module(app, deps):
                         from ..supplier_deal_parties.publication import supplier_version_visible
                         cur.execute('SELECT v.id FROM supplier_contract_versions v WHERE v.id=%s AND v.company_id=%s AND '+supplier_version_visible('v'),(bound_contract['id'],company_id))
                         if not cur.fetchone():
-                            raise HTTPException(403,'Заказчик ещё не передал эту версию договора поставщику')
+                            raise HTTPException(403,'Договор не относится к этому поставщику')
                 except Exception:
                     conn.rollback()
                     raise

@@ -9,17 +9,11 @@ from .access import build_deal_access
 def supplier_version_visible(alias='v'):
     if alias not in ('v','c'):
         raise ValueError('Unknown contract alias')
-    return f"""(EXISTS (SELECT 1 FROM supplier_offers recipient_offer
+    # Saving a reviewed version addresses it to the supplier of that exact offer.
+    # Callers must additionally apply live offer/company/manager authorization.
+    return f"""EXISTS (SELECT 1 FROM supplier_offers recipient_offer
         WHERE recipient_offer.id={alias}.offer_id AND recipient_offer.company_id={alias}.company_id
-          AND recipient_offer.supplier_id::text={alias}.snapshot_json #>> '{{supplier,supplierId}}')
-        AND (EXISTS (SELECT 1 FROM supplier_contract_publications publication
-        WHERE publication.contract_version_id={alias}.id AND publication.company_id={alias}.company_id
-          AND publication.snapshot_hash={alias}.snapshot_hash)
-        OR EXISTS (SELECT 1 FROM supplier_invoices bound_invoice JOIN supplier_offers bound_offer
-          ON bound_offer.id=bound_invoice.offer_id AND bound_offer.company_id=bound_invoice.company_id
-          AND bound_offer.supplier_id=bound_invoice.supplier_id
-          WHERE bound_invoice.contract_version_id={alias}.id AND bound_invoice.company_id={alias}.company_id
-            AND bound_invoice.offer_id={alias}.offer_id)))"""
+          AND recipient_offer.supplier_id::text={alias}.snapshot_json #>> '{{supplier,supplierId}}')"""
 
 class PublishDecision(BaseModel):
     model_config=ConfigDict(extra='forbid')

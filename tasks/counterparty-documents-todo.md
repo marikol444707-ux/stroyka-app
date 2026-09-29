@@ -153,3 +153,12 @@
 - 75 contract/provenance/binding cases and 22 archive cases passed; 24 targeted UI cases passed. Local actual-component browser confirmed explicit recipient/version and published readback. Release evidence follows. D4 customer publication and a consolidated supplier Documents view remain separate increments.
 - Dependency audit run: 39 existing production-tree findings (10 low,10 moderate,19 high,0 critical); package manifests/lock unchanged. Dependency remediation is not claimed complete by this release.
 - Deployed `46fb58f9f1dd`/Alembic0066 and backend identity-defense follow-up `ae0539bd39ce`. PostgreSQL FK already prevents supplier reassignment; additional read predicate rejects deliberately corrupted temporary fixture links too. 143 focused local backend cases total and 24 UI cases passed; production 87 passed/1 isolated-only skipped. Buyer archive362 confirmation names ООО ВИСТ; opened/cancelled, no publication. Authenticated archive refreshed after final runtime, zero JS errors, mobile screenshot checked. 251 assets and unchanged business/registry hashes; publications empty. Four gates recorded; backup/staging removed and health/DB OK. Supplier consolidated Documents view and customer addressed publication remain pending, not claimed completed.
+
+### 29.09.2026 — исправление лишних действий с договором
+
+Удалён шаг «Передать поставщику» из архива. Проверенная версия доступна точному
+поставщику КП сразу после сохранения; менеджер ограничен действующим назначением.
+Текущий проверенный договор счёта выбирается автоматически без галочки.
+PG: 30 сценариев; UI: 22. Продакшен-проверка ещё предстоит.
+Автоматическое повторное использование между разными КП и вход из карточки
+поставщика этим изменением не завершены; не выдавать за готовые.

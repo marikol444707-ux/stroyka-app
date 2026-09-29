@@ -466,8 +466,8 @@ class ContractPostgresTest(unittest.TestCase):
             with self.conn.cursor() as cur:
                 return supplier_contract_file_visible(cur,self.user,{'id':file_id,'company_id':12,'project_id':None},self.deps['current_supplier_ids'](cur,self.user))
         self.user={'id':14,'role':'поставщик'}
-        self.assertEqual(self.history().json()['items'],[])
-        self.assertFalse(file_visible(31));self.assertFalse(file_visible(36))
+        self.assertEqual([r['id'] for r in self.history().json()['items']],[second['id'],first['id']])
+        self.assertTrue(file_visible(31));self.assertTrue(file_visible(36))
         self.assertEqual(self.contract_client.post(f"/supplier-offers/40/contracts/{second['id']}/publish",json={'confirmed':True}).status_code,403)
         self.user=publisher
         path=f"/supplier-offers/40/contracts/{second['id']}/publish"
@@ -477,12 +477,12 @@ class ContractPostgresTest(unittest.TestCase):
             response=self.contract_client.post(path,json={'confirmed':True})
             self.assertEqual(response.status_code,200,response.text)
         self.user={'id':14,'role':'поставщик'}
-        self.assertEqual([r['id'] for r in self.history().json()['items']],[second['id']])
+        self.assertEqual([r['id'] for r in self.history().json()['items']],[second['id'],first['id']])
         self.assertTrue(file_visible(31));self.assertTrue(file_visible(36));self.assertFalse(file_visible(32))
         self.user=publisher
         third=self.review(expectedVersion=2,revisesContractId=second['id']).json()
         self.user={'id':14,'role':'поставщик'}
-        self.assertEqual([r['id'] for r in self.history().json()['items']],[second['id']])
+        self.assertEqual([r['id'] for r in self.history().json()['items']],[third['id'],second['id'],first['id']])
         with self.conn.cursor() as cur:
             cur.execute('DELETE FROM supplier_customer_assignments')
         self.assertEqual(self.history().status_code,403)
@@ -506,10 +506,10 @@ class ContractPostgresTest(unittest.TestCase):
         with self.conn.cursor() as cur:
             cur.execute('INSERT INTO supplier_invoices VALUES (1,12,40,5,%s)',(first['id'],))
         self.user={'id':13,'role':'поставщик'}
-        self.assertEqual([r['id'] for r in self.history().json()['items']],[first['id']])
+        self.assertEqual([r['id'] for r in self.history().json()['items']],[second['id'],first['id']])
         with self.conn.cursor() as cur:
             cur.execute('UPDATE supplier_invoices SET company_id=99')
-        self.assertEqual(self.history().json()['items'],[])
+        self.assertEqual([r['id'] for r in self.history().json()['items']],[second['id'],first['id']])
 
     def test_publication_rejects_archived_stale_and_unavailable_original(self):
         first=self.review().json()
