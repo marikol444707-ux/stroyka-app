@@ -97,7 +97,6 @@ export default function AppOperationsPages({ activePage, ui, constants, state, a
     isLeadership,
     isProrab,
     isSupplyDeliveryInvoice,
-    loadAll,
     loadMaterialsPage,
     loadSupplyStockCheck,
     matchSearch,
@@ -360,7 +359,7 @@ export default function AppOperationsPages({ activePage, ui, constants, state, a
           setNewSupplierInvoice={setNewSupplierInvoice}
           expandedProject={expandedProject}
           setExpandedProject={setExpandedProject}
-          loadAll={loadAll}
+          loadAll={() => refreshData('supply')}
           toNum={toNum}
           supplierCategories={SUPPLIER_CATEGORIES}
           editingItem={editingItem}

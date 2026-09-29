@@ -16,6 +16,22 @@ const canLoadPeopleDataForRole = (role) => PEOPLE_DATA_ROLES.includes(role);
 const canLoadUserDirectoryForRole = (role) => USER_DIRECTORY_ROLES.includes(role);
 const canLoadAccountingDataForRole = (role) => ACCOUNTING_DATA_ROLES.includes(role);
 const assignmentsPathForRole = (role) => SYSTEM_ASSIGNMENT_ROLES.includes(role) ? '/assignments?include_system=true' : '/assignments';
+const RELATED_REFRESH_PAGES = {
+  supply: ['accounting', 'warehouse', 'dashboard'],
+  suppliers: ['accounting', 'warehouse', 'dashboard'],
+  warehouse: ['supply', 'accounting', 'dashboard', 'projects'],
+  materials: ['supply', 'accounting', 'dashboard', 'projects'],
+  accounting: ['supply', 'dashboard'],
+  projects: ['assignments', 'estimates', 'accounting', 'dashboard'],
+  site: ['assignments', 'estimates', 'accounting', 'dashboard'],
+  works: ['assignments', 'estimates', 'accounting', 'dashboard'],
+  documents: ['accounting', 'dashboard'],
+  cable: ['warehouse', 'dashboard'],
+  estimates: ['projects', 'supply', 'dashboard'],
+  personnel: ['users', 'accounting', 'projects'],
+  users: ['personnel', 'assignments'],
+  pricelists: ['estimates', 'projects'],
+};
 
 export const useAppDataLoaders = (ctx) => {
   const reloadCustomerRecords = useCustomerRecordsLoader(ctx);
@@ -44,6 +60,7 @@ export const useAppDataLoaders = (ctx) => {
   const journalRequests = useRef({ inspections: 0, cables: 0 });
   const journalStatuses = useRef({});
   const journalMounted = useRef(true);
+  const refreshRequests = useRef(new Map());
   const setJournalRows = (kind, rows) => (kind === 'inspections' ? setMaterialInspections : setCableJournal)?.(rows);
   const setJournalState = (kind, value) => setQualityJournalLoadState?.(previous => ({ ...previous, [kind]: value }));
   const loadQualityJournal = async (kind, enabled = true, preserveRows = false) => {
@@ -887,16 +904,24 @@ export const useAppDataLoaders = (ctx) => {
   };
 
   const refreshData = async (page = activePage) => {
-    if (user?.role === 'заказчик') await reloadCustomerRecords();
-    mobileApiRequestsRef.current.clear();
-    mobileLoadedScopesRef.current.delete('full');
-    const scope = mobileScopeForPage(page);
-    if (scope) mobileLoadedScopesRef.current.delete(scope);
-    if (page === 'dashboard') {
-      mobileLoadedScopesRef.current.delete('mobile:init');
-      await loadMobileInitial();
-    }
-    await loadMobilePageData(page);
+    const refreshKey = `${journalScope}:${mobileScopeForPage(page) || page}`;
+    const pending = refreshRequests.current.get(refreshKey);
+    if (pending) return pending;
+    const request = (async () => {
+      if (user?.role === 'заказчик') await reloadCustomerRecords();
+      mobileLoadedScopesRef.current.delete('full');
+      [page, ...(RELATED_REFRESH_PAGES[page] || [])].forEach(relatedPage => {
+        const scope = mobileScopeForPage(relatedPage);
+        if (scope) mobileLoadedScopesRef.current.delete(scope);
+      });
+      if (page === 'dashboard') {
+        mobileLoadedScopesRef.current.delete('mobile:init');
+        await loadMobileInitial();
+      }
+      await loadMobilePageData(page);
+    })().finally(() => refreshRequests.current.delete(refreshKey));
+    refreshRequests.current.set(refreshKey, request);
+    return request;
   };
 
   return {
