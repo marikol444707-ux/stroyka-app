@@ -19,6 +19,9 @@ class EmailTenantIsolationPostgresTests(unittest.TestCase):
     state = support.EmailAttemptsPostgresTests.state
 
     def test_shared_supplier_independent_content_state_and_authorization(self):
+        self.sql("""INSERT INTO company_requisites(company_id,short_name,email)
+            VALUES(2,'CUSTOMER A','a@example.test'),(3,'CUSTOMER B','b@example.test')
+            ON CONFLICT(company_id) DO UPDATE SET short_name=EXCLUDED.short_name,email=EXCLUDED.email""")
         request_a, recipient_a = self.queued()
         self.sql("UPDATE supply_requests SET notes='PRIVATE COMPANY A' WHERE id=%s", (request_a,))
         project_b = 'PRIVATE COMPANY B OBJECT'
@@ -40,8 +43,8 @@ class EmailTenantIsolationPostgresTests(unittest.TestCase):
             FROM supply_request_recipients WHERE id=%s RETURNING id''',
             (request_b, EMAIL_QUEUED, recipient_a))[0][0]
         captured = []
-        def send(address, subject, body):
-            captured.append((address, subject, body))
+        def send(address, subject, body, sender_name, reply_to):
+            captured.append((address, subject, body, sender_name, reply_to))
             return 'PRIVATE COMPANY A' in body
         with patch.object(self.main, '_smtp_configured', return_value=True), patch.object(self.main, '_send_rfq_email', side_effect=send):
             # Cross-company and cross-request combinations cannot claim anything.
@@ -62,9 +65,13 @@ class EmailTenantIsolationPostgresTests(unittest.TestCase):
             self.dispatch(request_b, recipient_b, 3)
         self.assertEqual(len(captured), 2)
         self.assertEqual({row[0] for row in captured}, {'synthetic@example.com'})
-        messages = {subject: body for _, subject, body in captured}
-        body_a = messages['Запрос КП №' + str(request_a)]
-        body_b = messages['Запрос КП №' + str(request_b)]
+        row_a = next(row for row in captured if 'PRIVATE COMPANY A' in row[2])
+        row_b = next(row for row in captured if 'PRIVATE COMPANY B' in row[2])
+        body_a,body_b=row_a[2],row_b[2]
+        self.assertEqual((row_a[1],row_a[3],row_a[4]),
+            ('Запрос КП №'+str(request_a)+' от CUSTOMER A','Стройка · CUSTOMER A','a@example.test'))
+        self.assertEqual((row_b[1],row_b[3],row_b[4]),
+            ('Запрос КП №'+str(request_b)+' от CUSTOMER B','Стройка · CUSTOMER B','b@example.test'))
         self.assertIn('PRIVATE COMPANY A', body_a)
         self.assertNotIn('PRIVATE COMPANY B', body_a)
         self.assertIn('PRIVATE COMPANY B', body_b)

@@ -1862,13 +1862,17 @@ def _supply_request_notification_context(cur, request_id: int, supplier_id=None)
     items = _json_list_or_empty(_row_get(row, "items_json", 7, None))
     scoped_items = None
     if supplier_id:
-        cur.execute("""SELECT to_jsonb(o)->>'requested_items_json' AS requested
+        cur.execute("""SELECT to_jsonb(o)->>'requested_items_json' AS requested,
+                              o.response_due_at
             FROM supplier_offers o WHERE request_id=%s AND supplier_id=%s AND company_id=%s ORDER BY id DESC LIMIT 1""",
             (request_id, supplier_id, _row_get(row, 'company_id', 8, None)))
         offer = cur.fetchone()
         if offer and _row_get(offer, 'requested', 0, None):
             scoped_items = _json_list_or_empty(_row_get(offer, 'requested', 0, None))
             items = scoped_items
+        response_due_at = _row_get(offer, 'response_due_at', 1, None) if offer else None
+    else:
+        response_due_at = None
     item_lines = []
     for item in items[:5]:
         if not isinstance(item, dict):
@@ -1889,6 +1893,14 @@ def _supply_request_notification_context(cur, request_id: int, supplier_id=None)
         unit = scoped_items[0]['unit'] if len(scoped_items) == 1 else 'поз.'
     project = _row_get(row, "project", 4, "") or ""
     company_id = _row_get(row, "company_id", 8, None)
+    cur.execute("""SELECT
+            COALESCE(NULLIF(BTRIM(r.short_name),''),NULLIF(BTRIM(r.full_name),''),
+                     NULLIF(BTRIM(c.short_name),''),NULLIF(BTRIM(c.name),''),'Компания-заказчик') AS company_name,
+            COALESCE(NULLIF(BTRIM(r.email),''),NULLIF(BTRIM(c.contact_email),''),
+                     NULLIF(BTRIM(c.email),''),'') AS company_email
+        FROM companies c LEFT JOIN company_requisites r ON r.company_id=c.id
+        WHERE c.id=%s""", (company_id,))
+    company = cur.fetchone() or {}
     project_id = None
     if company_id and project and project != "Основной склад":
         cur.execute(
@@ -1905,6 +1917,8 @@ def _supply_request_notification_context(cur, request_id: int, supplier_id=None)
     return {
         "id": int(_row_get(row, "id", 0, request_id) or request_id),
         "companyId": company_id,
+        "companyName": _row_get(company, "company_name", 0, "") or "Компания-заказчик",
+        "companyEmail": _row_get(company, "company_email", 1, "") or "",
         "projectId": project_id,
         "project": project,
         "workPackage": _row_get(row, "work_package", 5, "") or "",
@@ -1913,33 +1927,14 @@ def _supply_request_notification_context(cur, request_id: int, supplier_id=None)
         "unit": unit,
         "notes": _row_get(row, "notes", 6, "") or "",
         "itemLines": item_lines,
+        "responseDueAt": response_due_at,
     }
 
 def _supply_request_notification_text(request_context: dict, supplier_name: str = "") -> tuple:
-    request_id = int((request_context or {}).get("id") or 0)
-    project = (request_context or {}).get("project") or "объект не указан"
-    package = (request_context or {}).get("workPackage") or "Основная"
-    title = "Запрос КП №" + str(request_id)
-    greeting = "Здравствуйте."
-    if supplier_name:
-        greeting = "Здравствуйте, " + supplier_name + "."
-    lines = [
-        greeting,
-        "",
-        "Вам отправлен запрос коммерческого предложения в СтройКа.",
-        "Объект: " + project,
-        "Раздел: " + package,
-    ]
-    item_lines = (request_context or {}).get("itemLines") or []
-    if item_lines:
-        lines.append("")
-        lines.append("Позиции:")
-        lines.extend(item_lines)
-    notes = ((request_context or {}).get("notes") or "").strip()
-    if notes:
-        lines.extend(["", "Комментарий: " + notes])
-    lines.extend(["", "Открыть запрос: " + _supply_kp_public_url(request_id)])
-    return title, "\n".join(lines)
+    from backend.features.supplier_access.rfq_email_content import build_rfq_email
+    context = {**(request_context or {})}
+    context["publicUrl"] = _supply_kp_public_url(int(context.get("id") or 0))
+    return build_rfq_email(context, supplier_name)
 
 def _queue_supply_request_max_notification(cur, recipient: dict, request_context: dict, offer_id=None, *, ensure_schema=True) -> tuple:
     supplier_user_id = recipient.get("supplier_user_id") or recipient.get("supplierUserId")
@@ -1977,7 +1972,7 @@ def _queue_supply_request_max_notification(cur, recipient: dict, request_context
     existing = cur.fetchone()
     if existing:
         return int(_row_get(existing, "id", 0, 0) or 0), "В очереди MAX"
-    title, body = _supply_request_notification_text(request_context, recipient.get("supplier_name") or "")
+    title, body, _, _ = _supply_request_notification_text(request_context, recipient.get("supplier_name") or "")
     payload = {
         "requestId": request_id,
         "offerId": offer_id,
@@ -2106,10 +2101,11 @@ def _notify_supply_request_recipients(cur, request_id: int, company_id: int = No
         })
     return notifications
 
-def _send_rfq_email(to_email, subject, text):
+def _send_rfq_email(to_email, subject, text, sender_name='', reply_to=''):
     from backend.features.supplier_access.smtp_delivery import send_rfq_email
     return send_rfq_email(to_email, subject, text, host=SMTP_HOST, port=SMTP_PORT,
-        sender=SMTP_FROM, username=SMTP_USER, password=SMTP_PASSWORD, ssl=SMTP_SSL, tls=SMTP_TLS)
+        sender=SMTP_FROM, username=SMTP_USER, password=SMTP_PASSWORD, ssl=SMTP_SSL,
+        tls=SMTP_TLS, sender_name=sender_name, reply_to=reply_to)
 
 def _dispatch_supply_recipient_email(request_id, company_id, recipient_id):
     dispatch_recipient_email(
