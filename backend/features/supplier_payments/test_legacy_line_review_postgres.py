@@ -48,11 +48,15 @@ class LegacyLineReviewPostgresTests(unittest.TestCase):
         upload=self.client.post('/upload-photo',files={'file':('original.txt',b'Synthetic original: 2 units, gross 200, VAT 34.','text/plain')},
             data={'context':'supplier-invoice'},headers={'Authorization':'Bearer '+token,'X-Company-Id':'2','X-Company-Mode':'company'})
         self.assertEqual(upload.status_code,200,upload.text)
+        self.original_file_id=upload.json()['fileId']
+        self.sql("UPDATE supplier_invoices SET file_url=%s WHERE id=%s",
+                 (f'/tenant-files/{self.original_file_id}/content',self.invoice))
         self.review_path=f'/supplier-invoices/{self.invoice}/legacy-line-review'
         preview=self.api('director','GET',self.review_path)
-        self.body=dict(requestId=str(uuid4()),contractVersionId=self.contract_id,sourceFileId=upload.json()['fileId'],
+        self.assertEqual(preview['sourceFile']['fileId'],self.original_file_id)
+        self.body=dict(requestId=str(uuid4()),contractVersionId=self.contract_id,sourceFileId=self.original_file_id,
             expectedAmount='200.00',vatAmount='34.00',reason='Synthetic original review',confirmed=True,
-            lines=[dict({k:v for k,v in row.items() if k!='lineNo'},vatAmount='34.00') for row in preview['lines']])
+            lines=[dict({k:v for k,v in row.items() if k not in ('lineNo','maxQuantity')},vatAmount='34.00') for row in preview['lines']])
 
     def review(self,body=None,actor='director',expected=200):
         return self.api(actor,'POST',self.review_path,self.body if body is None else body,expected=expected)
@@ -73,6 +77,21 @@ class LegacyLineReviewPostgresTests(unittest.TestCase):
         self.assertEqual(self.sql('SELECT total_base,total_vat,total_with_vat,supplier_invoice_id FROM warehouse_invoices WHERE id=ANY(%s)',(warehouses,)),[(83,17,100,None)]*2)
         self.assertEqual(self.sql('SELECT paid_amount FROM supplier_invoices WHERE id=%s',(self.invoice,)),[(200,)])
         self.assertTrue(self.review()['replayed'])
+
+    def test_partial_legacy_invoice_uses_reviewed_quantity_and_existing_original(self):
+        self.sql('UPDATE supplier_invoices SET amount=100,vat_amount=17 WHERE id=%s',(self.invoice,))
+        preview=self.api('director','GET',self.review_path)
+        self.assertEqual(preview['sourceFile']['fileId'],self.original_file_id)
+        self.assertEqual(preview['lines'][0]['maxQuantity'],'2.000000')
+        self.assertEqual(preview['lines'][0]['quantity'],'1.000000')
+        self.assertEqual(preview['lines'][0]['amount'],'100.00')
+        line={key:value for key,value in preview['lines'][0].items() if key not in ('lineNo','maxQuantity')}
+        body=dict(self.body,requestId=str(uuid4()),expectedAmount='100.00',vatAmount='17.00',
+                  lines=[dict(line,vatAmount='17.00')])
+        saved=self.review(body)
+        self.assertFalse(saved['replayed'])
+        self.assertEqual(self.sql('SELECT quantity,amount,vat_amount FROM supplier_invoice_lines WHERE spec_id=%s',
+                                  (saved['specId'],)),[(1,100,17)])
 
     def test_foreign_actor_and_supplier_cannot_review(self):
         self.review(actor='stranger',expected=403);self.review(actor='supplier',expected=403)

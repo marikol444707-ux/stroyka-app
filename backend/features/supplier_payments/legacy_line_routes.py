@@ -1,4 +1,5 @@
 """Original-document line review for unused bound invoices, default-off routes."""
+import re
 from typing import Annotated, Optional
 from uuid import UUID
 
@@ -9,8 +10,7 @@ from psycopg2.errors import LockNotAvailable
 
 from ..supplier_deal_parties.access import build_deal_access
 from .contract_context import load_invoice_contract
-from .invoice_line_spec import build_invoice_line_spec
-from .legacy_line_review import build_legacy_line_review
+from .legacy_line_review import build_legacy_line_candidates, build_legacy_line_review
 
 
 class LegacyLineReviewInput(BaseModel):
@@ -93,6 +93,20 @@ def register_legacy_line_review_routes(app, deps):
         if not value: raise HTTPException(409, 'Не найдены исходные позиции КП')
         return dict(value)
 
+    def attached_original(cur, invoice):
+        match=re.fullmatch(r'/tenant-files/([1-9][0-9]*)/content',invoice.get('file_url') or '')
+        if not match:
+            return None
+        cur.execute('''SELECT f.id,f.original_name,f.file_url FROM file_ownership f
+            WHERE f.id=%s AND f.company_id=%s AND f.deletion_status='active'
+              AND (f.project_id IS NULL OR f.project_id IN
+                (SELECT id FROM projects WHERE company_id=%s AND name=%s))''',
+            (int(match.group(1)),invoice['company_id'],invoice['company_id'],invoice['project_name']))
+        row=cur.fetchone()
+        return (dict(fileId=row['id'],name=row['original_name'] or 'Оригинал счёта',
+                     url=f"/tenant-files/{row['id']}/content")
+                if row else None)
+
     def result(cur, row, replayed=False):
         cur.execute('SELECT id FROM supplier_invoice_line_specs WHERE legacy_review_id=%s', (row['id'],))
         spec = cur.fetchone()
@@ -116,14 +130,14 @@ def register_legacy_line_review_routes(app, deps):
                 unused(cur,invoice)
                 source=sources(cur,invoice)
                 try:
-                    spec=build_invoice_line_spec(source['request_json'],source['offer_json'],
-                        invoice_amount=invoice['amount'],offer_amount=source['offer_amount'],vat_amount=0,
-                        vat_included=False,work_package=invoice['work_package'])
+                    spec=build_legacy_line_candidates(source['request_json'],source['offer_json'],
+                        invoice_amount=invoice['amount'],offer_amount=source['offer_amount'],
+                        work_package=invoice['work_package'])
                 except ValueError:
                     raise HTTPException(409,'Состав КП и счёта требует сверки; автоматически восстановить строки нельзя') from None
                 return dict(invoiceId=id,companyId=invoice['company_id'],contractVersionId=invoice['contract_version_id'],
                     amount=format(invoice['amount'],'.2f'),vatAmount=format(invoice['vat_amount'],'.2f'),
-                    lines=spec['lines'],reviewed=False)
+                    lines=spec['lines'],sourceFile=attached_original(cur,invoice),reviewed=False)
         finally:conn.rollback();conn.close()
 
     @app.post('/supplier-invoices/{id}/legacy-line-review')
