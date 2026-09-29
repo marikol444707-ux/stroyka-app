@@ -21,15 +21,17 @@ class LedgerTests(unittest.TestCase):
         from ..supplier_access.test_postgres_chain_support import build_fixture
         cls.main, cls.fixture, cleanup = build_fixture()
         cls.addClassCleanup(cleanup)
-        path = Path(__file__).resolve().parents[3] / 'migrations/versions/0045_supplier_payment_ledger.py'
-        tree = ast.parse(path.read_text())
+        root = Path(__file__).resolve().parents[3]
         conn = cls.main.get_db()
         try:
             with conn, conn.cursor() as cur:
-                namespace = {'op': SimpleNamespace(execute=cur.execute)}
-                exec(compile(ast.Module(body=[n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.Assign))],
-                                        type_ignores=[]), str(path), 'exec'), namespace)
-                namespace['upgrade']()
+                for name in ('0045_supplier_payment_ledger.py', '0072_supplier_payment_date_guard.py'):
+                    path = root / 'migrations/versions' / name
+                    tree = ast.parse(path.read_text())
+                    namespace = {'op': SimpleNamespace(execute=cur.execute)}
+                    exec(compile(ast.Module(body=[n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.Assign))],
+                                            type_ignores=[]), str(path), 'exec'), namespace)
+                    namespace['upgrade']()
         finally:
             conn.close()
 
