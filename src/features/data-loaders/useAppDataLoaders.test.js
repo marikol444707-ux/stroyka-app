@@ -266,6 +266,70 @@ test('refreshing the warehouse reloads tools, tool history and inventory', async
   expect(setInventory).toHaveBeenCalledWith([{id: '/api/inventory'}]);
 });
 
+test('concurrent supply refreshes share one scoped request batch and leave related pages stale', async () => {
+  const loadedScopes = new Set([
+    'mobile:supply',
+    'mobile:accounting',
+    'mobile:warehouse',
+    'mobile:dashboard',
+    'mobile:projects-docs',
+  ]);
+  const pending = [];
+  global.fetch = jest.fn(url => new Promise(resolve => pending.push({url, resolve})));
+
+  const context = new Proxy({
+    activePage: 'supply',
+    API: '/api',
+    buildPagedPath: path => path,
+    canAccessRole: () => false,
+    initialDataLoaded: false,
+    materialNormSearch: '',
+    mobileApiRequestsRef: {current: new Map()},
+    mobileLoadedScopesRef: {current: loadedScopes},
+    mobileScopeForPage: page => ({
+      supply: 'mobile:supply', accounting: 'mobile:accounting',
+      warehouse: 'mobile:warehouse', dashboard: 'mobile:dashboard',
+    }[page] || ''),
+    roleFlagsForUser: () => ({
+      role: 'снабженец', isSupplyRole: true, isInternalRole: true,
+      canSeeSupplierInvoices: true, canSeeProjectDocs: false,
+    }),
+    ROLES: {},
+    setInitialDataLoaded: setter(),
+    setUser: setter(),
+    user: {id: 1, role: 'снабженец'},
+  }, {get: (target, name) => name in target ? target[name] : String(name).startsWith('set') ? setter() : undefined});
+
+  const {result} = renderHook(() => useAppDataLoaders(context));
+  loadedScopes.add('mobile:supply');
+  loadedScopes.add('mobile:accounting');
+  loadedScopes.add('mobile:warehouse');
+  loadedScopes.add('mobile:dashboard');
+  loadedScopes.add('mobile:projects-docs');
+  let first;
+  let second;
+  act(() => {
+    first = result.current.refreshData('supply');
+    second = result.current.refreshData('supply');
+  });
+
+  expect(global.fetch).toHaveBeenCalledTimes(8);
+  expect(new Set(global.fetch.mock.calls.map(([url]) => url))).toEqual(new Set([
+    '/api/suppliers', '/api/supply-requests', '/api/supplier-offers', '/api/supply-history',
+    '/api/supply-deliveries', '/api/supply-claims', '/api/supplier-invoices', '/api/supplier-catalog',
+  ]));
+  expect(loadedScopes.has('mobile:accounting')).toBe(false);
+  expect(loadedScopes.has('mobile:warehouse')).toBe(false);
+  expect(loadedScopes.has('mobile:dashboard')).toBe(false);
+  expect(loadedScopes.has('mobile:projects-docs')).toBe(true);
+
+  await act(async () => {
+    pending.forEach(({resolve}) => resolve({ok: true, json: async () => []}));
+    await Promise.all([first, second]);
+  });
+  expect(global.fetch).toHaveBeenCalledTimes(8);
+});
+
 test('loading settings hydrates both document data and the editable requisites form', async () => {
   const requisites = {
     companyId: 42,

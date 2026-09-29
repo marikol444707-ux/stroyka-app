@@ -7,7 +7,7 @@ export default function AppSupplierCabinetRoute({ actions = {}, constants = {}, 
   const teamContext = useSupplierTeam(ui.API, data.user);
   const inbox = useSupplierInbox(ui.API, data.user, true);
   const refreshData = async () => {
-    await Promise.allSettled([inbox.reload(), teamContext.reload(), actions.refreshData?.()]);
+    await Promise.allSettled([inbox.reload(), teamContext.reload(), actions.refreshData?.('supply')]);
   };
   return (
     <SupplierCabinetPage
