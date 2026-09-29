@@ -44,7 +44,18 @@ jobs:
         run: PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python -m py_compile backend/main.py backend/config.py backend/db.py backend/__init__.py migrations/env.py migrations/versions/*.py
 
       - name: Run backend tests
-        run: PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python -m unittest discover -s backend -p "test_*.py" -t .
+        shell: bash
+        run: |
+          set -o pipefail
+          backend_test_log="$(mktemp)"
+          set +e
+          PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python -m unittest discover -s backend -p "test_*.py" -t . 2>&1 | tee "$backend_test_log"
+          backend_test_status="${PIPESTATUS[0]}"
+          set -e
+          if [ "$backend_test_status" -ne 0 ]; then
+            python -c 'import re,sys; text=open(sys.argv[1], encoding="utf-8", errors="replace").read(); blocks=re.findall(r"={70}\n(?:ERROR|FAIL):.*?(?=\n={70}|\n-{70}\nRan )", text, re.S); names="\n".join(re.findall(r"^(?:ERROR|FAIL):.*$", text, re.M)); divider="\n"+"-"*70; summary=text[text.rfind(divider):] if divider in text else ""; result=(names+"\n\n"+"\n".join(blocks[-3:])+summary)[-9000:]; print("::error title=Backend test failure::" + result.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A"))' "$backend_test_log"
+            exit "$backend_test_status"
+          fi
 
       - name: Run company-context PostgreSQL isolation tests
         env:
