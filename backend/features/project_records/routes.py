@@ -4,7 +4,7 @@ import os
 import re
 
 import psycopg2.extras
-from fastapi import Depends, HTTPException
+from fastapi import Depends, Header, HTTPException
 
 from backend.features.model_gateway.contract import (
     MODEL_GATEWAY_PROVIDER_FAILED,
@@ -247,6 +247,8 @@ def register_project_records_module(app, deps):
     require_project_access = deps["require_project_access"]
     require_row_project_access = deps["require_row_project_access"]
     visible_project_names = deps["visible_project_names"]
+    resolve_work_company_context = deps["resolve_work_company_context"]
+    effective_company_user = deps["effective_company_user"]
     read_roles = deps["read_roles"]
     write_roles = deps["write_roles"]
     worker_execution_roles = deps["worker_execution_roles"]

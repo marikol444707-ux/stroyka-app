@@ -110,6 +110,9 @@ def register_supplier_offers_module(app, deps):
     package_access_filter = deps["package_access_filter"]
     require_project_or_warehouse_access = deps["require_project_or_warehouse_access"]
     user_project_names = deps["user_project_names"]
+    # Allow tests / injection to override company context helpers; fall back to imported names.
+    resolve_resource_company_actor = deps.get("resolve_resource_company_actor") or globals().get("resolve_resource_company_actor")
+    assert_rows_company_scope = deps.get("assert_rows_company_scope") or globals().get("assert_rows_company_scope")
 
 
     @app.get("/supplier-offers")
