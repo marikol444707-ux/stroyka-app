@@ -205,3 +205,9 @@ Verified staging removed. This supersedes the prior multiple-selection limitatio
 - Server reuses live offer visibility and customer-assignment policies; exact supplier identity, company/file ownership and active source required. Manager revocation and foreign supplier denial tested. No internal buyer archive/provenance in response.
 - 53 local PostgreSQL cases and42 React cases passed. Production20 unit cases passed;readonly route with actual active supplier returned1 addressed contract and original download grant.251 assets matched;business/registry hashes unchanged,schema0067 unchanged.
 - Actual React mobile390 fixture visually inspected and downloaded original. Authenticated production buyer VIST document region reopened,0JS errors. Interactive supplier production login not exercised; positive supplier production path verified server-side read-only. No real new contract/payment/receipt created.
+
+### 2026-09-29 — D4c unified customer library, release58992633
+- CustomerDocuments now owns All/Contracts/Letters filters and scoped search;duplicate live CustomerContracts block removed. Existing published originals retained;scope change resets filters/search and stale load data stays hidden. Theme-readable links.
+- 47 customer UI tests passed;7 affected tests rerun after link-color adjustment. Actual mobile390 component browser tested filters/search/foreign-record exclusion;final screenshot inspected.
+- Deployed58992633;45 production scope/file-access tests passed;251 assets matched;business/document/registry hashes and schema0067 unchanged. Authenticated production app reload0JS errors. Positive customer browser flow used synthetic fixture,not real customer login.
+- Incoming customer uploads and addressed publication/version workflow remain pending;this release does not claim full D4c completion. Verified staging cleanup performed after four gates.
