@@ -14,7 +14,11 @@ class ContractDocumentTests(unittest.TestCase):
     def test_non_system_python_runtime_is_bound_read_only(self):
         self.assertEqual(
             python_runtime_bind_args('/opt/hostedtoolcache/Python/3.11/x64'),
-            ['--ro-bind', '/opt/hostedtoolcache/Python/3.11/x64',
+            ['--dir', '/opt',
+             '--dir', '/opt/hostedtoolcache',
+             '--dir', '/opt/hostedtoolcache/Python',
+             '--dir', '/opt/hostedtoolcache/Python/3.11',
+             '--ro-bind', '/opt/hostedtoolcache/Python/3.11/x64',
              '/opt/hostedtoolcache/Python/3.11/x64'],
         )
         self.assertEqual(python_runtime_bind_args('/usr/local'), [])

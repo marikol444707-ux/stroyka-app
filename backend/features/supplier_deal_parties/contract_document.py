@@ -17,7 +17,11 @@ def python_runtime_bind_args(prefix):
     system_roots = (Path('/usr'), Path('/lib'), Path('/lib64'))
     if any(runtime == root or root in runtime.parents for root in system_roots):
         return []
-    return ['--ro-bind', str(runtime), str(runtime)]
+    result = []
+    for parent in reversed(runtime.parents):
+        if parent != Path('/'):
+            result += ['--dir', str(parent)]
+    return result + ['--ro-bind', str(runtime), str(runtime)]
 
 
 def existing_readonly_bind_args(*paths):
