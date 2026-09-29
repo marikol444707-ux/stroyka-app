@@ -16,6 +16,7 @@ from .contract_provenance import RecognitionReview, prepare_contract_provenance
 from .payment_schedule import PaymentSchedule
 from .contract_registry import attach_registry
 from .contract_addenda import Addendum, reviewed_addenda
+from .publication import register_contract_publication, supplier_version_visible
 from .contract_applicability import ContractApplicability, offer_project, eligible_applicability
 
 
@@ -110,6 +111,7 @@ def serialize_contract(row):
 
 def register_supplier_contracts_module(app, deps):
     register_contract_review_context(app, deps)
+    register_contract_publication(app, deps)
     get_db = deps['get_db']
     company_actor, load_offer = build_deal_access(deps)
 
@@ -257,9 +259,10 @@ def register_supplier_contracts_module(app, deps):
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             load_offer(cur, id, current_user, 'read', x_company_id, x_company_mode)
+            visibility = ' AND '+supplier_version_visible('c') if current_user.get('role')=='поставщик' else ''
             cur.execute('''SELECT c.*,m.registry_id FROM supplier_contract_versions c
                            LEFT JOIN supplier_contract_registry_versions m ON m.contract_version_id=c.id AND m.company_id=c.company_id
-                           WHERE c.offer_id=%s AND c.version < %s ORDER BY c.version DESC LIMIT %s''',
+                           WHERE c.offer_id=%s AND c.version < %s''' + visibility + ' ORDER BY c.version DESC LIMIT %s',
                         (id,beforeVersion if beforeVersion is not None else MAX_ID + 1,limit+1))
             rows = cur.fetchall()
             items = [serialize_contract(row) for row in rows[:limit]]

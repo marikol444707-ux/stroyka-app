@@ -191,6 +191,7 @@ class ArchiveTests(unittest.TestCase):
                               dbname=os.environ['DB_NAME'],user=os.environ['DB_USER'])
         try:
             with conn.cursor() as cur:
+                cur.execute('CREATE TEMP TABLE supplier_contract_publications (contract_version_id int,company_id int,snapshot_hash text)')
                 cur.execute('CREATE TEMP TABLE projects (id int, company_id int, name text)')
                 cur.execute('CREATE TEMP TABLE supplier_contract_registry (id BIGINT,company_id INTEGER,archived BOOLEAN,state_version INTEGER)')
                 cur.execute('CREATE TEMP TABLE supplier_contract_registry_versions (contract_version_id int, registry_id int, company_id int)')

@@ -48,7 +48,7 @@ class ContractPostgresTest(unittest.TestCase):
                 company_id INTEGER, project_id INTEGER, deletion_status TEXT DEFAULT 'active')''')
             cur.execute("""INSERT INTO file_ownership VALUES (31,12,NULL,'active'),
                 (32,99,NULL,'active'),(33,12,45,'active'),(34,12,NULL,'deleting'),(35,12,44,'active')""")
-            for statement in statements('upgrade') + statements('upgrade','0064_supplier_contract_registry.py') + statements('upgrade','0065_contract_archive.py'):
+            for statement in statements('upgrade') + statements('upgrade','0064_supplier_contract_registry.py') + statements('upgrade','0065_contract_archive.py') + statements('upgrade','0066_contract_publications.py'):
                 cur.execute(statement.replace('public.', 'pg_temp.'))
         # Historical split-payer contract fixture: new API requests cannot create it.
         with self.conn.cursor() as cur:
@@ -159,8 +159,8 @@ class ContractPostgresTest(unittest.TestCase):
 
     def test_empty_migration_downgrade_and_upgrade(self):
         with self.conn.cursor() as cur:
-            for statement in (statements('downgrade','0065_contract_archive.py') + statements('downgrade','0064_supplier_contract_registry.py') + statements('downgrade')
-                              + statements('upgrade') + statements('upgrade','0064_supplier_contract_registry.py') + statements('upgrade','0065_contract_archive.py')):
+            for statement in (statements('downgrade','0066_contract_publications.py') + statements('downgrade','0065_contract_archive.py') + statements('downgrade','0064_supplier_contract_registry.py') + statements('downgrade')
+                              + statements('upgrade') + statements('upgrade','0064_supplier_contract_registry.py') + statements('upgrade','0065_contract_archive.py') + statements('upgrade','0066_contract_publications.py')):
                 cur.execute(statement.replace('public.', 'pg_temp.'))
         self.assertEqual(self.review().status_code, 200)
 
@@ -435,3 +435,94 @@ class ContractPostgresTest(unittest.TestCase):
         self.assertEqual(response.status_code,200,response.text)
         self.assertEqual(response.json()['snapshot']['paymentSchedule'],schedule)
         self.assertEqual(self.history().json()['items'][-1],first)
+
+    def publication_scope(self):
+        with self.conn.cursor() as cur:
+            cur.execute('CREATE TEMP TABLE supplier_invoices (id INT,company_id INT,offer_id INT,supplier_id INT,contract_version_id BIGINT)')
+            cur.execute('ALTER TABLE suppliers ADD COLUMN user_id INT')
+            cur.execute('UPDATE suppliers SET user_id=13')
+            cur.execute('CREATE TEMP TABLE users (id INT,role TEXT,active BOOLEAN)')
+            cur.execute("INSERT INTO users VALUES (13,'поставщик',TRUE),(14,'поставщик',TRUE),(15,'поставщик',TRUE)")
+            cur.execute('CREATE TEMP TABLE supplier_team_members (id INT,supplier_id INT,user_id INT,active BOOLEAN,role TEXT)')
+            cur.execute("INSERT INTO supplier_team_members VALUES (1,5,14,TRUE,'manager')")
+            cur.execute('CREATE TEMP TABLE supplier_customer_assignments (supplier_id INT,company_id INT,member_id INT)')
+            cur.execute('INSERT INTO supplier_customer_assignments VALUES (5,12,1)')
+            cur.execute('ALTER TABLE supply_requests ADD COLUMN prorab_confirmed_at TIMESTAMPTZ, ADD COLUMN director_approved_at TIMESTAMPTZ, ADD COLUMN selected_suppliers INT[]')
+            cur.execute('UPDATE supply_requests SET prorab_confirmed_at=NOW(),director_approved_at=NOW(),selected_suppliers=ARRAY[5]')
+            cur.execute('CREATE TEMP TABLE supply_request_recipients (request_id INT,company_id INT,visible_to_supplier BOOLEAN,target_supplier_id INT,supplier_id INT,supplier_group_ids INT[],supplier_user_id INT)')
+        self.deps['current_supplier_ids']=lambda cur,user:[6] if user['id']==15 else [5]
+        flags=patch.dict(os.environ,{'SUPPLIER_TEAM_ENABLED':'1','SUPPLIER_CUSTOMER_ASSIGNMENTS_ENABLED':'1'})
+        flags.start();self.addCleanup(flags.stop)
+
+    def test_supplier_publication_version_files_and_manager_revocation(self):
+        from ..supplier_access.contract_files import supplier_contract_file_visible
+        self.publication_scope()
+        first=self.review().json()
+        with self.conn.cursor() as cur:
+            cur.execute('INSERT INTO file_ownership (id,company_id) VALUES (36,12)')
+        second=self.review(expectedVersion=1,revisesContractId=first['id'],addendum={'sourceFileId':36,'number':'1','date':'2026-09-20'}).json()
+        publisher=dict(self.user)
+        def file_visible(file_id):
+            with self.conn.cursor() as cur:
+                return supplier_contract_file_visible(cur,self.user,{'id':file_id,'company_id':12,'project_id':None},self.deps['current_supplier_ids'](cur,self.user))
+        self.user={'id':14,'role':'поставщик'}
+        self.assertEqual(self.history().json()['items'],[])
+        self.assertFalse(file_visible(31));self.assertFalse(file_visible(36))
+        self.assertEqual(self.contract_client.post(f"/supplier-offers/40/contracts/{second['id']}/publish",json={'confirmed':True}).status_code,403)
+        self.user=publisher
+        path=f"/supplier-offers/40/contracts/{second['id']}/publish"
+        self.assertEqual(self.contract_client.post(path,json={'confirmed':False}).status_code,422)
+        self.assertEqual(self.contract_client.post(path,headers={'X-Company-Id':'99'},json={'confirmed':True}).status_code,409)
+        for _ in range(2):
+            response=self.contract_client.post(path,json={'confirmed':True})
+            self.assertEqual(response.status_code,200,response.text)
+        self.user={'id':14,'role':'поставщик'}
+        self.assertEqual([r['id'] for r in self.history().json()['items']],[second['id']])
+        self.assertTrue(file_visible(31));self.assertTrue(file_visible(36));self.assertFalse(file_visible(32))
+        self.user=publisher
+        third=self.review(expectedVersion=2,revisesContractId=second['id']).json()
+        self.user={'id':14,'role':'поставщик'}
+        self.assertEqual([r['id'] for r in self.history().json()['items']],[second['id']])
+        with self.conn.cursor() as cur:
+            cur.execute('DELETE FROM supplier_customer_assignments')
+        self.assertEqual(self.history().status_code,403)
+        self.assertFalse(file_visible(31));self.assertFalse(file_visible(36))
+        self.user={'id':13,'role':'поставщик'}
+        self.assertTrue(file_visible(36))
+        self.user={'id':15,'role':'поставщик'}
+        self.assertFalse(file_visible(36))
+        self.assertEqual(self.history().status_code,403)
+        self.user=publisher
+        with self.conn.cursor() as cur:
+            cur.execute('SELECT COUNT(*) FROM supplier_contract_publications')
+            self.assertEqual(cur.fetchone()[0],1)
+            with self.assertRaises(psycopg2.errors.RaiseException):
+                cur.execute(statements('downgrade','0066_contract_publications.py')[0].replace('public.','pg_temp.'))
+
+    def test_bound_invoice_keeps_exact_contract_available_without_publication(self):
+        self.publication_scope()
+        first=self.review().json()
+        second=self.review(expectedVersion=1).json()
+        with self.conn.cursor() as cur:
+            cur.execute('INSERT INTO supplier_invoices VALUES (1,12,40,5,%s)',(first['id'],))
+        self.user={'id':13,'role':'поставщик'}
+        self.assertEqual([r['id'] for r in self.history().json()['items']],[first['id']])
+        with self.conn.cursor() as cur:
+            cur.execute('UPDATE supplier_invoices SET company_id=99')
+        self.assertEqual(self.history().json()['items'],[])
+
+    def test_publication_rejects_archived_stale_and_unavailable_original(self):
+        first=self.review().json()
+        second=self.review(expectedVersion=1,revisesContractId=first['id']).json()
+        path=lambda row:f"/supplier-offers/40/contracts/{row['id']}/publish"
+        self.assertEqual(self.contract_client.post(path(first),json={'confirmed':True}).status_code,409)
+        with self.conn.cursor() as cur:
+            cur.execute('UPDATE supplier_contract_registry SET archived=TRUE')
+        self.assertEqual(self.contract_client.post(path(second),json={'confirmed':True}).status_code,422)
+        with self.conn.cursor() as cur:
+            cur.execute('UPDATE supplier_contract_registry SET archived=FALSE')
+            cur.execute("UPDATE file_ownership SET deletion_status='deleting' WHERE id=31")
+        self.assertEqual(self.contract_client.post(path(second),json={'confirmed':True}).status_code,403)
+        with self.conn.cursor() as cur:
+            cur.execute('SELECT COUNT(*) FROM supplier_contract_publications')
+            self.assertEqual(cur.fetchone()[0],0)

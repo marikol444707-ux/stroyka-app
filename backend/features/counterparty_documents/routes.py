@@ -74,6 +74,7 @@ def register_counterparty_document_archive(app, deps):
                 if key == 'contract':
                     fields = "'file_url','/tenant-files/' || d.source_file_id || '/content','offer_id',d.offer_id,'version',d.version"
                     fields += ", 'registry_id',(SELECT m.registry_id FROM supplier_contract_registry_versions m WHERE m.contract_version_id=d.id AND m.company_id=d.company_id)"
+                    fields += ", 'published',EXISTS (SELECT 1 FROM supplier_contract_publications p WHERE p.contract_version_id=d.id AND p.company_id=d.company_id AND p.snapshot_hash=d.snapshot_hash),'supplier_name',d.snapshot_json #>> '{supplier,fullName}'"
                     fields += ", 'addenda',d.snapshot_json->'addenda','photo_urls',(SELECT jsonb_agg('/tenant-files/' || (a->>'sourceFileId') || '/content') FROM jsonb_array_elements(COALESCE(d.snapshot_json->'addenda','[]'::jsonb)) a)"
                     fields += ", 'registry_state',(SELECT jsonb_build_object('archived',r.archived,'version',r.state_version) FROM supplier_contract_registry r JOIN supplier_contract_registry_versions m ON m.registry_id=r.id AND m.company_id=r.company_id WHERE m.contract_version_id=d.id AND m.company_id=d.company_id)"
                     fields += ", 'applicability',d.snapshot_json->'applicability','scope_project_name',(SELECT p.name FROM projects p WHERE p.company_id=d.company_id AND p.id::text=d.snapshot_json #>> '{applicability,projectId}')"
@@ -160,6 +161,8 @@ def register_counterparty_document_archive(app, deps):
                               'offerId': payload.get('offer_id') if source in ('contract', 'invoice') else None,
                               'contractId': payload.get('contract_id') if source == 'invoice' else None,
                               'registryId': payload.get('registry_id') if source == 'contract' else None,
+                              'published': bool(payload.get('published')) if source == 'contract' else None,
+                              'supplierName': payload.get('supplier_name') if source == 'contract' else None,
                               'addenda': payload.get('addenda',[]) if source == 'contract' else [],
                               'registryState': payload.get('registry_state') if source == 'contract' else None,
                               'applicability': payload.get('applicability') if source == 'contract' else None,
