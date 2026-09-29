@@ -8,7 +8,7 @@ from .publication import supplier_version_visible
 
 
 def register_cabinet_contracts(app, deps):
-    @app.get('/supplier-cabinet/contracts')
+    @app.get('/supplier-documents/contracts')
     def listing(response: Response, before: Annotated[Optional[int], Query(gt=0)] = None,
                 user: dict = Depends(deps['get_current_user'])):
         response.headers['Cache-Control'] = 'private, no-store'

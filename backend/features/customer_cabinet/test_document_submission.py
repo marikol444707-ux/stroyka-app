@@ -35,7 +35,7 @@ class CustomerFileSubmissionTest(unittest.TestCase):
         self.body={'projectId':1,'fileId':1,'subject':'Чертёж','body':'Комментарий'}
 
     def send(self,**changes):
-        return self.client.post('/customer-files/send',json={**self.body,**changes},headers={'X-Company-Id':'12','X-Company-Mode':'company'})
+        return self.client.post('/project-letters/customer-files',json={**self.body,**changes},headers={'X-Company-Id':'12','X-Company-Mode':'company'})
 
     def test_publishes_incoming_once_and_retains_original(self):
         first=self.send();self.assertEqual(first.status_code,200,first.text)
@@ -65,7 +65,7 @@ class CustomerFileSubmissionTest(unittest.TestCase):
     def test_scope_role_and_assignment_enforced(self):
         self.assertEqual(self.send(projectId=2).status_code,404)
         self.assertEqual(self.send(projectId=3,fileId=4).status_code,403)
-        self.assertEqual(self.client.post('/customer-files/send',json=self.body,headers={'X-Company-Id':'99'}).status_code,403)
+        self.assertEqual(self.client.post('/project-letters/customer-files',json=self.body,headers={'X-Company-Id':'99'}).status_code,403)
         self.user['role']='директор';self.assertEqual(self.send().status_code,403)
 
     def test_no_financial_or_status_fields_and_empty_subject(self):

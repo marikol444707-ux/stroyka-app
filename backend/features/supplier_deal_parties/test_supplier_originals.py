@@ -108,22 +108,22 @@ class SupplierOriginalsTest(unittest.TestCase):
         with self.conn.cursor() as cur:cur.execute('DROP TABLE supplier_invoices')
         fixture.ContractPostgresTest.publication_scope(self)
         saved=self.save().json()
-        self.assertEqual(self.client.get('/supplier-cabinet/contracts').status_code,403)
+        self.assertEqual(self.client.get('/supplier-documents/contracts').status_code,403)
         self.user={'id':14,'role':'поставщик'}
-        response=self.client.get('/supplier-cabinet/contracts')
+        response=self.client.get('/supplier-documents/contracts')
         self.assertEqual(response.status_code,200,response.text)
         self.assertEqual(response.headers['cache-control'],'private, no-store')
         item=response.json()['items'][0]
         self.assertEqual(item['id'],saved['id'])
         self.assertEqual(item['companyId'],12)
         self.assertNotIn('snapshot',item)
-        self.assertEqual(self.client.get('/supplier-cabinet/contracts?before='+str(saved['id'])).json()['items'],[])
+        self.assertEqual(self.client.get('/supplier-documents/contracts?before='+str(saved['id'])).json()['items'],[])
         with self.conn.cursor() as cur:cur.execute('DELETE FROM supplier_customer_assignments')
-        self.assertEqual(self.client.get('/supplier-cabinet/contracts').json()['items'],[])
+        self.assertEqual(self.client.get('/supplier-documents/contracts').json()['items'],[])
         self.user={'id':13,'role':'поставщик'}
-        self.assertEqual(len(self.client.get('/supplier-cabinet/contracts').json()['items']),1)
+        self.assertEqual(len(self.client.get('/supplier-documents/contracts').json()['items']),1)
         self.user={'id':15,'role':'поставщик'}
-        self.assertEqual(self.client.get('/supplier-cabinet/contracts').json()['items'],[])
+        self.assertEqual(self.client.get('/supplier-documents/contracts').json()['items'],[])
 
     def test_cabinet_reused_contract_is_not_duplicated_and_file_revocation_hides_it(self):
         with self.conn.cursor() as cur:cur.execute('DROP TABLE supplier_invoices')
@@ -135,11 +135,11 @@ class SupplierOriginalsTest(unittest.TestCase):
             self.assertIsNotNone(reused)
         self.conn.commit()
         self.user={'id':14,'role':'поставщик'}
-        response=self.client.get('/supplier-cabinet/contracts')
+        response=self.client.get('/supplier-documents/contracts')
         self.assertEqual(response.status_code,200,response.text)
         self.assertEqual([x['id'] for x in response.json()['items']],[reused])
         with self.conn.cursor() as cur:cur.execute("UPDATE file_ownership SET deletion_status='deleted' WHERE id=31")
-        self.assertEqual(self.client.get('/supplier-cabinet/contracts').json()['items'],[])
+        self.assertEqual(self.client.get('/supplier-documents/contracts').json()['items'],[])
 
     def test_company_archive_includes_standalone_original(self):
         saved=self.save().json()

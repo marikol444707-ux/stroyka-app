@@ -34,7 +34,7 @@ export default function CustomerFileSubmission({project,user,refresh,C,btnG}) {
     {!open && <button type="button" style={btnG} onClick={()=>{setOpen(true);setSuccess('');}}>Отправить файл</button>}
     {open && <form onSubmit={async event=>{
       event.preventDefault();if(blocked || owner.current.busy || !file || !subject.trim())return;
-      await command.run('/customer-files/send',{method:'POST',body:{projectId:project.id,fileId:file.id,subject:subject.trim(),body:body.trim()},
+      await command.run('/project-letters/customer-files',{method:'POST',body:{projectId:project.id,fileId:file.id,subject:subject.trim(),body:body.trim()},
         onSuccess:()=>{setFile(null);setSubject('');setBody('');setOpen(false);setSuccess('Файл отправлен. Он доступен в переписке объекта.');}});
     }}>
       <p>Файл получит компания, ведущая этот объект.</p>

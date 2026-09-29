@@ -16,6 +16,7 @@ test('uploads to exact project and sends owned file as incoming correspondence',
  fireEvent.click(screen.getByRole('button',{name:'Отправить',exact:true}));
  await screen.findByText('Файл отправлен. Он доступен в переписке объекта.');
  const upload=fetch.mock.calls[0][1];expect(upload.body.get('projectId')).toBe('1');expect(upload.headers['X-Company-Id']).toBe('12');
+ expect(fetch.mock.calls[1][0]).toMatch(/\/project-letters\/customer-files$/);
  expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({projectId:1,fileId:31,subject:'plan.pdf',body:''});
  expect(props.refresh).toHaveBeenCalledTimes(1);
 });

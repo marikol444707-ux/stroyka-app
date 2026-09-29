@@ -14,7 +14,7 @@ function Documents({API, fileSrc, C}) {
   useEffect(() => {
     const controller = new AbortController();
     setState({loading:true});
-    fetch(`${API}/supplier-cabinet/contracts${before ? `?before=${before}` : ''}`, {
+    fetch(`${API}/supplier-documents/contracts${before ? `?before=${before}` : ''}`, {
       credentials:'include', cache:'no-store', signal:controller.signal,
     }).then(async response => {
       const data = await response.json();

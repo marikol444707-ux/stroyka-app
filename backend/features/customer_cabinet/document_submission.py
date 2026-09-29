@@ -12,7 +12,7 @@ class CustomerFile(BaseModel):
 
 
 def register_customer_file_submission(app, scope, get_current_user):
-    @app.post('/customer-files/send')
+    @app.post('/project-letters/customer-files')
     def send(data: CustomerFile, request: Request, user: dict = Depends(get_current_user)):
         with scope.transaction(user, request, ('заказчик',), write=True) as (cur, actors):
             actor = actors[0]

@@ -12,6 +12,7 @@ test('shows customer and downloadable original without approval steps',async()=>
  global.fetch=jest.fn(async()=>reply());render(<SupplierContractDocuments {...props}/>);
  await screen.findByText('Договор № 362 от 22.09.2026');expect(screen.getByText('Заказчик А')).toBeTruthy();
  expect(screen.getByRole('button',{name:'Скачать договор'})).toBeTruthy();expect(screen.queryByRole('checkbox')).toBeNull();
+ expect(global.fetch.mock.calls[0][0]).toBe('/api/supplier-documents/contracts');
  expect(global.fetch.mock.calls[0][1]).toMatchObject({credentials:'include',cache:'no-store'});
 });
 test('refresh removes old documents when access is revoked',async()=>{
