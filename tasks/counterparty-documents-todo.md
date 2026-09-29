@@ -6,22 +6,22 @@
 - [x] Зафиксировать решение пользователя: покупатель = плательщик.
 - [x] Определить разделы кабинетов, единый оригинал, публикацию и изоляцию.
 - [x] Уточнение пользователя: отдельный архив каждой компании, в том числе одного владельца; без объединённого архива «Все компании».
-- [ ] D0. Read-only инвентаризация документов/владельцев/связей и исходные контрольные суммы.
-- [ ] D0a. Изоляция существующих юрдокументов: список/создание/удаление/вложения/смена компании, до расширения архива.
-- [ ] D1a. Серверное правило покупатель = плательщик для новых версий.
-- [ ] D1b. Две стороны в формах; исторические версии без изменений.
-- [ ] D2a. Добавочный реестр и связи без копирования оригиналов.
-- [ ] D2b. Изолированные список/поиск/карточка/скачивание.
-- [ ] D2c. Раздел документов выбранной компании: «Моя компания / Поставщики / Заказчики»; настройки открывают тот же архив юрдокументов.
-- [ ] Контрольная точка A: формы, реестры двух компаний, тесты/сборка.
-- [ ] D3a. Договор пары контрагентов, срок/область действия и версии.
-- [ ] D3b. Однократная загрузка/распознавание/проверка.
-- [ ] D3c. Выбор договора для нескольких КП и счетов.
-- [ ] D3d. Допсоглашения/архив и сохранение исторических связей.
-- [ ] D4a. Адресная передача версии и права на сам файл.
-- [ ] D4b. Библиотека поставщика по компаниям-покупателям.
-- [ ] D4c. Библиотека заказчика по разрешённым объектам, входящие файлы.
-- [ ] D4d. Запрос исправления, новая версия, внутреннее уведомление.
+- [x] D0. Read-only инвентаризация документов/владельцев/связей и исходные контрольные суммы.
+- [x] D0a. Изоляция существующих юрдокументов: список/создание/удаление/вложения/смена компании, до расширения архива.
+- [x] D1a. Серверное правило покупатель = плательщик для новых версий.
+- [x] D1b. Две стороны в формах; исторические версии без изменений.
+- [x] D2a. Добавочный реестр и связи без копирования оригиналов.
+- [x] D2b. Изолированные список/поиск/карточка/скачивание.
+- [x] D2c. Раздел документов выбранной компании: «Моя компания / Поставщики / Заказчики»; настройки открывают тот же архив юрдокументов.
+- [x] Контрольная точка A: формы, реестры двух компаний, тесты/сборка.
+- [x] D3a. Договор пары контрагентов, срок/область действия и версии.
+- [x] D3b. Однократная загрузка/распознавание/проверка.
+- [x] D3c. Выбор договора для нескольких КП и счетов.
+- [x] D3d. Допсоглашения/архив и сохранение исторических связей.
+- [x] D4a. Адресная передача версии и права на сам файл.
+- [x] D4b. Библиотека поставщика по компаниям-покупателям.
+- [x] D4c. Библиотека заказчика по разрешённым объектам, входящие файлы.
+- [x] D4d. Запрос исправления, новая версия, внутреннее уведомление.
 - [ ] D5. Dry-run и идемпотентное подключение подтверждённых старых документов.
 - [ ] Контрольная точка B: цепочка сторон, изоляция, проверенный перенос.
 - [ ] D6. Финальные проверки, выпуск, проверка рабочего сайта и очистка резерва.
@@ -219,8 +219,25 @@ Verified staging removed. This supersedes the prior multiple-selection limitatio
 - Release c36ed9bd installed;251 assets matched;schema0067 unchanged;financial/stock/document/registry/project_letters/file_ownership hashes unchanged. Successful write exercised in isolated PostgreSQL/browser fixture only;no real customer file/letter created. Expected403 console entries from denial probes.
 - Four gates verified before cleanup;staging and rollback files removed. Addressed outgoing-version workflow and correction notifications remain pending.
 
-### 2026-09-29 — D4c addressed outgoing customer files, local
+### 2026-09-29 — D4c addressed outgoing customer files, release d481c423
 - Added an exact-project customer publication command with a server-derived recipient, immutable sent version, protected same-company/project/uploader file and UUID idempotency. The generic letter route cannot publish to a customer.
 - Customer listing and direct file authorization require a recorded publication; legacy customer records are backfilled by migration0069. Published rows cannot be removed. The internal and customer screens use plain «Отправить заказчику» / «Получено от компании» labels.
 - 17 isolated route cases,4 authenticated PostgreSQL cases,14 project-record PostgreSQL cases,80 related backend checks and63 customer UI tests passed. Migration0068→0069 was rehearsed after fixing the Alembic identifier length; production build passed.
-- Not deployed. No real letter/file was created. Persistent per-user read receipts and an independent notification inbox remain outside this increment.
+- Deployed with migration0069. Backend/database/frontend/browser release gates passed;
+  all147 manifest resources matched and release staging was removed. No real
+  customer letter/file was created. Persistent per-user read receipts and an
+  independent notification inbox remain outside this increment.
+
+### 2026-09-29 — сквозная проверка кабинетов и изоляции
+- Supplier contracts, customer upload/correction/replacement/publication and
+  cross-company/project denial:46 temporary-table cases,18 isolated authenticated
+  PostgreSQL cases and22 React cases passed.
+- Production disposable workflow completed request886/offer74 and then request887/
+  offer75: assigned reviewer, director approval, exact supplier dispatch, supplier
+  response and denial to the unaddressed supplier. Both runs were removed; temporary
+  suppliers were deleted and users/sessions disabled.
+- Smoke selection now accepts normal projects that already have reviewers and skips
+  only the special director-fallback branch. Cleanup deletes company-supplier links
+  before supplier cards and verifies zero request/supplier/active-user remainder.
+  Two regression tests cover both failures. Twenty-three older active users with the
+  explicit smoke prefix were disabled and their sessions revoked; health remained OK.
