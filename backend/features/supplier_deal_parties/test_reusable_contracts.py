@@ -10,7 +10,7 @@ class ReusableContractsTests(unittest.TestCase):
         self.identities = {'buyer': {'companyId': 1, 'inn': '111'},
                            'payer': {'companyId': 1, 'inn': '111'},
                            'supplier': {'supplierId': 2, 'inn': '222'}}
-        self.row = dict(id=7, offer_id=8, company_id=1, version=2,
+        self.row = dict(id=7, offer_id=8, company_id=1, version=2, registry_id=None,
                         source_file_id=9, snapshot_hash='hash',
                         snapshot_json=copy.deepcopy(self.identities))
         self.row['snapshot_json']['applicability'] = {'scope':'company','term':'open_ended','startsOn':'2020-01-01','projectId':None,'endsOn':None}

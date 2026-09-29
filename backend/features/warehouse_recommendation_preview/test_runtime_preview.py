@@ -946,10 +946,10 @@ class WarehouseAnomalyRuntimePreviewCompositionTests(unittest.TestCase):
             root / "backend/db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Reviewed company-user isolation and explicit invite registration changes;
+            # Reviewed company/document isolation and tenant-scoped RFQ email changes;
             # warehouse preview implementation and registration are unchanged.
             root / "backend/main.py": (
-                "8432677632b774051df9349ccd5023883eea2dc0d9b6d9467d044dd7b566607e"
+                "e295f582192724cdecb6fef04da26e083ff9d8674d126c54cdcd1d86a79c3d3c"
             ),
         }
         self.assertEqual({
