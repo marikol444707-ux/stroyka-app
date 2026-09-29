@@ -16633,6 +16633,12 @@ except ModuleNotFoundError:
 
 register_customer_extra_works(app, project_record_scope, get_current_user)
 register_customer_payments(app, project_record_scope, get_current_user)
+try:
+    from backend.features.customer_cabinet.document_submission import register_customer_file_submission
+except ModuleNotFoundError:
+    from features.customer_cabinet.document_submission import register_customer_file_submission
+register_customer_file_submission(app, project_record_scope, get_current_user)
+
 register_customer_hidden_acts(app, project_record_scope, get_current_user, _lock_legacy_work_settlement, hidden_work_effective_status)
 
 try:

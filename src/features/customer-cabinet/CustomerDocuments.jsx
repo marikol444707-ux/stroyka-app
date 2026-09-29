@@ -1,4 +1,5 @@
 import React, {useState} from 'react';
+import CustomerFileSubmission from './CustomerFileSubmission';
 import { customerProjectRecord } from './projectSelection';
 import { customerRecordsScope } from './useCustomerRecordsLoader';
 
@@ -35,13 +36,14 @@ function DocumentLibrary({ project, user, documents = [], letters = [], loadStat
     if (!visible.length) return <p style={{ color: C.textMuted }}>{query ? 'По вашему запросу ничего не найдено.' : kindFilter === 'contracts' ? 'Опубликованных договоров пока нет.' : kind === 'documents' ? 'Опубликованных документов пока нет.' : 'Писем по объекту пока нет.'}</p>;
     return visible.map(row => <article key={row.id} style={{ padding: '12px 0', borderBottom: `1px solid ${C.border}`, overflowWrap: 'anywhere' }}>
       <b>{kind === 'documents' ? [row.docType || 'Документ', row.number].filter(Boolean).join(' № ') : row.subject || 'Письмо'}</b>
-      <p style={{ color: C.textSec, fontSize: 12 }}>{[row.docDate || row.letterDate, row.signStatus || row.status].filter(Boolean).join(' · ')}</p>
+      <p style={{ color: C.textSec, fontSize: 12 }}>{[kind === 'letters' ? (row.direction === 'incoming' ? 'От заказчика' : row.direction === 'outgoing' ? 'От компании' : '') : '', row.docDate || row.letterDate, row.signStatus || row.status].filter(Boolean).join(' · ')}</p>
       {kind === 'letters' && row.body && <p style={{ whiteSpace: 'pre-wrap' }}>{row.body}</p>}
       {row.scanUrl || row.fileUrl ? <CustomerAttachment value={row.scanUrl || row.fileUrl} fileSrc={fileSrc} color={C.primary || C.text} /> : kind === 'documents' && <p>Файл документа ещё не опубликован.</p>}
     </article>);
   };
   return <section style={{ ...card, padding: 20, marginBottom: 16 }} aria-label="Документы и письма">
     <h3 style={{ marginTop: 0 }}>Документы и письма</h3>
+    <CustomerFileSubmission project={project} user={user} refresh={refresh} C={C} btnG={btnG}/>
     <button type="button" style={btnG} onClick={() => refresh().catch(() => {})}>Обновить документы</button>
     <div role="group" aria-label="Вид документов" style={{display:'flex',gap:8,flexWrap:'wrap',margin:'16px 0'}}>
       {[['all','Все документы'],['contracts','Договоры'],['letters','Письма']].map(([value,label]) =>
