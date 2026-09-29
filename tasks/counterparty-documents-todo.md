@@ -184,3 +184,11 @@ Release 8fb52280 verified: 48 local tests (9 automatic-reuse PostgreSQL cases),
 Authenticated browser reopened archive contract362 with no transfer step.
 No real offer approval/payment performed. Staging removed after verification.
 Multiple candidates still use the existing selection/review form.
+
+Release c036457b: multiple eligible contracts now use a short one-click choice,
+without party editing, upload or repeated review. Server rechecks eligibility;
+same-source retry is idempotent; another selection cannot overwrite the first.
+51 local backend tests,20 UI tests,53 production unit tests passed.251 assets
+match build; business data hashes unchanged. Mobile actual-component browser
+choice verified; production request880 fallback opened and closed read-only.
+Verified staging removed. This supersedes the prior multiple-selection limitation.
