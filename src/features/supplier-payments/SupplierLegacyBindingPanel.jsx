@@ -113,10 +113,15 @@ function BindingContent({API, userId, companyId, invoiceId, disabled, onBlocked,
           {!preparing && <button type="button" disabled={disabled || busy} onClick={()=>setPreparing(true)}>Добавить договор</button>}</>
           : <><p>КП № {context.offerId} · {Number(context.amount).toLocaleString('ru-RU',{minimumFractionDigits:2})} ₽</p>
             <p>Договор № {context.contract.snapshot?.number} от {context.contract.snapshot?.date?.split('-').reverse().join('.')} · версия {context.contract.version}</p>
+            {context.contract.sourceFileUrl && <p><a href={API+context.contract.sourceFileUrl} target="_blank" rel="noopener noreferrer">Открыть оригинал договора</a></p>}
             <p>Проверил: {context.contract.reviewedBy}</p>
             <p>Покупатель: {context.contract.snapshot?.buyer?.fullName} · ИНН {context.contract.snapshot?.buyer?.inn}</p>
             {(context.contract.snapshot?.buyer?.companyId!==context.contract.snapshot?.payer?.companyId || context.contract.snapshot?.buyer?.inn!==context.contract.snapshot?.payer?.inn) && <p>Плательщик: {context.contract.snapshot?.payer?.fullName} · ИНН {context.contract.snapshot?.payer?.inn}</p>}
             <p>Поставщик: {context.contract.snapshot?.supplier?.fullName} · ИНН {context.contract.snapshot?.supplier?.inn}</p>
+            {!!context.warnings?.length && <section className="supplier-contract-warnings" role="status" aria-label="Что нужно проверить">
+              <h4>Что нужно проверить</h4>
+              <ul>{context.warnings.map(warning=><li key={warning.code}>{warning.message}</li>)}</ul>
+            </section>}
             <label>Комментарий<input placeholder="Например: счёт соответствует договору" value={reason} maxLength={1000} onChange={e=>setReason(e.target.value)} /></label></>}
 
 
@@ -125,7 +130,8 @@ function BindingContent({API, userId, companyId, invoiceId, disabled, onBlocked,
       disabled={disabled || busy} onClose={()=>setPreparing(false)} onSaved={()=>{setPreparing(false);load();}}/>}
     {pending && <p>Сохранённый запрос: версия договора #{pending.contractVersionId}, счёт {pending.expectedAmount} ₽. Основание: {pending.reason}</p>}
     {!preparing && (pending || (context?.contract && !context.boundContractId)) && <>
-      <label className="supplier-original-review-check"><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)} />Договор подходит к этому счёту</label>
+      <label className="supplier-original-review-check"><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)} />
+        {context?.warnings?.length?'Договор подходит к счёту, предупреждения проверены':'Договор подходит к этому счёту'}</label>
       <button className="payment-primary" type="button" disabled={disabled || busy || !!storageError || !confirmed || (!pending && !reason.trim())} onClick={send}>
         {pending ? 'Повторить подтверждение' : 'Подтвердить договор'}</button>
     </>}

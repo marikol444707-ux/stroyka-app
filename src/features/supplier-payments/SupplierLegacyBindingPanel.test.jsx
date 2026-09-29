@@ -5,7 +5,7 @@ import {paymentRequest} from './paymentClient';
 jest.mock('./paymentClient',()=>({paymentRequest:jest.fn()}));
 const props={API:'',userId:7,companyId:1,invoiceId:161};
 const context={invoiceId:161,companyId:1,offerId:71,amount:'263000.00',boundContractId:null,
-  contract:{id:8,version:1,snapshot:{number:'Д-1',date:'2026-09-28'},reviewedBy:'Директор'}};
+  contract:{id:8,version:1,sourceFileUrl:'/tenant-files/280/content',snapshot:{number:'Д-1',date:'2026-09-28'},reviewedBy:'Директор'}};
 beforeEach(()=>{process.env.REACT_APP_SUPPLIER_LEGACY_CONTRACT_BINDING_ENABLED='true';localStorage.clear();jest.clearAllMocks();
   Object.defineProperty(window.navigator,'locks',{value:{request:async(key,options,callback)=>callback({name:key})},configurable:true});
   Object.defineProperty(global,'crypto',{value:{randomUUID:()=> '11111111-1111-4111-8111-111111111111'},configurable:true});});
@@ -56,4 +56,18 @@ test('scoped non-save rejection releases the intent for a fresh review',async()=
   fireEvent.click(screen.getByLabelText('Договор подходит к этому счёту'));
   fireEvent.click(screen.getByText('Подтвердить договор'));
   expect(await screen.findByText(/Привязка не сохранена/)).toBeTruthy();expect(localStorage.length).toBe(0);
+});
+test('shows contract warnings before confirmation and makes acknowledgement explicit',async()=>{
+  paymentRequest.mockResolvedValue({...context,warnings:[
+    {code:'invoice_predates_contract',message:'Счёт от 21.09.2026 выставлен раньше договора от 22.09.2026.'},
+    {code:'contract_signature_not_verified',message:'Подписи в оригинале договора нужно проверить.'},
+  ]});
+  render(<SupplierLegacyBindingPanel {...props}/>);
+  fireEvent.click(screen.getByText('Выбрать договор'));
+
+  expect(await screen.findByRole('status',{name:'Что нужно проверить'})).toBeTruthy();
+  expect(screen.getByRole('link',{name:'Открыть оригинал договора'}).getAttribute('href')).toBe('/tenant-files/280/content');
+  expect(screen.getByText(/21.09.2026/)).toBeTruthy();
+  expect(screen.getByText(/Подписи в оригинале/)).toBeTruthy();
+  expect(screen.getByLabelText('Договор подходит к счёту, предупреждения проверены')).toBeTruthy();
 });

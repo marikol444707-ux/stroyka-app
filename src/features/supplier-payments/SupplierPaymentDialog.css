@@ -56,6 +56,15 @@
 
 .supplier-payment-dialog .supplier-original-review-check { display: flex; align-items: flex-start; gap: 10px; }
 .supplier-payment-dialog .supplier-original-review-check input { flex: 0 0 auto; width: 20px; min-height: 20px; margin: 0; }
+.supplier-payment-dialog .supplier-contract-warnings {
+  margin: 16px 0;
+  padding: 14px 16px;
+  border: 1px solid var(--c-warning, #d97706);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--c-warning, #d97706) 9%, var(--bg-card, #fff));
+}
+.supplier-payment-dialog .supplier-contract-warnings h4 { margin: 0 0 8px; font-size: 14px; }
+.supplier-payment-dialog .supplier-contract-warnings ul { margin: 0; }
 
 /* Use the application's theme tokens and a consistent size inside embedded pages. */
 .supplier-payment-dialog.supplier-payment-dialog {

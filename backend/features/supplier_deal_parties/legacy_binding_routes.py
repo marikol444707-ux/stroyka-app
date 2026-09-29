@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from .access import build_deal_access
 from .contracts import serialize_contract
 from .document_bindings import select_invoice_contract
-from .legacy_binding_policy import validate_legacy_binding
+from .legacy_binding_policy import legacy_binding_warnings, validate_legacy_binding
 from ..supplier_payments.contract_context import load_invoice_contract
 
 
@@ -66,7 +66,8 @@ def register_legacy_binding_routes(app, deps):
                 contract = cur.fetchone()
                 return dict(invoiceId=id, companyId=invoice['company_id'], offerId=offer['id'],
                             amount=format(invoice['amount'], '.2f'), boundContractId=invoice['contract_version_id'],
-                            contract=serialize_contract(contract) if contract else None)
+                            contract=serialize_contract(contract) if contract else None,
+                            warnings=legacy_binding_warnings(invoice, contract) if contract else [])
         finally:
             conn.rollback(); conn.close()
 
