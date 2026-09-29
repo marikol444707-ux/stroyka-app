@@ -1,3 +1,4 @@
+import SupplierContractDocuments from './SupplierContractDocuments';
 import SupplierInvoiceContractChoice from './SupplierInvoiceContractChoice';
 import SupplyFileLink from './SupplyFileLink';
 import SupplierAttachmentInput from './SupplierAttachmentInput';
@@ -283,7 +284,7 @@ export default function SupplierCabinetPage({
         || (invoiceRequestId && String(delivery.requestId || delivery.request_id || '') === String(invoiceRequestId))
       ));
     };
-    const SUPPLIER_TABS = [{id:'requests',label:'📋 Заявки'},{id:'orders',label:'📦 Заказы'},{id:'customers',label:'🏢 Заказчики'},{id:'catalog',label:'📦 Мой каталог'},{id:'offers',label:'💰 Предложения'},{id:'deliveries',label:'🚚 Отгрузки'},{id:'documents',label:'📄 Счета и накладные'},{id:'claims',label:'⚠️ Претензии'},{id:'profile',label:'⚙️ Профиль'}, ...(teamLeader ? [{id:'team',label:'👥 Команда'}] : [])].filter(t => !managerOnly || !['profile','catalog'].includes(t.id));
+    const SUPPLIER_TABS = [{id:'requests',label:'📋 Заявки'},{id:'orders',label:'📦 Заказы'},{id:'customers',label:'🏢 Заказчики'},{id:'catalog',label:'📦 Мой каталог'},{id:'offers',label:'💰 Предложения'},{id:'deliveries',label:'🚚 Отгрузки'},{id:'documents',label:'📄 Документы'},{id:'claims',label:'⚠️ Претензии'},{id:'profile',label:'⚙️ Профиль'}, ...(teamLeader ? [{id:'team',label:'👥 Команда'}] : [])].filter(t => !managerOnly || !['profile','catalog'].includes(t.id));
     const supplierOfferStatusStyle = (status) => {
       if (status === 'Утверждено') return {label:'Утверждено', color:C.success, bg:C.successLight};
       if (status === 'Получено') return {label:'Отправлено', color:C.info, bg:C.infoLight};
@@ -763,6 +764,7 @@ export default function SupplierCabinetPage({
           </div>)}
 
           {supplierTab==='documents'&&(!inboxState||inboxState.status==='ready')&&(<div>
+            <SupplierContractDocuments API={API} userId={currentUserId} fileSrc={fileSrc} C={C}/>
             <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>📄 Мои счета и накладные</b>
             {mySupplierInvoices.map(inv=>{
               const linkedWarehouseId = supplierInvoiceWarehouseId(inv);

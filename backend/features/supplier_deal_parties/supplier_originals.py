@@ -36,6 +36,8 @@ class OriginalRecognition(BaseModel):
 
 
 def register_supplier_originals(app,deps):
+    from .cabinet_contracts import register_cabinet_contracts
+    register_cabinet_contracts(app, deps)
     company_actor,_=build_deal_access(deps)
     def authorize(cur,company,supplier,user,action,header,mode):
         if user.get('role')=='поставщик':
