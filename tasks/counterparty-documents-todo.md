@@ -192,3 +192,10 @@ same-source retry is idempotent; another selection cannot overwrite the first.
 match build; business data hashes unchanged. Mobile actual-component browser
 choice verified; production request880 fallback opened and closed read-only.
 Verified staging removed. This supersedes the prior multiple-selection limitation.
+
+### 2026-09-29 — supplier-card contract originals, release ef1c8cd9
+- Deployed schema0067 and supplier-card originals before any quotation; no synthetic offers. Same company registry, file and addenda retained; buyer=payer.
+- Local: 9 standalone PostgreSQL tests, related reuse/archive/document regression suites;27 React/client tests passed. Production unittest:75 cases OK,1 skipped.
+- Production:251 assets match build; financial, stock and existing document hashes unchanged. Authenticated VIST card displays contract362; add form prefills requisites, canceled without mutation; mobile screenshot reviewed,0 console errors.
+- Positive create/reuse exercised in isolated local PostgreSQL and UI fixture, not with real production documents. Supplier-cabinet standalone listing and full production receiving/accounting chain were not newly exercised.
+- Verified release staging removed by finalize_release.py; receipt retained under /var/log/stroyka-release-receipts.
