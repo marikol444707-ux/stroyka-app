@@ -1,8 +1,14 @@
 import io
+import tempfile
 import unittest
 import zipfile
+from pathlib import Path
 from fastapi import HTTPException
-from .contract_document import extract_document_text, python_runtime_bind_args
+from .contract_document import (
+    existing_readonly_bind_args,
+    extract_document_text,
+    python_runtime_bind_args,
+)
 
 class ContractDocumentTests(unittest.TestCase):
     def test_non_system_python_runtime_is_bound_read_only(self):
@@ -12,6 +18,16 @@ class ContractDocumentTests(unittest.TestCase):
              '/opt/hostedtoolcache/Python/3.11/x64'],
         )
         self.assertEqual(python_runtime_bind_args('/usr/local'), [])
+
+    def test_only_existing_optional_configuration_is_bound(self):
+        with tempfile.TemporaryDirectory() as folder:
+            existing = Path(folder) / 'fonts'
+            existing.mkdir()
+            missing = Path(folder) / 'libreoffice'
+            self.assertEqual(
+                existing_readonly_bind_args(existing, missing),
+                ['--ro-bind', str(existing), str(existing)],
+            )
 
     def docx(self, content):
         out=io.BytesIO()

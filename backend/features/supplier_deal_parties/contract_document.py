@@ -19,6 +19,15 @@ def python_runtime_bind_args(prefix):
         return []
     return ['--ro-bind', str(runtime), str(runtime)]
 
+
+def existing_readonly_bind_args(*paths):
+    """Bind optional host configuration only when it is installed."""
+    result = []
+    for path in map(Path, paths):
+        if path.exists():
+            result += ['--ro-bind', str(path), str(path)]
+    return result
+
 def extract_document_text(content, extension):
     if extension not in ('.pdf','.doc','.docx','.jpg','.jpeg','.png'):
         raise HTTPException(415,'Этот тип файла договора не поддерживается')
@@ -34,9 +43,9 @@ def extract_document_text(content, extension):
                      '--ro-bind','/usr','/usr','--ro-bind','/lib','/lib','--symlink','usr/bin','/bin']
             if Path('/lib64').exists():command+=['--ro-bind','/lib64','/lib64']
             command += python_runtime_bind_args(sys.prefix)
-            command+=['--dir','/etc','--ro-bind','/etc/fonts','/etc/fonts',
-                      '--ro-bind','/etc/libreoffice','/etc/libreoffice',
-                      '--ro-bind','/etc/passwd','/etc/passwd','--ro-bind','/etc/group','/etc/group',
+            command+=['--dir','/etc']
+            command += existing_readonly_bind_args('/etc/fonts', '/etc/libreoffice')
+            command+=['--ro-bind','/etc/passwd','/etc/passwd','--ro-bind','/etc/group','/etc/group',
                       '--proc','/proc','--dev','/dev','--tmpfs','/tmp',
                       '--bind',temp,'/work','--ro-bind',str(worker),'/worker.py',
                       '--chdir','/work','--setenv','HOME','/work',
