@@ -10,6 +10,15 @@ from fastapi import HTTPException
 
 MAX_DOCUMENT_BYTES = 10 * 1024 * 1024
 
+
+def python_runtime_bind_args(prefix):
+    """Expose a non-system Python runtime read-only inside the empty sandbox."""
+    runtime = Path(prefix).resolve()
+    system_roots = (Path('/usr'), Path('/lib'), Path('/lib64'))
+    if any(runtime == root or root in runtime.parents for root in system_roots):
+        return []
+    return ['--ro-bind', str(runtime), str(runtime)]
+
 def extract_document_text(content, extension):
     if extension not in ('.pdf','.doc','.docx','.jpg','.jpeg','.png'):
         raise HTTPException(415,'Этот тип файла договора не поддерживается')
@@ -24,6 +33,7 @@ def extract_document_text(content, extension):
             command=[sandbox,'--unshare-all','--die-with-parent','--cap-drop','ALL',
                      '--ro-bind','/usr','/usr','--ro-bind','/lib','/lib','--symlink','usr/bin','/bin']
             if Path('/lib64').exists():command+=['--ro-bind','/lib64','/lib64']
+            command += python_runtime_bind_args(sys.prefix)
             command+=['--dir','/etc','--ro-bind','/etc/fonts','/etc/fonts',
                       '--ro-bind','/etc/libreoffice','/etc/libreoffice',
                       '--ro-bind','/etc/passwd','/etc/passwd','--ro-bind','/etc/group','/etc/group',
