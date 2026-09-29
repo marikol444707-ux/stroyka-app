@@ -20,7 +20,7 @@ SOURCES = {
     'invoice': ('supplier', 'supplier_invoices', "'Счёт №' || COALESCE(NULLIF(d.invoice_number,''),d.id::text)", "'Счёт'", 'd.created_at', 'TRUE', ('file_url','photo_url')),
     'delivery': ('supplier', 'supply_deliveries', "'Отгрузка №' || COALESCE(NULLIF(d.waybill_number,''),d.id::text)", "'Отгрузка'", 'd.created_at', 'TRUE', ('document_url','photo_url')),
     'warehouse': ('supplier', 'warehouse_invoices', "'Накладная №' || COALESCE(NULLIF(d.number,''),d.id::text)", "'Накладная'", 'd.created_at', 'TRUE', ('photo_url','photo_urls')),
-    'contract': ('supplier', 'supplier_contract_versions', "'Договор №' || COALESCE(d.snapshot_json->>'number',d.id::text) || ' · версия ' || d.version", "'Договор'", 'd.reviewed_at', 'EXISTS (SELECT 1 FROM supplier_offers o WHERE o.id=d.offer_id AND o.company_id=d.company_id)', ('file_url','photo_urls')),
+    'contract': ('supplier', 'supplier_contract_versions', "'Договор №' || COALESCE(d.snapshot_json->>'number',d.id::text) || ' · версия ' || d.version", "'Договор'", 'd.reviewed_at', '(EXISTS (SELECT 1 FROM supplier_offers o WHERE o.id=d.offer_id AND o.company_id=d.company_id) OR (d.offer_id IS NULL AND EXISTS (SELECT 1 FROM supplier_contract_registry_versions m JOIN supplier_contract_registry r ON r.id=m.registry_id AND r.company_id=m.company_id WHERE m.contract_version_id=d.id AND m.company_id=d.company_id)))', ('file_url','photo_urls')),
     'customer': ('customer', 'project_documents', "COALESCE(d.doc_type,'Документ') || ' №' || COALESCE(NULLIF(d.number,''),d.id::text)", "COALESCE(d.doc_type,'Документ')", 'd.created_at', "d.side='customer' AND EXISTS (SELECT 1 FROM projects p WHERE p.id=d.project_id AND p.company_id=d.company_id)", ('scan_url',)),
 }
 
@@ -83,9 +83,9 @@ def register_counterparty_document_archive(app, deps):
                           AND c.company_id=d.company_id AND c.id<>d.id
                           AND c.source_file_id=d.source_file_id
                           AND c.snapshot_hash=d.snapshot_json #>> '{reusedFrom,snapshotHash}'
-                          AND c.offer_id::text=d.snapshot_json #>> '{reusedFrom,offerId}'
+                          AND c.offer_id::text IS NOT DISTINCT FROM (d.snapshot_json #>> '{reusedFrom,offerId}')
                           AND c.version::text=d.snapshot_json #>> '{reusedFrom,version}'
-                          AND EXISTS (SELECT 1 FROM supplier_offers o WHERE o.id=c.offer_id AND o.company_id=c.company_id))"""
+                          AND (c.offer_id IS NULL OR EXISTS (SELECT 1 FROM supplier_offers o WHERE o.id=c.offer_id AND o.company_id=c.company_id)))"""
                 elif key == 'invoice':
                     fields += ", 'offer_id',(SELECT o.id FROM supplier_offers o WHERE o.id=d.offer_id AND o.company_id=d.company_id)"
                     fields += ", 'contract_number',(SELECT c.snapshot_json->>'number' FROM supplier_contract_versions c WHERE c.id=d.contract_version_id AND c.company_id=d.company_id AND c.offer_id=d.offer_id)"

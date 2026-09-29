@@ -28119,6 +28119,14 @@ document_access_dependencies = {
     "protected_legacy_uploads_enabled": not PUBLIC_UPLOADS_MOUNT_ENABLED,
 }
 register_document_access_module(app, document_access_dependencies)
+if (os.getenv('SUPPLIER_DEAL_PARTIES_ENABLED') == '1'
+        and os.getenv('SUPPLIER_CONTRACT_SNAPSHOTS_ENABLED') == '1'):
+    try:
+        from backend.features.supplier_deal_parties.supplier_originals import register_supplier_originals
+    except ModuleNotFoundError:
+        from features.supplier_deal_parties.supplier_originals import register_supplier_originals
+    register_supplier_originals(app, {**supplier_deal_dependencies, **document_access_dependencies})
+
 
 # Text-only preview is an independent opt-in, not an automatic OCR rollout.
 if (os.getenv("SUPPLIER_DEAL_PARTIES_ENABLED", "0") == "1"

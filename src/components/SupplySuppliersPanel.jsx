@@ -1,4 +1,5 @@
 import React from 'react';
+import SupplierContracts from '../features/supplier-payments/SupplierContracts';
 import { Check, ChevronDown, ChevronUp, Edit2, Link2, Plus, Search, Trash2, X } from 'lucide-react';
 import { API } from '../api';
 import { createSupplierForm, createSupplierInviteForm } from '../features/supply/supplyInitialForms';
@@ -699,6 +700,7 @@ function SupplySuppliersPanel({
 
                   {isOpen && (
                     <div style={{marginTop:'12px',paddingTop:'12px',borderTop:'1px solid '+C.border}}>
+                      <SupplierContracts API={API} companyId={supplier.companyId} supplierId={supplier.id} userId={user?.id}/>
                       {reviewInfo.needsReview && (
                         <div onClick={event=>event.stopPropagation()} style={{padding:'10px',borderRadius:'8px',backgroundColor:C.warningLight,border:'1px solid '+C.warningBorder,marginBottom:'10px'}}>
                           <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'6px'}}>⚠️ Требует ручной проверки</b>

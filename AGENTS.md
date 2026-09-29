@@ -31,6 +31,8 @@ health endpoint alone is insufficient. Missing/failed verification retains backu
   Never retrofit issued invoices or deliveries.
 - Reuse a checked contract/version across eligible deals between the same parties;
   do not require re-upload or OCR for each quotation.
+- Supplier-card contracts can exist before any offer. Do not create synthetic
+  offers/requests to store an original; use the same company-owned registry.
 - Freeze party, bank and authorized signer data when issuing/approving documents.
   Reprints and exports use the saved snapshot, never today's mutable profile.
 - Show conflicting contract/profile bank details before preparing a new payment;

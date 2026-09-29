@@ -198,7 +198,8 @@ def register_supplier_contracts_module(app, deps):
                 source = cur.fetchone()
                 if not source or source['offer_id'] == id or source['source_file_id'] != data.sourceFileId:
                     raise HTTPException(409, 'Выбранный договор недоступен. Выберите его заново')
-                load_offer(cur, source['offer_id'], current_user, 'read', x_company_id, x_company_mode)
+                if source['offer_id'] is not None:
+                    load_offer(cur, source['offer_id'], current_user, 'read', x_company_id, x_company_mode)
                 old = source['snapshot_json']
                 if (not eligible_applicability(old, project['id'] if project else None)
                     or data.applicability is None

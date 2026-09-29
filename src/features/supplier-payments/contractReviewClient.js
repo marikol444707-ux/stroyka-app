@@ -104,7 +104,7 @@ export function createContractReviewClient(scope, {fetcher=window.fetch,storage=
     if(value.existingOriginal && (!id(value.existingOriginal.contractId) || !id(value.existingOriginal.sourceFileId)
        || value.existingOriginal.version!==value.expectedVersion))fail('Версия сохранённого оригинала изменилась.');
     for(const contract of value.reusableContracts || []){
-      if(contract.companyId!==companyId || !id(contract.id) || !id(contract.offerId)
+      if(contract.companyId!==companyId || !id(contract.id) || !(id(contract.offerId) || (contract.offerId===null && id(contract.registryId)))
          || !id(contract.sourceFileId) || !id(contract.version) || !contract.snapshot
          || ['buyer','payer','supplier'].some(side=>contract.snapshot[side]?.inn!==value[side]?.inn)
          || ['buyer','payer'].some(side=>contract.snapshot[side]?.companyId!==value[side]?.companyId)

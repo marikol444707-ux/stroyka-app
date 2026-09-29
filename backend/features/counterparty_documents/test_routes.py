@@ -177,7 +177,7 @@ class ArchiveTests(unittest.TestCase):
                           'c.company_id=d.company_id AND c.id<>d.id',
                           'c.source_file_id=d.source_file_id',
                           "c.snapshot_hash=d.snapshot_json #>> '{reusedFrom,snapshotHash}'",
-                          "c.offer_id::text=d.snapshot_json #>> '{reusedFrom,offerId}'",
+                          "c.offer_id::text IS NOT DISTINCT FROM (d.snapshot_json #>> '{reusedFrom,offerId}')",
                           "c.version::text=d.snapshot_json #>> '{reusedFrom,version}'",
                           'o.id=c.offer_id AND o.company_id=c.company_id'):
             self.assertIn(predicate,sql)

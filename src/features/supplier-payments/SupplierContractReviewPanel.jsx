@@ -178,7 +178,7 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
       setRevises(null);setReusedFrom(contract.id);setFile({fileId:contract.sourceFileId,name:`Договор № ${contract.snapshot.number} · версия ${contract.version}`});
       setApplicability(contract.snapshot.applicability || emptyApplicability());setNumber(contract.snapshot.number);setDate(contract.snapshot.date);setTerms(contract.snapshot.paymentTerms || '');
       setLegal(Object.fromEntries(Object.keys(sides).map(side=>[side,legalDraft(contract.snapshot[side])])));
-      setReason(`Повторное использование договора из КП № ${contract.offerId}, версия ${contract.version}`);
+      setReason('Повторное использование сохранённого договора');
       setChecked(false);setRecognition(null);autoFields.current=[];
       setRecognitionMessage('Используется сохранённый оригинал. Повторная загрузка и распознавание не нужны.');
      }}>Договор № {contract.snapshot.number} от {contract.snapshot.date} · версия {contract.version}</button>)}

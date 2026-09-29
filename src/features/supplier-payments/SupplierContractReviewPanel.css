@@ -69,3 +69,6 @@
  .supplier-contract-review.supplier-contract-review .contract-party-tabs button { padding: 10px 6px; font-size: 11px; }
  .supplier-contract-review.supplier-contract-review .contract-actions > button { width: 100%; }
 }
+
+.supplier-contract-review .supplier-contract-item { margin-top: 14px; padding: 16px; border: 1px solid var(--c-border, #e2e8f0); border-radius: 12px; background: var(--c-bg, #f8fafc); }
+.supplier-contract-review .supplier-contract-item a { color: var(--c-info, #2563eb); }
