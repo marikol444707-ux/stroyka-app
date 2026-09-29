@@ -7,7 +7,6 @@ import { customerActRows } from '../features/customer-cabinet/actAmounts';
 import { buildCustomerActPreview } from '../features/customer-cabinet/actPreview';
 import CustomerDocuments, { recordLoadIssue } from '../features/customer-cabinet/CustomerDocuments';
 import CustomerWarranty from '../features/customer-cabinet/CustomerWarranty';
-import CustomerContracts from '../features/customer-cabinet/CustomerContracts';
 import CustomerHiddenActs from '../features/customer-cabinet/CustomerHiddenActs';
 import PreviewModal from './PreviewModal';
 import ImagePreviewModal from './ImagePreviewModal';
@@ -715,8 +714,6 @@ export default function CustomerCabinetPage(props) {
               })()}
             </div>
 
-            <CustomerContracts project={myProject} user={user} documents={projectDocuments}
-              loadState={customerRecordsLoadState} fileSrc={fileSrc} C={C} card={card} />
           </div>
         )}
       </div>

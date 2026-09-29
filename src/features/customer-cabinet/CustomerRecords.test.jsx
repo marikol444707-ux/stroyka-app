@@ -72,3 +72,29 @@ test('an uncertain save blocks a duplicate and hides another author warranty rec
   fireEvent.click(send);
   expect(fetch).toHaveBeenCalledTimes(1);
 });
+
+test('one library filters contracts and letters without exposing other owners', () => {
+  const doc={id:1,companyId:2,projectId:3,side:'customer',docType:'Договор',number:'362',scanUrl:'/tenant-files/1/content'};
+  render(<CustomerDocuments {...base} loadState={{documents:ready,letters:ready}}
+    documents={[doc,{...doc,id:2,docType:'Акт',number:'ACT'},{...doc,id:3,companyId:9,number:'FOREIGN'}]}
+    letters={[{...doc,id:4,subject:'Письмо о сроках',body:'Согласование'}]}/>);
+  fireEvent.click(screen.getByRole('button',{name:'Договоры',exact:true}));
+  expect(screen.getByText('Договор № 362')).toBeTruthy();expect(screen.queryByText('Акт № ACT')).toBeNull();
+  expect(screen.queryByText('Письмо о сроках')).toBeNull();expect(screen.queryByText(/FOREIGN/)).toBeNull();
+  fireEvent.change(screen.getByRole('searchbox'),{target:{value:'нет совпадений'}});
+  expect(screen.queryByText('Договор № 362')).toBeNull();
+  fireEvent.change(screen.getByRole('searchbox'),{target:{value:''}});
+  fireEvent.click(screen.getByRole('button',{name:'Письма',exact:true}));
+  expect(screen.getByText('Письмо о сроках')).toBeTruthy();expect(screen.queryByText('Договор № 362')).toBeNull();
+});
+
+test('project switch clears search and type and does not show late old records', () => {
+  const view=render(<CustomerDocuments {...base} loadState={{documents:ready,letters:ready}}/>);
+  fireEvent.click(screen.getByRole('button',{name:'Договоры',exact:true}));
+  fireEvent.change(screen.getByRole('searchbox'),{target:{value:'старый'}});
+  view.rerender(<CustomerDocuments {...base} project={{id:4,companyId:2}} loadState={{documents:ready,letters:ready}}
+    documents={[{id:1,companyId:2,projectId:3,side:'customer',docType:'Договор',number:'OLD'}]}/>);
+  expect(screen.getByRole('searchbox').value).toBe('');
+  expect(screen.getByRole('button',{name:'Все документы'}).getAttribute('aria-pressed')).toBe('true');
+  expect(screen.queryByText(/OLD/)).toBeNull();
+});
