@@ -26,6 +26,9 @@ health endpoint alone is insufficient. Missing/failed verification retains backu
   suggestion requiring review; never overwrite manual edits or invent missing data.
 - Buyer equals payer for new deals, enforced server-side. Preserve historical
   differing parties. Delivery recipient/address is independent of payer identity.
+- On new offer approval, automatically reuse a single eligible checked contract
+  when known profile values agree; ambiguity or changed requisites requires selection/review.
+  Never retrofit issued invoices or deliveries.
 - Reuse a checked contract/version across eligible deals between the same parties;
   do not require re-upload or OCR for each quotation.
 - Freeze party, bank and authorized signer data when issuing/approving documents.

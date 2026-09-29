@@ -3,7 +3,7 @@ from fastapi import HTTPException
 from .contract_applicability import eligible_applicability
 
 
-def reusable_contracts(cur, offer, identities, load_offer, user, header_id, header_mode, project_id=None):
+def reusable_contracts(cur, offer, identities, load_offer, user, header_id, header_mode, project_id=None, require_complete=False):
     cur.execute('''SELECT c.*,m.registry_id FROM supplier_contract_versions c
         JOIN supplier_offers o ON o.id=c.offer_id AND o.company_id=c.company_id
         JOIN file_ownership f ON f.id=c.source_file_id AND f.company_id=c.company_id
@@ -19,9 +19,11 @@ def reusable_contracts(cur, offer, identities, load_offer, user, header_id, head
           AND (f.project_id IS NULL OR f.project_id=%s)
           AND NOT EXISTS (SELECT 1 FROM supplier_contract_versions newer
                           WHERE newer.offer_id=c.offer_id AND newer.version>c.version)
-        ORDER BY c.reviewed_at DESC,c.id DESC LIMIT 100''',
+        ORDER BY c.reviewed_at DESC,c.id DESC LIMIT 101''',
         (offer['company_id'], offer['supplier_id'], offer['id'], project_id))
     rows = cur.fetchall()
+    if require_complete and len(rows) >= 101:
+        return []  # Never auto-select from a truncated candidate set.
     result = []
     seen = set()
     for row in rows:

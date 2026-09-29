@@ -853,6 +853,8 @@ def register_supplier_offers_module(app, deps):
                 if 'deliveryStatus' in data:
                     cur.execute("UPDATE supplier_offers SET delivery_status=%s WHERE id=%s", (data['deliveryStatus'], id))
                     log_event(cur, id, "delivery_status_changed", offer_access.get("delivery_status") or "", data.get('deliveryStatus'), actor_user, data)
+            if bindings_enabled and approval_requested and deps.get('automatic_contract_reuse'):
+                deps['automatic_contract_reuse'](cur, id, _current_user, x_company_id, x_company_mode)
             cur.execute(OFFERS_SELECT + " WHERE id=%s", (id,))
             row = cur.fetchone()
             conn.commit()

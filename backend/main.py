@@ -26282,6 +26282,7 @@ except ModuleNotFoundError:
 
 
 # Inert until schema rehearsal and the deal-document rollout checkpoint.
+automatic_supplier_contract_reuse = None
 if os.getenv("SUPPLIER_DEAL_PARTIES_ENABLED", "0") == "1":
     try:
         from backend.features.supplier_deal_parties.routes import register_supplier_deal_parties_module
@@ -26305,6 +26306,11 @@ if os.getenv("SUPPLIER_DEAL_PARTIES_ENABLED", "0") == "1":
         except ModuleNotFoundError:
             from features.supplier_deal_parties.contracts import register_supplier_contracts_module
         register_supplier_contracts_module(app, supplier_deal_dependencies)
+        try:
+            from backend.features.supplier_deal_parties.automatic_reuse import build_automatic_reuse
+        except ModuleNotFoundError:
+            from features.supplier_deal_parties.automatic_reuse import build_automatic_reuse
+        automatic_supplier_contract_reuse = build_automatic_reuse(supplier_deal_dependencies)
         if os.getenv('SUPPLIER_DOCUMENT_CONTRACT_BINDINGS_ENABLED', '0') == '1':
             try:
                 from backend.features.supplier_deal_parties.document_routes import register_document_contract_routes
@@ -26325,6 +26331,7 @@ if os.getenv("SUPPLIER_DEAL_PARTIES_ENABLED", "0") == "1":
                 register_legacy_line_review_routes(app, supplier_deal_dependencies)
 
 register_supplier_offers_module(app, {
+    "automatic_contract_reuse": automatic_supplier_contract_reuse,
     "contract_bindings_enabled": (
         os.getenv('SUPPLIER_DOCUMENT_CONTRACT_BINDINGS_ENABLED', '0') == '1'
         and os.getenv('SUPPLIER_DEAL_PARTIES_ENABLED', '0') == '1'
