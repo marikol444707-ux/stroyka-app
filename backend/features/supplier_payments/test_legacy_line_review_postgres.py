@@ -104,9 +104,12 @@ class LegacyLineReviewPostgresTests(unittest.TestCase):
         self.review(dict(self.body,confirmed=False),expected=422)
         self.assertEqual(self.sql('SELECT id FROM supplier_invoice_line_specs WHERE invoice_id=%s',(self.invoice,)),[])
 
-    def test_paid_and_approved_invoices_are_not_retrofitted(self):
+    def test_approved_unpaid_invoice_can_be_reviewed(self):
         self.api('director','PUT',f'/supplier-invoices/{self.invoice}',{'status':'Утверждён'})
-        self.review(expected=409)
+        self.assertFalse(self.review()['replayed'])
+
+    def test_paid_invoice_is_not_retrofitted(self):
+        self.api('director','PUT',f'/supplier-invoices/{self.invoice}',{'status':'Утверждён'})
         self.pay('20.00');self.review(expected=409)
         self.assertEqual(self.sql('SELECT paid_amount FROM supplier_invoices WHERE id=%s',(self.invoice,)),[(20,)])
 
