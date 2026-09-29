@@ -1,10 +1,10 @@
 # Implementation Plan: Safe Stroyka Program Improvements
 
-Актуальный приоритет от 20.09.2026: [завершение версии без почты](platform-completion-2026-09-20.md).
-Нижележащие старые статусы P14/почты/диска исторические; поставщик и подрядчик
-закрыты по docs/supplier-contractor-final-acceptance.md.
+Актуальный статус от 29.09.2026: основная версия и итоговая приёмка завершены;
+см. [итоговую интеграционную приёмку](../docs/final-integrated-acceptance-2026-09-29.md).
+Нижележащие старые статусы P14/почты/диска сохранены как история.
 
-## Current slice: P14 browser/chain acceptance released; notification delivery and disk capacity remain
+## Current slice: итоговая приёмка завершена
 
 Roadmap: [Supplier portal implementation plan](../docs/supplier-portal-roadmap.md).
 User deferred inbox/spam investigation and Mail support to final acceptance P14.
@@ -18,13 +18,13 @@ Use the complete authorized inbox arrays (API without limit returns all rows).
 One shared projection drives table, counts and export. No new data permissions.
 CSV exports all filtered rows, not the displayed page; quote cells and neutralize
 formula/control prefixes. Then browser desktop/mobile checks and backed-up release.
-P3.2 technical remainder stays open before final release.
+P3.2 завершён: очередь, попытки, безопасный повтор и изоляция отправителя выпущены;
+реальное письмо подтверждено пользователем во входящих Mail.ru 29.09.2026.
 P1/P2 released; P3.1 releasedb9b5cf39. Verified queue evidence, failure counts/times,
 explicit unknown references and buyer quote/notification refresh are complete.
 Evidence: `docs/supplier-notification-evidence.md`. P3.2a released2760bc1d: persists email queue/claim
 before SMTP; see `docs/supplier-email-attempts.md` for tests and rollback quarantine.
-Remaining P3.2: safe explicit retry after definite rejection, attempt history and
-MAX worker claims. External delivery is unverified.
+Строгая DMARC-политика оставлена на отдельный поздний этап по решению пользователя.
 Production audit:12historical recipients reference missing requests, including6MAX
 queue markers. Do not resend/reassign them; current2requests are separate.
 Invoices/payments remain in another stream. Legacy warehouse/template ownership is pending.
@@ -787,8 +787,10 @@ Do not continue old per-offer assignment UI as the main workflow.
 - [x] 29 сценариев PostgreSQL: цепочка, частичные отгрузки, приёмка/претензии, команда, файлы, сроки, две компании и email.
 - [x] Исправлена потеря черновика/UUID операции при focus; шапка сразу обновляет сохранённое название. Независимое ревью пройдено.
 - [x] 201 frontend suite / 1214 tests, build, выпуск1d467fb7e040; livefocus/сохранение/шапка/восстановление,10мобильных разделов без обнаруженных ошибок;180таблиц сохранены.
-- [ ] Запас диска: после сжатия двух проверенных backup около2ГБ/77ГБ, нужен дальнейший план ёмкости/хранения.
-- [ ] Остаток P3.2 и внешняя доставляемость уведомлений остаются открытыми; см. docs/supplier-final-acceptance.md.
+- [x] Запас диска восстановлен: проверенные staging/backup удалены, правило
+  автоматической очистки закреплено; свободно около53ГиБ.
+- [x] P3.2 и внешняя доставляемость закрыты: письмо запроса КП принято SMTP и
+  подтверждено пользователем во входящих Mail.ru. DMARC hardening отложен отдельно.
 
 ## Выпуски: удаление резервов после успеха — правило пользователя
 - [x] 33 завершённых staging удалены; свободно44ГБ вместо1.9ГБ, frontend320 хешей и health проверены.
@@ -800,7 +802,8 @@ Do not continue old per-offer assignment UI as the main workflow.
 Текущая проработка: [единые документы и покупатель = плательщик](counterparty-documents-plan.md).
 Оригинал загружается один раз; договор принадлежит паре контрагентов, выбирается
 для нескольких КП; доступ отражается в кабинетах сторон. В новых формах две
-стороны, без повторных реквизитов плательщика. Реализация ещё не выполнена.
+стороны, без повторных реквизитов плательщика. Этапы D0–D6 выпущены и проверены;
+см. `tasks/counterparty-documents-todo.md`.
 
 План детализирован на семь этапов D0–D6: инвентаризация → две стороны сделки →
 изолированный реестр → повторное использование договора → кабинеты сторон →
