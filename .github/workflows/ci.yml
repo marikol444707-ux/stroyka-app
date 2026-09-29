@@ -37,8 +37,13 @@ jobs:
       - name: Install Python dependencies
         run: python -m pip install --upgrade pip && pip install -r requirements.txt
 
-      - name: Install PDF font dependencies
-        run: sudo apt-get update && sudo apt-get install -y bubblewrap fonts-dejavu-core
+      - name: Install document sandbox dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap fonts-dejavu-core
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
 
       - name: Compile backend
         run: PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python -m py_compile backend/main.py backend/config.py backend/db.py backend/__init__.py migrations/env.py migrations/versions/*.py
