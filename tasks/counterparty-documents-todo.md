@@ -178,3 +178,9 @@ PostgreSQL), 22 UI; на сервере 70 успешно, 1 тест тольк
 неоднозначный, архивный, просроченный договор или договор с неизвестной областью
 действия. Сохраняет первоначального проверяющего и ссылку на исходную версию.
 Проверка выпуска предстоит.
+
+Release 8fb52280 verified: 48 local tests (9 automatic-reuse PostgreSQL cases),
+53 production unit tests; 76 unchanged frontend assets; business hashes unchanged.
+Authenticated browser reopened archive contract362 with no transfer step.
+No real offer approval/payment performed. Staging removed after verification.
+Multiple candidates still use the existing selection/review form.
