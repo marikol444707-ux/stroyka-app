@@ -261,7 +261,9 @@ def _build_isolated_fixture(settings, *, contract_review=False, document_binding
             conn = schema_runtime.get_db()
             try:
                 with conn.cursor() as cur:
-                    for statement in migration_statements('upgrade') + statements('upgrade'):
+                    for statement in (migration_statements('upgrade') + statements('upgrade')
+                                      + statements('upgrade','0064_supplier_contract_registry.py')
+                                      + statements('upgrade','0065_contract_archive.py')):
                         cur.execute(statement)
                     if document_bindings:
                         for statement in binding_statements():

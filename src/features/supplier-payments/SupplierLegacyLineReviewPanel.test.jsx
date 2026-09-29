@@ -28,3 +28,18 @@ test('pending command hides editing and keeps finance blocked',async()=>{
  expect(screen.queryByLabelText('Оригинал счёта')).toBeNull();expect(onBlocked).toHaveBeenCalledWith(true);
  fireEvent.click(screen.getByText('Проверить и повторить сверку'));await waitFor(()=>expect(client.save).toHaveBeenCalledWith(pending));
 });
+test('reuses the protected invoice original and confirms partial quantities without another upload',async()=>{
+ const partial={...line,maxQuantity:'4.000000',quantity:'1.000000',amount:'100.00'};
+ client.load.mockResolvedValue({contractVersionId:8,amount:'100.00',vatAmount:'20.00',lines:[partial],
+  sourceFile:{fileId:27,name:'Счёт.pdf',url:'/tenant-files/27/content'}});
+ render(<Panel {...props}/>);fireEvent.click(screen.getByText('Проверить позиции'));
+ expect(await screen.findByText('Счёт.pdf')).toBeInTheDocument();
+ expect(screen.getByRole('link',{name:'Открыть оригинал'})).toHaveAttribute('href','/tenant-files/27/content');
+ expect(client.upload).not.toHaveBeenCalled();
+ fireEvent.change(screen.getByLabelText('НДС строки 1, ₽'),{target:{value:'20'}});
+ fireEvent.change(screen.getByLabelText('Основание сверки'),{target:{value:'Сверено с прикреплённым счётом'}});
+ fireEvent.click(screen.getByLabelText('Количество, цены, суммы и НДС каждой позиции сверены с оригиналом'));
+ fireEvent.click(screen.getByText('Подтвердить состав счёта'));
+ await waitFor(()=>expect(client.save).toHaveBeenCalledWith(expect.objectContaining({sourceFileId:27,
+  expectedAmount:'100.00',lines:[expect.objectContaining({quantity:'1.000000',amount:'100.00',vatAmount:'20.00'})]})));
+});
