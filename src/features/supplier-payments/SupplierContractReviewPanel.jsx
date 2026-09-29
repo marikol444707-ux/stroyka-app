@@ -1,4 +1,5 @@
-import React, {useEffect,useMemo,useRef,useState} from 'react';
+import React, {useCallback,useEffect,useMemo,useRef,useState} from 'react';
+import SavedContractChoice from './SavedContractChoice';
 import {createContractReviewClient,legalDraft,legalFields} from './contractReviewClient';
 import ContractPartyFields from './ContractPartyFields';
 import './SupplierContractReviewPanel.css';
@@ -10,6 +11,8 @@ export default function SupplierContractReviewPanel(props) {
  return <ReviewContent key={`${props.API}:${props.userId}:${props.companyId}:${props.offerId}`} {...props}/>;
 }
 function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) {
+ const [chooseSaved,setChooseSaved]=useState(true);
+ const openFullReview=useCallback(()=>setChooseSaved(false),[]);
  const controller=useRef(null);
  const client=useMemo(()=>createContractReviewClient({API,userId,companyId,offerId},{signal:()=>controller.current?.signal}),[API,userId,companyId,offerId]);
  const live=useRef(true),running=useRef(false);
@@ -127,15 +130,15 @@ function ReviewContent({API,userId,companyId,offerId,disabled,onSaved,onClose}) 
  };
  return <section className="supplier-contract-review" aria-label="Проверка договора поставки">
   <header className="contract-review-header"><div><span className="contract-eyebrow">ДОГОВОР ПОСТАВКИ · КП #{offerId}</span>
-   <h3>Проверим реквизиты</h3><p>Выберите сохранённый договор или загрузите новый, сверьте данные и сохраните проверенную версию.</p></div>
-   <span className="contract-draft-badge">Черновик проверки</span></header>
-  <ol className="contract-review-steps" aria-label="Этапы проверки"><li className={!review?'is-current':'is-complete'}>1. Стороны</li><li className={review&&!file?'is-current':file?'is-complete':''}>2. Документ</li><li className={file?'is-current':''}>3. Сверка</li></ol>
+   <h3>Договор поставки</h3><p>Выберите сохранённый договор или загрузите новый.</p></div>
+   {!chooseSaved&&<span className="contract-draft-badge">Черновик проверки</span>}</header>
+  {!chooseSaved&&<ol className="contract-review-steps" aria-label="Этапы проверки"><li className={!review?'is-current':'is-complete'}>1. Стороны</li><li className={review&&!file?'is-current':file?'is-complete':''}>2. Документ</li><li className={file?'is-current':''}>3. Сверка</li></ol>}
   {loading && <p role="status">Загрузка сторон сделки…</p>}
   {error && <p role="alert">{error}</p>}
   {pending ? <>
    <p>Есть сохранённый запрос: {pending.kind==='parties'?'выбор сторон':'проверка договора'}. Основание: {pending.body.reason}</p>
    <button type="button" disabled={blocked} onClick={retry}>Проверить и повторить сохранённый запрос</button>
-  </> : !review && parties ? <form onSubmit={saveParties}>
+  </> : chooseSaved && !loading && !fatal ? <SavedContractChoice API={API} companyId={companyId} offerId={offerId} disabled={blocked} onSaved={onSaved} onFallback={openFullReview}/> : !review && parties ? <form onSubmit={saveParties}>
    <fieldset className="contract-review-content" disabled={blocked}>
     <legend>1. Покупатель и плательщик</legend>
     <label>Покупатель<select required value={buyer} onChange={e=>{setBuyer(e.target.value);if(!separatePayer)setPayer(e.target.value);}}>

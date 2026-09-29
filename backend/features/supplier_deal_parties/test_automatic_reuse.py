@@ -104,3 +104,36 @@ class AutomaticReuseTest(unittest.TestCase):
             cur.execute("INSERT INTO suppliers VALUES (6,'7709876544','Другой поставщик')")
             cur.execute('UPDATE supplier_offers SET supplier_id=6 WHERE id=41')
         self.assertIsNone(self.apply())
+
+    def test_selection_api_reads_without_writes_and_retries_safely(self):
+        path='/supplier-offers/41/saved-contracts'
+        options=self.contract_client.get(path)
+        self.assertEqual(options.status_code,200,options.text)
+        self.assertEqual([x['id'] for x in options.json()['items']],[self.source['id']])
+        with self.conn.cursor() as cur:
+            cur.execute('SELECT COUNT(*) FROM supplier_contract_versions WHERE offer_id=41')
+            self.assertEqual(cur.fetchone()[0],0)
+        body={'contractId':self.source['id']}
+        first=self.contract_client.post(path,json=body)
+        self.assertEqual(first.status_code,200,first.text)
+        second=self.contract_client.post(path,json=body)
+        self.assertEqual(second.json(),first.json())
+        self.assertEqual(self.contract_client.post(path,json={'contractId':99999}).status_code,409)
+
+    def test_selection_revalidates_profile_and_owner(self):
+        path='/supplier-offers/41/saved-contracts'
+        body={'contractId':self.source['id']}
+        self.assertEqual(self.contract_client.post(path,json=body,headers={'X-Company-Id':'99'}).status_code,409)
+        with self.conn.cursor() as cur:
+            cur.execute("UPDATE suppliers SET name='Changed profile'")
+        self.conn.commit()
+        self.assertEqual(self.contract_client.post(path,json=body).status_code,409)
+
+    def test_explicit_choice_resolves_ambiguity(self):
+        self.test_ambiguous_does_not_pick_or_create_parties()
+        self.conn.commit()
+        path='/supplier-offers/41/saved-contracts'
+        self.assertEqual(len(self.contract_client.get(path).json()['items']),2)
+        selected=self.contract_client.post(path,json={'contractId':self.source['id']})
+        self.assertEqual(selected.status_code,200,selected.text)
+        self.assertEqual(selected.json()['sourceContractId'],self.source['id'])

@@ -110,6 +110,8 @@ def serialize_contract(row):
 
 
 def register_supplier_contracts_module(app, deps):
+    from .reuse_routes import register_reuse_routes
+    register_reuse_routes(app, deps)
     register_contract_review_context(app, deps)
     register_contract_publication(app, deps)
     get_db = deps['get_db']

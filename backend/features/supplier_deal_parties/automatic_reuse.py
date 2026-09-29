@@ -16,14 +16,17 @@ FIELDS = {'fullName':'full_name', 'inn':'inn', 'kpp':'kpp', 'ogrn':'ogrn',
 def build_automatic_reuse(deps):
     company_actor, load_offer = build_deal_access(deps)
 
-    def reuse(cur, offer_id, user, header_id=None, header_mode=None):
+    def reuse(cur, offer_id, user, header_id=None, header_mode=None, selected_id=None, list_only=False):
         offer, actor = load_offer(cur, offer_id, user, 'update', header_id, header_mode)
         if offer['status'] != 'Утверждено':
             return None
         cur.execute('SELECT pg_advisory_xact_lock(73164,%s)', (offer['company_id'],))
-        cur.execute('SELECT id FROM supplier_contract_versions WHERE offer_id=%s LIMIT 1', (offer_id,))
-        if cur.fetchone():  # Repeated approval never replaces an existing contract.
-            return None
+        cur.execute('SELECT id,snapshot_json FROM supplier_contract_versions WHERE offer_id=%s ORDER BY version DESC LIMIT 1', (offer_id,))
+        existing=cur.fetchone()
+        if existing:  # Retry is safe; another selection never replaces an existing contract.
+            if selected_id and existing['snapshot_json'].get('reusedFrom',{}).get('contractId')==selected_id:
+                return existing['id']
+            return [] if list_only else None
         cur.execute('SELECT 1 FROM supplier_invoices WHERE offer_id=%s UNION ALL SELECT 1 FROM supply_deliveries WHERE offer_id=%s LIMIT 1', (offer_id,offer_id))
         if cur.fetchone():
             return None  # Issued documents keep their original contract state.
@@ -47,23 +50,34 @@ def build_automatic_reuse(deps):
         project = offer_project(cur, offer)
         project_id = project['id'] if project else None
         candidates = reusable_contracts(cur,offer,identities,load_offer,user,header_id,header_mode,project_id,require_complete=True)
-        if len(candidates)!=1:
-            return None  # Missing/ambiguous contracts stay in the existing review flow.
-        candidate=candidates[0]
+        eligible=[]
+        for candidate in candidates:
+            snapshot=candidate['snapshot']
+            conflict=any(str(profile.get(column) or '').strip() and
+                str(profile.get(column) or '').strip()!=str(snapshot.get(side,{}).get(field) or '').strip()
+                for side,profile in profiles.items() for field,column in FIELDS.items())
+            if conflict:
+                continue
+            files=[candidate['sourceFileId']]+[a['sourceFileId'] for a in snapshot.get('addenda',[])]
+            available=True
+            for file_id in sorted(set(files)):
+                cur.execute("SELECT * FROM file_ownership WHERE id=%s AND company_id=%s FOR UPDATE", (file_id,offer['company_id']))
+                file=cur.fetchone()
+                if (not file or (file.get('deletion_status') or 'active')!='active'
+                    or (file.get('project_id') and (file['project_id']!=project_id or snapshot['applicability']['scope']!='project'))):
+                    available=False
+                    break
+            if available:
+                eligible.append(candidate)
+        if list_only:
+            return [{'id':c['id'],'number':c['snapshot']['number'],'date':c['snapshot']['date'],
+                     'sourceFileId':c['sourceFileId']} for c in eligible]
+        choices=[c for c in eligible if c['id']==selected_id] if selected_id else eligible
+        if len(choices)!=1:
+            return None
+        candidate=choices[0]
         snapshot=candidate['snapshot']
-        for side,profile in profiles.items():
-            for field,column in FIELDS.items():
-                current=str(profile.get(column) or '').strip()
-                if current and current != str(snapshot.get(side,{}).get(field) or '').strip():
-                    return None
         files=[candidate['sourceFileId']]+[a['sourceFileId'] for a in snapshot.get('addenda',[])]
-        for file_id in sorted(set(files)):
-            cur.execute("SELECT * FROM file_ownership WHERE id=%s AND company_id=%s FOR UPDATE", (file_id,offer['company_id']))
-            file=cur.fetchone()
-            if not file or (file.get('deletion_status') or 'active')!='active':
-                return None
-            if file.get('project_id') and (file['project_id']!=project_id or snapshot['applicability']['scope']!='project'):
-                return None
         cur.execute('SELECT * FROM supplier_contract_versions WHERE id=%s AND company_id=%s', (candidate['id'],offer['company_id']))
         source=cur.fetchone()
         if not parties:
@@ -82,7 +96,7 @@ def build_automatic_reuse(deps):
              reason,reviewed_by_id,reviewed_by,reviewed_at)
             VALUES (%s,%s,%s,1,%s,%s::jsonb,%s,%s,%s,%s,%s) RETURNING *''',
             (offer_id,offer['company_id'],parties['version'],source['source_file_id'],encoded,
-             hashlib.sha256(encoded.encode()).hexdigest(),'Автоматически выбран ранее проверенный договор',
+             hashlib.sha256(encoded.encode()).hexdigest(),'Выбран ранее проверенный договор' if selected_id else 'Автоматически выбран ранее проверенный договор',
              source['reviewed_by_id'],source['reviewed_by'],source['reviewed_at']))
         saved=cur.fetchone()
         attach_registry(cur,saved,parties,source)

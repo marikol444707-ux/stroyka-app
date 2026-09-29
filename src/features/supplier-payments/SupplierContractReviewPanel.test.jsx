@@ -7,7 +7,9 @@ const props={API:'',userId:7,companyId:1,offerId:71};
 const ctx={offerId:71,companyId:1,partyVersion:1,expectedVersion:0,
  buyer:{fullName:'Заказчик',inn:'7701111111',companyId:1},payer:{fullName:'Заказчик',inn:'7701111111',companyId:1},supplier:{fullName:'ВИСТ тест',inn:'7702222222',supplierId:159}};
 const applicability={scope:'company',projectId:null,term:'open_ended',startsOn:'2020-01-01',endsOn:null};
-let client;
+let client,originalFetch;
+beforeEach(()=>{originalFetch=global.fetch;global.fetch=jest.fn(async()=>({ok:true,json:async()=>({items:[]})}));});
+afterEach(()=>{global.fetch=originalFetch;});
 beforeEach(()=>{client={pending:jest.fn(()=>null),load:jest.fn(async()=>({parties:{version:0},companies:[{companyId:1,companyName:'Наша компания'}]})),
  reviewContext:jest.fn(async()=>ctx),save:jest.fn(async()=>({id:8})),upload:jest.fn(async()=>({companyId:1,fileId:10}))};createContractReviewClient.mockReturnValue(client);});
 test('explicit parties then original and reviewed legal identities are required',async()=>{
@@ -187,4 +189,12 @@ test('addendum uploads separately and retains original and payment terms',async(
  await waitFor(()=>expect(client.save).toHaveBeenCalledTimes(1));
  expect(client.save.mock.calls[0][1]).toMatchObject({sourceFileId:99,revisesContractId:9,number:'362',paymentTerms:'После доставки',addendum:{sourceFileId:10,number:'1',date:'2026-09-20'}});
  expect(client.upload).toHaveBeenCalledTimes(1);
+});
+test('eligible saved choice skips parties and full review',async()=>{
+ const saved=jest.fn();global.fetch=jest.fn(async(url,options)=>({ok:true,json:async()=>options.method==='POST'?{id:20,companyId:1,offerId:71,sourceContractId:9}:{items:[{id:9,number:'C',date:'2026-09-01',sourceFileId:31}]}}));
+ render(<Panel {...props} onSaved={saved}/>);
+ fireEvent.click(await screen.findByText('Использовать'));
+ await waitFor(()=>expect(saved).toHaveBeenCalledTimes(1));
+ expect(client.save).not.toHaveBeenCalled();expect(screen.queryByLabelText('Покупатель')).toBeNull();
+ expect(screen.queryByText('Сохранить проверенную версию договора')).toBeNull();
 });
