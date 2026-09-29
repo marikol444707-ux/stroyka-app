@@ -17,6 +17,7 @@ class AuthenticatedCustomerRecordTest(unittest.TestCase):
                 # The legacy supply fixture uses init_db, not the full Alembic chain.
                 cur.execute('CREATE UNIQUE INDEX IF NOT EXISTS quality_projects_id_company_idx ON projects(id,company_id)')
                 cur.execute(importlib.import_module('migrations.versions.0040_customer_record_owners').SCHEMA_SQL)
+                cur.execute(importlib.import_module('migrations.versions.0068_customer_file_corrections').SCHEMA_SQL)
                 user_id=cls.fixture['users']['foreman']['id']
                 cur.execute("UPDATE users SET role='заказчик' WHERE id=%s",(user_id,))
                 cur.execute("UPDATE user_company_roles SET role='заказчик' WHERE user_id=%s",(user_id,))

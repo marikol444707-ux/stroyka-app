@@ -1,10 +1,11 @@
-import React from 'react';
+import React, {useState} from 'react';
 import { Check, Eye, Plus, Trash2, Upload, X } from 'lucide-react';
 import { API } from '../api';
 import { createProjectLetterForm } from '../features/documents/projectDocumentInitialForms';
 
 export default function ProjectLettersPanel({
   projectId,
+  projectCompanyId,
   projectName,
   projectLetters = [],
   newLetter,
@@ -25,6 +26,9 @@ export default function ProjectLettersPanel({
   btnB,
   btnR,
 }) {
+  const [correctionLetterId,setCorrectionLetterId]=useState(null);
+  const [correctionReason,setCorrectionReason]=useState('');
+  const [correctionError,setCorrectionError]=useState('');
   const uploadLetterFile = async (file) => {
     if (!file) return;
     setUploadingLetter(true);
@@ -62,7 +66,23 @@ export default function ProjectLettersPanel({
     await loadAll();
   };
 
-  const letters = (projectLetters || []).filter(l => l.projectName === projectName);
+  const requestCorrection = async letterId => {
+    if(correctionReason.trim().length<3)return;
+    setCorrectionError('');
+    try {
+      const response=await fetch(API+`/project-letters/${letterId}/request-correction`,{
+        method:'POST',credentials:'include',headers:{'Content-Type':'application/json',
+          ...(projectCompanyId?{'X-Company-Id':String(projectCompanyId),'X-Company-Mode':'company'}:{})},
+        body:JSON.stringify({reason:correctionReason.trim()}),
+      });
+      const data=await response.json();
+      if(!response.ok)throw new Error(data.detail || 'Запрос не отправлен');
+      setCorrectionLetterId(null);setCorrectionReason('');await loadAll();
+    } catch(error) { setCorrectionError(error.message || 'Запрос не отправлен'); }
+  };
+
+  const letters = (projectLetters || []).filter(l => l.projectId
+    ? Number(l.projectId) === Number(projectId) : l.projectName === projectName);
 
   return (
     <div>
@@ -124,6 +144,24 @@ export default function ProjectLettersPanel({
                   {[outgoing ? 'Исходящее' : 'Входящее', letter.side === 'customer' ? 'заказчик' : 'подрядчик', letter.counterparty, letter.letterDate, letter.author].filter(Boolean).join(' · ')}
                 </p>
                 {letter.body && <p style={{color: C.text, margin: '4px 0 0', fontSize: '12px', whiteSpace: 'pre-wrap'}}>{letter.body}</p>}
+                {letter.replacesLetterId && <p style={{color:C.textSec,margin:'6px 0 0',fontSize:12,fontWeight:700}}>Исправленная версия</p>}
+                {letter.correctionReason && <div style={{marginTop:8,padding:10,border:`1px solid ${C.warning}`,borderRadius:8}}>
+                  <b style={{fontSize:12}}>Запрошено исправление</b>
+                  <p style={{margin:'4px 0 0',fontSize:12}}>{letter.correctionReason}</p>
+                  {letter.correctedByLetterId && <p style={{margin:'4px 0 0',fontSize:12}}>Новая версия получена</p>}
+                </div>}
+                {correctionLetterId===letter.id && <div style={{marginTop:8}}>
+                  <label style={{display:'block',fontSize:12}}>Что нужно исправить
+                    <textarea value={correctionReason} maxLength={2000} onChange={event=>setCorrectionReason(event.target.value)}
+                      style={{...inp,display:'block',width:'100%',boxSizing:'border-box',marginTop:6,minHeight:70}}/>
+                  </label>
+                  <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                    <button type="button" style={btnO} disabled={correctionReason.trim().length<3}
+                      onClick={()=>requestCorrection(letter.id)}>Отправить заказчику</button>
+                    <button type="button" style={btnG} onClick={()=>{setCorrectionLetterId(null);setCorrectionReason('');setCorrectionError('');}}>Отмена</button>
+                  </div>
+                  {correctionError && <p role="alert" style={{color:C.danger}}>{correctionError}</p>}
+                </div>}
               </div>
               <div style={{display: 'flex', gap: '6px', alignItems: 'center'}}>
                 {letter.fileUrl && (
@@ -131,9 +169,13 @@ export default function ProjectLettersPanel({
                     <Eye size={11}/>Файл
                   </a>
                 )}
-                <button onClick={() => deleteLetter(letter.id)} style={{...btnR, padding: '4px 8px'}}>
-                  <Trash2 size={11}/>
-                </button>
+                {!outgoing && letter.side==='customer' && letter.fileUrl && !letter.correctionRequestedAt &&
+                  <button type="button" onClick={()=>{setCorrectionLetterId(letter.id);setCorrectionReason('');setCorrectionError('');}}
+                    style={{...btnG,padding:'4px 8px',fontSize:11}}>Запросить исправление</button>}
+                {!letter.correctionRequestedAt && !letter.replacesLetterId &&
+                  <button aria-label="Удалить письмо" onClick={() => deleteLetter(letter.id)} style={{...btnR, padding: '4px 8px'}}>
+                    <Trash2 size={11}/>
+                  </button>}
               </div>
             </div>
           </div>

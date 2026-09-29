@@ -1,10 +1,11 @@
-import {fireEvent, render, waitFor} from '@testing-library/react';
+import {fireEvent, render, screen, waitFor} from '@testing-library/react';
 
 import ProjectLettersPanel from './ProjectLettersPanel';
 
 
 const buildProps = (overrides = {}) => ({
   projectId: 17,
+  projectCompanyId: 12,
   projectName: 'Лицей',
   projectLetters: [],
   newLetter: {
@@ -63,5 +64,20 @@ describe('ProjectLettersPanel', () => {
       context: 'project-letters',
       preferProtectedUrl: true,
     }));
+  });
+
+  it('returns an incoming customer file with a clear reason', async () => {
+    global.fetch = jest.fn(async () => ({ok: true, json: async () => ({ok: true})}));
+    const props = buildProps({showLetterForm:false,projectLetters:[{id:9,projectId:17,projectName:'Лицей',
+      side:'customer',direction:'incoming',subject:'Акт',fileUrl:'/tenant-files/9/content'},
+      {id:10,projectId:99,projectName:'Лицей',side:'customer',direction:'incoming',subject:'Чужой объект'}]});
+    render(<ProjectLettersPanel {...props}/>);
+    expect(screen.queryByText('Чужой объект')).toBeNull();
+    fireEvent.click(screen.getByRole('button',{name:'Запросить исправление'}));
+    fireEvent.change(screen.getByLabelText('Что нужно исправить'),{target:{value:'Добавьте страницу с подписью'}});
+    fireEvent.click(screen.getByRole('button',{name:'Отправить заказчику'}));
+    await waitFor(()=>expect(fetch).toHaveBeenCalledWith(expect.stringMatching(/project-letters\/9\/request-correction$/),
+      expect.objectContaining({method:'POST',body:JSON.stringify({reason:'Добавьте страницу с подписью'})})));
+    expect(props.loadAll).toHaveBeenCalledTimes(1);
   });
 });

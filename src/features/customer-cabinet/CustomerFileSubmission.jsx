@@ -2,7 +2,7 @@ import React, {useEffect, useRef, useState} from 'react';
 import {API} from '../../api';
 import useCustomerCommands from './useCustomerCommands';
 
-export default function CustomerFileSubmission({project,user,refresh,C,btnG}) {
+export default function CustomerFileSubmission({project,user,refresh,C,btnG,correction,onCorrectionClosed}) {
   const [open,setOpen]=useState(false),[subject,setSubject]=useState(''),[body,setBody]=useState('');
   const [file,setFile]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[success,setSuccess]=useState('');
   const owner=useRef({active:true,busy:false});
@@ -10,6 +10,12 @@ export default function CustomerFileSubmission({project,user,refresh,C,btnG}) {
   const companyId=project.companyId ?? project.company_id;
   const command=useCustomerCommands({scope:`${user.id}:${companyId}:${project.id}`,companyId,refresh});
   useEffect(()=>{const current=owner.current;current.active=true;return()=>{current.active=false;current.controller?.abort();};},[]);
+  useEffect(()=>{
+    if(!correction)return;
+    setOpen(true);setFile(null);setBody('');setError('');setSuccess('');
+    setSubject(`${correction.subject || 'Документ'} — исправлено`);
+    if(fileInput.current)fileInput.current.value='';
+  },[correction]);
   const blocked=busy || command.blocked;
   async function upload(selected) {
     if(!selected || owner.current.busy || command.blocked)return;
@@ -34,18 +40,22 @@ export default function CustomerFileSubmission({project,user,refresh,C,btnG}) {
     {!open && <button type="button" style={btnG} onClick={()=>{setOpen(true);setSuccess('');}}>Отправить файл</button>}
     {open && <form onSubmit={async event=>{
       event.preventDefault();if(blocked || owner.current.busy || !file || !subject.trim())return;
-      await command.run('/project-letters/customer-files',{method:'POST',body:{projectId:project.id,fileId:file.id,subject:subject.trim(),body:body.trim()},
-        onSuccess:()=>{setFile(null);setSubject('');setBody('');setOpen(false);setSuccess('Файл отправлен. Он доступен в переписке объекта.');}});
+      const bodyData={projectId:project.id,fileId:file.id,subject:subject.trim(),body:body.trim()};
+      if(correction)bodyData.replacesLetterId=correction.id;
+      await command.run('/project-letters/customer-files',{method:'POST',body:bodyData,
+        onSuccess:()=>{setFile(null);setSubject('');setBody('');setOpen(false);
+          setSuccess(correction?'Исправленная версия отправлена. Старый файл сохранён в истории.':'Файл отправлен. Он доступен в переписке объекта.');
+          if(correction)onCorrectionClosed?.();}});
     }}>
-      <p>Файл получит компания, ведущая этот объект.</p>
-      <label>Файл (до 50 МБ)<input ref={fileInput} type="file" disabled={blocked} style={{display:'block',maxWidth:'100%',margin:'8px 0 12px'}}
+      <p>{correction ? `Причина возврата: ${correction.correctionReason}` : 'Файл получит компания, ведущая этот объект.'}</p>
+      <label>{correction?'Исправленный файл (до 50 МБ)':'Файл (до 50 МБ)'}<input ref={fileInput} type="file" disabled={blocked} style={{display:'block',maxWidth:'100%',margin:'8px 0 12px'}}
         onChange={event=>upload(event.target.files?.[0])}/></label>
       {busy && <p role="status">Загрузка файла…</p>}
       {file && <p>{file.name}</p>}
       <label>Название<input required maxLength={255} disabled={blocked} value={subject} onChange={event=>setSubject(event.target.value)} style={input}/></label>
       <label>Комментарий (необязательно)<textarea maxLength={10000} disabled={blocked} value={body} onChange={event=>setBody(event.target.value)} style={input}/></label>
-      <button type="submit" style={btnG} disabled={blocked || !file || !subject.trim()}>Отправить</button>{' '}
-      <button type="button" style={btnG} disabled={blocked} onClick={()=>setOpen(false)}>Закрыть</button>
+      <button type="submit" style={btnG} disabled={blocked || !file || !subject.trim()}>{correction?'Отправить исправленную версию':'Отправить'}</button>{' '}
+      <button type="button" style={btnG} disabled={blocked} onClick={()=>{setOpen(false);if(correction)onCorrectionClosed?.();}}>Закрыть</button>
     </form>}
     {(error || command.error) && <p role="alert">{command.error || error}</p>}
     {success && <p role="status">{success}</p>}

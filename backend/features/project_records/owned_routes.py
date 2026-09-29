@@ -1,5 +1,5 @@
 """Owned documents and correspondence; measurement routes remain separate."""
-from fastapi import Depends, Request
+from fastapi import Depends, HTTPException, Request
 
 
 DOCUMENT_FIELDS = {
@@ -43,15 +43,23 @@ def register_owned_record_routes(app, deps):
                     where += ' AND p.name=%s'; params.append(project_name)
                 where += f' AND COALESCE(r.{void_column},\'\')<>%s'; params.append(void_value)
                 columns = ','.join('r.'+column for column in fields.values())
+                correction_columns = ''
+                correction_keys = []
+                if table == 'project_letters':
+                    correction_columns = (',r.correction_reason,r.correction_requested_at,'
+                        'r.corrected_by_letter_id,r.replaces_letter_id')
+                    correction_keys = ['correctionReason','correctionRequestedAt',
+                        'correctedByLetterId','replacesLetterId']
                 cur.execute('SELECT r.id,p.name,' + columns + f',r.{actor_column},r.created_at,r.company_id,r.project_id '
+                            + correction_columns + ' '
                             f'FROM {table} r JOIN projects p ON p.id=r.project_id AND p.company_id=r.company_id '
                             'WHERE ' + where + ' ORDER BY r.id DESC', params)
                 rows = cur.fetchall()
-            keys = ['id','projectName',*fields,actor_key,'createdAt','companyId','projectId']
+            keys = ['id','projectName',*fields,actor_key,'createdAt','companyId','projectId',*correction_keys]
             result = []
             for row in rows:
                 record = dict(zip(keys,row))
-                for key in ('docDate','letterDate','createdAt'):
+                for key in ('docDate','letterDate','createdAt','correctionRequestedAt'):
                     if key in record:
                         record[key] = str(record[key]) if record[key] else ''
                 if 'amount' in record:
@@ -101,6 +109,12 @@ def register_owned_record_routes(app, deps):
             scope = deps['record_scope']
             with scope.transaction(_current_user, request, write_roles, write=True) as (cur, actors):
                 scope.record(cur, actors[0], table, id, write_roles)
+                if table == 'project_letters':
+                    cur.execute('''SELECT correction_requested_at,corrected_by_letter_id,replaces_letter_id
+                        FROM project_letters WHERE id=%s FOR UPDATE''',(id,))
+                    history = cur.fetchone()
+                    if history and any(history):
+                        raise HTTPException(409, 'Версия участвует в истории исправлений и должна храниться в архиве')
                 cur.execute(f'UPDATE {table} SET {void_column}=%s WHERE id=%s',(void_value,id))
             return {'ok':True}
 

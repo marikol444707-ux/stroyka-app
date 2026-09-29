@@ -19,7 +19,7 @@ class CorrectionRequest(BaseModel):
     reason: str = Field(min_length=3, max_length=2000)
 
 
-def register_customer_file_submission(app, scope, get_current_user, read_roles, correction_roles):
+def register_customer_file_submission(app, scope, get_current_user, correction_roles):
     @app.post('/project-letters/customer-files')
     def send(data: CustomerFile, request: Request, user: dict = Depends(get_current_user)):
         with scope.transaction(user, request, ('заказчик',), write=True) as (cur, actors):
@@ -64,31 +64,6 @@ def register_customer_file_submission(app, scope, get_current_user, read_roles, 
                     (record_id, original_id))
             cur.execute('UPDATE file_ownership SET retained_at=COALESCE(retained_at,NOW()) WHERE id=%s', (data.fileId,))
         return {'ok': True, 'id': record_id, 'companyId': parent['companyId'], 'projectId': parent['id']}
-
-    @app.get('/project-letters/corrections')
-    def corrections(request: Request, user: dict = Depends(get_current_user)):
-        roles = tuple(dict.fromkeys((*read_roles, 'заказчик')))
-        with scope.transaction(user, request, roles) as (cur, actors):
-            clauses, params = [], []
-            for actor in actors:
-                where, values = scope.visible([actor], roles)
-                where += " AND r.side='customer' AND r.direction='incoming' AND r.correction_requested_at IS NOT NULL"
-                if actor.get('role') == 'заказчик':
-                    where += ' AND r.created_by_user_id=%s'
-                    values.append(actor.get('id'))
-                clauses.append('(' + where + ')')
-                params.extend(values)
-            cur.execute('''SELECT r.id,r.correction_reason,r.correction_requested_by_name,
-                r.correction_requested_at,r.corrected_by_letter_id,replacement.created_at
-                FROM project_letters r
-                JOIN projects p ON p.id=r.project_id AND p.company_id=r.company_id
-                LEFT JOIN project_letters replacement ON replacement.id=r.corrected_by_letter_id
-                    AND replacement.company_id=r.company_id AND replacement.project_id=r.project_id
-                WHERE ''' + (' OR '.join(clauses) or 'FALSE') + ' ORDER BY r.id DESC', params)
-            rows = cur.fetchall()
-        return [{'letterId': row[0], 'reason': row[1] or '', 'requestedBy': row[2] or '',
-            'requestedAt': str(row[3]) if row[3] else '', 'replacementLetterId': row[4],
-            'resolvedAt': str(row[5]) if row[5] else ''} for row in rows]
 
     @app.post('/project-letters/{letter_id}/request-correction')
     def request_correction(letter_id: int, data: CorrectionRequest, request: Request,

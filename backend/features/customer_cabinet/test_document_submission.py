@@ -29,8 +29,7 @@ class CustomerFileSubmissionTest(unittest.TestCase):
             if kwargs.get('x_company_id') != str(user['companyId']):raise HTTPException(403,'Company mismatch')
             return user
         scope=RecordScope(self.deps['get_db'],context,lambda user,ctx:[ctx],lambda actor:None if actor.get('role')=='директор' else actor.get('assignedProjects',[]))
-        app=FastAPI();register_customer_file_submission(app,scope,lambda:self.user,
-            ('директор','заказчик'),('директор',))
+        app=FastAPI();register_customer_file_submission(app,scope,lambda:self.user,('директор',))
         from ..project_records.owned_routes import register_owned_record_routes
         register_owned_record_routes(app,{'record_scope':scope,'get_current_user':lambda:self.user,
             'read_roles':('директор','заказчик'),'write_roles':('директор',),'worker_execution_roles':()})
@@ -82,10 +81,9 @@ class CustomerFileSubmissionTest(unittest.TestCase):
             json={'reason':'Загрузите подписанный лист полностью'},headers={'X-Company-Id':'12'})
         self.assertEqual(requested.status_code,200,requested.text)
         self.user.update(role='заказчик',id=8,name='Заказчик')
-        corrections=self.client.get('/project-letters/corrections',headers={'X-Company-Id':'12'}).json()
-        self.assertEqual(corrections,[{'letterId':original,'reason':'Загрузите подписанный лист полностью',
-            'requestedBy':'Директор','requestedAt':corrections[0]['requestedAt'],'replacementLetterId':None,
-            'resolvedAt':''}])
+        listed=self.client.get('/project-letters',headers={'X-Company-Id':'12'}).json()
+        self.assertEqual((listed[0]['correctionReason'],listed[0]['correctedByLetterId']),
+            ('Загрузите подписанный лист полностью',None))
         replaced=self.send(fileId=7,replacesLetterId=original,subject='Чертёж — исправлено')
         self.assertEqual(replaced.status_code,403)  # The new file must still be owned and active.
         with self.conn.cursor() as cur:
@@ -98,6 +96,9 @@ class CustomerFileSubmissionTest(unittest.TestCase):
                 ('Чертёж — исправлено','/tenant-files/7/content',original)])
             cur.execute('SELECT corrected_by_letter_id FROM project_letters WHERE id=%s',(original,))
             self.assertEqual(cur.fetchone()[0],replaced.json()['id'])
+        self.user.update(role='директор',id=3,name='Директор')
+        self.assertEqual(self.client.delete(f'/project-letters/{original}',headers={'X-Company-Id':'12'}).status_code,409)
+        self.assertEqual(self.client.delete(f'/project-letters/{replaced.json()["id"]}',headers={'X-Company-Id':'12'}).status_code,409)
 
     def test_customer_cannot_request_correction_and_cross_company_record_is_hidden(self):
         original=self.send().json()['id']

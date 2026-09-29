@@ -25,6 +25,7 @@ export default function CustomerDocuments(props) {
 function DocumentLibrary({ project, user, documents = [], letters = [], loadState, refresh, fileSrc, C, card, btnG }) {
   const [kindFilter, setKindFilter] = useState('all');
   const [search, setSearch] = useState('');
+  const [replacement, setReplacement] = useState(null);
   const query = search.trim().toLocaleLowerCase('ru-RU');
   const renderRows = (kind, rows) => {
     const issue = recordLoadIssue(loadState, kind, project, user);
@@ -37,13 +38,21 @@ function DocumentLibrary({ project, user, documents = [], letters = [], loadStat
     return visible.map(row => <article key={row.id} style={{ padding: '12px 0', borderBottom: `1px solid ${C.border}`, overflowWrap: 'anywhere' }}>
       <b>{kind === 'documents' ? [row.docType || 'Документ', row.number].filter(Boolean).join(' № ') : row.subject || 'Письмо'}</b>
       <p style={{ color: C.textSec, fontSize: 12 }}>{[kind === 'letters' ? (row.direction === 'incoming' ? 'От заказчика' : row.direction === 'outgoing' ? 'От компании' : '') : '', row.docDate || row.letterDate, row.signStatus || row.status].filter(Boolean).join(' · ')}</p>
+      {kind === 'letters' && row.replacesLetterId && <p style={{fontWeight:700,color:C.textSec}}>Исправленная версия</p>}
+      {kind === 'letters' && row.correctionReason && <div style={{padding:12,margin:'8px 0',border:`1px solid ${C.warning || C.border}`,borderRadius:8}}>
+        <b>Нужно исправить: {row.correctionReason}</b>
+        {row.correctedByLetterId
+          ? <p style={{margin:'6px 0 0'}}>Исправленная версия отправлена</p>
+          : <button type="button" style={{...btnG,marginTop:8}} onClick={()=>setReplacement(row)}>Загрузить исправленный файл</button>}
+      </div>}
       {kind === 'letters' && row.body && <p style={{ whiteSpace: 'pre-wrap' }}>{row.body}</p>}
       {row.scanUrl || row.fileUrl ? <CustomerAttachment value={row.scanUrl || row.fileUrl} fileSrc={fileSrc} color={C.primary || C.text} /> : kind === 'documents' && <p>Файл документа ещё не опубликован.</p>}
     </article>);
   };
   return <section style={{ ...card, padding: 20, marginBottom: 16 }} aria-label="Документы и письма">
     <h3 style={{ marginTop: 0 }}>Документы и письма</h3>
-    <CustomerFileSubmission project={project} user={user} refresh={refresh} C={C} btnG={btnG}/>
+    <CustomerFileSubmission project={project} user={user} refresh={refresh} C={C} btnG={btnG}
+      correction={replacement} onCorrectionClosed={()=>setReplacement(null)}/>
     <button type="button" style={btnG} onClick={() => refresh().catch(() => {})}>Обновить документы</button>
     <div role="group" aria-label="Вид документов" style={{display:'flex',gap:8,flexWrap:'wrap',margin:'16px 0'}}>
       {[['all','Все документы'],['contracts','Договоры'],['letters','Письма']].map(([value,label]) =>

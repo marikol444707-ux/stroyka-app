@@ -690,6 +690,7 @@ export default function ProjectsPage({ ctx }) {
                   {activeProjectTab==='✉️ Переписка'&&(
                     <ProjectLettersPanel
                       projectId={p.id}
+                      projectCompanyId={p.companyId ?? p.company_id}
                       projectName={p.name}
                       projectLetters={projectLetters}
                       newLetter={newLetter}

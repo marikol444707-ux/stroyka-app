@@ -43,3 +43,19 @@ test('switching project drops draft and ignores late upload',async()=>{
  await waitFor(()=>expect(screen.getByLabelText('Название').value).toBe(''));
  expect(screen.getByRole('button',{name:'Отправить',exact:true}).disabled).toBe(true);
 });
+test('replacement keeps the original in history and identifies the correction request',async()=>{
+ global.fetch=jest.fn(async(url)=>({ok:true,json:async()=>url.endsWith('/upload-photo')
+  ?{companyId:12,projectId:1,contentUrl:'/tenant-files/42/content'}:{ok:true,id:8}}));
+ render(<CustomerDocuments {...props} loadState={{documents:{scope:'8:12:1:',status:'ready'},letters:{scope:'8:12:1:',status:'ready'}}}
+  letters={[{id:7,companyId:12,projectId:1,side:'customer',direction:'incoming',subject:'План',
+   correctionReason:'Нужен весь подписанный лист',correctionRequestedAt:'2026-09-29'}]}/>);
+ fireEvent.click(screen.getByRole('button',{name:'Загрузить исправленный файл'}));
+ fireEvent.change(screen.getByLabelText('Исправленный файл (до 50 МБ)'),
+  {target:{files:[new File(['fixed'],'fixed.pdf',{type:'application/pdf'})]}});
+ await waitFor(()=>expect(screen.getByLabelText('Название').value).toBe('План — исправлено'));
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Отправить исправленную версию'}).disabled).toBe(false));
+ fireEvent.click(screen.getByRole('button',{name:'Отправить исправленную версию'}));
+ await screen.findByText('Исправленная версия отправлена. Старый файл сохранён в истории.');
+ expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({projectId:1,fileId:42,
+  subject:'План — исправлено',body:'',replacesLetterId:7});
+});

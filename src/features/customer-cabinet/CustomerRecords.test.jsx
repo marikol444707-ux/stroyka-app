@@ -98,3 +98,15 @@ test('project switch clears search and type and does not show late old records',
   expect(screen.getByRole('button',{name:'Все документы'}).getAttribute('aria-pressed')).toBe('true');
   expect(screen.queryByText(/OLD/)).toBeNull();
 });
+
+test('customer sees a plain correction reason and the preserved version history', () => {
+  render(<CustomerDocuments {...base} loadState={{documents:ready,letters:ready}} letters={[
+    {id:1,companyId:2,projectId:3,side:'customer',direction:'incoming',subject:'Старый файл',
+      correctionReason:'Не видна подпись на последней странице',correctionRequestedAt:'2026-09-29',correctedByLetterId:2},
+    {id:2,companyId:2,projectId:3,side:'customer',direction:'incoming',subject:'Новая версия',replacesLetterId:1},
+  ]}/>);
+  expect(screen.getByText('Нужно исправить: Не видна подпись на последней странице')).toBeTruthy();
+  expect(screen.getByText('Исправленная версия отправлена')).toBeTruthy();
+  expect(screen.getByText('Исправленная версия')).toBeTruthy();
+  expect(screen.queryByRole('button',{name:'Загрузить исправленный файл'})).toBeNull();
+});
