@@ -325,6 +325,58 @@ class ContractPostgresTest(unittest.TestCase):
         self.assertEqual(history[0]['registryId'],history[1]['registryId'])
         self.assertEqual(history[1]['snapshot'],first['snapshot'])
 
+    def test_guarded_legacy_registry_backfill_is_dry_run_idempotent_and_reversible(self):
+        from ..counterparty_documents.legacy_contract_registry import run, rollback
+        self.publication_scope()
+        first=self.review().json()
+        with self.conn.cursor() as cur:
+            cur.execute('DELETE FROM supplier_contract_registry_versions')
+            cur.execute('DELETE FROM supplier_contract_registry')
+        preview=run(self.conn)
+        self.assertTrue(preview['dryRun'])
+        self.assertTrue(preview['rolledBack'])
+        self.assertEqual(preview['readyCount'],1)
+        self.assertEqual(preview['quarantinedCount'],0)
+        with self.conn.cursor() as cur:
+            cur.execute('SELECT COUNT(*) FROM supplier_contract_registry')
+            self.assertEqual(cur.fetchone()[0],0)
+        self.conn.rollback()
+        with self.assertRaises(RuntimeError):
+            run(self.conn,apply=True,expected_ready_count=1,expected_plan_sha256='f'*64)
+        applied=run(self.conn,apply=True,expected_ready_count=1,
+                    expected_plan_sha256=preview['planSha256'])
+        self.assertTrue(applied['complete'])
+        second=run(self.conn)
+        self.assertEqual(second['readyCount'],0)
+        self.assertEqual(second['alreadyLinkedCount'],1)
+        undone=rollback(self.conn,applied['receipt'])
+        self.assertTrue(undone['complete'])
+        after=run(self.conn)
+        self.assertEqual(after['readyCount'],1)
+        self.assertEqual(after['items'][0]['contractVersionId'],first['id'])
+
+    def test_legacy_registry_rollback_refuses_later_history(self):
+        from ..counterparty_documents.legacy_contract_registry import run, rollback
+        self.publication_scope()
+        self.review()
+        with self.conn.cursor() as cur:
+            cur.execute('DELETE FROM supplier_contract_registry_versions')
+            cur.execute('DELETE FROM supplier_contract_registry')
+        preview=run(self.conn)
+        applied=run(self.conn,apply=True,expected_ready_count=1,
+                    expected_plan_sha256=preview['planSha256'])
+        created=applied['receipt']['created'][0]
+        with self.conn.cursor() as cur:
+            cur.execute('''INSERT INTO supplier_contract_registry_events
+                (registry_id,company_id,version,archived,actor_id,actor_name)
+                VALUES (%s,%s,1,TRUE,8,'Test')''',(created['registryId'],created['companyId']))
+        self.conn.commit()
+        with self.assertRaises(RuntimeError):
+            rollback(self.conn,applied['receipt'])
+        with self.conn.cursor() as cur:
+            cur.execute('SELECT COUNT(*) FROM supplier_contract_registry_versions')
+            self.assertEqual(cur.fetchone()[0],1)
+
     def archive_client(self):
         from ..counterparty_documents.contract_archive import register_contract_archive
         from ..company_context.service import resolve_request_company_context, effective_company_actors
