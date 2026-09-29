@@ -199,3 +199,9 @@ Verified staging removed. This supersedes the prior multiple-selection limitatio
 - Production:251 assets match build; financial, stock and existing document hashes unchanged. Authenticated VIST card displays contract362; add form prefills requisites, canceled without mutation; mobile screenshot reviewed,0 console errors.
 - Positive create/reuse exercised in isolated local PostgreSQL and UI fixture, not with real production documents. Supplier-cabinet standalone listing and full production receiving/accounting chain were not newly exercised.
 - Verified release staging removed by finalize_release.py; receipt retained under /var/log/stroyka-release-receipts.
+
+### 2026-09-29 — supplier cabinet contracts, release 0c1f2a77
+- Supplier Documents now includes addressed originals/addenda before any KP, alongside existing invoices/waybills. One latest accessible version per registry, cursor pagination, customer name, archived label. Read-only; no transfer confirmation.
+- Server reuses live offer visibility and customer-assignment policies; exact supplier identity, company/file ownership and active source required. Manager revocation and foreign supplier denial tested. No internal buyer archive/provenance in response.
+- 53 local PostgreSQL cases and42 React cases passed. Production20 unit cases passed;readonly route with actual active supplier returned1 addressed contract and original download grant.251 assets matched;business/registry hashes unchanged,schema0067 unchanged.
+- Actual React mobile390 fixture visually inspected and downloaded original. Authenticated production buyer VIST document region reopened,0JS errors. Interactive supplier production login not exercised; positive supplier production path verified server-side read-only. No real new contract/payment/receipt created.
