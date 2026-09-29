@@ -110,3 +110,14 @@ test('customer sees a plain correction reason and the preserved version history'
   expect(screen.getByText('Исправленная версия')).toBeTruthy();
   expect(screen.queryByRole('button',{name:'Загрузить исправленный файл'})).toBeNull();
 });
+
+test('customer sees an addressed outgoing file as received from the company', () => {
+  render(<CustomerDocuments {...base} loadState={{documents:ready,letters:ready}} letters={[
+    {id:5,companyId:2,projectId:3,side:'customer',direction:'outgoing',subject:'Акт обследования',
+      deliveryStatus:'sent',publishedAt:'2026-09-29T08:30:00Z',publishedByName:'Директор',
+      fileUrl:'/tenant-files/51/content'},
+  ]}/>);
+  expect(screen.getByText(/Получено от компании/)).toBeTruthy();
+  expect(screen.getByText(/Директор/)).toBeTruthy();
+  expect(screen.getByRole('link',{name:'Открыть вложение'}).getAttribute('href')).toBe('/tenant-files/51/content');
+});

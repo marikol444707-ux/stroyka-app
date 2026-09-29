@@ -18,6 +18,8 @@ class AuthenticatedCustomerRecordTest(unittest.TestCase):
                 cur.execute('CREATE UNIQUE INDEX IF NOT EXISTS quality_projects_id_company_idx ON projects(id,company_id)')
                 cur.execute(importlib.import_module('migrations.versions.0040_customer_record_owners').SCHEMA_SQL)
                 cur.execute(importlib.import_module('migrations.versions.0068_customer_file_corrections').SCHEMA_SQL)
+                cur.execute(importlib.import_module('migrations.versions.0069_addressed_customer_publications').SCHEMA_SQL)
+                cur.execute('ALTER TABLE file_ownership ADD COLUMN IF NOT EXISTS retained_at TIMESTAMPTZ')
                 user_id=cls.fixture['users']['foreman']['id']
                 cur.execute("UPDATE users SET role='заказчик' WHERE id=%s",(user_id,))
                 cur.execute("UPDATE user_company_roles SET role='заказчик' WHERE user_id=%s",(user_id,))
@@ -54,8 +56,10 @@ class AuthenticatedCustomerRecordTest(unittest.TestCase):
         self.assertIn(public['id'],[row['id'] for row in documents])
         self.assertNotIn(private['id'],[row['id'] for row in documents])
         self.assertNotIn('notes',next(row for row in documents if row['id']==public['id']))
-        self.api(director,'POST','/project-letters',{'projectId':project_id,'side':'customer','body':'Согласование'})
-        self.assertEqual(len(self.api(self.customer,'GET','/project-letters')),1)
+        letter=self.api(director,'POST','/project-letters/customer-publications',{
+            'requestId':'a35ad376-0e44-4821-aaaf-f4f56ad25430','projectId':project_id,
+            'subject':'Согласование','body':'Согласование'})
+        self.assertIn(letter['id'],[row['id'] for row in self.api(self.customer,'GET','/project-letters')])
 
     def test_direct_file_url_requires_customer_publication(self):
         project_id=self.fixture['projectId']
@@ -108,3 +112,25 @@ class AuthenticatedCustomerRecordTest(unittest.TestCase):
         self.assertEqual((updated['status'], updated['fixNotes']), ('Устранён', 'Исправлено, результат проверен'))
         self.assertEqual(updated['photoUrl'], uploaded['contentUrl'])
         self.api(self.customer,'DELETE',uploaded['metadataUrl'],expected=403)
+
+    def test_addressed_outgoing_file_is_downloadable_only_in_its_customer_project(self):
+        import base64
+        image=base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=')
+        director=self.fixture['users']['director'];project_id=self.fixture['projectId']
+        token=self.main.create_auth_token(director,two_factor_passed=True)
+        upload=self.client.post('/upload-photo',headers={'Authorization':'Bearer '+token,
+            'X-Company-Id':'2','X-Company-Mode':'company'},data={'projectId':str(project_id),
+            'context':'project-letters'},files={'file':('letter.png',image,'image/png')})
+        self.assertEqual(upload.status_code,200,upload.text)
+        uploaded=upload.json();file_id=int(uploaded['contentUrl'].split('/')[2])
+        sent=self.api(director,'POST','/project-letters/customer-publications',{
+            'requestId':'4cb9b3b5-bc31-469c-b81d-169c1bcd0114','projectId':project_id,
+            'fileId':file_id,'subject':'Исполнительная схема'})
+        customer_token=self.main.create_auth_token(self.customer,two_factor_passed=True)
+        content=self.client.get(uploaded['contentUrl'],headers={'Authorization':'Bearer '+customer_token,
+            'X-Company-Id':'2','X-Company-Mode':'company'})
+        self.assertEqual((content.status_code,content.content),(200,image))
+        self.api(director,'DELETE',f'/project-letters/{sent["id"]}',expected=409)
+        denied=self.client.get(uploaded['contentUrl'],headers={'Authorization':'Bearer '+customer_token,
+            'X-Company-Id':'3','X-Company-Mode':'company'})
+        self.assertIn(denied.status_code,(403,404,409))

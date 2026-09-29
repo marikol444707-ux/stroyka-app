@@ -1,5 +1,6 @@
 import os
 import unittest
+from uuid import uuid4
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from .record_scope import RecordScope
@@ -18,12 +19,18 @@ class CustomerFileSubmissionTest(unittest.TestCase):
             cur.execute("""INSERT INTO file_ownership VALUES(1,12,1,8,'customer-request','active',NULL),
                 (2,99,2,8,'customer-request','active',NULL),(3,12,1,9,'customer-request','active',NULL),
                 (4,12,3,8,'customer-request','active',NULL),(5,12,1,8,'general','active',NULL),
-                (6,12,1,8,'customer-request','deleted',NULL)""")
+                (6,12,1,8,'customer-request','deleted',NULL),
+                (11,12,1,3,'project-letters','active',NULL),(12,99,2,3,'project-letters','active',NULL),
+                (13,12,1,9,'project-letters','active',NULL),(14,12,3,3,'project-letters','active',NULL),
+                (15,12,1,3,'general','active',NULL),(16,12,1,3,'project-letters','deleted',NULL)""")
             cur.execute('''CREATE TEMP TABLE project_letters(id SERIAL PRIMARY KEY,project_name TEXT,company_id INT,
                 project_id INT,created_by_user_id INT,side TEXT,direction TEXT,subject TEXT,body TEXT,
                 counterparty TEXT,letter_date DATE,file_url TEXT,author TEXT,status TEXT,created_at TIMESTAMPTZ DEFAULT NOW(),
                 correction_reason TEXT,correction_requested_at TIMESTAMPTZ,correction_requested_by_id INT,
-                correction_requested_by_name TEXT,corrected_by_letter_id INT,replaces_letter_id INT UNIQUE)''')
+                correction_requested_by_name TEXT,corrected_by_letter_id INT,replaces_letter_id INT UNIQUE,
+                delivery_status TEXT NOT NULL DEFAULT 'sent',published_at TIMESTAMPTZ,
+                published_by_id INT,published_by_name TEXT,client_request_id UUID,
+                UNIQUE(company_id,client_request_id))''')
         self.user.update(role='заказчик',projectId=1,assignedProjects=['Same name'])
         def context(cur,user,*args,**kwargs):
             if kwargs.get('x_company_id') != str(user['companyId']):raise HTTPException(403,'Company mismatch')
@@ -116,3 +123,58 @@ class CustomerFileSubmissionTest(unittest.TestCase):
             cur.execute("INSERT INTO file_ownership VALUES(7,12,1,8,'customer-request','active',NULL)")
         response=self.send(fileId=7,replacesLetterId=original)
         self.assertEqual(response.status_code,409,response.text)
+
+    def publish(self, **changes):
+        body={'requestId':str(uuid4()),'projectId':1,'fileId':11,'subject':'Исполнительная схема',
+              'body':'Для ознакомления'}
+        body.update(changes)
+        return self.client.post('/project-letters/customer-publications',json=body,
+            headers={'X-Company-Id':'12','X-Company-Mode':'company'})
+
+    def test_internal_user_publishes_one_addressed_outgoing_version(self):
+        self.user.update(role='директор',id=3,name='Директор',companyId=12,projectId=1)
+        sent=self.publish();self.assertEqual(sent.status_code,200,sent.text)
+        with self.conn.cursor() as cur:
+            cur.execute('''SELECT side,direction,status,delivery_status,file_url,company_id,project_id,
+                                  published_at IS NOT NULL,published_by_id,published_by_name
+                             FROM project_letters WHERE id=%s''',(sent.json()['id'],))
+            self.assertEqual(cur.fetchone(),('customer','outgoing','Активно','sent','/tenant-files/11/content',
+                12,1,True,3,'Директор'))
+            cur.execute('SELECT retained_at IS NOT NULL FROM file_ownership WHERE id=11')
+            self.assertTrue(cur.fetchone()[0])
+        self.user.update(role='заказчик',id=8,name='Заказчик',assignedProjects=['Same name'])
+        listed=self.client.get('/project-letters',headers={'X-Company-Id':'12'}).json()
+        row=next(item for item in listed if item['id']==sent.json()['id'])
+        self.assertEqual((row['direction'],row['deliveryStatus'],row['publishedByName']),
+            ('outgoing','sent','Директор'))
+
+    def test_outgoing_publication_is_idempotent_and_immutable(self):
+        self.user.update(role='директор',id=3,name='Директор',companyId=12,projectId=1)
+        request_id=str(uuid4())
+        first=self.publish(requestId=request_id)
+        second=self.publish(requestId=request_id)
+        self.assertEqual(second.json(),first.json())
+        changed=self.publish(requestId=request_id,subject='Другое письмо')
+        self.assertEqual(changed.status_code,409,changed.text)
+        self.assertEqual(self.client.delete(f'/project-letters/{first.json()["id"]}',
+            headers={'X-Company-Id':'12'}).status_code,409)
+
+    def test_outgoing_publication_rejects_unowned_or_wrong_scope_files(self):
+        self.user.update(role='директор',id=3,name='Директор',companyId=12,projectId=1)
+        for file_id in (12,13,14,15,16,999):
+            response=self.publish(fileId=file_id)
+            self.assertEqual(response.status_code,403,response.text)
+        self.user.update(role='заказчик',id=8,name='Заказчик')
+        self.assertEqual(self.publish(fileId=11).status_code,403)
+
+    def test_legacy_generic_route_cannot_publish_to_customer(self):
+        self.user.update(role='директор',id=3,name='Директор',companyId=12,projectId=1)
+        response=self.client.post('/project-letters',json={'projectId':1,'side':'customer',
+            'direction':'outgoing','subject':'Обход адресной отправки'},headers={'X-Company-Id':'12'})
+        self.assertEqual(response.status_code,409,response.text)
+        with self.conn.cursor() as cur:
+            cur.execute("""INSERT INTO project_letters(project_name,company_id,project_id,created_by_user_id,
+                side,direction,subject,status,delivery_status) VALUES('Same name',12,1,3,'customer',
+                'outgoing','Не опубликовано','Активно','sent')""")
+        self.user.update(role='заказчик',id=8,name='Заказчик',assignedProjects=['Same name'])
+        self.assertEqual(self.client.get('/project-letters',headers={'X-Company-Id':'12'}).json(),[])

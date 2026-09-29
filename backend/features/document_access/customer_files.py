@@ -30,7 +30,8 @@ def authorize_customer_read(cur, actor, row):
     urls = [url for url in urls if url]
     sources = (
         ('project_documents', "side='customer' AND COALESCE(sign_status,'')<>'Аннулирован' AND scan_url=ANY(%s)", [urls]),
-        ('project_letters', "side='customer' AND COALESCE(status,'')<>'Аннулировано' AND file_url=ANY(%s)", [urls]),
+        ('project_letters', "side='customer' AND COALESCE(status,'')<>'Аннулировано' "
+         "AND published_at IS NOT NULL AND delivery_status IN ('sent','received') AND file_url=ANY(%s)", [urls]),
         ('prescriptions', "created_by_user_id=%s AND COALESCE(status,'')<>'Аннулировано' AND (photo_url=ANY(%s) OR fix_photo_url=ANY(%s))", [user_id,urls,urls]),
         ('warranty_defects', 'created_by_user_id=%s AND photo_url=ANY(%s)', [user_id,urls]),
     )

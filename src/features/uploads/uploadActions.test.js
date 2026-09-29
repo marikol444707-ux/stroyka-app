@@ -118,4 +118,12 @@ describe('upload actions project identity', () => {
     expect(protectedUrl).toBe('/tenant-files/32/content');
     expect(protectedFallback).toBe('/uploads/company-4/legacy.pdf');
   });
+
+  test('pins an upload to the explicitly selected company', async () => {
+    global.fetch = jest.fn().mockResolvedValue({ok:true,json:async()=>({contentUrl:'/tenant-files/41/content'})});
+    const actions=createUploadActions({API:'',activePage:'projects',activeProjectTab:'letters',
+      expandedProject:17,masterProjectId:'',projects:[{id:17,name:'Лицей'}]});
+    await actions.uploadPhoto(new File(['letter'],'letter.pdf'),{projectId:17,companyId:12,context:'project-letters'});
+    expect(global.fetch.mock.calls[0][1].headers).toEqual({'X-Company-Id':'12','X-Company-Mode':'company'});
+  });
 });

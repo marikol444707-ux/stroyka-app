@@ -31,6 +31,8 @@ def register_owned_record_routes(app, deps):
                     role = actor.get('role')
                     if role == 'заказчик':
                         where += " AND r.side='customer'"
+                        if table == 'project_letters':
+                            where += " AND r.published_at IS NOT NULL AND r.delivery_status IN ('sent','received')"
                         customer_companies.add(int(actor.get('companyId') or actor.get('company_id')))
                     elif role in workers:
                         where += " AND r.side='contractor'"
@@ -47,9 +49,11 @@ def register_owned_record_routes(app, deps):
                 correction_keys = []
                 if table == 'project_letters':
                     correction_columns = (',r.correction_reason,r.correction_requested_at,'
-                        'r.corrected_by_letter_id,r.replaces_letter_id')
+                        'r.corrected_by_letter_id,r.replaces_letter_id,r.delivery_status,'
+                        'r.published_at,r.published_by_name')
                     correction_keys = ['correctionReason','correctionRequestedAt',
-                        'correctedByLetterId','replacesLetterId']
+                        'correctedByLetterId','replacesLetterId','deliveryStatus',
+                        'publishedAt','publishedByName']
                 cur.execute('SELECT r.id,p.name,' + columns + f',r.{actor_column},r.created_at,r.company_id,r.project_id '
                             + correction_columns + ' '
                             f'FROM {table} r JOIN projects p ON p.id=r.project_id AND p.company_id=r.company_id '
@@ -59,7 +63,7 @@ def register_owned_record_routes(app, deps):
             result = []
             for row in rows:
                 record = dict(zip(keys,row))
-                for key in ('docDate','letterDate','createdAt','correctionRequestedAt'):
+                for key in ('docDate','letterDate','createdAt','correctionRequestedAt','publishedAt'):
                     if key in record:
                         record[key] = str(record[key]) if record[key] else ''
                 if 'amount' in record:
@@ -78,6 +82,8 @@ def register_owned_record_routes(app, deps):
             with scope.transaction(_current_user, request, write_roles, write=True) as (cur, actors):
                 actor = actors[0]
                 parent = scope.parent(cur, actor, data, write_roles)
+                if table == 'project_letters' and data.get('side', defaults.get('side')) == 'customer':
+                    raise HTTPException(409, 'Для заказчика используйте адресную отправку по объекту')
                 values = [data.get(key, defaults.get(key,'')) for key in fields]
                 for index,key in enumerate(fields):
                     if key in ('docDate','letterDate'):
@@ -110,11 +116,12 @@ def register_owned_record_routes(app, deps):
             with scope.transaction(_current_user, request, write_roles, write=True) as (cur, actors):
                 scope.record(cur, actors[0], table, id, write_roles)
                 if table == 'project_letters':
-                    cur.execute('''SELECT correction_requested_at,corrected_by_letter_id,replaces_letter_id
+                    cur.execute('''SELECT correction_requested_at,corrected_by_letter_id,replaces_letter_id,
+                                          delivery_status,published_at
                         FROM project_letters WHERE id=%s FOR UPDATE''',(id,))
                     history = cur.fetchone()
-                    if history and any(history):
-                        raise HTTPException(409, 'Версия участвует в истории исправлений и должна храниться в архиве')
+                    if history and (any(history[:3]) or history[4] is not None):
+                        raise HTTPException(409, 'Отправленная версия должна храниться в истории переписки')
                 cur.execute(f'UPDATE {table} SET {void_column}=%s WHERE id=%s',(void_value,id))
             return {'ok':True}
 

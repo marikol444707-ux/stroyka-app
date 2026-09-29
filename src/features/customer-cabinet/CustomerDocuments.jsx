@@ -38,6 +38,8 @@ function DocumentLibrary({ project, user, documents = [], letters = [], loadStat
     return visible.map(row => <article key={row.id} style={{ padding: '12px 0', borderBottom: `1px solid ${C.border}`, overflowWrap: 'anywhere' }}>
       <b>{kind === 'documents' ? [row.docType || 'Документ', row.number].filter(Boolean).join(' № ') : row.subject || 'Письмо'}</b>
       <p style={{ color: C.textSec, fontSize: 12 }}>{[kind === 'letters' ? (row.direction === 'incoming' ? 'От заказчика' : row.direction === 'outgoing' ? 'От компании' : '') : '', row.docDate || row.letterDate, row.signStatus || row.status].filter(Boolean).join(' · ')}</p>
+      {kind === 'letters' && row.direction === 'outgoing' && row.deliveryStatus === 'sent' &&
+        <p style={{fontWeight:700,color:C.success || C.primary || C.text}}>Получено от компании{row.publishedByName?` · ${row.publishedByName}`:''}</p>}
       {kind === 'letters' && row.replacesLetterId && <p style={{fontWeight:700,color:C.textSec}}>Исправленная версия</p>}
       {kind === 'letters' && row.correctionReason && <div style={{padding:12,margin:'8px 0',border:`1px solid ${C.warning || C.border}`,borderRadius:8}}>
         <b>Нужно исправить: {row.correctionReason}</b>

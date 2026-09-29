@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useRef, useState} from 'react';
 import { Check, Eye, Plus, Trash2, Upload, X } from 'lucide-react';
 import { API } from '../api';
 import { createProjectLetterForm } from '../features/documents/projectDocumentInitialForms';
@@ -29,6 +29,13 @@ export default function ProjectLettersPanel({
   const [correctionLetterId,setCorrectionLetterId]=useState(null);
   const [correctionReason,setCorrectionReason]=useState('');
   const [correctionError,setCorrectionError]=useState('');
+  const [savingLetter,setSavingLetter]=useState(false);
+  const [letterError,setLetterError]=useState('');
+  const publicationRequestId=useRef('');
+  const freshRequestId=()=>window.crypto?.randomUUID?.() ||
+    'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{
+      const value=Math.floor(Math.random()*16);return (c==='x'?value:(value&3)|8).toString(16);
+    });
   const uploadLetterFile = async (file) => {
     if (!file) return;
     setUploadingLetter(true);
@@ -37,6 +44,7 @@ export default function ProjectLettersPanel({
       projectName,
       context: 'project-letters',
       preferProtectedUrl: true,
+      companyId: projectCompanyId,
     });
     setUploadingLetter(false);
     if (url) {
@@ -50,14 +58,29 @@ export default function ProjectLettersPanel({
       return;
     }
 
-    await fetch(API + '/project-letters', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({...newLetter, projectName, author: user.name}),
-    });
-    setNewLetter(createProjectLetterForm());
-    setShowLetterForm(false);
-    await loadAll();
+    setLetterError('');setSavingLetter(true);
+    try {
+      const customerPublication=newLetter.side==='customer' && newLetter.direction==='outgoing';
+      let path='/project-letters';
+      let payload={...newLetter,projectId,projectName,author:user.name};
+      if(customerPublication){
+        const fileMatch=newLetter.fileUrl ? /^\/tenant-files\/([1-9]\d*)\/content$/.exec(newLetter.fileUrl) : null;
+        if(newLetter.fileUrl && !fileMatch)throw new Error('Вложение нужно загрузить заново в этот объект');
+        publicationRequestId.current ||= freshRequestId();
+        path='/project-letters/customer-publications';
+        payload={requestId:publicationRequestId.current,projectId,subject:newLetter.subject.trim(),
+          body:(newLetter.body || '').trim(),letterDate:newLetter.letterDate || null,
+          ...(fileMatch?{fileId:Number(fileMatch[1])}:{})};
+      }
+      const response=await fetch(API+path,{method:'POST',credentials:'include',
+        headers:{'Content-Type':'application/json',...(projectCompanyId?{
+          'X-Company-Id':String(projectCompanyId),'X-Company-Mode':'company'}:{})},body:JSON.stringify(payload)});
+      const data=await response.json().catch(()=>({}));
+      if(!response.ok)throw new Error(data.detail || 'Письмо не отправлено');
+      publicationRequestId.current='';
+      setNewLetter(createProjectLetterForm());setShowLetterForm(false);await loadAll();
+    } catch(error){setLetterError(error.message || 'Письмо не отправлено');}
+    finally {setSavingLetter(false);}
   };
 
   const deleteLetter = async (letterId) => {
@@ -88,7 +111,7 @@ export default function ProjectLettersPanel({
     <div>
       <div style={{...card, padding: '14px', marginBottom: '12px', backgroundColor: C.accentLight, border: '1.5px solid ' + C.accentBorder}}>
         <p style={{margin: 0, color: C.text, fontSize: '12px', lineHeight: 1.5}}>
-          ✉️ Переписка по объекту: письма, уведомления, претензии между компанией и заказчиком / подрядчиками. Привязана к объекту и сохранится в архиве.
+          Здесь хранятся файлы и письма по объекту. Отправленный заказчику файл сразу появится в его кабинете и останется в истории.
         </p>
       </div>
 
@@ -101,17 +124,19 @@ export default function ProjectLettersPanel({
       {showLetterForm && (
         <div style={{...card, padding: '18px', marginBottom: '14px'}}>
           <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px'}}>
-            <select value={newLetter.side} onChange={e => setNewLetter({...newLetter, side: e.target.value})} style={{...inp, marginBottom: 0}}>
+            <select value={newLetter.side} onChange={e => setNewLetter({...newLetter, side: e.target.value,
+              ...(e.target.value==='customer'?{direction:'outgoing'}:{})})} style={{...inp, marginBottom: 0}}>
               <option value="customer">С заказчиком</option>
               <option value="contractor">С подрядчиками</option>
             </select>
+            {newLetter.side==='customer' ? <div style={{...inp,marginBottom:0,display:'flex',alignItems:'center'}}>Получатель: заказчик этого объекта</div> :
             <select value={newLetter.direction} onChange={e => setNewLetter({...newLetter, direction: e.target.value})} style={{...inp, marginBottom: 0}}>
               <option value="outgoing">📤 Исходящее</option>
               <option value="incoming">📥 Входящее</option>
-            </select>
+            </select>}
             <input placeholder="Тема письма *" value={newLetter.subject} onChange={e => setNewLetter({...newLetter, subject: e.target.value})} style={{...inp, marginBottom: 0}}/>
             <input type="date" value={newLetter.letterDate} onChange={e => setNewLetter({...newLetter, letterDate: e.target.value})} style={{...inp, marginBottom: 0}}/>
-            <input placeholder="Контрагент (ФИО / организация)" value={newLetter.counterparty} onChange={e => setNewLetter({...newLetter, counterparty: e.target.value})} style={{...inp, marginBottom: 0}}/>
+            {newLetter.side!=='customer' && <input placeholder="Контрагент (ФИО / организация)" value={newLetter.counterparty} onChange={e => setNewLetter({...newLetter, counterparty: e.target.value})} style={{...inp, marginBottom: 0}}/>}
           </div>
           <textarea placeholder="Текст письма" value={newLetter.body} onChange={e => setNewLetter({...newLetter, body: e.target.value})} style={{...inp, marginTop: '10px', height: '90px'}}/>
           <div style={{display: 'flex', alignItems: 'center', gap: '10px', marginTop: '4px', flexWrap: 'wrap'}}>
@@ -122,9 +147,10 @@ export default function ProjectLettersPanel({
             {newLetter.fileUrl && <a href={fileSrc(newLetter.fileUrl)} target="_blank" rel="noreferrer" style={{fontSize: '12px', color: C.accent}}>посмотреть</a>}
           </div>
           <div style={{display: 'flex', gap: '8px', marginTop: '12px'}}>
-            <button onClick={saveLetter} style={btnO}><Check size={14}/>Сохранить</button>
+            <button onClick={saveLetter} disabled={savingLetter} style={btnO}><Check size={14}/>{savingLetter?'Отправка…':newLetter.side==='customer'&&newLetter.direction==='outgoing'?'Отправить заказчику':'Сохранить'}</button>
             <button onClick={() => setShowLetterForm(false)} style={btnG}><X size={14}/>Отмена</button>
           </div>
+          {letterError && <p role="alert" style={{color:C.danger || '#b91c1c'}}>{letterError}</p>}
         </div>
       )}
 
@@ -143,6 +169,8 @@ export default function ProjectLettersPanel({
                 <p style={{color: C.textSec, margin: '2px 0', fontSize: '11px'}}>
                   {[outgoing ? 'Исходящее' : 'Входящее', letter.side === 'customer' ? 'заказчик' : 'подрядчик', letter.counterparty, letter.letterDate, letter.author].filter(Boolean).join(' · ')}
                 </p>
+                {outgoing && letter.side==='customer' && letter.deliveryStatus==='sent' &&
+                  <p style={{color:C.success,margin:'5px 0',fontSize:12,fontWeight:700}}>Отправлено заказчику{letter.publishedByName?` · ${letter.publishedByName}`:''}</p>}
                 {letter.body && <p style={{color: C.text, margin: '4px 0 0', fontSize: '12px', whiteSpace: 'pre-wrap'}}>{letter.body}</p>}
                 {letter.replacesLetterId && <p style={{color:C.textSec,margin:'6px 0 0',fontSize:12,fontWeight:700}}>Исправленная версия</p>}
                 {letter.correctionReason && <div style={{marginTop:8,padding:10,border:`1px solid ${C.warning}`,borderRadius:8}}>
@@ -172,7 +200,7 @@ export default function ProjectLettersPanel({
                 {!outgoing && letter.side==='customer' && letter.fileUrl && !letter.correctionRequestedAt &&
                   <button type="button" onClick={()=>{setCorrectionLetterId(letter.id);setCorrectionReason('');setCorrectionError('');}}
                     style={{...btnG,padding:'4px 8px',fontSize:11}}>Запросить исправление</button>}
-                {!letter.correctionRequestedAt && !letter.replacesLetterId &&
+                {!letter.correctionRequestedAt && !letter.replacesLetterId && !letter.publishedAt &&
                   <button aria-label="Удалить письмо" onClick={() => deleteLetter(letter.id)} style={{...btnR, padding: '4px 8px'}}>
                     <Trash2 size={11}/>
                   </button>}

@@ -26,6 +26,7 @@ class PrescriptionPostgresTest(unittest.TestCase):
                 fixed_at DATE,photo_url TEXT,severity TEXT,created_at TIMESTAMP DEFAULT NOW())''')
             cur.execute('CREATE TABLE project_documents(id SERIAL PRIMARY KEY,project_name TEXT,side TEXT,\n                doc_type TEXT,number TEXT,doc_date DATE,counterparty TEXT,sign_status TEXT,scan_url TEXT,\n                amount NUMERIC,notes TEXT,uploaded_by TEXT,created_at TIMESTAMP DEFAULT NOW());\n                CREATE TABLE project_letters(id SERIAL PRIMARY KEY,project_name TEXT,side TEXT,direction TEXT,\n                subject TEXT,body TEXT,counterparty TEXT,letter_date DATE,file_url TEXT,author TEXT,status TEXT,\n                created_at TIMESTAMP DEFAULT NOW(),correction_reason TEXT,correction_requested_at TIMESTAMPTZ,\n                corrected_by_letter_id INT,replaces_letter_id INT)')
             cur.execute(importlib.import_module('migrations.versions.0040_customer_record_owners').SCHEMA_SQL)
+            cur.execute(importlib.import_module('migrations.versions.0069_addressed_customer_publications').SCHEMA_SQL)
             cur.execute("INSERT INTO projects VALUES(1,1,'Лицей'),(2,2,'Лицей'),(3,1,'Лицей'); INSERT INTO users VALUES(10),(11),(12)")
         conn.commit();conn.close()
 
@@ -138,7 +139,8 @@ class PrescriptionPostgresTest(unittest.TestCase):
         with conn.cursor() as cur:
             for company,project,side in [(1,1,'customer'),(2,2,'customer'),(1,3,'customer'),(1,1,'contractor')]:
                 cur.execute("INSERT INTO project_documents(project_name,company_id,project_id,side,notes) VALUES('Лицей',%s,%s,%s,'Внутренняя заметка')",(company,project,side))
-                cur.execute("INSERT INTO project_letters(project_name,company_id,project_id,side,body) VALUES('Лицей',%s,%s,%s,'Письмо')",(company,project,side))
+                cur.execute("""INSERT INTO project_letters(project_name,company_id,project_id,side,body,
+                    published_at,delivery_status) VALUES('Лицей',%s,%s,%s,'Письмо',NOW(),'sent')""",(company,project,side))
             cur.execute("INSERT INTO project_documents(project_name,side) VALUES('Лицей','customer')")
         conn.commit();conn.close()
         app=self.documents_app()

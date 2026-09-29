@@ -1,5 +1,7 @@
-"""Customer files enter the existing owned project correspondence, without posting acts."""
+"""Addressed project correspondence with immutable protected file versions."""
+from datetime import date
 from typing import Optional
+from uuid import UUID
 
 from fastapi import Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
@@ -17,6 +19,16 @@ class CustomerFile(BaseModel):
 class CorrectionRequest(BaseModel):
     model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
     reason: str = Field(min_length=3, max_length=2000)
+
+
+class CustomerPublication(BaseModel):
+    model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
+    requestId: UUID
+    projectId: int = Field(strict=True, gt=0)
+    fileId: Optional[int] = Field(default=None, strict=True, gt=0)
+    subject: str = Field(min_length=1, max_length=500)
+    body: str = Field(default='', max_length=10000)
+    letterDate: Optional[date] = None
 
 
 def register_customer_file_submission(app, scope, get_current_user, correction_roles):
@@ -54,16 +66,64 @@ def register_customer_file_submission(app, scope, get_current_user, correction_r
                 original_id = original[0]
             cur.execute('''INSERT INTO project_letters
                 (project_name,company_id,project_id,created_by_user_id,side,direction,subject,body,
-                 counterparty,letter_date,file_url,author,status,replaces_letter_id)
-                VALUES (%s,%s,%s,%s,'customer','incoming',%s,%s,%s,CURRENT_DATE,%s,%s,'Получено',%s) RETURNING id''',
+                 counterparty,letter_date,file_url,author,status,replaces_letter_id,delivery_status,
+                 published_at,published_by_id,published_by_name)
+                VALUES (%s,%s,%s,%s,'customer','incoming',%s,%s,%s,CURRENT_DATE,%s,%s,'Получено',%s,
+                        'received',NOW(),%s,%s) RETURNING id''',
                 (parent['name'], parent['companyId'], parent['id'], actor['id'], data.subject,
-                 data.body, actor.get('name') or '', url, actor.get('name') or 'Заказчик', original_id))
+                 data.body, actor.get('name') or '', url, actor.get('name') or 'Заказчик', original_id,
+                 actor['id'], actor.get('name') or 'Заказчик'))
             record_id = cur.fetchone()[0]
             if original_id:
                 cur.execute('UPDATE project_letters SET corrected_by_letter_id=%s WHERE id=%s',
                     (record_id, original_id))
             cur.execute('UPDATE file_ownership SET retained_at=COALESCE(retained_at,NOW()) WHERE id=%s', (data.fileId,))
         return {'ok': True, 'id': record_id, 'companyId': parent['companyId'], 'projectId': parent['id']}
+
+    @app.post('/project-letters/customer-publications')
+    def publish_to_customer(data: CustomerPublication, request: Request,
+                            user: dict = Depends(get_current_user)):
+        """Publish one exact message/file version to customers of one authorized project."""
+        with scope.transaction(user, request, correction_roles, write=True) as (cur, actors):
+            actor = actors[0]
+            parent = scope.parent(cur, actor, {'projectId': data.projectId}, correction_roles)
+            request_id = str(data.requestId)
+            cur.execute('SELECT pg_advisory_xact_lock(%s,hashtext(%s))',
+                (parent['companyId'], request_id))
+            file_url = ''
+            if data.fileId is not None:
+                cur.execute('''SELECT id FROM file_ownership WHERE id=%s AND company_id=%s
+                    AND project_id=%s AND uploaded_by_id=%s AND context='project-letters'
+                    AND COALESCE(deletion_status,'active')='active' FOR UPDATE''',
+                    (data.fileId, parent['companyId'], parent['id'], actor['id']))
+                if not cur.fetchone():
+                    raise HTTPException(403, 'Можно отправить только свой файл для этого объекта')
+                file_url = f'/tenant-files/{data.fileId}/content'
+            cur.execute('''SELECT id,project_id,created_by_user_id,subject,body,letter_date,file_url
+                FROM project_letters WHERE company_id=%s AND client_request_id=%s FOR UPDATE''',
+                (parent['companyId'], request_id))
+            previous = cur.fetchone()
+            expected = (parent['id'], actor['id'], data.subject, data.body, data.letterDate, file_url)
+            if previous:
+                if tuple(previous[1:]) != expected:
+                    raise HTTPException(409, 'Эта отправка уже сохранена с другими данными')
+                return {'ok': True, 'id': previous[0], 'companyId': parent['companyId'],
+                        'projectId': parent['id'], 'deliveryStatus': 'sent'}
+            cur.execute('''INSERT INTO project_letters
+                (project_name,company_id,project_id,created_by_user_id,side,direction,subject,body,
+                 counterparty,letter_date,file_url,author,status,delivery_status,published_at,
+                 published_by_id,published_by_name,client_request_id)
+                VALUES (%s,%s,%s,%s,'customer','outgoing',%s,%s,'Заказчик объекта',%s,%s,%s,
+                        'Активно','sent',NOW(),%s,%s,%s) RETURNING id''',
+                (parent['name'], parent['companyId'], parent['id'], actor['id'], data.subject,
+                 data.body, data.letterDate, file_url, actor.get('name') or actor.get('role') or '',
+                 actor['id'], actor.get('name') or actor.get('role') or '', request_id))
+            record_id = cur.fetchone()[0]
+            if data.fileId is not None:
+                cur.execute('UPDATE file_ownership SET retained_at=COALESCE(retained_at,NOW()) WHERE id=%s',
+                    (data.fileId,))
+        return {'ok': True, 'id': record_id, 'companyId': parent['companyId'],
+                'projectId': parent['id'], 'deliveryStatus': 'sent'}
 
     @app.post('/project-letters/{letter_id}/request-correction')
     def request_correction(letter_id: int, data: CorrectionRequest, request: Request,

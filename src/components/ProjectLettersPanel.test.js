@@ -63,6 +63,7 @@ describe('ProjectLettersPanel', () => {
       projectName: 'Лицей',
       context: 'project-letters',
       preferProtectedUrl: true,
+      companyId: 12,
     }));
   });
 
@@ -79,5 +80,30 @@ describe('ProjectLettersPanel', () => {
     await waitFor(()=>expect(fetch).toHaveBeenCalledWith(expect.stringMatching(/project-letters\/9\/request-correction$/),
       expect.objectContaining({method:'POST',body:JSON.stringify({reason:'Добавьте страницу с подписью'})})));
     expect(props.loadAll).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends a customer letter through the addressed publication endpoint', async () => {
+    global.fetch = jest.fn(async () => ({ok: true, json: async () => ({ok: true, deliveryStatus:'sent'})}));
+    const props = buildProps({newLetter:{side:'customer',direction:'outgoing',subject:'Акт обследования',
+      body:'Ознакомьтесь с документом',counterparty:'',letterDate:'2026-09-29',
+      fileUrl:'/tenant-files/31/content'}});
+    render(<ProjectLettersPanel {...props}/>);
+    fireEvent.click(screen.getByRole('button',{name:'Отправить заказчику'}));
+    await waitFor(()=>expect(fetch).toHaveBeenCalledWith(expect.stringMatching(/project-letters\/customer-publications$/),
+      expect.objectContaining({method:'POST',credentials:'include',headers:expect.objectContaining({
+        'X-Company-Id':'12','X-Company-Mode':'company'}),body:expect.any(String)})));
+    const payload=JSON.parse(fetch.mock.calls[0][1].body);
+    expect(payload).toEqual(expect.objectContaining({projectId:17,fileId:31,subject:'Акт обследования',
+      body:'Ознакомьтесь с документом',letterDate:'2026-09-29',requestId:expect.any(String)}));
+    expect(payload).not.toHaveProperty('counterparty');
+    expect(props.loadAll).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows addressed delivery state in the correspondence history', () => {
+    render(<ProjectLettersPanel {...buildProps({showLetterForm:false,projectLetters:[{id:41,projectId:17,
+      side:'customer',direction:'outgoing',subject:'Исполнительная схема',deliveryStatus:'sent',
+      publishedAt:'2026-09-29T08:30:00Z',publishedByName:'Директор'}]})}/>);
+    expect(screen.getByText(/Отправлено заказчику/)).toBeInTheDocument();
+    expect(screen.getByText(/Директор/)).toBeInTheDocument();
   });
 });

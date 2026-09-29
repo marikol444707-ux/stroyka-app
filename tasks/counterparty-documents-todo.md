@@ -218,3 +218,9 @@ Verified staging removed. This supersedes the prior multiple-selection limitatio
 - Browser mobile390 actual component uploaded/sent/acknowledged synthetic file;scope verified. Production routing check caught405 for new root prefixes; corrected to existing /project-letters and /supplier-documents API namespaces. Both URLs now pass nginx and reject director with403;send detail verifies role denial. Supplier readonly live list returns1 contract with download grant.
 - Release c36ed9bd installed;251 assets matched;schema0067 unchanged;financial/stock/document/registry/project_letters/file_ownership hashes unchanged. Successful write exercised in isolated PostgreSQL/browser fixture only;no real customer file/letter created. Expected403 console entries from denial probes.
 - Four gates verified before cleanup;staging and rollback files removed. Addressed outgoing-version workflow and correction notifications remain pending.
+
+### 2026-09-29 — D4c addressed outgoing customer files, local
+- Added an exact-project customer publication command with a server-derived recipient, immutable sent version, protected same-company/project/uploader file and UUID idempotency. The generic letter route cannot publish to a customer.
+- Customer listing and direct file authorization require a recorded publication; legacy customer records are backfilled by migration0069. Published rows cannot be removed. The internal and customer screens use plain «Отправить заказчику» / «Получено от компании» labels.
+- 17 isolated route cases,4 authenticated PostgreSQL cases,14 project-record PostgreSQL cases,80 related backend checks and63 customer UI tests passed. Migration0068→0069 was rehearsed after fixing the Alembic identifier length; production build passed.
+- Not deployed. No real letter/file was created. Persistent per-user read receipts and an independent notification inbox remain outside this increment.

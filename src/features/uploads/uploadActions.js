@@ -29,7 +29,8 @@ export const createUploadActions = ({
     if (context) fd.append('context', context);
     try {
       const uploadPath = meta.supplierOfferId ? '/supplier-offers/' + meta.supplierOfferId + '/files' : '/upload-photo';
-      const res = await fetch(API + uploadPath, { method: 'POST', body: fd });
+      const headers = meta.companyId ? {'X-Company-Id':String(meta.companyId),'X-Company-Mode':'company'} : undefined;
+      const res = await fetch(API + uploadPath, { method: 'POST', body: fd, ...(headers ? {headers} : {}) });
       if (res.ok === false) return '';
       const data = await res.json();
       return data.contentUrl || data.url;
