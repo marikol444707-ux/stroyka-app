@@ -1,7 +1,7 @@
 import copy
 import unittest
 from fastapi import HTTPException
-from .legacy_binding_policy import validate_legacy_binding
+from .legacy_binding_policy import legacy_binding_warnings, validate_legacy_binding
 
 
 class LegacyBindingPolicyTests(unittest.TestCase):
@@ -34,7 +34,6 @@ class LegacyBindingPolicyTests(unittest.TestCase):
     def test_missing_evidence_fails_closed(self):
         del self.evidence['deliveries']
         with self.assertRaises(HTTPException): self.check()
-
     def test_money_is_not_coerced_or_inferred(self):
         for field, values in [('paid_amount', [None, '1', '-1', 'NaN', True]),
                               ('amount', ['0', '-1', 'NaN', '1.001', True])]:
@@ -63,3 +62,31 @@ class LegacyBindingPolicyTests(unittest.TestCase):
                 self.contract[field] = old
         self.offer['status'] = 'Отклонено'
         with self.assertRaises(HTTPException): self.check()
+
+
+class LegacyBindingWarningTests(unittest.TestCase):
+    def test_warns_when_invoice_predates_contract_and_signature_is_not_verified(self):
+        warnings = legacy_binding_warnings(
+            {'invoice_date': '2026-09-21'},
+            {'snapshot_json': {'date': '2026-09-22', 'signatureStatus': 'not_verified'}},
+        )
+
+        self.assertEqual([warning['code'] for warning in warnings], [
+            'invoice_predates_contract', 'contract_signature_not_verified',
+        ])
+        self.assertIn('21.09.2026', warnings[0]['message'])
+        self.assertIn('22.09.2026', warnings[0]['message'])
+
+    def test_current_dated_contract_without_signature_marker_has_no_warning(self):
+        self.assertEqual(legacy_binding_warnings(
+            {'invoice_date': '2026-09-22'},
+            {'snapshot_json': {'date': '2026-09-22', 'signatureStatus': 'verified'}},
+        ), [])
+
+    def test_missing_or_invalid_dates_fail_closed_with_review_warning(self):
+        warnings = legacy_binding_warnings(
+            {'invoice_date': None},
+            {'snapshot_json': {'date': 'неизвестно', 'signatureStatus': 'verified'}},
+        )
+
+        self.assertEqual(warnings[0]['code'], 'document_dates_require_review')

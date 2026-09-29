@@ -3,8 +3,52 @@
 No database writes or authority decisions. Caller must hold the company/offer/
 invoice locks, authorize all parties and check the frozen contract snapshot.
 """
+import datetime as dt
 from decimal import Decimal, InvalidOperation
 from fastapi import HTTPException
+
+
+def _document_date(value):
+    if isinstance(value, dt.datetime):
+        return value.date()
+    if isinstance(value, dt.date):
+        return value
+    try:
+        return dt.date.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _display_date(value):
+    return value.strftime('%d.%m.%Y')
+
+
+def legacy_binding_warnings(invoice, contract):
+    """Return facts requiring human review without deciding legal validity."""
+    snapshot = contract.get('snapshot_json') if isinstance(contract, dict) else None
+    snapshot = snapshot if isinstance(snapshot, dict) else {}
+    invoice_date = _document_date(invoice.get('invoice_date'))
+    contract_date = _document_date(snapshot.get('date'))
+    warnings = []
+    if invoice_date is None or contract_date is None:
+        warnings.append({
+            'code': 'document_dates_require_review',
+            'message': 'Дата счёта или договора не распознана. Сверьте обе даты по оригиналам.',
+        })
+    elif invoice_date < contract_date:
+        warnings.append({
+            'code': 'invoice_predates_contract',
+            'message': (
+                f'Счёт от {_display_date(invoice_date)} выставлен раньше договора '
+                f'от {_display_date(contract_date)}. Подтвердите, что договор относится к этому счёту.'
+            ),
+        })
+    if snapshot.get('signatureStatus') != 'verified':
+        warnings.append({
+            'code': 'contract_signature_not_verified',
+            'message': 'Подписи в оригинале договора нужно проверить перед привязкой счёта.',
+        })
+    return warnings
 
 
 def validate_legacy_binding(invoice, offer, contract, evidence):
