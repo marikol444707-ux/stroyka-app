@@ -58,8 +58,9 @@ def validate_legacy_binding(invoice, offer, contract, evidence):
 
     require(invoice.get('contract_version_id') is None,
             'Счёт уже связан с договором. Замена версии этим действием запрещена')
-    require(invoice.get('status') == 'На утверждении' and offer.get('status') == 'Утверждено',
-            'Привязка доступна для счёта на утверждении по утверждённому КП')
+    require(invoice.get('status') in ('На утверждении', 'Утверждён')
+            and offer.get('status') == 'Утверждено',
+            'Привязка доступна для неоплаченного счёта по утверждённому КП')
     require(invoice.get('warehouse_invoice_id') is None,
             'Счёт уже связан с накладной. Требуется отдельная сверка')
     require(all(evidence.get(key) is False for key in ('ledger', 'receipts', 'deliveries', 'sealed_lines')),

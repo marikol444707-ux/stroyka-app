@@ -24,6 +24,10 @@ class LegacyBindingPolicyTests(unittest.TestCase):
         self.check()
         self.assertEqual(self.invoice, original)
 
+    def test_approved_unpaid_unbound_invoice_can_bind(self):
+        self.invoice['status'] = 'Утверждён'
+        self.check()
+
     def test_each_downstream_evidence_blocks(self):
         for key in self.evidence:
             with self.subTest(key=key):

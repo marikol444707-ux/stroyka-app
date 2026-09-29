@@ -1,50 +1,13 @@
-"""Explicit append-only evidence for the first contract binding of unused invoices."""
+"""Allow safe first contract binding after an invoice is approved."""
 from alembic import op
 
-revision = '0062_supplier_legacy_binding'
-down_revision = '0061_supplier_mixed_bindings'
+revision = '0070_approved_legacy_binding'
+down_revision = '0069_customer_publications'
 branch_labels = None
 depends_on = None
 
 
 def upgrade():
-    op.execute('''CREATE TABLE public.supplier_legacy_contract_bindings (
-        invoice_id INTEGER PRIMARY KEY REFERENCES public.supplier_invoices(id),
-        company_id INTEGER NOT NULL, offer_id INTEGER NOT NULL,
-        contract_version_id BIGINT NOT NULL,
-        request_id UUID NOT NULL UNIQUE, reason TEXT NOT NULL CHECK (length(btrim(reason)) BETWEEN 1 AND 1000),
-        actor_id INTEGER NOT NULL REFERENCES public.users(id), actor_name TEXT NOT NULL CHECK (length(btrim(actor_name))>0),
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        FOREIGN KEY (contract_version_id,company_id,offer_id)
-            REFERENCES public.supplier_contract_versions(id,company_id,offer_id)
-    )''')
-    op.execute('''CREATE TRIGGER supplier_legacy_binding_immutable BEFORE UPDATE OR DELETE
-        ON public.supplier_legacy_contract_bindings FOR EACH ROW
-        EXECUTE FUNCTION public.guard_saved_supplier_contract()''')
-    op.execute('''CREATE FUNCTION public.guard_supplier_legacy_binding_insert() RETURNS trigger
-        LANGUAGE plpgsql AS $$ DECLARE i RECORD; BEGIN
-        SELECT * INTO i FROM public.supplier_invoices WHERE id=NEW.invoice_id FOR UPDATE;
-        IF NOT FOUND OR i.contract_version_id IS NOT NULL OR
-           i.company_id IS DISTINCT FROM NEW.company_id OR i.offer_id IS DISTINCT FROM NEW.offer_id THEN
-            RAISE EXCEPTION 'Legacy binding evidence requires an unbound invoice of this deal';
-        END IF;
-        RETURN NEW;
-        END $$''')
-    op.execute('''CREATE TRIGGER supplier_legacy_binding_insert BEFORE INSERT
-        ON public.supplier_legacy_contract_bindings FOR EACH ROW
-        EXECUTE FUNCTION public.guard_supplier_legacy_binding_insert()''')
-    op.execute('''CREATE FUNCTION public.validate_supplier_legacy_binding() RETURNS trigger
-        LANGUAGE plpgsql AS $$ BEGIN
-        IF NOT EXISTS (SELECT 1 FROM public.supplier_invoices i
-            WHERE i.id=NEW.invoice_id AND i.company_id=NEW.company_id
-              AND i.offer_id=NEW.offer_id AND i.contract_version_id=NEW.contract_version_id) THEN
-            RAISE EXCEPTION 'Legacy contract binding must match its invoice at commit';
-        END IF;
-        RETURN NEW;
-        END $$''')
-    op.execute('''CREATE CONSTRAINT TRIGGER supplier_legacy_binding_complete
-        AFTER INSERT ON public.supplier_legacy_contract_bindings DEFERRABLE INITIALLY DEFERRED
-        FOR EACH ROW EXECUTE FUNCTION public.validate_supplier_legacy_binding()''')
     op.execute('''CREATE OR REPLACE FUNCTION public.guard_supplier_document_contract() RETURNS trigger
         LANGUAGE plpgsql AS $$
         DECLARE legacy_allowed BOOLEAN := FALSE;
@@ -106,5 +69,4 @@ def upgrade():
 
 
 def downgrade():
-    # Removing the audit would erase the basis of previously immutable identities.
-    raise RuntimeError('Legacy contract binding evidence cannot be downgraded automatically')
+    raise RuntimeError('Approved legacy bindings may already exist and cannot be downgraded safely')

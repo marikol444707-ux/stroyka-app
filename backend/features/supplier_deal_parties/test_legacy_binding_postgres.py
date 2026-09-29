@@ -55,6 +55,14 @@ class LegacyBindingPostgresTests(unittest.TestCase):
         self.assertEqual(before,self.sql("SELECT to_jsonb(i)-'contract_version_id' FROM supplier_invoices i WHERE id=%s",(self.invoice,)))
         self.assertEqual(self.sql('SELECT count(*) FROM supplier_legacy_contract_bindings WHERE invoice_id=%s',(self.invoice,))[0][0],1)
 
+    def test_approved_unpaid_invoice_can_bind(self):
+        self.sql("UPDATE supplier_invoices SET status='Утверждён' WHERE id=%s", (self.invoice,))
+        response = self.api('director', 'POST', self.path, self.body)
+        self.assertEqual(response['bindingStatus'], 'bound')
+        self.assertEqual(self.sql(
+            'SELECT contract_version_id FROM supplier_invoices WHERE id=%s', (self.invoice,)
+        ), [(self.contract_id,)])
+
     def test_paid_invoice_cannot_bind(self):
         self.sql('UPDATE supplier_invoices SET paid_amount=1 WHERE id=%s',(self.invoice,))
         rejection = self.api('director','POST',self.path,self.body,expected=409)
