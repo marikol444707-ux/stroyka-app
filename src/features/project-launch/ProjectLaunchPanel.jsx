@@ -71,8 +71,8 @@ function ProjectLaunchPanel({
     setError('');
     try {
       const [nextReadiness, nextDrafts] = await Promise.all([
-        fetchProjectLaunchReadiness(API, projectName),
-        fetchProjectLaunchDrafts(API, projectName),
+        fetchProjectLaunchReadiness(API, project),
+        fetchProjectLaunchDrafts(API, project),
       ]);
       setReadiness(nextReadiness);
       setDrafts(nextDrafts);
@@ -82,7 +82,7 @@ function ProjectLaunchPanel({
     } finally {
       setLoading(false);
     }
-  }, [API, contractDocs, projectName, selectedDocumentId]);
+  }, [API, contractDocs, project, projectName, selectedDocumentId]);
 
   useEffect(() => {
     load();
@@ -133,7 +133,7 @@ function ProjectLaunchPanel({
           {type: 'manual_draft', message: 'Черновик создан из текущих данных объекта и документа. Рабочие сущности не изменены.'},
         ],
         confidence: doc ? 0.55 : 0.25,
-      });
+      }, project);
       setDrafts(prev => draft ? [draft, ...prev.filter(item => item.id !== draft.id)] : prev);
       await load();
     } catch (e) {
@@ -148,7 +148,7 @@ function ProjectLaunchPanel({
     if (reason === null) return;
     setError('');
     try {
-      const updated = await rejectProjectLaunchDraft(API, draft.id, reason);
+      const updated = await rejectProjectLaunchDraft(API, draft.id, reason, project);
       setDrafts(prev => prev.map(item => item.id === draft.id ? updated : item));
       await load();
     } catch (e) {

@@ -1,4 +1,5 @@
 import unittest
+from backend.features.prescriptions.test_routes import TestRecordScope
 
 from backend.features.warranty_defects.routes import register_warranty_defects_module
 
@@ -65,6 +66,8 @@ def build(cursor, visible=None, projects=("Объект",)):
     connection = FakeConnection(cursor)
     register_warranty_defects_module(app, {
         "get_db": lambda: connection,
+        "get_current_user": lambda: {},
+        "record_scope": TestRecordScope(connection),
         "require_roles": lambda *roles: (lambda: None),
         "read_roles": ("директор",),
         "write_roles": ("директор",),
@@ -88,7 +91,7 @@ class WarrantyDefectsTest(unittest.TestCase):
         cursor = FakeCursor(rows=[])
         app, _conn = build(cursor, visible=["Объект"])
         app.routes[("GET", "/warranty-defects")](project_name=None, current_user={})
-        self.assertIn("WHERE project_name = ANY(%s)", cursor.calls[0][0])
+        self.assertIn("JOIN projects p ON p.id=r.project_id AND p.company_id=r.company_id", cursor.calls[0][0])
 
     def test_update_normalizes_empty_fixed_at(self):
         cursor = FakeCursor()

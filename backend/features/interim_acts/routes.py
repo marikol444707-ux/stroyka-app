@@ -81,111 +81,34 @@ def register_interim_acts_module(app, deps):
         if not has_package_access(_current_user, a.workPackage or ""):
             raise HTTPException(status_code=403, detail="Нет доступа к этому пакету работ")
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        total_amount = float(a.totalAmount or 0)
-        paid_amount = float(a.paidAmount or 0)
-        if _current_user.get("role") not in finance_roles and paid_amount > 0:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=403, detail="Оплату по акту указывает только директор, замдиректора или бухгалтер")
-        available_total = confirmed_execution_total_for_act(cur, a.masterId, a.masterName, a.project, a.workPackage, a.periodStart, a.periodEnd)
-        if total_amount <= 0:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="Сумма акта должна быть больше нуля")
-        if total_amount > available_total + 0.01:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail=f"Сумма акта превышает подтверждённые работы за период. Доступно к акту: {available_total:.2f} ₽")
-        if paid_amount < 0 or paid_amount > total_amount + 0.01:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="Оплата по акту не может быть меньше 0 или больше суммы акта")
-        import json as _json
-        work_journal_ids = [int(x) for x in (a.workJournalIds or []) if str(x).isdigit()]
-        if not work_journal_ids:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="Акт должен быть привязан к конкретным подтверждённым работам ЖПР")
-        package = (a.workPackage or "Основная").strip() or "Основная"
-        master_name = (a.masterName or "").strip().lower()
-        cur.execute("""SELECT id, COALESCE(execution_total,0) AS execution_total
-                       FROM work_journal
-                       WHERE id = ANY(%s)
-                         AND project=%s
-                         AND COALESCE(NULLIF(work_package,''),'Основная')=%s
-                         AND status='Подтверждено'
-                         AND (room_id IS NOT NULL OR COALESCE(NULLIF(room_name,''),'') <> '')
-                         AND date BETWEEN %s AND %s
-                         AND ((%s::int IS NOT NULL AND master_id=%s) OR (%s::int IS NULL AND LOWER(TRIM(COALESCE(master_name,'')))=%s))""",
-                    (work_journal_ids, a.project, package, a.periodStart, a.periodEnd, a.masterId, a.masterId, a.masterId, master_name))
-        selected_rows = cur.fetchall() or []
-        selected_ids = {int(r["id"]) for r in selected_rows}
-        missing_ids = sorted(set(work_journal_ids) - selected_ids)
-        if missing_ids:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="В акт попали работы не этого исполнителя, пакета или периода: " + ", ".join(map(str, missing_ids[:10])))
-        cur.execute("""SELECT id FROM interim_acts
-                       WHERE COALESCE(status,'') <> 'Аннулирован'
-                         AND COALESCE(source_type,'') <> %s
-                         AND COALESCE(NULLIF(work_journal_ids,''),'[]')::jsonb ?| %s
-                       LIMIT 1""", (daily_work_act_source_type, [str(x) for x in work_journal_ids]))
-        duplicate_act = cur.fetchone()
-        if duplicate_act:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="Одна или несколько работ ЖПР уже включены в другой акт")
-        selected_total = sum(float(r["execution_total"] or 0) for r in selected_rows)
-        if abs(total_amount - selected_total) > 0.01:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail=f"Сумма акта должна равняться выбранным подтверждённым ЖПР: {selected_total:.2f} ₽. Удержания и частичную оплату фиксируйте отдельными полями.")
-        cur.execute("""INSERT INTO interim_acts
-                       (master_id,master_name,project,work_package,period_start,period_end,total_amount,paid_amount,contract_id,work_journal_ids)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
-                    (a.masterId,a.masterName,a.project,a.workPackage or "",a.periodStart,a.periodEnd,total_amount,paid_amount,a.contractId,_json.dumps(work_journal_ids, ensure_ascii=False)))
-        row = cur.fetchone()
-        conn.commit()
-        conn.close()
-        return dict(row)
-
-    @app.put("/interim-acts/{id}")
-    def update_interim_act(id: int, data: dict, _current_user: dict = Depends(require_roles(*finance_roles))):
-        import json as _json
-        conn = get_db()
-        cur = conn.cursor()
-        require_row_project_access(cur, "interim_acts", id, _current_user, "project")
-        cur.execute("""SELECT master_id, master_name, project, COALESCE(NULLIF(work_package,''),'Основная'),
-                              period_start, period_end, total_amount, paid_amount,
-                              COALESCE(status,''), COALESCE(scan_url,''), COALESCE(work_journal_ids,'[]'),
-                              COALESCE(source_type,'')
-                       FROM interim_acts WHERE id=%s""", (id,))
-        act_row = cur.fetchone()
-        if not act_row:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=404, detail="Акт не найден")
-        master_id, master_name, project, work_package, period_start, period_end, total_amount, current_paid, current_status, scan_url, current_work_ids, source_type = act_row
-        if not has_package_access(_current_user, work_package or "Основная"):
-            cur.close(); conn.close()
-            raise HTTPException(status_code=403, detail="Нет доступа к разделу сметы акта")
-        total_amount = float(total_amount or 0)
-        current_paid = float(current_paid or 0)
-        new_paid = float(data.get("paidAmount", current_paid) or 0)
-        new_total = float(data.get("totalAmount", total_amount) or 0)
-        finance_update_keys = {"paidAmount", "totalAmount", "workJournalIds"}
-        finance_statuses = interim_act_locked_statuses
-        if str(source_type or "") == daily_work_act_source_type and (
-            any(k in data for k in finance_update_keys) or str(data.get("status") or "") in finance_statuses
-        ):
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="Дневной акт является контрольным пакетом. Для оплаты сформируйте акт подрядчику за месяц, период или всё время работ.")
-        if _current_user.get("role") not in finance_roles and (
-            any(k in data for k in finance_update_keys) or str(data.get("status") or "") in finance_statuses
-        ):
-            cur.close(); conn.close()
-            raise HTTPException(status_code=403, detail="Финансовые поля и оплату акта меняет только директор, замдиректора или бухгалтер")
-        if "workJournalIds" in data or "totalAmount" in data:
-            if current_status in ("Подписан", "Оплачен", "Частично оплачен", "Оплачен частично"):
+        try:
+            if deps.get('lock_settlement'):
+                deps['lock_settlement'](cur)
+                deps['require_legacy_work'](cur, a.workJournalIds, a.contractId)
+            total_amount = float(a.totalAmount or 0)
+            paid_amount = float(a.paidAmount or 0)
+            if _current_user.get("role") not in finance_roles and paid_amount > 0:
                 cur.close(); conn.close()
-                raise HTTPException(status_code=400, detail="Подписанный или оплаченный акт нельзя менять. Создайте новый акт корректировки.")
-            work_journal_ids = [int(x) for x in (data.get("workJournalIds") or []) if str(x).isdigit()]
+                raise HTTPException(status_code=403, detail="Оплату по акту указывает только директор, замдиректора или бухгалтер")
+            available_total = confirmed_execution_total_for_act(cur, a.masterId, a.masterName, a.project, a.workPackage, a.periodStart, a.periodEnd)
+            if total_amount <= 0:
+                cur.close(); conn.close()
+                raise HTTPException(status_code=400, detail="Сумма акта должна быть больше нуля")
+            if total_amount > available_total + 0.01:
+                cur.close(); conn.close()
+                raise HTTPException(status_code=400, detail=f"Сумма акта превышает подтверждённые работы за период. Доступно к акту: {available_total:.2f} ₽")
+            if paid_amount < 0 or paid_amount > total_amount + 0.01:
+                cur.close(); conn.close()
+                raise HTTPException(status_code=400, detail="Оплата по акту не может быть меньше 0 или больше суммы акта")
+            import json as _json
+            work_journal_ids = [int(x) for x in (a.workJournalIds or []) if str(x).isdigit()]
             if not work_journal_ids:
                 cur.close(); conn.close()
                 raise HTTPException(status_code=400, detail="Акт должен быть привязан к конкретным подтверждённым работам ЖПР")
-            master_name_key = (master_name or "").strip().lower()
+            package = (a.workPackage or "Основная").strip() or "Основная"
+            master_name = (a.masterName or "").strip().lower()
             cur.execute("""SELECT id, COALESCE(execution_total,0) AS execution_total
                            FROM work_journal
                            WHERE id = ANY(%s)
@@ -195,54 +118,151 @@ def register_interim_acts_module(app, deps):
                              AND (room_id IS NOT NULL OR COALESCE(NULLIF(room_name,''),'') <> '')
                              AND date BETWEEN %s AND %s
                              AND ((%s::int IS NOT NULL AND master_id=%s) OR (%s::int IS NULL AND LOWER(TRIM(COALESCE(master_name,'')))=%s))""",
-                        (work_journal_ids, project, work_package, period_start, period_end, master_id, master_id, master_id, master_name_key))
+                        (work_journal_ids, a.project, package, a.periodStart, a.periodEnd, a.masterId, a.masterId, a.masterId, master_name))
             selected_rows = cur.fetchall() or []
-            selected_ids = {int(r[0]) for r in selected_rows}
+            selected_ids = {int(r["id"]) for r in selected_rows}
             missing_ids = sorted(set(work_journal_ids) - selected_ids)
             if missing_ids:
                 cur.close(); conn.close()
                 raise HTTPException(status_code=400, detail="В акт попали работы не этого исполнителя, пакета или периода: " + ", ".join(map(str, missing_ids[:10])))
             cur.execute("""SELECT id FROM interim_acts
-                           WHERE id<>%s
-                             AND COALESCE(status,'') <> 'Аннулирован'
+                           WHERE COALESCE(status,'') <> 'Аннулирован'
                              AND COALESCE(source_type,'') <> %s
                              AND COALESCE(NULLIF(work_journal_ids,''),'[]')::jsonb ?| %s
-                           LIMIT 1""", (id, daily_work_act_source_type, [str(x) for x in work_journal_ids]))
+                           LIMIT 1""", (daily_work_act_source_type, [str(x) for x in work_journal_ids]))
             duplicate_act = cur.fetchone()
             if duplicate_act:
                 cur.close(); conn.close()
                 raise HTTPException(status_code=400, detail="Одна или несколько работ ЖПР уже включены в другой акт")
-            selected_total = sum(float(r[1] or 0) for r in selected_rows)
-            if abs(new_total - selected_total) > 0.01:
+            selected_total = sum(float(r["execution_total"] or 0) for r in selected_rows)
+            if abs(total_amount - selected_total) > 0.01:
                 cur.close(); conn.close()
-                raise HTTPException(status_code=400, detail=f"Сумма акта должна равняться выбранным подтверждённым ЖПР: {selected_total:.2f} ₽")
-            cur.execute("UPDATE interim_acts SET total_amount=%s, work_journal_ids=%s WHERE id=%s",
-                        (new_total, _json.dumps(work_journal_ids, ensure_ascii=False), id))
-            total_amount = new_total
-        if new_paid < 0 or new_paid > total_amount + 0.01:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="Оплата по акту не может быть меньше 0 или больше суммы акта")
-        if data.get("status") == "Оплачен" and new_paid <= 0:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="Нельзя отметить акт оплаченным без суммы оплаты")
-        if 'status' in data:
-            cur.execute("UPDATE interim_acts SET status=%s WHERE id=%s", (data['status'],id))
-        if 'paidAmount' in data:
-            cur.execute("UPDATE interim_acts SET paid_amount=%s WHERE id=%s", (data['paidAmount'],id))
-        if 'scanUrl' in data:
-            cur.execute("UPDATE interim_acts SET scan_url=%s WHERE id=%s", (data['scanUrl'],id))
-        conn.commit()
-        log_audit(
-            _current_user.get("name", ""),
-            _current_user.get("role", ""),
-            str(data.get("status") or "update"),
-            "interim_act",
-            id,
-            ("Акт исполнителя обновлен: " + str(master_name or "") + ", статус " + str(data.get("status") or current_status or ""))[:250],
-            project or "",
-        )
-        conn.close()
-        return {"ok": True}
+                raise HTTPException(status_code=400, detail=f"Сумма акта должна равняться выбранным подтверждённым ЖПР: {selected_total:.2f} ₽. Удержания и частичную оплату фиксируйте отдельными полями.")
+            cur.execute("""INSERT INTO interim_acts
+                           (master_id,master_name,project,work_package,period_start,period_end,total_amount,paid_amount,contract_id,work_journal_ids)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
+                        (a.masterId,a.masterName,a.project,a.workPackage or "",a.periodStart,a.periodEnd,total_amount,paid_amount,a.contractId,_json.dumps(work_journal_ids, ensure_ascii=False)))
+            row = cur.fetchone()
+            conn.commit()
+            conn.close()
+            return dict(row)
+        finally:
+            if not conn.closed:
+                conn.rollback()
+                conn.close()
+
+    @app.put("/interim-acts/{id}")
+    def update_interim_act(id: int, data: dict, _current_user: dict = Depends(require_roles(*finance_roles))):
+        import json as _json
+        conn = get_db()
+        conn.autocommit = False
+        cur = conn.cursor()
+        try:
+            if deps.get('lock_settlement'):
+                deps['lock_settlement'](cur)
+                deps['require_legacy_interim'](cur, id)
+                if 'workJournalIds' in data:
+                    deps['require_legacy_work'](cur, data['workJournalIds'])
+            require_row_project_access(cur, "interim_acts", id, _current_user, "project")
+            cur.execute("""SELECT master_id, master_name, project, COALESCE(NULLIF(work_package,''),'Основная'),
+                                  period_start, period_end, total_amount, paid_amount,
+                                  COALESCE(status,''), COALESCE(scan_url,''), COALESCE(work_journal_ids,'[]'),
+                                  COALESCE(source_type,'')
+                           FROM interim_acts WHERE id=%s""", (id,))
+            act_row = cur.fetchone()
+            if not act_row:
+                cur.close(); conn.close()
+                raise HTTPException(status_code=404, detail="Акт не найден")
+            master_id, master_name, project, work_package, period_start, period_end, total_amount, current_paid, current_status, scan_url, current_work_ids, source_type = act_row
+            if not has_package_access(_current_user, work_package or "Основная"):
+                cur.close(); conn.close()
+                raise HTTPException(status_code=403, detail="Нет доступа к разделу сметы акта")
+            total_amount = float(total_amount or 0)
+            current_paid = float(current_paid or 0)
+            new_paid = float(data.get("paidAmount", current_paid) or 0)
+            new_total = float(data.get("totalAmount", total_amount) or 0)
+            finance_update_keys = {"paidAmount", "totalAmount", "workJournalIds"}
+            finance_statuses = interim_act_locked_statuses
+            if str(source_type or "") == daily_work_act_source_type and (
+                any(k in data for k in finance_update_keys) or str(data.get("status") or "") in finance_statuses
+            ):
+                cur.close(); conn.close()
+                raise HTTPException(status_code=400, detail="Дневной акт является контрольным пакетом. Для оплаты сформируйте акт подрядчику за месяц, период или всё время работ.")
+            if _current_user.get("role") not in finance_roles and (
+                any(k in data for k in finance_update_keys) or str(data.get("status") or "") in finance_statuses
+            ):
+                cur.close(); conn.close()
+                raise HTTPException(status_code=403, detail="Финансовые поля и оплату акта меняет только директор, замдиректора или бухгалтер")
+            if "workJournalIds" in data or "totalAmount" in data:
+                if current_status in ("Подписан", "Оплачен", "Частично оплачен", "Оплачен частично"):
+                    cur.close(); conn.close()
+                    raise HTTPException(status_code=400, detail="Подписанный или оплаченный акт нельзя менять. Создайте новый акт корректировки.")
+                work_journal_ids = [int(x) for x in (data.get("workJournalIds") or []) if str(x).isdigit()]
+                if not work_journal_ids:
+                    cur.close(); conn.close()
+                    raise HTTPException(status_code=400, detail="Акт должен быть привязан к конкретным подтверждённым работам ЖПР")
+                master_name_key = (master_name or "").strip().lower()
+                cur.execute("""SELECT id, COALESCE(execution_total,0) AS execution_total
+                               FROM work_journal
+                               WHERE id = ANY(%s)
+                                 AND project=%s
+                                 AND COALESCE(NULLIF(work_package,''),'Основная')=%s
+                                 AND status='Подтверждено'
+                                 AND (room_id IS NOT NULL OR COALESCE(NULLIF(room_name,''),'') <> '')
+                                 AND date BETWEEN %s AND %s
+                                 AND ((%s::int IS NOT NULL AND master_id=%s) OR (%s::int IS NULL AND LOWER(TRIM(COALESCE(master_name,'')))=%s))""",
+                            (work_journal_ids, project, work_package, period_start, period_end, master_id, master_id, master_id, master_name_key))
+                selected_rows = cur.fetchall() or []
+                selected_ids = {int(r[0]) for r in selected_rows}
+                missing_ids = sorted(set(work_journal_ids) - selected_ids)
+                if missing_ids:
+                    cur.close(); conn.close()
+                    raise HTTPException(status_code=400, detail="В акт попали работы не этого исполнителя, пакета или периода: " + ", ".join(map(str, missing_ids[:10])))
+                cur.execute("""SELECT id FROM interim_acts
+                               WHERE id<>%s
+                                 AND COALESCE(status,'') <> 'Аннулирован'
+                                 AND COALESCE(source_type,'') <> %s
+                                 AND COALESCE(NULLIF(work_journal_ids,''),'[]')::jsonb ?| %s
+                               LIMIT 1""", (id, daily_work_act_source_type, [str(x) for x in work_journal_ids]))
+                duplicate_act = cur.fetchone()
+                if duplicate_act:
+                    cur.close(); conn.close()
+                    raise HTTPException(status_code=400, detail="Одна или несколько работ ЖПР уже включены в другой акт")
+                selected_total = sum(float(r[1] or 0) for r in selected_rows)
+                if abs(new_total - selected_total) > 0.01:
+                    cur.close(); conn.close()
+                    raise HTTPException(status_code=400, detail=f"Сумма акта должна равняться выбранным подтверждённым ЖПР: {selected_total:.2f} ₽")
+                cur.execute("UPDATE interim_acts SET total_amount=%s, work_journal_ids=%s WHERE id=%s",
+                            (new_total, _json.dumps(work_journal_ids, ensure_ascii=False), id))
+                total_amount = new_total
+            if new_paid < 0 or new_paid > total_amount + 0.01:
+                cur.close(); conn.close()
+                raise HTTPException(status_code=400, detail="Оплата по акту не может быть меньше 0 или больше суммы акта")
+            if data.get("status") == "Оплачен" and new_paid <= 0:
+                cur.close(); conn.close()
+                raise HTTPException(status_code=400, detail="Нельзя отметить акт оплаченным без суммы оплаты")
+            if 'status' in data:
+                cur.execute("UPDATE interim_acts SET status=%s WHERE id=%s", (data['status'],id))
+            if 'paidAmount' in data:
+                cur.execute("UPDATE interim_acts SET paid_amount=%s WHERE id=%s", (data['paidAmount'],id))
+            if 'scanUrl' in data:
+                cur.execute("UPDATE interim_acts SET scan_url=%s WHERE id=%s", (data['scanUrl'],id))
+            conn.commit()
+            log_audit(
+                _current_user.get("name", ""),
+                _current_user.get("role", ""),
+                str(data.get("status") or "update"),
+                "interim_act",
+                id,
+                ("Акт исполнителя обновлен: " + str(master_name or "") + ", статус " + str(data.get("status") or current_status or ""))[:250],
+                project or "",
+            )
+            conn.close()
+            return {"ok": True}
+        finally:
+            if not conn.closed:
+                conn.rollback()
+                conn.close()
 
     @app.post("/interim-acts/{id}/pay")
     def pay_interim_act(
@@ -256,6 +276,9 @@ def register_interim_acts_module(app, deps):
         conn.autocommit = False
         cur = conn.cursor()
         try:
+            if deps.get('lock_settlement'):
+                deps['lock_settlement'](cur)
+                deps['require_legacy_interim'](cur, id)
             cur.execute("""SELECT total_amount, paid_amount, project, COALESCE(work_package,''), master_name, COALESCE(source_type,'')
                            FROM interim_acts WHERE id=%s FOR UPDATE""", (id,))
             act = cur.fetchone()
@@ -324,23 +347,32 @@ def register_interim_acts_module(app, deps):
     @app.delete("/interim-acts/{id}")
     def delete_interim_act(id: int, _current_user: dict = Depends(require_roles(*delete_roles))):
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor()
-        require_row_project_access(cur, "interim_acts", id, _current_user, "project")
-        cur.execute("SELECT COALESCE(work_package,''), COALESCE(project,''), COALESCE(master_name,'') FROM interim_acts WHERE id=%s", (id,))
-        act_row = cur.fetchone()
-        if act_row and not has_package_access(_current_user, act_row[0] or "Основная"):
-            cur.close(); conn.close()
-            raise HTTPException(status_code=403, detail="Нет доступа к разделу сметы акта")
-        cur.execute("UPDATE interim_acts SET status='Аннулирован' WHERE id=%s", (id,))
-        conn.commit()
-        log_audit(
-            _current_user.get("name", ""),
-            _current_user.get("role", ""),
-            "cancel",
-            "interim_act",
-            id,
-            ("Акт исполнителя аннулирован: " + str(act_row[2] if act_row else ""))[:250],
-            (act_row[1] if act_row else "") or "",
-        )
-        conn.close()
-        return {"ok": True}
+        try:
+            if deps.get('lock_settlement'):
+                deps['lock_settlement'](cur)
+                deps['require_legacy_interim'](cur, id)
+            require_row_project_access(cur, "interim_acts", id, _current_user, "project")
+            cur.execute("SELECT COALESCE(work_package,''), COALESCE(project,''), COALESCE(master_name,'') FROM interim_acts WHERE id=%s", (id,))
+            act_row = cur.fetchone()
+            if act_row and not has_package_access(_current_user, act_row[0] or "Основная"):
+                cur.close(); conn.close()
+                raise HTTPException(status_code=403, detail="Нет доступа к разделу сметы акта")
+            cur.execute("UPDATE interim_acts SET status='Аннулирован' WHERE id=%s", (id,))
+            conn.commit()
+            log_audit(
+                _current_user.get("name", ""),
+                _current_user.get("role", ""),
+                "cancel",
+                "interim_act",
+                id,
+                ("Акт исполнителя аннулирован: " + str(act_row[2] if act_row else ""))[:250],
+                (act_row[1] if act_row else "") or "",
+            )
+            conn.close()
+            return {"ok": True}
+        finally:
+            if not conn.closed:
+                conn.rollback()
+                conn.close()

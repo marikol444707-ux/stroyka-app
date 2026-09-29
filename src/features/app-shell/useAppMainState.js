@@ -111,6 +111,8 @@ export function useAppMainState() {
   const [journalFilter, setJournalFilter] = useState({from:'',to:'',masterName:'',sectionName:'',status:''});
   const [showJournalTableModal, setShowJournalTableModal] = useState(null);
   const [materialInspections, setMaterialInspections] = useState([]);
+  const [qualityJournalLoadState, setQualityJournalLoadState] = useState({});
+  const [customerRecordsLoadState, setCustomerRecordsLoadState] = useState({});
   const [editingInspection, setEditingInspection] = useState(null);
   const [cableJournal, setCableJournal] = useState([]);
   const [editingCable, setEditingCable] = useState(null);
@@ -155,7 +157,6 @@ export function useAppMainState() {
   const [newBrigadeItem, setNewBrigadeItem] = useState(createBrigadeItemForm);
   const [brigadeCoef, setBrigadeCoef] = useState('0.6');
   const [supplierCatalog, setSupplierCatalog] = useState([]);
-  const [supplyTemplates, setSupplyTemplates] = useState([]);
   const [priceHints, setPriceHints] = useState({});
   const [showCatalogForm, setShowCatalogForm] = useState(false);
   const [newCatalogItem, setNewCatalogItem] = useState(createCatalogItemForm);
@@ -233,6 +234,7 @@ export function useAppMainState() {
   const [materialsPage, setMaterialsPage] = useState({projectName:'', search:'', hasMore:false, loading:false, error:''});
   const [workJournalPage, setWorkJournalPage] = useState({projectName:'', search:'', dateFrom:'', dateTo:'', hasMore:false, loading:false, error:''});
   const [materialAliases, setMaterialAliases] = useState([]);
+  const [materialAliasesError, setMaterialAliasesError] = useState('Соответствия ещё не загружены');
   const [materialNormOverrides, setMaterialNormOverrides] = useState([]);
   const [listSearch, setListSearch] = useState('');
   const [expandedActDate, setExpandedActDate] = useState(null);
@@ -335,8 +337,8 @@ export function useAppMainState() {
     expandedPieceworkProject, expandedProject, expandedRoom, expandedStaffId, expenseReports, geoCheckins,
     globalSearch, hiddenActs, history, initialDataLoaded, inlineEditPl, inlineEditPlData, inlineEditPrice,
     inspectionOrders, interimActs, inventory, inviteCodes, invoices, issueToolData, journalFilter, leads,
-    listSearch, manualExpenses, masterProfile, masterProfiles, masterProjectId, masterRatings, materialAliases,
-    materialInspections, materialNormOverrides, materialNorms, materialTransfers, materials, materialsPage,
+    listSearch, manualExpenses, masterProfile, masterProfiles, masterProjectId, masterRatings, materialAliases, materialAliasesError,
+    materialInspections, qualityJournalLoadState, setQualityJournalLoadState, customerRecordsLoadState, setCustomerRecordsLoadState, materialNormOverrides, materialNorms, materialTransfers, materials, materialsPage,
     measurementDraftLoadingId, measurementRoomDrafts, mobileExpandedRenderLists, newAct, newBrigadeContract,
     newBrigadeItem, newBrigadePayment, newCatalogItem, newChecklist, newChecklistItem, newClient,
     newCompanyDoc, newContract, newDoor, newExpenseReport, newInspOrder, newInventory, newInvoice,
@@ -357,7 +359,7 @@ export function useAppMainState() {
     showStaffDocForm, showTransferForm, sidebarVisible, sitePublicationDrafts, staff, staffExpandedSections,
     staffProfile, staffProfileLoading, settingsTab, supervisorActPhoto, supervisorActs, supplierCatalog,
     supplierInvoices, supplierOffers, supplierRequisites, suppliers, suppliersTab, supplierTab, supplyClaims,
-    supplyDeliveries, supplyHistory, supplyRequests, supplyTemplates, sverkaModal, tbJournal, timesheet,
+    supplyDeliveries, supplyHistory, supplyRequests, sverkaModal, tbJournal, timesheet,
     toolHistory, tools, toolsTab, unexpectedWorksList, uploadingDoc, uploadingLetter, uploadingMeasurementDoc,
     users, warehouseMain, warehouseMovements, warehouses, warehouseTab, warrantyDefects, warrantyEditForm,
     weatherLog, weatherTab, workJournal, workJournalPage,
@@ -377,7 +379,7 @@ export function useAppMainState() {
     setInlineEditPl, setInlineEditPlData, setInlineEditPrice, setInspectionOrders, setInterimActs,
     setInventory, setInviteCodes, setInvoices, setIssueToolData, setJournalFilter, setLeads, setListSearch,
     setManualExpenses, setMasterProfile, setMasterProfiles, setMasterProjectId, setMasterRatings,
-    setMaterialAliases, setMaterialInspections, setMaterialNormOverrides, setMaterialNorms, setMaterialTransfers,
+    setMaterialAliases, setMaterialAliasesError, setMaterialInspections, setMaterialNormOverrides, setMaterialNorms, setMaterialTransfers,
     setMaterials, setMaterialsPage, setMeasurementDraftLoadingId, setMeasurementRoomDrafts,
     setMobileExpandedRenderLists, setNewAct, setNewBrigadeContract, setNewBrigadeItem, setNewBrigadePayment,
     setNewCatalogItem, setNewChecklist, setNewChecklistItem, setNewClient, setNewCompanyDoc,
@@ -403,7 +405,7 @@ export function useAppMainState() {
     setSitePublicationDrafts, setStaff, setStaffExpandedSections, setStaffProfile, setStaffProfileLoading,
     setSettingsTab, setSupervisorActPhoto, setSupervisorActs, setSupplierCatalog, setSupplierInvoices,
     setSupplierOffers, setSupplierRequisites, setSuppliers, setSuppliersTab, setSupplierTab, setSupplyClaims,
-    setSupplyDeliveries, setSupplyHistory, setSupplyRequests, setSupplyTemplates, setSverkaModal,
+    setSupplyDeliveries, setSupplyHistory, setSupplyRequests, setSverkaModal,
     setTbJournal, setTimesheet, setToolHistory, setTools, setToolsTab, setUnexpectedWorksList, setUploadingDoc,
     setUploadingLetter, setUploadingMeasurementDoc, setUsers, setWarehouseMain, setWarehouseMovements,
     setWarehouses, setWarehouseTab, setWarrantyDefects, setWarrantyEditForm, setWeatherLog, setWeatherTab,

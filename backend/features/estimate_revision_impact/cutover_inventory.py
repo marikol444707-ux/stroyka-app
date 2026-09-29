@@ -17,7 +17,7 @@ _PRODUCER_PATH = _A7_PREFIX + "producer.py"
 _HANDOFF_PATH = _A7_PREFIX + "handoff.py"
 _MAIN_HANDOFF_FUNCTIONS = (
     "create_estimate",
-    "update_estimate",
+    "_update_estimate_with_connection",
     "update_estimate_status",
 )
 _REQUIRED_INTEGRATION_CHECKS = (
@@ -434,6 +434,13 @@ def _registration_count(tree):
 
 def _post_commit_handoffs(tree, violations):
     ready = 0
+    wrapper = _find_definition(tree, "update_estimate")
+    if wrapper is None or not any(
+        isinstance(node, ast.Return) and isinstance(node.value, ast.Call)
+        and _call_name(node.value.func) == "_update_estimate_with_connection"
+        for node in ast.walk(wrapper)
+    ):
+        violations.append({"reasonCode": "estimate_update_delegation_missing"})
     for symbol in _MAIN_HANDOFF_FUNCTIONS:
         function = _find_definition(tree, symbol)
         if function is None:

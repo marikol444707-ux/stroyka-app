@@ -599,7 +599,7 @@ def _billing_company_profile(row: dict) -> dict:
     }
 
 
-def _generate_billing_document_pdf(document: dict, company: dict, current_user: dict, save_upload_bytes=None) -> str:
+def _generate_billing_document_pdf(document: dict, company: dict, current_user: dict, save_upload_bytes=None) -> dict:
     try:
         from reportlab.lib.pagesizes import A4
         from reportlab.pdfgen import canvas
@@ -607,8 +607,6 @@ def _generate_billing_document_pdf(document: dict, company: dict, current_user: 
         raise HTTPException(status_code=500, detail="Для генерации PDF установите reportlab: pip install -r requirements.txt") from exc
 
     regular_font, bold_font = _register_pdf_font()
-    today_parts = dt.datetime.utcnow().strftime("%Y/%m/%d").split("/")
-    rel_dir_parts = ["platform-billing", *today_parts]
 
     number = document.get("number") or f"DOC-{document.get('id')}"
     filename = _safe_pdf_segment(number, "billing-document") + "-" + str(uuid.uuid4())[:8] + ".pdf"
@@ -759,25 +757,13 @@ def _generate_billing_document_pdf(document: dict, company: dict, current_user: 
     c.showPage()
     c.save()
 
-    pdf_content = output_buffer.getvalue()
-    if save_upload_bytes:
-        saved = save_upload_bytes(
-            pdf_content,
-            filename,
-            project_name="_platform",
-            context="billing-documents",
-            content_type="application/pdf",
-        )
-        return saved.get("url") or ""
-
-    upload_root = os.getenv("UPLOAD_DIR", "uploads").strip() or "uploads"
-    output_dir = os.path.join(upload_root, *rel_dir_parts)
-    os.makedirs(output_dir, exist_ok=True)
-    output_path = os.path.join(output_dir, filename)
-    with open(output_path, "wb") as output_file:
-        output_file.write(pdf_content)
-    file_url = "/uploads/" + urllib.parse.quote("/".join([*rel_dir_parts, filename]), safe="/")
-    return file_url
+    if not save_upload_bytes:
+        raise HTTPException(503, "Хранилище документов не настроено")
+    from ..document_access.service import document_storage_namespace
+    namespace = document_storage_namespace(document['company_id'], context='platform-billing-document')
+    uploaded = save_upload_bytes(output_buffer.getvalue(), filename, namespace,
+                                 'platform-billing-document', 'application/pdf')
+    return {**uploaded, 'original_name': filename}
 
 
 def _extract_payment_event(provider: str, payload: dict) -> dict:
@@ -2427,7 +2413,9 @@ def register_platform_admin_routes(app, deps):
         cur.execute("""SELECT p.*, c.name AS company_name,
                               c.platform_account_id,
                               pc.number AS client_contract_number,
-                              pc.status AS client_contract_status
+                              pc.status AS client_contract_status,
+                              EXISTS(SELECT 1 FROM platform_payment_events pe WHERE pe.payment_id=p.id
+                                  AND pe.action_status='payment_recorded') AS contract_locked
                        FROM company_payments p
                        LEFT JOIN companies c ON c.id=p.company_id
                        LEFT JOIN platform_client_contracts pc
@@ -2597,71 +2585,9 @@ def register_platform_admin_routes(app, deps):
 
     @app.post("/system/payments")
     def system_create_payment(data: dict, current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES))):
-        client_contract_id = _billing_document_contract_id(data)
-        company_id = data.get("companyId") or data.get("company_id")
-        amount = float(data.get("amount") or 0)
-        if not company_id:
-            raise HTTPException(status_code=400, detail="Укажите компанию")
-        if amount <= 0:
-            raise HTTPException(status_code=400, detail="Сумма должна быть больше 0")
-        conn = get_db()
-        conn.autocommit = False
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        try:
-            cur.execute(
-                "SELECT id, name, platform_account_id FROM companies WHERE id=%s",
-                (company_id,),
-            )
-            company = cur.fetchone()
-            if not company:
-                raise HTTPException(status_code=404, detail="Компания не найдена")
-            contract = _load_billing_document_contract(
-                cur,
-                client_contract_id,
-                company_id,
-                company.get("platform_account_id"),
-            )
-            cur.execute("""INSERT INTO company_payments
-                              (company_id, client_contract_id, amount, payment_date, method,
-                               invoice_number, status, period_start, period_end,
-                               notes, created_by)
-                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                           RETURNING id""",
-                (company_id, client_contract_id, amount, data.get("paymentDate") or None,
-                 data.get("method"), data.get("invoiceNumber"), data.get("status") or "paid",
-                 data.get("periodStart") or None, data.get("periodEnd") or None,
-                 data.get("notes"), data.get("createdBy")))
-            new_id = cur.fetchone()["id"]
-            if data.get("periodEnd"):
-                cur.execute("""UPDATE companies
-                               SET plan_expires_at=%s, payment_status='active',
-                                   suspended_at=NULL, suspended_reason=NULL, active=TRUE
-                               WHERE id=%s""",
-                    (data["periodEnd"], company_id))
-            _system_write_audit(cur, current_user, "payment_added", "company_payment", new_id,
-                data.get("invoiceNumber") or company.get("name"), platform_account_id=company.get("platform_account_id"),
-                company_id=company_id,
-                details={
-                    "amount": amount,
-                    "paymentDate": data.get("paymentDate"),
-                    "periodStart": data.get("periodStart"),
-                    "periodEnd": data.get("periodEnd"),
-                    "method": data.get("method"),
-                    "companyName": company.get("name"),
-                    "clientContractId": client_contract_id,
-                    "clientContractNumber": contract.get("number") if contract else None,
-                })
-            conn.commit()
-            return {"id": new_id, "ok": True}
-        except HTTPException:
-            conn.rollback()
-            raise
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            cur.close()
-            conn.close()
+        from .payment_commands import create_manual_payment
+        return create_manual_payment(get_db, data, current_user,
+            load_contract=_load_billing_document_contract, audit=_system_write_audit)
 
     @app.put("/system/payments/{id}/client-contract")
     def system_update_payment_contract(
@@ -2687,6 +2613,10 @@ def register_platform_admin_routes(app, deps):
             if not before:
                 raise HTTPException(status_code=404, detail="Платеж не найден")
             before = dict(before)
+            if before.get('client_contract_id') != client_contract_id:
+                cur.execute("SELECT id FROM platform_payment_events WHERE payment_id=%s AND action_status='payment_recorded' LIMIT 1", (id,))
+                if cur.fetchone():
+                    raise HTTPException(409, "Договор платежа провайдера закреплён по оплаченному счёту")
             contract = _load_billing_document_contract(
                 cur,
                 client_contract_id,
@@ -2744,6 +2674,7 @@ def register_platform_admin_routes(app, deps):
 
     @app.post("/system/payment-events/{id}/confirm")
     def system_confirm_payment_event(id: int, data: dict = None, current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES))):
+        from .payment_commands import extend_paid_period, money, optional_date
         data = data or {}
         conn = get_db()
         conn.autocommit = False
@@ -2771,6 +2702,21 @@ def register_platform_admin_routes(app, deps):
                 raise HTTPException(status_code=400, detail="Событие не доверенное")
             if not event.get("billing_document_id"):
                 raise HTTPException(status_code=400, detail="Событие не связано с платежным документом")
+            # Different provider events for one invoice must serialize on the invoice,
+            # then read its current state after waiting for the previous confirmation.
+            cur.execute("""SELECT number AS billing_document_number, status AS billing_document_status,
+                amount AS billing_document_amount, currency AS billing_document_currency,
+                payment_provider AS billing_payment_provider, period_start AS billing_period_start,
+                period_end AS billing_period_end, client_contract_id AS billing_client_contract_id,
+                platform_account_id AS document_platform_account_id, company_id AS document_company_id
+                FROM platform_billing_documents WHERE id=%s FOR UPDATE""", (event['billing_document_id'],))
+            locked_document = cur.fetchone()
+            if not locked_document:
+                raise HTTPException(404, "Платежный документ не найден")
+            event.update(locked_document)
+            for event_key, document_key in (('company_id','document_company_id'), ('platform_account_id','document_platform_account_id')):
+                if event.get(event_key) is not None and event[event_key] != event.get(document_key):
+                    raise HTTPException(400, "Владелец события не совпадает с платежным документом")
             if not event.get("billing_document_number"):
                 raise HTTPException(status_code=404, detail="Платежный документ не найден")
             if event.get("billing_document_status") in ("closed", "cancelled"):
@@ -2781,20 +2727,28 @@ def register_platform_admin_routes(app, deps):
                 raise HTTPException(status_code=400, detail="Провайдер события не совпадает с платежным документом")
             if not _payment_event_success_status(provider, event.get("provider_status")):
                 raise HTTPException(status_code=400, detail="Статус провайдера не подтверждает успешную оплату")
-            if not _money_matches(event.get("amount"), event.get("billing_document_amount")):
+            if money(event.get("amount")) != money(event.get("billing_document_amount")):
                 raise HTTPException(status_code=400, detail="Сумма события не совпадает с платежным документом")
             event_currency = (event.get("currency") or "RUB").strip().upper()
             document_currency = (event.get("billing_document_currency") or "RUB").strip().upper()
-            if event_currency != document_currency:
+            if event_currency != document_currency or event_currency != "RUB":
                 raise HTTPException(status_code=400, detail="Валюта события не совпадает с платежным документом")
 
-            company_id = event.get("company_id") or event.get("document_company_id")
-            platform_account_id = event.get("platform_account_id") or event.get("document_platform_account_id")
+            company_id = event.get("document_company_id")
+            platform_account_id = event.get("document_platform_account_id")
             if not company_id:
                 raise HTTPException(status_code=400, detail="Не найдена компания для зачисления платежа")
+            cur.execute("SELECT id,platform_account_id FROM companies WHERE id=%s FOR UPDATE", (company_id,))
+            company = cur.fetchone()
+            if not company or company['platform_account_id'] != platform_account_id:
+                raise HTTPException(400, "Компания не соответствует владельцу счёта")
             period_start = data.get("periodStart") or data.get("period_start") or event.get("billing_period_start")
             period_end = data.get("periodEnd") or data.get("period_end") or event.get("billing_period_end")
             payment_date = data.get("paymentDate") or data.get("payment_date") or dt.date.today().isoformat()
+            period_start, period_end, payment_date = map(optional_date, (period_start, period_end, payment_date))
+            if period_start and period_end and period_start > period_end:
+                raise HTTPException(422, "Конец периода не может быть раньше начала")
+            amount = money(event.get("amount"))
             notes = (data.get("notes") or "").strip()
             base_note = "Зачислено вручную по событию провайдера #" + str(id)
             if notes:
@@ -2805,15 +2759,11 @@ def register_platform_admin_routes(app, deps):
                            VALUES (%s,%s,%s,%s,%s,%s,'paid',%s,%s,%s,%s)
                            RETURNING id""",
                         (company_id, event.get("billing_client_contract_id"),
-                         float(event.get("amount") or 0), payment_date, provider or "provider",
+                         amount, payment_date, provider or "provider",
                          event.get("billing_document_number"), period_start or None, period_end or None,
                          base_note, current_user.get("name") or current_user.get("email")))
             payment_id = cur.fetchone()["id"]
-            if period_end:
-                cur.execute("""UPDATE companies
-                               SET plan_expires_at=%s, payment_status='active',
-                                   suspended_at=NULL, suspended_reason=NULL, active=TRUE
-                               WHERE id=%s""", (period_end, company_id))
+            extend_paid_period(cur, company_id, period_end)
             cur.execute("""UPDATE platform_billing_documents
                            SET status='closed', updated_at=NOW()
                            WHERE id=%s
@@ -2909,66 +2859,62 @@ def register_platform_admin_routes(app, deps):
         status = (data.get("status") or "draft").strip()
         if status not in ("draft", "issued", "payment_expected", "closed", "cancelled"):
             raise HTTPException(status_code=400, detail="Недопустимый статус документа")
-        amount = float(data.get("amount") or 0)
-        if amount <= 0:
-            raise HTTPException(status_code=400, detail="Сумма должна быть больше 0")
+        from .payment_commands import money
+        amount = money(data.get("amount"))
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("SELECT id, name, platform_account_id FROM companies WHERE id=%s", (company_id,))
-        company = cur.fetchone()
-        if not company:
-            conn.close()
-            raise HTTPException(status_code=404, detail="Компания не найдена")
         try:
-            contract = _load_billing_document_contract(
-                cur,
-                client_contract_id,
-                company_id,
-                company.get("platform_account_id"),
-            )
+            cur.execute("SELECT id, name, platform_account_id FROM companies WHERE id=%s", (company_id,))
+            company = cur.fetchone()
+            if not company:
+                raise HTTPException(status_code=404, detail="Компания не найдена")
+            contract = _load_billing_document_contract(cur, client_contract_id, company_id, company.get("platform_account_id"))
+            cur.execute("""INSERT INTO platform_billing_documents
+                              (platform_account_id, company_id, client_contract_id,
+                               document_type, number, status, amount,
+                               currency, issue_date, due_date, period_start, period_end,
+                               payment_provider, payment_url, file_url, notes, created_by)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                           RETURNING *""",
+                        (company.get("platform_account_id"), company_id, client_contract_id, document_type,
+                         (data.get("number") or "").strip() or None, status, amount,
+                         data.get("currency") or "RUB", data.get("issueDate") or data.get("issue_date") or None,
+                         data.get("dueDate") or data.get("due_date") or None,
+                         data.get("periodStart") or data.get("period_start") or None,
+                         data.get("periodEnd") or data.get("period_end") or None,
+                         data.get("paymentProvider") or data.get("payment_provider") or "manual",
+                         data.get("paymentUrl") or data.get("payment_url"),
+                         data.get("fileUrl") or data.get("file_url"),
+                         data.get("notes"),
+                         current_user.get("name") or current_user.get("email")))
+            document = dict(cur.fetchone())
+            if not document.get("number"):
+                prefix = {"invoice": "INV", "act": "ACT", "offer": "OFFER"}.get(document_type, "DOC")
+                number = f"{prefix}-{datetime.now().strftime('%Y%m%d')}-{int(document['id']):05d}"
+                cur.execute("UPDATE platform_billing_documents SET number=%s WHERE id=%s RETURNING *", (number, document["id"]))
+                document = dict(cur.fetchone())
+            _system_write_audit(cur, current_user, "platform_billing_document_created", "platform_billing_document", document.get("id"),
+                document.get("number"), platform_account_id=company.get("platform_account_id"), company_id=company_id,
+                details={
+                    "documentType": document_type,
+                    "documentTypeLabel": _billing_document_type_label(document_type),
+                    "status": status,
+                    "statusLabel": _billing_document_status_label(status),
+                    "amount": amount,
+                    "companyName": company.get("name"),
+                    "paymentProvider": document.get("payment_provider"),
+                    "clientContractId": client_contract_id,
+                    "clientContractNumber": contract.get("number") if contract else None,
+                })
+            conn.commit()
+            return {"ok": True, "document": _decorate_billing_document(document, contract)}
         except Exception:
+            conn.rollback()
+            raise
+        finally:
             cur.close()
             conn.close()
-            raise
-        cur.execute("""INSERT INTO platform_billing_documents
-                          (platform_account_id, company_id, client_contract_id,
-                           document_type, number, status, amount,
-                           currency, issue_date, due_date, period_start, period_end,
-                           payment_provider, payment_url, file_url, notes, created_by)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                       RETURNING *""",
-                    (company.get("platform_account_id"), company_id, client_contract_id, document_type,
-                     (data.get("number") or "").strip() or None, status, amount,
-                     data.get("currency") or "RUB", data.get("issueDate") or data.get("issue_date") or None,
-                     data.get("dueDate") or data.get("due_date") or None,
-                     data.get("periodStart") or data.get("period_start") or None,
-                     data.get("periodEnd") or data.get("period_end") or None,
-                     data.get("paymentProvider") or data.get("payment_provider") or "manual",
-                     data.get("paymentUrl") or data.get("payment_url"),
-                     data.get("fileUrl") or data.get("file_url"),
-                     data.get("notes"),
-                     current_user.get("name") or current_user.get("email")))
-        document = dict(cur.fetchone())
-        if not document.get("number"):
-            prefix = {"invoice": "INV", "act": "ACT", "offer": "OFFER"}.get(document_type, "DOC")
-            number = f"{prefix}-{datetime.now().strftime('%Y%m%d')}-{int(document['id']):05d}"
-            cur.execute("UPDATE platform_billing_documents SET number=%s WHERE id=%s RETURNING *", (number, document["id"]))
-            document = dict(cur.fetchone())
-        _system_write_audit(cur, current_user, "platform_billing_document_created", "platform_billing_document", document.get("id"),
-            document.get("number"), platform_account_id=company.get("platform_account_id"), company_id=company_id,
-            details={
-                "documentType": document_type,
-                "documentTypeLabel": _billing_document_type_label(document_type),
-                "status": status,
-                "statusLabel": _billing_document_status_label(status),
-                "amount": amount,
-                "companyName": company.get("name"),
-                "paymentProvider": document.get("payment_provider"),
-                "clientContractId": client_contract_id,
-                "clientContractNumber": contract.get("number") if contract else None,
-            })
-        conn.close()
-        return {"ok": True, "document": _decorate_billing_document(document, contract)}
 
     @app.put("/system/billing-documents/{id}/client-contract")
     def system_update_billing_document_contract(
@@ -2978,6 +2924,7 @@ def register_platform_admin_routes(app, deps):
     ):
         client_contract_id = _billing_document_contract_id(data, required=True)
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             cur.execute(
@@ -2994,6 +2941,8 @@ def register_platform_admin_routes(app, deps):
             if not before:
                 raise HTTPException(status_code=404, detail="Документ не найден")
             before = dict(before)
+            if before['status'] in ('closed','cancelled') and before.get('client_contract_id') != client_contract_id:
+                raise HTTPException(409, "Договор закрытого или аннулированного документа нельзя изменить")
             contract = _load_billing_document_contract(
                 cur,
                 client_contract_id,
@@ -3053,97 +3002,129 @@ def register_platform_admin_routes(app, deps):
         if status not in ("draft", "issued", "payment_expected", "closed", "cancelled"):
             raise HTTPException(status_code=400, detail="Недопустимый статус документа")
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("""SELECT d.*, c.name AS company_name
-                       FROM platform_billing_documents d
-                       LEFT JOIN companies c ON c.id=d.company_id
-                       WHERE d.id=%s""", (id,))
-        before = cur.fetchone()
-        if not before:
+        try:
+            cur.execute("""SELECT d.*, c.name AS company_name
+                           FROM platform_billing_documents d
+                           LEFT JOIN companies c ON c.id=d.company_id
+                           WHERE d.id=%s FOR UPDATE OF d""", (id,))
+            before = cur.fetchone()
+            if not before:
+                raise HTTPException(status_code=404, detail="Документ не найден")
+            if before['status'] in ('closed','cancelled') and status != before['status']:
+                raise HTTPException(409, "Закрытый или аннулированный документ нельзя открыть повторно")
+            cur.execute("""UPDATE platform_billing_documents
+                           SET status=%s,
+                               payment_url=COALESCE(%s, payment_url),
+                               file_url=COALESCE(%s, file_url),
+                               notes=COALESCE(%s, notes),
+                               updated_at=NOW()
+                           WHERE id=%s
+                           RETURNING *""",
+                        (status, data.get("paymentUrl") or data.get("payment_url"),
+                         data.get("fileUrl") or data.get("file_url"), data.get("notes"), id))
+            document = dict(cur.fetchone())
+            _system_write_audit(cur, current_user, "platform_billing_document_updated", "platform_billing_document", id,
+                document.get("number"), platform_account_id=document.get("platform_account_id"), company_id=document.get("company_id"),
+                details={
+                    "beforeStatus": before.get("status"),
+                    "afterStatus": status,
+                    "afterStatusLabel": _billing_document_status_label(status),
+                    "amount": float(document.get("amount") or 0),
+                    "companyName": before.get("company_name"),
+                })
+            conn.commit()
+            document["documentTypeLabel"] = _billing_document_type_label(document.get("document_type"))
+            document["statusLabel"] = _billing_document_status_label(document.get("status"))
+            return {"ok": True, "document": document}
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
             conn.close()
-            raise HTTPException(status_code=404, detail="Документ не найден")
-        cur.execute("""UPDATE platform_billing_documents
-                       SET status=%s,
-                           payment_url=COALESCE(%s, payment_url),
-                           file_url=COALESCE(%s, file_url),
-                           notes=COALESCE(%s, notes),
-                           updated_at=NOW()
-                       WHERE id=%s
-                       RETURNING *""",
-                    (status, data.get("paymentUrl") or data.get("payment_url"),
-                     data.get("fileUrl") or data.get("file_url"), data.get("notes"), id))
-        document = dict(cur.fetchone())
-        _system_write_audit(cur, current_user, "platform_billing_document_updated", "platform_billing_document", id,
-            document.get("number"), platform_account_id=document.get("platform_account_id"), company_id=document.get("company_id"),
-            details={
-                "beforeStatus": before.get("status"),
-                "afterStatus": status,
-                "afterStatusLabel": _billing_document_status_label(status),
-                "amount": float(document.get("amount") or 0),
-                "companyName": before.get("company_name"),
-            })
-        conn.close()
-        document["documentTypeLabel"] = _billing_document_type_label(document.get("document_type"))
-        document["statusLabel"] = _billing_document_status_label(document.get("status"))
-        return {"ok": True, "document": document}
 
     @app.post("/system/billing-documents/{id}/generate-pdf")
     def system_generate_billing_document_pdf(id: int, current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES))):
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("""SELECT d.*, c.name AS company_name,
-                              c.inn AS company_inn, c.kpp AS company_kpp,
-                              c.contact_name AS company_contact_name,
-                              c.contact_phone AS company_contact_phone,
-                              c.contact_email AS company_contact_email,
-                              c.platform_account_id AS company_platform_account_id,
-                              cr.id AS requisite_id,
-                              cr.full_name AS requisite_full_name,
-                              cr.short_name AS requisite_short_name,
-                              cr.inn AS requisite_inn,
-                              cr.kpp AS requisite_kpp,
-                              cr.ogrn AS requisite_ogrn,
-                              cr.legal_address AS requisite_legal_address,
-                              cr.actual_address AS requisite_actual_address,
-                              cr.phone AS requisite_phone,
-                              cr.email AS requisite_email,
-                              cr.director_name AS requisite_director_name,
-                              cr.director_position AS requisite_director_position,
-                              cr.basis AS requisite_basis,
-                              cr.bank_name AS requisite_bank_name,
-                              cr.bik AS requisite_bik,
-                              cr.rs AS requisite_rs,
-                              cr.ks AS requisite_ks,
-                              pa.name AS platform_account_name
-                       FROM platform_billing_documents d
-                       LEFT JOIN companies c ON c.id=d.company_id
-                       LEFT JOIN company_requisites cr ON cr.company_id=c.id
-                       LEFT JOIN platform_accounts pa ON pa.id=d.platform_account_id
-                       WHERE d.id=%s""", (id,))
-        row = cur.fetchone()
-        if not row:
+        try:
+            cur.execute("""SELECT d.*, c.name AS company_name,
+                                  c.inn AS company_inn, c.kpp AS company_kpp,
+                                  c.contact_name AS company_contact_name,
+                                  c.contact_phone AS company_contact_phone,
+                                  c.contact_email AS company_contact_email,
+                                  c.platform_account_id AS company_platform_account_id,
+                                  cr.id AS requisite_id,
+                                  cr.full_name AS requisite_full_name,
+                                  cr.short_name AS requisite_short_name,
+                                  cr.inn AS requisite_inn,
+                                  cr.kpp AS requisite_kpp,
+                                  cr.ogrn AS requisite_ogrn,
+                                  cr.legal_address AS requisite_legal_address,
+                                  cr.actual_address AS requisite_actual_address,
+                                  cr.phone AS requisite_phone,
+                                  cr.email AS requisite_email,
+                                  cr.director_name AS requisite_director_name,
+                                  cr.director_position AS requisite_director_position,
+                                  cr.basis AS requisite_basis,
+                                  cr.bank_name AS requisite_bank_name,
+                                  cr.bik AS requisite_bik,
+                                  cr.rs AS requisite_rs,
+                                  cr.ks AS requisite_ks,
+                                  pa.name AS platform_account_name
+                           FROM platform_billing_documents d
+                           LEFT JOIN companies c ON c.id=d.company_id
+                           LEFT JOIN company_requisites cr ON cr.company_id=c.id
+                           LEFT JOIN platform_accounts pa ON pa.id=d.platform_account_id
+                           WHERE d.id=%s FOR UPDATE OF d""", (id,))
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Документ не найден")
+            document = dict(row)
+            existing_url = str(document.get('file_url') or '').strip()
+            if existing_url.startswith('/tenant-files/'):
+                match = re.fullmatch(r'/tenant-files/([1-9][0-9]*)/content', existing_url)
+                if not match:
+                    raise HTTPException(409, "Ссылка на PDF документа повреждена")
+                cur.execute("""SELECT id FROM file_ownership WHERE id=%s AND company_id=%s
+                    AND project_id IS NULL AND context='platform-billing-document'
+                    AND COALESCE(deletion_status,'active')='active'""", (int(match.group(1)),document['company_id']))
+                if not cur.fetchone():
+                    raise HTTPException(409, "PDF документа недоступен: требуется проверка владельца файла")
+                conn.rollback()
+                return {'ok':True,'fileUrl':existing_url,'document':_decorate_billing_document(document),'generated':False}
+            # Legacy unowned PDF URLs are replaced only on an explicit generation request.
+            company = _billing_company_profile(document)
+            uploaded = _generate_billing_document_pdf(document, company, current_user, save_upload_bytes=save_upload_bytes)
+            from .document_files import register_platform_document_file
+            file_url = register_platform_document_file(cur, uploaded, company_id=document['company_id'],
+                context='platform-billing-document', original_name=uploaded['original_name'], current_user=current_user)
+            cur.execute("""UPDATE platform_billing_documents
+                           SET file_url=%s, updated_at=NOW()
+                           WHERE id=%s
+                           RETURNING *""", (file_url, id))
+            updated = dict(cur.fetchone())
+            _system_write_audit(cur, current_user, "platform_billing_document_pdf_generated", "platform_billing_document", id,
+                updated.get("number"), platform_account_id=updated.get("platform_account_id"), company_id=updated.get("company_id"),
+                details={
+                    "fileUrl": file_url,
+                    "documentType": updated.get("document_type"),
+                    "amount": float(updated.get("amount") or 0),
+                    "companyName": document.get("company_name"),
+                })
+            conn.commit()
+            updated["documentTypeLabel"] = _billing_document_type_label(updated.get("document_type"))
+            updated["statusLabel"] = _billing_document_status_label(updated.get("status"))
+            return {"ok": True, "fileUrl": file_url, "document": updated}
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
             conn.close()
-            raise HTTPException(status_code=404, detail="Документ не найден")
-        document = dict(row)
-        company = _billing_company_profile(document)
-        file_url = _generate_billing_document_pdf(document, company, current_user, save_upload_bytes=save_upload_bytes)
-        cur.execute("""UPDATE platform_billing_documents
-                       SET file_url=%s, updated_at=NOW()
-                       WHERE id=%s
-                       RETURNING *""", (file_url, id))
-        updated = dict(cur.fetchone())
-        _system_write_audit(cur, current_user, "platform_billing_document_pdf_generated", "platform_billing_document", id,
-            updated.get("number"), platform_account_id=updated.get("platform_account_id"), company_id=updated.get("company_id"),
-            details={
-                "fileUrl": file_url,
-                "documentType": updated.get("document_type"),
-                "amount": float(updated.get("amount") or 0),
-                "companyName": document.get("company_name"),
-            })
-        conn.close()
-        updated["documentTypeLabel"] = _billing_document_type_label(updated.get("document_type"))
-        updated["statusLabel"] = _billing_document_status_label(updated.get("status"))
-        return {"ok": True, "fileUrl": file_url, "document": updated}
 
     @app.post("/system/billing-documents/{id}/prepare-payment")
     def system_prepare_billing_payment(id: int, data: dict, current_user: dict = Depends(require_roles(*PLATFORM_BILLING_ROLES))):
@@ -3152,54 +3133,63 @@ def register_platform_admin_routes(app, deps):
         if not provider_state:
             raise HTTPException(status_code=400, detail="Недопустимый платежный провайдер")
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("""SELECT d.*, c.name AS company_name
-                       FROM platform_billing_documents d
-                       LEFT JOIN companies c ON c.id=d.company_id
-                       WHERE d.id=%s""", (id,))
-        before = cur.fetchone()
-        if not before:
-            conn.close()
-            raise HTTPException(status_code=404, detail="Документ не найден")
-        payment_url = data.get("paymentUrl") or data.get("payment_url") or before.get("payment_url")
-        cur.execute("""UPDATE platform_billing_documents
-                       SET payment_provider=%s,
-                           payment_url=COALESCE(%s, payment_url),
-                           status=CASE WHEN status IN ('draft','issued') THEN 'payment_expected' ELSE status END,
-                           updated_at=NOW()
-                       WHERE id=%s
-                       RETURNING *""", (provider, payment_url, id))
-        document = dict(cur.fetchone())
-        draft_payload = {
-            "provider": provider,
-            "documentId": id,
-            "number": document.get("number"),
-            "amount": float(document.get("amount") or 0),
-            "currency": document.get("currency") or "RUB",
-            "description": f"Stroyka ERP {document.get('number') or id}",
-            "returnUrl": data.get("returnUrl") or None,
-        }
-        _system_write_audit(cur, current_user, "platform_payment_provider_prepared", "platform_billing_document", id,
-            document.get("number"), platform_account_id=document.get("platform_account_id"), company_id=document.get("company_id"),
-            details={
+        try:
+            cur.execute("""SELECT d.*, c.name AS company_name
+                           FROM platform_billing_documents d
+                           LEFT JOIN companies c ON c.id=d.company_id
+                           WHERE d.id=%s FOR UPDATE OF d""", (id,))
+            before = cur.fetchone()
+            if not before:
+                raise HTTPException(status_code=404, detail="Документ не найден")
+            if before['status'] in ('closed','cancelled'):
+                raise HTTPException(409, "Документ уже закрыт или аннулирован")
+            payment_url = data.get("paymentUrl") or data.get("payment_url") or before.get("payment_url")
+            cur.execute("""UPDATE platform_billing_documents
+                           SET payment_provider=%s,
+                               payment_url=COALESCE(%s, payment_url),
+                               status=CASE WHEN status IN ('draft','issued') THEN 'payment_expected' ELSE status END,
+                               updated_at=NOW()
+                           WHERE id=%s
+                           RETURNING *""", (provider, payment_url, id))
+            document = dict(cur.fetchone())
+            draft_payload = {
                 "provider": provider,
-                "providerLabel": provider_state.get("label"),
-                "providerConfigured": provider_state.get("configured"),
-                "integrationMode": provider_state.get("mode"),
+                "documentId": id,
+                "number": document.get("number"),
+                "amount": float(document.get("amount") or 0),
+                "currency": document.get("currency") or "RUB",
+                "description": f"Stroyka ERP {document.get('number') or id}",
+                "returnUrl": data.get("returnUrl") or None,
+            }
+            _system_write_audit(cur, current_user, "platform_payment_provider_prepared", "platform_billing_document", id,
+                document.get("number"), platform_account_id=document.get("platform_account_id"), company_id=document.get("company_id"),
+                details={
+                    "provider": provider,
+                    "providerLabel": provider_state.get("label"),
+                    "providerConfigured": provider_state.get("configured"),
+                    "integrationMode": provider_state.get("mode"),
+                    "paymentLinkCreated": False,
+                    "companyName": before.get("company_name"),
+                })
+            conn.commit()
+            document["documentTypeLabel"] = _billing_document_type_label(document.get("document_type"))
+            document["statusLabel"] = _billing_document_status_label(document.get("status"))
+            return {
+                "ok": True,
+                "document": document,
+                "provider": provider_state,
+                "draftPayload": draft_payload,
                 "paymentLinkCreated": False,
-                "companyName": before.get("company_name"),
-            })
-        conn.close()
-        document["documentTypeLabel"] = _billing_document_type_label(document.get("document_type"))
-        document["statusLabel"] = _billing_document_status_label(document.get("status"))
-        return {
-            "ok": True,
-            "document": document,
-            "provider": provider_state,
-            "draftPayload": draft_payload,
-            "paymentLinkCreated": False,
-            "message": "Провайдер подготовлен. Внешний платеж не создавался, факт оплаты нужно зачислять отдельно.",
-        }
+                "message": "Провайдер подготовлен. Внешний платеж не создавался, факт оплаты нужно зачислять отдельно.",
+            }
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+            conn.close()
 
     @app.get("/system/followups")
     def system_followups(request: Request, _current_user: dict = Depends(require_roles(*PLATFORM_VIEW_ROLES))):

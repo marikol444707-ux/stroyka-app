@@ -1,6 +1,12 @@
 import React from 'react';
 
 const FEATURE_FLAG = 'REACT_APP_SUPPLIER_MATERIAL_CAPABILITY_RUNTIME_ENABLED';
+const PROOF_ERRORS = {
+  403: 'Проверка доступна директору выбранной компании после входа с подтверждением.',
+  404: 'Для этой позиции пока нет доступной проверки материала. Проверьте её связь со сметой.',
+  409: 'Исходные данные позиции изменились или требуют сверки со сметой. Обновите проверку материала.',
+  503: 'Проверка материалов временно недоступна. Повторите позже.',
+};
 const SHA256 = /^[0-9a-f]{64}$/;
 const PROOF_KEYS = new Set([
   'publicProofVersion', 'state', 'requestId', 'requestItemIndex',
@@ -150,7 +156,12 @@ export default function MaterialCapabilityProofPanel({
     try {
       const response = await fetch(proofUrl);
       const data = await safeJson(response);
-      if (!response.ok) throw new Error('proof unavailable');
+      if (!response.ok) {
+        if (generation !== scopeGeneration.current) return;
+        setProof(null);
+        setError(PROOF_ERRORS[response.status] || 'Не удалось получить доказуемый статус. Обновите проверку.');
+        return;
+      }
       const normalized = normalizeProof(data, requestId, requestItemIndex);
       if (!normalized) throw new Error('proof invalid');
       if (generation !== scopeGeneration.current) return;

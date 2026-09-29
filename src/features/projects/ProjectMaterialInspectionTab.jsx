@@ -1,4 +1,5 @@
 import React from 'react';
+import { selectQualityJournalRows } from '../../utils/qualityJournalScope';
 
 export default function ProjectMaterialInspectionTab({
   C,
@@ -22,7 +23,7 @@ export default function ProjectMaterialInspectionTab({
   toNum,
 }) {
   const diagnostics = projectJournalDiagnostics(project);
-  const rows = materialInspections.filter(row => row.projectName === project.name);
+  const rows = selectQualityJournalRows(materialInspections, project);
 
   const modeControls = (
     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '10px' }}>
@@ -123,7 +124,7 @@ export default function ProjectMaterialInspectionTab({
         <div style={{ ...card, padding: '12px', backgroundColor: C.accentLight, border: '1.5px solid ' + C.accentBorder }}><p style={{ color: C.accent, fontSize: '11px', margin: '0 0 4px' }}>Соответствует</p><b style={{ color: C.accent, fontSize: '16px' }}>{conformingCount}</b></div>
       </div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '10px' }}>
-        <button onClick={() => showPreview(buildMaterialInspectionContent(rows, project.name, '', ''), 'Журнал входного контроля — ' + project.name)} style={{ ...btnB, fontSize: '12px', padding: '7px 12px' }}>
+        <button onClick={() => showPreview(buildMaterialInspectionContent(rows, project, '', ''), 'Журнал входного контроля — ' + project.name)} style={{ ...btnB, fontSize: '12px', padding: '7px 12px' }}>
           <Eye size={13} />🖨 Печать журнала
         </button>
       </div>

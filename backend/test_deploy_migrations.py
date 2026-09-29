@@ -7,6 +7,18 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEPLOY_PATH = PROJECT_ROOT / "deploy.sh"
 FRONTEND_ENV_PATH = PROJECT_ROOT / "scripts" / "resolve-frontend-build-env.sh"
+DEFAULT_FLAGS = [
+    'REACT_APP_WAREHOUSE_DISTRIBUTION_ENABLED=false',
+    'REACT_APP_WAREHOUSE_DISTRIBUTION_TRANSFERS_ENABLED=false',
+    'REACT_APP_SUPPLIER_PAYMENTS_ENABLED=false',
+    'REACT_APP_SUPPLIER_OPENING_CONFIRMATIONS_ENABLED=false',
+    'REACT_APP_SUPPLIER_ALLOCATED_REFUNDS_ENABLED=false',
+    'REACT_APP_SUPPLIER_MIXED_OPENINGS_ENABLED=false',
+    'REACT_APP_SUPPLIER_LEGACY_CONTRACT_BINDING_ENABLED=false',
+    'REACT_APP_SUPPLIER_LEGACY_LINE_REVIEW_ENABLED=false',
+    'REACT_APP_SUPPLIER_DOCUMENT_CONTRACT_BINDINGS_ENABLED=false',
+    'REACT_APP_SUPPLIER_CONTRACT_RECOGNITION_ENABLED=false',
+]
 
 
 class DeployMigrationTests(unittest.TestCase):
@@ -84,7 +96,7 @@ class DeployMigrationTests(unittest.TestCase):
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.splitlines(), [
+        self.assertEqual(result.stdout.splitlines(), DEFAULT_FLAGS + [
             "REACT_APP_ASSIGNMENT_DAILY_DRAFT_PREVIEW_ENABLED=true",
             "REACT_APP_ASSIGNMENT_DAILY_DRAFT_PREVIEW_COMPANY_IDS=1,2",
         ])
@@ -102,7 +114,7 @@ class DeployMigrationTests(unittest.TestCase):
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout, "")
+        self.assertEqual(result.stdout.splitlines(), DEFAULT_FLAGS)
 
     def test_frontend_env_resolver_reads_the_backend_env_file_used_by_runtime(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -122,7 +134,7 @@ class DeployMigrationTests(unittest.TestCase):
             )
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.splitlines(), [
+        self.assertEqual(result.stdout.splitlines(), DEFAULT_FLAGS + [
             "REACT_APP_ASSIGNMENT_DAILY_DRAFT_PREVIEW_ENABLED=true",
             "REACT_APP_ASSIGNMENT_DAILY_DRAFT_PREVIEW_COMPANY_IDS=1",
         ])
@@ -146,7 +158,7 @@ class DeployMigrationTests(unittest.TestCase):
             )
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout, "")
+        self.assertEqual(result.stdout.splitlines(), DEFAULT_FLAGS)
 
     def test_frontend_env_resolver_fails_closed_on_invalid_enabled_allowlist(self):
         for company_ids in ("", "01", "1,1", "1, 2", "9007199254740992"):

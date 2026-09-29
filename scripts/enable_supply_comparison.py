@@ -224,7 +224,10 @@ def execute(apply):
         existing_flags = run(["bash", "scripts/resolve-frontend-build-env.sh", service_env, str(APP_ROOT / "backend/.env")], capture=True)
         for entry in existing_flags.splitlines():
             key, value = entry.split("=", 1)
-            if not key.startswith("REACT_APP_ASSIGNMENT_DAILY_DRAFT_"):
+            if not (key.startswith("REACT_APP_ASSIGNMENT_DAILY_DRAFT_") or key in {
+                "REACT_APP_WAREHOUSE_DISTRIBUTION_ENABLED",
+                "REACT_APP_WAREHOUSE_DISTRIBUTION_TRANSFERS_ENABLED",
+            }):
                 raise ValueError("unexpected_build_environment")
             env[key] = value
         print("Сборка интерфейса со сравнением КП...", flush=True)

@@ -74,6 +74,7 @@ def load_company_billing_state(cur, company_id, *, today=None):
 def _error_response(status_code, code, detail, **extra):
     return JSONResponse(
         status_code=status_code,
+        headers={"Cache-Control": "no-store"},
         content={"ok": False, "code": code, "detail": detail, **extra},
     )
 
@@ -94,6 +95,7 @@ def register_subscription_read_only_middleware(app, deps):
     request_user_snapshot = deps["request_user_snapshot"]
     resolve_work_company_context = deps["resolve_work_company_context"]
     resolve_resource_subscription_context = deps.get("resolve_resource_subscription_context")
+    is_owned_external_profile = deps.get("is_owned_external_profile", lambda cur, user, request: False)
     platform_staff_roles = frozenset(deps.get("platform_staff_roles") or ())
     today_provider = deps.get("today") or dt.date.today
 
@@ -111,7 +113,7 @@ def register_subscription_read_only_middleware(app, deps):
             cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
             user = request_user_snapshot(request, cur) or {}
             role = str(user.get("role") or "").strip()
-            if user and role not in platform_staff_roles:
+            if user and role not in platform_staff_roles and not is_owned_external_profile(cur, user, request):
                 try:
                     context = (
                         resolve_resource_subscription_context(cur, user, request)

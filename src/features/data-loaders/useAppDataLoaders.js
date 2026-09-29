@@ -1,5 +1,10 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
+import useCustomerRecordsLoader from '../customer-cabinet/useCustomerRecordsLoader';
 import { createCompanyRequisitesForm } from '../settings/settingsInitialForms';
+import { qualityJournalScopeKey, requireQualityJournalOwnership } from '../../utils/qualityJournalScope';
+import { getQualityJournalRevision, qualityJournalMutationIssue, QUALITY_JOURNAL_MUTATED } from '../../utils/qualityJournalEvents';
+import { ownedAliasesEnabled } from '../material-control/ownedAliases';
+import { workMaterialAccountingEnabled } from '../work-material-accounting/materialSources';
 
 const ESTIMATES_SUMMARY_PATH = '/estimates?summary=true';
 const PEOPLE_DATA_ROLES = ['директор', 'зам_директора', 'бухгалтер', 'прораб', 'главный_инженер', 'сметчик', 'кладовщик', 'снабженец', 'стройконтроль'];
@@ -13,7 +18,9 @@ const canLoadAccountingDataForRole = (role) => ACCOUNTING_DATA_ROLES.includes(ro
 const assignmentsPathForRole = (role) => SYSTEM_ASSIGNMENT_ROLES.includes(role) ? '/assignments?include_system=true' : '/assignments';
 
 export const useAppDataLoaders = (ctx) => {
+  const reloadCustomerRecords = useCustomerRecordsLoader(ctx);
   const {
+    companyContext = {}, setQualityJournalLoadState,
     activePage, API, AUDIT_LOG_PAGE_LIMIT, buildPagedPath, canAccessRole, createMaterialNormsPageState,
     createMaterialsPageState, createWorkJournalPageState, estimatesTab, initialDataLoaded, MATERIAL_NORMS_PAGE_LIMIT, materialNormSearch,
     MATERIALS_PAGE_LIMIT, mergeRowsByIdValue, mobileApiRequestsRef, mobileLoadedScopesRef, mobileScopeForPage, normalizeEstimateList, roleFlagsForUser,
@@ -26,10 +33,101 @@ export const useAppDataLoaders = (ctx) => {
     setPiecework, setPrescriptionsList, setPricelists, setProjectDocuments, setProjectLetters, setProjectMeasurements, setProjectPayments,
     setProjects, setProjectStages, setRoomDoors, setRooms, setRoomWindows, setRoomWorks, setSalaryPayments,
     setStaff, setSupervisorActs, setSupplierCatalog, setSupplierInvoices, setSupplierOffers, setSuppliers, setSupplyClaims,
-    setSupplyDeliveries, setSupplyHistory, setSupplyRequests, setSupplyTemplates, setTbJournal, setTimesheet,
+    setSupplyDeliveries, setSupplyHistory, setSupplyRequests, setTbJournal, setTimesheet,
     setToolHistory, setTools, setUnexpectedWorksList, setUser, setUsers, setWarehouseMain, setWarehouseMovements,
     setWarehouses, setWarrantyDefects, setWorkJournal, setWorkJournalPage, user, WORK_JOURNAL_PAGE_LIMIT,
   } = ctx;
+
+  const journalScope = qualityJournalScopeKey(companyContext, user);
+  const currentJournalScope = useRef(journalScope);
+  currentJournalScope.current = journalScope;
+  const journalRequests = useRef({ inspections: 0, cables: 0 });
+  const journalStatuses = useRef({});
+  const journalMounted = useRef(true);
+  const setJournalRows = (kind, rows) => (kind === 'inspections' ? setMaterialInspections : setCableJournal)?.(rows);
+  const setJournalState = (kind, value) => setQualityJournalLoadState?.(previous => ({ ...previous, [kind]: value }));
+  const loadQualityJournal = async (kind, enabled = true, preserveRows = false) => {
+    const scopeKey = journalScope;
+    if (scopeKey !== currentJournalScope.current) return null;
+    const generation = ++journalRequests.current[kind];
+    if (!preserveRows) setJournalRows(kind, []);
+    const base = { scopeKey, generation, revision: getQualityJournalRevision(), complete: false };
+    const mutationIssue = qualityJournalMutationIssue();
+    if (mutationIssue) {
+      journalStatuses.current[kind] = 'blocked';
+      setJournalState(kind, { ...base, status: 'blocked', error: mutationIssue });
+      return null;
+    }
+    journalStatuses.current[kind] = 'loading';
+    setJournalState(kind, { ...base, status: enabled && scopeKey ? 'loading' : 'denied', error: '' });
+    if (!enabled || !scopeKey) return { kind, ...base, status: 'denied', error: 'Выберите доступную компанию для загрузки журналов.', rows: [] };
+    try {
+      const path = kind === 'inspections' ? '/material-inspection' : '/cable-journal';
+      const response = await fetch(API + path, { credentials: 'include', headers: {
+        'X-Company-Id': String(companyContext.selectedCompanyId), 'X-Company-Mode': 'company',
+      } });
+      let data;
+      try { data = await response.json(); } catch (_) { /* HTTP status still decides access denial. */ }
+      if (!response.ok) throw Object.assign(new Error(typeof data?.detail === 'string' ? data.detail : 'Не удалось загрузить журнал.'), { status: response.status });
+      if (response.headers?.get('X-Quality-Journal-Snapshot') !== 'owned-v1') {
+        throw new Error('Требуется миграция журналов: сервер не подтвердил полноту доступной выборки. Печать заблокирована.');
+      }
+      const nameField = kind === 'inspections' ? 'materialName' : 'cableBrand';
+      const quantityField = kind === 'inspections' ? 'quantity' : 'lengthReceived';
+      if (!Array.isArray(data) || data.length > 5000 || data.some(row => !row || !Number.isSafeInteger(row.id) || row.id <= 0
+          || typeof row.projectName !== 'string' || typeof row[nameField] !== 'string'
+          || !['number', 'string'].includes(typeof row[quantityField]) || String(row[quantityField]).trim() === ''
+          || !Number.isFinite(Number(row[quantityField])) || Number(row[quantityField]) < 0)) {
+        throw new Error('Неизвестный или неполный ответ журнала. Печать заблокирована.');
+      }
+      requireQualityJournalOwnership(data, companyContext.selectedCompanyId);
+      // owned-v1 proves the full authorized subset, not access to every company row.
+      // Backend returns 409 (>5000), not a silently truncated page.
+      return { kind, ...base, rows: data, status: 'ready', complete: true, error: '' };
+    } catch (error) {
+      return { kind, ...base, rows: [], status: [401, 403].includes(error.status) ? 'denied' : 'error', error: error.message || 'Ошибка загрузки журнала.' };
+    }
+  };
+  const applyQualityJournal = snapshot => {
+    if (!snapshot || !journalMounted.current || snapshot.scopeKey !== currentJournalScope.current
+        || qualityJournalMutationIssue()
+        || snapshot.revision !== getQualityJournalRevision()
+        || snapshot.generation !== journalRequests.current[snapshot.kind]) return;
+    const { kind, rows, ...state } = snapshot;
+    journalStatuses.current[kind] = state.status;
+    if (state.status !== 'ready') {
+      ['full', 'mobile:init', 'mobile:projects', 'mobile:warehouse'].forEach(scope => mobileLoadedScopesRef.current.delete(scope));
+    }
+    setJournalRows(kind, rows); setJournalState(kind, state);
+  };
+  const reloadQualityJournals = async ({ preserveRows = false } = {}) => {
+    const flags = roleFlagsForUser(user);
+    const enabled = Boolean(flags.canSeeProjectDocs || flags.isWarehouseRole);
+    const results = await Promise.all(['inspections', 'cables'].map(kind => loadQualityJournal(kind, enabled, preserveRows)));
+    results.forEach(applyQualityJournal);
+  };
+  useEffect(() => {
+    const requests = journalRequests.current;
+    journalMounted.current = true;
+    mobileLoadedScopesRef.current.clear();
+    reloadQualityJournals();
+    const onMutation = () => {
+      if (!journalMounted.current || journalScope !== currentJournalScope.current) return;
+      requests.inspections += 1; requests.cables += 1;
+      ['full', 'mobile:init', 'mobile:projects', 'mobile:warehouse'].forEach(scope => mobileLoadedScopesRef.current.delete(scope));
+      // Keep rows for the editor's synchronous onSuccess map; they are not
+      // exportable until the post-write GET confirms this new revision.
+      reloadQualityJournals({ preserveRows: true });
+    };
+    window.addEventListener(QUALITY_JOURNAL_MUTATED, onMutation);
+    return () => {
+      window.removeEventListener(QUALITY_JOURNAL_MUTATED, onMutation);
+      journalMounted.current = false;
+      requests.inspections += 1; requests.cables += 1;
+    };
+    // Scope includes user, company and membership role; old completions are ignored.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [journalScope]);
 
   const roleFlags = () => roleFlagsForUser(user);
   const canLoadEstimatesForUser = (targetUser = user) => {
@@ -222,7 +320,7 @@ export const useAppDataLoaders = (ctx) => {
         const shouldLoadAccountingAtBoot = canLoadAccountingDataForRole(role) || isFinanceRole;
         const shouldLoadBrigadeAtBoot = shouldLoadPeopleAtBoot || shouldLoadAccountingAtBoot || isWorkerRole;
         const [
-          p,u,sr,ait,oe,pp,wm,wj,s,pw,ct,ia,mp,bc,abi,est,er,hwa,mij,cbj,sva,pdocs,pmeas
+          p,u,sr,ait,oe,pp,wm,wj,s,pw,ct,ia,mp,bc,abi,est,er,hwa,mij,cbj,sva,pdocs,pmeas,supplierCards,supplierItems
         ] = await Promise.all([
           role === 'поставщик' ? Promise.resolve([]) : getApi('/projects'),
           shouldLoadUsersAtBoot ? getApi('/users') : Promise.resolve([]),
@@ -241,20 +339,26 @@ export const useAppDataLoaders = (ctx) => {
           shouldLoadBrigadeAtBoot ? getApi('/brigade-contract-items-all') : Promise.resolve([]),
           canLoadEstimates ? getApi(estimatesLoadPath, null) : Promise.resolve(null),
           canLoadEstimates ? getApi('/estimate-reconciliations') : Promise.resolve([]),
-          canSeeProjectDocs ? getApi('/hidden-works-acts') : Promise.resolve([]),
-          canSeeProjectDocs ? getApi('/material-inspection') : Promise.resolve([]),
-          canSeeProjectDocs ? getApi('/cable-journal') : Promise.resolve([]),
+          canSeeProjectDocs && role !== 'заказчик' ? getApi('/hidden-works-acts') : Promise.resolve([]),
+          loadQualityJournal('inspections', canSeeProjectDocs),
+          loadQualityJournal('cables', canSeeProjectDocs),
           canSeeProjectDocs ? getApi('/supervisor-acts') : Promise.resolve([]),
-          (isInternalRole || isFinanceRole || role === 'заказчик') ? getApi('/project-documents') : Promise.resolve([]),
+          role !== 'заказчик' && (isInternalRole || isFinanceRole) ? getApi('/project-documents') : Promise.resolve([]),
           canSeeProjectDocs ? getApi('/project-measurements') : Promise.resolve([]),
+          role === 'поставщик' ? getApi('/suppliers') : Promise.resolve([]),
+          role === 'поставщик' ? getApi('/supplier-catalog') : Promise.resolve([]),
         ]);
+        if (role === 'поставщик') {
+          setSuppliers(Array.isArray(supplierCards) ? supplierCards : []);
+          setSupplierCatalog(Array.isArray(supplierItems) ? supplierItems : []);
+        }
         const safeWorkJournal = Array.isArray(wj) ? wj : [];
         setProjects(Array.isArray(p)?p:[]);
         setUsers(Array.isArray(u)?u:[]);
         setSupplyRequests(Array.isArray(sr)?sr:[]);
         setAiTasks(Array.isArray(ait)?ait:[]);
         setOwnExpenses(Array.isArray(oe)?oe:[]);
-        setProjectPayments(Array.isArray(pp)?pp:[]);
+        if (role !== 'заказчик') setProjectPayments(Array.isArray(pp)?pp:[]);
         setWarehouseMain(Array.isArray(wm)?wm:[]);
         setWorkJournal(safeWorkJournal);
         resetWorkJournalPage(safeWorkJournal);
@@ -267,11 +371,11 @@ export const useAppDataLoaders = (ctx) => {
         setAllBrigadeItems(Array.isArray(abi)?abi:[]);
         applyLoadedEstimates(est, canLoadEstimates);
         setEstimateReconciliations(Array.isArray(er)?er:[]);
-        setHiddenActs(Array.isArray(hwa)?hwa:[]);
-        setMaterialInspections(Array.isArray(mij)?mij:[]);
-        setCableJournal(Array.isArray(cbj)?cbj:[]);
+        if (role !== 'заказчик') setHiddenActs(Array.isArray(hwa)?hwa:[]);
+        applyQualityJournal(mij);
+        applyQualityJournal(cbj);
         setSupervisorActs(Array.isArray(sva)?sva:[]);
-        setProjectDocuments(Array.isArray(pdocs)?pdocs:[]);
+        if (role !== 'заказчик') setProjectDocuments(Array.isArray(pdocs)?pdocs:[]);
         setProjectMeasurements(Array.isArray(pmeas)?pmeas:[]);
       });
     } finally {
@@ -316,7 +420,8 @@ export const useAppDataLoaders = (ctx) => {
     });
     if (['projects','site','works','documents','cable'].includes(page)) return loadMobileScopeOnce('mobile:projects-docs', async () => {
       if (canSeeProjectDocs) markEstimatesLoading(true);
-      const [p,wj,mt,ro,rw,rwin,rdoor,ps,pcl,pres,uw,est,er,bc,abi,hwa,mij,cbj,sva,inspO,warD,pdocs,plet,pmeas,mdrafts,s,u,ct,ia,pw,mp] = await Promise.all([
+      const loadWorkMaterials = isWorkerRole && workMaterialAccountingEnabled();
+      const [p,wj,mt,ro,rw,rwin,rdoor,ps,pcl,pres,uw,est,er,bc,abi,hwa,mij,cbj,sva,inspO,warD,pdocs,plet,pmeas,mdrafts,s,u,ct,ia,pw,mp,m,mn,mno,h] = await Promise.all([
         role === 'поставщик' ? Promise.resolve([]) : getApi('/projects'),
         role === 'поставщик' ? Promise.resolve([]) : getApi(pagedPath('/work-journal', {limit: WORK_JOURNAL_PAGE_LIMIT})),
         (isWarehouseRole || ['мастер','субподрядчик','бригадир'].includes(role)) ? getApi('/material-transfers') : Promise.resolve([]),
@@ -327,19 +432,19 @@ export const useAppDataLoaders = (ctx) => {
         canSeeProjectDocs ? getApi('/project-stages') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/project-checklists') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/prescriptions') : Promise.resolve([]),
-        canSeeProjectDocs ? getApi('/unexpected-works') : Promise.resolve([]),
+        role !== 'заказчик' && canSeeProjectDocs ? getApi('/unexpected-works') : Promise.resolve([]),
         canSeeProjectDocs ? getApi(estimatesLoadPath, null) : Promise.resolve(null),
         canSeeProjectDocs ? getApi('/estimate-reconciliations') : Promise.resolve([]),
         (canLoadPeopleData || isWorkerRole) ? getApi('/brigade-contracts') : Promise.resolve([]),
         (canLoadPeopleData || isWorkerRole) ? getApi('/brigade-contract-items-all') : Promise.resolve([]),
-        canSeeProjectDocs ? getApi('/hidden-works-acts') : Promise.resolve([]),
-        (canSeeProjectDocs || isWarehouseRole) ? getApi('/material-inspection') : Promise.resolve([]),
-        (canSeeProjectDocs || isWarehouseRole) ? getApi('/cable-journal') : Promise.resolve([]),
+        canSeeProjectDocs && role !== 'заказчик' ? getApi('/hidden-works-acts') : Promise.resolve([]),
+        loadQualityJournal('inspections', canSeeProjectDocs || isWarehouseRole),
+        loadQualityJournal('cables', canSeeProjectDocs || isWarehouseRole),
         canSeeProjectDocs ? getApi('/supervisor-acts') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/inspection-orders') : Promise.resolve([]),
-        canSeeProjectDocs ? getApi('/warranty-defects') : Promise.resolve([]),
-        (isInternalRole || isFinanceRole || role==='заказчик') ? getApi('/project-documents') : Promise.resolve([]),
-        (isInternalRole || isFinanceRole || role==='заказчик') ? getApi('/project-letters') : Promise.resolve([]),
+        role !== 'заказчик' && canSeeProjectDocs ? getApi('/warranty-defects') : Promise.resolve([]),
+        role !== 'заказчик' && (isInternalRole || isFinanceRole) ? getApi('/project-documents') : Promise.resolve([]),
+        role !== 'заказчик' && (isInternalRole || isFinanceRole) ? getApi('/project-letters') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/project-measurements') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/measurement-room-drafts') : Promise.resolve([]),
         canLoadPeopleData ? getApi('/staff') : Promise.resolve([]),
@@ -348,6 +453,10 @@ export const useAppDataLoaders = (ctx) => {
         canLoadAccountingData ? getApi('/interim-acts') : Promise.resolve([]),
         canLoadPeopleData ? getApi('/piecework') : Promise.resolve([]),
         canLoadPeopleData ? getApi('/master-profiles') : Promise.resolve([]),
+        loadWorkMaterials ? getApi(pagedPath('/materials', {limit: MATERIALS_PAGE_LIMIT})) : Promise.resolve([]),
+        loadWorkMaterials ? getApi(pagedPath('/material-norms', {limit: MATERIAL_NORMS_PAGE_LIMIT})) : Promise.resolve([]),
+        loadWorkMaterials ? getApi('/material-norms/overrides') : Promise.resolve([]),
+        loadWorkMaterials ? getApi('/warehouse-history') : Promise.resolve([]),
       ]);
       const safeWorkJournal = Array.isArray(wj) ? wj : [];
       setProjects(Array.isArray(p)?p:[]);
@@ -357,14 +466,18 @@ export const useAppDataLoaders = (ctx) => {
       setRooms(Array.isArray(ro)?ro:[]); setRoomWorks(Array.isArray(rw)?rw:[]);
       setRoomWindows(Array.isArray(rwin)?rwin:[]); setRoomDoors(Array.isArray(rdoor)?rdoor:[]);
       setProjectStages(Array.isArray(ps)?ps:[]); setChecklists(Array.isArray(pcl)?pcl:[]);
-      setPrescriptionsList(Array.isArray(pres)?pres:[]); setUnexpectedWorksList(Array.isArray(uw)?uw:[]);
+      setPrescriptionsList(Array.isArray(pres)?pres:[]);
+      if (role !== 'заказчик') setUnexpectedWorksList(Array.isArray(uw)?uw:[]);
       applyLoadedEstimates(est, canSeeProjectDocs);
       if (canSeeProjectDocs && est === null) mobileLoadedScopesRef.current.delete('mobile:projects-docs');
       setEstimateReconciliations(Array.isArray(er)?er:[]); setBrigadeContracts(Array.isArray(bc)?bc:[]); setAllBrigadeItems(Array.isArray(abi)?abi:[]);
-      setHiddenActs(Array.isArray(hwa)?hwa:[]); setMaterialInspections(Array.isArray(mij)?mij:[]);
-      setCableJournal(Array.isArray(cbj)?cbj:[]); setSupervisorActs(Array.isArray(sva)?sva:[]);
-      setInspectionOrders(Array.isArray(inspO)?inspO:[]); setWarrantyDefects(Array.isArray(warD)?warD:[]);
-      setProjectDocuments(Array.isArray(pdocs)?pdocs:[]); setProjectLetters(Array.isArray(plet)?plet:[]);
+      if (role !== 'заказчик') setHiddenActs(Array.isArray(hwa)?hwa:[]); applyQualityJournal(mij);
+      applyQualityJournal(cbj); setSupervisorActs(Array.isArray(sva)?sva:[]);
+      setInspectionOrders(Array.isArray(inspO)?inspO:[]);
+      if (role !== 'заказчик') {
+        setWarrantyDefects(Array.isArray(warD)?warD:[]);
+        setProjectDocuments(Array.isArray(pdocs)?pdocs:[]); setProjectLetters(Array.isArray(plet)?plet:[]);
+      }
       setProjectMeasurements(Array.isArray(pmeas)?pmeas:[]); setMeasurementRoomDrafts(Array.isArray(mdrafts)?mdrafts:[]);
       setStaff(Array.isArray(s)?s:[]);
       setUsers(Array.isArray(u)?u:[]);
@@ -372,6 +485,12 @@ export const useAppDataLoaders = (ctx) => {
       setInterimActs(Array.isArray(ia)?ia:[]);
       setPiecework(Array.isArray(pw)?pw:[]);
       setMasterProfiles(Array.isArray(mp)?mp:[]);
+      if (loadWorkMaterials) {
+        setMaterials(Array.isArray(m)?m:[]); resetMaterialsPage(m);
+        setMaterialNorms(Array.isArray(mn)?mn:[]); resetMaterialNormsPage(mn);
+        setMaterialNormOverrides(Array.isArray(mno)?mno:[]);
+        setHistory(Array.isArray(h)?h:[]);
+      }
     });
     if (page === 'estimates') return loadMobileScopeOnce('mobile:estimates', async () => {
       if (canLoadEstimates) markEstimatesLoading(true);
@@ -380,7 +499,7 @@ export const useAppDataLoaders = (ctx) => {
         canLoadEstimates ? getApi('/estimate-reconciliations') : Promise.resolve([]),
         ((isInternalRole && !['мастер','субподрядчик','бригадир'].includes(role)) || role === 'технадзор') ? getApi('/pricelists') : Promise.resolve([]),
         canSeeProjectDocs ? getApi(pagedPath('/material-norms', {limit: MATERIAL_NORMS_PAGE_LIMIT})) : Promise.resolve([]),
-        canSeeProjectDocs ? getApi('/material-aliases') : Promise.resolve([]),
+        canSeeProjectDocs && !ownedAliasesEnabled() ? getApi('/material-aliases') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/material-norms/overrides') : Promise.resolve([]),
         canSeeProjectDocs ? getApi('/material-norm-suggestions') : Promise.resolve([]),
         canLoadBrigadeData ? getApi('/brigade-contracts') : Promise.resolve([]),
@@ -390,7 +509,8 @@ export const useAppDataLoaders = (ctx) => {
       applyLoadedEstimates(est, canLoadEstimates);
       if (canLoadEstimates && est === null) mobileLoadedScopesRef.current.delete('mobile:estimates');
       setEstimateReconciliations(Array.isArray(er)?er:[]); setPricelists(Array.isArray(pl)?pl:[]);
-      setMaterialNorms(Array.isArray(mn)?mn:[]); resetMaterialNormsPage(mn); setMaterialAliases(Array.isArray(ma)?ma:[]);
+      setMaterialNorms(Array.isArray(mn)?mn:[]); resetMaterialNormsPage(mn);
+      if (!ownedAliasesEnabled()) setMaterialAliases(Array.isArray(ma)?ma:[]);
       setMaterialNormOverrides(Array.isArray(mno)?mno:[]); setMaterialNormSuggestions(Array.isArray(mns)?mns:[]);
       setBrigadeContracts(Array.isArray(bc)?bc:[]); setAllBrigadeItems(Array.isArray(abi)?abi:[]);
       setAllBrigadePayments(Array.isArray(abp)?abp:[]);
@@ -404,8 +524,8 @@ export const useAppDataLoaders = (ctx) => {
 	        (isWarehouseRole || isFinanceRole || ['мастер','субподрядчик','бригадир'].includes(role)) ? getApi('/warehouse-history') : Promise.resolve([]),
         (isWarehouseRole || isSupplyRole || isFinanceRole) ? getApi('/warehouses') : Promise.resolve([]),
 	        (isWarehouseRole || ['мастер','субподрядчик','бригадир'].includes(role)) ? getApi('/material-transfers') : Promise.resolve([]),
-        (canSeeProjectDocs || isWarehouseRole) ? getApi('/material-inspection') : Promise.resolve([]),
-        (canSeeProjectDocs || isWarehouseRole) ? getApi('/cable-journal') : Promise.resolve([]),
+        loadQualityJournal('inspections', canSeeProjectDocs || isWarehouseRole),
+        loadQualityJournal('cables', canSeeProjectDocs || isWarehouseRole),
         isSupplyRole ? getApi('/supply-requests') : Promise.resolve([]),
         (isSupplyRole || isWarehouseRole || isFinanceRole) ? getApi('/supply-history') : Promise.resolve([]),
         isSupplyRole ? getApi('/supply-deliveries') : Promise.resolve([]),
@@ -416,8 +536,8 @@ export const useAppDataLoaders = (ctx) => {
       setMaterials(Array.isArray(m)?m:[]); resetMaterialsPage(m); setInvoices(Array.isArray(winv)?winv:[]);
       setWarehouseMain(Array.isArray(wm)?wm:[]); setWarehouseMovements(Array.isArray(wmov)?wmov:[]);
       setHistory(Array.isArray(h)?h:[]); setWarehouses(Array.isArray(wh)?wh:[]);
-      setMaterialTransfers(Array.isArray(mt)?mt:[]); setMaterialInspections(Array.isArray(mij)?mij:[]);
-      setCableJournal(Array.isArray(cbj)?cbj:[]);
+      setMaterialTransfers(Array.isArray(mt)?mt:[]); applyQualityJournal(mij);
+      applyQualityJournal(cbj);
       setSupplyRequests(Array.isArray(sr)?sr:[]);
       setSupplyHistory(Array.isArray(sh)?sh:[]);
       setSupplyDeliveries(Array.isArray(sd)?sd:[]);
@@ -426,7 +546,7 @@ export const useAppDataLoaders = (ctx) => {
       setInventory(Array.isArray(inv)?inv:[]);
     });
     if (['supply','suppliers'].includes(page)) return loadMobileScopeOnce('mobile:supply', async () => {
-      const [sup,sr,so,sh,sd,sc,supI,scat,stpl,winv] = await Promise.all([
+      const [sup,sr,so,sh,sd,sc,supI,scat,winv] = await Promise.all([
         (isSupplyRole || isWarehouseRole || isFinanceRole) ? getApi('/suppliers') : Promise.resolve([]),
         isSupplyRole ? getApi('/supply-requests') : Promise.resolve([]),
         isSupplyRole ? getApi('/supplier-offers') : Promise.resolve([]),
@@ -435,14 +555,12 @@ export const useAppDataLoaders = (ctx) => {
         isSupplyRole ? getApi('/supply-claims') : Promise.resolve([]),
         canSeeSupplierInvoices ? getApi('/supplier-invoices') : Promise.resolve([]),
         (isSupplyRole || isWarehouseRole || isFinanceRole || role === 'поставщик') ? getApi('/supplier-catalog') : Promise.resolve([]),
-        isSupplyRole ? getApi('/supply-request-templates') : Promise.resolve([]),
         (isWarehouseRole || isFinanceRole) ? getApi('/warehouse-invoices') : Promise.resolve([]),
       ]);
       setSuppliers(Array.isArray(sup)?sup:[]); setSupplyRequests(Array.isArray(sr)?sr:[]);
       setSupplierOffers(Array.isArray(so)?so:[]); setSupplyHistory(Array.isArray(sh)?sh:[]);
       setSupplyDeliveries(Array.isArray(sd)?sd:[]); setSupplyClaims(Array.isArray(sc)?sc:[]);
       setSupplierInvoices(Array.isArray(supI)?supI:[]); setSupplierCatalog(Array.isArray(scat)?scat:[]);
-      setSupplyTemplates(Array.isArray(stpl)?stpl:[]);
       setInvoices(Array.isArray(winv)?winv:[]);
     });
     if (['personnel','users'].includes(page)) return loadMobileScopeOnce('mobile:people', async () => {
@@ -480,7 +598,7 @@ export const useAppDataLoaders = (ctx) => {
         canLoadUserDirectory ? getApi('/users') : Promise.resolve([]),
         canLoadBrigadeData ? getApi('/brigade-contracts') : Promise.resolve([]),
       ]);
-      setProjectPayments(Array.isArray(pp)?pp:[]); setAccountablePayments(Array.isArray(acp)?acp:[]);
+      if (role !== 'заказчик') setProjectPayments(Array.isArray(pp)?pp:[]); setAccountablePayments(Array.isArray(acp)?acp:[]);
       setOwnExpenses(Array.isArray(oe)?oe:[]); setManualExpenses(Array.isArray(me)?me:[]);
       setContracts(Array.isArray(ct)?ct:[]); setInterimActs(Array.isArray(ia)?ia:[]);
       setExpenseReports(Array.isArray(expR)?expR:[]); setSupplierInvoices(Array.isArray(supI)?supI:[]);
@@ -490,16 +608,19 @@ export const useAppDataLoaders = (ctx) => {
       setBrigadeContracts(Array.isArray(bc)?bc:[]);
     });
     if (page === 'history') return loadMobileScopeOnce('mobile:history', async () => {
-      const [wj,h,mt] = await Promise.all([
+      const loadWorkMaterials = isWorkerRole && workMaterialAccountingEnabled();
+      const [wj,h,mt,m] = await Promise.all([
         role === 'поставщик' ? Promise.resolve([]) : getApi(pagedPath('/work-journal', {limit: WORK_JOURNAL_PAGE_LIMIT})),
 	        (isWarehouseRole || isFinanceRole || ['мастер','субподрядчик','бригадир'].includes(role)) ? getApi('/warehouse-history') : Promise.resolve([]),
 	        (isWarehouseRole || ['мастер','субподрядчик','бригадир'].includes(role)) ? getApi('/material-transfers') : Promise.resolve([]),
+        loadWorkMaterials ? getApi(pagedPath('/materials', {limit: MATERIALS_PAGE_LIMIT})) : Promise.resolve([]),
       ]);
       const safeWorkJournal = Array.isArray(wj) ? wj : [];
       setWorkJournal(safeWorkJournal);
       resetWorkJournalPage(safeWorkJournal);
       setHistory(Array.isArray(h)?h:[]);
       setMaterialTransfers(Array.isArray(mt)?mt:[]);
+      if (loadWorkMaterials) { setMaterials(Array.isArray(m)?m:[]); resetMaterialsPage(m); }
     });
     if (page === 'myexpenses') return loadMobileScopeOnce('mobile:myexpenses', async () => {
       const oe = isInternalRole ? await getApi('/own-expenses') : [];
@@ -525,7 +646,7 @@ export const useAppDataLoaders = (ctx) => {
         role === 'поставщик' ? Promise.resolve([]) : getApi(pagedPath('/work-journal', {limit: WORK_JOURNAL_PAGE_LIMIT})),
         canLoadEstimates ? getApi(estimatesLoadPath, null) : Promise.resolve(null),
       ]);
-      setProjectPayments(Array.isArray(pp)?pp:[]);
+      if (role !== 'заказчик') setProjectPayments(Array.isArray(pp)?pp:[]);
       setManualExpenses(Array.isArray(me)?me:[]);
       const safeWorkJournal = Array.isArray(wj) ? wj : [];
       setWorkJournal(safeWorkJournal);
@@ -597,8 +718,7 @@ export const useAppDataLoaders = (ctx) => {
         })
         .catch(() => fallback === null ? null : LOAD_FAILED);
       const skip = (fallback = []) => Promise.resolve(fallback);
-
-      const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,sd,sc,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,er,bc,hwa,mij,cbj,sva,inspO,expR,supI,warD,scat,stpl,aif,ait,mn,ma,mno,mns,aud] = await Promise.all([
+      const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,sd,sc,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,er,bc,hwa,mij,cbj,sva,inspO,expR,supI,warD,scat,aif,ait,mn,ma,mno,mns,aud] = await Promise.all([
         role === 'поставщик' ? skip([]) : get('/projects'),
         (isLeadershipRole || role === 'менеджер_crm') ? get('/clients') : skip([]),
         role === 'поставщик' ? skip([]) : get(pagedPath('/materials', {limit: MATERIALS_PAGE_LIMIT})),
@@ -637,31 +757,32 @@ export const useAppDataLoaders = (ctx) => {
         canSeeProjectDocs ? get('/project-stages') : skip([]),
         canSeeProjectDocs ? get('/project-checklists') : skip([]),
         canSeeProjectDocs ? get('/prescriptions') : skip([]),
-        canSeeProjectDocs ? get('/unexpected-works') : skip([]),
+        role !== 'заказчик' && canSeeProjectDocs ? get('/unexpected-works') : skip([]),
         canLoadEstimates ? get(estimatesLoadPath, null) : skip(null),
         canLoadEstimates ? get('/estimate-reconciliations') : skip([]),
         canLoadBrigadeData ? get('/brigade-contracts') : skip([]),
-        canSeeProjectDocs ? get('/hidden-works-acts') : skip([]),
-        (canSeeProjectDocs || isWarehouseRole) ? get('/material-inspection') : skip([]),
-        (canSeeProjectDocs || isWarehouseRole) ? get('/cable-journal') : skip([]),
+        canSeeProjectDocs && role !== 'заказчик' ? get('/hidden-works-acts') : skip([]),
+        loadQualityJournal('inspections', canSeeProjectDocs || isWarehouseRole),
+        loadQualityJournal('cables', canSeeProjectDocs || isWarehouseRole),
         canSeeProjectDocs ? get('/supervisor-acts') : skip([]),
         canSeeProjectDocs ? get('/inspection-orders') : skip([]),
         isFinanceRole ? get('/expense-reports') : skip([]),
         canSeeSupplierInvoices ? get('/supplier-invoices') : skip([]),
-        canSeeProjectDocs ? get('/warranty-defects') : skip([]),
+        role !== 'заказчик' && canSeeProjectDocs ? get('/warranty-defects') : skip([]),
         (isSupplyRole || isWarehouseRole || isFinanceRole || role === 'поставщик') ? get('/supplier-catalog') : skip([]),
-        isSupplyRole ? get('/supply-request-templates') : skip([]),
         canSeeProjectDocs ? get('/ai-findings') : skip([]),
         canSeeProjectDocs ? get(assignmentsPathForRole(role)) : skip([]),
         canSeeProjectDocs ? get(pagedPath('/material-norms', {limit: MATERIAL_NORMS_PAGE_LIMIT})) : skip([]),
-        canSeeProjectDocs ? get('/material-aliases') : skip([]),
+        canSeeProjectDocs && !ownedAliasesEnabled() ? get('/material-aliases') : skip([]),
         canSeeProjectDocs ? get('/material-norms/overrides') : skip([]),
         canSeeProjectDocs ? get('/material-norm-suggestions') : skip([]),
         (isLeadershipRole || isFinanceRole) ? get(pagedPath('/audit-log', {limit: AUDIT_LOG_PAGE_LIMIT})) : skip([]),
       ]);
       setLoaded(setProjects, p); setLoaded(setClients, c);
       if (isLoaded(m)) { setMaterials(asArray(m)); resetMaterialsPage(asArray(m)); }
-      setLoaded(setInvoices, winv); setLoaded(setProjectPayments, pp); setLoaded(setAccountablePayments, acp);
+      setLoaded(setInvoices, winv);
+      if (role !== 'заказчик') setLoaded(setProjectPayments, pp);
+      setLoaded(setAccountablePayments, acp);
       setLoaded(setOwnExpenses, oe); setLoaded(setManualExpenses, me); setLoaded(setWarehouseMain, wm); setLoaded(setWarehouseMovements, wmov);
       setLoaded(setHistory, h); setLoaded(setStaff, s); setLoaded(setPiecework, pw); setLoaded(setUsers, u); setLoaded(setPricelists, pl);
       setLoaded(setInviteCodes, ic); setLoaded(setSuppliers, sup); setLoaded(setSupplyRequests, sr); setLoaded(setSupplierOffers, so);
@@ -673,15 +794,18 @@ export const useAppDataLoaders = (ctx) => {
       if (isLoaded(cr)) applyCompanyRequisites(cr);
       setLoaded(setCompanyDocuments, cd);
       setLoaded(setProjectStages, ps); setLoaded(setChecklists, pcl);
-      setLoaded(setPrescriptionsList, pres); setLoaded(setUnexpectedWorksList, uw);
+      setLoaded(setPrescriptionsList, pres);
+      if (role !== 'заказчик') setLoaded(setUnexpectedWorksList, uw);
       if (isLoaded(est)) applyLoadedEstimates(est, canLoadEstimates);
-      setLoaded(setEstimateReconciliations, er); setLoaded(setBrigadeContracts, bc); setLoaded(setHiddenActs, hwa);
-      setLoaded(setMaterialInspections, mij); setLoaded(setCableJournal, cbj); setLoaded(setSupervisorActs, sva);
+      setLoaded(setEstimateReconciliations, er); setLoaded(setBrigadeContracts, bc); if (role !== 'заказчик') setLoaded(setHiddenActs, hwa);
+      applyQualityJournal(mij); applyQualityJournal(cbj); setLoaded(setSupervisorActs, sva);
       setLoaded(setInspectionOrders, inspO); setLoaded(setExpenseReports, expR); setLoaded(setSupplierInvoices, supI);
-      setLoaded(setWarrantyDefects, warD); setLoaded(setSupplierCatalog, scat); setLoaded(setSupplyTemplates, stpl);
+      if (role !== 'заказчик') setLoaded(setWarrantyDefects, warD);
+      setLoaded(setSupplierCatalog, scat);
       setLoaded(setAiFindings, aif); setLoaded(setAiTasks, ait);
       if (isLoaded(mn)) { setMaterialNorms(asArray(mn)); resetMaterialNormsPage(asArray(mn)); }
-      setLoaded(setMaterialAliases, ma); setLoaded(setMaterialNormOverrides, mno); setLoaded(setMaterialNormSuggestions, mns); setLoaded(setAuditLog, aud);
+      if (!ownedAliasesEnabled()) setLoaded(setMaterialAliases, ma);
+      setLoaded(setMaterialNormOverrides, mno); setLoaded(setMaterialNormSuggestions, mns); setLoaded(setAuditLog, aud);
       if (canSeeProjectDocs) try {
         const [rwin,rdoor] = await Promise.all([
           get('/room-windows'),
@@ -738,7 +862,7 @@ export const useAppDataLoaders = (ctx) => {
         const abp = await get('/brigade-payments');
         setLoaded(setAllBrigadePayments, abp);
       } catch(e) {}
-      if (canSeeProjectDocs || canLoadAccountingData || role==='заказчик') try {
+      if (role !== 'заказчик' && (canSeeProjectDocs || canLoadAccountingData)) try {
         const pdocs = await get('/project-documents');
         setLoaded(setProjectDocuments, pdocs);
         const plet = await get('/project-letters');
@@ -750,7 +874,7 @@ export const useAppDataLoaders = (ctx) => {
         const mdrafts = await get('/measurement-room-drafts');
         setLoaded(setMeasurementRoomDrafts, mdrafts);
       } catch(e) {}
-      mobileLoadedScopesRef.current.add('full');
+      if (Object.values(journalStatuses.current).every(status => status === 'ready')) mobileLoadedScopesRef.current.add('full');
     } catch(e) {
       console.error('loadAll failed', e);
       setEstimatesPage(prev => prev.loading ? {
@@ -763,6 +887,7 @@ export const useAppDataLoaders = (ctx) => {
   };
 
   const refreshData = async (page = activePage) => {
+    if (user?.role === 'заказчик') await reloadCustomerRecords();
     mobileApiRequestsRef.current.clear();
     mobileLoadedScopesRef.current.delete('full');
     const scope = mobileScopeForPage(page);
@@ -776,6 +901,6 @@ export const useAppDataLoaders = (ctx) => {
 
   return {
     apiAuthHeaders, loadAll, loadMaterialNormsPage, loadMaterialsPage, loadMobileInitial, loadWorkJournalPage,
-    refreshData,
+    refreshData, reloadQualityJournals,
   };
 };

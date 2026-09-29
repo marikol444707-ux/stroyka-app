@@ -1,0 +1,30 @@
+import React from 'react';
+import {render,screen,fireEvent,waitFor} from '@testing-library/react';
+import Panel from './SupplierLegacyLineReviewPanel';
+import {createLegacyLineReviewClient} from './legacyLineReviewClient';
+jest.mock('./legacyLineReviewClient');
+let client;
+const props={API:'',userId:7,companyId:2,invoiceId:3};
+const line={lineNo:1,sourceRequestPosition:0,sourceOfferPosition:0,materialName:'Кабель',unit:'м',workPackage:'Электрика',quantity:'2.000000',unitPrice:'100.000000',amount:'200.00'};
+beforeEach(()=>{process.env.REACT_APP_SUPPLIER_LEGACY_LINE_REVIEW_ENABLED='true';Object.defineProperty(window,'crypto',{configurable:true,value:{randomUUID:()=> 'synthetic-id'}});
+ client={pending:jest.fn(()=>null),load:jest.fn(async()=>({contractVersionId:8,amount:'200.00',vatAmount:'34.00',lines:[line]})),upload:jest.fn(async()=>({fileId:10,companyId:2})),save:jest.fn(async()=>({}))};createLegacyLineReviewClient.mockReturnValue(client);});
+afterEach(()=>{delete process.env.REACT_APP_SUPPLIER_LEGACY_LINE_REVIEW_ENABLED;});
+test('requires original, explicit row VAT and human confirmation before saving',async()=>{
+ const onSuccess=jest.fn();render(<Panel {...props} onSuccess={onSuccess}/>);
+ fireEvent.click(screen.getByText('Проверить позиции'));
+ const vat=await screen.findByLabelText('НДС строки 1, ₽');expect(vat.value).toBe('');
+ expect(screen.getByText('Подтвердить состав счёта').disabled).toBe(true);
+ fireEvent.change(screen.getByLabelText('Оригинал счёта'),{target:{files:[new File(['test'],'original.txt')]}});
+ await screen.findByText('Загружен: original.txt');
+ fireEvent.change(vat,{target:{value:'34'}});fireEvent.change(screen.getByLabelText('Основание сверки'),{target:{value:'Проверено'}});
+ fireEvent.click(screen.getByLabelText('Количество, цены, суммы и НДС каждой позиции сверены с оригиналом'));
+ fireEvent.click(screen.getByText('Подтвердить состав счёта'));
+ await waitFor(()=>expect(onSuccess).toHaveBeenCalledTimes(1));
+ expect(client.save).toHaveBeenCalledWith({requestId:'synthetic-id',contractVersionId:8,sourceFileId:10,expectedAmount:'200.00',vatAmount:'34.00',reason:'Проверено',confirmed:true,lines:[{...Object.fromEntries(Object.entries(line).filter(([k])=>k!=='lineNo')),vatAmount:'34.00'}]});
+});
+test('pending command hides editing and keeps finance blocked',async()=>{
+ const pending={requestId:'saved',lines:[]};client.pending.mockReturnValue(pending);const onBlocked=jest.fn();
+ render(<Panel {...props} onBlocked={onBlocked}/>);await screen.findByText('Проверить и повторить сверку');
+ expect(screen.queryByLabelText('Оригинал счёта')).toBeNull();expect(onBlocked).toHaveBeenCalledWith(true);
+ fireEvent.click(screen.getByText('Проверить и повторить сверку'));await waitFor(()=>expect(client.save).toHaveBeenCalledWith(pending));
+});

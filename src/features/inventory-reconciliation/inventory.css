@@ -1,0 +1,6 @@
+.inventory-workspace {width:100%;min-width:0;max-width:100%;box-sizing:border-box;padding:16px;border:1px solid var(--ledger-border);border-radius:12px;background:var(--ledger-bg);color:var(--ledger-text);overflow-wrap:anywhere}
+.inventory-workspace .inventory-fields {min-width:0;border:0;margin:0;padding:0}
+.inventory-workspace .inventory-row {display:grid;grid-template-columns:minmax(0,1fr);gap:10px;padding:14px;margin:12px 0;border:1px solid var(--ledger-border);border-radius:10px;min-width:0}
+.inventory-workspace label,.inventory-workspace input,.inventory-workspace select,.inventory-workspace textarea {min-width:0;max-width:100%;box-sizing:border-box}
+.inventory-workspace .inventory-list-row {display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:14px 0;border-bottom:1px solid var(--ledger-border)}
+.inventory-workspace .ledger-actions {flex-wrap:wrap}.inventory-workspace button {white-space:normal;overflow-wrap:anywhere}.inventory-workspace p {margin:6px 0 10px}

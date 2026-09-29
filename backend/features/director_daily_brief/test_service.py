@@ -150,7 +150,7 @@ class DirectorDailyBriefServiceTests(unittest.TestCase):
         )
         self.assertEqual(
             {item["code"] for item in items_by_section["documents"]},
-            {"estimate.unconfirmed", "supply.requests_pending"},
+            {"supply.requests_pending"},
         )
         self.assertEqual(
             items_by_section["estimateDeviations"][0]["metricValue"],

@@ -2,6 +2,8 @@ import React from 'react';
 import { createMaterialTransferForm } from '../warehouse/warehouseInitialForms';
 import { projectMaterialEstimateDetailsToLoad } from './projectMaterialsUtils';
 import { roleFlagsForUser } from '../../utils/accessUtils';
+import OwnedAliasEditor from '../material-control/OwnedAliasEditor';
+import { ownedAliasesEnabled } from '../material-control/ownedAliases';
 
 export default function ProjectMaterialsTab({ ctx, project, projectJournalDiagnostics }) {
   const p = project;
@@ -20,6 +22,7 @@ export default function ProjectMaterialsTab({ ctx, project, projectJournalDiagno
   } = ctx;
   const currentUser = user || {};
   const canReviewSupplyRequests = roleFlagsForUser(currentUser).isSupplyRole;
+  const aliasError = ownedAliasesEnabled() ? (ctx.materialAliasesError || (ctx.getOwnedAliasSnapshotToken?.() == null ? 'Дождитесь загрузки соответствий компании' : '')) : '';
   const isLeadershipUser = typeof isLeadership === 'function' ? isLeadership() : Boolean(isLeadership);
   const [estimateLoadError, setEstimateLoadError] = React.useState('');
   const [estimateLoadRetry, setEstimateLoadRetry] = React.useState(0);
@@ -53,6 +56,9 @@ export default function ProjectMaterialsTab({ ctx, project, projectJournalDiagno
 
   return (
     <div>
+      {ownedAliasesEnabled() && <OwnedAliasEditor key={`${p.companyId}:${p.id}:${ctx.companyContext?.selectedCompanyId}:${ctx.companyContext?.mode}`}
+        API={API} project={p} companyContext={ctx.companyContext} invalidateOwnedAliases={ctx.invalidateOwnedAliases} reloadOwnedAliases={ctx.reloadOwnedAliases} C={C}/>}
+      {aliasError && <p role="alert">Сметная сверка приостановлена: {aliasError}. <button type="button" onClick={() => ctx.reloadOwnedAliases?.()}>Повторить загрузку</button></p>}
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
         <div>
           <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Материалы по смете</b>
@@ -81,7 +87,7 @@ export default function ProjectMaterialsTab({ ctx, project, projectJournalDiagno
           <button type="button" onClick={()=>setEstimateLoadRetry(value=>value+1)} style={{...btnB,padding:'6px 10px',fontSize:'11px'}}>Повторить</button>
         </div>
       )}
-      {!isEstimatePlanLoading && !estimateLoadError && <ProjectMaterialsControlPanel
+      {!isEstimatePlanLoading && !estimateLoadError && !aliasError && <ProjectMaterialsControlPanel
         project={p}
         projectName={p.name}
         rows={materialReconciliationRows(p)}

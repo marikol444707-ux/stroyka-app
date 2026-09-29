@@ -162,6 +162,7 @@ export function buildAppRenderContext({
     autoFillNormMaterialsForWork,
     autoReconcileEstimateChanges,
     buildEstimateDiffContent,
+    capMaterialWriteoffQty,
     closeAiTask,
     computeNotifications,
     createAiTask,
@@ -183,6 +184,7 @@ export function buildAppRenderContext({
     materialRowsAvailableForWork,
     materialSuggestionsForWork,
     materialWriteoffBlockMessage,
+    prepareWorkMaterialGroups,
     openEstimateDiffPreview,
     openAiTaskAction,
     personalMaterialRowsForProject,
@@ -233,10 +235,7 @@ export function buildAppRenderContext({
     createInvoiceFromOffer,
     createShipmentFromOffer,
     createSupplyReq,
-    deleteSupplyTemplate,
     fetchPriceHint,
-    saveSupplyTemplate,
-    applySupplyTemplate
   } = supplyActions;
   const {
     renderSupplyPlanningHint,
@@ -465,16 +464,17 @@ export function buildAppRenderContext({
   const earlyRoleRoute = renderAppEarlyRoleRoute({
     constants: { EXPENSE_CATEGORIES, PD_CONSENT_TEXT, ROLE_LABELS, SURFACES, UNITS },
     data: {
+      companyContext,
       actions: {
-        acceptAiTask, addMasterWorks, appendPhotos, applyMaterialOverNormReason, applySupplyTemplate, autoFillNormMaterialsForWork,
+        acceptAiTask, addMasterWorks, appendPhotos, applyMaterialOverNormReason, autoFillNormMaterialsForWork,
         checkinGeo, closeAiTask, closeNotifications, confirmMaterialReceipt, createAiTask,
-        createInvoiceFromOffer, createShipmentFromOffer, createSupplyReq, deleteSupplyTemplate, fetchPriceHint,
+        createInvoiceFromOffer, createShipmentFromOffer, createSupplyReq, fetchPriceHint,
         getNotifPage, handleLogin, handleLogout, handleRegister, handleTwoFactorLogin,
         loadAll, loadPricelistItems, markMyNotificationsRead, myNotifications: readMyNotifications, navigateTo,
-        materialNormOverrunReason, materialWriteoffBlockMessage,
+        materialNormOverrunReason, materialWriteoffBlockMessage, prepareWorkMaterialGroups,
         notify, openAiTaskAction, refreshData, removeEstimateWorkMaterial, removeSelectedWorkMaterial,
         renderMaterialWriteoffStatus, renderSupplyPlanningHint, renderSupplyRequestOrigin,
-        returnMaterialToProject, roleColor, saveProfile, saveSupplyTemplate,
+        returnMaterialToProject, roleColor, saveProfile,
         selectableActiveProjects, sendCompanyChatMessage, showPreview, submitEstimateWorkDone,
         submitAiTaskReport,
         toggleNotifications, updateEstimateWorkMaterialQty, updateProjectProgress,
@@ -489,12 +489,13 @@ export function buildAppRenderContext({
         buildSupplementaryAgreementContent, showKS2
       },
       materialRuntime: {
-        isPersonalMaterialRole, materialAvailabilityMapForWork, materialHintForProject,
+        capMaterialWriteoffQty, isPersonalMaterialRole, materialAvailabilityMapForWork, materialHintForProject,
         materialNameKey, materialNormForWork, materialRowsAvailableForWork,
         materialSuggestionsForWork, personalMaterialRowsForProject, workNeedsThicknessParam
       },
       paymentUiState,
       projectRuntime: {
+        getProjectWorkPackageOptions: appBusinessRuntime.getProjectWorkPackageOptions,
         activeEstimatesForProject, computeNotifications, projectPlanDone, roomMeasurementCheck,
         roomMeasurementMessage
       },
@@ -540,6 +541,7 @@ export function buildAppRenderContext({
     actions: { showPreview },
     appMainState,
     businessRuntime: appBusinessRuntime,
+    companyContext,
     coreRuntime: appCoreRuntime,
     documentActions,
     layout: { isMobile },
@@ -548,6 +550,7 @@ export function buildAppRenderContext({
     projectOperationActions,
     selectors: appShellSelectors,
     ui: appShellUi,
+    user,
     warehouseActions,
     workJournalActions
   });

@@ -120,6 +120,6 @@ export const buildSupplyControlReportData = ({
     !invoice.status
   );
   const debt = invoicesToPay.reduce((sum, invoice) =>
-    sum + Math.max(0, Number(invoice.amount || invoice.totalAmount || 0) - Number(invoice.paidAmount || 0)), 0);
+    sum + Math.max(0, Number(invoice.effectiveAmount ?? invoice.amount ?? invoice.totalAmount ?? 0) - Number(invoice.paidAmount || 0)), 0);
   return { issues, inWorkRequests, offersToReview, invoicesToPay, debt };
 };

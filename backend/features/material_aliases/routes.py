@@ -12,6 +12,13 @@ import psycopg2.extras
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel
 
+from .runtime import owned_aliases_enabled
+
+
+def _require_legacy_alias_mode():
+    if owned_aliases_enabled():
+        raise HTTPException(503, 'Редактор соответствий переводится на справочник компании; старый справочник недоступен')
+
 
 class MaterialAliasModel(BaseModel):
     projectName: str = ""
@@ -58,6 +65,7 @@ def register_material_aliases_module(app, deps):
 
     @app.get("/material-aliases")
     def list_material_aliases(project_name: str = None, current_user: dict = Depends(require_roles(*read_roles))):
+        _require_legacy_alias_mode()
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         where = ["active=TRUE"]
@@ -84,6 +92,7 @@ def register_material_aliases_module(app, deps):
 
     @app.post("/material-aliases")
     def create_material_alias(data: MaterialAliasModel, current_user: dict = Depends(require_roles(*write_roles))):
+        _require_legacy_alias_mode()
         project_name = (data.projectName or "").strip()
         alias_name = (data.aliasName or "").strip()
         canonical_name = (data.canonicalName or "").strip()
@@ -115,6 +124,7 @@ def register_material_aliases_module(app, deps):
 
     @app.delete("/material-aliases/{id}")
     def delete_material_alias(id: int, current_user: dict = Depends(require_roles(*write_roles))):
+        _require_legacy_alias_mode()
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute("SELECT project_name FROM material_aliases WHERE id=%s", (id,))

@@ -34,6 +34,22 @@ describe('recipient notification diagnostics', () => {
     expect(screen.getByText('Доступ к запросу: не подтверждён')).toBeInTheDocument();
   });
 
+  it('distinguishes an unmatched queue reference from a verified queue record', () => {
+    renderRecipients([{ id: 1, maxOutboxId: 88, maxQueueEvidence: 'unconfirmed', actualMaxQueueStatus: 'unknown' }]);
+    expect(screen.getByText('MAX: Статус очереди MAX неизвестен')).toBeInTheDocument();
+    expect(screen.getByText('Сохранённый номер очереди MAX #88')).toBeInTheDocument();
+    expect(screen.getByText(/Запись очереди MAX не подтверждена/)).toBeInTheDocument();
+    expect(screen.queryByText(/Неудачных попыток/)).not.toBeInTheDocument();
+  });
+
+  it('shows failure evidence without treating the failure counter as all send attempts', () => {
+    renderRecipients([{ id: 1, maxQueueEvidence: 'matched', actualMaxQueueStatus: 'failed',
+      maxFailedAttempts: 2, maxFailedAt: '2026-09-19T10:00:00', maxSentAt: null }]);
+    expect(screen.getByText('Неудачных попыток MAX: 2')).toBeInTheDocument();
+    expect(screen.getByText(/Последняя ошибка MAX:/)).toBeInTheDocument();
+    expect(screen.queryByText(/Передано MAX:/)).not.toBeInTheDocument();
+  });
+
   it('does not grant access based on a legacy visible flag when approvals are incomplete', () => {
     renderRecipients([{
       id: 1, visibleToSupplier: true, supplierUserId: 7, approvalComplete: false,

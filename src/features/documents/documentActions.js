@@ -1,5 +1,6 @@
 import { buildPerformerContractHtml } from '../../utils/contractTemplates';
 import { buildInvoicePrintPayload } from '../../utils/accountingInvoices';
+import { qualityJournalLoadIssue, resolveQualityJournalProject } from '../../utils/qualityJournalScope';
 import { createAppPrintBuilders, createPrintDocContext } from '../../utils/appPrintBuilders';
 import {
   buildBrigadeActDocContent,
@@ -23,6 +24,8 @@ import {
 } from '../../utils/printDocumentBuilders';
 
 export const createDocumentActions = ({
+  companyContext,
+  qualityJournalLoadState,
   accountablePayments,
   activeEstimatesForProject,
   actPayments,
@@ -72,6 +75,12 @@ export const createDocumentActions = ({
   weatherLog,
   workJournal,
 }) => {
+  const requireJournalSnapshot = (projectOrName, kinds) => {
+    const project = resolveQualityJournalProject(projectOrName, projects);
+    const issue = qualityJournalLoadIssue(qualityJournalLoadState, project, companyContext, user, kinds);
+    if (issue) throw new Error(issue);
+    return project;
+  };
   const printDocContext = createPrintDocContext({
     companyRequisites,
     companyName,
@@ -119,7 +128,7 @@ export const createDocumentActions = ({
     workJournal,
   });
 
-  const buildJPRContent = (projectName) => buildJPRDocContent(projectName, {
+  const buildJPRContent = (projectName) => buildJPRDocContent(requireJournalSnapshot(projectName), {
     companyRequisites,
     companyName,
     projects,
@@ -197,13 +206,13 @@ export const createDocumentActions = ({
     projects,
   });
 
-  const buildMaterialInspectionContent = (records, projectName, dateFrom, dateTo) => buildMaterialInspectionDocContent(records, projectName, dateFrom, dateTo, {
+  const buildMaterialInspectionContent = (records, projectName, dateFrom, dateTo) => buildMaterialInspectionDocContent(records, requireJournalSnapshot(projectName, ['inspections']), dateFrom, dateTo, {
     companyRequisites,
     companyName,
     projects,
   });
 
-  const buildCableJournalContent = (records, projectName, dateFrom, dateTo) => buildCableJournalDocContent(records, projectName, dateFrom, dateTo, {
+  const buildCableJournalContent = (records, projectName, dateFrom, dateTo) => buildCableJournalDocContent(records, requireJournalSnapshot(projectName, ['cables']), dateFrom, dateTo, {
     companyRequisites,
     companyName,
     projects,
@@ -262,6 +271,7 @@ export const createDocumentActions = ({
 
   return {
     ...appPrintBuilders,
+    buildExecPackageContent: project => appPrintBuilders.buildExecPackageContent(requireJournalSnapshot(project)),
     buildActContent,
     buildBrigadeActContent,
     buildCableJournalContent,

@@ -520,7 +520,7 @@ export default function ProjectMaterialsControlPanel({
 	                      <b>{fmtMeasure(r.masterBalance, r.unit)}</b>
 	                      {r.pendingAtMasters > 0 && <p style={{margin: '2px 0 0', color: C.warning, fontSize: '10px'}}>Ждёт подписи: {fmtMeasure(r.pendingAtMasters, r.unit)}</p>}
 	                      {r.holders?.slice(0, 3).map(h => (
-	                        <p key={h.name} style={{margin: '2px 0 0', color: h.balance > 0 ? C.textSec : C.textMuted, fontSize: '10px'}}>
+	                        <p key={h.userId ? 'user:' + h.userId : 'name:' + h.name} style={{margin: '2px 0 0', color: h.balance > 0 ? C.textSec : C.textMuted, fontSize: '10px'}}>
 	                          {h.name}: {fmtMeasure(h.balance, h.unit || r.unit)}{h.pending > 0 ? ' · ждёт ' + fmtMeasure(h.pending, h.unit || r.unit) : ''}
 	                        </p>
 	                      ))}

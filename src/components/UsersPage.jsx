@@ -1,4 +1,5 @@
 import React from 'react';
+import { COMPANY_USER_ROLES } from '../constants/roles';
 import { Check, ChevronDown, ChevronUp, Copy, Edit2, Plus, RefreshCw, Trash2, X } from 'lucide-react';
 import { createUserForm } from '../features/personnel/personnelInitialForms';
 
@@ -16,7 +17,6 @@ function UsersPage({
   user,
   projects,
   estimatesList = [],
-  ROLES,
   ROLE_LABELS,
   ROLE_GROUPS,
   roleColor,
@@ -48,6 +48,8 @@ function UsersPage({
     setEditingItem(null);
     setNewUser(createUserForm());
   };
+  const [inviteProjectId, setInviteProjectId] = React.useState('');
+  const [invitePackages, setInvitePackages] = React.useState([]);
   const [messengerAccounts, setMessengerAccounts] = React.useState([]);
   const [maxInternalChannels, setMaxInternalChannels] = React.useState([]);
   const [messengerLoading, setMessengerLoading] = React.useState(false);
@@ -188,7 +190,12 @@ function UsersPage({
     const assignedProjects = projectName ? [projectName] : [];
     setNewUser({...newUser, projectId, projectName, assignedProjects, assignedPackages: []});
   };
-  const projectScopedRoles = ['прораб','главный_инженер','технадзор','стройконтроль','мастер','субподрядчик','бригадир'];
+  const projectScopedRoles = ['заказчик','прораб','главный_инженер','технадзор','стройконтроль','мастер','субподрядчик','бригадир'];
+  const inviteProject = projects.find(p => String(p.id) === inviteProjectId);
+  const invitePackageOptions = Array.from(new Set(estimatesList
+    .filter(e => inviteProject && (e.projectName || e.project_name || e.project || '') === inviteProject.name)
+    .map(e => (e.workPackage || e.work_package || 'Основная').trim() || 'Основная')));
+  const companyRoles = COMPANY_USER_ROLES.filter(r => user?.role !== 'зам_директора' || !['директор','зам_директора'].includes(r));
   const packageScopedRoles = ['прораб','мастер','субподрядчик','бригадир'];
   const projectPackageOptions = Array.from(new Set(
     (estimatesList || [])
@@ -226,7 +233,7 @@ function UsersPage({
               </div>
               <button onClick={()=>setMaxBindingUser(null)} style={{...btnG,padding:'6px 8px'}}><X size={14}/></button>
             </div>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,240px),1fr))',gap:'10px'}}>
               <input placeholder="MAX userId" value={maxBindingForm.externalUserId} onChange={e=>setMaxBindingForm({...maxBindingForm,externalUserId:e.target.value})} style={{...inp,marginBottom:0}}/>
               <input placeholder="MAX chatId" value={maxBindingForm.chatId} onChange={e=>setMaxBindingForm({...maxBindingForm,chatId:e.target.value})} style={{...inp,marginBottom:0}}/>
               <input placeholder="Имя в MAX" value={maxBindingForm.displayName} onChange={e=>setMaxBindingForm({...maxBindingForm,displayName:e.target.value})} style={{...inp,marginBottom:0}}/>
@@ -274,14 +281,14 @@ function UsersPage({
 
       {showForm&&(<div style={{...card,padding:'20px',marginBottom:'20px'}}>
         <h3 style={{color:C.text,marginBottom:'15px',fontWeight:'700'}}>{editingItem?'Редактировать':'Новый пользователь'}</h3>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,240px),1fr))',gap:'10px'}}>
           <input placeholder="Имя *" value={newUser.name} onChange={e=>setNewUser({...newUser,name:e.target.value})} style={{...inp,marginBottom:0}}/>
           <input type="email" placeholder="Email *" value={newUser.email} onChange={e=>setNewUser({...newUser,email:e.target.value})} style={{...inp,marginBottom:0}}/>
           <div style={{display:'flex',gap:'6px'}}>
-            <input type="text" placeholder={editingItem?'Новый пароль (если меняем)':'Пароль *'} value={newUser.password} onChange={e=>setNewUser({...newUser,password:e.target.value})} style={{...inp,marginBottom:0,flex:1}}/>
+            <input type="text" placeholder={editingItem?'Новый пароль (если меняем)':'Пароль *'} value={newUser.password} onChange={e=>setNewUser({...newUser,password:e.target.value})} style={{...inp,marginBottom:0,flex:1,minWidth:0}}/>
             <button onClick={generatePassword} title="Сгенерировать и скопировать пароль" style={{...btnG,padding:'6px 10px',margin:0}}><RefreshCw size={13}/></button>
           </div>
-          <select value={newUser.role} onChange={e=>handleRoleChange(e.target.value)} style={{...inp,marginBottom:0}}>{Object.keys(ROLES).map(r=><option key={r} value={r}>{ROLE_LABELS[r]||r}</option>)}</select>
+          <select aria-label="Роль сотрудника" value={newUser.role} onChange={e=>handleRoleChange(e.target.value)} style={{...inp,marginBottom:0}}>{companyRoles.map(r=><option key={r} value={r}>{ROLE_LABELS[r]||r}</option>)}</select>
           {projectScopedRoles.includes(newUser.role)&&(<select value={newUser.projectId} onChange={e=>updateProject(e.target.value)} style={{...inp,marginBottom:0}}><option value=''>Привязать к проекту *</option>{projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>)}
           {packageScopedRoles.includes(newUser.role)&&newUser.projectName&&(
             <div style={{gridColumn:'span 2',border:'1.5px solid '+C.border,borderRadius:'10px',padding:'10px',backgroundColor:C.bg}}>
@@ -310,9 +317,15 @@ function UsersPage({
 
       {showInvites&&(<div style={{...card,padding:'20px',marginBottom:'20px'}}>
         <h3 style={{color:C.text,marginBottom:'15px',fontWeight:'700'}}>Коды приглашений</h3>
-        <div style={{display:'flex',gap:'10px',marginBottom:'15px',alignItems:'center'}}>
-          <select value={newInviteRole} onChange={e=>setNewInviteRole(e.target.value)} style={{...inp,marginBottom:0,width:'200px'}}>{Object.keys(ROLES).map(r=><option key={r} value={r}>{ROLE_LABELS[r]||r}</option>)}</select>
-          <button onClick={createInvite} style={btnO}><Plus size={14}/>Создать код</button>
+        <div style={{display:'flex',flexWrap:'wrap',gap:'10px',marginBottom:'15px',alignItems:'center'}}>
+          <select aria-label="Роль приглашённого" value={newInviteRole} onChange={e=>{setNewInviteRole(e.target.value);setInviteProjectId('');setInvitePackages([]);}} style={{...inp,marginBottom:0,width:'200px'}}>{companyRoles.map(r=><option key={r} value={r}>{ROLE_LABELS[r]||r}</option>)}</select>
+          {projectScopedRoles.includes(newInviteRole) && <select aria-label="Объект приглашённого" value={inviteProjectId} onChange={e=>{setInviteProjectId(e.target.value);setInvitePackages([]);}} style={inp}>
+            <option value="">Выберите объект</option>{projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>}
+          {['мастер','субподрядчик','бригадир'].includes(newInviteRole) && <div>{invitePackageOptions.map(pkg=><label key={pkg} style={{display:'block'}}>
+            <input type="checkbox" checked={invitePackages.includes(pkg)} onChange={()=>setInvitePackages(old=>old.includes(pkg)?old.filter(v=>v!==pkg):[...old,pkg])}/>{pkg}
+          </label>)}{inviteProject && !invitePackageOptions.length && <span>Добавьте смету с пакетом работ для этого объекта.</span>}</div>}
+          <button onClick={()=>createInvite({projectId:inviteProjectId,assignedPackages:invitePackages})} style={btnO}><Plus size={14}/>Создать код</button>
         </div>
         {inviteCodes.filter(c=>!c.used).map(c=>(<div key={c.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'8px',border:'1.5px solid '+C.border}}>
           <div><b style={{fontSize:'14px',letterSpacing:'2px',color:C.accent}}>{c.code}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{ROLE_LABELS[c.role]||c.role}</p></div>

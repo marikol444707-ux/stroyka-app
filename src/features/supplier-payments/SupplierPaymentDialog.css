@@ -1,0 +1,99 @@
+.supplier-payment-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgb(0 0 0 / 45%);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+.supplier-payment-dialog {
+  box-sizing: border-box;
+  width: min(100%, 640px);
+  min-width: 0;
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  padding: 16px;
+  border: 1px solid var(--border-color, #ccd4dc);
+  border-radius: 8px;
+  background: var(--bg-card, #fff);
+  color: var(--text-primary, #182536);
+  overflow-wrap: anywhere;
+}
+.supplier-payment-dialog header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.supplier-payment-dialog h2 { margin: 0; font-size: 1.25rem; }
+.supplier-payment-dialog h3 { font-size: 1.05rem; }
+.supplier-payment-dialog fieldset { display: grid; gap: 12px; min-width: 0; border: 0; padding: 0; margin: 16px 0; }
+.supplier-payment-dialog label { display: grid; gap: 4px; }
+.supplier-payment-dialog input, .supplier-payment-dialog select, .supplier-payment-dialog textarea, .supplier-payment-dialog button {
+  box-sizing: border-box;
+  min-height: 40px;
+  min-width: 0;
+  font: inherit;
+  color: inherit;
+  background: var(--bg-card, #fff);
+  border: 1px solid var(--border-color, #ccd4dc);
+  border-radius: 4px;
+  padding: 8px 12px;
+}
+.supplier-payment-dialog input, .supplier-payment-dialog textarea { width: 100%; }
+.supplier-payment-dialog textarea { min-height: 80px; resize: vertical; }
+.supplier-payment-dialog button { cursor: pointer; }
+.supplier-payment-dialog :disabled { opacity: .6; cursor: not-allowed; }
+.supplier-payment-dialog :focus-visible { outline: 2px solid var(--primary-color, #126797); outline-offset: 2px; }
+.supplier-payment-dialog [role="alert"] { color: var(--danger-color, #a12622); }
+.supplier-payment-dialog pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; border: 1px solid var(--border-color, #ccd4dc); }
+.supplier-payment-dialog-summary { border-block: 1px solid var(--border-color, #ccd4dc); }
+.supplier-payment-dialog ul { padding-left: 20px; }
+.supplier-opening-panel { padding-block: 8px 16px; border-bottom: 1px solid var(--border-color, #ccd4dc); }
+.supplier-opening-panel dl { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; }
+.supplier-opening-panel dd { margin: 0; text-align: right; font-weight: 600; }
+.supplier-refund-panel { padding-block: 8px 16px; border-bottom: 1px solid var(--border-color, #ccd4dc); }
+.supplier-refund-panel select { width: 100%; }
+.supplier-refund-panel small { font-size: .875rem; }
+.supplier-refund-panel .supplier-refund-check { display: flex; align-items: flex-start; gap: 8px; margin-block: 12px; }
+.supplier-refund-panel .supplier-refund-check input { flex: 0 0 auto; width: 20px; min-height: 20px; margin: 0; }
+
+.supplier-payment-dialog .supplier-original-review-check { display: flex; align-items: flex-start; gap: 10px; }
+.supplier-payment-dialog .supplier-original-review-check input { flex: 0 0 auto; width: 20px; min-height: 20px; margin: 0; }
+
+/* Use the application's theme tokens and a consistent size inside embedded pages. */
+.supplier-payment-dialog.supplier-payment-dialog {
+  --bg-card: var(--c-bg-white, #fff);
+  --border-color: var(--c-border, #e2e8f0);
+  --text-primary: var(--c-text, #182536);
+  width: min(100%, 760px);
+  padding: clamp(16px, 3vw, 28px);
+  border-radius: 20px;
+  font: 14px/1.5 system-ui, -apple-system, sans-serif;
+  box-shadow: 0 24px 80px rgb(0 0 0 / 25%);
+}
+.supplier-payment-dialog.supplier-payment-dialog > header { margin-bottom: 8px; }
+.supplier-payment-dialog.supplier-payment-dialog h2 { font-size: 22px; letter-spacing: -.4px; }
+.supplier-payment-dialog.supplier-payment-dialog h3 { margin: 0 0 8px; font-size: 17px; }
+.supplier-payment-dialog.supplier-payment-dialog p { margin: 8px 0 14px; }
+.supplier-payment-dialog.supplier-payment-dialog > section,
+.supplier-payment-dialog.supplier-payment-dialog > form {
+  padding: 20px; margin-top: 16px; border: 1px solid var(--c-border, #e2e8f0);
+  border-radius: 14px; background: var(--c-bg, #f8fafc);
+}
+.supplier-payment-dialog.supplier-payment-dialog > [role="alert"] {
+  padding: 14px 16px; border-radius: 12px;
+  border: 1px solid var(--c-border, #e2e8f0);
+  background: var(--c-bg, #f8fafc); color: var(--c-text, #182536);
+}
+.supplier-payment-dialog.supplier-payment-dialog button { border-radius: 9px; font-size: 14px; max-width: 100%; margin: 4px 6px 4px 0; }
+.supplier-payment-dialog.supplier-payment-dialog label { font-size: 13px; margin: 12px 0; }
+.supplier-payment-dialog.supplier-payment-dialog input,
+.supplier-payment-dialog.supplier-payment-dialog select,
+.supplier-payment-dialog.supplier-payment-dialog textarea { font-size: 16px; border-radius: 9px; }
+.supplier-payment-dialog.supplier-payment-dialog .payment-primary { background: #c2410c; color: white; border-color: #c2410c; font-weight: 650; }
+@media (max-width: 520px) {
+  .supplier-payment-dialog-backdrop { padding: 8px; }
+  .supplier-payment-dialog.supplier-payment-dialog { max-height: calc(100dvh - 16px); border-radius: 16px; }
+  .supplier-payment-dialog.supplier-payment-dialog > section,
+  .supplier-payment-dialog.supplier-payment-dialog > form { padding: 14px; }
+}
+.supplier-payment-dialog .payment-technical-details { margin: 12px 0; color: var(--c-text-sec, #64748b); font-size: 12px; }
+.supplier-payment-dialog .payment-technical-details summary { cursor: pointer; padding: 8px 0; }
+.supplier-payment-dialog .payment-technical-details pre { max-height: 220px; overflow: auto; }

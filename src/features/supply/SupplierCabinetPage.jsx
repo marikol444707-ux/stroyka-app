@@ -1,8 +1,24 @@
-import React from 'react';
-import { Check, Download, Edit2, Plus, Trash2, Upload, X } from 'lucide-react';
-import DocumentRecognitionPanel from '../../components/DocumentRecognitionPanel';
+import SupplierContractDocuments from './SupplierContractDocuments';
+import SupplierInvoiceContractChoice from './SupplierInvoiceContractChoice';
+import SupplyFileLink from './SupplyFileLink';
+import SupplierAttachmentInput from './SupplierAttachmentInput';
+import InvoiceLineTaxFields from './InvoiceLineTaxFields';
+import { supplierOrders } from './supplierOrderProjection';
+import { createShipmentForm } from './supplyInitialForms';
+import SupplierProfile from './SupplierProfile';
+import React, {useCallback, useState} from 'react';
+import SupplierRequestRegistry from './SupplierRequestRegistry';
+import SupplierOrders from './SupplierOrders';
+import SupplierTeam from './SupplierTeam';
+import SupplierCustomers from './SupplierCustomers';
+import useSupplierRequestSelection from './useSupplierRequestSelection';
+import SupplyClaims from './SupplyClaims';
+import SupplierCatalogImport from './SupplierCatalogImport';
+import useSupplierCatalogActions from './useSupplierCatalogActions';
+import useSupplierQuoteResponse from './useSupplierQuoteResponse';
+import { Check, Edit2, Plus, Trash2, X } from 'lucide-react';
+import {requestForOffer} from './offerItemScopes';
 import { groupSuppliers, normalizeSupplierPayload, supplierIdentityKeys } from '../../utils/supplierUtils';
-import { createSupplierPortalActions } from './supplierPortalActions';
 
 const normalizeSupplierIdentity = value => String(value || '')
   .toLowerCase()
@@ -11,6 +27,13 @@ const normalizeSupplierIdentity = value => String(value || '')
   .replace(/[^а-яa-z0-9]+/gi, ' ')
   .replace(/\s+/g, ' ')
   .trim();
+
+function readOfferItems(offer) {
+  try {
+    const items = typeof offer.itemsKpJson === 'string' ? JSON.parse(offer.itemsKpJson) : offer.itemsKpJson;
+    return Array.isArray(items) ? items : [];
+  } catch { return []; }
+}
 
 export default function SupplierCabinetPage({
   API,
@@ -29,6 +52,8 @@ export default function SupplierCabinetPage({
   handleLogout,
   inp,
   invoices = [],
+  inboxState,
+  teamContext,
   invoicingOfferId,
   newCatalogItem,
   newKpResponse,
@@ -66,7 +91,38 @@ export default function SupplierCabinetPage({
   uploadPhoto,
   user,
 }) {
+  const [activeUploads, setActiveUploads] = useState(() => new Set());
+  const attachmentBusy = activeUploads.size > 0;
+  const setAttachmentBusy = useCallback((busy, key) => setActiveUploads(current => {
+    const next = new Set(current);
+    if (busy) next.add(key); else next.delete(key);
+    return next;
+  }), []);
+  const [selectedRequestId, selectRequest] = useSupplierRequestSelection();
+    const requestDetailRef = React.useRef(null);
+    const shipmentLock = React.useRef(false);
+    const [shipmentBusy, setShipmentBusy] = React.useState(false);
+    const sendShipment = async offer => {
+      if (shipmentLock.current) return;
+      shipmentLock.current = true;
+      setShipmentBusy(true);
+      try {
+        if (await createShipmentFromOffer(offer)) await inboxState?.reload();
+      } finally {
+        shipmentLock.current = false;
+        setShipmentBusy(false);
+      }
+    };
+    React.useEffect(() => { if (selectedRequestId) requestDetailRef.current?.scrollIntoView?.({block:'start'}); }, [selectedRequestId, inboxState?.status]);
     const currentUserId = user?.id || user?.userId || user?.user_id || '';
+    const quoteResponse = useSupplierQuoteResponse({
+      API, actorId: `${currentUserId}:${user?.role || ''}`, offerId: respondingOfferId,
+      onSaved: async () => {
+        setRespondingOfferId(null);
+        notify('КП отправлено директору', 'supply');
+        await refreshData();
+      },
+    });
     const currentUserEmail = String(user?.email || '').toLowerCase();
     const currentUserName = normalizeSupplierIdentity(user?.name);
     const isSupplierRole = (user?.role || '') === 'поставщик';
@@ -96,7 +152,10 @@ export default function SupplierCabinetPage({
         || currentUserKeys.some(key => identityKeys.includes(key));
     };
     const mySupplier = supplierGroups.find(matchesCurrentUser) || (supplierGroups.length === 1 ? supplierGroups[0] : null);
-    const supplierAccountUnlinked = isSupplierRole && !mySupplier;
+    const verifiedTeam = teamContext?.suppliers || [];
+    const teamLeader = verifiedTeam.some(s => s.role === 'leader');
+    const managerOnly = Boolean(teamContext && teamContext.status !== 'legacy' && !teamLeader);
+    const supplierAccountUnlinked = isSupplierRole && !mySupplier && !verifiedTeam.length;
     const mySupplierIds = new Set((mySupplier?._supplierIds || [mySupplier?.id]).filter(Boolean).map(id => String(id)));
     const mySupplierNames = new Set([
       ...(mySupplier?._supplierNames || []),
@@ -116,6 +175,14 @@ export default function SupplierCabinetPage({
       || isMySupplierName(row?.supplierName || row?.supplier_name || row?.supplier || row?.name)
     );
     const myPrimarySupplierId = mySupplier?._supplierIds?.[0] || mySupplier?.id || supplierOfferFallbackId || 0;
+    const catalogMutationLock = React.useRef(false);
+    const catalogActions = useSupplierCatalogActions({ API, actorId: currentUserId,
+      supplierId: myPrimarySupplierId, supplierName: user?.name, setCatalog: setSupplierCatalog, mutationLock: catalogMutationLock,
+      onCreated: () => {
+        setNewCatalogItem({materialName:'',unit:'шт',price:'',minQuantity:'1',deliveryDays:'3',notes:''});
+        setShowCatalogForm(false);
+      },
+    });
     const myCatalog = isSupplierRole ? (supplierCatalog || []) : (supplierCatalog || []).filter(belongsToMySupplier);
     const myOffers = isSupplierRole ? supplierOffersList : supplierOffersList.filter(belongsToMySupplier);
     const mySupplierInvoices = isSupplierRole ? (supplierInvoices || []) : (supplierInvoices || []).filter(inv => belongsToMySupplier(inv) || isMySupplierName(inv.supplierName || user.name));
@@ -166,7 +233,7 @@ export default function SupplierCabinetPage({
         return next;
       });
     }, [mySupplier?.id, supplierCardRequisites, setSupplierRequisites]);
-    const supplierDisplayName = mySupplier?.name || supplierRequisites.companyName || supplierOfferFallbackName || user?.name || 'Поставщик';
+    const supplierDisplayName = verifiedTeam.map(s => s.name).join(', ') || mySupplier?.name || supplierRequisites.companyName || supplierOfferFallbackName || user?.name || 'Поставщик';
     const supplierHeaderMeta = [
       user?.name && user.name !== supplierDisplayName ? user.name : '',
       mySupplier?._duplicateCount > 1 ? 'связанных карточек: ' + mySupplier._duplicateCount : '',
@@ -217,7 +284,7 @@ export default function SupplierCabinetPage({
         || (invoiceRequestId && String(delivery.requestId || delivery.request_id || '') === String(invoiceRequestId))
       ));
     };
-    const SUPPLIER_TABS = [{id:'requests',label:'📋 Заявки'},{id:'catalog',label:'📦 Мой каталог'},{id:'offers',label:'💰 Предложения'},{id:'deliveries',label:'🚚 Отгрузки'},{id:'documents',label:'📄 Счета и накладные'},{id:'claims',label:'⚠️ Претензии'},{id:'profile',label:'⚙️ Профиль'}];
+    const SUPPLIER_TABS = [{id:'requests',label:'📋 Заявки'},{id:'orders',label:'📦 Заказы'},{id:'customers',label:'🏢 Заказчики'},{id:'catalog',label:'📦 Мой каталог'},{id:'offers',label:'💰 Предложения'},{id:'deliveries',label:'🚚 Отгрузки'},{id:'documents',label:'📄 Документы'},{id:'claims',label:'⚠️ Претензии'},{id:'profile',label:'⚙️ Профиль'}, ...(teamLeader ? [{id:'team',label:'👥 Команда'}] : [])].filter(t => !managerOnly || !['profile','catalog'].includes(t.id));
     const supplierOfferStatusStyle = (status) => {
       if (status === 'Утверждено') return {label:'Утверждено', color:C.success, bg:C.successLight};
       if (status === 'Получено') return {label:'Отправлено', color:C.info, bg:C.infoLight};
@@ -225,15 +292,6 @@ export default function SupplierCabinetPage({
       if (status === 'Отклонено') return {label:'Отклонено', color:C.danger, bg:C.dangerLight};
       return {label:status || 'Ожидает', color:C.warning, bg:C.warningLight};
     };
-    const {
-      createOwnSupplierDocumentFromRecognition,
-      supplierRequisitesPatchFromRecognition,
-    } = createSupplierPortalActions({
-      API,
-      mySupplier,
-      refreshData,
-      user,
-    });
     const withdrawOwnOffer = async (offer, label) => {
       if (!window.confirm(label)) return;
       const res = await fetch(API + '/supplier-offers/' + offer.id, {
@@ -251,7 +309,12 @@ export default function SupplierCabinetPage({
     };
     return (
       <div style={{minHeight:'100vh',backgroundColor:C.bg,padding:'20px'}}>
-        <div style={{maxWidth:'900px',margin:'0 auto'}}>
+        <div className="supplier-workspace">
+          <nav className="supplier-workspace-nav" aria-label="Кабинет поставщика">
+            <strong>СТРОЙКА</strong>
+            {SUPPLIER_TABS.map(t=><button key={t.id} type="button" aria-current={supplierTab===t.id?'page':undefined} onClick={()=>setSupplierTab(t.id)}>{t.label}</button>)}
+          </nav>
+          <main className="supplier-workspace-main">
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px'}}>
             <div style={{display:'flex',alignItems:'center',gap:'12px'}}>
               <span style={{fontSize:'28px'}}>🏭</span>
@@ -263,20 +326,9 @@ export default function SupplierCabinetPage({
             </div>
             <button onClick={()=>handleLogout()} style={{...btnG,fontSize:'12px'}}>Выйти</button>
           </div>
-          {/* Селектор клиентов (заготовка под multi-tenancy) */}
-          <div style={{...card,padding:'10px 14px',marginBottom:'16px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder,display:'flex',alignItems:'center',justifyContent:'space-between',gap:'10px',flexWrap:'wrap'}}>
-            <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
-              <span style={{fontSize:'18px'}}>🏢</span>
-              <div>
-                <b style={{color:C.text,fontSize:'13px'}}>Компания-клиент: СтройКа</b>
-                <p style={{color:C.textSec,margin:'2px 0 0',fontSize:'11px'}}>Сейчас показываем заявки только от одной компании. В будущем сюда подключатся другие клиенты — увидите всех в одном кабинете.</p>
-              </div>
-            </div>
-            <select disabled value='1' style={{...inp,marginBottom:0,width:'auto',cursor:'not-allowed',opacity:0.7}}>
-              <option value='1'>СтройКа</option>
-              <option value='all' disabled>🚧 Скоро: все клиенты</option>
-            </select>
-          </div>
+          {teamContext?.status==='error' && <div role="alert" style={{...card,padding:16,marginBottom:16}}>
+            <p>{teamContext.error}</p><button type="button" onClick={teamContext.reload}>Повторить загрузку прав команды</button>
+          </div>}
           {supplierAccountUnlinked && (
             <div style={{...card,padding:'12px 14px',marginBottom:'16px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}>
               <b style={{color:C.text,fontSize:'13px',display:'block',marginBottom:'4px'}}>Кабинет не связан с карточкой поставщика</b>
@@ -287,33 +339,47 @@ export default function SupplierCabinetPage({
               </p>
             </div>
           )}
-          <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'12px',marginBottom:'16px'}}>
+          <div className="supplier-workspace-summary" style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'12px',marginBottom:'16px'}}>
             <div style={{...card,padding:'16px',textAlign:'center'}}>
               <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 4px'}}>Новых заявок</p>
-              <b style={{color:C.danger,fontSize:'24px'}}>{pendingOfferCount}</b>
+              <b style={{color:C.danger,fontSize:'24px'}}>{inboxState && inboxState.status!=='ready' ? '—' : pendingOfferCount}</b>
             </div>
             <div style={{...card,padding:'16px',textAlign:'center'}}>
               <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 4px'}}>Моих предложений</p>
-              <b style={{color:C.accent,fontSize:'24px'}}>{myOffers.length}</b>
+              <b style={{color:C.accent,fontSize:'24px'}}>{inboxState && inboxState.status!=='ready' ? '—' : myOffers.length}</b>
             </div>
             <div style={{...card,padding:'16px',textAlign:'center'}}>
               <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 4px'}}>Утверждено</p>
-              <b style={{color:C.success,fontSize:'24px'}}>{approvedOfferCount}</b>
+              <b style={{color:C.success,fontSize:'24px'}}>{inboxState && inboxState.status!=='ready' ? '—' : approvedOfferCount}</b>
             </div>
           </div>
 
-          <div style={{display:'flex',gap:0,overflowX:'auto',borderBottom:'1.5px solid '+C.border,marginBottom:'16px'}}>
-            {SUPPLIER_TABS.map(t=>(<button key={t.id} onClick={()=>setSupplierTab(t.id)} style={{padding:'10px 16px',border:'none',backgroundColor:'transparent',cursor:'pointer',fontSize:'12px',fontWeight:supplierTab===t.id?'700':'400',color:supplierTab===t.id?C.accent:C.textSec,borderBottom:supplierTab===t.id?'2px solid '+C.accent:'2px solid transparent',whiteSpace:'nowrap'}}>{t.label}</button>))}
-          </div>
-
+          {supplierTab==='team' && teamLeader && <SupplierTeam API={API} C={C} context={teamContext} onChanged={inboxState?.reload}/>}
+          {supplierTab==='customers' && teamLeader && <SupplierTeam API={API} C={C} context={teamContext} mode="customers" onChanged={inboxState?.reload}/>}
+          {supplierTab==='customers' && <SupplierCustomers API={API} user={user} teamContext={teamContext} C={C} fileSrc={fileSrc} onOpen={id=>{selectRequest(id);setSupplierTab('requests');inboxState?.reload();}}/>}
+          {supplierTab==='orders' && <SupplierOrders API={API} user={user} C={C} fileSrc={fileSrc} onOpen={id=>{selectRequest(id);setSupplierTab('requests');inboxState?.reload();}}/>}
           {supplierTab==='requests'&&(<div>
             <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>📋 Запросы КП</b>
+            {inboxState && <div style={{marginBottom:12}}>
+              <button style={btnG} disabled={inboxState.status==='loading'} onClick={inboxState.reload}>Обновить заявки</button>
+              {inboxState.status==='loading' && <p role="status">Загружаем входящие заявки…</p>}
+              {inboxState.status==='error' && <p role="alert" style={{color:C.danger}}>Не удалось загрузить заявки: {inboxState.error}</p>}
+            </div>}
+            {(!inboxState || inboxState.status==='ready') && <>
+              <SupplierRequestRegistry C={C} requests={supplyRequests || []} offers={myOffers} selectedId={selectedRequestId} onOpen={selectRequest} busy={quoteResponse.busy} invoices={supplierInvoices || []} deliveries={supplyDeliveries || []} />
+              {selectedRequestId && <div ref={requestDetailRef}>
+                <button type="button" style={btnG} disabled={quoteResponse.busy || attachmentBusy} onClick={()=>selectRequest('')}>← К списку заявок</button>
+                <h2 style={{color:C.text,fontSize:18}}>Заявка №{selectedRequestId}</h2>
+                {!myOffers.some(o=>String(o.requestId)===selectedRequestId) && <p role="status">Заявка недоступна или больше не входит в ваш список.</p>}
+              </div>}
+            </>}
             {(()=>{
+              if (inboxState && inboxState.status!=='ready') return null;
               // Берём supplier_offers где я — поставщик, и группируем по статусу
-              const myOffersForMe = myOffers;
-              if (myOffersForMe.length===0) return (<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'20px'}}>
-                Запросов нет. Когда директор запросит у вас КП по своей заявке — он появится здесь.
-              </p>);
+              const detailId = selectedRequestId;
+              const myOffersForMe = myOffers.filter(o=>String(o.requestId)===detailId);
+              if (!detailId) return null;
+              if (myOffersForMe.length===0) return null;
               const waiting = myOffersForMe.filter(o=>o.status==='Ожидает ответа');
               const responded = myOffersForMe.filter(o=>o.status==='Получено');
               const won = myOffersForMe.filter(o=>o.status==='Утверждено');
@@ -329,7 +395,7 @@ export default function SupplierCabinetPage({
               return groups.filter(g=>g.items.length>0).map(g=>(<div key={g.key} style={{marginBottom:'16px'}}>
                 <b style={{color:g.color,fontSize:'12px',display:'block',marginBottom:'8px'}}>{g.title} ({g.items.length})</b>
                 {g.items.map(o=>{
-                  const req = supplyRequests.find(r=>r.id===o.requestId);
+                  const req = requestForOffer(supplyRequests.find(r=>r.id===o.requestId), o);
                   if (!req) return null;
                   const isResponding = respondingOfferId===o.id;
                   return (<div key={o.id} style={{padding:'12px',backgroundColor:g.bg,borderRadius:'8px',marginBottom:'8px',border:'1.5px solid '+g.bd}}>
@@ -353,41 +419,51 @@ export default function SupplierCabinetPage({
                       <div>
                         {g.key==='wait' && !isResponding && (
                           <div style={{display:'flex',gap:'6px',flexWrap:'wrap',justifyContent:'flex-end'}}>
-                            <button onClick={()=>{setRespondingOfferId(o.id);setNewKpResponse({pricePerUnit:o.pricePerUnit||'',deliveryDays:o.deliveryDays||'',paymentTerms:o.paymentTerms||'Постоплата',vatIncluded:o.vatIncluded!==false,validUntil:o.validUntil||'',supplierMessage:o.supplierMessage||'',pdfUrl:o.pdfUrl||''});}} style={{...btnO,padding:'5px 12px',fontSize:'12px'}}>💰 Отправить КП</button>
+                            <button onClick={()=>{setRespondingOfferId(o.id);setNewKpResponse({pricePerUnit:o.pricePerUnit||'',deliveryDays:o.deliveryDays??'',paymentTerms:o.paymentTerms||'Постоплата',vatIncluded:o.vatIncluded!==false,validUntil:o.validUntil||'',supplierMessage:o.supplierMessage||'',pdfUrl:o.pdfUrl||'',expectedRespondedAt:o.respondedAt||null,itemsKp:readOfferItems(o)});}} style={{...btnO,padding:'5px 12px',fontSize:'12px'}}>💰 Отправить КП</button>
                             <button onClick={()=>withdrawOwnOffer(o,'Отказаться от запроса КП?')} style={{...btnG,padding:'5px 10px',fontSize:'12px'}}><X size={12}/>Отказаться</button>
                           </div>
                         )}
                         {g.key==='resp' && (
                           <div style={{display:'flex',gap:'6px',flexWrap:'wrap',justifyContent:'flex-end'}}>
-                            <button onClick={()=>{setRespondingOfferId(o.id);setNewKpResponse({pricePerUnit:o.pricePerUnit||'',deliveryDays:o.deliveryDays||'',paymentTerms:o.paymentTerms||'Постоплата',vatIncluded:o.vatIncluded!==false,validUntil:o.validUntil||'',supplierMessage:o.supplierMessage||'',pdfUrl:o.pdfUrl||''});}} style={{...btnG,padding:'4px 10px',fontSize:'11px'}}><Edit2 size={11}/>Изменить</button>
+                            <button onClick={()=>{setRespondingOfferId(o.id);setNewKpResponse({pricePerUnit:o.pricePerUnit||'',deliveryDays:o.deliveryDays??'',paymentTerms:o.paymentTerms||'Постоплата',vatIncluded:o.vatIncluded!==false,validUntil:o.validUntil||'',supplierMessage:o.supplierMessage||'',pdfUrl:o.pdfUrl||'',expectedRespondedAt:o.respondedAt||null,itemsKp:readOfferItems(o)});}} style={{...btnG,padding:'4px 10px',fontSize:'11px'}}><Edit2 size={11}/>Изменить</button>
                             <button onClick={()=>withdrawOwnOffer(o,'Отозвать отправленное КП?')} style={{...btnR,padding:'4px 10px',fontSize:'11px'}}><X size={11}/>Отозвать</button>
                           </div>
                         )}
                         {g.key==='withdrawn' && (
-                          <button onClick={()=>{setRespondingOfferId(o.id);setNewKpResponse({pricePerUnit:o.pricePerUnit||'',deliveryDays:o.deliveryDays||'',paymentTerms:o.paymentTerms||'Постоплата',vatIncluded:o.vatIncluded!==false,validUntil:o.validUntil||'',supplierMessage:o.supplierMessage||'',pdfUrl:o.pdfUrl||''});}} style={{...btnO,padding:'5px 12px',fontSize:'12px'}}>Подать заново</button>
+                          <button onClick={()=>{setRespondingOfferId(o.id);setNewKpResponse({pricePerUnit:o.pricePerUnit||'',deliveryDays:o.deliveryDays??'',paymentTerms:o.paymentTerms||'Постоплата',vatIncluded:o.vatIncluded!==false,validUntil:o.validUntil||'',supplierMessage:o.supplierMessage||'',pdfUrl:o.pdfUrl||'',expectedRespondedAt:o.respondedAt||null,itemsKp:readOfferItems(o)});}} style={{...btnO,padding:'5px 12px',fontSize:'12px'}}>Подать заново</button>
                         )}
                         {g.key==='won' && (
                           (()=>{
-                            const hasInvoice = (supplierInvoices||[]).find(inv=>inv.offerId===o.id||inv.offer_id===o.id);
-                            const delivery = (supplyDeliveries||[]).find(d=>d.offerId===o.id);
+                            const order = supplierOrders([req], [o], supplyDeliveries || [], supplierInvoices || [])[0];
+                            const hasInvoice = order?.documents.find(inv=>inv.status!=='Аннулирован');
+                            const remaining = order?.lines.filter(line=>line.toShip>0) || [];
+                            const canShip = order && !order.review && remaining.length>0;
                             const paid = Number(hasInvoice?.paidAmount||0);
                             const amount = Number(hasInvoice?.amount||hasInvoice?.totalAmount||o.totalPrice||0);
                             const terms = String(o.paymentTerms||'').toLowerCase();
                             const needPay = terms.includes('предоплат') || terms.includes('50/50');
-                            const required = terms.includes('50/50') ? amount*0.5 : amount;
+                            const required = Math.min(terms.includes('50/50') ? amount*0.5 : amount, Number(hasInvoice?.effectiveAmount ?? amount));
                             const blockedByPay = needPay && (!hasInvoice || paid + 0.01 < required);
                             return (<div style={{display:'flex',gap:'6px',flexWrap:'wrap',justifyContent:'flex-end'}}>
                               {hasInvoice
                                 ? <span style={badge(hasInvoice.status==='Оплачен'||hasInvoice.status==='Частично оплачен'?C.success:C.info,hasInvoice.status==='Оплачен'||hasInvoice.status==='Частично оплачен'?C.successLight:C.infoLight,hasInvoice.status==='Оплачен'||hasInvoice.status==='Частично оплачен'?C.successBorder:C.infoBorder)}>💳 {hasInvoice.status}</span>
                                 : <button onClick={()=>{setInvoicingOfferId(o.id);setNewOfferInvoice({invoiceNumber:'',invoiceDate:new Date().toISOString().split('T')[0],amount:o.totalPrice||'',vatAmount:'',description:'Материал: '+req.materialName,fileUrl:''});}} style={{...btnO,padding:'5px 12px',fontSize:'12px'}}>💳 Выставить счёт</button>}
-                              {delivery
-                                ? <span style={badge(delivery.status==='Принято'?C.success:delivery.status==='Проблема'?C.danger:C.warning,delivery.status==='Принято'?C.successLight:delivery.status==='Проблема'?C.dangerLight:C.warningLight,delivery.status==='Принято'?C.successBorder:delivery.status==='Проблема'?C.dangerBorder:C.warningBorder)}>🚚 {delivery.status}</span>
-                                : <button disabled={blockedByPay} title={blockedByPay?'По условиям оплаты сначала нужна оплата бухгалтерии':''} onClick={()=>{if(blockedByPay){alert('По условиям «'+(o.paymentTerms||'')+'» сначала нужна оплата.');return;}setShippingOfferId(o.id);setShipmentForm({shippedQuantity:String(req.quantity||''),waybillNumber:'',waybillDate:new Date().toISOString().split('T')[0],vehicleNumber:'',driverName:'',documentUrl:'',photoUrl:''});}} style={{...btnGr,padding:'5px 12px',fontSize:'12px',opacity:blockedByPay?0.5:1,cursor:blockedByPay?'not-allowed':'pointer'}}>🚚 Отгрузить</button>}
+                              {order && <span style={{fontSize:12}}>{order.status}</span>}
+                              {canShip && <button disabled={blockedByPay || shipmentBusy} title={blockedByPay?'По условиям оплаты сначала нужна оплата бухгалтерии':''}
+                                onClick={()=>{setShippingOfferId(o.id);setShipmentForm(createShipmentForm({
+                                  requestId: crypto.randomUUID(),
+                                  shippedItems: remaining.map(line=>({...line,shippedQuantity:String(line.toShip)})),
+                                }));}}
+                                style={{...btnGr,padding:'5px 12px',fontSize:12}}>
+                                🚚 {order.shipments.length ? 'Отгрузить остаток' : 'Отгрузить'}
+                              </button>}
+
                             </div>);
                           })()
                         )}
                       </div>
                     </div>
+                    <SupplyFileLink url={o.pdfUrl} fileSrc={fileSrc}>Скачать файл КП</SupplyFileLink>
                     {/* Форма ответа КП — постатейная для multi-item */}
                     {isResponding && (()=>{
                       const reqItems = parseSupplyItems(req);
@@ -406,7 +482,7 @@ export default function SupplierCabinetPage({
                         arr[idx] = {...arr[idx], [field]: value};
                         setNewKpResponse({...newKpResponse, itemsKp: arr});
                       };
-                      return (<div style={{borderTop:'1.5px solid '+C.border,paddingTop:'12px',marginTop:'10px'}}>
+                      return (<fieldset disabled={quoteResponse.busy || attachmentBusy} style={{border:0,minWidth:0,padding:0,borderTop:'1.5px solid '+C.border,paddingTop:'12px',marginTop:'10px'}}>
                       <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'8px'}}>
                         💰 Ваше КП {isMulti?'(заполните цену по каждой позиции)':'на '+(reqItems[0]?.quantity||req.quantity)+' '+(reqItems[0]?.unit||req.unit)}:
                       </b>
@@ -485,10 +561,7 @@ export default function SupplierCabinetPage({
                         </div>
                         <div style={{gridColumn:isMulti?'span 2':'span 2'}}>
                           <label style={{fontSize:'11px',color:C.textSec,display:'block',marginBottom:'3px'}}>PDF КП (опц.)</label>
-                          <label style={{...btnG,padding:'8px 12px',fontSize:'12px',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:'4px',width:'100%',justifyContent:'center'}}>
-                            <Upload size={12}/>{newKpResponse.pdfUrl?'PDF загружен':'Прикрепить PDF'}
-                            <input type='file' accept='.pdf,image/*' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0],{projectName:req.project||req.projectName,context:'supplier-offers'});setNewKpResponse({...newKpResponse,pdfUrl:url});}}}/>
-                          </label>
+                          <SupplierAttachmentInput onBusy={setAttachmentBusy} offerId={o.id} uploadPhoto={uploadPhoto} label="Прикрепить PDF" attached={newKpResponse.pdfUrl} onUploaded={url=>setNewKpResponse(current=>({...current,pdfUrl:url}))}/>
                         </div>
                       </div>
                       <textarea placeholder='Комментарий (опц.) — особенности, условия доставки' value={newKpResponse.supplierMessage} onChange={e=>setNewKpResponse({...newKpResponse,supplierMessage:e.target.value})} style={{...inp,height:'50px',resize:'vertical'}}/>
@@ -529,22 +602,12 @@ export default function SupplierCabinetPage({
                                 supplierMessage: newKpResponse.supplierMessage,
                                 pdfUrl: newKpResponse.pdfUrl,
                               };
-                          const response = await fetch(API+'/supplier-offers/'+o.id,{
-                            method:'PUT', headers:{'Content-Type':'application/json'},
-                            body: JSON.stringify(body)
-                          });
-                          const data = await response.json().catch(() => ({}));
-                          if (!response.ok || data?.detail || data?.error) {
-                            alert('Не удалось отправить КП: ' + (data?.detail || data?.error || response.status));
-                            return;
-                          }
-                          setRespondingOfferId(null);
-                          await refreshData();
-                          notify('КП отправлено директору','supply');
-                        }} style={btnO}><Check size={14}/>Отправить КП</button>
+                          await quoteResponse.submit({ ...body, expectedRespondedAt: newKpResponse.expectedRespondedAt || null });
+                        }} style={btnO}><Check size={14}/>{quoteResponse.busy ? 'Отправляем…' : 'Отправить КП'}</button>
                         <button onClick={()=>setRespondingOfferId(null)} style={btnG}><X size={14}/>Отмена</button>
                       </div>
-                    </div>);
+                      {quoteResponse.error && <p role='alert' style={{color:C.danger,fontSize:'12px'}}>{quoteResponse.error}</p>}
+                    </fieldset>);
                     })()}
                     {/* Форма выставления счёта (Сн.3) — для выигранного КП */}
                     {invoicingOfferId===o.id && (<div style={{borderTop:'1.5px solid '+C.border,paddingTop:'12px',marginTop:'10px'}}>
@@ -566,28 +629,32 @@ export default function SupplierCabinetPage({
                           <input type='number' step='any' inputMode='decimal' value={newOfferInvoice.amount} onChange={e=>setNewOfferInvoice({...newOfferInvoice,amount:e.target.value})} style={{...inp,marginBottom:0}}/>
                         </div>
                         <div>
-                          <label style={{fontSize:'11px',color:C.textSec,display:'block',marginBottom:'3px'}}>в т.ч. НДС (₽)</label>
+                          <label style={{fontSize:'11px',color:C.textSec,display:'block',marginBottom:'3px'}}>в т.ч. НДС (₽); без НДС — 0</label>
                           <input type='number' step='any' inputMode='decimal' value={newOfferInvoice.vatAmount} onChange={e=>setNewOfferInvoice({...newOfferInvoice,vatAmount:e.target.value})} style={{...inp,marginBottom:0}}/>
                         </div>
                       </div>
+                      {process.env.REACT_APP_SUPPLIER_VAT_RECEIPTS_ENABLED==='true' && o.vatIncluded===true &&
+                        <InvoiceLineTaxFields items={readOfferItems(o)} values={newOfferInvoice.lineTaxes}
+                          inputStyle={inp} onChange={lineTaxes=>setNewOfferInvoice(current=>({...current,lineTaxes}))}/>}
                       <input value={newOfferInvoice.description} onChange={e=>setNewOfferInvoice({...newOfferInvoice,description:e.target.value})} placeholder='Описание (по умолчанию название материала)' style={inp}/>
-                      <label style={{...btnG,padding:'8px 12px',fontSize:'12px',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:'4px',marginBottom:'10px'}}>
-                        <Upload size={12}/>{newOfferInvoice.fileUrl?'PDF/Фото загружен':'Прикрепить счёт (PDF/фото)'}
-                        <input type='file' accept='.pdf,image/*' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0],{projectName:req.project||req.projectName,context:'supplier-invoices'});setNewOfferInvoice({...newOfferInvoice,fileUrl:url});}}}/>
-                      </label>
+                      <SupplierInvoiceContractChoice API={API} userId={user.id} companyId={o.companyId} offerId={o.id}
+                        disabled={attachmentBusy} value={newOfferInvoice.contractOfferId===o.id?newOfferInvoice.contractVersionId:null}
+                        onChange={id=>setNewOfferInvoice(current=>({...current,contractVersionId:id,contractOfferId:id?o.id:null}))}/>
+                      <SupplierAttachmentInput onBusy={setAttachmentBusy} offerId={o.id} uploadPhoto={uploadPhoto} label="Прикрепить счёт (PDF/фото)" attached={newOfferInvoice.fileUrl} onUploaded={url=>setNewOfferInvoice(current=>({...current,fileUrl:url}))}/>
                       <div style={{display:'flex',gap:'8px'}}>
-                        <button onClick={()=>createInvoiceFromOffer(o.id)} style={btnO}><Check size={14}/>Отправить счёт</button>
-                        <button onClick={()=>setInvoicingOfferId(null)} style={btnG}><X size={14}/>Отмена</button>
+                        <button disabled={attachmentBusy || (process.env.REACT_APP_SUPPLIER_DOCUMENT_CONTRACT_BINDINGS_ENABLED==='true' && (!newOfferInvoice.contractVersionId || newOfferInvoice.contractOfferId!==o.id))} onClick={async()=>{await createInvoiceFromOffer(o.id);await inboxState?.reload();}} style={btnO}><Check size={14}/>Отправить счёт</button>
+                        <button disabled={attachmentBusy} onClick={()=>setInvoicingOfferId(null)} style={btnG}><X size={14}/>Отмена</button>
                       </div>
                     </div>)}
                     {/* Сн.4: форма отгрузки поставщика */}
-                    {shippingOfferId===o.id && (<div style={{borderTop:'1.5px solid '+C.border,paddingTop:'12px',marginTop:'10px'}}>
+                    {shippingOfferId===o.id && (<fieldset disabled={shipmentBusy || attachmentBusy} style={{border:0,minWidth:0,borderTop:'1.5px solid '+C.border,paddingTop:'12px',marginTop:'10px'}}>
                       <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'8px'}}>🚚 Отгрузка по выигранному КП</b>
                       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}}>
-                        <div>
-                          <label style={{fontSize:'11px',color:C.textSec,display:'block',marginBottom:'3px'}}>Отгружено, {req.unit}</label>
-                          <input type='number' step='any' inputMode='decimal' value={shipmentForm.shippedQuantity} onChange={e=>setShipmentForm({...shipmentForm,shippedQuantity:e.target.value})} style={{...inp,marginBottom:0}}/>
-                        </div>
+                        {(shipmentForm.shippedItems || []).map((line,index)=><label key={index} style={{fontSize:12}}>
+                          {line.materialName} · {line.workPackage || 'Основная'} — остаток {line.toShip} {line.unit}
+                          <input aria-label={'Отгрузить: '+line.materialName} type="number" min="0" max={line.toShip} step="0.0001" inputMode="decimal"
+                            value={line.shippedQuantity} onChange={e=>setShipmentForm({...shipmentForm,shippedItems:shipmentForm.shippedItems.map((item,i)=>i===index?{...item,shippedQuantity:e.target.value}:item)})} style={inp}/>
+                        </label>)}
                         <div>
                           <label style={{fontSize:'11px',color:C.textSec,display:'block',marginBottom:'3px'}}>Дата накладной</label>
                           <input type='date' value={shipmentForm.waybillDate} onChange={e=>setShipmentForm({...shipmentForm,waybillDate:e.target.value})} style={{...inp,marginBottom:0}}/>
@@ -596,55 +663,31 @@ export default function SupplierCabinetPage({
                         <input placeholder='Машина / госномер' value={shipmentForm.vehicleNumber} onChange={e=>setShipmentForm({...shipmentForm,vehicleNumber:e.target.value})} style={{...inp,marginBottom:0}}/>
                         <input placeholder='Водитель / контакт' value={shipmentForm.driverName} onChange={e=>setShipmentForm({...shipmentForm,driverName:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
                       </div>
-                      <label style={{...btnG,padding:'8px 12px',fontSize:'12px',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:'4px',marginBottom:'10px'}}>
-                        <Upload size={12}/>{shipmentForm.documentUrl?'Документ загружен':'Прикрепить накладную / УПД'}
-                        <input type='file' accept='.pdf,image/*' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0],{projectName:req.project||req.projectName,context:'supply-shipments'});setShipmentForm({...shipmentForm,documentUrl:url});}}}/>
-                      </label>
+                      <SupplierAttachmentInput onBusy={setAttachmentBusy} offerId={o.id} uploadPhoto={uploadPhoto} label="Прикрепить накладную / УПД" attached={shipmentForm.documentUrl} onUploaded={url=>setShipmentForm(current=>({...current,documentUrl:url}))}/>
                       <div style={{display:'flex',gap:'8px'}}>
-                        <button onClick={()=>createShipmentFromOffer(o)} style={btnO}><Check size={14}/>Отгрузить</button>
+                        <button onClick={()=>sendShipment(o)} style={btnO}><Check size={14}/>{shipmentBusy ? 'Отправляем…' : 'Отгрузить'}</button>
                         <button onClick={()=>setShippingOfferId(null)} style={btnG}><X size={14}/>Отмена</button>
                       </div>
-                    </div>)}
+                    </fieldset>)}
                   </div>);
                 })}
               </div>));
             })()}
           </div>)}
 
-          {supplierTab==='catalog'&&(<div>
+          {supplierTab==='catalog'&&!managerOnly&&(<div>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
               <b style={{color:C.text,fontSize:'14px'}}>📦 Мой каталог</b>
               <div style={{display:'flex',gap:'8px'}}>
-                <label style={{...btnG,padding:'6px 12px',fontSize:'12px',cursor:'pointer',display:'flex',alignItems:'center',gap:'4px'}}>
-                  📥 Excel
-                  <input type='file' accept='.xlsx,.xls,.csv' style={{display:'none'}} onChange={e=>{const file=e.target.files[0];if(!file)return;const reader=new FileReader();reader.onload=async ev=>{try{const XLSX=await import('xlsx');const wb=XLSX.read(ev.target.result,{type:'array'});const ws=wb.Sheets[wb.SheetNames[0]];const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});let count=0;for(let i=1;i<rows.length;i++){const r=rows[i];if(!r[0])continue;const item={materialName:String(r[0]),unit:String(r[1]||'шт'),price:Number(r[2]||0),minQuantity:Number(r[3]||1),deliveryDays:Number(r[4]||3),notes:String(r[5]||''),supplierId:myPrimarySupplierId||0,supplierName:user.name};const res=await fetch(API+'/supplier-catalog',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(item)});const saved=await res.json();setSupplierCatalog(prev=>[...prev,{...item,id:saved.id}]);count++;}alert('Импортировано '+count+' позиций!');}catch(err){alert('Ошибка: '+err.message);}};reader.readAsArrayBuffer(file);e.target.value='';}} />
-                </label>
-                {supplierRequisites.priceUrl&&(<button onClick={async()=>{
-                  try{
-                    alert('Загрузка прайса... Это может занять несколько секунд.');
-                    const res=await fetch('https://corsproxy.io/?'+encodeURIComponent(supplierRequisites.priceUrl));
-                    const blob=await res.arrayBuffer();
-                    const XLSX=await import('xlsx');
-                    const wb=XLSX.read(blob,{type:'array'});
-                    const ws=wb.Sheets[wb.SheetNames[0]];
-                    const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
-                    let count=0;
-                    for(let i=1;i<rows.length;i++){
-                      const r=rows[i];
-                      if(!r[0]) continue;
-                      const item={materialName:String(r[0]),unit:String(r[1]||'шт'),price:Number(r[2]||0),minQuantity:Number(r[3]||1),deliveryDays:Number(r[4]||3),notes:String(r[5]||''),supplierId:myPrimarySupplierId||0,supplierName:user.name};
-                      const res2=await fetch(API+'/supplier-catalog',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(item)});
-                      const saved=await res2.json();
-                      setSupplierCatalog(prev=>[...prev,{...item,id:saved.id}]);
-                      count++;
-                    }
-                    alert('Загружено '+count+' позиций!');
-                  }catch(err){alert('Ошибка загрузки: '+err.message);}
-                }} style={btnG}><Download size={14}/>По ссылке</button>)}
-                <button onClick={()=>setShowCatalogForm(!showCatalogForm)} style={btnO}><Plus size={14}/>Добавить</button>
+                <button disabled={catalogActions.busy} onClick={()=>setShowCatalogForm(!showCatalogForm)} style={btnO}><Plus size={14}/>Добавить</button>
               </div>
             </div>
-            {showCatalogForm&&(<div style={{...card,padding:'16px',marginBottom:'12px'}}>
+            <SupplierCatalogImport key={`${currentUserId}:${myPrimarySupplierId}`} API={API}
+              supplierId={myPrimarySupplierId} supplierName={user.name}
+              priceUrl={supplierRequisites.priceUrl} catalog={supplierCatalog || []}
+              onSaved={setSupplierCatalog} buttonStyle={btnG} mutationLock={catalogMutationLock} />
+            {catalogActions.error && <p role="alert" style={{color:C.danger}}>{catalogActions.error}</p>}
+            {showCatalogForm&&(<fieldset disabled={catalogActions.busy} style={{...card,minWidth:0,padding:'16px',marginBottom:'12px'}}>
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
                 <input placeholder='Наименование *' value={newCatalogItem.materialName} onChange={e=>setNewCatalogItem({...newCatalogItem,materialName:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
                 <select value={newCatalogItem.unit} onChange={e=>setNewCatalogItem({...newCatalogItem,unit:e.target.value})} style={{...inp,marginBottom:0}}>{UNITS.map(u=><option key={u}>{u}</option>)}</select>
@@ -654,17 +697,10 @@ export default function SupplierCabinetPage({
                 <input placeholder='Примечание' value={newCatalogItem.notes} onChange={e=>setNewCatalogItem({...newCatalogItem,notes:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
               </div>
               <div style={{display:'flex',gap:'8px',marginTop:'10px'}}>
-                <button onClick={async()=>{
-                  if(!newCatalogItem.materialName) return;
-                  const res=await fetch(API+'/supplier-catalog',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newCatalogItem,supplierId:myPrimarySupplierId||0,supplierName:user.name})});
-                  const saved=await res.json();
-                  setSupplierCatalog(prev=>[...prev,{...newCatalogItem,id:saved.id,supplierId:myPrimarySupplierId||0}]);
-                  setNewCatalogItem({materialName:'',unit:'шт',price:'',minQuantity:'1',deliveryDays:'3',notes:''});
-                  setShowCatalogForm(false);
-                }} style={btnO}><Check size={14}/>Сохранить</button>
+                <button onClick={()=>catalogActions.create(newCatalogItem)} style={btnO}><Check size={14}/>Сохранить</button>
                 <button onClick={()=>setShowCatalogForm(false)} style={btnG}><X size={14}/>Отмена</button>
               </div>
-            </div>)}
+            </fieldset>)}
             <table style={tbl}><thead><tr>
               <th style={tblH}>Наименование</th>
               <th style={tblH}>Ед.</th>
@@ -681,7 +717,7 @@ export default function SupplierCabinetPage({
                 <td style={tblC}>{item.minQuantity}</td>
                 <td style={tblC}>{item.deliveryDays+' дн.'}</td>
                 <td style={tblC}><span style={{color:item.inStock?C.success:C.danger,fontSize:'12px'}}>{item.inStock?'✅ Есть':'❌ Нет'}</span></td>
-                <td style={tblC}><button onClick={async()=>{await fetch(API+'/supplier-catalog/'+item.id,{method:'DELETE'});setSupplierCatalog(prev=>prev.filter(c=>c.id!==item.id));}} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button></td>
+                <td style={tblC}><button aria-label={'Удалить '+item.materialName} disabled={catalogActions.busy} onClick={()=>catalogActions.remove(item.id)} style={{...btnR,padding:'3px 7px'}}><Trash2 size={11}/></button></td>
               </tr>))}
             </tbody></table>
             {myCatalog.length===0&&<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'20px'}}>Каталог пуст — добавьте материалы</p>}
@@ -704,13 +740,20 @@ export default function SupplierCabinetPage({
             {myOffers.length===0&&<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'20px'}}>Предложений нет</p>}
           </div>)}
 
-          {supplierTab==='deliveries'&&(<div>
+          {['deliveries','documents'].includes(supplierTab) && inboxState && <div style={{marginBottom:16}}>
+            <button type="button" disabled={inboxState.status==='loading'} onClick={inboxState.reload}>Обновить документы и отгрузки</button>
+            {inboxState.status==='loading' && <p role="status">Загружаем документы и отгрузки…</p>}
+            {inboxState.status==='error' && <p role="alert">Не удалось загрузить документы и отгрузки: {inboxState.error}</p>}
+          </div>}
+          {supplierTab==='deliveries'&&(!inboxState||inboxState.status==='ready')&&(<div>
             <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>🚚 Мои отгрузки</b>
             {myDeliveries.map(d=>{const claim=myClaims.find(c=>c.deliveryId===d.id);return(<div key={d.id} style={{...card,padding:'12px',marginBottom:'8px',borderLeft:'3px solid '+(d.status==='Принято'?C.success:d.status==='Проблема'?C.danger:C.warning)}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
                 <div>
                   <b style={{fontSize:'13px',color:C.text}}>{d.materialName}</b>
                   <p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{d.shippedQuantity||d.plannedQuantity} {d.unit} · 🏗 {d.project||'—'} · накл. {d.waybillNumber||'—'}</p>
+                  <SupplyFileLink url={d.documentUrl} fileSrc={fileSrc}>Скачать накладную / УПД</SupplyFileLink>
+                  <SupplyFileLink url={d.photoUrl} fileSrc={fileSrc}>Скачать фото отгрузки</SupplyFileLink>
                   {d.receivedBy&&<p style={{color:C.textMuted,margin:0,fontSize:'11px'}}>Принял: {d.receivedBy} · принято {d.receivedQuantity||0} {d.unit}</p>}
                   {claim&&<p style={{color:C.danger,margin:'4px 0 0',fontSize:'11px'}}>⚠️ Претензия: {claim.claimType} · {claim.status}</p>}
                 </div>
@@ -720,7 +763,8 @@ export default function SupplierCabinetPage({
             {myDeliveries.length===0&&<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'20px'}}>Отгрузок пока нет</p>}
           </div>)}
 
-          {supplierTab==='documents'&&(<div>
+          {supplierTab==='documents'&&(!inboxState||inboxState.status==='ready')&&(<div>
+            <SupplierContractDocuments API={API} userId={currentUserId} fileSrc={fileSrc} C={C}/>
             <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>📄 Мои счета и накладные</b>
             {mySupplierInvoices.map(inv=>{
               const linkedWarehouseId = supplierInvoiceWarehouseId(inv);
@@ -740,6 +784,8 @@ export default function SupplierCabinetPage({
                       <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{(inv.invoiceDate||'')+' · '+Number(inv.amount||0).toLocaleString('ru-RU')+' ₽ · '+(inv.projectName||'—')}</p>
                       {inv.materialName&&<p style={{color:C.textMuted,margin:'2px 0',fontSize:'11px'}}>Материал: {inv.materialName}</p>}
                       {inv.paidAmount>0&&<p style={{color:C.success,margin:0,fontSize:'11px'}}>Оплачено: {Number(inv.paidAmount||0).toLocaleString('ru-RU')} ₽</p>}
+                      {Number(inv.creditAmount)>0&&<p style={{color:C.textSec,margin:0,fontSize:'11px'}}>С учётом уменьшения: {Number(inv.effectiveAmount).toLocaleString('ru-RU')} ₽</p>}
+                      {Number(inv.overpaidAmount)>0&&<p style={{color:C.warning,margin:0,fontSize:'11px'}}>Переплата заказчика: {Number(inv.overpaidAmount).toLocaleString('ru-RU')} ₽</p>}
                     </div>
                     <span style={badge(inv.status==='Оплачен'?C.success:inv.status==='Частично оплачен'?C.warning:C.info,inv.status==='Оплачен'?C.successLight:inv.status==='Частично оплачен'?C.warningLight:C.infoLight,inv.status==='Оплачен'?C.successBorder:inv.status==='Частично оплачен'?C.warningBorder:C.infoBorder)}>{inv.status}</span>
                   </div>
@@ -769,11 +815,11 @@ export default function SupplierCabinetPage({
                   )}
                   {(inv.fileUrl||inv.photoUrl||warehouseInvoicePhoto||inv.deliveryDocumentUrl||inv.deliveryPhotoUrl)&&(
                     <div style={{display:'flex',gap:'8px',flexWrap:'wrap',marginTop:'8px'}}>
-                      {inv.fileUrl&&<a href={fileSrc(inv.fileUrl)} target='_blank' rel='noopener noreferrer' style={{fontSize:'11px',color:C.accent}}>Файл счёта</a>}
-                      {inv.photoUrl&&<a href={fileSrc(inv.photoUrl)} target='_blank' rel='noopener noreferrer' style={{fontSize:'11px',color:C.accent}}>Фото</a>}
-                      {warehouseInvoicePhoto&&<a href={fileSrc(warehouseInvoicePhoto)} target='_blank' rel='noopener noreferrer' style={{fontSize:'11px',color:C.accent}}>Фото складской накладной</a>}
-                      {inv.deliveryDocumentUrl&&<a href={fileSrc(inv.deliveryDocumentUrl)} target='_blank' rel='noopener noreferrer' style={{fontSize:'11px',color:C.accent}}>Документ отгрузки</a>}
-                      {inv.deliveryPhotoUrl&&<a href={fileSrc(inv.deliveryPhotoUrl)} target='_blank' rel='noopener noreferrer' style={{fontSize:'11px',color:C.accent}}>Фото отгрузки</a>}
+                      {inv.fileUrl&&<SupplyFileLink url={inv.fileUrl} fileSrc={fileSrc}>Файл счёта</SupplyFileLink>}
+                      {inv.photoUrl&&<SupplyFileLink url={inv.photoUrl} fileSrc={fileSrc}>Фото</SupplyFileLink>}
+                      {warehouseInvoicePhoto&&<SupplyFileLink url={warehouseInvoicePhoto} fileSrc={fileSrc}>Фото складской накладной</SupplyFileLink>}
+                      {inv.deliveryDocumentUrl&&<SupplyFileLink url={inv.deliveryDocumentUrl} fileSrc={fileSrc}>Документ отгрузки</SupplyFileLink>}
+                      {inv.deliveryPhotoUrl&&<SupplyFileLink url={inv.deliveryPhotoUrl} fileSrc={fileSrc}>Фото отгрузки</SupplyFileLink>}
                     </div>
                   )}
                 </div>
@@ -782,101 +828,13 @@ export default function SupplierCabinetPage({
             {mySupplierInvoices.length===0&&<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'20px'}}>Счетов пока нет</p>}
           </div>)}
 
-          {supplierTab==='claims'&&(<div>
-            <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>⚠️ Претензии по поставкам</b>
-            {myClaims.map(c=>(<div key={c.id} style={{...card,padding:'12px',marginBottom:'8px',borderLeft:'3px solid '+(c.status==='Открыта'?C.danger:C.success)}}>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
-                <div>
-                  <b style={{fontSize:'13px',color:C.text}}>{c.materialName}</b>
-                  <p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{c.claimType} · 🏗 {c.project||'—'}</p>
-                  <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{c.description}</p>
-                </div>
-                <span style={badge(c.status==='Открыта'?C.danger:C.success,c.status==='Открыта'?C.dangerLight:C.successLight,c.status==='Открыта'?C.dangerBorder:C.successBorder)}>{c.status}</span>
-              </div>
-            </div>))}
-            {myClaims.length===0&&<p style={{color:C.textMuted,fontSize:'12px',textAlign:'center',padding:'20px'}}>Претензий нет</p>}
-          </div>)}
+          {supplierTab==='claims'&&<SupplyClaims API={API} C={C} user={user} onChanged={refreshData} />}
 
-          {supplierTab==='profile'&&(<div>
-            <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'12px'}}>⚙️ Реквизиты компании</b>
-            <div style={{...card,padding:'16px',marginBottom:'14px'}}>
-              <b style={{color:C.textSec,fontSize:'12px',display:'block',marginBottom:'10px'}}>📋 Основное</b>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
-                <input placeholder='Название компании' value={supplierRequisites.companyName} onChange={e=>setSupplierRequisites({...supplierRequisites,companyName:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
-                <input placeholder='ИНН' value={supplierRequisites.inn} onChange={e=>setSupplierRequisites({...supplierRequisites,inn:e.target.value})} style={{...inp,marginBottom:0}}/>
-                <input placeholder='КПП' value={supplierRequisites.kpp} onChange={e=>setSupplierRequisites({...supplierRequisites,kpp:e.target.value})} style={{...inp,marginBottom:0}}/>
-                <input placeholder='ОГРН/ОГРНИП' value={supplierRequisites.ogrn||''} onChange={e=>setSupplierRequisites({...supplierRequisites,ogrn:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
-                <input placeholder='Юридический адрес' value={supplierRequisites.address} onChange={e=>setSupplierRequisites({...supplierRequisites,address:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
-                <input placeholder='Фактический адрес' value={supplierRequisites.actualAddress||''} onChange={e=>setSupplierRequisites({...supplierRequisites,actualAddress:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
-                <input placeholder='Директор (ФИО)' value={supplierRequisites.directorName||''} onChange={e=>setSupplierRequisites({...supplierRequisites,directorName:e.target.value})} style={{...inp,marginBottom:0}}/>
-                <input placeholder='Должность директора' value={supplierRequisites.directorPosition||''} onChange={e=>setSupplierRequisites({...supplierRequisites,directorPosition:e.target.value})} style={{...inp,marginBottom:0}}/>
-                <input placeholder='Телефон' value={supplierRequisites.phone} onChange={e=>setSupplierRequisites({...supplierRequisites,phone:e.target.value})} style={{...inp,marginBottom:0}}/>
-                <input placeholder='Email' value={supplierRequisites.email} onChange={e=>setSupplierRequisites({...supplierRequisites,email:e.target.value})} style={{...inp,marginBottom:0}}/>
-                <input placeholder='Сайт (опц.)' value={supplierRequisites.website||''} onChange={e=>setSupplierRequisites({...supplierRequisites,website:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
-                <input placeholder='Специализация (что поставляете)' value={supplierRequisites.specialization||''} onChange={e=>setSupplierRequisites({...supplierRequisites,specialization:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
-                <textarea placeholder='Примечания / предмет договора' value={supplierRequisites.notes||''} onChange={e=>setSupplierRequisites({...supplierRequisites,notes:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2',minHeight:'64px',resize:'vertical',fontFamily:'inherit'}}/>
-              </div>
-              <b style={{color:C.textSec,fontSize:'12px',display:'block',marginBottom:'8px',marginTop:'12px'}}>🏦 Банковские реквизиты</b>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
-                <input placeholder='Банк' value={supplierRequisites.bank} onChange={e=>setSupplierRequisites({...supplierRequisites,bank:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
-                <input placeholder='БИК' value={supplierRequisites.bik} onChange={e=>setSupplierRequisites({...supplierRequisites,bik:e.target.value})} style={{...inp,marginBottom:0}}/>
-                <input placeholder='Корр. счёт' value={supplierRequisites.korAccount||''} onChange={e=>setSupplierRequisites({...supplierRequisites,korAccount:e.target.value})} style={{...inp,marginBottom:0}}/>
-                <input placeholder='Расчётный счёт' value={supplierRequisites.account} onChange={e=>setSupplierRequisites({...supplierRequisites,account:e.target.value})} style={{...inp,marginBottom:0,gridColumn:'span 2'}}/>
-              </div>
-              <b style={{color:C.textSec,fontSize:'12px',display:'block',marginBottom:'8px',marginTop:'12px'}}>📄 Договор поставки</b>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}}>
-                <input placeholder='Номер договора' value={supplierRequisites.contractNumber||''} onChange={e=>setSupplierRequisites({...supplierRequisites,contractNumber:e.target.value})} style={{...inp,marginBottom:0}}/>
-                <input type='date' placeholder='Дата договора' value={supplierRequisites.contractDate||''} onChange={e=>setSupplierRequisites({...supplierRequisites,contractDate:e.target.value})} style={{...inp,marginBottom:0}}/>
-              </div>
-              <label style={{...btnG,padding:'10px 14px',fontSize:'12px',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:'6px',marginRight:'8px'}}>
-                <Upload size={14}/>{supplierRequisites.contractUrl?'✅ Договор загружен':'Загрузить договор (PDF)'}
-                <input type='file' accept='.pdf,image/*' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0],{context:'supplier-documents'});setSupplierRequisites({...supplierRequisites,contractUrl:url});}}}/>
-              </label>
-              {supplierRequisites.contractUrl && (<a href={fileSrc(supplierRequisites.contractUrl)} target='_blank' rel='noopener noreferrer' style={{fontSize:'12px',color:C.accent,marginRight:'8px'}}>📥 Посмотреть</a>)}
-              <DocumentRecognitionPanel
-                C={C}
-                card={card}
-                inp={inp}
-                btnG={btnG}
-                btnO={btnO}
-                btnB={btnB}
-                uploadPhoto={uploadPhoto}
-                fileSrc={fileSrc}
-                projectName={supplierRequisites.companyName || user.name || 'Поставщик'}
-                context="supplier-documents"
-                entityType="supplier"
-                currentFields={supplierRequisites}
-                onApplyExtracted={result => setSupplierRequisites(prev => ({...prev, ...supplierRequisitesPatchFromRecognition(result, prev)}))}
-                applyExtractedLabel="Заполнить реквизиты"
-                onCreateRecognizedDocument={myPrimarySupplierId ? createOwnSupplierDocumentFromRecognition : null}
-                createRecognizedDocumentLabel="Добавить в документы"
-              />
-              <b style={{color:C.textSec,fontSize:'12px',display:'block',marginBottom:'8px',marginTop:'12px'}}>📦 Прайс-лист (опц.)</b>
-              <input placeholder='Ссылка на прайс (Google Sheet / Excel URL)' value={supplierRequisites.priceUrl||''} onChange={e=>setSupplierRequisites({...supplierRequisites,priceUrl:e.target.value})} style={inp}/>
-              <label style={{...btnG,padding:'10px 14px',fontSize:'12px',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:'6px',marginRight:'8px'}}>
-                <Upload size={14}/>{supplierRequisites.licenseUrl?'✅ Лицензия загружена':'Загрузить лицензию/сертификат'}
-                <input type='file' accept='.pdf,image/*' style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0],{context:'supplier-documents'});setSupplierRequisites({...supplierRequisites,licenseUrl:url});}}}/>
-              </label>
-              {supplierRequisites.licenseUrl && (<a href={fileSrc(supplierRequisites.licenseUrl)} target='_blank' rel='noopener noreferrer' style={{fontSize:'12px',color:C.accent}}>📥 Посмотреть</a>)}
-              <button onClick={async()=>{
-                if (!myPrimarySupplierId) {
-                  alert('Кабинет не связан с карточкой поставщика. Попросите директора связать аккаунт с компанией.');
-                  return;
-                }
-                const res = await fetch(API+'/suppliers/'+(myPrimarySupplierId||0)+'/requisites',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-                  ...supplierRequisites,
-                  legalAddress: supplierRequisites.address // alias
-                })});
-                if (res.ok) {
-                  localStorage.setItem('supplierReq_'+user.id,JSON.stringify(supplierRequisites));
-                  alert('Реквизиты сохранены!');
-                  await refreshData();
-                } else {
-                  alert('Ошибка сохранения');
-                }
-              }} style={{...btnO,marginTop:'14px',width:'100%',justifyContent:'center',padding:'12px'}}><Check size={14}/>Сохранить реквизиты</button>
-            </div>
-          </div>)}
+          {supplierTab==='profile'&&!managerOnly&&<SupplierProfile onSaved={teamContext?.updateProfile}
+            API={API} user={user} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG}
+            suppliers={teamContext?.status==='ready' ? verifiedTeam.filter(s=>s.role==='leader')
+              : (suppliers||[]).filter(s=>String(s.userId||s.user_id)===String(currentUserId))} />}
+          </main>
         </div>
       </div>
     );

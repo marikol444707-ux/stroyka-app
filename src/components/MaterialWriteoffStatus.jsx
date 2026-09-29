@@ -6,6 +6,7 @@ export default function MaterialWriteoffStatus({
   fmtMeasure,
   isMobile = false,
   isPersonalMaterialRole,
+  onSourceChange,
 }) {
   const visibleRows = rows.filter(row => row.qty > 0 || row.normQty > 0);
   if (!visibleRows.length) return null;
@@ -26,6 +27,19 @@ export default function MaterialWriteoffStatus({
             <span style={{color:C.textSec}}>{sourceLabel+': '}<b style={{color:C.text}}>{row.stock?fmtMeasure(row.available,row.stock.unit||row.unit):'нет'}</b></span>
             <span style={{color:C.textSec}}>норма: <b style={{color:C.text}}>{row.normQty>0?fmtMeasure(row.normQty,row.unit):'—'}</b></span>
             <span style={{color}}>списать: <b>{fmtMeasure(row.qty,row.unit)}</b> · {label}</span>
+            {row.materialAccountingVersion === 2 && <div style={{gridColumn:'1 / -1',display:'flex',flexWrap:'wrap',gap:'8px',color:C.text}}>
+              <span>С остатка мастера: <b>{fmtMeasure(row.personalQuantity,row.unit)}</b></span>
+              <span>Со склада: <b>{fmtMeasure(row.warehouseQuantity,row.unit)}</b></span>
+              {onSourceChange && <label>Источник:{' '}
+                <select aria-label={'Источник материала «'+row.name+'»'} value={row.sourcePreference || 'auto'}
+                  onChange={event => onSourceChange(row.name,event.target.value)}>
+                  <option value="auto">Сначала остаток мастера, затем склад</option>
+                  <option value="personal">Только остаток мастера</option>
+                  <option value="warehouse">Только склад объекта</option>
+                </select>
+              </label>}
+              {row.sourceConflict && <span role="alert">Уточните складскую позицию и единицу материала.</span>}
+            </div>}
           </div>
         );
       })}

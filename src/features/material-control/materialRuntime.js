@@ -1,3 +1,4 @@
+import { buildWorkMaterialAvailability, workMaterialAccountingEnabled } from '../work-material-accounting/materialSources';
 import {
   buildEstimateMaterialPlanRows,
   buildMaterialAliasCandidates,
@@ -30,6 +31,7 @@ import {
 } from '../../utils/materialDocumentUtils';
 import { buildMaterialNormCoverageDocContent } from '../../utils/printDocumentBuilders';
 import { toNum } from '../../utils/measureUtils';
+import { findOwnedAlias, ownedAliasesEnabled } from './ownedAliases';
 import {
   immutableStoredProjectOwner,
   uniqueStoredProjectForName,
@@ -55,6 +57,9 @@ export function createMaterialRuntime({
   history,
   invoices,
   materialAliases,
+  materialAliasesError,
+  getOwnedAliasSnapshotToken,
+  companyContext,
   materialInspections,
   materialNormOverrides,
   materialNorms,
@@ -71,9 +76,14 @@ export function createMaterialRuntime({
   workJournal,
   cache = null,
 }) {
+  const aliasUnavailable = ownedAliasesEnabled() && (materialAliasesError !== '' || companyContext?.mode !== 'company'
+    || (getOwnedAliasSnapshotToken && getOwnedAliasSnapshotToken() == null));
+  const aliasError = materialAliasesError || 'Выберите компанию и дождитесь загрузки соответствий';
+  const ownerAvailable = owner => !aliasUnavailable && (!ownedAliasesEnabled() || owner?.companyId === Number(companyContext?.selectedCompanyId));
   const materialControlOwner = (projectOrOwner) => immutableStoredProjectOwner(projectOrOwner);
-  const materialControlProjectForName = (projectName) => {
-    const project = uniqueStoredProjectForName(projects, projectName);
+  const materialControlProjectForName = (projectName, companyId) => {
+    const candidates = companyId ? (projects || []).filter(p => Number(p.companyId) === Number(companyId)) : projects;
+    const project = uniqueStoredProjectForName(candidates, projectName);
     return immutableStoredProjectOwner(project);
   };
 
@@ -87,7 +97,13 @@ export function createMaterialRuntime({
   const isSupplyDeliveryInvoice = (inv) => !!(inv?.supplyDeliveryId || inv?.sourceType === 'supply_delivery');
   const materialNameLookupKey = materialLookupText;
 
-  const materialAliasFor = (projectName, aliasName) => {
+  const materialAliasFor = (projectOrName, aliasName) => {
+    if (ownedAliasesEnabled()) {
+      const owner = typeof projectOrName === 'object' ? materialControlOwner(projectOrName) : materialControlProjectForName(projectOrName);
+      if (!ownerAvailable(owner)) return null;
+      return findOwnedAlias(materialAliases, owner, aliasName);
+    }
+    const projectName = typeof projectOrName === 'object' ? projectOrName?.projectName || projectOrName?.name || '' : projectOrName;
     const key = materialNameLookupKey(aliasName);
     if (!key) return null;
     const active = (materialAliases || []).filter(a => a && a.active !== false && materialNameLookupKey(a.aliasName) === key);
@@ -134,7 +150,7 @@ export function createMaterialRuntime({
 
   const materialReconciliationRows = (projectOrOwner, workPackage = '') => {
     const project = materialControlOwner(projectOrOwner);
-    if (!project) return [];
+    if (!project || !ownerAvailable(project)) return [];
     const key = ownerCacheKey(project, workPackage);
     if (cache?.reconciliationRows?.has(key)) return cache.reconciliationRows.get(key);
     const rows = buildMaterialReconciliationRows({
@@ -163,6 +179,7 @@ export function createMaterialRuntime({
 
   const materialControlSummaryForProject = (projectOrOwner) => {
     const project = materialControlOwner(projectOrOwner);
+    if (!ownerAvailable(project)) return {...buildMaterialControlSummary([]), unavailable: true, error: aliasError};
     if (!project) return buildMaterialControlSummary([]);
     const key = ownerCacheKey(project);
     if (cache?.controlSummaries?.has(key)) return cache.controlSummaries.get(key);
@@ -196,7 +213,7 @@ export function createMaterialRuntime({
     buildMaterialNormControlSummary(materialNormDeviationRows(projectName, workPackage));
 
   const personalMaterialRowsForProject = (projectName, personName = user?.name, personId = user?.id, workPackage = '') =>
-    buildPersonalMaterialRowsForProject({
+    aliasUnavailable ? [] : buildPersonalMaterialRowsForProject({
       projectName,
       personName,
       personId,
@@ -210,12 +227,18 @@ export function createMaterialRuntime({
     });
 
   const materialRowsAvailableForWork = (projectName, workPackage = '') => {
+    if (workMaterialAccountingEnabled()) return Object.values(materialAvailabilityMapForWork(projectName, workPackage));
     if (isPersonalMaterialRole()) return personalMaterialRowsForProject(projectName, user?.name, user?.id, workPackage).filter(r => toNum(r.quantity) > 0);
     return (materials || []).filter(m => m.project === projectName && toNum(m.quantity) > 0 && packageMatches(m.workPackage || m.work_package, workPackage));
   };
 
-  const materialAvailabilityMapForWork = (projectName, workPackage = '') => buildMaterialAvailabilityMap({
-    rows: materialRowsAvailableForWork(projectName, workPackage),
+  const materialAvailabilityMapForWork = (projectName, workPackage = '') => workMaterialAccountingEnabled()
+    ? buildWorkMaterialAvailability({
+      personalRows: aliasUnavailable || !isPersonalMaterialRole() ? [] : personalMaterialRowsForProject(projectName, user?.name, user?.id, workPackage),
+      warehouseRows: aliasUnavailable ? [] : materials || [],
+      projectName, workPackage, canonicalMaterialMeta, materialNameKey,
+    }) : buildMaterialAvailabilityMap({
+    rows: aliasUnavailable ? [] : materialRowsAvailableForWork(projectName, workPackage),
     projectName,
     canonicalMaterialMeta,
     materialNameKey,

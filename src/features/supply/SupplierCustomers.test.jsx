@@ -1,0 +1,23 @@
+import React from 'react';
+import { fireEvent,render,screen,waitFor } from '@testing-library/react';
+import SupplierCustomers from './SupplierCustomers';
+const originalFetch=global.fetch;
+afterEach(()=>{global.fetch=originalFetch;});
+it('keeps customer histories separate and clears selected data after access revocation',async()=>{
+ let revoked=false;
+ const requests=[{id:1,companyId:2,companyName:'Альфа',materialName:'PRIVATE A',quantity:10,unit:'шт'},{id:2,companyId:3,companyName:'Бета',materialName:'PRIVATE B',quantity:10,unit:'шт'}];
+ const offers=[{id:11,requestId:1,companyId:2,supplierId:7,status:'Утверждено'},{id:12,requestId:2,companyId:3,supplierId:7,status:'Получено'}];
+ global.fetch=jest.fn(async path=>({ok:true,json:async()=>path.endsWith('/supply-requests')?(revoked?requests.slice(1):requests):path.endsWith('/supplier-offers')?(revoked?offers.slice(1):offers):path.endsWith('/supplier-invoices')?[{id:21,offerId:11,requestId:1,companyId:2,supplierId:7,fileUrl:'/a.pdf'},{id:22,offerId:12,requestId:2,companyId:3,supplierId:7,fileUrl:'/b.pdf'}]:[]}));
+ render(<SupplierCustomers API="/api" user={{id:7,role:'поставщик'}} C={{}} onOpen={()=>{}}/>);
+ fireEvent.click(await screen.findByRole('button',{name:'Открыть заказчика №2'}));
+ expect(screen.getByText('Заявка №1 · PRIVATE A')).toBeInTheDocument();
+ expect(screen.queryByText(/PRIVATE B/)).not.toBeInTheDocument();
+ expect(screen.getAllByRole('link').every(link=>!link.href.endsWith('/b.pdf'))).toBe(true);
+ fireEvent.change(screen.getByLabelText('Выбор заказчика'),{target:{value:'3'}});
+ expect(screen.getByText('Заявка №2 · PRIVATE B')).toBeInTheDocument();
+ expect(screen.queryByText(/PRIVATE A/)).not.toBeInTheDocument();
+ fireEvent.change(screen.getByLabelText('Выбор заказчика'),{target:{value:'2'}});
+ revoked=true;fireEvent.click(screen.getByRole('button',{name:'Обновить заказчиков'}));
+ await waitFor(()=>expect(screen.getByText('Заказчик больше не входит в доступный вам список.')).toBeInTheDocument());
+ expect(screen.queryByText(/PRIVATE A/)).not.toBeInTheDocument();expect(screen.queryAllByRole('link')).toHaveLength(0);
+});

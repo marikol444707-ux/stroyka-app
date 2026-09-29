@@ -6,6 +6,7 @@ import AccountingExpenseReportsPanel from './AccountingExpenseReportsPanel';
 import AccountingAuditPanel from './AccountingAuditPanel';
 import AccountingDocumentsPanel from './AccountingDocumentsPanel';
 import AccountingIncomingDocumentsPanel from './AccountingIncomingDocumentsPanel';
+import WarehouseDistributionPanel from '../features/warehouse/WarehouseDistributionPanel';
 import AccountingSupplierDocumentsPanel from './AccountingSupplierDocumentsPanel';
 import AccountingSalaryPanel from './AccountingSalaryPanel';
 import AccountingActsPanel from './AccountingActsPanel';
@@ -177,7 +178,11 @@ export default function AccountingPage(props) {
       )}
 
       {accountingTab === 'incoming' && (
+        <>
+        <WarehouseDistributionPanel companyContext={companyContext} projects={projects} C={C} readOnly />
         <AccountingIncomingDocumentsPanel
+          companyContext={companyContext}
+          user={user}
           C={C}
           card={card}
           btnO={btnO}
@@ -199,6 +204,7 @@ export default function AccountingPage(props) {
           badge={badge}
           toNum={toNum}
         />
+        </>
       )}
 
       {accountingTab === 'supplierDocs' && (
@@ -223,6 +229,7 @@ export default function AccountingPage(props) {
 
       {accountingTab === 'payments' && (
         <AccountingPaymentsPanel
+          companyContext={companyContext}
           C={C}
           card={card}
           inp={inp}
@@ -288,6 +295,7 @@ export default function AccountingPage(props) {
 
       {accountingTab === 'acts' && (
         <AccountingActsPanel
+          companyContext={companyContext} user={user}
           C={C}
           card={card}
           inp={inp}
@@ -332,6 +340,7 @@ export default function AccountingPage(props) {
 
       {accountingTab === 'performerClosing' && (
         <AccountingPerformerClosingPanel
+          onOpenContractActs={() => setAccountingTab('acts')}
           C={C}
           card={card}
           inp={inp}

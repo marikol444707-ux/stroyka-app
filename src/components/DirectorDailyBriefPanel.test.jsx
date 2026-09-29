@@ -1,4 +1,4 @@
-import {render, screen} from '@testing-library/react';
+import {fireEvent, render, screen} from '@testing-library/react';
 
 import DirectorDailyBriefPanel from './DirectorDailyBriefPanel';
 
@@ -61,6 +61,9 @@ describe('DirectorDailyBriefPanel', () => {
     expect(screen.getByText('Последняя фоновая сводка')).toBeInTheDocument();
     expect(screen.getByText(/05\.08\.2026/)).toBeInTheDocument();
     expect(screen.getByText('Критично: 1')).toBeInTheDocument();
+    expect(screen.queryByText('Просрочен срок объекта')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Подробнее'})).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(screen.getByRole('button', {name: 'Подробнее'}));
     expect(screen.getByText('Просрочки')).toBeInTheDocument();
     expect(screen.getAllByText('Школа').length).toBeGreaterThan(0);
     expect(screen.getByText('3 дн.')).toBeInTheDocument();
@@ -68,7 +71,8 @@ describe('DirectorDailyBriefPanel', () => {
     expect(screen.getByText('Просрочен срок объекта')).toBeInTheDocument();
     expect(screen.getAllByText(/Ответственный: Не указан/)).toHaveLength(2);
     expect(screen.getByText('Проверить срок и ответственного по объекту')).toBeInTheDocument();
-    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', {name: 'Свернуть'}));
+    expect(screen.queryByText('Просрочен срок объекта')).not.toBeInTheDocument();
   });
 
   test('explains that one company must be selected', () => {

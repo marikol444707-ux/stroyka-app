@@ -1,4 +1,5 @@
-import React from 'react';
+import CompanyDocumentArchive from '../features/counterparty-documents/CompanyDocumentArchive';
+import React, { useEffect, useRef, useState } from 'react';
 import { Check, Eye, FileText, Plus, Trash2, Upload, X } from 'lucide-react';
 import SettingsTabsNav from './SettingsTabsNav';
 import SitePricingSettingsPanel from './SitePricingSettingsPanel';
@@ -16,6 +17,7 @@ export default function SettingsPage({
   btnR,
   card,
   companyDocuments,
+  selectedCompanyId,
   companyReqForm,
   companyRequisites,
   inp,
@@ -33,6 +35,62 @@ export default function SettingsPage({
   uploadPhoto,
   user,
 }) {
+  const companyId = Number(selectedCompanyId) || null;
+  const scopeRef = useRef(companyId);
+  scopeRef.current = companyId;
+  const [documentError, setDocumentError] = useState('');
+  const [documentBusy, setDocumentBusy] = useState(false);
+  const visibleDocuments = companyId ? companyDocuments.filter(doc => Number(doc.companyId) === companyId) : [];
+  useEffect(() => {
+    scopeRef.current = companyId;
+    setNewCompanyDoc(createCompanyDocumentForm());
+    setShowForm(false);
+    setDocumentError('');
+    setDocumentBusy(false);
+    return () => { scopeRef.current = null; };
+  }, [companyId, setNewCompanyDoc, setShowForm]);
+  const changeDocument = async (path, options) => {
+    const owner = companyId;
+    if (!owner || documentBusy) return;
+    setDocumentBusy(true);
+    setDocumentError('');
+    try {
+      const response = await fetch(API + path, { ...options, headers: {
+        'Content-Type': 'application/json', 'X-Company-Id': String(owner),
+        'X-Company-Mode': 'company', ...options.headers,
+      }});
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(typeof data.detail === 'string' ? data.detail : 'Не удалось сохранить изменения');
+      }
+      if (scopeRef.current !== owner) return;
+      await loadAll();
+      if (scopeRef.current !== owner) return;
+      setNewCompanyDoc(createCompanyDocumentForm());
+      setShowForm(false);
+    } catch (error) {
+      if (scopeRef.current === owner) setDocumentError(error.message);
+    } finally {
+      if (scopeRef.current === owner) setDocumentBusy(false);
+    }
+  };
+  const uploadDocument = async (event) => {
+    const file = event.target.files[0];
+    const owner = companyId;
+    if (!file || !owner || documentBusy) return;
+    setDocumentBusy(true);
+    setDocumentError('');
+    try {
+      const url = await uploadPhoto(file, { context: 'company-documents' });
+      if (scopeRef.current !== owner) return;
+      if (!url) throw new Error('Не удалось загрузить файл');
+      setNewCompanyDoc(prev => ({ ...prev, companyId: owner, fileUrl: url }));
+    } catch (error) {
+      if (scopeRef.current === owner) setDocumentError(error.message);
+    } finally {
+      if (scopeRef.current === owner) setDocumentBusy(false);
+    }
+  };
   const canManageSitePricing = ['директор', 'зам_директора'].includes(user?.role);
   return (
     <div>
@@ -72,7 +130,7 @@ export default function SettingsPage({
           <button onClick={async()=>{const saved=await saveCompanyRequisites();if(saved){setCompanyRequisites(saved);setCompanyReqForm(saved);}}} style={{...btnO,marginTop:'20px',padding:'12px 30px',fontSize:'15px'}}><Check size={16}/>Сохранить реквизиты</button>
         </div>
         {companyRequisites&&companyRequisites.fullName&&(<div style={{...card,padding:'20px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder}}>
-          <b style={{color:C.success,fontSize:'14px',display:'block',marginBottom:'10px'}}>✅ Реквизиты сохранены — подставляются во все документы</b>
+          <b style={{color:C.success,fontSize:'14px',display:'block',marginBottom:'10px'}}>✅ Реквизиты компании сохранены</b>
           <p style={{color:C.text,margin:'3px 0',fontSize:'13px'}}>{companyRequisites.fullName}</p>
           <p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{'ИНН: '+companyRequisites.inn+' · КПП: '+companyRequisites.kpp+' · ОГРН: '+companyRequisites.ogrn}</p>
           <p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{'Директор: '+companyRequisites.directorName}</p>
@@ -86,20 +144,22 @@ export default function SettingsPage({
         )}
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
           <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Юридические документы</b>
-          <button onClick={()=>setShowForm(!showForm)} style={btnO}><Plus size={14}/>Добавить документ</button>
+          <button disabled={!companyId || documentBusy} onClick={()=>setShowForm(!showForm)} style={btnO}><Plus size={14}/>Добавить документ</button>
         </div>
-        {showForm&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}>
+        {!companyId&&<p role="status">Выберите компанию, чтобы открыть её юридические документы.</p>}
+        {documentError&&<p role="alert" style={{color:C.danger || C.text}}>{documentError}</p>}
+        {companyId&&showForm&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
             <input placeholder="Название документа *" value={newCompanyDoc.name} onChange={e=>setNewCompanyDoc({...newCompanyDoc,name:e.target.value})} style={{...inp,marginBottom:0}}/>
             <select value={newCompanyDoc.docType} onChange={e=>setNewCompanyDoc({...newCompanyDoc,docType:e.target.value})} style={{...inp,marginBottom:0}}>{COMPANY_DOC_TYPES.map(t=><option key={t}>{t}</option>)}</select>
             <input type="date" placeholder="Срок действия" value={newCompanyDoc.expiresAt} onChange={e=>setNewCompanyDoc({...newCompanyDoc,expiresAt:e.target.value})} style={{...inp,marginBottom:0}}/>
-            <label style={{cursor:'pointer',backgroundColor:C.infoLight,padding:'10px',borderRadius:'8px',fontSize:'13px',color:C.info,border:'1.5px solid '+C.infoBorder,display:'flex',alignItems:'center',gap:'8px'}}><Upload size={14}/>Загрузить файл<input type="file" accept="image/*,application/pdf" style={{display:'none'}} onChange={async e=>{if(e.target.files[0]){const url=await uploadPhoto(e.target.files[0],{context:'company-documents'});setNewCompanyDoc(prev=>({...prev,fileUrl:url}));}}} /></label>
+            <label style={{cursor:'pointer',backgroundColor:C.infoLight,padding:'10px',borderRadius:'8px',fontSize:'13px',color:C.info,border:'1.5px solid '+C.infoBorder,display:'flex',alignItems:'center',gap:'8px'}}><Upload size={14}/>Загрузить файл<input type="file" accept="image/*,application/pdf" style={{display:'none'}} disabled={documentBusy} onChange={uploadDocument} /></label>
           </div>
           {newCompanyDoc.fileUrl&&<p style={{color:C.success,fontSize:'12px',marginTop:'8px'}}>✅ Файл загружен</p>}
-          <div style={{display:'flex',gap:'8px',marginTop:'12px'}}><button onClick={async()=>{if(!newCompanyDoc.name) return;await fetch(API+'/company-documents',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...newCompanyDoc,uploadedBy:user.name})});await loadAll();setNewCompanyDoc(createCompanyDocumentForm());setShowForm(false);}} style={btnO}><Check size={14}/>Сохранить</button><button onClick={()=>setShowForm(false)} style={btnG}><X size={14}/>Отмена</button></div>
+          <div style={{display:'flex',gap:'8px',marginTop:'12px'}}><button disabled={documentBusy || !newCompanyDoc.name.trim() || !newCompanyDoc.fileUrl} onClick={()=>changeDocument('/company-documents',{method:'POST',body:JSON.stringify({...newCompanyDoc,companyId})})} style={btnO}><Check size={14}/>Сохранить</button><button onClick={()=>setShowForm(false)} style={btnG}><X size={14}/>Отмена</button></div>
         </div>)}
         {COMPANY_DOC_TYPES.map(docType=>{
-          const docs=companyDocuments.filter(d=>d.docType===docType);
+          const docs=visibleDocuments.filter(d=>d.docType===docType);
           if(docs.length===0) return null;
           return(<div key={docType} style={{marginBottom:'16px'}}>
             <div style={{padding:'8px 12px',backgroundColor:C.bg,borderRadius:'8px',border:'1.5px solid '+C.border,marginBottom:'8px'}}><b style={{color:C.accent,fontSize:'12px'}}>{'📄 '+docType}</b></div>
@@ -107,13 +167,15 @@ export default function SettingsPage({
               <div><b style={{color:C.text,fontSize:'13px'}}>{doc.name}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{doc.uploadedBy+(doc.expiresAt?' · до '+doc.expiresAt:'')}</p></div>
               <div style={{display:'flex',gap:'6px'}}>
                 {doc.fileUrl&&<button onClick={()=>setShowPhotoModal(doc.fileUrl)} style={btnB}><Eye size={13}/>Открыть</button>}
-                <button onClick={async()=>{await fetch(API+'/company-documents/'+doc.id,{method:'DELETE'});await loadAll();}} style={{...btnR,padding:'5px 8px'}}><Trash2 size={11}/></button>
+                <button disabled={documentBusy} onClick={()=>changeDocument('/company-documents/'+doc.id,{method:'DELETE'})} style={{...btnR,padding:'5px 8px'}}><Trash2 size={11}/></button>
               </div>
             </div>))}
           </div>);
         })}
-        {companyDocuments.length===0&&<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}><FileText size={48} style={{marginBottom:'15px',opacity:0.3}}/><p>Документов нет — загрузите первый!</p></div>}
+        {companyId&&visibleDocuments.length===0&&<div style={{...card,padding:'40px',textAlign:'center',color:C.textMuted}}><FileText size={48} style={{marginBottom:'15px',opacity:0.3}}/><p>Документов нет — загрузите первый!</p></div>}
       </div>)}
+
+      {settingsTab==='archive'&&canManageSitePricing&&<CompanyDocumentArchive API={API} companyId={companyId} C={C} card={card} inp={inp} btnG={btnG} setShowPhotoModal={setShowPhotoModal}/>}
 
       {settingsTab==='sitePricing'&&canManageSitePricing&&(
         <SitePricingSettingsPanel API={API} C={C} card={card} inp={inp} btnO={btnO} btnG={btnG}/>

@@ -39,9 +39,9 @@ def connection_settings(environ):
     return {"host": host, "port": port, "dbname": name, "user": "chain_test", "password": ""}
 
 
-def build_fixture():
+def build_fixture(*, contract_review=False, document_bindings=False):
     settings = connection_settings(os.environ)
-    return _build_isolated_fixture(settings)
+    return _build_isolated_fixture(settings, contract_review=contract_review, document_bindings=document_bindings)
 
 
 def guarded_connector(settings, connect):
@@ -95,6 +95,15 @@ def _initialize_schema(runtime, source):
         try:
             runtime.init_db()
             runtime.ensure_agent_jobs_schema(runtime.get_db)
+            from importlib import import_module
+            conn = runtime.get_db()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(import_module('migrations.versions.0036_supplier_invite_company').SCHEMA_SQL)
+                    cur.execute(import_module('migrations.versions.0037_supplier_shipment_batches').SCHEMA_SQL)
+                    cur.execute(import_module('migrations.versions.0039_supplier_email_history').SCHEMA_SQL)
+            finally:
+                conn.close()
             return prerequisites
         except psycopg2.errors.UndefinedTable as exc:
             missing = re.search(r'relation "([a-z_]+)" does not exist', str(exc))
@@ -156,6 +165,8 @@ def _seed(runtime):
                     ("SUPPLY CHAIN legal " + key, users[key]["email"], inn, users[key]["id"]))
                 if key == "supplier":
                     supplier_id = cur.fetchone()["id"]
+                    cur.execute('''INSERT INTO company_supplier_links(company_id,supplier_id,platform_account_id)
+                                   SELECT id,%s,platform_account_id FROM companies WHERE id IN (2,3)''', (supplier_id,))
             sections = [{"name": package, "items": [{"id": "chain-material-1", "name": material,
                 "type": "material", "itemType": "material", "unit": "шт", "quantity": 2,
                 "price": 100, "priceMaterial": 100, "lineTotal": 200, "workPackage": package}]}]
@@ -175,7 +186,7 @@ def _seed(runtime):
             "quantity": 2, "unit": "шт", "workPackage": package}
 
 
-def _build_isolated_fixture(settings):
+def _build_isolated_fixture(settings, *, contract_review=False, document_bindings=False):
     import psycopg2
     stack = ExitStack()
     connections = []
@@ -185,6 +196,13 @@ def _build_isolated_fixture(settings):
                "DB_USER": "chain_test", "DB_PASSWORD": "", "APP_PUBLIC_URL": "http://localhost",
                "PGPASSFILE": os.path.join(temporary_directory, "no-password-file"),
                "AUTH_SECRET": "Supply-Chain-Test-Only-6vN8qP3xR5tZ9cD1"}
+        if contract_review:
+            env.update({"SUPPLIER_DEAL_PARTIES_ENABLED": "1", "SUPPLIER_CONTRACT_SNAPSHOTS_ENABLED": "1",
+                        "SUPPLIER_CONTRACT_RECOGNITION_ENABLED": "1"})
+        if document_bindings:
+            if not contract_review:
+                raise RuntimeError('Document bindings require contract review fixture')
+            env['SUPPLIER_DOCUMENT_CONTRACT_BINDINGS_ENABLED'] = '1'
         stack.enter_context(patch.dict(os.environ, env, clear=True))
         original_connect = psycopg2.connect
         def tracked_connect(**kwargs):
@@ -235,6 +253,21 @@ def _build_isolated_fixture(settings):
         main_path = root / "main.py"
         schema_runtime = _module_from_source("backend._supply_chain_schema", main_path, stack, before_call="init_db")
         prerequisites = _initialize_schema(schema_runtime, main_path.read_text(encoding="utf-8"))
+        if contract_review:
+            # Execute the existing migration SQL only in the guarded empty test DB.
+            from backend.features.supplier_deal_parties.test_migration import migration_statements
+            from backend.features.supplier_deal_parties.test_contract_postgres import statements
+            from backend.features.supplier_deal_parties.test_binding_migration import statements as binding_statements
+            conn = schema_runtime.get_db()
+            try:
+                with conn.cursor() as cur:
+                    for statement in migration_statements('upgrade') + statements('upgrade'):
+                        cur.execute(statement)
+                    if document_bindings:
+                        for statement in binding_statements():
+                            cur.execute(statement)
+            finally:
+                conn.close()
         main = _module_from_source("backend._supply_chain_test_runtime", main_path, stack,
                                    omit_calls=("init_db", "ensure_agent_jobs_schema"))
         fixture = _seed(main)

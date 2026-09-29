@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Check } from 'lucide-react';
+import ToolCustodyPanel, { toolCustodyEnabled } from '../features/tool-custody/ToolCustodyPanel';
 
 export default function MasterMaterialsPage({
   C,
@@ -14,7 +15,12 @@ export default function MasterMaterialsPage({
   myTools,
   returnMaterialToProject,
   toNum,
+  API,
+  companyContext,
+  user,
+  onChanged,
 }) {
+  const [tool, setTool] = useState(null);
   return (
     <div>
       <h3 style={{color:C.text,marginBottom:'14px',fontSize:'18px',fontWeight:'700'}}>📦 Мой склад</h3>
@@ -118,10 +124,12 @@ export default function MasterMaterialsPage({
                 {t.issueType==='В счёт зарплаты' && <span style={badge(C.danger,C.dangerLight,C.dangerBorder)}>{'Удержание: '+(t.cost||0).toLocaleString()+' ₽'}</span>}
               </div>
               <span style={badge(C.accent,C.accentLight,C.accentBorder||C.border)}>{t.status}</span>
+              {toolCustodyEnabled() && <button style={btnG} onClick={() => setTool(t)}>История и ответственность</button>}
             </div>
           </div>
         ))}
       </div>
+      {tool && <ToolCustodyPanel {...{ tool, API, companyContext, user, C, onChanged }} onClose={() => setTool(null)} />}
     </div>
   );
 }

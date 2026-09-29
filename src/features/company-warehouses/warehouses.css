@@ -1,0 +1,13 @@
+.warehouse-directory {width:100%;min-width:0;box-sizing:border-box;padding:16px;background:var(--ledger-bg);color:var(--ledger-text);border:1px solid var(--ledger-border);border-radius:12px;overflow-wrap:anywhere}
+.warehouse-directory .ledger-actions {flex-wrap:wrap}
+.warehouse-directory button {white-space:normal;min-height:40px}
+.warehouse-directory-form {display:grid;grid-template-columns:minmax(0,1fr);gap:12px;min-width:0;margin:16px 0;padding:16px;border:1px solid var(--ledger-border);border-radius:8px}
+.warehouse-directory label,.warehouse-directory input,.warehouse-directory textarea {min-width:0;max-width:100%;box-sizing:border-box}
+.warehouse-directory textarea {min-height:80px;resize:vertical}
+.warehouse-directory-row {display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;align-items:center;padding:16px 0;border-bottom:1px solid var(--ledger-border)}
+.warehouse-directory-row>div {min-width:0;max-width:100%}
+.warehouse-directory h4,.warehouse-directory p {margin:4px 0 8px}
+.warehouse-directory-notes {white-space:pre-wrap}
+.warehouse-directory-history {margin-top:20px;border-top:2px solid var(--ledger-border);padding-top:16px}
+.warehouse-directory-history article {border-bottom:1px solid var(--ledger-border);padding:12px 0}
+.warehouse-directory dt {font-weight:600}.warehouse-directory dd {margin:4px 0 12px}

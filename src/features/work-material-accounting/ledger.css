@@ -1,0 +1,25 @@
+.work-ledger { color: var(--ledger-text, #172334); font-size: 14px; }
+.work-ledger h3 { font-size: 19px; margin: 0 0 12px; }
+.work-ledger h4 { font-size: 15px; margin: 0 0 8px; }
+.work-ledger p { line-height: 1.5; }
+.work-ledger section, .work-ledger article { padding: 16px; border: 1px solid var(--ledger-border, #dce2e8); border-radius: 10px; margin: 12px 0; }
+.work-ledger label { display: flex; flex-direction: column; gap: 5px; font-weight: 500; }
+.work-ledger input, .work-ledger textarea, .work-ledger select { box-sizing: border-box; width: 100%; background: var(--ledger-bg, white); color: inherit; border: 1px solid var(--ledger-border, #dce2e8); border-radius: 6px; padding: 9px 10px; font: inherit; }
+.work-ledger input[type=file] { padding: 7px; }
+.work-ledger textarea { min-height: 70px; resize: vertical; }
+.work-ledger button { background: var(--ledger-bg, white); color: inherit; border: 1px solid var(--ledger-border, #dce2e8); border-radius: 6px; padding: 9px 12px; cursor: pointer; font: inherit; }
+.work-ledger button.primary { background: #166b50; border-color: #166b50; color: white; }
+.work-ledger button:disabled { opacity: .55; cursor: default; }
+.work-ledger button:focus-visible, .work-ledger input:focus-visible, .work-ledger textarea:focus-visible { outline: 3px solid #56a4df; outline-offset: 2px; }
+.work-ledger .ledger-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap: 12px; margin: 12px 0; }
+.work-ledger .ledger-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+.work-ledger .ledger-error { color: #a32020; background: #fff1ef; padding: 12px; border-radius: 6px; }
+.work-ledger .ledger-scroll { overflow-x: auto; }
+.work-ledger table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.work-ledger th, .work-ledger td { padding: 9px 8px; text-align: left; border-bottom: 1px solid var(--ledger-border, #dce2e8); }
+.work-ledger td.amount, .work-ledger th.amount { text-align: right; white-space: nowrap; }
+.work-ledger .ledger-totals { display: flex; gap: 24px; flex-wrap: wrap; padding: 14px 0; }
+.work-ledger .ledger-totals b { display: block; font-size: 19px; margin-top: 4px; }
+dialog.work-ledger { width: min(840px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); overflow-y: auto; box-sizing: border-box; border: 1px solid var(--ledger-border,#dce2e8); border-radius: 14px; padding: 22px; background: var(--ledger-bg,white); }
+dialog.work-ledger::backdrop { background: rgba(12,24,34,.58); }
+@media(max-width:540px) { dialog.work-ledger { padding: 14px; } .work-ledger section, .work-ledger article { padding: 12px; } }

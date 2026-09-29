@@ -12,6 +12,7 @@ import {
 import { API } from '../api';
 import { createMaterialTransferForm } from '../features/warehouse/warehouseInitialForms';
 import { uniqueStoredProjectForName } from '../features/estimates/projectEstimateOwnership';
+import { isInvoiceLineIndex } from '../utils/warehouseInvoiceSource';
 
 export default function WarehouseObjectsPanel({
   C,
@@ -102,11 +103,16 @@ export default function WarehouseObjectsPanel({
     const parsed = Number(String(value ?? '').replace(',', '.').replace(/\s+/g, ''));
     return Number.isFinite(parsed) ? parsed : 0;
   };
-  const transferItemKey = item => [
+  const transferStockKey = item => [
     item.materialName || item.name || '',
     item.workPackage || item.work_package || '',
     item.unit || '',
   ].join('|||');
+  const hasInvoiceSource = item => item.invoiceId != null && isInvoiceLineIndex(item.invoiceLineIndex);
+  const transferItemKey = item => hasInvoiceSource(item)
+    ? JSON.stringify(['invoice', String(item.invoiceId), item.invoiceLineIndex]) : transferStockKey(item);
+  const transferSourceLabel = item => hasInvoiceSource(item)
+    ? ` · накладная № ${item.invoiceNumber || item.invoiceId} · строка ${item.invoiceLineIndex + 1}` : '';
   const normalizeTransferItems = React.useCallback((items = []) => (
     (Array.isArray(items) ? items : [])
       .map(item => ({
@@ -171,15 +177,21 @@ export default function WarehouseObjectsPanel({
       : [...new Set(transferSourceMaterials.map(material => material.workPackage || material.work_package || '').filter(Boolean))])
     : [];
   const stockForTransferItem = item => transferSourceMaterials.find(material =>
-    material.name === item.materialName &&
-    (material.workPackage || material.work_package || '') === (item.workPackage || '')
+    transferStockKey(material) === transferStockKey(item)
   );
+  // All source lines drawing from the same physical stock share one limit.
+  const requestedByStock = new Map();
+  selectedTransferItems.forEach(item => {
+    const stock = stockForTransferItem(item);
+    requestedByStock.set(stock, (requestedByStock.get(stock) || 0) + toNum(item.quantity));
+  });
+  const overStockForItem = item => {
+    const stock = stockForTransferItem(item);
+    return (requestedByStock.get(stock) || 0) > toNum(stock?.quantity);
+  };
   const transferNeedsPackage = ['мастер', 'бригадир', 'субподрядчик'].includes((newTransfer.toPersonRole || '').toLowerCase());
   const transferMissingPackage = transferNeedsPackage && selectedTransferItems.some(item => !(item.workPackage || '').trim());
-  const transferOverStock = selectedTransferItems.some(item => {
-    const stock = stockForTransferItem(item);
-    return !!item.materialName && toNum(item.quantity) > toNum(stock?.quantity);
-  });
+  const transferOverStock = selectedTransferItems.some(overStockForItem);
   const canSaveObjectTransfer = selectedTransferItems.length > 0 &&
     selectedTransferItems.every(item => toNum(item.quantity) > 0) &&
     !!newTransfer.toPerson &&
@@ -541,29 +553,30 @@ export default function WarehouseObjectsPanel({
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: '8px', marginBottom: '10px' }}>
                   <div style={{ padding: '10px', backgroundColor: C.bg, borderRadius: '8px', border: '1px solid ' + C.border }}><p style={{ margin: '0 0 3px', color: C.textSec, fontSize: '10px' }}>Выбрано</p><b style={{ color: C.text }}>{selectedTransferItems.length}</b></div>
                   <div style={{ padding: '10px', backgroundColor: C.bg, borderRadius: '8px', border: '1px solid ' + C.border }}><p style={{ margin: '0 0 3px', color: C.textSec, fontSize: '10px' }}>С количеством</p><b style={{ color: C.warning }}>{selectedTransferItems.filter(item => toNum(item.quantity) > 0).length}</b></div>
-                  <div style={{ padding: '10px', backgroundColor: C.bg, borderRadius: '8px', border: '1px solid ' + C.border }}><p style={{ margin: '0 0 3px', color: C.textSec, fontSize: '10px' }}>Ошибки</p><b style={{ color: transferOverStock ? C.danger : C.success }}>{selectedTransferItems.filter(item => toNum(item.quantity) > toNum(stockForTransferItem(item)?.quantity)).length}</b></div>
+                  <div style={{ padding: '10px', backgroundColor: C.bg, borderRadius: '8px', border: '1px solid ' + C.border }}><p style={{ margin: '0 0 3px', color: C.textSec, fontSize: '10px' }}>Ошибки</p><b style={{ color: transferOverStock ? C.danger : C.success }}>{selectedTransferItems.filter(overStockForItem).length}</b></div>
                   <div style={{ padding: '10px', backgroundColor: C.bg, borderRadius: '8px', border: '1px solid ' + C.border }}><p style={{ margin: '0 0 3px', color: C.textSec, fontSize: '10px' }}>Получатель</p><b style={{ color: newTransfer.toPerson ? C.accent : C.textMuted, overflowWrap: 'anywhere' }}>{newTransfer.toPerson || '—'}</b></div>
                 </div>
                 <div style={{ display: 'grid', gap: '8px', marginBottom: '10px' }}>
                   {selectedTransferItems.map(item => {
                     const stock = stockForTransferItem(item);
                     const stockQty = toNum(stock?.quantity);
-                    const qty = toNum(item.quantity);
-                    const over = qty > stockQty;
+                    const qty = requestedByStock.get(stock) || 0;
+                    const over = overStockForItem(item);
                     return (
                       <div key={transferItemKey(item)} style={{ padding: '10px', backgroundColor: over ? C.dangerLight : C.bg, border: '1.5px solid ' + (over ? C.dangerBorder : C.border), borderRadius: '8px' }}>
                         <div className='mobile-two-cols' style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(180px,1fr) 120px auto auto', gap: '8px', alignItems: 'center' }}>
                           <div style={{ minWidth: 0 }}>
                             <b style={{ display: 'block', fontSize: '13px', color: C.text, overflowWrap: 'anywhere' }}>{item.materialName}</b>
                             {item.workPackage && <span style={{ display: 'block', color: C.textSec, fontSize: '10px', marginTop: '2px' }}>Пакет: {item.workPackage}</span>}
+                            {hasInvoiceSource(item) && <span style={{display:'block',fontSize:'10px',color:C.textSec}}>{transferSourceLabel(item).slice(3)}</span>}
                           </div>
                           <input placeholder='Кол-во *' type='number' step='any' inputMode='decimal' value={item.quantity} onChange={event => updateTransferItems(selectedTransferItems.map(row => transferItemKey(row) === transferItemKey(item) ? { ...row, quantity: event.target.value } : row))} style={{ ...inp, marginBottom: 0, width: isMobile ? '100%' : '120px' }} />
                           <span style={{ fontSize: '12px', color: C.textSec }}>{item.unit}</span>
-                          <button type='button' onClick={() => updateTransferItems(selectedTransferItems.filter(row => transferItemKey(row) !== transferItemKey(item)))} style={{ ...btnG, padding: '6px 9px' }}><X size={12}/></button>
+                          <button type='button' aria-label={`Удалить ${item.materialName}${transferSourceLabel(item)}`} onClick={() => updateTransferItems(selectedTransferItems.filter(row => transferItemKey(row) !== transferItemKey(item)))} style={{ ...btnG, padding: '6px 9px' }}><X size={12}/></button>
                         </div>
                         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '6px', fontSize: '11px', color: over ? C.danger : C.textSec }}>
                           <span>Остаток: {stockQty} {item.unit}</span>
-                          <span>Останется: {Math.max(0, stockQty - qty)} {item.unit}</span>
+                          <span>Останется после всех строк: {Math.max(0, stockQty - qty)} {item.unit}</span>
                         </div>
                       </div>
                     );
@@ -738,10 +751,10 @@ export default function WarehouseObjectsPanel({
                       quantity: item.quantity,
                       unit: item.unit,
                       workPackage: item.workPackage,
-                      invoiceId: item.invoiceId || newTransfer.invoiceId || null,
-                      invoiceLineKey: item.invoiceLineKey || newTransfer.invoiceLineKey || '',
-                      invoiceLineIndex: item.invoiceLineIndex ?? newTransfer.invoiceLineIndex ?? null,
-                      invoiceNumber: item.invoiceNumber || newTransfer.invoiceNumber || '',
+                      invoiceId: item.invoiceId || null,
+                      invoiceLineKey: item.invoiceLineKey || '',
+                      invoiceLineIndex: item.invoiceLineIndex ?? null,
+                      invoiceNumber: item.invoiceNumber || '',
                       fromLocation: selectedWarehouseProject,
                       projectName: selectedWarehouseProject,
                       createdBy: currentUser.name || ''
@@ -758,7 +771,8 @@ export default function WarehouseObjectsPanel({
                         setMaterials(prev => savedRows.reduce((acc, row) => acc.map(material => (
                           material.name === row.data.materialName &&
                           material.project === selectedWarehouseProject &&
-                          (material.workPackage || material.work_package || '') === (row.data.workPackage || '')
+                          (material.workPackage || material.work_package || '') === (row.data.workPackage || '') &&
+                          (material.unit || 'шт') === (row.data.unit || 'шт')
                         ) ? { ...material, quantity: Number(material.quantity || 0) - Number(row.data.quantity || 0) } : material), prev));
                       }
                       window.alert('Ошибка по позиции «' + item.materialName + '»: ' + (saved.detail || saved.error || 'не удалось списать со склада'));
@@ -770,7 +784,8 @@ export default function WarehouseObjectsPanel({
                   setMaterials(prev => savedRows.reduce((acc, row) => acc.map(material => (
                     material.name === row.data.materialName &&
                     material.project === selectedWarehouseProject &&
-                    (material.workPackage || material.work_package || '') === (row.data.workPackage || '')
+                    (material.workPackage || material.work_package || '') === (row.data.workPackage || '') &&
+                    (material.unit || 'шт') === (row.data.unit || 'шт')
                   ) ? { ...material, quantity: Number(material.quantity || 0) - Number(row.data.quantity || 0) } : material), prev));
                   setShowTransferForm(false);
                   setNewTransfer(createMaterialTransferForm({ items: [], fromLocation: selectedWarehouseProject }));

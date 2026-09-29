@@ -20,6 +20,7 @@ from .account_access import (
     resolve_account_company_ids,
     resolve_existing_account,
 )
+from .supplier_dispatch import dispatch_supplier_message, SUPPLIER_MESSAGE_ELIGIBLE_SQL
 from .outbox_access import resolve_outbox_read_company_ids
 from .outbox_worker_access import (
     WORKER_OUTBOX_SCOPE_SQL,
@@ -2967,9 +2968,10 @@ def register_messenger_module(app, deps):
         if not code or not email or not password:
             raise HTTPException(status_code=400, detail="Нужны код приглашения, email и пароль")
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
-            cur.execute("SELECT * FROM invite_codes WHERE code=%s AND used=FALSE", (code,))
+            cur.execute("SELECT * FROM invite_codes WHERE code=%s AND used=FALSE FOR UPDATE", (code,))
             invite = cur.fetchone()
             if not invite:
                 raise HTTPException(status_code=400, detail="Неверный или использованный код")
@@ -2993,15 +2995,9 @@ def register_messenger_module(app, deps):
             if cur.fetchone():
                 raise HTTPException(status_code=409, detail="Этот MAX уже привязан к другому пользователю")
 
-            project_name = _text(invite.get("project_name"), 255)
-            assigned_projects = safe_project_list(invite.get("assigned_projects"))
-            assigned_packages = safe_project_list(invite.get("assigned_packages"))
-            assigned_projects, assigned_packages = prepare_user_access_scope(cur, role, project_name, assigned_projects, assigned_packages)
-            cur.execute("SELECT id FROM projects WHERE name=%s LIMIT 1", (project_name,))
-            project_row = cur.fetchone()
-            project_id = project_row.get("id") if project_row else None
-            company_id = invite.get("company_id")
-            platform_account_id = invite.get("platform_account_id")
+            from ..invite_codes.company_membership import registration_scope
+            from ..company_users.access import save_membership
+            company_id, platform_account_id, project_id, project_name, assigned_projects, assigned_packages = registration_scope(cur, invite)
             cur.execute(
                 """
                 INSERT INTO users
@@ -3025,6 +3021,7 @@ def register_messenger_module(app, deps):
                 ),
             )
             user = cur.fetchone()
+            save_membership(cur,user['id'],company_id,role,assigned_projects,assigned_packages,True,{'is_default':True})
             contact = launch.get("contact") or {}
             cur.execute(
                 """
@@ -3197,7 +3194,7 @@ def register_messenger_module(app, deps):
                     f"""
                     SELECT *
                       FROM messenger_outbox
-                     WHERE provider='max'
+                     WHERE provider='max' AND COALESCE(event_type,'')<>'supplier_kp_requested'
                        AND {WORKER_OUTBOX_SCOPE_SQL}
                        AND status=%s
                        AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())
@@ -3211,7 +3208,7 @@ def register_messenger_module(app, deps):
                     f"""
                     SELECT *
                       FROM messenger_outbox
-                     WHERE provider='max'
+                     WHERE provider='max' AND COALESCE(event_type,'')<>'supplier_kp_requested'
                        AND {WORKER_OUTBOX_SCOPE_SQL}
                      ORDER BY id DESC
                      LIMIT %s
@@ -3299,6 +3296,33 @@ def register_messenger_module(app, deps):
             cur.close()
             conn.close()
 
+    @app.post("/max/supplier-email/dispatch")
+    def resume_supplier_email(limit: int = Query(default=5,ge=1,le=5),
+                              _bot: dict = Depends(require_max_bot_token)):
+        conn = get_db()
+        try:
+            with conn.cursor() as cur:
+                cur.execute('''SELECT r.request_id,r.company_id,r.id FROM supply_request_recipients r
+                    JOIN supply_requests q ON q.id=r.request_id AND q.company_id=r.company_id
+                    JOIN users u ON u.id=r.supplier_user_id AND u.role='поставщик' AND COALESCE(u.active,TRUE)
+                    JOIN suppliers s ON s.id=r.target_supplier_id AND s.user_id=u.id
+                    WHERE EXISTS (SELECT 1 FROM supplier_offers f WHERE f.request_id=r.request_id
+                        AND f.company_id=r.company_id AND f.supplier_id IN (r.supplier_id,r.target_supplier_id)
+                        AND COALESCE(f.status,'') NOT IN ('Отклонено','Отозвано'))
+                      AND r.email_notification_status='В очереди email' AND r.visible_to_supplier=TRUE
+                      AND q.prorab_confirmed_at IS NOT NULL AND q.director_approved_at IS NOT NULL
+                      AND q.status IN ('Утверждена','КП запрошены')
+                      AND (COALESCE(q.project,'') IN ('','Основной склад') OR
+                        (SELECT COUNT(*) FROM projects p WHERE p.company_id=q.company_id
+                         AND BTRIM(p.name)=BTRIM(q.project) AND COALESCE(p.archived,FALSE)=FALSE)=1)
+                    ORDER BY r.id LIMIT %s''',(limit,))
+                rows = cur.fetchall()
+        finally:
+            conn.close()
+        for request_id,company_id,recipient_id in rows:
+            deps["dispatch_supply_recipient_email"](request_id,company_id,recipient_id)
+        return {"ok":True,"checked":len(rows)}
+
     @app.post("/max/outbox/dispatch")
     def dispatch_max_outbox(
         limit: int = Query(default=20, ge=1, le=100),
@@ -3315,9 +3339,10 @@ def register_messenger_module(app, deps):
             cur.execute(
                 f"""
                 SELECT *
-                  FROM messenger_outbox
+                  FROM messenger_outbox o
                  WHERE provider='max'
                    AND {WORKER_OUTBOX_SCOPE_SQL}
+                   AND (COALESCE(event_type,'')<>'supplier_kp_requested' OR {SUPPLIER_MESSAGE_ELIGIBLE_SQL})
                    AND status='queued'
                    AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())
                  ORDER BY priority ASC, id ASC
@@ -3341,6 +3366,16 @@ def register_messenger_module(app, deps):
                         "target": target,
                         "message": payload,
                     })
+                    continue
+                if row.get("event_type") == "supplier_kp_requested":
+                    outcome = dispatch_supplier_message(get_db, row["id"], send_max_outbox_row)
+                    if outcome:
+                        if outcome["status"] == "sent":
+                            outcome["item"] = _public_messenger_outbox_item(outcome["item"])
+                            sent.append(outcome)
+                        else:
+                            failed.append({"id": row["id"], "status": "unconfirmed",
+                                           "error": "Результат передачи MAX не подтверждён; повтор отключён"})
                     continue
                 try:
                     response, provider_message_id, _payload = send_max_outbox_row(row)
@@ -3422,6 +3457,7 @@ def register_messenger_module(app, deps):
                            next_attempt_at=NULL,
                            updated_at=NOW()
                      WHERE provider='max' AND id=%s
+                       AND COALESCE(event_type,'')<>'supplier_kp_requested'
                        AND {WORKER_OUTBOX_SCOPE_SQL}
                  RETURNING *
                     """,
@@ -3438,6 +3474,7 @@ def register_messenger_module(app, deps):
                            next_attempt_at=NOW() + (%s || ' seconds')::interval,
                            updated_at=NOW()
                      WHERE provider='max' AND id=%s
+                       AND COALESCE(event_type,'')<>'supplier_kp_requested'
                        AND {WORKER_OUTBOX_SCOPE_SQL}
                  RETURNING *
                     """,
@@ -3452,6 +3489,7 @@ def register_messenger_module(app, deps):
                            next_attempt_at=NULL,
                            updated_at=NOW()
                      WHERE provider='max' AND id=%s
+                       AND COALESCE(event_type,'')<>'supplier_kp_requested'
                        AND {WORKER_OUTBOX_SCOPE_SQL}
                  RETURNING *
                     """,
@@ -3465,6 +3503,7 @@ def register_messenger_module(app, deps):
                            last_error=%s,
                            updated_at=NOW()
                      WHERE provider='max' AND id=%s
+                       AND COALESCE(event_type,'')<>'supplier_kp_requested'
                        AND {WORKER_OUTBOX_SCOPE_SQL}
                  RETURNING *
                     """,

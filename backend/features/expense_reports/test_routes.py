@@ -39,6 +39,12 @@ class FakeCursor:
         self.rowcount = -1
         self.closed = False
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        self.close()
+
     def execute(self, sql, params=()):
         self.calls.append((" ".join(sql.split()), tuple(params or ())))
         self.current = self.effects.pop(0) if self.effects else {}
@@ -114,6 +120,8 @@ def codes_build(cursor):
     app = FakeApp()
     connection = FakeConnection(cursor)
     register_invite_codes_module(app, {
+        "resolve_context": lambda *_args, **_kwargs: {"mode":"company","companyId":3},
+        "effective_actors": lambda *_args: [{"id":9,"role":"директор","name":"Director","companyId":3}],
         "get_db": lambda: connection,
         "require_roles": lambda *roles: (lambda: None),
         "admin_roles": ("директор",),
@@ -289,15 +297,15 @@ class ExpenseReportsAndInviteCodesTest(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 400)
 
     def test_invite_code_resolves_platform_account_from_company(self):
-        cursor = FakeCursor(fetchone_results=[{"platform_account_id": 77}, {"id": 1, "code": "ABC", "role": "мастер"}])
+        cursor = FakeCursor(fetchone_results=[{"platform_account_id": 77, "active":True}, {"id": 1, "code": "ABC", "role": "бухгалтер"}])
         app, _conn = codes_build(cursor)
         result = app.routes[("POST", "/invite-codes")](
-            {"role": "мастер", "companyId": "3", "projectName": "Объект"}, _current_user={}
+            {"role": "бухгалтер", "companyId": "3"}, _current_user={}, x_company_id="3", x_company_mode="company"
         )
         self.assertEqual(result["code"], "ABC")
         insert = [c for c in cursor.calls if c[0].startswith("INSERT INTO invite_codes")][0]
-        self.assertEqual(insert[1][10], 3)
-        self.assertEqual(insert[1][11], 77)
+        self.assertEqual(insert[1][7], 3)
+        self.assertEqual(insert[1][8], 77)
 
     def test_invite_info_rejects_used_code(self):
         cursor = FakeCursor(fetchone_results=[{"used": True, "role": "мастер"}])

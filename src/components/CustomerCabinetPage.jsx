@@ -1,6 +1,13 @@
 import React from 'react';
-import { API } from '../api';
-import ProjectHiddenWorksActSignatureModal from './ProjectHiddenWorksActSignatureModal';
+import { customerProject, customerProjectRecord, customerRemark } from '../features/customer-cabinet/projectSelection';
+import useCustomerCommands from '../features/customer-cabinet/useCustomerCommands';
+import { customerProgress } from '../features/customer-cabinet/progress';
+import useProgressData from '../features/customer-cabinet/useProgressData';
+import { customerActRows } from '../features/customer-cabinet/actAmounts';
+import { buildCustomerActPreview } from '../features/customer-cabinet/actPreview';
+import CustomerDocuments, { recordLoadIssue } from '../features/customer-cabinet/CustomerDocuments';
+import CustomerWarranty from '../features/customer-cabinet/CustomerWarranty';
+import CustomerHiddenActs from '../features/customer-cabinet/CustomerHiddenActs';
 import PreviewModal from './PreviewModal';
 import ImagePreviewModal from './ImagePreviewModal';
 import { Search, Eye, Check, X, Plus } from 'lucide-react';
@@ -26,40 +33,50 @@ export default function CustomerCabinetPage(props) {
     fmtMeasure,
     setShowPhotoModal,
     fileSrc,
-    projectRealProgress,
     projectStages,
     hiddenActs,
-    editingAct,
-    setEditingAct,
-    setHiddenActs,
     unexpectedWorksList,
     isApprovedEstimateChangeStatus,
     refreshData,
     showPreview,
     buildSupplementaryAgreementContent,
-    activeEstimatesForProject,
-    projectPlanDone,
     estimatePackage,
     sectionsOfEstimate,
     estimateItemMaterialSum,
     estimateItemTotal,
-    showKS2,
-    buildKS3Content,
     projectPayments,
-    contracts,
     prescriptionsList,
     showPhotoModal,
     previewContent,
     previewTitle,
     setPreviewContent,
     doPrint,
+    projectDocuments,
+    projectLetters,
+    warrantyDefects,
+    customerRecordsLoadState,
   } = props;
 
-  const myProject = projects.find(
-    (project) =>
-      project.id === Number(user.project_id || user.projectId) ||
-      project.name === (user.project_name || user.projectName)
-  );
+  const myProject = customerProject(projects, user);
+  const progressData = useProgressData(myProject, user.id, workJournal);
+  const confirmedJournal = progressData.journal;
+  const progress = progressData.loading || progressData.error
+    ? { percent: null, plan: null, done: null, source: progressData.error ? 'error' : 'loading' }
+    : customerProgress(myProject, progressData.estimates, confirmedJournal);
+  const progressUnavailable = progressData.loading ? 'Загрузка данных…'
+    : progressData.error ? 'Данные временно недоступны.' : '';
+  let actRows = null;
+  let actIssue = progressUnavailable || (myProject ? recordLoadIssue(customerRecordsLoadState, 'extraWorks', myProject, user) : 'Объект не выбран');
+  if (!actIssue) {
+    try { actRows = customerActRows(myProject, progressData.estimates, confirmedJournal, unexpectedWorksList); }
+    catch (error) { actIssue = error.message; }
+  }
+  const hasActRows = actRows && Object.values(actRows).some(rows => rows.length);
+  const commands = useCustomerCommands({
+    scope: String(user.id) + ':' + (myProject?.companyId ?? myProject?.company_id) + ':' + myProject?.id,
+    companyId: myProject?.companyId ?? myProject?.company_id,
+    refresh: refreshData,
+  });
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: C.bg, padding: '20px' }}>
@@ -77,6 +94,8 @@ export default function CustomerCabinetPage(props) {
           </button>
         </div>
 
+        {commands.error && <p role="alert" style={{ ...card, color: C.danger, padding: '12px' }}>{commands.error}</p>}
+        {progressData.error && <p role="alert" style={{ ...card, color: C.danger, padding: '12px' }}>{progressData.error}</p>}
         {!myProject ? (
           <div style={{ ...card, padding: '40px', textAlign: 'center' }}>
             <p style={{ color: C.textMuted }}>Объект не найден. Обратитесь к подрядчику.</p>
@@ -119,9 +138,6 @@ export default function CustomerCabinetPage(props) {
             })()}
 
             {(() => {
-              const confirmedJournal = (workJournal || []).filter(
-                (entry) => entry.project === myProject.name && entry.status === 'Подтверждено'
-              );
               const last30 = confirmedJournal.filter((entry) => {
                 const date = new Date(entry.confirmedAt || entry.date || 0);
                 return Date.now() - date.getTime() < 30 * 24 * 3600 * 1000;
@@ -221,12 +237,19 @@ export default function CustomerCabinetPage(props) {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '12px', marginBottom: '16px' }}>
               <div style={{ ...card, padding: '16px', textAlign: 'center' }}>
                 <p style={{ color: C.textSec, fontSize: '12px', margin: '0 0 4px' }}>Прогресс</p>
-                <b style={{ color: C.accent, fontSize: '24px' }}>{projectRealProgress(myProject)}%</b>
+                <b style={{ color: C.accent, fontSize: '24px' }}>{progress.percent === null ? '—' : `${progress.percent}%`}</b>
+                <p style={{ color: C.textSec, fontSize: '11px' }}>
+                  {progress.source === 'confirmed' ? 'По подтверждённым объёмам работ сметы'
+                    : progress.source === 'unlinked' ? 'Есть работы без связи с активной сметой'
+                      : progress.source === 'loading' ? 'Загрузка данных'
+                        : progress.source === 'conflict' ? 'Требуется уточнить активную смету'
+                      : progress.percent === null ? 'Нет данных для расчёта' : 'Оценка подрядчика'}
+                </p>
                 <div style={{ backgroundColor: C.bgGray, borderRadius: '6px', height: '6px', marginTop: '8px' }}>
                   <div
                     style={{
                       backgroundColor: C.accent,
-                      width: `${projectRealProgress(myProject)}%`,
+                      width: `${progress.percent ?? 0}%`,
                       height: '100%',
                       borderRadius: '6px',
                     }}
@@ -246,7 +269,7 @@ export default function CustomerCabinetPage(props) {
             <div style={{ ...card, padding: '20px', marginBottom: '16px' }}>
               <b style={{ color: C.text, fontSize: '14px', display: 'block', marginBottom: '12px' }}>📋 Этапы</b>
               {projectStages
-                .filter((stage) => stage.projectName === myProject.name)
+                .filter((stage) => customerProjectRecord(stage, myProject))
                 .map((stage) => (
                   <div
                     key={stage.id}
@@ -287,76 +310,25 @@ export default function CustomerCabinetPage(props) {
                     </span>
                   </div>
                 ))}
-              {projectStages.filter((stage) => stage.projectName === myProject.name).length === 0 && (
+              {projectStages.filter((stage) => customerProjectRecord(stage, myProject)).length === 0 && (
                 <p style={{ color: C.textMuted, fontSize: '12px' }}>Этапы не добавлены</p>
               )}
             </div>
 
-            <div style={{ ...card, padding: '20px', marginBottom: '16px' }}>
-              <b style={{ color: C.text, fontSize: '14px', display: 'block', marginBottom: '12px' }}>
-                🔒 Акты освидетельствования скрытых работ (АОСР)
-              </b>
-              {(() => {
-                const acts = hiddenActs.filter((act) => act.projectName === myProject.name);
-                if (acts.length === 0) return <p style={{ color: C.textMuted, fontSize: '12px' }}>Актов пока нет. Появятся по ходу работ.</p>;
-                const needSign = acts.filter((act) => !act.signedCustomer);
-                return (
-                  <div>
-                    {needSign.length > 0 && (
-                      <p style={{ color: C.warning, fontSize: '12px', marginBottom: '8px', fontWeight: '600' }}>
-                        ⏳ {needSign.length} акт(ов) ждут моей подписи
-                      </p>
-                    )}
-                    {acts.slice(0, 10).map((act) => (
-                      <div
-                        key={act.id}
-                        onClick={() => setEditingAct(act)}
-                        style={{
-                          padding: '10px 12px',
-                          backgroundColor: C.bg,
-                          borderRadius: '8px',
-                          marginBottom: '6px',
-                          border: `1.5px solid ${C.border}`,
-                          cursor: 'pointer',
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          gap: '8px',
-                        }}
-                      >
-                        <div style={{ flex: 1, overflow: 'hidden' }}>
-                          <b style={{ fontSize: '12px', color: C.text }}>{`${act.actNumber} · ${act.workName}`}</b>
-                          <p style={{ color: C.textSec, margin: '2px 0', fontSize: '11px' }}>
-                            {Number(act.quantity || 0).toLocaleString('ru-RU') + ' ' + (act.unit || '') + ' · ' + (act.workDate || '')}
-                          </p>
-                        </div>
-                        <span
-                          style={{
-                            padding: '2px 8px',
-                            borderRadius: '10px',
-                            fontSize: '10px',
-                            fontWeight: '600',
-                            backgroundColor: act.signedCustomer ? C.successLight : C.warningLight,
-                            color: act.signedCustomer ? C.success : C.warning,
-                          }}
-                        >
-                          {act.signedCustomer ? '✅ Я подписал' : '⏳ Ждёт моей подписи'}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                );
-              })()}
-            </div>
+            <CustomerHiddenActs project={myProject} user={user} rows={hiddenActs}
+              loadState={customerRecordsLoadState} refresh={() => refreshData('projects')} C={C} card={card} />
 
             <div style={{ ...card, padding: '20px', marginBottom: '16px' }}>
               <b style={{ color: C.text, fontSize: '14px', display: 'block', marginBottom: '12px' }}>🆕 Изменения к смете</b>
               {(() => {
+                const issue = recordLoadIssue(customerRecordsLoadState, 'extraWorks', myProject, user);
+                if (issue) return <p role="status">{issue}</p>;
                 const pending = (unexpectedWorksList || []).filter(
-                  (row) => row.projectName === myProject.name && row.status === 'Ожидает согласования'
+                  (row) => customerProjectRecord(row, myProject) && row.status === 'Ожидает согласования'
                 );
                 const approved = (unexpectedWorksList || []).filter(
-                  (row) => row.projectName === myProject.name && isApprovedEstimateChangeStatus(row.status)
+                  (row) => customerProjectRecord(row, myProject)
+                    && (isApprovedEstimateChangeStatus(row.status) || row.status === 'Отклонено')
                 );
                 if (pending.length === 0 && approved.length === 0) {
                   return <p style={{ color: C.textMuted, fontSize: '12px' }}>Изменений нет — работаем по активной смете.</p>;
@@ -406,20 +378,12 @@ export default function CustomerCabinetPage(props) {
                               <button
                                 onClick={async () => {
                                   if (!window.confirm(`Согласовать изменение «${row.description}» на ${(row.total || 0).toLocaleString('ru-RU')} ₽?`)) return;
-                                  await fetch(`${API}/unexpected-works/${row.id}`, {
-                                    method: 'PUT',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({
-                                      status: 'Утверждено отдельной допработой',
-                                      price: row.price,
-                                      total: row.total,
-                                      approvedBy: user.name,
-                                      approvedAt: new Date().toISOString().split('T')[0],
-                                    }),
+                                  await commands.run('/unexpected-works/' + row.id + '/customer-decision', {
+                                    method: 'POST',
+                                    body: { decision: 'approve', revision: row.revision },
                                   });
-                                  await refreshData();
-                                  alert('Согласовано. Подрядчик может приступать.');
                                 }}
+                                disabled={commands.blocked}
                                 style={{ ...btnGr, padding: '5px 10px', fontSize: '11px' }}
                               >
                                 <Check size={11} />
@@ -428,17 +392,12 @@ export default function CustomerCabinetPage(props) {
                               <button
                                 onClick={async () => {
                                   if (!window.confirm(`Отказать в выполнении «${row.description}»?`)) return;
-                                  await fetch(`${API}/unexpected-works/${row.id}`, {
-                                    method: 'PUT',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({
-                                      status: 'Отклонено',
-                                      approvedBy: user.name,
-                                      approvedAt: new Date().toISOString().split('T')[0],
-                                    }),
+                                  await commands.run('/unexpected-works/' + row.id + '/customer-decision', {
+                                    method: 'POST',
+                                    body: { decision: 'reject', revision: row.revision },
                                   });
-                                  await refreshData();
                                 }}
+                                disabled={commands.blocked}
                                 style={{ ...btnR, padding: '5px 10px', fontSize: '11px' }}
                               >
                                 <X size={11} />
@@ -451,7 +410,7 @@ export default function CustomerCabinetPage(props) {
                     )}
                     {approved.length > 0 && (
                       <div>
-                        <b style={{ color: C.success, fontSize: '12px' }}>✅ Согласовано ранее ({approved.length}):</b>
+                        <b style={{ color: C.text, fontSize: '12px' }}>Принятые решения ({approved.length}):</b>
                         {approved.slice(0, 5).map((row) => (
                           <div
                             key={row.id}
@@ -468,16 +427,16 @@ export default function CustomerCabinetPage(props) {
                             }}
                           >
                             <span style={{ color: C.textSec }}>
-                              {row.description + ' · ' + (row.total || 0).toLocaleString('ru-RU') + ' ₽ · ' + row.approvedAt}
+                              {row.description + ' · ' + row.status + ' · ' + (row.total || 0).toLocaleString('ru-RU') + ' ₽ · ' + row.approvedAt}
                             </span>
-                            <button
+                            {isApprovedEstimateChangeStatus(row.status) && <button
                               onClick={() => showPreview(buildSupplementaryAgreementContent(row, myProject), 'Доп.соглашение № ' + row.id)}
                               style={{ ...btnB, padding: '3px 8px', fontSize: '10px' }}
                               title="Распечатать доп.соглашение"
                             >
                               <Eye size={10} />
                               📜
-                            </button>
+                            </button>}
                           </div>
                         ))}
                       </div>
@@ -490,12 +449,13 @@ export default function CustomerCabinetPage(props) {
             <div style={{ ...card, padding: '20px', marginBottom: '16px' }}>
               <b style={{ color: C.text, fontSize: '14px', display: 'block', marginBottom: '12px' }}>📐 Смета объекта</b>
               {(() => {
-                const activeEstimates = activeEstimatesForProject(myProject, 'Заказчик');
+                if (progressUnavailable) return <p>{progressUnavailable}</p>;
+                const activeEstimates = progressData.estimates;
                 const estimate = activeEstimates[0];
                 if (activeEstimates.length === 0) {
                   return <p style={{ color: C.textMuted, fontSize: '12px' }}>Смета подрядчиком ещё не загружена.</p>;
                 }
-                const planDone = projectPlanDone(myProject);
+                const planDone = progress;
                 return (
                   <div>
                     <p style={{ color: C.text, fontSize: '13px', margin: '0 0 8px' }}>
@@ -504,12 +464,12 @@ export default function CustomerCabinetPage(props) {
                     </p>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '10px' }}>
                       <div style={{ padding: '10px', backgroundColor: C.bg, borderRadius: '8px' }}>
-                        <p style={{ color: C.textSec, fontSize: '11px', margin: '0 0 4px' }}>По смете</p>
-                        <b style={{ color: C.text, fontSize: '14px' }}>{Math.round(planDone.plan).toLocaleString('ru-RU') + ' ₽'}</b>
+                        <p style={{ color: C.textSec, fontSize: '11px', margin: '0 0 4px' }}>Работы по смете</p>
+                        <b style={{ color: C.text, fontSize: '14px' }}>{planDone.plan === null ? 'Нет точного расчёта' : Math.round(planDone.plan).toLocaleString('ru-RU') + ' ₽'}</b>
                       </div>
                       <div style={{ padding: '10px', backgroundColor: C.successLight, borderRadius: '8px' }}>
                         <p style={{ color: C.success, fontSize: '11px', margin: '0 0 4px' }}>Выполнено</p>
-                        <b style={{ color: C.success, fontSize: '14px' }}>{Math.round(planDone.done).toLocaleString('ru-RU') + ' ₽'}</b>
+                        <b style={{ color: C.success, fontSize: '14px' }}>{planDone.done === null ? 'Нет точного расчёта' : Math.round(planDone.done).toLocaleString('ru-RU') + ' ₽'}</b>
                       </div>
                     </div>
                     <button
@@ -560,28 +520,28 @@ export default function CustomerCabinetPage(props) {
 
             <div style={{ ...card, padding: '20px', marginBottom: '16px' }}>
               <b style={{ color: C.text, fontSize: '14px', display: 'block', marginBottom: '12px' }}>
-                📄 Акты КС-2 и КС-3 на согласование
+                📄 Расчёты КС-2 и КС-3
               </b>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                <button onClick={() => showKS2(myProject)} style={btnO}>
+                <button disabled={Boolean(actIssue) || !hasActRows} onClick={() => showPreview(buildCustomerActPreview(myProject, actRows, 'ks2'), 'Расчёт КС-2 — ' + myProject.name)} style={btnO}>
                   <Eye size={14} />
                   📄 КС-2 (приёмка работ)
                 </button>
-                <button onClick={() => showPreview(buildKS3Content(myProject), 'КС-3 — ' + myProject.name)} style={btnB}>
+                <button disabled={Boolean(actIssue) || !hasActRows} onClick={() => showPreview(buildCustomerActPreview(myProject, actRows, 'ks3'), 'Расчёт КС-3 — ' + myProject.name)} style={btnB}>
                   <Eye size={14} />
                   📋 КС-3 (стоимость)
                 </button>
               </div>
               <p style={{ color: C.textMuted, fontSize: '11px', marginTop: '10px', lineHeight: 1.4 }}>
-                Формируются автоматически из выполненных позиций активной сметы. Утверждённые изменения показываются
-                отдельными разделами: дополнительные объёмы и работы вне сметы.
+                {actIssue || (!hasActRows ? 'Подтверждённых работ для расчёта пока нет.' : 'Предварительный расчёт по полному подтверждённому журналу. Допработы учитываются только после выполнения и приёмки. Подписанные акты доступны в документах.')}
               </p>
             </div>
 
             <div style={{ ...card, padding: '20px', marginBottom: '16px' }}>
               <b style={{ color: C.text, fontSize: '14px', display: 'block', marginBottom: '12px' }}>📷 Фото-отчёт</b>
               {(() => {
-                const photos = workJournal.filter((entry) => entry.project === myProject.name && entry.photoUrl).slice(0, 12);
+                if (progressUnavailable) return <p>{progressUnavailable}</p>;
+                const photos = confirmedJournal.filter((entry) => entry.photoUrl).slice(0, 12);
                 if (photos.length === 0) {
                   return <p style={{ color: C.textMuted, fontSize: '12px' }}>Подрядчик пока не загружал фото работ.</p>;
                 }
@@ -616,8 +576,7 @@ export default function CustomerCabinetPage(props) {
               <b style={{ color: C.text, fontSize: '14px', display: 'block', marginBottom: '12px' }}>
                 📖 Журнал производства работ (последние 10)
               </b>
-              {workJournal
-                .filter((entry) => entry.project === myProject.name)
+              {confirmedJournal
                 .slice(0, 10)
                 .map((entry) => (
                   <div key={entry.id} style={{ padding: '8px 0', borderBottom: `1px solid ${C.border}` }}>
@@ -635,15 +594,20 @@ export default function CustomerCabinetPage(props) {
                       ) : null}
                     </b>
                     <p style={{ color: C.textSec, margin: '2px 0', fontSize: '11px' }}>
-                      {(entry.masterName || '') + ' · ' + (entry.date || '') + ' · ' + (entry.status || '')}
+                      {(entry.date || '') + ' · ' + (entry.status || '')}
                     </p>
                   </div>
                 ))}
-              {workJournal.filter((entry) => entry.project === myProject.name).length === 0 && (
-                <p style={{ color: C.textMuted, fontSize: '12px' }}>Записей нет</p>
+              {confirmedJournal.length === 0 && (
+                <p style={{ color: C.textMuted, fontSize: '12px' }}>{progressUnavailable || 'Записей нет'}</p>
               )}
             </div>
 
+            <CustomerDocuments project={myProject} user={user} documents={projectDocuments} letters={projectLetters}
+              loadState={customerRecordsLoadState} refresh={refreshData} fileSrc={fileSrc} C={C} card={card} btnG={btnG} />
+            <CustomerWarranty key={`${user.id}:${myProject.companyId}:${myProject.id}`} project={myProject} user={user}
+              records={warrantyDefects} loadState={customerRecordsLoadState} refresh={refreshData} fileSrc={fileSrc}
+              C={C} card={card} inp={inp} btnB={btnB} btnG={btnG} />
             <div style={{ ...card, padding: '20px', marginBottom: '16px' }}>
               <b style={{ color: C.text, fontSize: '14px', display: 'block', marginBottom: '12px' }}>⚠️ Мои замечания подрядчику</b>
               <textarea id="client_remark" placeholder="Опишите замечание..." style={{ ...inp, height: '70px' }} />
@@ -651,22 +615,24 @@ export default function CustomerCabinetPage(props) {
                 onClick={async () => {
                   const text = document.getElementById('client_remark').value;
                   if (!text.trim()) return;
-                  await fetch(`${API}/prescriptions`, {
+                  await commands.run('/prescriptions', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
+                    body: {
+                      projectId: myProject.id,
                       projectName: myProject.name,
                       violation: text,
                       priority: 'Замечание заказчика',
                       issuedBy: user.name,
                       issuedByRole: 'Заказчик',
                       status: 'Открыто',
-                    }),
+                    },
+                    onSuccess: () => {
+                      const input = document.getElementById('client_remark');
+                      if (input && input.value === text) input.value = '';
+                    },
                   });
-                  await refreshData();
-                  document.getElementById('client_remark').value = '';
-                  alert('Замечание передано подрядчику');
                 }}
+                disabled={commands.blocked}
                 style={btnO}
               >
                 <Plus size={14} />
@@ -674,11 +640,7 @@ export default function CustomerCabinetPage(props) {
               </button>
               <div style={{ marginTop: '12px' }}>
                 {(prescriptionsList || [])
-                  .filter(
-                    (prescription) =>
-                      prescription.projectName === myProject.name &&
-                      (prescription.issuedBy === user.name || prescription.issuedByRole === 'Заказчик')
-                  )
+                  .filter((prescription) => customerRemark(prescription, myProject, user))
                   .slice(0, 10)
                   .map((prescription) => (
                     <div
@@ -705,7 +667,9 @@ export default function CustomerCabinetPage(props) {
             <div style={{ ...card, padding: '20px', marginBottom: '16px' }}>
               <b style={{ color: C.text, fontSize: '14px', display: 'block', marginBottom: '12px' }}>💰 Платежи по объекту</b>
               {(() => {
-                const payments = (projectPayments || []).filter((row) => row.projectName === myProject.name);
+                const issue = recordLoadIssue(customerRecordsLoadState, 'payments', myProject, user);
+                if (issue) return <p role="status">{issue}</p>;
+                const payments = (projectPayments || []).filter((row) => customerProjectRecord(row, myProject));
                 const paid = payments.reduce((sum, row) => sum + Number(row.amount || 0), 0);
                 const budget = Number(myProject.budget || 0);
                 const remain = budget - paid;
@@ -714,15 +678,15 @@ export default function CustomerCabinetPage(props) {
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '8px', marginBottom: '10px' }}>
                       <div style={{ padding: '10px', backgroundColor: C.bg, borderRadius: '8px' }}>
                         <p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 4px' }}>Бюджет</p>
-                        <b style={{ color: C.text, fontSize: '13px' }}>{Math.round(budget).toLocaleString('ru-RU') + ' ₽'}</b>
+                        <b style={{ color: C.text, fontSize: '13px' }}>{(budget).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽'}</b>
                       </div>
                       <div style={{ padding: '10px', backgroundColor: C.successLight, borderRadius: '8px' }}>
-                        <p style={{ color: C.success, fontSize: '10px', margin: '0 0 4px' }}>Оплачено</p>
-                        <b style={{ color: C.success, fontSize: '13px' }}>{Math.round(paid).toLocaleString('ru-RU') + ' ₽'}</b>
+                        <p style={{ color: C.success, fontSize: '10px', margin: '0 0 4px' }}>Зарегистрировано оплат</p>
+                        <b style={{ color: C.success, fontSize: '13px' }}>{(paid).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽'}</b>
                       </div>
                       <div style={{ padding: '10px', backgroundColor: C.warningLight, borderRadius: '8px' }}>
-                        <p style={{ color: C.warning, fontSize: '10px', margin: '0 0 4px' }}>Остаток</p>
-                        <b style={{ color: C.warning, fontSize: '13px' }}>{Math.round(remain).toLocaleString('ru-RU') + ' ₽'}</b>
+                        <p style={{ color: C.warning, fontSize: '10px', margin: '0 0 4px' }}>Разница с бюджетом</p>
+                        <b style={{ color: C.warning, fontSize: '13px' }}>{(remain).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽'}</b>
                       </div>
                     </div>
                     {payments.slice(0, 8).map((payment, idx) => (
@@ -738,8 +702,8 @@ export default function CustomerCabinetPage(props) {
                           fontSize: '11px',
                         }}
                       >
-                        <span>{(payment.date || '') + (payment.note ? ' · ' + payment.note : '')}</span>
-                        <b style={{ color: C.success }}>{Math.round(Number(payment.amount || 0)).toLocaleString('ru-RU') + ' ₽'}</b>
+                        <span>{payment.date || ''}</span>
+                        <b style={{ color: C.success }}>{(Number(payment.amount || 0)).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ₽'}</b>
                       </div>
                     ))}
                     {payments.length === 0 && (
@@ -750,59 +714,9 @@ export default function CustomerCabinetPage(props) {
               })()}
             </div>
 
-            <div style={{ ...card, padding: '20px' }}>
-              <b style={{ color: C.text, fontSize: '14px', display: 'block', marginBottom: '12px' }}>📄 Договоры</b>
-              {contracts
-                .filter((contract) => contract.projectName === myProject.name || contract.client === user.name)
-                .map((contract) => (
-                  <div
-                    key={contract.id}
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      padding: '8px 0',
-                      borderBottom: `1px solid ${C.border}`,
-                    }}
-                  >
-                    <div>
-                      <b style={{ fontSize: '13px', color: C.text }}>Договор № {contract.number}</b>
-                      <p style={{ color: C.textSec, margin: '2px 0', fontSize: '11px' }}>
-                        {Number(contract.totalAmount || 0).toLocaleString() + ' ₽ · ' + contract.status}
-                      </p>
-                    </div>
-                    <button
-                      onClick={() =>
-                        showPreview(
-                          `<h2>Договор №${contract.number}</h2><p>Заказчик: ${contract.client}</p><p>Сумма: ${Number(contract.totalAmount || 0).toLocaleString()} ₽</p>`,
-                          'Договор'
-                        )
-                      }
-                      style={{ ...btnB, padding: '4px 10px', fontSize: '11px' }}
-                    >
-                      <Eye size={11} />
-                      Открыть
-                    </button>
-                  </div>
-                ))}
-              {contracts.filter((contract) => contract.projectName === myProject.name || contract.client === user.name).length === 0 && (
-                <p style={{ color: C.textMuted, fontSize: '12px' }}>Договоров нет</p>
-              )}
-            </div>
           </div>
         )}
       </div>
-      <ProjectHiddenWorksActSignatureModal
-        act={editingAct}
-        mode="customer"
-        setEditingAct={setEditingAct}
-        setHiddenActs={setHiddenActs}
-        C={C}
-        card={card}
-        inp={inp}
-        btnG={btnG}
-        btnO={btnO}
-      />
       <ImagePreviewModal src={showPhotoModal} onClose={() => setShowPhotoModal(null)} />
       {previewContent && (
         <PreviewModal

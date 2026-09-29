@@ -1,6 +1,6 @@
 import React from 'react';
+import { defaultResponseDeadline } from '../features/supply/supplierDeadlines';
 import { Check, X } from 'lucide-react';
-import { groupSuppliers } from '../utils/supplierUtils';
 
 export default function RequestKpModal({
   showRequestKpModal,
@@ -19,8 +19,14 @@ export default function RequestKpModal({
   setSelectedSupplierIds,
   sendKpRequest,
 }) {
+  const [responseDueAt,setResponseDueAt]=React.useState('');
+  const [supplierItems,setSupplierItems]=React.useState({});
+  const [sending,setSending]=React.useState(false);
+  const [sendError,setSendError]=React.useState('');
+  React.useEffect(()=>{if(showRequestKpModal) {setResponseDueAt(defaultResponseDeadline());setSupplierItems({});setSendError('');}},[showRequestKpModal]);
+  const validDeadline=Boolean(responseDueAt) && Date.parse(responseDueAt+':00+03:00')>Date.now();
   const suggestedSupplierGroups = React.useMemo(
-    () => groupSuppliers(suggestedSuppliers?.suppliers || []),
+    () => suggestedSuppliers?.suppliers || [],
     [suggestedSuppliers]
   );
   React.useEffect(() => {
@@ -28,7 +34,7 @@ export default function RequestKpModal({
     setSelectedSupplierIds(prev => {
       const prevIds = new Set((prev || []).map(String));
       const next = suggestedSupplierGroups
-        .filter(supplier => (supplier._supplierIds || [supplier.id]).some(id => prevIds.has(String(id))))
+        .filter(supplier => prevIds.has(String(supplier.id)))
         .map(supplier => supplier.id);
       const same = next.length === (prev || []).length && next.every((id, index) => String(id) === String(prev[index]));
       return same ? prev : next;
@@ -39,6 +45,8 @@ export default function RequestKpModal({
 
   const req = supplyRequests.find(r=>r.id===showRequestKpModal);
   const items = req ? parseSupplyItems(req) : [];
+  const selectedPositions = id => supplierItems[id] ?? items.map((_,index)=>index);
+  const validPositions = selectedSupplierIds.every(id => selectedPositions(id).length > 0);
 
   const renderTitleMeta = () => {
     if (!req) return null;
@@ -48,7 +56,7 @@ export default function RequestKpModal({
     }
     return (
       <div style={{margin:'4px 0 0'}}>
-        <p style={{color:C.textSec,margin:'0 0 4px',fontSize:'12px'}}>📋 Пакет из {items.length} позиций · 🏗 {req.project||''} — отправим одним запросом</p>
+        <p style={{color:C.textSec,margin:'0 0 4px',fontSize:'12px'}}>📋 Заявка из {items.length} позиций · 🏗 {req.project||''}. Выберите материалы для каждого поставщика.</p>
         <ol style={{margin:0,paddingLeft:'18px',color:C.textSec,fontSize:'11px'}}>
           {items.slice(0,5).map((it,i)=><li key={i}>{it.materialName} <span>— {it.quantity} {it.unit}</span></li>)}
           {items.length>5 && <li style={{listStyle:'none',fontStyle:'italic'}}>...и ещё {items.length-5}</li>}
@@ -66,49 +74,62 @@ export default function RequestKpModal({
             <b style={{color:C.text,fontSize:'16px',display:'block'}}>📨 Запросить КП у поставщиков</b>
             {renderTitleMeta()}
           </div>
-          <button onClick={()=>setShowRequestKpModal(null)} style={{...btnG,padding:'4px 8px'}}><X size={14}/></button>
+          <button aria-label="Закрыть" onClick={()=>setShowRequestKpModal(null)} style={{...btnG,padding:'4px 8px'}}><X size={14}/></button>
         </div>
-        {requestKpLoading && <p style={{color:C.textMuted,padding:'20px',textAlign:'center',fontSize:'13px'}}>⏳ AI подбирает поставщиков...</p>}
+        {requestKpLoading && <p style={{color:C.textMuted,padding:'20px',textAlign:'center',fontSize:'13px'}}>Загружаем поставщиков компании…</p>}
         {!requestKpLoading && suggestedSuppliers && suggestedSuppliers.error && (
           <p style={{color:C.danger,padding:'20px',textAlign:'center',fontSize:'13px'}}>❌ {suggestedSuppliers.error}</p>
         )}
         {!requestKpLoading && suggestedSuppliers && !suggestedSuppliers.error && (<>
           <div style={{padding:'10px 12px',backgroundColor:C.infoLight,border:'1.5px solid '+C.infoBorder,borderRadius:'8px',marginBottom:'12px',fontSize:'12px',color:C.text}}>
-            🤖 AI нашёл {suggestedSupplierGroups.length} поставщиков по категории «{suggestedSuppliers.category||'не указана'}». Из них рекомендует {suggestedSuppliers.aiRecommendedCount} — отметил их ⭐ галочкой автоматически. Можно добавить или убрать.
+            Поставщиков вашей компании: {suggestedSupplierGroups.length}. Отметьте адресатов запроса. Рейтинг и история поставок не подтверждают наличие нужного материала.
           </div>
+          <label style={{display:'block',marginBottom:12,color:C.text,fontSize:13}}>Ответить на КП до (МСК)
+            <input type="datetime-local" aria-label="Ответить на КП до (МСК)" value={responseDueAt} onChange={event=>setResponseDueAt(event.target.value)} style={{display:'block',maxWidth:'100%',padding:8,marginTop:6}}/>
+          </label>
+          <p style={{fontSize:12,color:C.textSec}}>По умолчанию — следующий будний день в это же время. Праздники не учитываются. Срок применяется только к новым запросам КП.</p>
+          {!validDeadline && <p role="alert" style={{color:C.danger}}>Укажите дату и время в будущем.</p>}
           {suggestedSupplierGroups.length===0 && (
             <div style={{padding:'30px',textAlign:'center',color:C.textMuted,fontSize:'13px'}}>
-              Поставщиков по этой категории нет.<br/>Добавьте поставщиков в разделе «Снабжение → Поставщики».
+              В компании пока нет активных связей с поставщиками.<br/>Добавьте поставщиков в разделе «Снабжение → Поставщики».
             </div>
           )}
           {suggestedSupplierGroups.map(s=>{
             const checked = selectedSupplierIds.includes(s.id);
             return (
-              <div key={s.id} onClick={()=>{
-                if (s.alreadyRequested) return;
-                setSelectedSupplierIds(prev=>checked?prev.filter(x=>x!==s.id):[...prev,s.id]);
-              }} style={{padding:'10px 12px',marginBottom:'6px',borderRadius:'8px',backgroundColor:checked?C.successLight:C.bg,border:'1.5px solid '+(checked?C.successBorder:C.border),cursor:s.alreadyRequested?'not-allowed':'pointer',display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',opacity:s.alreadyRequested?0.5:1}}>
+              <div key={s.id} style={{padding:'10px 12px',marginBottom:'6px',borderRadius:'8px',backgroundColor:checked?C.successLight:C.bg,border:'1.5px solid '+(checked?C.successBorder:C.border),opacity:s.alreadyRequested?0.5:1}}>
                 <div style={{display:'flex',alignItems:'center',gap:'10px',flex:1}}>
-                  <input type='checkbox' checked={checked} readOnly disabled={s.alreadyRequested} style={{accentColor:C.accent,cursor:s.alreadyRequested?'not-allowed':'pointer'}}/>
+                  <input type='checkbox' aria-label={s.name} checked={checked} onChange={()=>{
+                    if (s.alreadyRequested) return;
+                    setSelectedSupplierIds(prev=>checked?prev.filter(x=>x!==s.id):[...prev,s.id]);
+                  }} disabled={s.alreadyRequested} style={{accentColor:C.accent}}/>
                   <div>
                     <div style={{display:'flex',alignItems:'center',gap:'6px'}}>
                       <b style={{color:C.text,fontSize:'13px'}}>{s.name}</b>
-                      {s.aiRecommend && <span style={badge(C.accent,C.accentLight,C.accentBorder||C.border)}>🤖 AI рек.</span>}
                       {s.alreadyRequested && <span style={badge(C.textMuted,C.bg,C.border)}>уже запросили</span>}
                     </div>
                     <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{(s.category||'')+(s.specialization?' · '+s.specialization:'')+(s.phone?' · '+s.phone:'')}</p>
-                    <p style={{color:C.textMuted,margin:0,fontSize:'10px'}}>⭐ {s.rating||'нет'} · 📦 успешных поставок: {s.deliveriesCount}</p>
+                    <p style={{color:C.textMuted,margin:0,fontSize:'10px'}}>⭐ {s.rating ?? 'нет'} · 📦 успешных поставок: {s.deliveriesCount ?? 0}</p>
                   </div>
                 </div>
+                {checked && !s.alreadyRequested && <fieldset disabled={sending} style={{marginTop:8,border:0,padding:0}}>
+                  <legend>Позиции для {s.name}</legend>
+                  {items.map((item,index)=><label key={index} style={{display:'flex',gap:8,marginTop:6,color:C.text,fontSize:12}}>
+                    <input type="checkbox" aria-label={`${s.name}: ${item.materialName}`} checked={selectedPositions(s.id).includes(index)} onChange={()=>setSupplierItems(prev=>({...prev,[s.id]:selectedPositions(s.id).includes(index)?selectedPositions(s.id).filter(p=>p!==index):[...selectedPositions(s.id),index].sort((a,b)=>a-b)}))}/>
+                    {item.materialName} · {item.quantity} {item.unit}
+                  </label>)}
+                </fieldset>}
               </div>
             );
           })}
           <div style={{display:'flex',gap:'8px',marginTop:'14px',justifyContent:'flex-end'}}>
             <button onClick={()=>setShowRequestKpModal(null)} style={btnG}><X size={14}/>Отмена</button>
-            <button onClick={sendKpRequest} disabled={selectedSupplierIds.length===0} style={{...btnO,opacity:selectedSupplierIds.length===0?0.5:1}}>
+            <button onClick={async()=>{setSending(true);setSendError('');try {await sendKpRequest(responseDueAt+':00+03:00',Object.fromEntries(selectedSupplierIds.map(id=>[id,selectedPositions(id)])));} catch (error) {setSendError('Не удалось отправить запрос. Проверьте соединение и повторите.');} finally {setSending(false);}}} disabled={sending || selectedSupplierIds.length===0 || !validDeadline || !validPositions} style={{...btnO,opacity:selectedSupplierIds.length===0?0.5:1}}>
               <Check size={14}/>Отправить ({selectedSupplierIds.length})
             </button>
           </div>
+          {sendError && <p role="alert" style={{color:C.danger}}>{sendError}</p>}
+          {!validPositions && <p role="alert" style={{color:C.danger}}>Выберите хотя бы одну позицию для каждого поставщика.</p>}
         </>)}
       </div>
     </div>

@@ -1,8 +1,10 @@
 import React from 'react';
 import { Check, Plus, X } from 'lucide-react';
 import useAsyncSubmit from '../hooks/useAsyncSubmit';
-
+import SupplyTemplates from '../features/supply/SupplyTemplates';
+import { templateItemsForProject } from '../features/supply/templateItems';
 function SupplyRequestForm({
+  API, companyContext, user,
   C,
   card,
   inp,
@@ -11,9 +13,6 @@ function SupplyRequestForm({
   btnR,
   role,
   isLeadership,
-  supplyTemplates,
-  applySupplyTemplate,
-  deleteSupplyTemplate,
   newSupplyReq,
   setNewSupplyReq,
   priceHints,
@@ -23,7 +22,6 @@ function SupplyRequestForm({
   getProjectWorkPackageOptions,
   renderSupplyPlanningHint,
   createSupplyReq,
-  saveSupplyTemplate,
   setShowSupplyForm,
 }) {
   const {submit, pending, error} = useAsyncSubmit(
@@ -59,7 +57,7 @@ function SupplyRequestForm({
       ...newSupplyReq,
       project: projectName,
       workPackage: nextDefault,
-      items: items.map(item => ({...item, workPackage: item.workPackage || nextDefault})),
+      items: templateItemsForProject(items, nextPackages),
     });
   };
 
@@ -67,28 +65,14 @@ function SupplyRequestForm({
     <div style={{...card,padding:'20px',marginBottom:'16px'}}>
       <fieldset disabled={pending} style={{border:0,padding:0,margin:0,minWidth:0}}>
       <b style={{color:C.text,fontSize:'14px',display:'block',marginBottom:'10px'}}>📝 Новая заявка на материал</b>
-
-      {(supplyTemplates||[]).length>0 && (
-        <div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'12px',flexWrap:'wrap'}}>
-          <span style={{fontSize:'12px',color:C.textSec}}>📋 Шаблон:</span>
-          <select defaultValue="" onChange={e=>{if(e.target.value){applySupplyTemplate(e.target.value);e.target.value='';}}} style={{...inp,marginBottom:0,fontSize:'13px',width:'auto',minWidth:'220px'}}>
-            <option value="">— выбрать готовый набор —</option>
-            {supplyTemplates.map(t=><option key={t.id} value={t.id}>{t.name+' ('+(t.items||[]).length+' поз.)'}</option>)}
-          </select>
-          {isLeadership && supplyTemplates.length>0 && (
-            <select defaultValue="" onChange={e=>{if(e.target.value){deleteSupplyTemplate(e.target.value);e.target.value='';}}} style={{...inp,marginBottom:0,fontSize:'12px',width:'auto',color:C.danger}}>
-              <option value="">🗑 удалить шаблон…</option>
-              {supplyTemplates.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
-          )}
-        </div>
-      )}
-
+      <SupplyTemplates API={API} companyContext={companyContext} user={user} C={C}
+        draft={newSupplyReq} setDraft={setNewSupplyReq} disabled={pending}
+        getProjectWorkPackageOptions={getProjectWorkPackageOptions} />
       {items.map((it,idx)=>{
         const hint = priceHints[(it.materialName||'').trim()];
         return (
           <React.Fragment key={idx}>
-            <div style={{display:'grid',gridTemplateColumns:'minmax(180px,3fr) minmax(120px,1.5fr) 1fr 1fr auto',gap:'6px',marginBottom:'4px',alignItems:'center'}}>
+            <div className="supply-request-item">
               <input placeholder="Материал *" value={it.materialName} onBlur={e=>fetchPriceHint(e.target.value)} onChange={e=>updateItem(idx,{materialName:e.target.value})} style={{...inp,marginBottom:0,fontSize:'13px'}}/>
               <select value={it.workPackage || ''} onChange={e=>updateItem(idx,{workPackage:e.target.value})} style={{...inp,marginBottom:0,fontSize:'13px'}}>
                 <option value="">Раздел сметы</option>
@@ -115,7 +99,7 @@ function SupplyRequestForm({
       })}
 
       <button onClick={addItem} style={{...btnG,fontSize:'12px',marginBottom:'12px'}}><Plus size={12}/>Добавить строку</button>
-      <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:'8px',marginBottom:'8px'}}>
+      <div className="supply-request-object">
         <select value={newSupplyReq.project} onChange={e=>updateProject(e.target.value)} style={{...inp,marginBottom:0}}>
           <option value="">Объект *</option>
           {projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}
@@ -137,7 +121,6 @@ function SupplyRequestForm({
       {error && <p role="alert" style={{color:C.danger,fontSize:'12px'}}>{error}</p>}
       <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
         <button onClick={submit} disabled={pending} aria-busy={pending} style={btnO}><Check size={14}/>{pending?'Создание…':'Создать заявку'}</button>
-        <button onClick={saveSupplyTemplate} style={btnG}><Plus size={14}/>Сохранить как шаблон</button>
         <button onClick={()=>setShowSupplyForm(false)} disabled={pending} style={btnG}><X size={14}/>Отмена</button>
       </div>
       </fieldset>

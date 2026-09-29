@@ -717,6 +717,11 @@ from backend.features.supplier_access.supply_request_workflow import (
     validate_rfq_dispatch_request,
     validate_supply_request_transition,
 )
+from backend.features.supplier_access.email_attempts import (
+    EMAIL_QUEUED, prepare_email_status, dispatch_recipient_email,
+)
+from backend.features.supplier_access.request_companies import attach_request_company_names
+from backend.features.supplier_access.response_deadlines import response_deadline
 from backend.features.supplier_access.delivery_diagnostics import (
     attach_recipient_delivery_diagnostics,
 )
@@ -1467,39 +1472,24 @@ def _remove_resolved_supplier_clarification(comment) -> str:
             kept.append(line.strip())
     return "\n".join(kept)
 
-def current_supplier_id(cur, user: dict):
-    cur.execute("""SELECT id FROM suppliers
-                   WHERE user_id=%s
-                      OR (%s<>'' AND LOWER(email)=LOWER(%s))
-                      OR (%s<>'' AND name=%s)
-                   ORDER BY CASE WHEN user_id=%s THEN 0 ELSE 1 END, id
-                   LIMIT 1""",
-                (
-                    user.get("id"),
-                    user.get("email") or "", user.get("email") or "",
-                    user.get("name") or "", user.get("name") or "",
-                    user.get("id"),
-                ))
-    row = cur.fetchone()
-    if not row:
-        supplier = _supplier_find_match(cur, {
-            "name": user.get("name") or "",
-            "email": user.get("email") or "",
-            "phone": user.get("phone") or "",
-        })
-        row = supplier
-        if not row:
-            return None
-    try:
-        return row["id"]
-    except Exception:
-        return row[0]
-
 def current_supplier_ids(cur, user: dict):
-    supplier_id = current_supplier_id(cur, user)
-    if not supplier_id:
-        return []
-    return supplier_related_ids(cur, supplier_id)
+    # Similar names, contacts and duplicate-group metadata are directory hints,
+    # never proof of authority to act for a supplier.
+    cur.execute("""SELECT s.id FROM suppliers s JOIN users u ON u.id=s.user_id
+                   WHERE s.user_id=%s AND u.role='поставщик' AND COALESCE(u.active,TRUE)
+                   ORDER BY s.id""", (user.get('id'),))
+    return [int(row['id'] if isinstance(row, dict) else row[0]) for row in cur.fetchall()]
+
+
+def current_supplier_access_ids(cur, user: dict):
+    from backend.features.supplier_team.policy import enabled, access_ids
+    return access_ids(cur, user) if enabled() else current_supplier_ids(cur, user)
+
+
+def current_supplier_id(cur, user: dict):
+    supplier_ids = current_supplier_ids(cur, user)
+    return supplier_ids[0] if supplier_ids else None
+
 
 def supplier_related_ids(cur, supplier_id: int):
     try:
@@ -1709,16 +1699,18 @@ def _supplier_visibility_for_scope(cur, scope_ids) -> dict:
         "reason": "Карточка поставщика не связана с пользователем: поставщик не увидит запрос в кабинете",
     }
 
-def _upsert_supply_request_recipients(cur, request_id: int, company_id: int, supplier_ids, status: str = "Ожидает ответа") -> list:
-    _ensure_supply_request_recipients_table(cur)
+def _upsert_supply_request_recipients(cur, request_id: int, company_id: int, supplier_ids, status: str = "Ожидает ответа", *, ensure_schema=True, targets=None) -> list:
+    if ensure_schema:
+        _ensure_supply_request_recipients_table(cur)
     rows = []
-    for target in supplier_offer_targets_for_groups(cur, supplier_ids):
+    for target in targets if targets is not None else supplier_offer_targets_for_groups(cur, supplier_ids):
         supplier_id = int(target.get("requested_id") or target.get("target_id") or 0)
         target_id = int(target.get("target_id") or supplier_id or 0)
         scope_ids = _normalize_supplier_ids(target.get("scope_ids") or [target_id])
         if not supplier_id or not target_id:
             continue
-        visibility = _supplier_visibility_for_scope(cur, scope_ids)
+        visibility = ({'visible': True, 'user_id': target['user_id'], 'reason': ''}
+                      if targets is not None else _supplier_visibility_for_scope(cur, scope_ids))
         row = {
             "companyId": company_id,
             "requestId": request_id,
@@ -1857,7 +1849,7 @@ def _ensure_supply_notification_messenger_tables(cur):
     cur.execute("CREATE INDEX IF NOT EXISTS idx_messenger_outbox_account ON messenger_outbox(messenger_account_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_messenger_outbox_entity ON messenger_outbox(entity_type, entity_id)")
 
-def _supply_request_notification_context(cur, request_id: int) -> dict:
+def _supply_request_notification_context(cur, request_id: int, supplier_id=None) -> dict:
     cur.execute("""
         SELECT id, material_name, quantity, unit, project, work_package, notes, items_json, company_id
           FROM supply_requests
@@ -1868,6 +1860,19 @@ def _supply_request_notification_context(cur, request_id: int) -> dict:
     if not row:
         return {}
     items = _json_list_or_empty(_row_get(row, "items_json", 7, None))
+    scoped_items = None
+    if supplier_id:
+        cur.execute("""SELECT to_jsonb(o)->>'requested_items_json' AS requested,
+                              o.response_due_at
+            FROM supplier_offers o WHERE request_id=%s AND supplier_id=%s AND company_id=%s ORDER BY id DESC LIMIT 1""",
+            (request_id, supplier_id, _row_get(row, 'company_id', 8, None)))
+        offer = cur.fetchone()
+        if offer and _row_get(offer, 'requested', 0, None):
+            scoped_items = _json_list_or_empty(_row_get(offer, 'requested', 0, None))
+            items = scoped_items
+        response_due_at = _row_get(offer, 'response_due_at', 1, None) if offer else None
+    else:
+        response_due_at = None
     item_lines = []
     for item in items[:5]:
         if not isinstance(item, dict):
@@ -1882,8 +1887,20 @@ def _supply_request_notification_context(cur, request_id: int) -> dict:
     material = _row_get(row, "material_name", 1, "") or ""
     quantity = _row_get(row, "quantity", 2, "") or ""
     unit = _row_get(row, "unit", 3, "") or ""
+    if scoped_items:
+        material = scoped_items[0]['materialName'] if len(scoped_items) == 1 else f'{len(scoped_items)} позиций'
+        quantity = scoped_items[0]['quantity'] if len(scoped_items) == 1 else len(scoped_items)
+        unit = scoped_items[0]['unit'] if len(scoped_items) == 1 else 'поз.'
     project = _row_get(row, "project", 4, "") or ""
     company_id = _row_get(row, "company_id", 8, None)
+    cur.execute("""SELECT
+            COALESCE(NULLIF(BTRIM(r.short_name),''),NULLIF(BTRIM(r.full_name),''),
+                     NULLIF(BTRIM(c.short_name),''),NULLIF(BTRIM(c.name),''),'Компания-заказчик') AS company_name,
+            COALESCE(NULLIF(BTRIM(r.email),''),NULLIF(BTRIM(c.contact_email),''),
+                     NULLIF(BTRIM(c.email),''),'') AS company_email
+        FROM companies c LEFT JOIN company_requisites r ON r.company_id=c.id
+        WHERE c.id=%s""", (company_id,))
+    company = cur.fetchone() or {}
     project_id = None
     if company_id and project and project != "Основной склад":
         cur.execute(
@@ -1900,6 +1917,8 @@ def _supply_request_notification_context(cur, request_id: int) -> dict:
     return {
         "id": int(_row_get(row, "id", 0, request_id) or request_id),
         "companyId": company_id,
+        "companyName": _row_get(company, "company_name", 0, "") or "Компания-заказчик",
+        "companyEmail": _row_get(company, "company_email", 1, "") or "",
         "projectId": project_id,
         "project": project,
         "workPackage": _row_get(row, "work_package", 5, "") or "",
@@ -1908,39 +1927,21 @@ def _supply_request_notification_context(cur, request_id: int) -> dict:
         "unit": unit,
         "notes": _row_get(row, "notes", 6, "") or "",
         "itemLines": item_lines,
+        "responseDueAt": response_due_at,
     }
 
 def _supply_request_notification_text(request_context: dict, supplier_name: str = "") -> tuple:
-    request_id = int((request_context or {}).get("id") or 0)
-    project = (request_context or {}).get("project") or "объект не указан"
-    package = (request_context or {}).get("workPackage") or "Основная"
-    title = "Запрос КП №" + str(request_id)
-    greeting = "Здравствуйте."
-    if supplier_name:
-        greeting = "Здравствуйте, " + supplier_name + "."
-    lines = [
-        greeting,
-        "",
-        "Вам отправлен запрос коммерческого предложения в СтройКа.",
-        "Объект: " + project,
-        "Раздел: " + package,
-    ]
-    item_lines = (request_context or {}).get("itemLines") or []
-    if item_lines:
-        lines.append("")
-        lines.append("Позиции:")
-        lines.extend(item_lines)
-    notes = ((request_context or {}).get("notes") or "").strip()
-    if notes:
-        lines.extend(["", "Комментарий: " + notes])
-    lines.extend(["", "Открыть запрос: " + _supply_kp_public_url(request_id)])
-    return title, "\n".join(lines)
+    from backend.features.supplier_access.rfq_email_content import build_rfq_email
+    context = {**(request_context or {})}
+    context["publicUrl"] = _supply_kp_public_url(int(context.get("id") or 0))
+    return build_rfq_email(context, supplier_name)
 
-def _queue_supply_request_max_notification(cur, recipient: dict, request_context: dict, offer_id=None) -> tuple:
+def _queue_supply_request_max_notification(cur, recipient: dict, request_context: dict, offer_id=None, *, ensure_schema=True) -> tuple:
     supplier_user_id = recipient.get("supplier_user_id") or recipient.get("supplierUserId")
     if not supplier_user_id:
         return None, "MAX не привязан"
-    _ensure_supply_notification_messenger_tables(cur)
+    if ensure_schema:
+        _ensure_supply_notification_messenger_tables(cur)
     cur.execute("""
         SELECT id, external_user_id, chat_id
           FROM messenger_accounts
@@ -1965,14 +1966,13 @@ def _queue_supply_request_max_notification(cur, recipient: dict, request_context
            AND event_type='supplier_kp_requested'
            AND entity_type='supply_request'
            AND entity_id=%s
-           AND COALESCE(status,'') NOT IN ('cancelled','failed')
          ORDER BY id DESC
          LIMIT 1
     """, (owner["companyId"], account_id, request_id))
     existing = cur.fetchone()
     if existing:
         return int(_row_get(existing, "id", 0, 0) or 0), "В очереди MAX"
-    title, body = _supply_request_notification_text(request_context, recipient.get("supplier_name") or "")
+    title, body, _, _ = _supply_request_notification_text(request_context, recipient.get("supplier_name") or "")
     payload = {
         "requestId": request_id,
         "offerId": offer_id,
@@ -2012,8 +2012,9 @@ def _queue_supply_request_max_notification(cur, recipient: dict, request_context
     row = cur.fetchone()
     return int(_row_get(row, "id", 0, 0) or 0), "В очереди MAX"
 
-def _notify_supply_request_recipients(cur, request_id: int, company_id: int = None) -> list:
-    _ensure_supply_request_recipients_table(cur)
+def _notify_supply_request_recipients(cur, request_id: int, company_id: int = None, *, ensure_schema=True) -> list:
+    if ensure_schema:
+        _ensure_supply_request_recipients_table(cur)
     request_context = _supply_request_notification_context(cur, request_id)
     if not request_context:
         return []
@@ -2065,19 +2066,10 @@ def _notify_supply_request_recipients(cur, request_id: int, company_id: int = No
         supplier_id = int(recipient.get("target_supplier_id") or recipient.get("supplier_id") or 0)
         email = (recipient.get("email") or "").strip()
         current_email_status = (recipient.get("email_notification_status") or "").strip()
-        email_sent = False
-        if current_email_status == "Отправлено":
-            email_status = current_email_status
-        elif not email:
-            email_status = "Нет email"
-        elif _should_skip_supplier_notification_email(email):
-            email_status = "Пропущено: тестовый email"
-        elif not _smtp_configured():
-            email_status = "SMTP не настроен"
-        else:
-            subject, body = _supply_request_notification_text(request_context, recipient.get("supplier_name") or "")
-            email_sent = _send_email(email, subject, body)
-            email_status = "Отправлено" if email_sent else "Ошибка отправки"
+        email_status = prepare_email_status(
+            current_email_status, email, _smtp_configured(),
+            _should_skip_supplier_notification_email(email),
+        )
 
         offer_id = offer_by_supplier.get(supplier_id)
         current_max_status = (recipient.get("max_notification_status") or "").strip()
@@ -2087,17 +2079,17 @@ def _notify_supply_request_recipients(cur, request_id: int, company_id: int = No
             max_status = current_max_status
             max_queued = False
         else:
-            max_outbox_id, max_status = _queue_supply_request_max_notification(cur, recipient, request_context, offer_id)
+            max_outbox_id, max_status = _queue_supply_request_max_notification(
+                cur, recipient, _supply_request_notification_context(cur, request_id, supplier_id), offer_id, ensure_schema=ensure_schema)
             max_queued = bool(max_outbox_id and max_status == "В очереди MAX")
         cur.execute("""
             UPDATE supply_request_recipients
                SET email_notification_status=%s,
-                   email_sent_at=CASE WHEN %s THEN COALESCE(email_sent_at,NOW()) ELSE email_sent_at END,
                    max_notification_status=%s,
                    max_outbox_id=COALESCE(%s, max_outbox_id),
                    max_queued_at=CASE WHEN %s THEN COALESCE(max_queued_at,NOW()) ELSE max_queued_at END
              WHERE id=%s
-        """, (email_status, email_sent, max_status, max_outbox_id, max_queued, recipient_id))
+        """, (email_status, max_status, max_outbox_id, max_queued, recipient_id))
         notifications.append({
             "recipientId": recipient_id,
             "supplierId": supplier_id,
@@ -2108,6 +2100,20 @@ def _notify_supply_request_recipients(cur, request_id: int, company_id: int = No
             "maxOutboxId": max_outbox_id,
         })
     return notifications
+
+def _send_rfq_email(to_email, subject, text, sender_name='', reply_to=''):
+    from backend.features.supplier_access.smtp_delivery import send_rfq_email
+    return send_rfq_email(to_email, subject, text, host=SMTP_HOST, port=SMTP_PORT,
+        sender=SMTP_FROM, username=SMTP_USER, password=SMTP_PASSWORD, ssl=SMTP_SSL,
+        tls=SMTP_TLS, sender_name=sender_name, reply_to=reply_to)
+
+def _dispatch_supply_recipient_email(request_id, company_id, recipient_id):
+    dispatch_recipient_email(
+        get_db, request_id, company_id, recipient_id,
+        configured=_smtp_configured, skip_email=_should_skip_supplier_notification_email,
+        context=_supply_request_notification_context, text=_supply_request_notification_text,
+        send=_send_rfq_email,
+    )
 
 def _resolve_work_company_context(
     cur,
@@ -2281,7 +2287,7 @@ def _resolve_brigade_contract_actor(
         """SELECT id,company_id,project_id,project_name,
                   COALESCE(NULLIF(work_package,''),'Основная') AS work_package,
                   brigade_name,COALESCE(act_scan_url,'') AS act_scan_url,
-                  total_amount,status,contractor_id
+                  total_amount,status,contractor_id,settlement_version
              FROM brigade_contracts
             WHERE id=%s""" + lock_sql,
         (normalized_contract_id,),
@@ -2300,6 +2306,7 @@ def _resolve_brigade_contract_actor(
         "totalAmount": _row_get(row, "total_amount", 7, 0) or 0,
         "status": _row_get(row, "status", 8, "") or "",
         "contractorId": _row_get(row, "contractor_id", 9),
+        "settlementVersion": _row_get(row, "settlement_version", 10, 1),
     }
     if not _positive_int_or_none(contract["projectId"]):
         cur.execute(
@@ -2847,17 +2854,20 @@ try:
         register_subscription_read_only_middleware,
     )
     from backend.features.supplier_access.subscription_scope import (
-        resolve_supplier_offer_subscription_context,
+        resolve_supplier_offer_subscription_context, is_owned_supplier_profile_mutation,
     )
 except ModuleNotFoundError:
     from features.client_account.subscription_access import (
         register_subscription_read_only_middleware,
     )
     from features.supplier_access.subscription_scope import (
-        resolve_supplier_offer_subscription_context,
+        resolve_supplier_offer_subscription_context, is_owned_supplier_profile_mutation,
     )
 
 register_subscription_read_only_middleware(app, {
+    "is_owned_external_profile": lambda cur, user, request: is_owned_supplier_profile_mutation(
+        cur, user, request.method, request.url.path,
+    ),
     "get_db": get_db,
     "request_user_snapshot": _request_user_snapshot,
     "resolve_work_company_context": _resolve_work_company_context,
@@ -3783,6 +3793,13 @@ def init_db():
             uploaded_by VARCHAR(255),
             created_at TIMESTAMP DEFAULT NOW()
         );
+        -- NULL ownership is deliberate: old supplier documents are not shared
+        -- with customers until their company is established from evidence.
+        ALTER TABLE supplier_documents ADD COLUMN IF NOT EXISTS company_id INT;
+        ALTER TABLE supplier_documents ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP;
+        CREATE INDEX IF NOT EXISTS idx_supplier_documents_company_active
+            ON supplier_documents (company_id, supplier_id, created_at DESC)
+            WHERE archived_at IS NULL;
         CREATE TABLE IF NOT EXISTS supplier_invoice_templates (
             id SERIAL PRIMARY KEY,
             supplier_id INT,
@@ -4184,6 +4201,7 @@ def init_db():
         ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS valid_until DATE;
         ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS supplier_message TEXT;
         ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS requested_at TIMESTAMP DEFAULT NOW();
+        ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS response_due_at TIMESTAMPTZ;
         ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS responded_at TIMESTAMP;
         ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS ai_recommended BOOLEAN DEFAULT FALSE;
         ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS delivery_status VARCHAR(100);
@@ -4363,6 +4381,7 @@ def init_db():
         ALTER TABLE brigade_contracts ADD COLUMN IF NOT EXISTS company_id INT;
         ALTER TABLE brigade_contracts ADD COLUMN IF NOT EXISTS work_package VARCHAR(100) DEFAULT '';
         ALTER TABLE brigade_contracts ADD COLUMN IF NOT EXISTS act_scan_url TEXT;
+        ALTER TABLE brigade_contracts ADD COLUMN IF NOT EXISTS settlement_version SMALLINT NOT NULL DEFAULT 1;
         ALTER TABLE brigade_contracts ALTER COLUMN company_id SET DEFAULT 1;
         ALTER TABLE brigade_contracts ALTER COLUMN company_id DROP NOT NULL;
         UPDATE brigade_contracts bc
@@ -5439,6 +5458,7 @@ def init_db():
 	        ALTER TABLE rooms ADD COLUMN IF NOT EXISTS floor_material VARCHAR(100);
 	        ALTER TABLE rooms ADD COLUMN IF NOT EXISTS photo_url TEXT;
         ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS materials_used TEXT;
+        ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS material_accounting_version SMALLINT NOT NULL DEFAULT 1;
         ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS estimate_id INT;
         ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS section_name VARCHAR(255);
         ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS responsible_itr VARCHAR(255);
@@ -5904,17 +5924,6 @@ class PieceworkModel(BaseModel):
     photoUrl: str = ""
     workJournalId: Optional[int] = None
 
-class UserModel(BaseModel):
-    name: str
-    email: str
-    password: str = ""
-    role: str = "прораб"
-    projectId: str = ""
-    projectName: str = ""
-    assignedProjects: list[str] = []
-    assignedPackages: list[str] = []
-    active: Optional[bool] = None
-
 class LoginModel(BaseModel):
     email: str
     password: str
@@ -6001,6 +6010,10 @@ class MaterialNormSuggestionUpdateModel(BaseModel):
     status: str = ""
 
 class WorkJournalModel(BaseModel):
+    requestId: Optional[str] = None
+    materialAccountingVersion: int = 1
+    expectedCompanyId: Optional[int] = None
+    expectedActorId: Optional[int] = None
     masterId: int
     masterName: str
     project: str
@@ -6533,8 +6546,9 @@ def register(data: dict, response: Response, request: Request):
     if not code or not name or not email or not password:
         raise HTTPException(status_code=400, detail="Заполните имя, email, пароль и код приглашения")
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT * FROM invite_codes WHERE code=%s AND used=FALSE", (code,))
+    cur.execute("SELECT * FROM invite_codes WHERE code=%s AND used=FALSE FOR UPDATE", (code,))
     invite = cur.fetchone()
     if not invite:
         conn.close()
@@ -6545,44 +6559,38 @@ def register(data: dict, response: Response, request: Request):
         conn.close()
         raise HTTPException(status_code=400, detail="Код истёк — попросите новую ссылку")
     try:
-        project_name = (invite.get("project_name") or "").strip()
-        assigned_projects = _safe_project_list(invite.get("assigned_projects"))
-        assigned_packages = _safe_project_list(invite.get("assigned_packages"))
-        assigned_projects, assigned_packages = _prepare_user_access_scope(cur, role, project_name, assigned_projects, assigned_packages)
-        cur.execute("SELECT id FROM projects WHERE name=%s LIMIT 1", (project_name,))
-        project_row = cur.fetchone()
-        project_id = project_row.get("id") if isinstance(project_row, dict) and project_row else (project_row[0] if project_row else None)
-        company_id = invite.get("company_id")
-        platform_account_id = invite.get("platform_account_id")
-        if not company_id and invite.get("preset_name"):
-            cur.execute("""SELECT id, platform_account_id
-                           FROM companies
-                           WHERE name=%s
-                           ORDER BY id DESC
-                           LIMIT 1""", (invite.get("preset_name"),))
-            company_row = cur.fetchone()
-            if company_row:
-                company_id = company_row.get("id")
-                platform_account_id = platform_account_id or company_row.get("platform_account_id")
-        if not platform_account_id and company_id:
-            cur.execute("SELECT platform_account_id FROM companies WHERE id=%s", (company_id,))
-            company_row = cur.fetchone()
-            platform_account_id = company_row.get("platform_account_id") if company_row else None
-        if role in ("account_owner", "account_admin"):
-            project_id = None
-            project_name = ""
-            assigned_projects = []
-            assigned_packages = []
-            if not platform_account_id:
-                raise HTTPException(status_code=400, detail="В приглашении не указан клиентский аккаунт")
+        from backend.features.supplier_team.invitations import validate_binding
+        team_invite = validate_binding(cur, invite, lock=True)
+        from backend.features.company_users.access import COMPANY_ROLES, save_membership
+        from backend.features.invite_codes.company_membership import registration_scope
+        company_id = None
+        platform_account_id = None
+        project_id = None
+        project_name = ''
+        assigned_projects = []
+        assigned_packages = []
+        if role in COMPANY_ROLES:
+            company_id, platform_account_id, project_id, project_name, assigned_projects, assigned_packages = registration_scope(cur, invite)
+        elif role in ("account_owner", "account_admin"):
+            platform_account_id = invite.get('platform_account_id')
+            cur.execute('SELECT id FROM platform_accounts WHERE id=%s AND COALESCE(active,TRUE)=TRUE FOR SHARE', (platform_account_id,))
+            if not cur.fetchone():
+                raise HTTPException(409, 'Клиентский аккаунт приглашения недоступен')
+        elif role != 'поставщик' and role not in PLATFORM_STAFF_ROLES:
+            raise HTTPException(403, 'Недопустимая роль приглашения')
         cur.execute("""INSERT INTO users
                           (name,email,password,role,project_id,project_name,assigned_projects,assigned_packages,company_id,platform_account_id)
                        VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s,%s) RETURNING *""",
                     (name, email, hash_password(password), role, project_id, project_name,
                      json.dumps(assigned_projects), json.dumps(assigned_packages), company_id, platform_account_id))
         user = cur.fetchone()
-        # Если регистрируется поставщик — создаём/связываем suppliers row
-        if role == 'поставщик':
+        if role in COMPANY_ROLES:
+            save_membership(cur, user['id'], company_id, role, assigned_projects, assigned_packages, True, {'is_default':True})
+        if team_invite:
+            cur.execute("INSERT INTO supplier_team_members(supplier_id,user_id,role) VALUES(%s,%s,'manager')",
+                        (team_invite['supplier_id'], user['id']))
+        # Company owners and invited team members have separate registration paths.
+        if role == 'поставщик' and not team_invite:
             company_name = data.get("companyName") or name
             supplier_id = invite.get('supplier_id')
             supplier_payload = {
@@ -6595,37 +6603,34 @@ def register(data: dict, response: Response, request: Request):
                 "sourceType": "invite_link",
                 "sourceDetail": "Регистрация поставщика по ссылке приглашения",
             }
+            requisites = _supplier_extract_requisites(supplier_payload)
+            for identity in sorted({requisites.get(key, '') for key in ('inn', 'ogrn')} - {''}):
+                cur.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))', ('supplier-legal:' + identity,))
             if supplier_id:
-                # Привязываем к существующей компании
-                cur.execute("SELECT id FROM suppliers WHERE id=%s LIMIT 1", (supplier_id,))
-                supplier_row = cur.fetchone()
-                if supplier_row:
-                    _update_supplier_missing_fields(cur, supplier_id, supplier_payload, user_id=user['id'])
-                    _remember_supplier_alias(cur, supplier_id, supplier_payload, source="supplier_invite")
+                from backend.features.invite_codes.supplier_relationship import claim_invited_supplier
+                supplier_id = claim_invited_supplier(cur, invite, user, requisites)
             else:
-                existing_supplier = _supplier_find_match(cur, supplier_payload)
-                if existing_supplier:
-                    supplier_id = int(existing_supplier.get("id") or 0)
-                    _update_supplier_missing_fields(cur, supplier_id, supplier_payload, user_id=user['id'])
-                    _remember_supplier_alias(cur, supplier_id, supplier_payload, source="supplier_invite")
-                else:
-                    # Создаём новую компанию
-                    cur.execute(
-                        "INSERT INTO suppliers (name, phone, email, category, specialization, "
-                        "inn, kpp, ogrn, legal_address, bank, bik, account, director_name, "
-                        "status, rating, user_id, registered_at, source_type, source_detail) "
-                        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),%s,%s) RETURNING id",
-                        (company_name, data.get("phone",""), email,
-                         invite.get('preset_category') or data.get("category",""),
-                         data.get("specialization",""),
-                         data.get("inn"), data.get("kpp"), data.get("ogrn"),
-                         data.get("legalAddress"), data.get("bank"), data.get("bik"),
-                         data.get("account"), data.get("directorName"),
-                         'Активный', 5.0, user['id'],
-                         "invite_link", "Регистрация поставщика по ссылке приглашения"))
-                    new_supplier = cur.fetchone()
-                    supplier_id = new_supplier.get("id") if isinstance(new_supplier, dict) else new_supplier[0]
-                    _remember_supplier_alias(cur, supplier_id, supplier_payload, source="supplier_invite")
+                if _supplier_find_match(cur, supplier_payload):
+                    raise HTTPException(409, 'Приглашение не подтверждает право управлять существующей организацией поставщика. Войдите в её кабинет или обратитесь к администратору платформы для проверки привязки')
+                # Создаём новую компанию
+                cur.execute(
+                    "INSERT INTO suppliers (name, phone, email, category, specialization, "
+                    "inn, kpp, ogrn, legal_address, bank, bik, account, director_name, "
+                    "status, rating, user_id, registered_at, source_type, source_detail) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),%s,%s) RETURNING id",
+                    (company_name, data.get("phone",""), email,
+                     invite.get('preset_category') or data.get("category",""),
+                     data.get("specialization",""),
+                     data.get("inn"), data.get("kpp"), data.get("ogrn"),
+                     data.get("legalAddress"), data.get("bank"), data.get("bik"),
+                     data.get("account"), data.get("directorName"),
+                     'Активный', 5.0, user['id'],
+                     "invite_link", "Регистрация поставщика по ссылке приглашения"))
+                new_supplier = cur.fetchone()
+                supplier_id = new_supplier.get("id") if isinstance(new_supplier, dict) else new_supplier[0]
+            _remember_supplier_alias(cur, supplier_id, supplier_payload, source="supplier_invite")
+            from backend.features.invite_codes.supplier_relationship import link_registered_supplier
+            link_registered_supplier(cur, invite, supplier_id, user, supplier_payload)
         cur.execute("UPDATE invite_codes SET used=TRUE WHERE code=%s", (code,))
         session_token = None
         if _user_requires_2fa(user):
@@ -6647,9 +6652,11 @@ def register(data: dict, response: Response, request: Request):
             _set_auth_session_cookie(response, session_token)
         return public_user(user, include_token=True, two_factor_passed=False)
     except HTTPException:
+        conn.rollback()
         conn.close()
         raise
     except Exception as e:
+        conn.rollback()
         conn.close()
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -6677,6 +6684,7 @@ def _resolve_estimate_mutation_actor(
     *,
     x_company_id=None,
     x_company_mode=None,
+    lock_stock=False,
 ):
     try:
         from backend.features.estimate_access.service import resolve_estimate_parent
@@ -6698,6 +6706,14 @@ def _resolve_estimate_mutation_actor(
             effective_company_actors(current_user, company_context),
             allowed_roles,
         )
+        if lock_stock:
+            if work_material_runtime.enabled():
+                work_material_access.lock_actor(access_cur, actor)
+            try:
+                from backend.features.material_traceability.guards import lock_distribution_compatible_stock
+            except ModuleNotFoundError:
+                from features.material_traceability.guards import lock_distribution_compatible_stock
+            lock_distribution_compatible_stock(access_cur)
         estimate = resolve_estimate_parent(
             access_cur,
             actor,
@@ -6818,9 +6834,13 @@ def update_warehouse_main(
 ):
     unit = _norm_base_unit(m.unit or "шт") or "шт"
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        cur.execute("SELECT id,company_id FROM warehouse_main WHERE id=%s FOR UPDATE", (id,))
+        # Acquire the eventual UPDATE relation lock before its row lock; otherwise
+        # a concurrent batch's stronger relation lock can cause a lock upgrade cycle.
+        cur.execute('LOCK TABLE warehouse_main IN ROW EXCLUSIVE MODE')
+        cur.execute("SELECT id,company_id,name,unit,quantity FROM warehouse_main WHERE id=%s FOR UPDATE", (id,))
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Материал основного склада не найден")
@@ -6836,6 +6856,11 @@ def update_warehouse_main(
             platform_staff_roles=PLATFORM_STAFF_ROLES,
             client_account_roles=CLIENT_ACCOUNT_ROLES,
         )
+        try:
+            from backend.features.material_traceability.guards import guard_main_stock_edit
+        except ModuleNotFoundError:
+            from features.material_traceability.guards import guard_main_stock_edit
+        guard_main_stock_edit(cur, row, name=m.name, unit=unit, quantity=m.quantity)
         cur.execute("UPDATE warehouse_main SET name=%s,unit=%s,quantity=%s,price=%s,min_quantity=%s,category=%s WHERE id=%s AND company_id=%s",
                     (m.name,unit,m.quantity,m.price,m.minQuantity,m.category,id,row.get("company_id")))
         conn.commit()
@@ -6874,7 +6899,7 @@ def get_warehouse_movements(
     except Exception:
         cur.close(); conn.close()
         raise
-    select_sql = "SELECT wm.id,wm.material_name as \"materialName\",wm.from_location as \"fromLocation\",wm.to_location as \"toLocation\",wm.quantity,wm.unit,wm.work_package as \"workPackage\",wm.date,wm.created_by as \"createdBy\",wm.notes,wm.source_invoice_id as \"sourceInvoiceId\",wm.source_invoice_line_index as \"sourceInvoiceLineIndex\",wm.estimate_control_status as \"estimateControlStatus\",wm.estimate_control as \"estimateControl\",wm.estimate_review_task_id as \"estimateReviewTaskId\" FROM warehouse_movements wm WHERE TRUE"
+    select_sql = "SELECT wm.id,wm.company_id as \"companyId\",wm.material_name as \"materialName\",wm.from_location as \"fromLocation\",wm.to_location as \"toLocation\",wm.quantity,wm.unit,wm.work_package as \"workPackage\",wm.date,wm.created_by as \"createdBy\",wm.notes,wm.source_invoice_id as \"sourceInvoiceId\",wm.source_invoice_line_index as \"sourceInvoiceLineIndex\",wm.estimate_control_status as \"estimateControlStatus\",wm.estimate_control as \"estimateControl\",wm.estimate_review_task_id as \"estimateReviewTaskId\" FROM warehouse_movements wm WHERE TRUE"
     if current_user.get("role") == "прораб":
         projects = user_project_names(current_user)
         if not projects:
@@ -6902,6 +6927,228 @@ def get_warehouse_movements(
     conn.close()
     return [dict(r) for r in rows]
 
+def _apply_warehouse_movement(cur, m, company_id, _current_user):
+    """Apply one movement inside the caller's transaction; never commit here."""
+    material_name = (m.materialName or "").strip()
+    from_location = (m.fromLocation or "").strip()
+    to_location = (m.toLocation or "").strip()
+    work_package = (m.workPackage or "Основная").strip() or "Основная"
+    qty = float(m.quantity or 0)
+    movement_estimate_control = build_movement_estimate_control([])
+    source_invoice_id = m.invoiceId
+    source_invoice_line_index = m.invoiceLineIndex
+    selected_receipt_lot = None
+    if source_invoice_id is not None or source_invoice_line_index is not None:
+        cur.execute("""SELECT id,number,project,location,items
+                       FROM warehouse_invoices
+                       WHERE id=%s AND company_id=%s
+                         AND COALESCE(status,'Принята') <> 'Аннулирована' FOR UPDATE""", (source_invoice_id, company_id))
+        invoice_row = cur.fetchone()
+        try:
+            from backend.features.material_traceability.service import ensure_source_quantity_available, resolve_invoice_line_source
+        except ModuleNotFoundError:
+            from features.material_traceability.service import ensure_source_quantity_available, resolve_invoice_line_source
+        try:
+            source_reference = resolve_invoice_line_source(source_invoice_id, source_invoice_line_index, invoice_row)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        try:
+            from backend.features.supplier_payments.receipt_exceptions import assert_stock_source
+        except ModuleNotFoundError:
+            from features.supplier_payments.receipt_exceptions import assert_stock_source
+        assert_stock_source(cur, company_id=company_id, warehouse_id=source_invoice_id)
+        invoice_location = (invoice_row.get("project") or "").strip() or (invoice_row.get("location") or "").strip()
+        if invoice_location != from_location:
+            raise HTTPException(status_code=400, detail="Выбранная строка накладной относится к другому складу или объекту")
+        invoice_items = _json_list_or_empty(invoice_row.get("items"))
+        source_item = invoice_items[source_reference["invoiceLineIndex"]]
+        source_item_name = str(
+            (source_item or {}).get("name")
+            or (source_item or {}).get("materialName")
+            or (source_item or {}).get("title")
+            or ""
+        ).strip().lower()
+        source_item_unit = _norm_base_unit((source_item or {}).get("unit") or "шт") or "шт"
+        requested_unit = _norm_base_unit(m.unit or "") if (m.unit or "").strip() else source_item_unit
+        if source_item_name != material_name.lower() or source_item_unit != requested_unit:
+            raise HTTPException(status_code=400, detail="Выбранная строка накладной не совпадает с перемещаемым материалом")
+        source_invoice_id = source_reference["invoiceId"]
+        source_invoice_line_index = source_reference["invoiceLineIndex"]
+        try:
+            from backend.features.material_traceability.receipt_lots import (
+                ensure_receipt_lot_schema,
+                lock_receipt_lot_for_movement,
+            )
+        except ModuleNotFoundError:
+            from features.material_traceability.receipt_lots import (
+                ensure_receipt_lot_schema,
+                lock_receipt_lot_for_movement,
+            )
+        ensure_receipt_lot_schema(cur)
+        try:
+            selected_receipt_lot = lock_receipt_lot_for_movement(
+                cur,
+                company_id=company_id,
+                warehouse_invoice_id=source_invoice_id,
+                invoice_line_index=source_invoice_line_index,
+                warehouse_location=from_location,
+                material_name=material_name,
+                unit=requested_unit,
+                requested_quantity=qty,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        if not selected_receipt_lot:
+            cur.execute("""SELECT COALESCE(SUM(quantity),0) AS allocated_quantity
+                           FROM warehouse_movements
+                           WHERE company_id=%s AND source_invoice_id=%s AND source_invoice_line_index=%s""",
+                        (company_id, source_reference["invoiceId"], source_reference["invoiceLineIndex"]))
+            allocated_quantity = float((cur.fetchone() or {}).get("allocated_quantity") or 0)
+            try:
+                ensure_source_quantity_available(source_item, allocated_quantity, qty)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=400,
+                    detail="По выбранной строке накладной доступно " + str(exc) + " " + source_item_unit,
+                )
+    source_price = 0
+    source_category = ""
+    source_unit = _norm_base_unit(m.unit or "") if (m.unit or "").strip() else ""
+    if from_location == "Основной склад":
+        cur.execute(f"""SELECT id,quantity,unit,price,category FROM warehouse_main
+                       WHERE LOWER(name)=LOWER(%s)
+                         AND company_id=%s
+                         AND (%s='' OR {_sql_norm_unit('unit')}=%s)
+                       ORDER BY id LIMIT 1 FOR UPDATE""", (material_name, company_id, source_unit, source_unit))
+        source = cur.fetchone()
+        if not source:
+            raise HTTPException(status_code=400, detail="Материал «"+material_name+"» не найден на основном складе")
+        if float(source.get("quantity") or 0) < qty:
+            raise HTTPException(status_code=400, detail="На основном складе недостаточно материала «"+material_name+"»")
+        source_unit = source_unit or _norm_base_unit(source.get("unit") or "шт") or "шт"
+        source_price = float(source.get("price") or 0)
+        source_category = source.get("category") or ""
+        cur.execute("UPDATE warehouse_main SET quantity=COALESCE(quantity,0)-%s WHERE id=%s", (qty, source["id"]))
+    else:
+        cur.execute(f"""SELECT id,quantity,unit,price,category FROM materials
+                       WHERE LOWER(name)=LOWER(%s)
+                         AND project=%s
+                         AND company_id=%s
+                         AND COALESCE(NULLIF(work_package,''),'Основная')=%s
+                         AND (%s='' OR {_sql_norm_unit('unit')}=%s)
+                       ORDER BY id LIMIT 1 FOR UPDATE""", (material_name, from_location, company_id, work_package, source_unit, source_unit))
+        source = cur.fetchone()
+        if not source:
+            raise HTTPException(status_code=400, detail="Материал «"+material_name+"» не найден на складе объекта «"+from_location+"»" + (" по пакету «"+work_package+"»" if work_package else ""))
+        if float(source.get("quantity") or 0) < qty:
+            raise HTTPException(status_code=400, detail="На складе объекта недостаточно материала «"+material_name+"»")
+        source_unit = source_unit or _norm_base_unit(source.get("unit") or "шт") or "шт"
+        source_price = float(source.get("price") or 0)
+        source_category = source.get("category") or ""
+        cur.execute("UPDATE materials SET quantity=COALESCE(quantity,0)-%s WHERE id=%s", (qty, source["id"]))
+
+    if to_location != "Основной склад":
+        movement_control_items = [{
+            "materialName": material_name,
+            "quantity": qty,
+            "unit": source_unit,
+            "workPackage": work_package,
+        }]
+        _attach_supply_estimate_control(
+            cur,
+            to_location,
+            movement_control_items,
+            company_id=company_id,
+        )
+        movement_estimate_control = build_movement_estimate_control(movement_control_items)
+        work_package = _supply_work_package(movement_control_items[0].get("workPackage") or work_package)
+
+    if to_location == "Основной склад":
+        cur.execute(f"""SELECT id FROM warehouse_main
+                       WHERE LOWER(name)=LOWER(%s)
+                         AND company_id=%s
+                         AND {_sql_norm_unit('unit')}=%s
+                       ORDER BY id LIMIT 1 FOR UPDATE""", (material_name, company_id, source_unit))
+        target = cur.fetchone()
+        if target:
+            cur.execute("""UPDATE warehouse_main
+                           SET quantity=COALESCE(quantity,0)+%s,
+                               unit=COALESCE(NULLIF(%s,''), unit),
+                               price=CASE WHEN %s > 0 THEN %s ELSE price END,
+                               category=COALESCE(NULLIF(%s,''), category)
+                           WHERE id=%s""", (qty, source_unit, source_price, source_price, source_category, target["id"]))
+        else:
+            cur.execute("""INSERT INTO warehouse_main (name,unit,quantity,price,min_quantity,category,company_id)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+                        (material_name, source_unit, qty, source_price, 0, source_category, company_id))
+    else:
+        cur.execute(f"""SELECT id FROM materials
+                       WHERE LOWER(name)=LOWER(%s)
+                         AND project=%s
+                         AND company_id=%s
+                         AND COALESCE(NULLIF(work_package,''),'Основная')=%s
+                         AND {_sql_norm_unit('unit')}=%s
+                       ORDER BY id LIMIT 1 FOR UPDATE""", (material_name, to_location, company_id, work_package, source_unit))
+        target = cur.fetchone()
+        if target:
+            cur.execute("""UPDATE materials
+                           SET quantity=COALESCE(quantity,0)+%s,
+                               unit=COALESCE(NULLIF(%s,''), unit),
+                               price=CASE WHEN %s > 0 THEN %s ELSE price END,
+                               category=COALESCE(NULLIF(%s,''), category)
+                           WHERE id=%s""", (qty, source_unit, source_price, source_price, source_category, target["id"]))
+        else:
+            cur.execute("""INSERT INTO materials (name,unit,quantity,price,min_quantity,project,category,work_package,company_id)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                        (material_name, source_unit, qty, source_price, 0, to_location, source_category, work_package, company_id))
+
+    cur.execute("""INSERT INTO warehouse_movements
+                      (material_name,from_location,to_location,quantity,unit,work_package,date,created_by,notes,company_id,
+                       source_invoice_id,source_invoice_line_index,estimate_control_status,estimate_control)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING
+                      id,company_id as "companyId",material_name as "materialName",from_location as "fromLocation",
+                      to_location as "toLocation",quantity,unit,work_package as "workPackage",
+                      date,created_by as "createdBy",notes,source_invoice_id as "sourceInvoiceId",
+                      source_invoice_line_index""",
+                (material_name, from_location, to_location, qty, source_unit, work_package, m.date, m.createdBy or _current_user.get("name",""), m.notes, company_id,
+                 source_invoice_id, source_invoice_line_index, movement_estimate_control["status"], psycopg2.extras.Json(movement_estimate_control)))
+    row = cur.fetchone()
+    row["sourceInvoiceLineIndex"] = row.pop("source_invoice_line_index", None)
+    row["estimateControlStatus"] = movement_estimate_control["status"]
+    row["estimateControl"] = movement_estimate_control
+    actor_name = m.createdBy or _current_user.get("name","")
+    if selected_receipt_lot:
+        try:
+            from backend.features.material_traceability.receipt_lots import consume_receipt_lot
+        except ModuleNotFoundError:
+            from features.material_traceability.receipt_lots import consume_receipt_lot
+        try:
+            consume_receipt_lot(
+                cur,
+                lot=selected_receipt_lot,
+                warehouse_movement_id=row["id"],
+                quantity=qty,
+                from_location=from_location,
+                to_location=to_location,
+                created_by=actor_name,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+    date_time = dt.datetime.now().strftime("%d.%m.%Y, %H:%M")
+    cur.execute("""INSERT INTO warehouse_history
+                      (company_id,material,type,quantity,unit,date,project,issued_to,issued_by,work_package,date_time,
+                       source_type,source_id,source_invoice_id,source_invoice_line_index)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (company_id, material_name, "перемещение: списание", qty, source_unit, m.date or None, from_location, to_location, actor_name, work_package, date_time,
+                 "warehouse_movement", row["id"], source_invoice_id, source_invoice_line_index))
+    cur.execute("""INSERT INTO warehouse_history
+                      (company_id,material,type,quantity,unit,date,project,issued_to,issued_by,work_package,date_time,
+                       source_type,source_id,source_invoice_id,source_invoice_line_index)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (company_id, material_name, "перемещение: приход", qty, source_unit, m.date or None, to_location, from_location, actor_name, work_package, date_time,
+                 "warehouse_movement", row["id"], source_invoice_id, source_invoice_line_index))
+    return dict(row)
+
 @app.post("/warehouse-movements")
 def create_warehouse_movement(
     m: WarehouseMovementModel,
@@ -6909,6 +7156,8 @@ def create_warehouse_movement(
     x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
     _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES)),
 ):
+    if os.getenv('OWNED_DISTRIBUTION_QUALITY_ENABLED') == '1':
+        raise HTTPException(status_code=409, detail="Для перемещения с журналом качества используйте распределение конкретной партии или возврат по распределению. Старое перемещение отключено.")
     material_name = (m.materialName or "").strip()
     from_location = (m.fromLocation or "").strip()
     to_location = (m.toLocation or "").strip()
@@ -6956,213 +7205,13 @@ def create_warehouse_movement(
         raise HTTPException(status_code=409, detail="Компания перемещения не определена")
     conn.autocommit = False
     try:
-        movement_estimate_control = build_movement_estimate_control([])
-        source_invoice_id = m.invoiceId
-        source_invoice_line_index = m.invoiceLineIndex
-        selected_receipt_lot = None
-        if source_invoice_id is not None or source_invoice_line_index is not None:
-            cur.execute("""SELECT id,number,project,location,items
-                           FROM warehouse_invoices
-                           WHERE id=%s AND company_id=%s
-                             AND COALESCE(status,'Принята') <> 'Аннулирована'""", (source_invoice_id, company_id))
-            invoice_row = cur.fetchone()
-            try:
-                from backend.features.material_traceability.service import ensure_source_quantity_available, resolve_invoice_line_source
-            except ModuleNotFoundError:
-                from features.material_traceability.service import ensure_source_quantity_available, resolve_invoice_line_source
-            try:
-                source_reference = resolve_invoice_line_source(source_invoice_id, source_invoice_line_index, invoice_row)
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail=str(exc))
-            invoice_location = (invoice_row.get("project") or "").strip() or (invoice_row.get("location") or "").strip()
-            if invoice_location != from_location:
-                raise HTTPException(status_code=400, detail="Выбранная строка накладной относится к другому складу или объекту")
-            invoice_items = _json_list_or_empty(invoice_row.get("items"))
-            source_item = invoice_items[source_reference["invoiceLineIndex"]]
-            source_item_name = str(
-                (source_item or {}).get("name")
-                or (source_item or {}).get("materialName")
-                or (source_item or {}).get("title")
-                or ""
-            ).strip().lower()
-            source_item_unit = _norm_base_unit((source_item or {}).get("unit") or "шт") or "шт"
-            requested_unit = _norm_base_unit(m.unit or "") if (m.unit or "").strip() else source_item_unit
-            if source_item_name != material_name.lower() or source_item_unit != requested_unit:
-                raise HTTPException(status_code=400, detail="Выбранная строка накладной не совпадает с перемещаемым материалом")
-            cur.execute("""SELECT COALESCE(SUM(quantity),0) AS allocated_quantity
-                           FROM warehouse_movements
-                           WHERE company_id=%s AND source_invoice_id=%s AND source_invoice_line_index=%s""",
-                        (company_id, source_reference["invoiceId"], source_reference["invoiceLineIndex"]))
-            allocated_quantity = float((cur.fetchone() or {}).get("allocated_quantity") or 0)
-            try:
-                ensure_source_quantity_available(source_item, allocated_quantity, qty)
-            except ValueError as exc:
-                raise HTTPException(
-                    status_code=400,
-                    detail="По выбранной строке накладной доступно " + str(exc) + " " + source_item_unit,
-                )
-            source_invoice_id = source_reference["invoiceId"]
-            source_invoice_line_index = source_reference["invoiceLineIndex"]
-            try:
-                from backend.features.material_traceability.receipt_lots import (
-                    ensure_receipt_lot_schema,
-                    lock_receipt_lot_for_movement,
-                )
-            except ModuleNotFoundError:
-                from features.material_traceability.receipt_lots import (
-                    ensure_receipt_lot_schema,
-                    lock_receipt_lot_for_movement,
-                )
-            ensure_receipt_lot_schema(cur)
-            try:
-                selected_receipt_lot = lock_receipt_lot_for_movement(
-                    cur,
-                    company_id=company_id,
-                    warehouse_invoice_id=source_invoice_id,
-                    invoice_line_index=source_invoice_line_index,
-                    warehouse_location=from_location,
-                    material_name=material_name,
-                    unit=requested_unit,
-                    requested_quantity=qty,
-                )
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail=str(exc))
-        source_price = 0
-        source_category = ""
-        source_unit = _norm_base_unit(m.unit or "") if (m.unit or "").strip() else ""
-        if from_location == "Основной склад":
-            cur.execute(f"""SELECT id,quantity,unit,price,category FROM warehouse_main
-                           WHERE LOWER(name)=LOWER(%s)
-                             AND company_id=%s
-                             AND (%s='' OR {_sql_norm_unit('unit')}=%s)
-                           ORDER BY id LIMIT 1 FOR UPDATE""", (material_name, company_id, source_unit, source_unit))
-            source = cur.fetchone()
-            if not source:
-                raise HTTPException(status_code=400, detail="Материал «"+material_name+"» не найден на основном складе")
-            if float(source.get("quantity") or 0) < qty:
-                raise HTTPException(status_code=400, detail="На основном складе недостаточно материала «"+material_name+"»")
-            source_unit = source_unit or _norm_base_unit(source.get("unit") or "шт") or "шт"
-            source_price = float(source.get("price") or 0)
-            source_category = source.get("category") or ""
-            cur.execute("UPDATE warehouse_main SET quantity=COALESCE(quantity,0)-%s WHERE id=%s", (qty, source["id"]))
-        else:
-            cur.execute(f"""SELECT id,quantity,unit,price,category FROM materials
-                           WHERE LOWER(name)=LOWER(%s)
-                             AND project=%s
-                             AND company_id=%s
-                             AND COALESCE(NULLIF(work_package,''),'Основная')=%s
-                             AND (%s='' OR {_sql_norm_unit('unit')}=%s)
-                           ORDER BY id LIMIT 1 FOR UPDATE""", (material_name, from_location, company_id, work_package, source_unit, source_unit))
-            source = cur.fetchone()
-            if not source:
-                raise HTTPException(status_code=400, detail="Материал «"+material_name+"» не найден на складе объекта «"+from_location+"»" + (" по пакету «"+work_package+"»" if work_package else ""))
-            if float(source.get("quantity") or 0) < qty:
-                raise HTTPException(status_code=400, detail="На складе объекта недостаточно материала «"+material_name+"»")
-            source_unit = source_unit or _norm_base_unit(source.get("unit") or "шт") or "шт"
-            source_price = float(source.get("price") or 0)
-            source_category = source.get("category") or ""
-            cur.execute("UPDATE materials SET quantity=COALESCE(quantity,0)-%s WHERE id=%s", (qty, source["id"]))
+        try:
+            from backend.features.material_traceability.guards import lock_distribution_compatible_stock
+        except ModuleNotFoundError:
+            from features.material_traceability.guards import lock_distribution_compatible_stock
+        lock_distribution_compatible_stock(cur)
+        row = _apply_warehouse_movement(cur, m, company_id, _current_user)
 
-        if to_location != "Основной склад":
-            movement_control_items = [{
-                "materialName": material_name,
-                "quantity": qty,
-                "unit": source_unit,
-                "workPackage": work_package,
-            }]
-            _attach_supply_estimate_control(
-                cur,
-                to_location,
-                movement_control_items,
-                company_id=company_id,
-            )
-            movement_estimate_control = build_movement_estimate_control(movement_control_items)
-            work_package = _supply_work_package(movement_control_items[0].get("workPackage") or work_package)
-
-        if to_location == "Основной склад":
-            cur.execute(f"""SELECT id FROM warehouse_main
-                           WHERE LOWER(name)=LOWER(%s)
-                             AND company_id=%s
-                             AND {_sql_norm_unit('unit')}=%s
-                           ORDER BY id LIMIT 1 FOR UPDATE""", (material_name, company_id, source_unit))
-            target = cur.fetchone()
-            if target:
-                cur.execute("""UPDATE warehouse_main
-                               SET quantity=COALESCE(quantity,0)+%s,
-                                   unit=COALESCE(NULLIF(%s,''), unit),
-                                   price=CASE WHEN %s > 0 THEN %s ELSE price END,
-                                   category=COALESCE(NULLIF(%s,''), category)
-                               WHERE id=%s""", (qty, source_unit, source_price, source_price, source_category, target["id"]))
-            else:
-                cur.execute("""INSERT INTO warehouse_main (name,unit,quantity,price,min_quantity,category,company_id)
-                               VALUES (%s,%s,%s,%s,%s,%s,%s)""",
-                            (material_name, source_unit, qty, source_price, 0, source_category, company_id))
-        else:
-            cur.execute(f"""SELECT id FROM materials
-                           WHERE LOWER(name)=LOWER(%s)
-                             AND project=%s
-                             AND company_id=%s
-                             AND COALESCE(NULLIF(work_package,''),'Основная')=%s
-                             AND {_sql_norm_unit('unit')}=%s
-                           ORDER BY id LIMIT 1 FOR UPDATE""", (material_name, to_location, company_id, work_package, source_unit))
-            target = cur.fetchone()
-            if target:
-                cur.execute("""UPDATE materials
-                               SET quantity=COALESCE(quantity,0)+%s,
-                                   unit=COALESCE(NULLIF(%s,''), unit),
-                                   price=CASE WHEN %s > 0 THEN %s ELSE price END,
-                                   category=COALESCE(NULLIF(%s,''), category)
-                               WHERE id=%s""", (qty, source_unit, source_price, source_price, source_category, target["id"]))
-            else:
-                cur.execute("""INSERT INTO materials (name,unit,quantity,price,min_quantity,project,category,work_package,company_id)
-                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                            (material_name, source_unit, qty, source_price, 0, to_location, source_category, work_package, company_id))
-
-        cur.execute("""INSERT INTO warehouse_movements
-                          (material_name,from_location,to_location,quantity,unit,work_package,date,created_by,notes,company_id,
-                           source_invoice_id,source_invoice_line_index,estimate_control_status,estimate_control)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING
-                          id,material_name as "materialName",from_location as "fromLocation",
-                          to_location as "toLocation",quantity,unit,work_package as "workPackage",
-                          date,created_by as "createdBy",notes,source_invoice_id as "sourceInvoiceId",
-                          source_invoice_line_index""",
-                    (material_name, from_location, to_location, qty, source_unit, work_package, m.date, m.createdBy or _current_user.get("name",""), m.notes, company_id,
-                     source_invoice_id, source_invoice_line_index, movement_estimate_control["status"], psycopg2.extras.Json(movement_estimate_control)))
-        row = cur.fetchone()
-        row["sourceInvoiceLineIndex"] = row.pop("source_invoice_line_index", None)
-        row["estimateControlStatus"] = movement_estimate_control["status"]
-        row["estimateControl"] = movement_estimate_control
-        actor_name = m.createdBy or _current_user.get("name","")
-        if selected_receipt_lot:
-            try:
-                from backend.features.material_traceability.receipt_lots import consume_receipt_lot
-            except ModuleNotFoundError:
-                from features.material_traceability.receipt_lots import consume_receipt_lot
-            try:
-                consume_receipt_lot(
-                    cur,
-                    lot=selected_receipt_lot,
-                    warehouse_movement_id=row["id"],
-                    quantity=qty,
-                    from_location=from_location,
-                    to_location=to_location,
-                    created_by=actor_name,
-                )
-            except ValueError as exc:
-                raise HTTPException(status_code=409, detail=str(exc))
-        date_time = dt.datetime.now().strftime("%d.%m.%Y, %H:%M")
-        cur.execute("""INSERT INTO warehouse_history
-                          (company_id,material,type,quantity,unit,date,project,issued_to,issued_by,work_package,date_time,
-                           source_type,source_id,source_invoice_id,source_invoice_line_index)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                    (company_id, material_name, "перемещение: списание", qty, source_unit, m.date or None, from_location, to_location, actor_name, work_package, date_time,
-                     "warehouse_movement", row["id"], source_invoice_id, source_invoice_line_index))
-        cur.execute("""INSERT INTO warehouse_history
-                          (company_id,material,type,quantity,unit,date,project,issued_to,issued_by,work_package,date_time,
-                           source_type,source_id,source_invoice_id,source_invoice_line_index)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                    (company_id, material_name, "перемещение: приход", qty, source_unit, m.date or None, to_location, from_location, actor_name, work_package, date_time,
-                     "warehouse_movement", row["id"], source_invoice_id, source_invoice_line_index))
         conn.commit()
     except Exception:
         conn.rollback()
@@ -7431,6 +7480,10 @@ def get_piecework(current_user: dict = Depends(get_current_user)):
         SELECT 1 FROM work_journal wj
         WHERE wj.id = piecework.work_journal_id
           AND COALESCE(wj.status,'') = 'Отклонено'
+    ) AND NOT EXISTS (
+        SELECT 1 FROM work_journal w JOIN brigade_contract_items i ON i.id=w.contract_item_id
+        JOIN brigade_contracts c ON c.id=i.contract_id
+        WHERE w.id=piecework.work_journal_id AND c.settlement_version=2
     )"""
     if current_user.get("role") in WORKER_EXECUTION_ROLES:
         cur.execute(f"""SELECT {cols} FROM piecework
@@ -7458,279 +7511,79 @@ def create_piecework(p: PieceworkModel, _current_user: dict = Depends(require_ro
     if _current_user.get("role") in WORKER_EXECUTION_ROLES:
         raise HTTPException(status_code=403, detail="Сдельное начисление создаётся только после проверки ЖПР прорабом/руководителем")
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    if p.workJournalId:
-        work = require_work_journal_actor_access(cur, p.workJournalId, _current_user)
-        cur.execute("SELECT id FROM piecework WHERE work_journal_id=%s LIMIT 1", (p.workJournalId,))
-        existing = cur.fetchone()
-        if existing:
+    try:
+        if p.workJournalId:
+            work = require_work_journal_actor_access(cur, p.workJournalId, _current_user)
+            _lock_legacy_work_settlement(cur)
+            work_settlement_guards.require_legacy_work(cur, [p.workJournalId])
+            cur.execute("SELECT id FROM piecework WHERE work_journal_id=%s LIMIT 1", (p.workJournalId,))
+            existing = cur.fetchone()
+            if existing:
+                conn.close()
+                return dict(existing)
+            cur.execute("""SELECT master_id, master_name, project, description, unit, quantity,
+                                  execution_price_per_unit, execution_total, date
+                           FROM work_journal
+                           WHERE id=%s AND COALESCE(status,'')='Подтверждено'""", (p.workJournalId,))
+            work_row = cur.fetchone()
+            if not work_row:
+                conn.close()
+                raise HTTPException(status_code=400, detail="Сдельное начисление можно создать только по подтверждённой записи ЖПР")
+            p.staffId = str(work_row.get("master_id") or p.staffId or "")
+            p.project = work_row.get("project") or work.get("project") or p.project
+            p.description = work_row.get("description") or p.description
+            p.unit = work_row.get("unit") or p.unit
+            p.quantity = float(work_row.get("quantity") or 0)
+            p.pricePerUnit = float(work_row.get("execution_price_per_unit") or 0)
+            p.total = float(work_row.get("execution_total") or (p.quantity * p.pricePerUnit))
+            p.date = str(work_row.get("date") or p.date or "")
+        else:
             conn.close()
-            return dict(existing)
-        cur.execute("""SELECT master_id, master_name, project, description, unit, quantity,
-                              execution_price_per_unit, execution_total, date
-                       FROM work_journal
-                       WHERE id=%s AND COALESCE(status,'')='Подтверждено'""", (p.workJournalId,))
-        work_row = cur.fetchone()
-        if not work_row:
-            conn.close()
-            raise HTTPException(status_code=400, detail="Сдельное начисление можно создать только по подтверждённой записи ЖПР")
-        p.staffId = str(work_row.get("master_id") or p.staffId or "")
-        p.project = work_row.get("project") or work.get("project") or p.project
-        p.description = work_row.get("description") or p.description
-        p.unit = work_row.get("unit") or p.unit
-        p.quantity = float(work_row.get("quantity") or 0)
-        p.pricePerUnit = float(work_row.get("execution_price_per_unit") or 0)
-        p.total = float(work_row.get("execution_total") or (p.quantity * p.pricePerUnit))
-        p.date = str(work_row.get("date") or p.date or "")
-    else:
+            raise HTTPException(status_code=400, detail="Ручные сдельные начисления отключены. Закрывайте работу через ЖПР: подтверждённая запись сама формирует сумму исполнителя и акт бухгалтерии.")
+        cur.execute("INSERT INTO piecework (staff_id,description,unit,quantity,price_per_unit,total,project,date,comment,photo_url,work_journal_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
+                    (p.staffId,p.description,p.unit,p.quantity,p.pricePerUnit,p.total,p.project,p.date,p.comment,p.photoUrl,p.workJournalId))
+        row = cur.fetchone()
+        conn.commit()
         conn.close()
-        raise HTTPException(status_code=400, detail="Ручные сдельные начисления отключены. Закрывайте работу через ЖПР: подтверждённая запись сама формирует сумму исполнителя и акт бухгалтерии.")
-    cur.execute("INSERT INTO piecework (staff_id,description,unit,quantity,price_per_unit,total,project,date,comment,photo_url,work_journal_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
-                (p.staffId,p.description,p.unit,p.quantity,p.pricePerUnit,p.total,p.project,p.date,p.comment,p.photoUrl,p.workJournalId))
-    row = cur.fetchone()
-    conn.close()
-    return dict(row)
+        return dict(row)
+    finally:
+        if not conn.closed:
+            conn.rollback()
+            conn.close()
 
 @app.delete("/piecework/{id}")
 def delete_piecework(id: int, _current_user: dict = Depends(require_roles("директор"))):
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor()
-    require_row_project_access(cur, "piecework", id, _current_user, "project")
-    cur.execute("DELETE FROM piecework WHERE id=%s", (id,))
-    conn.close()
-    return {"ok": True}
-
-@app.get("/users")
-def get_users(current_user: dict = Depends(get_current_user)):
-    import json as _j
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    if current_user.get("role") in LEADERSHIP_ROLES or current_user.get("role") == "бухгалтер":
-        cur.execute("SELECT id,name,email,role,project_id,project_name,assigned_projects,assigned_packages,COALESCE(active,TRUE) as active,COALESCE(two_factor_required,FALSE) as two_factor_required,COALESCE(two_factor_enabled,FALSE) as two_factor_enabled,two_factor_confirmed_at FROM users")
-    else:
-        cur.execute("SELECT id,name,email,role,project_id,project_name,assigned_projects,assigned_packages,COALESCE(active,TRUE) as active,COALESCE(two_factor_required,FALSE) as two_factor_required,COALESCE(two_factor_enabled,FALSE) as two_factor_enabled,two_factor_confirmed_at FROM users WHERE id=%s", (current_user.get("id"),))
-    rows = cur.fetchall()
-    conn.close()
-    out = []
-    for r in rows:
-        d = dict(r)
-        ap = d.get('assigned_projects')
-        try:
-            if isinstance(ap, str): d['assignedProjects'] = _j.loads(ap)
-            elif isinstance(ap, list): d['assignedProjects'] = ap
-            else: d['assignedProjects'] = []
-        except: d['assignedProjects'] = []
-        apk = d.get('assigned_packages')
-        try:
-            if isinstance(apk, str): d['assignedPackages'] = _j.loads(apk)
-            elif isinstance(apk, list): d['assignedPackages'] = apk
-            else: d['assignedPackages'] = []
-        except: d['assignedPackages'] = []
-        d.pop('assigned_projects', None)
-        d.pop('assigned_packages', None)
-        d['projectId'] = d.pop('project_id', None)
-        d['projectName'] = d.pop('project_name', '')
-        d['active'] = d.get('active') is not False
-        d['twoFactorRequired'] = bool(d.pop('two_factor_required', False)) or _role_requires_2fa(d.get('role') or '')
-        d['twoFactorEnabled'] = bool(d.pop('two_factor_enabled', False))
-        d['twoFactorConfirmedAt'] = str(d.pop('two_factor_confirmed_at', '') or '')
-        out.append(d)
-    return out
-
-@app.put("/users/{id}/assigned-projects")
-def update_assigned_projects(id: int, data: dict, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
-    """Назначить пользователю список объектов и пакетов смет."""
-    import json as _j
-    projects_list = data.get('assignedProjects') or []
-    packages_list = data.get('assignedPackages') or []
-    if not isinstance(projects_list, list):
-        return {"ok": False, "error": "assignedProjects must be array"}
-    if not isinstance(packages_list, list):
-        return {"ok": False, "error": "assignedPackages must be array"}
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT name,email,role, COALESCE(project_name,'') AS project_name FROM users WHERE id=%s", (id,))
-    user_row = cur.fetchone()
-    if not user_row:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=404, detail="Пользователь не найден")
-    _validate_user_access_scope(user_row.get("role") or "", user_row.get("project_name") or "", projects_list, packages_list)
-    cur.execute("UPDATE users SET assigned_projects=%s::jsonb, assigned_packages=%s::jsonb WHERE id=%s",
-                (_j.dumps(projects_list), _j.dumps(packages_list), id))
-    conn.commit()
-    log_audit(
-        _current_user.get("name", ""),
-        _current_user.get("role", ""),
-        "access_update",
-        "user",
-        id,
-        (
-            "Обновлены доступы пользователя: "
-            + str(user_row.get("name") or user_row.get("email") or id)
-            + "; объектов "
-            + str(len(projects_list))
-            + ", пакетов "
-            + str(len(packages_list))
-        )[:250],
-        ", ".join([str(p) for p in projects_list[:3]]) or user_row.get("project_name") or "",
-    )
-    cur.close(); conn.close()
-    return {"ok": True}
-
-@app.post("/users")
-def create_user(u: UserModel, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
-    if not (u.password or "").strip():
-        raise HTTPException(status_code=400, detail="Пароль обязателен")
-    email = (u.email or "").strip().lower()
-    if not email:
-        raise HTTPException(status_code=400, detail="Email обязателен")
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        assigned_projects, assigned_packages = _prepare_user_access_scope(cur, u.role, u.projectName or "", u.assignedProjects or [], u.assignedPackages or [])
-        cur.execute("""INSERT INTO users (name,email,password,role,project_id,project_name,assigned_projects,assigned_packages,active,two_factor_required)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s,%s)
-                       RETURNING id,name,email,role,project_id,project_name,assigned_projects,assigned_packages,active,two_factor_required,two_factor_enabled,two_factor_confirmed_at""",
-                    ((u.name or "").strip(),email,hash_password(u.password.strip()),u.role,int(u.projectId) if u.projectId else None,u.projectName or "",json.dumps(assigned_projects),json.dumps(assigned_packages), u.active is not False, _role_requires_2fa(u.role)))
+        require_row_project_access(cur, "piecework", id, _current_user, "project")
+        _lock_legacy_work_settlement(cur)
+        cur.execute("SELECT work_journal_id FROM piecework WHERE id=%s FOR UPDATE", (id,))
         row = cur.fetchone()
+        if row and row[0]:
+            work_settlement_guards.require_legacy_work(cur, [row[0]])
+        cur.execute("DELETE FROM piecework WHERE id=%s", (id,))
         conn.commit()
-        log_audit(
-            _current_user.get("name", ""),
-            _current_user.get("role", ""),
-            "create",
-            "user",
-            row.get("id"),
-            ("Создан пользователь: " + str(row.get("name") or "") + " (" + str(row.get("email") or "") + "), роль " + str(row.get("role") or ""))[:250],
-            row.get("project_name") or "",
-        )
-        cur.close()
         conn.close()
-        return dict(row)
-    except Exception as e:
-        conn.rollback()
-        cur.close()
-        conn.close()
-        raise HTTPException(status_code=400, detail=str(e))
-
-@app.put("/users/{id}")
-def update_user(id: int, u: UserModel, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
-    email = (u.email or "").strip().lower()
-    if not email:
-        raise HTTPException(status_code=400, detail="Email обязателен")
-    conn = get_db()
-    cur = conn.cursor()
-    try:
-        cur.execute("SELECT role FROM users WHERE id=%s", (id,))
-        previous_user_row = cur.fetchone()
-        previous_role = previous_user_row[0] if previous_user_row else None
-        role_changed = previous_user_row is not None and (previous_role or "") != (u.role or "")
-        assigned_projects, assigned_packages = _prepare_user_access_scope(cur, u.role, u.projectName or "", u.assignedProjects or [], u.assignedPackages or [])
-        active_sql = ""
-        params_tail = []
-        password_changed = bool(u.password)
-        if u.active is not None:
-            active_sql = ", active=%s"
-            params_tail.append(u.active is not False)
-        if password_changed:
-            cur.execute("UPDATE users SET name=%s,email=%s,password=%s,role=%s,project_id=%s,project_name=%s,assigned_projects=%s::jsonb,assigned_packages=%s::jsonb,two_factor_required=%s,failed_login_count=0,locked_until=NULL"+active_sql+" WHERE id=%s",
-                        ((u.name or "").strip(),email,hash_password(u.password.strip()),u.role,int(u.projectId) if u.projectId else None,u.projectName or "",json.dumps(assigned_projects),json.dumps(assigned_packages),_role_requires_2fa(u.role),*params_tail,id))
-        else:
-            cur.execute("UPDATE users SET name=%s,email=%s,role=%s,project_id=%s,project_name=%s,assigned_projects=%s::jsonb,assigned_packages=%s::jsonb,two_factor_required=%s"+active_sql+" WHERE id=%s",
-                        ((u.name or "").strip(),email,u.role,int(u.projectId) if u.projectId else None,u.projectName or "",json.dumps(assigned_projects),json.dumps(assigned_packages),_role_requires_2fa(u.role),*params_tail,id))
-        if cur.rowcount == 0:
+        return {"ok": True}
+    finally:
+        if not conn.closed:
             conn.rollback()
-            raise HTTPException(status_code=404, detail="Пользователь не найден")
-        if u.active is False or password_changed or role_changed:
-            _revoke_user_sessions(cur, id)
-        conn.commit()
-        log_audit(
-            _current_user.get("name", ""),
-            _current_user.get("role", ""),
-            "update",
-            "user",
-            id,
-            ("Обновлен пользователь: " + str((u.name or "").strip()) + " (" + email + "), роль " + str(u.role or ""))[:250],
-            u.projectName or "",
-        )
-    except HTTPException:
-        cur.close()
-        conn.close()
-        raise
-    except Exception as e:
-        conn.rollback()
-        cur.close()
-        conn.close()
-        raise HTTPException(status_code=400, detail=str(e))
-    cur.close()
-    conn.close()
-    return {"ok": True}
+            conn.close()
 
-@app.post("/users/{id}/2fa-reset")
-def reset_user_2fa(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT name,email,role FROM users WHERE id=%s", (id,))
-    row = cur.fetchone()
-    if not row:
-        cur.close()
-        conn.close()
-        raise HTTPException(status_code=404, detail="Пользователь не найден")
-    cur.execute(
-        """UPDATE users
-           SET two_factor_enabled=FALSE,
-               two_factor_secret=NULL,
-               two_factor_confirmed_at=NULL,
-               two_factor_required=%s
-           WHERE id=%s""",
-        (_role_requires_2fa(row.get("role") or ""), id),
-    )
-    _revoke_user_sessions(cur, id)
-    conn.commit()
-    log_audit(
-        _current_user.get("name", ""),
-        _current_user.get("role", ""),
-        "2fa_reset",
-        "user",
-        id,
-        ("Сброшена 2FA пользователя: " + str(row.get("name") or row.get("email") or id))[:250],
-        "",
-    )
-    cur.close()
-    conn.close()
-    return {"ok": True}
+try:
+    from backend.features.company_users.routes import register_company_users
+except ModuleNotFoundError:
+    from features.company_users.routes import register_company_users
 
-@app.delete("/users/{id}")
-def delete_user(id: int, _current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES))):
-    if int(id) == int(_current_user.get("id") or 0):
-        raise HTTPException(status_code=400, detail="Нельзя отключить свой аккаунт")
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT name,email,role,COALESCE(project_name,'') FROM users WHERE id=%s", (id,))
-    user_row = cur.fetchone()
-    if not user_row:
-        conn.rollback()
-        cur.close()
-        conn.close()
-        raise HTTPException(status_code=404, detail="Пользователь не найден")
-    cur.execute("UPDATE users SET active=FALSE, locked_until=NULL WHERE id=%s", (id,))
-    if cur.rowcount == 0:
-        conn.rollback()
-        cur.close()
-        conn.close()
-        raise HTTPException(status_code=404, detail="Пользователь не найден")
-    conn.commit()
-    log_audit(
-        _current_user.get("name", ""),
-        _current_user.get("role", ""),
-        "deactivate",
-        "user",
-        id,
-        ("Отключен пользователь: " + str(user_row[0] or user_row[1] or "") + ", роль " + str(user_row[2] or ""))[:250],
-        user_row[3] or "",
-    )
-    cur.close()
-    conn.close()
-    return {"ok": True}
+register_company_users(app, {
+    'get_db': get_db, 'authenticated': get_current_user,
+    'resolve_context': _resolve_work_company_context, 'effective_actors': effective_company_actors,
+    'hash_password': hash_password, 'requires_2fa': _role_requires_2fa, 'revoke_sessions': _revoke_user_sessions,
+})
 
 @app.get("/pricelists")
 def get_pricelists(_current_user: dict = Depends(get_current_user)):
@@ -7855,11 +7708,18 @@ except ModuleNotFoundError:
     from features.invite_codes.routes import register_invite_codes_module
 
 
+from backend.features.supplier_team.routes import register_supplier_team_module
+register_supplier_team_module(app, {"get_db": get_db, "require_roles": require_roles})
+
 register_invite_codes_module(app, {
     "get_db": get_db,
+    "authenticated": get_current_user,
+    "resolve_context": _resolve_work_company_context, "effective_actors": effective_company_actors,
     "require_roles": require_roles,
     "admin_roles": LEADERSHIP_ROLES,
     "prepare_user_access_scope": _prepare_user_access_scope,
+    "platform_staff_roles": PLATFORM_STAFF_ROLES,
+    "client_account_roles": CLIENT_ACCOUNT_ROLES,
 })
 
 @app.get("/companies")
@@ -8082,21 +7942,38 @@ def _normalize_supplier_ids(value) -> list:
             ids.append(supplier_id)
     return ids
 
-def _create_supplier_offer_requests(cur, request_id: int, supplier_ids, ai_ids=None, company_id=None) -> list:
+def _create_supplier_offer_requests(cur, request_id: int, supplier_ids, ai_ids=None, company_id=None, *, targets=None) -> list:
     created = []
+    ledger_present = _payment_ledger_available(cur)
     if company_id is None:
         cur.execute("SELECT company_id FROM supply_requests WHERE id=%s LIMIT 1", (request_id,))
         company_id = _row_get(cur.fetchone(), "company_id", 0, None)
-    for target in supplier_offer_targets_for_groups(cur, supplier_ids, ai_ids):
+    for target in targets if targets is not None else supplier_offer_targets_for_groups(cur, supplier_ids, ai_ids):
         supplier_id = target["target_id"]
         scope_ids = target["scope_ids"] or [supplier_id]
         ai_recommended = bool(target.get("ai_recommended"))
         cur.execute(
-            "SELECT id, status FROM supplier_offers WHERE request_id=%s AND supplier_id = ANY(%s) ORDER BY id DESC LIMIT 1",
+            "SELECT id, status, company_id FROM supplier_offers WHERE request_id=%s AND supplier_id = ANY(%s) ORDER BY id DESC LIMIT 1"
+            + (" FOR UPDATE" if ledger_present else ""),
             (request_id, scope_ids))
         existing = cur.fetchone()
         if existing:
+            if ledger_present and existing['company_id'] != company_id:
+                raise HTTPException(409, 'Компания КП не совпадает с компанией заявки')
             if (existing.get("status") or "") in ("Отозвано", "Отклонено"):
+                if ledger_present:
+                    # The caller holds the company lock before request/offer
+                    # locks. Check ALL bound invoices, including cancelled and
+                    # zero-paid rows, and their forward/reverse warehouse links.
+                    # A request-only invoice has no unambiguous offer attribution:
+                    # its registered evidence must also prevent financial reset.
+                    cur.execute('''SELECT id,company_id FROM supplier_invoices
+                        WHERE offer_id=%s OR (request_id=%s AND offer_id IS NULL)
+                        ORDER BY id FOR UPDATE''', (existing['id'], request_id))
+                    for invoice in cur.fetchall():
+                        if invoice['company_id'] != company_id:
+                            raise HTTPException(409, 'Компания счёта КП требует сверки')
+                        _require_unmanaged_payment_document(cur, 'invoice', invoice['id'])
                 cur.execute(
                     "UPDATE supplier_offers SET supplier_id=%s, company_id=%s, status=%s, price_per_unit=NULL, total_price=NULL, delivery_days=NULL, "
                     "notes=NULL, payment_terms=%s, vat_included=TRUE, pdf_url=NULL, valid_until=NULL, "
@@ -8181,7 +8058,13 @@ def _row_get(row, key, index=None, default=None):
             return default
     return default
 
-def _resolve_material_alias(cur, project: str, name: str, unit: str = ""):
+def _resolve_material_alias(cur, project: str, name: str, unit: str = "", *, company_id=None, project_id=None):
+    try:
+        from backend.features.material_aliases.runtime import owned_aliases_enabled, resolve_owned_alias
+    except ModuleNotFoundError:
+        from features.material_aliases.runtime import owned_aliases_enabled, resolve_owned_alias
+    if owned_aliases_enabled():
+        return resolve_owned_alias(cur, project, name, unit, company_id=company_id, project_id=project_id)
     raw_name = (name or "").strip()
     raw_unit = _norm_base_unit(unit or "")
     if not raw_name:
@@ -8227,20 +8110,20 @@ def _resolve_material_alias(cur, project: str, name: str, unit: str = ""):
         print("MATERIAL ALIAS RESOLVE ERROR:", str(e))
     return None
 
-def _material_control_key_resolved(cur, project: str, name: str, unit: str = ""):
+def _material_control_key_resolved(cur, project: str, name: str, unit: str = "", *, company_id=None, project_id=None):
     raw_name = (name or "").strip()
     raw_unit = _norm_base_unit(unit or "")
-    alias = _resolve_material_alias(cur, project, raw_name, raw_unit)
+    alias = _resolve_material_alias(cur, project, raw_name, raw_unit, company_id=company_id, project_id=project_id)
     if alias:
         return _material_control_key(alias.get("canonicalName") or raw_name, alias.get("canonicalUnit") or raw_unit)
     return _material_control_key(raw_name, raw_unit)
 
-def _apply_material_alias_to_invoice_item(cur, project: str, item: dict):
+def _apply_material_alias_to_invoice_item(cur, project: str, item: dict, *, company_id=None, project_id=None):
     if not isinstance(item, dict):
         return item
     raw_name = (item.get("name") or item.get("materialName") or "").strip()
     raw_unit = item.get("unit") or ""
-    alias = _resolve_material_alias(cur, project, raw_name, raw_unit)
+    alias = _resolve_material_alias(cur, project, raw_name, raw_unit, company_id=company_id, project_id=project_id)
     if not alias:
         return item
     canonical_name = (alias.get("canonicalName") or raw_name).strip()
@@ -8260,6 +8143,8 @@ def _apply_material_alias_to_invoice_item(cur, project: str, item: dict):
         "canonicalUnit": canonical_unit or "",
         "matchType": alias.get("matchType") or "exact",
     }
+    if alias.get("matchType") == "company_owned":
+        item["materialAlias"].update(companyId=alias["companyId"], projectId=alias["projectId"])
     return item
 
 def _is_invoice_consumable_material(name: str) -> bool:
@@ -8720,7 +8605,7 @@ def _supply_material_estimate_control(cur, project_owner: dict, material_name: s
     if not project or not company_id or not project_id or not material_name:
         return None
     package = _supply_work_package(work_package)
-    target_key = _material_control_key_resolved(cur, project, material_name, unit)
+    target_key = _material_control_key_resolved(cur, project, material_name, unit, company_id=company_id, project_id=project_owner["id"])
     planned_qty = planned_sum = 0.0
     matched_rows = 0
     fuzzy_matched_rows = 0
@@ -8767,7 +8652,7 @@ def _supply_material_estimate_control(cur, project_owner: dict, material_name: s
                 qty, plan_sum, _ = contribution
                 item_name = (item.get("name") or "").strip()
                 item_unit = item.get("unit") or ""
-                item_key = _material_control_key_resolved(cur, project, item_name, item_unit)
+                item_key = _material_control_key_resolved(cur, project, item_name, item_unit, company_id=company_id, project_id=project_owner["id"])
                 exact_match = item_key == target_key
                 fuzzy_score = 0.0 if exact_match else _material_name_match_score(material_name, item_name)
                 units_compatible = _material_units_compatible(unit, item_unit)
@@ -8807,10 +8692,11 @@ def _supply_material_estimate_control(cur, project_owner: dict, material_name: s
     if matched_package != "Основная":
         stock_packages.append("Основная")
     cur.execute("""SELECT name, unit, quantity FROM materials
-                   WHERE project=%s AND COALESCE(NULLIF(work_package,''),'Основная') = ANY(%s)""",
-                (project, stock_packages))
+                   WHERE company_id=%s AND project=%s
+                     AND COALESCE(NULLIF(work_package,''),'Основная') = ANY(%s)""",
+                (company_id, project, stock_packages))
     for row in _cursor_rows_as_dicts(cur, cur.fetchall()):
-        if _material_control_key_resolved(cur, project, row.get("name"), row.get("unit")) == target_key or (
+        if _material_control_key_resolved(cur, project, row.get("name"), row.get("unit"), company_id=company_id, project_id=project_owner["id"]) == target_key or (
             _material_units_compatible(unit, row.get("unit")) and _material_name_match_score(material_name, row.get("name")) >= 0.55
         ):
             stock_qty += _float_or_zero(row.get("quantity"))
@@ -8826,7 +8712,7 @@ def _supply_material_estimate_control(cur, project_owner: dict, material_name: s
                      AND COALESCE(status,'Активна') <> 'Аннулирована'""",
                 (company_id, project_id, matched_package))
     for row in _cursor_rows_as_dicts(cur, cur.fetchall()):
-        if _material_control_key_resolved(cur, project, row.get("material_name"), row.get("unit")) == target_key or (
+        if _material_control_key_resolved(cur, project, row.get("material_name"), row.get("unit"), company_id=company_id, project_id=project_owner["id"]) == target_key or (
             _material_units_compatible(unit, row.get("unit")) and _material_name_match_score(material_name, row.get("material_name")) >= 0.55
         ):
             qty = _float_or_zero(row.get("quantity"))
@@ -8839,11 +8725,11 @@ def _supply_material_estimate_control(cur, project_owner: dict, material_name: s
     returned_qty = 0.0
     cur.execute("""SELECT material, unit, quantity
                    FROM warehouse_history
-                   WHERE project=%s
+                   WHERE company_id=%s AND project=%s
                      AND COALESCE(NULLIF(work_package,''),'Основная')=%s
-                     AND LOWER(COALESCE(type,'')) LIKE %s""", (project, matched_package, "возврат от мастера%"))
+                     AND LOWER(COALESCE(type,'')) LIKE %s""", (company_id, project, matched_package, "возврат от мастера%"))
     for row in _cursor_rows_as_dicts(cur, cur.fetchall()):
-        if _material_control_key_resolved(cur, project, row.get("material"), row.get("unit")) == target_key or (
+        if _material_control_key_resolved(cur, project, row.get("material"), row.get("unit"), company_id=company_id, project_id=project_owner["id"]) == target_key or (
             _material_units_compatible(unit, row.get("unit")) and _material_name_match_score(material_name, row.get("material")) >= 0.55
         ):
             returned_qty += _float_or_zero(row.get("quantity"))
@@ -8851,30 +8737,30 @@ def _supply_material_estimate_control(cur, project_owner: dict, material_name: s
     written_off_qty = 0.0
     cur.execute("""SELECT materials_used
                    FROM work_journal
-                   WHERE project=%s
+                   WHERE company_id=%s AND project=%s
                      AND COALESCE(NULLIF(work_package,''),'Основная')=%s
-                     AND COALESCE(status,'') NOT IN ('Аннулировано','Отклонено')
-                     AND COALESCE(materials_used,'') <> ''""", (project, matched_package))
+                     AND (material_accounting_version=2 OR COALESCE(status,'') NOT IN ('Аннулировано','Отклонено'))
+                     AND COALESCE(materials_used,'') <> ''""", (company_id, project, matched_package))
     for row in _cursor_rows_as_dicts(cur, cur.fetchall()):
         for item in _json_list_or_empty(row.get("materials_used")):
             if not isinstance(item, dict):
                 continue
             item_name = item.get("name") or item.get("materialName") or ""
             item_unit = item.get("unit") or unit
-            if _material_control_key_resolved(cur, project, item_name, item_unit) == target_key or (
+            if _material_control_key_resolved(cur, project, item_name, item_unit, company_id=company_id, project_id=project_owner["id"]) == target_key or (
                 _material_units_compatible(unit, item_unit) and _material_name_match_score(material_name, item_name) >= 0.55
             ):
                 written_off_qty += _float_or_zero(item.get("quantity"))
 
     requested_qty = 0.0
-    request_params = [project, matched_package]
+    request_params = [company_id, project, matched_package]
     request_exclude_clause = ""
     if exclude_request_id:
         request_exclude_clause = " AND id<>%s"
         request_params.append(int(exclude_request_id))
     cur.execute("""SELECT id, status, items_json, material_name, quantity, unit, COALESCE(work_package,'Основная') AS work_package
                    FROM supply_requests
-                   WHERE project=%s
+                   WHERE company_id=%s AND project=%s
                      AND COALESCE(status,'') NOT IN ('Отклонена','Отменена','Отменена с откатом','Поставлено')
                      AND COALESCE(NULLIF(work_package,''),'Основная')=%s""" + request_exclude_clause,
                 tuple(request_params))
@@ -8895,20 +8781,20 @@ def _supply_material_estimate_control(cur, project_owner: dict, material_name: s
             item_package = _supply_work_package(item.get("workPackage") or item.get("work_package") or row.get("work_package"))
             if item_package != matched_package:
                 continue
-            if _material_control_key_resolved(cur, project, item_name, item_unit) == target_key or (
+            if _material_control_key_resolved(cur, project, item_name, item_unit, company_id=company_id, project_id=project_owner["id"]) == target_key or (
                 _material_units_compatible(unit, item_unit) and _material_name_match_score(material_name, item_name) >= 0.55
             ):
                 item_qty = _float_or_zero(item.get("quantity"))
                 delivered_qty = 0.0
                 cur.execute("""SELECT material_name, unit, received_quantity, COALESCE(work_package,'Основная') AS work_package
                                FROM supply_deliveries
-                               WHERE request_id=%s
-                                 AND COALESCE(status,'') NOT IN ('Отменена','Отклонена')""", (row.get("id"),))
+                               WHERE company_id=%s AND request_id=%s
+                                 AND COALESCE(status,'') NOT IN ('Отменена','Отклонена')""", (company_id, row.get("id")))
                 for delivery_row in _cursor_rows_as_dicts(cur, cur.fetchall()):
                     delivery_package = _supply_work_package(delivery_row.get("work_package"))
                     if delivery_package != item_package:
                         continue
-                    if _material_control_key_resolved(cur, project, delivery_row.get("material_name"), delivery_row.get("unit")) == target_key or (
+                    if _material_control_key_resolved(cur, project, delivery_row.get("material_name"), delivery_row.get("unit"), company_id=company_id, project_id=project_owner["id"]) == target_key or (
                         _material_units_compatible(unit, delivery_row.get("unit")) and _material_name_match_score(material_name, delivery_row.get("material_name")) >= 0.55
                     ):
                         delivered_qty += _float_or_zero(delivery_row.get("received_quantity"))
@@ -9087,7 +8973,7 @@ def _attach_supply_estimate_control(
             item.get("unit") or "",
             item.get("workPackage") or item.get("work_package") or "",
             exclude_request_id=exclude_request_id,
-            exclude_stock_qty=exclude_stock_by_key.get(_material_control_key_resolved(cur, project, item.get("materialName") or item.get("name") or "", item.get("unit") or ""), 0),
+            exclude_stock_qty=exclude_stock_by_key.get(_material_control_key_resolved(cur, project, item.get("materialName") or item.get("name") or "", item.get("unit") or "", company_id=company_id, project_id=project_owner["id"]), 0),
         )
         if not control:
             continue
@@ -9214,10 +9100,16 @@ def _enforce_supply_estimate_control(
             detail=prefix + " не проходит сметный контроль. " + "; ".join(blockers[:5]) + ". Сначала добавьте материал в активную/доп. смету или исправьте раздел сметы."
         )
 
-def _copy_approved_supply_request_control(cur, request_id, project: str, items: list) -> bool:
+def _copy_approved_supply_request_control(cur, request_id, project: str, items: list, *, company_id=None) -> bool:
     if not request_id or not items:
         return False
-    cur.execute("SELECT status, items_json FROM supply_requests WHERE id=%s", (request_id,))
+    try:
+        from backend.features.material_aliases.runtime import owned_aliases_enabled
+    except ModuleNotFoundError:
+        from features.material_aliases.runtime import owned_aliases_enabled
+    if owned_aliases_enabled() and not company_id:
+        raise HTTPException(409, 'Компания заявки не определена')
+    cur.execute("SELECT status, items_json FROM supply_requests WHERE id=%s AND (company_id=%s OR %s IS NULL)", (request_id, company_id, company_id))
     req = cur.fetchone()
     if not req:
         return False
@@ -9236,6 +9128,7 @@ def _copy_approved_supply_request_control(cur, request_id, project: str, items: 
             project,
             item.get("materialName") or item.get("name") or "",
             item.get("unit") or "",
+            company_id=company_id,
         )
         for req_item in request_items:
             if not isinstance(req_item, dict):
@@ -9248,6 +9141,7 @@ def _copy_approved_supply_request_control(cur, request_id, project: str, items: 
                 project,
                 req_item.get("materialName") or req_item.get("name") or "",
                 req_item.get("unit") or "",
+                company_id=company_id,
             )
             if req_key != item_key:
                 continue
@@ -9303,19 +9197,30 @@ def get_supply_requests(
             project_params + company_filter_params + page_params,
         )
     elif role == "поставщик":
-        supplier_ids = current_supplier_ids(cur, current_user)
+        supplier_ids = current_supplier_access_ids(cur, current_user)
         if not supplier_ids:
             cur.close(); conn.close()
             return []
         _ensure_supply_request_recipients_table(cur)
+        from backend.features.supplier_team.policy import enabled as team_enabled, leader_ids
+        team_sql, team_params = '', []
+        if team_enabled():
+            visible_sql, offer_params = supplier_offer_visibility_filter(supplier_ids, current_user.get('id'))
+            unrestricted_ids = leader_ids(cur, current_user)
+            team_sql = (' AND (' + SUPPLIER_REQUEST_VISIBILITY_SQL +
+                        ' OR EXISTS (SELECT 1 FROM supplier_offers WHERE '
+                        'supplier_offers.request_id=supply_requests.id AND '
+                        'supplier_offers.company_id=supply_requests.company_id' + visible_sql + '))')
+            team_params = supplier_request_visibility_params(unrestricted_ids) + offer_params
         cur.execute(
             SUPPLY_SELECT
             + " WHERE "
             + SUPPLIER_REQUEST_VISIBILITY_SQL
+            + team_sql
             + " ORDER BY id DESC"
             + page_sql,
             supplier_request_visibility_params(supplier_ids)
-            + page_params,
+            + team_params + page_params,
         )
     elif role == "прораб":
         projects = user_project_names(current_user)
@@ -9339,6 +9244,11 @@ def get_supply_requests(
         cur.close(); conn.close()
         return []
     rows = cur.fetchall()
+    if role == "поставщик":
+        from backend.features.supplier_offers.item_scopes import supplier_request_scopes
+        item_visibility, item_params = supplier_offer_visibility_filter(supplier_ids, current_user.get('id'))
+        rows = supplier_request_scopes(cur, rows, supplier_ids, item_visibility, item_params)
+        rows = attach_request_company_names(cur, rows)
     if is_internal_supply_reader:
         rows = attach_supply_allocation_projection(cur, rows)
     conn.close()
@@ -9443,7 +9353,7 @@ def create_supply_request(
                 cache_key = (project or "", name or "", unit or "")
                 if cache_key not in lineage_material_keys:
                     lineage_material_keys[cache_key] = _material_control_key_resolved(
-                        cur, project, name, unit
+                        cur, project, name, unit, company_id=company_id, project_id=project_id
                     )
                 return lineage_material_keys[cache_key]
 
@@ -9643,6 +9553,7 @@ def update_supply_request(
                 assigned_reviewer_exists=(
                     assigned_reviewer_exists
                 ),
+                reviewer_absence_reason=data.get("reviewerAbsenceReason"),
             )
         except SupplyRequestWorkflowViolation as exc:
             conn.close()
@@ -9652,22 +9563,50 @@ def update_supply_request(
             )
 
     if action == 'confirm_prorab':
-        cur.execute(
-            """UPDATE supply_requests
-                  SET status=%s,
-                      prorab_id=%s,
-                      prorab_name=%s,
-                      prorab_confirmed_at=%s
-                WHERE id=%s
-                  AND COALESCE(status,'Новая')='Новая'""",
-            ('Подтверждена прорабом', user_id, user_name, now, id),
-        )
-        if cur.rowcount != 1:
-            conn.close()
-            raise HTTPException(
-                status_code=409,
-                detail="Статус заявки изменился до подтверждения прорабом",
+        from backend.features.audit_ownership.runtime import insert_audit_event
+
+        # The real confirming actor and the reason must be durable together.
+        conn.autocommit = False
+        try:
+            cur.execute(
+                """UPDATE supply_requests
+                      SET status=%s,
+                          prorab_id=%s,
+                          prorab_name=%s,
+                          prorab_confirmed_at=%s
+                    WHERE id=%s AND company_id=%s
+                      AND COALESCE(status,'Новая')='Новая'""",
+                ('Подтверждена прорабом', user_id, user_name, now, id, req.get("company_id")),
             )
+            if cur.rowcount != 1:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Статус заявки изменился до подтверждения потребности",
+                )
+            description = "Подтверждение потребности"
+            if role in LEADERSHIP_ROLES:
+                reason = (data.get("reviewerAbsenceReason") or "").strip()
+                assignment = ("Ответственный временно отсутствует" if assigned_reviewer_exists
+                              else "Прораб или главный инженер не назначен")
+                description += ": руководитель вместо ответственного. " + assignment
+                if reason:
+                    description += ". Причина: " + reason
+            insert_audit_event(
+                cur, user_id=user_id, user_name=user_name, user_role=role,
+                action="confirm_prorab", entity_type="supply_request", entity_id=id,
+                description=description, project_name=req.get("project") or "",
+                owner_scope="company", company_id=req.get("company_id"),
+            )
+            cur.execute(SUPPLY_SELECT + " WHERE id=%s", (id,))
+            row = cur.fetchone()
+            conn.commit()
+            return _supply_response_for_role(row, effective_user) if row else {"ok": True}
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+            conn.close()
     elif action == 'approve_director':
         refreshed_items = _attach_supply_estimate_control(
             cur,
@@ -10074,13 +10013,20 @@ OFFERS_SELECT = ("SELECT id, request_id as \"requestId\", supplier_id as \"suppl
                  "pdf_url as \"pdfUrl\", valid_until as \"validUntil\","
                  "supplier_message as \"supplierMessage\","
                  "requested_at as \"requestedAt\", responded_at as \"respondedAt\","
+                 "response_due_at as \"responseDueAt\", "
                  "ai_recommended as \"aiRecommended\","
-                 "items_kp_json as \"itemsKpJson\" "
+                 "items_kp_json as \"itemsKpJson\", "
+                 "to_jsonb(supplier_offers)->>'requested_items_json' as \"requestedItemsJson\", "
+                 "to_jsonb(supplier_offers)->>'awarded_items_json' as \"awardedItemsJson\" "
                  "FROM supplier_offers")
 
-def _require_supplier_offer_visibility(cur, offer_id: int, user: dict, detail: str = "Нет доступа к КП"):
-    _ensure_supply_request_recipients_table(cur)
-    supplier_ids = current_supplier_ids(cur, user)
+def _require_supplier_offer_visibility(cur, offer_id: int, user: dict, detail: str = "Нет доступа к КП", *, ensure_schema=True):
+    if ensure_schema:
+        _ensure_supply_request_recipients_table(cur)
+    from backend.features.supplier_team.policy import enabled, lock_offer_access
+    if enabled():
+        lock_offer_access(cur, offer_id, user.get('id'))
+    supplier_ids = current_supplier_access_ids(cur, user)
     visibility_sql, visibility_params = supplier_offer_visibility_filter(
         supplier_ids,
         user.get("id"),
@@ -10136,7 +10082,7 @@ def _supplier_offer_event_payload(data: dict) -> str:
         "action", "pricePerUnit", "totalPrice", "deliveryDays", "paymentTerms",
         "vatIncluded", "validUntil", "supplierMessage", "pdfUrl", "itemsKp",
         "status", "deliveryStatus", "invoiceId", "invoiceNumber", "amount",
-        "vatAmount", "duplicateDocument",
+        "vatAmount", "duplicateDocument", "itemPositions",
     }
     payload = {k: data.get(k) for k in allowed if k in data}
     return json.dumps(payload, ensure_ascii=False, default=str)
@@ -10165,29 +10111,60 @@ def _log_supplier_offer_event(cur, offer_id: int, event_type: str, status_from: 
 def request_kp_from_suppliers(
     id: int,
     data: dict,
+    background_tasks: BackgroundTasks,
     x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
     x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
     _current_user: dict = Depends(get_current_user),
 ):
     """Директор отправляет запрос КП нескольким поставщикам.
        data: {supplierIds: [1,2,3], aiRecommendedIds: [1,2]}"""
-    try:
-        supplier_ids = sorted({int(x) for x in (data.get('supplierIds') or []) if int(x) > 0})
-        ai_ids = {int(x) for x in (data.get('aiRecommendedIds') or []) if int(x) > 0}
-    except Exception:
-        raise HTTPException(status_code=400, detail="Некорректный список поставщиков")
-    if not supplier_ids:
-        return {"error": "Не выбраны поставщики"}
+    supplier_ids = data.get('supplierIds')
+    if not isinstance(supplier_ids, list) or not 1 <= len(supplier_ids) <= 100 or any(
+        type(value) is not int or not 0 < value <= 2147483647 for value in supplier_ids
+    ):
+        raise HTTPException(400, 'Выберите от 1 до 100 поставщиков с корректными ID')
+    supplier_ids = sorted(set(supplier_ids))
     conn = get_db()
     conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        _ensure_supply_runtime_columns(cur)
+        ledger_present = _payment_ledger_available(cur)
+        locked_company = None
+        if ledger_present:
+            cur.execute('SHOW transaction_isolation')
+            if cur.fetchone()['transaction_isolation'] != 'read committed':
+                raise HTTPException(409, 'Запрос КП требует новой транзакции')
+            cur.execute('SELECT company_id FROM supply_requests WHERE id=%s', (id,))
+            initial = cur.fetchone()
+            if not initial:
+                raise HTTPException(404, 'Заявка не найдена')
+            locked_company = _positive_int_or_none(initial['company_id'])
+            if not locked_company:
+                raise HTTPException(409, 'Компания заявки требует сверки')
+            cur.execute('SELECT pg_advisory_xact_lock(%s,%s)', (1735289201, locked_company))
+            # Refresh current authority after any company-lock wait; do not use
+            # stale HTTP roles/memberships to reset financial offer evidence.
+            cur.execute('''SELECT id,name,email,role,company_id,platform_account_id,
+                project_name,assigned_projects,assigned_packages,active
+                FROM users WHERE id=%s AND active=TRUE FOR SHARE''', (_current_user.get('id'),))
+            fresh_user = cur.fetchone()
+            if not fresh_user:
+                raise HTTPException(403, 'Пользователь отключён или не найден')
+            _current_user = dict(fresh_user)
+            cur.execute('SELECT id FROM companies WHERE id=%s FOR SHARE', (locked_company,))
+            cur.fetchall()
+            cur.execute('''SELECT id FROM user_company_roles WHERE user_id=%s AND company_id=%s
+                ORDER BY id FOR SHARE''', (_current_user['id'], locked_company))
+            locked_memberships = {row['id'] for row in cur.fetchall()}
+        else:
+            _ensure_supply_runtime_columns(cur)
         # Получаем количество из заявки для preview total
-        cur.execute("SELECT quantity, project, status, company_id, prorab_confirmed_at, director_approved_at FROM supply_requests WHERE id=%s FOR UPDATE", (id,))
+        cur.execute("SELECT quantity, material_name, unit, work_package, items_json, project, status, company_id, prorab_confirmed_at, director_approved_at FROM supply_requests WHERE id=%s FOR UPDATE", (id,))
         req = cur.fetchone()
         if not req:
             raise HTTPException(status_code=404, detail="Заявка не найдена")
+        if ledger_present and req['company_id'] != locked_company:
+            raise HTTPException(409, 'Компания заявки изменилась. Повторите запрос')
         claimed_company_id = data.get("companyId") if "companyId" in data else data.get("company_id")
         company_context, effective_user = resolve_resource_company_actor(
             cur,
@@ -10202,6 +10179,11 @@ def request_kp_from_suppliers(
             platform_staff_roles=PLATFORM_STAFF_ROLES,
             client_account_roles=CLIENT_ACCOUNT_ROLES,
         )
+        if ledger_present and (company_context.get('source') != 'membership'
+                or company_context.get('membershipId') not in locked_memberships
+                or not company_context.get('active') or not company_context.get('companyActive')
+                or company_context.get('readOnly')):
+            raise HTTPException(403, 'Требуется активное членство в компании')
         try:
             validate_rfq_dispatch_role(
                 effective_user.get("role") or "",
@@ -10221,13 +10203,30 @@ def request_kp_from_suppliers(
             validate_rfq_dispatch_request(req)
         except SupplyRequestWorkflowViolation as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.detail)
-        selected_scope_ids = supplier_group_scope_ids(cur, supplier_ids)
-        recipient_rows = _upsert_supply_request_recipients(cur, id, company_id, selected_scope_ids)
+        targets = explicit_supplier_targets(cur, company_id, supplier_ids)
+        from backend.features.supplier_offers.item_scopes import dispatch_scopes, persist_scopes
+        item_scopes = dispatch_scopes(req, supplier_ids, data.get('supplierItems'))
+        selected_scope_ids = supplier_ids
+        if ledger_present:
+            # Validate before upsert can rewrite a corrupt existing owner.
+            for table in ('supplier_offers', 'supply_request_recipients'):
+                cur.execute(f'SELECT company_id FROM {table} WHERE request_id=%s ORDER BY id FOR UPDATE', (id,))
+                if any(row['company_id'] != company_id for row in cur.fetchall()):
+                    raise HTTPException(409, 'Связи заявки относятся к другой компании')
+        recipient_rows = _upsert_supply_request_recipients(
+            cur, id, company_id, selected_scope_ids, ensure_schema=not ledger_present, targets=targets)
         assert_rows_company_scope(recipient_rows, company_id, "Получатели КП")
         visibility_error = _recipient_visibility_error(recipient_rows)
         if visibility_error:
             raise HTTPException(status_code=400, detail=visibility_error)
-        created = _create_supplier_offer_requests(cur, id, selected_scope_ids, ai_ids, company_id=company_id)
+        created = _create_supplier_offer_requests(cur, id, selected_scope_ids, company_id=company_id, targets=targets)
+        persist_scopes(cur, id, company_id, item_scopes, created)
+        if created:
+            try:
+                due_at = response_deadline(data.get("responseDueAt"))
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc))
+            cur.execute("UPDATE supplier_offers SET response_due_at=%s WHERE id=ANY(%s) AND request_id=%s AND company_id=%s", (due_at, created, id, company_id))
         cur.execute(
             "SELECT company_id FROM supply_request_recipients WHERE request_id=%s FOR UPDATE",
             (id,),
@@ -10250,8 +10249,14 @@ def request_kp_from_suppliers(
             ('КП запрошены', selected_scope_ids, id, company_id))
         if cur.rowcount != 1:
             raise HTTPException(status_code=409, detail="Компания заявки изменилась во время запроса КП")
-        notification_rows = _notify_supply_request_recipients(cur, id, company_id=company_id)
+        notification_rows = _notify_supply_request_recipients(
+            cur, id, company_id=company_id, ensure_schema=not ledger_present)
         conn.commit()
+        for notification in notification_rows:
+            if notification.get("emailStatus") == EMAIL_QUEUED:
+                background_tasks.add_task(
+                    _dispatch_supply_recipient_email, id, company_id, notification["recipientId"],
+                )
         return {
             "ok": True,
             "created": len(created),
@@ -10270,6 +10275,40 @@ def request_kp_from_suppliers(
     finally:
         cur.close()
         conn.close()
+
+@app.post("/supply-requests/{id}/recipients/{recipient_id}/retry-email")
+def retry_supply_recipient_email(
+    id: int, recipient_id: int, data: dict, background_tasks: BackgroundTasks,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
+    from backend.features.supplier_access.email_history import queue_rejected_email
+    conn = get_db()
+    conn.autocommit = False
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT id,company_id,project FROM supply_requests WHERE id=%s",(id,))
+            req = cur.fetchone()
+            if not req:
+                raise HTTPException(404,"Заявка не найдена")
+            company, actor = resolve_resource_company_actor(cur,_current_user,req['company_id'],"write",
+                x_company_id=x_company_id,x_company_mode=x_company_mode,allowed_roles=['директор','снабженец'],
+                forbidden_detail="Нет прав на повтор уведомления",platform_staff_roles=PLATFORM_STAFF_ROLES,
+                client_account_roles=CLIENT_ACCOUNT_ROLES)
+            if req.get('project'):
+                require_project_or_warehouse_access(actor,req['project'])
+            company_id = int(company['companyId'])
+            queue_rejected_email(cur,id,company_id,recipient_id,data.get('expectedAttemptId'))
+        conn.commit()
+        background_tasks.add_task(_dispatch_supply_recipient_email,id,company_id,recipient_id)
+        return {"ok":True,"status":"queued"}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
 
 @app.get("/supply-requests/{id}/recipients")
 def get_supply_request_recipients(
@@ -10420,86 +10459,109 @@ def get_supply_request_recipients(
             }
         rows = [_add_supply_recipient_link_hint(row) for row in recipient_map.values()]
     try:
+        from backend.features.supplier_access.email_history import attach_email_history
+        attach_email_history(cur, req, rows)
         return attach_recipient_delivery_diagnostics(cur, req, rows)
     finally:
         cur.close()
         conn.close()
 
 @app.get("/supply-requests/{id}/suggest-suppliers")
-def suggest_suppliers_for_request(id: int, current_user: dict = Depends(require_roles(*SUPPLY_INTERNAL_ROLES))):
-    """Возвращает список поставщиков подходящих под категорию материала, ранжированных
-       по рейтингу + истории успешных поставок. AI-комментарий опциональный."""
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT material_name, category, project FROM supply_requests WHERE id=%s", (id,))
-    req = cur.fetchone()
-    if not req:
-        conn.close()
-        return {"error": "not found"}
-    if req.get('project'):
-        require_project_access(current_user, req.get('project') or "")
-    category = (req['category'] or '').strip()
-    material_name = (req['material_name'] or '').lower()
-    # Фильтр по категории если задана. Иначе берём всех активных
-    if category:
+def suggest_suppliers_for_request(
+    id: int,
+    current_user: dict = Depends(get_current_user),
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+):
+    """Return candidates and company-owned commercial context for human review."""
+    with procurement_read_cursor(get_db) as cur:
+        cur.execute("SELECT id, company_id, material_name, category, project, work_package FROM supply_requests WHERE id=%s", (id,))
+        req = cur.fetchone()
+        company_id, actor = authorize_procurement_document(
+            cur, req, current_user, resolve_actor=resolve_resource_company_actor,
+            project_access=require_project_or_warehouse_access, package_access=has_package_access,
+            allowed_roles=SUPPLY_INTERNAL_ROLES, platform_staff_roles=PLATFORM_STAFF_ROLES,
+            client_account_roles=CLIENT_ACCOUNT_ROLES,
+            x_company_id=x_company_id, x_company_mode=x_company_mode,
+        )
+        category = (req['category'] or '').strip()
+        material_name = (req['material_name'] or '').lower()
         cur.execute(
-            "SELECT id, name, category, specialization, rating, phone, email, status FROM suppliers "
-            "WHERE (status IS NULL OR status='Активный' OR status='') AND category=%s ORDER BY rating DESC NULLS LAST",
-            (category,))
-    else:
-        cur.execute(
-            "SELECT id, name, category, specialization, rating, phone, email, status FROM suppliers "
-            "WHERE (status IS NULL OR status='Активный' OR status='') ORDER BY rating DESC NULLS LAST")
-    suppliers = [dict(r) for r in cur.fetchall()]
-    # Считаем историю успешных поставок (status='Доставлено') по каждому поставщику
-    cur.execute("SELECT supplier_id, COUNT(*) as deliveries FROM supply_history WHERE status='Доставлено' GROUP BY supplier_id")
-    deliveries_map = {r['supplier_id']: r['deliveries'] for r in cur.fetchall()}
-    # Считаем уже отправленные КП этой заявке
-    cur.execute("SELECT supplier_id FROM supplier_offers WHERE request_id=%s AND COALESCE(status,'') NOT IN ('Отклонено','Отозвано')", (id,))
-    already_requested = {r['supplier_id'] for r in cur.fetchall()}
-    conn.close()
+            """SELECT s.id, s.name, link.local_category AS category, link.profile->>'specialization' AS specialization,
+                      link.rating, link.profile->>'phone' AS phone, link.profile->>'email' AS email, link.status,
+                      link.id AS "companySupplierLinkId"
+                 FROM company_supplier_links link
+                 JOIN companies company ON company.id=link.company_id
+                      AND company.platform_account_id=link.platform_account_id
+                 JOIN suppliers s ON s.id=link.supplier_id
+                WHERE link.company_id=%s
+                  AND link.status='Активный'
+                  AND COALESCE(s.status,'Активный') IN ('Активный','')
+                ORDER BY s.name, s.id LIMIT 101""",
+            (company_id,),
+        )
+        suppliers = [dict(row) for row in cur.fetchall()]
+        if len(suppliers) > 100:
+            raise HTTPException(409, detail="Более 100 поставщиков: уточните список связей компании перед подбором")
+        supplier_ids = [supplier['id'] for supplier in suppliers]
+        cur.execute("""SELECT supplier_id, COUNT(*) AS deliveries FROM supply_history
+                       WHERE company_id=%s AND supplier_id=ANY(%s) AND status='Доставлено'
+                       GROUP BY supplier_id""", (company_id, supplier_ids))
+        deliveries_map = {row['supplier_id']: row['deliveries'] for row in cur.fetchall()}
+        cur.execute("""SELECT supplier_id FROM supplier_offers
+                       WHERE request_id=%s AND company_id=%s
+                         AND COALESCE(status,'') NOT IN ('Отклонено','Отозвано')""", (id, company_id))
+        already_requested = {row['supplier_id'] for row in cur.fetchall()}
     for s in suppliers:
         s['deliveriesCount'] = int(deliveries_map.get(s['id'], 0))
         s['alreadyRequested'] = s['id'] in already_requested
-        # Простая логика: AI рекомендует если category совпадает + (rating>=4 OR deliveries>=1)
-        score = 0
-        if s['rating']: score += float(s['rating'])
-        if s['deliveriesCount']: score += min(s['deliveriesCount'], 5)
-        if material_name and (s.get('specialization') or '').lower() and any(w in material_name for w in (s['specialization'] or '').lower().split()):
-            score += 2
-        s['_score'] = score
-        s['aiRecommend'] = score >= 5  # порог рекомендации
-    suppliers.sort(key=lambda x: -x['_score'])
+        # Commercial history does not prove capability for this exact material.
+        s['aiRecommend'] = False
+        s['capabilityStatus'] = 'not_checked'
     return {
         "requestId": id,
         "materialName": req['material_name'],
         "category": category,
-        "suppliers": suppliers[:15],  # топ 15
-        "aiRecommendedCount": sum(1 for s in suppliers if s.get('aiRecommend')),
+        "suppliers": suppliers,
+        "aiRecommendedCount": 0,
     }
 
 @app.get("/supply-requests/{id}/compare-kp")
-def compare_kp_for_request(id: int, current_user: dict = Depends(require_roles(*SUPPLY_INTERNAL_ROLES))):
-    """Сравнивает все полученные КП по заявке и возвращает AI-вердикт.
-       Учитывает цену, срок поставки, условия оплаты, НДС, рейтинг поставщика."""
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT material_name, quantity, unit, project FROM supply_requests WHERE id=%s", (id,))
-    req = cur.fetchone()
-    if not req:
-        conn.close()
-        return {"error": "Заявка не найдена"}
-    if req.get('project'):
-        require_project_access(current_user, req.get('project') or "")
-    cur.execute(
-        "SELECT o.id, o.supplier_id, o.price_per_unit, o.total_price, o.delivery_days, "
-        "o.payment_terms, o.vat_included, o.valid_until, o.supplier_message, o.status, "
-        "s.name as supplier_name, s.rating "
-        "FROM supplier_offers o LEFT JOIN suppliers s ON s.id=o.supplier_id "
-        "WHERE o.request_id=%s AND o.status IN ('Получено','Утверждено')",
-        (id,))
-    offers = [dict(r) for r in cur.fetchall()]
-    conn.close()
+def compare_kp_for_request(
+    id: int,
+    current_user: dict = Depends(get_current_user),
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+):
+    """Compare offers belonging to the authorized request and company."""
+    with procurement_read_cursor(get_db) as cur:
+        cur.execute("SELECT id, company_id, material_name, quantity, unit, project, work_package FROM supply_requests WHERE id=%s", (id,))
+        req = cur.fetchone()
+        company_id, actor = authorize_procurement_document(
+            cur, req, current_user, resolve_actor=resolve_resource_company_actor,
+            project_access=require_project_or_warehouse_access, package_access=has_package_access,
+            allowed_roles=SUPPLY_INTERNAL_ROLES, platform_staff_roles=PLATFORM_STAFF_ROLES,
+            client_account_roles=CLIENT_ACCOUNT_ROLES,
+            x_company_id=x_company_id, x_company_mode=x_company_mode,
+        )
+        cur.execute(
+            """SELECT o.id, o.supplier_id, o.price_per_unit, o.total_price, o.delivery_days,
+                      o.payment_terms, o.vat_included, o.valid_until, o.supplier_message, o.status,
+                      s.name AS supplier_name, link.rating
+                 FROM supplier_offers o
+                 LEFT JOIN suppliers s ON s.id=o.supplier_id
+                 LEFT JOIN companies company ON company.id=o.company_id
+                 LEFT JOIN company_supplier_links link
+                        ON link.company_id=o.company_id AND link.supplier_id=o.supplier_id
+                       AND link.platform_account_id=company.platform_account_id
+                WHERE o.request_id=%s AND o.company_id=%s
+                  AND o.status IN ('Получено','Утверждено')
+                ORDER BY o.id LIMIT 101""",
+            (id, company_id),
+        )
+        offers = [dict(row) for row in cur.fetchall()]
+        if len(offers) > 100:
+            raise HTTPException(409, detail="Слишком много КП для одного сравнения")
     if len(offers) < 2:
         return {
             "error": "Нужно минимум 2 полученных КП для сравнения",
@@ -11078,6 +11140,22 @@ WAREHOUSE_INVOICE_ACCOUNTING_STATUSES = {
     "Отклонена",
 }
 
+try:
+    from backend.features.supplier_payments.guards import (
+        ledger_available as _payment_ledger_available,
+        lock_document_writer as _lock_payment_document_writer,
+        lock_legacy_supply_writer as _lock_legacy_supply_writer,
+        require_unmanaged_document as _require_unmanaged_payment_document,
+    )
+except ModuleNotFoundError:
+    from features.supplier_payments.guards import (
+        ledger_available as _payment_ledger_available,
+        lock_document_writer as _lock_payment_document_writer,
+        lock_legacy_supply_writer as _lock_legacy_supply_writer,
+        require_unmanaged_document as _require_unmanaged_payment_document,
+    )
+
+
 def _ensure_warehouse_invoice_accounting_columns(cur):
     cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS accounting_status VARCHAR(100)")
     cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS accounting_comment TEXT")
@@ -11093,7 +11171,26 @@ def _ensure_invoice_document_link_columns(cur):
     cur.execute("ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS warehouse_invoice_id INT")
     cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS supplier_invoice_id INT")
 
-def _find_supplier_invoice_for_supply(cur, request_id=None, offer_id=None):
+def _find_supplier_invoice_for_supply(cur, request_id=None, offer_id=None, delivery=None):
+    delivery = delivery or {}
+    source_id = delivery.get('source_supplier_invoice_id')
+    if source_id is not None or delivery.get('contract_version_id') is not None:
+        # A frozen shipment must never be rebound to a newer invoice on receipt.
+        cur.execute("""SELECT id FROM supplier_invoices
+                       WHERE id=%s AND company_id=%s AND supplier_id=%s
+                         AND request_id=%s AND offer_id=%s AND contract_version_id=%s
+                         AND project_name=%s
+                         AND COALESCE(NULLIF(work_package,''),'Основная')=%s
+                         AND COALESCE(status,'') <> 'Аннулирован'
+                       FOR SHARE""",
+                    (source_id, delivery.get('company_id'), delivery.get('supplier_id'),
+                     delivery.get('request_id'), delivery.get('offer_id'),
+                     delivery.get('contract_version_id'), delivery.get('project'),
+                     delivery.get('work_package') or 'Основная'))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(409, 'Исходный счёт поставки не найден или связь документов нарушена')
+        return _row_get(row, 'id', 0)
     offer_id = int(offer_id or 0)
     request_id = int(request_id or 0)
     if offer_id:
@@ -11333,26 +11430,95 @@ def _create_supply_delivery_history(cur, delivery, status=None, received_qty=Non
         except Exception as legacy_error:
             print("SUPPLY HISTORY LEGACY INSERT ERROR:", str(legacy_error))
 
+def _guard_delivery_accounting_write(cur, delivery):
+    """Authorized caller holds stock, company and delivery locks, in that order."""
+    try:
+        from backend.features.supplier_payments.partial_receipt_runtime import supports_managed_receipts, verify_existing_receipt
+    except ModuleNotFoundError:
+        from features.supplier_payments.partial_receipt_runtime import supports_managed_receipts, verify_existing_receipt
+    company_id = delivery.get('company_id')
+    invoice_id = _find_supplier_invoice_for_supply(
+        cur, request_id=delivery.get('request_id'),
+        offer_id=delivery.get('offer_id'), delivery=delivery,
+    )
+    managed = supports_managed_receipts(cur, company_id, invoice_id)
+    if managed and delivery.get('source_supplier_invoice_id') != invoice_id:
+        raise HTTPException(409, 'Поставка не привязана к сохранённому счёту')
+    cur.execute('''SELECT id,company_id,supplier_invoice_id,status FROM warehouse_invoices
+                   WHERE supply_delivery_id=%s ORDER BY id LIMIT 2 FOR UPDATE''', (delivery['id'],))
+    warehouses = cur.fetchall()
+    if len(warehouses) > 1:
+        raise HTTPException(409, 'У поставки несколько накладных. Нужна сверка')
+    warehouse_id = warehouses[0]['id'] if warehouses else None
+    for warehouse in warehouses:
+        if (warehouse['company_id'] != company_id
+                or warehouse['supplier_invoice_id'] not in (None, invoice_id)
+                or warehouse['status'] == 'Аннулирована'):
+            raise HTTPException(409, 'Связь накладной поставки требует сверки')
+        if managed:
+            if warehouse['supplier_invoice_id'] is not None:
+                raise HTTPException(409, 'У накладной осталась старая связь со счётом')
+            verify_existing_receipt(cur, company_id, invoice_id, warehouse['id'])
+        else:
+            _require_unmanaged_payment_document(cur, 'warehouse', warehouse['id'], proposed_link=invoice_id)
+    if invoice_id:
+        cur.execute('''SELECT company_id,warehouse_invoice_id,status FROM supplier_invoices
+                       WHERE id=%s FOR UPDATE''', (invoice_id,))
+        invoice = cur.fetchone()
+        if (not invoice or invoice['company_id'] != company_id
+                or invoice['warehouse_invoice_id'] not in (None, warehouse_id)
+                or invoice['status'] == 'Аннулирован'):
+            raise HTTPException(409, 'Связь счёта поставки требует сверки')
+        if not managed:
+            _require_unmanaged_payment_document(cur, 'invoice', invoice_id, proposed_link=warehouse_id)
+    return invoice_id
+
+
 def _ensure_supply_delivery_invoice(cur, delivery, received_qty=None, received_at=None, accepted_by=None):
-    import json as _json
-    from datetime import date as _date
     delivery_id = delivery.get('id')
     if not delivery_id:
         return None
+    ledger_present = _payment_ledger_available(cur)
+    source_invoice_id = None
+    if ledger_present:
+        source_invoice_id = _guard_delivery_accounting_write(cur, delivery)
+        try:
+            from backend.features.supplier_payments.partial_receipt_runtime import supports_managed_receipts
+        except ModuleNotFoundError:
+            from features.supplier_payments.partial_receipt_runtime import supports_managed_receipts
+        if supports_managed_receipts(cur, delivery.get('company_id'), source_invoice_id):
+            source_invoice_id = None  # Separate receipts share the invoice debt, not a legacy mirror.
     try:
-        cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1")
-        cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS source_type VARCHAR(100)")
-        cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS source_id INT")
-        cur.execute("ALTER TABLE warehouse_invoices ALTER COLUMN source_id TYPE TEXT USING source_id::text")
-        cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS supply_delivery_id INT")
-        cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS supply_request_id INT")
-        cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS warehouse_target VARCHAR(50)")
-        cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS selected_action VARCHAR(100)")
-        cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS material_match_json TEXT")
-        _ensure_warehouse_invoice_accounting_columns(cur)
-        _ensure_invoice_document_link_columns(cur)
+        if not ledger_present:
+            _prepare_legacy_delivery_invoice_columns(cur)
     except Exception as e:
         raise HTTPException(status_code=500, detail="Не удалось подготовить поля накладной поставки: " + str(e))
+    return _ensure_supply_delivery_invoice_prepared(
+        cur, delivery, received_qty, received_at, accepted_by,
+        source_checked=ledger_present, source_invoice_id=source_invoice_id,
+    )
+
+
+def _prepare_legacy_delivery_invoice_columns(cur):
+    cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1")
+    cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS source_type VARCHAR(100)")
+    cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS source_id INT")
+    cur.execute("ALTER TABLE warehouse_invoices ALTER COLUMN source_id TYPE TEXT USING source_id::text")
+    cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS supply_delivery_id INT")
+    cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS supply_request_id INT")
+    cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS warehouse_target VARCHAR(50)")
+    cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS selected_action VARCHAR(100)")
+    cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS material_match_json TEXT")
+    _ensure_warehouse_invoice_accounting_columns(cur)
+    _ensure_invoice_document_link_columns(cur)
+
+
+def _ensure_supply_delivery_invoice_prepared(cur, delivery, received_qty=None, received_at=None, accepted_by=None,
+                                            *, source_checked=False, source_invoice_id=None):
+    import json as _json
+    from decimal import Decimal
+    from datetime import date as _date
+    delivery_id = delivery['id']
     try:
         cur.execute(
             "SELECT pg_advisory_xact_lock(hashtext(%s))",
@@ -11364,7 +11530,7 @@ def _ensure_supply_delivery_invoice(cur, delivery, received_qty=None, received_a
             detail="Не удалось безопасно проверить повторную приёмку поставки",
         ) from None
     try:
-        cur.execute("SELECT id FROM warehouse_invoices WHERE supply_delivery_id=%s LIMIT 1", (delivery_id,))
+        cur.execute("SELECT id,company_id,supplier_invoice_id FROM warehouse_invoices WHERE supply_delivery_id=%s LIMIT 1", (delivery_id,))
         existing = cur.fetchone()
         if existing:
             existing_id = existing['id'] if isinstance(existing, dict) else existing[0]
@@ -11373,12 +11539,15 @@ def _ensure_supply_delivery_invoice(cur, delivery, received_qty=None, received_a
                 delivery.get('project') or "",
                 explicit=delivery.get('company_id') or delivery.get('companyId'),
             )
-            cur.execute("UPDATE warehouse_invoices SET company_id=%s WHERE id=%s", (company_id, existing_id))
-            linked_supplier_invoice_id = _find_supplier_invoice_for_supply(
+            linked_supplier_invoice_id = source_invoice_id if source_checked else _find_supplier_invoice_for_supply(
                 cur,
                 request_id=delivery.get('request_id'),
                 offer_id=delivery.get('offer_id'),
+                delivery=delivery,
             )
+            if (_row_get(existing, 'company_id', 1) != company_id
+                    or _row_get(existing, 'supplier_invoice_id', 2) not in (None, linked_supplier_invoice_id)):
+                raise HTTPException(409, 'Накладная уже связана с другой компанией или счётом. Нужна проверка')
             if linked_supplier_invoice_id:
                 cur.execute("""UPDATE warehouse_invoices
                                SET supplier_invoice_id=COALESCE(supplier_invoice_id,%s)
@@ -11399,6 +11568,15 @@ def _ensure_supply_delivery_invoice(cur, delivery, received_qty=None, received_a
         return None
     price = _float_or_zero(delivery.get('price_per_unit'))
     total = round(received_qty * price, 2)
+    try:
+        from backend.features.supplier_payments.receipt_vat_runtime import receipt_vat
+    except ModuleNotFoundError:
+        from features.supplier_payments.receipt_vat_runtime import receipt_vat
+    receipt_tax = receipt_vat(cur, delivery, received_qty)
+    receipt_base = Decimal(receipt_tax['baseAmount']) if receipt_tax else total
+    receipt_vat_amount = Decimal(receipt_tax['vatAmount']) if receipt_tax else 0
+    if receipt_tax:
+        total = float(receipt_tax['amount'])
     received_at = received_at or delivery.get('received_at') or _date.today()
     if hasattr(received_at, "date"):
         date_value = received_at.date().isoformat()
@@ -11433,10 +11611,11 @@ def _ensure_supply_delivery_invoice(cur, delivery, received_qty=None, received_a
         )
         _enforce_supply_estimate_control(items, source="накладная поставки")
     number = delivery.get('waybill_number') or ("Поставка-" + str(delivery_id))
-    linked_supplier_invoice_id = _find_supplier_invoice_for_supply(
+    linked_supplier_invoice_id = source_invoice_id if source_checked else _find_supplier_invoice_for_supply(
         cur,
         request_id=delivery.get('request_id'),
         offer_id=delivery.get('offer_id'),
+        delivery=delivery,
     )
     try:
         cur.execute("""INSERT INTO warehouse_invoices
@@ -11447,8 +11626,8 @@ def _ensure_supply_delivery_invoice(cur, delivery, received_qty=None, received_a
 	                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
 	                       RETURNING id""",
 	                    (company_id, number, date_value, delivery.get('supplier_id'), delivery.get('supplier_name') or "",
-		                     accepted_by or delivery.get('received_by') or "", project, project, "Без НДС",
-		                     _json.dumps(items, ensure_ascii=False), total, 0, total,
+                         accepted_by or delivery.get('received_by') or "", project, project, "НДС по строке счёта" if receipt_tax else "Без НДС",
+                         _json.dumps(items, ensure_ascii=False), receipt_base, receipt_vat_amount, total,
 		                     "Принята", accepted_by or delivery.get('received_by') or "Снабжение",
 		                     delivery.get('photo_url') or "", "supply_delivery", delivery_id,
 		                     delivery_id, delivery.get('request_id'),
@@ -11464,54 +11643,35 @@ def _ensure_supply_delivery_invoice(cur, delivery, received_qty=None, received_a
         raise HTTPException(status_code=500, detail="Не удалось создать накладную по поставке: " + str(e))
 
 def _update_supply_flow_status_after_delivery(cur, request_id=None, offer_id=None):
-    request_id = int(request_id or 0)
-    offer_id = int(offer_id or 0)
+    from backend.features.supplier_offers.shipments import order_lines, flow_status
     if not request_id:
         return
-    cur.execute("""SELECT status, planned_quantity, received_quantity
-                   FROM supply_deliveries
-                   WHERE request_id=%s
-                   ORDER BY id""", (request_id,))
-    delivery_rows = _cursor_rows_as_dicts(cur, cur.fetchall())
-    if not delivery_rows:
+    cur.execute('SELECT material_name, quantity, unit, work_package, items_json FROM supply_requests WHERE id=%s', (request_id,))
+    request = _cursor_rows_as_dicts(cur, cur.fetchall())
+    if not request:
         return
-    statuses = [(r.get("status") or "") for r in delivery_rows]
-    done_statuses = {"Принято", "Проблема"}
-    any_done = any(s in done_statuses for s in statuses)
-    all_done = all(s in done_statuses for s in statuses)
-    any_problem = any(s == "Проблема" for s in statuses)
-    planned_total = sum(max(0.0, _float_or_zero(r.get("planned_quantity"))) for r in delivery_rows)
-    received_total = sum(max(0.0, _float_or_zero(r.get("received_quantity"))) for r in delivery_rows)
-    request_fully_received = planned_total <= 0 or received_total + 0.000001 >= planned_total
-    if all_done and request_fully_received:
-        request_status = "Проблема поставки" if any_problem else "Поставлено"
-    elif any_done:
-        request_status = "Проблема поставки" if any_problem else "Частично поставлено"
-    else:
-        request_status = "В пути"
-    cur.execute("UPDATE supply_requests SET status=%s WHERE id=%s", (request_status, request_id))
-
-    if offer_id:
-        cur.execute("""SELECT status, planned_quantity, received_quantity
-                       FROM supply_deliveries
-                       WHERE offer_id=%s
-                       ORDER BY id""", (offer_id,))
-        offer_rows = _cursor_rows_as_dicts(cur, cur.fetchall())
-        if offer_rows:
-            offer_statuses = [(r.get("status") or "") for r in offer_rows]
-            offer_all_done = all(s in done_statuses for s in offer_statuses)
-            offer_any_done = any(s in done_statuses for s in offer_statuses)
-            offer_any_problem = any(s == "Проблема" for s in offer_statuses)
-            offer_planned_total = sum(max(0.0, _float_or_zero(r.get("planned_quantity"))) for r in offer_rows)
-            offer_received_total = sum(max(0.0, _float_or_zero(r.get("received_quantity"))) for r in offer_rows)
-            offer_fully_received = offer_planned_total <= 0 or offer_received_total + 0.000001 >= offer_planned_total
-            if offer_all_done and offer_fully_received:
-                offer_status = "Проблема поставки" if offer_any_problem else "Поставлено"
-            elif offer_any_done:
-                offer_status = "Проблема поставки" if offer_any_problem else "Частично поставлено"
-            else:
-                offer_status = "В пути"
-            cur.execute("UPDATE supplier_offers SET delivery_status=%s WHERE id=%s", (offer_status, offer_id))
+    lines = order_lines(request[0])
+    for table, field, value, column in (
+        ('supply_requests', 'request_id', request_id, 'status'),
+        ('supplier_offers', 'offer_id', offer_id, 'delivery_status'),
+    ):
+        if not value:
+            continue
+        scoped_lines = lines
+        if table == 'supplier_offers':
+            cur.execute("SELECT to_jsonb(o)->>'awarded_items_json' AS items_json FROM supplier_offers o WHERE id=%s", (value,))
+            awarded = _cursor_rows_as_dicts(cur, cur.fetchall())
+            if awarded and awarded[0].get('items_json'):
+                scoped_lines = order_lines(awarded[0])
+        cur.execute('SELECT id, status, material_name, unit, work_package, received_quantity FROM supply_deliveries WHERE ' + field + '=%s ORDER BY id', (value,))
+        rows = _cursor_rows_as_dicts(cur, cur.fetchall())
+        if rows:
+            try:
+                from backend.features.supply_claim_cases.fulfilment import effective_status_rows
+            except ModuleNotFoundError:
+                from features.supply_claim_cases.fulfilment import effective_status_rows
+            rows = effective_status_rows(cur,rows)
+            cur.execute('UPDATE ' + table + ' SET ' + column + '=%s WHERE id=%s', (flow_status(scoped_lines, rows), value))
 
 def _ensure_journal_source_columns(cur):
     try:
@@ -11524,8 +11684,10 @@ def _ensure_journal_source_columns(cur):
         cur.execute("ALTER TABLE cable_journal ADD COLUMN IF NOT EXISTS source_type VARCHAR(100)")
         cur.execute("ALTER TABLE cable_journal ADD COLUMN IF NOT EXISTS source_id INT")
         cur.execute("ALTER TABLE cable_journal ADD COLUMN IF NOT EXISTS source_item_key VARCHAR(255)")
+        return True
     except Exception as e:
         print("JOURNAL SOURCE COLUMNS ERROR:", str(e))
+        return False
 
 def _journal_item_key(name="", unit="", qty=0, work_package="", item_index=None):
     base = [
@@ -11563,13 +11725,15 @@ def _ensure_material_inspection_row(
     source_type="",
     source_id=None,
     source_item_key="",
+    source_columns_ready=False,
 ):
     project = (project or "").strip()
     material_name = (material_name or "").strip()
     qty = _float_or_zero(qty)
     if not project or not material_name or qty <= 0:
         return False
-    _ensure_journal_source_columns(cur)
+    if not source_columns_ready:
+        _ensure_journal_source_columns(cur)
     unit = _norm_base_unit(unit or "шт") or "шт"
     work_package = _supply_work_package(work_package or "")
     received_at = _receipt_date_value(received_at) or __import__("datetime").date.today().isoformat()
@@ -11614,7 +11778,7 @@ def _ensure_material_inspection_row(
                               AND COALESCE(NULLIF(work_package,''),'Основная')=%s
                               AND COALESCE(received_at::text,'')=%s
                             LIMIT 1""",
-                        (project, material_name, unit, qty, work_package, received_at))
+                        (project, material_name, unit.replace(' ', ''), qty, work_package, received_at))
             exists = bool(cur.fetchone())
         except Exception as e:
             print("INSPECTION ENSURE LEGACY CHECK ERROR:", str(e))
@@ -11632,7 +11796,7 @@ def _ensure_material_inspection_row(
 
 def _backfill_material_inspection_journal(cur, project_names=None):
     repaired = 0
-    _ensure_journal_source_columns(cur)
+    source_columns_ready = _ensure_journal_source_columns(cur)
     project_names = list(project_names or [])
     delivery_where = "WHERE COALESCE(received_quantity,0)>0 AND status IN ('Принято','Проблема')"
     delivery_params = []
@@ -11659,6 +11823,7 @@ def _backfill_material_inspection_journal(cur, project_names=None):
             inspected=True,
             source_type="supply_delivery",
             source_id=delivery_id,
+            source_columns_ready=source_columns_ready,
         ):
             repaired += 1
     invoice_where = "WHERE COALESCE(status,'Принята') <> 'Аннулирована'"
@@ -11694,10 +11859,11 @@ def _backfill_material_inspection_journal(cur, project_names=None):
                 source_type=source_type or "warehouse_invoice",
                 source_id=invoice_id,
                 source_item_key=_journal_item_key(name, unit, qty, work_package, idx),
+                source_columns_ready=source_columns_ready,
             ):
                 repaired += 1
-    history_where = "WHERE COALESCE(quantity,0)>0 AND LOWER(COALESCE(type,'')) LIKE 'приход%' AND COALESCE(project,'')<>'' AND project<>'Основной склад'"
-    history_params = []
+    history_where = "WHERE COALESCE(quantity,0)>0 AND LOWER(COALESCE(type,'')) LIKE %s AND COALESCE(project,'')<>'' AND project<>'Основной склад'"
+    history_params = ['приход%']
     if project_names:
         history_where += " AND project = ANY(%s)"
         history_params.append(project_names)
@@ -11717,6 +11883,7 @@ def _backfill_material_inspection_journal(cur, project_names=None):
             work_package=work_package,
             source_type="warehouse_history",
             source_id=history_id,
+            source_columns_ready=source_columns_ready,
         ):
             repaired += 1
     material_where = "WHERE COALESCE(quantity,0)>0 AND COALESCE(project,'')<>''"
@@ -11731,7 +11898,7 @@ def _backfill_material_inspection_journal(cur, project_names=None):
                             WHERE project_name=%s
                               AND LOWER(TRIM(COALESCE(material_name,'')))=LOWER(TRIM(%s))
                               AND {_sql_norm_unit('unit')}=%s
-                            LIMIT 1""", (project, name, _norm_base_unit(unit or "шт") or "шт"))
+                            LIMIT 1""", (project, name, (_norm_base_unit(unit or "шт") or "шт").replace(' ', '')))
             if cur.fetchone():
                 continue
         except Exception as e:
@@ -11748,15 +11915,17 @@ def _backfill_material_inspection_journal(cur, project_names=None):
             source_type="project_stock",
             source_id=None,
             source_item_key=_journal_item_key(name, unit, qty, work_package, "stock"),
+            source_columns_ready=source_columns_ready,
         ):
             repaired += 1
     return repaired
 
-def _ensure_cable_journal_row(cur, *, project, cable_brand, qty, supplier="", received_at=None, delivery_id=None, invoice_id=None, warehouse_history_id=None, work_package="", source_type="", source_id=None, source_item_key=""):
+def _ensure_cable_journal_row(cur, *, project, cable_brand, qty, supplier="", received_at=None, delivery_id=None, invoice_id=None, warehouse_history_id=None, work_package="", source_type="", source_id=None, source_item_key="", source_columns_ready=False):
     cable_info = _detect_cable_info(cable_brand)
     if not cable_info["isCable"]:
         return False
-    _ensure_journal_source_columns(cur)
+    if not source_columns_ready:
+        _ensure_journal_source_columns(cur)
     project = (project or "").strip()
     cable_brand = (cable_brand or "").strip()
     qty = _float_or_zero(qty)
@@ -11832,7 +12001,7 @@ def _ensure_cable_journal_row(cur, *, project, cable_brand, qty, supplier="", re
 def _backfill_cable_journal(cur, project_names=None):
     import json as _json
     repaired = 0
-    _ensure_journal_source_columns(cur)
+    source_columns_ready = _ensure_journal_source_columns(cur)
     project_names = list(project_names or [])
     delivery_where = "WHERE COALESCE(received_quantity,0)>0 AND status IN ('Принято','Проблема')"
     delivery_params = []
@@ -11847,6 +12016,7 @@ def _backfill_cable_journal(cur, project_names=None):
                                      supplier=supplier, received_at=received_at, delivery_id=delivery_id,
                                      work_package=work_package, source_type="supply_delivery",
                                      source_id=delivery_id,
+                                     source_columns_ready=source_columns_ready,
                                      source_item_key=_journal_item_key(name, unit or "м", qty, work_package)):
             repaired += 1
     invoice_where = ""
@@ -11872,10 +12042,11 @@ def _backfill_cable_journal(cur, project_names=None):
                                          supplier=supplier, received_at=date_value, invoice_id=invoice_id,
                                          work_package=work_package, source_type=source_type or "warehouse_invoice",
                                          source_id=invoice_id,
+                                         source_columns_ready=source_columns_ready,
                                          source_item_key=_journal_item_key(name, unit, qty, work_package, idx)):
                 repaired += 1
-    history_where = "WHERE COALESCE(quantity,0)>0 AND LOWER(COALESCE(type,'')) LIKE 'приход%' AND COALESCE(project,'')<>'' AND project<>'Основной склад'"
-    history_params = []
+    history_where = "WHERE COALESCE(quantity,0)>0 AND LOWER(COALESCE(type,'')) LIKE %s AND COALESCE(project,'')<>'' AND project<>'Основной склад'"
+    history_params = ['приход%']
     if project_names:
         history_where += " AND project = ANY(%s)"
         history_params.append(project_names)
@@ -11886,6 +12057,7 @@ def _backfill_cable_journal(cur, project_names=None):
                                      supplier=issued_by, received_at=date_value,
                                      warehouse_history_id=history_id, work_package=work_package,
                                      source_type="warehouse_history", source_id=history_id,
+                                     source_columns_ready=source_columns_ready,
                                      source_item_key=_journal_item_key(name, unit or "м", qty, work_package)):
             repaired += 1
     material_where = "WHERE COALESCE(quantity,0)>0"
@@ -11898,92 +12070,80 @@ def _backfill_cable_journal(cur, project_names=None):
         name, qty, unit, project, work_package = material
         if _ensure_cable_journal_row(cur, project=project, cable_brand=name, qty=qty,
                                      work_package=work_package, source_type="project_stock",
+                                     source_columns_ready=source_columns_ready,
                                      source_item_key=_journal_item_key(name, unit or "м", qty, work_package, "stock")):
             repaired += 1
     return repaired
 
+def _fulfilment_visibility(cur, user, company_column, project_column, package_column,
+                           x_company_id=None, x_company_mode=None, worker_condition=None):
+    try:
+        from backend.features.supplier_access.fulfilment import internal_fulfilment_filter
+    except ModuleNotFoundError:
+        from features.supplier_access.fulfilment import internal_fulfilment_filter
+    context = _resolve_work_company_context(cur, user, None, 'read',
+        x_company_id=x_company_id, x_company_mode=x_company_mode)
+    return internal_fulfilment_filter(effective_company_actors(user, context),
+        company_column=company_column, project_column=project_column,
+        full_view_roles=('директор', 'зам_директора', 'бухгалтер') if worker_condition else None,
+        package_column=package_column, worker_condition=worker_condition, deps={
+            'can_see_all_company_data': can_see_all_company_data,
+            'scoped_project_filter': scoped_project_filter,
+            'package_access_filter': package_access_filter,
+            'worker_execution_roles': WORKER_EXECUTION_ROLES,
+        })
+
+
 @app.get("/supply-deliveries")
-def list_supply_deliveries(limit: Optional[int] = None, offset: int = 0, current_user: dict = Depends(get_current_user)):
+def list_supply_deliveries(
+    limit: Optional[int] = None, offset: int = 0,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    current_user: dict = Depends(get_current_user),
+):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     _ensure_supply_runtime_columns(cur)
     conn.commit()
     role = current_user.get("role")
     page_sql, page_params = limit_offset_sql(limit, offset)
-    if can_see_all_company_data(current_user):
-        cur.execute(DELIVERY_SELECT + " ORDER BY d.id DESC" + page_sql, page_params)
-    elif role in ("снабженец", "кладовщик"):
-        project_sql, project_params = scoped_project_where(current_user, "d.project")
-        cur.execute(DELIVERY_SELECT + project_sql + " ORDER BY d.id DESC" + page_sql, project_params + page_params)
-    elif role == "поставщик":
-        supplier_ids = current_supplier_ids(cur, current_user)
+    if role == "поставщик":
+        supplier_ids = current_supplier_access_ids(cur, current_user)
         if not supplier_ids:
             cur.close(); conn.close()
             return []
-        cur.execute(DELIVERY_SELECT + " WHERE d.supplier_id = ANY(%s) ORDER BY d.id DESC" + page_sql, [supplier_ids] + page_params)
-    elif role == "прораб":
-        projects = user_project_names(current_user)
-        if not projects:
-            cur.close(); conn.close()
-            return []
-        package_sql, package_params = package_access_filter(current_user, "d.work_package")
-        cur.execute(DELIVERY_SELECT + " WHERE d.project = ANY(%s)" + package_sql + " ORDER BY d.id DESC" + page_sql, [projects] + package_params + page_params)
-    elif role in WORKER_EXECUTION_ROLES:
-        cur.close(); conn.close()
-        return []
+        try:
+            from backend.features.supplier_access.service import supplier_delivery_visibility_filter
+        except ModuleNotFoundError:
+            from features.supplier_access.service import supplier_delivery_visibility_filter
+        visibility, params = supplier_delivery_visibility_filter(supplier_ids, current_user.get('id'))
+        cur.execute(DELIVERY_SELECT + ' WHERE ' + visibility + ' ORDER BY d.id DESC' + page_sql, params + page_params)
     else:
-        cur.close(); conn.close()
-        return []
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return [dict(r) for r in rows]
-
-@app.get("/supply-claims")
-def list_supply_claims(current_user: dict = Depends(get_current_user)):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    role = current_user.get("role")
-    if role in ("директор", "зам_директора", "снабженец", "кладовщик", "бухгалтер"):
-        cur.execute(CLAIM_SELECT + " ORDER BY id DESC")
-    elif role == "поставщик":
-        supplier_ids = current_supplier_ids(cur, current_user)
-        if not supplier_ids:
+        try:
+            scope, params = _fulfilment_visibility(cur, current_user, 'd.company_id',
+                'd.project', 'd.work_package', x_company_id, x_company_mode)
+            cur.execute(DELIVERY_SELECT + ' WHERE ' + scope + ' ORDER BY d.id DESC' + page_sql, params + page_params)
+        except Exception:
             cur.close(); conn.close()
-            return []
-        cur.execute(CLAIM_SELECT + " WHERE supplier_id = ANY(%s) ORDER BY id DESC", (supplier_ids,))
-    elif role == "прораб":
-        projects = user_project_names(current_user)
-        if not projects:
-            cur.close(); conn.close()
-            return []
-        package_sql, package_params = package_access_filter(current_user, "work_package")
-        cur.execute(CLAIM_SELECT + " WHERE project = ANY(%s)" + package_sql + " ORDER BY id DESC",
-                    [projects] + package_params)
-    elif role in WORKER_EXECUTION_ROLES:
-        package_sql, package_params = package_access_filter(current_user, "work_package")
-        cur.execute(CLAIM_SELECT + " WHERE request_id IN (SELECT id FROM supply_requests WHERE requested_by_id=%s OR created_by=%s)" + package_sql + " ORDER BY id DESC",
-                    [current_user.get("id"), current_user.get("name") or ""] + package_params)
-    else:
+            raise
+    try:
+        rows = [dict(r) for r in cur.fetchall()]
+        try:
+            from backend.features.supply_claim_cases.fulfilment import enrich_deliveries
+        except ModuleNotFoundError:
+            from features.supply_claim_cases.fulfilment import enrich_deliveries
+        enrich_deliveries(cur, rows)
+        if os.getenv('SUPPLIER_DOCUMENT_CONTRACT_BINDINGS_ENABLED') == '1':
+            try:
+                from backend.features.supplier_deal_parties.payment_deferral import enrich_delivery_deadlines
+            except ModuleNotFoundError:
+                from features.supplier_deal_parties.payment_deferral import enrich_delivery_deadlines
+            enrich_delivery_deadlines(cur, rows)
+        return rows
+    finally:
         cur.close(); conn.close()
-        return []
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return [dict(r) for r in rows]
 
 
-CLAIM_SELECT = """
-    SELECT id, delivery_id as "deliveryId", request_id as "requestId",
-           offer_id as "offerId", supplier_id as "supplierId",
-           project, material_name as "materialName",
-           claim_type as "claimType", description,
-           expected_quantity as "expectedQuantity",
-           received_quantity as "receivedQuantity",
-           shortage_quantity as "shortageQuantity",
-           COALESCE(work_package,'') as "workPackage",
-           photo_url as "photoUrl", status, created_by as "createdBy",
-           created_at as "createdAt", resolved_at as "resolvedAt", resolution
-    FROM supply_claims
-"""
 DELIVERY_SELECT = """
     SELECT d.id, d.offer_id as "offerId", d.company_id as "companyId", d.request_id as "requestId",
            d.supplier_id as "supplierId", d.supplier_name as "supplierName",
@@ -12011,144 +12171,246 @@ DELIVERY_SELECT = """
 
 
 @app.put("/supply-deliveries/{id}/receive")
-def receive_supply_delivery(id: int, data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
+def receive_supply_delivery(
+    id: int, data: dict,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
     from datetime import datetime
+    try:
+        from backend.features.supplier_payments.partial_receipt_runtime import finalize_receipt
+    except ModuleNotFoundError:
+        from features.supplier_payments.partial_receipt_runtime import finalize_receipt
+    try:
+        from backend.features.quality_journals.delivery_sources import delivery_sources_enabled, prepare_delivery_sources, bind_new_delivery_sources
+        from backend.features.quality_journals.delivery_receipt import delivery_quality_enabled, create_delivery_quality
+    except ModuleNotFoundError:
+        from features.quality_journals.delivery_sources import delivery_sources_enabled, prepare_delivery_sources, bind_new_delivery_sources
+        from features.quality_journals.delivery_receipt import delivery_quality_enabled, create_delivery_quality
+    owned_sources = delivery_sources_enabled()
+    owned_quality = delivery_quality_enabled()
+    if owned_quality and not owned_sources:
+        raise HTTPException(503, 'Журнал поставки требует включённой проверки первичных документов')
     conn = get_db()
     conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    _ensure_supply_runtime_columns(cur)
-    conn.commit()
-    cur.execute("SELECT * FROM supply_deliveries WHERE id=%s FOR UPDATE", (id,))
-    delivery = cur.fetchone()
-    if not delivery:
-        conn.rollback()
-        cur.close(); conn.close()
-        raise HTTPException(status_code=404, detail="Поставка не найдена")
-    if delivery.get('project'):
+    try:
         try:
-            require_project_or_warehouse_access(_current_user, delivery.get('project') or "")
+            from backend.features.material_traceability.guards import lock_distribution_compatible_stock
+        except ModuleNotFoundError:
+            from features.material_traceability.guards import lock_distribution_compatible_stock
+        # Runtime schema helpers also lock receipt/supply relations. Take the
+        # stock lock first and retain it through acceptance, including replay.
+        lock_distribution_compatible_stock(cur)
+        ledger_present = _payment_ledger_available(cur)
+        if ledger_present:
+            _lock_payment_document_writer(cur, 'delivery', id)
+        else:
+            _ensure_supply_runtime_columns(cur)
+        cur.execute("SELECT * FROM supply_deliveries WHERE id=%s FOR UPDATE", (id,))
+        delivery = cur.fetchone()
+        if not delivery:
+            conn.rollback()
+            cur.close(); conn.close()
+            raise HTTPException(status_code=404, detail="Поставка не найдена")
+        try:
+            _context, _current_user = resolve_resource_company_actor(
+                cur, _current_user, delivery.get('company_id'), 'update',
+                claimed_company_id=data.get('companyId', data.get('company_id')),
+                x_company_id=x_company_id, x_company_mode=x_company_mode,
+                allowed_roles=WAREHOUSE_ROLES,
+                platform_staff_roles=PLATFORM_STAFF_ROLES,
+                client_account_roles=CLIENT_ACCOUNT_ROLES,
+            )
+            try:
+                from backend.features.supplier_access.fulfilment import assert_delivery_chain
+            except ModuleNotFoundError:
+                from features.supplier_access.fulfilment import assert_delivery_chain
+            assert_delivery_chain(cur, delivery)
         except Exception:
             conn.rollback()
             cur.close(); conn.close()
             raise
-    if _current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(_current_user, delivery.get("work_package") or "Основная"):
-        conn.rollback()
-        cur.close(); conn.close()
-        raise HTTPException(status_code=403, detail="Нет доступа к пакету поставки")
-    if delivery['status'] in ('Принято', 'Проблема') or delivery.get('received_at'):
-        try:
-            _create_delivery_quality_records(cur, delivery)
-        except Exception as e:
-            print("DELIVERY QUALITY RECOVERY ERROR:", str(e))
-        try:
-            _create_supply_delivery_history(cur, delivery)
-        except Exception as e:
-            print("DELIVERY HISTORY RECOVERY ERROR:", str(e))
-        try:
-            invoice_id = _ensure_supply_delivery_invoice(
-                cur, delivery,
-                delivery.get('received_quantity'),
-                delivery.get('received_at'),
-                delivery.get('received_by') or ''
+        if delivery.get('project'):
+            try:
+                require_project_or_warehouse_access(_current_user, delivery.get('project') or "")
+            except Exception:
+                conn.rollback()
+                cur.close(); conn.close()
+                raise
+        if _current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(_current_user, delivery.get("work_package") or "Основная"):
+            conn.rollback()
+            cur.close(); conn.close()
+            raise HTTPException(status_code=403, detail="Нет доступа к пакету поставки")
+        if ledger_present:
+            _guard_delivery_accounting_write(cur, delivery)
+        source_project_id = prepare_delivery_sources(cur, _current_user, delivery) if owned_sources else None
+        if delivery['status'] in ('Принято', 'Проблема') or delivery.get('received_at'):
+            if not owned_quality:
+                try:
+                    _create_delivery_quality_records(cur, delivery)
+                except Exception as e:
+                    print("DELIVERY QUALITY RECOVERY ERROR:", str(e))
+            try:
+                _create_supply_delivery_history(cur, delivery)
+            except Exception as e:
+                print("DELIVERY HISTORY RECOVERY ERROR:", str(e))
+            try:
+                invoice_id = _ensure_supply_delivery_invoice(
+                    cur, delivery,
+                    delivery.get('received_quantity'),
+                    delivery.get('received_at'),
+                    delivery.get('received_by') or ''
+                )
+            except Exception as e:
+                if owned_quality or ledger_present or delivery.get('source_supplier_invoice_id') is not None or delivery.get('contract_version_id') is not None:
+                    raise
+                print("DELIVERY INVOICE RECOVERY ERROR:", str(e))
+                invoice_id = None
+            if owned_quality:
+                create_delivery_quality(cur, delivery_id=id, company_id=delivery['company_id'],
+                    project_id=source_project_id, invoice_id=invoice_id, replay=True,
+                    cable_info=_detect_cable_info(delivery['material_name']), normalize_unit=_norm_base_unit)
+            try:
+                cur.execute(DELIVERY_SELECT + " WHERE d.id=%s", (id,))
+                row = cur.fetchone()
+            except Exception as e:
+                print("DELIVERY RECOVERY SELECT ERROR:", str(e))
+                row = None
+            finalize_receipt(cur, delivery, invoice_id)
+            conn.commit()
+            cur.close(); conn.close()
+            return {
+                "ok": True,
+                "delivery": dict(row) if row else {"id": id},
+                "claimId": delivery.get('claim_id'),
+                "invoiceId": invoice_id,
+                "alreadyReceived": True
+            }
+        received_qty = _float_or_zero(data.get('receivedQuantity'))
+        planned_qty = _float_or_zero(delivery['planned_quantity'])
+        shipped_qty = _float_or_zero(delivery['shipped_quantity']) or planned_qty
+        quality_status = data.get('qualityStatus') or 'Принято'
+        if quality_status not in ('Принято', 'Брак', 'Несоответствие', 'Недостача', 'Частично'):
+            raise HTTPException(400, 'Неизвестный результат проверки качества')
+        if received_qty < 0:
+            conn.rollback()
+            cur.close(); conn.close()
+            raise HTTPException(status_code=400, detail="Принятое количество не может быть отрицательным")
+        if shipped_qty > 0 and received_qty > shipped_qty + 0.000001:
+            conn.rollback()
+            cur.close(); conn.close()
+            raise HTTPException(
+                status_code=400,
+                detail=f"Нельзя принять больше отгруженного: отгружено {shipped_qty:g} {delivery['unit']}, принимается {received_qty:g} {delivery['unit']}",
             )
-        except Exception as e:
-            print("DELIVERY INVOICE RECOVERY ERROR:", str(e))
-            invoice_id = None
-        try:
-            cur.execute(DELIVERY_SELECT + " WHERE d.id=%s", (id,))
-            row = cur.fetchone()
-        except Exception as e:
-            print("DELIVERY RECOVERY SELECT ERROR:", str(e))
-            row = None
+        shortage = max(0.0, shipped_qty - received_qty)
+        problem = shortage > 0 or quality_status in ('Брак', 'Несоответствие', 'Недостача', 'Частично')
+        status = 'Проблема' if problem else 'Принято'
+        received_at = datetime.now()
+        cur.execute("""UPDATE supply_deliveries SET received_quantity=%s, received_at=%s,
+                       received_by=%s, quality_status=%s, quality_notes=%s,
+                       shortage_quantity=%s, photo_url=COALESCE(NULLIF(%s,''), photo_url),
+                       status=%s WHERE id=%s""",
+                    (received_qty, received_at, data.get('receivedBy') or '',
+                     quality_status, data.get('qualityNotes') or '',
+                     shortage, data.get('photoUrl') or '', status, id))
+        claim_id = None
+        cur.execute("SELECT * FROM supply_deliveries WHERE id=%s", (id,))
+        updated = cur.fetchone()
+        if not owned_quality:
+            _create_delivery_quality_records(cur, updated)
+        if problem:
+            claim_type = 'Недостача' if shortage > 0 else quality_status
+            description = data.get('claimDescription') or (
+                f"По поставке «{delivery['material_name']}» ожидалось {shipped_qty:g} {delivery['unit']}, "
+                f"принято {received_qty:g} {delivery['unit']}. "
+                f"Статус качества: {quality_status}. {data.get('qualityNotes') or ''}"
+            )
+            cur.execute("""INSERT INTO supply_claims
+                           (delivery_id, request_id, offer_id, supplier_id, project, material_name,
+                            work_package, claim_type, description, expected_quantity, received_quantity,
+                            shortage_quantity, photo_url, created_by)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                        (id, delivery['request_id'], delivery['offer_id'], delivery['supplier_id'],
+                         delivery['project'], delivery['material_name'], delivery.get('work_package') or delivery.get('workPackage') or '',
+                         claim_type, description,
+                         shipped_qty, received_qty, shortage, data.get('photoUrl') or '',
+                         data.get('receivedBy') or ''))
+            claim_id = cur.fetchone()['id']
+            cur.execute("UPDATE supply_deliveries SET claim_id=%s WHERE id=%s", (claim_id, id))
+        _create_supply_delivery_history(cur, updated, status, received_qty, data.get('receivedBy') or '')
+        invoice_id = _ensure_supply_delivery_invoice(cur, updated, received_qty, received_at, data.get('receivedBy') or '')
+        if received_qty > 0 and quality_status not in ('Брак', 'Несоответствие'):
+            _add_project_material(cur, delivery['material_name'], delivery['unit'], received_qty,
+                                  _float_or_zero(delivery['price_per_unit']), delivery['project'],
+                                  delivery.get('work_package') or delivery.get('workPackage') or "",
+                                  delivery.get('company_id') or delivery.get('companyId') or 1,
+                                  source_type="supply_delivery", source_id=id,
+                                  source_invoice_id=invoice_id)
+        if owned_sources:
+            bind_new_delivery_sources(cur, updated, source_project_id, invoice_id)
+        if owned_quality:
+            create_delivery_quality(cur, delivery_id=id, company_id=delivery['company_id'],
+                project_id=source_project_id, invoice_id=invoice_id,
+                cable_info=_detect_cable_info(delivery['material_name']), expected_quantity=received_qty,
+                normalize_unit=_norm_base_unit)
+        finalize_receipt(cur, updated, invoice_id)
+        _update_supply_flow_status_after_delivery(cur, delivery['request_id'], delivery['offer_id'])
+        cur.execute(DELIVERY_SELECT + " WHERE d.id=%s", (id,))
+        row = cur.fetchone()
         conn.commit()
         cur.close(); conn.close()
-        return {
-            "ok": True,
-            "delivery": dict(row) if row else {"id": id},
-            "claimId": delivery.get('claim_id'),
-            "invoiceId": invoice_id,
-            "alreadyReceived": True
-        }
-    received_qty = _float_or_zero(data.get('receivedQuantity'))
-    planned_qty = _float_or_zero(delivery['planned_quantity'])
-    shipped_qty = _float_or_zero(delivery['shipped_quantity']) or planned_qty
-    quality_status = data.get('qualityStatus') or 'Принято'
-    if received_qty < 0:
-        conn.rollback()
-        cur.close(); conn.close()
-        raise HTTPException(status_code=400, detail="Принятое количество не может быть отрицательным")
-    if shipped_qty > 0 and received_qty > shipped_qty + 0.000001:
-        conn.rollback()
-        cur.close(); conn.close()
-        raise HTTPException(
-            status_code=400,
-            detail=f"Нельзя принять больше отгруженного: отгружено {shipped_qty:g} {delivery['unit']}, принимается {received_qty:g} {delivery['unit']}",
-        )
-    shortage = max(0.0, shipped_qty - received_qty)
-    problem = shortage > 0 or quality_status in ('Брак', 'Несоответствие', 'Недостача', 'Частично')
-    status = 'Проблема' if problem else 'Принято'
-    received_at = datetime.now()
-    cur.execute("""UPDATE supply_deliveries SET received_quantity=%s, received_at=%s,
-                   received_by=%s, quality_status=%s, quality_notes=%s,
-                   shortage_quantity=%s, photo_url=COALESCE(NULLIF(%s,''), photo_url),
-                   status=%s WHERE id=%s""",
-                (received_qty, received_at, data.get('receivedBy') or '',
-                 quality_status, data.get('qualityNotes') or '',
-                 shortage, data.get('photoUrl') or '', status, id))
-    claim_id = None
-    cur.execute("SELECT * FROM supply_deliveries WHERE id=%s", (id,))
-    updated = cur.fetchone()
-    _create_delivery_quality_records(cur, updated)
-    if problem:
-        claim_type = 'Недостача' if shortage > 0 else quality_status
-        description = data.get('claimDescription') or (
-            f"По поставке «{delivery['material_name']}» ожидалось {shipped_qty:g} {delivery['unit']}, "
-            f"принято {received_qty:g} {delivery['unit']}. "
-            f"Статус качества: {quality_status}. {data.get('qualityNotes') or ''}"
-        )
-        cur.execute("""INSERT INTO supply_claims
-                       (delivery_id, request_id, offer_id, supplier_id, project, material_name,
-                        work_package, claim_type, description, expected_quantity, received_quantity,
-                        shortage_quantity, photo_url, created_by)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-                    (id, delivery['request_id'], delivery['offer_id'], delivery['supplier_id'],
-                     delivery['project'], delivery['material_name'], delivery.get('work_package') or delivery.get('workPackage') or '',
-                     claim_type, description,
-                     shipped_qty, received_qty, shortage, data.get('photoUrl') or '',
-                     data.get('receivedBy') or ''))
-        claim_id = cur.fetchone()['id']
-        cur.execute("UPDATE supply_deliveries SET claim_id=%s WHERE id=%s", (claim_id, id))
-    _create_supply_delivery_history(cur, updated, status, received_qty, data.get('receivedBy') or '')
-    invoice_id = _ensure_supply_delivery_invoice(cur, updated, received_qty, received_at, data.get('receivedBy') or '')
-    if received_qty > 0 and quality_status not in ('Брак',):
-        _add_project_material(cur, delivery['material_name'], delivery['unit'], received_qty,
-                              _float_or_zero(delivery['price_per_unit']), delivery['project'],
-                              delivery.get('work_package') or delivery.get('workPackage') or "",
-                              delivery.get('company_id') or delivery.get('companyId') or 1,
-                              source_type="supply_delivery", source_id=id,
-                              source_invoice_id=invoice_id)
-    _update_supply_flow_status_after_delivery(cur, delivery['request_id'], delivery['offer_id'])
-    cur.execute(DELIVERY_SELECT + " WHERE d.id=%s", (id,))
-    row = cur.fetchone()
-    conn.commit()
-    cur.close(); conn.close()
-    _run_project_ai_control_safely(delivery['project'], "supply_delivery:receive")
-    return {"ok": True, "delivery": dict(row), "claimId": claim_id, "invoiceId": invoice_id}
+        _run_project_ai_control_safely(delivery['project'], "supply_delivery:receive")
+        return {"ok": True, "delivery": dict(row), "claimId": claim_id, "invoiceId": invoice_id}
+    except Exception:
+        if not conn.closed:
+            conn.rollback()
+        raise
+    finally:
+        if not cur.closed:
+            cur.close()
+        if not conn.closed:
+            conn.close()
+
 
 @app.post("/supply-deliveries/{id}/ai-check")
-def ai_check_supply_delivery(id: int, data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES))):
+def ai_check_supply_delivery(
+    id: int, data: dict, request: Request,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
+    try:
+        from backend.features.supplier_access.fulfilment import assert_delivery_chain, save_delivery_check_result
+    except ModuleNotFoundError:
+        from features.supplier_access.fulfilment import assert_delivery_chain, save_delivery_check_result
+    def authorize(cursor, delivery, actor):
+        if data.get('companyId', data.get('company_id')) not in (None, delivery.get('company_id') if delivery else None):
+            raise HTTPException(403, 'Компания не соответствует поставке')
+        return authorize_procurement_document(
+            cursor, delivery, actor, resolve_actor=resolve_resource_company_actor,
+            project_access=require_project_or_warehouse_access, package_access=has_package_access,
+            allowed_roles=WAREHOUSE_ROLES, platform_staff_roles=PLATFORM_STAFF_ROLES,
+            client_account_roles=CLIENT_ACCOUNT_ROLES, x_company_id=x_company_id,
+            x_company_mode=x_company_mode, action_mode='update',
+        )
     conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT * FROM supply_deliveries WHERE id=%s", (id,))
-    d = cur.fetchone()
-    if not d:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=404, detail="Поставка не найдена")
-    if d.get("project"):
-        require_project_or_warehouse_access(_current_user, d.get("project") or "")
-    if _current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(_current_user, d.get("work_package") or "Основная"):
-        cur.close(); conn.close()
-        raise HTTPException(status_code=403, detail="Нет доступа к пакету поставки")
+    cur = None
+    try:
+        conn.autocommit = False
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SET LOCAL statement_timeout='15s'")
+        cur.execute("SELECT * FROM supply_deliveries WHERE id=%s", (id,))
+        d = cur.fetchone()
+        authorize(cur, d, _current_user)
+        assert_delivery_chain(cur, d)
+    finally:
+        conn.rollback()
+        if cur is not None:
+            cur.close()
+        conn.close()
     parsed_items = data.get('parsedItems') or []
     doc_text = data.get('documentText') or ''
     expected = {
@@ -12204,53 +12466,28 @@ def ai_check_supply_delivery(id: int, data: dict, _current_user: dict = Depends(
     except Exception as e:
         print("DELIVERY AI CHECK ERROR:", e)
         result_text = "AI-сверка не сработала, проверьте поставку вручную."
-    cur.execute("UPDATE supply_deliveries SET ai_check_result=%s WHERE id=%s", (result_text, id))
-    cur.close(); conn.close()
+    # Authentication can expire or be revoked while the model is running.
+    # Resolve the original credential again, then recheck the current document.
+    fresh_user = get_current_user(request, request.headers.get('authorization'))
+    save_delivery_check_result(get_db, d, result_text,
+                               lambda cursor, current: authorize(cursor, current, fresh_user))
     return {"ok": True, "result": result_text, "expected": expected}
 
-@app.put("/supply-claims/{id}")
-def update_supply_claim(id: int, data: dict, _current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT id, supplier_id, project, COALESCE(work_package,'') as work_package FROM supply_claims WHERE id=%s", (id,))
-    claim = cur.fetchone()
-    if not claim:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=404, detail="Претензия не найдена")
-    role = _current_user.get("role")
-    if role == "поставщик":
-        supplier_ids = current_supplier_ids(cur, _current_user)
-        if claim.get("supplier_id") not in supplier_ids:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=403, detail="Нет доступа к претензии")
-        protected_keys = {"status", "resolvedAt"}
-        if protected_keys.intersection(data.keys()):
-            cur.close(); conn.close()
-            raise HTTPException(status_code=403, detail="Закрытие претензии доступно только внутренним ролям")
-    else:
-        if role not in SUPPLY_INTERNAL_ROLES:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=403, detail="Недостаточно прав для изменения претензии")
-        if claim.get("project"):
-            require_project_or_warehouse_access(_current_user, claim.get("project") or "")
-        if role in PACKAGE_LIMIT_ROLES and not has_package_access(_current_user, claim.get("work_package") or "Основная"):
-            cur.close(); conn.close()
-            raise HTTPException(status_code=403, detail="Нет доступа к разделу сметы претензии")
-    fields_map = [('status','status'),('resolution','resolution'),('resolvedAt','resolved_at')]
-    sets, vals = [], []
-    for js_key, db_col in fields_map:
-        if js_key in data:
-            sets.append(db_col + "=%s")
-            vals.append(data[js_key] or None if js_key == 'resolvedAt' else data[js_key])
-    if data.get('status') in ('Закрыта', 'Решена') and 'resolvedAt' not in data:
-        sets.append("resolved_at=NOW()")
-    if not sets:
-        cur.close(); conn.close()
-        return {"ok": True}
-    vals.append(id)
-    cur.execute("UPDATE supply_claims SET " + ", ".join(sets) + " WHERE id=%s", vals)
-    cur.close(); conn.close()
-    return {"ok": True}
+
+try:
+    from backend.features.supply_claim_cases.routes import register_supply_claim_cases_module
+except ModuleNotFoundError:
+    from features.supply_claim_cases.routes import register_supply_claim_cases_module
+
+register_supply_claim_cases_module(app, {
+    "update_supply_status": _update_supply_flow_status_after_delivery,
+    "get_db": get_db,
+    "get_current_user": get_current_user,
+    "current_supplier_ids": current_supplier_access_ids,
+    "fulfilment_visibility": _fulfilment_visibility,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
+})
 
 try:
     from backend.features.supply_history.routes import register_supply_history_module
@@ -12323,14 +12560,17 @@ def get_work_journal(
                               wj.execution_price_per_unit as "executionPricePerUnit",wj.execution_total as "executionTotal",
                               wj.execution_price_mode as "executionPriceMode",wj.photo_url as "photoUrl",
                               wj.confirmed_by as "confirmedBy",wj.confirmed_at as "confirmedAt",
-                              wj.materials_used as "materialsUsed",wj.estimate_id as "estimateId",
+                              wj.materials_used as "materialsUsed",wj.material_accounting_version as "materialAccountingVersion",wj.estimate_id as "estimateId",
+                              (SELECT c.settlement_version FROM brigade_contract_items i JOIN brigade_contracts c ON c.id=i.contract_id WHERE i.id=wj.contract_item_id AND c.company_id=wj.company_id) AS "settlementVersion",
+                              (SELECT c.id FROM brigade_contract_items i JOIN brigade_contracts c ON c.id=i.contract_id WHERE i.id=wj.contract_item_id AND c.company_id=wj.company_id) AS "settlementContractId",
                               wj.section_name as "sectionName",wj.responsible_itr as "responsibleItr",wj.weather,
                               wj.time_start as "timeStart",wj.time_end as "timeEnd",wj.hidden_work as "hiddenWork",
                               wj.quality_status as "qualityStatus",wj.normatives,wj.project_docs as "projectDocs",
                               wj.ai_filled as "aiFilled",wj.unexpected_work_id as "unexpectedWorkId",
                               wj.work_package as "workPackage",wj.room_id as "roomId",wj.room_name as "roomName",
                               wj.surface,wj.estimate_item_name as "estimateItemName",
-                              wj.estimate_item_key as "estimateItemKey",wj.company_id as "_companyId"
+                              wj.estimate_item_key as "estimateItemKey",wj.company_id as "_companyId",
+                              p.id as "projectId"
                          FROM work_journal wj
                          JOIN (
                              SELECT company_id,name,MIN(id) AS id
@@ -12369,8 +12609,10 @@ def get_work_journal(
         result = []
         for source_row in cur.fetchall() or []:
             row = dict(source_row)
-            actor = actors_by_company.get(int(row.pop("_companyId", 0) or 0))
+            company_id = int(row.pop("_companyId", 0) or 0)
+            actor = actors_by_company.get(company_id)
             if actor:
+                row['companyId'] = company_id
                 result.append(mask_work_journal_money(row, actor, WORKER_EXECUTION_ROLES))
         return result
     finally:
@@ -12407,7 +12649,7 @@ def _stock_row_by_material_key(
     main_warehouse: bool = False,
     company_id=None,
 ):
-    target_key = _material_control_key_resolved(cur, project, material_name, unit)
+    target_key = _material_control_key_resolved(cur, project, material_name, unit, company_id=company_id)
     unit_key = _norm_base_unit(unit or "").strip().lower()
     unit_filter = f" AND {_sql_norm_unit('unit')}=%s" if unit_key else ""
     normalized_company_id = _positive_int_or_none(company_id)
@@ -12415,7 +12657,7 @@ def _stock_row_by_material_key(
     def _row_matches(row):
         row_name = _row_value(row, 1, "name", "")
         row_unit = _row_value(row, 3, "unit", unit)
-        if _material_control_key_resolved(cur, project, row_name, row_unit) == target_key:
+        if _material_control_key_resolved(cur, project, row_name, row_unit, company_id=company_id) == target_key:
             return True
         return _material_units_compatible(unit, row_unit) and _material_name_match_score(material_name, row_name) >= 0.55
     if main_warehouse:
@@ -12453,6 +12695,31 @@ def _stock_row_by_material_key(
                     return row
     return None
 
+def _require_unambiguous_legacy_material_person(cur, company_id, person_id, person_name):
+    """Do not assign name-only historic material events to a namesake."""
+    cur.execute("""SELECT u.id FROM users u
+                   WHERE LOWER(TRIM(u.name))=LOWER(TRIM(%s))
+                     AND (u.company_id=%s OR EXISTS (
+                         SELECT 1 FROM user_company_roles r WHERE r.user_id=u.id AND r.company_id=%s))
+                   UNION SELECT to_user_id FROM material_transfers
+                   WHERE company_id=%s AND LOWER(TRIM(to_person))=LOWER(TRIM(%s))
+                     AND to_user_id IS NOT NULL""",
+                (person_name, company_id, company_id, company_id, person_name))
+    identities = {_row_value(row, 0, "id") for row in cur.fetchall() or []}
+    if len(identities) > 1 or (person_id and identities and identities != {int(person_id)}):
+        raise HTTPException(status_code=409, detail="Исторические движения материала записаны только по имени исполнителя. Требуется сверка владельца; остаток не изменён.")
+
+
+def _personal_material_quantity(value):
+    try:
+        quantity = float(value or 0)
+    except (TypeError, ValueError, OverflowError):
+        quantity = float("nan")
+    if isinstance(value, bool) or not math.isfinite(quantity) or quantity < 0:
+        raise HTTPException(status_code=409, detail="В истории движения материала некорректное количество. Требуется сверка; остаток не изменён.")
+    return quantity
+
+
 def _personal_material_balance(
     cur,
     project: str,
@@ -12462,10 +12729,11 @@ def _personal_material_balance(
     work_package: str = "",
     unit: str = "",
     company_id=None,
+    include_identity=False,
 ):
     if not (material_name or "").strip():
         return {"issued": 0, "used": 0, "available": 0}
-    target_key = _material_control_key_resolved(cur, project, material_name, unit)
+    target_key = _material_control_key_resolved(cur, project, material_name, unit, company_id=company_id)
     unit_key = _norm_base_unit(unit or "").strip().lower()
     package_name = (work_package or "Основная").strip() or "Основная"
     package_filter = " AND COALESCE(NULLIF(work_package,''),'Основная')=%s"
@@ -12473,7 +12741,7 @@ def _personal_material_balance(
     normalized_company_id = _positive_int_or_none(company_id)
     company_filter = " AND company_id=%s" if normalized_company_id else ""
     if person_id:
-        cur.execute("""SELECT material_name, quantity, unit
+        cur.execute("""SELECT material_name, quantity, unit, to_person, to_user_id
                        FROM material_transfers
                        WHERE project_name=%s
                          """ + company_filter + """
@@ -12483,7 +12751,7 @@ def _personal_material_balance(
                          """ + package_filter + unit_filter,
                     tuple([project] + ([normalized_company_id] if normalized_company_id else []) + [person_id, person_name or "", package_name] + ([unit_key] if unit_key else [])))
     else:
-        cur.execute("""SELECT material_name, quantity, unit
+        cur.execute("""SELECT material_name, quantity, unit, to_person, to_user_id
                        FROM material_transfers
                        WHERE project_name=%s
                          """ + company_filter + """
@@ -12493,52 +12761,76 @@ def _personal_material_balance(
                          """ + package_filter + unit_filter,
                     tuple([project] + ([normalized_company_id] if normalized_company_id else []) + [person_name or "", package_name] + ([unit_key] if unit_key else [])))
     issued = 0
+    identity_sources = []
+    legacy_names = {person_name or ""}
     for row in cur.fetchall() or []:
         row_name = _row_value(row, 0, "material_name", "")
         row_unit = _row_value(row, 2, "unit", unit)
-        if _material_control_key_resolved(cur, project, row_name, row_unit) == target_key:
-            issued += float(_row_value(row, 1, "quantity", 0) or 0)
+        if _material_control_key_resolved(cur, project, row_name, row_unit, company_id=company_id) == target_key:
+            transfer_name = _row_value(row, 3, "to_person", person_name) or person_name or ""
+            legacy_names.add(transfer_name)
+            if not _row_value(row, 4, "to_user_id"):
+                _require_unambiguous_legacy_material_person(cur, normalized_company_id, person_id, transfer_name)
+            issued += _personal_material_quantity(_row_value(row, 1, "quantity", 0))
+            identity_sources.append({"name": row_name, "unit": row_unit})
     package_journal_filter = " AND COALESCE(NULLIF(work_package,''),'Основная')=%s"
     if person_id:
-        cur.execute("""SELECT materials_used FROM work_journal
+        cur.execute("""SELECT materials_used,material_accounting_version,status FROM work_journal
                        WHERE project=%s
                          """ + company_filter + """
-                         AND COALESCE(status,'') NOT IN ('Отклонено','Аннулировано')
                          AND (COALESCE(master_id,0)=%s OR (COALESCE(master_id,0)=0 AND master_name=%s))""" + package_journal_filter,
                     tuple([project] + ([normalized_company_id] if normalized_company_id else []) + [person_id, person_name or "", package_name]))
     else:
-        cur.execute("""SELECT materials_used FROM work_journal
+        cur.execute("""SELECT materials_used,material_accounting_version,status FROM work_journal
                        WHERE project=%s
                          """ + company_filter + """
-                         AND COALESCE(status,'') NOT IN ('Отклонено','Аннулировано')
                          AND master_name=%s""" + package_journal_filter,
                     tuple([project] + ([normalized_company_id] if normalized_company_id else []) + [person_name or "", package_name]))
     used = 0
     for row in cur.fetchall() or []:
+        version = _row_value(row, 1, "material_accounting_version", 1)
+        if version != 2 and _row_value(row, 2, "status", "") in ("Отклонено", "Аннулировано"):
+            continue
         raw = row.get("materials_used") if isinstance(row, dict) else row[0]
         for m in _parse_materials_used(raw):
             material_unit = _norm_base_unit(m.get("unit") or "").strip().lower()
-            material_name_key = _material_control_key_resolved(cur, project, m.get("name") or "", material_unit or unit)
+            if version == 2:
+                identity = m.get("identitySnapshot")
+                if not isinstance(identity, dict) or not identity.get("key") or not identity.get("sources"):
+                    raise HTTPException(409, "Не определён источник фактического расхода. Требуется сверка")
+                material_name_key = tuple(identity["key"])
+                for source in identity["sources"]:
+                    current_key = _material_control_key_resolved(cur, project, source["name"], source["unit"], company_id=company_id)
+                    if current_key != material_name_key:
+                        raise HTTPException(409, "Соответствия материалов изменились после расхода. Требуется сверка личного остатка")
+            else:
+                material_name_key = _material_control_key_resolved(cur, project, m.get("name") or "", material_unit or unit, company_id=company_id)
             if material_name_key == target_key and (not unit_key or material_unit == unit_key):
-                try:
-                    used += float(m.get("quantity") or 0)
-                except Exception:
-                    pass
-    cur.execute("""SELECT material, quantity, unit
+                used += _personal_material_quantity(m.get("personalQuantity") if version == 2 else m.get("quantity"))
+    cur.execute("""SELECT material, quantity, unit, source_type, source_id, issued_by
                    FROM warehouse_history
                    WHERE project=%s
                      """ + company_filter + """
-                     AND issued_by=%s
+                     AND ((source_type='material_return_user' AND source_id=%s)
+                          OR (COALESCE(source_type,'')<>'material_return_user' AND issued_by=ANY(%s)))
                      AND type=%s
                      """ + package_filter + unit_filter,
-                tuple([project] + ([normalized_company_id] if normalized_company_id else []) + [person_name or "", "возврат от мастера", package_name] + ([unit_key] if unit_key else [])))
+                tuple([project] + ([normalized_company_id] if normalized_company_id else []) + [person_id, sorted(legacy_names), "возврат от мастера", package_name] + ([unit_key] if unit_key else [])))
     returned = 0
     for row in cur.fetchall() or []:
         row_name = _row_value(row, 0, "material", "")
         row_unit = _row_value(row, 2, "unit", unit)
-        if _material_control_key_resolved(cur, project, row_name, row_unit) == target_key:
-            returned += float(_row_value(row, 1, "quantity", 0) or 0)
-    return {"issued": issued, "used": used, "returned": returned, "available": issued - used - returned}
+        if _material_control_key_resolved(cur, project, row_name, row_unit, company_id=company_id) == target_key:
+            if _row_value(row, 3, "source_type") != "material_return_user":
+                _require_unambiguous_legacy_material_person(
+                    cur, normalized_company_id, person_id, _row_value(row, 5, "issued_by", person_name))
+            returned += _personal_material_quantity(_row_value(row, 1, "quantity", 0))
+    for total in (issued, used, returned):
+        _personal_material_quantity(total)
+    result = {"issued": issued, "used": used, "returned": returned, "available": issued - used - returned}
+    if include_identity:
+        result["identitySources"] = identity_sources
+    return result
 
 def _apply_material_work_writeoff(cur, project: str, material: dict, actor: dict, date_value: str, fallback_master_name: str = ""):
     name = material.get("name") or ""
@@ -12569,6 +12861,21 @@ def _apply_material_work_writeoff(cur, project: str, material: dict, actor: dict
         (company_id, name, "расход (работа мастера)", qty, unit, date_value or None, project,
          actor_name, actor_name, work_package, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
 
+def _validate_requested_work_material_quantities(raw):
+    for material in _parse_materials_used(raw):
+        if not isinstance(material, dict):
+            continue
+        if material.get("name") is not None and not isinstance(material["name"], str):
+            raise HTTPException(400, detail="Укажите корректное название материала")
+        value = material.get("quantity")
+        try:
+            quantity = float(value or 0)
+        except (TypeError, ValueError, OverflowError):
+            quantity = float("nan")
+        if isinstance(value, bool) or not math.isfinite(quantity):
+            raise HTTPException(status_code=400, detail="Укажите корректное конечное количество списываемого материала")
+
+
 def _work_material_items(raw, fallback_package: str = ""):
     items = []
     for material in _parse_materials_used(raw):
@@ -12588,7 +12895,7 @@ def _work_material_items(raw, fallback_package: str = ""):
         })
     return items
 
-def _server_work_material_norm(cur, material: dict, *, project: str = "", estimate_id=None,
+def _server_work_material_norm(cur, material: dict, *, company_id=None, project: str = "", estimate_id=None,
                                work_name: str = "", section_name: str = "",
                                work_qty=0, work_unit: str = ""):
     name = (material.get("name") or "").strip()
@@ -12606,9 +12913,15 @@ def _server_work_material_norm(cur, material: dict, *, project: str = "", estima
         return None
     resolved_name = ""
     try:
-        resolved_key = _material_control_key_resolved(cur, project, name, material_unit)
+        resolved_key = _material_control_key_resolved(cur, project, name, material_unit, company_id=company_id)
         resolved_name = resolved_key[0] if isinstance(resolved_key, tuple) else ""
     except Exception:
+        try:
+            from backend.features.material_aliases.runtime import owned_aliases_enabled
+        except ModuleNotFoundError:
+            from features.material_aliases.runtime import owned_aliases_enabled
+        if owned_aliases_enabled():
+            raise
         resolved_name = ""
     material_name_variants = [name]
     if resolved_name and _norm_key_text(resolved_name) != _norm_key_text(name):
@@ -12656,7 +12969,7 @@ def _server_work_material_norm(cur, material: dict, *, project: str = "", estima
         "autoNorm": True,
     }
 
-def _validate_work_material_norm_reasons(items, cur=None, *, project: str = "", estimate_id=None,
+def _validate_work_material_norm_reasons(items, cur=None, *, company_id=None, project: str = "", estimate_id=None,
                                          work_name: str = "", section_name: str = "",
                                          work_qty=0, work_unit: str = "", actor_role: str = ""):
     for material in items or []:
@@ -12667,6 +12980,7 @@ def _validate_work_material_norm_reasons(items, cur=None, *, project: str = "", 
             server_norm = _server_work_material_norm(
                 cur,
                 material,
+                company_id=company_id,
                 project=project,
                 estimate_id=estimate_id,
                 work_name=work_name,
@@ -12868,7 +13182,7 @@ def _recalculate_contract_item_done_from_work_journal(cur, contract_item_id):
                    SET done_quantity = GREATEST(0, LEAST(COALESCE(quantity,0), %s))
                    WHERE id=%s""", (confirmed_qty, contract_item_id))
 
-def _recalculate_estimate_item_done_from_work_journal(cur, work_row: dict):
+def _recalculate_estimate_item_done_from_work_journal(cur, work_row: dict, *, strict_key=False):
     if not work_row:
         return False
     estimate_id = work_row.get("estimate_id") or work_row.get("estimateId")
@@ -12903,7 +13217,7 @@ def _recalculate_estimate_item_done_from_work_journal(cur, work_row: dict):
             if target_key and target_key in keys:
                 target = (section, item, section_name, item_name, target_key)
                 break
-            if name_key and item_name.lower() == name_key:
+            if not (strict_key and target_key) and name_key and item_name.lower() == name_key:
                 if not section_key or section_name.lower() == section_key:
                     target = (section, item, section_name, item_name, keys[0] if keys else "")
                     break
@@ -12943,13 +13257,13 @@ def _recalculate_estimate_item_done_from_work_journal(cur, work_row: dict):
                 (json.dumps(sections, ensure_ascii=False), estimate_id))
     return True
 
-def _work_material_key(material: dict, cur=None, project: str = ""):
+def _work_material_key(material: dict, cur=None, project: str = "", *, company_id=None):
     name = (material.get("name") or "").strip()
     unit = (material.get("unit") or "").strip()
     package = (material.get("workPackage") or material.get("work_package") or "").strip().lower()
     if cur is not None and project:
         return (
-            _material_control_key_resolved(cur, project, name, unit),
+            _material_control_key_resolved(cur, project, name, unit, company_id=company_id),
             package,
         )
     return (
@@ -12958,10 +13272,10 @@ def _work_material_key(material: dict, cur=None, project: str = ""):
         package,
     )
 
-def _work_material_map(items, cur=None, project: str = ""):
+def _work_material_map(items, cur=None, project: str = "", *, company_id=None):
     mapped = {}
     for material in items or []:
-        key = _work_material_key(material, cur, project)
+        key = _work_material_key(material, cur, project, company_id=company_id)
         if not key[0]:
             continue
         current = mapped.get(key)
@@ -13020,8 +13334,8 @@ def _apply_work_material_delta(cur, work_row: dict, old_items, new_items, curren
     project = work_row.get("project") or ""
     if not project:
         return
-    old_map = _work_material_map(old_items, cur, project)
-    new_map = _work_material_map(new_items, cur, project)
+    old_map = _work_material_map(old_items, cur, project, company_id=work_row.get("company_id"))
+    new_map = _work_material_map(new_items, cur, project, company_id=work_row.get("company_id"))
     changes = []
     for key in set(old_map.keys()) | set(new_map.keys()):
         old_material = old_map.get(key) or {}
@@ -13126,7 +13440,7 @@ def _raise_work_journal_duplicate(duplicate):
         detail="Эта работа уже заведена" + room_part + ". Запись ЖПР №" + str(row_id) + " (" + str(master_name or "исполнитель") + ")"
     )
 
-def _room_work_duplicate(cur, project, room_id=None, room_name="", estimate_item_key="", description="", work_package="", exclude_work_journal_id=None):
+def _room_work_duplicate(cur, project, room_id=None, room_name="", estimate_item_key="", description="", work_package="", exclude_work_journal_id=None, family_journal_ids=None):
     project = (project or "").strip()
     room_name = (room_name or "").strip()
     estimate_item_key = (estimate_item_key or "").strip()
@@ -13141,6 +13455,10 @@ def _room_work_duplicate(cur, project, room_id=None, room_name="", estimate_item
     package_params = [work_package] if work_package else []
     exclude_sql = " AND COALESCE(work_journal_id,0)<>%s" if exclude_work_journal_id else ""
     exclude_params = [exclude_work_journal_id] if exclude_work_journal_id else []
+
+    if family_journal_ids:
+        exclude_sql += " AND COALESCE(work_journal_id,0)<>ALL(%s)"
+        exclude_params.append(family_journal_ids)
 
     if room_id:
         cur.execute(f"""SELECT id, master_name, status, room_name, work_package FROM room_works
@@ -13161,7 +13479,7 @@ def _room_work_duplicate(cur, project, room_id=None, room_name="", estimate_item
             return duplicate
     return None
 
-def _sync_room_work_from_journal(cur, work_row: dict):
+def _sync_room_work_from_journal(cur, work_row: dict, *, family_journal_ids=None):
     if not work_row:
         return
     work_journal_id = work_row.get("id")
@@ -13186,6 +13504,7 @@ def _sync_room_work_from_journal(cur, work_row: dict):
         description=description,
         work_package=work_package,
         exclude_work_journal_id=work_journal_id,
+        family_journal_ids=family_journal_ids,
     )
     if duplicate:
         _raise_work_journal_duplicate(duplicate)
@@ -13241,7 +13560,7 @@ def _work_journal_sync_row(cur, work_journal_id: int):
     cols = [d[0] for d in cur.description]
     return dict(zip(cols, row))
 
-def _sync_hidden_work_act_from_journal(cur, work_row: dict):
+def _sync_hidden_work_act_from_journal(cur, work_row: dict, *, exact_journal_only=False):
     if not work_row or not work_row.get("hidden_work"):
         return 0
     work_journal_id = work_row.get("id")
@@ -13256,12 +13575,12 @@ def _sync_hidden_work_act_from_journal(cur, work_row: dict):
         cur.execute("""SELECT id, COALESCE(status,'Черновик') FROM hidden_works_acts
                         WHERE company_id=%s AND work_journal_id=%s LIMIT 1""", (company_id, work_journal_id))
         existing = cur.fetchone()
-    if not existing and work_row.get("estimate_id"):
+    if not existing and not exact_journal_only and work_row.get("estimate_id"):
         cur.execute("""SELECT id, COALESCE(status,'Черновик') FROM hidden_works_acts
                        WHERE company_id=%s AND estimate_id=%s AND work_name=%s LIMIT 1""",
                     (company_id, work_row.get("estimate_id"), work_name))
         existing = cur.fetchone()
-    if not existing:
+    if not existing and not exact_journal_only:
         cur.execute("""SELECT id, COALESCE(status,'Черновик') FROM hidden_works_acts
                        WHERE company_id=%s AND project_name=%s AND work_name=%s AND COALESCE(brigade,'')=%s
                          AND work_date IS NOT DISTINCT FROM %s LIMIT 1""",
@@ -13312,6 +13631,57 @@ def _mark_room_work_rejected(cur, work_journal_id: int, confirmed_by: str = ""):
         return
     cur.execute("UPDATE room_works SET status='Отклонено', confirmed_by=%s WHERE work_journal_id=%s", (confirmed_by or "", work_journal_id))
 
+try:
+    from backend.features.work_material_accounting import runtime as work_material_runtime, service as work_material_service, access as work_material_access, settlement as work_settlement, settlement_guards as work_settlement_guards
+except ModuleNotFoundError:
+    from features.work_material_accounting import runtime as work_material_runtime, service as work_material_service, access as work_material_access, settlement as work_settlement, settlement_guards as work_settlement_guards
+
+
+def _lock_legacy_work_settlement(cur):
+    try:
+        from backend.features.material_traceability.guards import lock_distribution_compatible_stock
+    except ModuleNotFoundError:
+        from features.material_traceability.guards import lock_distribution_compatible_stock
+    lock_distribution_compatible_stock(cur)
+
+
+def _lock_brigade_settlement_actor(cur, user, contract_id, roles, company, mode):
+    cur.execute('SELECT company_id FROM brigade_contracts WHERE id=%s', (_positive_int_or_none(contract_id),))
+    owner = cur.fetchone()
+    if owner and company and _positive_int_or_none(company) != _row_get(owner, 'company_id', 0):
+        raise HTTPException(404, 'Договор не найден')
+    if owner:
+        cur.execute('SELECT 1 FROM user_company_roles WHERE user_id=%s AND company_id=%s AND COALESCE(active,TRUE)',
+                    (user.get('id'), _row_get(owner, 'company_id', 0)))
+        if not cur.fetchone():
+            raise HTTPException(404, 'Договор не найден')
+    contract, actor, _ = _resolve_brigade_contract_actor(cur, user, contract_id, roles,
+        x_company_id=company, x_company_mode=mode, for_update=False)
+    if not has_package_access(actor, contract['workPackage']):
+        raise HTTPException(403, 'Нет доступа к пакету договора')
+    work_material_access.lock_actor(cur, actor)
+    try:
+        from backend.features.material_traceability.guards import lock_distribution_compatible_stock
+    except ModuleNotFoundError:
+        from features.material_traceability.guards import lock_distribution_compatible_stock
+    lock_distribution_compatible_stock(cur)
+
+
+def _require_work_journal_stock_actor(cur, actors, allowed_roles, require_membership=False):
+    # Authorize first, then use the same lock order as returns/distributions,
+    # before mutation scope takes any project or work-journal row locks.
+    _, _, require_project_write_actor = _project_access_helpers()
+    actor = require_project_write_actor(actors, allowed_roles)
+    if work_material_runtime.enabled() or require_membership:
+        work_material_access.lock_actor(cur, actor)
+    try:
+        from backend.features.material_traceability.guards import lock_distribution_compatible_stock
+    except ModuleNotFoundError:
+        from features.material_traceability.guards import lock_distribution_compatible_stock
+    lock_distribution_compatible_stock(cur)
+    return actor
+
+
 @app.post("/work-journal")
 def create_work_journal(
     w: WorkJournalModel,
@@ -13319,6 +13689,7 @@ def create_work_journal(
     x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
     _current_user: dict = Depends(get_current_user),
 ):
+    _validate_requested_work_material_quantities(w.materialsUsed)
     conn = get_db()
     conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -13355,7 +13726,7 @@ def create_work_journal(
             deps={
                 "resolve_work_company_context": _resolve_work_company_context,
                 "effective_company_actors": effective_company_actors,
-                "require_project_write_actor": require_project_write_actor,
+                "require_project_write_actor": lambda actors, roles: _require_work_journal_stock_actor(cur, actors, roles),
                 "resolve_project_parent": resolve_project_parent,
                 "require_project_parent_access": require_project_parent_access,
                 "journal_write_roles": JOURNAL_WRITE_ROLES,
@@ -13365,13 +13736,33 @@ def create_work_journal(
         w.project = journal_project["name"]
         journal_company_id = journal_project["companyId"]
         user_role = _current_user.get("role")
+        use_material_v2 = w.materialAccountingVersion == 2
+        material_operation_id = None
+        if use_material_v2 and user_role not in WORKER_EXECUTION_ROLES:
+            raise HTTPException(403, detail="Расход по работе отправляет назначенный исполнитель")
+        if use_material_v2 and not work_material_runtime.enabled():
+            raise HTTPException(404, detail="Новый учёт расхода пока недоступен")
+        if work_material_runtime.enabled() and user_role in WORKER_EXECUTION_ROLES and not use_material_v2:
+            raise HTTPException(409, detail="Обновите страницу и проверьте источники расхода материалов")
+        if use_material_v2:
+            material_operation_id, replay = work_material_runtime.begin_operation(
+                cur, _current_user, w.requestId, "work", w.model_dump())
+            if replay is not None:
+                return replay
         work_package = (w.workPackage or "Основная").strip() or "Основная"
         if user_role in PACKAGE_LIMIT_ROLES and not has_work_execution_package_access(_current_user, w.project, work_package):
             raise HTTPException(status_code=403, detail="Нет доступа к пакету работ")
         if user_role in WORKER_EXECUTION_ROLES:
-            if str(w.masterId or "") != str(_current_user.get("id") or "") and (w.masterName or "").strip().lower() != (_current_user.get("name") or "").strip().lower():
+            if (
+                (w.masterId and str(w.masterId) != str(_current_user.get("id") or ""))
+                or (not w.masterId and (w.masterName or "").strip().lower() != (_current_user.get("name") or "").strip().lower())
+            ):
                 raise HTTPException(status_code=403, detail="Мастер может создавать ЖПР только от своего имени")
-        used = [m for m in (w.materialsUsed or []) if m.get("name") and float(m.get("quantity") or 0) > 0]
+            w.masterId = _current_user["id"]
+            w.masterName = _current_user.get("name") or ""
+        if use_material_v2:
+            work_material_service.validate_items(w.materialsUsed or [])
+        used = list(w.materialsUsed or []) if use_material_v2 else [m for m in (w.materialsUsed or []) if m.get("name") and float(m.get("quantity") or 0) > 0]
         journal_room_id = w.roomId
         journal_room_name = (w.roomName or "").strip()
         if user_role in WORKER_EXECUTION_ROLES and not journal_room_id and not journal_room_name:
@@ -13424,9 +13815,14 @@ def create_work_journal(
             company_id=journal_company_id,
         ))
         used = _force_work_material_package(used, journal_work_package)
+        if use_material_v2:
+            used = work_material_service.prepare(cur, journal_project, _current_user, used,
+                material_key=_material_control_key_resolved, personal_balance=_personal_material_balance,
+                norm_unit=_norm_base_unit)
         _validate_work_material_norm_reasons(
             used,
             cur,
+            company_id=journal_company_id,
             project=w.project,
             estimate_id=journal_estimate_id,
             work_name=journal_description,
@@ -13435,11 +13831,12 @@ def create_work_journal(
             work_unit=journal_unit,
             actor_role=user_role,
         )
-        for m in used:
-            _apply_material_work_writeoff(cur, w.project, m, _current_user, w.date, w.masterName)
+        if not use_material_v2:
+            for m in _work_material_map(used, cur, w.project, company_id=journal_company_id).values():
+                _apply_material_work_writeoff(cur, w.project, m, _current_user, w.date, w.masterName)
 
         import json as _json
-        materials_json = _json.dumps(used, ensure_ascii=False) if used else None
+        materials_json = _json.dumps(work_material_service.public_items(used) if use_material_v2 else used, ensure_ascii=False) if used else None
         contract_item_id = w.contractItemId
         if user_role in WORKER_EXECUTION_ROLES:
             assigned_item = _worker_contract_item_for_work(
@@ -13501,6 +13898,10 @@ def create_work_journal(
                      journal_work_package,journal_room_id,journal_room_name,w.surface,w.estimateItemName or journal_description,journal_estimate_item_key,
                      contract_item_id,customer_price,customer_total,execution_price,execution_total,execution_mode))
         row = cur.fetchone()
+        if use_material_v2:
+            work_material_service.post(cur, journal_project, _current_user, row['id'], material_operation_id, used, w.date)
+            row['material_accounting_version'] = 2
+            work_material_runtime.finish_operation(cur, material_operation_id, dict(row))
         _recalculate_contract_item_done_from_work_journal(cur, contract_item_id)
         _sync_room_work_from_journal(cur, row)
         _sync_hidden_work_act_from_journal(cur, row)
@@ -13527,7 +13928,7 @@ def create_work_journal(
         conn.close()
 
 
-def _resolve_work_journal_mutation(cur, current_user, journal_id, action_mode, x_company_id, x_company_mode, allowed_roles):
+def _resolve_work_journal_mutation(cur, current_user, journal_id, action_mode, x_company_id, x_company_mode, allowed_roles, require_membership=False):
     try:
         from backend.features.work_journal.service import resolve_work_journal_mutation_scope
         from backend.features.project_access.service import (
@@ -13552,7 +13953,7 @@ def _resolve_work_journal_mutation(cur, current_user, journal_id, action_mode, x
         deps={
             "resolve_work_company_context": _resolve_work_company_context,
             "effective_company_actors": effective_company_actors,
-            "require_project_write_actor": require_project_write_actor,
+            "require_project_write_actor": lambda actors, roles: _require_work_journal_stock_actor(cur, actors, roles, require_membership),
             "resolve_project_parent": resolve_project_parent,
             "require_project_parent_access": require_project_parent_access,
             "full_view_roles": BRIGADE_FULL_VIEW_ROLES,
@@ -13569,7 +13970,22 @@ def update_work_journal(
     _current_user: dict = Depends(get_current_user),
 ):
     import json as _json
+    if "materialsUsed" in data:
+        _validate_requested_work_material_quantities(data.get("materialsUsed"))
     conn = get_db()
+    try:
+        return _update_work_journal_with_connection(conn, id, data, x_company_id, x_company_mode, _current_user)
+    except BaseException:
+        if not conn.closed:
+            conn.rollback()
+        raise
+    finally:
+        if not conn.closed:
+            conn.close()
+
+
+def _update_work_journal_with_connection(conn, id, data, x_company_id, x_company_mode, _current_user):
+    import json as _json
     conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     request_user = _current_user
@@ -13583,13 +13999,20 @@ def update_work_journal(
         conn.close()
         raise
     cur.execute("""SELECT company_id,project, master_id, master_name, room_id, room_name, description,
-                          estimate_item_key, work_package, status, quantity, unit, date, materials_used,
+                          estimate_item_key, work_package, status, quantity, unit, date, materials_used, material_accounting_version,
                           contract_item_id, estimate_id, section_name, estimate_item_name,
                           hidden_work, photo_url
 				                   FROM work_journal WHERE id=%s AND company_id=%s FOR UPDATE""",
                 (id, owner_row.get("company_id")))
     project_row = cur.fetchone()
+    try:
+        from backend.features.work_acceptance.policy import guard_legacy_update
+    except ModuleNotFoundError:
+        from features.work_acceptance.policy import guard_legacy_update
+    work_acceptance_records.guard_direct_mutation(cur, id, project_row, data)
+    guard_legacy_update(project_row, _current_user, data)
     project_name = project_row.get("project") if project_row else ""
+    work_settlement_guards.require_unacted_work(cur, id)
     role = _current_user.get("role")
     current_work_package = project_row.get("work_package") or "Основная" if project_row else "Основная"
     requested_work_package = (data.get("workPackage", current_work_package) or "Основная").strip() or "Основная"
@@ -13602,7 +14025,10 @@ def update_work_journal(
     if role in WORKER_EXECUTION_ROLES:
         master_id = project_row.get("master_id") if project_row else None
         master_name = project_row.get("master_name") if project_row else ""
-        if str(master_id or "") != str(_current_user.get("id") or "") and (master_name or "").strip().lower() != (_current_user.get("name") or "").strip().lower():
+        if (
+            (master_id and str(master_id) != str(_current_user.get("id") or ""))
+            or (not master_id and (master_name or "").strip().lower() != (_current_user.get("name") or "").strip().lower())
+        ):
             cur.close(); conn.close()
             raise HTTPException(status_code=403, detail="Мастер может менять только свои записи ЖПР")
         allowed_worker_keys = {"quantity", "comment", "photoUrl", "materialsUsed", "timeStart", "timeEnd"}
@@ -13645,7 +14071,7 @@ def update_work_journal(
     if target_status != "Отклонено" and (target_status == "Подтверждено" or (project_row and project_row.get("estimate_item_key"))) and not target_room_id and not str(target_room_name or "").strip():
         cur.close(); conn.close()
         raise HTTPException(status_code=400, detail="Нельзя подтвердить или сохранить сметную работу без помещения")
-    if str(data.get("status") or "").strip() == "Отклонено":
+    if str(data.get("status") or "").strip() == "Отклонено" and project_row.get("material_accounting_version") != 2:
         current_status = str(project_row.get("status") or "").strip() if project_row else ""
         if current_status == "Отклонено":
             conn.rollback()
@@ -13708,6 +14134,20 @@ def update_work_journal(
     if reset_ai:
         sets.append("ai_filled=FALSE")
     old_materials = _work_material_items(project_row.get("materials_used"), project_row.get("work_package") or "") if project_row else []
+    excluded_material_statuses = {"Отклонено", "Аннулировано"}
+    reactivating_materials = (
+        str(project_row.get("status") or "").strip() in excluded_material_statuses
+        and target_status not in excluded_material_statuses
+    )
+    factual_materials = project_row.get("material_accounting_version") == 2
+    if factual_materials:
+        reactivating_materials = False
+        if "materialsUsed" in data and _work_material_items(data['materialsUsed'], project_row.get('work_package')) != old_materials:
+            conn.rollback(); cur.close(); conn.close()
+            raise HTTPException(409, detail="Фактический расход исправляется отдельной корректировкой с причиной")
+        if "workPackage" in data and data['workPackage'] != project_row.get('work_package'):
+            conn.rollback(); cur.close(); conn.close()
+            raise HTTPException(409, detail="Пакет работы с фактическим расходом нельзя менять")
     new_materials = None
     old_qty = _float_or_zero(project_row.get("quantity") if project_row else 0)
     new_qty = _float_or_zero(data.get("quantity")) if "quantity" in data else old_qty
@@ -13721,27 +14161,18 @@ def update_work_journal(
         if contract_item:
             _validate_contract_item_capacity(contract_item, new_qty, old_qty)
     package_changed = "workPackage" in data and (data.get("workPackage") or "") != (project_row.get("work_package") or "")
-    if "materialsUsed" in data:
+    if "materialsUsed" in data and not factual_materials:
         new_materials = _work_material_items(data.get("materialsUsed"), data.get("workPackage", project_row.get("work_package") if project_row else ""))
-    elif old_materials and ("quantity" in data or package_changed):
+    elif old_materials and not factual_materials and ("quantity" in data or package_changed):
         new_materials = _scale_work_materials(old_materials, max(0, new_qty) / old_qty) if "quantity" in data and old_qty > 0 else list(old_materials)
         if package_changed:
             target_package = data.get("workPackage") or ""
             new_materials = [{**m, "workPackage": target_package} for m in new_materials]
+    if reactivating_materials and new_materials is None:
+        new_materials = list(old_materials)
     if new_materials is not None:
         target_material_package = data.get("workPackage", project_row.get("work_package") if project_row else "")
         new_materials = _force_work_material_package(new_materials, target_material_package or "")
-        _validate_work_material_norm_reasons(
-            new_materials,
-            cur,
-            project=project_name,
-            estimate_id=data.get("estimateId") or (project_row.get("estimate_id") if project_row else None),
-            work_name=data.get("description") or (project_row.get("description") if project_row else ""),
-            section_name=data.get("sectionName") or (project_row.get("section_name") if project_row else ""),
-            work_qty=new_qty,
-            work_unit=data.get("unit") or (project_row.get("unit") if project_row else ""),
-            actor_role=_current_user.get("role") or "",
-        )
     if contract_item_id and contract_item and "quantity" in data:
         contract_price = _float_or_zero(contract_item.get("price_brigade") if isinstance(contract_item, dict) else contract_item[3])
         contract_total = round(new_qty * contract_price, 2)
@@ -13774,7 +14205,40 @@ def update_work_journal(
         ))
     try:
         if new_materials is not None:
-            _apply_work_material_delta(cur, project_row, old_materials, new_materials, _current_user, project_row.get("date") or "")
+            _validate_work_material_norm_reasons(
+                new_materials,
+                cur,
+                company_id=project_row.get("company_id"),
+                project=project_name,
+                estimate_id=data.get("estimateId") or project_row.get("estimate_id"),
+                work_name=data.get("description") or project_row.get("description") or "",
+                section_name=data.get("sectionName") or project_row.get("section_name") or "",
+                work_qty=new_qty,
+                work_unit=data.get("unit") or project_row.get("unit") or "",
+                actor_role=_current_user.get("role") or "",
+            )
+            if reactivating_materials:
+                # Excluded work contributes no consumption to the balance. On
+                # restoration validate the full target amount, not its delta.
+                old_map = _work_material_map(old_materials, cur, project_name, company_id=project_row.get("company_id"))
+                new_map = _work_material_map(new_materials, cur, project_name, company_id=project_row.get("company_id"))
+                if role not in WORKER_EXECUTION_ROLES and any(
+                    item["quantity"] > (old_map.get(key) or {}).get("quantity", 0)
+                    for key, item in new_map.items()
+                ):
+                    raise HTTPException(status_code=403, detail="Увеличивать списание материалов в ЖПР может только исполнитель: мастер, субподрядчик или бригадир.")
+                if new_map and not _positive_int_or_none(project_row.get("master_id")):
+                    raise HTTPException(status_code=409, detail="Для восстановления списания нужно уточнить исполнителя старой записи ЖПР")
+                # Leadership authorizes the status change; the material still
+                # belongs to the original journal's persisted recipient.
+                material_owner = {
+                    "id": project_row.get("master_id"), "name": project_row.get("master_name"),
+                    "companyId": project_row.get("company_id"), "role": "мастер",
+                }
+                for material in new_map.values():
+                    _apply_material_work_writeoff(cur, project_name, material, material_owner, project_row.get("date") or "")
+            elif target_status not in excluded_material_statuses:
+                _apply_work_material_delta(cur, project_row, old_materials, new_materials, _current_user, project_row.get("date") or "")
             sets.append("materials_used=%s")
             vals.append(_json.dumps(new_materials, ensure_ascii=False) if new_materials else None)
         if not sets:
@@ -13835,7 +14299,7 @@ def delete_work_journal(
             cur, _current_user, id, "delete", x_company_id, x_company_mode, ("директор",),
         )
         cur.execute("""SELECT company_id,project, master_id, master_name, date, status, comment, materials_used,
-                              work_package, quantity, contract_item_id, description, estimate_id,
+                              work_package, quantity, contract_item_id, description, estimate_id, material_accounting_version,
                               section_name, estimate_item_key, estimate_item_name
                        FROM work_journal WHERE id=%s AND company_id=%s FOR UPDATE""",
                     (id, owner_row.get("company_id")))
@@ -13843,11 +14307,13 @@ def delete_work_journal(
         if not work:
             conn.rollback()
             raise HTTPException(status_code=404, detail="Запись журнала не найдена")
+        work_acceptance_records.guard_direct_mutation(cur, id, work)
+        work_settlement_guards.require_unacted_work(cur, id)
         if _current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(_current_user, work.get("work_package") or "Основная"):
             conn.rollback()
             raise HTTPException(status_code=403, detail="Нет доступа к пакету работ")
         cancellation_marker = "Аннулировано без физического удаления"
-        if cancellation_marker in (work.get("comment") or ""):
+        if cancellation_marker in (work.get("comment") or "") and work.get("status") in ("Отклонено", "Аннулировано"):
             conn.rollback()
             return {"ok": True, "cancelled": True, "alreadyCancelled": True, "materialsRestored": 0}
         used = []
@@ -13859,6 +14325,8 @@ def delete_work_journal(
                     used = [m for m in parsed if isinstance(m, dict) and m.get("name") and float(m.get("quantity") or 0) > 0]
             except Exception:
                 used = []
+        if work.get("material_accounting_version") == 2:
+            used = []  # Rejection is not a physical return or consumption correction.
         for m in used:
             name = m.get("name") or ""
             qty = float(m.get("quantity") or 0)
@@ -15825,11 +16293,13 @@ register_pd_consents_module(app, {
 
 @app.post("/upload-photo")
 async def upload_photo(
+    request: Request,
     file: UploadFile = File(...),
     projectName: str = Form(default=""),
     project_name: str = Form(default=""),
     projectId: Optional[int] = Form(default=None),
     context: str = Form(default="general"),
+    supplierOfferId: Optional[int] = Form(default=None),
     x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
     x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
     _current_user: dict = Depends(get_current_user),
@@ -15856,27 +16326,41 @@ async def upload_photo(
     conn.autocommit = False
     access_cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        company_context = _resolve_work_company_context(
-            access_cur,
-            _current_user,
-            None,
-            "write",
-            x_company_id=x_company_id,
-            x_company_mode=x_company_mode,
-        )
-        actor = require_document_upload_actor(effective_company_actors(_current_user, company_context))
-        company_id = int(actor["companyId"])
-        requested_project_name = (projectName or project_name or "").strip()
-        bound_project_id, bound_project_name = document_project_reference(projectId, requested_project_name)
-        project = None
-        if bound_project_id:
-            project = resolve_project_parent(
+        if _current_user.get("role") == "поставщик":
+            try:
+                from backend.features.document_access.supplier_files import upload_scope
+            except ModuleNotFoundError:
+                from features.document_access.supplier_files import upload_scope
+            if request.url.path.rstrip("/") == "/upload-photo":
+                raise HTTPException(403, "Загрузите файл через карточку КП")
+            company_id, context, project = upload_scope(access_cur, _current_user, supplierOfferId)
+            requested_project_name = ""
+        else:
+            company_context = _resolve_work_company_context(
                 access_cur,
-                actor,
-                project_id=bound_project_id,
-                project_name=bound_project_name,
+                _current_user,
+                None,
+                "write",
+                x_company_id=x_company_id,
+                x_company_mode=x_company_mode,
             )
-            require_project_parent_access(access_cur, actor, project, BRIGADE_FULL_VIEW_ROLES)
+            actor = require_document_upload_actor(effective_company_actors(_current_user, company_context))
+            company_id = int(actor["companyId"])
+            requested_project_name = (projectName or project_name or "").strip()
+            bound_project_id, bound_project_name = document_project_reference(projectId, requested_project_name)
+            project = None
+            if bound_project_id:
+                project = resolve_project_parent(
+                    access_cur,
+                    actor,
+                    project_id=bound_project_id,
+                    project_name=bound_project_name,
+                )
+                require_project_parent_access(access_cur, actor, project, BRIGADE_FULL_VIEW_ROLES)
+            if actor.get("role") == "заказчик":
+                if not project:
+                    raise HTTPException(400, "Для вложения заказчика выберите объект")
+                context = "customer-request"
         namespace = document_storage_namespace(
             company_id,
             (project or {}).get("id"),
@@ -15927,6 +16411,16 @@ async def upload_photo(
     finally:
         access_cur.close()
         conn.close()
+
+
+@app.post("/supplier-offers/{offer_id}/files")
+async def upload_supplier_offer_file(
+    offer_id: int, request: Request, file: UploadFile = File(...),
+    user: dict = Depends(require_roles("поставщик")),
+):
+    return await upload_photo(request=request, file=file, projectName="", project_name="",
+                              projectId=None, context="supplier-offers", supplierOfferId=offer_id,
+                              x_company_id=None, x_company_mode=None, _current_user=user)
 
 
 import urllib.request
@@ -16011,10 +16505,15 @@ def ai_chat(
             cur2.execute("SELECT project_name, brigade_name, status FROM brigade_contracts WHERE FALSE")
         brigades = cur2.fetchall()
         if payment_visibility_sql != "FALSE":
+            cur2.execute("SELECT to_regclass('public.supplier_payment_operations') IS NOT NULL")
+            payment_ledger_exclusion = (
+                "AND NOT EXISTS (SELECT 1 FROM public.supplier_payment_operations ledger "
+                "WHERE ledger.project_payment_id=pp.id)"
+            ) if cur2.fetchone()[0] else ""
             cur2.execute(
                 f"""SELECT pp.project_name, pp.amount, pp.note
                     FROM project_payments pp
-                    WHERE {payment_visibility_sql}
+                    WHERE ({payment_visibility_sql}) {payment_ledger_exclusion}
                     ORDER BY pp.id DESC LIMIT 10""",
                 tuple(payment_visibility_params),
             )
@@ -16030,6 +16529,7 @@ def ai_chat(
         context += "МАТЕРИАЛЫ НА ОБЪЕКТАХ: "+", ".join([m[0]+": "+str(m[1])+" "+m[2]+" ("+str(m[3])+")" for m in obj_materials[:20]])+"\n"
         context += "НАРЯДЫ: "+", ".join([b[0]+": "+b[1]+" - "+b[2] for b in brigades[:10]])+"\n"
         context += "ОПЛАТЫ: "+", ".join([pay[0]+": "+str(int(pay[1]))+" руб - "+str(pay[2]) for pay in payments[:10]])+"\n"
+        context += "Платежи поставщикам и их сторно не включены; это не полная финансовая сводка.\n"
     import openai as oa
     client = oa.OpenAI(api_key=API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=FOLDER_ID)
     user_text = messages[-1].get("content","") if messages else ""
@@ -16063,45 +16563,17 @@ def ai_chat(
     return {"response": answer}
 
 
-@app.get("/warehouses")
-def get_warehouses(_current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES, "главный_инженер", "бухгалтер"))):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT id,name,city,address,notes FROM warehouses ORDER BY id")
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return [{"id":r[0],"name":r[1],"city":r[2],"address":r[3],"notes":r[4]} for r in rows]
+try:
+    from backend.features.company_warehouses.routes import register_company_warehouses
+except ModuleNotFoundError:
+    from features.company_warehouses.routes import register_company_warehouses
 
-@app.post("/warehouses")
-def create_warehouse(data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES, "главный_инженер"))):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("INSERT INTO warehouses (name,city,address,notes) VALUES (%s,%s,%s,%s) RETURNING id,name,city,address,notes",
-        (data.get("name",""),data.get("city",""),data.get("address",""),data.get("notes","")))
-    conn.commit()
-    row = cur.fetchone()
-    cur.close(); conn.close()
-    return {"id":row[0],"name":row[1],"city":row[2],"address":row[3],"notes":row[4]}
-
-@app.put("/warehouses/{id}")
-def update_warehouse(id: int, data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES, "главный_инженер"))):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("UPDATE warehouses SET name=%s,city=%s,address=%s,notes=%s WHERE id=%s RETURNING id,name,city,address,notes",
-        (data.get("name",""),data.get("city",""),data.get("address",""),data.get("notes",""),id))
-    conn.commit()
-    row = cur.fetchone()
-    cur.close(); conn.close()
-    return {"id":row[0],"name":row[1],"city":row[2],"address":row[3],"notes":row[4]}
-
-@app.delete("/warehouses/{id}")
-def delete_warehouse(id: int, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES, "главный_инженер"))):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM warehouses WHERE id=%s",(id,))
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok":True}
+register_company_warehouses(app, {
+    "get_db": get_db,
+    "get_current_user": get_current_user,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
+})
 
 try:
     from backend.features.company_requisites.routes import register_company_requisites_module
@@ -16127,9 +16599,53 @@ except ModuleNotFoundError:
 register_company_documents_module(app, {
     "get_db": get_db,
     "get_current_user": get_current_user,
-    "require_roles": require_roles,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
     "finance_roles": FINANCE_ROLES,
 })
+
+try:
+    from backend.features.customer_cabinet.record_scope import RecordScope
+except ModuleNotFoundError:
+    from features.customer_cabinet.record_scope import RecordScope
+
+try:
+    from backend.features.counterparty_documents.routes import register_counterparty_document_archive
+except ModuleNotFoundError:
+    from features.counterparty_documents.routes import register_counterparty_document_archive
+
+register_counterparty_document_archive(app, {
+    "get_db": get_db,
+    "get_current_user": get_current_user,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
+    "project_full_view_roles": BRIGADE_FULL_VIEW_ROLES,
+})
+
+project_record_scope = RecordScope(
+    get_db, _resolve_work_company_context, effective_company_actors, visible_project_names,
+)
+
+try:
+    from backend.features.customer_cabinet.extra_works import register_customer_extra_works
+    from backend.features.customer_cabinet.payments import register_customer_payments
+    from backend.features.customer_cabinet.hidden_acts import register_customer_hidden_acts
+    from backend.features.customer_cabinet.hidden_act_access import internal_actor as hidden_act_internal_actor
+except ModuleNotFoundError:
+    from features.customer_cabinet.extra_works import register_customer_extra_works
+    from features.customer_cabinet.payments import register_customer_payments
+    from features.customer_cabinet.hidden_acts import register_customer_hidden_acts
+    from features.customer_cabinet.hidden_act_access import internal_actor as hidden_act_internal_actor
+
+register_customer_extra_works(app, project_record_scope, get_current_user)
+register_customer_payments(app, project_record_scope, get_current_user)
+try:
+    from backend.features.customer_cabinet.document_submission import register_customer_file_submission
+except ModuleNotFoundError:
+    from features.customer_cabinet.document_submission import register_customer_file_submission
+register_customer_file_submission(app, project_record_scope, get_current_user, PROJECT_WRITE_ROLES)
+
+register_customer_hidden_acts(app, project_record_scope, get_current_user, _lock_legacy_work_settlement, hidden_work_effective_status)
 
 try:
     from backend.features.project_stages.routes import register_project_stages_module
@@ -16138,14 +16654,10 @@ except ModuleNotFoundError:
 
 
 register_project_stages_module(app, {
-    "get_db": get_db,
-    "require_roles": require_roles,
+    "get_current_user": get_current_user,
+    "record_scope": project_record_scope,
     "read_roles": PROJECT_DOCUMENT_ROLES,
     "write_roles": PROJECT_WRITE_ROLES,
-    "visible_project_names": visible_project_names,
-    "project_name_from_payload": project_name_from_payload,
-    "require_project_access": require_project_access,
-    "require_row_project_access": require_row_project_access,
 })
 
 try:
@@ -16186,6 +16698,8 @@ except ModuleNotFoundError:
 
 
 register_prescriptions_module(app, {
+    "get_current_user": get_current_user,
+    "record_scope": project_record_scope,
     "get_db": get_db,
     "require_roles": require_roles,
     "read_roles": PROJECT_DOCUMENT_ROLES,
@@ -16549,6 +17063,12 @@ def get_estimates(
                 (row_company_id, r[2] or "", r[7] or "Основная")
             )
             sections = _sanitize_worker_estimate_sections(sections, allowed_items if allowed_items else None, estimate_id=r[0])
+        if role == "заказчик":
+            try:
+                from backend.features.customer_cabinet.estimates import customer_estimate_sections
+            except ModuleNotFoundError:
+                from features.customer_cabinet.estimates import customer_estimate_sections
+            sections = customer_estimate_sections(sections)
         summary_total = _estimate_sections_total_for_summary(sections)
         if role == "бухгалтер":
             sections = []
@@ -16656,6 +17176,12 @@ def get_estimate_detail(
         )
         allowed_items = allowed_by_scope.get((r[2] or "", r[7] or "Основная"))
         sections = _sanitize_worker_estimate_sections(sections, allowed_items if allowed_items else None, estimate_id=r[0])
+    if role == "заказчик":
+        try:
+            from backend.features.customer_cabinet.estimates import customer_estimate_sections
+        except ModuleNotFoundError:
+            from features.customer_cabinet.estimates import customer_estimate_sections
+        sections = customer_estimate_sections(sections)
     summary_total = _estimate_sections_total_for_summary(sections)
     if role == "бухгалтер":
         sections = []
@@ -17628,9 +18154,29 @@ def update_estimate(
     x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
     current_user: dict = Depends(get_current_user),
 ):
+    # One transaction owner also closes failures before the journal sub-handler.
+    material_mapping = data.get("_workJournalMaterials", {})
+    if not isinstance(material_mapping, dict):
+        raise HTTPException(400, "Материалы должны быть сопоставлены со строками работ")
+    for materials in material_mapping.values():
+        if data.get("materialAccountingVersion") == 2:
+            work_material_service.validate_items(materials)
+        _validate_requested_work_material_quantities(materials)
+    conn = get_db()
+    try:
+        return _update_estimate_with_connection(conn, id, data, x_company_id, x_company_mode, current_user)
+    except BaseException:
+        if not conn.closed:
+            conn.rollback()
+        raise
+    finally:
+        if not conn.closed:
+            conn.close()
+
+
+def _update_estimate_with_connection(conn, id, data, x_company_id, x_company_mode, current_user):
     import json as j
     from datetime import date as _date
-    conn = get_db()
     conn.autocommit = False
     _current_user, estimate_scope = _resolve_estimate_mutation_actor(
         conn,
@@ -17639,8 +18185,22 @@ def update_estimate(
         (*ESTIMATE_WRITE_ROLES, *WORKER_EXECUTION_ROLES),
         x_company_id=x_company_id,
         x_company_mode=x_company_mode,
+        lock_stock=True,
     )
     cur = conn.cursor()
+    use_material_v2 = data.get("materialAccountingVersion") == 2
+    material_operation_id = None
+    if use_material_v2:
+        if not work_material_runtime.enabled():
+            raise HTTPException(404, detail="Новый учёт расхода пока недоступен")
+        if _current_user.get("role") not in WORKER_EXECUTION_ROLES:
+            raise HTTPException(403, detail="Расход по работе отправляет назначенный исполнитель")
+        material_operation_id, replay = work_material_runtime.begin_operation(
+            cur, _current_user, data.get("requestId"), "estimate-work", {"estimateId": id, "data": data})
+        if replay is not None:
+            return replay
+    elif work_material_runtime.enabled() and _current_user.get("role") in WORKER_EXECUTION_ROLES:
+        raise HTTPException(409, detail="Обновите страницу и проверьте источники расхода материалов")
     cur.execute("""SELECT sections_json, name, version, project_name, COALESCE(smeta_type,'Заказчик'), status,
                           COALESCE(work_package,'Основная')
                      FROM estimates WHERE id=%s AND company_id=%s""",
@@ -17913,6 +18473,8 @@ def update_estimate(
                 return params
         return {"_estimateItemKey": str(id) + ":" + str(section_idx) + ":" + str(item_idx)}
 
+    matched_material_keys = set()
+
     def _materials_for_delta(section_idx, item_idx, section_name, item_name, item=None):
         keys = [
             str(id) + ":" + str(section_idx) + ":" + str(item_idx),
@@ -17922,6 +18484,11 @@ def update_estimate(
         item_key = str((item or {}).get("estimateItemKey") or (item or {}).get("estimate_item_key") or "").strip()
         if item_key:
             keys.insert(0, item_key)
+        matched_material_keys.update(k for k in keys if k in work_journal_materials)
+        if use_material_v2:
+            provided = [work_journal_materials[k] for k in keys if k in work_journal_materials]
+            if provided and any(value != provided[0] for value in provided[1:]):
+                raise HTTPException(409, "Одна строка работы содержит противоречащие друг другу списки расхода")
         raw = []
         for k in keys:
             if k in work_journal_materials:
@@ -17929,6 +18496,8 @@ def update_estimate(
                 break
         used = []
         for m in raw if isinstance(raw, list) else []:
+            if use_material_v2:
+                work_material_service.source_quantities(m)
             try:
                 qty = float(m.get("quantity") or 0)
             except Exception:
@@ -17936,6 +18505,9 @@ def update_estimate(
             name = (m.get("name") or "").strip()
             if name and qty > 0:
                 row = {"name": name, "quantity": qty, "unit": m.get("unit") or "шт"}
+                if use_material_v2:
+                    row.update({field: m.get(field) for field in
+                                ("personalQuantity", "warehouseQuantity", "warehouseMaterialId")})
                 try:
                     norm_qty = float(m.get("normQuantity") or 0)
                 except Exception:
@@ -18031,13 +18603,19 @@ def update_estimate(
                     work_package=work_package_for_journal,
                 )
                 if duplicate_work:
-                    if _current_user.get("role") in WORKER_EXECUTION_ROLES and _work_journal_duplicate_is_pending_for_actor(duplicate_work, _current_user):
+                    if not use_material_v2 and _current_user.get("role") in WORKER_EXECUTION_ROLES and _work_journal_duplicate_is_pending_for_actor(duplicate_work, _current_user):
                         continue
                     _raise_work_journal_duplicate(duplicate_work)
                 used_materials = _force_work_material_package(used_materials, work_package_for_journal)
+                material_project = {"id": estimate_scope["projectId"], "companyId": estimate_scope["companyId"], "name": project_name}
+                if use_material_v2:
+                    used_materials = work_material_service.prepare(cur, material_project, _current_user, used_materials,
+                        material_key=_material_control_key_resolved, personal_balance=_personal_material_balance,
+                        norm_unit=_norm_base_unit)
                 _validate_work_material_norm_reasons(
                     used_materials,
                     cur,
+                    company_id=estimate_scope["companyId"],
                     project=project_name,
                     estimate_id=id,
                     work_name=it.get("name", ""),
@@ -18046,9 +18624,10 @@ def update_estimate(
                     work_unit=unit,
                     actor_role=_current_user.get("role") or "",
                 )
-                for m in used_materials:
-                    _apply_material_work_writeoff(cur, project_name, m, _current_user, journal_date, brigade)
-                materials_json = j.dumps(used_materials, ensure_ascii=False) if used_materials else None
+                if not use_material_v2:
+                    for m in _work_material_map(used_materials, cur, project_name, company_id=estimate_scope["companyId"]).values():
+                        _apply_material_work_writeoff(cur, project_name, m, _current_user, journal_date, brigade)
+                materials_json = j.dumps(work_material_service.public_items(used_materials) if use_material_v2 else used_materials, ensure_ascii=False) if used_materials else None
                 cur.execute("""INSERT INTO work_journal
                                (company_id, master_id, master_name, project, description, unit, quantity, price_per_unit, total, date, status, comment,
                                 photo_url, materials_used, estimate_id, section_name, hidden_work, confirmed_by, confirmed_at,
@@ -18069,6 +18648,9 @@ def update_estimate(
                              estimate_item_key,
                              contract_item_id, customer_price, round(delta*customer_price,2), execution_price, round(delta*execution_price,2), execution_mode))
                 work_journal_id = cur.fetchone()[0]
+                if use_material_v2:
+                    work_material_service.post(cur, material_project, _current_user, work_journal_id,
+                                               material_operation_id, used_materials, journal_date)
                 work_row = _work_journal_sync_row(cur, work_journal_id)
                 _recalculate_contract_item_done_from_work_journal(cur, contract_item_id)
                 if auto_journal_status == "Подтверждено":
@@ -18122,27 +18704,39 @@ def update_estimate(
         or new_smeta_type != (prev[4] or "Заказчик")
         or new_work_package != current_work_package
     )
-    if new_status == "Активная" and project_name and (estimate_materials_changed or estimate_scope_changed):
-        supply_refresh = _refresh_open_supply_controls_for_estimate(
-            cur,
-            project_name,
-            estimate_scope["companyId"],
-            estimate_scope.get("projectId"),
-        )
-    if (
-        new_status == "Активная"
-        and new_smeta_type == "Заказчик"
-        and estimate_scope.get("projectId")
-    ):
-        ensure_active_estimate_snapshot(
-            cur,
-            estimate_id=id,
-            company_id=estimate_scope["companyId"],
-            project_id=estimate_scope["projectId"],
-            created_by=_current_user.get("name") or "",
-        )
-    conn.commit()
-    cur.close(); conn.close()
+    try:
+        if new_status == "Активная" and project_name and (estimate_materials_changed or estimate_scope_changed):
+            supply_refresh = _refresh_open_supply_controls_for_estimate(
+                cur,
+                project_name,
+                estimate_scope["companyId"],
+                estimate_scope.get("projectId"),
+            )
+        if (
+            new_status == "Активная"
+            and new_smeta_type == "Заказчик"
+            and estimate_scope.get("projectId")
+        ):
+            ensure_active_estimate_snapshot(
+                cur,
+                estimate_id=id,
+                company_id=estimate_scope["companyId"],
+                project_id=estimate_scope["projectId"],
+                created_by=_current_user.get("name") or "",
+            )
+        if use_material_v2:
+            if not journal_added or set(work_journal_materials) - matched_material_keys:
+                raise HTTPException(409, "Расход должен относиться к новым отправляемым строкам работы")
+            work_material_runtime.finish_operation(cur, material_operation_id, {
+                "ok": True, "journalEntries": journal_added, "hiddenWorkActs": acts_added,
+                "brigadeItemsSynced": brigade_synced, "supplyControlRefresh": supply_refresh})
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
     agent_dispatch_report = handoff_estimate_activation_transition(
         previous_status=prev_status,
         next_status=new_status,
@@ -18409,7 +19003,8 @@ def delete_estimate(
                 status_code=409,
                 detail="Смета уже используется: " + ", ".join(blockers) + ". Оставьте её в архиве, чтобы не потерять историю объекта.",
             )
-        delete_estimate_technical_records(cur, estimate_id=estimate["id"])
+        delete_estimate_technical_records(cur, estimate_id=estimate["id"],
+                                          company_id=estimate["companyId"], project_id=estimate["projectId"])
         cur.execute("DELETE FROM estimates WHERE id=%s AND company_id=%s", (estimate["id"], estimate["companyId"]))
         if cur.rowcount != 1:
             raise HTTPException(status_code=409, detail="Смету не удалось удалить: запись изменилась, обновите список")
@@ -18463,7 +19058,7 @@ def get_brigade_contracts(
             "COALESCE((SELECT SUM(COALESCE(bci.quantity,0)*COALESCE(bci.price_brigade,0)) FROM brigade_contract_items bci WHERE bci.contract_id=bc.id),0) AS plan_amount,"
             "COALESCE((SELECT SUM(CASE WHEN COALESCE(bci.quantity,0)>0 THEN GREATEST(0, LEAST(COALESCE(bci.done_quantity,0), COALESCE(bci.quantity,0))) * COALESCE(bci.price_brigade,0) ELSE 0 END) FROM brigade_contract_items bci WHERE bci.contract_id=bc.id),0) AS done_amount,"
             "COALESCE((SELECT SUM(bp.amount) FROM brigade_payments bp WHERE bp.contract_id=bc.id AND bp.company_id=bc.company_id AND bp.amount IS NOT NULL AND bp.amount NOT IN ('NaN'::numeric,'Infinity'::numeric,'-Infinity'::numeric)),0) AS paid_amount,"
-            "bc.act_scan_url,bc.company_id FROM brigade_contracts bc WHERE "
+            "bc.act_scan_url,bc.company_id,bc.settlement_version FROM brigade_contracts bc WHERE "
         )
         cur = conn.cursor()
         try:
@@ -18520,6 +19115,7 @@ def get_brigade_contracts(
                 "planAmount": plan_amount, "doneAmount": done_amount,
                 "paidAmount": float(row[15] or 0), "workPackage": row[12] or "",
                 "actScanUrl": row[16] or "", "companyId": row[17],
+                "settlementVersion": _row_get(row, "settlement_version", 18, 1),
             })
         return result
     finally:
@@ -18539,6 +19135,8 @@ register_brigade_payments_module(app, {
     "brigade_contract_read_scope": _brigade_contract_read_scope,
     "resolve_brigade_contract_actor": _resolve_brigade_contract_actor,
     "row_get": _row_get,
+    "lock_settlement_actor": _lock_brigade_settlement_actor,
+    "pay_settlement": work_settlement.pay,
 })
 try:
     from backend.features.salary_payments.routes import register_salary_payments_module
@@ -18964,6 +19562,7 @@ except ModuleNotFoundError:
 
 register_brigade_acts_module(app, {
     "get_db": get_db,
+    "lock_settlement_actor": _lock_brigade_settlement_actor,
     "get_current_user": get_current_user,
     "finance_roles": FINANCE_ROLES,
     "brigade_contract_read_scope": _brigade_contract_read_scope,
@@ -19027,13 +19626,18 @@ def create_material_transfer(
 ):
     from_location = (data.get("fromLocation") or "").strip() or "Основной склад"
     material_name = data.get("materialName", "")
-    qty = float(data.get("quantity", 0) or 0)
+    try:
+        if isinstance(data.get("quantity"), bool):
+            raise ValueError("Boolean is not a quantity")
+        qty = float(data.get("quantity", 0) or 0)
+    except (TypeError, ValueError, OverflowError):
+        raise HTTPException(status_code=400, detail="Укажите корректное количество материала")
     unit = _norm_base_unit(data.get("unit") or "шт") or "шт"
     project_name = (data.get("projectName") or "").strip()
     work_package = (data.get("workPackage") or data.get("work_package") or "").strip()
     to_person_role = (data.get("toPersonRole") or data.get("to_person_role") or "").strip().lower()
     transfer_receiver_roles = ("мастер", "субподрядчик", "бригадир")
-    if not material_name or qty <= 0:
+    if not material_name or not math.isfinite(qty) or qty <= 0:
         raise HTTPException(status_code=400, detail="Укажите материал и количество больше 0")
     if to_person_role == "бригада":
         raise HTTPException(status_code=400, detail="Выдача материала абстрактной бригаде закрыта. Выберите конкретного активного бригадира, мастера или субподрядчика с доступом к объекту и пакету.")
@@ -19065,6 +19669,11 @@ def create_material_transfer(
             x_company_mode=x_company_mode,
         )
         actor = require_project_write_actor(effective_company_actors(current_user, company_context), WAREHOUSE_ROLES)
+        try:
+            from backend.features.material_traceability.guards import lock_distribution_compatible_stock
+        except ModuleNotFoundError:
+            from features.material_traceability.guards import lock_distribution_compatible_stock
+        lock_distribution_compatible_stock(cur)
         company_id = int(actor.get("companyId"))
         project = resolve_project_parent(
             cur,
@@ -19114,6 +19723,11 @@ def create_material_transfer(
                 raise HTTPException(status_code=400, detail=str(exc))
             if not invoice_row:
                 raise HTTPException(status_code=400, detail="Накладная для выдачи не найдена или аннулирована")
+            try:
+                from backend.features.supplier_payments.receipt_exceptions import assert_stock_source
+            except ModuleNotFoundError:
+                from features.supplier_payments.receipt_exceptions import assert_stock_source
+            assert_stock_source(cur, company_id=company_id, warehouse_id=invoice_id)
             invoice_project = (invoice_row.get("project") or "").strip() or (
                 (invoice_row.get("location") or "").strip()
                 if (invoice_row.get("location") or "") != "Основной склад"
@@ -19129,8 +19743,8 @@ def create_material_transfer(
             invoice_line_key = ""
             invoice_number = ""
         if to_person_role in ("мастер", "субподрядчик", "бригадир"):
-            to_user_id = _resolve_staff_or_user_id(cur, to_user_id, to_person)
-        if to_person_role in ("мастер", "субподрядчик", "бригадир"):
+            # toUserId is a users.id, never a staff.id. Name-only legacy clients
+            # remain supported only when the company has one eligible recipient.
             cur.execute("""SELECT u.id,u.name,m.role,'' AS project_name,m.assigned_projects,m.assigned_packages
                            FROM users u
                            JOIN user_company_roles m ON m.user_id=u.id
@@ -19138,9 +19752,12 @@ def create_material_transfer(
                              AND ((%s IS NOT NULL AND u.id=%s) OR (%s IS NULL AND LOWER(TRIM(u.name))=LOWER(TRIM(%s))))
                              AND m.role IN ('мастер','субподрядчик','бригадир')
                              AND COALESCE(u.active,TRUE)=TRUE AND COALESCE(m.active,TRUE)=TRUE
-                           ORDER BY CASE WHEN u.id=%s THEN 0 ELSE 1 END, u.id LIMIT 1""",
-                        (company_id, to_user_id, to_user_id, to_user_id, to_person, to_user_id))
-            receiver = cur.fetchone()
+                           ORDER BY u.id LIMIT 2""",
+                        (company_id, to_user_id, to_user_id, to_user_id, to_person))
+            receivers = cur.fetchall() or []
+            if len(receivers) > 1:
+                raise HTTPException(status_code=409, detail="Найдено несколько исполнителей с таким именем. Выберите получателя с привязанным доступом в программу.")
+            receiver = receivers[0] if receivers else None
             if not receiver:
                 raise HTTPException(status_code=400, detail="Получатель материала должен быть активным пользователем с ролью мастер, субподрядчик или бригадир")
             to_user_id = receiver.get("id")
@@ -19195,7 +19812,7 @@ def create_material_transfer(
                 "unit": unit,
                 "workPackage": work_package,
             }]
-            control_key = _material_control_key_resolved(cur, project_name, stock_name or material_name, unit)
+            control_key = _material_control_key_resolved(cur, project_name, stock_name or material_name, unit, company_id=company_id)
             _attach_supply_estimate_control(
                 cur,
                 project_name,
@@ -19300,10 +19917,15 @@ def return_material_from_master(
 ):
     project_name = data.get("projectName", "")
     material_name = data.get("materialName", "")
-    qty = float(data.get("quantity", 0) or 0)
+    try:
+        if isinstance(data.get("quantity"), bool):
+            raise ValueError("Boolean is not a quantity")
+        qty = float(data.get("quantity", 0) or 0)
+    except (TypeError, ValueError, OverflowError):
+        raise HTTPException(status_code=400, detail="Укажите корректное количество материала")
     unit = _norm_base_unit(data.get("unit") or "шт") or "шт"
     work_package = (data.get("workPackage") or data.get("work_package") or "Основная").strip() or "Основная"
-    if not project_name or not material_name or qty <= 0:
+    if not project_name or not material_name or not math.isfinite(qty) or qty <= 0:
         raise HTTPException(status_code=400, detail="Укажите объект, материал и количество больше 0")
     conn = get_db()
     conn.autocommit = False
@@ -19320,6 +19942,11 @@ def return_material_from_master(
             effective_company_actors(current_user, company_context),
             (*SUPPLY_INTERNAL_ROLES, *WORKER_EXECUTION_ROLES),
         )
+        try:
+            from backend.features.material_traceability.guards import lock_distribution_compatible_stock
+        except ModuleNotFoundError:
+            from features.material_traceability.guards import lock_distribution_compatible_stock
+        lock_distribution_compatible_stock(cur)
         project = resolve_project_parent(
             cur,
             actor,
@@ -19337,6 +19964,25 @@ def return_material_from_master(
         else:
             person_name = data.get("fromPerson") or actor.get("name", "")
             person_id = data.get("fromPersonId")
+        if person_id:
+            cur.execute("""SELECT u.id,u.name FROM users u WHERE u.id=%s
+                           AND (u.company_id=%s OR EXISTS (
+                               SELECT 1 FROM user_company_roles r WHERE r.user_id=u.id AND r.company_id=%s)
+                               OR EXISTS (SELECT 1 FROM material_transfers mt
+                                          WHERE mt.to_user_id=u.id AND mt.company_id=%s))""",
+                        (person_id, company_id, company_id, company_id))
+        else:
+            cur.execute("""SELECT DISTINCT u.id,u.name FROM users u
+                           WHERE LOWER(TRIM(u.name))=LOWER(TRIM(%s))
+                           AND (u.company_id=%s OR EXISTS (
+                               SELECT 1 FROM user_company_roles r WHERE r.user_id=u.id AND r.company_id=%s)
+                               OR EXISTS (SELECT 1 FROM material_transfers mt
+                                          WHERE mt.to_user_id=u.id AND mt.company_id=%s))""",
+                        (person_name, company_id, company_id, company_id))
+        people = cur.fetchall() or []
+        if len(people) != 1:
+            raise HTTPException(status_code=409, detail="Для возврата выберите точного исполнителя. По имени владелец материала не определён однозначно.")
+        person_id, person_name = people[0]["id"], people[0]["name"]
         balance = _personal_material_balance(
             cur, project_name, person_id, person_name, material_name, work_package, unit, company_id=company_id
         )
@@ -19360,10 +20006,11 @@ def return_material_from_master(
 
         return_date = data.get("date") or None
         cur.execute("""INSERT INTO warehouse_history
-                       (company_id,material,type,quantity,unit,date,project,issued_to,issued_by,work_package,date_time)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                       (company_id,material,type,quantity,unit,date,project,issued_to,issued_by,work_package,date_time,source_type,source_id)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
             (company_id, material_name, "возврат от мастера", qty, unit, return_date, project_name,
-             "Склад объекта", person_name, work_package, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M")))
+             "Склад объекта", person_name, work_package, __import__("datetime").datetime.now().strftime("%d.%m.%Y, %H:%M"),
+             "material_return_user", person_id))
         history_id = cur.fetchone().get("id")
         conn.commit()
         _run_project_ai_control_safely(project_name, "material_transfer:return")
@@ -19398,6 +20045,11 @@ def delete_material_transfer(
             cur, current_user, None, "write", x_company_id=x_company_id, x_company_mode=x_company_mode
         )
         actor = require_project_write_actor(effective_company_actors(current_user, company_context), WAREHOUSE_ROLES)
+        try:
+            from backend.features.material_traceability.guards import lock_distribution_compatible_stock
+        except ModuleNotFoundError:
+            from features.material_traceability.guards import lock_distribution_compatible_stock
+        lock_distribution_compatible_stock(cur)
         transfer = resolve_material_transfer_parent(cur, actor, id, for_update=True)
         cur.execute("""SELECT project_name,from_location,to_person,material_name,quantity,unit,signed,
                               COALESCE(status,'Активна') AS status,work_package
@@ -19525,8 +20177,9 @@ except ModuleNotFoundError:
 
 register_supply_request_templates_module(app, {
     "get_db": get_db,
-    "require_roles": require_roles,
-    "supply_roles": SUPPLY_ROLES,
+    "get_current_user": get_current_user,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
 })
 
 
@@ -19541,6 +20194,8 @@ register_supplier_documents_module(app, {
     "get_current_user": get_current_user,
     "current_supplier_ids": current_supplier_ids,
     "supplier_related_ids": supplier_related_ids,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
 })
 
 def _supplier_invoice_template_key(value: str) -> str:
@@ -19781,10 +20436,18 @@ def get_warehouse_invoices(
     else:
         cur.execute(f"SELECT {invoice_cols} FROM warehouse_invoices WHERE TRUE{company_filter_sql} ORDER BY id DESC", company_filter_params)
     rows = cur.fetchall()
+    try:
+        from backend.features.supplier_payments.partial_receipt_runtime import receipt_settlement_context
+    except ModuleNotFoundError:
+        from features.supplier_payments.partial_receipt_runtime import receipt_settlement_context
+    settlement_ids = receipt_settlement_context(cur, [row[0] for row in rows])
     cur.close(); conn.close()
     result = []
     for r in rows:
-        items = _json_list_or_empty(r[9])
+        # Source identity is the stored JSON position, never the visible position
+        # after package filtering or an index supplied in an uploaded item.
+        items = [{**item, "invoiceLineIndex": index}
+                 for index, item in enumerate(_json_list_or_empty(r[9]))]
         total_base = float(r[10] or 0)
         total_vat = float(r[11] or 0)
         total_with_vat = float(r[12] or 0)
@@ -19811,11 +20474,19 @@ def get_warehouse_invoices(
         material_match = _json_list_or_empty(r[24]) if len(r) > 24 else []
         invoice_result = {"id":r[0],"number":r[1],"date":str(r[2]) if r[2] else "","supplierId":r[3],"supplierName":r[4] or "","acceptedBy":r[5] or "","location":r[6] or "","project":r[7] or "","vat":r[8] or "Без НДС","items":items,"totalBase":total_base,"totalVat":total_vat,"totalWithVat":total_with_vat,"status":r[13] or "Принята","addedBy":r[14] or "","photoUrl":r[15] or "","photos":photo_urls,"pagesCount":r[21] or len(photo_urls) or 1,"sourceType":r[16] or "","sourceId":r[17],"supplyDeliveryId":r[18],"supplyRequestId":r[19],"warehouseTarget":(r[22] if len(r) > 22 else "") or ("object" if r[7] else "main"),"selectedAction":(r[23] if len(r) > 23 else "") or "","materialMatch":material_match,"accountingStatus":(r[25] if len(r) > 25 else "") or "","accountingComment":(r[26] if len(r) > 26 else "") or "","accountingUpdatedBy":(r[27] if len(r) > 27 else "") or "","accountingUpdatedAt":str(r[28]) if len(r) > 28 and r[28] else "","paidAmount":float(r[29] or 0) if len(r) > 29 else 0,"paidAt":(r[30] if len(r) > 30 else "") or "","paidBy":(r[31] if len(r) > 31 else "") or "","supplierInvoiceId":r[32] if len(r) > 32 else None,"companyId":r[33] if len(r) > 33 else None}
         invoice_result["accountingRequired"] = warehouse_invoice_accounting_required(invoice_result)
+        if r[0] in settlement_ids:
+            invoice_result.update(settlement_ids[r[0]])
         result.append(invoice_result)
     return result
 
 def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_company_id=None, x_company_mode=None):
     import json as j
+    try:
+        from backend.features.quality_journals.invoice_receipt import invoice_quality_enabled, create_invoice_quality
+    except ModuleNotFoundError:
+        from features.quality_journals.invoice_receipt import invoice_quality_enabled, create_invoice_quality
+    owned_quality = invoice_quality_enabled()
+    resolved_receipt_project = None
     target_location = (data.get("location") or "").strip()
     target_project = (data.get("project") or "").strip() or (target_location if target_location and target_location != "Основной склад" else "")
     def _invoice_float(value, default=0.0):
@@ -19827,8 +20498,19 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
     conn = get_db()
     cur = conn.cursor()
     conn.autocommit = False
+    accounting_link = None
     try:
-        _ensure_invoice_document_link_columns(cur)
+        try:
+            from backend.features.material_traceability.guards import lock_distribution_compatible_stock
+        except ModuleNotFoundError:
+            from features.material_traceability.guards import lock_distribution_compatible_stock
+        # Must precede even schema preparation and project lookups: a receipt
+        # DDL lock followed by stock access reverses distribution's lock order.
+        lock_distribution_compatible_stock(cur)
+        ledger_present = _payment_ledger_available(cur)
+        if not ledger_present:
+            _ensure_invoice_document_link_columns(cur)
+            _ensure_warehouse_invoice_accounting_columns(cur)
         source_type = (data.get("sourceType") or "").strip()
         source_id = data.get("sourceId") or None
         supply_delivery_id = data.get("supplyDeliveryId") or None
@@ -19856,7 +20538,7 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
         else:
             source_type = source_type or "manual_main_invoice"
         claimed_company_id = _positive_int_or_none(data.get("companyId") or data.get("company_id"))
-        project_company_id = _positive_int_or_none(_project_company_id(cur, target_project or target_location))
+        project_company_id = None if owned_quality else _positive_int_or_none(_project_company_id(cur, target_project or target_location))
         request_company_id = None
         if supply_request_id:
             cur.execute("SELECT company_id FROM supply_requests WHERE id=%s", (supply_request_id,))
@@ -19893,6 +20575,18 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
         if (actor.get("role") or "") not in WAREHOUSE_ROLES:
             raise HTTPException(status_code=403, detail="Роль в выбранной компании не позволяет принимать складские накладные")
         current_user = actor
+        if ledger_present:
+            # Stock-table locks precede company serialization; no document or
+            # project row locks have been acquired by this receipt yet.
+            cur.execute('SELECT pg_advisory_xact_lock(%s,%s)', (1735289201, company_id))
+        if target_project:
+            try:
+                from backend.features.project_access.service import resolve_project_parent
+            except ModuleNotFoundError:
+                from features.project_access.service import resolve_project_parent
+            # A display name must not choose a tenant. Stock still uses names,
+            # so require one unambiguous project inside the resolved company.
+            resolved_receipt_project = resolve_project_parent(cur, actor, project_name=target_project, for_update=owned_quality)
         try:
             receipt_policy = resolve_warehouse_receipt_policy(
                 data,
@@ -19913,6 +20607,12 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
             require_project_or_warehouse_access(current_user, target_project)
         if supplier_invoice_id and current_user.get("role") not in FINANCE_ROLES:
             raise HTTPException(status_code=403, detail="Связать накладную со счётом поставщика может только бухгалтерия или руководство выбранной компании")
+        if supplier_invoice_id and ledger_present:
+            cur.execute('SELECT company_id,warehouse_invoice_id,status FROM supplier_invoices WHERE id=%s FOR UPDATE', (supplier_invoice_id,))
+            live_invoice = cur.fetchone()
+            if not live_invoice or live_invoice[0] != company_id or live_invoice[1] or live_invoice[2] == 'Аннулирован':
+                raise HTTPException(409, 'Связь счёта изменилась. Повторите проверку документов')
+            _require_unmanaged_payment_document(cur, 'invoice', supplier_invoice_id)
         if not target_project and current_user.get("role") not in MAIN_WAREHOUSE_WRITE_ROLES:
             raise HTTPException(
                 status_code=403,
@@ -19982,7 +20682,8 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
             item = dict(raw_item)
             item["workPackage"] = _supply_work_package(item.get("workPackage") or item.get("work_package") or data.get("workPackage") or data.get("work_package"))
             if target_project:
-                item = _apply_material_alias_to_invoice_item(cur, target_project, item)
+                item = _apply_material_alias_to_invoice_item(cur, target_project, item,
+                    company_id=company_id, project_id=resolved_receipt_project['id'])
             normalized_invoice_items.append(item)
         items_list = normalized_invoice_items
         try:
@@ -20116,7 +20817,11 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
                     )
         ensure_receipt_lot_schema(cur)
         project_id = None
-        if target_project:
+        if target_project and owned_quality:
+            project_id = resolved_receipt_project['id']
+            cur.execute('UPDATE warehouse_invoices SET project_id=%s WHERE id=%s AND company_id=%s',
+                        (project_id, invoice_id, company_id))
+        elif target_project:
             cur.execute("SELECT id FROM projects WHERE name=%s AND company_id=%s ORDER BY id LIMIT 1", (target_project, company_id))
             project_row = cur.fetchone()
             project_id = _positive_int_or_none(_row_get(project_row, "id", 0))
@@ -20198,9 +20903,13 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
             cur.execute("""INSERT INTO warehouse_history
                               (company_id,material,type,quantity,unit,date,project,issued_by,work_package,date_time,
                                source_type,source_id,source_invoice_id,source_invoice_line_index)
-                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
                         (company_id, name, "приход", qty, unit, rcv_date, history_project, accepted_by, work_package, date_time,
                          source_type or "warehouse_invoice", invoice_id, invoice_id, item_index))
+            receipt_history_id = cur.fetchone()[0]
+            if owned_quality and target_project:
+                cur.execute('UPDATE warehouse_history SET project_id=%s WHERE id=%s AND company_id=%s',
+                            (project_id, receipt_history_id, company_id))
             history_added += 1
             if create_receipt_lot(
                 cur,
@@ -20221,6 +20930,13 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
                 lot_rows_added += 1
 
             if target_project:
+                if owned_quality:
+                    quality = create_invoice_quality(cur, company_id=company_id, project_id=project_id,
+                        invoice_id=invoice_id, line_index=item_index, name=name, quantity=qty, unit=unit,
+                        work_package=work_package, cable_info=_detect_cable_info(name))
+                    inspections_added += quality['inspections']
+                    cables_added += quality['cables']
+                    continue
                 source_item_key = _journal_item_key(name, unit, qty, work_package, item_index)
                 if _ensure_material_inspection_row(
                     cur,
@@ -20252,6 +20968,12 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
                 ):
                     cables_added += 1
 
+        if accounting_required and data.get("syncSupplierInvoice") is not False and data.get("sync_supplier_invoice") is not False:
+            # Accounting is part of receipt creation: failure must also roll
+            # back stock, history, journals and any supplier enrichment.
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as accounting_cur:
+                accounting_link = _sync_supplier_invoice_from_warehouse_in_transaction(
+                    accounting_cur, invoice_id, data, current_user)
         conn.commit()
     except Exception:
         conn.rollback()
@@ -20271,18 +20993,37 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
         "inspectionsAdded": inspections_added,
         "cablesAdded": cables_added,
     }
-    if accounting_required and (data or {}).get("syncSupplierInvoice") is not False and (data or {}).get("sync_supplier_invoice") is not False:
-        try:
-            accounting_link = _sync_supplier_invoice_from_warehouse(invoice_id, data, current_user)
-            result["supplierInvoiceId"] = accounting_link.get("id")
-            result["accountingStatus"] = accounting_link.get("accountingStatus") or "На проверке"
-            result["supplierId"] = accounting_link.get("supplierId")
-            result["supplierName"] = accounting_link.get("supplierName")
-        except Exception as exc:
-            result["accountingWarning"] = getattr(exc, "detail", str(exc)) or "Не удалось связать бухгалтерскую первичку"
+    if accounting_link:
+        result["supplierInvoiceId"] = accounting_link.get("id")
+        result["accountingStatus"] = accounting_link.get("accountingStatus") or "На проверке"
+        result["supplierId"] = accounting_link.get("supplierId")
+        result["supplierName"] = accounting_link.get("supplierName")
     return result
 
+
 def _sync_supplier_invoice_from_warehouse(warehouse_invoice_id: int, payload: dict = None, actor: dict = None):
+    """Own a transaction for backfill callers; receipt creation uses the worker."""
+    conn = get_db()
+    conn.autocommit = False
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            if not _payment_ledger_available(cur):
+                _ensure_warehouse_invoice_accounting_columns(cur)
+                _ensure_invoice_document_link_columns(cur)
+            result = _sync_supplier_invoice_from_warehouse_in_transaction(cur, warehouse_invoice_id, payload, actor)
+        conn.commit()
+        return result
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def _sync_supplier_invoice_from_warehouse_in_transaction(cur, warehouse_invoice_id, payload=None, actor=None):
+    """Caller owns transaction and schema preparation; no lifecycle or postcommit effects."""
+    if cur.connection.autocommit:
+        raise RuntimeError('Accounting sync requires an explicit transaction')
     payload = payload or {}
     actor = actor or {}
     review_uncertain_supplier_match = bool(
@@ -20291,304 +21032,195 @@ def _sync_supplier_invoice_from_warehouse(warehouse_invoice_id: int, payload: di
         or payload.get("backfillReview")
         or payload.get("backfill_review")
     )
-    conn = get_db()
-    conn.autocommit = False
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        _ensure_warehouse_invoice_accounting_columns(cur)
-        _ensure_invoice_document_link_columns(cur)
-        cur.execute(
-            """
-            SELECT id,number,date,supplier_id,supplier_name,location,project,items,
-                   total_base,total_vat,total_with_vat,photo_url,photo_urls,
-                   supplier_invoice_id,source_type,company_id
-              FROM warehouse_invoices
-             WHERE id=%s AND COALESCE(status,'Принята') <> 'Аннулирована'
-             FOR UPDATE
-            """,
-            (warehouse_invoice_id,),
-        )
-        warehouse_invoice = cur.fetchone()
-        if not warehouse_invoice:
-            raise HTTPException(status_code=404, detail="Складская накладная для бухгалтерии не найдена")
-        existing_supplier_invoice_id = warehouse_invoice.get("supplier_invoice_id")
-        if existing_supplier_invoice_id and warehouse_invoice_accounting_required(warehouse_invoice):
-            conn.commit()
-            return {"id": existing_supplier_invoice_id, "ok": True, "alreadyExists": True}
-        if not warehouse_invoice_accounting_required(warehouse_invoice):
-            raise HTTPException(
-                status_code=409,
-                detail="Приход на основной склад без поставщика не создаёт первичку и задолженность",
-            )
-
-        items = _json_list_or_empty(warehouse_invoice.get("items"))
-        first_item = items[0] if items and isinstance(items[0], dict) else {}
-        project_name = (
-            warehouse_invoice.get("project")
-            or (warehouse_invoice.get("location") if warehouse_invoice.get("location") != "Основной склад" else "")
-            or ""
-        )
-        company_id = (
-            _positive_int_or_none(payload.get("companyId") or payload.get("company_id"))
-            or _positive_int_or_none(warehouse_invoice.get("company_id"))
-            or _company_id_for_project_or_user(cur, project_name, actor)
-        )
-        supplier_name = (
-            payload.get("supplierName")
-            or payload.get("supplier")
-            or warehouse_invoice.get("supplier_name")
-            or ""
-        ).strip()
-        supplier_payload = {
-            **payload,
-            "supplierName": supplier_name,
-            "supplier": payload.get("supplier") or supplier_name,
-            "sourceType": "max_invoice" if str(warehouse_invoice.get("source_type") or "").startswith("max_") else "warehouse_invoice",
-            "sourceDetail": "Создано/обновлено из складской накладной #" + str(warehouse_invoice_id),
-        }
-        if warehouse_invoice.get("supplier_id") and not (supplier_payload.get("supplierId") or supplier_payload.get("supplier_id")):
-            supplier_payload["supplierId"] = warehouse_invoice.get("supplier_id")
-
-        supplier_id = warehouse_invoice.get("supplier_id")
-        legal_supplier_identity = has_legal_supplier_identity(supplier_payload)
-        if legal_supplier_identity and not supplier_id:
-            identity_requisites = _supplier_extract_requisites(supplier_payload)
-            identity_key = (
-                "inn:" + identity_requisites["inn"]
-                if identity_requisites["inn"]
-                else "ogrn:" + identity_requisites["ogrn"]
-            )
-            cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("supplier:" + identity_key,))
-        matched_supplier = _supplier_find_match(
-            cur,
-            supplier_payload,
-            allow_alias_name_match=not legal_supplier_identity,
-            allow_contact_match=False,
-        )
-        created_supplier = False
-        if matched_supplier:
-            supplier_id = matched_supplier["id"]
-            supplier_name = matched_supplier["name"] or supplier_name
-            _update_supplier_missing_fields(cur, supplier_id, supplier_payload)
-            _remember_supplier_alias(cur, supplier_id, supplier_payload, source="warehouse_accounting")
-        elif supplier_name:
-            req = _supplier_extract_requisites(supplier_payload)
-            if legal_supplier_identity:
-                cur.execute(
-                    """
-                    INSERT INTO suppliers
-                        (name,phone,email,specialization,category,rating,status,
-                         inn,kpp,ogrn,notes,source_type,source_detail)
-                    VALUES (%s,'','','','Материалы',5.0,'На проверке',%s,%s,%s,%s,%s,%s)
-                    RETURNING id,name
-                    """,
-                    (
-                        supplier_name,
-                        req.get("inn") or "",
-                        req.get("kpp") or "",
-                        req.get("ogrn") or "",
-                        "Создано из складской накладной #" + str(warehouse_invoice_id),
-                        supplier_payload["sourceType"],
-                        supplier_payload["sourceDetail"],
-                    ),
-                )
-                supplier_row = cur.fetchone()
-                supplier_id = supplier_row.get("id")
-                supplier_name = supplier_row.get("name") or supplier_name
-                created_supplier = True
-                _remember_supplier_alias(cur, supplier_id, supplier_payload, source="warehouse_accounting")
-
-        review_state = {"needsReview": False, "reviewReason": "", "accountingStatus": "На проверке", "supplierInvoiceStatus": "На утверждении"}
-        if review_uncertain_supplier_match or (supplier_name and not supplier_id):
-            review_state = _supplier_backfill_review_state(
-                cur,
-                warehouse_invoice,
-                supplier_payload,
-                supplier_id=supplier_id,
-                matched_supplier=matched_supplier,
-                created_supplier=created_supplier,
-            )
-        supplier_invoice_status = review_state.get("supplierInvoiceStatus") or "На утверждении"
-        accounting_status = review_state.get("accountingStatus") or "На проверке"
-        accounting_comment = (
-            "Нужно уточнение: " + review_state.get("reviewReason")
-            if review_state.get("needsReview") and review_state.get("reviewReason")
-            else "Первичка создана автоматически из складской накладной. Проверить реквизиты, сумму и фото перед оплатой."
+    ledger_present = _payment_ledger_available(cur)
+    if ledger_present:
+        _lock_payment_document_writer(cur, 'warehouse', warehouse_invoice_id)
+    cur.execute(
+        """
+        SELECT id,number,date,supplier_id,supplier_name,location,project,items,
+               total_base,total_vat,total_with_vat,photo_url,photo_urls,
+               supplier_invoice_id,source_type,company_id
+          FROM warehouse_invoices
+         WHERE id=%s AND COALESCE(status,'Принята') <> 'Аннулирована'
+         FOR UPDATE
+        """,
+        (warehouse_invoice_id,),
+    )
+    warehouse_invoice = cur.fetchone()
+    if not warehouse_invoice:
+        raise HTTPException(status_code=404, detail="Складская накладная для бухгалтерии не найдена")
+    company_id = _positive_int_or_none(warehouse_invoice.get('company_id'))
+    if not company_id:
+        raise HTTPException(409, 'Компания складской накладной требует сверки')
+    for key in ('companyId', 'company_id'):
+        if key in payload and _positive_int_or_none(payload[key]) != company_id:
+            raise HTTPException(409, 'Компания запроса не совпадает с компанией накладной')
+    if ledger_present:
+        _require_unmanaged_payment_document(cur, 'warehouse', warehouse_invoice_id)
+    existing_supplier_invoice_id = warehouse_invoice.get("supplier_invoice_id")
+    if existing_supplier_invoice_id and warehouse_invoice_accounting_required(warehouse_invoice):
+        existing_link = _lock_warehouse_sync_candidate(cur, existing_supplier_invoice_id, company_id,
+                                                     warehouse_invoice_id, ledger_present)
+        if existing_link.get('warehouse_invoice_id') != warehouse_invoice_id:
+            raise HTTPException(409, 'Обратная связь счёта и накладной требует сверки')
+        return {"id": existing_supplier_invoice_id, "ok": True, "alreadyExists": True}
+    if not warehouse_invoice_accounting_required(warehouse_invoice):
+        raise HTTPException(
+            status_code=409,
+            detail="Приход на основной склад без поставщика не создаёт первичку и задолженность",
         )
 
-        invoice_number = str(payload.get("invoiceNumber") or payload.get("number") or warehouse_invoice.get("number") or "").strip()
-        invoice_date = payload.get("invoiceDate") or payload.get("date") or warehouse_invoice.get("date") or None
-        amount = _float_or_zero(payload.get("amount") or payload.get("totalWithVat") or warehouse_invoice.get("total_with_vat") or warehouse_invoice.get("total_base"))
-        vat_amount = _float_or_zero(payload.get("vatAmount") or payload.get("totalVat") or warehouse_invoice.get("total_vat"))
-        work_package = (
-            payload.get("workPackage")
-            or payload.get("work_package")
-            or first_item.get("workPackage")
-            or first_item.get("work_package")
-            or ""
-        )
-        material_name = payload.get("materialName") or first_item.get("name") or ""
-        photo_urls = _json_list_or_empty(warehouse_invoice.get("photo_urls"))
-        photo_url = payload.get("photoUrl") or warehouse_invoice.get("photo_url") or (photo_urls[0] if photo_urls else "")
-        file_url = payload.get("fileUrl") or payload.get("file_url") or ""
-        description = payload.get("description") or (
-            "Первичка по складской накладной #" + str(warehouse_invoice_id)
-            + (" из MAX" if str(warehouse_invoice.get("source_type") or "").startswith("max_") else "")
-        )
+    items = _json_list_or_empty(warehouse_invoice.get("items"))
+    first_item = items[0] if items and isinstance(items[0], dict) else {}
+    project_name = (
+        warehouse_invoice.get("project")
+        or (warehouse_invoice.get("location") if warehouse_invoice.get("location") != "Основной склад" else "")
+        or ""
+    )
+    supplier_name = (
+        payload.get("supplierName")
+        or payload.get("supplier")
+        or warehouse_invoice.get("supplier_name")
+        or ""
+    ).strip()
+    supplier_payload = {
+        **payload,
+        "supplierName": supplier_name,
+        "supplier": payload.get("supplier") or supplier_name,
+        "sourceType": "max_invoice" if str(warehouse_invoice.get("source_type") or "").startswith("max_") else "warehouse_invoice",
+        "sourceDetail": "Создано/обновлено из складской накладной #" + str(warehouse_invoice_id),
+    }
+    if warehouse_invoice.get("supplier_id") and not (supplier_payload.get("supplierId") or supplier_payload.get("supplier_id")):
+        supplier_payload["supplierId"] = warehouse_invoice.get("supplier_id")
 
-        duplicate_invoice = _find_existing_supplier_invoice_duplicate(
-            cur,
-            company_id=company_id,
-            invoice_number=invoice_number,
-            invoice_date=invoice_date,
-            project_name=project_name,
-            supplier_id=supplier_id,
-            supplier_name=supplier_name,
-            amount=amount,
-            warehouse_invoice_id=warehouse_invoice_id,
+    supplier_id = warehouse_invoice.get("supplier_id")
+    legal_supplier_identity = has_legal_supplier_identity(supplier_payload)
+    if legal_supplier_identity and not supplier_id:
+        identity_requisites = _supplier_extract_requisites(supplier_payload)
+        identity_key = (
+            "inn:" + identity_requisites["inn"]
+            if identity_requisites["inn"]
+            else "ogrn:" + identity_requisites["ogrn"]
         )
-        if duplicate_invoice:
-            supplier_invoice_id = duplicate_invoice.get("id")
-            linked_warehouse_id = _positive_int_or_none(duplicate_invoice.get("warehouseInvoiceId"))
-            if not linked_warehouse_id:
-                cur.execute(
-                    """
-                    UPDATE supplier_invoices
-                       SET company_id=%s,
-                           warehouse_invoice_id=%s,
-                           supplier_id=COALESCE(supplier_id,%s),
-                           supplier_name=COALESCE(NULLIF(supplier_name,''),%s),
-                           status=CASE WHEN %s THEN %s ELSE status END
-                     WHERE id=%s
-                    """,
-                    (company_id, warehouse_invoice_id, supplier_id, supplier_name, bool(review_state.get("needsReview")), supplier_invoice_status, supplier_invoice_id),
-                )
-            else:
-                cur.execute(
-                    """
-                    UPDATE supplier_invoices
-                       SET company_id=%s,
-                           supplier_id=COALESCE(supplier_id,%s),
-                           supplier_name=COALESCE(NULLIF(supplier_name,''),%s),
-                           status=CASE WHEN %s THEN %s ELSE status END
-                     WHERE id=%s
-                    """,
-                    (company_id, supplier_id, supplier_name, bool(review_state.get("needsReview")), supplier_invoice_status, supplier_invoice_id),
-                )
-            actor_name = actor.get("name") or actor.get("email") or "MAX"
+        cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("supplier:" + identity_key,))
+    matched_supplier = _supplier_find_match(
+        cur,
+        supplier_payload,
+        allow_alias_name_match=not legal_supplier_identity,
+        allow_contact_match=False,
+    )
+    created_supplier = False
+    if matched_supplier:
+        supplier_id = matched_supplier["id"]
+        supplier_name = matched_supplier["name"] or supplier_name
+        _update_supplier_missing_fields(cur, supplier_id, supplier_payload)
+        _remember_supplier_alias(cur, supplier_id, supplier_payload, source="warehouse_accounting")
+    elif supplier_name:
+        req = _supplier_extract_requisites(supplier_payload)
+        if legal_supplier_identity:
             cur.execute(
                 """
-                UPDATE warehouse_invoices
-                   SET company_id=%s,
-                       supplier_invoice_id=%s,
-                       supplier_id=COALESCE(supplier_id,%s),
-                       supplier_name=COALESCE(NULLIF(supplier_name,''),%s),
-                       accounting_status=CASE WHEN %s THEN %s ELSE COALESCE(NULLIF(accounting_status,''),'На проверке') END,
-                       accounting_comment=COALESCE(NULLIF(accounting_comment,''),'Первичка связана с уже существующим счетом поставщика без создания дубля.'),
-                       accounting_updated_by=%s,
-                       accounting_updated_at=NOW()
-                 WHERE id=%s
+                INSERT INTO suppliers
+                    (name,phone,email,specialization,category,rating,status,
+                     inn,kpp,ogrn,notes,source_type,source_detail)
+                VALUES (%s,'','','','Материалы',5.0,'На проверке',%s,%s,%s,%s,%s,%s)
+                RETURNING id,name
                 """,
                 (
-                    company_id,
-                    supplier_invoice_id,
-                    supplier_id,
                     supplier_name,
-                    bool(review_state.get("needsReview")),
-                    accounting_status,
-                    actor_name,
-                    warehouse_invoice_id,
+                    req.get("inn") or "",
+                    req.get("kpp") or "",
+                    req.get("ogrn") or "",
+                    "Создано из складской накладной #" + str(warehouse_invoice_id),
+                    supplier_payload["sourceType"],
+                    supplier_payload["sourceDetail"],
                 ),
             )
-            conn.commit()
-            return {
-                "id": supplier_invoice_id,
-                "ok": True,
-                "alreadyExists": True,
-                "duplicateDocument": True,
-                "supplierId": supplier_id,
-                "supplierName": supplier_name,
-                "warehouseInvoiceId": warehouse_invoice_id,
-                "accountingStatus": accounting_status,
-                "needsReview": bool(review_state.get("needsReview")),
-                "reviewReason": review_state.get("reviewReason") or "",
-            }
+            supplier_row = cur.fetchone()
+            supplier_id = supplier_row.get("id")
+            supplier_name = supplier_row.get("name") or supplier_name
+            created_supplier = True
+            _remember_supplier_alias(cur, supplier_id, supplier_payload, source="warehouse_accounting")
 
-        supplier_invoice_id = None
-        if invoice_number and (supplier_id or supplier_name):
-            supplier_match_sql = []
-            supplier_match_params = []
-            if supplier_id:
-                supplier_match_sql.append("supplier_id=%s")
-                supplier_match_params.append(supplier_id)
-            if supplier_name:
-                supplier_match_sql.append("COALESCE(supplier_name,'')=%s")
-                supplier_match_params.append(supplier_name)
-            cur.execute(
-                f"""
-                SELECT id, warehouse_invoice_id
-                  FROM supplier_invoices
-                 WHERE COALESCE(status,'') <> 'Аннулирован'
-                   AND company_id=%s
-                   AND COALESCE(invoice_number,'')=%s
-                   AND COALESCE(invoice_date::text,'')=COALESCE(%s::text,'')
-                   AND COALESCE(project_name,'')=%s
-                   AND ({" OR ".join(supplier_match_sql)})
-                 ORDER BY id DESC
-                 LIMIT 1
-                """,
-                (company_id, invoice_number, invoice_date, project_name, *supplier_match_params),
-            )
-            existing = cur.fetchone()
-            if existing:
-                linked_warehouse_id = existing.get("warehouse_invoice_id")
-                if linked_warehouse_id and int(linked_warehouse_id) != int(warehouse_invoice_id):
-                    raise HTTPException(status_code=409, detail="Счет поставщика уже связан с другой складской накладной")
-                supplier_invoice_id = existing.get("id")
+    review_state = {"needsReview": False, "reviewReason": "", "accountingStatus": "На проверке", "supplierInvoiceStatus": "На утверждении"}
+    if review_uncertain_supplier_match or (supplier_name and not supplier_id):
+        review_state = _supplier_backfill_review_state(
+            cur,
+            warehouse_invoice,
+            supplier_payload,
+            supplier_id=supplier_id,
+            matched_supplier=matched_supplier,
+            created_supplier=created_supplier,
+        )
+    supplier_invoice_status = review_state.get("supplierInvoiceStatus") or "На утверждении"
+    accounting_status = review_state.get("accountingStatus") or "На проверке"
+    accounting_comment = (
+        "Нужно уточнение: " + review_state.get("reviewReason")
+        if review_state.get("needsReview") and review_state.get("reviewReason")
+        else "Первичка создана автоматически из складской накладной. Проверить реквизиты, сумму и фото перед оплатой."
+    )
 
-        if supplier_invoice_id:
+    invoice_number = str(payload.get("invoiceNumber") or payload.get("number") or warehouse_invoice.get("number") or "").strip()
+    invoice_date = payload.get("invoiceDate") or payload.get("date") or warehouse_invoice.get("date") or None
+    amount = _float_or_zero(payload.get("amount") or payload.get("totalWithVat") or warehouse_invoice.get("total_with_vat") or warehouse_invoice.get("total_base"))
+    vat_amount = _float_or_zero(payload.get("vatAmount") or payload.get("totalVat") or warehouse_invoice.get("total_vat"))
+    work_package = (
+        payload.get("workPackage")
+        or payload.get("work_package")
+        or first_item.get("workPackage")
+        or first_item.get("work_package")
+        or ""
+    )
+    material_name = payload.get("materialName") or first_item.get("name") or ""
+    photo_urls = _json_list_or_empty(warehouse_invoice.get("photo_urls"))
+    photo_url = payload.get("photoUrl") or warehouse_invoice.get("photo_url") or (photo_urls[0] if photo_urls else "")
+    file_url = payload.get("fileUrl") or payload.get("file_url") or ""
+    description = payload.get("description") or (
+        "Первичка по складской накладной #" + str(warehouse_invoice_id)
+        + (" из MAX" if str(warehouse_invoice.get("source_type") or "").startswith("max_") else "")
+    )
+
+    duplicate_invoice = _find_existing_supplier_invoice_duplicate(
+        cur,
+        company_id=company_id,
+        invoice_number=invoice_number,
+        invoice_date=invoice_date,
+        project_name=project_name,
+        supplier_id=supplier_id,
+        supplier_name=supplier_name,
+        amount=amount,
+        warehouse_invoice_id=warehouse_invoice_id,
+    )
+    if duplicate_invoice:
+        supplier_invoice_id = duplicate_invoice.get("id")
+        live_candidate = _lock_warehouse_sync_candidate(cur, supplier_invoice_id, company_id,
+                                                      warehouse_invoice_id, ledger_present)
+        linked_warehouse_id = live_candidate.get('warehouse_invoice_id')
+        if not linked_warehouse_id:
             cur.execute(
                 """
                 UPDATE supplier_invoices
                    SET company_id=%s,
                        warehouse_invoice_id=%s,
+                       supplier_id=COALESCE(supplier_id,%s),
+                       supplier_name=COALESCE(NULLIF(supplier_name,''),%s),
                        status=CASE WHEN %s THEN %s ELSE status END
                  WHERE id=%s
                 """,
-                (company_id, warehouse_invoice_id, bool(review_state.get("needsReview")), supplier_invoice_status, supplier_invoice_id),
+                (company_id, warehouse_invoice_id, supplier_id, supplier_name, bool(review_state.get("needsReview")), supplier_invoice_status, supplier_invoice_id),
             )
         else:
             cur.execute(
                 """
-                INSERT INTO supplier_invoices
-                    (company_id,supplier_id,supplier_name,project_name,invoice_number,invoice_date,
-                     amount,vat_amount,description,file_url,photo_url,status,
-                     offer_id,request_id,payment_terms,material_name,work_package,warehouse_invoice_id)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                        NULL,NULL,%s,%s,%s,%s)
-                RETURNING id
+                UPDATE supplier_invoices
+                   SET company_id=%s,
+                       supplier_id=COALESCE(supplier_id,%s),
+                       supplier_name=COALESCE(NULLIF(supplier_name,''),%s),
+                       status=CASE WHEN %s THEN %s ELSE status END
+                 WHERE id=%s
                 """,
-                (
-                    company_id,
-                    supplier_id,
-                    supplier_name,
-                    project_name,
-                    invoice_number,
-                    invoice_date or None,
-                    amount,
-                    vat_amount,
-                    description,
-                    file_url,
-                    photo_url,
-                    supplier_invoice_status,
-                    payload.get("paymentTerms") or payload.get("payment_terms") or "",
-                    material_name,
-                    work_package,
-                    warehouse_invoice_id,
-                ),
+                (company_id, supplier_id, supplier_name, bool(review_state.get("needsReview")), supplier_invoice_status, supplier_invoice_id),
             )
-            supplier_invoice_id = cur.fetchone().get("id")
-
         actor_name = actor.get("name") or actor.get("email") or "MAX"
         cur.execute(
             """
@@ -20598,7 +21230,7 @@ def _sync_supplier_invoice_from_warehouse(warehouse_invoice_id: int, payload: di
                    supplier_id=COALESCE(supplier_id,%s),
                    supplier_name=COALESCE(NULLIF(supplier_name,''),%s),
                    accounting_status=CASE WHEN %s THEN %s ELSE COALESCE(NULLIF(accounting_status,''),'На проверке') END,
-                   accounting_comment=COALESCE(NULLIF(accounting_comment,''),%s),
+                   accounting_comment=COALESCE(NULLIF(accounting_comment,''),'Первичка связана с уже существующим счетом поставщика без создания дубля.'),
                    accounting_updated_by=%s,
                    accounting_updated_at=NOW()
              WHERE id=%s
@@ -20610,15 +21242,15 @@ def _sync_supplier_invoice_from_warehouse(warehouse_invoice_id: int, payload: di
                 supplier_name,
                 bool(review_state.get("needsReview")),
                 accounting_status,
-                accounting_comment,
                 actor_name,
                 warehouse_invoice_id,
             ),
         )
-        conn.commit()
         return {
             "id": supplier_invoice_id,
             "ok": True,
+            "alreadyExists": True,
+            "duplicateDocument": True,
             "supplierId": supplier_id,
             "supplierName": supplier_name,
             "warehouseInvoiceId": warehouse_invoice_id,
@@ -20626,12 +21258,132 @@ def _sync_supplier_invoice_from_warehouse(warehouse_invoice_id: int, payload: di
             "needsReview": bool(review_state.get("needsReview")),
             "reviewReason": review_state.get("reviewReason") or "",
         }
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        cur.close()
-        conn.close()
+
+    supplier_invoice_id = None
+    if invoice_number and (supplier_id or supplier_name):
+        supplier_match_sql = []
+        supplier_match_params = []
+        if supplier_id:
+            supplier_match_sql.append("supplier_id=%s")
+            supplier_match_params.append(supplier_id)
+        if supplier_name:
+            supplier_match_sql.append("COALESCE(supplier_name,'')=%s")
+            supplier_match_params.append(supplier_name)
+        cur.execute(
+            f"""
+            SELECT id, warehouse_invoice_id
+              FROM supplier_invoices
+             WHERE COALESCE(status,'') <> 'Аннулирован'
+               AND COALESCE(company_id,1)=%s
+               AND COALESCE(invoice_number,'')=%s
+               AND COALESCE(invoice_date::text,'')=COALESCE(%s::text,'')
+               AND COALESCE(project_name,'')=%s
+               AND ({" OR ".join(supplier_match_sql)})
+             ORDER BY id DESC
+             LIMIT 1
+            """,
+            (company_id, invoice_number, invoice_date, project_name, *supplier_match_params),
+        )
+        existing = cur.fetchone()
+        if existing:
+            linked_warehouse_id = existing.get("warehouse_invoice_id")
+            if linked_warehouse_id and int(linked_warehouse_id) != int(warehouse_invoice_id):
+                raise HTTPException(status_code=409, detail="Счет поставщика уже связан с другой складской накладной")
+            supplier_invoice_id = existing.get("id")
+
+    if supplier_invoice_id:
+        _lock_warehouse_sync_candidate(cur, supplier_invoice_id, company_id, warehouse_invoice_id, ledger_present)
+        cur.execute(
+            """
+            UPDATE supplier_invoices
+               SET company_id=%s,
+                   warehouse_invoice_id=%s,
+                   status=CASE WHEN %s THEN %s ELSE status END
+             WHERE id=%s
+            """,
+            (company_id, warehouse_invoice_id, bool(review_state.get("needsReview")), supplier_invoice_status, supplier_invoice_id),
+        )
+    else:
+        cur.execute(
+            """
+            INSERT INTO supplier_invoices
+                (company_id,supplier_id,supplier_name,project_name,invoice_number,invoice_date,
+                 amount,vat_amount,description,file_url,photo_url,status,
+                 offer_id,request_id,payment_terms,material_name,work_package,warehouse_invoice_id)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+                    NULL,NULL,%s,%s,%s,%s)
+            RETURNING id
+            """,
+            (
+                company_id,
+                supplier_id,
+                supplier_name,
+                project_name,
+                invoice_number,
+                invoice_date or None,
+                amount,
+                vat_amount,
+                description,
+                file_url,
+                photo_url,
+                supplier_invoice_status,
+                payload.get("paymentTerms") or payload.get("payment_terms") or "",
+                material_name,
+                work_package,
+                warehouse_invoice_id,
+            ),
+        )
+        supplier_invoice_id = cur.fetchone().get("id")
+
+    actor_name = actor.get("name") or actor.get("email") or "MAX"
+    cur.execute(
+        """
+        UPDATE warehouse_invoices
+           SET company_id=%s,
+               supplier_invoice_id=%s,
+               supplier_id=COALESCE(supplier_id,%s),
+               supplier_name=COALESCE(NULLIF(supplier_name,''),%s),
+               accounting_status=CASE WHEN %s THEN %s ELSE COALESCE(NULLIF(accounting_status,''),'На проверке') END,
+               accounting_comment=COALESCE(NULLIF(accounting_comment,''),%s),
+               accounting_updated_by=%s,
+               accounting_updated_at=NOW()
+         WHERE id=%s
+        """,
+        (
+            company_id,
+            supplier_invoice_id,
+            supplier_id,
+            supplier_name,
+            bool(review_state.get("needsReview")),
+            accounting_status,
+            accounting_comment,
+            actor_name,
+            warehouse_invoice_id,
+        ),
+    )
+    return {
+        "id": supplier_invoice_id,
+        "ok": True,
+        "supplierId": supplier_id,
+        "supplierName": supplier_name,
+        "warehouseInvoiceId": warehouse_invoice_id,
+        "accountingStatus": accounting_status,
+        "needsReview": bool(review_state.get("needsReview")),
+        "reviewReason": review_state.get("reviewReason") or "",
+    }
+
+def _lock_warehouse_sync_candidate(cur, invoice_id, company_id, warehouse_invoice_id, ledger_present):
+    """Company is already serialized when ledger exists; recheck before reuse."""
+    cur.execute('''SELECT company_id,warehouse_invoice_id,status FROM supplier_invoices
+                   WHERE id=%s FOR UPDATE''', (invoice_id,))
+    row = cur.fetchone()
+    if (not row or row.get('company_id') != company_id or row.get('status') == 'Аннулирован'
+            or row.get('warehouse_invoice_id') not in (None, warehouse_invoice_id)):
+        raise HTTPException(409, 'Связь счёта и складской накладной требует сверки')
+    if ledger_present:
+        _require_unmanaged_payment_document(cur, 'invoice', invoice_id, proposed_link=warehouse_invoice_id)
+    return row
+
 
 @app.post("/warehouse-invoices")
 def create_warehouse_invoice(
@@ -20753,22 +21505,33 @@ def backfill_supplier_documents(data: dict = None, _current_user: dict = Depends
     }
 
 @app.post("/supplier-documents/dedupe")
-def dedupe_supplier_accounting_documents(data: dict = None, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
+def dedupe_supplier_accounting_documents(
+    data: dict = None,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
     """Находит и безопасно схлопывает старые дубли бухгалтерской первички без удаления склада/оплат."""
     data = data or {}
     apply_changes = bool(data.get("apply") or data.get("commit"))
     force_review = bool(data.get("force") or data.get("forceReview"))
     project_filter = str(data.get("projectName") or data.get("project_name") or "").strip()
-    raw_ids = data.get("supplierInvoiceIds") or data.get("supplier_invoice_ids") or []
+    raw_ids = data.get("supplierInvoiceIds", data.get("supplier_invoice_ids", []))
     if not isinstance(raw_ids, list):
         raw_ids = [raw_ids]
-    raw_single_id = data.get("supplierInvoiceId") or data.get("supplier_invoice_id")
-    if raw_single_id:
+    else:
+        raw_ids = list(raw_ids)
+    raw_single_id = data.get("supplierInvoiceId", data.get("supplier_invoice_id"))
+    if raw_single_id is not None:
         raw_ids.append(raw_single_id)
     target_ids = []
     for raw_id in raw_ids:
-        value = _positive_int_or_none(raw_id)
-        if value and value not in target_ids:
+        if not (type(raw_id) is int or (isinstance(raw_id, str) and raw_id.isdecimal())):
+            raise HTTPException(422, "Некорректный идентификатор счёта")
+        value = int(raw_id)
+        if not 0 < value <= 2147483647:
+            raise HTTPException(422, "Некорректный идентификатор счёта")
+        if value not in target_ids:
             target_ids.append(value)
     try:
         limit = int(data.get("limit") or 50)
@@ -20777,16 +21540,61 @@ def dedupe_supplier_accounting_documents(data: dict = None, _current_user: dict 
     limit = max(1, min(limit, 200))
 
     conn = get_db()
-    conn.autocommit = False
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur = None
     try:
-        _ensure_invoice_document_link_columns(cur)
-        _ensure_warehouse_invoice_accounting_columns(cur)
+        conn.autocommit = False
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        context = _resolve_work_company_context(cur, _current_user, None, "write",
+            x_company_id=x_company_id, x_company_mode=x_company_mode)
+        if (context.get("mode") != "company" or context.get("source") != "membership"
+                or not context.get("active") or not context.get("companyActive")
+                or not context.get("membershipId") or context.get("role") not in FINANCE_ROLES):
+            raise HTTPException(403, "Для сверки документов требуется финансовая роль в выбранной компании")
+        company_id = context["companyId"]
+        membership_id = context["membershipId"]
+        cur.execute("SHOW transaction_isolation")
+        if cur.fetchone()["transaction_isolation"] != "read committed":
+            raise HTTPException(409, "Сверка документов требует новой транзакции")
+        ledger_present = _payment_ledger_available(cur)
+        if not ledger_present:
+            # Legacy writers prepare schema before taking the company lock.
+            # Keep the same order; all business changes still share this txn.
+            _ensure_invoice_document_link_columns(cur)
+            _ensure_warehouse_invoice_accounting_columns(cur)
+        # Collection discovery has no document root. Use the payment engine's
+        # company lock BEFORE membership/document row locks. With 0017, no DDL.
+        cur.execute("SELECT pg_advisory_xact_lock(%s,%s)", (1735289201, company_id))
+        cur.execute("SELECT * FROM users WHERE id=%s AND active=TRUE FOR SHARE", (_current_user["id"],))
+        fresh_user = cur.fetchone()
+        if not fresh_user:
+            raise HTTPException(403, "Пользователь отключён")
+        _current_user = dict(fresh_user)
+        cur.execute("SELECT id FROM companies WHERE id=%s FOR SHARE", (company_id,))
+        cur.fetchone()
+        cur.execute("SELECT id FROM user_company_roles WHERE id=%s AND user_id=%s AND company_id=%s FOR SHARE",
+                    (membership_id, _current_user["id"], company_id))
+        if not cur.fetchone():
+            raise HTTPException(403, "Членство больше не действует")
+        context, actor = resolve_resource_company_actor(cur, _current_user, company_id, "update",
+            claimed_company_id=data.get("companyId", data.get("company_id")),
+            x_company_id=x_company_id, x_company_mode=x_company_mode, allowed_roles=FINANCE_ROLES,
+            platform_staff_roles=PLATFORM_STAFF_ROLES, client_account_roles=CLIENT_ACCOUNT_ROLES)
+        if (context.get("source") != "membership" or context.get("membershipId") != membership_id
+                or not context.get("active") or not context.get("companyActive")):
+            raise HTTPException(403, "Членство больше не действует")
+        _current_user = actor
+        if target_ids:
+            cur.execute("SELECT id,company_id FROM supplier_invoices WHERE id=ANY(%s)", (target_ids,))
+            seeds = cur.fetchall()
+            if len(seeds) != len(target_ids):
+                raise HTTPException(404, "Счёт не найден")
+            assert_rows_company_scope(seeds, company_id, "Выбранные счета")
         where = [
+            "company_id=%s",
             "COALESCE(status,'') <> 'Аннулирован'",
             "COALESCE(invoice_number,'') <> ''",
         ]
-        params = []
+        params = [company_id]
         if project_filter:
             require_project_access(_current_user, project_filter)
             where.append("COALESCE(project_name,'')=%s")
@@ -20796,7 +21604,7 @@ def dedupe_supplier_accounting_documents(data: dict = None, _current_user: dict 
             seed_params = params + [target_ids]
             cur.execute(
                 f"""
-                SELECT DISTINCT COALESCE(company_id,1) AS company_id,
+                SELECT DISTINCT company_id,
                        COALESCE(invoice_number,'') AS invoice_number,
                        COALESCE(invoice_date::text,'') AS invoice_date_key,
                        COALESCE(project_name,'') AS project_name,
@@ -20813,7 +21621,7 @@ def dedupe_supplier_accounting_documents(data: dict = None, _current_user: dict 
         else:
             cur.execute(
                 f"""
-                SELECT COALESCE(company_id,1) AS company_id,
+                SELECT company_id,
                        COALESCE(invoice_number,'') AS invoice_number,
                        COALESCE(invoice_date::text,'') AS invoice_date_key,
                        COALESCE(project_name,'') AS project_name,
@@ -20822,7 +21630,7 @@ def dedupe_supplier_accounting_documents(data: dict = None, _current_user: dict 
                        MAX(id) AS latest_id
                   FROM supplier_invoices
                  WHERE {" AND ".join(where)}
-                 GROUP BY COALESCE(company_id,1), COALESCE(invoice_number,''),
+                 GROUP BY company_id, COALESCE(invoice_number,''),
                           COALESCE(invoice_date::text,''), COALESCE(project_name,''),
                           ROUND(COALESCE(amount,0)::numeric, 2)
                 HAVING COUNT(*) > 1
@@ -20833,6 +21641,7 @@ def dedupe_supplier_accounting_documents(data: dict = None, _current_user: dict 
             )
         keys = [dict(row) for row in cur.fetchall() or []]
         groups = []
+        plans = []
         applied_groups = 0
         annulled_rows = 0
         linked_warehouse_rows = 0
@@ -20853,10 +21662,10 @@ def dedupe_supplier_accounting_documents(data: dict = None, _current_user: dict 
                    AND COALESCE(invoice_date::text,'')=%s
                    AND COALESCE(project_name,'')=%s
                    AND ROUND(COALESCE(amount,0)::numeric, 2)=%s
-                 ORDER BY id
+                 ORDER BY id FOR UPDATE
                 """,
                 (
-                    key.get("company_id") or 1,
+                    company_id,
                     key.get("invoice_number") or "",
                     key.get("invoice_date_key") or "",
                     project_name,
@@ -20872,7 +21681,7 @@ def dedupe_supplier_accounting_documents(data: dict = None, _current_user: dict 
             canonical_id = canonical.get("id") if canonical else None
             duplicate_rows = [row for row in rows if int(row.get("id") or 0) != int(canonical_id or 0)]
             group = {
-                "companyId": key.get("company_id") or 1,
+                "companyId": company_id,
                 "invoiceNumber": key.get("invoice_number") or "",
                 "invoiceDate": key.get("invoice_date_key") or "",
                 "projectName": project_name,
@@ -20885,72 +21694,106 @@ def dedupe_supplier_accounting_documents(data: dict = None, _current_user: dict 
                 "rows": [_supplier_invoice_duplicate_summary(row) for row in rows],
             }
             if apply_changes and canonical_id and (safety.get("safe") or force_review):
-                canonical_warehouse_id = _positive_int_or_none(canonical.get("warehouse_invoice_id"))
-                actor_note = "Схлопнуто как дубль бухгалтерской первички в счет #" + str(canonical_id)
-                for duplicate in duplicate_rows:
-                    duplicate_id = int(duplicate.get("id") or 0)
-                    if not duplicate_id:
-                        continue
-                    duplicate_warehouse_id = _positive_int_or_none(duplicate.get("warehouse_invoice_id"))
+                row_ids = [row["id"] for row in rows]
+                forward_ids = sorted({row["warehouse_invoice_id"] for row in rows if row.get("warehouse_invoice_id")})
+                cur.execute("""SELECT id,company_id,supplier_invoice_id FROM warehouse_invoices
+                    WHERE id=ANY(%s::int[]) OR supplier_invoice_id=ANY(%s::int[]) ORDER BY id""",
+                    (forward_ids, row_ids))
+                warehouses = cur.fetchall()
+                assert_rows_company_scope(warehouses, company_id, "Связанные накладные")
+                warehouse_ids = [row["id"] for row in warehouses]
+                if not set(forward_ids).issubset(warehouse_ids):
+                    raise HTTPException(409, "Связанная накладная не найдена")
+                cur.execute("""SELECT id,company_id,supplier_invoice_id FROM warehouse_invoices
+                    WHERE company_id=%s AND id=ANY(%s::int[]) ORDER BY id FOR UPDATE""",
+                    (company_id, warehouse_ids))
+                warehouses = cur.fetchall()
+                if [row["id"] for row in warehouses] != warehouse_ids:
+                    raise HTTPException(409, "Принадлежность накладных изменилась. Повторите запрос")
+                # Reverse warehouses may themselves have other forward/reverse
+                # invoice neighbours. Check them even when 0017 is absent.
+                neighbor_ids = [row["supplier_invoice_id"] for row in warehouses if row.get("supplier_invoice_id")]
+                cur.execute("""SELECT id,company_id FROM supplier_invoices
+                    WHERE id=ANY(%s::int[]) OR warehouse_invoice_id=ANY(%s::int[])""",
+                    (neighbor_ids, warehouse_ids))
+                assert_rows_company_scope(cur.fetchall(), company_id, "Связанные счета")
+                if ledger_present:
+                    for row_id in row_ids:
+                        _require_unmanaged_payment_document(cur, 'invoice', row_id)
+                    for warehouse_id in warehouse_ids:
+                        _require_unmanaged_payment_document(cur, 'warehouse', warehouse_id)
+                plans.append((canonical, duplicate_rows, group))
+            groups.append(group)
+        # Preflight the entire batch before any document changes. A conflict in
+        # any group (including forceReview) aborts this single transaction.
+        for canonical, duplicate_rows, group in plans:
+            canonical_id = canonical["id"]
+            canonical_warehouse_id = _positive_int_or_none(canonical.get("warehouse_invoice_id"))
+            actor_note = "Схлопнуто как дубль бухгалтерской первички в счет #" + str(canonical_id)
+            for duplicate in duplicate_rows:
+                duplicate_id = int(duplicate.get("id") or 0)
+                if not duplicate_id:
+                    continue
+                duplicate_warehouse_id = _positive_int_or_none(duplicate.get("warehouse_invoice_id"))
+                cur.execute(
+                    """
+                    UPDATE supplier_invoices
+                       SET supplier_id=COALESCE(supplier_id,%s),
+                           supplier_name=COALESCE(NULLIF(supplier_name,''),%s),
+                           offer_id=COALESCE(offer_id,%s),
+                           request_id=COALESCE(request_id,%s),
+                           warehouse_invoice_id=COALESCE(warehouse_invoice_id,%s),
+                           file_url=COALESCE(NULLIF(file_url,''),%s),
+                           photo_url=COALESCE(NULLIF(photo_url,''),%s),
+                           payment_terms=COALESCE(NULLIF(payment_terms,''),%s),
+                           material_name=COALESCE(NULLIF(material_name,''),%s),
+                           work_package=COALESCE(NULLIF(work_package,''),%s)
+                     WHERE id=%s AND company_id=%s
+                    """,
+                    (
+                        duplicate.get("supplier_id"),
+                        duplicate.get("supplier_name") or "",
+                        duplicate.get("offer_id"),
+                        duplicate.get("request_id"),
+                        duplicate_warehouse_id,
+                        duplicate.get("file_url") or "",
+                        duplicate.get("photo_url") or "",
+                        duplicate.get("payment_terms") or "",
+                        duplicate.get("material_name") or "",
+                        duplicate.get("work_package") or "",
+                        canonical_id,
+                        company_id,
+                    ),
+                )
+                if duplicate_warehouse_id:
                     cur.execute(
-                        """
-                        UPDATE supplier_invoices
-                           SET supplier_id=COALESCE(supplier_id,%s),
-                               supplier_name=COALESCE(NULLIF(supplier_name,''),%s),
-                               offer_id=COALESCE(offer_id,%s),
-                               request_id=COALESCE(request_id,%s),
-                               warehouse_invoice_id=COALESCE(warehouse_invoice_id,%s),
-                               file_url=COALESCE(NULLIF(file_url,''),%s),
-                               photo_url=COALESCE(NULLIF(photo_url,''),%s),
-                               payment_terms=COALESCE(NULLIF(payment_terms,''),%s),
-                               material_name=COALESCE(NULLIF(material_name,''),%s),
-                               work_package=COALESCE(NULLIF(work_package,''),%s)
-                         WHERE id=%s
-                        """,
-                        (
-                            duplicate.get("supplier_id"),
-                            duplicate.get("supplier_name") or "",
-                            duplicate.get("offer_id"),
-                            duplicate.get("request_id"),
-                            duplicate_warehouse_id,
-                            duplicate.get("file_url") or "",
-                            duplicate.get("photo_url") or "",
-                            duplicate.get("payment_terms") or "",
-                            duplicate.get("material_name") or "",
-                            duplicate.get("work_package") or "",
-                            canonical_id,
-                        ),
-                    )
-                    if duplicate_warehouse_id:
-                        cur.execute(
-                            "UPDATE warehouse_invoices SET supplier_invoice_id=%s WHERE id=%s AND COALESCE(status,'') <> 'Аннулирована'",
-                            (canonical_id, duplicate_warehouse_id),
-                        )
-                        linked_warehouse_rows += cur.rowcount
-                        if not canonical_warehouse_id:
-                            cur.execute("UPDATE supplier_invoices SET warehouse_invoice_id=%s WHERE id=%s", (duplicate_warehouse_id, canonical_id))
-                            canonical_warehouse_id = duplicate_warehouse_id
-                    cur.execute(
-                        "UPDATE warehouse_invoices SET supplier_invoice_id=%s WHERE supplier_invoice_id=%s AND COALESCE(status,'') <> 'Аннулирована'",
-                        (canonical_id, duplicate_id),
+                        "UPDATE warehouse_invoices SET supplier_invoice_id=%s WHERE id=%s AND company_id=%s AND COALESCE(status,'') <> 'Аннулирована'",
+                        (canonical_id, duplicate_warehouse_id, company_id),
                     )
                     linked_warehouse_rows += cur.rowcount
-                    cur.execute(
-                        """
-                        UPDATE supplier_invoices
-                           SET status='Аннулирован',
-                               paid_note=COALESCE(NULLIF(paid_note,''),'') ||
-                                   CASE WHEN COALESCE(paid_note,'')<>'' THEN E'\n' ELSE '' END || %s
-                         WHERE id=%s
-                           AND COALESCE(status,'') <> 'Аннулирован'
-                           AND COALESCE(paid_amount,0)=0
-                        """,
-                        (actor_note, duplicate_id),
-                    )
-                    annulled_rows += cur.rowcount
-                group["applied"] = True
-                applied_groups += 1
-            groups.append(group)
+                    if not canonical_warehouse_id:
+                        cur.execute("UPDATE supplier_invoices SET warehouse_invoice_id=%s WHERE id=%s AND company_id=%s", (duplicate_warehouse_id, canonical_id, company_id))
+                        canonical_warehouse_id = duplicate_warehouse_id
+                cur.execute(
+                    "UPDATE warehouse_invoices SET supplier_invoice_id=%s WHERE supplier_invoice_id=%s AND company_id=%s AND COALESCE(status,'') <> 'Аннулирована'",
+                    (canonical_id, duplicate_id, company_id),
+                )
+                linked_warehouse_rows += cur.rowcount
+                cur.execute(
+                    """
+                    UPDATE supplier_invoices
+                       SET status='Аннулирован',
+                           paid_note=COALESCE(NULLIF(paid_note,''),'') ||
+                               CASE WHEN COALESCE(paid_note,'')<>'' THEN E'\n' ELSE '' END || %s
+                     WHERE id=%s AND company_id=%s
+                       AND COALESCE(status,'') <> 'Аннулирован'
+                       AND COALESCE(paid_amount,0)=0
+                    """,
+                    (actor_note, duplicate_id, company_id),
+                )
+                annulled_rows += cur.rowcount
+            group["applied"] = True
+            applied_groups += 1
         if apply_changes:
             conn.commit()
         else:
@@ -20968,7 +21811,8 @@ def dedupe_supplier_accounting_documents(data: dict = None, _current_user: dict 
         conn.rollback()
         raise
     finally:
-        cur.close()
+        if cur is not None:
+            cur.close()
         conn.close()
 
 @app.put("/warehouse-invoices/{id}/accounting")
@@ -20983,8 +21827,14 @@ def update_warehouse_invoice_accounting(
     conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        _ensure_warehouse_invoice_accounting_columns(cur)
-        _ensure_invoice_document_link_columns(cur)
+        ledger_present = _payment_ledger_available(cur)
+        if ledger_present:
+            # 0017 requires an initialized finance schema. Runtime DDL here
+            # would take table locks ahead of the engine's company lock.
+            _lock_payment_document_writer(cur, 'warehouse', id)
+        else:
+            _ensure_warehouse_invoice_accounting_columns(cur)
+            _ensure_invoice_document_link_columns(cur)
         cur.execute("""SELECT id, number, date, supplier_id, supplier_name, location, project, items,
                               total_base, total_vat, total_with_vat, status, photo_url, photo_urls,
                               accounting_status, accounting_comment, paid_amount, supplier_invoice_id,
@@ -21018,6 +21868,12 @@ def update_warehouse_invoice_accounting(
         target_project = row.get("project") or (row.get("location") if row.get("location") != "Основной склад" else "")
         if target_project:
             require_project_access(_current_user, target_project)
+
+        if ledger_present:
+            proposed_link = data.get('supplierInvoiceId')
+            if proposed_link is None:
+                proposed_link = data.get('supplier_invoice_id')
+            _require_unmanaged_payment_document(cur, 'warehouse', id, proposed_link=proposed_link)
 
         supplier_payload_present = "supplierId" in data or "supplier_id" in data
         requested_supplier_id = None
@@ -21465,7 +22321,33 @@ def delete_warehouse_invoice(
     conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
-        _ensure_invoice_document_link_columns(cur)
+        # Authorize without a row lock, then acquire the common stock lock order.
+        # The locked row below is authorized again in case its company changed.
+        cur.execute('SELECT company_id FROM warehouse_invoices WHERE id=%s', (id,))
+        initial = cur.fetchone()
+        if not initial:
+            raise HTTPException(status_code=404, detail="Накладная не найдена")
+        resolve_resource_company_actor(
+            cur, _current_user, initial.get('company_id'), 'delete',
+            x_company_id=x_company_id, x_company_mode=x_company_mode,
+            allowed_roles=(*LEADERSHIP_ROLES, "кладовщик", "снабженец"),
+            forbidden_detail="Роль в выбранной компании не позволяет аннулировать складскую накладную",
+            platform_staff_roles=PLATFORM_STAFF_ROLES, client_account_roles=CLIENT_ACCOUNT_ROLES,
+        )
+        # Release the preliminary receipt-table ACCESS SHARE lock before taking
+        # stock locks: the legacy column helper below may need ACCESS EXCLUSIVE.
+        # No writes have occurred; the locked row is authorized again below.
+        conn.rollback()
+        try:
+            from backend.features.material_traceability.guards import lock_distribution_compatible_stock
+        except ModuleNotFoundError:
+            from features.material_traceability.guards import lock_distribution_compatible_stock
+        lock_distribution_compatible_stock(cur)
+        ledger_present = _payment_ledger_available(cur)
+        if ledger_present:
+            _lock_payment_document_writer(cur, 'warehouse', id)
+        else:
+            _ensure_invoice_document_link_columns(cur)
         cur.execute("""SELECT id, COALESCE(project,'') AS project, COALESCE(location,'') AS location,
                               COALESCE(status,'') AS status, items, COALESCE(accepted_by,'') AS accepted_by,
                               COALESCE(added_by,'') AS added_by, date, supply_delivery_id, supplier_invoice_id,
@@ -21487,11 +22369,21 @@ def delete_warehouse_invoice(
             client_account_roles=CLIENT_ACCOUNT_ROLES,
         )
         _current_user = actor
+        target_project = row.get("project") or (row.get("location") if row.get("location") != "Основной склад" else "")
+        if target_project:
+            require_project_or_warehouse_access(_current_user, target_project)
+        if ledger_present:
+            _require_unmanaged_payment_document(cur, 'warehouse', id)
         if row.get("supply_delivery_id"):
             raise HTTPException(status_code=409, detail="Накладная создана при приёмке поставки. Исправляйте поставку/претензию, а не удаляйте накладную отдельно.")
         if row.get("status") == "Аннулирована":
             conn.rollback()
             return {"ok": True, "annulled": True, "alreadyAnnulled": True, "stockRowsRestored": 0}
+        try:
+            from backend.features.material_traceability.guards import close_receipt_lots_for_cancellation
+        except ModuleNotFoundError:
+            from features.material_traceability.guards import close_receipt_lots_for_cancellation
+        close_receipt_lots_for_cancellation(cur, row.get('company_id'), id)
         target_project = row.get("project") or (row.get("location") if row.get("location") != "Основной склад" else "")
         if target_project:
             require_project_or_warehouse_access(_current_user, target_project)
@@ -21696,6 +22588,21 @@ register_material_aliases_module(app, {
     "write_roles": (*LEADERSHIP_ROLES, "прораб", "главный_инженер", "сметчик", "снабженец", "кладовщик"),
     "require_project_access": require_project_access,
     "visible_project_names": visible_project_names,
+})
+
+try:
+    from backend.features.material_aliases.owned_routes import register_owned_aliases
+except ModuleNotFoundError:
+    from features.material_aliases.owned_routes import register_owned_aliases
+
+register_owned_aliases(app, {
+    "get_db": get_db,
+    "get_current_user": get_current_user,
+    "read_roles": PROJECT_DOCUMENT_ROLES,
+    "write_roles": (*LEADERSHIP_ROLES, "прораб", "главный_инженер", "сметчик", "снабженец", "кладовщик"),
+    "full_project_roles": BRIGADE_FULL_VIEW_ROLES,
+    "platform_staff_roles": PLATFORM_STAFF_ROLES,
+    "client_account_roles": CLIENT_ACCOUNT_ROLES,
 })
 
 @app.get("/material-norms")
@@ -23493,8 +24400,58 @@ def accept_material_norm_suggestion_as_override(id: int, payload: dict = Body(de
     cur.close(); conn.close()
     return _material_norm_suggestion_row(dict(row))
 
+try:
+    from backend.features.quality_journals.access import quality_access_enabled, journal_operation
+except ModuleNotFoundError:
+    from features.quality_journals.access import quality_access_enabled, journal_operation
+
+
+def _quality_journal_dependencies():
+    return {
+        'get_db': get_db, 'read_roles': PROJECT_DOCUMENT_ROLES,
+        'write_roles': (*PROJECT_DOCUMENT_WRITE_ROLES, 'кладовщик', 'снабженец'),
+        'worker_roles': WORKER_EXECUTION_ROLES, 'visible_projects': visible_project_names,
+        'package_filter': package_access_filter, 'platform_staff_roles': PLATFORM_STAFF_ROLES,
+        'client_account_roles': CLIENT_ACCOUNT_ROLES,
+    }
+
+
+
+def _owned_quality_journal(user, request, table, **operation):
+    return journal_operation(_quality_journal_dependencies(), user, request.headers, table, **operation)
+
+
+
+def _owned_quality_suggestion(user, request, table, row_id):
+    try:
+        from backend.features.quality_journals.suggestions import suggest_journal
+    except ModuleNotFoundError:
+        from features.quality_journals.suggestions import suggest_journal
+    return suggest_journal(_quality_journal_dependencies(), user, request.headers, table, row_id,
+                          api_key=YANDEX_API_KEY, folder_id=YANDEX_FOLDER_ID)
+
+
+
+def _quality_journal_reader(user: dict = Depends(get_current_user)):
+    if not quality_access_enabled() and user.get('role') not in PROJECT_DOCUMENT_ROLES:
+        raise HTTPException(403, 'Недостаточно прав')
+    return user
+
+
+
+def _quality_journal_writer(user: dict = Depends(get_current_user)):
+    if not quality_access_enabled() and user.get('role') not in (*PROJECT_DOCUMENT_WRITE_ROLES, 'кладовщик', 'снабженец'):
+        raise HTTPException(403, 'Недостаточно прав')
+    return user
+
+
+
 @app.get("/material-inspection")
-def list_material_inspections(project_name: str = None, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
+def list_material_inspections(request: Request, response: Response, project_name: str = None, _current_user: dict = Depends(_quality_journal_reader)):
+    if quality_access_enabled():
+        rows = _owned_quality_journal(_current_user, request, 'material_inspection_journal', project_name=project_name)
+        response.headers['X-Quality-Journal-Snapshot'] = 'owned-v1'
+        return rows
     conn = get_db()
     cur = conn.cursor()
     _ensure_journal_source_columns(cur)
@@ -23544,8 +24501,11 @@ def list_material_inspections(project_name: str = None, _current_user: dict = De
              "deliveryId":r[21],"warehouseHistoryId":r[22],"sourceType":r[23] or "",
              "sourceId":r[24],"sourceItemKey":r[25] or ""} for r in rows]
 
+
 @app.put("/material-inspection/{id}")
-def update_material_inspection(id: int, data: dict, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES, "кладовщик", "снабженец"))):
+def update_material_inspection(id: int, data: dict, request: Request, _current_user: dict = Depends(_quality_journal_writer)):
+    if quality_access_enabled():
+        return _owned_quality_journal(_current_user, request, 'material_inspection_journal', row_id=id, data=data)
     conn = get_db()
     cur = conn.cursor()
     require_row_project_access(cur, "material_inspection_journal", id, _current_user)
@@ -23589,8 +24549,11 @@ def update_material_inspection(id: int, data: dict, _current_user: dict = Depend
     cur.close(); conn.close()
     return {"ok": True}
 
+
 @app.post("/material-inspection/{id}/ai-suggest")
-def ai_suggest_material_inspection(id: int, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES, "кладовщик", "снабженец"))):
+def ai_suggest_material_inspection(id: int, request: Request, _current_user: dict = Depends(_quality_journal_writer)):
+    if quality_access_enabled():
+        return _owned_quality_suggestion(_current_user, request, 'material_inspection_journal', id)
     import openai as oa, json as j, re
     conn = get_db()
     cur = conn.cursor()
@@ -23651,8 +24614,13 @@ def ai_suggest_material_inspection(id: int, _current_user: dict = Depends(requir
     cur.close(); conn.close()
     return {"ok": True, "normatives": normatives, "requiredDocs": required_docs, "aiFilled": True}
 
+
 @app.get("/cable-journal")
-def list_cable_journal(project_name: str = None, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
+def list_cable_journal(request: Request, response: Response, project_name: str = None, _current_user: dict = Depends(_quality_journal_reader)):
+    if quality_access_enabled():
+        rows = _owned_quality_journal(_current_user, request, 'cable_journal', project_name=project_name)
+        response.headers['X-Quality-Journal-Snapshot'] = 'owned-v1'
+        return rows
     if _current_user.get("role") in WORKER_EXECUTION_ROLES:
         return []
     conn = get_db()
@@ -23703,8 +24671,11 @@ def list_cable_journal(project_name: str = None, _current_user: dict = Depends(r
              "workPackage":r[24] or "","deliveryId":r[25],"warehouseHistoryId":r[26],
              "sourceType":r[27] or "","sourceId":r[28],"sourceItemKey":r[29] or ""} for r in rows]
 
+
 @app.put("/cable-journal/{id}")
-def update_cable_journal(id: int, data: dict, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES, "кладовщик", "снабженец"))):
+def update_cable_journal(id: int, data: dict, request: Request, _current_user: dict = Depends(_quality_journal_writer)):
+    if quality_access_enabled():
+        return _owned_quality_journal(_current_user, request, 'cable_journal', row_id=id, data=data)
     conn = get_db()
     cur = conn.cursor()
     require_row_project_access(cur, "cable_journal", id, _current_user)
@@ -23750,8 +24721,11 @@ def update_cable_journal(id: int, data: dict, _current_user: dict = Depends(requ
     cur.close(); conn.close()
     return {"ok": True}
 
+
 @app.post("/cable-journal/{id}/ai-suggest")
-def ai_suggest_cable_journal(id: int, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES, "кладовщик", "снабженец"))):
+def ai_suggest_cable_journal(id: int, request: Request, _current_user: dict = Depends(_quality_journal_writer)):
+    if quality_access_enabled():
+        return _owned_quality_suggestion(_current_user, request, 'cable_journal', id)
     import openai as oa, json as j, re
     conn = get_db()
     cur = conn.cursor()
@@ -23814,6 +24788,7 @@ def ai_suggest_cable_journal(id: int, _current_user: dict = Depends(require_role
     conn.commit()
     cur.close(); conn.close()
     return {"ok": True, "normatives": full_normatives, "minInsulation": min_insulation, "recommendations": recommendations, "aiFilled": True}
+
 
 try:
     from backend.features.supervisor_acts.routes import register_supervisor_acts_module
@@ -24079,7 +25054,7 @@ def list_supplier_invoices(
         where.append("si.project_name=%s"); params.append(project_name)
     if status: where.append("si.status=%s"); params.append(status)
     if is_supplier:
-        supplier_ids = current_supplier_ids(cur, current_user)
+        supplier_ids = current_supplier_access_ids(cur, current_user)
         if not supplier_ids:
             cur.close(); conn.close()
             return []
@@ -24134,6 +25109,11 @@ def list_supplier_invoices(
     params += page_params
     cur.execute(q, params)
     rows = cur.fetchall()
+    try:
+        from backend.features.supplier_payments.settlements import invoice_reductions, invoice_fields
+    except ModuleNotFoundError:
+        from features.supplier_payments.settlements import invoice_reductions, invoice_fields
+    reductions = invoice_reductions(cur, rows)
     cur.close(); conn.close()
     result = []
     for r in rows:
@@ -24158,6 +25138,7 @@ def list_supplier_invoices(
             "projectName": r.get("project_name") or "", "invoiceNumber": r.get("invoice_number") or "",
             "invoiceDate": str(r.get("invoice_date")) if r.get("invoice_date") else "",
             "amount": float(r.get("amount") or 0), "totalAmount": float(r.get("amount") or 0),
+            **invoice_fields(r, reductions),
             "vatAmount": float(r.get("vat_amount") or 0), "description": r.get("description") or "",
             "fileUrl": r.get("file_url") or "", "photoUrl": r.get("photo_url") or "",
             "status": r.get("status") or "На утверждении", "approvedBy": r.get("approved_by") or "",
@@ -24191,202 +25172,294 @@ def list_supplier_invoices(
     return result
 
 @app.post("/supplier-invoices")
-def create_supplier_invoice(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "поставщик"))):
-    conn = get_db()
-    cur = conn.cursor()
-    _ensure_invoice_document_link_columns(cur)
-    _ensure_supply_runtime_columns(cur)
-    conn.commit()
-    project_name = data.get("projectName", "")
-    invoice_work_package = (data.get("workPackage") or data.get("work_package") or "").strip()
-    offer_id = int(data.get("offerId") or data.get("offer_id") or 0)
-    request_id = int(data.get("requestId") or data.get("request_id") or 0)
-    company_id = _positive_int_or_none(data.get("companyId") or data.get("company_id"))
+def create_supplier_invoice(
+    data: dict,
+    _current_user: dict = Depends(get_current_user),
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+):
+    # This legacy writer may enrich/relink existing documents: even "already
+    # exists" is a mutation, not an immutable payment-operation replay.
     if _current_user.get("role") == "поставщик":
-        supplier_ids = current_supplier_ids(cur, _current_user)
-        if not supplier_ids:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=403, detail="поставщик не найден")
-        if not project_name:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="объект обязателен")
-        data["supplierId"] = supplier_ids[0]
-        data["_supplierAccessIds"] = supplier_ids
-    else:
-        if project_name:
-            require_project_access(_current_user, project_name)
-    linked_offer = None
-    if project_name:
-        if not offer_id:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="Счёт по объекту создаётся только из утверждённого КП/заявки. Откройте КП поставщика и выставьте счёт оттуда.")
-        cur.execute("""SELECT o.id, o.request_id, o.supplier_id, o.total_price, o.payment_terms,
-                              s.name AS supplier_name, r.project, COALESCE(r.work_package,'') AS work_package,
-                              r.material_name, COALESCE(o.company_id, r.company_id, 1) AS company_id
-                       FROM supplier_offers o
-                       LEFT JOIN suppliers s ON s.id=o.supplier_id
-                       LEFT JOIN supply_requests r ON r.id=o.request_id
-                       WHERE o.id=%s AND o.status=%s
-                       LIMIT 1""", (offer_id, 'Утверждено'))
-        linked_offer = cur.fetchone()
-        if not linked_offer:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="Утверждённое КП для счёта не найдено")
-        offer_project = linked_offer[6] if not isinstance(linked_offer, dict) else linked_offer.get("project")
-        offer_request_id = linked_offer[1] if not isinstance(linked_offer, dict) else linked_offer.get("request_id")
-        offer_supplier_id = linked_offer[2] if not isinstance(linked_offer, dict) else linked_offer.get("supplier_id")
-        offer_total = _float_or_zero(linked_offer[3] if not isinstance(linked_offer, dict) else linked_offer.get("total_price"))
-        offer_package = (linked_offer[7] if not isinstance(linked_offer, dict) else linked_offer.get("work_package")) or ""
-        company_id = company_id or _positive_int_or_none(linked_offer[9] if not isinstance(linked_offer, dict) else linked_offer.get("company_id"))
-        if offer_project != project_name:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="КП относится к другому объекту")
-        if request_id and request_id != offer_request_id:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="КП не относится к указанной заявке")
-        if _current_user.get("role") == "поставщик":
-            if int(offer_supplier_id or 0) not in (data.get("_supplierAccessIds") or []):
-                cur.close(); conn.close()
-                raise HTTPException(status_code=403, detail="Нет доступа к КП")
-            data["supplierId"] = offer_supplier_id
-        elif data.get("supplierId") and int(data.get("supplierId") or 0) != int(offer_supplier_id or 0):
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="Поставщик счёта не совпадает с поставщиком КП")
-        if invoice_work_package and offer_package and invoice_work_package != offer_package:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="Раздел счёта не совпадает с разделом заявки/КП")
-        amount = _float_or_zero(data.get("amount", offer_total))
-        if offer_total > 0 and amount > offer_total + max(1, offer_total * 0.02):
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="Сумма счёта больше суммы утверждённого КП")
-        cur.execute("""SELECT id FROM supplier_invoices
-                       WHERE offer_id=%s AND COALESCE(status,'') <> 'Аннулирован'
-                       ORDER BY id DESC LIMIT 1""", (offer_id,))
-        existing_invoice = cur.fetchone()
-        if existing_invoice:
-            existing_id = existing_invoice[0] if not isinstance(existing_invoice, dict) else existing_invoice.get("id")
-            cur.execute("""SELECT id FROM warehouse_invoices
-                           WHERE supply_request_id=%s
-                             AND COALESCE(status,'') <> 'Аннулирована'
-                             AND (supplier_invoice_id IS NULL OR supplier_invoice_id=%s)
-                           ORDER BY id DESC LIMIT 1""", (offer_request_id, existing_id))
-            existing_warehouse_invoice_id = _row_get(cur.fetchone(), "id", 0)
-            if existing_warehouse_invoice_id:
-                cur.execute("UPDATE supplier_invoices SET company_id=%s, warehouse_invoice_id=%s WHERE id=%s", (company_id or 1, existing_warehouse_invoice_id, existing_id))
-                cur.execute("UPDATE warehouse_invoices SET company_id=%s, supplier_invoice_id=%s WHERE id=%s", (company_id or 1, existing_id, existing_warehouse_invoice_id))
-                conn.commit()
-            cur.close(); conn.close()
-            return {"id": existing_id, "ok": True, "alreadyExists": True}
-        data["amount"] = amount if amount > 0 else offer_total
-        data["supplierId"] = offer_supplier_id
-        data["supplierName"] = linked_offer[5] if not isinstance(linked_offer, dict) else linked_offer.get("supplier_name")
-        data["requestId"] = offer_request_id
-        invoice_work_package = invoice_work_package or offer_package
-        if not data.get("description"):
-            data["description"] = "Материал: " + ((linked_offer[8] if not isinstance(linked_offer, dict) else linked_offer.get("material_name")) or "")
-    warehouse_invoice_id = int(data.get("warehouseInvoiceId") or data.get("warehouse_invoice_id") or 0) or None
-    if not warehouse_invoice_id and data.get("requestId"):
-        cur.execute("""SELECT id FROM warehouse_invoices
-                       WHERE supply_request_id=%s AND COALESCE(status,'') <> 'Аннулирована'
-                       ORDER BY id DESC LIMIT 1""", (data.get("requestId"),))
-        warehouse_invoice_id = _row_get(cur.fetchone(), "id", 0)
-    if warehouse_invoice_id:
-        cur.execute("""SELECT project, location, supplier_invoice_id, company_id
-                       FROM warehouse_invoices
-                       WHERE id=%s AND COALESCE(status,'') <> 'Аннулирована'""", (warehouse_invoice_id,))
-        warehouse_invoice_row = cur.fetchone()
-        if not warehouse_invoice_row:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=404, detail="Складская накладная для связи не найдена")
-        warehouse_project = (_row_get(warehouse_invoice_row, "project", 0, "") or _row_get(warehouse_invoice_row, "location", 1, "") or "").strip()
-        existing_supplier_invoice_id = _row_get(warehouse_invoice_row, "supplier_invoice_id", 2)
-        company_id = company_id or _positive_int_or_none(_row_get(warehouse_invoice_row, "company_id", 3))
-        if project_name and warehouse_project and warehouse_project != project_name:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="Складская накладная относится к другому объекту")
-        if existing_supplier_invoice_id:
-            conn.commit()
-            cur.close(); conn.close()
-            return {"id": existing_supplier_invoice_id, "ok": True, "alreadyExists": True}
-    supplier_lookup_payload = {
-        **(data or {}),
-        "supplierName": data.get("supplierName") or data.get("supplier") or "",
-        "supplier": data.get("supplier") or data.get("supplierName") or "",
-    }
-    matched_supplier = _supplier_find_match(cur, supplier_lookup_payload)
-    if matched_supplier:
-        data["supplierId"] = matched_supplier["id"]
-        data["supplierName"] = matched_supplier["name"] or data.get("supplierName") or ""
-        _update_supplier_missing_fields(cur, matched_supplier["id"], supplier_lookup_payload)
-        _remember_supplier_alias(cur, matched_supplier["id"], supplier_lookup_payload, source="supplier_invoice")
-    if not company_id and data.get("requestId"):
-        cur.execute("SELECT company_id FROM supply_requests WHERE id=%s", (data.get("requestId"),))
-        company_id = _positive_int_or_none(_row_get(cur.fetchone(), "company_id", 0))
-    company_id = company_id or _company_id_for_project_or_user(cur, project_name, _current_user)
-    duplicate_invoice = _find_existing_supplier_invoice_duplicate(
-        cur,
-        company_id=company_id,
-        invoice_number=data.get("invoiceNumber", ""),
-        invoice_date=data.get("invoiceDate") or None,
-        project_name=project_name,
-        supplier_id=data.get("supplierId"),
-        supplier_name=data.get("supplierName", ""),
-        amount=data.get("amount", 0),
-        warehouse_invoice_id=warehouse_invoice_id,
-        request_id=data.get("requestId"),
-        offer_id=offer_id,
-    )
-    if duplicate_invoice:
-        existing_id = duplicate_invoice.get("id")
-        linked_warehouse_id = _positive_int_or_none(duplicate_invoice.get("warehouseInvoiceId"))
-        cur.execute(
-            """
-            UPDATE supplier_invoices
-               SET company_id=%s,
-                   offer_id=COALESCE(offer_id,%s),
-                   request_id=COALESCE(request_id,%s),
-                   supplier_id=COALESCE(supplier_id,%s),
-                   supplier_name=COALESCE(NULLIF(supplier_name,''),%s),
-                   work_package=COALESCE(NULLIF(work_package,''),%s)
-             WHERE id=%s
-            """,
-            (
-                company_id,
-                offer_id or None,
-                data.get("requestId") or None,
-                data.get("supplierId"),
-                data.get("supplierName", ""),
-                invoice_work_package,
-                existing_id,
-            ),
-        )
+        raise HTTPException(409, "Выставьте счёт через утверждённое КП в кабинете поставщика")
+    data = dict(data)
+    conn = get_db()
+    conn.autocommit = False
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        ledger_present = _payment_ledger_available(cur)
+        if not ledger_present:
+            _lock_legacy_supply_writer(cur)
+            _ensure_invoice_document_link_columns(cur)
+            _ensure_supply_runtime_columns(cur)
+        cur.execute('SHOW transaction_isolation')
+        if cur.fetchone()['transaction_isolation'] != 'read committed':
+            raise HTTPException(409, 'Создание счёта требует новой транзакции')
+        project_name = (data.get("projectName") or "").strip()
+        invoice_work_package = (data.get("workPackage") or data.get("work_package") or "").strip()
+        def source_id(camel, snake):
+            values = []
+            for key in (camel, snake):
+                value = data.get(key)
+                if value is None or value == '':
+                    continue
+                if (isinstance(value, bool) or not isinstance(value, (int, str))
+                        or not str(value).isascii() or not str(value).isdigit()
+                        or len(str(value)) > 10 or not 0 < int(value) <= 2147483647):
+                    raise HTTPException(422, 'Некорректная ссылка: ' + key)
+                values.append(int(value))
+            if len(set(values)) > 1:
+                raise HTTPException(422, 'Ссылки документа не совпадают: ' + camel)
+            return values[0] if values else None
+
+        offer_id = source_id('offerId', 'offer_id')
+        request_id = source_id('requestId', 'request_id')
+        warehouse_invoice_id = source_id('warehouseInvoiceId', 'warehouse_invoice_id')
+        claimed_company = data.get("companyId") if "companyId" in data else data.get("company_id")
+        claimed_id = _positive_int_or_none(claimed_company)
+        if claimed_company not in (None, "") and not claimed_id:
+            raise HTTPException(400, 'companyId должен быть положительным целым числом')
+        if project_name and not offer_id:
+            raise HTTPException(400, 'Счёт по объекту создаётся только из утверждённого КП/заявки')
+
+        # Discovery is read-only. Serialize the authoritative company BEFORE
+        # user/membership, offer/request, invoice or warehouse row locks.
+        source_owners = []
+        for table, source_id in (('supplier_offers', offer_id), ('supply_requests', request_id),
+                                 ('warehouse_invoices', warehouse_invoice_id)):
+            if source_id:
+                cur.execute(f'SELECT company_id FROM {table} WHERE id=%s', (source_id,))
+                row = cur.fetchone()
+                if not row:
+                    raise HTTPException(404, 'Исходный документ не найден')
+                if not _positive_int_or_none(row['company_id']):
+                    raise HTTPException(409, 'Компания исходного документа требует сверки')
+                source_owners.append(row['company_id'])
+        company_id = source_owners[0] if source_owners else (
+            claimed_id or _company_id_for_project_or_user(cur, project_name, _current_user))
+        if any(owner != company_id for owner in source_owners) or (claimed_id and claimed_id != company_id):
+            raise HTTPException(409, 'Компания исходных документов не совпадает с companyId')
+        cur.execute('SELECT pg_advisory_xact_lock(%s,%s)', (1735289201, company_id))
+        cur.execute('''SELECT id,name,email,role,company_id,platform_account_id,
+            project_name,assigned_projects,assigned_packages,active
+            FROM users WHERE id=%s AND active=TRUE FOR SHARE''', (_current_user.get('id'),))
+        actor = cur.fetchone()
+        if not actor:
+            raise HTTPException(403, 'Пользователь отключён или не найден')
+        actor = dict(actor)
+        cur.execute('SELECT id,active FROM companies WHERE id=%s FOR SHARE', (company_id,))
+        company = cur.fetchone()
+        if not company or not company['active']:
+            raise HTTPException(403, 'Компания недоступна')
+        cur.execute('''SELECT id FROM user_company_roles WHERE user_id=%s AND company_id=%s
+            ORDER BY id FOR SHARE''', (actor['id'], company_id))
+        memberships = {row['id'] for row in cur.fetchall()}
+        is_supplier = actor.get('role') == 'поставщик'
+        if is_supplier:
+            if not offer_id:
+                raise HTTPException(403, 'Поставщик выставляет счёт только по доступному КП')
+        else:
+            context, actor = resolve_resource_company_actor(
+                cur, actor, company_id, "create", claimed_company_id=claimed_company,
+                x_company_id=x_company_id if isinstance(x_company_id, str) else None,
+                x_company_mode=x_company_mode if isinstance(x_company_mode, str) else None,
+                allowed_roles=FINANCE_ROLES, platform_staff_roles=PLATFORM_STAFF_ROLES,
+                client_account_roles=CLIENT_ACCOUNT_ROLES,
+                forbidden_detail="Роль в компании не позволяет создавать счёт")
+            if ledger_present and (context.get('source') != 'membership' or context.get('membershipId') not in memberships
+                    or not context.get('active') or not context.get('companyActive') or context.get('readOnly')):
+                raise HTTPException(403, 'Требуется активное членство в компании')
+
+        linked_offer = None
+        if offer_id:
+            cur.execute('LOCK TABLE supply_requests, supplier_offers IN ROW SHARE MODE')
+            cur.execute('''SELECT o.*,r.company_id AS request_company_id,r.project,
+                COALESCE(r.work_package,'') AS work_package,r.material_name,s.name AS supplier_name
+                FROM supplier_offers o JOIN supply_requests r ON r.id=o.request_id
+                LEFT JOIN suppliers s ON s.id=o.supplier_id WHERE o.id=%s FOR UPDATE OF o,r''', (offer_id,))
+            linked_offer = cur.fetchone()
+            if (not linked_offer or linked_offer['company_id'] != company_id
+                    or linked_offer['request_company_id'] != company_id or linked_offer['status'] != 'Утверждено'):
+                raise HTTPException(409, 'Утверждённое КП и компания заявки требуют сверки')
+            if request_id and request_id != linked_offer['request_id']:
+                raise HTTPException(409, 'КП относится к другой заявке')
+            request_id = linked_offer['request_id']
+            if project_name and project_name != linked_offer['project']:
+                raise HTTPException(409, 'КП относится к другому объекту')
+            project_name = linked_offer['project'] or ''
+            if is_supplier:
+                cur.execute('SELECT id FROM supply_request_recipients WHERE request_id=%s ORDER BY id FOR SHARE',
+                            (request_id,))
+                cur.fetchall()
+                visibility, params = supplier_offer_visibility_filter(current_supplier_ids(cur, actor), actor['id'])
+                cur.execute('SELECT id FROM supplier_offers WHERE id=%s' + visibility, [offer_id] + params)
+                if not cur.fetchone():
+                    raise HTTPException(403, 'Нет доступа к КП для выставления счёта')
+            elif data.get('supplierId') and int(data['supplierId']) != linked_offer['supplier_id']:
+                raise HTTPException(409, 'Поставщик счёта не совпадает с поставщиком КП')
+            offer_package = linked_offer['work_package']
+            if invoice_work_package and offer_package and invoice_work_package != offer_package:
+                raise HTTPException(409, 'Раздел счёта не совпадает с разделом КП')
+            invoice_work_package = invoice_work_package or offer_package
+            offer_total = _float_or_zero(linked_offer['total_price'])
+            amount = _float_or_zero(data.get('amount', offer_total))
+            if offer_total > 0 and amount > offer_total + max(1, offer_total * .02):
+                raise HTTPException(400, 'Сумма счёта больше суммы утверждённого КП')
+            data.update(supplierId=linked_offer['supplier_id'], supplierName=linked_offer['supplier_name'],
+                        amount=amount if amount > 0 else offer_total)
+            if not data.get('description'):
+                data['description'] = 'Материал: ' + (linked_offer['material_name'] or '')
+        elif request_id:
+            cur.execute('SELECT company_id,project FROM supply_requests WHERE id=%s FOR UPDATE', (request_id,))
+            request = cur.fetchone()
+            if not request or request['company_id'] != company_id:
+                raise HTTPException(409, 'Компания заявки изменилась')
+            if request['project']:
+                raise HTTPException(400, 'Счёт по объекту создаётся только из утверждённого КП')
+        if project_name and not is_supplier:
+            require_project_access(actor, project_name)
+            if not has_package_access(actor, invoice_work_package or 'Основная'):
+                raise HTTPException(403, 'Нет доступа к пакету счёта')
+        bindings_requested = os.getenv('SUPPLIER_DOCUMENT_CONTRACT_BINDINGS_ENABLED', '0') == '1'
+        if offer_id and (bindings_requested or 'contractVersionId' in data):
+            # The offer module owns contract selection and its prerequisite
+            # flags. Never downgrade a binding request into an unbound invoice.
+            raise HTTPException(409, 'Для счёта по КП используйте /supplier-offers/'
+                                + str(offer_id) + '/create-invoice с проверенной версией договора')
+        if 'contractVersionId' in data:
+            raise HTTPException(409, 'Счёт с договором создаётся через /supplier-offers/{id}/create-invoice')
+        data['requestId'] = request_id
+
+        if not warehouse_invoice_id and request_id:
+            cur.execute('''SELECT id FROM warehouse_invoices WHERE supply_request_id=%s
+                AND COALESCE(status,'') <> 'Аннулирована' ORDER BY id DESC LIMIT 1''', (request_id,))
+            warehouse_invoice_id = _row_get(cur.fetchone(), 'id', 0)
+
+        def lock_warehouse(document_id):
+            cur.execute('SELECT * FROM warehouse_invoices WHERE id=%s FOR UPDATE', (document_id,))
+            row = cur.fetchone()
+            if (not row or row['company_id'] != company_id or row['status'] == 'Аннулирована'
+                    or (request_id and row.get('supply_request_id') not in (None, request_id))):
+                raise HTTPException(409, 'Складская накладная и компания требуют сверки')
+            # location is a warehouse display label, not an object identity.
+            warehouse_project = row.get('project') or ''
+            if warehouse_project and (not linked_offer or warehouse_project != project_name):
+                raise HTTPException(409, 'Для объектной накладной требуется утверждённое КП того же объекта')
+            if row.get('warehouse_target') == 'object' and not warehouse_project:
+                raise HTTPException(409, 'Объект складской накладной требует сверки')
+            if project_name and warehouse_project != project_name:
+                raise HTTPException(409, 'Складская накладная относится к другому объекту')
+            if ledger_present:
+                _require_unmanaged_payment_document(cur, 'warehouse', document_id)
+            return row
+
+        warehouse = lock_warehouse(warehouse_invoice_id) if warehouse_invoice_id else None
+        existing_id = None
+        if offer_id:
+            cur.execute('''SELECT id FROM supplier_invoices WHERE offer_id=%s
+                AND COALESCE(status,'') <> 'Аннулирован' ORDER BY id DESC LIMIT 1''', (offer_id,))
+            existing_id = _row_get(cur.fetchone(), 'id', 0)
+        if warehouse and warehouse['supplier_invoice_id']:
+            if existing_id and existing_id != warehouse['supplier_invoice_id']:
+                raise HTTPException(409, 'Складская накладная связана с другим счётом')
+            existing_id = warehouse['supplier_invoice_id']
+        supplier_payload = {**data, 'supplierName': data.get('supplierName') or data.get('supplier') or '',
+                            'supplier': data.get('supplier') or data.get('supplierName') or ''}
+        matched_supplier = _supplier_find_match(cur, supplier_payload)
+        if matched_supplier:
+            if linked_offer and matched_supplier['id'] != linked_offer['supplier_id']:
+                raise HTTPException(409, 'Поставщик КП требует сверки')
+            data['supplierId'] = matched_supplier['id']
+            data['supplierName'] = matched_supplier['name'] or data.get('supplierName') or ''
+        duplicate = None
+        if not existing_id:
+            duplicate = _find_existing_supplier_invoice_duplicate(
+                cur, company_id=company_id, invoice_number=data.get('invoiceNumber', ''),
+                invoice_date=data.get('invoiceDate') or None, project_name=project_name,
+                supplier_id=data.get('supplierId'), supplier_name=data.get('supplierName', ''),
+                amount=data.get('amount', 0), warehouse_invoice_id=warehouse_invoice_id,
+                request_id=request_id, offer_id=offer_id)
+            existing_id = duplicate.get('id') if duplicate else None
+        if existing_id:
+            cur.execute('SELECT * FROM supplier_invoices WHERE id=%s FOR UPDATE', (existing_id,))
+            existing = cur.fetchone()
+            if (not existing or existing['company_id'] != company_id or existing['status'] == 'Аннулирован'
+                    or (offer_id and existing.get('offer_id') not in (None, offer_id))
+                    or (request_id and existing.get('request_id') not in (None, request_id))
+                    or (existing.get('project_name') or '') != project_name):
+                raise HTTPException(409, 'Исходный счёт и компания требуют сверки')
+            if existing.get('offer_id') and (bindings_requested or existing.get('contract_version_id') is not None):
+                raise HTTPException(409, 'Для счёта по КП используйте /supplier-offers/'
+                                    + str(existing['offer_id']) + '/create-invoice')
+            if (not _positive_int_or_none(data.get('supplierId'))
+                    or existing.get('supplier_id') != int(data['supplierId'])):
+                raise HTTPException(409, 'Поставщик исходного счёта не совпадает с поставщиком операции')
+            linked_id = existing['warehouse_invoice_id']
+            if linked_id:
+                if warehouse_invoice_id and linked_id != warehouse_invoice_id:
+                    raise HTTPException(409, 'Счёт связан с другой накладной')
+                warehouse_invoice_id = linked_id
+                warehouse = lock_warehouse(linked_id)
+                if warehouse['supplier_invoice_id'] != existing_id:
+                    raise HTTPException(409, 'Нарушена взаимная связь счёта и накладной')
+            elif warehouse and warehouse['supplier_invoice_id']:
+                raise HTTPException(409, 'Нарушена взаимная связь счёта и накладной')
+            cur.execute('''SELECT id FROM warehouse_invoices WHERE supplier_invoice_id=%s
+                AND id IS DISTINCT FROM %s ORDER BY id''', (existing_id, linked_id))
+            if cur.fetchone():
+                raise HTTPException(409, 'Обратная связь счёта требует сверки')
+            if ledger_present:
+                _require_unmanaged_payment_document(cur, 'invoice', existing_id, proposed_link=warehouse_invoice_id)
         if warehouse_invoice_id:
-            cur.execute("UPDATE warehouse_invoices SET company_id=%s, supplier_invoice_id=%s WHERE id=%s", (company_id, existing_id, warehouse_invoice_id))
-            if not linked_warehouse_id:
-                cur.execute("UPDATE supplier_invoices SET warehouse_invoice_id=%s WHERE id=%s", (warehouse_invoice_id, existing_id))
+            if (not _positive_int_or_none(data.get('supplierId'))
+                    or warehouse.get('supplier_id') != int(data['supplierId'])):
+                raise HTTPException(409, 'Поставщик складской накладной не совпадает с поставщиком счёта')
+            cur.execute('''SELECT id FROM supplier_invoices WHERE warehouse_invoice_id=%s
+                AND id IS DISTINCT FROM %s ORDER BY id''', (warehouse_invoice_id, existing_id))
+            if cur.fetchone():
+                raise HTTPException(409, 'Накладная связана с другим счётом')
+
+        # No enrichment or document writes until every selected/reused link
+        # has passed current ownership, lifecycle and payment-ledger checks.
+        if matched_supplier:
+            _update_supplier_missing_fields(cur, matched_supplier['id'], supplier_payload)
+            _remember_supplier_alias(cur, matched_supplier['id'], supplier_payload, source='supplier_invoice')
+        if existing_id:
+            cur.execute('''UPDATE supplier_invoices SET offer_id=COALESCE(offer_id,%s),
+                request_id=COALESCE(request_id,%s),supplier_id=COALESCE(supplier_id,%s),
+                supplier_name=COALESCE(NULLIF(supplier_name,''),%s),
+                work_package=COALESCE(NULLIF(work_package,''),%s),
+                warehouse_invoice_id=COALESCE(warehouse_invoice_id,%s) WHERE id=%s''',
+                (offer_id, request_id, data.get('supplierId'), data.get('supplierName', ''),
+                 invoice_work_package, warehouse_invoice_id, existing_id))
+            result = dict(id=existing_id, ok=True, alreadyExists=True)
+            if duplicate:
+                result['duplicateDocument'] = True
+        else:
+            cur.execute('''INSERT INTO supplier_invoices
+                (company_id,supplier_id,supplier_name,project_name,invoice_number,invoice_date,amount,
+                 vat_amount,description,file_url,photo_url,status,offer_id,request_id,payment_terms,
+                 material_name,work_package,warehouse_invoice_id)
+                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id''',
+                (company_id,data.get('supplierId'),data.get('supplierName',''),project_name,
+                 data.get('invoiceNumber',''),data.get('invoiceDate') or None,float(data.get('amount',0)),
+                 float(data.get('vatAmount',0)),data.get('description',''),data.get('fileUrl',''),
+                 data.get('photoUrl',''),data.get('status','На утверждении'),offer_id,request_id,
+                 linked_offer.get('payment_terms') if linked_offer else '',
+                 linked_offer.get('material_name') if linked_offer else data.get('materialName',''),
+                 invoice_work_package,warehouse_invoice_id))
+            result = dict(id=cur.fetchone()['id'], ok=True)
+        if warehouse_invoice_id:
+            cur.execute('UPDATE warehouse_invoices SET supplier_invoice_id=%s WHERE id=%s',
+                        (result['id'], warehouse_invoice_id))
         conn.commit()
-        cur.close(); conn.close()
-        return {"id": existing_id, "ok": True, "alreadyExists": True, "duplicateDocument": True}
-    cur.execute("""INSERT INTO supplier_invoices
-                   (company_id, supplier_id, supplier_name, project_name, invoice_number, invoice_date,
-                    amount, vat_amount, description, file_url, photo_url, status,
-                    offer_id, request_id, payment_terms, material_name, work_package, warehouse_invoice_id)
-		                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-                (company_id, data.get("supplierId"), data.get("supplierName",""), project_name,
-                 data.get("invoiceNumber",""), data.get("invoiceDate") or None,
-                 float(data.get("amount",0)), float(data.get("vatAmount",0)),
-                 data.get("description",""), data.get("fileUrl",""), data.get("photoUrl",""),
-                 data.get("status","На утверждении"), offer_id or None, data.get("requestId") or None,
-                 (linked_offer[4] if linked_offer and not isinstance(linked_offer, dict) else (linked_offer.get("payment_terms") if linked_offer else "")),
-                 (linked_offer[8] if linked_offer and not isinstance(linked_offer, dict) else (linked_offer.get("material_name") if linked_offer else data.get("materialName", ""))),
-                 invoice_work_package, warehouse_invoice_id))
-    row = cur.fetchone()
-    supplier_invoice_id = row[0] if not isinstance(row, dict) else row.get("id")
-    if warehouse_invoice_id:
-        cur.execute("UPDATE warehouse_invoices SET company_id=%s, supplier_invoice_id=%s WHERE id=%s", (company_id, supplier_invoice_id, warehouse_invoice_id))
-    conn.commit()
-    cur.close(); conn.close()
-    return {"id": supplier_invoice_id, "ok": True}
+        return result
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
 
 @app.put("/supplier-invoices/{id}")
 def update_supplier_invoice(
@@ -24397,261 +25470,331 @@ def update_supplier_invoice(
     _current_user: dict = Depends(get_current_user),
 ):
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor()
-    _ensure_invoice_document_link_columns(cur)
-    conn.commit()
-    cur.execute("""SELECT si.amount, si.paid_amount, si.work_package, si.offer_id, o.total_price, COALESCE(r.work_package,''),
-                          COALESCE(si.payment_terms, o.payment_terms, ''), si.warehouse_invoice_id,
-                          si.project_name, si.supplier_name, si.company_id,
-                          si.supplier_id
-                   FROM supplier_invoices si
-                   LEFT JOIN supplier_offers o ON o.id=si.offer_id
-                   LEFT JOIN supply_requests r ON r.id=o.request_id
-                   WHERE si.id=%s""", (id,))
-    invoice_guard = cur.fetchone()
-    if not invoice_guard:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=404, detail="Счёт не найден")
-    supplier_company_id = _positive_int_or_none(invoice_guard[10])
-    _company_context, actor = resolve_resource_company_actor(
-        cur,
-        _current_user,
-        supplier_company_id,
-        "update",
-        claimed_company_id=(
-            data.get("companyId")
-            if "companyId" in data
-            else data.get("company_id")
-        ),
-        x_company_id=x_company_id,
-        x_company_mode=x_company_mode,
-        allowed_roles=FINANCE_ROLES,
-        forbidden_detail="Роль в выбранной компании не позволяет изменять счёт поставщика",
-        platform_staff_roles=PLATFORM_STAFF_ROLES,
-        client_account_roles=CLIENT_ACCOUNT_ROLES,
-    )
-    _current_user = actor
-    require_row_project_access(cur, "supplier_invoices", id, _current_user, "project_name")
-    current_amount = _float_or_zero(invoice_guard[0])
-    current_paid = _float_or_zero(invoice_guard[1])
-    offer_id = invoice_guard[3]
-    offer_total = _float_or_zero(invoice_guard[4])
-    offer_package = invoice_guard[5] or ""
-    payment_terms = str(invoice_guard[6] or "").lower()
-    current_warehouse_invoice_id = invoice_guard[7]
-    supplier_project_name = invoice_guard[8] or ""
-    supplier_name = invoice_guard[9] or ""
-    supplier_supplier_id = _positive_int_or_none(invoice_guard[11])
-    next_amount = _float_or_zero(data.get("amount", current_amount))
-    next_paid = _float_or_zero(data.get("paidAmount", current_paid))
-    next_package = (data.get("workPackage") if "workPackage" in data else invoice_guard[2]) or ""
-    link_payload_present = "warehouseInvoiceId" in data or "warehouse_invoice_id" in data
-    automatic_exception_repair = data.get("accountingExceptionRepair") is True
-    next_warehouse_invoice_id = current_warehouse_invoice_id
-    if link_payload_present:
-        raw_warehouse_invoice_id = data.get("warehouseInvoiceId")
-        if raw_warehouse_invoice_id is None:
-            raw_warehouse_invoice_id = data.get("warehouse_invoice_id")
-        next_warehouse_invoice_id = int(raw_warehouse_invoice_id or 0) or None
-    if next_warehouse_invoice_id:
-        cur.execute("""SELECT id, project, location, supplier_invoice_id, status,
-                              company_id, supplier_id, supplier_name,
-                              total_with_vat, total_base
-                       FROM warehouse_invoices
-                       WHERE id=%s FOR UPDATE""", (next_warehouse_invoice_id,))
-        warehouse_invoice_row = cur.fetchone()
-        if not warehouse_invoice_row:
+    try:
+        ledger_present = _payment_ledger_available(cur)
+        if ledger_present:
+            _lock_payment_document_writer(cur, 'invoice', id)
+        else:
+            _ensure_invoice_document_link_columns(cur)
+            conn.commit()
+        cur.execute("""SELECT si.amount, si.paid_amount, si.work_package, si.offer_id, o.total_price, COALESCE(r.work_package,''),
+                              COALESCE(si.payment_terms, o.payment_terms, ''), si.warehouse_invoice_id,
+                              si.project_name, si.supplier_name, si.company_id,
+                              si.supplier_id
+                       FROM supplier_invoices si
+                       LEFT JOIN supplier_offers o ON o.id=si.offer_id
+                       LEFT JOIN supply_requests r ON r.id=o.request_id
+                       WHERE si.id=%s""", (id,))
+        invoice_guard = cur.fetchone()
+        if not invoice_guard:
             cur.close(); conn.close()
-            raise HTTPException(status_code=404, detail="Складская накладная для связи не найдена")
-        if (_row_get(warehouse_invoice_row, "status", 4, "") or "") == "Аннулирована":
-            cur.close(); conn.close()
-            raise HTTPException(status_code=409, detail="Аннулированную накладную нельзя связать со счётом")
-        warehouse_company_id = _positive_int_or_none(
-            _row_get(warehouse_invoice_row, "company_id", 5),
+            raise HTTPException(status_code=404, detail="Счёт не найден")
+        supplier_company_id = _positive_int_or_none(invoice_guard[10])
+        _company_context, actor = resolve_resource_company_actor(
+            cur,
+            _current_user,
+            supplier_company_id,
+            "update",
+            claimed_company_id=(
+                data.get("companyId")
+                if "companyId" in data
+                else data.get("company_id")
+            ),
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+            allowed_roles=FINANCE_ROLES,
+            forbidden_detail="Роль в выбранной компании не позволяет изменять счёт поставщика",
+            platform_staff_roles=PLATFORM_STAFF_ROLES,
+            client_account_roles=CLIENT_ACCOUNT_ROLES,
         )
-        if warehouse_company_id != supplier_company_id:
+        _current_user = actor
+        require_row_project_access(cur, "supplier_invoices", id, _current_user, "project_name")
+        if ledger_present:
+            proposed_link = data.get('warehouseInvoiceId')
+            if proposed_link is None:
+                proposed_link = data.get('warehouse_invoice_id')
+            _require_unmanaged_payment_document(cur, 'invoice', id, proposed_link=proposed_link)
+        current_amount = _float_or_zero(invoice_guard[0])
+        current_paid = _float_or_zero(invoice_guard[1])
+        offer_id = invoice_guard[3]
+        offer_total = _float_or_zero(invoice_guard[4])
+        offer_package = invoice_guard[5] or ""
+        payment_terms = str(invoice_guard[6] or "").lower()
+        current_warehouse_invoice_id = invoice_guard[7]
+        supplier_project_name = invoice_guard[8] or ""
+        supplier_name = invoice_guard[9] or ""
+        supplier_supplier_id = _positive_int_or_none(invoice_guard[11])
+        next_amount = _float_or_zero(data.get("amount", current_amount))
+        next_paid = _float_or_zero(data.get("paidAmount", current_paid))
+        try:
+            try:
+                from backend.features.supplier_deal_parties.payment_schedule import invoice_advance_amount, schedule_paid_amount
+            except ModuleNotFoundError:
+                from features.supplier_deal_parties.payment_schedule import invoice_advance_amount, schedule_paid_amount
+            scheduled_advance = invoice_advance_amount(cur, id, supplier_company_id, next_amount)
+        except ValueError:
             cur.close(); conn.close()
-            raise HTTPException(status_code=409, detail="Складская накладная относится к другой компании")
-        warehouse_project = (_row_get(warehouse_invoice_row, "project", 1, "") or _row_get(warehouse_invoice_row, "location", 2, "") or "").strip()
-        existing_supplier_invoice_id = _row_get(warehouse_invoice_row, "supplier_invoice_id", 3)
-        if supplier_project_name and warehouse_project and warehouse_project != supplier_project_name:
+            raise HTTPException(409, 'Сохранённый график оплаты требует проверки')
+        try:
+            scheduled_paid = schedule_paid_amount(data.get('paidAmount', current_paid)) if scheduled_advance is not None else None
+        except ValueError:
             cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="Складская накладная относится к другому объекту")
-        if existing_supplier_invoice_id and int(existing_supplier_invoice_id) != int(id):
+            raise HTTPException(422, 'Сумма оплаты должна быть неотрицательной и точной до копейки')
+        try:
+            try:
+                from backend.features.supplier_access.fulfilment import invoice_payment_status
+            except ModuleNotFoundError:
+                from features.supplier_access.fulfilment import invoice_payment_status
+            normalized_status = invoice_payment_status(data.get('status'), next_amount, next_paid)
+            if 'status' in data:
+                data = {**data, 'status': normalized_status}
+        except Exception:
             cur.close(); conn.close()
-            raise HTTPException(status_code=409, detail="Складская накладная уже связана с другим счётом поставщика")
-        if automatic_exception_repair:
-            current_link_id = _positive_int_or_none(current_warehouse_invoice_id)
-            if current_link_id and current_link_id != next_warehouse_invoice_id:
-                cur.execute(
-                    "SELECT id FROM warehouse_invoices WHERE id=%s LIMIT 1",
-                    (current_link_id,),
+            raise
+        next_package = (data.get("workPackage") if "workPackage" in data else invoice_guard[2]) or ""
+        link_payload_present = "warehouseInvoiceId" in data or "warehouse_invoice_id" in data
+        automatic_exception_repair = data.get("accountingExceptionRepair") is True
+        next_warehouse_invoice_id = current_warehouse_invoice_id
+        if link_payload_present:
+            raw_warehouse_invoice_id = data.get("warehouseInvoiceId")
+            if raw_warehouse_invoice_id is None:
+                raw_warehouse_invoice_id = data.get("warehouse_invoice_id")
+            next_warehouse_invoice_id = int(raw_warehouse_invoice_id or 0) or None
+        if next_warehouse_invoice_id:
+            cur.execute("""SELECT id, project, location, supplier_invoice_id, status,
+                                  company_id, supplier_id, supplier_name,
+                                  total_with_vat, total_base
+                           FROM warehouse_invoices
+                           WHERE id=%s FOR UPDATE""", (next_warehouse_invoice_id,))
+            warehouse_invoice_row = cur.fetchone()
+            if not warehouse_invoice_row:
+                cur.close(); conn.close()
+                raise HTTPException(status_code=404, detail="Складская накладная для связи не найдена")
+            if (_row_get(warehouse_invoice_row, "status", 4, "") or "") == "Аннулирована":
+                cur.close(); conn.close()
+                raise HTTPException(status_code=409, detail="Аннулированную накладную нельзя связать со счётом")
+            warehouse_company_id = _positive_int_or_none(
+                _row_get(warehouse_invoice_row, "company_id", 5),
+            )
+            if warehouse_company_id != supplier_company_id:
+                cur.close(); conn.close()
+                raise HTTPException(status_code=409, detail="Складская накладная относится к другой компании")
+            warehouse_project = (_row_get(warehouse_invoice_row, "project", 1, "") or _row_get(warehouse_invoice_row, "location", 2, "") or "").strip()
+            existing_supplier_invoice_id = _row_get(warehouse_invoice_row, "supplier_invoice_id", 3)
+            if supplier_project_name and warehouse_project and warehouse_project != supplier_project_name:
+                cur.close(); conn.close()
+                raise HTTPException(status_code=400, detail="Складская накладная относится к другому объекту")
+            if existing_supplier_invoice_id and int(existing_supplier_invoice_id) != int(id):
+                cur.close(); conn.close()
+                raise HTTPException(status_code=409, detail="Складская накладная уже связана с другим счётом поставщика")
+            if automatic_exception_repair:
+                current_link_id = _positive_int_or_none(current_warehouse_invoice_id)
+                if current_link_id and current_link_id != next_warehouse_invoice_id:
+                    cur.execute(
+                        "SELECT id FROM warehouse_invoices WHERE id=%s LIMIT 1",
+                        (current_link_id,),
+                    )
+                    if cur.fetchone():
+                        cur.close(); conn.close()
+                        raise HTTPException(
+                            status_code=409,
+                            detail="Текущая связь существует и требует ручной проверки",
+                        )
+                warehouse_supplier_id = _positive_int_or_none(
+                    _row_get(warehouse_invoice_row, "supplier_id", 6),
                 )
-                if cur.fetchone():
+                warehouse_supplier_name = _row_get(
+                    warehouse_invoice_row, "supplier_name", 7, "",
+                ) or ""
+                supplier_matches = (
+                    supplier_supplier_id == warehouse_supplier_id
+                    if supplier_supplier_id and warehouse_supplier_id
+                    else bool(
+                        _normalize_supplier_name_key(supplier_name)
+                        and _normalize_supplier_name_key(supplier_name)
+                        == _normalize_supplier_name_key(warehouse_supplier_name)
+                    )
+                )
+                warehouse_amount = _float_or_zero(
+                    _row_get(warehouse_invoice_row, "total_with_vat", 8)
+                    or _row_get(warehouse_invoice_row, "total_base", 9)
+                )
+                exact_amount = (
+                    current_amount > 0
+                    and warehouse_amount > 0
+                    and round(current_amount * 100) == round(warehouse_amount * 100)
+                )
+                if not (
+                    supplier_project_name
+                    and warehouse_project == supplier_project_name
+                    and supplier_matches
+                    and exact_amount
+                ):
                     cur.close(); conn.close()
                     raise HTTPException(
                         status_code=409,
-                        detail="Текущая связь существует и требует ручной проверки",
+                        detail="Документы не прошли безопасную автоматическую сверку",
                     )
-            warehouse_supplier_id = _positive_int_or_none(
-                _row_get(warehouse_invoice_row, "supplier_id", 6),
-            )
-            warehouse_supplier_name = _row_get(
-                warehouse_invoice_row, "supplier_name", 7, "",
-            ) or ""
-            supplier_matches = (
-                supplier_supplier_id == warehouse_supplier_id
-                if supplier_supplier_id and warehouse_supplier_id
-                else bool(
-                    _normalize_supplier_name_key(supplier_name)
-                    and _normalize_supplier_name_key(supplier_name)
-                    == _normalize_supplier_name_key(warehouse_supplier_name)
-                )
-            )
-            warehouse_amount = _float_or_zero(
-                _row_get(warehouse_invoice_row, "total_with_vat", 8)
-                or _row_get(warehouse_invoice_row, "total_base", 9)
-            )
-            exact_amount = (
-                current_amount > 0
-                and warehouse_amount > 0
-                and round(current_amount * 100) == round(warehouse_amount * 100)
-            )
-            if not (
-                supplier_project_name
-                and warehouse_project == supplier_project_name
-                and supplier_matches
-                and exact_amount
-            ):
+        if offer_id:
+            if offer_total > 0 and next_amount > offer_total + max(1, offer_total * 0.02):
                 cur.close(); conn.close()
-                raise HTTPException(
-                    status_code=409,
-                    detail="Документы не прошли безопасную автоматическую сверку",
-                )
-    if offer_id:
-        if offer_total > 0 and next_amount > offer_total + max(1, offer_total * 0.02):
+                raise HTTPException(status_code=400, detail="Сумма счёта больше суммы утверждённого КП")
+            if offer_package and next_package and next_package != offer_package:
+                cur.close(); conn.close()
+                raise HTTPException(status_code=400, detail="Раздел счёта нельзя менять: он должен совпадать с заявкой/КП")
+            cur.execute("""SELECT
+                                  COALESCE(SUM(CASE WHEN status IN ('Принято','Проблема')
+                                                    THEN COALESCE(received_quantity,0) * COALESCE(price_per_unit,0)
+                                                    ELSE 0 END),0) AS accepted_amount,
+                                  SUM(CASE WHEN status IN ('Принято','Проблема') THEN 1 ELSE 0 END) AS received_rows,
+                                  SUM(CASE WHEN status='Проблема' THEN 1 ELSE 0 END) AS problem_rows
+                           FROM supply_deliveries
+                           WHERE offer_id=%s""", (offer_id,))
+            delivery_guard = cur.fetchone()
+            accepted_amount = _float_or_zero(delivery_guard[0]) if delivery_guard else 0
+            received_rows = int(delivery_guard[1] or 0) if delivery_guard else 0
+            problem_rows = int(delivery_guard[2] or 0) if delivery_guard else 0
+            is_prepay_terms = any(word in payment_terms for word in ("предоплат", "аванс", "50/50"))
+            if scheduled_advance is not None and received_rows <= 0 and next_paid > current_paid and scheduled_paid > scheduled_advance:
+                cur.close(); conn.close()
+                raise HTTPException(400, f'До приёмки по графику можно оплатить не больше {scheduled_advance:.2f} ₽')
+            if scheduled_advance is None and received_rows <= 0 and next_paid > current_paid + 0.01 and not is_prepay_terms:
+                cur.close(); conn.close()
+                raise HTTPException(status_code=400, detail="Постоплатный счёт нельзя оплачивать до приёмки поставки")
+            if next_paid > current_paid and received_rows > 0 and next_paid > accepted_amount + max(1.0, accepted_amount * 0.02):
+                cur.close(); conn.close()
+                raise HTTPException(status_code=400, detail=f"Оплата выше фактически принятой поставки: принято на {round(accepted_amount, 2)} ₽")
+            if next_paid > current_paid and problem_rows > 0 and next_paid > accepted_amount + 0.01:
+                cur.close(); conn.close()
+                raise HTTPException(status_code=400, detail="По поставке есть претензия. Оплата доступна только в пределах принятого количества")
+        if next_paid > next_amount + 0.01:
             cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="Сумма счёта больше суммы утверждённого КП")
-        if offer_package and next_package and next_package != offer_package:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="Раздел счёта нельзя менять: он должен совпадать с заявкой/КП")
-        cur.execute("""SELECT
-                              COALESCE(SUM(CASE WHEN status IN ('Принято','Проблема')
-                                                THEN COALESCE(received_quantity,0) * COALESCE(price_per_unit,0)
-                                                ELSE 0 END),0) AS accepted_amount,
-                              SUM(CASE WHEN status IN ('Принято','Проблема') THEN 1 ELSE 0 END) AS received_rows,
-                              SUM(CASE WHEN status='Проблема' THEN 1 ELSE 0 END) AS problem_rows
-                       FROM supply_deliveries
-                       WHERE offer_id=%s""", (offer_id,))
-        delivery_guard = cur.fetchone()
-        accepted_amount = _float_or_zero(delivery_guard[0]) if delivery_guard else 0
-        received_rows = int(delivery_guard[1] or 0) if delivery_guard else 0
-        problem_rows = int(delivery_guard[2] or 0) if delivery_guard else 0
-        is_prepay_terms = any(word in payment_terms for word in ("предоплат", "аванс", "50/50"))
-        if received_rows <= 0 and next_paid > current_paid + 0.01 and not is_prepay_terms:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="Постоплатный счёт нельзя оплачивать до приёмки поставки")
-        if received_rows > 0 and next_paid > accepted_amount + max(1.0, accepted_amount * 0.02):
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail=f"Оплата выше фактически принятой поставки: принято на {round(accepted_amount, 2)} ₽")
-        if problem_rows > 0 and next_paid > accepted_amount + 0.01:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="По поставке есть претензия. Оплата доступна только в пределах принятого количества")
-    if next_paid > next_amount + 0.01:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=400, detail="Оплаченная сумма не может быть больше суммы счёта")
-    fields_map = [('status','status'),('approvedBy','approved_by'),('approvedAt','approved_at'),
-                  ('paidAt','paid_at'),('paidBy','paid_by'),('paidNote','paid_note'),
-                  ('description','description'),('amount','amount'),('vatAmount','vat_amount'),
-                  ('paidAmount','paid_amount'),('workPackage','work_package')]
-    sets, vals = [], []
-    for js_key, db_col in fields_map:
-        if js_key in data:
-            sets.append(db_col + "=%s")
-            v = data[js_key]
-            if js_key in ('approvedAt','paidAt') and not v: v = None
-            vals.append(v)
-    if link_payload_present:
-        sets.append("warehouse_invoice_id=%s")
-        vals.append(next_warehouse_invoice_id)
-    if not sets:
-        cur.close(); conn.close(); return {"ok": True}
-    vals.append(id)
-    cur.execute("UPDATE supplier_invoices SET " + ", ".join(sets) + " WHERE id=%s", vals)
-    if current_warehouse_invoice_id and current_warehouse_invoice_id != next_warehouse_invoice_id:
-        cur.execute("""UPDATE warehouse_invoices
-                       SET supplier_invoice_id=NULL
-                       WHERE id=%s AND supplier_invoice_id=%s""", (current_warehouse_invoice_id, id))
-    if next_warehouse_invoice_id:
-        warehouse_status = None
-        next_status_value = data.get("status")
-        if next_status_value == "Оплачен":
-            warehouse_status = "Оплачена"
-        elif next_status_value == "Частично оплачен":
-            warehouse_status = "Частично оплачена"
-        elif next_status_value == "Утверждён":
-            warehouse_status = "К оплате"
-        warehouse_sets = ["supplier_invoice_id=%s"]
-        warehouse_vals = [id]
-        if "paidAmount" in data:
-            warehouse_sets.append("paid_amount=GREATEST(COALESCE(paid_amount,0),%s)")
-            warehouse_vals.append(next_paid)
-        if warehouse_status:
-            warehouse_sets.append("accounting_status=%s")
-            warehouse_vals.append(warehouse_status)
-        if data.get("paidAt"):
-            warehouse_sets.append("paid_at=%s")
-            warehouse_vals.append(data.get("paidAt"))
-        if data.get("paidBy"):
-            warehouse_sets.append("paid_by=%s")
-            warehouse_vals.append(data.get("paidBy"))
-        warehouse_vals.append(next_warehouse_invoice_id)
-        cur.execute("UPDATE warehouse_invoices SET " + ", ".join(warehouse_sets) + " WHERE id=%s", warehouse_vals)
-    link_changed = (
-        link_payload_present
-        and _positive_int_or_none(current_warehouse_invoice_id)
-        != _positive_int_or_none(next_warehouse_invoice_id)
-    )
-    conn.commit()
-    cur.close(); conn.close()
-    if link_changed:
-        log_audit(
-            user_name=_current_user.get("name") or _current_user.get("email") or "—",
-            user_role=_current_user.get("role") or "—",
-            action="accounting_supplier_warehouse_link_repaired",
-            entity_type="supplier_invoice",
-            entity_id=id,
-            description=(
-                "Исправлена связь со складской накладной №"
-                + str(next_warehouse_invoice_id or "—")
-            ),
-            project_name=supplier_project_name,
-            user_id=_current_user.get("id"),
-            company_id=supplier_company_id,
+            raise HTTPException(status_code=400, detail="Оплаченная сумма не может быть больше суммы счёта")
+        fields_map = [('status','status'),('approvedBy','approved_by'),('approvedAt','approved_at'),
+                      ('paidAt','paid_at'),('paidBy','paid_by'),('paidNote','paid_note'),
+                      ('description','description'),('amount','amount'),('vatAmount','vat_amount'),
+                      ('paidAmount','paid_amount'),('workPackage','work_package')]
+        sets, vals = [], []
+        for js_key, db_col in fields_map:
+            if js_key in data:
+                sets.append(db_col + "=%s")
+                v = data[js_key]
+                if js_key in ('approvedAt','paidAt') and not v: v = None
+                vals.append(v)
+        if link_payload_present:
+            sets.append("warehouse_invoice_id=%s")
+            vals.append(next_warehouse_invoice_id)
+        if not sets:
+            cur.close(); conn.close(); return {"ok": True}
+        vals.append(id)
+        cur.execute("UPDATE supplier_invoices SET " + ", ".join(sets) + " WHERE id=%s", vals)
+        if current_warehouse_invoice_id and current_warehouse_invoice_id != next_warehouse_invoice_id:
+            cur.execute("""UPDATE warehouse_invoices
+                           SET supplier_invoice_id=NULL
+                           WHERE id=%s AND supplier_invoice_id=%s""", (current_warehouse_invoice_id, id))
+        if next_warehouse_invoice_id:
+            warehouse_status = None
+            next_status_value = data.get("status")
+            if next_status_value == "Оплачен":
+                warehouse_status = "Оплачена"
+            elif next_status_value == "Частично оплачен":
+                warehouse_status = "Частично оплачена"
+            elif next_status_value == "Утверждён":
+                warehouse_status = "К оплате"
+            warehouse_sets = ["supplier_invoice_id=%s"]
+            warehouse_vals = [id]
+            if "paidAmount" in data:
+                warehouse_sets.append("paid_amount=GREATEST(COALESCE(paid_amount,0),%s)")
+                warehouse_vals.append(next_paid)
+            if warehouse_status:
+                warehouse_sets.append("accounting_status=%s")
+                warehouse_vals.append(warehouse_status)
+            if data.get("paidAt"):
+                warehouse_sets.append("paid_at=%s")
+                warehouse_vals.append(data.get("paidAt"))
+            if data.get("paidBy"):
+                warehouse_sets.append("paid_by=%s")
+                warehouse_vals.append(data.get("paidBy"))
+            warehouse_vals.append(next_warehouse_invoice_id)
+            cur.execute("UPDATE warehouse_invoices SET " + ", ".join(warehouse_sets) + " WHERE id=%s", warehouse_vals)
+        link_changed = (
+            link_payload_present
+            and _positive_int_or_none(current_warehouse_invoice_id)
+            != _positive_int_or_none(next_warehouse_invoice_id)
         )
-    if 'status' in data:
-        log_audit(user_name=data.get("approvedBy") or data.get("paidBy") or "—", user_role="—",
-                  action="status_change", entity_type="supplier_invoice", entity_id=id,
-                  description="Новый статус: "+data.get('status',''),
-                  project_name="")
-    return {"ok": True}
+        conn.commit()
+        cur.close(); conn.close()
+        if link_changed:
+            log_audit(
+                user_name=_current_user.get("name") or _current_user.get("email") or "—",
+                user_role=_current_user.get("role") or "—",
+                action="accounting_supplier_warehouse_link_repaired",
+                entity_type="supplier_invoice",
+                entity_id=id,
+                description=(
+                    "Исправлена связь со складской накладной №"
+                    + str(next_warehouse_invoice_id or "—")
+                ),
+                project_name=supplier_project_name,
+                user_id=_current_user.get("id"),
+                company_id=supplier_company_id,
+            )
+        if 'status' in data:
+            log_audit(user_name=data.get("approvedBy") or data.get("paidBy") or "—", user_role="—",
+                      action="status_change", entity_type="supplier_invoice", entity_id=id,
+                      description="Новый статус: "+data.get('status',''),
+                      project_name="")
+        return {"ok": True}
+    finally:
+        conn.close()
 
 @app.delete("/supplier-invoices/{id}")
-def delete_supplier_invoice(id: int, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
+def delete_supplier_invoice(
+    id: int,
+    _current_user: dict = Depends(get_current_user),
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+):
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor()
-    _ensure_invoice_document_link_columns(cur)
-    require_row_project_access(cur, "supplier_invoices", id, _current_user, "project_name")
-    cur.execute("SELECT warehouse_invoice_id FROM supplier_invoices WHERE id=%s", (id,))
-    warehouse_invoice_id = _row_get(cur.fetchone(), "warehouse_invoice_id", 0)
-    cur.execute("UPDATE supplier_invoices SET status='Аннулирован' WHERE id=%s", (id,))
-    if warehouse_invoice_id:
-        cur.execute("""UPDATE warehouse_invoices
-                       SET supplier_invoice_id=NULL
-                       WHERE id=%s AND supplier_invoice_id=%s""", (warehouse_invoice_id, id))
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok": True}
+    try:
+        ledger_present = _payment_ledger_available(cur)
+        if ledger_present:
+            _lock_payment_document_writer(cur, 'invoice', id)
+        else:
+            _ensure_invoice_document_link_columns(cur)
+            conn.commit()
+        cur.execute("SELECT company_id, warehouse_invoice_id, work_package FROM supplier_invoices WHERE id=%s FOR UPDATE", (id,))
+        invoice = cur.fetchone()
+        if not invoice:
+            raise HTTPException(404, "Счёт не найден")
+        company_id = _row_get(invoice, "company_id", 0)
+        _context, actor = resolve_resource_company_actor(
+            cur, _current_user, company_id, "delete", x_company_id=x_company_id, x_company_mode=x_company_mode,
+            allowed_roles=FINANCE_ROLES, platform_staff_roles=PLATFORM_STAFF_ROLES,
+            client_account_roles=CLIENT_ACCOUNT_ROLES)
+        require_row_project_access(cur, "supplier_invoices", id, actor, "project_name")
+        if not has_package_access(actor, _row_get(invoice, "work_package", 2) or "Основная"):
+            raise HTTPException(403, "Нет доступа к пакету счёта")
+        if ledger_present:
+            _require_unmanaged_payment_document(cur, 'invoice', id)
+        warehouse_invoice_id = _row_get(invoice, "warehouse_invoice_id", 1)
+        cur.execute("UPDATE supplier_invoices SET status='Аннулирован' WHERE id=%s", (id,))
+        if warehouse_invoice_id:
+            cur.execute("""UPDATE warehouse_invoices SET supplier_invoice_id=NULL
+                           WHERE id=%s AND supplier_invoice_id=%s AND company_id=%s""",
+                        (warehouse_invoice_id, id, company_id))
+        conn.commit()
+        return {"ok": True}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
 
 try:
     from backend.features.warranty_defects.routes import register_warranty_defects_module
@@ -24660,6 +25803,8 @@ except ModuleNotFoundError:
 
 
 register_warranty_defects_module(app, {
+    "get_current_user": get_current_user,
+    "record_scope": project_record_scope,
     "get_db": get_db,
     "require_roles": require_roles,
     "read_roles": PROJECT_DOCUMENT_ROLES,
@@ -24822,6 +25967,9 @@ except ModuleNotFoundError:
 
 
 register_interim_acts_module(app, {
+    "lock_settlement": _lock_legacy_work_settlement,
+    "require_legacy_work": work_settlement_guards.require_legacy_work,
+    "require_legacy_interim": work_settlement_guards.require_legacy_interim,
     "get_db": get_db,
     "get_current_user": get_current_user,
     "require_roles": require_roles,
@@ -24881,6 +26029,23 @@ def save_doc_version(document_type, document_id, snapshot_json, changed_by="", c
         return None
 
 try:
+    from backend.features.warehouse_distribution import register_warehouse_distribution_module
+except ModuleNotFoundError:
+    from features.warehouse_distribution import register_warehouse_distribution_module
+
+register_warehouse_distribution_module(app, {
+    "get_db": get_db,
+    "get_current_user": get_current_user,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
+    "apply_movement": _apply_warehouse_movement,
+    "movement_model": WarehouseMovementModel,
+    "detect_cable_info": _detect_cable_info,
+    "normalize_unit": _norm_base_unit,
+    "finance_roles": FINANCE_ROLES,
+})
+
+try:
     from backend.features.document_versions.routes import register_document_versions_module
 except ModuleNotFoundError:
     from features.document_versions.routes import register_document_versions_module
@@ -24909,6 +26074,8 @@ except ModuleNotFoundError:
 
 
 register_project_payments_module(app, {
+    "lock_settlement": _lock_legacy_work_settlement,
+    "require_legacy_project_payment": work_settlement_guards.require_legacy_project_payment,
     "get_db": get_db,
     "get_current_user": get_current_user,
     "finance_roles": FINANCE_ROLES,
@@ -25011,6 +26178,8 @@ except ModuleNotFoundError:
 
 
 register_materials_module(app, {
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
     "get_db": get_db,
     "get_current_user": get_current_user,
     "require_roles": require_roles,
@@ -25068,12 +26237,16 @@ register_rooms_module(app, {
 })
 
 try:
+    from backend.features.supplier_access.procurement_scope import authorize_procurement_document, procurement_read_cursor, explicit_supplier_targets
     from backend.features.supplier_access.directory_routes import register_supplier_directory_module
 except ModuleNotFoundError:
+    from features.supplier_access.procurement_scope import authorize_procurement_document, procurement_read_cursor, explicit_supplier_targets
     from features.supplier_access.directory_routes import register_supplier_directory_module
 
 
 register_supplier_directory_module(app, {
+    "platform_staff_roles": PLATFORM_STAFF_ROLES,
+    "client_account_roles": CLIENT_ACCOUNT_ROLES,
     "get_db": get_db,
     "get_current_user": get_current_user,
     "require_roles": require_roles,
@@ -25120,7 +26293,63 @@ except ModuleNotFoundError:
     from features.supplier_offers.routes import register_supplier_offers_module
 
 
+# Inert until schema rehearsal and the deal-document rollout checkpoint.
+automatic_supplier_contract_reuse = None
+if os.getenv("SUPPLIER_DEAL_PARTIES_ENABLED", "0") == "1":
+    try:
+        from backend.features.supplier_deal_parties.routes import register_supplier_deal_parties_module
+    except ModuleNotFoundError:
+        from features.supplier_deal_parties.routes import register_supplier_deal_parties_module
+    supplier_deal_dependencies = {
+        "get_db": get_db,
+        "get_current_user": get_current_user,
+        "resolve_resource_company_actor": resolve_resource_company_actor,
+        "current_supplier_ids": current_supplier_access_ids,
+        "require_project_access": require_project_or_warehouse_access,
+        "has_package_access": has_package_access,
+        "platform_staff_roles": PLATFORM_STAFF_ROLES,
+        "client_account_roles": CLIENT_ACCOUNT_ROLES,
+    }
+    register_supplier_deal_parties_module(app, supplier_deal_dependencies)
+    # Separate checkpoint: requires migration 0010; never enabled implicitly.
+    if os.getenv("SUPPLIER_CONTRACT_SNAPSHOTS_ENABLED", "0") == "1":
+        try:
+            from backend.features.supplier_deal_parties.contracts import register_supplier_contracts_module
+        except ModuleNotFoundError:
+            from features.supplier_deal_parties.contracts import register_supplier_contracts_module
+        register_supplier_contracts_module(app, supplier_deal_dependencies)
+        try:
+            from backend.features.supplier_deal_parties.automatic_reuse import build_automatic_reuse
+        except ModuleNotFoundError:
+            from features.supplier_deal_parties.automatic_reuse import build_automatic_reuse
+        automatic_supplier_contract_reuse = build_automatic_reuse(supplier_deal_dependencies)
+        if os.getenv('SUPPLIER_DOCUMENT_CONTRACT_BINDINGS_ENABLED', '0') == '1':
+            try:
+                from backend.features.supplier_deal_parties.document_routes import register_document_contract_routes
+            except ModuleNotFoundError:
+                from features.supplier_deal_parties.document_routes import register_document_contract_routes
+            register_document_contract_routes(app, supplier_deal_dependencies)
+            if os.getenv('SUPPLIER_LEGACY_CONTRACT_BINDING_ENABLED', '0') == '1':
+                try:
+                    from backend.features.supplier_deal_parties.legacy_binding_routes import register_legacy_binding_routes
+                except ModuleNotFoundError:
+                    from features.supplier_deal_parties.legacy_binding_routes import register_legacy_binding_routes
+                register_legacy_binding_routes(app, supplier_deal_dependencies)
+            if os.getenv('SUPPLIER_LEGACY_LINE_REVIEW_ENABLED', '0') == '1':
+                try:
+                    from backend.features.supplier_payments.legacy_line_routes import register_legacy_line_review_routes
+                except ModuleNotFoundError:
+                    from features.supplier_payments.legacy_line_routes import register_legacy_line_review_routes
+                register_legacy_line_review_routes(app, supplier_deal_dependencies)
+
 register_supplier_offers_module(app, {
+    "automatic_contract_reuse": automatic_supplier_contract_reuse,
+    "contract_bindings_enabled": (
+        os.getenv('SUPPLIER_DOCUMENT_CONTRACT_BINDINGS_ENABLED', '0') == '1'
+        and os.getenv('SUPPLIER_DEAL_PARTIES_ENABLED', '0') == '1'
+        and os.getenv('SUPPLIER_CONTRACT_SNAPSHOTS_ENABLED', '0') == '1'
+    ),
+    "_update_supply_flow_status_after_delivery": _update_supply_flow_status_after_delivery,
     "get_db": get_db,
     "get_current_user": get_current_user,
     "require_roles": require_roles,
@@ -25136,6 +26365,7 @@ register_supplier_offers_module(app, {
     "supplier_group_scope_ids": supplier_group_scope_ids,
     "_require_supplier_offer_visibility": _require_supplier_offer_visibility,
     "_log_supplier_offer_event": _log_supplier_offer_event,
+    "_supplier_offer_event_payload": _supplier_offer_event_payload,
     "_ensure_supplier_offer_events_table": _ensure_supplier_offer_events_table,
     "_ensure_supply_request_recipients_table": _ensure_supply_request_recipients_table,
     "_ensure_supply_runtime_columns": _ensure_supply_runtime_columns,
@@ -25149,7 +26379,8 @@ register_supplier_offers_module(app, {
     "_positive_int_or_none": _positive_int_or_none,
     "_resolve_work_company_context": _resolve_work_company_context,
     "_supply_work_package": _supply_work_package,
-    "current_supplier_ids": current_supplier_ids,
+    "current_supplier_ids": current_supplier_access_ids,
+    "supplier_owner_ids": current_supplier_ids,
     "has_package_access": has_package_access,
     "package_access_filter": package_access_filter,
     "require_project_or_warehouse_access": require_project_or_warehouse_access,
@@ -25665,9 +26896,24 @@ def ai_generate_pricelist(data: dict, _current_user: dict = Depends(require_role
     return {"ok": True, "id": pricelist_id, "name": final_name, "itemsCount": inserted}
 
 @app.get("/hidden-works-acts")
-def list_hidden_works_acts(project_name: str = None, current_user: dict = Depends(get_current_user)):
+def list_hidden_works_acts(project_name: str = None, current_user: dict = Depends(get_current_user), request: Request = None):
     conn = get_db()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as context_cur:
+            context = _resolve_work_company_context(context_cur, current_user, None, 'read',
+                x_company_id=request.headers.get('x-company-id') if request else None,
+                x_company_mode=request.headers.get('x-company-mode') if request else None)
+            actors = effective_company_actors(current_user, context)
+            actors = [a for a in actors if a.get('role') != 'заказчик']
+            if len(actors) != 1:
+                raise HTTPException(403, 'Выберите компанию с правами на внутренние акты')
+            current_user = actors[0]
+    except Exception:
+        conn.close()
+        raise
     cur = conn.cursor()
+    owner_sql = 'company_id=%s'
+    owner_params = [current_user.get('companyId') or current_user.get('company_id')]
     cols = """id, project_name, estimate_id, act_number, work_name, section_name, brigade,
               quantity, unit, price_per_unit, total, work_date, status,
               signed_customer, signed_supervisor, signed_contractor, signed_subcontractor,
@@ -25686,15 +26932,15 @@ def list_hidden_works_acts(project_name: str = None, current_user: dict = Depend
             cur.close(); conn.close()
             return []
         package_sql, package_params = package_access_filter(current_user, "work_package")
-        cur.execute(f"SELECT {cols} FROM hidden_works_acts WHERE project_name=%s{package_sql} ORDER BY id DESC", [project_name] + package_params)
+        cur.execute(f"SELECT {cols} FROM hidden_works_acts WHERE {owner_sql} AND project_name=%s{package_sql} ORDER BY id DESC", owner_params + [project_name] + package_params)
     elif allowed_projects is not None:
         if not allowed_projects:
             cur.close(); conn.close()
             return []
         package_sql, package_params = package_access_filter(current_user, "work_package")
-        cur.execute(f"SELECT {cols} FROM hidden_works_acts WHERE project_name = ANY(%s){package_sql} ORDER BY id DESC", [allowed_projects] + package_params)
+        cur.execute(f"SELECT {cols} FROM hidden_works_acts WHERE {owner_sql} AND project_name = ANY(%s){package_sql} ORDER BY id DESC", owner_params + [allowed_projects] + package_params)
     else:
-        cur.execute(f"SELECT {cols} FROM hidden_works_acts ORDER BY id DESC")
+        cur.execute(f"SELECT {cols} FROM hidden_works_acts WHERE {owner_sql} ORDER BY id DESC", owner_params)
     rows = cur.fetchall()
     cur.close(); conn.close()
     result = []
@@ -25734,137 +26980,190 @@ def list_hidden_works_acts(project_name: str = None, current_user: dict = Depend
     return result
 
 @app.put("/hidden-works-acts/{act_id}")
-def update_hidden_works_act(act_id: int, data: dict, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_CONTENT_WRITE_ROLES, *WORKER_EXECUTION_ROLES))):
+def update_hidden_works_act(act_id: int, data: dict, _current_user: dict = Depends(get_current_user), request: Request = None):
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor()
-    require_row_project_access(cur, "hidden_works_acts", act_id, _current_user, "project_name")
-    if _current_user.get("role") in PACKAGE_LIMIT_ROLES:
-        require_hidden_work_actor_access(cur, act_id, _current_user)
-    if _current_user.get("role") in WORKER_EXECUTION_ROLES:
-        cur.execute("""SELECT brigade, signed_customer, signed_supervisor, signed_contractor, signed_subcontractor,
-                              signed_customer_at, signed_supervisor_at, signed_contractor_at, signed_subcontractor_at,
-                              conclusion, comments, project_docs, materials_used, photos, certificates, city, status
-                       FROM hidden_works_acts WHERE id=%s""", (act_id,))
-        own_row = cur.fetchone()
-        if not own_row:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=404, detail="АОСР не найден")
-        actor_key = (_current_user.get("name") or "").strip().lower()
-        own_names = {
-            str(own_row[0] or "").strip().lower(),
-            str(own_row[3] or "").strip().lower(),
-            str(own_row[4] or "").strip().lower(),
-        }
-        if actor_key not in own_names:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=403, detail="Исполнитель может подписывать только свой АОСР")
-        data = {
-            "status": own_row[16] or "Черновик",
-            "signedCustomer": own_row[1] or "",
-            "signedSupervisor": own_row[2] or "",
-            "signedContractor": own_row[3] or "",
-            "signedSubcontractor": (_current_user.get("name") or own_row[4] or ""),
-            "signedCustomerAt": own_row[5] or None,
-            "signedSupervisorAt": own_row[6] or None,
-            "signedContractorAt": own_row[7] or None,
-            "signedSubcontractorAt": data.get("signedSubcontractorAt") or __import__("datetime").date.today().isoformat(),
-            "conclusion": own_row[9] or "",
-            "comments": data.get("comments", own_row[10] or ""),
-            "projectDocs": own_row[11] or "",
-            "materialsUsed": own_row[12] or "",
-            "photos": own_row[13] or "",
-            "certificates": own_row[14] or "",
-            "city": own_row[15] or "",
-        }
-    # Снапшот текущего состояния перед изменением (версионирование)
     try:
-        cur.execute("SELECT row_to_json(t) FROM hidden_works_acts t WHERE id=%s", (act_id,))
-        prev_row = cur.fetchone()
-        if prev_row and prev_row[0]:
-            save_doc_version("hidden_works_act", act_id, prev_row[0],
-                             changed_by=data.get("_actor","—"),
-                             change_reason="PUT /hidden-works-acts/"+str(act_id))
-    except Exception as e:
-        print("VERSION snapshot skipped:", str(e))
-    # Подписи помогают контролю, но не являются обязательным стоп-краном.
-    sc = data.get("signedCustomer","").strip()
-    ss = data.get("signedSupervisor","").strip()
-    sk = data.get("signedContractor","").strip()
-    sb = data.get("signedSubcontractor","").strip()
-    auto_status = hidden_work_effective_status(data.get("status","Черновик"), sc, ss, sk, sb)
-    cur.execute("""UPDATE hidden_works_acts SET
-                   status=%s,
-                   signed_customer=%s, signed_supervisor=%s, signed_contractor=%s, signed_subcontractor=%s,
-                   signed_customer_at=%s, signed_supervisor_at=%s, signed_contractor_at=%s, signed_subcontractor_at=%s,
-                   conclusion=%s, comments=%s, project_docs=%s, materials_used=%s,
-                   photos=%s, certificates=%s, city=%s,
-                   ai_filled=FALSE
-                   WHERE id=%s""",
-        (auto_status,
-         sc, ss, sk, sb,
-         data.get("signedCustomerAt") or None, data.get("signedSupervisorAt") or None,
-         data.get("signedContractorAt") or None, data.get("signedSubcontractorAt") or None,
-         data.get("conclusion",""), data.get("comments",""),
-         data.get("projectDocs",""), data.get("materialsUsed",""),
-         data.get("photos",""), data.get("certificates",""), data.get("city",""),
-         act_id))
-    conn.commit(); cur.close(); conn.close()
-    log_audit(user_name=data.get("_actor","система"), user_role="—",
-              action="update", entity_type="hidden_works_act", entity_id=act_id,
-              description="Изменён АОСР, статус: "+auto_status, project_name=data.get("_project",""))
-    return {"ok": True, "status": auto_status}
+        _lock_legacy_work_settlement(cur)
+        try:
+            _current_user = hidden_act_internal_actor(cur, project_record_scope, _current_user, request, act_id, (*PROJECT_DOCUMENT_CONTENT_WRITE_ROLES, *WORKER_EXECUTION_ROLES))
+        except Exception:
+            cur.close(); conn.close()
+            raise
+        require_row_project_access(cur, "hidden_works_acts", act_id, _current_user, "project_name")
+        if _current_user.get("role") in PACKAGE_LIMIT_ROLES:
+            require_hidden_work_actor_access(cur, act_id, _current_user)
+        if _current_user.get("role") in WORKER_EXECUTION_ROLES:
+            cur.execute("""SELECT brigade, signed_customer, signed_supervisor, signed_contractor, signed_subcontractor,
+                                  signed_customer_at, signed_supervisor_at, signed_contractor_at, signed_subcontractor_at,
+                                  conclusion, comments, project_docs, materials_used, photos, certificates, city, status
+                           FROM hidden_works_acts WHERE id=%s""", (act_id,))
+            own_row = cur.fetchone()
+            if not own_row:
+                cur.close(); conn.close()
+                raise HTTPException(status_code=404, detail="АОСР не найден")
+            actor_key = (_current_user.get("name") or "").strip().lower()
+            own_names = {
+                str(own_row[0] or "").strip().lower(),
+                str(own_row[3] or "").strip().lower(),
+                str(own_row[4] or "").strip().lower(),
+            }
+            if actor_key not in own_names:
+                cur.close(); conn.close()
+                raise HTTPException(status_code=403, detail="Исполнитель может подписывать только свой АОСР")
+            data = {
+                "status": own_row[16] or "Черновик",
+                "signedCustomer": own_row[1] or "",
+                "signedSupervisor": own_row[2] or "",
+                "signedContractor": own_row[3] or "",
+                "signedSubcontractor": (_current_user.get("name") or own_row[4] or ""),
+                "signedCustomerAt": own_row[5] or None,
+                "signedSupervisorAt": own_row[6] or None,
+                "signedContractorAt": own_row[7] or None,
+                "signedSubcontractorAt": data.get("signedSubcontractorAt") or __import__("datetime").date.today().isoformat(),
+                "conclusion": own_row[9] or "",
+                "comments": data.get("comments", own_row[10] or ""),
+                "projectDocs": own_row[11] or "",
+                "materialsUsed": own_row[12] or "",
+                "photos": own_row[13] or "",
+                "certificates": own_row[14] or "",
+                "city": own_row[15] or "",
+            }
+        work_acceptance_records.guard_hidden_act(cur, act_id)
+        cur.execute('SELECT signed_customer,signed_customer_at,conclusion,city FROM hidden_works_acts WHERE id=%s', (act_id,))
+        confirmed = cur.fetchone()
+        if confirmed and confirmed[0]:
+            before = (str(confirmed[0]), str(confirmed[1] or ''), confirmed[2] or '', confirmed[3] or '')
+            after = (str(data.get('signedCustomer') or ''), str(data.get('signedCustomerAt') or ''),
+                     data.get('conclusion') or '', data.get('city') or '')
+            if before != after:
+                raise HTTPException(409, 'Нельзя изменять подтверждение заказчика и согласованные условия акта')
+        # Снапшот текущего состояния перед изменением (версионирование)
+        try:
+            cur.execute("SELECT row_to_json(t) FROM hidden_works_acts t WHERE id=%s", (act_id,))
+            prev_row = cur.fetchone()
+            if prev_row and prev_row[0]:
+                save_doc_version("hidden_works_act", act_id, prev_row[0],
+                                 changed_by=data.get("_actor","—"),
+                                 change_reason="PUT /hidden-works-acts/"+str(act_id))
+        except Exception as e:
+            print("VERSION snapshot skipped:", str(e))
+        # Подписи помогают контролю, но не являются обязательным стоп-краном.
+        sc = data.get("signedCustomer","").strip()
+        ss = data.get("signedSupervisor","").strip()
+        sk = data.get("signedContractor","").strip()
+        sb = data.get("signedSubcontractor","").strip()
+        auto_status = hidden_work_effective_status(data.get("status","Черновик"), sc, ss, sk, sb)
+        cur.execute("""UPDATE hidden_works_acts SET
+                       status=%s,
+                       signed_customer=%s, signed_supervisor=%s, signed_contractor=%s, signed_subcontractor=%s,
+                       signed_customer_at=%s, signed_supervisor_at=%s, signed_contractor_at=%s, signed_subcontractor_at=%s,
+                       conclusion=%s, comments=%s, project_docs=%s, materials_used=%s,
+                       photos=%s, certificates=%s, city=%s,
+                       ai_filled=FALSE
+                       WHERE id=%s""",
+            (auto_status,
+             sc, ss, sk, sb,
+             data.get("signedCustomerAt") or None, data.get("signedSupervisorAt") or None,
+             data.get("signedContractorAt") or None, data.get("signedSubcontractorAt") or None,
+             data.get("conclusion",""), data.get("comments",""),
+             data.get("projectDocs",""), data.get("materialsUsed",""),
+             data.get("photos",""), data.get("certificates",""), data.get("city",""),
+             act_id))
+        conn.commit(); cur.close(); conn.close()
+        log_audit(user_name=data.get("_actor","система"), user_role="—",
+                  action="update", entity_type="hidden_works_act", entity_id=act_id,
+                  description="Изменён АОСР, статус: "+auto_status, project_name=data.get("_project",""))
+        return {"ok": True, "status": auto_status}
+    finally:
+        if not conn.closed:
+            conn.rollback()
+            cur.close()
+            conn.close()
+
 
 @app.post("/hidden-works-acts/{act_id}/pay")
-def pay_hidden_works_act(act_id: int, data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES))):
+def pay_hidden_works_act(act_id: int, data: dict, _current_user: dict = Depends(get_current_user), request: Request = None):
     """Отметить оплату в карточке АОСР без влияния на финансы объекта."""
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor()
-    require_row_project_access(cur, "hidden_works_acts", act_id, _current_user, "project_name")
-    cur.execute("SELECT project_name, act_number, total FROM hidden_works_acts WHERE id=%s", (act_id,))
-    row = cur.fetchone()
-    if not row:
+    try:
+        try:
+            _current_user = hidden_act_internal_actor(cur, project_record_scope, _current_user, request, act_id, FINANCE_ROLES)
+        except Exception:
+            cur.close(); conn.close()
+            raise
+        require_row_project_access(cur, "hidden_works_acts", act_id, _current_user, "project_name")
+        cur.execute("SELECT project_name, act_number, total FROM hidden_works_acts WHERE id=%s", (act_id,))
+        row = cur.fetchone()
+        if not row:
+            cur.close(); conn.close()
+            raise HTTPException(status_code=404, detail="акт не найден")
+        proj, act_no, default_total = row[0] or "", row[1] or "", float(row[2] or 0)
+        amount = float(data.get("amount") or default_total)
+        paid_by = (data.get("paidBy") or "").strip()
+        paid_note = (data.get("paidNote") or "Оплата по АОСР " + act_no).strip()
+        paid_at = data.get("paidAt") or __import__("datetime").date.today().isoformat()
+        cur.execute("""UPDATE hidden_works_acts
+                       SET paid_status='Оплачен', paid_amount=%s, paid_at=%s, paid_by=%s, paid_note=%s
+                       WHERE id=%s""",
+                    (amount, paid_at, paid_by, paid_note, act_id))
+        conn.commit()
         cur.close(); conn.close()
-        raise HTTPException(status_code=404, detail="акт не найден")
-    proj, act_no, default_total = row[0] or "", row[1] or "", float(row[2] or 0)
-    amount = float(data.get("amount") or default_total)
-    paid_by = (data.get("paidBy") or "").strip()
-    paid_note = (data.get("paidNote") or "Оплата по АОСР " + act_no).strip()
-    paid_at = data.get("paidAt") or __import__("datetime").date.today().isoformat()
-    cur.execute("""UPDATE hidden_works_acts
-                   SET paid_status='Оплачен', paid_amount=%s, paid_at=%s, paid_by=%s, paid_note=%s
-                   WHERE id=%s""",
-                (amount, paid_at, paid_by, paid_note, act_id))
-    conn.commit()
-    cur.close(); conn.close()
-    log_audit(user_name=paid_by or "—", user_role="—",
-              action="pay", entity_type="hidden_works_act", entity_id=act_id,
-              description="Отмечена оплата в карточке АОСР "+act_no+" на сумму "+str(amount)+" ₽",
-              project_name=proj)
-    return {"ok": True, "paidStatus": "Оплачен", "paidAmount": amount, "paidAt": paid_at, "financeDetached": True}
+        log_audit(user_name=paid_by or "—", user_role="—",
+                  action="pay", entity_type="hidden_works_act", entity_id=act_id,
+                  description="Отмечена оплата в карточке АОСР "+act_no+" на сумму "+str(amount)+" ₽",
+                  project_name=proj)
+        return {"ok": True, "paidStatus": "Оплачен", "paidAmount": amount, "paidAt": paid_at, "financeDetached": True}
+
+    finally:
+        if not conn.closed:
+            conn.rollback()
+            cur.close(); conn.close()
 
 @app.delete("/hidden-works-acts/{act_id}")
-def delete_hidden_works_act(act_id: int, _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_WRITE_ROLES))):
+def delete_hidden_works_act(act_id: int, _current_user: dict = Depends(get_current_user), request: Request = None):
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor()
-    require_row_project_access(cur, "hidden_works_acts", act_id, _current_user, "project_name")
-    cur.execute("UPDATE hidden_works_acts SET status='Аннулирован' WHERE id=%s", (act_id,))
-    conn.commit(); cur.close(); conn.close()
-    return {"ok": True}
+    try:
+        try:
+            _current_user = hidden_act_internal_actor(cur, project_record_scope, _current_user, request, act_id, PROJECT_DOCUMENT_WRITE_ROLES)
+        except Exception:
+            cur.close(); conn.close()
+            raise
+        require_row_project_access(cur, "hidden_works_acts", act_id, _current_user, "project_name")
+        cur.execute("UPDATE hidden_works_acts SET status='Аннулирован' WHERE id=%s", (act_id,))
+        conn.commit(); cur.close(); conn.close()
+        return {"ok": True}
+
+    finally:
+        if not conn.closed:
+            conn.rollback()
+            cur.close(); conn.close()
 
 @app.post("/hidden-works-acts/{act_id}/ai-prefill")
-def ai_prefill_hidden_works_act(act_id: int, _current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES))):
+def ai_prefill_hidden_works_act(act_id: int, _current_user: dict = Depends(get_current_user), request: Request = None):
     import openai as oa, json as j, re
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor()
-    require_hidden_work_actor_access(cur, act_id, _current_user)
-    cur.execute("""SELECT work_name, section_name, brigade, materials_used, unit, quantity, project_name
-                   FROM hidden_works_acts WHERE id=%s""", (act_id,))
-    row = cur.fetchone()
-    if not row:
+    try:
+        _current_user = hidden_act_internal_actor(cur, project_record_scope, _current_user, request, act_id, JOURNAL_WRITE_ROLES)
+        require_hidden_work_actor_access(cur, act_id, _current_user)
+        cur.execute("""SELECT work_name, section_name, brigade, materials_used, unit, quantity, project_name
+                       FROM hidden_works_acts WHERE id=%s""", (act_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="act not found")
+        work_name, section_name, brigade, materials_used, unit, quantity, project_name = row
+        cur.execute('SELECT row_to_json(h)::text FROM hidden_works_acts h WHERE id=%s', (act_id,))
+        source_snapshot = cur.fetchone()[0]
+    finally:
+        conn.rollback()
         cur.close(); conn.close()
-        raise HTTPException(status_code=404, detail="act not found")
-    work_name, section_name, brigade, materials_used, unit, quantity, project_name = row
-    cur.close()
 
     user_text = (
         "Работа: " + (work_name or "—") + "\n"
@@ -25925,13 +27224,26 @@ def ai_prefill_hidden_works_act(act_id: int, _current_user: dict = Depends(requi
     else:
         full_conclusion = conclusion
 
+    conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor()
-    cur.execute("""UPDATE hidden_works_acts
-                   SET conclusion=%s, project_docs=%s, ai_filled=TRUE
-                   WHERE id=%s""",
-                (full_conclusion, project_docs, act_id))
-    conn.commit()
-    cur.close(); conn.close()
+    try:
+        _lock_legacy_work_settlement(cur)
+        hidden_act_internal_actor(cur, project_record_scope, _current_user, request, act_id, JOURNAL_WRITE_ROLES)
+        work_acceptance_records.guard_hidden_act(cur, act_id)
+        cur.execute('SELECT row_to_json(h)::text FROM hidden_works_acts h WHERE id=%s', (act_id,))
+        if cur.fetchone()[0] != source_snapshot:
+            raise HTTPException(409, 'Акт изменился во время подготовки текста. Обновите его и повторите запрос')
+        cur.execute('SELECT signed_customer FROM hidden_works_acts WHERE id=%s', (act_id,))
+        if cur.fetchone()[0]:
+            raise HTTPException(409, 'Подтверждённый заказчиком акт нельзя заполнять заново')
+        cur.execute("""UPDATE hidden_works_acts
+                       SET conclusion=%s, project_docs=%s, ai_filled=TRUE
+                       WHERE id=%s""", (full_conclusion, project_docs, act_id))
+        conn.commit()
+    finally:
+        conn.rollback()
+        cur.close(); conn.close()
     return {"ok": True, "conclusion": full_conclusion, "projectDocs": project_docs, "normatives": normatives, "aiFilled": True}
 
 def _generate_estimate_chat_answer_legacy(full_prompt: str, instructions: str) -> str:
@@ -26742,9 +28054,11 @@ except ModuleNotFoundError:
 
 register_project_launch_module(app, {
     "get_db": get_db,
+    "authenticated": get_current_user,
+    "scope": project_record_scope,
     "require_roles": require_roles,
     "require_project_access": require_project_access,
-    "read_roles": PROJECT_DOCUMENT_ROLES,
+    "read_roles": tuple(role for role in PROJECT_DOCUMENT_ROLES if role != "заказчик"),
     "write_roles": PROJECT_DOCUMENT_WRITE_ROLES,
     "log_audit": log_audit,
 })
@@ -26772,7 +28086,11 @@ except ModuleNotFoundError:
         resolve_project_parent as resolve_document_project_parent,
     )
 
-register_document_access_module(app, {
+document_access_dependencies = {
+    "supplier_contract_files_enabled": (
+        os.getenv("SUPPLIER_DEAL_PARTIES_ENABLED", "0") == "1"
+        and os.getenv("SUPPLIER_CONTRACT_SNAPSHOTS_ENABLED", "0") == "1"
+    ),
     "get_db": get_db,
     "get_current_user": get_current_user,
     "resolve_resource_company_actor": resolve_resource_company_actor,
@@ -26811,7 +28129,28 @@ register_document_access_module(app, {
         secret_key=S3_SECRET_ACCESS_KEY,
     ),
     "protected_legacy_uploads_enabled": not PUBLIC_UPLOADS_MOUNT_ENABLED,
-})
+}
+register_document_access_module(app, document_access_dependencies)
+if (os.getenv('SUPPLIER_DEAL_PARTIES_ENABLED') == '1'
+        and os.getenv('SUPPLIER_CONTRACT_SNAPSHOTS_ENABLED') == '1'):
+    try:
+        from backend.features.supplier_deal_parties.supplier_originals import register_supplier_originals
+    except ModuleNotFoundError:
+        from features.supplier_deal_parties.supplier_originals import register_supplier_originals
+    register_supplier_originals(app, {**supplier_deal_dependencies, **document_access_dependencies})
+
+
+# Text-only preview is an independent opt-in, not an automatic OCR rollout.
+if (os.getenv("SUPPLIER_DEAL_PARTIES_ENABLED", "0") == "1"
+        and os.getenv("SUPPLIER_CONTRACT_SNAPSHOTS_ENABLED", "0") == "1"
+        and os.getenv("SUPPLIER_CONTRACT_RECOGNITION_ENABLED", "0") == "1"):
+    try:
+        from backend.features.supplier_deal_parties.contract_recognition import register_contract_recognition
+    except ModuleNotFoundError:
+        from features.supplier_deal_parties.contract_recognition import register_contract_recognition
+    supplier_deal_dependencies['recognize_contract'] = register_contract_recognition(
+        app, {**supplier_deal_dependencies, **document_access_dependencies})
+
 
 try:
     from backend.features.project_records import register_project_records_module
@@ -26819,6 +28158,8 @@ except ModuleNotFoundError:
     from features.project_records import register_project_records_module
 
 register_project_records_module(app, {
+    "get_current_user": get_current_user,
+    "record_scope": project_record_scope,
     "get_db": get_db,
     "require_roles": require_roles,
     "require_project_access": require_project_access,
@@ -26911,6 +28252,7 @@ except ModuleNotFoundError:
     from features.messenger import register_messenger_module
 
 register_messenger_module(app, {
+    "dispatch_supply_recipient_email": _dispatch_supply_recipient_email,
     "get_db": get_db,
     "get_current_user": get_current_user,
     "require_roles": require_roles,
@@ -26977,4 +28319,89 @@ register_assignments_module(app, {
         "снабженец",
         "кладовщик",
     ),
+})
+
+try:
+    from backend.features.work_material_accounting.routes import register_material_accounting
+except ModuleNotFoundError:
+    from features.work_material_accounting.routes import register_material_accounting
+
+register_material_accounting(app, {
+    "get_db": get_db,
+    "get_current_user": get_current_user,
+    "resolve_mutation": _resolve_work_journal_mutation,
+    "has_package_access": has_package_access,
+    "personal_balance": _personal_material_balance,
+})
+
+try:
+    from backend.features.work_material_accounting.settlement_routes import register_contract_settlement
+except ModuleNotFoundError:
+    from features.work_material_accounting.settlement_routes import register_contract_settlement
+
+register_contract_settlement(app, {
+    "get_db": get_db, "get_current_user": get_current_user,
+    "lock_actor": _lock_brigade_settlement_actor,
+    "resolve_contract": _resolve_brigade_contract_actor, "has_package_access": has_package_access,
+})
+
+
+try:
+    from backend.features.work_acceptance.routes import register_work_acceptance
+    from backend.features.work_acceptance import records as work_acceptance_records
+except ModuleNotFoundError:
+    from features.work_acceptance.routes import register_work_acceptance
+    from features.work_acceptance import records as work_acceptance_records
+
+register_work_acceptance(app, {
+    "get_db": get_db, "get_current_user": get_current_user,
+    "resolve_mutation": _resolve_work_journal_mutation, "has_package_access": has_package_access,
+    "personal_balance": _personal_material_balance, "material_key": _material_control_key_resolved,
+    "norm_unit": _norm_base_unit, "estimate_keys": _estimate_item_key_candidates,
+    "force_material_package": _force_work_material_package,
+    "recalculate_contract": _recalculate_contract_item_done_from_work_journal,
+    "recalculate_estimate": _recalculate_estimate_item_done_from_work_journal,
+    "sync_room": _sync_room_work_from_journal, "sync_hidden": _sync_hidden_work_act_from_journal,
+    "locked_act_statuses": INTERIM_ACT_LOCKED_STATUSES,
+})
+
+# Routes remain disabled unless SUPPLIER_PAYMENTS_ENABLED=1. Activation follows
+# the payment/receipt release checks; registering the router performs no writes.
+try:
+    from backend.features.supplier_payments.access import build_payment_access
+    from backend.features.supplier_payments.documents import build_document_resolver
+    from backend.features.supplier_payments.routes import register_supplier_payment_routes
+    from backend.features.supplier_payments.allocation_access import build_allocation_access
+    from backend.features.supplier_payments.allocation_routes import register_supplier_allocation_routes
+    from backend.features.supplier_payments.allocation_schema import require_allocation_schema
+except ModuleNotFoundError:
+    from features.supplier_payments.access import build_payment_access
+    from features.supplier_payments.documents import build_document_resolver
+    from features.supplier_payments.routes import register_supplier_payment_routes
+    from features.supplier_payments.allocation_access import build_allocation_access
+    from features.supplier_payments.allocation_routes import register_supplier_allocation_routes
+    from features.supplier_payments.allocation_schema import require_allocation_schema
+
+_supplier_payment_access_deps = {
+    'resolve_resource_company_actor': resolve_resource_company_actor,
+    'finance_roles': FINANCE_ROLES, 'platform_staff_roles': PLATFORM_STAFF_ROLES,
+    'client_account_roles': CLIENT_ACCOUNT_ROLES,
+    'require_project_access': require_project_access, 'has_package_access': has_package_access,
+}
+register_supplier_payment_routes(app, {
+    'get_db': get_db, 'get_current_user': get_current_user,
+    'resolve_documents': build_document_resolver(build_payment_access(_supplier_payment_access_deps)),
+    'authorize_write': build_payment_access(_supplier_payment_access_deps, operation='update'),
+    'authorize_read': build_payment_access(_supplier_payment_access_deps, operation='read'),
+})
+
+# Both allocation routes and linked refunds remain hidden unless the allocation
+# feature is enabled. The refund worker separately gates new refund operations.
+register_supplier_allocation_routes(app, {
+    'get_db': get_db, 'get_current_user': get_current_user,
+    'resolve_documents_read': build_document_resolver(build_payment_access(_supplier_payment_access_deps, operation='read')),
+    'resolve_documents': build_document_resolver(build_payment_access(_supplier_payment_access_deps)),
+    'authorize_allocation_write': build_allocation_access(_supplier_payment_access_deps, operation='update'),
+    'authorize_allocation_read': build_allocation_access(_supplier_payment_access_deps, operation='read'),
+    'require_allocation_schema': require_allocation_schema,
 })

@@ -1,5 +1,8 @@
 # Task List: Safe Stroyka Program Improvements
 
+Текущий список: [завершение версии без почты](platform-completion-2026-09-20.md).
+Ниже сохранены исторические задачи, они не определяют текущую готовность.
+
 ## Task 1: Baseline Worktree Inventory
 
 **Description:** Record the current repo state before implementation so generated artifacts and unrelated local files do not get mixed into feature work.
@@ -10615,3 +10618,111 @@ executor and begins with an audit-only warehouse review acknowledgement. This
 planning step changed documentation and task decomposition only; it made no
 code, schema, route, registration, UI, production, commit, push or deployment
 change.
+# Company supply request templates — 2026-09-19
+
+- [x] Reproduce global visibility and stale project section failures.
+- [x] Add nullable company ownership, immutable archive/audit and scoped HTTP policy.
+- [x] Use server identity, exact replay and reject malformed rows without dropping them.
+- [x] Replace global template UI state with company-scoped controls; wire master sections.
+- [x] PostgreSQL 19, frontend 1083, build, independent review and 320px browser checks.
+- [x] Rehearse migration on private production copy; all 171 original tables unchanged.
+- [x] Canonical backend discovery: 3745 tests passed, 623 opt-in skips.
+- [x] Released f41a2c1b / schema 0032; production health, 401 guards and assets verified.
+- [ ] Attribute legacy warehouse/template only after explicit ownership confirmation.
+
+
+# Delivery control — 2026-09-19
+
+- [x] Reproduce repeated receipt UI, stale form and unresolved-claim counter bugs.
+- [x] Add pre-pagination delivery filters and actual receipt/shortage quantities.
+- [x] Full frontend175 suites/1097tests, production build and independent review.
+- [x] Real browser pending/problem/claim filters and320px no-overflow verification.
+- [x] Release63fe4678; preserve173tables, verify319frontendfiles and healthy runtime.
+- [ ] Legacy ownership confirmations remain pending separately.
+
+
+## 2026-09-19 — Supplier catalogue import (released23c0fe6d)
+
+- [x] Validate all rows and preview Excel/XLS/UTF-8 CSV before writes.
+- [x] Skip same-supplier name/unit matches; recheck current catalogue before saving.
+- [x] Count only confirmed writes; stop on denied or ambiguous replies.
+- [x] Load supplier card/catalog at login; preserve zero delivery days on GET.
+- [x] Frontend1116 full tests +44 final targeted; backend3765/639opt-in skips.
+- [x] Browser Excel/CSV/repeat/invalid/lost-response/mobile320 checks.
+- [x] Backed-up deployment;173tables preserved; production smoke healthy.
+
+
+## 2026-09-19 — Manual supplier catalogue changes (released961e2ef8)
+
+- [x] Reproduce/fix manual create/delete showing HTTP failures as success.
+- [x] Preserve draft and rows on failure; normalize inputs and check duplicates.
+- [x] Serialize manual/import mutations; ignore stale actor/supplier callbacks.
+- [x] Full frontend180suites/1128tests; browser denied/successful create/delete/mobile320.
+- [x] Backup release;173tablespreserved; production smoke healthy/no runtimeerrors.
+
+
+## 2026-09-19 — Кабинет поставщика по прототипу (план, не реализация)
+
+Критерии, зависимости, проверки и предполагаемые файлы: [план](../docs/supplier-portal-roadmap.md).
+
+- [x] P1: Загрузка адресных входящих при обычном входе — released56c0d2ac, см. docs/supplier-inbox-loading.md.
+- [x] P2: Ответ поставщика и получение КП заказчиком — releasedb48eff7d; безопасный повтор, конфликт версий, транзакции, браузер и PostgreSQL, см. docs/supplier-quote-response.md.
+- [x] P3.1: Достоверные факты MAX и обновление КП/уведомлений — releasedb9b5cf39, см. docs/supplier-notification-evidence.md.
+- [x] P3.2a: Email после COMMIT с сохранённым захватом — released2760bc1d; docs/supplier-email-attempts.md.
+- [x] P3.2: Сохранённые попытки email/MAX и безопасный явный повтор; выпущено `45b30427`. 12 исторических получателей отсутствующих заявок не пересылались.
+- [x] P4: Реестр заявок по прототипу.
+- [x] P5: Поиск, фильтры, пагинация и CSV.
+- [x] P6: Сроки ответа и карточки внимания.
+- [x] P7: Раздел подтверждённых заказов.
+- [x] P8: Заказчики и границы доступа; release979ef693.
+- [x] P9: Серверные права команды компании-поставщика; releasedd2366ba0.
+- [x] P10: Назначение ответственного и рабочие статусы.
+- [x] P11: Приглашение и отключение сотрудников.
+- [x] P12: Отгрузки и документы в новой навигации; выпуск `0ed7fc96`.
+- [x] P13: Реальные тарифы и профиль; выпуск `b7a0b239`.
+- [x] P14: Финальная сквозная приёмка и выпуск; попадание контрольного письма во «Входящие» подтверждено пользователем 29.09.2026.
+
+## P5 — supplier registry search and export
+
+- [x] Project authorized request/quote pairs, search Unicode text and filter customer/status.
+- [x] Page 20 rows; counts use complete matching set; reset filters returns page 1.
+- [x] CSV contains all filtered rows, correctly escapes delimiters/newlines and formulas.
+- [x] Tests: multiple pages, refresh shrinking dataset, empty result, foreign orphan, CSV.
+- [x] Production build; real-browser search/filter/download/mobile; review and release10576f5a.
+
+## P6 — response deadlines and attention
+
+- [x] Confirm weekday/timezone rule with user (Mon–Fri, Moscow, no holidays).
+- [x] Persist per newly created quote; retry does not extend; historic null.
+- [x] Deadline form, Moscow display, attention filtering and CSV.
+- [x] Policy, transactional PostgreSQL, migration, frontend and browser checks.
+- [x] Backed-up deploymenta0f7ed8b and read-only smoke.
+
+## P7 — confirmed orders
+
+- [x] Only selected quotes become order projections; no new business records.
+- [x] Separate material/unit/work-package balances and partial receipt status.
+- [x] Own fresh requests/offers/deliveries/invoices load with error and actor guards.
+- [x] Scoped documents and transition to current request actions.
+- [x] Full frontend/build, real browser, backup deploymentd7406367 and smoke.
+
+## P8 — supplier customers
+
+- [x] Customer projection by company ID from addressed requests.
+- [x] Separate requests/orders/document history and all-customer filter.
+- [x] Tests for equal names, foreign documents and revoked selection.
+- [x] Full tests/build, two-customer browser QA and backed-up release979ef693.
+
+- [ ] Technical follow-up: health `_app_version` must support Git packed refs/worktree common refs. P8 preflight exposed the existing loose-ref-only reader after automatic Git GC; restored the identical main ref and disabled automatic GC for this release fetch. No code/history/data change in this operational recovery.
+
+## P9 — supplier team policy
+
+- [x] Confirm leader/manager visibility with user; inspect current owner binding.
+- [x] Explicit memberships/assignments and fail-closed policy.
+- [x] API reads/actions enforce scope without widening owner-only profile/catalog.
+- [x] PostgreSQL regression and rollout verification; d2366ba0, original 173 tables preserved, 6 owner visibility comparisons equal.
+
+## Документы контрагентов — 28.09.2026
+
+- [x] Структура кабинетов и правило покупатель = плательщик проработаны.
+- [ ] Выполнить D0–D6 из [counterparty-documents-todo.md](counterparty-documents-todo.md).

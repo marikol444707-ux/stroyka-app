@@ -1,4 +1,5 @@
 import React from 'react';
+import { selectQualityJournalRows } from '../../utils/qualityJournalScope';
 
 export default function ProjectCableJournalTab({
   C,
@@ -23,7 +24,7 @@ export default function ProjectCableJournalTab({
   toNum,
 }) {
   const diagnostics = projectJournalDiagnostics(project);
-  const rows = cableJournal.filter(row => row.projectName === project.name);
+  const rows = selectQualityJournalRows(cableJournal, project);
 
   const modeControls = (
     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '10px' }}>
@@ -134,7 +135,7 @@ export default function ProjectCableJournalTab({
         {Object.entries(typeCounts).map(([type, count]) => <span key={type} style={badge(C.accent, C.accentLight, C.accentBorder)}>{type + ': ' + count}</span>)}
       </div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '10px' }}>
-        <button onClick={() => showPreview(buildCableJournalContent(rows, project.name, '', ''), 'Журнал кабельной продукции — ' + project.name)} style={{ ...btnB, fontSize: '12px', padding: '7px 12px' }}>
+        <button onClick={() => showPreview(buildCableJournalContent(rows, project, '', ''), 'Журнал кабельной продукции — ' + project.name)} style={{ ...btnB, fontSize: '12px', padding: '7px 12px' }}>
           <Eye size={13} />🖨 Печать журнала
         </button>
       </div>

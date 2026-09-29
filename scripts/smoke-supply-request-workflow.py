@@ -456,7 +456,6 @@ def select_target_project() -> dict[str, Any]:
             "AND COALESCE(e.status,'Активная')='Активная' "
             "AND COALESCE(e.is_template,FALSE)=FALSE "
             "AND COALESCE(e.smeta_type,'Заказчик') IN ('Заказчик','Материалы'))",
-            "NOT " + reviewer_assignment_sql("p"),
         ]
         params: list[Any] = []
         if requested_company > 0:
@@ -475,7 +474,7 @@ def select_target_project() -> dict[str, Any]:
         row = cur.fetchone()
         if not row:
             raise RuntimeError(
-                "No active-estimate project without an assigned reviewer was found"
+                "No active-estimate project was found"
             )
         return dict(row)
     finally:
@@ -689,6 +688,23 @@ def create_supplier_card(
     supplier_id = int(body.get("id") or 0)
     if supplier_id <= 0:
         raise RuntimeError("Supplier creation did not return id")
+    # Creating a catalogue card does not infer the supplier cabinet identity.
+    # The public link-user route is intentionally platform-admin-only, so the
+    # isolated smoke fixture links its own test user in the setup transaction.
+    conn = db_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "UPDATE suppliers SET user_id=%s, status='Активный' WHERE id=%s",
+            (int(supplier_user["id"]), supplier_id),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
     return supplier_id
 
 
@@ -1256,6 +1272,7 @@ def cleanup(fixtures: dict[str, Any]) -> None:
             cur.execute("DELETE FROM supply_requests WHERE id=ANY(%s)", (request_ids,))
 
         if supplier_ids:
+            cur.execute("DELETE FROM company_supplier_links WHERE supplier_id=ANY(%s)", (supplier_ids,))
             cur.execute("DELETE FROM supplier_aliases WHERE supplier_id=ANY(%s)", (supplier_ids,))
             cur.execute("DELETE FROM supplier_documents WHERE supplier_id=ANY(%s)", (supplier_ids,))
             cur.execute("DELETE FROM supplier_catalog WHERE supplier_id=ANY(%s)", (supplier_ids,))
@@ -1290,6 +1307,19 @@ def cleanup(fixtures: dict[str, Any]) -> None:
                 """,
                 (user_ids,),
             )
+
+        if request_ids:
+            cur.execute("SELECT COUNT(*) FROM supply_requests WHERE id=ANY(%s)", (request_ids,))
+            if int(cur.fetchone()[0]) != 0:
+                raise RuntimeError("Smoke request cleanup is incomplete")
+        if supplier_ids:
+            cur.execute("SELECT COUNT(*) FROM suppliers WHERE id=ANY(%s)", (supplier_ids,))
+            if int(cur.fetchone()[0]) != 0:
+                raise RuntimeError("Smoke supplier cleanup is incomplete")
+        if user_ids:
+            cur.execute("SELECT COUNT(*) FROM users WHERE id=ANY(%s) AND COALESCE(active,TRUE)=TRUE", (user_ids,))
+            if int(cur.fetchone()[0]) != 0:
+                raise RuntimeError("Smoke user cleanup is incomplete")
 
         conn.commit()
         cur.close()
@@ -1336,6 +1366,7 @@ def main() -> None:
     try:
         project = select_target_project()
         candidate = select_candidate(project)
+        existing_reviewer_count = count_active_project_reviewers(project)
         print(
             "target:",
             json.dumps({**project, **candidate}, ensure_ascii=False, default=str),
@@ -1457,8 +1488,15 @@ def main() -> None:
         assigned_result = run_assigned_reviewer_path(ctx)
         print("OK assigned reviewer path", json.dumps(assigned_result))
 
-        fallback_result = run_director_fallback_path(ctx)
-        print("OK director fallback path", json.dumps(fallback_result))
+        fallback_result = None
+        if existing_reviewer_count == 0:
+            fallback_result = run_director_fallback_path(ctx)
+            print("OK director fallback path", json.dumps(fallback_result))
+        else:
+            print(
+                "SKIP director fallback path: target already has active reviewers",
+                existing_reviewer_count,
+            )
 
         visible_to_other = request_list(
             base_url=base_url,
@@ -1483,7 +1521,10 @@ def main() -> None:
                     "companyId": project["company_id"],
                     "projectId": project["project_id"],
                     "assignedRequestId": assigned_result["request_id"],
-                    "fallbackRequestId": fallback_result["request_id"],
+                    "fallbackRequestId": (
+                        fallback_result["request_id"] if fallback_result else None
+                    ),
+                    "fallbackSkipped": fallback_result is None,
                 },
                 ensure_ascii=False,
                 sort_keys=True,

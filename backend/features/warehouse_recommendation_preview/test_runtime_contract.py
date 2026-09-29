@@ -715,6 +715,14 @@ class WarehouseAnomalyRuntimeDisclosurePolicyTests(unittest.TestCase):
             package_root / "runtime_budget.py": (
                 "72542dbdcb2487f1da98a177337e7becac22fd918703adac17b39ec60ec89717"
             ),
+            backend_root / "db.py": (
+                "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
+            ),
+            # Reviewed company/document isolation and tenant-scoped RFQ email changes;
+            # warehouse preview implementation and registration are unchanged.
+            backend_root / "main.py": (
+                "e295f582192724cdecb6fef04da26e083ff9d8674d126c54cdcd1d86a79c3d3c"
+            ),
         }
         actual = {
             path: hashlib.sha256(path.read_bytes()).hexdigest()

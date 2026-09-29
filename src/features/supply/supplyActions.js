@@ -45,10 +45,8 @@ export const createSupplyActions = ({
   setSupplyStockCheck,
   shipmentForm,
   showRequestKpModal,
-  suggestedSuppliers,
   supplyRejectReason,
   supplyRequests,
-  supplyTemplates,
   user,
   companyContext = {},
   supplyRequestCreationRef = { current: false },
@@ -94,11 +92,13 @@ export const createSupplyActions = ({
 
   const saveSupplier = async () => {
     if (!newSupplier.name) return;
+    const companyId = requireSelectedCompanyForWrite();
+    if (!companyId) return;
     if (!editingItem?.id && !hasSupplierLegalIdentity(newSupplier)) {
       alert('Для новой карточки поставщика укажите ИНН (10 или 12 цифр) либо ОГРН/ОГРНИП (13 или 15 цифр).');
       return;
     }
-    const payload = normalizeSupplierPayload(newSupplier);
+    const payload = { ...normalizeSupplierPayload(newSupplier), companyId };
     let res;
     if (editingItem && editingItem.id) {
       res = await fetch(API + '/suppliers/' + editingItem.id, {
@@ -124,16 +124,17 @@ export const createSupplyActions = ({
     setShowForm(false);
   };
 
-  const deleteSupplier = async (id) => {
-    if (window.confirm('Удалить?')) {
-      const res = await fetch(API + '/suppliers/' + id, { method: 'DELETE' });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        alert(data.detail || 'Поставщика нельзя удалить: есть связанные документы. Используйте привязку или объединение дублей.');
-        return;
-      }
-      await refreshData();
-    }
+  const deleteSupplier = async (supplier) => {
+    const companyId = requireSelectedCompanyForWrite();
+    if (!companyId || !supplier?.id) return;
+    if (!window.confirm('Деактивировать поставщика в каталоге этой компании? История документов сохранится.')) return;
+    const res = await fetch(API + '/suppliers/' + supplier.id, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ companyId, relationshipVersion: supplier.relationshipVersion, status: 'Неактивный' }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { alert(data.detail || 'Не удалось деактивировать поставщика'); return; }
+    await refreshData();
   };
 
   const saveRequest = () => runRequestCreation(async (markCreated) => {
@@ -306,58 +307,25 @@ export const createSupplyActions = ({
       setPriceHints(prev => ({ ...prev, [key]: data }));
     } catch (_) {}
   };
-
-  const saveSupplyTemplate = async () => {
-    const valid = (newSupplyReq.items || []).filter(i => i.materialName && Number(i.quantity) > 0);
-    if (!valid.length) { alert('Добавьте хотя бы одну позицию, чтобы сохранить шаблон'); return; }
-    const name = window.prompt('Название шаблона (например «Стартовый набор на объект»):', '');
-    if (!name || !name.trim()) return;
-    const r = await fetch(API + '/supply-request-templates', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: name.trim(),
-        category: newSupplyReq.category || '',
-        items: valid.map(it => ({ materialName: it.materialName, quantity: Number(it.quantity), unit: it.unit || 'шт', workPackage: it.workPackage || '' })),
-        createdBy: currentUser.name || '',
-        createdById: currentUser.id || null,
-      }),
-    });
-    if (!r.ok) {
-      let e = '';
-      try { e = (await r.json()).detail || ''; } catch (_) {}
-      alert('Не удалось сохранить шаблон' + (e ? ': ' + e : ''));
-      return;
-    }
-    await refreshData();
-    alert('Шаблон «' + name.trim() + '» сохранён');
-  };
-
-  const applySupplyTemplate = (tplId) => {
-    const tpl = (supplyTemplates || []).find(t => String(t.id) === String(tplId));
-    if (!tpl) return;
-    const items = (tpl.items || []).map(it => ({
-      materialName: it.materialName,
-      quantity: String(it.quantity || ''),
-      unit: it.unit || 'шт',
-      workPackage: it.workPackage || '',
-    }));
-    setNewSupplyReq(prev => ({ ...prev, items: items.length ? items : [{ materialName: '', quantity: '', unit: 'шт', workPackage: '' }], category: tpl.category || prev.category }));
-  };
-
-  const deleteSupplyTemplate = async (tplId) => {
-    if (!window.confirm('Удалить шаблон?')) return;
-    await fetch(API + '/supply-request-templates/' + tplId, { method: 'DELETE' });
-    await refreshData();
-  };
-
   const confirmSupplyAsProrab = async (id) => {
     try {
+      const leadershipFallback = ['директор', 'зам_директора'].includes(currentUser.role);
+      let reviewerAbsenceReason;
+      if (leadershipFallback) {
+        const reason = window.prompt('Почему вы подтверждаете вместо прораба / главного инженера? Укажите отсутствие назначения или причину временного отсутствия (до 500 символов).');
+        if (reason === null) return false;
+        reviewerAbsenceReason = reason.trim();
+        if (!reviewerAbsenceReason || reviewerAbsenceReason.length > 500) {
+          alert('Укажите причину замены ответственного (от 1 до 500 символов)');
+          return false;
+        }
+      }
       const response = await fetch(API + '/supply-requests/' + id, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'confirm_prorab',
+          reviewerAbsenceReason,
           userId: currentUser.id || null,
           userName: currentUser.name || '',
         }),
@@ -371,11 +339,6 @@ export const createSupplyActions = ({
         );
         return false;
       }
-
-      const leadershipFallback = [
-        'директор',
-        'зам_директора',
-      ].includes(currentUser.role);
 
       notify(
         leadershipFallback
@@ -472,11 +435,10 @@ export const createSupplyActions = ({
     try {
       const r = await fetch(API + '/supply-requests/' + requestId + '/suggest-suppliers');
       const data = await r.json();
-      if (data.error) {
-        setSuggestedSuppliers({ suppliers: [], error: data.error });
+      if (!r.ok || data.error) {
+        setSuggestedSuppliers({ suppliers: [], error: data.detail || data.error || 'Не удалось загрузить поставщиков' });
       } else {
         setSuggestedSuppliers(data);
-        setSelectedSupplierIds(data.suppliers.filter(s => s.aiRecommend && !s.alreadyRequested).map(s => s.id));
       }
     } catch (_) {
       setSuggestedSuppliers({ suppliers: [], error: 'Не удалось загрузить' });
@@ -484,15 +446,14 @@ export const createSupplyActions = ({
     setRequestKpLoading(false);
   };
 
-  const sendKpRequest = async () => {
+  const sendKpRequest = async (responseDueAt, supplierItems) => {
     if (!showRequestKpModal || selectedSupplierIds.length === 0) { alert('Выберите хотя бы одного поставщика'); return; }
     const companyId = requireSelectedCompanyForWrite();
     if (!companyId) return;
-    const aiIds = (suggestedSuppliers?.suppliers || []).filter(s => s.aiRecommend).map(s => s.id);
     const r = await fetch(API + '/supply-requests/' + showRequestKpModal + '/request-kp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ supplierIds: selectedSupplierIds, aiRecommendedIds: aiIds, companyId }),
+      body: JSON.stringify({ supplierIds: selectedSupplierIds, aiRecommendedIds: [], companyId, ...(supplierItems ? {supplierItems} : {}), ...(typeof responseDueAt==='string' ? {responseDueAt} : {}) }),
     });
     const data = await r.json().catch(() => ({}));
     if (!r.ok || data.detail || data.error) { alert('Ошибка: ' + (data.detail || data.error || r.status)); return; }
@@ -503,12 +464,12 @@ export const createSupplyActions = ({
     await refreshData();
   };
 
-  const selectSupplierOffer = async (offerId) => {
-    if (!window.confirm('Выбрать это КП? Остальные КП по этой заявке будут отклонены.')) return;
+  const selectSupplierOffer = async (offerId, itemPositions) => {
+    if (!window.confirm(itemPositions ? 'Заказать выбранные позиции у этого поставщика? Состав заказа будет зафиксирован.' : 'Выбрать это КП? Остальные КП по этой заявке будут отклонены.')) return;
     const response = await fetch(API + '/supplier-offers/' + offerId, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'select' }),
+      body: JSON.stringify({ action: 'select', ...(itemPositions ? {itemPositions} : {}) }),
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data?.detail || data?.error) {
@@ -559,14 +520,22 @@ export const createSupplyActions = ({
 
   const createInvoiceFromOffer = async (offerId) => {
     if (!newOfferInvoice.invoiceNumber || !newOfferInvoice.amount) { alert('Заполните номер счёта и сумму'); return; }
+    const contractRequired=process.env.REACT_APP_SUPPLIER_DOCUMENT_CONTRACT_BINDINGS_ENABLED==='true';
+    if(contractRequired && (!Number.isSafeInteger(newOfferInvoice.contractVersionId) || newOfferInvoice.contractVersionId<=0 || newOfferInvoice.contractOfferId!==offerId)) {
+      alert('Выберите проверенную версию договора для этого КП');return;
+    }
     const r = await fetch(API + '/supplier-offers/' + offerId + '/create-invoice', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        ...(contractRequired?{contractVersionId:newOfferInvoice.contractVersionId}:{}),
         invoiceNumber: newOfferInvoice.invoiceNumber,
         invoiceDate: newOfferInvoice.invoiceDate,
-        amount: Number(newOfferInvoice.amount),
-        vatAmount: Number(newOfferInvoice.vatAmount || 0),
+        amount: String(newOfferInvoice.amount),
+        vatAmount: process.env.REACT_APP_SUPPLIER_VAT_RECEIPTS_ENABLED==='true'
+          ? String(newOfferInvoice.vatAmount ?? '') : String(newOfferInvoice.vatAmount || 0),
+        ...(process.env.REACT_APP_SUPPLIER_VAT_RECEIPTS_ENABLED==='true' && newOfferInvoice.lineTaxes
+          ? {lineTaxes:newOfferInvoice.lineTaxes} : {}),
         description: newOfferInvoice.description,
         fileUrl: newOfferInvoice.fileUrl,
       }),
@@ -576,35 +545,41 @@ export const createSupplyActions = ({
       alert('Ошибка: ' + (data.detail || data.error || 'не удалось выставить счёт'));
       return;
     }
-    notify('Счёт выставлен — ждёт оплаты бухгалтером', 'supply');
+    notify('Счёт выставлен — передан на проверку и утверждение', 'supply');
     setInvoicingOfferId(null);
     setNewOfferInvoice({ invoiceNumber: '', invoiceDate: new Date().toISOString().split('T')[0], amount: '', vatAmount: '', description: '', fileUrl: '' });
     await refreshData();
   };
 
   const createShipmentFromOffer = async (offer) => {
-    const req = supplyRequests.find(r => r.id === offer.requestId);
-    const qty = shipmentForm.shippedQuantity || req?.quantity || '';
-    if (!qty) { alert('Укажите количество отгрузки'); return; }
-    const r = await fetch(API + '/supplier-offers/' + offer.id + '/ship', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        shippedQuantity: Number(qty),
-        waybillNumber: shipmentForm.waybillNumber,
-        waybillDate: shipmentForm.waybillDate,
-        vehicleNumber: shipmentForm.vehicleNumber,
-        driverName: shipmentForm.driverName,
-        documentUrl: shipmentForm.documentUrl,
-        photoUrl: shipmentForm.photoUrl,
-      }),
-    });
-    const data = await r.json();
-    if (data.detail || data.error) { alert('Ошибка: ' + (data.detail || data.error)); return; }
-    notify('Поставка отгружена — ждёт приёмки', 'delivery');
-    setShippingOfferId(null);
-    setShipmentForm({ shippedQuantity: '', waybillNumber: '', waybillDate: new Date().toISOString().split('T')[0], vehicleNumber: '', driverName: '', documentUrl: '', photoUrl: '' });
-    await refreshData();
+    const items = shipmentForm.shippedItems;
+    const values = items ? items.map(item=>item.shippedQuantity) : [shipmentForm.shippedQuantity];
+    if (values.some(value=>value==='' || !Number.isFinite(Number(value)) || Number(value)<0) || !values.some(value=>Number(value)>0)) {
+      alert('Укажите положительное количество хотя бы для одной позиции; 0 — пропустить');
+      return false;
+    }
+    try {
+      const r = await fetch(API + '/supplier-offers/' + offer.id + '/ship', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          requestId: shipmentForm.requestId,
+          ...(items ? {shippedItems:items.map(item=>({materialName:item.materialName,unit:item.unit,workPackage:item.workPackage,shippedQuantity:Number(item.shippedQuantity)}))} : {shippedQuantity:Number(shipmentForm.shippedQuantity)}),
+          waybillNumber: shipmentForm.waybillNumber, waybillDate: shipmentForm.waybillDate,
+          vehicleNumber: shipmentForm.vehicleNumber, driverName: shipmentForm.driverName,
+          documentUrl: shipmentForm.documentUrl, photoUrl: shipmentForm.photoUrl,
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok || data.detail || data.error) { alert('Ошибка: ' + (data.detail || data.error || 'не удалось отгрузить')); return false; }
+      notify('Партия отгружена — ждёт приёмки', 'delivery');
+      setShippingOfferId(null);
+      setShipmentForm({ shippedQuantity: '', waybillNumber: '', waybillDate: new Date().toISOString().split('T')[0], vehicleNumber: '', driverName: '', documentUrl: '', photoUrl: '' });
+      await refreshData();
+      return true;
+    } catch {
+      alert('Не удалось подтвердить отгрузку. Повторите отправку этой формы: сохранённая партия не продублируется.');
+      return false;
+    }
   };
 
   const receiveSupplyDelivery = async (delivery) => {
@@ -693,7 +668,6 @@ export const createSupplyActions = ({
     createShipmentFromOffer,
     createSupplyReq,
     deleteSupplier,
-    deleteSupplyTemplate,
     fetchPriceHint,
     loadSupplyStockCheck,
     openRequestKpModal,
@@ -705,10 +679,8 @@ export const createSupplyActions = ({
     saveOffer,
     saveRequest,
     saveSupplier,
-    saveSupplyTemplate,
     selectSupplierOffer,
     sendKpRequest,
-    applySupplyTemplate,
     withdrawSupplierOffer,
   };
 };

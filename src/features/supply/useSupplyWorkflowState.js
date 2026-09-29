@@ -7,12 +7,17 @@ import {
   createSupplierInviteForm,
   createSupplyRequestForm,
 } from './supplyInitialForms';
-
-export function useSupplyWorkflowState() {
+export function useSupplyWorkflowState(scopeKey = '') {
   const supplyRequestCreationRef = useRef(false);
   const [supplyTab, setSupplyTab] = useState('inbox');
   const [showSupplyForm, setShowSupplyForm] = useState(false);
   const [newSupplyReq, setNewSupplyReq] = useState(createSupplyRequestForm);
+  const [requestScope, setRequestScope] = useState(scopeKey);
+  if (requestScope !== scopeKey) {
+    setRequestScope(scopeKey);
+    setNewSupplyReq(createSupplyRequestForm());
+    setShowSupplyForm(false);
+  }
   const [supplyExpandedId, setSupplyExpandedId] = useState(null);
   const [supplyStockCheck, setSupplyStockCheck] = useState(null);
   const [supplyAiText, setSupplyAiText] = useState('');

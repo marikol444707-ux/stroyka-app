@@ -1,4 +1,5 @@
 import React from 'react';
+import SupplierPaymentButton from '../features/supplier-payments/SupplierPaymentButton';
 import { AlertTriangle, CheckCircle2, CreditCard, Eye, FileText, Link2, MessageSquare, Upload, XCircle } from 'lucide-react';
 import { API } from '../api';
 import {
@@ -40,6 +41,8 @@ export default function AccountingIncomingDocumentsPanel({
   refreshData,
   badge,
   toNum,
+  companyContext,
+  user,
 }) {
   const [activeStatus, setActiveStatus] = React.useState('Нет фото');
   const [openedId, setOpenedId] = React.useState(null);
@@ -79,7 +82,7 @@ export default function AccountingIncomingDocumentsPanel({
     rows.forEach(row => {
       if (!base[row.status]) base[row.status] = { count: 0, amount: 0 };
       base[row.status].count += 1;
-      base[row.status].amount += row.status === 'Оплачена' ? row.paidAmount : row.debt || row.amount;
+      base[row.status].amount += row.invoice.settlementInvoiceId ? 0 : row.status === 'Оплачена' ? row.paidAmount : row.debt || row.amount;
     });
     return base;
   }, [rows]);
@@ -122,7 +125,7 @@ export default function AccountingIncomingDocumentsPanel({
 
   const getLinkedSupplierInvoice = (row) => {
     const invoice = row.invoice || {};
-    const directId = invoice.supplierInvoiceId || invoice.supplier_invoice_id;
+    const directId = invoice.settlementInvoiceId || invoice.supplierInvoiceId || invoice.supplier_invoice_id;
     if (directId && supplierInvoiceById.has(String(directId))) {
       return supplierInvoiceById.get(String(directId));
     }
@@ -515,7 +518,7 @@ export default function AccountingIncomingDocumentsPanel({
           onClick={() => setOpenedId(isOpened ? null : row.invoice.id)}
           style={{ ...btnB, padding: '6px 10px', fontSize: '11px' }}
         ><Eye size={12} />{isOpened ? 'Свернуть' : 'Открыть'}</button>
-        {row.photos.length === 0 && (
+        {!row.invoice.settlementInvoiceId && row.photos.length === 0 && (
           <label style={{ ...btnG, padding: '6px 10px', fontSize: '11px', cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.6 : 1 }}>
             <Upload size={12} />Добавить фото
             <input type="file" accept="image/*" multiple disabled={disabled} onChange={event => { attachPhotos(row, event.target.files); event.target.value = ''; }} style={{ display: 'none' }} />
@@ -532,10 +535,13 @@ export default function AccountingIncomingDocumentsPanel({
         {(row.status === 'На проверке' || row.status === 'К оплате') && (
           <button disabled={disabled} onClick={() => markStatus(row, 'Нужно уточнение')} style={{ ...btnG, padding: '6px 10px', fontSize: '11px' }}><MessageSquare size={12} />Уточнить</button>
         )}
-        {(row.status === 'К оплате' || row.status === 'Частично оплачена') && row.debt > 0 && (
+        {process.env.REACT_APP_SUPPLIER_PAYMENTS_ENABLED !== 'true' && (row.status === 'К оплате' || row.status === 'Частично оплачена') && row.debt > 0 && (
           <button title={paymentBlockedTitle} disabled={disabled || paymentBlocked} onClick={() => payInvoice(row)} style={{ ...btnO, padding: '6px 10px', fontSize: '11px' }}><CreditCard size={12} />Оплатить</button>
         )}
-        {row.status !== 'Оплачена' && row.status !== 'Отклонена' && (
+        {row.invoice.receiptAccepted === false && <span style={{ color: C.warning, fontSize: '12px' }}>Не принято на склад: {row.invoice.receiptQualityStatus}. Оформлена претензия поставщику.</span>}
+        {row.invoice.settlementInvoiceId && <span style={{ color: C.textMuted, fontSize: '12px' }}>Оплата учитывается по счёту № {linkedSupplierInvoice?.invoiceNumber || row.invoice.settlementInvoiceId}. Накладная не создаёт отдельного долга.</span>}
+        <SupplierPaymentButton document={row.invoice.settlementInvoiceId ? { ...row.invoice, id: row.invoice.settlementInvoiceId } : row.invoice} documentKind={row.invoice.settlementInvoiceId ? "invoice" : "warehouse"} companyContext={companyContext} user={user} onSuccess={refreshData} disabled={disabled || paymentBlocked} style={btnO} />
+        {!row.invoice.settlementInvoiceId && row.status !== 'Оплачена' && row.status !== 'Отклонена' && (
           <button disabled={disabled} onClick={() => markStatus(row, 'Отклонена')} style={{ ...btnR, padding: '6px 10px', fontSize: '11px' }}><XCircle size={12} /></button>
         )}
       </div>
@@ -545,9 +551,9 @@ export default function AccountingIncomingDocumentsPanel({
   const renderDetail = (row) => {
     const inv = row.invoice;
     const linkedSupplierInvoice = getLinkedSupplierInvoice(row);
-    const supplierInvoiceCandidates = getSupplierInvoiceCandidates(row);
+    const supplierInvoiceCandidates = inv.settlementInvoiceId ? [] : getSupplierInvoiceCandidates(row);
     const hasSupplier = Number(inv.supplierId || inv.supplier_id || linkedSupplierInvoice?.supplierId || linkedSupplierInvoice?.supplier_id || 0) > 0;
-    const showSupplierRecovery = !hasSupplier && String(supplierRecoveryId) === String(inv.id);
+    const showSupplierRecovery = !inv.settlementInvoiceId && !hasSupplier && String(supplierRecoveryId) === String(inv.id);
     const supplierResolutionPending = !hasSupplier && String(supplierResolutionBusyId) === String(inv.id);
     const supplierResolutionError = supplierResolutionErrors[inv.id] || '';
     const supplierOptions = (suppliers || [])
@@ -678,14 +684,14 @@ export default function AccountingIncomingDocumentsPanel({
         {[...ACCOUNTING_INVOICE_STATUSES, 'Все'].map(status => {
           const isAll = status === 'Все';
           const stat = isAll
-            ? { count: rows.length, amount: rows.reduce((sum, row) => sum + (row.status === 'Оплачена' ? row.paidAmount : row.debt || row.amount), 0) }
+            ? { count: rows.length, amount: rows.reduce((sum, row) => sum + (row.invoice.settlementInvoiceId ? 0 : row.status === 'Оплачена' ? row.paidAmount : row.debt || row.amount), 0) }
             : counts[status] || { count: 0, amount: 0 };
           const tone = isAll ? { color: C.text, bg: C.bg, border: C.border } : statusTone(status, C);
           return (
             <button key={status} onClick={() => setActiveStatus(status)} style={{ textAlign: 'left', cursor: 'pointer', padding: '12px', borderRadius: '8px', border: '1.5px solid ' + (activeStatus === status ? tone.color : tone.border), backgroundColor: tone.bg, color: tone.color }}>
               <p style={{ margin: '0 0 5px', fontSize: '11px', fontWeight: 800 }}>{isAll ? 'Все документы' : accountingStatusGroupLabels[status]}</p>
               <b style={{ fontSize: '16px' }}>{stat.count}</b>
-              <span style={{ display: 'block', marginTop: '3px', fontSize: '11px', color: tone.color }}>{money(stat.amount)}</span>
+              <span style={{ display: 'block', marginTop: '3px', fontSize: '11px', color: tone.color }}>{status === 'Расчёты по счёту' ? 'Без отдельного долга' : money(stat.amount)}</span>
             </button>
           );
         })}
@@ -717,7 +723,7 @@ export default function AccountingIncomingDocumentsPanel({
                     </p>
                   </div>
                   <div>
-                    <p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 4px' }}>Сумма / долг</p>
+                    <p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 4px' }}>{inv.receiptAccepted === false ? 'Стоимость непринятого товара' : inv.settlementInvoiceId ? 'Стоимость поступления' : 'Сумма / долг'}</p>
                     <b style={{ color: C.text, fontSize: '13px' }}>{money(row.amount)}</b>
                     {row.debt > 0 && row.paidAmount > 0 && <p style={{ color: C.warning, fontSize: '11px', margin: '3px 0 0' }}>долг {money(row.debt)}</p>}
                   </div>

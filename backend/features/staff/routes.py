@@ -255,9 +255,10 @@ def register_staff_module(app, deps):
         "технадзор", "стройконтроль", "менеджер_crm",
     )
 
-    def _sync_staff_access(cur, s: StaffModel, company_id, staff_id, exact_project):
+    def _sync_staff_access(cur, s: StaffModel, company_id, staff_id, exact_project, actor):
         if _positive_int(staff_id) is None:
             raise HTTPException(status_code=400, detail="Некорректная связь сотрудника")
+        from ..company_limits.service import lock_company, require_user_capacity
         email = ((s.email or s.emailWork or "") or "").strip().lower()
         password = ((s.password or "") or "").strip()
         role = ((s.systemRole or "") or "").strip()
@@ -268,9 +269,12 @@ def register_staff_module(app, deps):
             raise HTTPException(status_code=400, detail="Для доступа сотрудника нужны системная роль и email")
         if role not in STAFF_ACCESS_ROLES:
             raise HTTPException(status_code=400, detail="Недопустимая системная роль: " + role)
+        from ..company_users.access import require_role
+        require_role(actor, role)
         if password and len(password) < 5:
             raise HTTPException(status_code=400, detail="Пароль минимум 5 символов")
 
+        lock_company(cur, company_id)
         assigned_projects = safe_project_list(s.assignedProjects or [])
         assigned_packages = safe_project_list(s.assignedPackages or [])
         project_name = exact_project["name"]
@@ -297,27 +301,45 @@ def register_staff_module(app, deps):
                 )
 
         cur.execute(
-            """SELECT id,company_id
-                 FROM public.users
-                WHERE LOWER(email)=LOWER(%s)
+            """SELECT u.id,u.company_id,u.email,u.role,
+                      EXISTS(SELECT 1 FROM user_company_roles m WHERE m.user_id=u.id AND m.company_id<>%s) AS shared
+                 FROM public.users u
+                WHERE LOWER(u.email)=LOWER(%s) OR EXISTS(
+                    SELECT 1 FROM user_company_roles m WHERE m.user_id=u.id AND m.company_id=%s AND m.staff_id=%s)
                 ORDER BY id
                 LIMIT 2
                 FOR UPDATE""",
-            (email,),
+            (company_id, email, company_id, staff_id),
         )
         identity_rows = cur.fetchall()
         if len(identity_rows) > 1:
             raise HTTPException(
                 status_code=409,
-                detail="Email связан с несколькими аккаунтами — сначала устраните дубликат",
+                detail="Email уже используется другим аккаунтом или связан с дубликатами",
             )
         existing = identity_rows[0] if identity_rows else None
         user_id = _positive_int(_row_value(existing, "id", 0))
+        require_user_capacity(cur, company_id, user_id)
         full_name = (s.name or "Сотрудник").strip()
         if user_id:
             # A password and the global user identity are shared by all company
             # memberships. A manager of one company must never rewrite them.
             action = "updated"
+            if existing.get('company_id') == company_id and not existing.get('shared'):
+                if existing.get('role') in ('директор', 'зам_директора') and actor.get('role') == 'зам_директора':
+                    raise HTTPException(403, 'Изменять доступ руководителя может директор')
+                if user_id == actor.get('id') and role != existing.get('role'):
+                    raise HTTPException(400, 'Нельзя изменить собственную роль')
+                cur.execute('''UPDATE public.users SET name=%s,email=%s,role=%s,
+                    project_id=%s,project_name=%s,assigned_projects=%s::jsonb,assigned_packages=%s::jsonb,
+                    password=CASE WHEN %s<>'' THEN %s ELSE password END WHERE id=%s''',
+                    (full_name, email, role, project_id, project_name, json.dumps(assigned_projects),
+                     json.dumps(assigned_packages), password, hash_password(password) if password else '', user_id))
+                if password or role != existing.get('role') or email != existing.get('email'):
+                    _revoke_user_sessions(cur, user_id)
+                if password: action = 'password_updated'
+            elif password or email != existing.get('email', email):
+                raise HTTPException(409, 'Аккаунт используется в другой компании. Здесь можно менять только доступ; email и пароль меняет владелец аккаунта')
         else:
             if not password:
                 raise HTTPException(status_code=400, detail="Для нового доступа сотрудника нужен пароль")
@@ -637,6 +659,7 @@ def register_staff_module(app, deps):
         _current_user: dict = Depends(require_roles(*staff_manage_roles)),
     ):
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             actor = _selected_actor(
@@ -657,7 +680,7 @@ def register_staff_module(app, deps):
             new_id = _positive_int(_row_value(cur.fetchone(), "id", 0))
             if new_id is None:
                 raise HTTPException(status_code=400, detail="Не удалось создать сотрудника")
-            access = _sync_staff_access(cur, s, company_id, new_id, project)
+            access = _sync_staff_access(cur, s, company_id, new_id, project, actor)
             conn.commit()
             log_audit(
                 _actor_name(actor), actor.get("role", ""),
@@ -684,6 +707,7 @@ def register_staff_module(app, deps):
         _current_user: dict = Depends(require_roles(*staff_manage_roles)),
     ):
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             actor = _selected_actor(
@@ -709,7 +733,7 @@ def register_staff_module(app, deps):
                   AND company_scope_verified IS TRUE""", tuple(values) + (id, company_id))
             if cur.rowcount == 0:
                 raise HTTPException(status_code=404, detail="Сотрудник не найден")
-            access = _sync_staff_access(cur, s, company_id, id, project)
+            access = _sync_staff_access(cur, s, company_id, id, project, actor)
             conn.commit()
             log_audit(
                 _actor_name(actor), actor.get("role", ""),

@@ -7,7 +7,7 @@ const SETTINGS_TABS = [
 
 export default function SettingsTabsNav({settingsTab, setSettingsTab, btnO, btnG, canManageSitePricing=false}) {
   const tabs = canManageSitePricing
-    ? [...SETTINGS_TABS, ['sitePricing', 'Прайс сайта']]
+    ? [...SETTINGS_TABS, ['archive', 'Архив документов'], ['sitePricing', 'Прайс сайта']]
     : SETTINGS_TABS;
   return (
     <div style={{display:'flex',gap:'8px',marginBottom:'20px',flexWrap:'wrap'}}>

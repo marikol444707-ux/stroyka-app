@@ -3,6 +3,9 @@
 from collections.abc import Mapping
 
 import psycopg2.extras
+from fastapi import HTTPException
+
+from ..supplier_payments import guards as payment_guards
 
 from .link_repair_plan import (
     LinkRepairPlanError,
@@ -110,7 +113,7 @@ def _configure(cur):
     )
 
 
-def _authorize(cur, authentication, company_id, finance_roles):
+def _authorize(cur, authentication, company_id, finance_roles, *, lock=False):
     cur.execute(
         """SELECT u.id AS user_id
              FROM public.user_sessions s
@@ -120,7 +123,7 @@ def _authorize(cur, authentication, company_id, finance_roles):
               AND s.expires_at>NOW()
               AND s.two_factor_passed IS TRUE
               AND COALESCE(u.active,TRUE)=TRUE
-            ORDER BY u.id LIMIT 2""",
+            ORDER BY u.id LIMIT 2""" + (" FOR SHARE OF s,u NOWAIT" if lock else ""),
         (authentication["sessionHash"],),
     )
     sessions = _detached_rows(cur, ("user_id",), maximum=2)
@@ -136,7 +139,7 @@ def _authorize(cur, authentication, company_id, finance_roles):
               AND m.company_id=%s
               AND COALESCE(m.active,TRUE)=TRUE
               AND COALESCE(c.active,TRUE)=TRUE
-            ORDER BY m.id LIMIT 2""",
+            ORDER BY m.id LIMIT 2""" + (" FOR SHARE OF m,c NOWAIT" if lock else ""),
         (user_id, company_id),
     )
     memberships = _detached_rows(
@@ -372,14 +375,24 @@ def _run_transaction(get_db, *, readonly, operation):
     completed = False
     try:
         connection = get_db()
+        ledger_present = False
+        if not readonly:
+            # Probe outside the apply snapshot: no-ledger installations retain
+            # SERIALIZABLE, while the company-serialized path needs fresh reads.
+            connection.set_session(readonly=True, autocommit=True)
+            cur = connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            ledger_present = payment_guards.ledger_available(cur)
+            cur.close()
+            cur = None
         connection.set_session(
             readonly=readonly,
             autocommit=False,
-            isolation_level="REPEATABLE READ" if readonly else "SERIALIZABLE",
+            isolation_level=("REPEATABLE READ" if readonly else
+                             "READ COMMITTED" if ledger_present else "SERIALIZABLE"),
         )
         cur = connection.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         _configure(cur)
-        result = operation(cur)
+        result = operation(cur, ledger_present)
         if readonly:
             connection.rollback()
         else:
@@ -455,7 +468,7 @@ def preview_accounting_link_repairs(
 
     _validate_common(get_db, authentication, company_id, finance_roles)
 
-    def operation(cur):
+    def operation(cur, _ledger_present):
         _authorize(cur, authentication, company_id, finance_roles)
         return _build_plan(cur, company_id).public_result()
 
@@ -481,8 +494,28 @@ def apply_accounting_link_repairs(
     ):
         _fail(_INPUT_INVALID)
 
-    def operation(cur):
+    def operation(cur, ledger_present):
         actor = _authorize(cur, authentication, company_id, finance_roles)
+        if ledger_present:
+            # Receipt/cancellation writers take stock tables before company.
+            # Never wait with a partial table-lock set or with tables held while
+            # a payment engine owns company and needs to update those tables.
+            cur.execute("""LOCK TABLE public.materials,public.warehouse_main,
+                public.projects IN SHARE ROW EXCLUSIVE MODE NOWAIT""")
+            # EXCLUSIVE also excludes existing SELECT FOR UPDATE holders, so
+            # later row locks cannot wait on a writer blocked by our table lock.
+            cur.execute("""LOCK TABLE public.supplier_invoices,
+                public.warehouse_invoices,public.supply_deliveries
+                IN EXCLUSIVE MODE NOWAIT""")
+            cur.execute(
+                'SELECT pg_try_advisory_xact_lock(%s,%s) AS locked',
+                (1735289201, company_id),
+            )
+            if not (cur.fetchone() or {}).get('locked'):
+                _fail(_BUSY)
+        # Hold the exact authority rows through commit. NOWAIT avoids reversing
+        # lock order with membership/session revocation or payment writers.
+        actor = _authorize(cur, authentication, company_id, finance_roles, lock=True)
         plan = _build_plan(cur, company_id)
         if plan.state == "blocked":
             _fail(_PLAN_BLOCKED)
@@ -496,6 +529,21 @@ def apply_accounting_link_repairs(
             locked_plan, expected_repair_count, expected_plan_sha256,
         ):
             _fail(_PLAN_STALE)
+        if ledger_present:
+            try:
+                for repair in locked_plan.repairs:
+                    payment_guards.require_unmanaged_document(
+                        cur, 'invoice', repair.supplier_invoice_id,
+                        proposed_link=(repair.warehouse_invoice_id
+                                       if repair.action == 'link_pair' else None),
+                    )
+                    if repair.action == 'link_pair':
+                        payment_guards.require_unmanaged_document(
+                            cur, 'warehouse', repair.warehouse_invoice_id,
+                            proposed_link=repair.supplier_invoice_id,
+                        )
+            except HTTPException:
+                _fail(_PLAN_BLOCKED)
         try:
             _apply_plan(cur, locked_plan, actor)
         except AccountingLinkRepairRuntimeError:

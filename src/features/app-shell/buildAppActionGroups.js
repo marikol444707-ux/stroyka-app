@@ -65,6 +65,7 @@ export function buildAppActionGroups({
     materialNormOverrunReason,
     materialReconciliationRows,
     materialWriteoffBlockMessage,
+    prepareWorkMaterialGroups,
     roomMeasurementCheck,
     roomMeasurementMessage,
     warehouseInvoiceEstimateControl,
@@ -211,7 +212,6 @@ export function buildAppActionGroups({
     supplierInvoices,
     suppliers,
     supplyRequests,
-    supplyTemplates,
     tbJournal,
     tools,
     users,
@@ -335,6 +335,8 @@ export function buildAppActionGroups({
   const { resolveContractPerformer } = personnelActions;
 
   const documentActions = createDocumentActions({
+    companyContext,
+    qualityJournalLoadState: appMainState.qualityJournalLoadState,
     accountablePayments,
     activeEstimatesForProject,
     actPayments,
@@ -443,6 +445,10 @@ export function buildAppActionGroups({
 
   const workJournalActions = createWorkJournalActions({
     API,
+    allBrigadeItems,
+    companyContext,
+    estimatesList: appMainState.estimatesList,
+    estimateDoneDrafts: appMainState.estimateDoneDrafts,
     GENERAL_WORK_ROOM_NAME,
     addActivity,
     applyMaterialOverNormReason,
@@ -458,6 +464,7 @@ export function buildAppActionGroups({
     materialNameKey,
     materialNormOverrunReason,
     materialWriteoffBlockMessage,
+    prepareWorkMaterialGroups,
     masterProjectId,
     notify,
     pricelistItems,
@@ -487,6 +494,7 @@ export function buildAppActionGroups({
 
   const userAccessActions = createUserAccessActions({
     API,
+    companyContext,
     editingItem,
     newInviteRole,
     newUser,
@@ -570,7 +578,6 @@ export function buildAppActionGroups({
     suggestedSuppliers,
     supplyRejectReason,
     supplyRequests,
-    supplyTemplates,
     user,
     companyContext
   });

@@ -57,7 +57,7 @@ def api_json(base_url, path, token):
         },
     )
     try:
-        with urllib.request.urlopen(request, timeout=60) as response:
+        with urllib.request.urlopen(request, timeout=180) as response:
             status = response.status
             text = response.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as exc:
@@ -79,6 +79,7 @@ def build_parser():
     parser = argparse.ArgumentParser(description="Отправить очередь MAX messenger_outbox через Stroyka backend")
     parser.add_argument("--base-url", default=env_value("BASE_URL", DEFAULT_BASE_URL).rstrip("/"))
     parser.add_argument("--limit", type=int, default=int(env_value("MAX_OUTBOX_DISPATCH_LIMIT", "20") or 20))
+    parser.add_argument("--supplier-email", action="store_true", help="Возобновить только не начатые уведомления email")
     parser.add_argument("--dry-run", action="store_true", help="Только собрать payload, без отправки в MAX")
     parser.add_argument("--fail-on-failed", action="store_true", help="Вернуть exit code 2, если часть сообщений не отправилась")
     return parser
@@ -91,7 +92,10 @@ def main():
         "limit": limit,
         "dry_run": "true" if args.dry_run else "false",
     })
-    result = api_json(args.base_url, f"/max/outbox/dispatch?{query}", max_bot_token())
+    if args.supplier_email and args.dry_run:
+        raise SystemExit("Для email используйте диагностику получателей; dry-run не отправляет запрос")
+    path = f"/max/supplier-email/dispatch?limit={min(limit,5)}" if args.supplier_email else f"/max/outbox/dispatch?{query}"
+    result = api_json(args.base_url, path, max_bot_token())
     print(json.dumps(result, ensure_ascii=False, indent=2))
     if args.fail_on_failed and result.get("failed"):
         return 2

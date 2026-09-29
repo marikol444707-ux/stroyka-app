@@ -1,4 +1,5 @@
 import unittest
+from contextlib import contextmanager
 
 from fastapi import HTTPException
 
@@ -63,10 +64,32 @@ class FakeConnection:
         self.closed = True
 
 
+class TestRecordScope:
+    def __init__(self, connection):
+        self.connection = connection
+
+    @contextmanager
+    def transaction(self, user, request, roles, write=False):
+        yield self.connection._cursor, [dict(user, id=user.get('id', 1))]
+        if write:
+            self.connection.commit()
+
+    def visible(self, actors, roles):
+        return "p.company_id=%s AND p.name=ANY(%s)", [1,["Объект"]]
+
+    def parent(self, cur, actor, data, roles):
+        return {'id':1, 'companyId':1, 'name':data['projectName']}
+
+    def record(self, cur, actor, table, record_id, roles):
+        return (1,1,1)
+
+
 def deps_for(cursor, visible=None):
     connection = FakeConnection(cursor)
     return connection, {
         "get_db": lambda: connection,
+        "get_current_user": lambda: {},
+        "record_scope": TestRecordScope(connection),
         "require_roles": lambda *roles: (lambda: None),
         "read_roles": ("директор",),
         "write_roles": ("директор",),
@@ -95,12 +118,15 @@ class PrescriptionsAndSupervisorActsTest(unittest.TestCase):
         _conn, deps = deps_for(cursor)
         register_prescriptions_module(app, deps)
         app.routes[("POST", "/prescriptions")](
-            {"projectName": "Объект", "issuedBy": "Чужой", "issuedByRole": "Прораб"},
+            {"projectName": "Объект", "violation":"Замечание", "issuedBy": "Чужой", "issuedByRole": "Прораб", "status":"Закрыто", "responsible":"Чужой"},
             current_user={"name": "Клиент Тест", "role": "заказчик"},
         )
         sql, params = cursor.calls[0]
         self.assertEqual(params[2], "Клиент Тест")
         self.assertEqual(params[3], "Заказчик")
+        self.assertEqual(params[7], "Открыто")
+        self.assertEqual(params[6], "")
+        self.assertEqual(params[-3:], (1,1,1))
 
     def test_worker_can_only_send_to_review(self):
         cursor = FakeCursor()

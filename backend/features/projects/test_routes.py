@@ -95,6 +95,16 @@ ROW = {"id": 1, "companyId": 3, "name": "Объект", "client": "Клиент"
 
 
 class ProjectsRoutesTest(unittest.TestCase):
+    def test_customer_card_contains_only_customer_fields(self):
+        row = {**ROW, 'futurePrivateField': 'secret'}
+        app, _conn = build(FakeCursor(rows=[row]), actors=[{'companyId': 3, 'role': 'заказчик'}])
+        result = app.routes[('GET', '/projects')](current_user={})[0]
+        for key in ('tasks', 'pricelistId', 'publicShowOnSite', 'futurePrivateField', 'archivedAt'):
+            self.assertNotIn(key, result)
+        for key in ('id', 'companyId', 'name', 'status', 'budget', 'deadline', 'progress',
+                    'warrantyStartDate', 'warrantyEndDate', 'warrantyContact'):
+            self.assertEqual(result[key], row[key])
+
     def test_all_urls_registered(self):
         app, _conn = build(FakeCursor())
         for key in [("GET", "/projects"), ("POST", "/projects"),
@@ -131,13 +141,13 @@ class ProjectsRoutesTest(unittest.TestCase):
 
     def test_create_binds_actor_company_and_audits(self):
         audit = []
-        cursor = FakeCursor(fetchone_results=[dict(ROW)])
+        cursor = FakeCursor(fetchone_results=[{"max_projects":None,"max_users":None},dict(ROW)])
         app, connection = build(cursor, audit_calls=audit)
         result = app.routes[("POST", "/projects")](
             ProjectModel(name="Объект"), x_company_id="3", x_company_mode="company", current_user={}
         )
         self.assertEqual(result["companyId"], 3)
-        insert = cursor.calls[0]
+        insert = next(call for call in cursor.calls if "INSERT INTO projects" in call[0])
         self.assertEqual(insert[1][0], 3)
         self.assertEqual(audit[0]["entity_type"], "project")
         self.assertTrue(connection.committed)

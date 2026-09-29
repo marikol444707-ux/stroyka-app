@@ -1,4 +1,6 @@
 import unittest
+from contextlib import contextmanager
+from types import SimpleNamespace
 
 from fastapi import HTTPException
 
@@ -64,14 +66,17 @@ def build_handler(visible_projects, selected_company_id=4, selected_role="дир
     conn = FakeConnection(cur)
     app = FakeApp()
 
-    def resolve_context(_cur, _user, _requested_company_id, _mode, **kwargs):
-        if kwargs.get("x_company_mode") == "all_companies":
-            return {"mode": "all_companies", "companyId": None}
-        return {
-            "mode": "company",
-            "companyId": int(kwargs.get("x_company_id") or selected_company_id),
-            "effectiveRole": selected_role,
-        }
+    class Scope:
+        @contextmanager
+        def transaction(self, user, request, roles, **_kwargs):
+            headers = request.headers if request else {}
+            if headers.get('x-company-mode') == 'all_companies':
+                raise HTTPException(400, 'Для документов выберите конкретную компанию')
+            company_id = int(headers.get('x-company-id') or selected_company_id)
+            yield cur, [{**user, 'companyId': company_id, 'role': selected_role}]
+
+        def visible(self, actors, _roles):
+            return 'p.company_id=%s', [actors[0]['companyId']]
 
     deps = {
         "get_db": lambda: conn,
@@ -79,7 +84,7 @@ def build_handler(visible_projects, selected_company_id=4, selected_role="дир
         "require_project_access": lambda *args, **kwargs: None,
         "require_row_project_access": lambda *args, **kwargs: None,
         "visible_project_names": (lambda _user: visible_projects),
-        "resolve_work_company_context": resolve_context,
+        "resolve_work_company_context": lambda *args, **kwargs: {},
         "effective_company_user": lambda user, context: {
             **user,
             "companyId": context.get("companyId"),
@@ -89,6 +94,8 @@ def build_handler(visible_projects, selected_company_id=4, selected_role="дир
         "read_roles": (),
         "write_roles": (),
         "worker_execution_roles": (),
+        "get_current_user": lambda: {},
+        "record_scope": Scope(),
     }
     register_project_records_module(app, deps)
     return app.routes[("GET", "/project-documents")], cur
@@ -99,12 +106,11 @@ class ProjectDocumentsRouteTests(unittest.TestCase):
         handler, cur = build_handler(None)
         handler(
             project_name=None,
-            x_company_id="4",
-            x_company_mode="company",
             _current_user={"companyId": 99, "role": "директор"},
+            request=SimpleNamespace(headers={'x-company-id':'4','x-company-mode':'company'}),
         )
         sql, params = cur.calls[0]
-        self.assertIn("WHERE company_id=%s", sql)
+        self.assertIn("p.company_id=%s", sql)
         self.assertEqual(4, params[0])
 
     def test_all_companies_mode_is_rejected_for_project_documents(self):
@@ -112,9 +118,8 @@ class ProjectDocumentsRouteTests(unittest.TestCase):
         with self.assertRaises(HTTPException) as error:
             handler(
                 project_name=None,
-                x_company_id=None,
-                x_company_mode="all_companies",
                 _current_user={"companyId": 4, "role": "директор"},
+                request=SimpleNamespace(headers={'x-company-mode':'all_companies'}),
             )
         self.assertEqual(400, error.exception.status_code)
         self.assertEqual([], cur.calls)
@@ -123,12 +128,12 @@ class ProjectDocumentsRouteTests(unittest.TestCase):
         handler, cur = build_handler(None)
         handler(
             project_name="Одинаковое имя",
-            x_company_id="7",
-            x_company_mode="company",
             _current_user={"company_id": 99, "role": "директор"},
+            request=SimpleNamespace(headers={'x-company-id':'7','x-company-mode':'company'}),
         )
         sql, params = cur.calls[0]
-        self.assertIn("WHERE company_id=%s AND project_name=%s", sql)
+        self.assertIn("p.company_id=%s", sql)
+        self.assertIn("p.name=%s", sql)
         self.assertEqual((7, "Одинаковое имя"), params[:2])
 
 

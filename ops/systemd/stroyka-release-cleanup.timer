@@ -1,0 +1,10 @@
+[Unit]
+Description=Finalize completed Stroyka deployment staging
+
+[Timer]
+OnBootSec=5min
+OnUnitInactiveSec=2min
+Unit=stroyka-release-cleanup.service
+
+[Install]
+WantedBy=timers.target

@@ -120,7 +120,7 @@ class EstimateDeletePolicyTests(unittest.TestCase):
     def test_deletes_only_technical_history_and_draft_reconciliations(self):
         cursor = Cursor([])
 
-        delete_estimate_technical_records(cursor, estimate_id=17)
+        delete_estimate_technical_records(cursor, estimate_id=17, company_id=2, project_id=11)
 
         statements = [query for query, _params in cursor.calls]
         self.assertTrue(any("DELETE FROM project_documents" in query for query in statements))

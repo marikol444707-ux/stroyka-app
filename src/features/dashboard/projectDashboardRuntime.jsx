@@ -13,6 +13,8 @@ import { buildComputedNotifications } from '../../utils/notificationUtils';
 import { actStatusForJournalWork } from '../../utils/hiddenActUtils';
 
 export function createProjectDashboardRuntime({
+  companyContext,
+  qualityJournalLoadState,
   C,
   EXPENSE_CATEGORIES,
   accountablePayments,
@@ -110,6 +112,9 @@ export function createProjectDashboardRuntime({
 
   const projectObjectLinks = (project) => buildProjectObjectLinks({
     project,
+    companyContext,
+    qualityJournalLoadState,
+    user,
     C,
     estimatesList,
     rooms,

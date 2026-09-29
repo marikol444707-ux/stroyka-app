@@ -1,0 +1,3 @@
+.tool-custody { overflow-wrap: anywhere; }
+.tool-custody fieldset { min-width: 0; }
+.tool-custody .ledger-grid { grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); }

@@ -1,6 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp, DollarSign, Plus, Search } from 'lucide-react';
-import { API } from '../api';
+import AccountingIncomingPaymentForm from './AccountingIncomingPaymentForm';
+import SupplierPaymentDeadline from '../features/supply/SupplierPaymentDeadline';
+import { createAccountingProjectResolver } from '../utils/accountingProjectIdentity';
+import { isSupplierLedgerPayment, projectPaymentOutgoingAmount } from '../utils/projectPaymentUtils';
 
 export default function AccountingPaymentsPanel({
   C,
@@ -13,6 +16,7 @@ export default function AccountingPaymentsPanel({
   listSearch,
   setListSearch,
   projects,
+  companyContext = {},
   toNum,
   user,
   refreshData,
@@ -27,71 +31,24 @@ export default function AccountingPaymentsPanel({
   expandedProject,
   setExpandedProject,
 }) {
-  const today = () => new Date().toISOString().split('T')[0];
-  const projectOptions = useMemo(
-    () => (projects || []).map(project => project.name).filter(Boolean).sort(),
-    [projects],
-  );
-  const createIncomingPaymentForm = () => ({
-    projectName: projectOptions[0] || '',
-    amount: '',
-    date: today(),
-    note: '',
-  });
   const [showIncomingPaymentForm, setShowIncomingPaymentForm] = useState(false);
-  const [incomingPaymentForm, setIncomingPaymentForm] = useState(createIncomingPaymentForm);
-  const [incomingPaymentError, setIncomingPaymentError] = useState('');
-  const [incomingPaymentBusy, setIncomingPaymentBusy] = useState(false);
   const workPackageLabel = (row) => {
     const value = row?.workPackage || row?.work_package || '';
     return value ? ' · ' + value : '';
   };
 
-  const addIncomingPayment = async () => {
-    const amount = toNum(incomingPaymentForm.amount);
-    setIncomingPaymentError('');
-    if (!incomingPaymentForm.projectName) {
-      setIncomingPaymentError('Выберите объект.');
-      return;
-    }
-    if (!amount || amount <= 0) {
-      setIncomingPaymentError('Укажите сумму поступления больше нуля.');
-      return;
-    }
-    setIncomingPaymentBusy(true);
-    try {
-      const response = await fetch(API + '/project-payments', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          projectName: incomingPaymentForm.projectName,
-          amount,
-          note: incomingPaymentForm.note || '',
-          date: incomingPaymentForm.date || today(),
-          paidBy: user.name,
-        }),
-      });
-      let result = {};
-      try {
-        result = await response.json();
-      } catch (_e) {
-        result = {};
-      }
-      if (!response.ok) {
-        setIncomingPaymentError(result.detail || 'Не удалось добавить поступление.');
-        return;
-      }
-      setIncomingPaymentForm(createIncomingPaymentForm());
-      setShowIncomingPaymentForm(false);
-      await refreshData();
-    } catch (_e) {
-      setIncomingPaymentError('Не удалось связаться с сервером.');
-    } finally {
-      setIncomingPaymentBusy(false);
-    }
+  const resolveProjectIdentity = useMemo(
+    () => createAccountingProjectResolver(projects, companyContext.companies),
+    [projects, companyContext.companies],
+  );
+  const projectIdentities = Object.create(null);
+  const projectKey = (row, name) => {
+    const identity = resolveProjectIdentity(row, name);
+    projectIdentities[identity.key] = { ...identity,
+      needsReview: identity.needsReview || !!projectIdentities[identity.key]?.needsReview };
+    return identity.key;
   };
-
-  const allMovesByProject = {};
+  const allMovesByProject = Object.create(null);
   const emptyMoveGroup = () => ({
     incoming: [],
     projectOut: [],
@@ -111,19 +68,10 @@ export default function AccountingPaymentsPanel({
     return allMovesByProject[projectName];
   };
   (projectPayments || []).forEach(payment => {
-    const amountIn = projectPaymentInAmount(payment);
-    const rawAmount = Number(payment.amount || 0);
-    const note = String(payment.note || '').toLowerCase();
-    const outgoingAmount = rawAmount < 0 ? Math.abs(rawAmount) : (
-      note.startsWith('оплата счёта') ||
-      note.startsWith('оплата бригаде') ||
-      note.startsWith('возмещение') ||
-      note.startsWith('выплата исполнителю')
-        ? Math.abs(rawAmount)
-        : 0
-    );
-    if (amountIn <= 0 && outgoingAmount <= 0) return;
-    const projectName = payment.projectName || 'Без объекта';
+    const amountIn = isSupplierLedgerPayment(payment) ? 0 : projectPaymentInAmount(payment);
+    const outgoingAmount = projectPaymentOutgoingAmount(payment);
+    if (amountIn <= 0 && outgoingAmount === 0) return;
+    const projectName = projectKey(payment, payment.projectName);
     if (!allMovesByProject[projectName]) {
       allMovesByProject[projectName] = {
         incoming: [],
@@ -142,13 +90,13 @@ export default function AccountingPaymentsPanel({
       allMovesByProject[projectName].incoming.push({ ...payment, _amountIn: amountIn });
       allMovesByProject[projectName].totalIn += amountIn;
     }
-    if (outgoingAmount > 0) {
+    if (outgoingAmount !== 0) {
       allMovesByProject[projectName].projectOut.push({ ...payment, _amountOut: outgoingAmount });
       allMovesByProject[projectName].totalOut += outgoingAmount;
     }
   });
   (ownExpenses || []).filter(expense => expense.status === 'Возмещено').forEach(expense => {
-    const projectName = expense.projectName || 'Без объекта';
+    const projectName = projectKey(expense, expense.projectName);
     if (!allMovesByProject[projectName]) {
       allMovesByProject[projectName] = {
         incoming: [],
@@ -168,13 +116,13 @@ export default function AccountingPaymentsPanel({
   (manualExpenses || [])
     .filter(expense => !expense.ownExpenseId && expense.source !== 'own_expense')
     .forEach(expense => {
-      const projectName = expense.project || 'Без объекта';
+      const projectName = projectKey(expense, expense.project);
       const group = ensureMoveGroup(projectName);
       group.manualExp.push(expense);
       group.totalOut += Number(expense.amount || 0);
     });
   (accountablePayments || []).forEach(payment => {
-    const projectName = payment.projectName || 'Без объекта';
+    const projectName = projectKey(payment, payment.projectName);
     if (!allMovesByProject[projectName]) {
       allMovesByProject[projectName] = {
         incoming: [],
@@ -193,7 +141,8 @@ export default function AccountingPaymentsPanel({
     allMovesByProject[projectName].totalOut += Number(payment.amount || 0);
   });
   (supplierInvoices || []).forEach(invoice => {
-    const projectName = invoice.projectName || 'Без объекта';
+    if (invoice.accountingRequired === false) return;
+    const projectName = projectKey(invoice, invoice.projectName);
     if (!allMovesByProject[projectName]) {
       allMovesByProject[projectName] = {
         incoming: [],
@@ -211,10 +160,10 @@ export default function AccountingPaymentsPanel({
     allMovesByProject[projectName].supplierInv.push(invoice);
     const paid = Number(invoice.paidAmount || 0);
     const total = Number(invoice.totalAmount || 0);
-    allMovesByProject[projectName].supplyDebt += Math.max(0, total - paid);
+    if (invoice.status !== 'Аннулирован') allMovesByProject[projectName].supplyDebt += Math.max(0, total - paid);
   });
   (interimActs || []).forEach(act => {
-    const projectName = act.project || 'Без объекта';
+    const projectName = projectKey(act, act.project);
     if (!allMovesByProject[projectName]) {
       allMovesByProject[projectName] = {
         incoming: [],
@@ -235,7 +184,9 @@ export default function AccountingPaymentsPanel({
     if (paid < total) allMovesByProject[projectName].actsDebt += (total - paid);
   });
 
-  const projectNames = Object.keys(allMovesByProject).sort();
+  const projectNames = Object.keys(allMovesByProject).sort((left, right) =>
+    (projectIdentities[left].companyLabel + projectIdentities[left].projectName)
+      .localeCompare(projectIdentities[right].companyLabel + projectIdentities[right].projectName, 'ru'));
   const pendingReimburseCount = (ownExpenses || []).filter(expense => expense.status === 'Ожидает').length;
   const totalIncoming = projectNames.reduce((sum, projectName) => sum + allMovesByProject[projectName].totalIn, 0);
   const totalOutgoing = projectNames.reduce((sum, projectName) => sum + allMovesByProject[projectName].totalOut, 0);
@@ -248,11 +199,7 @@ export default function AccountingPaymentsPanel({
         <b style={{ color: C.text, fontSize: '15px', fontWeight: '700' }}>💸 Платежи по объектам</b>
         <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
           <button
-            onClick={() => {
-              setIncomingPaymentForm(createIncomingPaymentForm());
-              setIncomingPaymentError('');
-              setShowIncomingPaymentForm(true);
-            }}
+            onClick={() => setShowIncomingPaymentForm(true)}
             style={btnO}
           >
             <Plus size={14} />
@@ -280,60 +227,12 @@ export default function AccountingPaymentsPanel({
         </div>
       </div>
 
-      {showIncomingPaymentForm && (
-        <div style={{ ...card, padding: '14px', marginBottom: '14px', border: '1.5px solid ' + C.accentBorder, backgroundColor: C.bgWhite }}>
-          <b style={{ color: C.text, fontSize: '14px', display: 'block', marginBottom: '10px' }}>Поступление от заказчика</b>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: '8px' }}>
-            <select
-              value={incomingPaymentForm.projectName}
-              onChange={e => setIncomingPaymentForm({ ...incomingPaymentForm, projectName: e.target.value })}
-              style={{ ...inp, marginBottom: 0 }}
-            >
-              <option value="">Выберите объект</option>
-              {projectOptions.map(projectName => <option key={projectName} value={projectName}>{projectName}</option>)}
-            </select>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              placeholder="Сумма, ₽"
-              value={incomingPaymentForm.amount}
-              onChange={e => setIncomingPaymentForm({ ...incomingPaymentForm, amount: e.target.value })}
-              style={{ ...inp, marginBottom: 0 }}
-            />
-            <input
-              type="date"
-              value={incomingPaymentForm.date}
-              onChange={e => setIncomingPaymentForm({ ...incomingPaymentForm, date: e.target.value })}
-              style={{ ...inp, marginBottom: 0 }}
-            />
-            <input
-              placeholder="Договор, счёт или комментарий"
-              value={incomingPaymentForm.note}
-              onChange={e => setIncomingPaymentForm({ ...incomingPaymentForm, note: e.target.value })}
-              style={{ ...inp, marginBottom: 0 }}
-            />
-          </div>
-          {incomingPaymentError && (
-            <p style={{ color: C.danger, fontSize: '12px', margin: '8px 0 0' }}>{incomingPaymentError}</p>
-          )}
-          <div style={{ display: 'flex', gap: '8px', marginTop: '10px', flexWrap: 'wrap' }}>
-            <button onClick={addIncomingPayment} disabled={incomingPaymentBusy} style={{ ...btnO, opacity: incomingPaymentBusy ? 0.65 : 1 }}>
-              {incomingPaymentBusy ? 'Сохраняем...' : 'Сохранить поступление'}
-            </button>
-            <button
-              onClick={() => {
-                setShowIncomingPaymentForm(false);
-                setIncomingPaymentError('');
-              }}
-              disabled={incomingPaymentBusy}
-              style={btnG || btnGr}
-            >
-              Отмена
-            </button>
-          </div>
-        </div>
-      )}
+      {showIncomingPaymentForm && <AccountingIncomingPaymentForm
+        key={companyContext.mode + ':' + companyContext.selectedCompanyId}
+        C={C} card={card} inp={inp} btnO={btnO} btnG={btnG || btnGr}
+        projects={projects} companyContext={companyContext} user={user}
+        onClose={() => setShowIncomingPaymentForm(false)} refreshData={refreshData}
+      />}
 
       {projectNames.length === 0 ? (
         <div style={{ ...card, padding: '40px', textAlign: 'center', color: C.textMuted }}>
@@ -367,26 +266,43 @@ export default function AccountingPaymentsPanel({
           <div style={{ position: 'relative', marginBottom: '12px' }}>
             <Search size={13} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: C.textMuted }} />
             <input
-              placeholder="🔍 Поиск по объекту"
+              placeholder="🔍 Поиск по компании или объекту"
               value={listSearch}
               onChange={e => setListSearch(e.target.value)}
               style={{ ...inp, marginBottom: 0, paddingLeft: '30px', fontSize: '12px', padding: '6px 8px 6px 30px' }}
             />
           </div>
 
-          {projectNames.filter(projectName => matchSearch(listSearch, projectName)).map(projectName => {
+          {projectNames.filter(key => matchSearch(listSearch,
+            projectIdentities[key].companyLabel + ' ' + projectIdentities[key].projectName + ' ' + (projectIdentities[key].projectId || ''))).map(projectName => {
             const group = allMovesByProject[projectName];
+            const identity = projectIdentities[projectName];
             const isOpen = expandedProject === 'pay-' + projectName;
             const balance = group.totalIn - group.totalOut;
 
             return (
               <div key={projectName} style={{ ...card, marginBottom: '8px', borderLeft: '3px solid ' + (balance >= 0 ? C.success : C.danger) }}>
                 <div
+                  role="button"
+                  tabIndex={0}
+                  aria-expanded={isOpen}
+                  onKeyDown={event => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      setExpandedProject(isOpen ? null : 'pay-' + projectName);
+                    }
+                  }}
                   style={{ padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', gap: '10px', flexWrap: 'wrap' }}
                   onClick={() => setExpandedProject(isOpen ? null : 'pay-' + projectName)}
                 >
                   <div>
-                    <b style={{ color: C.text, fontSize: '13px' }}>🏗 {projectName}</b>
+                    <b style={{ color: C.text, fontSize: '13px' }}>🏗 {identity.projectName}</b>
+                    <p style={{ color: C.textSec, margin: '4px 0', fontSize: '12px', overflowWrap: 'anywhere' }}>
+                      {identity.companyLabel}{identity.projectId ? ' · Объект #' + identity.projectId : ''}
+                    </p>
+                    {identity.needsReview && <p style={{ color: C.warning, fontSize: '11px', margin: '4px 0' }}>
+                      Принадлежность записей требует проверки: нет полных ID или объект найден только по названию.
+                    </p>}
                     <p style={{ color: C.textSec, margin: '2px 0', fontSize: '11px' }}>
                       Поступило: <b style={{ color: C.success }}>{Math.round(group.totalIn).toLocaleString('ru-RU')} ₽</b>
                       {' · '}
@@ -426,7 +342,7 @@ export default function AccountingPaymentsPanel({
                         </summary>
                         {group.projectOut.map((payment, index) => (
                           <div key={payment.id || index} style={{ padding: '4px 10px', color: C.textSec, display: 'flex', justifyContent: 'space-between', gap: '8px', borderBottom: '1px dashed ' + C.border }}>
-                            <span>{(payment.date || '—') + workPackageLabel(payment) + (payment.note ? ' · ' + payment.note : '') + (payment.addedBy ? ' · ' + payment.addedBy : '')}</span>
+                            <span>{(isSupplierLedgerPayment(payment) && payment.operationKind === 'reversal' ? 'Сторно · ' : '') + (payment.date || '—') + workPackageLabel(payment) + (payment.note ? ' · ' + payment.note : '') + (payment.addedBy ? ' · ' + payment.addedBy : '')}</span>
                             <b style={{ color: C.danger }}>{Math.round(Number(payment._amountOut || 0)).toLocaleString('ru-RU') + ' ₽'}</b>
                           </div>
                         ))}
@@ -441,17 +357,23 @@ export default function AccountingPaymentsPanel({
                         {group.supplierInv.map(invoice => {
                           const paid = Number(invoice.paidAmount || 0);
                           const total = Number(invoice.totalAmount || 0);
-                          const owe = Math.max(0, total - paid);
+                          const owe = invoice.status === 'Аннулирован' ? 0 : Math.max(0, total - paid);
                           return (
-                            <div key={invoice.id} style={{ padding: '4px 10px', display: 'flex', justifyContent: 'space-between', gap: '8px', borderBottom: '1px dashed ' + C.border }}>
-                              <span style={{ color: C.textSec }}>
-                                {(invoice.supplierName || '—') + ' · ' + (invoice.invoiceNumber || 'без №') + ' · ' + (invoice.date || '')}
-                              </span>
-                              <span>
-                                <b style={{ color: C.text }}>{Math.round(total).toLocaleString('ru-RU') + ' ₽'}</b>
-                                {paid > 0 && <span style={{ color: C.success, marginLeft: '4px' }}>(опл. {Math.round(paid).toLocaleString('ru-RU')})</span>}
-                                {owe > 0 && <b style={{ color: C.danger, marginLeft: '4px' }}>⚠️ долг {Math.round(owe).toLocaleString('ru-RU')}</b>}
-                              </span>
+                            <div key={invoice.id} style={{ padding: '4px 10px', overflowWrap: 'anywhere', borderBottom: '1px dashed ' + C.border }}>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: '8px' }}>
+                                <span style={{ color: C.textSec }}>
+                                  {(invoice.supplierName || '—') + ' · ' + (invoice.invoiceNumber || 'без №') + ' · ' + (invoice.invoiceDate || invoice.date || '')}
+                                </span>
+                                <span>
+                                  <b style={{ color: C.text }}>{Math.round(total).toLocaleString('ru-RU') + ' ₽'}</b>
+                                  {paid > 0 && <span style={{ color: C.success, marginLeft: '4px' }}>(опл. {Math.round(paid).toLocaleString('ru-RU')})</span>}
+                                  {owe > 0 && <b style={{ color: C.danger, marginLeft: '4px' }}>⚠️ долг {Math.round(owe).toLocaleString('ru-RU')}</b>}
+                                </span>
+                              </div>
+                              {invoice.paymentDeadline != null && (
+                                <SupplierPaymentDeadline value={invoice.paymentDeadline.invoiceId === invoice.id
+                                  ? invoice.paymentDeadline : { status: 'review_required' }} />
+                              )}
                             </div>
                           );
                         })}

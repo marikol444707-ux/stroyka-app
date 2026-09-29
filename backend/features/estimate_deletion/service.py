@@ -77,17 +77,18 @@ def find_estimate_delete_blockers(cur, *, estimate_id, company_id, project_name)
     return blockers
 
 
-def delete_estimate_technical_records(cur, *, estimate_id):
+def delete_estimate_technical_records(cur, *, estimate_id, company_id, project_id):
     """Remove records generated automatically for an otherwise unused draft."""
     cur.execute(
         """DELETE FROM project_documents d
               USING estimate_reconciliations r
               WHERE (r.base_estimate_id=%s OR r.next_estimate_id=%s)
                 AND COALESCE(r.status,'Черновик')='Черновик'
+                AND d.company_id=%s AND d.project_id=%s
                 AND d.project_name=r.project_name
                 AND d.doc_type='Сверка смет'
                 AND d.number='СС-' || r.id::text""",
-        (estimate_id, estimate_id),
+        (estimate_id, estimate_id, company_id, project_id),
     )
     cur.execute(
         """DELETE FROM estimate_reconciliations

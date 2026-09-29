@@ -4,6 +4,7 @@ import SupplyRequestForm from './SupplyRequestForm';
 import SupplyRequestsList from './SupplyRequestsList';
 
 export default function MasterSupplyPage({
+  API, companyContext, getProjectWorkPackageOptions,
   C,
   card,
   inp,
@@ -17,9 +18,6 @@ export default function MasterSupplyPage({
   showSupplyForm,
   setShowSupplyForm,
   supplyRequests,
-  supplyTemplates,
-  applySupplyTemplate,
-  deleteSupplyTemplate,
   newSupplyReq,
   setNewSupplyReq,
   priceHints,
@@ -28,7 +26,6 @@ export default function MasterSupplyPage({
   masterProjectOptions,
   renderSupplyPlanningHint,
   createSupplyReq,
-  saveSupplyTemplate,
   parseSupplyItems,
   renderSupplyRequestOrigin,
   supplyRequestOrigin,
@@ -84,6 +81,7 @@ export default function MasterSupplyPage({
 
       {showSupplyForm && (
         <SupplyRequestForm
+          API={API} companyContext={companyContext} user={user}
           C={C}
           card={card}
           inp={inp}
@@ -92,18 +90,15 @@ export default function MasterSupplyPage({
           btnR={btnR}
           role={role}
           isLeadership={false}
-          supplyTemplates={supplyTemplates}
-          applySupplyTemplate={applySupplyTemplate}
-          deleteSupplyTemplate={deleteSupplyTemplate}
           newSupplyReq={newSupplyReq}
           setNewSupplyReq={setNewSupplyReq}
           priceHints={priceHints}
           fetchPriceHint={fetchPriceHint}
           UNITS={UNITS}
           projects={masterProjectOptions}
+          getProjectWorkPackageOptions={getProjectWorkPackageOptions}
           renderSupplyPlanningHint={renderSupplyPlanningHint}
           createSupplyReq={createSupplyReq}
-          saveSupplyTemplate={saveSupplyTemplate}
           setShowSupplyForm={setShowSupplyForm}
         />
       )}

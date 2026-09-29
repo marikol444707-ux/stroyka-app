@@ -1,5 +1,6 @@
 import React from 'react';
 import { API } from '../api';
+import { materialPersonMatches, materialRecipientUserId, materialReturnMatchesPerson } from '../utils/materialPersonIdentity';
 import {
   EmptyTransfersState,
   MaterialTransferForm,
@@ -154,16 +155,14 @@ export default function ProjectMaterialsTransferPanel({
     return rowPackage === targetPackage;
   };
 
-  const personMaterialBalance = (personName, materialName, workPackage = '') => {
+  const personMaterialBalance = (personName, materialName, workPackage = '', selectedUserId = null) => {
     const nameKey = materialKey(materialName);
     if (!personName || !nameKey) return {issued: 0, pending: 0, used: 0, returned: 0, balance: 0};
-    const person = (staff || []).find(s => s.name === personName);
-    const personId = person?.id || newTransfer.toUserId || newTransfer.to_user_id;
-    const transferBelongsToPerson = (t) => {
-      const transferUserId = t.toUserId || t.to_user_id;
-      if (personId && transferUserId) return Number(transferUserId) === Number(personId);
-      return !transferUserId && t.toPerson === personName;
-    };
+    const people = (staff || []).filter(s => s.name === personName);
+    const personId = selectedUserId || (people.length === 1 ? materialRecipientUserId(people[0]) : null);
+    const transferBelongsToPerson = t => materialPersonMatches(
+      t.toUserId ?? t.to_user_id, t.toPerson || t.to_person, personId, personName,
+    );
     let issued = 0;
     let pending = 0;
     let used = 0;
@@ -177,7 +176,7 @@ export default function ProjectMaterialsTransferPanel({
       });
 
     (workJournal || [])
-      .filter(w => w.project === projectName && !['Отклонено', 'Аннулировано'].includes(w.status || '') && ((w.masterName || w.master_name || '') === personName) && packageMatches(w.workPackage || w.work_package, workPackage))
+      .filter(w => w.project === projectName && !['Отклонено', 'Аннулировано'].includes(w.status || '') && materialPersonMatches(w.masterId ?? w.master_id, w.masterName || w.master_name, personId, personName) && packageMatches(w.workPackage || w.work_package, workPackage))
       .forEach(w => {
         parseJournalMaterials(w.materialsUsed !== undefined ? w.materialsUsed : w.materials_used)
           .filter(m => materialKey(m.name) === nameKey)
@@ -185,13 +184,13 @@ export default function ProjectMaterialsTransferPanel({
       });
 
     (history || [])
-      .filter(h => h.project === projectName && h.type === 'возврат от мастера' && ((h.issuedBy || h.issued_by || '') === personName) && materialKey(h.material) === nameKey && packageMatches(h.workPackage || h.work_package, workPackage))
+      .filter(h => h.project === projectName && h.type === 'возврат от мастера' && materialReturnMatchesPerson(h, personId, personName) && materialKey(h.material) === nameKey && packageMatches(h.workPackage || h.work_package, workPackage))
       .forEach(h => { returned += toNum(h.quantity); });
 
     return {issued, pending, used, returned, balance: Math.max(0, issued - used - returned)};
   };
 
-  const selectedPersonBalance = personMaterialBalance(newTransfer.toPerson, primaryTransferItem.materialName, primaryTransferItem.workPackage);
+  const selectedPersonBalance = personMaterialBalance(newTransfer.toPerson, primaryTransferItem.materialName, primaryTransferItem.workPackage, newTransfer.toUserId ?? newTransfer.to_user_id);
   const canSaveTransfer = selectedTransferItems.length > 0 &&
     selectedTransferItems.every(item => transferItemQty(item) > 0) &&
     !!newTransfer.toPerson &&

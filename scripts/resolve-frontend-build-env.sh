@@ -3,6 +3,8 @@ set -euo pipefail
 
 service_environment="${1-}"
 backend_env_path="${2-}"
+warehouse_flags="$(python3 "$(dirname "$0")/resolve-warehouse-build-env.py" "$service_environment" "$backend_env_path")"
+supplier_flags="$(python3 "$(dirname "$0")/resolve-supplier-build-env.py" "$service_environment" "$backend_env_path")"
 http_enabled=""
 company_ids=""
 http_was_set=false
@@ -67,6 +69,7 @@ if [ -n "$backend_env_path" ] && [ -f "$backend_env_path" ]; then
 fi
 
 if [ "$http_enabled" != "true" ]; then
+  printf '%s\n' "$warehouse_flags" "$supplier_flags"
   exit 0
 fi
 
@@ -93,5 +96,6 @@ for company_id in "${parsed_company_ids[@]}"; do
 done
 
 printf '%s\n' \
+  "$warehouse_flags" "$supplier_flags" \
   'REACT_APP_ASSIGNMENT_DAILY_DRAFT_PREVIEW_ENABLED=true' \
   "REACT_APP_ASSIGNMENT_DAILY_DRAFT_PREVIEW_COMPANY_IDS=$company_ids"

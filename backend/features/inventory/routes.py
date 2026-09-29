@@ -5,6 +5,12 @@ from typing import Optional
 import psycopg2.extras
 from fastapi import Depends, Header, HTTPException
 
+from ..tool_custody import policy as tool_policy, records as tool_records
+from ..tool_custody.routes import register_tool_custody
+from ..work_material_accounting.quantities import money
+from ..inventory_reconciliation.policy import legacy_write_guard
+from ..inventory_reconciliation.routes import register_inventory_reconciliation
+
 
 def _row_value(row, key, index=0, default=None):
     if isinstance(row, dict):
@@ -135,18 +141,27 @@ def register_inventory_module(app, deps):
             if not actor and not all_leadership: return []
             actor = actor or current_user
             role = actor.get("role") or ""
-            base = "SELECT id,name,inventory_number as \"inventoryNumber\",cost,status,location,project,master_id as \"masterId\",master_name as \"masterName\",issue_type as \"issueType\",photo_url as \"photoUrl\",notes FROM tools WHERE TRUE" + company_sql
+            base = "SELECT id,name,inventory_number as \"inventoryNumber\",cost,status,location,project,master_id as \"masterId\",master_name as \"masterName\",issue_type as \"issueType\",photo_url as \"photoUrl\",notes,company_id as \"companyId\",project_id as \"projectId\" FROM tools WHERE TRUE" + company_sql
             if role == "прораб":
                 allowed = user_projects(actor)
                 base += " AND (owner_scope='company' OR project = ANY(%s) OR location = ANY(%s))"
                 params.extend([allowed, allowed])
             elif role in worker_roles:
-                base += " AND (COALESCE(master_id,0)=%s OR (COALESCE(master_id,0)=0 AND master_name=%s))"
-                params.extend([actor.get("id"), actor.get("name") or ""])
+                if tool_policy.schema_present(cur):
+                    base += ' AND (master_id=%s OR id IN (SELECT tool_id FROM tool_incidents WHERE company_id=%s AND holder_id=%s))'
+                    params.extend([actor.get('id'), actor.get('companyId'), actor.get('id')])
+                else:
+                    base += ' AND master_id=%s'; params.append(actor.get('id'))
             elif not (all_company_data(actor) or role in ("кладовщик", "снабженец")):
                 return []
             cur.execute(base + " ORDER BY name", tuple(params))
-            return [dict(row) for row in cur.fetchall()]
+            result = [dict(row) for row in cur.fetchall()]
+            if role in worker_roles:
+                for row in result:
+                    if row['masterId'] != actor['id']:
+                        row.update(masterId=None, masterName='', project='', projectId=None,
+                                   status='Происшествие', location='', issueType='', notes='', cost=0)
+            return result
         finally:
             cur.close(); conn.close()
 
@@ -157,9 +172,16 @@ def register_inventory_module(app, deps):
         x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
         current_user: dict = Depends(require_roles(*warehouse_roles, "главный_инженер")),
     ):
-        conn = get_db(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        conn = get_db(); conn.autocommit = False
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             _context, actor, company_id = selected_actor(cur, current_user, "create", x_company_id, x_company_mode, (*warehouse_roles, "главный_инженер"))
+            money(tool.cost)
+            if not tool.name.strip():
+                raise HTTPException(400, 'Укажите название инструмента')
+            if tool_policy.enabled() and (tool.status != 'На складе' or tool.masterId or tool.masterName
+                    or tool.project or tool.issueType or tool.location != 'Основной склад'):
+                raise HTTPException(409, 'Новый инструмент создаётся на складе. Выдача оформляется отдельной операцией')
             scope, project_id = resolve_project_owner(cur, tool.project, company_id)
             if actor.get("role") == "прораб" and tool.project:
                 project_access(actor, tool.project)
@@ -181,10 +203,13 @@ def register_inventory_module(app, deps):
         x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
         current_user: dict = Depends(require_roles(*warehouse_roles, "главный_инженер")),
     ):
-        conn = get_db(); cur = conn.cursor()
+        conn = get_db(); conn.autocommit = False
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             _context, actor, company_id = selected_actor(cur, current_user, "update", x_company_id, x_company_mode, (*warehouse_roles, "главный_инженер"))
             require_tool_actor_access(cur, tool_id, actor, company_id)
+            money(tool.cost)
+            tool_records.guard_catalog(cur, tool_id, tool)
             scope, project_id = resolve_project_owner(cur, tool.project, company_id)
             if actor.get("role") == "прораб" and tool.project:
                 project_access(actor, tool.project)
@@ -206,10 +231,12 @@ def register_inventory_module(app, deps):
         x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
         current_user: dict = Depends(require_roles(*warehouse_roles)),
     ):
-        conn = get_db(); cur = conn.cursor()
+        conn = get_db(); conn.autocommit = False
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             _context, actor, company_id = selected_actor(cur, current_user, "delete", x_company_id, x_company_mode, warehouse_roles)
             require_tool_actor_access(cur, tool_id, actor, company_id)
+            tool_records.guard_catalog(cur, tool_id, deleting=True)
             cur.execute("DELETE FROM tool_history WHERE tool_id=%s AND company_id=%s", (tool_id, company_id))
             cur.execute("DELETE FROM tools WHERE id=%s AND company_id=%s", (tool_id, company_id))
             conn.commit(); return {"ok": True}
@@ -235,7 +262,9 @@ def register_inventory_module(app, deps):
             if role == "прораб":
                 allowed = user_projects(actor); base += " AND (owner_scope='company' OR project = ANY(%s))"; params.append(allowed)
             elif role in worker_roles:
-                base += " AND master_name=%s"; params.append(actor.get("name") or "")
+                if not tool_policy.schema_present(cur):
+                    return []
+                base += " AND master_id=%s"; params.append(actor.get("id"))
             elif not (all_company_data(actor) or role in ("кладовщик", "снабженец")):
                 return []
             cur.execute(base + " ORDER BY id DESC", tuple(params))
@@ -250,10 +279,15 @@ def register_inventory_module(app, deps):
         x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
         current_user: dict = Depends(require_roles(*warehouse_roles, "главный_инженер")),
     ):
-        conn = get_db(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        conn = get_db(); conn.autocommit = False
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             _context, actor, company_id = selected_actor(cur, current_user, "create", x_company_id, x_company_mode, (*warehouse_roles, "главный_инженер"))
             tool = require_tool_actor_access(cur, history.toolId, actor, company_id)
+            if tool_policy.schema_present(cur):
+                cur.execute('SELECT custody_version FROM tools WHERE id=%s FOR UPDATE', (history.toolId,))
+                if tool_policy.enabled() or cur.fetchone()['custody_version']:
+                    raise HTTPException(409, 'История создаётся вместе с операцией инструмента')
             project = str(_row_value(tool, "project", 1, "") or "")
             if history.project and history.project != project:
                 raise HTTPException(status_code=409, detail="Объект истории не совпадает с инструментом")
@@ -267,6 +301,9 @@ def register_inventory_module(app, deps):
             conn.rollback(); raise
         finally:
             cur.close(); conn.close()
+
+    register_tool_custody(app, deps, selected_actor)
+    register_inventory_reconciliation(app, deps, selected_actor)
 
     @app.get("/inventory")
     def get_inventory(
@@ -301,6 +338,7 @@ def register_inventory_module(app, deps):
         conn = get_db(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             _context, actor, company_id = selected_actor(cur, current_user, "create", x_company_id, x_company_mode, (*warehouse_roles, "главный_инженер"))
+            legacy_write_guard(cur)
             scope, project_id = resolve_project_owner(cur, inventory.project, company_id)
             if scope != "project": raise HTTPException(status_code=400, detail="Для инвентаризации укажите объект")
             if actor.get("role") == "прораб": project_access(actor, inventory.project)
@@ -322,6 +360,7 @@ def register_inventory_module(app, deps):
         try:
             _context, actor, company_id = selected_actor(cur, current_user, "update", x_company_id, x_company_mode, (*warehouse_roles, "главный_инженер"))
             require_inventory_actor_access(cur, inventory_id, actor, company_id)
+            legacy_write_guard(cur, inventory_id)
             if "status" in data: cur.execute("UPDATE inventory SET status=%s WHERE id=%s AND company_id=%s", (data["status"], inventory_id, company_id))
             conn.commit(); return {"ok": True}
         except Exception:
@@ -340,6 +379,7 @@ def register_inventory_module(app, deps):
         try:
             _context, actor, company_id = selected_actor(cur, current_user, "delete", x_company_id, x_company_mode, (*warehouse_roles, "главный_инженер"))
             require_inventory_actor_access(cur, inventory_id, actor, company_id)
+            legacy_write_guard(cur, inventory_id)
             cur.execute("DELETE FROM inventory_items WHERE inventory_id=%s AND company_id=%s", (inventory_id, company_id))
             cur.execute("DELETE FROM inventory WHERE id=%s AND company_id=%s", (inventory_id, company_id))
             conn.commit(); return {"ok": True}
@@ -366,6 +406,7 @@ def register_inventory_module(app, deps):
 
     def insert_inventory_item(cur, inventory_id, data, actor, company_id):
         inventory = require_inventory_actor_access(cur, inventory_id, actor, company_id)
+        legacy_write_guard(cur, inventory_id)
         cur.execute(
             "INSERT INTO inventory_items (inventory_id,material_name,unit,expected,actual,difference,notes,owner_scope,company_id,project_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
             (inventory_id,data["materialName"],data["unit"],data["expected"],data["actual"],data["difference"],data.get("notes", ""),_row_value(inventory,"owner_scope",2),company_id,_row_value(inventory,"project_id",4)),

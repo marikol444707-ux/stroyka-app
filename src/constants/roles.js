@@ -1,8 +1,8 @@
 export const ROLES = {
-  директор: ['dashboard','projects','assignments','site','clients','warehouse','pricelists','supply','accounting','analytics','personnel','crm','activitylog','companychat','estimates','settings','myexpenses'],
-  зам_директора: ['dashboard','projects','assignments','site','clients','warehouse','pricelists','supply','analytics','accounting','personnel','crm','activitylog','companychat','estimates','settings','myexpenses'],
+  директор: ['dashboard','projects','assignments','site','clients','warehouse','pricelists','supply','accounting','analytics','personnel','users','crm','activitylog','companychat','estimates','settings','myexpenses'],
+  зам_директора: ['dashboard','projects','assignments','site','clients','warehouse','pricelists','supply','analytics','accounting','personnel','users','crm','activitylog','companychat','estimates','settings','myexpenses'],
   главный_инженер: ['dashboard','projects','assignments','warehouse','personnel','companychat','estimates','weather','myexpenses'],
-  прораб: ['projects','assignments','estimates','supply','companychat','weather','myexpenses'],
+  прораб: ['projects','assignments','estimates','supply','companychat','weather','myexpenses', ...(process.env.REACT_APP_INVENTORY_RECONCILIATION_ENABLED === '1' ? ['warehouse'] : [])],
   кладовщик: ['warehouse','assignments','supply','companychat','myexpenses'],
   бухгалтер: ['dashboard','accounting','assignments','supply','personnel','companychat','settings','myexpenses'],
   снабженец: ['warehouse','assignments','supply','companychat','myexpenses'],
@@ -52,4 +52,11 @@ export const ROLE_GROUPS = [
   {key:'технадзор',label:'Технадзор',roles:['технадзор'],color:'#ef4444'},
   {key:'заказчики',label:'Заказчики',roles:['заказчик'],color:'#06b6d4'},
   {key:'поставщики',label:'Поставщики',roles:['поставщик'],color:'#f59e0b'},
+];
+
+// Roles administered inside a construction company; platform and supplier access have separate flows.
+export const COMPANY_USER_ROLES = [
+  'директор', 'зам_директора', 'бухгалтер', 'главный_инженер', 'сметчик',
+  'прораб', 'снабженец', 'кладовщик', 'мастер', 'субподрядчик', 'бригадир',
+  'заказчик', 'технадзор', 'стройконтроль', 'менеджер_crm',
 ];

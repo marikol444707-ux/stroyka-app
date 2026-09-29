@@ -29,7 +29,67 @@ const buildRows = (items, canonicalMaterialMeta = (_projectName, name, unit) => 
   estimateWorkNormRequirementRows: options.estimateWorkNormRequirementRows || (() => []),
   supplyDeliveries: options.supplyDeliveries || [],
   supplyRequests: options.supplyRequests || [],
+  materialTransfers: options.materialTransfers || [],
+  workJournal: options.workJournal || [],
+  history: options.history || [],
   parseSupplyItems: options.parseSupplyItems || (() => []),
+});
+
+describe('material reconciliation holder identity', () => {
+  const transfer = (id, quantity, name = 'Иван Петров') => ({
+    id, projectName: 'Тестовый объект', toUserId: id, toPerson: name,
+    materialName: 'Кабель', unit: 'м', quantity, signed: true,
+  });
+  const usage = (id, name = 'Иван Петров') => ({
+    project: 'Тестовый объект', master_id: id, master_name: name,
+    materialsUsed: [{name: 'Кабель', unit: 'м', quantity: 2}],
+  });
+  const returned = (id, name = 'Иван Петров') => ({
+    project: 'Тестовый объект', type: 'возврат от мастера', material: 'Кабель', unit: 'м',
+    quantity: 3, issued_by: name,
+    ...(id ? {source_type: 'material_return_user', source_id: id} : {}),
+  });
+
+  test('distinct accounts with the same name retain their own balances', () => {
+    const [row] = buildRows([], undefined, {
+      materialTransfers: [transfer(41, 10), transfer(42, 20)],
+      workJournal: [usage(42)], history: [returned(41)],
+    });
+    expect(row.holders).toHaveLength(2);
+    expect(row.holders.find(holder => holder.userId === 41)).toMatchObject({issued: 10, used: 0, returned: 3, balance: 7});
+    expect(row.holders.find(holder => holder.userId === 42)).toMatchObject({issued: 20, used: 2, returned: 0, balance: 18});
+    expect(row).toMatchObject({issued: 30, used: 2, returnedFromMasters: 3, masterBalance: 25});
+  });
+
+  test('renamed account consumption and identified returns stay with its original issue', () => {
+    const [row] = buildRows([], undefined, {
+      materialTransfers: [transfer(41, 10, 'Прежняя фамилия')],
+      workJournal: [usage(41, 'Новая фамилия')], history: [returned(41, 'Другое написание')],
+    });
+    expect(row.holders).toHaveLength(1);
+    expect(row.holders[0]).toMatchObject({userId: 41, issued: 10, used: 2, returned: 3, balance: 5});
+    expect(row).toMatchObject({issued: 10, used: 2, returnedFromMasters: 3, masterBalance: 5});
+  });
+
+  test('legacy names resolve to an identified holder only when unique', () => {
+    const [row] = buildRows([], undefined, {
+      materialTransfers: [transfer(41, 10)], workJournal: [usage(null)], history: [returned(null)],
+    });
+    expect(row.holders).toHaveLength(1);
+    expect(row.holders[0]).toMatchObject({userId: 41, issued: 10, used: 2, returned: 3, balance: 5});
+  });
+
+  test('ambiguous name-only history stays separate without changing aggregate activity', () => {
+    const [row] = buildRows([], undefined, {
+      materialTransfers: [transfer(41, 10), transfer(42, 20)],
+      workJournal: [usage(null)], history: [returned(null)],
+    });
+    expect(row.holders).toHaveLength(3);
+    expect(row.holders.find(holder => holder.userId === 41)).toMatchObject({issued: 10, used: 0, returned: 0, balance: 10});
+    expect(row.holders.find(holder => holder.userId === 42)).toMatchObject({issued: 20, used: 0, returned: 0, balance: 20});
+    expect(row.holders.find(holder => !holder.userId)).toMatchObject({issued: 0, used: 2, returned: 3});
+    expect(row).toMatchObject({issued: 30, used: 2, returnedFromMasters: 3});
+  });
 });
 
 describe('buildMaterialReconciliationRows material identity', () => {

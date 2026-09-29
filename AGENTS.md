@@ -1,48 +1,64 @@
-# STROYKA AGENT RULES
+# Deployment retention
 
-Stroyka is a multi-tenant construction ERP/SaaS platform.
+The user explicitly requires deleting deployment backups and staging after an
+update is successfully installed and verified. Do not accumulate release copies.
+Follow docs/deployment-retention.md. Keep rollback files only while deployment is
+unfinished or failed. Back up only the current frontend manifest and public files,
+not historical static chunks; do not create a full Git bundle backup per release.
+Never depend on an old staging directory surviving cleanup. Completed releases
+must emit deployed.json only after all release checks pass. The installed
+stroyka-release-cleanup timer finalizes eligible stages automatically.
 
-## Source of truth
-- GitHub repository is the source of truth.
-- Inspect existing architecture before changing code.
-- Prefer extending existing modules over creating parallel implementations.
-- Keep changes small and scoped.
+Before cleanup, separately verify backend, database, frontend files and the browser
+workflow. Only then write verified.json matching the release head with all four
+checks true (see docs/deployment-retention.md). Deployment completion or a passing
+health endpoint alone is insufficient. Missing/failed verification retains backups.
 
-## Production safety
-- Never modify production data directly.
-- Never deploy to production automatically.
-- Never run destructive database operations.
-- Never apply production migrations automatically.
-- Never expose or commit secrets, API keys, passwords, tokens, or .env files.
+# Company documents and requisites (user-approved rules)
 
-## Multi-tenancy
-- Tenant isolation is mandatory.
-- Every tenant-owned resource must preserve company_id ownership.
-- Data belonging to one company must never be visible to another company.
-- Never introduce fallback ownership such as company_id=1 or COALESCE(company_id, 1).
-- Authorization and ownership checks must remain server-side.
-- Add regression tests when touching tenant-owned resources.
+- Follow tasks/counterparty-documents-plan.md and tasks/requisites-autofill-matrix.md.
+- Keep every company's archive isolated, including companies under one owner.
+  Authorize metadata, mutations, downloads and exports on the server. Never infer
+  ownership from names; unassigned legacy records remain inaccessible.
+- Settings requisites are the canonical confirmed company profile. Settings legal
+  documents and the company archive must reference the same originals, not copies.
+- Autofill new drafts from authorized parties and confirmed sources. OCR is a
+  suggestion requiring review; never overwrite manual edits or invent missing data.
+- Buyer equals payer for new deals, enforced server-side. Preserve historical
+  differing parties. Delivery recipient/address is independent of payer identity.
+- On new offer approval, automatically reuse a single eligible checked contract
+  when known profile values agree; ambiguity or changed requisites requires selection/review.
+  Never retrofit issued invoices or deliveries.
+- Reuse a checked contract/version across eligible deals between the same parties;
+  do not require re-upload or OCR for each quotation.
+- Supplier-card contracts can exist before any offer. Do not create synthetic
+  offers/requests to store an original; use the same company-owned registry.
+- Freeze party, bank and authorized signer data when issuing/approving documents.
+  Reprints and exports use the saved snapshot, never today's mutable profile.
+- Show conflicting contract/profile bank details before preparing a new payment;
+  do not silently switch accounts. File uploads must not post payments or stock.
+- A checked supplier contract becomes available to its exact supplier on save;
+  do not add a separate transfer/confirmation step. Auto-select the current checked
+  contract for an invoice; preserve server-side party/version checks.
+- Share only addressed document versions. Supplier/customer cabinets
+  must not expose the other company's entire archive or internal purchase data.
+- Completion requires cross-company, profile-change/reprint, manual-edit and
+  end-to-end tests from the matrix. A written plan is not proof of implementation.
 
-## AI architecture
-- LLMs must not access the database directly.
-- AI uses restricted backend tools/service interfaces.
-- Authoritative amounts, quantities, balances, limits, margins, and financial totals are calculated by deterministic code, not by the LLM.
-- AI recommendations should retain evidence/source references where applicable.
+# Repository rules
 
-## Backend
-- backend/main.py is being decomposed gradually.
-- Do not perform broad rewrites of backend/main.py.
-- Extract one domain at a time while preserving behavior.
-- Keep uvicorn backend.main:app working.
-- Use existing config.py, db.py, auth.py and feature modules where appropriate.
-
-## Testing
-- Bug fixes require regression tests when practical.
-- Run the narrowest relevant tests first.
-- Before considering a substantial change complete, verify relevant backend tests and frontend build/tests.
-- Do not claim success when tests fail.
-
-## Git workflow
-- Work on a dedicated branch/worktree.
-- Never write directly to main.
-- Summarize changed files, tests run, failures, and remaining risks.
+- GitHub is the source of truth. Inspect and extend the existing architecture;
+  keep changes small and scoped.
+- Never modify production data directly, deploy automatically, run destructive
+  database operations, or apply production migrations automatically.
+- Never expose or commit secrets, API keys, passwords, tokens, or `.env` files.
+- Tenant isolation is mandatory. Preserve `company_id`, enforce ownership on the
+  server, and never add fallback ownership such as `company_id=1`.
+- LLMs use restricted backend tools and never access the database directly.
+  Deterministic code calculates authoritative business values.
+- Keep `uvicorn backend.main:app` working and avoid broad rewrites of
+  `backend/main.py` while its domains are being extracted.
+- Bug fixes require practical regression tests. Run narrow checks first, then the
+  relevant backend tests and frontend build/tests.
+- Work on a dedicated branch or worktree and never write directly to `main`.
+  Report changed files, tests, failures, and remaining risks.

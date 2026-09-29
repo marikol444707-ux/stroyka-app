@@ -1,0 +1,74 @@
+.supplier-contract-review.supplier-contract-review {
+  color: var(--c-text, #0f172a); background: var(--c-bg-white, #fff);
+  border: 1px solid var(--c-border, #e2e8f0); border-radius: 16px; padding: clamp(16px, 3vw, 28px);
+  font: 14px/1.5 system-ui, -apple-system, sans-serif; text-align: left; min-width: 0;
+}
+.supplier-contract-review.supplier-contract-review * { box-sizing: border-box; }
+.supplier-contract-review.supplier-contract-review .contract-review-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.supplier-contract-review.supplier-contract-review h3 { font-size: 24px; line-height: 1.25; margin: 8px 0; letter-spacing: -.5px; }
+.supplier-contract-review.supplier-contract-review p { margin: 8px 0; }
+.supplier-contract-review.supplier-contract-review h4 { font-size: 15px; margin: 0 0 12px; }
+.supplier-contract-review.supplier-contract-review .contract-eyebrow { font-size: 10px; font-weight: 750; letter-spacing: 1.1px; color: var(--c-text-sec, #64748b); }
+.supplier-contract-review.supplier-contract-review .contract-draft-badge { font-size: 11px; padding: 5px 9px; border-radius: 20px; background: var(--c-accent-light, #fff7ed); color: var(--c-text, #0f172a); white-space: nowrap; }
+.supplier-contract-review.supplier-contract-review .contract-review-steps { display: flex; list-style: none; margin: 24px 0; padding: 0; gap: 8px; }
+.supplier-contract-review.supplier-contract-review .contract-review-steps li { flex: 1; font-size: 12px; color: var(--c-text-sec, #64748b); border-bottom: 3px solid var(--c-border, #e2e8f0); padding-bottom: 10px; }
+.supplier-contract-review.supplier-contract-review .contract-review-steps .is-current { color: var(--c-text, #0f172a); font-weight: 700; border-color: var(--c-accent, #f97316); }
+.supplier-contract-review.supplier-contract-review .contract-review-steps .is-complete { border-color: var(--c-success, #10b981); }
+.supplier-contract-review.supplier-contract-review fieldset.contract-review-content { border: 0; padding: 0; margin: 0; display: block; min-width: 0; }
+.supplier-contract-review.supplier-contract-review label { display: grid; gap: 6px; font-size: 12px; font-weight: 600; margin: 0 0 12px; }
+.supplier-contract-review.supplier-contract-review input, .supplier-contract-review.supplier-contract-review select, .supplier-contract-review.supplier-contract-review textarea, .supplier-contract-review.supplier-contract-review button {
+  max-width: 100%; font: inherit; color: var(--c-text, #0f172a); background: var(--c-bg-white, #fff); border: 1px solid var(--c-border-dark, #cbd5e1); border-radius: 8px; padding: 9px 11px;
+}
+.supplier-contract-review.supplier-contract-review input, .supplier-contract-review.supplier-contract-review select, .supplier-contract-review.supplier-contract-review textarea { width: 100%; min-width: 0; min-height: 42px; font-size: 14px; font-weight: 400; }
+.supplier-contract-review.supplier-contract-review textarea { resize: vertical; }
+.supplier-contract-review.supplier-contract-review input:read-only { background: var(--c-bg, #f8fafc); color: var(--c-text-sec, #64748b); }
+.supplier-contract-review.supplier-contract-review button { cursor: pointer; margin: 0; min-height: 40px; font-size: 12px; font-weight: 650; }
+.supplier-contract-review.supplier-contract-review button:hover:not(:disabled) { border-color: var(--c-accent, #f97316); }
+.supplier-contract-review.supplier-contract-review button:disabled { opacity: .5; cursor: default; }
+.supplier-contract-review.supplier-contract-review :focus-visible { outline: 2px solid var(--c-accent, #f97316); outline-offset: 3px; }
+.supplier-contract-review.supplier-contract-review .contract-upload-card { border: 1px dashed var(--c-accent, #f97316); background: var(--c-accent-light, #fff7ed); border-radius: 12px; padding: 18px; margin-bottom: 20px; }
+.supplier-contract-review.supplier-contract-review .contract-upload-card label { margin-top: 8px; }
+.supplier-contract-review.supplier-contract-review input[type=file] { padding: 10px; }
+.supplier-contract-review.supplier-contract-review input[type=file]::file-selector-button { border: 0; border-radius: 6px; padding: 8px 12px; margin-right: 10px; background: var(--c-accent, #f97316); color: #171717; cursor: pointer; }
+.supplier-contract-review.supplier-contract-review .contract-hint { font-size: 12px; font-weight: 400; color: var(--c-text-sec, #64748b); }
+.supplier-contract-review.supplier-contract-review .contract-recognition-status { font-size: 13px; }
+.supplier-contract-review.supplier-contract-review .contract-field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 18px; }
+.supplier-contract-review.supplier-contract-review .contract-field-wide { grid-column: 1 / -1; }
+.supplier-contract-review.supplier-contract-review .contract-section-heading { display: flex; justify-content: space-between; gap: 20px; margin: 22px 0 12px; }
+.supplier-contract-review.supplier-contract-review .contract-section-heading h4 { margin: 4px 0; }
+.supplier-contract-review.supplier-contract-review .contract-section-heading p { max-width: 260px; }
+.supplier-contract-review.supplier-contract-review .contract-party-tabs { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; margin-bottom: 16px; }
+.supplier-contract-review.supplier-contract-review .contract-party-tabs button { text-align: left; padding: 12px; background: var(--c-bg, #f8fafc); min-width: 0; }
+.supplier-contract-review.supplier-contract-review .contract-party-tabs button[aria-selected=true] { border-color: var(--c-accent, #f97316); background: var(--c-accent-light, #fff7ed); box-shadow: inset 0 -2px var(--c-accent, #f97316); }
+.supplier-contract-review.supplier-contract-review .contract-party-tabs span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px; font-weight: 400; margin-top: 4px; color: var(--c-text-sec, #64748b); }
+.supplier-contract-review.supplier-contract-review .contract-party-summary { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 0 16px; }
+.supplier-contract-review.supplier-contract-review .contract-party-summary > span { font-size: 12px; }
+.supplier-contract-review.supplier-contract-review .contract-field-group { padding: 18px; border: 1px solid var(--c-border, #e2e8f0); border-radius: 12px; margin-bottom: 14px; }
+.supplier-contract-review.supplier-contract-review .contract-field-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+.supplier-contract-review.supplier-contract-review .contract-field-heading label { margin: 0; }
+.supplier-contract-review.supplier-contract-review .contract-field-note { font-size: 10px; color: var(--c-text-sec, #64748b); font-weight: 400; }
+.supplier-contract-review.supplier-contract-review .contract-note-found { color: var(--c-text, #0f172a); border-bottom: 2px solid var(--c-success, #10b981); }
+.supplier-contract-review.supplier-contract-review .contract-note-warning { color: var(--c-text, #0f172a); border-bottom: 2px solid var(--c-warning, #f59e0b); }
+.supplier-contract-review.supplier-contract-review .contract-source { font-size: 11px; margin-top: 5px; color: var(--c-text-sec, #64748b); }
+.supplier-contract-review.supplier-contract-review .contract-source summary { cursor: pointer; padding: 3px 0; }
+.supplier-contract-review.supplier-contract-review blockquote { margin: 8px 0; padding: 10px; border-left: 2px solid var(--c-accent, #f97316); background: var(--c-bg, #f8fafc); white-space: pre-wrap; overflow-wrap: anywhere; }
+.supplier-contract-review.supplier-contract-review .contract-payer-help { padding: 12px; margin-bottom: 14px; background: var(--c-bg, #f8fafc); border-radius: 8px; font-size: 12px; }
+.supplier-contract-review.supplier-contract-review .contract-final-review { border-top: 1px solid var(--c-border, #e2e8f0); margin-top: 22px; padding-top: 20px; }
+.supplier-contract-review.supplier-contract-review .contract-final-review > label { margin-top: 14px; }
+.supplier-contract-review.supplier-contract-review .supplier-refund-check { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; font-weight: 400; }
+.supplier-contract-review.supplier-contract-review input[type=checkbox] { width: 18px; height: 18px; min-height: 18px; flex: 0 0 18px; margin-top: 2px; accent-color: var(--c-accent, #f97316); }
+.supplier-contract-review.supplier-contract-review .contract-actions { display: flex; gap: 10px; flex-wrap: wrap; margin: 18px 0; }
+.supplier-contract-review.supplier-contract-review .contract-primary { background: var(--c-accent, #f97316); border-color: var(--c-accent, #f97316); color: #171717; }
+.supplier-contract-review.supplier-contract-review .contract-visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
+@media(max-width:600px) {
+ .supplier-contract-review.supplier-contract-review { padding: 14px; border-radius: 12px; }
+ .supplier-contract-review.supplier-contract-review h3 { font-size: 21px; }
+ .supplier-contract-review.supplier-contract-review .contract-review-header, .supplier-contract-review.supplier-contract-review .contract-section-heading { flex-direction: column; gap: 8px; }
+ .supplier-contract-review.supplier-contract-review .contract-field-grid { grid-template-columns: minmax(0,1fr); }
+ .supplier-contract-review.supplier-contract-review .contract-field-group { padding: 12px; }
+ .supplier-contract-review.supplier-contract-review .contract-party-tabs button { padding: 10px 6px; font-size: 11px; }
+ .supplier-contract-review.supplier-contract-review .contract-actions > button { width: 100%; }
+}
+
+.supplier-contract-review .supplier-contract-item { margin-top: 14px; padding: 16px; border: 1px solid var(--c-border, #e2e8f0); border-radius: 12px; background: var(--c-bg, #f8fafc); }
+.supplier-contract-review .supplier-contract-item a { color: var(--c-info, #2563eb); }

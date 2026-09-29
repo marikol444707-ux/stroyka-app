@@ -6,6 +6,7 @@ import { useCompanyChatContextSync } from '../chat/useCompanyChatContextSync';
 import { createCrmActions } from '../crm/crmActions';
 import { createDataLoadActions } from '../data-loaders/dataLoadActions';
 import { useAppDataLoaders } from '../data-loaders/useAppDataLoaders';
+import { useOwnedAliasSnapshot } from '../material-control/useOwnedAliasSnapshot';
 import { createGeoActions } from '../geolocation/geoActions';
 import { createMaterialTransferActions } from '../material-transfer/materialTransferActions';
 import { createNotificationActions } from '../notifications/notificationActions';
@@ -46,6 +47,9 @@ export function useAppCoreRuntime({
   limits,
   layout,
 }) {
+  const ownedAliasRuntime = useOwnedAliasSnapshot({API, companyContext, projects: appMainState.projects,
+    userId: authEntryState.user?.id, setMaterialAliases: appMainState.setMaterialAliases,
+    setMaterialAliasesError: appMainState.setMaterialAliasesError});
   const {
     AUDIT_LOG_PAGE_LIMIT,
     MATERIAL_NORMS_PAGE_LIMIT,
@@ -124,7 +128,7 @@ export function useAppCoreRuntime({
     setShowPayActModal, setShowPiecework, setShowProfileForm, setShowRoomForm, setShowSearch,
     setSidebarVisible, setSignedDocs, setStaff, setSupervisorActs, setSupplierCatalog,
     setSupplierInvoices, setSupplierOffers, setSuppliers, setSupplyClaims, setSupplyDeliveries,
-    setSupplyHistory, setSupplyRequests, setSupplyTemplates, setTbJournal, setTimesheet,
+    setSupplyHistory, setSupplyRequests, setTbJournal, setTimesheet,
     setToolHistory, setTools, setUnexpectedWorksList, setWarehouseMain, setWarehouseMovements,
     setWarehouses, setWarrantyDefects, setWeatherLog, setWorkJournal, setWorkJournalPage,
     tools, workJournal,
@@ -216,8 +220,13 @@ export function useAppCoreRuntime({
     loadMaterialsPage,
     loadMobileInitial,
     loadWorkJournalPage,
+    reloadQualityJournals,
     refreshData,
   } = useAppDataLoaders({
+    companyContext,
+    setQualityJournalLoadState: appMainState.setQualityJournalLoadState,
+    setCustomerRecordsLoadState: appMainState.setCustomerRecordsLoadState,
+    customerProjects: appMainState.projects,
     activePage,
     API,
     AUDIT_LOG_PAGE_LIMIT,
@@ -304,7 +313,6 @@ export function useAppCoreRuntime({
     setSupplyDeliveries,
     setSupplyHistory,
     setSupplyRequests,
-    setSupplyTemplates,
     setTbJournal,
     setTimesheet,
     setToolHistory,
@@ -523,6 +531,7 @@ export function useAppCoreRuntime({
   });
 
   return {
+    ...ownedAliasRuntime,
     addActivity,
     apiAuthHeaders,
     appendPhotos,
@@ -549,6 +558,7 @@ export function useAppCoreRuntime({
     loadPricelistItems,
     loadProjectChat,
     loadWorkJournalPage,
+    reloadQualityJournals,
     markMyNotificationsRead,
     myNotifications,
     navigateTo,

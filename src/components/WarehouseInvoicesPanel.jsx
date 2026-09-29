@@ -4,13 +4,14 @@ import { API } from '../api';
 import { WarehouseInvoiceCard, WarehouseInvoiceForm } from './warehouse/WarehouseInvoicesParts';
 import { createMaterialTransferForm } from '../features/warehouse/warehouseInitialForms';
 import { uniqueStoredProjectForName } from '../features/estimates/projectEstimateOwnership';
+import { identifiedInvoiceLines } from '../utils/warehouseInvoiceSource';
 
 const INVOICE_VISIBLE_DESKTOP = 30;
 const INVOICE_VISIBLE_MOBILE = 12;
 
 const PACKAGING_RULE_ROLES = ['директор', 'зам_директора', 'кладовщик', 'снабженец'];
 
-function PackagingRulesPanel({ user, suppliers, reviewItems = [], C, card, inp, btnB, btnG, isMobile }) {
+function PackagingRulesPanel({ user, suppliers, reviewItems = [], unidentifiedReviewCount = 0, C, card, inp, btnB, btnG, isMobile }) {
   const [isOpen, setIsOpen] = React.useState(false);
   const [isLoading, setIsLoading] = React.useState(false);
   const [isSaving, setIsSaving] = React.useState(false);
@@ -172,6 +173,9 @@ function PackagingRulesPanel({ user, suppliers, reviewItems = [], C, card, inp, 
           <PackagePlus size={14}/>{isOpen ? 'Скрыть' : 'Настроить'}
         </button>
       </div>
+      {unidentifiedReviewCount > 0 && <p role="status" style={{color:C.warning,fontSize:'12px'}}>
+        Строк упаковок без однозначного индекса: {unidentifiedReviewCount}. Сверка по ним недоступна; обновите данные или проверьте исходную накладную.
+      </p>}
       {reviewItems.length > 0 && (
         <div style={{marginTop:'12px',padding:'10px',border:'1.5px solid '+C.warningBorder,borderRadius:'10px',backgroundColor:C.warningLight}}>
           <div style={{display:'flex',gap:'8px',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap'}}>
@@ -421,39 +425,35 @@ export default function WarehouseInvoicesPanel({
       window.alert('Эта накладная заведена на основной склад. Для передачи выберите объектную накладную или сделайте перемещение на объект.');
       return;
     }
-    const grouped = new Map();
+    const transferItems = [];
+    const remainingStock = new Map();
+    const identified = new Set(identifiedInvoiceLines(invoiceRows.items));
     (invoiceRows.items || []).forEach((item, index) => {
-      if (!item?.name) return;
+      if (!item?.name || !identified.has(item)) return;
       const ctrl = estimateControl[index] || {};
       const stock = stockForInvoiceItem(projectName, item, ctrl);
       const materialName = stock?.name || item.name;
       const unit = stock?.unit || ctrl.rowUnit || item.unit || 'шт';
       const workPackage = packageOf(stock || {}) || packageOf(ctrl) || packageOf(item);
-      const stockQty = toNum(stock?.quantity);
-      const suggestedQty = transferQuantity(toNum(item.quantity), stockQty);
-      const key = [materialName, workPackage, unit].join('|||');
+      const stockQty = remainingStock.has(stock) ? remainingStock.get(stock) : toNum(stock?.quantity);
+      const proposedQty = transferQuantity(toNum(item.quantity), stockQty);
+      const suggestedQty = proposedQty ? String(Math.min(toNum(proposedQty), stockQty)) : '';
+      remainingStock.set(stock, Math.max(0, stockQty - toNum(suggestedQty)));
       const invoiceLineKey = invoiceLineKeyFor({ materialName: item.name, workPackage, unit });
-      const existing = grouped.get(key);
-      if (existing) {
-        const nextQty = toNum(existing.quantity) + toNum(suggestedQty);
-        existing.quantity = stockQty > 0 ? transferQuantity(nextQty, stockQty) : existing.quantity;
-        return;
-      }
-      grouped.set(key, {
+      transferItems.push({
         materialName,
         quantity: suggestedQty,
         unit,
         workPackage,
         invoiceId: inv.id || null,
         invoiceLineKey,
-        invoiceLineIndex: index,
+        invoiceLineIndex: item.invoiceLineIndex,
         invoiceNumber: inv.number || '',
       });
     });
 
-    const transferItems = Array.from(grouped.values()).filter(item => item.materialName);
     if (!transferItems.length) {
-      window.alert('В накладной нет строк материалов для передачи.');
+      window.alert('Нет строк с однозначным индексом исходной накладной. Обновите данные или проверьте источник поступления.');
       return;
     }
     const first = transferItems[0];
@@ -581,14 +581,14 @@ export default function WarehouseInvoicesPanel({
     [invoices, invoiceQuickItems],
   );
   const packagingReviewItems = React.useMemo(
-    () => (invoices || []).flatMap(inv => invoiceQuickItems(inv)
-      .flatMap((item, itemIndex) => item?.conversionStatus === 'needs_review' ? [{
-        key:String(inv.id || inv.number || 'invoice') + ':' + itemIndex,
+    () => (invoices || []).flatMap(inv => identifiedInvoiceLines(inv.items)
+      .flatMap(item => item?.name?.trim() && item.conversionStatus === 'needs_review' ? [{
+        key:String(inv.id || inv.number || 'invoice') + ':' + item.invoiceLineIndex,
         invoice:inv,
         item,
-        itemIndex,
+        itemIndex:item.invoiceLineIndex,
       }] : [])),
-    [invoices, invoiceQuickItems],
+    [invoices],
   );
   const filteredPositions = filteredInvoiceRows.reduce((sum, row) => sum + row.quickPositionCount, 0);
 
@@ -672,6 +672,7 @@ export default function WarehouseInvoicesPanel({
         user={user}
         suppliers={suppliers}
         reviewItems={packagingReviewItems}
+        unidentifiedReviewCount={packagingReviewCount - packagingReviewItems.length}
         C={C}
         card={card}
         inp={inp}

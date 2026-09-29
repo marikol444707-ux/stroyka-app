@@ -1,6 +1,7 @@
 import { POSITION_INSTRUCTIONS, TB_INSTRUCTIONS } from '../../constants/documentTemplates';
 import { EXPENSE_CATEGORIES } from '../../constants/catalogs';
 import { companyTitle, formatPrescriptionDate } from '../printDocumentShared';
+import { selectQualityJournalRows } from '../qualityJournalScope';
 
 export const buildKS14DocContent = (project = {}, context = {}) => {
   const { companyRequisites = {}, companyName = '' } = context;
@@ -225,8 +226,8 @@ export const buildExecPackageDocContent = (project = {}, context = {}) => {
     prescriptionsList = [],
   } = context;
   const acts = hiddenActs.filter((act) => act.projectName === project.name);
-  const inspections = materialInspections.filter((inspection) => inspection.projectName === project.name);
-  const cables = cableJournal.filter((item) => item.projectName === project.name);
+  const inspections = selectQualityJournalRows(materialInspections, project);
+  const cables = selectQualityJournalRows(cableJournal, project);
   const tb = tbJournal.filter((entry) => entry.project === project.name);
   const prescriptions = prescriptionsList.filter((item) => item.projectName === project.name);
   let html = '<h2 style="text-align:center;margin:8px 0">ПАКЕТ ИСПОЛНИТЕЛЬНОЙ ДОКУМЕНТАЦИИ</h2>';

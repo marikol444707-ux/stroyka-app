@@ -19,21 +19,30 @@ class FakeCursor:
             return self._rows.get('invoice')
         if 'INSERT INTO supply_deliveries' in (self._last or ''):
             return {'id': 1}
+        if "to_regclass('supply_claim_fulfilments')" in (self._last or ''):
+            return {'ready': None}
         return None
     def fetchall(self):
         return []
     def close(self):
-        pass
+        self.closed = True
 
 
 class FakeConn:
     def __init__(self, rows):
         self._rows = rows
+        self.autocommit = True
+        self.closed = False
     def cursor(self, cursor_factory=None):
-        return FakeCursor(self._rows)
+        cursor = FakeCursor(self._rows)
+        cursor.connection = self
+        cursor.closed = False
+        return cursor
     def commit(self):
         pass
     def close(self):
+        self.closed = True
+    def rollback(self):
         pass
 
 
@@ -88,6 +97,7 @@ def build(deps_overrides=None):
         '_ensure_supply_request_recipients_table': lambda cur: None,
         'OFFERS_SELECT': 'SELECT 1',
         'DELIVERY_SELECT': 'SELECT 1',
+        '_update_supply_flow_status_after_delivery': lambda *args: None,
     }
     if deps_overrides:
         deps.update(deps_overrides)
@@ -113,7 +123,7 @@ class ShipTenantIsolationTests(unittest.TestCase):
         app, deps = build({'get_db': get_db, 'resolve_resource_company_actor': resolve_resource_company_actor, 'assert_rows_company_scope': assert_rows_company_scope, 'current_supplier_ids': lambda cur,u: []})
         handler = app.routes[('POST', '/supplier-offers/{id}/ship')]
         with self.assertRaises(HTTPException):
-            handler(10, {}, {'role':'директор'})
+            handler(10, {}, _current_user={'role':'директор'})
 
     def test_legacy_offer_without_company_does_not_become_company_1(self):
         rows = {'offer': {'id': 11, 'request_id': 101, 'supplier_id': 5, 'company_id': None, 'request_company_id': None, 'status': 'Утверждено'}}
@@ -128,7 +138,7 @@ class ShipTenantIsolationTests(unittest.TestCase):
         app, deps = build({'get_db': get_db, 'resolve_resource_company_actor': resolve_resource_company_actor, 'assert_rows_company_scope': lambda *a, **k: None})
         handler = app.routes[('POST', '/supplier-offers/{id}/ship')]
         with self.assertRaises(HTTPException):
-            handler(11, {}, {'role':'директор'})
+            handler(11, {}, _current_user={'role':'директор'})
 
     def test_correct_offer_of_own_company_continues(self):
         rows = {'offer': {
@@ -164,7 +174,7 @@ class ShipTenantIsolationTests(unittest.TestCase):
         handler(
             12,
             {'shippedQuantity': 1},
-            {'role': 'директор'},
+            _current_user={'role': 'директор'},
         )
 
 

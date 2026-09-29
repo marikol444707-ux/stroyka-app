@@ -3,6 +3,7 @@ import { Search } from 'lucide-react';
 import SupplyHeaderTabs from './SupplyHeaderTabs';
 import SupplyRequestForm from './SupplyRequestForm';
 import SupplyRequestsList from './SupplyRequestsList';
+import SupplyClaims from '../features/supply/SupplyClaims';
 import SupplyDeliveriesPanel from './SupplyDeliveriesPanel';
 import SupplyCatalogPanel from './SupplyCatalogPanel';
 import SupplySuppliersPanel from './SupplySuppliersPanel';
@@ -38,9 +39,6 @@ export default function SupplyPage({
   listSearch,
   setListSearch,
   matchSearch,
-  supplyTemplates,
-  applySupplyTemplate,
-  deleteSupplyTemplate,
   newSupplyReq,
   setNewSupplyReq,
   priceHints,
@@ -50,7 +48,6 @@ export default function SupplyPage({
   getProjectWorkPackageOptions,
   renderSupplyPlanningHint,
   createSupplyReq,
-  saveSupplyTemplate,
   supplyCollapsedProjects,
   setSupplyCollapsedProjects,
   parseSupplyItems,
@@ -244,6 +241,7 @@ export default function SupplyPage({
 
       {curTab === 'invoices' && (
         <SupplySupplierInvoicesPanel
+          companyContext={companyContext}
           C={C}
           card={card}
           inp={inp}
@@ -324,8 +322,10 @@ export default function SupplyPage({
         />
       )}
 
-      {curTab === 'deliveries' && (
+      {curTab === 'deliveries' && (<>
+        <SupplyClaims API={API} C={C} user={user} companyContext={companyContext} onChanged={loadAll} />
         <SupplyDeliveriesPanel
+          key={`${companyContext?.mode}:${companyContext?.selectedCompanyId}:${user?.id}`}
           C={C}
           card={card}
           inp={inp}
@@ -352,10 +352,11 @@ export default function SupplyPage({
           buildInvoiceContent={buildInvoiceContent}
           uploadPhoto={uploadPhoto}
         />
-      )}
+      </>)}
 
       {curTab !== 'catalog' && curTab !== 'invoices' && curTab !== 'suppliers' && curTab !== 'deliveries' && showSupplyForm && (
         <SupplyRequestForm
+          API={API} companyContext={companyContext} user={user}
           C={C}
           card={card}
           inp={inp}
@@ -364,9 +365,6 @@ export default function SupplyPage({
           btnR={btnR}
           role={role}
           isLeadership={isLeadershipUser}
-          supplyTemplates={supplyTemplates}
-          applySupplyTemplate={applySupplyTemplate}
-          deleteSupplyTemplate={deleteSupplyTemplate}
           newSupplyReq={newSupplyReq}
           setNewSupplyReq={setNewSupplyReq}
           priceHints={priceHints}
@@ -376,7 +374,6 @@ export default function SupplyPage({
           getProjectWorkPackageOptions={getProjectWorkPackageOptions}
           renderSupplyPlanningHint={renderSupplyPlanningHint}
           createSupplyReq={createSupplyReq}
-          saveSupplyTemplate={saveSupplyTemplate}
           setShowSupplyForm={setShowSupplyForm}
         />
       )}

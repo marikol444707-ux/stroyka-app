@@ -31,11 +31,17 @@ export const buildWarehouseInvoiceEstimateControl = ({
     }));
   }
 
-  const summary = materialControlSummaryForProject(materialControlProjectForName(place));
+  const owner = materialControlProjectForName(place, inv?.companyId);
+  const summary = materialControlSummaryForProject(owner);
+  if (summary.unavailable) return items.map((item, index) => ({
+    index, name: item.name || '', quantity: toNum(item.quantity), unit: item.unit || '',
+    status: 'Сверка недоступна', severity: 'warning', unavailable: true,
+    detail: summary.error, planText: '—', beforeText: '—', afterText: '—', overText: '—',
+  }));
   const rowsByKey = new Map((summary.rows || []).map(row => [row.key, row]));
   const itemMeta = items.map(item => {
     const itemPackage = sourcePackageOf(item, inv);
-    const meta = canonicalMaterialMeta(place, item.name, item.unit);
+    const meta = canonicalMaterialMeta(owner, item.name, item.unit);
     const baseKey = materialNameLookupKey(meta.name || item.name);
     const key = baseKey ? baseKey + (itemPackage ? '|' + String(itemPackage).trim().toLowerCase() : '|__no_package__') : '';
     const norm = normalizeMeasure(item.quantity, item.unit);

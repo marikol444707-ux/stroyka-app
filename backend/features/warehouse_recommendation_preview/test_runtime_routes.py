@@ -257,6 +257,12 @@ class WarehouseAnomalyRuntimeRouteRegistrationTests(unittest.TestCase):
         package_bytes = package_path.read_bytes()
         runtime_source = runtime_path.read_text(encoding="utf-8")
 
+        # Reviewed company/document isolation and tenant-scoped RFQ email changes;
+        # warehouse preview implementation and registration are unchanged.
+        self.assertEqual(
+            hashlib.sha256(main_bytes).hexdigest(),
+            "e295f582192724cdecb6fef04da26e083ff9d8674d126c54cdcd1d86a79c3d3c",
+        )
         self.assertEqual(
             hashlib.sha256(package_bytes).hexdigest(),
             "d30babfeb425141af2fbf645be82eef358b6dea7d213b6d6b23cef3e7c551fea",

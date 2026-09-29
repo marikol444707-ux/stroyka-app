@@ -30,7 +30,7 @@ export const createProjectCrudActions = ({
       return;
     }
     const data = {...newProject, budget: Number(newProject.budget)};
-    ['archived', 'archivedAt', 'archived_at', 'id'].forEach(key => delete data[key]);
+    ['archived', 'archivedAt', 'archived_at', 'id', 'clientEmail', 'clientPassword'].forEach(key => delete data[key]);
     try {
       if (editingItem) {
         await readApiResult(await fetch(API + '/projects/' + editingItem.id, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)}));
@@ -40,10 +40,6 @@ export const createProjectCrudActions = ({
       }
       await refreshData();
       addActivity((editingItem ? 'Обновил' : 'Создал') + ' проект: ' + newProject.name);
-      if (!editingItem && newProject.clientEmail && newProject.clientPassword) {
-        await readApiResult(await fetch(API + '/users', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: newProject.client || newProject.name, email: newProject.clientEmail, password: newProject.clientPassword, role: 'заказчик', projectName: newProject.name})}));
-        alert('Заказчик создан! Логин: ' + newProject.clientEmail + ' Пароль: ' + newProject.clientPassword);
-      }
       setNewProject(createProjectForm());
       setEditingItem(null);
       setShowForm(false);

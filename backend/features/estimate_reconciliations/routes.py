@@ -385,8 +385,8 @@ def register_estimate_reconciliations_module(app, deps):
             cur.execute(
                 """INSERT INTO project_documents
                    (project_name,side,doc_type,number,doc_date,counterparty,sign_status,
-                    scan_url,amount,notes,uploaded_by)
-                   VALUES (%s,%s,%s,%s,CURRENT_DATE,%s,%s,%s,%s,%s,%s)""",
+                    scan_url,amount,notes,uploaded_by,company_id,project_id,created_by_user_id)
+                   VALUES (%s,%s,%s,%s,CURRENT_DATE,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (
                     project_name,
                     "customer",
@@ -403,6 +403,7 @@ def register_estimate_reconciliations_module(app, deps):
                     + " -> "
                     + (next_est[3] or ""),
                     actor.get("name") or "",
+                    base_parent["companyId"],base_parent["projectId"],actor.get("id"),
                 ),
             )
             conn.commit()
@@ -457,8 +458,8 @@ def register_estimate_reconciliations_module(app, deps):
                 doc_status = "Подписан" if status == "Утверждена" else status
                 cur.execute(
                     """UPDATE project_documents SET sign_status=%s
-                        WHERE project_name=%s AND doc_type='Сверка смет' AND number=%s""",
-                    (doc_status, project.get("name") or "", "СС-" + str(id)),
+                        WHERE company_id=%s AND project_id=%s AND doc_type='Сверка смет' AND number=%s""",
+                    (doc_status, project["companyId"], project["id"], "СС-" + str(id)),
                 )
                 if status != (row[5] or ""):
                     audit_payload = {

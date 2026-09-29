@@ -1,9 +1,13 @@
 import React from 'react';
+import ToolsWorkspace from '../features/tool-custody/ToolsWorkspace';
+import { toolCustodyEnabled } from '../features/tool-custody/ToolCustodyPanel';
+import InventoryWorkspace, { inventoryReconciliationEnabled } from '../features/inventory-reconciliation/InventoryWorkspace';
 import WarehouseInvoicesPanel from './WarehouseInvoicesPanel';
 import WarehouseMainStockPanel from './WarehouseMainStockPanel';
-import WarehouseCompanyWarehousesPanel from './WarehouseCompanyWarehousesPanel';
+import CompanyWarehouses from '../features/company-warehouses/CompanyWarehouses';
 import WarehouseHistoryPanel from './WarehouseHistoryPanel';
 import WarehouseOperationsPanel from './WarehouseOperationsPanel';
+import WarehouseDistributionPanel from '../features/warehouse/WarehouseDistributionPanel';
 import WarehouseObjectsPanel from './WarehouseObjectsPanel';
 import WarehouseTabsNav from './WarehouseTabsNav';
 import WarehouseMaterialControlOverview from './WarehouseMaterialControlOverview';
@@ -34,10 +38,6 @@ export default function WarehousePage(props) {
     showForm,
     editingItem,
     setEditingItem,
-    newWarehouse,
-    setNewWarehouse,
-    saveWarehouse,
-    deleteWarehouse,
     inp,
     btnR,
     btnGr,
@@ -122,6 +122,12 @@ export default function WarehousePage(props) {
     companyContext,
   } = props;
   const canReviewSupplyRequests = roleFlagsForUser(user).isSupplyRole;
+  const useTwoStageMovements = process.env.REACT_APP_WAREHOUSE_DISTRIBUTION_ENABLED === 'true'
+    && process.env.REACT_APP_WAREHOUSE_DISTRIBUTION_TRANSFERS_ENABLED === 'true';
+
+  if (user?.role === 'прораб' && inventoryReconciliationEnabled()) {
+    return <InventoryWorkspace {...{ API, companyContext, user, C, showPreview }} onChanged={refreshData} />;
+  }
 
   return (
     <div style={{width:'100%',maxWidth:'100%',minWidth:0,overflowX:'hidden'}}>
@@ -171,26 +177,7 @@ export default function WarehousePage(props) {
         </>
       )}
 
-      {warehouseTab === 'warehouses' && (
-        <WarehouseCompanyWarehousesPanel
-          warehouses={props.warehouses}
-          showForm={showForm}
-          setShowForm={setShowForm}
-          editingItem={editingItem}
-          setEditingItem={setEditingItem}
-          newWarehouse={newWarehouse}
-          setNewWarehouse={setNewWarehouse}
-          saveWarehouse={saveWarehouse}
-          deleteWarehouse={deleteWarehouse}
-          C={C}
-          card={card}
-          inp={inp}
-          btnO={btnO}
-          btnB={btnB}
-          btnG={btnG}
-          btnR={btnR}
-        />
-      )}
+      {warehouseTab === 'warehouses' && <CompanyWarehouses {...{ API, companyContext, user, C }} onChanged={refreshData} />}
 
       {warehouseTab === 'objects' && (
         <WarehouseObjectsPanel
@@ -325,7 +312,11 @@ export default function WarehousePage(props) {
         />
       )}
 
-      {['move', 'tools', 'inventory'].includes(warehouseTab) && (
+      {warehouseTab === 'move' && <WarehouseDistributionPanel companyContext={companyContext} projects={projects} C={C} refreshData={refreshData} />}
+      {warehouseTab === 'tools' && toolCustodyEnabled() && <ToolsWorkspace {...{ tools, toolHistory, API, companyContext, user, C, refreshData }} />}
+      {warehouseTab === 'inventory' && inventoryReconciliationEnabled() && <InventoryWorkspace {...{ API, companyContext, user, C, showPreview }} onChanged={refreshData} />}
+
+      {((warehouseTab === 'tools' && !toolCustodyEnabled()) || (warehouseTab === 'inventory' && !inventoryReconciliationEnabled()) || (warehouseTab === 'move' && !useTwoStageMovements)) && (
         <WarehouseOperationsPanel
           isMobile={isMobile}
           warehouseTab={warehouseTab}

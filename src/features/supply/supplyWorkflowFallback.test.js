@@ -33,15 +33,18 @@ const buildActions = (role) => {
 describe('supply request leadership fallback UI', () => {
   const originalFetch = global.fetch;
   const originalAlert = window.alert;
+  const originalPrompt = window.prompt;
 
   beforeEach(() => {
     global.fetch = jest.fn();
     window.alert = jest.fn();
+    window.prompt = jest.fn().mockReturnValue('  Ответственный в отпуске  ');
   });
 
   afterEach(() => {
     global.fetch = originalFetch;
     window.alert = originalAlert;
+    window.prompt = originalPrompt;
   });
 
   test('shows the explicit director fallback wording', () => {
@@ -79,6 +82,8 @@ describe('supply request leadership fallback UI', () => {
       'supply',
     );
     expect(refreshData).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(global.fetch.mock.calls[0][1].body).reviewerAbsenceReason)
+      .toBe('Ответственный в отпуске');
     expect(window.alert).not.toHaveBeenCalled();
   });
 
@@ -123,5 +128,14 @@ describe('supply request leadership fallback UI', () => {
       'Заявка подтверждена прорабом — ждёт директора',
       'supply',
     );
+    expect(window.prompt).not.toHaveBeenCalled();
+  });
+
+  test.each([null, '', '   ', 'x'.repeat(501)])('does not submit invalid/cancelled reason: %s', async reason => {
+    window.prompt.mockReturnValue(reason);
+    const { actions, notify } = buildActions('директор');
+    expect(await actions.confirmSupplyAsProrab(15)).toBe(false);
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(notify).not.toHaveBeenCalled();
   });
 });

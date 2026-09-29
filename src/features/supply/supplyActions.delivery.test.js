@@ -36,7 +36,8 @@ describe('supplier notification evidence', () => {
       ],
     }));
     const deps = context();
-    await createSupplyActions(deps).sendKpRequest();
+    await createSupplyActions(deps).sendKpRequest('2099-09-21T14:00:00+03:00');
+    expect(JSON.parse(global.fetch.mock.calls[0][1].body).responseDueAt).toBe('2099-09-21T14:00:00+03:00');
     const text = deps.notify.mock.calls[0][0];
     expect(text).toContain('Создано запросов КП: 2');
     expect(text).toContain('Передано SMTP: 1');

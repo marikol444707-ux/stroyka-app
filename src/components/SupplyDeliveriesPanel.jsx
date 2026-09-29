@@ -3,6 +3,11 @@ import { Bot, Check, Upload, X } from 'lucide-react';
 import { API } from '../api';
 import { invoiceImageAccept, normalizeInvoiceImageFile } from '../utils/invoiceImages';
 
+const hasReceipt = delivery => Boolean(delivery.receivedAt) || ['Принято', 'Проблема'].includes(delivery.status);
+const hasProblem = delivery => delivery.status === 'Проблема'
+  || (hasReceipt(delivery) && ['Брак', 'Несоответствие', 'Недостача', 'Частично'].includes(delivery.qualityStatus));
+const unresolved = claim => ['Открыта', 'В работе'].includes(claim?.status);
+
 function SupplyDeliveriesPanel({
   C,
   card,
@@ -31,11 +36,23 @@ function SupplyDeliveriesPanel({
   uploadPhoto,
 }) {
   const [visibleCount, setVisibleCount] = React.useState(8);
+  const [filter, setFilter] = React.useState('all');
   const deliveriesId = React.useId();
   const deliveries = supplyDeliveries || [];
-  const visibleDeliveries = deliveries.slice(0, visibleCount);
-  const remainingCount = deliveries.length - visibleDeliveries.length;
-  const openClaimsCount = (supplyClaims || []).filter(c=>c.status==='Открыта').length;
+  const claimsById = new Map((supplyClaims || []).map(claim => [claim.id, claim]));
+  const claimsByDelivery = new Map((supplyClaims || []).map(claim => [claim.deliveryId, claim]));
+  const claimFor = delivery => claimsById.get(delivery.claimId) || claimsByDelivery.get(delivery.id);
+  const filters = [
+    ['all', 'Все', () => true],
+    ['pending', 'Ожидают приёмки', delivery => !hasReceipt(delivery)],
+    ['accepted', 'Приняты без замечаний', delivery => hasReceipt(delivery) && !hasProblem(delivery)],
+    ['problem', 'С проблемой', hasProblem],
+    ['claims', 'С незакрытой претензией', delivery => unresolved(claimFor(delivery))],
+  ];
+  const filteredDeliveries = deliveries.filter(filters.find(([value]) => value === filter)[2]);
+  const visibleDeliveries = filteredDeliveries.slice(0, visibleCount);
+  const remainingCount = filteredDeliveries.length - visibleDeliveries.length;
+  const openClaimsCount = (supplyClaims || []).filter(unresolved).length;
 
   const startReceiving = (delivery, isReceiving) => {
     setReceivingDeliveryId(isReceiving ? null : delivery.id);
@@ -100,16 +117,25 @@ function SupplyDeliveriesPanel({
 
       {(supplyDeliveries||[]).length===0 && <p style={{color:C.textMuted,fontSize:'12px',margin:'8px 0'}}>Поставок пока нет. Они появятся после отгрузки выигранного КП поставщиком.</p>}
 
+      {deliveries.length > 0 && <label style={{display:'grid',gap:'6px',marginBottom:'12px',fontSize:'12px',color:C.textSec}}>
+        Показать поставки
+        <select value={filter} onChange={event => { setFilter(event.target.value); setVisibleCount(8); }}
+          style={{...inp,width:'100%',maxWidth:'360px',minWidth:0,boxSizing:'border-box',marginBottom:0}}>
+          {filters.map(([value, label, matches]) => <option key={value} value={value}>{label} ({deliveries.filter(matches).length})</option>)}
+        </select>
+      </label>}
+      {deliveries.length > 0 && filteredDeliveries.length === 0 && <p style={{color:C.textMuted,fontSize:'12px'}}>По этому фильтру поставок нет.</p>}
+
       <div id={deliveriesId}>
       {visibleDeliveries.map(delivery=>{
-        const problem = delivery.status==='Проблема';
-        const done = delivery.status==='Принято';
+        const problem = hasProblem(delivery);
+        const done = hasReceipt(delivery);
         const stC = problem?C.danger:done?C.success:C.info;
         const stBg = problem?C.dangerLight:done?C.successLight:C.infoLight;
         const stBd = problem?C.dangerBorder:done?C.successBorder:C.infoBorder;
         const isReceiving = receivingDeliveryId===delivery.id;
         const canReceive = ['прораб','кладовщик','снабженец','директор','зам_директора'].includes(role) && !done;
-        const claim = (supplyClaims||[]).find(c=>c.id===delivery.claimId || c.deliveryId===delivery.id);
+        const claim = claimFor(delivery);
         const linkedInvoice = (invoices||[]).find(inv=>String(inv.supplyDeliveryId||'')===String(delivery.id));
 
         return (
@@ -118,6 +144,11 @@ function SupplyDeliveriesPanel({
               <div style={{flex:'1 1 260px'}}>
                 <b style={{color:C.text,fontSize:'13px'}}>{delivery.materialName}</b>
                 <p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{delivery.shippedQuantity || delivery.plannedQuantity} {delivery.unit} · 🏗 {delivery.project || '—'} · {delivery.supplierName || 'Поставщик'}</p>
+                {done && <p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>
+                  {delivery.receivedQuantity == null ? 'Принятое количество не указано' : `Принято: ${delivery.receivedQuantity} ${delivery.unit}`}
+                  {Number(delivery.shortageQuantity) > 0 ? ` · Недостача: ${delivery.shortageQuantity} ${delivery.unit}` : ''}
+                </p>}
+                {done && delivery.qualityStatus === 'Брак' && <p style={{color:C.danger,fontSize:'12px'}}>Брак — в доступный остаток не включён.</p>}
                 <p style={{color:C.textMuted,margin:0,fontSize:'11px'}}>ТТН/накладная: {delivery.waybillNumber || '—'}{delivery.vehicleNumber?' · авто '+delivery.vehicleNumber:''}{delivery.driverName?' · '+delivery.driverName:''}</p>
                 {delivery.aiCheckResult && <p style={{color:C.accent,margin:'5px 0 0',fontSize:'11px'}}>🤖 {delivery.aiCheckResult}</p>}
                 {claim && <p style={{color:C.danger,margin:'5px 0 0',fontSize:'11px'}}>⚠️ Претензия: {claim.claimType} · {claim.status}</p>}
@@ -141,7 +172,7 @@ function SupplyDeliveriesPanel({
             {deliveryAiLoadingId===delivery.id && <p style={{color:C.textMuted,fontSize:'11px',margin:'8px 0 0'}}>AI сверяет накладную...</p>}
             {deliveryAiResultById[delivery.id] && <div style={{padding:'8px 10px',backgroundColor:C.bg,border:'1px solid '+C.border,borderRadius:'6px',fontSize:'11px',color:C.text,marginTop:'8px'}}>{deliveryAiResultById[delivery.id]}</div>}
 
-            {isReceiving && (
+            {isReceiving && canReceive && (
               <div style={{borderTop:'1.5px solid '+C.border,paddingTop:'10px',marginTop:'10px'}}>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}}>
                   <input type='number' step='any' inputMode='decimal' value={receiveForm.receivedQuantity} onChange={e=>setReceiveForm({...receiveForm,receivedQuantity:e.target.value})} placeholder='Принято количество' style={{...inp,marginBottom:0}}/>
@@ -172,7 +203,7 @@ function SupplyDeliveriesPanel({
       {deliveries.length > 0 && (
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:'8px',flexWrap:'wrap',marginTop:'8px'}}>
           <span role="status" style={{color:C.textSec,fontSize:'12px'}}>
-            Показано поставок: {visibleDeliveries.length} из {deliveries.length}
+            Показано поставок: {visibleDeliveries.length} из {filteredDeliveries.length}
           </span>
           {remainingCount > 0 && (
             <button type="button" aria-controls={deliveriesId} onClick={()=>setVisibleCount(count=>count+8)} style={btnG}>

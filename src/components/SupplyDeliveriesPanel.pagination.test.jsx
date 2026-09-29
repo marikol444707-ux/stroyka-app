@@ -22,6 +22,8 @@ describe('delivery list pagination', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Показано поставок: 8 из 9');
     const more = screen.getByRole('button', { name: /Показать ещё/ });
     userEvent.tab();
+    expect(screen.getByRole('combobox', { name: /Показать поставки/ })).toHaveFocus();
+    userEvent.tab();
     expect(more).toHaveFocus();
     userEvent.keyboard('{Enter}');
 

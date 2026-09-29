@@ -46,7 +46,7 @@ limit_req_zone $binary_remote_addr zone=workflow_limit:10m rate=30r/m;
 limit_conn_zone $binary_remote_addr zone=conn_limit:10m;
 
 # В server {} сайта
-limit_conn conn_limit 30;
+limit_conn conn_limit 128;
 client_max_body_size 25m;
 client_body_timeout 15s;
 keepalive_timeout 20s;
@@ -87,6 +87,15 @@ location ~ ^/(workflow|telegram)/ {
     proxy_pass http://127.0.0.1:8001;
 }
 ```
+
+При проверке 20.09.2026 прежний порог `30` вызывал реальные HTTP 429 при
+обычной загрузке ERP: журнал Nginx фиксировал `limiting connections by zone
+"conn_limit"`. В HTTP/2 каждый одновременно обрабатываемый запрос считается
+отдельным соединением ([документация Nginx](https://nginx.org/en/docs/http/ngx_http_limit_conn_module.html)).
+Загрузка приложения делает около 60 запросов. Порог `128` оставляет ограничение
+на IP и запас для обычной загрузки; это не гарантия работы любого количества
+пользователей за общим NAT. Ограничения входа, публичных форм и дорогих
+операций сохраняются отдельно.
 
 После изменения:
 

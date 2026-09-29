@@ -1,4 +1,4 @@
-import React from 'react';
+import React, {useState} from 'react';
 import {AlertTriangle, CheckCircle2, ClipboardCheck, Clock3} from 'lucide-react';
 
 
@@ -55,6 +55,7 @@ function BriefStateMessage({status, error}) {
 }
 
 export default function DirectorDailyBriefPanel({state = {}, isMobile = false}) {
+  const [expanded, setExpanded] = useState(false);
   const status = state?.status || 'idle';
   const data = state?.data || null;
   const brief = data?.brief || null;
@@ -90,7 +91,12 @@ export default function DirectorDailyBriefPanel({state = {}, isMobile = false}) 
               <span style={{fontSize:'11px',fontWeight:800,color:'#fca5a5',border:'1px solid rgba(239,68,68,.30)',borderRadius:'999px',padding:'4px 8px'}}>Критично: {Number(summary.critical || 0)}</span>
               <span style={{fontSize:'11px',fontWeight:800,color:'#fbbf24',border:'1px solid rgba(245,158,11,.30)',borderRadius:'999px',padding:'4px 8px'}}>Внимание: {Number(summary.warning || 0)}</span>
               <span style={{fontSize:'11px',fontWeight:800,color:'#7dd3fc',border:'1px solid rgba(14,165,233,.28)',borderRadius:'999px',padding:'4px 8px'}}>Информация: {Number(summary.info || 0)}</span>
+              <button type="button" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}
+                style={{marginLeft:'auto',padding:'4px 12px',minHeight:36,border:'1px solid #64748b',borderRadius:8,background:'transparent',color:'#e2e8f0',cursor:'pointer'}}>
+                {expanded ? 'Свернуть' : 'Подробнее'}
+              </button>
             </div>
+            {expanded && <>
             {attentionQueue&&(
               <div aria-label="Требует внимания" style={{marginTop:'12px',padding:'10px 0',borderTop:'1px solid rgba(148,163,184,.18)',borderBottom:'1px solid rgba(148,163,184,.18)'}}>
                 <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:'8px'}}>
@@ -162,6 +168,7 @@ export default function DirectorDailyBriefPanel({state = {}, isMobile = false}) 
                 );
               })}
             </div>
+            </>}
           </>
         )}
     </section>

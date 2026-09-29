@@ -12,6 +12,7 @@ from backend.features.company_context.service import (
     effective_company_user,
     resolve_request_company_context,
     resolve_resource_company_actor,
+    user_company_memberships,
 )
 
 
@@ -28,6 +29,10 @@ class MembershipCursor:
         if "FROM user_company_roles m" in query:
             user_id = int(params[0])
             self.rows = [row for row in self.memberships if int(row.get("user_id") or 0) == user_id]
+            if 'COALESCE(m.active,TRUE)=TRUE' in query:
+                self.rows = [row for row in self.rows if row.get('active') is not False]
+            if 'COALESCE(c.active,TRUE)=TRUE' in query:
+                self.rows = [row for row in self.rows if row.get('company_active') is not False]
             return
         if "FROM companies c" in query and "WHERE c.id=%s" in query:
             company_id = int(params[0])
@@ -99,6 +104,24 @@ def user(*, account_id=5):
 
 
 class ResolveRequestCompanyContextTests(unittest.TestCase):
+    def test_explicit_inactive_membership_never_revives_legacy_authority(self):
+        for row in ({**membership(), 'active': False},
+                    {**membership(), 'company_active': False},
+                    {**membership(company_id=8), 'active': False}):
+            with self.subTest(row=row):
+                cur = MembershipCursor([row], companies=[membership()])
+                self.assertEqual(user_company_memberships(cur, user()), [])
+                with self.assertRaises(HTTPException) as error:
+                    resolve_request_company_context(cur, user(), requested_company_id=7, action_mode='update')
+                self.assertEqual(error.exception.status_code, 403)
+
+    def test_include_inactive_returns_explicit_record_not_legacy(self):
+        cur = MembershipCursor([{**membership(), 'active': False}])
+        rows = user_company_memberships(cur, user(), include_inactive=True)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['source'], 'membership')
+        self.assertFalse(rows[0]['active'])
+
     def test_effective_actor_exposes_membership_staff_link(self):
         context = _company_context_row({
             **membership(role="директор"),

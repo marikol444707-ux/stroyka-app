@@ -143,6 +143,20 @@ class WorkJournalCreateScopeTests(unittest.TestCase):
         self.assertEqual(customer["executionTotal"], 0)
         self.assertEqual(customer["customerTotal"], 0)
 
+    def test_customer_projection_hides_internal_metadata(self):
+        row = {'id': 9, 'companyId': 4, 'projectId': 3, 'description': 'Work',
+               'quantity': 5, 'photoUrl': '/tenant-files/2/content',
+               'estimateItemKey': '7:0:0', 'materialsUsed': [{'internal': True}],
+               'settlementContractId': 80, 'settlementVersion': 3,
+               'responsibleItr': 'Internal', 'comment': 'Private', 'futurePrivateField': 'secret'}
+        customer = mask_work_journal_money(row, {'role': 'заказчик'}, ('мастер',))
+        for key in ('materialsUsed', 'settlementContractId', 'settlementVersion',
+                    'responsibleItr', 'comment', 'futurePrivateField'):
+            self.assertNotIn(key, customer)
+        for key in ('id', 'companyId', 'projectId', 'description', 'quantity', 'photoUrl', 'estimateItemKey'):
+            self.assertEqual(customer[key], row[key])
+        self.assertEqual(mask_work_journal_money(row, {'role': 'директор'}, ('мастер',)), row)
+
     def test_mutation_direct_id_requires_stored_company_actor(self):
         class Cursor:
             def execute(self, _sql, _params=()):

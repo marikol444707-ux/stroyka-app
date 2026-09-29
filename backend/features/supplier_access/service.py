@@ -1,3 +1,10 @@
+from ..supplier_team.policy import enabled as team_enabled, offer_policy, leader_policy
+from .supply_request_workflow import (
+    SUPPLIER_REQUEST_VISIBILITY_SQL,
+    supplier_request_visibility_params,
+)
+
+
 def _positive_int(value):
     try:
         result = int(value)
@@ -38,6 +45,11 @@ def supplier_offer_visibility_filter(supplier_ids, supplier_user_id=None):
         normalized_ids,
         user_id,
     )
+    # Use the same disclosure policy as GET /supply-requests. The alias is
+    # static application SQL, never supplied by a caller.
+    request_visibility_sql = SUPPLIER_REQUEST_VISIBILITY_SQL.replace(
+        "supply_requests.", "scoped_request."
+    )
 
     sql = """
       AND EXISTS (
@@ -45,6 +57,7 @@ def supplier_offer_visibility_filter(supplier_ids, supplier_user_id=None):
               FROM supply_requests scoped_request
              WHERE scoped_request.id=supplier_offers.request_id
                AND scoped_request.company_id=supplier_offers.company_id
+               AND """ + request_visibility_sql + """
       )
       AND NOT EXISTS (
             SELECT 1
@@ -58,6 +71,7 @@ def supplier_offer_visibility_filter(supplier_ids, supplier_user_id=None):
                  FROM supply_request_recipients recipient
                  WHERE recipient.request_id=supplier_offers.request_id
                    AND recipient.company_id=supplier_offers.company_id
+                   AND recipient.visible_to_supplier=TRUE
                    AND (
                         recipient.target_supplier_id=supplier_offers.supplier_id
                      OR recipient.supplier_id=supplier_offers.supplier_id
@@ -82,10 +96,14 @@ def supplier_offer_visibility_filter(supplier_ids, supplier_user_id=None):
          )
       )
     """
-    params = recipient_identity_params + [
+    params = supplier_request_visibility_params(normalized_ids) + recipient_identity_params + [
         normalized_ids,
         normalized_ids,
     ]
+    if team_enabled():
+        team_sql, team_params = offer_policy(user_id)
+        sql += " AND " + team_sql
+        params += team_params
     return sql, params
 
 
@@ -111,9 +129,28 @@ def supplier_invoice_visibility_filter(supplier_ids, supplier_user_id=None):
                   FROM supplier_offers
                  WHERE supplier_offers.id=si.offer_id
                    AND supplier_offers.company_id=si.company_id
+                   AND supplier_offers.supplier_id=si.supplier_id
+                   AND (si.request_id IS NULL OR supplier_offers.request_id=si.request_id)
                    AND supplier_offers.supplier_id = ANY(%s::int[])
     """ + offer_sql + """
             )
       )
     """
-    return sql, [normalized_ids, normalized_ids] + offer_params
+    params = [normalized_ids, normalized_ids] + offer_params
+    if team_enabled():
+        leader_sql, leader_params = leader_policy(user_id, 'si.supplier_id')
+        sql += " AND (si.offer_id IS NOT NULL OR " + leader_sql + ")"
+        params += leader_params
+    return sql, params
+
+
+def supplier_delivery_visibility_filter(supplier_ids, supplier_user_id=None):
+    """Delivery alias d must have the same authorized offer/request/tenant chain."""
+    ids = _supplier_ids(supplier_ids)
+    offer_sql, params = supplier_offer_visibility_filter(ids, supplier_user_id)
+    return ('''d.supplier_id=ANY(%s::int[]) AND EXISTS (
+        SELECT 1 FROM supplier_offers
+        WHERE supplier_offers.id=d.offer_id
+          AND supplier_offers.request_id=d.request_id
+          AND supplier_offers.company_id=d.company_id
+          AND supplier_offers.supplier_id=d.supplier_id''' + offer_sql + ')', [ids] + params)

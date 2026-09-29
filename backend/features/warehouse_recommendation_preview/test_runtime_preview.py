@@ -943,6 +943,14 @@ class WarehouseAnomalyRuntimePreviewCompositionTests(unittest.TestCase):
             package_root / "content_preview.py": (
                 "6bf1b385b833bd2f02b16e066fbb41a7ea6aa9566cb4ce4c6eeff8d5dea9da64"
             ),
+            root / "backend/db.py": (
+                "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
+            ),
+            # Reviewed company/document isolation and tenant-scoped RFQ email changes;
+            # warehouse preview implementation and registration are unchanged.
+            root / "backend/main.py": (
+                "e295f582192724cdecb6fef04da26e083ff9d8674d126c54cdcd1d86a79c3d3c"
+            ),
         }
         self.assertEqual({
             path: hashlib.sha256(path.read_bytes()).hexdigest()

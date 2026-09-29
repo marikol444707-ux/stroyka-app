@@ -263,8 +263,6 @@ def user_company_memberships(
         return []
     where = ["m.user_id=%s"]
     values = [user_id]
-    # Read raw membership rows before filtering. A rejected/revoked membership
-    # must not become "no memberships" and re-enter through legacy user.company_id.
     cur.execute(f"""
         SELECT m.id AS membership_id, m.user_id, m.company_id, m.staff_id,
                COALESCE(m.platform_account_id,c.platform_account_id) AS platform_account_id,
@@ -282,12 +280,13 @@ def user_company_memberships(
         for row in cur.fetchall()
     ]
     if rows:
-        return [
-            row for row in rows
-            if str(row.get("role") or "").strip()
-            and str(row.get("role") or "") == str(row.get("role") or "").strip()
-            and (include_inactive or (row.get("active") and row.get("companyActive")))
-        ]
+        # Explicit memberships remain authoritative even when all are revoked
+        # or their companies are inactive. Legacy fallback is only for users
+        # with no membership records, not an alternative grant after revocation.
+        return [row for row in rows
+            if str(row.get('role') or '').strip()
+            and str(row.get('role') or '') == str(row.get('role') or '').strip()
+            and (include_inactive or (row['active'] and row['companyActive']))]
     legacy_company_id = _as_int(user.get("companyId") or user.get("company_id"))
     if not legacy_company_id or user.get("role") in platform_staff_roles:
         return []

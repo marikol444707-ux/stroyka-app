@@ -37,7 +37,7 @@ class AutomaticEstimateSnapshotWiringTests(unittest.TestCase):
 
         for function_name in (
             "create_estimate",
-            "update_estimate",
+            "_update_estimate_with_connection",
             "update_estimate_status",
         ):
             with self.subTest(function=function_name):

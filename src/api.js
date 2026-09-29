@@ -1,5 +1,6 @@
 import { withStoredCompanyContextHeaders } from './features/company-context/companyContextStorage';
 import { clearLegacyBrowserAuthToken } from './utils/appRuntimeUtils';
+import { withSupplierPaymentContext } from './features/supplier-payments/paymentClient';
 
 const isLocalHost = typeof window !== 'undefined'
   && ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
@@ -164,6 +165,7 @@ export const installAuthFetch = () => {
     if (isPublicAuthRequest) return nativeFetch(input, {...init, credentials: init.credentials || 'include'});
     const method = getRequestMethod(input, init);
     let nextInit = withStoredCompanyContextHeaders({...init, credentials: init.credentials || 'include'});
+    nextInit = withSupplierPaymentContext(path, nextInit);
     if (csrfMethods.has(method) && !hasCsrfHeader(input, init)) {
       nextInit = withCsrfToken(nextInit, await fetchCsrfToken());
     }

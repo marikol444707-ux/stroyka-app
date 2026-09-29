@@ -1,5 +1,34 @@
 # Implementation Plan: Safe Stroyka Program Improvements
 
+Актуальный статус от 29.09.2026: основная версия и итоговая приёмка завершены;
+см. [итоговую интеграционную приёмку](../docs/final-integrated-acceptance-2026-09-29.md).
+Нижележащие старые статусы P14/почты/диска сохранены как история.
+
+## Current slice: итоговая приёмка завершена
+
+Roadmap: [Supplier portal implementation plan](../docs/supplier-portal-roadmap.md).
+User deferred inbox/spam investigation and Mail support to final acceptance P14.
+P4 released a6c3d605. P5 released10576f5a: search, customer/status filters, 20-row pagination and CSV.
+P6 releaseda0f7ed8b. P7 releasedd7406367; P8 released979ef693. P9 releasedd2366ba0. Confirmed: leader sees all, manager only assigned. Next P10 assignment UI/history/CAS.
+P7: selected quotes projected as orders; own four-resource inbox snapshot, per-line shipped/received/remainder, scoped documents and existing request actions.
+P6 implementation: default next Mon–Fri at same Moscow time, editable before RFQ;
+nullable per-offer deadline, no historical backfill, no retry extension.
+Attention filters and readiness mirror existing shipment/payment constraints.
+Use the complete authorized inbox arrays (API without limit returns all rows).
+One shared projection drives table, counts and export. No new data permissions.
+CSV exports all filtered rows, not the displayed page; quote cells and neutralize
+formula/control prefixes. Then browser desktop/mobile checks and backed-up release.
+P3.2 завершён: очередь, попытки, безопасный повтор и изоляция отправителя выпущены;
+реальное письмо подтверждено пользователем во входящих Mail.ru 29.09.2026.
+P1/P2 released; P3.1 releasedb9b5cf39. Verified queue evidence, failure counts/times,
+explicit unknown references and buyer quote/notification refresh are complete.
+Evidence: `docs/supplier-notification-evidence.md`. P3.2a released2760bc1d: persists email queue/claim
+before SMTP; see `docs/supplier-email-attempts.md` for tests and rollback quarantine.
+Строгая DMARC-политика оставлена на отдельный поздний этап по решению пользователя.
+Production audit:12historical recipients reference missing requests, including6MAX
+queue markers. Do not resend/reassign them; current2requests are separate.
+Invoices/payments remain in another stream. Legacy warehouse/template ownership is pending.
+
 ## Overview
 
 Improve `stroyka-app` in small, safe steps so the current working ERP can move toward a production-grade SaaS platform without destabilizing existing object, estimate, supply, warehouse, journal, accounting, and public-site flows. The plan prioritizes security, company data boundaries, verification, and reversible refactors before adding new product surface.
@@ -692,3 +721,96 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
 - [ ] Task A14: Put model access behind a provider-neutral gateway; keep the cloud model first and evaluate a local model only after quality/load/cost measurements.
 
 Close and strike through a task only after applicable focused tests, full backend/frontend verification, manual browser checks, tenant/role isolation and production smoke. Record the evidence in `tasks/todo.md`.
+
+P8: derive customer list from authorized request/quote pairs; reuse order cards,
+filter history and documents by company and quote identities; test revocation,
+matching names, mobile and release without API or schema changes.
+
+## P9 — supplier team policy (released d2366ba0)
+
+Confirmed: leader sees all addressed requests; manager only assigned requests.
+1. Add separate supplier memberships/offer assignments and guarded migration.
+2. Apply live policy to supplier request/quote/delivery/invoice reads and quote actions.
+3. Preserve owner behavior; no customer membership or identity-name fallback.
+4. Verify assigned/unassigned, wrong supplier, inactive/revoked user, HTTP actions,
+   constraints and migration; then release with backup. P10/P11 add management UI.
+
+## Current priority: live buyer/supplier acceptance
+
+User changed manager scope to assigned customer companies (all future requests),
+then asked to verify the full chain in working buyer/supplier cabinets first.
+See docs/supply-live-acceptance.md. Existing director session works; separate
+supplier test identity/recipient must be selected before the first RFQ.
+Do not continue old per-offer assignment UI as the main workflow.
+
+
+### Live-приёмка снабжения 20.09.2026: приглашение исправлено
+- [x] Выпущена 0036/fad566de: новая регистрация поставщика создаёт отношение каталога только с проверенным заказчиком.
+- [x] В рабочих кабинетах: приглашение → регистрация → каталог → заявка №879 → КП №70 → заказ → счёт №144 → частичная отгрузка №16 → приёмка → склад №166.
+- [x] Второй тестовый поставщик не видит заявку; пользователь поставщика не получил рабочих прав заказчика.
+- [x] 29.09.2026: новый брендированный email принят SMTP и подтверждён пользователем во «Входящих» Mail.ru; реальная заявка и КП для проверки не создавались.
+- [x] Допоставка по тому же КП: 0037/6551c1aa, append-only партии, ограничение остатка, защита повторов; рабочая заявка879/КП70 приняты двумя партиями16+17, итог2/2 и «Поставлено».
+- [x] Тест закрыт штатно: объект99 архивирован, AI-задача2135 закрыта с пояснением, счёт144 аннулирован (оплата0), сверка4 обнулила только материал368 (2→0). Смета87, заявка879, КП70, поставки16/17 и накладные166/167 сохранены в истории.
+- [x] Закрепление заказчиков за менеджерами поставщика: выпущено 69b49a9e7d7a, новая политика по компании вместо отдельных КП.
+Подробные доказательства и ограничения: docs/supply-live-acceptance.md.
+
+- [ ] Отдельный технический долг общей загрузки: фоновые GET 429 при массовом refreshData. Не ослаблять авторизацию/лимиты; перейти к адресному обновлению данных.
+
+## Текущий блок: заказчики менеджеров поставщика
+
+Спецификация: docs/supplier-customer-assignments.md. Подтверждённая цель —
+назначение компании-заказчика один раз вместо распределения каждого КП.
+- [x] Проверены существующие P9-права, адресная изоляция и регистрация поставщика.
+- [x] Один ответственный на заказчика; количество менеджеров и заказчиков на менеджера не ограничено.
+- [x] Миграция, политика доступа по заказчику и история переназначений.
+- [x] Серверные операции руководителя, конкуренция и отзыв доступа.
+- [x] Приглашение менеджера в существующую компанию поставщика.
+- [x] «Команда» и назначение в «Заказчиках» в том же кабинете.
+- [x] PostgreSQL/HTTP (11 + 5), backend 3831, frontend 1194; выпуск 69b49a9e7d7a/0038. Обычный вход менеджера, назначение, история и отзыв проверены; тестовый менеджер 6255 и членство 1 отключены.
+
+## P12 — отгрузки и документы кабинета поставщика
+
+- [x] P12.1: устранены ложные пустые списки при ошибке и старые карточки при загрузке; добавлен повтор. Убран heartbeat сотрудников для внешней роли поставщика. Локальные регрессии и независимое ревью пройдены.
+- [x] P12.1: 198 frontend suites / 1200 tests, production build; выпуск 7007c7fc. В браузере 503 → ошибка → повтор → документы восстановлены; 0 POST /online за 31 секунду. 180 таблиц сохранены, схема 0038.
+- [x] P12.2: единая выдача вложений, загрузка по КП, права назначенного менеджера на файлы/претензии, старые связи и защита от подстановки файлов; локальные PG/frontend проверки и security review. См. docs/supplier-files-and-claims.md.
+- [x] P12.2: выпуск 0ed7fc9611e6 / схема0038; backend3836 (686 skips), frontend1204, PostgreSQL13, build и security review. Live: загрузка/скачивание PDF, 503→повтор, anonymous401, mobile390; file264 удалён, исходные бизнес-таблицы и файлы сохранены. P12 завершён.
+
+## P13 — профиль и тариф поставщика
+
+- [x] Актуальные реквизиты, руководитель/владелец, изоляция компаний, изменённые поля и защита от конкурирующего сохранения.
+- [x] Честное состояние отсутствующего тарифа и реальные неограниченные лимиты команды; коммерческие обещания не добавлены.
+- [x] Шесть PostgreSQL и шесть UI сценариев, независимое ревью; StrictMode и ограничения полей исправлены.
+- [x] Выпуск b7a0b2397f27, резервная копия, 180 таблиц сохранены; live сохранение → перезагрузка → восстановление реквизитов, mobile390 без переполнения. См. docs/supplier-profile.md.
+
+## P14 — финальная проверка поставщика
+
+- [x] 29 сценариев PostgreSQL: цепочка, частичные отгрузки, приёмка/претензии, команда, файлы, сроки, две компании и email.
+- [x] Исправлена потеря черновика/UUID операции при focus; шапка сразу обновляет сохранённое название. Независимое ревью пройдено.
+- [x] 201 frontend suite / 1214 tests, build, выпуск1d467fb7e040; livefocus/сохранение/шапка/восстановление,10мобильных разделов без обнаруженных ошибок;180таблиц сохранены.
+- [x] Запас диска восстановлен: проверенные staging/backup удалены, правило
+  автоматической очистки закреплено; свободно около53ГиБ.
+- [x] P3.2 и внешняя доставляемость закрыты: письмо запроса КП принято SMTP и
+  подтверждено пользователем во входящих Mail.ru. DMARC hardening отложен отдельно.
+
+## Выпуски: удаление резервов после успеха — правило пользователя
+- [x] 33 завершённых staging удалены; свободно44ГБ вместо1.9ГБ, frontend320 хешей и health проверены.
+- [x] Установлен cleanup timer/service: успешный marker, ancestry, health, deployment-lock, проверка активных ссылок; резервы незавершённых выпусков сохраняются.
+- [x] Запрещены накопительные frontend/Git копии и зависимость следующего deploy от старого staging. Правило закреплено в AGENTS.md и docs/deployment-retention.md.
+
+## Документы контрагентов — запрос 28.09.2026
+
+Текущая проработка: [единые документы и покупатель = плательщик](counterparty-documents-plan.md).
+Оригинал загружается один раз; договор принадлежит паре контрагентов, выбирается
+для нескольких КП; доступ отражается в кабинетах сторон. В новых формах две
+стороны, без повторных реквизитов плательщика. Этапы D0–D6 выпущены и проверены;
+см. `tasks/counterparty-documents-todo.md`.
+
+План детализирован на семь этапов D0–D6: инвентаризация → две стороны сделки →
+изолированный реестр → повторное использование договора → кабинеты сторон →
+подключение старых документов → проверка/выпуск. Зависимости и критерии готовности
+сохранены в `tasks/counterparty-documents-plan.md`.
+
+Уточнение существующего меню: «Настройки → Юр. документы» подключается как
+«Моя компания» к тому же архиву, без второго хранилища. D0a — первым исправить
+выявленное отсутствие company scope в company_documents GET/POST/DELETE;
+см. основной план документов. Договоры платформы остаются отдельным блоком.

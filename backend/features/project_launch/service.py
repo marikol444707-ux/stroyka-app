@@ -73,32 +73,30 @@ def row_to_draft(row):
     return item
 
 
-def fetch_project(cur, project_name):
-    name = text(project_name, 500)
-    if not name:
-        raise HTTPException(status_code=400, detail="Не указан объект")
-    cur.execute("SELECT id, name, company_id, client, budget, deadline FROM projects WHERE name=%s", (name,))
+def fetch_project(cur, project_name, actor, project_id=None):
+    from ..project_access.service import resolve_project_parent
+    parent = resolve_project_parent(cur, actor, project_name=project_name, project_id=project_id)
+    cur.execute('SELECT id,name,company_id,client,budget,deadline FROM projects WHERE id=%s AND company_id=%s',
+                (parent['id'], parent['companyId']))
+    return dict(cur.fetchone())
+
+
+def fetch_draft(cur, draft_id, actor, lock=False):
+    company_id = actor.get('companyId') or actor.get('company_id')
+    cur.execute('SELECT d.* FROM project_launch_drafts d JOIN projects p '
+                'ON p.id=d.project_id AND p.company_id=d.company_id '
+                'WHERE d.id=%s AND d.company_id=%s' + (' FOR UPDATE OF d,p' if lock else ''),
+                (draft_id, company_id))
     row = cur.fetchone()
     if not row:
-        raise HTTPException(status_code=404, detail="Объект не найден")
+        raise HTTPException(status_code=404, detail='Черновик запуска не найден')
     return dict(row)
 
 
-def fetch_draft(cur, draft_id):
-    cur.execute("SELECT * FROM project_launch_drafts WHERE id=%s", (draft_id,))
-    row = cur.fetchone()
-    if not row:
-        raise HTTPException(status_code=404, detail="Черновик запуска не найден")
-    return dict(row)
-
-
-def document_belongs_to_project(cur, document_id, project_name):
+def document_belongs_to_project(cur, document_id, project):
     if not document_id:
         return
-    cur.execute("SELECT project_name FROM project_documents WHERE id=%s", (document_id,))
-    row = cur.fetchone()
-    if not row:
-        raise HTTPException(status_code=404, detail="Документ объекта не найден")
-    document_project = row.get("project_name") if isinstance(row, dict) else row[0]
-    if (document_project or "") != (project_name or ""):
-        raise HTTPException(status_code=400, detail="Документ относится к другому объекту")
+    cur.execute('SELECT id FROM project_documents WHERE id=%s AND company_id=%s AND project_id=%s',
+                (document_id, project['company_id'], project['id']))
+    if not cur.fetchone():
+        raise HTTPException(status_code=404, detail='Документ не найден в выбранном объекте')

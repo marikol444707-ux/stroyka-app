@@ -11,8 +11,10 @@ import {
   X,
 } from 'lucide-react';
 import { API } from '../api';
+import ContractSettlementPanel from '../features/work-material-accounting/ContractSettlementPanel';
 
 export default function AccountingActsPanel({
+  companyContext, user,
   C,
   card,
   inp,
@@ -53,6 +55,7 @@ export default function AccountingActsPanel({
   brigadeContracts,
   buildBrigadeActContent,
 }) {
+  const [settlementContract, setSettlementContract] = React.useState(null);
   const isFinanceUser = typeof isFinanceRole === 'function' ? isFinanceRole() : Boolean(isFinanceRole);
   const filteredInterimActs = (interimActs || []).filter(act => matchSearch(listSearch, act.masterName, act.project));
   const workPayTotal = (work) => Number(work.executionTotal ?? work.execution_total ?? 0);
@@ -106,7 +109,7 @@ export default function AccountingActsPanel({
     return acc;
   }, {});
 
-  const brigadeContractsWithDone = (brigadeContracts || []).filter(contract => matchSearch(listSearch, contract.brigadeName, contract.projectName) && Number(contract.doneAmount || 0) > 0);
+  const brigadeContractsWithDone = (brigadeContracts || []).filter(contract => matchSearch(listSearch, contract.brigadeName, contract.projectName) && (contract.settlementVersion === 2 || Number(contract.doneAmount || 0) > 0));
   const brigadeByProject = brigadeContractsWithDone.reduce((acc, contract) => {
     const projectName = contract.projectName || 'Без объекта';
     if (!acc[projectName]) acc[projectName] = [];
@@ -114,6 +117,7 @@ export default function AccountingActsPanel({
     return acc;
   }, {});
 
+  if (settlementContract) return <div><button style={btnO} onClick={() => setSettlementContract(null)}>← Все акты</button><ContractSettlementPanel contract={settlementContract} {...{companyContext, user, C, showPreview}} onChanged={refreshData} /></div>;
   return (
     <div>
       <div style={{ ...card, padding: '14px', marginBottom: '14px', backgroundColor: C.bg }}>
@@ -223,7 +227,7 @@ export default function AccountingActsPanel({
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
-        <b style={{ color: C.text, fontSize: '15px', fontWeight: '700' }}>📄 Акты к оплате</b>
+        <b style={{ color: C.text, fontSize: '15px', fontWeight: '700' }}>📄 Акты и дневные отчёты</b>
         {isFinanceUser && (
           <button onClick={() => setShowForm(!showForm)} style={btnO}>
             <Plus size={14} />
@@ -312,11 +316,11 @@ export default function AccountingActsPanel({
                 <b style={{ color: C.text, fontSize: '13px' }}>{'Акт №' + act.id + ' · ' + act.masterName}</b>
                 <p style={{ color: C.textSec, margin: '2px 0', fontSize: '12px' }}>{act.project + ' · ' + (act.workPackage || 'Все разделы') + ' · ' + act.periodStart + ' — ' + act.periodEnd}</p>
                 <div style={{ display: 'flex', gap: '12px', marginTop: '4px', flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: '12px', color: C.text }}>{'Начислено: ' + totalAmount.toLocaleString() + ' ₽'}</span>
-                  <span style={{ fontSize: '12px', color: C.success }}>{'Оплачено: ' + paidAmount.toLocaleString() + ' ₽'}</span>
-                  {isDailyAct && <span style={{ fontSize: '12px', color: C.info }}>Дневной акт</span>}
+                  <span style={{ fontSize: '12px', color: C.text }}>{(isDailyAct ? 'Стоимость работ: ' : 'Начислено: ') + totalAmount.toLocaleString() + ' ₽'}</span>
+                  {!isDailyAct && <span style={{ fontSize: '12px', color: C.success }}>{'Оплачено: ' + paidAmount.toLocaleString() + ' ₽'}</span>}
+                  {isDailyAct && <span style={{ fontSize: '12px', color: C.info }}>Дневной отчёт · оплата по отдельному акту</span>}
                   {actWorkCount > 0 && <span style={{ fontSize: '12px', color: C.accent }}>{'ЖПР: ' + actWorkCount}</span>}
-                  {remaining > 0 && <span style={{ fontSize: '12px', color: C.danger, fontWeight: '700', padding: '2px 8px', borderRadius: '6px', backgroundColor: C.dangerLight }}>{'⚠️ Недоплата: ' + remaining.toLocaleString() + ' ₽'}</span>}
+                  {!isDailyAct && remaining > 0 && <span style={{ fontSize: '12px', color: C.danger, fontWeight: '700', padding: '2px 8px', borderRadius: '6px', backgroundColor: C.dangerLight }}>{'⚠️ Недоплата: ' + remaining.toLocaleString() + ' ₽'}</span>}
                 </div>
               </div>
               <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
@@ -405,16 +409,19 @@ export default function AccountingActsPanel({
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <b style={{ fontSize: '12px', color: C.text }}>{contract.brigadeName}</b>
                     <span style={{ color: C.textSec, fontSize: '11px', marginLeft: '6px' }}>{contract.contractorType}</span>
-                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '2px' }}>
+                    {contract.settlementVersion === 2 ? <p style={{fontSize: 12, color: C.textSec}}>Стоимость работ, штрафы и оплата — в актах договора</p> : <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '2px' }}>
                       <span style={{ fontSize: '11px', color: C.accent }}>{'К оплате: ' + due.toLocaleString('ru-RU') + ' ₽'}</span>
                       <span style={{ fontSize: '11px', color: C.success }}>{'Оплачено: ' + paid.toLocaleString('ru-RU') + ' ₽'}</span>
                       {owe > 0 && <span style={{ fontSize: '11px', color: C.danger, fontWeight: '700' }}>{'Остаток: ' + owe.toLocaleString('ru-RU') + ' ₽'}</span>}
                       {due > 0 && owe <= 0 && <span style={{ fontSize: '11px', color: C.success, fontWeight: '700' }}>✓ закрыто</span>}
-                    </div>
+                    </div>}
                   </div>
-                  <button onClick={() => showPreview(buildBrigadeActContent(contract), 'Акт бригады — ' + contract.brigadeName)} style={btnB}>
+                  <button onClick={() => {
+                    if (contract.settlementVersion === 2) setSettlementContract(contract);
+                    else showPreview(buildBrigadeActContent(contract), 'Акт бригады — ' + contract.brigadeName);
+                  }} style={btnB}>
                     <Eye size={13} />
-                    Акт
+                    Акты и оплата
                   </button>
                 </div>
               );

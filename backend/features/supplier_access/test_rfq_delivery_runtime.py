@@ -14,9 +14,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-from fastapi import HTTPException
+from fastapi import HTTPException, BackgroundTasks
 
 from backend.features.supplier_access import supply_request_workflow
+from backend.features.supplier_access.response_deadlines import response_deadline
 from backend.features.supply_lineage.service import (
     MaterialControlLineageError,
     material_control_request_intent,
@@ -93,6 +94,13 @@ class LedgerCursor:
             self.rows = [{"id": row["id"]}]
             self.rowcount = 1
             return
+        if sql.startswith("UPDATE supplier_offers SET response_due_at="):
+            due, ids, request_id, company_id = params
+            for offer in self.connection.writable_state()['supplier_offers'].values():
+                if offer['id'] in ids and offer['request_id']==request_id and offer['company_id']==company_id:
+                    offer['response_due_at']=due
+                    self.rowcount += 1
+            return
         if sql.startswith("UPDATE supply_requests"):
             requests = self.connection.writable_state()["supply_requests"]
             request = requests[REQUEST_ID]
@@ -151,6 +159,8 @@ class RuntimeHarness:
             "maxStatus": "MAX не привязан",
         }]
         self.notify = Mock(return_value=self.notification_rows)
+        self.background_tasks = BackgroundTasks()
+        self.email_dispatch = Mock()
         self.audit = Mock()
         self.project_access = Mock()
         self.project_company = Mock(return_value=COMPANY_ID)
@@ -166,12 +176,21 @@ class RuntimeHarness:
             if any(row.get("companyId", row.get("company_id")) != company_id for row in rows):
                 raise HTTPException(status_code=403, detail="Получатели другой компании")
 
+        def explicit_targets(_cur, company_id, ids):
+            # Relationship/identity SQL is exercised on real PG in the catalog
+            # suite; this ledger focuses on transaction and notification order.
+            if company_id != COMPANY_ID or not visible:
+                raise HTTPException(409, 'Получатель больше не доступен')
+            return [dict(requested_id=sid, target_id=sid, scope_ids=[sid],
+                         user_id=401, ai_recommended=False) for sid in ids]
+
         namespace = {
             **vars(supply_request_workflow),
             "HTTPException": HTTPException,
             "json": json,
             "psycopg2": SimpleNamespace(extras=SimpleNamespace(RealDictCursor=object)),
             "get_db": lambda: self.connection,
+            "_payment_ledger_available": lambda _cur: False,
             "_ensure_supply_runtime_columns": lambda _cur: None,
             "_ensure_supply_request_recipients_table": lambda _cur: None,
             "resolve_resource_company_actor": company_actor,
@@ -183,6 +202,7 @@ class RuntimeHarness:
             "PLATFORM_STAFF_ROLES": (),
             "CLIENT_ACCOUNT_ROLES": (),
             "supplier_group_scope_ids": lambda _cur, ids: list(ids),
+            "explicit_supplier_targets": explicit_targets,
             "supplier_offer_targets_for_groups": lambda _cur, ids, *_args: [
                 {"requested_id": supplier_id, "target_id": supplier_id, "scope_ids": [supplier_id]}
                 for supplier_id in ids
@@ -191,6 +211,9 @@ class RuntimeHarness:
                 "visible": visible, "user_id": 401 if visible else None, "reason": "" if visible else "Нет аккаунта",
             },
             "_notify_supply_request_recipients": self.notify,
+            "_dispatch_supply_recipient_email": self.email_dispatch,
+            "response_deadline": response_deadline,
+            "EMAIL_QUEUED": "В очереди email",
             "log_audit": self.audit,
             "_norm_base_unit": lambda unit: unit,
             "has_package_access": lambda _user, _package: True,
@@ -243,7 +266,7 @@ class RuntimeHarness:
         self.create_route = namespace["create_supply_request"]
 
     def dispatch(self, **payload):
-        return self.dispatch_route(REQUEST_ID, {"supplierIds": [SUPPLIER_ID], **payload}, _current_user=self.user)
+        return self.dispatch_route(REQUEST_ID, {"supplierIds": [SUPPLIER_ID], **payload}, background_tasks=self.background_tasks, _current_user=self.user)
 
     def create(self, *, material_control=False):
         request = SimpleNamespace(
@@ -289,6 +312,26 @@ class RfqDeliveryRuntimeTests(unittest.TestCase):
                     self.assert_no_dispatch(harness)
                     self.assertTrue(harness.connection.closed)
 
+    def test_email_task_is_registered_only_after_successful_commit(self):
+        harness = RuntimeHarness(self.nodes, request=self.approved_request())
+        harness.notification_rows[0].update(recipientId=901, emailStatus="В очереди email")
+        harness.dispatch()
+        self.assertEqual(len(harness.background_tasks.tasks), 1)
+        task = harness.background_tasks.tasks[0]
+        self.assertEqual(task.args, (REQUEST_ID, COMPANY_ID, 901))
+        self.assertTrue(harness.connection.committed["supplier_offers"])
+        harness.email_dispatch.assert_not_called()
+
+    def test_failed_commit_never_registers_email_task(self):
+        harness = RuntimeHarness(self.nodes, request=self.approved_request())
+        harness.notification_rows[0].update(recipientId=901, emailStatus="В очереди email")
+        harness.connection.commit = Mock(side_effect=RuntimeError("commit failed"))
+        with self.assertRaises(RuntimeError):
+            harness.dispatch()
+        self.assertEqual(harness.background_tasks.tasks, [])
+        harness.email_dispatch.assert_not_called()
+        self.assertEqual(harness.connection.committed["supplier_offers"], {})
+
     def test_completed_approvals_create_visible_offer_even_if_notification_channels_fail(self):
         harness = RuntimeHarness(self.nodes, request=self.approved_request())
 
@@ -311,7 +354,7 @@ class RfqDeliveryRuntimeTests(unittest.TestCase):
         with self.assertRaises(HTTPException) as error:
             harness.dispatch()
 
-        self.assertEqual(400, error.exception.status_code)
+        self.assertEqual(409, error.exception.status_code)
         self.assertGreater(harness.connection.rollback_count, 0)
         self.assertEqual("Утверждена", harness.connection.committed["supply_requests"][REQUEST_ID]["status"])
         self.assert_no_dispatch(harness)
