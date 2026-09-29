@@ -526,3 +526,20 @@ class ContractPostgresTest(unittest.TestCase):
         with self.conn.cursor() as cur:
             cur.execute('SELECT COUNT(*) FROM supplier_contract_publications')
             self.assertEqual(cur.fetchone()[0],0)
+
+    def test_publication_cannot_follow_offer_reassigned_to_another_supplier(self):
+        from .publication import supplier_version_visible
+        self.publication_scope()
+        first=self.review().json()
+        response=self.contract_client.post(f"/supplier-offers/40/contracts/{first['id']}/publish",json={'confirmed':True})
+        self.assertEqual(response.status_code,200,response.text)
+        with self.conn.cursor() as cur:
+            cur.execute('SELECT v.id FROM supplier_contract_versions v WHERE '+supplier_version_visible('v'))
+            self.assertEqual(cur.fetchall(),[(first['id'],)])
+            with self.assertRaises(psycopg2.errors.ForeignKeyViolation):
+                cur.execute('UPDATE supplier_offers SET supplier_id=6')
+            # Deliberately corrupt only the temporary fixture to exercise read defense.
+            cur.execute('ALTER TABLE supplier_deal_parties DROP CONSTRAINT fk_supplier_deal_parties_offer')
+            cur.execute('UPDATE supplier_offers SET supplier_id=6')
+            cur.execute('SELECT v.id FROM supplier_contract_versions v WHERE '+supplier_version_visible('v'))
+            self.assertEqual(cur.fetchall(),[])
