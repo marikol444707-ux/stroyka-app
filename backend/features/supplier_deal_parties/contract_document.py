@@ -38,6 +38,7 @@ def extract_document_text(content, extension):
     if len(content)>MAX_DOCUMENT_BYTES:
         raise HTTPException(413,'Договор превышает 10 МБ')
     with tempfile.TemporaryDirectory(prefix='stroyka-contract-') as temp:
+        debug_worker = os.getenv('STROYKA_DOCUMENT_WORKER_DEBUG') == '1'
         worker=Path(__file__).with_name('contract_document_worker.py')
         command=[sys.executable,'-I',str(worker),extension,temp]
         if sys.platform=='linux':
@@ -55,11 +56,15 @@ def extract_document_text(content, extension):
                       '--chdir','/work','--setenv','HOME','/work',
                       sys.executable,'-I','/worker.py',extension,'/work']
         try:
-            process=subprocess.Popen(command,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,
-                env={'PATH':'/usr/bin:/bin:/usr/local/bin','OMP_THREAD_LIMIT':'1'},start_new_session=True)
+            worker_env={'PATH':'/usr/bin:/bin:/usr/local/bin','OMP_THREAD_LIMIT':'1'}
+            if debug_worker:
+                worker_env['STROYKA_DOCUMENT_WORKER_DEBUG'] = '1'
+            process=subprocess.Popen(command,stdin=subprocess.PIPE,stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE if debug_worker else subprocess.DEVNULL,
+                env=worker_env,start_new_session=True)
         except OSError:raise HTTPException(503,'Обработчик документов недоступен') from None
         try:
-            output,_=process.communicate(bytes(content),timeout=120)
+            output,error_output=process.communicate(bytes(content),timeout=120)
         except subprocess.TimeoutExpired:
             os.killpg(process.pid,signal.SIGKILL);process.communicate()
             raise HTTPException(504,'Обработка договора заняла слишком много времени. Оригинал сохранён') from None
@@ -67,6 +72,9 @@ def extract_document_text(content, extension):
             6:(422,'Для распознавания загрузите договор без пароля')}
     if process.returncode:
         status,message=errors.get(process.returncode,(422,'Не удалось прочитать договор. Проверьте качество и целостность файла; оригинал сохранён'))
+        if debug_worker and error_output:
+            diagnostic=error_output.decode('utf-8',errors='replace')[-2000:].strip()
+            message+=f' [worker {process.returncode}: {diagnostic}]'
         raise HTTPException(status,message)
     try:text=output.decode('utf-8')
     except UnicodeDecodeError:raise HTTPException(422,'Некорректный результат распознавания') from None

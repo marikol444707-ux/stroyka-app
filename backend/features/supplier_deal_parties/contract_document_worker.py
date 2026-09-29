@@ -171,5 +171,9 @@ def main():
     except Encrypted:return 6
     except (Limit,MemoryError):return 4
     except (Missing,ImportError):return 3
-    except Exception:return 2
+    except Exception:
+        if os.getenv('STROYKA_DOCUMENT_WORKER_DEBUG') == '1':
+            import traceback
+            traceback.print_exc()
+        return 2
 if __name__=='__main__':sys.exit(main())
