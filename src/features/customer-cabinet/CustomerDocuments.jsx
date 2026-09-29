@@ -9,12 +9,12 @@ export function recordLoadIssue(state, kind, project, user) {
   return entry.status === 'ready' ? '' : 'Загрузка данных…';
 }
 
-export function CustomerAttachment({ value, fileSrc, label = 'Открыть вложение' }) {
+export function CustomerAttachment({ value, fileSrc, label = 'Открыть вложение', color }) {
   if (!value) return null;
   // External storage URLs must first be registered and published through the API.
   const safe = typeof value === 'string' && (/^\/tenant-files\/[1-9]\d*\/content$/.test(value)
     || /^\/uploads\/[^?#]+$/.test(value));
-  return safe ? <a href={fileSrc(value)} target="_blank" rel="noopener noreferrer">{label}</a>
+  return safe ? <a style={{color}} href={fileSrc(value)} target="_blank" rel="noopener noreferrer">{label}</a>
     : <p>Для вложения требуется защищённая ссылка. Обратитесь к подрядчику.</p>;
 }
 
@@ -37,7 +37,7 @@ function DocumentLibrary({ project, user, documents = [], letters = [], loadStat
       <b>{kind === 'documents' ? [row.docType || 'Документ', row.number].filter(Boolean).join(' № ') : row.subject || 'Письмо'}</b>
       <p style={{ color: C.textSec, fontSize: 12 }}>{[row.docDate || row.letterDate, row.signStatus || row.status].filter(Boolean).join(' · ')}</p>
       {kind === 'letters' && row.body && <p style={{ whiteSpace: 'pre-wrap' }}>{row.body}</p>}
-      {row.scanUrl || row.fileUrl ? <CustomerAttachment value={row.scanUrl || row.fileUrl} fileSrc={fileSrc} /> : kind === 'documents' && <p>Файл документа ещё не опубликован.</p>}
+      {row.scanUrl || row.fileUrl ? <CustomerAttachment value={row.scanUrl || row.fileUrl} fileSrc={fileSrc} color={C.primary || C.text} /> : kind === 'documents' && <p>Файл документа ещё не опубликован.</p>}
     </article>);
   };
   return <section style={{ ...card, padding: 20, marginBottom: 16 }} aria-label="Документы и письма">
