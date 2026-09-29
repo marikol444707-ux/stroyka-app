@@ -11,6 +11,7 @@ from psycopg2.errors import LockNotAvailable
 from ..supplier_deal_parties.access import build_deal_access
 from .contract_context import load_invoice_contract
 from .legacy_line_review import build_legacy_line_candidates, build_legacy_line_review
+from .legacy_line_state import legacy_line_review_allowed
 
 
 class LegacyLineReviewInput(BaseModel):
@@ -78,9 +79,8 @@ def register_legacy_line_review_routes(app, deps):
             OR EXISTS(SELECT 1 FROM supply_deliveries WHERE source_supplier_invoice_id=%s OR offer_id=%s)
             OR EXISTS(SELECT 1 FROM supplier_invoice_line_specs WHERE invoice_id=%s) AS used''',
             (invoice['id'],invoice['id'],invoice['id'],invoice['offer_id'],invoice['id']))
-        if (cur.fetchone()['used'] or invoice['status']!='На утверждении'
-                or invoice['paid_amount'] != 0 or invoice['warehouse_invoice_id'] is not None):
-            raise HTTPException(409, 'Сверка строк доступна до утверждения, оплат и отгрузок счёта')
+        if not legacy_line_review_allowed(invoice, used=cur.fetchone()['used']):
+            raise HTTPException(409, 'Сверка строк доступна для неоплаченного счёта без приёмок и отгрузок')
         if invoice['vat_amount'] is None:
             raise HTTPException(409, 'В старом счёте не сохранён НДС. Нужна отдельная сверка самого счёта')
 

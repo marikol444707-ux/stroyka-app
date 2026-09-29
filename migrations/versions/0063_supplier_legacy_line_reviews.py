@@ -32,7 +32,7 @@ def upgrade():
         PERFORM public.supplier_allocation_lock(NEW.company_id);
         SELECT * INTO i FROM public.supplier_invoices WHERE id=NEW.invoice_id FOR UPDATE;
         IF NOT FOUND OR i.company_id IS DISTINCT FROM NEW.company_id
-            OR i.status IS DISTINCT FROM 'На утверждении' OR i.paid_amount IS DISTINCT FROM 0::NUMERIC
+            OR i.status NOT IN ('На утверждении','Утверждён') OR i.paid_amount IS DISTINCT FROM 0::NUMERIC
             OR i.contract_version_id IS NULL OR i.warehouse_invoice_id IS NOT NULL
             OR i.vat_amount IS NULL
             OR EXISTS(SELECT 1 FROM public.supplier_payment_documents WHERE document_kind='invoice' AND document_id=i.id)
