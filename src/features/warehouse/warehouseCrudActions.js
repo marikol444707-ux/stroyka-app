@@ -197,32 +197,67 @@ export const createWarehouseCrudActions = ({
   };
 
   const applyWarehouseMovement = async () => {
-    if (!newMovement.toLocation) { alert('Выберите куда переместить'); return; }
+    // Return structured result so callers (UI) can decide whether to print/clear
+    if (!newMovement.toLocation) { alert('Выберите куда переместить'); return { success: false, reason: 'missing_to' }; }
     const selected = newMovement.selectedMaterials||[];
-    if (selected.length===0) { alert('Выберите материалы'); return; }
+    if (selected.length===0) { alert('Выберите материалы'); return { success: false, reason: 'no_items' }; }
+    const result = { success: true, moved: [], failed: [] };
     let reviewRequired = 0;
     let reviewTasksCreated = 0;
     for (const item of selected) {
       if (!item.quantity||Number(item.quantity)<=0) continue;
       const itemWorkPackage = item.workPackage || item.work_package || newMovement.workPackage || '';
-      const res = await fetch(API+'/warehouse-movements',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({materialName:item.name,fromLocation:newMovement.fromLocation,toLocation:newMovement.toLocation,quantity:Number(item.quantity),unit:item.unit,workPackage:itemWorkPackage,date:new Date().toISOString().split('T')[0],createdBy:user.name,notes:newMovement.notes,invoiceId:item.invoiceId ?? null,invoiceLineIndex:item.invoiceLineIndex ?? null})});
-      if (!res.ok) {
-        const err = await res.json().catch(()=>({}));
-        alert(err.detail || 'Не удалось выполнить перемещение материала');
-        return;
+      try {
+        const res = await fetch(API + '/warehouse-movements', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            materialName: item.name,
+            fromLocation: newMovement.fromLocation,
+            toLocation: newMovement.toLocation,
+            quantity: Number(item.quantity),
+            unit: item.unit,
+            workPackage: itemWorkPackage,
+            date: new Date().toISOString().split('T')[0],
+            createdBy: user.name,
+            notes: newMovement.notes,
+            invoiceId: item.invoiceId ?? null,
+            invoiceLineIndex: item.invoiceLineIndex ?? null,
+          }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          result.success = false;
+          result.failed.push({ item, error: err.detail || 'server_error' });
+          // do not return early — continue to collect per-item outcomes
+          continue;
+        }
+        const movement = await res.json().catch(() => ({}));
+        result.moved.push({ item, movement });
+        if (movement?.estimateControl?.needsReview) reviewRequired += 1;
+        if (movement?.estimateReviewTaskId) reviewTasksCreated += 1;
+      } catch (err) {
+        result.success = false;
+        result.failed.push({ item, error: String(err) });
       }
-      const movement = await res.json().catch(()=>({}));
-      if (movement?.estimateControl?.needsReview) reviewRequired += 1;
-      if (movement?.estimateReviewTaskId) reviewTasksCreated += 1;
     }
-    notify(
-      reviewRequired
-        ? 'Перемещение выполнено · требуют сметного разбора: ' + reviewRequired + (reviewTasksCreated ? ' · задачи созданы: ' + reviewTasksCreated : '')
-        : 'Перемещение выполнено',
-      reviewRequired ? 'ai' : 'material'
-    );
-    await refreshData();
-    setNewMovement(createWarehouseMovementForm());
+
+    if (result.moved.length > 0) {
+      notify(
+        reviewRequired
+          ? 'Перемещение выполнено · требуют сметного разбора: ' + reviewRequired + (reviewTasksCreated ? ' · задачи созданы: ' + reviewTasksCreated : '')
+          : 'Перемещение выполнено',
+        reviewRequired ? 'ai' : 'material'
+      );
+    }
+
+    if (result.moved.length > 0) {
+      await refreshData();
+      // reset form only for moved items if at least one succeeded — caller must decide on print
+      setNewMovement(createWarehouseMovementForm());
+    }
+
+    return result;
   };
 
   const deleteMaterial = async () => {
