@@ -256,7 +256,8 @@ export default function AccountingIncomingDocumentsPanel({
       await updateAccounting(row, { accountingStatus: 'Оплачена' });
       return;
     }
-    const answer = window.prompt('Сумма оплаты', String(Math.round(defaultAmount * 100) / 100));
+    if (!window.confirm('Деньги уже перечислены поставщику через банк? Программа только зафиксирует выполненную оплату.')) return;
+    const answer = window.prompt('Уже оплаченная сумма', String(Math.round(defaultAmount * 100) / 100));
     if (!answer) return;
     const paymentAmount = parseMoney(answer);
     if (paymentAmount <= 0 || paymentAmount > defaultAmount + 0.01) {
@@ -536,7 +537,7 @@ export default function AccountingIncomingDocumentsPanel({
           <button disabled={disabled} onClick={() => markStatus(row, 'Нужно уточнение')} style={{ ...btnG, padding: '6px 10px', fontSize: '11px' }}><MessageSquare size={12} />Уточнить</button>
         )}
         {process.env.REACT_APP_SUPPLIER_PAYMENTS_ENABLED !== 'true' && (row.status === 'К оплате' || row.status === 'Частично оплачена') && row.debt > 0 && (
-          <button title={paymentBlockedTitle} disabled={disabled || paymentBlocked} onClick={() => payInvoice(row)} style={{ ...btnO, padding: '6px 10px', fontSize: '11px' }}><CreditCard size={12} />Оплатить</button>
+          <button title={paymentBlockedTitle} disabled={disabled || paymentBlocked} onClick={() => payInvoice(row)} style={{ ...btnO, padding: '6px 10px', fontSize: '11px' }}><CreditCard size={12} />Зафиксировать оплату</button>
         )}
         {row.invoice.receiptAccepted === false && <span style={{ color: C.warning, fontSize: '12px' }}>Не принято на склад: {row.invoice.receiptQualityStatus}. Оформлена претензия поставщику.</span>}
         {row.invoice.settlementInvoiceId && <span style={{ color: C.textMuted, fontSize: '12px' }}>Оплата учитывается по счёту № {linkedSupplierInvoice?.invoiceNumber || row.invoice.settlementInvoiceId}. Накладная не создаёт отдельного долга.</span>}

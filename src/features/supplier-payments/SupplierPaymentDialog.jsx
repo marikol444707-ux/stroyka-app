@@ -18,6 +18,7 @@ const money = amount => {
 
 function PaymentDialogContent(props) {
   const state = useSupplierPaymentDialog(props);
+  const [paymentConfirmed, setPaymentConfirmed] = useState(false);
   const [openingBlocked, setOpeningBlocked] = useState(false);
   const [refundBlocked, setRefundBlocked] = useState(false);
   const [allocationBlocked, setAllocationBlocked] = useState(false);
@@ -43,6 +44,7 @@ function PaymentDialogContent(props) {
   const blocked = lineReviewBlocked || bindingBlocked || allocationBlocked || refundBlocked || openingBlocked || state.busy || state.loading || !!state.storageError || !state.snapshot;
   const reversingPayment = state.reversal?.operation.kind === 'payment';
   const reversalTitle = reversingPayment ? 'Сторно платежа' : 'Сторно операции';
+  const paymentMode = !state.draft.kind || state.draft.kind === 'payment';
   return <div className="supplier-payment-dialog-backdrop">
     <section className="supplier-payment-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}
       ref={root} onKeyDown={keyDown}>
@@ -100,8 +102,9 @@ function PaymentDialogContent(props) {
       {state.success && <section>
         {state.success.status === 'cancelled'
           ? <p role="status">Попытка отменена. Денежная операция не проведена.</p>
-          : <p role="status">{state.success.kind === 'reversal' ? 'Сторно подтверждено.' : state.success.kind === 'payment' ? 'Платёж подтверждён.' : `${operationLabel(state.success.kind)}: запись подтверждена.`} Операция #{state.success.operationId}.</p>}
-        <button type="button" disabled={blocked || !!state.error || !!state.pending} onClick={state.startNext}>Новый платёж</button>
+          : <p role="status">{state.success.kind === 'reversal' ? 'Сторно подтверждено.' : state.success.kind === 'payment' ? 'Выполненная оплата зафиксирована.' : `${operationLabel(state.success.kind)}: запись подтверждена.`} Операция #{state.success.operationId}.</p>}
+        <button type="button" disabled={blocked || !!state.error || !!state.pending}
+          onClick={() => { setPaymentConfirmed(false); state.startNext(); }}>Новая операция</button>
       </section>}
       {!state.pending && !state.success && state.reversal && <form aria-label={reversalTitle}
         onSubmit={event => { event.preventDefault(); state.submitReversal(); }}>
@@ -122,24 +125,29 @@ function PaymentDialogContent(props) {
         </fieldset>
         <button type="button" disabled={state.busy || !!state.storageError} onClick={state.cancelReversal}>Отменить черновик сторно</button>
       </form>}
-      {!refundBlocked && !state.pending && !state.success && !state.reversal && <form aria-label="Запись платежа" onSubmit={event => { event.preventDefault(); state.submit(); }}>
+      {!refundBlocked && !state.pending && !state.success && !state.reversal && <form aria-label="Запись платежа"
+        onSubmit={event => { event.preventDefault(); if (!paymentMode || paymentConfirmed) state.submit(); }}>
         <fieldset disabled={blocked}>
-          <legend>{state.draft.kind && state.draft.kind!=='payment' ? operationLabel(state.draft.kind) : 'Новый платёж'}</legend>
+          <legend>{state.draft.kind && state.draft.kind!=='payment' ? operationLabel(state.draft.kind) : 'Уже выполненная оплата'}</legend>
           {state.snapshot?.settlementsEnabled && <label>Вид операции<select value={state.draft.kind || 'payment'}
-            onChange={event => state.updateDraft({kind:event.target.value,amount:''})}>
-            <option value="payment">Платёж поставщику</option><option value="refund">Возврат денег от поставщика</option>
+            onChange={event => { setPaymentConfirmed(false); state.updateDraft({kind:event.target.value,amount:''}); }}>
+            <option value="payment">Уже оплачено поставщику</option><option value="refund">Возврат денег от поставщика</option>
             <option value="credit">Уменьшение суммы счёта</option>
           </select></label>}
+          {paymentMode && <p className="supplier-payment-bank-warning">Программа не переводит деньги и не принимает товар на склад. Запишите оплату только после списания денег в банке.</p>}
           <label>Сумма, ₽<input inputMode="decimal" autoComplete="off" required value={state.draft.amount}
             onChange={event => state.updateDraft({ amount: event.target.value })} /></label>
           <label>{state.draft.kind && state.draft.kind!=='payment' ? 'Дата операции' : 'Дата оплаты'}<input type="date" required value={state.draft.paidAt}
             onChange={event => state.updateDraft({ paidAt: event.target.value })} /></label>
-          <label>{state.draft.kind && state.draft.kind!=='payment' ? 'Основание и номер документа' : 'Основание платежа'}<textarea required maxLength={1000} value={state.draft.reason}
+          <label>{state.draft.kind && state.draft.kind!=='payment' ? 'Основание и номер документа' : 'Номер платёжного поручения или основание'}<textarea required maxLength={1000} value={state.draft.reason}
             onChange={event => state.updateDraft({ reason: event.target.value })} /></label>
           <p>{state.draft.kind==='credit' ? 'Укажите документ, по которому уменьшилась сумма счёта. Это не возврат денег.'
             : state.draft.kind==='refund' ? 'Запишите только фактически полученный возврат, с датой и основанием. Стоимость счёта не меняется.'
-            : 'Можно указать всю сумму или оплатить часть.'}</p>
-          <button type="submit">{state.busy ? 'Запись…' : state.draft.kind==='credit' ? 'Записать корректировку' : state.draft.kind==='refund' ? 'Записать возврат' : 'Записать платёж'}</button>
+            : 'Можно зафиксировать всю уже перечисленную сумму или её часть.'}</p>
+          {paymentMode && <label className="supplier-payment-bank-check"><input type="checkbox" required checked={paymentConfirmed}
+            onChange={event => setPaymentConfirmed(event.target.checked)} />Подтверждаю: деньги уже перечислены поставщику через банк</label>}
+          <button type="submit" className={paymentMode ? 'payment-primary' : undefined}
+            disabled={paymentMode && !paymentConfirmed}>{state.busy ? 'Запись…' : state.draft.kind==='credit' ? 'Записать корректировку' : state.draft.kind==='refund' ? 'Записать возврат' : 'Зафиксировать выполненную оплату'}</button>
         </fieldset>
       </form>}
       {state.busy && <p role="status">Ожидаем подтверждение. При закрытии окна сохранённый запрос останется доступен для повтора.</p>}

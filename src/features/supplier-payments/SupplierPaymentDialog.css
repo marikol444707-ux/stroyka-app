@@ -97,6 +97,28 @@
 .supplier-payment-dialog.supplier-payment-dialog select,
 .supplier-payment-dialog.supplier-payment-dialog textarea { font-size: 16px; border-radius: 9px; }
 .supplier-payment-dialog.supplier-payment-dialog .payment-primary { background: #c2410c; color: white; border-color: #c2410c; font-weight: 650; }
+.supplier-payment-dialog .supplier-payment-bank-warning {
+  padding: 12px 14px;
+  border: 1px solid var(--c-warning, #d97706);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--c-warning, #d97706) 10%, var(--c-bg-white, #fff));
+  font-weight: 600;
+}
+.supplier-payment-dialog .supplier-payment-bank-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--c-border, #e2e8f0);
+  border-radius: 10px;
+  background: var(--c-bg-white, #fff);
+}
+.supplier-payment-dialog .supplier-payment-bank-check input {
+  flex: 0 0 auto;
+  width: 20px;
+  min-height: 20px;
+  margin: 0;
+}
 @media (max-width: 520px) {
   .supplier-payment-dialog-backdrop { padding: 8px; }
   .supplier-payment-dialog.supplier-payment-dialog { max-height: calc(100dvh - 16px); border-radius: 16px; }
