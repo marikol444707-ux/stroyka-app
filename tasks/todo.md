@@ -10779,7 +10779,7 @@ change.
 Подробности: `docs/frontend-targeted-refresh.md`.
 ## A4 — объяснение и доставка директорской сводки — 01.10.2026
 
-**Статус:** A4.3a–A4.5 реализованы локально; runtime по умолчанию выключен.
+**Статус:** A4.3a–A4.6a реализованы локально; runtime по умолчанию выключен.
 
 - [x] Основная сводка сохранена как независимый детерминированный источник.
 - [x] Зафиксированы exact company/source binding, fail-soft модель и отдельная
@@ -10794,6 +10794,12 @@ change.
 - [x] A4.5: отдельная MAX-доставка требует exact recipient, активную роль
       руководителя и одну verified MAX account; повтор идемпотентен, actions
       всегда пусты, default-off.
-- [ ] A4.6: полный regression/security review и отдельный production canary.
+- [x] A4.6a: focused backend `178/178`, frontend `1615/1615`, production build
+      и top-level imports проходят; security review подтвердил exact tenant,
+      source и recipient scope, пустые actions и отсутствие бизнес-записей.
+      Полный backend discovery выполнил 5428 тестов; восемь локальных PDF-сбоев
+      вызваны тем, что `python -I` не видит установленный только в user-site
+      `pypdf`, а не изменениями A4.
+- [ ] A4.6b: отдельный production canary одной компании до расписания/fan-out.
 
 Спецификация: `docs/director-daily-brief-explanation.md`.

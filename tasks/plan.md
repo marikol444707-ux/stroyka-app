@@ -453,8 +453,14 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
     leadership membership and exactly one verified MAX account. A transaction
     advisory lock plus exact outbox lookup prevents repeat delivery; the
     message has an empty actions list and contains no business command.
-  - [ ] Task A4.6: Complete regression/security review and a separately reviewed
-    one-company canary before any scheduled delivery or fan-out.
+  - [x] ~~Task A4.6a: Complete local regression/security review.~~ Focused
+    backend suites (`178` tests), the complete frontend suite (`1615` tests),
+    production build and top-level production imports pass. Full backend
+    discovery completed `5428` tests; its only remaining local failures are the
+    eight existing isolated-PDF checks because this workstation has `pypdf`
+    only in the user site, which Python `-I` intentionally excludes.
+  - [ ] Task A4.6b: Run a separately reviewed one-company production canary
+    before enabling any scheduled explanation delivery or fan-out.
 - [ ] Task A5: Add one `Требует внимания` queue with reason, priority, owner, project and the next safe action.
 - [x] ~~Task A5.1: Deploy and verify the read-only attention projection. It exposes only critical/warning items from the latest validated single-company brief, caps visible rows at 12, uses immutable server-owned reason/action policy, and renders no action buttons. Runtime `74344e8692f9`, public smoke, protected selected-company access, aggregate-company denial and public-field policy all pass.~~
 - [ ] Task A6: Run checks automatically after data changes and keep only resolve/approve commands visible; move history, export and rare actions to an overflow menu.
