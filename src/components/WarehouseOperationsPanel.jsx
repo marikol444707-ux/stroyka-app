@@ -248,7 +248,8 @@ export default function WarehouseOperationsPanel({
           <div style={{ display: 'flex', gap: '8px', marginTop: '10px', flexWrap:'wrap' }}>
             <button
               onClick={async () => {
-                await applyWarehouseMovement();
+                const result = await applyWarehouseMovement();
+                if (!result?.success) return;
                 showPreview(
                   buildMovementDoc(newMovement, (newMovement.selectedMaterials || []).filter(item => item.quantity)),
                   'Накладная М-11'

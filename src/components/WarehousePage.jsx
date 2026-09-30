@@ -130,7 +130,10 @@ export default function WarehousePage(props) {
   }
 
   return (
-    <div style={{width:'100%',maxWidth:'100%',minWidth:0,overflowX:'hidden'}}>
+    <div
+      data-warehouse-movement-mode={useTwoStageMovements ? 'two-stage-v1' : 'legacy-v1'}
+      style={{width:'100%',maxWidth:'100%',minWidth:0,overflowX:'hidden'}}
+    >
       <WarehouseTabsNav
         warehouseTab={warehouseTab}
         setWarehouseTab={setWarehouseTab}

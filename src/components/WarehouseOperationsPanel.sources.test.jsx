@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import WarehouseOperationsPanel from './WarehouseOperationsPanel';
 
 test.each([false, true])('movement history includes source and unlinked states, compact=%s', isMobile => {
@@ -50,4 +50,38 @@ test('a rejected receipt is not offered as a source even when matching good stoc
     warehouseMovements={[]} warehouseInvoices={[{id:5,location:'Основной склад',receiptAccepted:false,
       items:[{...material,invoiceLineIndex:0}]}]} />);
   expect(screen.queryByRole('option',{name:/Накладная/})).not.toBeInTheDocument();
+});
+
+test('does not open M-11 preview when the movement was rejected', async () => {
+  const material = {id:1,name:'Кабель',unit:'м',quantity:10};
+  const applyWarehouseMovement = jest.fn(async () => ({success:false}));
+  const showPreview = jest.fn();
+  render(<WarehouseOperationsPanel warehouseTab="move" C={{}} card={{}} inp={{}}
+    projects={[]} visibleActiveProjects={v=>v} warehouseMain={[material]} materials={[]}
+    newMovement={{fromLocation:'Основной склад',toLocation:'Объект 1',notes:'',selectedMaterials:[{...material,quantity:'1'}]}}
+    warehouseMovements={[]} warehouseInvoices={[]} applyWarehouseMovement={applyWarehouseMovement}
+    buildMovementDoc={jest.fn()} showPreview={showPreview} />);
+
+  fireEvent.click(screen.getByRole('button',{name:'Переместить и распечатать'}));
+
+  await waitFor(() => expect(applyWarehouseMovement).toHaveBeenCalledTimes(1));
+  expect(showPreview).not.toHaveBeenCalled();
+});
+
+test('opens M-11 preview after the server confirms the movement', async () => {
+  const material = {id:1,name:'Кабель',unit:'м',quantity:10};
+  const draft = {fromLocation:'Основной склад',toLocation:'Объект 1',notes:'',selectedMaterials:[{...material,quantity:'1'}]};
+  const document = '<p>М-11</p>';
+  const applyWarehouseMovement = jest.fn(async () => ({success:true,moved:1}));
+  const buildMovementDoc = jest.fn(() => document);
+  const showPreview = jest.fn();
+  render(<WarehouseOperationsPanel warehouseTab="move" C={{}} card={{}} inp={{}}
+    projects={[]} visibleActiveProjects={v=>v} warehouseMain={[material]} materials={[]}
+    newMovement={draft} warehouseMovements={[]} warehouseInvoices={[]}
+    applyWarehouseMovement={applyWarehouseMovement} buildMovementDoc={buildMovementDoc} showPreview={showPreview} />);
+
+  fireEvent.click(screen.getByRole('button',{name:'Переместить и распечатать'}));
+
+  await waitFor(() => expect(showPreview).toHaveBeenCalledWith(document,'Накладная М-11'));
+  expect(buildMovementDoc).toHaveBeenCalledWith(draft,draft.selectedMaterials);
 });

@@ -32,9 +32,11 @@ describe.each([
 ])('distribution=%s transfer=%s', (distribution, transfer) => {
   test.each(['move', 'tools', 'inventory'])('%s hides legacy only for two-stage movements', warehouseTab => {
     setFlag(distributionFlag, distribution); setFlag(transferFlag, transfer);
-    render(<WarehousePage warehouseTab={warehouseTab} C={{}} card={{}} projects={[]}
+    const {container} = render(<WarehousePage warehouseTab={warehouseTab} C={{}} card={{}} projects={[]}
       companyContext={{ mode: 'company', selectedCompanyId: 2 }} user={{ role: 'директор' }} visibleActiveProjects={value => value} />);
     const hideLegacy = warehouseTab === 'move' && distribution === 'true' && transfer === 'true';
+    expect(container.firstChild).toHaveAttribute('data-warehouse-movement-mode',
+      distribution === 'true' && transfer === 'true' ? 'two-stage-v1' : 'legacy-v1');
     expect(screen.queryAllByTestId('legacy-operations')).toHaveLength(hideLegacy ? 0 : 1);
     expect(screen.queryByTestId('legacy-operations')?.textContent ?? null).toBe(hideLegacy ? null : warehouseTab);
     expect(screen.queryAllByTestId('distributions')).toHaveLength(warehouseTab === 'move' ? 1 : 0);

@@ -197,19 +197,44 @@ export const createWarehouseCrudActions = ({
   };
 
   const applyWarehouseMovement = async () => {
-    if (!newMovement.toLocation) { alert('Выберите куда переместить'); return; }
+    const refreshWarehouse = async () => {
+      try { await refreshData(); } catch (_error) { /* Operation result remains authoritative. */ }
+    };
+    if (!newMovement.toLocation) { alert('Выберите куда переместить'); return {success: false}; }
     const selected = newMovement.selectedMaterials||[];
-    if (selected.length===0) { alert('Выберите материалы'); return; }
+    if (selected.length===0) { alert('Выберите материалы'); return {success: false}; }
+    if (selected.some(item => !Number.isFinite(Number(item.quantity)) || Number(item.quantity) <= 0)) {
+      alert('Укажите положительное количество для каждого выбранного материала');
+      return {success: false};
+    }
     let reviewRequired = 0;
     let reviewTasksCreated = 0;
-    for (const item of selected) {
-      if (!item.quantity||Number(item.quantity)<=0) continue;
+    for (let index = 0; index < selected.length; index += 1) {
+      const item = selected[index];
       const itemWorkPackage = item.workPackage || item.work_package || newMovement.workPackage || '';
-      const res = await fetch(API+'/warehouse-movements',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({materialName:item.name,fromLocation:newMovement.fromLocation,toLocation:newMovement.toLocation,quantity:Number(item.quantity),unit:item.unit,workPackage:itemWorkPackage,date:new Date().toISOString().split('T')[0],createdBy:user.name,notes:newMovement.notes,invoiceId:item.invoiceId ?? null,invoiceLineIndex:item.invoiceLineIndex ?? null})});
+      let res;
+      try {
+        res = await fetch(API+'/warehouse-movements',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({materialName:item.name,fromLocation:newMovement.fromLocation,toLocation:newMovement.toLocation,quantity:Number(item.quantity),unit:item.unit,workPackage:itemWorkPackage,date:new Date().toISOString().split('T')[0],createdBy:user.name,notes:newMovement.notes,invoiceId:item.invoiceId ?? null,invoiceLineIndex:item.invoiceLineIndex ?? null})});
+      } catch (_error) {
+        if (index > 0) {
+          setNewMovement({...newMovement, selectedMaterials:selected.slice(index)});
+          await refreshWarehouse();
+        }
+        alert(index > 0
+          ? `Перемещено позиций: ${index}. Остальные оставлены в форме. Проверьте соединение и повторите.`
+          : 'Не удалось выполнить перемещение. Проверьте соединение и повторите.');
+        return {success: false};
+      }
       if (!res.ok) {
         const err = await res.json().catch(()=>({}));
-        alert(err.detail || 'Не удалось выполнить перемещение материала');
-        return;
+        if (index > 0) {
+          setNewMovement({...newMovement, selectedMaterials:selected.slice(index)});
+          await refreshWarehouse();
+        }
+        alert(index > 0
+          ? `${err.detail || 'Не удалось выполнить перемещение материала'} Перемещено позиций: ${index}; остальные оставлены в форме.`
+          : (err.detail || 'Не удалось выполнить перемещение материала'));
+        return {success: false};
       }
       const movement = await res.json().catch(()=>({}));
       if (movement?.estimateControl?.needsReview) reviewRequired += 1;
@@ -221,8 +246,9 @@ export const createWarehouseCrudActions = ({
         : 'Перемещение выполнено',
       reviewRequired ? 'ai' : 'material'
     );
-    await refreshData();
     setNewMovement(createWarehouseMovementForm());
+    await refreshWarehouse();
+    return {success: true, moved: selected.length};
   };
 
   const deleteMaterial = async () => {
