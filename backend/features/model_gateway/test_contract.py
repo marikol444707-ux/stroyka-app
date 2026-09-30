@@ -138,7 +138,7 @@ class ModelGatewayContractTest(unittest.TestCase):
     def test_input_parts_reject_unknown_kind_and_oversized_value(self):
         for part in (
             ModelInputPart(kind="provider_url", value="https://example.test"),
-            ModelInputPart(kind="text", value="x" * (17 * 1024 * 1024 + 1)),
+            ModelInputPart(kind="text", value="x" * (21 * 1024 * 1024 + 1)),
         ):
             with self.subTest(part=part.kind):
                 with self.assertRaises(ModelGatewayError) as raised:
@@ -221,6 +221,23 @@ class ModelGatewayContractTest(unittest.TestCase):
         )
 
         self.assertEqual(request.input_parts[0].filename, "invoice-1.pdf")
+
+    def test_invoice_scan_accepts_the_existing_fifteen_mebibyte_file_limit(self):
+        encoded_pdf = "JVBERi0x" + ("A" * (20 * 1024 * 1024 - 8))
+        request = build_model_request(
+            capability="invoice_scan",
+            instructions="Read the invoice.",
+            input_parts=(ModelInputPart(
+                kind="file_data_url",
+                value="data:application/pdf;base64," + encoded_pdf,
+                filename="invoice.pdf",
+            ),),
+            temperature=0.1,
+            max_output_tokens=12_000,
+            deadline_seconds=120,
+        )
+
+        self.assertEqual(request.input_parts[0].filename, "invoice.pdf")
 
     def test_invoice_scan_preserves_the_existing_eight_pdf_part_budget(self):
         parts = tuple(

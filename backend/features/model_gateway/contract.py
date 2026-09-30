@@ -28,7 +28,9 @@ _ERROR_CODES = frozenset({
 _PROVIDER_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 _MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$")
 _MAX_INSTRUCTIONS_BYTES = 64 * 1024
-_MAX_PART_BYTES = 17 * 1024 * 1024
+# A 15 MiB invoice PDF expands to just over 20 MiB as a base64 data URL.
+# Per-capability total limits remain the stricter request boundary.
+_MAX_PART_BYTES = 21 * 1024 * 1024
 _MAX_FILENAME_BYTES = 255
 _MAX_RESULT_BYTES = 4 * 1024 * 1024
 _MAX_DEADLINE_SECONDS = 120
