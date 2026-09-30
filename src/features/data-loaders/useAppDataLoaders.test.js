@@ -29,7 +29,6 @@ test('generic customer loading neither duplicates document reads nor clears the 
     json: async () => url.endsWith('/project-documents') ? [document] : url.endsWith('/project-payments/customer-visible') ? [payment] : [] }));
   const { result } = renderHook(() => useCustomerHarness());
   await waitFor(() => expect(result.current.recordsState.documents?.status).toBe('ready'));
-  await act(async () => { await result.current.loadAll(); });
   expect(result.current.docs).toEqual([document]);
   expect(result.current.payments).toEqual([payment]);
   expect(fetch.mock.calls.filter(([url]) => url.endsWith('/project-documents'))).toHaveLength(1);
@@ -83,7 +82,7 @@ test('journal 409 after success clears stale rows and surfaces incomplete error 
   global.fetch = jest.fn(async url => url.endsWith('/material-inspection')
     ? { ok: false, status: 409, json: async () => ({ detail: 'Уточните объект: журнал содержит более 5000 записей' }) }
     : { ok: true, headers: snapshotHeaders, json: async () => [] });
-  await act(async () => { await result.current.loadAll(); });
+  await act(async () => { await result.current.refreshData('warehouse'); });
   expect(result.current.inspections).toEqual([]);
   expect(result.current.qualityJournalLoadState.inspections).toMatchObject({ status: 'error', complete: false, error: expect.stringContaining('5000') });
 });
@@ -328,6 +327,108 @@ test('concurrent supply refreshes share one scoped request batch and leave relat
     await Promise.all([first, second]);
   });
   expect(global.fetch).toHaveBeenCalledTimes(8);
+});
+
+test('legacy loadAll callback refreshes only the active page scope', async () => {
+  global.fetch = jest.fn(async () => ({ok: true, json: async () => []}));
+  const context = new Proxy({
+    activePage: 'supply',
+    API: '/api',
+    buildPagedPath: path => path,
+    canAccessRole: () => false,
+    initialDataLoaded: true,
+    materialNormSearch: '',
+    mobileApiRequestsRef: {current: new Map()},
+    mobileLoadedScopesRef: {current: new Set()},
+    mobileScopeForPage: page => ({supply: 'mobile:supply'}[page] || ''),
+    roleFlagsForUser: () => ({
+      role: 'снабженец', isSupplyRole: true, isInternalRole: true,
+      canSeeSupplierInvoices: true, canSeeProjectDocs: false,
+    }),
+    ROLES: {},
+    setInitialDataLoaded: setter(),
+    setUser: setter(),
+    user: {id: 1, role: 'снабженец'},
+  }, {get: (target, name) => name in target ? target[name] : String(name).startsWith('set') ? setter() : undefined});
+
+  const {result} = renderHook(() => useAppDataLoaders(context));
+  await act(async () => { await result.current.loadAll(); });
+
+  expect(new Set(global.fetch.mock.calls.map(([url]) => url))).toEqual(new Set([
+    '/api/suppliers', '/api/supply-requests', '/api/supplier-offers', '/api/supply-history',
+    '/api/supply-deliveries', '/api/supply-claims', '/api/supplier-invoices', '/api/supplier-catalog',
+  ]));
+});
+
+test('own-expense refresh updates only its list and invalidates dependent screens', async () => {
+  const loadedScopes = new Set([
+    'mobile:myexpenses', 'mobile:accounting', 'mobile:dashboard', 'mobile:projects-docs', 'mobile:supply',
+  ]);
+  global.fetch = jest.fn(async () => ({ok: true, json: async () => [{id: 7}]}));
+  const setOwnExpenses = setter();
+  const context = new Proxy({
+    activePage: 'dashboard', API: '/api', canAccessRole: () => false, initialDataLoaded: true,
+    materialNormSearch: '', mobileApiRequestsRef: {current: new Map()}, mobileLoadedScopesRef: {current: loadedScopes},
+    mobileScopeForPage: page => ({
+      myexpenses: 'mobile:myexpenses', accounting: 'mobile:accounting', dashboard: 'mobile:dashboard',
+      projects: 'mobile:projects-docs', supply: 'mobile:supply',
+    }[page] || ''),
+    roleFlagsForUser: () => ({role: 'прораб', isInternalRole: true, canSeeProjectDocs: true}),
+    ROLES: {}, setInitialDataLoaded: setter(), setOwnExpenses, setUser: setter(),
+    user: {id: 1, role: 'прораб'},
+  }, {get: (target, name) => name in target ? target[name] : String(name).startsWith('set') ? setter() : undefined});
+
+  const {result} = renderHook(() => useAppDataLoaders(context));
+  loadedScopes.add('mobile:myexpenses');
+  loadedScopes.add('mobile:accounting');
+  loadedScopes.add('mobile:dashboard');
+  loadedScopes.add('mobile:projects-docs');
+  loadedScopes.add('mobile:supply');
+  await act(async () => { await result.current.refreshData('myexpenses'); });
+
+  expect(global.fetch.mock.calls.map(([url]) => url)).toEqual(['/api/own-expenses']);
+  expect(setOwnExpenses).toHaveBeenCalledWith([{id: 7}]);
+  expect(loadedScopes.has('mobile:accounting')).toBe(false);
+  expect(loadedScopes.has('mobile:dashboard')).toBe(false);
+  expect(loadedScopes.has('mobile:projects-docs')).toBe(false);
+  expect(loadedScopes.has('mobile:supply')).toBe(true);
+});
+
+test('project document mutation refreshes only the document registry', async () => {
+  const setProjectDocuments = setter();
+  global.fetch = jest.fn(async url => ({ok: true, json: async () => [{id: url}]}));
+  const context = new Proxy({
+    activePage: 'projects', API: '/api', canAccessRole: () => false, initialDataLoaded: false,
+    materialNormSearch: '', mobileApiRequestsRef: {current: new Map()}, mobileLoadedScopesRef: {current: new Set()},
+    mobileScopeForPage: () => '',
+    roleFlagsForUser: () => ({role: 'директор', isInternalRole: true, isFinanceRole: true, canSeeProjectDocs: true}),
+    ROLES: {}, setInitialDataLoaded: setter(), setProjectDocuments, setUser: setter(),
+    user: {id: 1, role: 'директор'},
+  }, {get: (target, name) => name in target ? target[name] : String(name).startsWith('set') ? setter() : undefined});
+
+  const {result} = renderHook(() => useAppDataLoaders(context));
+  await act(async () => { await result.current.refreshData('project-documents'); });
+
+  expect(global.fetch.mock.calls.map(([url]) => url)).toEqual(['/api/project-documents']);
+  expect(setProjectDocuments).toHaveBeenCalledWith([{id: '/api/project-documents'}]);
+});
+
+test('project finance mutation refreshes only four shared finance collections', async () => {
+  global.fetch = jest.fn(async url => ({ok: true, json: async () => [{id: url}]}));
+  const context = new Proxy({
+    activePage: 'projects', API: '/api', canAccessRole: () => false, initialDataLoaded: false,
+    materialNormSearch: '', mobileApiRequestsRef: {current: new Map()}, mobileLoadedScopesRef: {current: new Set()},
+    mobileScopeForPage: () => '',
+    roleFlagsForUser: () => ({role: 'директор', isInternalRole: true, isFinanceRole: true, canSeeProjectDocs: true}),
+    ROLES: {}, setInitialDataLoaded: setter(), setUser: setter(), user: {id: 1, role: 'директор'},
+  }, {get: (target, name) => name in target ? target[name] : String(name).startsWith('set') ? setter() : undefined});
+
+  const {result} = renderHook(() => useAppDataLoaders(context));
+  await act(async () => { await result.current.refreshData('project-finance'); });
+
+  expect(new Set(global.fetch.mock.calls.map(([url]) => url))).toEqual(new Set([
+    '/api/project-payments', '/api/accountable-payments', '/api/own-expenses', '/api/expenses',
+  ]));
 });
 
 test('loading settings hydrates both document data and the editable requisites form', async () => {

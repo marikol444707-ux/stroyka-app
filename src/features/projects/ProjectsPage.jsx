@@ -46,7 +46,7 @@ export default function ProjectsPage({ ctx }) {
     estimateSearch, estimatesList, expByCategory, expandedProject, fileSrc,
     fmtMeasure, formatSignedRub, generateAiFindingsForProject, getActStatusForJournal, hiddenActs,
     inp, inspectionOrders, isEstimatePricelist, isFinanceRole,
-    isCableName, isLeadership, isMobile, isProrab, listSearch, loadAll, loadChecklistItems, loadProjectChat, loadWorkJournalPage,
+    isCableName, isLeadership, isMobile, isProrab, listSearch, loadChecklistItems, loadProjectChat, loadWorkJournalPage,
     manualExpenses, masterProfiles, matchSearch, materialControlSummaryForProject, materialInspections, materialNameKey,
     materialReconciliationRows, materials, navigateTo,
     newBrigadeContract, newBrigadeItem, newChecklist, newChecklistItem, newInspOrder, newLetter,
@@ -152,7 +152,7 @@ export default function ProjectsPage({ ctx }) {
       const archiveResult = await archiveResponse.json();
       if (!archiveResponse.ok) throw new Error(archiveResult.detail || 'Не удалось отправить объект в архив');
       setExpandedProject(null);
-      await loadAll();
+      await refreshData('project-list');
     } catch (error) {
       window.alert(error.message || 'Не удалось отправить объект в архив');
     }
@@ -557,7 +557,7 @@ export default function ProjectsPage({ ctx }) {
                         isFinanceRole={isFinanceUser}
                         isLeadership={isLeadershipUser}
                         inp={inp}
-                        loadAll={loadAll}
+                        loadAll={() => refreshData('project-finance')}
                         manualExpenses={manualExpenses}
                         ownExpenses={ownExpenses}
                         project={p}
@@ -583,7 +583,7 @@ export default function ProjectsPage({ ctx }) {
                         newPrescription={newPrescription}
                         setNewPrescription={setNewPrescription}
                         savePrescription={savePrescription}
-                        loadAll={loadAll}
+                        loadAll={() => refreshData('project-prescriptions')}
                         canClose={isProrab()}
                         C={C}
                         card={card}
@@ -676,7 +676,7 @@ export default function ProjectsPage({ ctx }) {
                       setUploadingDoc={setUploadingDoc}
                       uploadPhoto={uploadPhoto}
                       fileSrc={fileSrc}
-                      loadAll={loadAll}
+                      loadAll={() => refreshData('project-documents')}
                       user={user}
                       C={C}
                       card={card}
@@ -701,7 +701,7 @@ export default function ProjectsPage({ ctx }) {
                       setUploadingLetter={setUploadingLetter}
                       uploadPhoto={uploadPhoto}
                       fileSrc={fileSrc}
-                      loadAll={loadAll}
+                      loadAll={() => refreshData('project-letters')}
                       user={user}
                       C={C}
                       card={card}
