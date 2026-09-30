@@ -7192,20 +7192,17 @@ was added.
 
 ## Task A8.4c2: Cookie-Only Capability API And Human Review UI
 
-**Status:** Local cookie-only runtime, routes and explicit review panel are
-implemented and independently reviewed. A strict in-memory localhost mock
-Chromium pass with the UI flag enabled completed on 2026-08-14. The original
-flags-off capability gate was `97d39a8e62f1`; production's executable
-backend/frontend artifacts and completed backend-only gate are based on
-`5e9295e03961`. The backend runtime is enabled while the compiled frontend/UI
-flag remains off; later documentation-only checkout advances do not rebuild or
-restart those artifacts. Canonical package-mode systemd startup and backend
-routing for all three capability routes remain active. The explicit
-strong `AUTH_SECRET` and exact append-only schema are in place, the schema
-post-audit has zero remaining changes, and the dedicated production
-cookie/2FA/CSRF negative/read-only gate passed with zero scoped
-capability/business/sequence delta. Frontend/UI enablement and any positive
-canary write remain separate operator-confirmed gates.
+**Status:** Cookie-only runtime, all three backend routes and the explicit
+review panel are implemented, independently reviewed and deployed. The strict
+in-memory localhost mock Chromium pass completed on 2026-08-14; production
+frontend enablement, build verification, public smoke and a real Chromium
+`/app` pass completed on release `36b0bc19c66f` on 2026-10-01. Canonical
+package-mode systemd startup, the explicit strong `AUTH_SECRET` and the exact
+append-only schema remain active; the schema post-audit has zero changes. The
+earlier production cookie/2FA/CSRF negative/read-only gate passed with zero
+scoped capability/business/sequence delta. Repeating that protected check
+through the enabled production panel and any positive canary write remain
+separate operator-controlled gates.
 
 **Description:** Expose the reviewed A8.4c1 writer through a narrow,
 cookie-session-only HTTP boundary and add one explicit human review panel on
