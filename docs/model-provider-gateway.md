@@ -14,21 +14,16 @@ provider by configuration alone.
 
 ## Current inventory
 
-The current tree contains 20 logical provider capabilities implemented across
-30 direct-access functions, including nested transport helpers:
+The current tree contains 21 explicit logical capabilities. Every production
+model call crosses the gateway, and the static inventory reports zero direct
+provider-access functions in business modules. The two AI-chat modes are
+separate capabilities because their established fallback orders differ.
 
-- 25 functions in `backend/main.py`, including one legacy direct Yandex
-  Foundation Models HTTP call, OpenAI-compatible Yandex flows, their nested
-  transport helpers and three cooperating invoice-scan functions;
-- one each in `backend/features/estimate_changes/routes.py`,
-  `backend/features/project_records/routes.py`,
-  `backend/features/document_recognition/routes.py` and
-  `backend/features/platform_admin/routes.py`; the estimate-change module also
-  contains one nested transport helper.
-
-Provider-specific details currently repeated in business code include
-`YANDEX_API_KEY`, `YANDEX_FOLDER_ID`, the Yandex base URL, `gpt://` model URIs,
-model names, SDK construction and primary/fallback ordering.
+Provider credentials, the Yandex base URL, `gpt://` model URIs, model names,
+SDK construction and primary/fallback ordering now exist only inside the
+gateway adapter and its tests. The inventory test rejects a new provider SDK
+import, model endpoint or direct Responses API call anywhere else in backend
+production code.
 
 ## Technical contract
 
@@ -175,25 +170,28 @@ update remain in the existing route. A release revert remains the bounded
 rollback.
 
 The eighth A14.4 domain is AI detection of estimate rows that require hidden-
-works acts. Its caller-local `HIDDEN_WORKS_DETECTION_MODEL_GATEWAY_ENABLED`
-switch defaults to `false`. The rollback path preserves the YandexGPT model,
-prompt, instructions, temperature, 2,000-token output limit, JSON extraction
-and keyword fallback. When explicitly enabled, only the text model request
-crosses the gateway with a 120-second total deadline and fixed non-secret
-failures. Estimate authorization, work-row filtering, exact-name matching,
-keyword fallback, preservation of manual marks and the final estimate update
-remain in the existing route and are unchanged.
+works acts. Its temporary caller switch and duplicate direct implementation
+were removed after parity tests passed. The YandexGPT model, prompt,
+instructions, temperature, 2,000-token output limit, JSON extraction and
+keyword fallback are preserved. Estimate authorization, work-row filtering,
+exact-name matching, preservation of manual marks and the final estimate update
+remain in the existing route.
 
-The ninth A14.4 domain is platform client-card recognition. Its caller-local
-`PLATFORM_CLIENT_CARD_MODEL_GATEWAY_ENABLED` switch defaults to `false`. The
-rollback path preserves the current Qwen model, prompt, instructions, content
-part order, temperature, 2,500-token output limit, JSON parsing and warnings.
-When explicitly enabled, text, image data or an inline PDF crosses the gateway
-with a 120-second total deadline and fixed non-secret failures. The gateway
-accepts inline file data only for this capability and validates a bounded safe
-filename plus a PDF data URL. Platform-role authorization, upload storage,
-heuristic fallback, audit logging and the HTTP response remain in the platform-
-admin module and are unchanged.
+The ninth A14.4 domain is platform client-card recognition. Its temporary
+caller switch and duplicate direct implementation were removed after parity
+tests passed. Text, image data or an inline PDF crosses the gateway with the
+current Qwen route, content order, temperature and 2,500-token limit. Platform-
+role authorization, upload storage, heuristic fallback, audit logging and the
+HTTP response remain in the platform-admin module.
+
+The final A14.4 slices moved the remaining material and cable suggestions, TB
+instructions, estimate and price-list generation, hidden-works act prefill,
+both AI-chat modes, the director assistant and invoice recognition. Invoice
+recognition carries bounded inline PDFs and page images through neutral input
+parts and preserves its JSON repair and compact retry. The legacy Foundation
+Models HTTP call, temporary switches, duplicated clients and temporary provider
+file upload/delete path are removed. All 21 capabilities now share closed
+model policies, deadlines, redacted errors and operational telemetry.
 
 ### A14.5: Measurement before local-model evaluation
 
@@ -481,7 +479,7 @@ Always:
 
 Ask first:
 
-- connect the gateway to production runtime;
+- connect a new external provider or local runtime to production traffic;
 - change a model, fallback order, prompt or error mapping;
 - add a dependency, provider, local-model process or network destination;
 - add metrics storage, schema, feature flags, deployment or canary traffic.
@@ -496,7 +494,7 @@ Never:
 
 ## Success criteria
 
-- All model calls eventually cross one provider-neutral gateway.
+- All model calls cross one provider-neutral gateway.
 - No business module constructs a provider client, URL or `gpt://` model URI.
 - Current production behavior remains unchanged throughout migration.
 - A static gate prevents new direct provider calls.
