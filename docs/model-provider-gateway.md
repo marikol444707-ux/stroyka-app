@@ -109,16 +109,14 @@ revert remains the bounded rollback for this single caller.
 - Migrate the legacy direct HTTP caller in a dedicated final compatibility
   slice.
 
-The first A14.4 domain is document recognition. Its caller-local
-`DOCUMENT_RECOGNITION_MODEL_GATEWAY_ENABLED` switch defaults to `false`, so a
-normal deployment continues to use the byte-equivalent legacy SDK request.
-When explicitly enabled, only the AI extraction step crosses the gateway; role
-authorization, file/text extraction, heuristic fallback, JSON parsing, audit
-logging and the HTTP response shape remain in the document-recognition module.
-The model, instructions, serialized prompt, temperature and 2,500-token output
-limit are unchanged. The gateway adds a 120-second total deadline and returns
-only fixed non-secret failure codes. Setting the switch back to `false` is the
-domain-local rollback.
+The first A14.4 domain, document recognition, now uses the gateway directly
+after request-parity tests passed. Its duplicated SDK caller and temporary
+cutover switch were removed. Role authorization, file/text extraction,
+heuristic fallback, JSON parsing, audit logging and the HTTP response shape
+remain in the document-recognition module. The model, instructions, serialized
+prompt, temperature and 2,500-token output limit are unchanged. The gateway
+adds a 120-second total deadline and returns only fixed non-secret failure
+codes. A release revert remains the bounded rollback for this domain.
 
 The second A14.4 domain is project room-draft generation. Its caller-local
 `PROJECT_ROOM_DRAFT_MODEL_GATEWAY_ENABLED` switch also defaults to `false`.

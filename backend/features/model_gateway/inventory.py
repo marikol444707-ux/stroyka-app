@@ -83,11 +83,6 @@ _EXPECTED_ACCESS = (
         "project_room_draft",
     ),
     (
-        "backend/features/document_recognition/routes.py",
-        "_ai_extract_legacy",
-        "document_recognition",
-    ),
-    (
         "backend/features/platform_admin/routes.py",
         "_recognize_client_card_with_ai_legacy",
         "platform_client_card",
