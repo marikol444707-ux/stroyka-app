@@ -427,9 +427,12 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
 - [x] ~~Task A4.2.2: Deploy the fail-closed exact-job runner hand-off on runtime `ed11051bb8d8`. `--once --job-id <id>` atomically claims only that queued, due, attempt-eligible ID from the immutable handler allowlist, skips global recovery and never falls through to a neighboring row. Unclaimable targets return metadata-only `not_claimed` with exit code `2`; `--job-id` without `--once` is rejected. Public smoke passes; no schedule, daemon, model, MAX or business mutation is enabled.~~
 - [x] ~~Task A4.2.3: Deploy the dry-run-by-default controlled cycle for one explicit company/date on runtime `ed11051bb8d8`. Explicit apply commits the idempotent producer first and then executes only its returned exact job ID after validating company/date/type. Existing success is not rerun; every other nonqueued or unclaimable state fails closed. Public smoke passes; business writes remain zero and no schedule, daemon, model, MAX or fan-out is enabled.~~
 - [x] ~~Task A4.2.4: Deploy runtime `2e14a3a2ca3c` and enable the prepared one-company daily one-shot schedule. Linux unit validation and public smoke pass; manual company `1` job `9` for Moscow date `2026-08-06` succeeded in `268 ms` with zero business writes. The timer is enabled for about `07:10 Europe/Moscow`; the generic daemon, model, MAX and fan-out remain disabled. Protected smoke was skipped because credentials were not supplied.~~
-  - [ ] Task A4.3a: Freeze the bounded source/result contract for an optional
+  - [x] ~~Task A4.3a: Freeze the bounded source/result contract for an optional
     model explanation linked to one exact succeeded daily-brief job; no model
-    call, route, queue write or delivery.
+    call, route, queue write or delivery.~~ Canonical input contains only the
+    validated public brief and is capped at 32 KiB. Untrusted output must match
+    the exact JSON shape, reference existing source codes, contain no HTML,
+    control characters or new numeric claims, and remain within fixed limits.
   - [ ] Task A4.3b: Add a separate default-off gateway-backed explanation job
     and idempotent producer. Failure must preserve the deterministic brief.
   - [ ] Task A4.4: Expose the validated explanation in the leadership API and
