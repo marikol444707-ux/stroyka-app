@@ -1,6 +1,5 @@
 import React from 'react';
 
-const FEATURE_FLAG = 'REACT_APP_SUPPLIER_MATERIAL_CAPABILITY_RUNTIME_ENABLED';
 const PROOF_ERRORS = {
   403: 'Проверка доступна директору выбранной компании после входа с подтверждением.',
   404: 'Для этой позиции пока нет доступной проверки материала. Проверьте её связь со сметой.',
@@ -117,7 +116,7 @@ export default function MaterialCapabilityProofPanel({
     companyContext?.mode || '', selectedCompanyId || '',
     selectedCompanyRole, requestId, requestItemIndex,
   ].join(':');
-  const enabled = process.env[FEATURE_FLAG] === 'true'
+  const enabled = process.env.REACT_APP_SUPPLIER_MATERIAL_CAPABILITY_RUNTIME_ENABLED === 'true'
     && companyContext?.mode === 'company'
     && positiveInt(selectedCompanyId)
     && selectedCompanyRole === 'директор'

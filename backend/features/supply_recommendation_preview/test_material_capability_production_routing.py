@@ -10,6 +10,18 @@ def normalized_source(path):
 
 
 class MaterialCapabilityProductionRoutingTests(unittest.TestCase):
+    def test_frontend_uses_a_compile_time_capability_flag(self):
+        panel = normalized_source(
+            ROOT / "src/components/supply/MaterialCapabilityProofPanel.jsx"
+        )
+
+        self.assertIn(
+            "process.env.REACT_APP_SUPPLIER_MATERIAL_CAPABILITY_RUNTIME_ENABLED "
+            "=== 'true'",
+            panel,
+        )
+        self.assertNotIn("process.env[FEATURE_FLAG]", panel)
+
     def test_revocation_prefix_is_proxied_to_the_backend_without_spa_fallback(self):
         nginx = normalized_source(
             ROOT / "ops-nginx-stroyka-public-api.conf"
