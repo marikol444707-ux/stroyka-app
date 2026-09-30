@@ -16784,10 +16784,6 @@ register_estimate_changes_module(app, {
     "log_audit": lambda **kwargs: log_audit(**kwargs),
     "yandex_api_key": YANDEX_API_KEY,
     "yandex_folder_id": YANDEX_FOLDER_ID,
-    "model_gateway_enabled": os.getenv(
-        "ESTIMATE_CHANGE_PRICE_MODEL_GATEWAY_ENABLED",
-        "false",
-    ).strip().lower() in ("1", "true", "yes"),
 })
 
 try:
@@ -19503,10 +19499,6 @@ def ai_suggest_distribution(estimate_id: int, data: dict, _current_user: dict = 
         instructions,
         YANDEX_API_KEY,
         YANDEX_FOLDER_ID,
-        model_gateway_enabled=os.getenv(
-            "ESTIMATE_DISTRIBUTION_MODEL_GATEWAY_ENABLED",
-            "false",
-        ).strip().lower() in ("1", "true", "yes"),
     )
 
     if not raw:
@@ -28143,10 +28135,6 @@ register_project_records_module(app, {
     "worker_execution_roles": WORKER_EXECUTION_ROLES,
     "yandex_api_key": YANDEX_API_KEY,
     "yandex_folder_id": YANDEX_FOLDER_ID,
-    "model_gateway_enabled": os.getenv(
-        "PROJECT_ROOM_DRAFT_MODEL_GATEWAY_ENABLED",
-        "false",
-    ).strip().lower() in ("1", "true", "yes"),
 })
 
 try:

@@ -1,6 +1,4 @@
 import ast
-import sys
-import types
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -30,70 +28,7 @@ class FakeGateway:
 
 
 class EstimateChangePriceGatewayCutoverTest(unittest.TestCase):
-    def test_legacy_rollback_preserves_model_order_and_sdk_requests(self):
-        captured = {"client": None, "requests": []}
-
-        class FakeResponses:
-            def create(self, **values):
-                captured["requests"].append(values)
-                return SimpleNamespace(
-                    output_text=(
-                        ""
-                        if len(captured["requests"]) == 1
-                        else '{"pricePerUnit":1250,"justification":"Рынок"}'
-                    )
-                )
-
-        class FakeOpenAI:
-            def __init__(self, **values):
-                captured["client"] = values
-                self.responses = FakeResponses()
-
-        fake_openai = types.ModuleType("openai")
-        fake_openai.OpenAI = FakeOpenAI
-
-        with patch.dict(sys.modules, {"openai": fake_openai}):
-            answer, error = price_model.generate_estimate_change_price_legacy(
-                "Полный промпт",
-                "Инструкции",
-                "private-key",
-                "folder-1",
-            )
-
-        self.assertEqual(
-            answer,
-            '{"pricePerUnit":1250,"justification":"Рынок"}',
-        )
-        self.assertIsNone(error)
-        self.assertEqual(
-            captured["client"],
-            {
-                "api_key": "private-key",
-                "base_url": "https://ai.api.cloud.yandex.net/v1",
-                "project": "folder-1",
-            },
-        )
-        self.assertEqual(
-            captured["requests"],
-            [
-                {
-                    "model": "gpt://folder-1/qwen3.6-35b-a3b/latest",
-                    "temperature": 0.2,
-                    "instructions": "Инструкции",
-                    "input": "Полный промпт",
-                    "max_output_tokens": 800,
-                },
-                {
-                    "model": "gpt://folder-1/yandexgpt-5.1/latest",
-                    "temperature": 0.2,
-                    "instructions": "Инструкции",
-                    "input": "Полный промпт",
-                    "max_output_tokens": 800,
-                },
-            ],
-        )
-
-    def test_gateway_path_builds_the_equivalent_neutral_request(self):
+    def test_price_estimation_builds_the_neutral_request(self):
         gateway = FakeGateway()
         adapter_arguments = []
 
@@ -102,7 +37,7 @@ class EstimateChangePriceGatewayCutoverTest(unittest.TestCase):
             return gateway
 
         with patch.object(price_model, "build_yandex_model_adapter", adapter_factory):
-            answer, error = price_model.generate_estimate_change_price_gateway(
+            answer, error = price_model.generate_estimate_change_price(
                 "Полный промпт",
                 "Инструкции",
                 "private-key",
@@ -135,7 +70,7 @@ class EstimateChangePriceGatewayCutoverTest(unittest.TestCase):
             "build_yandex_model_adapter",
             lambda **_values: gateway,
         ):
-            answer, error = price_model.generate_estimate_change_price_gateway(
+            answer, error = price_model.generate_estimate_change_price(
                 "Полный промпт",
                 "Инструкции",
                 "private-key",
@@ -159,7 +94,7 @@ class EstimateChangePriceGatewayCutoverTest(unittest.TestCase):
             "build_yandex_model_adapter",
             lambda **_values: gateway,
         ):
-            answer, error = price_model.generate_estimate_change_price_gateway(
+            answer, error = price_model.generate_estimate_change_price(
                 "Полный промпт",
                 "Инструкции",
                 "private-key",
@@ -169,39 +104,7 @@ class EstimateChangePriceGatewayCutoverTest(unittest.TestCase):
         self.assertEqual(answer, "")
         self.assertEqual(error, MODEL_GATEWAY_DEADLINE_EXCEEDED)
 
-    def test_cutover_defaults_to_legacy_and_enables_only_this_gateway(self):
-        calls = []
-        with (
-            patch.object(
-                price_model,
-                "generate_estimate_change_price_legacy",
-                lambda *_args: calls.append("legacy") or ("old", None),
-            ),
-            patch.object(
-                price_model,
-                "generate_estimate_change_price_gateway",
-                lambda *_args: calls.append("gateway") or ("new", None),
-            ),
-        ):
-            old = price_model.generate_estimate_change_price(
-                "prompt",
-                "instructions",
-                "key",
-                "folder",
-            )
-            new = price_model.generate_estimate_change_price(
-                "prompt",
-                "instructions",
-                "key",
-                "folder",
-                model_gateway_enabled=True,
-            )
-
-        self.assertEqual(old, ("old", None))
-        self.assertEqual(new, ("new", None))
-        self.assertEqual(calls, ["legacy", "gateway"])
-
-    def test_direct_provider_access_is_confined_to_the_rollback_function(self):
+    def test_price_estimation_has_no_direct_provider_or_cutover_flag(self):
         tree = ast.parse(
             PRICE_MODEL_PATH.read_text(encoding="utf-8"),
             filename=str(PRICE_MODEL_PATH),
@@ -210,35 +113,18 @@ class EstimateChangePriceGatewayCutoverTest(unittest.TestCase):
             node.name: node
             for node in tree.body
             if isinstance(node, ast.FunctionDef)
-            and node.name in {
-                "generate_estimate_change_price",
-                "generate_estimate_change_price_gateway",
-                "generate_estimate_change_price_legacy",
-            }
+            and node.name.startswith("generate_estimate_change_price")
         }
 
         self.assertEqual(
             set(functions),
-            {
-                "generate_estimate_change_price",
-                "generate_estimate_change_price_gateway",
-                "generate_estimate_change_price_legacy",
-            },
+            {"generate_estimate_change_price"},
         )
-        self.assertIn(
-            "OpenAI",
-            ast.unparse(functions["generate_estimate_change_price_legacy"]),
-        )
-        self.assertNotIn(
-            "OpenAI",
-            ast.unparse(functions["generate_estimate_change_price_gateway"]),
-        )
-        self.assertNotIn(
-            "OpenAI",
-            ast.unparse(functions["generate_estimate_change_price"]),
-        )
+        function_source = ast.unparse(functions["generate_estimate_change_price"])
+        self.assertNotIn("OpenAI", function_source)
+        self.assertNotIn("model_gateway_enabled", function_source)
 
-    def test_route_delegates_transport_with_its_caller_local_cutover(self):
+    def test_route_delegates_transport_without_direct_provider_access(self):
         tree = ast.parse(
             ROUTES_PATH.read_text(encoding="utf-8"),
             filename=str(ROUTES_PATH),
@@ -252,10 +138,10 @@ class EstimateChangePriceGatewayCutoverTest(unittest.TestCase):
         self.assertEqual(len(registrations), 1)
         source = ast.unparse(registrations[0])
         self.assertIn("generate_estimate_change_price", source)
-        self.assertIn("model_gateway_enabled=model_gateway_enabled", source)
+        self.assertNotIn("model_gateway_enabled", source)
         self.assertNotIn("OpenAI", source)
 
-    def test_composition_root_keeps_the_cutover_disabled_by_default(self):
+    def test_composition_root_no_longer_has_a_cutover_flag(self):
         source = MAIN_PATH.read_text(encoding="utf-8")
         tree = ast.parse(source, filename=str(MAIN_PATH))
         registrations = [
@@ -273,15 +159,13 @@ class EstimateChangePriceGatewayCutoverTest(unittest.TestCase):
             for key, value in zip(dependency_map.keys, dependency_map.values)
             if isinstance(key, ast.Constant) and isinstance(key.value, str)
         }
-        flag_expression = values["model_gateway_enabled"]
-        self.assertIn("ESTIMATE_CHANGE_PRICE_MODEL_GATEWAY_ENABLED", flag_expression)
-        self.assertIn("'false'", flag_expression)
+        self.assertNotIn("model_gateway_enabled", values)
         self.assertEqual(
             sum(
                 line == "ESTIMATE_CHANGE_PRICE_MODEL_GATEWAY_ENABLED=false"
                 for line in ENV_EXAMPLE_PATH.read_text(encoding="utf-8").splitlines()
             ),
-            1,
+            0,
         )
 
 
