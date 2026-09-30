@@ -41,6 +41,31 @@ class FrontendFeatureBuildTests(unittest.TestCase):
         module.verify(root, "REACT_APP_WAREHOUSE_DISTRIBUTION_ENABLED=false\n"
                             "REACT_APP_WAREHOUSE_DISTRIBUTION_TRANSFERS_ENABLED=false\n")
 
+    def test_accepts_enabled_material_capability_bundle_with_all_routes(self):
+        root = self.make_build(
+            "material-capability-proof material-capability-confirmations "
+            "supplier-material-capability-confirmations"
+        )
+        module.verify(
+            root,
+            "REACT_APP_SUPPLIER_MATERIAL_CAPABILITY_RUNTIME_ENABLED=true\n",
+        )
+
+    def test_rejects_enabled_material_capability_bundle_without_write_routes(self):
+        root = self.make_build("material-capability-proof")
+        with self.assertRaisesRegex(ValueError, "проверки материалов"):
+            module.verify(
+                root,
+                "REACT_APP_SUPPLIER_MATERIAL_CAPABILITY_RUNTIME_ENABLED=true\n",
+            )
+
+    def test_disabled_material_capability_needs_no_route_markers(self):
+        root = self.make_build("ordinary-supply-request")
+        module.verify(
+            root,
+            "REACT_APP_SUPPLIER_MATERIAL_CAPABILITY_RUNTIME_ENABLED=false\n",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

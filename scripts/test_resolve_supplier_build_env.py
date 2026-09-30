@@ -19,6 +19,41 @@ class SupplierBuildFlagsTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         for name in ('PAYMENTS', 'OPENING_CONFIRMATIONS', 'ALLOCATED_REFUNDS'):
             self.assertIn(f'REACT_APP_SUPPLIER_{name}_ENABLED=false', result.stdout)
+        self.assertIn(
+            'REACT_APP_SUPPLIER_MATERIAL_CAPABILITY_RUNTIME_ENABLED=false',
+            result.stdout,
+        )
+
+    def test_material_capability_ui_mirrors_enabled_backend_runtime(self):
+        result = self.resolve(
+            'SUPPLIER_MATERIAL_CAPABILITY_RUNTIME_ENABLED=true'
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            'REACT_APP_SUPPLIER_MATERIAL_CAPABILITY_RUNTIME_ENABLED=true',
+            result.stdout,
+        )
+
+    def test_material_capability_service_value_overrides_env_file(self):
+        result = self.resolve(
+            'SUPPLIER_MATERIAL_CAPABILITY_RUNTIME_ENABLED=false',
+            'SUPPLIER_MATERIAL_CAPABILITY_RUNTIME_ENABLED=true',
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(
+            'REACT_APP_SUPPLIER_MATERIAL_CAPABILITY_RUNTIME_ENABLED=false',
+            result.stdout,
+        )
+
+    def test_invalid_material_capability_value_blocks_build(self):
+        result = self.resolve(
+            'SUPPLIER_MATERIAL_CAPABILITY_RUNTIME_ENABLED=TRUE'
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, '')
+        self.assertIn(
+            'SUPPLIER_MATERIAL_CAPABILITY_RUNTIME_ENABLED', result.stderr
+        )
 
     def test_all_enabled_without_exporting_secrets(self):
         names = ('PAYMENTS', 'OPENING_CONFIRMATIONS', 'ALLOCATED_REFUNDS',
