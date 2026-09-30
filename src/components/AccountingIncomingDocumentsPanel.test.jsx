@@ -242,3 +242,27 @@ test('activated ledger replaces the legacy payment action in accounting', () => 
     else process.env.REACT_APP_SUPPLIER_PAYMENTS_ENABLED=previous;
   }
 });
+
+test('legacy accounting fallback requires confirmation of an already completed bank transfer', () => {
+  const previous = process.env.REACT_APP_SUPPLIER_PAYMENTS_ENABLED;
+  process.env.REACT_APP_SUPPLIER_PAYMENTS_ENABLED = 'false';
+  const confirm = jest.spyOn(window, 'confirm').mockReturnValue(false);
+  const prompt = jest.spyOn(window, 'prompt').mockReturnValue('100');
+  global.fetch = jest.fn();
+  try {
+    renderPanel({
+      companyContext: {mode: 'company', selectedCompanyId: 2}, user: {id: 7},
+      invoices: [{id: 42, companyId: 2, supplierId: 3, supplierName: 'Тест', project: 'Объект',
+        accountingStatus: 'К оплате', photos: ['/test.jpg'], totalWithVat: 100, paidAmount: 0,
+        items: [{name: 'Материал', quantity: 1, unit: 'шт', price: 100}]}],
+      supplierInvoices: [],
+    });
+    fireEvent.click(screen.getByRole('button', {name: 'Зафиксировать оплату'}));
+    expect(confirm).toHaveBeenCalledWith('Деньги уже перечислены поставщику через банк? Программа только зафиксирует выполненную оплату.');
+    expect(prompt).not.toHaveBeenCalled();
+    expect(global.fetch).not.toHaveBeenCalled();
+  } finally {
+    if (previous === undefined) delete process.env.REACT_APP_SUPPLIER_PAYMENTS_ENABLED;
+    else process.env.REACT_APP_SUPPLIER_PAYMENTS_ENABLED = previous;
+  }
+});

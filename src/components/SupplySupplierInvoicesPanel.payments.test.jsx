@@ -20,9 +20,15 @@ it('keeps reversal/history accessible for a fully paid invoice',()=>{
  render(<SupplySupplierInvoicesPanel {...base} supplierInvoices={[{...base.supplierInvoices[0],status:'Оплачен',paidAmount:100}]}/>);
  expect(screen.getByRole('button',{name:'Оплата и история'})).toBeEnabled();
 });
-it('leaves the old interface unchanged before activation',()=>{
+it('legacy fallback records only a bank transfer the user confirms already happened',()=>{
  process.env.REACT_APP_SUPPLIER_PAYMENTS_ENABLED='false';
+ const confirm=jest.spyOn(window,'confirm').mockReturnValue(false);
+ const prompt=jest.spyOn(window,'prompt').mockReturnValue('100');
+ global.fetch=jest.fn();
  render(<SupplySupplierInvoicesPanel {...base}/>);
  expect(screen.queryByRole('button',{name:'Оплата и история'})).not.toBeInTheDocument();
- expect(screen.getByRole('button',{name:/^💰/})).toBeEnabled();
+ fireEvent.click(screen.getByRole('button',{name:'💰 Зафиксировать оплату'}));
+ expect(confirm).toHaveBeenCalledWith('Деньги уже перечислены поставщику через банк? Программа только зафиксирует выполненную оплату.');
+ expect(prompt).not.toHaveBeenCalled();
+ expect(global.fetch).not.toHaveBeenCalled();
 });

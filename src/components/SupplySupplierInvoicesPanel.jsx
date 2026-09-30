@@ -90,7 +90,8 @@ function SupplySupplierInvoicesPanel({
   };
 
   const payInvoice = async (invoice, total, paidAmount, owe) => {
-    const ans = prompt('Оплатить (₽). Полная: '+Math.round(owe).toLocaleString('ru-RU')+' ₽', String(owe));
+    if(!window.confirm('Деньги уже перечислены поставщику через банк? Программа только зафиксирует выполненную оплату.')) return;
+    const ans = prompt('Зафиксировать уже оплаченную сумму (₽). Остаток: '+Math.round(owe).toLocaleString('ru-RU')+' ₽', String(owe));
     if(!ans) return;
     const sum = toNum(ans);
     if(sum<=0||sum>owe){
@@ -237,7 +238,7 @@ function SupplySupplierInvoicesPanel({
                         <div style={{display:'flex',gap:'4px',alignItems:'center',flexWrap:'wrap'}}>
                           <span style={invoiceBadge(invoice)}>{invoice.status}</span>
                           {canPay&&invoice.status==='На утверждении'&&<button onClick={()=>approveInvoice(invoice)} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}>✅</button>}
-                          {process.env.REACT_APP_SUPPLIER_PAYMENTS_ENABLED !== 'true' && canPay&&(invoice.status==='Утверждён'||invoice.status==='Частично оплачен')&&owe>0&&<button onClick={()=>payInvoice(invoice, total, paidAmount, owe)} style={{...btnO,padding:'4px 8px',fontSize:'11px'}}>💰 {owe<total?'Доплатить':'Оплатить'}</button>}
+                          {process.env.REACT_APP_SUPPLIER_PAYMENTS_ENABLED !== 'true' && canPay&&(invoice.status==='Утверждён'||invoice.status==='Частично оплачен')&&owe>0&&<button onClick={()=>payInvoice(invoice, total, paidAmount, owe)} style={{...btnO,padding:'4px 8px',fontSize:'11px'}}>💰 Зафиксировать оплату</button>}
                           {canPay && <SupplierPaymentButton document={invoice} documentKind="invoice" companyContext={companyContext} user={user} onSuccess={loadAll} style={btnO} />}
                           {canPay&&<button onClick={()=>deleteInvoice(invoice)} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button>}
                         </div>

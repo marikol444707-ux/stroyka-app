@@ -47,14 +47,21 @@ test.each([
   fireEvent.click(screen.getByLabelText('Подтверждаю сторно выбранной операции'));
   expect(state.updateReversal).toHaveBeenCalledWith({confirmed:true});
 });
-test('canonical scope, labelled exact-money fields, and keyboard close', () => {
+test('payment is recorded only after explicit confirmation that bank transfer already happened', () => {
   render(<SupplierPaymentDialog {...props} />);
   expect(screen.getByText(/счёт #9/)).toBeInTheDocument();
   expect(screen.getByText(/накладная № 7/)).toBeInTheDocument();
+  expect(screen.getByText('Программа не переводит деньги и не принимает товар на склад. Запишите оплату только после списания денег в банке.')).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText('Сумма, ₽'), { target: { value: '10,01' } });
   expect(state.updateDraft).toHaveBeenCalledWith({ amount: '10,01' });
   expect(screen.getByLabelText('Дата оплаты')).toHaveAttribute('type', 'date');
-  expect(screen.getByLabelText('Основание платежа')).toBeInTheDocument();
+  expect(screen.getByLabelText('Номер платёжного поручения или основание')).toBeInTheDocument();
+  const submit = screen.getByRole('button', { name: 'Зафиксировать выполненную оплату' });
+  expect(submit).toBeDisabled();
+  fireEvent.submit(screen.getByRole('form', { name: 'Запись платежа' }));
+  expect(state.submit).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Подтверждаю: деньги уже перечислены поставщику через банк' }));
+  expect(submit).toBeEnabled();
   fireEvent.submit(screen.getByRole('form', { name: 'Запись платежа' }));
   expect(state.submit).toHaveBeenCalledTimes(1);
   fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' }); expect(props.onClose).toHaveBeenCalledTimes(1);
@@ -70,7 +77,7 @@ test('failed read still displays exact saved command and retry, without discard'
   fireEvent.click(screen.getByRole('button', { name: 'Повторить сохранённый запрос' }));
   expect(state.retry).toHaveBeenCalledTimes(1);
   expect(screen.queryByRole('button', { name: /удалить/i })).not.toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: 'Записать платёж' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Зафиксировать выполненную оплату' })).not.toBeInTheDocument();
 });
 test('busy disables inputs; success requires explicit new intent', () => {
   state.busy = true;
@@ -78,8 +85,8 @@ test('busy disables inputs; success requires explicit new intent', () => {
   expect(screen.getByLabelText('Сумма, ₽')).toBeDisabled();
   expect(screen.getByRole('button', { name: 'Запись…' })).toBeDisabled();
   state = { ...state, busy: false, success: { operationId: 31 } }; rerender(<SupplierPaymentDialog {...props} />);
-  expect(screen.queryByRole('button', { name: 'Записать платёж' })).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Новый платёж' })); expect(state.startNext).toHaveBeenCalledTimes(1);
+  expect(screen.queryByRole('button', { name: 'Зафиксировать выполненную оплату' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Новая операция' })); expect(state.startNext).toHaveBeenCalledTimes(1);
 });
 test('history distinguishes reversal and does not claim first page complete', () => {
   state.history = { hasMore: true, items: [{ operationId: 31, kind: 'reversal', amount: '10.00',
@@ -94,7 +101,7 @@ test('focus is trapped and restored on close', () => {
   const { unmount } = render(<SupplierPaymentDialog {...props} />);
   const close = screen.getByRole('button', { name: 'Закрыть' }); expect(close).toHaveFocus();
   fireEvent.keyDown(close, { key: 'Tab', shiftKey: true });
-  expect(screen.getByRole('button', { name: 'Записать платёж' })).toHaveFocus();
+  expect(screen.getByRole('checkbox', { name: 'Подтверждаю: деньги уже перечислены поставщику через банк' })).toHaveFocus();
   unmount(); expect(opener).toHaveFocus(); opener.remove();
 });
 
@@ -153,7 +160,7 @@ test('opening review remains reachable when an unregistered mixed document canno
     state.snapshot = null; state.history = null; state.error = 'Пакет накладной требует сверки';
     const { rerender } = render(<SupplierPaymentDialog {...props} documentKind="invoice" documentId={9} />);
     expect(screen.getByRole('button', { name: 'Сверить прежнюю оплату' })).toBeEnabled();
-    expect(screen.getByRole('button', { name: 'Записать платёж' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Зафиксировать выполненную оплату' })).toBeDisabled();
     state = { ...state, busy: true };
     rerender(<SupplierPaymentDialog {...props} documentKind="invoice" documentId={9} />);
     expect(screen.getByRole('button', { name: 'Сверить прежнюю оплату' })).toBeDisabled();
