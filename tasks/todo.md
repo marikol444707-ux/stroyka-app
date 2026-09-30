@@ -7498,6 +7498,14 @@ post-run public check confirmed health version `5e9295e03961`, JSON
   unchanged.
 - [ ] Enable the frontend/UI only after the backend protected smoke passes,
   then repeat the browser interaction and public/protected smoke.
+  - [x] Frontend enablement, the production build check, public smoke and a
+    real Chromium `/app` pass completed on release `36b0bc19c66f` on
+    2026-10-01. The build received the exact enabled backend flag and contains
+    all three capability route markers.
+  - [ ] Repeat the interaction as an authenticated director of the selected
+    company and the protected cookie/2FA/CSRF smoke. This requires a fresh
+    interactive 2FA session; no positive confirmation/revocation write is
+    approved by this checklist item.
 - [ ] Production smoke is negative/read-only by default: unauthenticated,
   Bearer-only, missing-CSRF, all-company and foreign-source requests create
   zero rows. Positive writes require a separately approved canary tenant and
@@ -7507,8 +7515,18 @@ post-run public check confirmed health version `5e9295e03961`, JSON
   sequence and sentinel request/recipient/offer/messenger-outbox state. They
   remained identical across backend enablement and the protected/public
   checks; route contracts and deliberately invalid inputs never reached the
-  writer or any model/ranking/selection/send seam. Frontend/UI enablement and
-  canary writes remain individually explicit operator actions.
+  writer or any model/ranking/selection/send seam. Positive canary writes
+  remain an individually explicit operator action.
+
+**Frontend production evidence (2026-10-01):** PR #207 was merged and deployed
+as `36b0bc19c66fac5863b51f771aff80caeea2cdaa`. The build resolver exported
+`REACT_APP_SUPPLIER_MATERIAL_CAPABILITY_RUNTIME_ENABLED=true` from the exact
+backend setting, and the component now uses a direct CRA environment reference.
+The verifier found all three capability routes in `main.79732133.js`; public
+smoke, asset checks and a real Chromium `/app` pass succeeded. No migration ran.
+The capability assertion table remained empty, no supplier selection, RFQ,
+payment, stock action or external message was created, and the temporary build
+directory was removed after publication.
 
 **Boundaries:**
 
