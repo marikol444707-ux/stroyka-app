@@ -22,6 +22,7 @@ const RELATED_REFRESH_PAGES = {
   warehouse: ['supply', 'accounting', 'dashboard', 'projects'],
   materials: ['supply', 'accounting', 'dashboard', 'projects'],
   accounting: ['supply', 'dashboard'],
+  myexpenses: ['accounting', 'dashboard', 'projects'],
   projects: ['assignments', 'estimates', 'accounting', 'dashboard'],
   site: ['assignments', 'estimates', 'accounting', 'dashboard'],
   works: ['assignments', 'estimates', 'accounting', 'dashboard'],
@@ -31,6 +32,15 @@ const RELATED_REFRESH_PAGES = {
   personnel: ['users', 'accounting', 'projects'],
   users: ['personnel', 'assignments'],
   pricelists: ['estimates', 'projects'],
+  'project-list': ['projects', 'assignments', 'dashboard'],
+  'project-finance': ['accounting', 'projects', 'dashboard'],
+  'project-prescriptions': ['projects', 'dashboard'],
+  'project-documents': ['projects', 'documents', 'dashboard'],
+  'project-letters': ['projects', 'documents', 'dashboard'],
+  reimbursements: ['accounting', 'projects', 'dashboard'],
+  'manual-expenses': ['accounting', 'projects', 'dashboard'],
+  'accountable-payments': ['accounting', 'projects', 'dashboard'],
+  'pricelist-directory': ['pricelists', 'estimates', 'projects'],
 };
 
 export const useAppDataLoaders = (ctx) => {
@@ -411,6 +421,63 @@ export const useAppDataLoaders = (ctx) => {
     const canLoadBrigadePayments = isFinanceRole || isWorkerRole;
     const canLoadEstimates = canLoadEstimatesForUser();
     const estimatesLoadPath = isWorkerRole ? '/estimates' : ESTIMATES_SUMMARY_PATH;
+    if (page === 'project-list') {
+      const rows = role === 'поставщик' ? [] : await getApi('/projects');
+      setProjects(Array.isArray(rows) ? rows : []);
+      return;
+    }
+    if (page === 'project-finance') {
+      const [payments, accountable, own, manual] = await Promise.all([
+        isFinanceRole ? getApi('/project-payments') : Promise.resolve([]),
+        isFinanceRole ? getApi('/accountable-payments') : Promise.resolve([]),
+        isInternalRole ? getApi('/own-expenses') : Promise.resolve([]),
+        isFinanceRole ? getApi('/expenses') : Promise.resolve([]),
+      ]);
+      if (role !== 'заказчик') setProjectPayments(Array.isArray(payments) ? payments : []);
+      setAccountablePayments(Array.isArray(accountable) ? accountable : []);
+      setOwnExpenses(Array.isArray(own) ? own : []);
+      setManualExpenses(Array.isArray(manual) ? manual : []);
+      return;
+    }
+    if (page === 'project-prescriptions') {
+      const rows = canSeeProjectDocs ? await getApi('/prescriptions') : [];
+      setPrescriptionsList(Array.isArray(rows) ? rows : []);
+      return;
+    }
+    if (page === 'project-documents') {
+      const rows = role !== 'заказчик' && (isInternalRole || isFinanceRole) ? await getApi('/project-documents') : [];
+      if (role !== 'заказчик') setProjectDocuments(Array.isArray(rows) ? rows : []);
+      return;
+    }
+    if (page === 'project-letters') {
+      const rows = role !== 'заказчик' && (isInternalRole || isFinanceRole) ? await getApi('/project-letters') : [];
+      if (role !== 'заказчик') setProjectLetters(Array.isArray(rows) ? rows : []);
+      return;
+    }
+    if (page === 'reimbursements') {
+      const [own, payments] = await Promise.all([
+        isInternalRole ? getApi('/own-expenses') : Promise.resolve([]),
+        isFinanceRole ? getApi('/project-payments') : Promise.resolve([]),
+      ]);
+      setOwnExpenses(Array.isArray(own) ? own : []);
+      if (role !== 'заказчик') setProjectPayments(Array.isArray(payments) ? payments : []);
+      return;
+    }
+    if (page === 'manual-expenses') {
+      const rows = isFinanceRole ? await getApi('/expenses') : [];
+      setManualExpenses(Array.isArray(rows) ? rows : []);
+      return;
+    }
+    if (page === 'accountable-payments') {
+      const rows = isFinanceRole ? await getApi('/accountable-payments') : [];
+      setAccountablePayments(Array.isArray(rows) ? rows : []);
+      return;
+    }
+    if (page === 'pricelist-directory') {
+      const rows = ((isInternalRole && !isWorkerRole) || role === 'технадзор') ? await getApi('/pricelists') : [];
+      setPricelists(Array.isArray(rows) ? rows : []);
+      return;
+    }
     if (page === 'dashboard') return loadMobileScopeOnce('mobile:dashboard', async () => {
       const [aif,ait,sh,sd,scat] = await Promise.all([
         canSeeProjectDocs ? getApi('/ai-findings') : Promise.resolve([]),
@@ -438,7 +505,7 @@ export const useAppDataLoaders = (ctx) => {
     if (['projects','site','works','documents','cable'].includes(page)) return loadMobileScopeOnce('mobile:projects-docs', async () => {
       if (canSeeProjectDocs) markEstimatesLoading(true);
       const loadWorkMaterials = isWorkerRole && workMaterialAccountingEnabled();
-      const [p,wj,mt,ro,rw,rwin,rdoor,ps,pcl,pres,uw,est,er,bc,abi,hwa,mij,cbj,sva,inspO,warD,pdocs,plet,pmeas,mdrafts,s,u,ct,ia,pw,mp,m,mn,mno,h] = await Promise.all([
+      const [p,wj,mt,ro,rw,rwin,rdoor,ps,pcl,pres,uw,est,er,bc,abi,hwa,mij,cbj,sva,inspO,warD,pdocs,plet,pmeas,mdrafts,s,u,ct,ia,pw,mp,m,mn,mno,h,tb] = await Promise.all([
         role === 'поставщик' ? Promise.resolve([]) : getApi('/projects'),
         role === 'поставщик' ? Promise.resolve([]) : getApi(pagedPath('/work-journal', {limit: WORK_JOURNAL_PAGE_LIMIT})),
         (isWarehouseRole || ['мастер','субподрядчик','бригадир'].includes(role)) ? getApi('/material-transfers') : Promise.resolve([]),
@@ -474,6 +541,7 @@ export const useAppDataLoaders = (ctx) => {
         loadWorkMaterials ? getApi(pagedPath('/material-norms', {limit: MATERIAL_NORMS_PAGE_LIMIT})) : Promise.resolve([]),
         loadWorkMaterials ? getApi('/material-norms/overrides') : Promise.resolve([]),
         loadWorkMaterials ? getApi('/warehouse-history') : Promise.resolve([]),
+        isInternalRole ? getApi('/tb-journal') : Promise.resolve([]),
       ]);
       const safeWorkJournal = Array.isArray(wj) ? wj : [];
       setProjects(Array.isArray(p)?p:[]);
@@ -507,6 +575,13 @@ export const useAppDataLoaders = (ctx) => {
         setMaterialNorms(Array.isArray(mn)?mn:[]); resetMaterialNormsPage(mn);
         setMaterialNormOverrides(Array.isArray(mno)?mno:[]);
         setHistory(Array.isArray(h)?h:[]);
+      }
+      if (isInternalRole) {
+        const normalized = (Array.isArray(tb) ? tb : []).map(item => ({
+          ...item, project: item.projectName, type: item.instructionType,
+        }));
+        setTbJournal(normalized);
+        try { localStorage.setItem('tbJournal', JSON.stringify(normalized)); } catch (_error) {}
       }
     });
     if (page === 'estimates') return loadMobileScopeOnce('mobile:estimates', async () => {
@@ -652,8 +727,25 @@ export const useAppDataLoaders = (ctx) => {
       setPricelists(Array.isArray(pl)?pl:[]);
     });
     if (page === 'crm') return loadMobileScopeOnce('mobile:crm', async () => {
-      const ls = (isLeadershipRole || role === 'менеджер_crm') ? await getApi('/crm/lead-summaries') : [];
-      setLeads(Array.isArray(ls)?ls:[]);
+      let leads = (isLeadershipRole || role === 'менеджер_crm') ? await getApi('/crm/lead-summaries') : [];
+      const legacyRaw = Array.isArray(leads) && leads.length === 0 ? localStorage.getItem('leads') : null;
+      if (legacyRaw) {
+        try {
+          const legacyLeads = JSON.parse(legacyRaw);
+          if (Array.isArray(legacyLeads) && legacyLeads.length > 0) {
+            for (const lead of legacyLeads) {
+              await fetch(API + '/crm/leads', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({
+                name:lead.name||'', phone:lead.phone||'', email:lead.email||'', source:lead.source||'',
+                budget:Number(lead.budget)||0, notes:lead.notes||'', stage:lead.stage||'Новый',
+                createdBy:lead.createdBy||user.name, createdAt:lead.createdAt||'',
+              })});
+            }
+            localStorage.removeItem('leads');
+            leads = await getApi('/crm/lead-summaries');
+          }
+        } catch (_error) {}
+      }
+      setLeads(Array.isArray(leads)?leads:[]);
     });
     if (page === 'analytics') return loadMobileScopeOnce('mobile:analytics', async () => {
       if (canLoadEstimates) markEstimatesLoading(true);
@@ -699,210 +791,6 @@ export const useAppDataLoaders = (ctx) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, activePage, initialDataLoaded]);
 
-  const loadAll = async () => {
-    try {
-      const {
-        role,
-        isLeadershipRole,
-        isFinanceRole,
-        isWarehouseRole,
-        isSupplyRole,
-        canSeeSupplierInvoices,
-        isInternalRole,
-        canSeeProjectDocs,
-      } = roleFlagsForUser(user);
-      const isWorkerRole = ['мастер','субподрядчик','бригадир'].includes(role);
-      const canLoadPeopleData = canLoadPeopleDataForRole(role);
-      const canLoadUserDirectory = canLoadUserDirectoryForRole(role) || isLeadershipRole;
-      const canLoadAccountingData = canLoadAccountingDataForRole(role) || isFinanceRole;
-      const canLoadBrigadeData = canLoadPeopleData || canLoadAccountingData || isWorkerRole;
-      const canLoadBrigadePayments = isFinanceRole || isWorkerRole;
-      const canLoadEstimates = canLoadEstimatesForUser(user);
-      const estimatesLoadPath = isWorkerRole ? '/estimates' : ESTIMATES_SUMMARY_PATH;
-      if (canLoadEstimates) markEstimatesLoading(true);
-      const LOAD_FAILED = Symbol('LOAD_FAILED');
-      const isLoaded = (value) => value !== LOAD_FAILED;
-      const asArray = (value) => Array.isArray(value) ? value : [];
-      const setLoaded = (setter, value, normalize = asArray) => {
-        if (!isLoaded(value)) return;
-        setter(normalize(value));
-      };
-      const get = (path, fallback = []) => fetch(API + path)
-        .then(r => {
-          if (r.ok) return r.json();
-          if (r.status === 401) handleApiUnauthorized();
-          return fallback === null ? null : LOAD_FAILED;
-        })
-        .catch(() => fallback === null ? null : LOAD_FAILED);
-      const skip = (fallback = []) => Promise.resolve(fallback);
-      const [p,c,m,winv,pp,acp,oe,me,wm,wmov,h,s,pw,u,pl,ic,sup,sr,so,sh,sd,sc,wj,mp,ct,ia,ro,rw,tl,th,inv,pdc,wh,cr,cd,ps,pcl,pres,uw,est,er,bc,hwa,mij,cbj,sva,inspO,expR,supI,warD,scat,aif,ait,mn,ma,mno,mns,aud] = await Promise.all([
-        role === 'поставщик' ? skip([]) : get('/projects'),
-        (isLeadershipRole || role === 'менеджер_crm') ? get('/clients') : skip([]),
-        role === 'поставщик' ? skip([]) : get(pagedPath('/materials', {limit: MATERIALS_PAGE_LIMIT})),
-        (isWarehouseRole || isFinanceRole) ? get('/warehouse-invoices') : skip([]),
-        isFinanceRole ? get('/project-payments') : skip([]),
-        isFinanceRole ? get('/accountable-payments') : skip([]),
-        isInternalRole ? get('/own-expenses') : skip([]),
-        isFinanceRole ? get('/expenses') : skip([]),
-        (isWarehouseRole || isFinanceRole) ? get('/warehouse-main') : skip([]),
-        (isWarehouseRole || isFinanceRole) ? get('/warehouse-movements') : skip([]),
-	        (isWarehouseRole || isFinanceRole || ['мастер','субподрядчик','бригадир'].includes(role)) ? get('/warehouse-history') : skip([]),
-        canLoadPeopleData ? get('/staff') : skip([]),
-        canLoadPeopleData ? get('/piecework') : skip([]),
-        canLoadUserDirectory ? get('/users') : skip([]),
-        ((isInternalRole && !['мастер','субподрядчик','бригадир'].includes(role)) || role === 'технадзор') ? get('/pricelists') : skip([]),
-        isLeadershipRole ? get('/invite-codes') : skip([]),
-        (isSupplyRole || isWarehouseRole || isFinanceRole) ? get('/suppliers') : skip([]),
-        isSupplyRole ? get('/supply-requests') : skip([]),
-        isSupplyRole ? get('/supplier-offers') : skip([]),
-        (isSupplyRole || isWarehouseRole || isFinanceRole) ? get('/supply-history') : skip([]),
-        isSupplyRole ? get('/supply-deliveries') : skip([]),
-        isSupplyRole ? get('/supply-claims') : skip([]),
-        role === 'поставщик' ? skip([]) : get(pagedPath('/work-journal', {limit: WORK_JOURNAL_PAGE_LIMIT})),
-        canLoadPeopleData ? get('/master-profiles') : skip([]),
-        canLoadAccountingData ? get('/contracts') : skip([]),
-        canLoadAccountingData ? get('/interim-acts') : skip([]),
-        canSeeProjectDocs ? get('/rooms') : skip([]),
-        canSeeProjectDocs ? get('/room-works') : skip([]),
-        isInternalRole ? get('/tools') : skip([]),
-        isInternalRole ? get('/tool-history') : skip([]),
-        isInternalRole ? get('/inventory') : skip([]),
-        (isLeadershipRole || isFinanceRole) ? get('/pd-consents') : skip([]),
-        (isWarehouseRole || isSupplyRole || isFinanceRole) ? get('/warehouses') : skip([]),
-        role === 'поставщик' ? skip({}) : get('/company-requisites', {}),
-        isFinanceRole ? get('/company-documents') : skip([]),
-        canSeeProjectDocs ? get('/project-stages') : skip([]),
-        canSeeProjectDocs ? get('/project-checklists') : skip([]),
-        canSeeProjectDocs ? get('/prescriptions') : skip([]),
-        role !== 'заказчик' && canSeeProjectDocs ? get('/unexpected-works') : skip([]),
-        canLoadEstimates ? get(estimatesLoadPath, null) : skip(null),
-        canLoadEstimates ? get('/estimate-reconciliations') : skip([]),
-        canLoadBrigadeData ? get('/brigade-contracts') : skip([]),
-        canSeeProjectDocs && role !== 'заказчик' ? get('/hidden-works-acts') : skip([]),
-        loadQualityJournal('inspections', canSeeProjectDocs || isWarehouseRole),
-        loadQualityJournal('cables', canSeeProjectDocs || isWarehouseRole),
-        canSeeProjectDocs ? get('/supervisor-acts') : skip([]),
-        canSeeProjectDocs ? get('/inspection-orders') : skip([]),
-        isFinanceRole ? get('/expense-reports') : skip([]),
-        canSeeSupplierInvoices ? get('/supplier-invoices') : skip([]),
-        role !== 'заказчик' && canSeeProjectDocs ? get('/warranty-defects') : skip([]),
-        (isSupplyRole || isWarehouseRole || isFinanceRole || role === 'поставщик') ? get('/supplier-catalog') : skip([]),
-        canSeeProjectDocs ? get('/ai-findings') : skip([]),
-        canSeeProjectDocs ? get(assignmentsPathForRole(role)) : skip([]),
-        canSeeProjectDocs ? get(pagedPath('/material-norms', {limit: MATERIAL_NORMS_PAGE_LIMIT})) : skip([]),
-        canSeeProjectDocs && !ownedAliasesEnabled() ? get('/material-aliases') : skip([]),
-        canSeeProjectDocs ? get('/material-norms/overrides') : skip([]),
-        canSeeProjectDocs ? get('/material-norm-suggestions') : skip([]),
-        (isLeadershipRole || isFinanceRole) ? get(pagedPath('/audit-log', {limit: AUDIT_LOG_PAGE_LIMIT})) : skip([]),
-      ]);
-      setLoaded(setProjects, p); setLoaded(setClients, c);
-      if (isLoaded(m)) { setMaterials(asArray(m)); resetMaterialsPage(asArray(m)); }
-      setLoaded(setInvoices, winv);
-      if (role !== 'заказчик') setLoaded(setProjectPayments, pp);
-      setLoaded(setAccountablePayments, acp);
-      setLoaded(setOwnExpenses, oe); setLoaded(setManualExpenses, me); setLoaded(setWarehouseMain, wm); setLoaded(setWarehouseMovements, wmov);
-      setLoaded(setHistory, h); setLoaded(setStaff, s); setLoaded(setPiecework, pw); setLoaded(setUsers, u); setLoaded(setPricelists, pl);
-      setLoaded(setInviteCodes, ic); setLoaded(setSuppliers, sup); setLoaded(setSupplyRequests, sr); setLoaded(setSupplierOffers, so);
-      setLoaded(setSupplyHistory, sh); setLoaded(setSupplyDeliveries, sd); setLoaded(setSupplyClaims, sc);
-      if (isLoaded(wj)) { setWorkJournal(asArray(wj)); resetWorkJournalPage(asArray(wj)); }
-      setLoaded(setMasterProfiles, mp); setLoaded(setContracts, ct); setLoaded(setInterimActs, ia);
-      setLoaded(setRooms, ro); setLoaded(setRoomWorks, rw); setLoaded(setTools, tl); setLoaded(setToolHistory, th);
-      setLoaded(setInventory, inv); setLoaded(setPdConsents, pdc); setLoaded(setWarehouses, wh);
-      if (isLoaded(cr)) applyCompanyRequisites(cr);
-      setLoaded(setCompanyDocuments, cd);
-      setLoaded(setProjectStages, ps); setLoaded(setChecklists, pcl);
-      setLoaded(setPrescriptionsList, pres);
-      if (role !== 'заказчик') setLoaded(setUnexpectedWorksList, uw);
-      if (isLoaded(est)) applyLoadedEstimates(est, canLoadEstimates);
-      setLoaded(setEstimateReconciliations, er); setLoaded(setBrigadeContracts, bc); if (role !== 'заказчик') setLoaded(setHiddenActs, hwa);
-      applyQualityJournal(mij); applyQualityJournal(cbj); setLoaded(setSupervisorActs, sva);
-      setLoaded(setInspectionOrders, inspO); setLoaded(setExpenseReports, expR); setLoaded(setSupplierInvoices, supI);
-      if (role !== 'заказчик') setLoaded(setWarrantyDefects, warD);
-      setLoaded(setSupplierCatalog, scat);
-      setLoaded(setAiFindings, aif); setLoaded(setAiTasks, ait);
-      if (isLoaded(mn)) { setMaterialNorms(asArray(mn)); resetMaterialNormsPage(asArray(mn)); }
-      if (!ownedAliasesEnabled()) setLoaded(setMaterialAliases, ma);
-      setLoaded(setMaterialNormOverrides, mno); setLoaded(setMaterialNormSuggestions, mns); setLoaded(setAuditLog, aud);
-      if (canSeeProjectDocs) try {
-        const [rwin,rdoor] = await Promise.all([
-          get('/room-windows'),
-          get('/room-doors'),
-        ]);
-        setLoaded(setRoomWindows, rwin); setLoaded(setRoomDoors, rdoor);
-      } catch(e) {}
-      if (canLoadPeopleData) try {
-        const ts = await get('/timesheet');
-        if (isLoaded(ts) && Array.isArray(ts)) setTimesheet(Object.fromEntries(ts.map(t=>[t.staffId+'-'+t.day, true])));
-      } catch(e) {}
-      if (isFinanceRole) try {
-        const sp = await get('/salary-payments');
-        setLoaded(setSalaryPayments, sp);
-      } catch(e) {}
-      try {
-        let ls = await get('/crm/lead-summaries');
-        if (!isLoaded(ls)) ls = null;
-        else if (!Array.isArray(ls)) ls = [];
-        // Одноразовая миграция старых лидов из localStorage в БД
-        const oldRaw = ls !== null ? localStorage.getItem('leads') : null;
-        if (Array.isArray(ls) && ls.length===0 && oldRaw) {
-          try {
-            const old = JSON.parse(oldRaw);
-            if (Array.isArray(old) && old.length>0) {
-              for (const l of old) {
-                await fetch(API+'/crm/leads',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:l.name||'',phone:l.phone||'',email:l.email||'',source:l.source||'',budget:Number(l.budget)||0,notes:l.notes||'',stage:l.stage||'Новый',createdBy:l.createdBy||user.name,createdAt:l.createdAt||''})});
-              }
-              localStorage.removeItem('leads');
-              ls = await get('/crm/lead-summaries');
-              if (!isLoaded(ls)) ls = null;
-            }
-          } catch(_){}
-        }
-        if (ls !== null) setLeads(Array.isArray(ls)?ls:[]);
-      } catch(e) {}
-      if (isWarehouseRole || ['мастер','субподрядчик','бригадир'].includes(role)) try {
-        const mt = await get('/material-transfers');
-        setLoaded(setMaterialTransfers, mt);
-      } catch(e) {}
-      if (isInternalRole) try {
-        const tb = await get('/tb-journal');
-        if (isLoaded(tb)) {
-          const tbNorm = (Array.isArray(tb)?tb:[]).map(t=>({...t, project: t.projectName, type: t.instructionType}));
-          setTbJournal(tbNorm);
-          try { localStorage.setItem('tbJournal', JSON.stringify(tbNorm)); } catch(e){}
-        }
-      } catch(e) {}
-      if (canLoadBrigadeData) try {
-        const abi = await get('/brigade-contract-items-all');
-        setLoaded(setAllBrigadeItems, abi);
-      } catch(e) {}
-      if (canLoadBrigadePayments) try {
-        const abp = await get('/brigade-payments');
-        setLoaded(setAllBrigadePayments, abp);
-      } catch(e) {}
-      if (role !== 'заказчик' && (canSeeProjectDocs || canLoadAccountingData)) try {
-        const pdocs = await get('/project-documents');
-        setLoaded(setProjectDocuments, pdocs);
-        const plet = await get('/project-letters');
-        setLoaded(setProjectLetters, plet);
-      } catch(e) {}
-      if (canSeeProjectDocs) try {
-        const pmeas = await get('/project-measurements');
-        setLoaded(setProjectMeasurements, pmeas);
-        const mdrafts = await get('/measurement-room-drafts');
-        setLoaded(setMeasurementRoomDrafts, mdrafts);
-      } catch(e) {}
-      if (Object.values(journalStatuses.current).every(status => status === 'ready')) mobileLoadedScopesRef.current.add('full');
-    } catch(e) {
-      console.error('loadAll failed', e);
-      setEstimatesPage(prev => prev.loading ? {
-        loading:false,
-        error:'Не удалось загрузить сметы. Проверьте соединение или повторите загрузку.',
-      } : prev);
-    } finally {
-      setInitialDataLoaded(true);
-    }
-  };
-
   const refreshData = async (page = activePage) => {
     const refreshKey = `${journalScope}:${mobileScopeForPage(page) || page}`;
     const pending = refreshRequests.current.get(refreshKey);
@@ -925,7 +813,11 @@ export const useAppDataLoaders = (ctx) => {
   };
 
   return {
-    apiAuthHeaders, loadAll, loadMaterialNormsPage, loadMaterialsPage, loadMobileInitial, loadWorkJournalPage,
+    apiAuthHeaders,
+    // Legacy leaf components still call this prop after a mutation. Keep the
+    // name for compatibility, but refresh only the currently visible scope.
+    loadAll: () => refreshData(activePage),
+    loadMaterialNormsPage, loadMaterialsPage, loadMobileInitial, loadWorkJournalPage,
     refreshData, reloadQualityJournals,
   };
 };

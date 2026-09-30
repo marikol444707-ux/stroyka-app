@@ -115,7 +115,6 @@ export default function AppWorkflowModals({ ui, constants, state, actions }) {
     estimateItemTotal,
     getProjectEstimateWorkOptions,
     getProjectWorkPackageOptions,
-    loadAll,
     loadPricelistItems,
     navigateTo,
     nextEstimateVersionFor,
@@ -124,6 +123,7 @@ export default function AppWorkflowModals({ ui, constants, state, actions }) {
     queueEstimateDiffReviewTask,
     queueEstimateNormReviewTask,
     queueEstimateQualityReviewTask,
+    refreshData,
     renderSupplyRequestOrigin,
     sameEstimateGroup,
     saveInvoiceNew,
@@ -261,7 +261,7 @@ export default function AppWorkflowModals({ ui, constants, state, actions }) {
           setShowPhotoModal={setShowPhotoModal}
           API={API}
           user={user}
-          loadAll={loadAll}
+          loadAll={() => refreshData('reimbursements')}
         />
       )}
 
@@ -284,7 +284,7 @@ export default function AppWorkflowModals({ ui, constants, state, actions }) {
           setExpenseSubmitting={setExpenseSubmitting}
           API={API}
           user={user}
-          loadAll={loadAll}
+          loadAll={() => refreshData('accountable-payments')}
         />
       )}
 
@@ -308,7 +308,7 @@ export default function AppWorkflowModals({ ui, constants, state, actions }) {
           setShowPhotoModal={setShowPhotoModal}
           API={API}
           user={user}
-          loadAll={loadAll}
+          loadAll={() => refreshData('manual-expenses')}
         />
       )}
 
@@ -326,7 +326,7 @@ export default function AppWorkflowModals({ ui, constants, state, actions }) {
           newAccountable={newAccountable}
           setNewAccountable={setNewAccountable}
           API={API}
-          loadAll={loadAll}
+          loadAll={() => refreshData('accountable-payments')}
         />
       )}
 
@@ -345,7 +345,7 @@ export default function AppWorkflowModals({ ui, constants, state, actions }) {
           setFromEstimateForm={setFromEstimateForm}
           estimatesList={estimatesList}
           API={API}
-          loadAll={loadAll}
+          loadAll={() => refreshData('pricelist-directory')}
           setSelectedPricelist={setSelectedPricelist}
           loadPricelistItems={loadPricelistItems}
         />
@@ -365,7 +365,7 @@ export default function AppWorkflowModals({ ui, constants, state, actions }) {
           generatePricelistForm={generatePricelistForm}
           setGeneratePricelistForm={setGeneratePricelistForm}
           API={API}
-          loadAll={loadAll}
+          loadAll={() => refreshData('pricelist-directory')}
           setSelectedPricelist={setSelectedPricelist}
           loadPricelistItems={loadPricelistItems}
         />
@@ -522,7 +522,7 @@ export default function AppWorkflowModals({ ui, constants, state, actions }) {
           fileSrc={fileSrc}
           API={API}
           user={user}
-          loadAll={loadAll}
+          loadAll={() => refreshData('myexpenses')}
         />
       )}
 
