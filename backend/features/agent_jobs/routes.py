@@ -6,7 +6,11 @@ from pydantic import BaseModel
 
 from ..director_daily_brief.query_service import (
     DirectorDailyBriefQueryError,
+    get_daily_brief_explanation,
     get_latest_director_daily_brief,
+)
+from ..director_daily_brief.explanation_contract import (
+    DirectorDailyBriefExplanationError,
 )
 from .cancellation_service import (
     AgentJobCancellationError,
@@ -141,10 +145,21 @@ def register_agent_jobs_module(app, deps):
                 allowed_roles=read_roles,
             )
             try:
-                return get_latest_director_daily_brief(
+                result = get_latest_director_daily_brief(
                     cur,
                     company_id=actor["companyId"],
                 )
+                if result.get("available") is True:
+                    try:
+                        result["explanation"] = get_daily_brief_explanation(
+                            cur,
+                            company_id=actor["companyId"],
+                            source_job_id=result["jobId"],
+                            brief=result["brief"],
+                        )
+                    except DirectorDailyBriefExplanationError:
+                        result["explanation"] = None
+                return result
             except DirectorDailyBriefQueryError as exc:
                 raise HTTPException(
                     status_code=409,

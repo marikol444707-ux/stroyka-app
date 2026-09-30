@@ -87,4 +87,28 @@ describe('DirectorDailyBriefPanel', () => {
     expect(screen.getByText('Готовая фоновая сводка пока не сформирована.')).toBeInTheDocument();
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
+
+  test('shows an optional short explanation only inside expanded details', () => {
+    render(<DirectorDailyBriefPanel state={{status: 'ready', data: {
+      completedAt: '2026-08-05T11:30:00',
+      brief: {
+        briefDate: '2026-08-05',
+        summary: {total: 1, critical: 1, warning: 0, info: 0},
+        sections: [],
+      },
+      explanation: {
+        headline: 'Есть вопросы, требующие внимания',
+        overview: 'Проверьте сроки объекта.',
+        points: [{sourceCode: 'project.deadline_overdue', text: 'Срок требует проверки.'}],
+      },
+    }, error: ''}}/>);
+
+    expect(screen.queryByText('Короткое объяснение')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', {name: 'Подробнее'}));
+    expect(screen.getByText('Короткое объяснение')).toBeInTheDocument();
+    expect(screen.getByText('Есть вопросы, требующие внимания')).toBeInTheDocument();
+    expect(screen.getByText('Проверьте сроки объекта.')).toBeInTheDocument();
+    expect(screen.getByText('Срок требует проверки.')).toBeInTheDocument();
+    expect(screen.getByText('AI объясняет готовые данные и ничего не изменяет')).toBeInTheDocument();
+  });
 });

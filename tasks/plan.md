@@ -427,6 +427,40 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
 - [x] ~~Task A4.2.2: Deploy the fail-closed exact-job runner hand-off on runtime `ed11051bb8d8`. `--once --job-id <id>` atomically claims only that queued, due, attempt-eligible ID from the immutable handler allowlist, skips global recovery and never falls through to a neighboring row. Unclaimable targets return metadata-only `not_claimed` with exit code `2`; `--job-id` without `--once` is rejected. Public smoke passes; no schedule, daemon, model, MAX or business mutation is enabled.~~
 - [x] ~~Task A4.2.3: Deploy the dry-run-by-default controlled cycle for one explicit company/date on runtime `ed11051bb8d8`. Explicit apply commits the idempotent producer first and then executes only its returned exact job ID after validating company/date/type. Existing success is not rerun; every other nonqueued or unclaimable state fails closed. Public smoke passes; business writes remain zero and no schedule, daemon, model, MAX or fan-out is enabled.~~
 - [x] ~~Task A4.2.4: Deploy runtime `2e14a3a2ca3c` and enable the prepared one-company daily one-shot schedule. Linux unit validation and public smoke pass; manual company `1` job `9` for Moscow date `2026-08-06` succeeded in `268 ms` with zero business writes. The timer is enabled for about `07:10 Europe/Moscow`; the generic daemon, model, MAX and fan-out remain disabled. Protected smoke was skipped because credentials were not supplied.~~
+  - [x] ~~Task A4.3a: Freeze the bounded source/result contract for an optional
+    model explanation linked to one exact succeeded daily-brief job; no model
+    call, route, queue write or delivery.~~ Canonical input contains only the
+    validated public brief and is capped at 32 KiB. Untrusted output must match
+    the exact JSON shape, reference existing source codes, contain no HTML,
+    control characters or new numeric claims, and remain within fixed limits.
+  - [x] ~~Task A4.3b: Add a separate default-off gateway-backed explanation job
+    and idempotent producer. Failure must preserve the deterministic brief.~~
+    The handler reads one exact succeeded company-owned source, sends only the
+    validated public projection through capability `director_agent`, and
+    validates the model result. The producer is dry-run-first and disabled by
+    default; the handler is absent from the default worker registry and can be
+    added only by an explicit boolean registry control.
+  - [x] ~~Task A4.4: Expose the validated explanation in the leadership API and
+    compact in-app view with exact company/source binding.~~ The existing
+    leadership endpoint reads only the newest successful explanation whose
+    payload names the displayed source job. Invalid explanation data fails soft
+    and never hides the deterministic brief. The compact explanation appears
+    only inside expanded details and is explicitly labelled read-only AI text.
+  - [x] ~~Task A4.5: Add separate idempotent MAX delivery only to an active,
+    company-bound leadership recipient; no business-action buttons.~~ Delivery
+    is disabled by default and requires an exact recipient user ID. The server
+    revalidates the successful explanation/source pair, active company
+    leadership membership and exactly one verified MAX account. A transaction
+    advisory lock plus exact outbox lookup prevents repeat delivery; the
+    message has an empty actions list and contains no business command.
+  - [x] ~~Task A4.6a: Complete local regression/security review.~~ Focused
+    backend suites (`178` tests), the complete frontend suite (`1615` tests),
+    production build and top-level production imports pass. Full backend
+    discovery completed `5428` tests; its only remaining local failures are the
+    eight existing isolated-PDF checks because this workstation has `pypdf`
+    only in the user site, which Python `-I` intentionally excludes.
+  - [ ] Task A4.6b: Run a separately reviewed one-company production canary
+    before enabling any scheduled explanation delivery or fan-out.
 - [ ] Task A5: Add one `Требует внимания` queue with reason, priority, owner, project and the next safe action.
 - [x] ~~Task A5.1: Deploy and verify the read-only attention projection. It exposes only critical/warning items from the latest validated single-company brief, caps visible rows at 12, uses immutable server-owned reason/action policy, and renders no action buttons. Runtime `74344e8692f9`, public smoke, protected selected-company access, aggregate-company denial and public-field policy all pass.~~
 - [ ] Task A6: Run checks automatically after data changes and keep only resolve/approve commands visible; move history, export and rare actions to an overflow menu.

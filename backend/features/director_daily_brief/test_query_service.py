@@ -4,6 +4,7 @@ from datetime import datetime
 from backend.features.director_daily_brief.query_service import (
     DirectorDailyBriefQueryError,
     get_latest_director_daily_brief,
+    get_daily_brief_explanation,
 )
 
 
@@ -73,6 +74,41 @@ def valid_result():
 
 
 class DirectorDailyBriefQueryTests(unittest.TestCase):
+    def test_returns_only_an_explanation_bound_to_the_exact_source(self):
+        stored = {
+            "schemaVersion": 1,
+            "sourceJobId": 17,
+            "headline": "Есть вопросы, требующие внимания",
+            "overview": "Проверьте сроки объекта.",
+            "points": [{
+                "sourceCode": "project.deadline_overdue",
+                "text": "Срок объекта требует проверки.",
+            }],
+        }
+        cur = FakeCursor({
+            "id": 19,
+            "completed_at": datetime(2026, 8, 5, 11, 35, 0),
+            "result_json": stored,
+        })
+
+        result = get_daily_brief_explanation(
+            cur, company_id=4, source_job_id=17, brief=valid_result()
+        )
+
+        self.assertEqual(result["explanationJobId"], 19)
+        self.assertEqual(result["sourceJobId"], 17)
+        self.assertEqual(result["completedAt"], "2026-08-05T11:35:00")
+        self.assertEqual(result["headline"], stored["headline"])
+        sql, params = cur.calls[0]
+        self.assertIn("company_id=%s", sql)
+        self.assertIn("payload_json->>'sourceJobId'=%s", sql)
+        self.assertEqual(params, (4, "director.daily_brief.explanation", "17"))
+
+    def test_returns_none_when_the_exact_explanation_is_absent(self):
+        self.assertIsNone(get_daily_brief_explanation(
+            FakeCursor(None), company_id=4, source_job_id=17, brief=valid_result()
+        ))
+
     def test_returns_latest_company_scoped_public_projection(self):
         row = {
             "id": 17,
