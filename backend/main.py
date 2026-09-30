@@ -111,6 +111,7 @@ try:
     from backend.features.model_gateway.yandex_adapter import (
         build_yandex_model_adapter,
     )
+    from backend.features.model_gateway.runtime import generate_yandex_text
 except ModuleNotFoundError:
     from features.model_gateway.contract import (
         MODEL_GATEWAY_PROVIDER_FAILED,
@@ -118,6 +119,7 @@ except ModuleNotFoundError:
         build_model_request,
     )
     from features.model_gateway.yandex_adapter import build_yandex_model_adapter
+    from features.model_gateway.runtime import generate_yandex_text
 
 try:
     from backend.features.supply_delivery.model import (
@@ -23380,7 +23382,6 @@ def _enhance_norm_suggestions_with_ai(suggestions: list[dict]) -> list[dict]:
     if not suggestions or not (YANDEX_API_KEY and YANDEX_FOLDER_ID):
         return suggestions
     try:
-        import openai as oa
         import re as _re
         compact = [{
             "dedupeKey": s.get("dedupeKey"),
@@ -23398,23 +23399,18 @@ def _enhance_norm_suggestions_with_ai(suggestions: list[dict]) -> list[dict]:
             "Верни JSON: {\"suggestions\":[{\"dedupeKey\":\"...\",\"workKeywords\":[\"...\"],\"materialKeywords\":[\"...\"],\"blockWorkKeywords\":[\"демонтаж\",\"разбор\"],\"label\":\"краткая норма\",\"reason\":\"почему предложено\",\"confidence\":0.0-0.95}]}\n\n"
             "ДАННЫЕ:\n" + json.dumps(compact, ensure_ascii=False)
         )
-        client = oa.OpenAI(api_key=YANDEX_API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=YANDEX_FOLDER_ID)
-        raw = ""
-        for model_id in ("qwen3.6-35b-a3b/latest", "yandexgpt-5.1/latest"):
-            try:
-                r = client.responses.create(
-                    model="gpt://" + YANDEX_FOLDER_ID + "/" + model_id,
-                    temperature=0.1,
-                    instructions=instructions,
-                    input=prompt,
-                    max_output_tokens=3000,
-                )
-                raw = (r.output_text or "").strip()
-                if raw:
-                    break
-            except Exception as e:
-                print("MATERIAL NORM SUGGEST AI ERROR:", str(e))
-        if not raw:
+        try:
+            raw = generate_yandex_text(
+                capability="material_norm_suggestion",
+                instructions=instructions,
+                input_text=prompt,
+                temperature=0.1,
+                max_output_tokens=3000,
+                api_key=YANDEX_API_KEY,
+                folder_id=YANDEX_FOLDER_ID,
+            ).strip()
+        except ModelGatewayError as error:
+            print("MATERIAL NORM SUGGEST AI ERROR:", error.code)
             return suggestions
         clean = _re.sub(r"^```(?:json)?\s*", "", raw).strip()
         clean = _re.sub(r"\s*```\s*$", "", clean).strip()
@@ -24527,7 +24523,7 @@ def update_material_inspection(id: int, data: dict, request: Request, _current_u
 def ai_suggest_material_inspection(id: int, request: Request, _current_user: dict = Depends(_quality_journal_writer)):
     if quality_access_enabled():
         return _owned_quality_suggestion(_current_user, request, 'material_inspection_journal', id)
-    import openai as oa, json as j, re
+    import json as j, re
     conn = get_db()
     cur = conn.cursor()
     require_row_project_access(cur, "material_inspection_journal", id, _current_user)
@@ -24551,20 +24547,19 @@ def ai_suggest_material_inspection(id: int, request: Request, _current_user: dic
         "(паспорт качества, сертификат соответствия, протокол испытаний, декларация). 1-2 предложения."
     )
     instructions = "Ты отвечаешь СТРОГО валидным JSON. Никакого markdown, никаких тройных кавычек."
-    client = oa.OpenAI(api_key=YANDEX_API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=YANDEX_FOLDER_ID)
-    def _call(model_id):
-        try:
-            r = client.responses.create(model="gpt://"+YANDEX_FOLDER_ID+"/"+model_id, temperature=0.1, instructions=instructions, input=user_text, max_output_tokens=1500)
-            return (r.output_text or ""), None
-        except Exception as e:
-            return "", str(e)
-    answer, err = _call("qwen3.6-35b-a3b/latest")
-    if not (answer or "").strip():
-        print("AI-SUGGEST inspection primary empty, fallback. err=" + str(err))
-        answer, err = _call("yandexgpt-5.1/latest")
-    if not (answer or "").strip():
+    try:
+        answer = generate_yandex_text(
+            capability="material_inspection_suggestion",
+            instructions=instructions,
+            input_text=user_text,
+            temperature=0.1,
+            max_output_tokens=1500,
+            api_key=YANDEX_API_KEY,
+            folder_id=YANDEX_FOLDER_ID,
+        )
+    except ModelGatewayError as error:
         conn.close()
-        raise HTTPException(status_code=502, detail="AI вернул пустой ответ: " + str(err))
+        raise HTTPException(status_code=502, detail="AI не ответил: " + error.code)
     text = answer.strip()
     m = re.search(r"\{.*\}", text, re.DOTALL)
     if m:
@@ -24699,7 +24694,7 @@ def update_cable_journal(id: int, data: dict, request: Request, _current_user: d
 def ai_suggest_cable_journal(id: int, request: Request, _current_user: dict = Depends(_quality_journal_writer)):
     if quality_access_enabled():
         return _owned_quality_suggestion(_current_user, request, 'cable_journal', id)
-    import openai as oa, json as j, re
+    import json as j, re
     conn = get_db()
     cur = conn.cursor()
     require_row_project_access(cur, "cable_journal", id, _current_user)
@@ -24725,20 +24720,19 @@ def ai_suggest_cable_journal(id: int, request: Request, _current_user: dict = De
         "- recommendations: 1-2 предложения по способу прокладки и испытаниям перед сдачей."
     )
     instructions = "Ты отвечаешь СТРОГО валидным JSON. Никакого markdown, никаких тройных кавычек."
-    client = oa.OpenAI(api_key=YANDEX_API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=YANDEX_FOLDER_ID)
-    def _call(model_id):
-        try:
-            r = client.responses.create(model="gpt://"+YANDEX_FOLDER_ID+"/"+model_id, temperature=0.1, instructions=instructions, input=user_text, max_output_tokens=1500)
-            return (r.output_text or ""), None
-        except Exception as e:
-            return "", str(e)
-    answer, err = _call("qwen3.6-35b-a3b/latest")
-    if not (answer or "").strip():
-        print("AI-SUGGEST cable primary empty, fallback. err=" + str(err))
-        answer, err = _call("yandexgpt-5.1/latest")
-    if not (answer or "").strip():
+    try:
+        answer = generate_yandex_text(
+            capability="cable_journal_suggestion",
+            instructions=instructions,
+            input_text=user_text,
+            temperature=0.1,
+            max_output_tokens=1500,
+            api_key=YANDEX_API_KEY,
+            folder_id=YANDEX_FOLDER_ID,
+        )
+    except ModelGatewayError as error:
         conn.close()
-        raise HTTPException(status_code=502, detail="AI вернул пустой ответ: " + str(err))
+        raise HTTPException(status_code=502, detail="AI не ответил: " + error.code)
     text = answer.strip()
     m = re.search(r"\{.*\}", text, re.DOTALL)
     if m:
@@ -24844,7 +24838,6 @@ def delete_tb_entry(id: int, current_user: dict = Depends(require_roles(*LEADERS
 @app.post("/tb-journal/ai-generate")
 def ai_generate_tb_instruction(data: dict, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
     """AI генерирует текст инструктажа по ГОСТ 12.0.004-2015 для указанного типа работ."""
-    import openai as oa
     instruction_type = data.get("instructionType", "Первичный инструктаж")
     work_context = data.get("workContext", "")
     project_name = data.get("projectName", "")
@@ -24861,22 +24854,18 @@ def ai_generate_tb_instruction(data: dict, current_user: dict = Depends(require_
         "Используй официальный канцелярский русский. Объём 8-15 строк."
     )
     instructions = "Ты эксперт по охране труда в строительстве. Отвечай прямым связным текстом, без markdown."
-    client = oa.OpenAI(api_key=YANDEX_API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=YANDEX_FOLDER_ID)
-    def _call(model_id):
-        try:
-            r = client.responses.create(
-                model="gpt://" + YANDEX_FOLDER_ID + "/" + model_id,
-                temperature=0.2, instructions=instructions, input=user_text, max_output_tokens=2000,
-            )
-            return (r.output_text or ""), None
-        except Exception as e:
-            return "", str(e)
-    answer, err = _call("yandexgpt-5.1/latest")
-    if not (answer or "").strip():
-        print("AI-TB primary empty, fallback. err=" + str(err))
-        answer, err = _call("qwen3.6-35b-a3b/latest")
-    if not (answer or "").strip():
-        raise HTTPException(status_code=502, detail="AI вернул пустой ответ: " + str(err))
+    try:
+        answer = generate_yandex_text(
+            capability="tb_instruction",
+            instructions=instructions,
+            input_text=user_text,
+            temperature=0.2,
+            max_output_tokens=2000,
+            api_key=YANDEX_API_KEY,
+            folder_id=YANDEX_FOLDER_ID,
+        )
+    except ModelGatewayError as error:
+        raise HTTPException(status_code=502, detail="AI не ответил: " + error.code)
     return {"ok": True, "instructionText": answer.strip()}
 
 try:
@@ -26502,7 +26491,6 @@ register_ai_summary_module(app, {
 
 @app.post("/ai-generate-estimate")
 def ai_generate_estimate(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
-    import openai as oa
     import json as _json
     description = (data.get("description") or "").strip()
     project_id = data.get("projectId")
@@ -26581,21 +26569,19 @@ def ai_generate_estimate(data: dict, _current_user: dict = Depends(require_roles
 
     instructions = "Ты отвечаешь СТРОГО валидным JSON. Никакого markdown, ```, никакого текста до или после JSON. Только сам JSON."
 
-    client = oa.OpenAI(api_key=YANDEX_API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=YANDEX_FOLDER_ID)
     try:
-        response = client.responses.create(
-            model="gpt://" + YANDEX_FOLDER_ID + "/qwen3.6-35b-a3b/latest",
-            temperature=0.2,
+        raw = generate_yandex_text(
+            capability="estimate_generation",
             instructions=instructions,
-            input=full_prompt,
+            input_text=full_prompt,
+            temperature=0.2,
             max_output_tokens=6000,
-        )
-        raw = (response.output_text or "").strip()
-    except Exception as e:
+            api_key=YANDEX_API_KEY,
+            folder_id=YANDEX_FOLDER_ID,
+        ).strip()
+    except ModelGatewayError as error:
         cur.close(); conn.close()
-        print("AI-GENERATE EXCEPTION:", str(e))
-        raise HTTPException(status_code=500, detail="Ошибка ИИ: " + str(e))
-
+        raise HTTPException(status_code=500, detail="Ошибка ИИ: " + error.code)
     print("AI-GENERATE RAW LEN:", len(raw))
     print("AI-GENERATE RAW HEAD:", raw[:300])
     print("AI-GENERATE RAW TAIL:", raw[-300:] if len(raw) > 300 else "")
@@ -26762,7 +26748,6 @@ def pricelist_from_estimate(data: dict, _current_user: dict = Depends(require_ro
 
 @app.post("/ai-generate-pricelist")
 def ai_generate_pricelist(data: dict, _current_user: dict = Depends(require_roles(*PRICELIST_MANAGE_ROLES))):
-    import openai as oa
     import json as _json
     description = (data.get("description") or "").strip()
     name_hint = (data.get("name") or "Прайс-лист (ИИ)").strip()
@@ -26795,29 +26780,20 @@ def ai_generate_pricelist(data: dict, _current_user: dict = Depends(require_role
 5. ТОЛЬКО валидный JSON, никакого текста до/после.""")
     full_prompt = "\n".join(parts)
 
-    client = oa.OpenAI(api_key=YANDEX_API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=YANDEX_FOLDER_ID)
-
-    def _call(model_id):
-        try:
-            r = client.responses.create(
-                model="gpt://" + YANDEX_FOLDER_ID + "/" + model_id,
-                temperature=0.2,
-                instructions=instructions,
-                input=full_prompt,
-                max_output_tokens=5000,
-            )
-            return (r.output_text or "").strip(), None
-        except Exception as e:
-            return "", str(e)
-
-    raw, err = _call("qwen3.6-35b-a3b/latest")
-    if not raw.strip():
-        print("AI-PRICELIST PRIMARY EMPTY, err=" + str(err))
-        raw, err = _call("yandexgpt-5.1/latest")
+    try:
+        raw = generate_yandex_text(
+            capability="pricelist_generation",
+            instructions=instructions,
+            input_text=full_prompt,
+            temperature=0.2,
+            max_output_tokens=5000,
+            api_key=YANDEX_API_KEY,
+            folder_id=YANDEX_FOLDER_ID,
+        ).strip()
+    except ModelGatewayError as error:
+        raise HTTPException(status_code=502, detail="ИИ не ответил: " + error.code)
     print("AI-PRICELIST RAW LEN:", len(raw))
     print("AI-PRICELIST RAW HEAD:", raw[:300])
-    if not raw.strip():
-        raise HTTPException(status_code=500, detail="ИИ вернул пустой ответ. Попробуйте ещё раз.")
 
     import re as _re
     clean = raw.strip()
@@ -27119,7 +27095,7 @@ def delete_hidden_works_act(act_id: int, _current_user: dict = Depends(get_curre
 
 @app.post("/hidden-works-acts/{act_id}/ai-prefill")
 def ai_prefill_hidden_works_act(act_id: int, _current_user: dict = Depends(get_current_user), request: Request = None):
-    import openai as oa, json as j, re
+    import json as j, re
     conn = get_db()
     conn.autocommit = False
     cur = conn.cursor()
@@ -27155,29 +27131,18 @@ def ai_prefill_hidden_works_act(act_id: int, _current_user: dict = Depends(get_c
     )
 
     instructions = "Ты отвечаешь СТРОГО валидным JSON. Никакого markdown, никаких тройных кавычек, никакого текста до или после JSON. Только сам JSON."
-    client = oa.OpenAI(api_key=YANDEX_API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=YANDEX_FOLDER_ID)
-
-    def _call(model_id):
-        try:
-            r = client.responses.create(
-                model="gpt://" + YANDEX_FOLDER_ID + "/" + model_id,
-                temperature=0.1,
-                instructions=instructions,
-                input=user_text,
-                max_output_tokens=2000,
-            )
-            return (r.output_text or ""), None
-        except Exception as e:
-            return "", str(e)
-
-    answer, err = _call("qwen3.6-35b-a3b/latest")
-    if not (answer or "").strip():
-        print("AI-PREFILL primary empty, fallback. err=" + str(err))
-        answer, err = _call("yandexgpt-5.1/latest")
-    if not (answer or "").strip():
-        conn.close()
-        raise HTTPException(status_code=502, detail="AI вернул пустой ответ: " + str(err))
-
+    try:
+        answer = generate_yandex_text(
+            capability="hidden_works_act_prefill",
+            instructions=instructions,
+            input_text=user_text,
+            temperature=0.1,
+            max_output_tokens=2000,
+            api_key=YANDEX_API_KEY,
+            folder_id=YANDEX_FOLDER_ID,
+        )
+    except ModelGatewayError as error:
+        raise HTTPException(status_code=502, detail="AI не ответил: " + error.code)
     text = answer.strip()
     m = re.search(r"\{.*\}", text, re.DOTALL)
     if m:
