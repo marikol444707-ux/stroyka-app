@@ -54,6 +54,20 @@ class DeployMigrationTests(unittest.TestCase):
         self.assertLess(deploy.index(migration), deploy.index(restart))
         self.assertNotIn("alembic stamp", deploy)
 
+    def test_deploy_verifies_enabled_frontend_features_before_migration(self):
+        deploy = DEPLOY_PATH.read_text(encoding="utf-8")
+
+        frontend_build = (
+            'env "${FRONTEND_BUILD_ENV[@]}" '
+            'BUILD_PATH="$FRONTEND_BUILD_DIR" npm run build'
+        )
+        feature_check = 'python3 scripts/verify-frontend-feature-build.py "$FRONTEND_BUILD_DIR"'
+        migration = "python3 -m alembic upgrade head"
+
+        self.assertIn(feature_check, deploy)
+        self.assertLess(deploy.index(frontend_build), deploy.index(feature_check))
+        self.assertLess(deploy.index(feature_check), deploy.index(migration))
+
     def test_active_agent_worker_restarts_after_backend_and_before_smoke(self):
         deploy = DEPLOY_PATH.read_text(encoding="utf-8")
 

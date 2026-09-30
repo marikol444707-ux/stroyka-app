@@ -51,6 +51,8 @@ if [ "${#FRONTEND_BUILD_ENV[@]}" -gt 0 ]; then
   echo "Frontend A10 включён для backend allowlist."
 fi
 env "${FRONTEND_BUILD_ENV[@]}" BUILD_PATH="$FRONTEND_BUILD_DIR" npm run build
+printf '%s\n' "$FRONTEND_BUILD_ENV_OUTPUT" \
+  | python3 scripts/verify-frontend-feature-build.py "$FRONTEND_BUILD_DIR"
 echo "Применение миграций базы данных..."
 PGOPTIONS="-c lock_timeout=5000 -c statement_timeout=60000" \
   python3 -m alembic upgrade head
