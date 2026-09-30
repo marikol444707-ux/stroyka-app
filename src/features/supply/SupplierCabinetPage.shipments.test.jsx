@@ -27,10 +27,13 @@ it('offers remaining quantity on the same KP and prevents a double click',async(
  await waitFor(()=>expect(screen.getByRole('button',{name:'Отгрузить'})).not.toBeDisabled());
  window.history.replaceState({},'', '/app');
 });
-it('explains on mobile why a prepayment order cannot be shipped yet',()=>{
+it('allows shipment before a bank payment when the supplier grants deferral',()=>{
  window.history.replaceState({},'', '/app?supplyRequestId=879');
  render(<Cabinet send={jest.fn()} paymentTerms="Предоплата 100%" invoiceStatus="Утверждён" paidAmount={0}/>);
- expect(screen.getByText(/Следующий шаг: дождитесь фактической оплаты счёта/)).toHaveTextContent('Сейчас зафиксировано 0 ₽');
- expect(screen.getByRole('button',{name:'🚚 Отгрузить остаток'})).toBeDisabled();
+ expect(screen.queryByText(/дождитесь фактической оплаты счёта/)).not.toBeInTheDocument();
+ const ship=screen.getByRole('button',{name:'🚚 Отгрузить остаток'});
+ expect(ship).not.toBeDisabled();
+ fireEvent.click(ship);
+ expect(screen.getByLabelText('Отгрузить: Кабель')).toHaveValue(1);
  window.history.replaceState({},'', '/app');
 });

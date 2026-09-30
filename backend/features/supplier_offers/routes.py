@@ -1395,7 +1395,6 @@ def register_supplier_offers_module(app, deps):
                 bound_contract = select_shipment_contract(cur, id, inv, requested_contract_id)
                 if bound_contract:
                     offer['payment_terms'] = bound_contract['snapshot_json']['paymentTerms']
-            terms = (offer.get('payment_terms') or '').lower()
             scheduled_advance = None
             effective_amount = None
             if inv:
@@ -1412,17 +1411,6 @@ def register_supplier_offers_module(app, deps):
                 paid = Decimal(str(inv.get('paid_amount') or 0))
                 if not paid.is_finite() or paid < scheduled_advance:
                     raise HTTPException(400, f'По сохранённому графику до отгрузки требуется {scheduled_advance:.2f} ₽')
-            need_payment = ('предоплат' in terms) or ('50/50' in terms) or ('50' in terms and 'постоплат' not in terms)
-            if need_payment and scheduled_advance is None:
-                paid = _float_or_zero(inv['paid_amount']) if inv else 0
-                amount = _float_or_zero(inv['amount']) if inv else _float_or_zero(offer['total_price'])
-                required = amount if '100' in terms or 'предоплат' in terms else amount * 0.5
-                if effective_amount is not None:
-                    required = min(required,float(effective_amount))
-                if not inv:
-                    raise HTTPException(status_code=400, detail="Сначала поставщик должен выставить счёт, а бухгалтерия — оплатить по условиям КП")
-                if paid + 0.01 < required:
-                    raise HTTPException(status_code=400, detail=f"По условиям «{offer.get('payment_terms') or ''}» перед отгрузкой нужно оплатить минимум {round(required, 2)} ₽. Сейчас оплачено {round(paid, 2)} ₽")
             kp_by_key = quote_lines(_json_list_or_empty(offer.get('items_kp_json')))
             cur.execute('SELECT * FROM supply_deliveries WHERE offer_id=%s ORDER BY id FOR UPDATE', (id,))
             existing_rows = cur.fetchall()

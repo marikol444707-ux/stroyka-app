@@ -22,15 +22,7 @@ export function canPrepareOffer(offer,invoices=[],deliveries=[],request=null) {
     const order=supplierOrders([request],[offer],deliveries,invoices)[0];
     if(!order || order.review || !order.lines.some(line=>line.toShip>0)) return false;
   } else if(deliveries.some(d=>String(d.offerId ?? d.offer_id)===String(offer.id))) return false;
-  const terms=String(offer.paymentTerms || '').toLowerCase();
-  const needPay=terms.includes('предоплат') || terms.includes('50/50') || (terms.includes('50') && !terms.includes('постоплат'));
-  if(!needPay) return true;
-  const invoice=invoices.filter(i=>String(i.offerId ?? i.offer_id)===String(offer.id)).sort((a,b)=>Number(b.id)-Number(a.id))[0];
-  if(!invoice) return false;
-  const amount=Number(invoice.amount ?? offer.totalPrice),paid=Number(invoice.paidAmount ?? invoice.paid_amount ?? 0);
-  if(!Number.isFinite(amount) || amount<=0 || !Number.isFinite(paid)) return false;
-  const required=Math.min(terms.includes('100') || terms.includes('предоплат') ? amount : amount*.5, Number(invoice.effectiveAmount ?? amount));
-  return paid+.01>=required;
+  return true;
 }
 export function requestAttention(quotes,invoices,deliveries,now,request=null) {
   const states=new Set(quotes.map(q=>deadlineState(q,now)).filter(Boolean));
