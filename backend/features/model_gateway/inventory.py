@@ -8,11 +8,6 @@ from backend.features.model_gateway.policies import MODEL_CAPABILITIES
 
 _EXPECTED_ACCESS = (
     ("backend/main.py", "_director_agent_call_yandex", "director_agent"),
-    (
-        "backend/features/hidden_works_detection/model.py",
-        "generate_hidden_works_detection_legacy",
-        "hidden_works_detection",
-    ),
     ("backend/main.py", "ai_chat", "ai_chat"),
     ("backend/main.py", "ai_chat._call", "ai_chat"),
     ("backend/main.py", "_enhance_norm_suggestions_with_ai", "material_norm_suggestion"),
@@ -42,11 +37,6 @@ _EXPECTED_ACCESS = (
     ("backend/main.py", "_repair_invoice_scan_json", "invoice_scan"),
     ("backend/main.py", "_retry_invoice_scan_compact_json", "invoice_scan"),
     ("backend/main.py", "scan_invoice", "invoice_scan"),
-    (
-        "backend/features/platform_admin/routes.py",
-        "_recognize_client_card_with_ai_legacy",
-        "platform_client_card",
-    ),
 )
 
 _EXPECTED_BY_KEY = {

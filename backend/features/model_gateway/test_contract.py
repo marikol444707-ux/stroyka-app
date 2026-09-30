@@ -256,13 +256,13 @@ class ModelAccessInventoryTest(unittest.TestCase):
 
         self.assertTrue(report["complete"])
         self.assertEqual(report["logicalCapabilityCount"], 20)
-        self.assertEqual(report["directAccessCount"], 20)
+        self.assertEqual(report["directAccessCount"], 18)
         self.assertEqual(report["unexpected"], [])
         self.assertEqual(report["missing"], [])
         self.assertEqual(report["writesAttempted"], 0)
         self.assertEqual(
             len({item["capability"] for item in report["accessPoints"]}),
-            12,
+            10,
         )
 
     def test_new_direct_provider_access_fails_the_inventory(self):

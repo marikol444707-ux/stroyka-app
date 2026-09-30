@@ -14598,10 +14598,6 @@ def ai_detect_hidden_works(id: int, _current_user: dict = Depends(require_roles(
                 instructions,
                 YANDEX_API_KEY,
                 YANDEX_FOLDER_ID,
-                model_gateway_enabled=os.getenv(
-                    "HIDDEN_WORKS_DETECTION_MODEL_GATEWAY_ENABLED",
-                    "false",
-                ).strip().lower() in {"1", "true", "yes"},
             )
             text = (text or "").strip()
             m = re.search(r"\{.*\}", text, re.DOTALL)
@@ -27893,10 +27889,6 @@ register_platform_admin_routes(app, {
     "save_upload_bytes": save_upload_bytes,
     "yandex_api_key": YANDEX_API_KEY,
     "yandex_folder_id": YANDEX_FOLDER_ID,
-    "model_gateway_enabled": os.getenv(
-        "PLATFORM_CLIENT_CARD_MODEL_GATEWAY_ENABLED",
-        "false",
-    ).strip().lower() in ("1", "true", "yes"),
 })
 
 register_licensor_profile_routes(app, {

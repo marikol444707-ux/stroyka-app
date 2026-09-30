@@ -1579,50 +1579,7 @@ def _client_card_text_retry_input(source_text: str) -> str:
     return "Извлеченный текст карты клиента:\n" + text + "\n\n" + _CLIENT_CARD_PROMPT
 
 
-def _recognize_client_card_with_ai_legacy(file_content: bytes, file_name: str, content_type: str,
-                                          source_text: str, api_key: str, folder_id: str) -> tuple[dict, list]:
-    if not (api_key and folder_id):
-        return {}, ["AI/OCR не настроен: задайте YANDEX_API_KEY и YANDEX_FOLDER_ID."]
-    try:
-        import openai as oa
-    except Exception as exc:
-        return {}, ["AI-клиент недоступен: " + str(exc)]
-    content, warnings = _client_card_ai_content(
-        file_content,
-        file_name,
-        content_type,
-        source_text,
-    )
-    if not content:
-        return {}, warnings + ["Файл сохранен, но этот формат нельзя автоматически распознать. Заполните поля вручную или загрузите фото/PDF/Word/Excel."]
-    try:
-        client = oa.OpenAI(api_key=api_key, base_url="https://ai.api.cloud.yandex.net/v1", project=folder_id)
-        response = client.responses.create(
-            model=f"gpt://{folder_id}/qwen3.6-35b-a3b/latest",
-            temperature=0.1,
-            instructions=_CLIENT_CARD_INSTRUCTIONS,
-            input=[{"role": "user", "content": content}],
-            max_output_tokens=2500,
-        )
-        fields = _client_card_json(response.output_text or "")
-        retry_input = _client_card_text_retry_input(source_text)
-        if not fields and retry_input:
-            response = client.responses.create(
-                model=f"gpt://{folder_id}/qwen3.6-35b-a3b/latest",
-                temperature=0.1,
-                instructions=_CLIENT_CARD_INSTRUCTIONS,
-                input=retry_input,
-                max_output_tokens=2500,
-            )
-            fields = _client_card_json(response.output_text or "")
-        if not fields:
-            warnings.append(_CLIENT_CARD_INVALID_OUTPUT_WARNING)
-        return fields, warnings
-    except Exception as exc:
-        return {}, warnings + ["AI/OCR не смог распознать карту клиента: " + str(exc)]
-
-
-def _recognize_client_card_with_ai_gateway(file_content: bytes, file_name: str, content_type: str,
+def _recognize_client_card_with_ai(file_content: bytes, file_name: str, content_type: str,
                                            source_text: str, api_key: str, folder_id: str) -> tuple[dict, list]:
     if not (api_key and folder_id):
         return {}, ["AI/OCR не настроен: задайте YANDEX_API_KEY и YANDEX_FOLDER_ID."]
@@ -1691,23 +1648,6 @@ def _recognize_client_card_with_ai_gateway(file_content: bytes, file_name: str, 
     except Exception:
         return {}, warnings + ["AI/OCR не смог распознать карту клиента: " + MODEL_GATEWAY_PROVIDER_FAILED]
 
-
-def _recognize_client_card_with_ai(file_content: bytes, file_name: str, content_type: str,
-                                   source_text: str, api_key: str, folder_id: str,
-                                   model_gateway_enabled=False) -> tuple[dict, list]:
-    arguments = {
-        "file_content": file_content,
-        "file_name": file_name,
-        "content_type": content_type,
-        "source_text": source_text,
-        "api_key": api_key,
-        "folder_id": folder_id,
-    }
-    if model_gateway_enabled is True:
-        return _recognize_client_card_with_ai_gateway(**arguments)
-    return _recognize_client_card_with_ai_legacy(**arguments)
-
-
 def register_platform_admin_routes(app, deps):
     get_db = deps["get_db"]
     require_roles = deps["require_roles"]
@@ -1715,7 +1655,6 @@ def register_platform_admin_routes(app, deps):
     save_upload_bytes = deps.get("save_upload_bytes")
     yandex_api_key = deps.get("yandex_api_key") or ""
     yandex_folder_id = deps.get("yandex_folder_id") or ""
-    model_gateway_enabled = deps.get("model_gateway_enabled") is True
 
     @app.get("/system/tariffs")
     def system_tariffs_list(_current_user: dict = Depends(require_roles(*PLATFORM_VIEW_ROLES))):
@@ -1812,7 +1751,6 @@ def register_platform_admin_routes(app, deps):
             pasted_text,
             yandex_api_key,
             yandex_folder_id,
-            model_gateway_enabled=model_gateway_enabled,
         )
         warnings.extend(ai_warnings or [])
         fields = _normalize_client_card_fields(ai_fields, fallback)
