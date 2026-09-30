@@ -3952,7 +3952,9 @@ smoke remains a separate production-wide check.
 - [x] Python compile, static side-effect search, `git diff --check` and the
   production React build pass.
 - [x] Deploy the stacked A6.1/A6.2 commits and run public smoke.
-- [ ] Run the separate production-wide protected smoke for the deployed runtime.
+- [x] Run the separate production-wide protected smoke for the deployed runtime.
+  Completed during the later reviewed worker production acceptance recorded in
+  `docs/agent-job-worker-production.md`.
 - [x] Manually activate one expendable draft and confirm
   `agentDispatchShadow.state=planned` while no new `agent_jobs` row appears.
 
@@ -4066,6 +4068,45 @@ manual test window and were removed immediately after verification.
 **Next:** Execute only exact queued job `10` in a separately approved
 `--once --job-id 10` canary, then verify its bounded read-only result. Do not
 start the generic runner or daemon.
+
+## Task A6.4: Automatic Check Lifecycle Closure
+
+**Status:** Complete on 2026-10-01. The later reviewed worker activation
+completed the pending A6 canary and the simplified estimate toolbar is already
+part of the deployed main line.
+
+**Behavior:**
+- Estimate activation keeps its post-commit, exact-company, idempotent handoff.
+- The separately managed single-job worker processes only immutable registry
+  types. The current `director.daily_brief` handler is deterministic and
+  read-only.
+- The estimate screen keeps common work actions visible and places history,
+  Excel, status changes, reconciliation, templates and analysis under `Ещё`.
+
+**Production evidence:**
+- Job `10` is `succeeded`, used one attempt and contains only the bounded daily
+  brief result fields.
+- `stroyka` and `stroyka-agent-job-worker` are active.
+- The rolled-back operational report returned `readyForWorker=true`, `63`
+  total and `63` succeeded jobs, with zero due, delayed, running, expired,
+  failed, cancelled or disallowed jobs.
+- The HTTP service contains no `AGENT_CHANGE_DISPATCH_*` environment values.
+- The protected-smoke credential file validates, but a fresh noninteractive
+  run correctly stopped at the current 2FA boundary. The earlier successful
+  protected acceptance remains recorded in
+  `docs/agent-job-worker-production.md`.
+
+**Verification:**
+- [x] Re-read the exact production row for job `10` without exposing payload
+  or result content.
+- [x] Run the production worker operational report in read-only mode.
+- [x] Confirm both production services are active.
+- [x] Run the focused dispatch and toolbar regression suites.
+- [x] Record the permanent behavior and safety boundaries in
+  `docs/automatic-change-checks.md`.
+
+**Next:** A6 is closed. Continue with the next incomplete product block; do
+not broaden automatic events or external delivery as part of this closure.
 
 ## Task E3.1: Read-Only Brigade Assignment Lineage Audit
 
