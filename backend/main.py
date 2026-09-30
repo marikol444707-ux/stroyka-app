@@ -3044,8 +3044,6 @@ def health():
 
 DIRECTOR_AGENT_ROLES = ("директор", "system_owner")
 DIRECTOR_AGENT_MAX_STEPS = 4
-DIRECTOR_AGENT_URL = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
-
 # Keep the HTTP assistant and the background runner on one immutable read path.
 DIRECTOR_AGENT_TOOLS = SHARED_DIRECTOR_AGENT_TOOLS
 
@@ -3064,26 +3062,34 @@ def _director_agent_extract_json(text: str):
 def _director_agent_call_yandex(messages: list[dict], temperature: float = 0.2, max_tokens: int = 1600):
     if not YANDEX_API_KEY or not YANDEX_FOLDER_ID:
         raise HTTPException(status_code=503, detail="YANDEX_API_KEY / YANDEX_FOLDER_ID не настроены")
-    payload = {
-        "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt-lite/latest",
-        "completionOptions": {"stream": False, "temperature": temperature, "maxTokens": max_tokens},
-        "messages": messages,
+    system_parts = []
+    conversation = []
+    role_labels = {
+        "user": "ПОЛЬЗОВАТЕЛЬ",
+        "assistant": "АССИСТЕНТ",
     }
-    req = urllib.request.Request(
-        DIRECTOR_AGENT_URL,
-        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-        method="POST",
-    )
-    req.add_header("Authorization", "Api-Key " + YANDEX_API_KEY)
-    req.add_header("Content-Type", "application/json")
+    for message in messages or []:
+        role = str((message or {}).get("role") or "user")
+        text = str((message or {}).get("text") or "")
+        if role == "system":
+            system_parts.append(text)
+        else:
+            conversation.append(role_labels.get(role, "ПОЛЬЗОВАТЕЛЬ") + ":\n" + text)
     try:
-        with urllib.request.urlopen(req, timeout=40) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
-        return body["result"]["alternatives"][0]["message"]["text"]
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=502, detail="YandexGPT не ответил: " + str(e))
+        return generate_yandex_text(
+            capability="director_agent",
+            instructions="\n\n".join(system_parts) or "Отвечай по-русски.",
+            input_text="\n\n".join(conversation) or "Продолжи диалог.",
+            temperature=temperature,
+            max_output_tokens=max_tokens,
+            api_key=YANDEX_API_KEY,
+            folder_id=YANDEX_FOLDER_ID,
+        )
+    except ModelGatewayError as error:
+        raise HTTPException(
+            status_code=502,
+            detail="YandexGPT не ответил: " + error.code,
+        )
 
 @app.get("/director-agent/tools")
 def director_agent_tools(_current_user: dict = Depends(require_roles(*DIRECTOR_AGENT_ROLES))):

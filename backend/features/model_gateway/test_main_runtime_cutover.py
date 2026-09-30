@@ -17,6 +17,22 @@ EXPECTED = {
 
 
 class MainRuntimeGatewayCutoverTest(unittest.TestCase):
+    def test_director_agent_serializes_its_read_only_conversation_for_gateway(self):
+        tree = ast.parse(MAIN_PATH.read_text(encoding="utf-8"))
+        source = ast.unparse(next(
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "_director_agent_call_yandex"
+        ))
+
+        self.assertIn("generate_yandex_text", source)
+        self.assertIn("capability='director_agent'", source)
+        self.assertIn("max_output_tokens=max_tokens", source)
+        self.assertIn("role", source)
+        self.assertNotIn("urlopen", source)
+        self.assertNotIn("Api-Key", source)
+        self.assertNotIn("gpt://", source)
+
     def test_ai_chat_uses_explicit_gateway_routes_for_text_and_json(self):
         tree = ast.parse(MAIN_PATH.read_text(encoding="utf-8"))
         source = ast.unparse(next(
