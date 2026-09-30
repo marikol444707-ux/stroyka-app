@@ -717,7 +717,7 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
     deploy inert code and run the one-company audit-only canary.
   - [ ] A12.7+: Add at most one separately approved business action per ADR
     and proof slice; no generic executor.
-- [ ] Task A13: Run the worker separately on the current rented server and monitor queue depth, errors, duration and cost.
+- [x] ~~Task A13: Run the worker separately on the current rented server and monitor queue depth, errors, duration and cost.~~ Production acceptance on runtime `f5e82539313c`: the enabled one-process service matches the reviewed unit, passes systemd verification and cleanly restarts with deployments. The read-only report shows 63/63 succeeded jobs, zero due/delayed/running/failed jobs, zero expired leases, zero disallowed due types, 150 ms recent p95 and model cost correctly marked not applicable for the three deterministic handlers.
 - [x] ~~Task A14: Put model access behind a provider-neutral gateway; keep the cloud model first and evaluate a local model only after quality/load/cost measurements.~~ All 21 production capabilities now cross the closed gateway; the static inventory reports zero direct provider callers. The current Yandex routes and fallback order remain unchanged. The local hidden-works model passed the final offline holdout but remains disconnected from production traffic pending a separate rollout decision.
 
 Close and strike through a task only after applicable focused tests, full backend/frontend verification, manual browser checks, tenant/role isolation and production smoke. Record the evidence in `tasks/todo.md`.
