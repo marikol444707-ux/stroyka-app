@@ -93,15 +93,13 @@ from silently changing either branch merely to make the model table uniform.
   result using a fake provider.
 - Keep a small rollback path limited to that caller.
 
-Implemented behind the caller-local
-`ESTIMATE_CHAT_MODEL_GATEWAY_ENABLED` switch. Its safe default is `false`, so a
-normal deployment preserves the existing direct call. Setting it to `true`
-routes only estimate-chat generation through the gateway; setting it back to
-`false` is the rollback. The prompt, model, temperature and 1,500-token output
-limit are unchanged. The gateway adds the contract's explicit 120-second total
-deadline and replaces provider exception details with fixed non-secret failure
-codes. The route, authorization, message storage and response shape are
-unchanged.
+Estimate chat now uses the gateway directly after request-parity tests passed.
+The duplicated SDK caller and its temporary cutover switch were removed. The
+prompt, model, temperature and 1,500-token output limit are unchanged. The
+gateway adds the contract's explicit 120-second total deadline and replaces
+provider exception details with fixed non-secret failure codes. The route,
+authorization, message storage and response shape are unchanged. A release
+revert remains the bounded rollback for this single caller.
 
 ### A14.4: Remaining callers
 
@@ -111,16 +109,14 @@ unchanged.
 - Migrate the legacy direct HTTP caller in a dedicated final compatibility
   slice.
 
-The first A14.4 domain is document recognition. Its caller-local
-`DOCUMENT_RECOGNITION_MODEL_GATEWAY_ENABLED` switch defaults to `false`, so a
-normal deployment continues to use the byte-equivalent legacy SDK request.
-When explicitly enabled, only the AI extraction step crosses the gateway; role
-authorization, file/text extraction, heuristic fallback, JSON parsing, audit
-logging and the HTTP response shape remain in the document-recognition module.
-The model, instructions, serialized prompt, temperature and 2,500-token output
-limit are unchanged. The gateway adds a 120-second total deadline and returns
-only fixed non-secret failure codes. Setting the switch back to `false` is the
-domain-local rollback.
+The first A14.4 domain, document recognition, now uses the gateway directly
+after request-parity tests passed. Its duplicated SDK caller and temporary
+cutover switch were removed. Role authorization, file/text extraction,
+heuristic fallback, JSON parsing, audit logging and the HTTP response shape
+remain in the document-recognition module. The model, instructions, serialized
+prompt, temperature and 2,500-token output limit are unchanged. The gateway
+adds a 120-second total deadline and returns only fixed non-secret failure
+codes. A release revert remains the bounded rollback for this domain.
 
 The second A14.4 domain is project room-draft generation. Its caller-local
 `PROJECT_ROOM_DRAFT_MODEL_GATEWAY_ENABLED` switch also defaults to `false`.

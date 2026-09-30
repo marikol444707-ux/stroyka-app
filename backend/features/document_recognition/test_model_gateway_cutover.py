@@ -1,7 +1,5 @@
 import ast
 import json
-import sys
-import types
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -42,54 +40,7 @@ def _arguments():
 
 
 class DocumentRecognitionGatewayCutoverTest(unittest.TestCase):
-    def test_legacy_rollback_preserves_the_existing_sdk_request(self):
-        captured = {"client": None, "request": None}
-
-        class FakeResponses:
-            def create(self, **values):
-                captured["request"] = values
-                return SimpleNamespace(output_text='{"docType":"Договор"}')
-
-        class FakeOpenAI:
-            def __init__(self, **values):
-                captured["client"] = values
-                self.responses = FakeResponses()
-
-        fake_openai = types.ModuleType("openai")
-        fake_openai.OpenAI = FakeOpenAI
-
-        with patch.dict(sys.modules, {"openai": fake_openai}):
-            fields, warning = routes._ai_extract_legacy(**_arguments())
-
-        self.assertEqual(fields["docType"], "Договор")
-        self.assertEqual(warning, "")
-        self.assertEqual(
-            captured["client"],
-            {
-                "api_key": "private-key",
-                "base_url": "https://ai.api.cloud.yandex.net/v1",
-                "project": "folder-1",
-            },
-        )
-        self.assertEqual(
-            {key: value for key, value in captured["request"].items() if key != "input"},
-            {
-                "model": "gpt://folder-1/yandexgpt-5.1/latest",
-                "temperature": 0.1,
-                "instructions": routes._DOCUMENT_RECOGNITION_INSTRUCTIONS,
-                "max_output_tokens": 2500,
-            },
-        )
-        self.assertEqual(
-            json.loads(captured["request"]["input"]),
-            routes._document_recognition_prompt(**{
-                key: value
-                for key, value in _arguments().items()
-                if key not in {"api_key", "folder_id"}
-            }),
-        )
-
-    def test_gateway_path_builds_the_equivalent_provider_neutral_request(self):
+    def test_document_recognition_builds_the_provider_neutral_request(self):
         gateway = FakeGateway()
         adapter_arguments = []
 
@@ -98,7 +49,7 @@ class DocumentRecognitionGatewayCutoverTest(unittest.TestCase):
             return gateway
 
         with patch.object(routes, "build_yandex_model_adapter", adapter_factory):
-            fields, warning = routes._ai_extract_gateway(**_arguments())
+            fields, warning = routes._ai_extract(**_arguments())
 
         self.assertEqual(fields["docType"], "Договор")
         self.assertEqual(warning, "")
@@ -122,7 +73,7 @@ class DocumentRecognitionGatewayCutoverTest(unittest.TestCase):
         self.assertEqual(request.max_output_tokens, 2500)
         self.assertEqual(request.deadline_seconds, 120)
 
-    def test_gateway_path_returns_a_fixed_warning_without_provider_details(self):
+    def test_document_recognition_returns_a_fixed_warning_without_provider_details(self):
         gateway = FakeGateway(error=RuntimeError("provider leaked private-key"))
 
         with patch.object(
@@ -130,7 +81,7 @@ class DocumentRecognitionGatewayCutoverTest(unittest.TestCase):
             "build_yandex_model_adapter",
             lambda **_values: gateway,
         ):
-            fields, warning = routes._ai_extract_gateway(**_arguments())
+            fields, warning = routes._ai_extract(**_arguments())
 
         self.assertEqual(fields, {})
         self.assertEqual(
@@ -139,7 +90,7 @@ class DocumentRecognitionGatewayCutoverTest(unittest.TestCase):
         )
         self.assertNotIn("private-key", warning)
 
-    def test_gateway_path_preserves_a_fixed_gateway_failure_code(self):
+    def test_document_recognition_preserves_a_fixed_gateway_failure_code(self):
         from backend.features.model_gateway.contract import (
             MODEL_GATEWAY_DEADLINE_EXCEEDED,
             ModelGatewayError,
@@ -153,7 +104,7 @@ class DocumentRecognitionGatewayCutoverTest(unittest.TestCase):
             "build_yandex_model_adapter",
             lambda **_values: gateway,
         ):
-            fields, warning = routes._ai_extract_gateway(**_arguments())
+            fields, warning = routes._ai_extract(**_arguments())
 
         self.assertEqual(fields, {})
         self.assertEqual(
@@ -161,52 +112,24 @@ class DocumentRecognitionGatewayCutoverTest(unittest.TestCase):
             "AI-распознавание недоступно: model_gateway_deadline_exceeded",
         )
 
-    def test_cutover_defaults_to_legacy_and_enables_only_this_gateway(self):
-        calls = []
-        with (
-            patch.object(
-                routes,
-                "_ai_extract_legacy",
-                lambda **_values: calls.append("legacy") or ({"source": "old"}, ""),
-            ),
-            patch.object(
-                routes,
-                "_ai_extract_gateway",
-                lambda **_values: calls.append("gateway") or ({"source": "new"}, ""),
-            ),
-        ):
-            old = routes._ai_extract(**_arguments())
-            new = routes._ai_extract(
-                **_arguments(),
-                model_gateway_enabled=True,
-            )
-
-        self.assertEqual(old, ({"source": "old"}, ""))
-        self.assertEqual(new, ({"source": "new"}, ""))
-        self.assertEqual(calls, ["legacy", "gateway"])
-
-    def test_direct_provider_access_is_confined_to_the_rollback_function(self):
+    def test_document_recognition_has_no_direct_provider_or_cutover_flag(self):
         tree = ast.parse(ROUTES_PATH.read_text(encoding="utf-8"), filename=str(ROUTES_PATH))
         functions = {
             node.name: node
             for node in tree.body
             if isinstance(node, ast.FunctionDef)
-            and node.name in {
-                "_ai_extract",
-                "_ai_extract_gateway",
-                "_ai_extract_legacy",
-            }
+            and node.name.startswith("_ai_extract")
         }
 
         self.assertEqual(
             set(functions),
-            {"_ai_extract", "_ai_extract_gateway", "_ai_extract_legacy"},
+            {"_ai_extract"},
         )
-        self.assertIn("OpenAI", ast.unparse(functions["_ai_extract_legacy"]))
-        self.assertNotIn("OpenAI", ast.unparse(functions["_ai_extract_gateway"]))
-        self.assertNotIn("OpenAI", ast.unparse(functions["_ai_extract"]))
+        function_source = ast.unparse(functions["_ai_extract"])
+        self.assertNotIn("OpenAI", function_source)
+        self.assertNotIn("model_gateway_enabled", function_source)
 
-    def test_composition_root_keeps_the_cutover_disabled_by_default(self):
+    def test_composition_root_no_longer_has_a_cutover_flag(self):
         source = MAIN_PATH.read_text(encoding="utf-8")
         tree = ast.parse(source, filename=str(MAIN_PATH))
         registrations = [
@@ -224,15 +147,13 @@ class DocumentRecognitionGatewayCutoverTest(unittest.TestCase):
             for key, value in zip(dependency_map.keys, dependency_map.values)
             if isinstance(key, ast.Constant) and isinstance(key.value, str)
         }
-        flag_expression = values["model_gateway_enabled"]
-        self.assertIn("DOCUMENT_RECOGNITION_MODEL_GATEWAY_ENABLED", flag_expression)
-        self.assertIn("'false'", flag_expression)
+        self.assertNotIn("model_gateway_enabled", values)
         self.assertEqual(
             sum(
                 line == "DOCUMENT_RECOGNITION_MODEL_GATEWAY_ENABLED=false"
                 for line in ENV_EXAMPLE_PATH.read_text(encoding="utf-8").splitlines()
             ),
-            1,
+            0,
         )
 
 

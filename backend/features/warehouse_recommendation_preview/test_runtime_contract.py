@@ -721,7 +721,7 @@ class WarehouseAnomalyRuntimeDisclosurePolicyTests(unittest.TestCase):
             # Reviewed company/document isolation and tenant-scoped RFQ email changes;
             # warehouse preview implementation and registration are unchanged.
             backend_root / "main.py": (
-                "e295f582192724cdecb6fef04da26e083ff9d8674d126c54cdcd1d86a79c3d3c"
+                "64ac4bfe770c2ec566f2253699bf667942ac1a1aaa136662cfeafc1be5cba19f"
             ),
         }
         actual = {

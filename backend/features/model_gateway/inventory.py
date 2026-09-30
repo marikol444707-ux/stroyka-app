@@ -64,7 +64,6 @@ _EXPECTED_ACCESS = (
         "ai_prefill_hidden_works_act._call",
         "hidden_works_act_prefill",
     ),
-    ("backend/main.py", "_generate_estimate_chat_answer_legacy", "estimate_chat"),
     ("backend/main.py", "_repair_invoice_scan_json", "invoice_scan"),
     ("backend/main.py", "_retry_invoice_scan_compact_json", "invoice_scan"),
     ("backend/main.py", "scan_invoice", "invoice_scan"),
@@ -82,11 +81,6 @@ _EXPECTED_ACCESS = (
         "backend/features/project_records/routes.py",
         "_draft_rooms_with_ai_legacy",
         "project_room_draft",
-    ),
-    (
-        "backend/features/document_recognition/routes.py",
-        "_ai_extract_legacy",
-        "document_recognition",
     ),
     (
         "backend/features/platform_admin/routes.py",
