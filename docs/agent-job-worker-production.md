@@ -58,3 +58,27 @@ Before a later canary, all of these must be true:
 - the service unit passes `systemd-analyze verify` on Linux;
 - public and protected smoke checks remain green;
 - rollback commands have been prepared and tested without deleting queue data.
+
+## Production acceptance — 2026-10-01
+
+The separate worker is installed and enabled on the current server. The active
+unit is byte-identical to `ops/systemd/stroyka-agent-job-worker.service`, passes
+`systemd-analyze verify`, runs one Python process and has no restart failures.
+The normal deployment path has repeatedly stopped it with `SIGTERM`, waited for
+the clean `runner_stopped` event and started the released code with a new
+`runner_started` event. The HTTP service remained independent and healthy.
+
+The read-only production report on runtime `f5e82539313c` returned:
+
+- `63` total jobs: `63` succeeded, `0` due, delayed, running, failed or
+  cancelled;
+- `0` expired leases and `0` due job types outside the immutable registry;
+- one success and no failures in the last 24 hours, with `150 ms` recent p95;
+- complete schema readiness and `readyForWorker=true`;
+- `modelCost.state=notApplicable`, because all three registered handlers are
+  deterministic and model-free.
+
+The report used a rolled-back read-only `REPEATABLE READ` transaction and
+printed no payload, result, error text, correlation value, credential or lease
+token. Queue data was not modified. Stopping and disabling the unit remains the
+tested rollback boundary; queued rows would stay durable and recoverable.

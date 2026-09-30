@@ -69,9 +69,9 @@ The repository timer is disabled by default and is not installed by
 one manual company `1` one-shot and public smoke before the timer was enabled.
 The generic runner daemon remains disabled.
 
-## Prepared production service (A13)
+## Production service (A13)
 
-`ops/systemd/stroyka-agent-job-worker.service` prepares one continuous worker
+`ops/systemd/stroyka-agent-job-worker.service` defines one continuous worker
 with concurrency one, bounded restarts, a ten-minute graceful stop window and
 systemd hardening. `deploy.sh` cannot install, start or enable it. Once an
 operator has separately installed and started the service, later deployments
@@ -92,10 +92,15 @@ applicable and zero. An unknown future handler changes that state to
 `untracked` and blocks worker readiness until explicit cost instrumentation is
 added.
 
-The full production boundary and later canary gate are documented in
-`docs/agent-job-worker-production.md`. Installing or starting the service is a
-separate approved production action; committing this unit alone changes no
-runtime state.
+The full production boundary and activation evidence are documented in
+`docs/agent-job-worker-production.md`. The service was activated separately
+from the commit; changing the repository unit alone still does not install or
+enable it on a new server.
+
+Production acceptance was completed on 2026-10-01. The active unit matches the
+repository, survives normal deployment restarts and reports a clean, fully
+succeeded queue with no expired leases or disallowed due work. See the
+acceptance section in `docs/agent-job-worker-production.md` for exact evidence.
 
 ## Handler boundary
 
