@@ -77,50 +77,6 @@ class HiddenWorksDetectionGatewayCutoverTest(unittest.TestCase):
             '{"hidden": ["точное название работы из списка", ...]}',
         ))
 
-    def test_legacy_rollback_preserves_the_existing_sdk_request(self):
-        captured = {"client": None, "request": None}
-
-        class FakeResponses:
-            def create(self, **values):
-                captured["request"] = values
-                return SimpleNamespace(output_text='{"hidden":["Армирование"]}')
-
-        class FakeOpenAI:
-            def __init__(self, **values):
-                captured["client"] = values
-                self.responses = FakeResponses()
-
-        fake_openai = types.ModuleType("openai")
-        fake_openai.OpenAI = FakeOpenAI
-
-        with patch.dict(sys.modules, {"openai": fake_openai}):
-            answer = model.generate_hidden_works_detection_legacy(
-                "Полный промпт",
-                "Инструкции",
-                "private-key",
-                "folder-1",
-            )
-
-        self.assertEqual(answer, '{"hidden":["Армирование"]}')
-        self.assertEqual(
-            captured["client"],
-            {
-                "api_key": "private-key",
-                "base_url": "https://ai.api.cloud.yandex.net/v1",
-                "project": "folder-1",
-            },
-        )
-        self.assertEqual(
-            captured["request"],
-            {
-                "model": "gpt://folder-1/yandexgpt-5.1/latest",
-                "temperature": 0.1,
-                "instructions": "Инструкции",
-                "input": "Полный промпт",
-                "max_output_tokens": 2000,
-            },
-        )
-
     def test_gateway_builds_the_equivalent_neutral_request(self):
         gateway = FakeGateway()
         adapter_arguments = []
@@ -130,7 +86,7 @@ class HiddenWorksDetectionGatewayCutoverTest(unittest.TestCase):
             return gateway
 
         with patch.object(model, "build_yandex_model_adapter", adapter_factory):
-            answer = model.generate_hidden_works_detection_gateway(
+            answer = model.generate_hidden_works_detection(
                 "Полный промпт",
                 "Инструкции",
                 "private-key",
@@ -160,7 +116,7 @@ class HiddenWorksDetectionGatewayCutoverTest(unittest.TestCase):
             lambda **_values: gateway,
         ):
             with self.assertRaises(ModelGatewayError) as caught:
-                model.generate_hidden_works_detection_gateway(
+                model.generate_hidden_works_detection(
                     "prompt",
                     "instructions",
                     "private-key",
@@ -180,7 +136,7 @@ class HiddenWorksDetectionGatewayCutoverTest(unittest.TestCase):
             lambda **_values: gateway,
         ):
             with self.assertRaises(ModelGatewayError) as caught:
-                model.generate_hidden_works_detection_gateway(
+                model.generate_hidden_works_detection(
                     "prompt",
                     "instructions",
                     "key",
@@ -189,39 +145,7 @@ class HiddenWorksDetectionGatewayCutoverTest(unittest.TestCase):
 
         self.assertEqual(caught.exception.code, MODEL_GATEWAY_DEADLINE_EXCEEDED)
 
-    def test_cutover_defaults_to_legacy_and_enables_only_this_gateway(self):
-        calls = []
-        with (
-            patch.object(
-                model,
-                "generate_hidden_works_detection_legacy",
-                lambda *_args: calls.append("legacy") or "old",
-            ),
-            patch.object(
-                model,
-                "generate_hidden_works_detection_gateway",
-                lambda *_args: calls.append("gateway") or "new",
-            ),
-        ):
-            old = model.generate_hidden_works_detection(
-                "prompt",
-                "instructions",
-                "key",
-                "folder",
-            )
-            new = model.generate_hidden_works_detection(
-                "prompt",
-                "instructions",
-                "key",
-                "folder",
-                model_gateway_enabled=True,
-            )
-
-        self.assertEqual(old, "old")
-        self.assertEqual(new, "new")
-        self.assertEqual(calls, ["legacy", "gateway"])
-
-    def test_direct_provider_access_is_confined_to_the_rollback_function(self):
+    def test_direct_provider_access_is_removed(self):
         tree = ast.parse(
             MODEL_PATH.read_text(encoding="utf-8"),
             filename=str(MODEL_PATH),
@@ -232,26 +156,17 @@ class HiddenWorksDetectionGatewayCutoverTest(unittest.TestCase):
             if isinstance(node, ast.FunctionDef)
             and node.name in {
                 "generate_hidden_works_detection",
-                "generate_hidden_works_detection_gateway",
-                "generate_hidden_works_detection_legacy",
+                "generate_hidden_works_detection",
             }
         }
 
         self.assertEqual(
             set(functions),
-            {
-                "generate_hidden_works_detection",
-                "generate_hidden_works_detection_gateway",
-                "generate_hidden_works_detection_legacy",
-            },
-        )
-        self.assertIn(
-            "OpenAI",
-            ast.unparse(functions["generate_hidden_works_detection_legacy"]),
+            {"generate_hidden_works_detection"},
         )
         self.assertNotIn(
             "OpenAI",
-            ast.unparse(functions["generate_hidden_works_detection_gateway"]),
+            ast.unparse(functions["generate_hidden_works_detection"]),
         )
         self.assertNotIn(
             "OpenAI",
@@ -272,22 +187,12 @@ class HiddenWorksDetectionGatewayCutoverTest(unittest.TestCase):
         self.assertIn("generate_hidden_works_detection", route_source)
         self.assertIn("build_hidden_works_detection_prompt", route_source)
         self.assertIn("HIDDEN_WORKS_DETECTION_INSTRUCTIONS", route_source)
-        self.assertIn("HIDDEN_WORKS_DETECTION_MODEL_GATEWAY_ENABLED", route_source)
-        self.assertIn("'false'", route_source)
+        self.assertNotIn("HIDDEN_WORKS_DETECTION_MODEL_GATEWAY_ENABLED", route_source)
         self.assertIn("require_estimate_access", route_source)
         self.assertIn("_estimate_item_type_backend", route_source)
         self.assertIn("_detect_hidden_by_keywords", route_source)
         self.assertIn("j.loads", route_source)
         self.assertIn("UPDATE estimates SET sections_json", route_source)
         self.assertNotIn("OpenAI", route_source)
-        self.assertEqual(
-            sum(
-                line == "HIDDEN_WORKS_DETECTION_MODEL_GATEWAY_ENABLED=false"
-                for line in ENV_EXAMPLE_PATH.read_text(encoding="utf-8").splitlines()
-            ),
-            1,
-        )
-
-
 if __name__ == "__main__":
     unittest.main()

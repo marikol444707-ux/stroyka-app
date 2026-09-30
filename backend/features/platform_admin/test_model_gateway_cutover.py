@@ -113,7 +113,7 @@ class PlatformClientCardGatewayCutoverTest(unittest.TestCase):
             "build_yandex_model_adapter",
             lambda **_values: gateway,
         ):
-            fields, warnings = routes._recognize_client_card_with_ai_gateway(
+            fields, warnings = routes._recognize_client_card_with_ai(
                 **_arguments(),
             )
 
@@ -132,7 +132,7 @@ class PlatformClientCardGatewayCutoverTest(unittest.TestCase):
             "build_yandex_model_adapter",
             lambda **_values: gateway,
         ):
-            fields, warnings = routes._recognize_client_card_with_ai_gateway(
+            fields, warnings = routes._recognize_client_card_with_ai(
                 **_arguments(),
             )
 
@@ -141,83 +141,6 @@ class PlatformClientCardGatewayCutoverTest(unittest.TestCase):
         self.assertEqual(
             warnings,
             ["AI/OCR не смог надёжно распознать поля карты клиента. Проверьте документ и заполните недостающие поля вручную."],
-        )
-
-    def test_legacy_retries_empty_business_output_once_with_extracted_text(self):
-        requests = []
-        outputs = iter((
-            '{"confidence":0,"warnings":[]}',
-            '{"companyName":"ООО Тест","inn":"1234567890"}',
-        ))
-
-        class FakeResponses:
-            def create(self, **values):
-                requests.append(values)
-                return SimpleNamespace(output_text=next(outputs))
-
-        class FakeOpenAI:
-            def __init__(self, **_values):
-                self.responses = FakeResponses()
-
-        fake_openai = types.ModuleType("openai")
-        fake_openai.OpenAI = FakeOpenAI
-
-        with patch.dict(sys.modules, {"openai": fake_openai}):
-            fields, warnings = routes._recognize_client_card_with_ai_legacy(
-                **_arguments(),
-            )
-
-        self.assertEqual(fields["companyName"], "ООО Тест")
-        self.assertEqual(warnings, [])
-        self.assertEqual(len(requests), 2)
-        self.assertIsInstance(requests[0]["input"], list)
-        self.assertIsInstance(requests[1]["input"], str)
-        self.assertIn("ООО Тест ИНН 1234567890", requests[1]["input"])
-
-    def test_legacy_rollback_preserves_the_existing_sdk_request(self):
-        captured = {"client": None, "request": None}
-
-        class FakeResponses:
-            def create(self, **values):
-                captured["request"] = values
-                return SimpleNamespace(output_text='{"companyName":"ООО Тест"}')
-
-        class FakeOpenAI:
-            def __init__(self, **values):
-                captured["client"] = values
-                self.responses = FakeResponses()
-
-        fake_openai = types.ModuleType("openai")
-        fake_openai.OpenAI = FakeOpenAI
-
-        with patch.dict(sys.modules, {"openai": fake_openai}):
-            fields, warnings = routes._recognize_client_card_with_ai_legacy(
-                **_arguments(),
-            )
-
-        self.assertEqual(fields["companyName"], "ООО Тест")
-        self.assertEqual(warnings, [])
-        self.assertEqual(captured["client"], {
-            "api_key": "private-key",
-            "base_url": "https://ai.api.cloud.yandex.net/v1",
-            "project": "folder-1",
-        })
-        self.assertEqual(
-            {key: value for key, value in captured["request"].items() if key != "input"},
-            {
-                "model": "gpt://folder-1/qwen3.6-35b-a3b/latest",
-                "temperature": 0.1,
-                "instructions": routes._CLIENT_CARD_INSTRUCTIONS,
-                "max_output_tokens": 2500,
-            },
-        )
-        self.assertEqual(
-            captured["request"]["input"],
-            [{"role": "user", "content": routes._client_card_ai_content(**{
-                key: value
-                for key, value in _arguments().items()
-                if key not in {"api_key", "folder_id"}
-            })[0]}],
         )
 
     def test_gateway_preserves_text_image_and_pdf_part_shapes(self):
@@ -259,7 +182,7 @@ class PlatformClientCardGatewayCutoverTest(unittest.TestCase):
                     "build_yandex_model_adapter",
                     lambda **_values: gateway,
                 ):
-                    fields, warnings = routes._recognize_client_card_with_ai_gateway(
+                    fields, warnings = routes._recognize_client_card_with_ai(
                         **arguments,
                     )
 
@@ -284,7 +207,7 @@ class PlatformClientCardGatewayCutoverTest(unittest.TestCase):
             "build_yandex_model_adapter",
             lambda **_values: gateway,
         ):
-            fields, warnings = routes._recognize_client_card_with_ai_gateway(
+            fields, warnings = routes._recognize_client_card_with_ai(
                 **_arguments(),
             )
 
@@ -295,31 +218,7 @@ class PlatformClientCardGatewayCutoverTest(unittest.TestCase):
         )
         self.assertNotIn("private-key", repr(warnings))
 
-    def test_cutover_defaults_to_legacy_and_switches_only_this_call(self):
-        calls = []
-        with (
-            patch.object(
-                routes,
-                "_recognize_client_card_with_ai_legacy",
-                lambda **_values: calls.append("legacy") or ({"source": "old"}, []),
-            ),
-            patch.object(
-                routes,
-                "_recognize_client_card_with_ai_gateway",
-                lambda **_values: calls.append("gateway") or ({"source": "new"}, []),
-            ),
-        ):
-            old = routes._recognize_client_card_with_ai(**_arguments())
-            new = routes._recognize_client_card_with_ai(
-                **_arguments(),
-                model_gateway_enabled=True,
-            )
-
-        self.assertEqual(old, ({"source": "old"}, []))
-        self.assertEqual(new, ({"source": "new"}, []))
-        self.assertEqual(calls, ["legacy", "gateway"])
-
-    def test_direct_provider_access_is_confined_to_the_rollback_function(self):
+    def test_direct_provider_access_is_removed(self):
         tree = ast.parse(ROUTES_PATH.read_text(encoding="utf-8"), filename=str(ROUTES_PATH))
         functions = {
             node.name: node
@@ -327,21 +226,17 @@ class PlatformClientCardGatewayCutoverTest(unittest.TestCase):
             if isinstance(node, ast.FunctionDef)
             and node.name in {
                 "_recognize_client_card_with_ai",
-                "_recognize_client_card_with_ai_gateway",
-                "_recognize_client_card_with_ai_legacy",
+                "_recognize_client_card_with_ai",
             }
         }
 
         self.assertEqual(set(functions), {
             "_recognize_client_card_with_ai",
-            "_recognize_client_card_with_ai_gateway",
-            "_recognize_client_card_with_ai_legacy",
         })
-        self.assertIn("OpenAI", ast.unparse(functions["_recognize_client_card_with_ai_legacy"]))
-        self.assertNotIn("OpenAI", ast.unparse(functions["_recognize_client_card_with_ai_gateway"]))
+        self.assertNotIn("OpenAI", ast.unparse(functions["_recognize_client_card_with_ai"]))
         self.assertNotIn("OpenAI", ast.unparse(functions["_recognize_client_card_with_ai"]))
 
-    def test_composition_root_keeps_the_cutover_disabled_by_default(self):
+    def test_composition_root_has_no_cutover_switch(self):
         tree = ast.parse(MAIN_PATH.read_text(encoding="utf-8"), filename=str(MAIN_PATH))
         registrations = [
             node
@@ -357,15 +252,10 @@ class PlatformClientCardGatewayCutoverTest(unittest.TestCase):
             for key, value in zip(dependency_map.keys, dependency_map.values)
             if isinstance(key, ast.Constant) and isinstance(key.value, str)
         }
-        flag_expression = values["model_gateway_enabled"]
-        self.assertIn("PLATFORM_CLIENT_CARD_MODEL_GATEWAY_ENABLED", flag_expression)
-        self.assertIn("'false'", flag_expression)
-        self.assertEqual(
-            sum(
-                line == "PLATFORM_CLIENT_CARD_MODEL_GATEWAY_ENABLED=false"
-                for line in ENV_EXAMPLE_PATH.read_text(encoding="utf-8").splitlines()
-            ),
-            1,
+        self.assertNotIn("model_gateway_enabled", values)
+        self.assertNotIn(
+            "PLATFORM_CLIENT_CARD_MODEL_GATEWAY_ENABLED",
+            ENV_EXAMPLE_PATH.read_text(encoding="utf-8"),
         )
 
 

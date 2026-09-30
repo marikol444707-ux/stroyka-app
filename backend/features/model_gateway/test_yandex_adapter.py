@@ -157,6 +157,10 @@ class YandexModelAdapterTest(unittest.TestCase):
                     "yandexgpt-5.1/latest",
                     "qwen3.6-35b-a3b/latest",
                 ),
+                "ai_chat_json": (
+                    "qwen3.6-35b-a3b/latest",
+                    "yandexgpt-5.1/latest",
+                ),
                 "cable_journal_suggestion": (
                     "qwen3.6-35b-a3b/latest",
                     "yandexgpt-5.1/latest",

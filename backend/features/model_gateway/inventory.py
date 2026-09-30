@@ -6,48 +6,7 @@ from pathlib import Path
 from backend.features.model_gateway.policies import MODEL_CAPABILITIES
 
 
-_EXPECTED_ACCESS = (
-    ("backend/main.py", "_director_agent_call_yandex", "director_agent"),
-    (
-        "backend/features/hidden_works_detection/model.py",
-        "generate_hidden_works_detection_legacy",
-        "hidden_works_detection",
-    ),
-    ("backend/main.py", "ai_chat", "ai_chat"),
-    ("backend/main.py", "ai_chat._call", "ai_chat"),
-    ("backend/main.py", "_enhance_norm_suggestions_with_ai", "material_norm_suggestion"),
-    ("backend/main.py", "ai_suggest_material_inspection", "material_inspection_suggestion"),
-    (
-        "backend/main.py",
-        "ai_suggest_material_inspection._call",
-        "material_inspection_suggestion",
-    ),
-    ("backend/main.py", "ai_suggest_cable_journal", "cable_journal_suggestion"),
-    (
-        "backend/main.py",
-        "ai_suggest_cable_journal._call",
-        "cable_journal_suggestion",
-    ),
-    ("backend/main.py", "ai_generate_tb_instruction", "tb_instruction"),
-    ("backend/main.py", "ai_generate_tb_instruction._call", "tb_instruction"),
-    ("backend/main.py", "ai_generate_estimate", "estimate_generation"),
-    ("backend/main.py", "ai_generate_pricelist", "pricelist_generation"),
-    ("backend/main.py", "ai_generate_pricelist._call", "pricelist_generation"),
-    ("backend/main.py", "ai_prefill_hidden_works_act", "hidden_works_act_prefill"),
-    (
-        "backend/main.py",
-        "ai_prefill_hidden_works_act._call",
-        "hidden_works_act_prefill",
-    ),
-    ("backend/main.py", "_repair_invoice_scan_json", "invoice_scan"),
-    ("backend/main.py", "_retry_invoice_scan_compact_json", "invoice_scan"),
-    ("backend/main.py", "scan_invoice", "invoice_scan"),
-    (
-        "backend/features/platform_admin/routes.py",
-        "_recognize_client_card_with_ai_legacy",
-        "platform_client_card",
-    ),
-)
+_EXPECTED_ACCESS = ()
 
 _EXPECTED_BY_KEY = {
     (path, symbol): capability
