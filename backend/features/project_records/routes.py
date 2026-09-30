@@ -149,47 +149,7 @@ def _room_draft_fallback(measurement: dict):
     return _fallback_room_drafts_from_text(title + "\n" + notes), "fallback"
 
 
-def _draft_rooms_with_ai_legacy(
-    measurement: dict,
-    yandex_api_key: str,
-    yandex_folder_id: str,
-):
-    if not (yandex_api_key and yandex_folder_id):
-        return _room_draft_fallback(measurement)
-    import openai as oa
-
-    client = oa.OpenAI(api_key=yandex_api_key, base_url="https://ai.api.cloud.yandex.net/v1", project=yandex_folder_id)
-    prompt = _room_draft_prompt(measurement)
-    image_data_url = _room_draft_image_data_url(measurement)
-    try:
-        if image_data_url:
-            response = client.responses.create(
-                model=f"gpt://{yandex_folder_id}/qwen3.6-35b-a3b/latest",
-                temperature=0.1,
-                instructions=_ROOM_DRAFT_INSTRUCTIONS,
-                input=[{"role": "user", "content": [
-                    {"type": "input_image", "image_url": image_data_url},
-                    {"type": "input_text", "text": prompt}
-                ]}],
-                max_output_tokens=2500
-            )
-        else:
-            response = client.responses.create(
-                model=f"gpt://{yandex_folder_id}/qwen3.6-35b-a3b/latest",
-                temperature=0.1,
-                instructions=_ROOM_DRAFT_INSTRUCTIONS,
-                input=prompt,
-                max_output_tokens=2500
-            )
-        result = _room_draft_ai_result(response.output_text or "")
-        if result is not None:
-            return result
-    except Exception as e:
-        print("MEASUREMENT AI DRAFT ERROR:", str(e))
-    return _room_draft_fallback(measurement)
-
-
-def _draft_rooms_with_ai_gateway(
+def _draft_rooms_with_ai(
     measurement: dict,
     yandex_api_key: str,
     yandex_folder_id: str,
@@ -229,18 +189,6 @@ def _draft_rooms_with_ai_gateway(
     return _room_draft_fallback(measurement)
 
 
-def _draft_rooms_with_ai(
-    measurement: dict,
-    yandex_api_key: str,
-    yandex_folder_id: str,
-    model_gateway_enabled=False,
-):
-    arguments = (measurement, yandex_api_key, yandex_folder_id)
-    if model_gateway_enabled is True:
-        return _draft_rooms_with_ai_gateway(*arguments)
-    return _draft_rooms_with_ai_legacy(*arguments)
-
-
 def register_project_records_module(app, deps):
     get_db = deps["get_db"]
     require_roles = deps["require_roles"]
@@ -254,7 +202,6 @@ def register_project_records_module(app, deps):
     worker_execution_roles = deps["worker_execution_roles"]
     yandex_api_key = deps.get("yandex_api_key", "")
     yandex_folder_id = deps.get("yandex_folder_id", "")
-    model_gateway_enabled = deps.get("model_gateway_enabled") is True
 
     read_access = require_roles(*read_roles)
     write_access = require_roles(*write_roles)
@@ -412,7 +359,6 @@ def register_project_records_module(app, deps):
             dict(measurement),
             yandex_api_key,
             yandex_folder_id,
-            model_gateway_enabled=model_gateway_enabled,
         )
         if data.get("replaceExisting"):
             cur.execute("DELETE FROM measurement_room_drafts WHERE measurement_id=%s AND status='Черновик ИИ'", (id,))

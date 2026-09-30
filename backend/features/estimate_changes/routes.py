@@ -105,7 +105,6 @@ def register_estimate_changes_module(app, deps):
     log_audit = deps["log_audit"]
     yandex_api_key = deps.get("yandex_api_key")
     yandex_folder_id = deps.get("yandex_folder_id")
-    model_gateway_enabled = deps.get("model_gateway_enabled") is True
 
     def estimate_mutation_scope(
         cur,
@@ -440,7 +439,6 @@ def register_estimate_changes_module(app, deps):
             instructions,
             yandex_api_key,
             yandex_folder_id,
-            model_gateway_enabled=model_gateway_enabled,
         )
         if not answer.strip():
             raise HTTPException(status_code=502, detail="AI вернул пустой ответ: " + str(error))

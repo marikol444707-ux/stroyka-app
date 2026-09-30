@@ -118,32 +118,32 @@ prompt, temperature and 2,500-token output limit are unchanged. The gateway
 adds a 120-second total deadline and returns only fixed non-secret failure
 codes. A release revert remains the bounded rollback for this domain.
 
-The second A14.4 domain is project room-draft generation. Its caller-local
-`PROJECT_ROOM_DRAFT_MODEL_GATEWAY_ENABLED` switch also defaults to `false`.
-The rollback path preserves the current text and image requests, model,
-instructions, temperature, parser and heuristic fallback. When explicitly
-enabled, text or the existing bounded image-data input crosses the gateway
-with a 120-second total deadline. Project authorization, source lookup,
-optional replacement, draft inserts, measurement status changes and the HTTP
-response remain in the project-records module and are unchanged.
+The second A14.4 domain, project room-draft generation, now uses the gateway
+directly after request-parity tests passed. Its duplicated SDK caller and
+temporary cutover switch were removed. The existing text or bounded image-data
+input crosses the gateway with a 120-second total deadline. Model,
+instructions, temperature, parser and heuristic fallback are unchanged.
+Project authorization, source lookup, optional replacement, draft inserts,
+measurement status changes and the HTTP response remain in the
+project-records module. A release revert remains the bounded rollback.
 
-The third A14.4 domain is AI price estimation for an unexpected estimate
-change. Its caller-local `ESTIMATE_CHANGE_PRICE_MODEL_GATEWAY_ENABLED` switch
-defaults to `false`. The rollback path preserves the Qwen-then-YandexGPT model
-order, prompt, instructions, temperature, 800-token output limit, JSON parsing
-and HTTP response. When explicitly enabled, only the model transport crosses
-the gateway with a 120-second total deadline and fixed non-secret failures.
-Tenant visibility, price-list lookup and calculated response fields remain in
-the estimate-changes module and are unchanged.
+The third A14.4 domain, AI price estimation for an unexpected estimate change,
+now uses the gateway directly after request-parity tests passed. Its duplicated
+SDK caller and temporary cutover switch were removed. The Qwen-then-YandexGPT
+model order, prompt, instructions, temperature, 800-token output limit, JSON
+parsing and HTTP response are unchanged. The gateway applies a 120-second total
+deadline and fixed non-secret failures. Tenant visibility, price-list lookup
+and calculated response fields remain in the estimate-changes module. A
+release revert remains the bounded rollback.
 
-The fourth A14.4 domain is the AI suggestion that maps estimate work rows to
-brigade names. Its caller-local `ESTIMATE_DISTRIBUTION_MODEL_GATEWAY_ENABLED`
-switch defaults to `false`. The rollback path preserves the Qwen-then-
-YandexGPT model order, prompt, instructions, temperature, 4,000-token output
-limit, JSON parsing and HTTP response. When explicitly enabled, only the model
-transport crosses the gateway with a 120-second total deadline and fixed
-non-secret failures. Estimate authorization, work-row filtering and the final
-index-to-brigade mapping remain in the existing route and are unchanged.
+The fourth A14.4 domain, the AI suggestion that maps estimate work rows to
+brigade names, now uses the gateway directly after request-parity tests passed.
+Its duplicated SDK caller and temporary cutover switch were removed. The
+Qwen-then-YandexGPT model order, prompt, instructions, temperature, 4,000-token
+output limit, JSON parsing and HTTP response are unchanged. The gateway applies
+a 120-second total deadline and fixed non-secret failures. Estimate
+authorization, work-row filtering and the final index-to-brigade mapping remain
+in the existing route. A release revert remains the bounded rollback.
 
 The fifth A14.4 domain is the text-based AI check of a supply delivery against
 its invoice notes. Its caller-local
