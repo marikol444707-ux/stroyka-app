@@ -17,6 +17,42 @@ EXPECTED = {
 
 
 class MainRuntimeGatewayCutoverTest(unittest.TestCase):
+    def test_invoice_scan_and_its_retries_use_gateway_only(self):
+        tree = ast.parse(MAIN_PATH.read_text(encoding="utf-8"))
+        functions = {
+            node.name: ast.unparse(node)
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name in {
+                "_repair_invoice_scan_json",
+                "_retry_invoice_scan_compact_json",
+                "scan_invoice",
+            }
+        }
+
+        self.assertEqual(len(functions), 3)
+        self.assertIn("generate_yandex_text", functions["_repair_invoice_scan_json"])
+        self.assertIn("generate_yandex_parts", functions["_retry_invoice_scan_compact_json"])
+        self.assertIn("generate_yandex_parts", functions["scan_invoice"])
+        for source in functions.values():
+            self.assertIn("capability='invoice_scan'", source)
+            self.assertNotIn("OpenAI", source)
+            self.assertNotIn("responses.create", source)
+            self.assertNotIn("gpt://", source)
+
+    def test_invoice_pdf_and_images_are_carried_as_provider_neutral_parts(self):
+        tree = ast.parse(MAIN_PATH.read_text(encoding="utf-8"))
+        source = ast.unparse(next(
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "_invoice_scan_ai_content"
+        ))
+
+        self.assertIn("kind='file_data_url'", source)
+        self.assertIn("kind='image_data_url'", source)
+        self.assertNotIn("files.create", source)
+        self.assertNotIn("files.delete", source)
+
     def test_director_agent_serializes_its_read_only_conversation_for_gateway(self):
         tree = ast.parse(MAIN_PATH.read_text(encoding="utf-8"))
         source = ast.unparse(next(

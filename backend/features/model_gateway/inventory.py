@@ -6,11 +6,7 @@ from pathlib import Path
 from backend.features.model_gateway.policies import MODEL_CAPABILITIES
 
 
-_EXPECTED_ACCESS = (
-    ("backend/main.py", "_repair_invoice_scan_json", "invoice_scan"),
-    ("backend/main.py", "_retry_invoice_scan_compact_json", "invoice_scan"),
-    ("backend/main.py", "scan_invoice", "invoice_scan"),
-)
+_EXPECTED_ACCESS = ()
 
 _EXPECTED_BY_KEY = {
     (path, symbol): capability

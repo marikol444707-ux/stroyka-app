@@ -46,3 +46,33 @@ def generate_yandex_text(
         raise
     except Exception:
         raise ModelGatewayError(MODEL_GATEWAY_PROVIDER_FAILED) from None
+
+
+def generate_yandex_parts(
+    *,
+    capability,
+    instructions,
+    input_parts,
+    temperature,
+    max_output_tokens,
+    api_key,
+    folder_id,
+):
+    try:
+        request = build_model_request(
+            capability=capability,
+            instructions=instructions,
+            input_parts=input_parts,
+            temperature=temperature,
+            max_output_tokens=max_output_tokens,
+            deadline_seconds=120,
+        )
+        gateway = build_yandex_model_adapter(
+            api_key=api_key,
+            folder_id=folder_id,
+        )
+        return gateway.generate(request).output_text
+    except ModelGatewayError:
+        raise
+    except Exception:
+        raise ModelGatewayError(MODEL_GATEWAY_PROVIDER_FAILED) from None

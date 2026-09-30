@@ -22,6 +22,7 @@ def _policy(
     file_data_url=False,
     max_input_bytes=256 * 1024,
     max_output_tokens=8_000,
+    max_parts=16,
 ):
     allowed_input_kinds = ("text", "image_data_url", "file_id")
     if file_data_url:
@@ -32,7 +33,7 @@ def _policy(
         allowed_input_kinds=allowed_input_kinds if multipart else ("text",),
         max_input_bytes=max_input_bytes,
         max_output_tokens=max_output_tokens,
-        max_parts=16 if multipart else 1,
+        max_parts=max_parts if multipart else 1,
     )
 
 
@@ -56,8 +57,10 @@ _CAPABILITIES = (
         "invoice_scan",
         model_policy="vision_json",
         multipart=True,
-        max_input_bytes=4 * 1024 * 1024,
+        file_data_url=True,
+        max_input_bytes=64 * 1024 * 1024,
         max_output_tokens=12_000,
+        max_parts=129,
     ),
     _policy("material_inspection_suggestion", model_policy="strict_json"),
     _policy("material_norm_suggestion", model_policy="strict_json"),

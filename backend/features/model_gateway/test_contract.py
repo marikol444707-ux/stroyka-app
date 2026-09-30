@@ -138,7 +138,7 @@ class ModelGatewayContractTest(unittest.TestCase):
     def test_input_parts_reject_unknown_kind_and_oversized_value(self):
         for part in (
             ModelInputPart(kind="provider_url", value="https://example.test"),
-            ModelInputPart(kind="text", value="x" * (4 * 1024 * 1024 + 1)),
+            ModelInputPart(kind="text", value="x" * (17 * 1024 * 1024 + 1)),
         ):
             with self.subTest(part=part.kind):
                 with self.assertRaises(ModelGatewayError) as raised:
@@ -206,6 +206,39 @@ class ModelGatewayContractTest(unittest.TestCase):
                     )
                 self.assertEqual(raised.exception.code, MODEL_GATEWAY_CONTRACT_INVALID)
 
+    def test_invoice_scan_accepts_bounded_inline_pdf(self):
+        request = build_model_request(
+            capability="invoice_scan",
+            instructions="Read the invoice.",
+            input_parts=(ModelInputPart(
+                kind="file_data_url",
+                value="data:application/pdf;base64,JVBERi0xLjQKJSVFT0Y=",
+                filename="invoice-1.pdf",
+            ),),
+            temperature=0.1,
+            max_output_tokens=12_000,
+            deadline_seconds=120,
+        )
+
+        self.assertEqual(request.input_parts[0].filename, "invoice-1.pdf")
+
+    def test_invoice_scan_preserves_the_existing_eight_pdf_part_budget(self):
+        parts = tuple(
+            ModelInputPart(kind="text", value=f"part-{index}")
+            for index in range(129)
+        )
+
+        request = build_model_request(
+            capability="invoice_scan",
+            instructions="Read all invoice pages.",
+            input_parts=parts,
+            temperature=0.1,
+            max_output_tokens=12_000,
+            deadline_seconds=120,
+        )
+
+        self.assertEqual(len(request.input_parts), 129)
+
     def test_provider_result_is_detached_bounded_and_secret_free(self):
         result = build_model_result(
             provider="yandex_cloud",
@@ -257,14 +290,11 @@ class ModelAccessInventoryTest(unittest.TestCase):
 
         self.assertTrue(report["complete"])
         self.assertEqual(report["logicalCapabilityCount"], 21)
-        self.assertEqual(report["directAccessCount"], 3)
+        self.assertEqual(report["directAccessCount"], 0)
         self.assertEqual(report["unexpected"], [])
         self.assertEqual(report["missing"], [])
         self.assertEqual(report["writesAttempted"], 0)
-        self.assertEqual(
-            len({item["capability"] for item in report["accessPoints"]}),
-            1,
-        )
+        self.assertEqual(report["accessPoints"], [])
 
     def test_new_direct_provider_access_fails_the_inventory(self):
         sources = {
@@ -344,7 +374,7 @@ class ModelAccessInventoryTest(unittest.TestCase):
 
             report = run_model_access_inventory(root)
 
-            self.assertFalse(report["complete"])
+            self.assertTrue(report["complete"])
             self.assertEqual(source.read_bytes(), before)
             self.assertEqual(report["writesAttempted"], 0)
 

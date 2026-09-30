@@ -106,20 +106,22 @@ try:
     from backend.features.model_gateway.contract import (
         MODEL_GATEWAY_PROVIDER_FAILED,
         ModelGatewayError,
+        ModelInputPart,
         build_model_request,
     )
     from backend.features.model_gateway.yandex_adapter import (
         build_yandex_model_adapter,
     )
-    from backend.features.model_gateway.runtime import generate_yandex_text
+    from backend.features.model_gateway.runtime import generate_yandex_parts, generate_yandex_text
 except ModuleNotFoundError:
     from features.model_gateway.contract import (
         MODEL_GATEWAY_PROVIDER_FAILED,
         ModelGatewayError,
+        ModelInputPart,
         build_model_request,
     )
     from features.model_gateway.yandex_adapter import build_yandex_model_adapter
-    from features.model_gateway.runtime import generate_yandex_text
+    from features.model_gateway.runtime import generate_yandex_parts, generate_yandex_text
 
 try:
     from backend.features.supply_delivery.model import (
@@ -27264,11 +27266,6 @@ def _normalize_invoice_scan_image_entry(entry):
         )
     return {"data": raw, "mimeType": mime_type, "name": filename or "invoice-page.jpg"}
 
-def _uploaded_file_id(uploaded_file) -> str:
-    if isinstance(uploaded_file, dict):
-        return str(uploaded_file.get("id") or "")
-    return str(getattr(uploaded_file, "id", "") or "")
-
 def _invoice_scan_pdf_bytes(entry: dict) -> bytes:
     try:
         pdf_bytes = base64.b64decode(str(entry.get("data") or ""), validate=True)
@@ -27367,98 +27364,46 @@ def _render_invoice_scan_pdf_pages(pdf_bytes: bytes, max_pages: int = 6) -> list
             except Exception:
                 pass
 
-def _upload_invoice_scan_pdf(client, entry: dict, index: int) -> str:
-    pdf_bytes = _invoice_scan_pdf_bytes(entry)
-
-    tmp_path = ""
-    try:
-        with tempfile.NamedTemporaryFile("wb", suffix=".pdf", delete=False) as tmp:
-            tmp.write(pdf_bytes)
-            tmp_path = tmp.name
-        last_error = None
-        for purpose in ("assistants", "user_data"):
-            try:
-                with open(tmp_path, "rb") as pdf_file:
-                    uploaded = client.files.create(file=pdf_file, purpose=purpose)
-                file_id = _uploaded_file_id(uploaded)
-                if not file_id:
-                    raise RuntimeError("провайдер AI не вернул file_id")
-                return file_id
-            except Exception as exc:
-                last_error = exc
-        raise RuntimeError(str(last_error or "не удалось загрузить PDF в AI"))
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "PDF счет не удалось передать в AI-распознавание. "
-                "Провайдер требует file_id для PDF, но загрузка файла не прошла: " + str(exc)
-            ),
-        ) from exc
-    finally:
-        if tmp_path:
-            try:
-                os.unlink(tmp_path)
-            except Exception:
-                pass
-
-def _cleanup_invoice_scan_ai_files(client, file_ids: list):
-    for file_id in file_ids or []:
-        try:
-            client.files.delete(file_id)
-        except Exception:
-            pass
-
-def _invoice_scan_ai_content(entry: dict, index: int, total: int, client=None, uploaded_file_ids=None) -> list:
+def _invoice_scan_ai_content(entry: dict, index: int, total: int) -> list:
     mime_type = str(entry.get("mimeType") or "image/jpeg").lower()
     label = "PDF-документ" if mime_type == "application/pdf" else "Страница документа"
-    content = [{"type": "input_text", "text": f"{label} {index} из {total}"}]
+    content = [ModelInputPart(kind="text", value=f"{label} {index} из {total}")]
     if mime_type == "application/pdf":
-        if client is None:
-            raise HTTPException(status_code=400, detail="PDF счет нельзя распознать без AI-клиента.")
         pdf_bytes = _invoice_scan_pdf_bytes(entry)
         pdf_text = _extract_invoice_scan_pdf_text(pdf_bytes)
         rendered_pages = _render_invoice_scan_pdf_pages(pdf_bytes)
-        try:
-            file_id = _upload_invoice_scan_pdf(client, entry, index)
-            if uploaded_file_ids is not None:
-                uploaded_file_ids.append(file_id)
-            content.append({"type": "input_file", "file_id": file_id})
-        except HTTPException as exc:
-            if not pdf_text and not rendered_pages:
-                raise exc
-            content.append({
-                "type": "input_text",
-                "text": (
-                    "PDF не удалось передать как файл. Используй резервные данные ниже: "
-                    "извлеченный текст и/или изображения страниц PDF."
-                ),
-            })
+        content.append(ModelInputPart(
+            kind="file_data_url",
+            value="data:application/pdf;base64," + str(entry.get("data") or ""),
+            filename="invoice-" + str(index) + ".pdf",
+        ))
         if pdf_text:
-            content.append({
-                "type": "input_text",
-                "text": (
+            content.append(ModelInputPart(
+                kind="text",
+                value=(
                     "Текст, извлеченный из PDF. Используй его для номера, даты, поставщика, покупателя, "
                     "таблицы товаров, НДС и итогов. Не выдумывай отсутствующие строки.\n\n"
-                    f"{pdf_text[:24000]}"
+                    + pdf_text[:24000]
                 ),
-            })
+            ))
         if rendered_pages:
-            content.append({
-                "type": "input_text",
-                "text": (
-                    "Ниже визуальный рендер страниц PDF. Если input_file не читается, распознай счет "
-                    "по этим изображениям как обычные фото документа."
-                ),
-            })
+            content.append(ModelInputPart(
+                kind="text",
+                value="Ниже визуальный рендер страниц PDF. Распознай счет также по изображениям.",
+            ))
             for page_idx, page_base64 in enumerate(rendered_pages, start=1):
-                content.append({"type": "input_text", "text": f"Рендер PDF страницы {page_idx}"})
-                content.append({"type": "input_image", "image_url": f"data:image/png;base64,{page_base64}"})
+                content.append(ModelInputPart(kind="text", value=f"Рендер PDF страницы {page_idx}"))
+                content.append(ModelInputPart(
+                    kind="image_data_url",
+                    value="data:image/png;base64," + page_base64,
+                ))
     else:
-        content.append({"type": "input_image", "image_url": f"data:{entry['mimeType']};base64,{entry['data']}"})
+        content.append(ModelInputPart(
+            kind="image_data_url",
+            value=f"data:{entry['mimeType']};base64,{entry['data']}",
+        ))
     return content
+
 
 def _compact_ai_json_text(text: str) -> str:
     clean = (text or "").replace("\ufeff", "").strip()
@@ -27604,65 +27549,59 @@ def _invoice_scan_json_format() -> str:
         "}"
     )
 
-def _repair_invoice_scan_json(client, model: str, answer: str, parse_error: str):
+def _repair_invoice_scan_json(answer: str, parse_error: str):
     raw_answer = (answer or "").strip()
     if not raw_answer:
         return None, parse_error or "empty"
+    instructions = (
+        "Ты исправляешь ответ распознавания складского или бухгалтерского документа: "
+        "счета на оплату, счета поставщика, УПД, товарной накладной, приходной накладной "
+        "или товарного чека. Верни только валидный JSON-объект без markdown, комментариев "
+        "и текста вокруг."
+    )
+    prompt = (
+        "Ниже ответ модели по документу, который не распарсился как JSON. "
+        "Преобразуй его в один валидный JSON-объект по схеме. "
+        "Не добавляй новые товары, которых нет в тексте. Если часть строки оборвана, "
+        "сохрани только читаемые полноценные позиции, а явно неполные элементы отбрось. "
+        "Все переносы внутри строк замени пробелами, кавычки экранируй. "
+        "Если это счет на оплату или счет поставщика с таблицей товаров, не отбрасывай его: "
+        "верни documentType \"supplier_invoice\" или \"payment_invoice\" и заполни items. "
+        "Если это фрагмент документа без шапки, но с таблицей товаров, сохрани читаемые строки, "
+        "пустые реквизиты оставь пустыми строками и не возвращай documentType \"other\". "
+        "Если данных по товарам нет, верни documentType \"other\" и пустой items. "
+        f"Схема: {_invoice_scan_json_format()}\n"
+        f"Ошибка JSON-парсера: {parse_error or 'invalid json'}\n"
+        "Ответ модели:\n"
+        f"{raw_answer[:18000]}"
+    )
     try:
-        repair_response = client.responses.create(
-            model=model,
+        repair_answer = generate_yandex_text(
+            capability="invoice_scan",
+            instructions=instructions,
+            input_text=prompt,
             temperature=0,
-            instructions=(
-                "Ты исправляешь ответ распознавания складского или бухгалтерского документа: "
-                "счета на оплату, счета поставщика, УПД, товарной накладной, приходной накладной "
-                "или товарного чека. Верни только валидный JSON-объект без markdown, комментариев "
-                "и текста вокруг."
-            ),
-            input=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "input_text",
-                            "text": (
-                                "Ниже ответ модели по документу, который не распарсился как JSON. "
-                                "Преобразуй его в один валидный JSON-объект по схеме. "
-                                "Не добавляй новые товары, которых нет в тексте. Если часть строки оборвана, "
-                                "сохрани только читаемые полноценные позиции, а явно неполные элементы отбрось. "
-                                "Все переносы внутри строк замени пробелами, кавычки экранируй. "
-                                "Если это счет на оплату или счет поставщика с таблицей товаров, не отбрасывай его: "
-                                "верни documentType \"supplier_invoice\" или \"payment_invoice\" и заполни items. "
-                                "Если это фрагмент документа без шапки, но с таблицей товаров, сохрани читаемые строки, "
-                                "пустые реквизиты оставь пустыми строками и не возвращай documentType \"other\". "
-                                "Если данных по товарам нет, верни documentType \"other\" и пустой items. "
-                                f"Схема: {_invoice_scan_json_format()}\n"
-                                f"Ошибка JSON-парсера: {parse_error or 'invalid json'}\n"
-                                "Ответ модели:\n"
-                                f"{raw_answer[:18000]}"
-                            ),
-                        }
-                    ],
-                }
-            ],
             max_output_tokens=12000,
+            api_key=YANDEX_API_KEY,
+            folder_id=YANDEX_FOLDER_ID,
         )
-        repair_answer = repair_response.output_text or ""
         parsed, repair_error = _parse_ai_json_object(repair_answer)
         if parsed is not None:
             return parsed, ""
         print("SCAN REPAIR FAILED:", repair_error)
         print("SCAN REPAIR RAW HEAD:", repair_answer[:500])
         return None, repair_error or parse_error or "invalid repaired json"
-    except Exception as exc:
-        print("SCAN REPAIR ERROR:", str(exc))
-        return None, str(exc)
+    except ModelGatewayError as error:
+        print("SCAN REPAIR ERROR:", error.code)
+        return None, error.code
 
-def _retry_invoice_scan_compact_json(client, model: str, images: list, uploaded_file_ids=None):
+
+def _retry_invoice_scan_compact_json(images: list):
     try:
         compact_content = []
         for idx, image in enumerate(images or [], start=1):
-            compact_content.extend(_invoice_scan_ai_content(image, idx, len(images or []), client=client, uploaded_file_ids=uploaded_file_ids))
-        compact_content.append({"type": "input_text", "text": (
+            compact_content.extend(_invoice_scan_ai_content(image, idx, len(images or [])))
+        compact_content.append(ModelInputPart(kind="text", value=(
             "Повтори распознавание в коротком режиме. Верни только валидный JSON без markdown и без пояснений. "
             "Подходят счет на оплату, счет поставщика, УПД, товарная накладная, приходная накладная и фрагмент товарной таблицы. "
             "Если видна таблица товаров, documentType не должен быть other. Не пиши переносы строк внутри строк JSON. "
@@ -27685,32 +27624,31 @@ def _retry_invoice_scan_compact_json(client, model: str, images: list, uploaded_
             "\"totalWithVat\":число,"
             "\"items\":[{\"name\":строка,\"quantity\":число,\"unit\":строка,\"price\":число,\"lineTotal\":число}]"
             "}"
-        )})
-        retry_response = client.responses.create(
-            model=model,
+        )))
+        retry_answer = generate_yandex_parts(
+            capability="invoice_scan",
+            instructions="Ты распознаешь строительные счета и накладные. Верни только короткий валидный JSON.",
+            input_parts=tuple(compact_content),
             temperature=0,
-            instructions=(
-                "Ты распознаешь строительные счета и накладные. Верни только короткий валидный JSON."
-            ),
-            input=[{"role": "user", "content": compact_content}],
             max_output_tokens=9000,
+            api_key=YANDEX_API_KEY,
+            folder_id=YANDEX_FOLDER_ID,
         )
-        retry_answer = retry_response.output_text or ""
         parsed, retry_error = _parse_ai_json_object(retry_answer)
         if parsed is not None:
             return parsed, ""
         print("SCAN COMPACT RETRY FAILED:", retry_error)
         print("SCAN COMPACT RAW HEAD:", retry_answer[:500])
         return None, retry_error or "invalid compact json"
-    except Exception as exc:
-        print("SCAN COMPACT RETRY ERROR:", str(exc))
-        return None, str(exc)
+    except ModelGatewayError as error:
+        print("SCAN COMPACT RETRY ERROR:", error.code)
+        return None, error.code
+    except HTTPException as error:
+        return None, str(error.detail)
+
 
 @app.post("/scan-invoice")
 def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES, "бухгалтер"))):
-    import openai as oa
-    FOLDER_ID = YANDEX_FOLDER_ID
-    API_KEY = YANDEX_API_KEY
     images = data.get("images") or data.get("pages") or []
     if isinstance(images, (str, dict)):
         images = [images]
@@ -27723,14 +27661,11 @@ def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHO
     if not images:
         return {"ok": False, "error": "Нет изображения документа"}
     template_hint = _invoice_scan_template_hint()
-    client = oa.OpenAI(api_key=API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=FOLDER_ID)
-    uploaded_file_ids = []
     try:
         content = []
         for idx, image in enumerate(images, start=1):
-            content.extend(_invoice_scan_ai_content(image, idx, len(images), client=client, uploaded_file_ids=uploaded_file_ids))
-        model = f"gpt://{FOLDER_ID}/qwen3.6-35b-a3b/latest"
-        content.append({"type": "input_text", "text": (
+            content.extend(_invoice_scan_ai_content(image, idx, len(images)))
+        content.append(ModelInputPart(kind="text", value=(
             "Распознай складской или бухгалтерский документ с товарными строками: счет на оплату, счет поставщика, "
             "УПД, универсальный передаточный документ, товарную накладную, приходную накладную или товарный чек. "
             "Если это 'Счет на оплату' или 'Счёт на оплату' с таблицей товаров, он подходит: верни documentType "
@@ -27753,35 +27688,31 @@ def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHO
             "посчитай priceWithVat и lineTotalWithVat. Если цена дана только итогом строки, посчитай цену за единицу через количество. "
             "Не округляй крупные суммы до тысяч, не теряй НДС, сохраняй единицы измерения как в документе."
             + (("\nИзвестные шаблоны поставщиков для ориентира:\n" + template_hint) if template_hint else "")
-        )})
-        response = client.responses.create(
-            model=model,
-            temperature=0.1,
+        )))
+        answer = generate_yandex_parts(
+            capability="invoice_scan",
             instructions=(
                 "Ты распознаёшь счета на оплату, счета поставщика, УПД, товарные накладные, "
                 "приходные накладные и товарные чеки. Верни только JSON без комментариев и без markdown."
             ),
-            input=[
-                {
-                    "role": "user",
-                    "content": content
-                }
-            ],
-            max_output_tokens=12000
+            input_parts=tuple(content),
+            temperature=0.1,
+            max_output_tokens=12000,
+            api_key=YANDEX_API_KEY,
+            folder_id=YANDEX_FOLDER_ID,
         )
-        answer = response.output_text or ""
         parsed, parse_error = _parse_ai_json_object(answer)
         if parsed is None:
             print("SCAN PARSE FAILED:", parse_error)
             print("SCAN RAW LEN:", len(answer))
             print("SCAN RAW HEAD:", answer[:500])
             print("SCAN RAW TAIL:", answer[-500:] if len(answer) > 500 else "")
-            parsed, repair_error = _repair_invoice_scan_json(client, model, answer, parse_error)
+            parsed, repair_error = _repair_invoice_scan_json(answer, parse_error)
             if parsed is not None:
                 print("SCAN REPAIR OK")
             else:
                 print("SCAN REPAIR FINAL FAILED:", repair_error)
-                parsed, compact_error = _retry_invoice_scan_compact_json(client, model, images, uploaded_file_ids=uploaded_file_ids)
+                parsed, compact_error = _retry_invoice_scan_compact_json(images)
                 if parsed is not None:
                     print("SCAN COMPACT RETRY OK")
                 else:
@@ -27810,11 +27741,12 @@ def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHO
         return {"ok": True, "data": parsed}
     except HTTPException as e:
         return {"ok": False, "error": str(e.detail or "Ошибка распознавания PDF/фото")}
+    except ModelGatewayError as error:
+        print("SCAN ERROR:", error.code)
+        return {"ok": False, "error": "AI не ответил: " + error.code}
     except Exception as e:
         print("SCAN ERROR:", str(e))
         return {"ok": False, "error": str(e)}
-    finally:
-        _cleanup_invoice_scan_ai_files(client, uploaded_file_ids)
 
 try:
     from backend.features.platform_admin import (

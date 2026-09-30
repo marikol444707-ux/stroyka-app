@@ -5,6 +5,7 @@ from unittest.mock import patch
 from backend.features.model_gateway import runtime
 from backend.features.model_gateway.contract import (
     MODEL_GATEWAY_PROVIDER_FAILED,
+    ModelInputPart,
     ModelGatewayError,
 )
 
@@ -23,6 +24,37 @@ class _Gateway:
 
 
 class ModelGatewayRuntimeTest(unittest.TestCase):
+    def test_generate_yandex_parts_preserves_invoice_multipart_input(self):
+        gateway = _Gateway()
+        parts = (
+            ModelInputPart(kind="text", value="page 1"),
+            ModelInputPart(
+                kind="image_data_url",
+                value="data:image/png;base64,QUJDRA==",
+            ),
+        )
+        with patch.object(
+            runtime,
+            "build_yandex_model_adapter",
+            lambda **_values: gateway,
+        ):
+            answer = runtime.generate_yandex_parts(
+                capability="invoice_scan",
+                instructions="instructions",
+                input_parts=parts,
+                temperature=0.1,
+                max_output_tokens=12000,
+                api_key="private-key",
+                folder_id="folder-1",
+            )
+
+        self.assertEqual(answer, "answer")
+        request = gateway.requests[0]
+        self.assertEqual(request.capability, "invoice_scan")
+        self.assertEqual(request.input_text, "")
+        self.assertEqual(request.input_parts, parts)
+        self.assertEqual(request.max_output_tokens, 12000)
+
     def test_generate_yandex_text_builds_the_exact_neutral_request(self):
         gateway = _Gateway()
         with patch.object(
