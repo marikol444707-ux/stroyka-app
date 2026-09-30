@@ -438,19 +438,13 @@ export default function SupplierCabinetPage({
                             const hasInvoice = order?.documents.find(inv=>inv.status!=='Аннулирован');
                             const remaining = order?.lines.filter(line=>line.toShip>0) || [];
                             const canShip = order && !order.review && remaining.length>0;
-                            const paid = Number(hasInvoice?.paidAmount||0);
-                            const amount = Number(hasInvoice?.amount||hasInvoice?.totalAmount||o.totalPrice||0);
-                            const terms = String(o.paymentTerms||'').toLowerCase();
-                            const needPay = terms.includes('предоплат') || terms.includes('50/50');
-                            const required = Math.min(terms.includes('50/50') ? amount*0.5 : amount, Number(hasInvoice?.effectiveAmount ?? amount));
-                            const blockedByPay = needPay && (!hasInvoice || paid + 0.01 < required);
                             return (<div>
                               <div style={{display:'flex',gap:'6px',flexWrap:'wrap',justifyContent:'flex-end'}}>
                               {hasInvoice
                                 ? <span style={badge(hasInvoice.status==='Оплачен'||hasInvoice.status==='Частично оплачен'?C.success:C.info,hasInvoice.status==='Оплачен'||hasInvoice.status==='Частично оплачен'?C.successLight:C.infoLight,hasInvoice.status==='Оплачен'||hasInvoice.status==='Частично оплачен'?C.successBorder:C.infoBorder)}>💳 {hasInvoice.status}</span>
                                 : <button onClick={()=>{setInvoicingOfferId(o.id);setNewOfferInvoice({invoiceNumber:'',invoiceDate:new Date().toISOString().split('T')[0],amount:o.totalPrice||'',vatAmount:'',description:'Материал: '+req.materialName,fileUrl:''});}} style={{...btnO,padding:'5px 12px',fontSize:'12px'}}>💳 Выставить счёт</button>}
                               {order && <span style={{fontSize:12}}>{order.status}</span>}
-                              {canShip && <button disabled={blockedByPay || shipmentBusy} title={blockedByPay?'По условиям оплаты сначала нужна оплата бухгалтерии':''}
+                              {canShip && <button disabled={shipmentBusy}
                                 onClick={()=>{setShippingOfferId(o.id);setShipmentForm(createShipmentForm({
                                   requestId: crypto.randomUUID(),
                                   shippedItems: remaining.map(line=>({...line,shippedQuantity:String(line.toShip)})),
@@ -459,9 +453,6 @@ export default function SupplierCabinetPage({
                                 🚚 {order.shipments.length ? 'Отгрузить остаток' : 'Отгрузить'}
                               </button>}
                               </div>
-                              {canShip && blockedByPay && <p role="status" style={{maxWidth:'360px',margin:'8px 0 0',padding:'8px 10px',border:'1px solid '+C.warningBorder,borderRadius:'8px',backgroundColor:C.warningLight,color:C.text,fontSize:'12px',lineHeight:1.4}}>
-                                Следующий шаг: дождитесь фактической оплаты счёта заказчиком. После того как бухгалтерия зафиксирует банковский платёж, отгрузка станет доступна. Сейчас зафиксировано {paid.toLocaleString('ru-RU')} ₽.
-                              </p>}
                             </div>);
                           })()
                         )}
