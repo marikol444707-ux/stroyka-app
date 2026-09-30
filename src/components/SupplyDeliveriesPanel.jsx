@@ -37,6 +37,7 @@ function SupplyDeliveriesPanel({
 }) {
   const [visibleCount, setVisibleCount] = React.useState(8);
   const [filter, setFilter] = React.useState('all');
+  const [receiptConfirmed, setReceiptConfirmed] = React.useState(false);
   const deliveriesId = React.useId();
   const deliveries = supplyDeliveries || [];
   const claimsById = new Map((supplyClaims || []).map(claim => [claim.id, claim]));
@@ -55,6 +56,7 @@ function SupplyDeliveriesPanel({
   const openClaimsCount = (supplyClaims || []).filter(unresolved).length;
 
   const startReceiving = (delivery, isReceiving) => {
+    setReceiptConfirmed(false);
     setReceivingDeliveryId(isReceiving ? null : delivery.id);
     setReceiveForm({
       receivedQuantity: String(delivery.shippedQuantity || delivery.plannedQuantity || ''),
@@ -64,6 +66,10 @@ function SupplyDeliveriesPanel({
       claimDescription: '',
     });
   };
+
+  React.useEffect(() => {
+    setReceiptConfirmed(false);
+  }, [receivingDeliveryId]);
 
   const scanInvoice = async (event, delivery) => {
     const file = event.target.files[0];
@@ -174,6 +180,9 @@ function SupplyDeliveriesPanel({
 
             {isReceiving && canReceive && (
               <div style={{borderTop:'1.5px solid '+C.border,paddingTop:'10px',marginTop:'10px'}}>
+                <p style={{padding:'10px 12px',border:'1px solid '+C.warningBorder,borderRadius:'8px',backgroundColor:C.warningLight,color:C.text,fontSize:'12px',fontWeight:600}}>
+                  Программа запишет материал на склад и создаст приходную накладную. Делайте это только после фактического приезда поставки и проверки количества.
+                </p>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}}>
                   <input type='number' step='any' inputMode='decimal' value={receiveForm.receivedQuantity} onChange={e=>setReceiveForm({...receiveForm,receivedQuantity:e.target.value})} placeholder='Принято количество' style={{...inp,marginBottom:0}}/>
                   <select value={receiveForm.qualityStatus} onChange={e=>setReceiveForm({...receiveForm,qualityStatus:e.target.value})} style={{...inp,marginBottom:0}}>
@@ -190,9 +199,13 @@ function SupplyDeliveriesPanel({
                   <Upload size={12}/>{receiveForm.photoUrl?'Фото загружено':'Фото приёмки'}
                   <input type='file' accept='image/*,.pdf' style={{display:'none'}} onChange={event=>uploadReceptionFile(event, delivery)}/>
                 </label>
+                <label style={{display:'flex',alignItems:'flex-start',gap:'9px',padding:'10px 12px',marginBottom:'10px',border:'1px solid '+C.border,borderRadius:'8px',color:C.text,fontSize:'12px'}}>
+                  <input type="checkbox" checked={receiptConfirmed} onChange={event=>setReceiptConfirmed(event.target.checked)} style={{width:18,height:18,flex:'0 0 auto',margin:0}} />
+                  Подтверждаю: поставка физически прибыла, количество и состояние проверены. Указанное принятое количество, включая 0, соответствует факту.
+                </label>
                 <div style={{display:'flex',gap:'8px'}}>
-                  <button onClick={()=>receiveSupplyDelivery(delivery)} style={btnO}><Check size={14}/>Сохранить приёмку</button>
-                  <button onClick={()=>setReceivingDeliveryId(null)} style={btnG}><X size={14}/>Отмена</button>
+                  <button disabled={!receiptConfirmed} onClick={()=>{ if (receiptConfirmed) receiveSupplyDelivery(delivery); }} style={btnO}><Check size={14}/>Подтвердить фактическую приёмку</button>
+                  <button onClick={()=>{setReceiptConfirmed(false);setReceivingDeliveryId(null);}} style={btnG}><X size={14}/>Отмена</button>
                 </div>
               </div>
             )}

@@ -15,7 +15,7 @@ test('problem and timestamped receipts cannot be accepted again and stale receip
     receiveForm: { receivedQuantity: '2', qualityStatus: 'Принято' },
   })} />);
   expect(screen.queryByRole('button', { name: 'Принять' })).not.toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: 'Сохранить приёмку' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Подтвердить фактическую приёмку' })).not.toBeInTheDocument();
   expect(screen.getByText('Принято: 0 шт · Недостача: 2 шт')).toBeInTheDocument();
 });
 
@@ -53,5 +53,22 @@ test('receipt form remains available for a pending delivery to an authorized rol
   expect(p.setReceiveForm).toHaveBeenCalledWith(expect.objectContaining({ receivedQuantity: '2' }));
   view.rerender(<SupplyDeliveriesPanel {...p} role="бухгалтер" receivingDeliveryId={1} />);
   expect(screen.queryByRole('button', { name: 'Принять' })).not.toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: 'Сохранить приёмку' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Подтвердить фактическую приёмку' })).not.toBeInTheDocument();
+});
+
+test('records a receipt only after confirming the material physically arrived', () => {
+  const receiveSupplyDelivery = jest.fn();
+  render(<SupplyDeliveriesPanel {...props({
+    receivingDeliveryId: 1,
+    supplyDeliveries: [delivery(1)],
+    receiveForm: { receivedQuantity: '2', qualityStatus: 'Принято', qualityNotes: '', photoUrl: '', claimDescription: '' },
+    receiveSupplyDelivery,
+  })} />);
+  expect(screen.getByText(/Программа запишет материал на склад/)).toBeInTheDocument();
+  const submit = screen.getByRole('button', { name: 'Подтвердить фактическую приёмку' });
+  expect(submit).toBeDisabled();
+  fireEvent.click(screen.getByLabelText(/Подтверждаю: поставка физически прибыла/));
+  expect(submit).toBeEnabled();
+  fireEvent.click(submit);
+  expect(receiveSupplyDelivery).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }));
 });
