@@ -9,26 +9,6 @@ from backend.features.model_gateway.policies import MODEL_CAPABILITIES
 _EXPECTED_ACCESS = (
     ("backend/main.py", "_director_agent_call_yandex", "director_agent"),
     (
-        "backend/features/supply_kp_comparison/model.py",
-        "generate_supply_kp_comparison_legacy",
-        "supply_kp_comparison",
-    ),
-    (
-        "backend/features/supply_delivery/model.py",
-        "generate_supply_delivery_check_legacy",
-        "supply_delivery_check",
-    ),
-    (
-        "backend/features/work_journal/model.py",
-        "generate_work_journal_prefill_legacy",
-        "work_journal_prefill",
-    ),
-    (
-        "backend/features/work_journal/model.py",
-        "generate_work_journal_prefill_legacy.call",
-        "work_journal_prefill",
-    ),
-    (
         "backend/features/hidden_works_detection/model.py",
         "generate_hidden_works_detection_legacy",
         "hidden_works_detection",

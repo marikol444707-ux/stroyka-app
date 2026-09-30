@@ -145,36 +145,34 @@ a 120-second total deadline and fixed non-secret failures. Estimate
 authorization, work-row filtering and the final index-to-brigade mapping remain
 in the existing route. A release revert remains the bounded rollback.
 
-The fifth A14.4 domain is the text-based AI check of a supply delivery against
-its invoice notes. Its caller-local
-`SUPPLY_DELIVERY_CHECK_MODEL_GATEWAY_ENABLED` switch defaults to `false`. The
-rollback path preserves the YandexGPT model, prompt, instructions,
-temperature, 500-token output limit and caller-visible manual-check fallback.
-When explicitly enabled, only the text model request crosses the gateway with
-a 120-second total deadline and fixed non-secret failures. The deterministic
+The fifth A14.4 domain, the text-based AI check of a supply delivery against
+its invoice notes, now uses the gateway directly after request-parity tests
+passed. Its duplicated SDK caller and temporary cutover switch were removed.
+The YandexGPT model, prompt, instructions, temperature, 500-token output limit
+and caller-visible manual-check fallback are unchanged. The gateway applies a
+120-second total deadline and fixed non-secret failures. The deterministic
 `parsedItems` comparison, authorization, result persistence and HTTP response
-remain in the existing route and are unchanged.
+remain in the existing route. A release revert remains the bounded rollback.
 
-The sixth A14.4 domain is the AI verdict that accompanies the deterministic
-comparison of supplier commercial offers. Its caller-local
-`SUPPLY_KP_COMPARISON_MODEL_GATEWAY_ENABLED` switch defaults to `false`. The
-rollback path preserves the YandexGPT model, prompt, instructions,
-temperature, 400-token output limit and caller-visible `null` fallback. When
-explicitly enabled, only the text model request crosses the gateway with a
-120-second total deadline and fixed non-secret failures. Request and project
-authorization, offer selection, weighted ranking and the HTTP response remain
-in the existing route and are unchanged.
+The sixth A14.4 domain, the AI verdict accompanying deterministic comparison of
+supplier commercial offers, now uses the gateway directly after request-parity
+tests passed. Its duplicated SDK caller and temporary cutover switch were
+removed. The YandexGPT model, prompt, instructions, temperature, 400-token
+output limit and caller-visible `null` fallback are unchanged. The gateway
+applies a 120-second total deadline and fixed non-secret failures. Request and
+project authorization, offer selection, weighted ranking and the HTTP response
+remain in the existing route. A release revert remains the bounded rollback.
 
-The seventh A14.4 domain is AI prefill of normative documents, project
-documents and the quality note for one work-journal row. Its caller-local
-`WORK_JOURNAL_PREFILL_MODEL_GATEWAY_ENABLED` switch defaults to `false`. The
-rollback path preserves the Qwen-then-YandexGPT model order, prompt,
+The seventh A14.4 domain, AI prefill of normative documents, project documents
+and the quality note for one work-journal row, now uses the gateway directly
+after request-parity tests passed. Its duplicated SDK caller and temporary
+cutover switch were removed. The Qwen-then-YandexGPT model order, prompt,
 instructions, temperature, 2,000-token output limit, JSON extraction and HTTP
-response. When explicitly enabled, only the text model request crosses the
-gateway with a 120-second total deadline and fixed non-secret failures. Work-
-journal authorization, package/worker restrictions, tenant/project ownership,
-stale-row checks and the final database update remain in the existing route
-and are unchanged.
+response are unchanged. The gateway applies a 120-second total deadline and
+fixed non-secret failures. Work-journal authorization, package/worker
+restrictions, tenant/project ownership, stale-row checks and the final database
+update remain in the existing route. A release revert remains the bounded
+rollback.
 
 The eighth A14.4 domain is AI detection of estimate rows that require hidden-
 works acts. Its caller-local `HIDDEN_WORKS_DETECTION_MODEL_GATEWAY_ENABLED`

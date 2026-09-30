@@ -10633,10 +10633,6 @@ def compare_kp_for_request(
             "Ты помощник директора строительной компании. Сравниваешь коммерческие предложения и даёшь короткий вывод.",
             YANDEX_API_KEY,
             YANDEX_FOLDER_ID,
-            model_gateway_enabled=os.getenv(
-                "SUPPLY_KP_COMPARISON_MODEL_GATEWAY_ENABLED",
-                "false",
-            ).lower() == "true",
         )
     except Exception as e:
         print("compare-kp AI error:", e)
@@ -12453,13 +12449,6 @@ def ai_check_supply_delivery(
                 "Ты помощник кладовщика на стройке. Проверяешь накладную перед приёмкой.",
                 YANDEX_API_KEY,
                 YANDEX_FOLDER_ID,
-                model_gateway_enabled=(
-                    os.getenv(
-                        "SUPPLY_DELIVERY_CHECK_MODEL_GATEWAY_ENABLED",
-                        "false",
-                    ).lower()
-                    == "true"
-                ),
             )
         else:
             result_text = "Загрузите фото накладной или вставьте текст/позиции документа для AI-сверки."
@@ -14479,10 +14468,6 @@ def ai_prefill_work_journal(
         instructions,
         YANDEX_API_KEY,
         YANDEX_FOLDER_ID,
-        model_gateway_enabled=os.getenv(
-            "WORK_JOURNAL_PREFILL_MODEL_GATEWAY_ENABLED",
-            "false",
-        ).strip().lower() in {"1", "true", "yes"},
     )
     if not (answer or "").strip():
         raise HTTPException(status_code=502, detail="AI вернул пустой ответ: " + str(err))
