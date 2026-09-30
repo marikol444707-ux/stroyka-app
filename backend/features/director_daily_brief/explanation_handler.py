@@ -4,7 +4,10 @@ from collections.abc import Mapping
 
 from psycopg2.extras import RealDictCursor
 
-from backend.db import get_db
+try:
+    from backend.db import get_db
+except ModuleNotFoundError:
+    from db import get_db
 
 from .explanation_model import generate_daily_brief_explanation
 from .query_service import public_director_daily_brief
@@ -61,7 +64,10 @@ def read_daily_brief_explanation_source(
 
 
 def _generate_with_config(*, brief, source_job_id):
-    from backend.config import YANDEX_API_KEY, YANDEX_FOLDER_ID
+    try:
+        from backend.config import YANDEX_API_KEY, YANDEX_FOLDER_ID
+    except ModuleNotFoundError:
+        from config import YANDEX_API_KEY, YANDEX_FOLDER_ID
 
     return generate_daily_brief_explanation(
         brief=brief,

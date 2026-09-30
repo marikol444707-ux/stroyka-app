@@ -10779,7 +10779,7 @@ change.
 Подробности: `docs/frontend-targeted-refresh.md`.
 ## A4 — объяснение и доставка директорской сводки — 01.10.2026
 
-**Статус:** A4.3a–A4.4 реализованы локально; runtime по умолчанию выключен.
+**Статус:** A4.3a–A4.5 реализованы локально; runtime по умолчанию выключен.
 
 - [x] Основная сводка сохранена как независимый детерминированный источник.
 - [x] Зафиксированы exact company/source binding, fail-soft модель и отдельная
@@ -10791,6 +10791,9 @@ change.
 - [x] A4.4: exact-source explanation добавлено в существующий leadership API;
       неправильный AI-ответ не скрывает сводку. Компактный UI находится внутри
       «Подробнее» и не добавляет действий.
-- [ ] A4.5–A4.6: MAX, полный review и отдельный production canary.
+- [x] A4.5: отдельная MAX-доставка требует exact recipient, активную роль
+      руководителя и одну verified MAX account; повтор идемпотентен, actions
+      всегда пусты, default-off.
+- [ ] A4.6: полный regression/security review и отдельный production canary.
 
 Спецификация: `docs/director-daily-brief-explanation.md`.

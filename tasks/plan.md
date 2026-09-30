@@ -446,8 +446,13 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
     payload names the displayed source job. Invalid explanation data fails soft
     and never hides the deterministic brief. The compact explanation appears
     only inside expanded details and is explicitly labelled read-only AI text.
-  - [ ] Task A4.5: Add separate idempotent MAX delivery only to an active,
-    company-bound leadership recipient; no business-action buttons.
+  - [x] ~~Task A4.5: Add separate idempotent MAX delivery only to an active,
+    company-bound leadership recipient; no business-action buttons.~~ Delivery
+    is disabled by default and requires an exact recipient user ID. The server
+    revalidates the successful explanation/source pair, active company
+    leadership membership and exactly one verified MAX account. A transaction
+    advisory lock plus exact outbox lookup prevents repeat delivery; the
+    message has an empty actions list and contains no business command.
   - [ ] Task A4.6: Complete regression/security review and a separately reviewed
     one-company canary before any scheduled delivery or fan-out.
 - [ ] Task A5: Add one `Требует внимания` queue with reason, priority, owner, project and the next safe action.

@@ -2,7 +2,10 @@
 
 from collections.abc import Mapping
 
-from backend.features.agent_jobs.service import enqueue_agent_job
+try:
+    from backend.features.agent_jobs.service import enqueue_agent_job
+except ModuleNotFoundError:
+    from features.agent_jobs.service import enqueue_agent_job
 
 from .explanation_handler import JOB_TYPE
 from .query_service import public_director_daily_brief
