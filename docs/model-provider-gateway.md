@@ -93,15 +93,13 @@ from silently changing either branch merely to make the model table uniform.
   result using a fake provider.
 - Keep a small rollback path limited to that caller.
 
-Implemented behind the caller-local
-`ESTIMATE_CHAT_MODEL_GATEWAY_ENABLED` switch. Its safe default is `false`, so a
-normal deployment preserves the existing direct call. Setting it to `true`
-routes only estimate-chat generation through the gateway; setting it back to
-`false` is the rollback. The prompt, model, temperature and 1,500-token output
-limit are unchanged. The gateway adds the contract's explicit 120-second total
-deadline and replaces provider exception details with fixed non-secret failure
-codes. The route, authorization, message storage and response shape are
-unchanged.
+Estimate chat now uses the gateway directly after request-parity tests passed.
+The duplicated SDK caller and its temporary cutover switch were removed. The
+prompt, model, temperature and 1,500-token output limit are unchanged. The
+gateway adds the contract's explicit 120-second total deadline and replaces
+provider exception details with fixed non-secret failure codes. The route,
+authorization, message storage and response shape are unchanged. A release
+revert remains the bounded rollback for this single caller.
 
 ### A14.4: Remaining callers
 
