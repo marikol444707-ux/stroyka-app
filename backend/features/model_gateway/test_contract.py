@@ -28,11 +28,12 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 
 class ModelGatewayContractTest(unittest.TestCase):
     def test_capabilities_are_closed_and_cover_current_logical_flows(self):
-        self.assertEqual(len(MODEL_CAPABILITIES), 20)
+        self.assertEqual(len(MODEL_CAPABILITIES), 21)
         self.assertEqual(
             set(MODEL_CAPABILITIES),
             {
                 "ai_chat",
+                "ai_chat_json",
                 "cable_journal_suggestion",
                 "director_agent",
                 "document_recognition",
@@ -255,14 +256,14 @@ class ModelAccessInventoryTest(unittest.TestCase):
         report = run_model_access_inventory(REPOSITORY_ROOT)
 
         self.assertTrue(report["complete"])
-        self.assertEqual(report["logicalCapabilityCount"], 20)
-        self.assertEqual(report["directAccessCount"], 6)
+        self.assertEqual(report["logicalCapabilityCount"], 21)
+        self.assertEqual(report["directAccessCount"], 4)
         self.assertEqual(report["unexpected"], [])
         self.assertEqual(report["missing"], [])
         self.assertEqual(report["writesAttempted"], 0)
         self.assertEqual(
             len({item["capability"] for item in report["accessPoints"]}),
-            3,
+            2,
         )
 
     def test_new_direct_provider_access_fails_the_inventory(self):

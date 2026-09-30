@@ -17,6 +17,20 @@ EXPECTED = {
 
 
 class MainRuntimeGatewayCutoverTest(unittest.TestCase):
+    def test_ai_chat_uses_explicit_gateway_routes_for_text_and_json(self):
+        tree = ast.parse(MAIN_PATH.read_text(encoding="utf-8"))
+        source = ast.unparse(next(
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "ai_chat"
+        ))
+
+        self.assertIn("generate_yandex_text", source)
+        self.assertIn("'ai_chat_json' if json_only else 'ai_chat'", source)
+        self.assertIn("max_output_tokens=primary_tokens", source)
+        self.assertNotIn("OpenAI", source)
+        self.assertNotIn("responses.create", source)
+        self.assertNotIn("gpt://", source)
+
     def test_business_callers_use_fixed_gateway_capabilities_and_limits(self):
         tree = ast.parse(MAIN_PATH.read_text(encoding="utf-8"))
         functions = {

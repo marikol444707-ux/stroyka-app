@@ -38,6 +38,7 @@ def _policy(
 
 _CAPABILITIES = (
     _policy("ai_chat"),
+    _policy("ai_chat_json", model_policy="strict_json"),
     _policy("cable_journal_suggestion", model_policy="strict_json"),
     _policy("director_agent", model_policy="low_cost_text"),
     _policy(

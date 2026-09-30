@@ -16416,9 +16416,6 @@ def ai_chat(
     x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
     current_user: dict = Depends(get_current_user),
 ):
-    from openai import OpenAI
-    FOLDER_ID = YANDEX_FOLDER_ID
-    API_KEY = YANDEX_API_KEY
     messages = data.get("messages", [])
     json_only = data.get("jsonOnly", False)
     skip_context = data.get("skipContext", False) or json_only
@@ -16513,34 +16510,21 @@ def ai_chat(
         context += "НАРЯДЫ: "+", ".join([b[0]+": "+b[1]+" - "+b[2] for b in brigades[:10]])+"\n"
         context += "ОПЛАТЫ: "+", ".join([pay[0]+": "+str(int(pay[1]))+" руб - "+str(pay[2]) for pay in payments[:10]])+"\n"
         context += "Платежи поставщикам и их сторно не включены; это не полная финансовая сводка.\n"
-    import openai as oa
-    client = oa.OpenAI(api_key=API_KEY, base_url="https://ai.api.cloud.yandex.net/v1", project=FOLDER_ID)
-    user_text = messages[-1].get("content","") if messages else ""
-
-    def _call(model_id, max_tokens):
-        try:
-            r = client.responses.create(
-                model="gpt://"+FOLDER_ID+"/"+model_id,
-                temperature=0.1 if json_only else 0.2,
-                instructions=context,
-                input=user_text,
-                max_output_tokens=max_tokens,
-            )
-            return (r.output_text or ""), None
-        except Exception as e:
-            return "", str(e)
-
-    primary_model = "qwen3.6-35b-a3b/latest" if json_only else "yandexgpt-5.1/latest"
+    user_text = messages[-1].get("content", "") if messages else ""
     primary_tokens = 4000 if json_only else 2000
-    answer, err = _call(primary_model, primary_tokens)
-    if not (answer or "").strip():
-        print("AI PRIMARY EMPTY model=" + primary_model + " err=" + str(err))
-        fallback_model = "yandexgpt-5.1/latest" if json_only else "qwen3.6-35b-a3b/latest"
-        print("AI FALLBACK trying " + fallback_model)
-        answer, err = _call(fallback_model, primary_tokens)
-        if not (answer or "").strip():
-            print("AI FALLBACK ALSO EMPTY err=" + str(err))
-            answer = "Ошибка: ИИ вернул пустой ответ. Попробуйте ещё раз или сократите запрос."
+    try:
+        answer = generate_yandex_text(
+            capability="ai_chat_json" if json_only else "ai_chat",
+            instructions=context,
+            input_text=user_text,
+            temperature=0.1 if json_only else 0.2,
+            max_output_tokens=primary_tokens,
+            api_key=YANDEX_API_KEY,
+            folder_id=YANDEX_FOLDER_ID,
+        )
+    except ModelGatewayError as error:
+        print("AI GATEWAY ERROR code=" + error.code)
+        answer = "Ошибка: ИИ вернул пустой ответ. Попробуйте ещё раз или сократите запрос."
     print("AI ANSWER LEN:", len(answer or ""))
     print("AI ANSWER HEAD:", (answer or "")[:200])
     return {"response": answer}
