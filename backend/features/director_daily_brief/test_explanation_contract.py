@@ -5,6 +5,7 @@ from backend.features.director_daily_brief.explanation_contract import (
     DirectorDailyBriefExplanationError,
     build_explanation_model_input,
     parse_explanation_model_output,
+    public_daily_brief_explanation,
 )
 from backend.features.director_daily_brief.test_query_service import valid_result
 
@@ -75,6 +76,28 @@ class DirectorDailyBriefExplanationContractTests(unittest.TestCase):
         brief["sections"] = []
         with self.assertRaises(DirectorDailyBriefExplanationError):
             build_explanation_model_input(brief)
+
+    def test_validates_a_stored_explanation_for_the_exact_source(self):
+        stored = {
+            "schemaVersion": 1,
+            "sourceJobId": 17,
+            "headline": "Есть вопросы, требующие внимания",
+            "overview": "Проверьте сроки объекта.",
+            "points": [{
+                "sourceCode": "project.deadline_overdue",
+                "text": "Срок объекта требует проверки.",
+            }],
+        }
+        self.assertEqual(
+            public_daily_brief_explanation(
+                stored, source_job_id=17, brief=valid_result()
+            ),
+            stored,
+        )
+        with self.assertRaises(DirectorDailyBriefExplanationError):
+            public_daily_brief_explanation(
+                stored, source_job_id=18, brief=valid_result()
+            )
 
 
 if __name__ == "__main__":

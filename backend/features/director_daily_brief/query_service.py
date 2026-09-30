@@ -13,6 +13,7 @@ class DirectorDailyBriefQueryError(ValueError):
 
 
 _JOB_TYPE = "director.daily_brief"
+_EXPLANATION_JOB_TYPE = "director.daily_brief.explanation"
 _SUMMARY_KEYS = ("total", "critical", "warning", "info")
 _SOURCE_KEYS = (
     "projects",
@@ -220,4 +221,32 @@ def get_latest_director_daily_brief(cur, *, company_id):
         "completedAt": _time(row.get("completed_at")),
         "brief": brief,
         "attentionQueue": build_attention_queue(brief),
+    }
+
+
+def get_daily_brief_explanation(cur, *, company_id, source_job_id, brief):
+    from .explanation_contract import public_daily_brief_explanation
+
+    company_id = _positive_int(company_id, "company_id")
+    source_job_id = _positive_int(source_job_id, "source_job_id")
+    cur.execute(
+        """SELECT id,completed_at,result_json
+             FROM agent_jobs
+            WHERE company_id=%s AND project_id IS NULL
+              AND job_type=%s AND status='succeeded'
+              AND payload_json->>'sourceJobId'=%s
+              AND completed_at IS NOT NULL AND result_json IS NOT NULL
+            ORDER BY completed_at DESC,id DESC LIMIT 1""",
+        (company_id, _EXPLANATION_JOB_TYPE, str(source_job_id)),
+    )
+    row = cur.fetchone()
+    if not row:
+        return None
+    explanation = public_daily_brief_explanation(
+        row.get("result_json"), source_job_id=source_job_id, brief=brief
+    )
+    return {
+        "explanationJobId": _positive_int(row.get("id"), "explanation_job_id"),
+        "completedAt": _time(row.get("completed_at")),
+        **explanation,
     }

@@ -70,6 +70,10 @@ def parse_explanation_model_output(output_text, *, source_job_id, brief):
         raise DirectorDailyBriefExplanationError("model output is not JSON") from exc
     if not isinstance(value, Mapping) or set(value) != {"headline", "overview", "points"}:
         raise DirectorDailyBriefExplanationError("model output fields are invalid")
+    return _validated_explanation(value, source_job_id=source_job_id, public=public)
+
+
+def _validated_explanation(value, *, source_job_id, public):
     points = value["points"]
     if not isinstance(points, list) or len(points) > 5:
         raise DirectorDailyBriefExplanationError("model output points are invalid")
@@ -98,3 +102,21 @@ def parse_explanation_model_output(output_text, *, source_job_id, brief):
         "overview": _model_text(value["overview"], "overview", _TEXT_LIMITS["overview"]),
         "points": normalized_points,
     }
+
+
+def public_daily_brief_explanation(value, *, source_job_id, brief):
+    """Validate one stored explanation against its exact public source brief."""
+    source_job_id = _positive_int(source_job_id, "source_job_id")
+    public = _public_brief(brief)
+    if not isinstance(value, Mapping) or set(value) != {
+        "schemaVersion", "sourceJobId", "headline", "overview", "points"
+    }:
+        raise DirectorDailyBriefExplanationError("stored explanation fields are invalid")
+    if value.get("schemaVersion") != 1 or value.get("sourceJobId") != source_job_id:
+        raise DirectorDailyBriefExplanationError("stored explanation source is invalid")
+    generated = {
+        "headline": value.get("headline"),
+        "overview": value.get("overview"),
+        "points": value.get("points"),
+    }
+    return _validated_explanation(generated, source_job_id=source_job_id, public=public)

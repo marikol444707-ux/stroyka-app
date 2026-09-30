@@ -62,6 +62,8 @@ export default function DirectorDailyBriefPanel({state = {}, isMobile = false}) 
   const summary = brief?.summary || {};
   const sections = Array.isArray(brief?.sections) ? brief.sections : [];
   const attentionQueue = data?.attentionQueue?.readOnly === true ? data.attentionQueue : null;
+  const explanation = data?.explanation || null;
+  const explanationPoints = Array.isArray(explanation?.points) ? explanation.points : [];
   const attentionItems = Array.isArray(attentionQueue?.items) ? attentionQueue.items : [];
   const visibleAttentionItems = attentionItems.slice(0, isMobile ? 4 : 6);
   const completedTime = formatCompletedAt(data?.completedAt);
@@ -97,6 +99,19 @@ export default function DirectorDailyBriefPanel({state = {}, isMobile = false}) 
               </button>
             </div>
             {expanded && <>
+            {explanation&&(
+              <div aria-label="Короткое объяснение" style={{marginTop:'12px',padding:'12px',border:'1px solid rgba(14,165,233,.30)',borderRadius:'10px',background:'rgba(8,47,73,.20)'}}>
+                <div style={{fontSize:'11px',fontWeight:900,color:'#7dd3fc'}}>Короткое объяснение</div>
+                <div style={{marginTop:'5px',fontSize:'13px',fontWeight:900,color:'#f8fafc',overflowWrap:'anywhere'}}>{explanation.headline}</div>
+                <div style={{marginTop:'4px',fontSize:'12px',lineHeight:1.45,color:'#cbd5e1',overflowWrap:'anywhere'}}>{explanation.overview}</div>
+                {explanationPoints.length>0&&(
+                  <ul style={{margin:'8px 0 0',paddingLeft:'18px',display:'grid',gap:'4px',fontSize:'11px',lineHeight:1.4,color:'#cbd5e1'}}>
+                    {explanationPoints.map((point, index) => <li key={`${point.sourceCode}-${index}`}>{point.text}</li>)}
+                  </ul>
+                )}
+                <div style={{marginTop:'8px',fontSize:'10px',color:'#94a3b8'}}>AI объясняет готовые данные и ничего не изменяет</div>
+              </div>
+            )}
             {attentionQueue&&(
               <div aria-label="Требует внимания" style={{marginTop:'12px',padding:'10px 0',borderTop:'1px solid rgba(148,163,184,.18)',borderBottom:'1px solid rgba(148,163,184,.18)'}}>
                 <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:'8px'}}>

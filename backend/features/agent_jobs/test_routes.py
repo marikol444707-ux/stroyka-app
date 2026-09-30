@@ -8,6 +8,7 @@ from backend.features.agent_jobs.routes import (
     AgentJobCancelPayload,
     register_agent_jobs_module,
 )
+from backend.features.director_daily_brief.test_query_service import valid_result
 
 
 class FakeApp:
@@ -75,6 +76,46 @@ def actor(company_id=4, role="директор"):
 
 
 class AgentJobRouteTests(unittest.TestCase):
+    def test_latest_daily_brief_includes_only_its_exact_valid_explanation(self):
+        explanation = {
+            "schemaVersion": 1,
+            "sourceJobId": 17,
+            "headline": "Есть вопросы, требующие внимания",
+            "overview": "Проверьте сроки объекта.",
+            "points": [{
+                "sourceCode": "project.deadline_overdue",
+                "text": "Срок объекта требует проверки.",
+            }],
+        }
+        cursor = FakeCursor([
+            {"id": 17, "completed_at": datetime(2026, 8, 5, 11, 30), "result_json": valid_result()},
+            {"id": 19, "completed_at": datetime(2026, 8, 5, 11, 35), "result_json": explanation},
+        ])
+        app, _conn, _audit_calls = self.build_app(cursor)
+
+        result = app.routes[("GET", "/agent-jobs/director-daily-brief/latest")](
+            "4", "company", {"id": 7}
+        )
+
+        self.assertEqual(result["explanation"]["sourceJobId"], 17)
+        self.assertEqual(result["explanation"]["explanationJobId"], 19)
+        self.assertEqual(cursor.calls[1][1], (4, "director.daily_brief.explanation", "17"))
+
+    def test_invalid_explanation_never_hides_the_deterministic_brief(self):
+        cursor = FakeCursor([
+            {"id": 17, "completed_at": datetime(2026, 8, 5, 11, 30), "result_json": valid_result()},
+            {"id": 19, "completed_at": datetime(2026, 8, 5, 11, 35), "result_json": {"unsafe": True}},
+        ])
+        app, _conn, _audit_calls = self.build_app(cursor)
+
+        result = app.routes[("GET", "/agent-jobs/director-daily-brief/latest")](
+            "4", "company", {"id": 7}
+        )
+
+        self.assertTrue(result["available"])
+        self.assertEqual(result["jobId"], 17)
+        self.assertIsNone(result["explanation"])
+
     def test_backend_registers_agent_job_routes_with_leadership_roles(self):
         main_path = Path(__file__).resolve().parents[2] / "main.py"
         source = " ".join(main_path.read_text(encoding="utf-8").split())

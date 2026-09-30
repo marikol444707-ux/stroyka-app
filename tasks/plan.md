@@ -440,8 +440,12 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
     validates the model result. The producer is dry-run-first and disabled by
     default; the handler is absent from the default worker registry and can be
     added only by an explicit boolean registry control.
-  - [ ] Task A4.4: Expose the validated explanation in the leadership API and
-    compact in-app view with exact company/source binding.
+  - [x] ~~Task A4.4: Expose the validated explanation in the leadership API and
+    compact in-app view with exact company/source binding.~~ The existing
+    leadership endpoint reads only the newest successful explanation whose
+    payload names the displayed source job. Invalid explanation data fails soft
+    and never hides the deterministic brief. The compact explanation appears
+    only inside expanded details and is explicitly labelled read-only AI text.
   - [ ] Task A4.5: Add separate idempotent MAX delivery only to an active,
     company-bound leadership recipient; no business-action buttons.
   - [ ] Task A4.6: Complete regression/security review and a separately reviewed
