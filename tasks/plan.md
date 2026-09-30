@@ -427,6 +427,17 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
 - [x] ~~Task A4.2.2: Deploy the fail-closed exact-job runner hand-off on runtime `ed11051bb8d8`. `--once --job-id <id>` atomically claims only that queued, due, attempt-eligible ID from the immutable handler allowlist, skips global recovery and never falls through to a neighboring row. Unclaimable targets return metadata-only `not_claimed` with exit code `2`; `--job-id` without `--once` is rejected. Public smoke passes; no schedule, daemon, model, MAX or business mutation is enabled.~~
 - [x] ~~Task A4.2.3: Deploy the dry-run-by-default controlled cycle for one explicit company/date on runtime `ed11051bb8d8`. Explicit apply commits the idempotent producer first and then executes only its returned exact job ID after validating company/date/type. Existing success is not rerun; every other nonqueued or unclaimable state fails closed. Public smoke passes; business writes remain zero and no schedule, daemon, model, MAX or fan-out is enabled.~~
 - [x] ~~Task A4.2.4: Deploy runtime `2e14a3a2ca3c` and enable the prepared one-company daily one-shot schedule. Linux unit validation and public smoke pass; manual company `1` job `9` for Moscow date `2026-08-06` succeeded in `268 ms` with zero business writes. The timer is enabled for about `07:10 Europe/Moscow`; the generic daemon, model, MAX and fan-out remain disabled. Protected smoke was skipped because credentials were not supplied.~~
+  - [ ] Task A4.3a: Freeze the bounded source/result contract for an optional
+    model explanation linked to one exact succeeded daily-brief job; no model
+    call, route, queue write or delivery.
+  - [ ] Task A4.3b: Add a separate default-off gateway-backed explanation job
+    and idempotent producer. Failure must preserve the deterministic brief.
+  - [ ] Task A4.4: Expose the validated explanation in the leadership API and
+    compact in-app view with exact company/source binding.
+  - [ ] Task A4.5: Add separate idempotent MAX delivery only to an active,
+    company-bound leadership recipient; no business-action buttons.
+  - [ ] Task A4.6: Complete regression/security review and a separately reviewed
+    one-company canary before any scheduled delivery or fan-out.
 - [ ] Task A5: Add one `Требует внимания` queue with reason, priority, owner, project and the next safe action.
 - [x] ~~Task A5.1: Deploy and verify the read-only attention projection. It exposes only critical/warning items from the latest validated single-company brief, caps visible rows at 12, uses immutable server-owned reason/action policy, and renders no action buttons. Runtime `74344e8692f9`, public smoke, protected selected-company access, aggregate-company denial and public-field policy all pass.~~
 - [ ] Task A6: Run checks automatically after data changes and keep only resolve/approve commands visible; move history, export and rare actions to an overflow menu.
