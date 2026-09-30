@@ -433,8 +433,13 @@ Replace unsafe family-level aggregation and broad substring norms with a traceab
     validated public brief and is capped at 32 KiB. Untrusted output must match
     the exact JSON shape, reference existing source codes, contain no HTML,
     control characters or new numeric claims, and remain within fixed limits.
-  - [ ] Task A4.3b: Add a separate default-off gateway-backed explanation job
-    and idempotent producer. Failure must preserve the deterministic brief.
+  - [x] ~~Task A4.3b: Add a separate default-off gateway-backed explanation job
+    and idempotent producer. Failure must preserve the deterministic brief.~~
+    The handler reads one exact succeeded company-owned source, sends only the
+    validated public projection through capability `director_agent`, and
+    validates the model result. The producer is dry-run-first and disabled by
+    default; the handler is absent from the default worker registry and can be
+    added only by an explicit boolean registry control.
   - [ ] Task A4.4: Expose the validated explanation in the leadership API and
     compact in-app view with exact company/source binding.
   - [ ] Task A4.5: Add separate idempotent MAX delivery only to an active,

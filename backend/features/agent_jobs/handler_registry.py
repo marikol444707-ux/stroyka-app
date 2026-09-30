@@ -13,6 +13,9 @@ try:
         serialize_safe_json_object,
     )
     from backend.features.director_daily_brief.handler import handle_director_daily_brief
+    from backend.features.director_daily_brief.explanation_handler import (
+        handle_daily_brief_explanation,
+    )
     from backend.features.estimate_revision_impact.handler import (
         handle_estimate_revision_impact,
     )
@@ -23,6 +26,9 @@ except ModuleNotFoundError:
         serialize_safe_json_object,
     )
     from features.director_daily_brief.handler import handle_director_daily_brief
+    from features.director_daily_brief.explanation_handler import (
+        handle_daily_brief_explanation,
+    )
 
     def handle_estimate_revision_impact(context):
         """Load the A7 graph only when a top-level exact job executes."""
@@ -153,10 +159,20 @@ def _worker_probe_handler(context):
     return {"ok": True, "workerReady": True}
 
 
-def build_default_handler_registry():
+def build_default_handler_registry(*, enable_daily_brief_explanation=False):
     """Return only handlers that are safe to execute in the current release."""
-    return AgentJobHandlerRegistry((
+    if type(enable_daily_brief_explanation) is not bool:
+        raise AgentJobHandlerRegistryError(
+            "enable_daily_brief_explanation must be boolean"
+        )
+    entries = [
         ("system.worker_probe", _worker_probe_handler),
         ("director.daily_brief", handle_director_daily_brief),
         ("estimate.revision_impact", handle_estimate_revision_impact),
-    ))
+    ]
+    if enable_daily_brief_explanation:
+        entries.append((
+            "director.daily_brief.explanation",
+            handle_daily_brief_explanation,
+        ))
+    return AgentJobHandlerRegistry(tuple(entries))

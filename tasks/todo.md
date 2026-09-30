@@ -10779,13 +10779,15 @@ change.
 Подробности: `docs/frontend-targeted-refresh.md`.
 ## A4 — объяснение и доставка директорской сводки — 01.10.2026
 
-**Статус:** A4.3a завершён; следующим идёт отдельный default-off handler A4.3b.
+**Статус:** A4.3a–A4.3b реализованы локально; runtime по умолчанию выключен.
 
 - [x] Основная сводка сохранена как независимый детерминированный источник.
 - [x] Зафиксированы exact company/source binding, fail-soft модель и отдельная
       идемпотентная MAX-доставка без бизнес-команд.
 - [x] A4.3a: RED подтверждён отсутствующим модулем; GREEN — 13/13 тестов
       контракта и существующей директорской сводки.
-- [ ] A4.3b–A4.6: handler, API/UI, MAX и отдельный production canary.
+- [x] A4.3b: отдельный gateway-backed handler и идемпотентный producer;
+      producer disabled/dry-run-first, handler отсутствует в default registry.
+- [ ] A4.4–A4.6: API/UI, MAX, полный review и отдельный production canary.
 
 Спецификация: `docs/director-daily-brief-explanation.md`.
