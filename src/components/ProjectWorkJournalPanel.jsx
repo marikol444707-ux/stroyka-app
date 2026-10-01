@@ -132,10 +132,10 @@ export default function ProjectWorkJournalPanel({
       <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px', flexWrap: 'wrap', gap: '8px'}}>
         <b style={{color: C.text}}>Журнал производства работ</b>
         <div style={{display: 'flex', gap: '8px', flexWrap: 'wrap'}}>
-          <button onClick={() => setShowJournalTableModal(projectName)} style={btnB}>
+          <button onClick={() => setShowJournalTableModal(project)} style={btnB}>
             <FileText size={14}/>📋 Таблица КС-6а
           </button>
-          <button onClick={() => showPreview(buildJPRContent(projectName), 'ЖПР — ' + projectName)} style={btnG}>
+          <button onClick={() => showPreview(buildJPRContent(project), 'ЖПР — ' + projectName)} style={btnG}>
             <ScrollText size={14}/>ЖПР
           </button>
           <button onClick={() => showKS2(project)} style={btnG}>

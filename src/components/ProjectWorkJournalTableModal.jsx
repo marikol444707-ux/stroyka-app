@@ -2,6 +2,7 @@ import React from 'react';
 import { Eye, X } from 'lucide-react';
 
 export default function ProjectWorkJournalTableModal({
+  project,
   projectName,
   workJournal = [],
   journalFilter,
@@ -22,9 +23,18 @@ export default function ProjectWorkJournalTableModal({
   btnB,
   btnG,
 }) {
-  if (!projectName) return null;
+  const selectedProject = project && typeof project === 'object' ? project : {name: projectName || project || ''};
+  const selectedProjectName = selectedProject.name || '';
+  const selectedCompanyId = selectedProject.companyId ?? selectedProject.company_id;
+  if (!selectedProjectName) return null;
 
-  const journalHere = workJournal.filter(item => item.project === projectName);
+  const journalHere = workJournal.filter(item => {
+    if (selectedProject.id && selectedCompanyId) {
+      return Number(item.projectId ?? item.project_id) === Number(selectedProject.id)
+        && Number(item.companyId ?? item.company_id) === Number(selectedCompanyId);
+    }
+    return item.project === selectedProjectName;
+  });
   let filtered = journalHere;
   if (journalFilter.from) filtered = filtered.filter(item => (item.date || '') >= journalFilter.from);
   if (journalFilter.to) filtered = filtered.filter(item => (item.date || '') <= journalFilter.to);
@@ -44,7 +54,7 @@ export default function ProjectWorkJournalTableModal({
         <div style={{padding: '16px 20px', borderBottom: '1.5px solid ' + C.border, backgroundColor: C.bg, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px'}}>
           <div>
             <b style={{color: C.text, fontSize: '16px', display: 'block'}}>📋 Журнал работ — Таблица КС-6а</b>
-            <span style={{fontSize: '12px', color: C.textSec}}>{projectName + ' · РД-11-05-2007 · СП 48.13330.2019'}</span>
+            <span style={{fontSize: '12px', color: C.textSec}}>{selectedProjectName + ' · РД-11-05-2007 · СП 48.13330.2019'}</span>
           </div>
           <button onClick={() => setShowJournalTableModal(null)} style={{...btnG, padding: '5px 10px'}}>
             <X size={14}/>
@@ -73,7 +83,7 @@ export default function ProjectWorkJournalTableModal({
                   <option>Подтверждено</option>
                   <option>Отклонено</option>
                 </select>
-                <button onClick={() => showPreview(buildWorkJournalContent(filtered, projectName, journalFilter.from, journalFilter.to), 'КС-6а — ' + projectName)} style={{...btnB, fontSize: '11px', padding: '7px 10px'}}>
+                <button onClick={() => showPreview(buildWorkJournalContent(filtered, selectedProject, journalFilter.from, journalFilter.to), 'КС-6а — ' + selectedProjectName)} style={{...btnB, fontSize: '11px', padding: '7px 10px'}}>
                   <Eye size={12}/>🖨 Печать КС-6а
                 </button>
               </div>
@@ -125,7 +135,7 @@ export default function ProjectWorkJournalTableModal({
                         <td style={{...tblC, maxWidth: '260px', whiteSpace: 'normal'}}>
                           {item.description}
                           {item.hiddenWork ? (() => {
-                            const status = getActStatusForJournal({...item, project: item.project || projectName});
+                            const status = getActStatusForJournal({...item, project: item.project || selectedProjectName});
                             return (
                               <span
                                 title={status && status.act ? 'Открыть печатную форму АОСР' : 'Позиция актируется в АОСР'}

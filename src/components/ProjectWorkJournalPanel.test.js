@@ -116,4 +116,15 @@ describe('ProjectWorkJournalPanel protected photo preview', () => {
     expect(props.setShowPhotoModal).toHaveBeenCalledWith('https://api.test/uploads/company-1/work-journal/photo.png');
     expect(props.setEditingJournal).not.toHaveBeenCalled();
   });
+
+  it('opens the printable journal with the exact project identity', () => {
+    const project = {id: 17, companyId: 4, name: 'Лицей'};
+    const props = buildProps('', {project});
+    render(<ProjectWorkJournalPanel {...props}/>);
+
+    fireEvent.click(screen.getByRole('button', {name: /Таблица КС-6а/}));
+    expect(props.setShowJournalTableModal).toHaveBeenCalledWith(project);
+    fireEvent.click(screen.getByRole('button', {name: /^ЖПР$/}));
+    expect(props.buildJPRContent).toHaveBeenCalledWith(project);
+  });
 });

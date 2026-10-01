@@ -12,6 +12,26 @@ import {
 
 export { directorDocStyles, fmtDocMoney } from './printDocumentShared';
 
+const journalExportIdentity = (prefix, project, companyRequisites, companyName, generatedAt) => {
+  const req = companyRequisites || {};
+  const orgName = req.fullName || req.shortName || companyName || 'Реквизиты организации не заполнены';
+  const generated = generatedAt ? new Date(generatedAt) : new Date();
+  const generatedLabel = Number.isNaN(generated.getTime())
+    ? String(generatedAt || '')
+    : generated.toLocaleString('ru-RU', {timeZone: 'Europe/Moscow'});
+  return {
+    orgName,
+    generatedLabel,
+    html: '<div style="border:1px solid #d97706;background:#fffbeb;color:#92400e;padding:7px 10px;margin:6px 0 10px;text-align:center;font-weight:700">Рабочая выгрузка — не подписана</div>'
+      + '<div class="' + prefix + '-meta"><b>' + docEsc(orgName) + '</b>'
+      + (req.inn ? ' · ИНН ' + docEsc(req.inn) : '')
+      + (project?.id ? ' · ID объекта: ' + docEsc(project.id) : '')
+      + '<br><span>Сформировано: ' + docEsc(generatedLabel) + ' (Москва)</span></div>',
+  };
+};
+
+const journalArchiveNote = '<div style="margin-top:12px;font-size:10px;color:#666">После подписания сохраните PDF или скан один раз в архиве выбранной компании: «Настройки → Документы». Эта рабочая выгрузка сама по себе не является подписанным оригиналом.</div>';
+
 export const buildDirectorBriefReportDocContent = (date, context = {}) => {
   const {
     companyName = '',
@@ -229,12 +249,13 @@ export const buildJPRDocContent = (projectOrName, context = {}) => {
     tbJournal = [],
     cableJournal = [],
     weatherLog = [],
+    generatedAt,
   } = context;
   const project = resolveQualityJournalProject(projectOrName, projects);
   const projectName = project.name;
-  const works = workJournal.filter((item) => item.project === projectName && item.status === 'Подтверждено');
-  const req = companyRequisites || {};
-  const orgName = req.fullName || req.shortName || companyName || '_____';
+  const works = selectQualityJournalRows(workJournal, project).filter((item) => item.status === 'Подтверждено');
+  const identity = journalExportIdentity('jpr', project, companyRequisites, companyName, generatedAt);
+  const orgName = identity.orgName;
   const itr = users.filter((item) => ['прораб', 'главный_инженер', 'стройконтроль'].includes(item.role));
   const acts = hiddenActs.filter((item) => item.projectName === projectName);
   const inspections = selectQualityJournalRows(materialInspections, project);
@@ -260,17 +281,18 @@ export const buildJPRDocContent = (projectOrName, context = {}) => {
     + '.jpr-sig-line{border-bottom:1px solid #333;min-height:18px;font-size:12px;font-weight:600}'
     + '.jpr-sig-sub{font-size:9px;color:#555;margin-top:2px}'
     + '</style>';
+  html += identity.html;
   html += '<div class="jpr-title">ОБЩИЙ ЖУРНАЛ РАБОТ</div>';
   html += '<div class="jpr-sub">по форме РД-11-05-2007 «Порядок ведения общего и (или) специального журнала учёта выполнения работ при строительстве»</div>';
-  html += '<div class="jpr-row"><span><b>Объект капитального строительства:</b></span><span>' + (projectName || '____________') + '</span></div>';
-  html += '<div class="jpr-row"><span><b>Местоположение:</b></span><span>' + (project.address || project.city || '____________') + '</span></div>';
-  html += '<div class="jpr-row"><span><b>Застройщик (тех. заказчик):</b></span><span>' + (project.client || '____________') + '</span></div>';
-  html += '<div class="jpr-row"><span><b>Лицо, осуществляющее строительство:</b></span><span>' + orgName + '</span></div>';
-  html += '<div class="jpr-row"><span><b>Срок строительства:</b></span><span>' + (project.startDate || '__.__.____') + ' — ' + (project.deadline || '__.__.____') + '</span></div>';
-  html += '<div class="jpr-row"><span><b>Дата составления журнала:</b></span><span>' + new Date().toLocaleDateString('ru-RU') + '</span></div>';
+  html += '<div class="jpr-row"><span><b>Объект капитального строительства:</b></span><span>' + docEsc(projectName || '____________') + '</span></div>';
+  html += '<div class="jpr-row"><span><b>Местоположение:</b></span><span>' + docEsc(project.address || project.city || '____________') + '</span></div>';
+  html += '<div class="jpr-row"><span><b>Застройщик (тех. заказчик):</b></span><span>' + docEsc(project.client || '____________') + '</span></div>';
+  html += '<div class="jpr-row"><span><b>Лицо, осуществляющее строительство:</b></span><span>' + docEsc(orgName) + '</span></div>';
+  html += '<div class="jpr-row"><span><b>Срок строительства:</b></span><span>' + docEsc(project.startDate || '__.__.____') + ' — ' + docEsc(project.deadline || '__.__.____') + '</span></div>';
+  html += '<div class="jpr-row"><span><b>Дата составления журнала:</b></span><span>' + docEsc(identity.generatedLabel) + ' (Москва)</span></div>';
   html += '<div class="jpr-section"><h3>Раздел 1. Список инженерно-технического персонала, занятых строительством</h3>';
   html += '<table class="jpr-table"><tr><th>№</th><th>ФИО</th><th>Должность</th><th>Период работы</th></tr>';
-  itr.forEach((item, index) => { html += '<tr><td>' + (index + 1) + '</td><td>' + (item.name || '') + '</td><td>' + (item.role || '') + '</td><td>—</td></tr>'; });
+  itr.forEach((item, index) => { html += '<tr><td>' + (index + 1) + '</td><td>' + docEsc(item.name || '') + '</td><td>' + docEsc(item.role || '') + '</td><td>—</td></tr>'; });
   if (itr.length === 0) html += '<tr><td colspan="4" style="text-align:center;color:#888">(не указаны)</td></tr>';
   html += '</table></div>';
   html += '<div class="jpr-section"><h3>Раздел 2. Сведения о стройконтроле застройщика/заказчика</h3>';
@@ -281,12 +303,12 @@ export const buildJPRDocContent = (projectOrName, context = {}) => {
   } else {
     Object.keys(byDate).sort().forEach((date) => {
       const weather = weatherLog.find((item) => item.projectName === projectName && item.date === date);
-      html += '<p style="font-weight:700;margin-top:8px">' + date + (weather ? ' · 🌤 ' + weather.condition + ', ' + weather.temperature + '°C' : '') + '</p>';
+      html += '<p style="font-weight:700;margin-top:8px">' + docEsc(date) + (weather ? ' · 🌤 ' + docEsc(weather.condition) + ', ' + docEsc(weather.temperature) + '°C' : '') + '</p>';
       Object.keys(byDate[date]).forEach((masterName) => {
-        html += '<p style="font-size:11px;margin:3px 0;color:#444">Исполнитель: <b>' + masterName + '</b></p>';
+        html += '<p style="font-size:11px;margin:3px 0;color:#444">Исполнитель: <b>' + docEsc(masterName) + '</b></p>';
         html += '<table class="jpr-table"><tr><th>№</th><th>Вид работ</th><th>Раздел сметы</th><th>Ед.</th><th>Кол-во</th><th>Нормативы</th><th>ИТР</th><th>Принял</th></tr>';
         byDate[date][masterName].forEach((work, index) => {
-          html += '<tr><td>' + (index + 1) + '</td><td>' + (work.description || '') + (work.unexpectedWorkId ? ' <b>🆕</b>' : '') + (work.hiddenWork ? ' <b>🔒</b>' : '') + '</td><td>' + (work.sectionName || '—') + '</td><td>' + (work.unit || '') + '</td><td>' + (work.quantity || 0) + '</td><td>' + (work.normatives || '—') + '</td><td>' + (work.responsibleItr || '—') + '</td><td>' + (work.confirmedBy || '') + '</td></tr>';
+          html += '<tr><td>' + (index + 1) + '</td><td>' + docEsc(work.description || '') + (work.unexpectedWorkId ? ' <b>🆕</b>' : '') + (work.hiddenWork ? ' <b>🔒</b>' : '') + '</td><td>' + docEsc(work.sectionName || '—') + '</td><td>' + docEsc(work.unit || '') + '</td><td>' + docEsc(work.quantity || 0) + '</td><td>' + docEsc(work.normatives || '—') + '</td><td>' + docEsc(work.responsibleItr || '—') + '</td><td>' + docEsc(work.confirmedBy || '') + '</td></tr>';
         });
         html += '</table>';
       });
@@ -301,7 +323,7 @@ export const buildJPRDocContent = (projectOrName, context = {}) => {
   } else {
     html += '<table class="jpr-table"><tr><th>№</th><th>Дата</th><th>Материал</th><th>Поставщик</th><th>Партия</th><th>Сертификат</th><th>Результат</th></tr>';
     inspections.forEach((item, index) => {
-      html += '<tr><td>' + (index + 1) + '</td><td>' + (item.receivedAt || '') + '</td><td>' + (item.materialName || '') + '</td><td>' + (item.supplier || '') + '</td><td>' + (item.batchNumber || '—') + '</td><td>' + (item.certificateNumber || item.passportNumber || '—') + '</td><td>' + (item.visualInspectionResult || (item.inspected ? 'Проверено' : '—')) + '</td></tr>';
+      html += '<tr><td>' + (index + 1) + '</td><td>' + docEsc(item.receivedAt || '') + '</td><td>' + docEsc(item.materialName || '') + '</td><td>' + docEsc(item.supplier || '') + '</td><td>' + docEsc(item.batchNumber || '—') + '</td><td>' + docEsc(item.certificateNumber || item.passportNumber || '—') + '</td><td>' + docEsc(item.visualInspectionResult || (item.inspected ? 'Проверено' : '—')) + '</td></tr>';
     });
     html += '</table>';
   }
@@ -319,7 +341,7 @@ export const buildJPRDocContent = (projectOrName, context = {}) => {
   } else {
     html += '<table class="jpr-table"><tr><th>№</th><th>Дата</th><th>Кем выдано</th><th>Описание нарушения</th><th>Срок</th><th>Статус</th></tr>';
     prescs.forEach((item, index) => {
-      html += '<tr><td>' + (index + 1) + '</td><td>' + (item.deadline || '') + '</td><td>' + (item.issuedBy || '') + ' (' + (item.issuedByRole || '') + ')</td><td>' + (item.violation || item.description || '') + '</td><td>' + (item.deadline || '') + '</td><td>' + (item.status || '') + '</td></tr>';
+      html += '<tr><td>' + (index + 1) + '</td><td>' + docEsc(item.deadline || '') + '</td><td>' + docEsc(item.issuedBy || '') + ' (' + docEsc(item.issuedByRole || '') + ')</td><td>' + docEsc(item.violation || item.description || '') + '</td><td>' + docEsc(item.deadline || '') + '</td><td>' + docEsc(item.status || '') + '</td></tr>';
     });
     html += '</table>';
   }
@@ -329,6 +351,7 @@ export const buildJPRDocContent = (projectOrName, context = {}) => {
   html += '<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Представитель застройщика (технадзора):</div><div class="jpr-sig-line"></div><div class="jpr-sig-sub">(должность, ФИО, подпись)</div></div>';
   html += '</div>';
   html += '<p style="margin-top:18px;font-size:10px;color:#666;text-align:center">Журнал ведётся в соответствии с РД-11-05-2007 и СП 48.13330.2019 «Организация строительства». Является обязательным документом исполнительной документации.</p>';
+  html += journalArchiveNote;
   return html;
 };
 
@@ -485,12 +508,14 @@ export const buildHiddenActDocContent = (act = {}, context = {}) => {
   return html;
 };
 
-export const buildWorkJournalDocContent = (records = [], projectName, dateFrom, dateTo, context = {}) => {
-  const { companyRequisites = null, companyName = '', projects = [] } = context;
-  const req = companyRequisites || {};
-  const orgName = req.fullName || req.shortName || companyName || '_____';
-  const project = projects.find((item) => item.name === projectName) || {};
-  const sum = records.reduce((total, record) => total + Number(record.total || 0), 0);
+export const buildWorkJournalDocContent = (records = [], projectOrName, dateFrom, dateTo, context = {}) => {
+  const { companyRequisites = null, companyName = '', projects = [], generatedAt } = context;
+  const project = resolveQualityJournalProject(projectOrName, projects);
+  const projectName = project.name;
+  const scopedRecords = selectQualityJournalRows(records, project);
+  const identity = journalExportIdentity('wj', project, companyRequisites, companyName, generatedAt);
+  const orgName = identity.orgName;
+  const sum = scopedRecords.reduce((total, record) => total + Number(record.total || 0), 0);
   let html = '<style>'
     + '.wj-meta{margin:6px 0;font-size:11px}'
     + '.wj-title{text-align:center;font-weight:700;font-size:14px;margin:14px 0 4px}'
@@ -506,30 +531,30 @@ export const buildWorkJournalDocContent = (records = [], projectName, dateFrom, 
     + '.wj-sig-line{border-bottom:1px solid #333;min-height:18px;font-size:12px;font-weight:600}'
     + '.wj-sig-sub{font-size:9px;color:#555;margin-top:2px}'
     + '</style>';
-  html += '<div class="wj-meta"><b>' + orgName + '</b></div>';
+  html += identity.html;
   html += '<div class="wj-title">ЖУРНАЛ УЧЁТА ВЫПОЛНЕННЫХ РАБОТ</div>';
   html += '<div class="wj-sub">(унифицированная форма № КС-6а, ОКУД 0322005)</div>';
   html += '<div class="wj-info">';
-  html += '<span>Заказчик:</span><b>' + (project.client || '____________') + '</b>';
-  html += '<span>Подрядчик:</span><b>' + orgName + '</b>';
-  html += '<span>Объект:</span><b>' + (projectName || '____________') + '</b>';
+  html += '<span>Заказчик:</span><b>' + docEsc(project.client || '____________') + '</b>';
+  html += '<span>Подрядчик:</span><b>' + docEsc(orgName) + '</b>';
+  html += '<span>Объект:</span><b>' + docEsc(projectName || '____________') + '</b>';
   html += '<span>Период:</span><b>' + (dateFrom ? formatJournalDate(dateFrom) : '__.__.____') + ' — ' + (dateTo ? formatJournalDate(dateTo) : '__.__.____') + '</b>';
   html += '</div>';
   html += '<table class="wj-tbl"><thead><tr>';
   html += '<th style="width:24px">№</th><th style="width:60px">Дата</th><th style="width:90px">Раздел сметы</th><th>Наименование работ</th><th style="width:36px">Ед.</th><th style="width:46px">Объём</th><th style="width:100px">Исполнитель</th><th style="width:100px">Ответств. ИТР</th><th style="width:80px">Погода</th><th style="width:90px">Качество</th><th style="width:80px">Стоимость, ₽</th>';
   html += '</tr></thead><tbody>';
-  records.forEach((record, index) => {
+  scopedRecords.forEach((record, index) => {
     html += '<tr>';
     html += '<td class="num">' + (index + 1) + '</td>';
     html += '<td>' + formatJournalDate(record.date) + '</td>';
-    html += '<td>' + (record.sectionName || '—') + '</td>';
-    html += '<td>' + (record.description || '') + (record.hiddenWork ? ' <b>🔒</b>' : '') + '</td>';
-    html += '<td>' + (record.unit || '') + '</td>';
-    html += '<td class="num">' + (record.quantity || 0) + '</td>';
-    html += '<td>' + (record.masterName || '—') + '</td>';
-    html += '<td>' + (record.responsibleItr || '—') + '</td>';
-    html += '<td>' + (record.weather || '—') + '</td>';
-    html += '<td>' + (record.qualityStatus || record.status || '—') + '</td>';
+    html += '<td>' + docEsc(record.sectionName || '—') + '</td>';
+    html += '<td>' + docEsc(record.description || '') + (record.hiddenWork ? ' <b>🔒</b>' : '') + '</td>';
+    html += '<td>' + docEsc(record.unit || '') + '</td>';
+    html += '<td class="num">' + docEsc(record.quantity || 0) + '</td>';
+    html += '<td>' + docEsc(record.masterName || '—') + '</td>';
+    html += '<td>' + docEsc(record.responsibleItr || '—') + '</td>';
+    html += '<td>' + docEsc(record.weather || '—') + '</td>';
+    html += '<td>' + docEsc(record.qualityStatus || record.status || '—') + '</td>';
     html += '<td class="num">' + Number(record.total || 0).toLocaleString('ru-RU') + '</td>';
     html += '</tr>';
   });
@@ -540,16 +565,17 @@ export const buildWorkJournalDocContent = (records = [], projectName, dateFrom, 
   html += '<div><div class="wj-sig-label">Должностное лицо, ответственное за совершение операций и правильность их оформления:</div><div class="wj-sig-line"></div><div class="wj-sig-sub">(должность, подпись, ФИО)</div></div>';
   html += '<div><div class="wj-sig-label">Представитель технического надзора заказчика:</div><div class="wj-sig-line"></div><div class="wj-sig-sub">(должность, подпись, ФИО)</div></div>';
   html += '</div>';
+  html += journalArchiveNote;
   return html;
 };
 
 export const buildMaterialInspectionDocContent = (records = [], projectOrName, dateFrom, dateTo, context = {}) => {
-  const { companyRequisites = null, companyName = '', projects = [] } = context;
-  const req = companyRequisites || {};
-  const orgName = req.fullName || req.shortName || companyName || '_____';
+  const { companyRequisites = null, companyName = '', projects = [], generatedAt } = context;
   const project = resolveQualityJournalProject(projectOrName, projects);
   const projectName = project.name;
   const scopedRecords = selectQualityJournalRows(records, project);
+  const identity = journalExportIdentity('mic', project, companyRequisites, companyName, generatedAt);
+  const orgName = identity.orgName;
   let html = '<style>'
     + '.mic-meta{margin:6px 0;font-size:11px}'
     + '.mic-title{text-align:center;font-weight:700;font-size:14px;margin:14px 0 4px}'
@@ -565,13 +591,13 @@ export const buildMaterialInspectionDocContent = (records = [], projectOrName, d
     + '.mic-sig-line{border-bottom:1px solid #333;min-height:18px;font-size:12px;font-weight:600}'
     + '.mic-sig-sub{font-size:9px;color:#555;margin-top:2px}'
     + '</style>';
-  html += '<div class="mic-meta"><b>' + orgName + '</b></div>';
+  html += identity.html;
   html += '<div class="mic-title">ЖУРНАЛ ВХОДНОГО КОНТРОЛЯ МАТЕРИАЛОВ, КОНСТРУКЦИЙ И ИЗДЕЛИЙ</div>';
   html += '<div class="mic-sub">по СП 48.13330.2019 «Организация строительства», §7.1</div>';
   html += '<div class="mic-info">';
-  html += '<span>Заказчик:</span><b>' + (project.client || '____________') + '</b>';
-  html += '<span>Подрядчик:</span><b>' + orgName + '</b>';
-  html += '<span>Объект:</span><b>' + (projectName || '____________') + '</b>';
+  html += '<span>Заказчик:</span><b>' + docEsc(project.client || '____________') + '</b>';
+  html += '<span>Подрядчик:</span><b>' + docEsc(orgName) + '</b>';
+  html += '<span>Объект:</span><b>' + docEsc(projectName || '____________') + '</b>';
   html += '<span>Период:</span><b>' + (dateFrom ? formatJournalDate(dateFrom) : '__.__.____') + ' — ' + (dateTo ? formatJournalDate(dateTo) : '__.__.____') + '</b>';
   html += '</div>';
   html += '<table class="mic-tbl"><thead><tr>';
@@ -581,18 +607,18 @@ export const buildMaterialInspectionDocContent = (records = [], projectOrName, d
     html += '<tr>';
     html += '<td class="num">' + (index + 1) + '</td>';
     html += '<td>' + formatJournalDate(record.receivedAt) + '</td>';
-    html += '<td>' + (record.materialName || '') + '</td>';
-    html += '<td>' + (record.unit || '') + '</td>';
-    html += '<td class="num">' + (record.quantity || 0) + '</td>';
-    html += '<td>' + (record.supplier || '—') + '</td>';
-    html += '<td>' + (record.batchNumber || '—') + '</td>';
-    html += '<td>' + (record.passportNumber || '—') + '</td>';
-    html += '<td>' + (record.certificateNumber || '—') + '</td>';
-    html += '<td>' + (record.testProtocolNumber || '—') + '</td>';
-    html += '<td>' + (record.visualInspectionResult || '—') + '</td>';
-    html += '<td>' + (record.inspectorName || '—') + '</td>';
+    html += '<td>' + docEsc(record.materialName || '') + '</td>';
+    html += '<td>' + docEsc(record.unit || '') + '</td>';
+    html += '<td class="num">' + docEsc(record.quantity || 0) + '</td>';
+    html += '<td>' + docEsc(record.supplier || '—') + '</td>';
+    html += '<td>' + docEsc(record.batchNumber || '—') + '</td>';
+    html += '<td>' + docEsc(record.passportNumber || '—') + '</td>';
+    html += '<td>' + docEsc(record.certificateNumber || '—') + '</td>';
+    html += '<td>' + docEsc(record.testProtocolNumber || '—') + '</td>';
+    html += '<td>' + docEsc(record.visualInspectionResult || '—') + '</td>';
+    html += '<td>' + docEsc(record.inspectorName || '—') + '</td>';
     html += '<td>' + formatJournalDate(record.inspectedAt) + '</td>';
-    html += '<td>' + (record.remarks || '') + '</td>';
+    html += '<td>' + docEsc(record.remarks || '') + '</td>';
     html += '</tr>';
   });
   html += '</tbody></table>';
@@ -601,6 +627,7 @@ export const buildMaterialInspectionDocContent = (records = [], projectOrName, d
   html += '<div><div class="mic-sig-label">Ответственное за входной контроль лицо:</div><div class="mic-sig-line"></div><div class="mic-sig-sub">(должность, подпись, ФИО)</div></div>';
   html += '<div><div class="mic-sig-label">Представитель технического надзора заказчика:</div><div class="mic-sig-line"></div><div class="mic-sig-sub">(должность, подпись, ФИО)</div></div>';
   html += '</div>';
+  html += journalArchiveNote;
   return html;
 };
 
@@ -610,12 +637,13 @@ export const buildCableJournalDocContent = (records = [], projectOrName, dateFro
     companyName = '',
     projects = [],
     cableTypeOf = (cable) => cable?.cableType || 'Кабель',
+    generatedAt,
   } = context;
-  const req = companyRequisites || {};
-  const orgName = req.fullName || req.shortName || companyName || '_____';
   const project = resolveQualityJournalProject(projectOrName, projects);
   const projectName = project.name;
   const scopedRecords = selectQualityJournalRows(records, project);
+  const identity = journalExportIdentity('cab', project, companyRequisites, companyName, generatedAt);
+  const orgName = identity.orgName;
   let html = '<style>'
     + '.cab-meta{margin:6px 0;font-size:11px}'
     + '.cab-title{text-align:center;font-weight:700;font-size:14px;margin:14px 0 4px}'
@@ -631,13 +659,13 @@ export const buildCableJournalDocContent = (records = [], projectOrName, dateFro
     + '.cab-sig-line{border-bottom:1px solid #333;min-height:18px;font-size:12px;font-weight:600}'
     + '.cab-sig-sub{font-size:9px;color:#555;margin-top:2px}'
     + '</style>';
-  html += '<div class="cab-meta"><b>' + orgName + '</b></div>';
+  html += identity.html;
   html += '<div class="cab-title">ЖУРНАЛ КАБЕЛЬНОЙ ПРОДУКЦИИ</div>';
   html += '<div class="cab-sub">по СП 76.13330 «Электротехнические устройства» и ПУЭ</div>';
   html += '<div class="cab-info">';
-  html += '<span>Заказчик:</span><b>' + (project.client || '____________') + '</b>';
-  html += '<span>Подрядчик:</span><b>' + orgName + '</b>';
-  html += '<span>Объект:</span><b>' + (projectName || '____________') + '</b>';
+  html += '<span>Заказчик:</span><b>' + docEsc(project.client || '____________') + '</b>';
+  html += '<span>Подрядчик:</span><b>' + docEsc(orgName) + '</b>';
+  html += '<span>Объект:</span><b>' + docEsc(projectName || '____________') + '</b>';
   html += '<span>Период:</span><b>' + (dateFrom ? formatJournalDate(dateFrom) : '__.__.____') + ' — ' + (dateTo ? formatJournalDate(dateTo) : '__.__.____') + '</b>';
   html += '</div>';
   html += '<table class="cab-tbl"><thead><tr>';
@@ -647,20 +675,20 @@ export const buildCableJournalDocContent = (records = [], projectOrName, dateFro
     html += '<tr>';
     html += '<td class="num">' + (index + 1) + '</td>';
     html += '<td>' + formatJournalDate(record.receivedAt) + '</td>';
-    html += '<td>' + (cableTypeOf(record) || '—') + '</td>';
-    html += '<td>' + (record.cableBrand || '') + '</td>';
-    html += '<td class="num">' + (record.crossSection || '—') + '</td>';
-    html += '<td class="num">' + (record.coresCount || '—') + '</td>';
-    html += '<td class="num">' + (record.lengthReceived || 0) + '</td>';
-    html += '<td>' + (record.drumNumber || '—') + '</td>';
-    html += '<td>' + (record.manufacturer || '—') + '</td>';
-    html += '<td>' + (record.certificateNumber || '—') + '</td>';
-    html += '<td class="num">' + (record.insulationBefore || '—') + '</td>';
-    html += '<td class="num">' + (record.insulationAfter || '—') + '</td>';
-    html += '<td>' + (record.installationLocation || '—') + '</td>';
-    html += '<td>' + (record.installationMethod || '—') + '</td>';
+    html += '<td>' + docEsc(cableTypeOf(record) || '—') + '</td>';
+    html += '<td>' + docEsc(record.cableBrand || '') + '</td>';
+    html += '<td class="num">' + docEsc(record.crossSection || '—') + '</td>';
+    html += '<td class="num">' + docEsc(record.coresCount || '—') + '</td>';
+    html += '<td class="num">' + docEsc(record.lengthReceived || 0) + '</td>';
+    html += '<td>' + docEsc(record.drumNumber || '—') + '</td>';
+    html += '<td>' + docEsc(record.manufacturer || '—') + '</td>';
+    html += '<td>' + docEsc(record.certificateNumber || '—') + '</td>';
+    html += '<td class="num">' + docEsc(record.insulationBefore || '—') + '</td>';
+    html += '<td class="num">' + docEsc(record.insulationAfter || '—') + '</td>';
+    html += '<td>' + docEsc(record.installationLocation || '—') + '</td>';
+    html += '<td>' + docEsc(record.installationMethod || '—') + '</td>';
     html += '<td>' + formatJournalDate(record.installedAt) + '</td>';
-    html += '<td>' + (record.responsibleItr || '—') + '</td>';
+    html += '<td>' + docEsc(record.responsibleItr || '—') + '</td>';
     html += '</tr>';
   });
   html += '</tbody></table>';
@@ -669,6 +697,7 @@ export const buildCableJournalDocContent = (records = [], projectOrName, dateFro
   html += '<div><div class="cab-sig-label">Ответственный за кабельные/слаботочные работы (ИТР):</div><div class="cab-sig-line"></div><div class="cab-sig-sub">(должность, подпись, ФИО)</div></div>';
   html += '<div><div class="cab-sig-label">Представитель технического надзора заказчика:</div><div class="cab-sig-line"></div><div class="cab-sig-sub">(должность, подпись, ФИО)</div></div>';
   html += '</div>';
+  html += journalArchiveNote;
   return html;
 };
 
