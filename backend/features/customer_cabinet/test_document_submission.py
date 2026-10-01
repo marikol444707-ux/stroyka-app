@@ -12,8 +12,22 @@ class CustomerFileSubmissionTest(unittest.TestCase):
     def setUp(self):
         PartiesPostgresTest.setUp(self)
         with self.conn.cursor() as cur:
-            cur.execute('CREATE TEMP TABLE projects(id INT PRIMARY KEY,company_id INT,name TEXT)')
-            cur.execute("INSERT INTO projects VALUES(1,12,'Same name'),(2,99,'Same name'),(3,12,'Same name')")
+            cur.execute('CREATE TEMP TABLE projects(id INT PRIMARY KEY,company_id INT,name TEXT,client_id INT)')
+            cur.execute("INSERT INTO projects VALUES(1,12,'Same name',21),(2,99,'Same name',22),(3,12,'Same name',23)")
+            cur.execute('''ALTER TABLE companies ADD COLUMN IF NOT EXISTS inn TEXT;
+                ALTER TABLE companies ADD COLUMN IF NOT EXISTS kpp TEXT;
+                ALTER TABLE companies ADD COLUMN IF NOT EXISTS ogrn TEXT;
+                ALTER TABLE companies ADD COLUMN IF NOT EXISTS legal_address TEXT;
+                ALTER TABLE companies ADD COLUMN IF NOT EXISTS phone TEXT;
+                ALTER TABLE companies ADD COLUMN IF NOT EXISTS email TEXT''')
+            cur.execute("UPDATE companies SET short_name='C12',inn='1200000000' WHERE id=12")
+            cur.execute("UPDATE companies SET short_name='C99',inn='9900000000' WHERE id=99")
+            cur.execute('''CREATE TEMP TABLE company_requisites(id SERIAL PRIMARY KEY,company_id INT,full_name TEXT,
+                short_name TEXT,inn TEXT,kpp TEXT,ogrn TEXT,legal_address TEXT,phone TEXT,email TEXT)''')
+            cur.execute("INSERT INTO company_requisites(company_id,full_name,short_name,inn,email) VALUES(12,'ООО Стройка 12','Стройка 12','1212121212','office@12.test')")
+            cur.execute('''CREATE TEMP TABLE clients(id INT PRIMARY KEY,company_id INT,name TEXT,phone TEXT,email TEXT,
+                status TEXT,inn TEXT,kpp TEXT,ogrn TEXT,legal_address TEXT)''')
+            cur.execute("INSERT INTO clients VALUES(21,12,'Лицей №4','+70000000001','client@12.test','Активен','2121212121','','','Адрес заказчика'),(22,99,'Чужой заказчик','','','Активен','','','',''),(23,12,'Другой заказчик','','','Активен','','','','')")
             cur.execute('''CREATE TEMP TABLE file_ownership(id INT PRIMARY KEY,company_id INT,project_id INT,
                 uploaded_by_id INT,context TEXT,deletion_status TEXT,retained_at TIMESTAMPTZ)''')
             cur.execute("""INSERT INTO file_ownership VALUES(1,12,1,8,'customer-request','active',NULL),
@@ -30,6 +44,8 @@ class CustomerFileSubmissionTest(unittest.TestCase):
                 correction_requested_by_name TEXT,corrected_by_letter_id INT,replaces_letter_id INT UNIQUE,
                 delivery_status TEXT NOT NULL DEFAULT 'sent',published_at TIMESTAMPTZ,
                 published_by_id INT,published_by_name TEXT,client_request_id UUID,
+                party_snapshot_json JSONB,party_snapshot_hash CHAR(64),party_snapshot_frozen_at TIMESTAMPTZ,
+                customer_client_id INT,
                 UNIQUE(company_id,client_request_id))''')
         self.user.update(role='заказчик',projectId=1,assignedProjects=['Same name'])
         def context(cur,user,*args,**kwargs):
@@ -140,6 +156,13 @@ class CustomerFileSubmissionTest(unittest.TestCase):
                              FROM project_letters WHERE id=%s''',(sent.json()['id'],))
             self.assertEqual(cur.fetchone(),('customer','outgoing','Активно','sent','/tenant-files/11/content',
                 12,1,True,3,'Директор'))
+            cur.execute("""SELECT party_snapshot_json->'sender'->>'fullName',
+                                  party_snapshot_json->'sender'->>'inn',
+                                  party_snapshot_json->'recipient'->>'fullName',
+                                  party_snapshot_json->'project'->>'name',customer_client_id,
+                                  party_snapshot_hash IS NOT NULL,party_snapshot_frozen_at IS NOT NULL
+                             FROM project_letters WHERE id=%s""",(sent.json()['id'],))
+            self.assertEqual(cur.fetchone(),('ООО Стройка 12','1212121212','Лицей №4','Same name',21,True,True))
             cur.execute('SELECT retained_at IS NOT NULL FROM file_ownership WHERE id=11')
             self.assertTrue(cur.fetchone()[0])
         self.user.update(role='заказчик',id=8,name='Заказчик',assignedProjects=['Same name'])
@@ -147,6 +170,25 @@ class CustomerFileSubmissionTest(unittest.TestCase):
         row=next(item for item in listed if item['id']==sent.json()['id'])
         self.assertEqual((row['direction'],row['deliveryStatus'],row['publishedByName']),
             ('outgoing','sent','Директор'))
+        self.assertEqual(row['partySnapshot']['recipient']['clientId'],21)
+
+    def test_outgoing_publication_keeps_the_original_parties_after_cards_change(self):
+        self.user.update(role='директор',id=3,name='Директор',companyId=12,projectId=1)
+        sent=self.publish();self.assertEqual(sent.status_code,200,sent.text)
+        with self.conn.cursor() as cur:
+            cur.execute("UPDATE company_requisites SET full_name='Новое имя компании' WHERE company_id=12")
+            cur.execute("UPDATE clients SET name='Новое имя заказчика' WHERE id=21")
+        listed=self.client.get('/project-letters',headers={'X-Company-Id':'12'}).json()
+        snapshot=next(row for row in listed if row['id']==sent.json()['id'])['partySnapshot']
+        self.assertEqual(snapshot['sender']['fullName'],'ООО Стройка 12')
+        self.assertEqual(snapshot['recipient']['fullName'],'Лицей №4')
+
+    def test_outgoing_publication_requires_an_exact_customer_card(self):
+        self.user.update(role='директор',id=3,name='Директор',companyId=12,projectId=1)
+        with self.conn.cursor() as cur: cur.execute('UPDATE projects SET client_id=NULL WHERE id=1')
+        response=self.publish()
+        self.assertEqual(response.status_code,409,response.text)
+        self.assertIn('заказчика',response.json()['detail'].lower())
 
     def test_outgoing_publication_is_idempotent_and_immutable(self):
         self.user.update(role='директор',id=3,name='Директор',companyId=12,projectId=1)

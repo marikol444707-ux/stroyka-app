@@ -102,8 +102,11 @@ describe('ProjectLettersPanel', () => {
   it('shows addressed delivery state in the correspondence history', () => {
     render(<ProjectLettersPanel {...buildProps({showLetterForm:false,projectLetters:[{id:41,projectId:17,
       side:'customer',direction:'outgoing',subject:'Исполнительная схема',deliveryStatus:'sent',
-      publishedAt:'2026-09-29T08:30:00Z',publishedByName:'Директор'}]})}/>);
-    expect(screen.getByText(/Отправлено заказчику/)).toBeInTheDocument();
+      publishedAt:'2026-09-29T08:30:00Z',publishedByName:'Директор',partySnapshot:{
+        sender:{fullName:'ООО Альянс',inn:'2611008712'},recipient:{fullName:'Лицей №4'},
+      }}]})}/>);
+    expect(screen.getByText(/ООО Альянс → Лицей №4/)).toBeInTheDocument();
+    expect(screen.getByText(/ИНН 2611008712/)).toBeInTheDocument();
     expect(screen.getByText(/Директор/)).toBeInTheDocument();
   });
 });

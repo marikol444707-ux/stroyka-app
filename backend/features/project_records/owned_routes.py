@@ -80,6 +80,10 @@ def register_owned_record_routes(app, deps):
                         'partySnapshotFrozenAt','customerClientId',
                         'contractVersion','revisesDocumentId']
                 if table == 'project_letters':
+                    snapshot_columns = (',r.party_snapshot_json,r.party_snapshot_hash,'
+                        'r.party_snapshot_frozen_at,r.customer_client_id')
+                    snapshot_keys = ['partySnapshot','partySnapshotHash',
+                        'partySnapshotFrozenAt','customerClientId']
                     correction_columns = (',r.correction_reason,r.correction_requested_at,'
                         'r.corrected_by_letter_id,r.replaces_letter_id,r.delivery_status,'
                         'r.published_at,r.published_by_name')

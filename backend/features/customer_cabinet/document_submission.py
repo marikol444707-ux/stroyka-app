@@ -1,10 +1,13 @@
 """Addressed project correspondence with immutable protected file versions."""
 from datetime import date
+import json
 from typing import Optional
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
+
+from .letter_party_snapshot import capture_snapshot, snapshot_digest
 
 
 class CustomerFile(BaseModel):
@@ -109,15 +112,20 @@ def register_customer_file_submission(app, scope, get_current_user, correction_r
                     raise HTTPException(409, 'Эта отправка уже сохранена с другими данными')
                 return {'ok': True, 'id': previous[0], 'companyId': parent['companyId'],
                         'projectId': parent['id'], 'deliveryStatus': 'sent'}
+            party_snapshot, customer_client_id = capture_snapshot(cur, parent, actor)
+            encoded_snapshot = json.dumps(
+                party_snapshot, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
             cur.execute('''INSERT INTO project_letters
                 (project_name,company_id,project_id,created_by_user_id,side,direction,subject,body,
                  counterparty,letter_date,file_url,author,status,delivery_status,published_at,
-                 published_by_id,published_by_name,client_request_id)
+                 published_by_id,published_by_name,client_request_id,party_snapshot_json,
+                 party_snapshot_hash,party_snapshot_frozen_at,customer_client_id)
                 VALUES (%s,%s,%s,%s,'customer','outgoing',%s,%s,'Заказчик объекта',%s,%s,%s,
-                        'Активно','sent',NOW(),%s,%s,%s) RETURNING id''',
+                        'Активно','sent',NOW(),%s,%s,%s,%s::jsonb,%s,NOW(),%s) RETURNING id''',
                 (parent['name'], parent['companyId'], parent['id'], actor['id'], data.subject,
                  data.body, data.letterDate, file_url, actor.get('name') or actor.get('role') or '',
-                 actor['id'], actor.get('name') or actor.get('role') or '', request_id))
+                 actor['id'], actor.get('name') or actor.get('role') or '', request_id,
+                 encoded_snapshot, snapshot_digest(party_snapshot), customer_client_id))
             record_id = cur.fetchone()[0]
             if data.fileId is not None:
                 cur.execute('UPDATE file_ownership SET retained_at=COALESCE(retained_at,NOW()) WHERE id=%s',

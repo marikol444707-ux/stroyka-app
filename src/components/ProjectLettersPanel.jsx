@@ -160,6 +160,8 @@ export default function ProjectLettersPanel({
         </p>
       ) : letters.map(letter => {
         const outgoing = letter.direction === 'outgoing';
+        const sender = letter.partySnapshot?.sender;
+        const recipient = letter.partySnapshot?.recipient;
 
         return (
           <div key={letter.id} style={{...card, padding: '12px 14px', marginBottom: '8px', borderLeft: '3px solid ' + (outgoing ? C.accent : C.warning)}}>
@@ -170,7 +172,12 @@ export default function ProjectLettersPanel({
                   {[outgoing ? 'Исходящее' : 'Входящее', letter.side === 'customer' ? 'заказчик' : 'подрядчик', letter.counterparty, letter.letterDate, letter.author].filter(Boolean).join(' · ')}
                 </p>
                 {outgoing && letter.side==='customer' && letter.deliveryStatus==='sent' &&
-                  <p style={{color:C.success,margin:'5px 0',fontSize:12,fontWeight:700}}>Отправлено заказчику{letter.publishedByName?` · ${letter.publishedByName}`:''}</p>}
+                  <div style={{color:C.success,margin:'5px 0',fontSize:12}}>
+                    <b>{sender?.fullName && recipient?.fullName
+                      ? `${sender.fullName} → ${recipient.fullName}` : 'Отправлено заказчику'}</b>
+                    {sender?.inn && <span> · ИНН {sender.inn}</span>}
+                    {letter.publishedByName && <span> · отправил: {letter.publishedByName}</span>}
+                  </div>}
                 {letter.body && <p style={{color: C.text, margin: '4px 0 0', fontSize: '12px', whiteSpace: 'pre-wrap'}}>{letter.body}</p>}
                 {letter.replacesLetterId && <p style={{color:C.textSec,margin:'6px 0 0',fontSize:12,fontWeight:700}}>Исправленная версия</p>}
                 {letter.correctionReason && <div style={{marginTop:8,padding:10,border:`1px solid ${C.warning}`,borderRadius:8}}>
