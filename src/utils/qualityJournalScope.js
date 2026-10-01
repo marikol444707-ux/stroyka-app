@@ -32,7 +32,7 @@ export const selectQualityJournalRows = (rows, project) => {
   return (rows || []).filter(row => {
     if (!row || row.status === 'Аннулирована') return false;
     const hasOwner = [row.companyId, row.company_id, row.projectId, row.project_id].some(value => value != null);
-    if (!hasOwner) return row.projectName === project.name;
+    if (!hasOwner) return (row.projectName ?? row.project) === project.name;
     return companyId !== null && projectId !== null
       && ownerId(row, 'companyId', 'company_id') === companyId
       && ownerId(row, 'projectId', 'project_id') === projectId;

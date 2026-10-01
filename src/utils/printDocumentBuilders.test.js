@@ -5,6 +5,7 @@ import {
   buildProjectEstimateDiffSummaryDocContent,
   buildMaterialInspectionDocContent,
   buildCableJournalDocContent,
+  buildWorkJournalDocContent,
   buildJPRDocContent,
   buildExecPackageDocContent,
 } from './printDocumentBuilders';
@@ -51,6 +52,60 @@ describe('quality journal export ownership', () => {
       const section = html.slice(html.indexOf(title)).split('</tr>')[0];
       expect(section).toMatch(/<td[^>]*>2<\/td>/);
     }
+  });
+
+  test.each([
+    ['КС-6а', buildWorkJournalDocContent, [{...rows[0], project: 'Старое имя', description: 'OWN-WORK'}]],
+    ['входной контроль', buildMaterialInspectionDocContent, rows],
+    ['кабельный журнал', buildCableJournalDocContent, rows],
+  ])('%s is a clearly marked company-scoped export', (_name, builder, source) => {
+    const html = builder(source, project, '2026-09-01', '2026-09-30', {
+      projects: [project, other],
+      companyRequisites: {fullName: 'ООО Стройка', inn: '1234567890'},
+      generatedAt: '2026-10-02T12:00:00+03:00',
+    });
+    expect(html).toContain('Рабочая выгрузка — не подписана');
+    expect(html).toContain('ООО Стройка');
+    expect(html).toContain('ИНН 1234567890');
+    expect(html).toContain('ID объекта: 11');
+    expect(html).toContain('Настройки → Документы');
+  });
+
+  test('КС-6а includes only the exact selected company and project', () => {
+    const html = buildWorkJournalDocContent([
+      {id: 1, companyId: 2, projectId: 11, project: 'Школа', description: 'OWN'},
+      {id: 2, companyId: 3, projectId: 12, project: 'Школа', description: 'FOREIGN'},
+      {id: 3, companyId: 2, project: 'Школа', description: 'PARTIAL'},
+      {id: 4, project: 'Школа', description: 'LEGACY'},
+    ], project, '', '', {projects: [project, other]});
+    expect(html).toContain('OWN');
+    expect(html).toContain('LEGACY');
+    expect(html).not.toContain('FOREIGN');
+    expect(html).not.toContain('PARTIAL');
+  });
+
+  test('journal exports render stored text literally instead of executable markup', () => {
+    const attack = '<img src=x onerror="alert(1)"><script>alert(2)</script>';
+    const unsafeProject = {...project, name: attack, client: attack, address: attack};
+    const row = {
+      id: 9, companyId: 2, projectId: 11, project: attack, projectName: attack,
+      status: 'Подтверждено', description: attack, sectionName: attack, masterName: attack,
+      responsibleItr: attack, weather: attack, qualityStatus: attack, materialName: attack,
+      supplier: attack, remarks: attack, cableBrand: attack, manufacturer: attack,
+      installationLocation: attack, installationMethod: attack,
+    };
+    const documents = [
+      buildWorkJournalDocContent([row], unsafeProject, '', '', {projects: [unsafeProject]}),
+      buildMaterialInspectionDocContent([row], unsafeProject, '', '', {projects: [unsafeProject]}),
+      buildCableJournalDocContent([row], unsafeProject, '', '', {projects: [unsafeProject], cableTypeOf: () => attack}),
+      buildJPRDocContent(unsafeProject, {projects: [unsafeProject], workJournal: [row], users: [{role: 'прораб', name: attack}]}),
+    ];
+    documents.forEach(html => {
+      const container = document.createElement('div');
+      container.innerHTML = html;
+      expect(container.querySelectorAll('img, script, [onerror], [onload]')).toHaveLength(0);
+      expect(container.textContent).toContain(attack);
+    });
   });
 });
 
