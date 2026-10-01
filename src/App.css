@@ -111,6 +111,7 @@
   --c-purple-light: #f5f3ff;
   --c-sidebar: #0f172a;
   --c-sidebar-hover: #1e293b;
+  --c-bg-alt: #ffffff;
 }
 html[data-theme="dark"] {
   --c-bg: #0f172a;
@@ -141,6 +142,7 @@ html[data-theme="dark"] {
   --c-purple-light: rgba(139, 92, 246, 0.15);
   --c-sidebar: #020617;
   --c-sidebar-hover: #1e293b;
+  --c-bg-alt: rgba(17,24,39,0.88);
 }
 html[data-theme="dark"] body {
   background-color: var(--c-bg);
