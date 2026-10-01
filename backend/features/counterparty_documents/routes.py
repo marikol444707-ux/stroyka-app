@@ -11,7 +11,7 @@ from fastapi import Depends, Header, HTTPException, Query
 
 # Administrative archive only. Other cabinets retain their narrower existing APIs.
 ROLES = {'директор', 'зам_директора'}
-ArchiveSource = Literal['company','supplier','offer','invoice','delivery','warehouse','contract','customer']
+ArchiveSource = Literal['company','supplier','offer','invoice','delivery','warehouse','contract','customer','contractor']
 # Section, table, title SQL, type SQL, date SQL, active predicate, file columns.
 SOURCES = {
     'company': ('company', 'company_documents', "COALESCE(d.name,'')", "COALESCE(d.doc_type,'')", 'd.created_at', 'TRUE', ('file_url',)),
@@ -22,6 +22,7 @@ SOURCES = {
     'warehouse': ('supplier', 'warehouse_invoices', "'Накладная №' || COALESCE(NULLIF(d.number,''),d.id::text)", "'Накладная'", 'd.created_at', 'TRUE', ('photo_url','photo_urls')),
     'contract': ('supplier', 'supplier_contract_versions', "'Договор №' || COALESCE(d.snapshot_json->>'number',d.id::text) || ' · версия ' || d.version", "'Договор'", 'd.reviewed_at', '(EXISTS (SELECT 1 FROM supplier_offers o WHERE o.id=d.offer_id AND o.company_id=d.company_id) OR (d.offer_id IS NULL AND EXISTS (SELECT 1 FROM supplier_contract_registry_versions m JOIN supplier_contract_registry r ON r.id=m.registry_id AND r.company_id=m.company_id WHERE m.contract_version_id=d.id AND m.company_id=d.company_id)))', ('file_url','photo_urls')),
     'customer': ('customer', 'project_documents', "COALESCE(d.doc_type,'Документ') || ' №' || COALESCE(NULLIF(d.number,''),d.id::text)", "COALESCE(d.doc_type,'Документ')", 'd.created_at', "d.side='customer' AND EXISTS (SELECT 1 FROM projects p WHERE p.id=d.project_id AND p.company_id=d.company_id)", ('scan_url',)),
+    'contractor': ('company', 'brigade_contracts', "'Договор с исполнителем №' || d.id || ' · ' || COALESCE(d.brigade_name,'')", "'Договор с исполнителем'", 'COALESCE(d.party_snapshot_frozen_at,d.created_at)', "d.party_snapshot_json IS NOT NULL AND EXISTS (SELECT 1 FROM projects p WHERE p.id=d.project_id AND p.company_id=d.company_id)", ('contract_scan_url',)),
 }
 
 
@@ -70,7 +71,7 @@ def register_counterparty_document_archive(app, deps):
             for key, (group, table, title, kind, date, active, file_fields) in SOURCES.items():
                 if (registryId is not None and key != 'contract') or (category is not None and key != category) or (contractId is not None and key != 'invoice') or section not in ('all', group):
                     continue
-                fields = ','.join(f"'{field}',to_jsonb(d)->'{field}'" for field in (*file_fields, 'project_id', 'project_name', 'sign_status'))
+                fields = ','.join(f"'{field}',to_jsonb(d)->'{field}'" for field in (*file_fields, 'project_id', 'project_name', 'sign_status', 'status'))
                 if key == 'contract':
                     fields = "'file_url','/tenant-files/' || d.source_file_id || '/content','offer_id',d.offer_id,'version',d.version"
                     fields += ", 'registry_id',(SELECT m.registry_id FROM supplier_contract_registry_versions m WHERE m.contract_version_id=d.id AND m.company_id=d.company_id)"
@@ -150,14 +151,14 @@ def register_counterparty_document_archive(app, deps):
                 source, source_id, owner, title, kind, created, _ = row
                 payload = json.loads(row[6]) if isinstance(row[6], str) else (row[6] or {})
                 def eligible(url):
-                    return url in safe_files and (source != 'customer' or safe_files[url][1] == payload.get('project_id'))
+                    return url in safe_files and (source not in ('customer','contractor') or safe_files[url][1] == payload.get('project_id'))
                 files = [{'fileId': safe_files[url][0], 'fileUrl': url} for url in urls if eligible(url)]
                 unresolved = malformed + sum(not eligible(url) for url in urls)
                 items.append({'id': f'{source}:{source_id}', 'source': source, 'sourceId': source_id,
                               'companyId': owner, 'title': title, 'documentType': kind,
                               'createdAt': str(created) if created else None,
-                              'projectId': payload.get('project_id') if source == 'customer' else None,
-                              'projectName': payload.get('project_name') if source == 'customer' else None,
+                              'projectId': payload.get('project_id') if source in ('customer','contractor') else None,
+                              'projectName': payload.get('project_name') if source in ('customer','contractor') else None,
                               'offerId': payload.get('offer_id') if source in ('contract', 'invoice') else None,
                               'contractId': payload.get('contract_id') if source == 'invoice' else None,
                               'registryId': payload.get('registry_id') if source == 'contract' else None,
@@ -170,7 +171,7 @@ def register_counterparty_document_archive(app, deps):
                               'originContractId': payload.get('origin_contract_id') if source == 'contract' else None,
                               'contractNumber': payload.get('contract_number') if source == 'invoice' else None,
                               'contractVersion': payload.get('contract_version') if source == 'invoice' else None,
-                              'status': payload.get('sign_status') if source == 'customer' else None,
+                              'status': payload.get('sign_status') if source == 'customer' else payload.get('status') if source == 'contractor' else None,
                               'attachments': files, 'unavailableAttachments': unresolved,
                               'fileUrl': files[0]['fileUrl'] if files else None,
                               'fileStatus': 'needs_review' if unresolved else 'available' if files else 'not_attached'})

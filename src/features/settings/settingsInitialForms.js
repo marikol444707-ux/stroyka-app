@@ -36,5 +36,13 @@ export const createProfileForm = (overrides = {}) => ({
   phone: '',
   specialization: '',
   ogrnip: '',
+  kpp: '',
+  ogrn: '',
+  legalAddress: '',
+  bankBik: '',
+  bankCorr: '',
+  signatoryName: '',
+  signatoryPosition: '',
+  signatoryBasis: '',
   ...overrides,
 });

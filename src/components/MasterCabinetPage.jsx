@@ -470,6 +470,12 @@ export default function MasterCabinetPage(props) {
       bankBik: extracted.bik || '',
       bankCorr: extracted.corrAccount || '',
       ogrnip: extracted.ogrn || '',
+      ogrn: extracted.ogrn || '',
+      kpp: extracted.kpp || '',
+      legalAddress: extracted.legalAddress || '',
+      signatoryName: extracted.signatoryName || '',
+      signatoryPosition: extracted.signatoryPosition || '',
+      signatoryBasis: extracted.signatoryBasis || '',
       specialization: extracted.workType || '',
     };
     if (legalText.includes('ип')) patch.contractType = 'ИП';
@@ -492,12 +498,23 @@ export default function MasterCabinetPage(props) {
             <option>ГПХ</option>
             <option>ИП</option>
             <option>Самозанятый</option>
+            <option>ООО</option>
           </select>
           {profileData.contractType === 'ИП' && (
             <input placeholder="ОГРНИП" value={profileData.ogrnip} onChange={e => setProfileData({ ...profileData, ogrnip: e.target.value })} style={inp} />
           )}
+          {profileData.contractType === 'ООО' && <>
+            <input placeholder="КПП *" value={profileData.kpp} onChange={e => setProfileData({ ...profileData, kpp: e.target.value })} style={inp} />
+            <input placeholder="ОГРН *" value={profileData.ogrn} onChange={e => setProfileData({ ...profileData, ogrn: e.target.value })} style={inp} />
+            <input placeholder="Юридический адрес *" value={profileData.legalAddress} onChange={e => setProfileData({ ...profileData, legalAddress: e.target.value })} style={inp} />
+            <input placeholder="ФИО подписанта *" value={profileData.signatoryName} onChange={e => setProfileData({ ...profileData, signatoryName: e.target.value })} style={inp} />
+            <input placeholder="Должность подписанта *" value={profileData.signatoryPosition} onChange={e => setProfileData({ ...profileData, signatoryPosition: e.target.value })} style={inp} />
+            <input placeholder="Основание полномочий *" value={profileData.signatoryBasis} onChange={e => setProfileData({ ...profileData, signatoryBasis: e.target.value })} style={inp} />
+          </>}
           <input placeholder="Номер счёта *" value={profileData.bankAccount} onChange={e => setProfileData({ ...profileData, bankAccount: e.target.value })} style={inp} />
           <input placeholder="Банк" value={profileData.bankName} onChange={e => setProfileData({ ...profileData, bankName: e.target.value })} style={inp} />
+          <input placeholder="БИК" value={profileData.bankBik} onChange={e => setProfileData({ ...profileData, bankBik: e.target.value })} style={inp} />
+          <input placeholder="Корреспондентский счёт" value={profileData.bankCorr} onChange={e => setProfileData({ ...profileData, bankCorr: e.target.value })} style={inp} />
           <input placeholder="Телефон" value={profileData.phone} onChange={e => setProfileData({ ...profileData, phone: e.target.value })} style={inp} />
           <select value={profileData.specialization} onChange={e => setProfileData({ ...profileData, specialization: e.target.value })} style={inp}>
             <option value="">Специализация</option>

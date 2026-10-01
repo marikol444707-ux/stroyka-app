@@ -56,6 +56,7 @@ const performerName = (performer, contract) => (
 
 const performerRequisites = (performer, type) => {
   const isIp = normalizeType(type).includes('ип');
+  const isCompany = normalizeType(type).includes('ооо');
   const rows = [
     ['ФИО / наименование', performerName(performer, {})],
     ['ИНН', performer?.inn || '_______'],
@@ -63,8 +64,16 @@ const performerRequisites = (performer, type) => {
   if (performer?.passport) rows.push(['Паспорт', performer.passport]);
   if (performer?.phone) rows.push(['Телефон', performer.phone]);
   if (isIp || performer?.ogrnip) rows.push(['ОГРНИП', performer?.ogrnip || '_______']);
+  if (isCompany || performer?.ogrn) rows.push(['ОГРН', performer?.ogrn || '_______']);
+  if (isCompany || performer?.kpp) rows.push(['КПП', performer?.kpp || '_______']);
+  if (performer?.legalAddress) rows.push(['Юридический адрес', performer.legalAddress]);
   if (performer?.bankAccount) rows.push(['Р/с', performer.bankAccount]);
   if (performer?.bankName) rows.push(['Банк', performer.bankName]);
+  if (performer?.bankBik) rows.push(['БИК', performer.bankBik]);
+  if (performer?.bankCorr) rows.push(['К/с', performer.bankCorr]);
+  if (performer?.signatoryName) rows.push(['Подписант', performer.signatoryName]);
+  if (performer?.signatoryPosition) rows.push(['Должность', performer.signatoryPosition]);
+  if (performer?.signatoryBasis) rows.push(['Основание', performer.signatoryBasis]);
   return rows;
 };
 
@@ -143,6 +152,13 @@ export const buildPerformerContractHtml = ({
   const c = companyInfo(company);
   const name = performerName(performer, contract);
   const role = performerTitle(type);
+  const companyPerformer = normalizeType(type).includes('ооо');
+  const performerLead = companyPerformer
+    ? '<b>' + html(name) + '</b>, в лице <b>' + html(performer?.signatoryName || '_____') +
+      '</b>, ' + html(performer?.signatoryPosition || 'действующего лица') + ', действующего на основании <b>' +
+      html(performer?.signatoryBasis || '_____') + '</b>'
+    : '<b>' + html(name) + '</b>';
+  const performerSignature = companyPerformer ? (performer?.signatoryName || '_____') : name;
   const number = contract?.contractNumber || contract?.number || (contract?.id ? 'БР-' + contract.id : '_____');
   const project = contract?.project || contract?.projectName || '_____';
   const totalFromItems = (items || []).reduce((sum, item) => {
@@ -164,7 +180,7 @@ export const buildPerformerContractHtml = ({
   return '' +
     '<h2 style="text-align:center">' + (titlePrefix ? html(titlePrefix) + '<br/>' : '') + title + '</h2>' +
     '<p style="text-align:center">г. _____________ ' + dateText(contract?.contractDate) + '</p>' +
-    '<p><b>' + html(c.name) + '</b>, именуемое в дальнейшем «Заказчик», в лице <b>' + html(c.director) + '</b>, действующего на основании <b>' + html(c.basis) + '</b>, с одной стороны, и <b>' + html(name) + '</b>, именуемый в дальнейшем «' + role + '», с другой стороны, заключили настоящий договор.</p>' +
+    '<p><b>' + html(c.name) + '</b>, именуемое в дальнейшем «Заказчик», в лице <b>' + html(c.director) + '</b>, действующего на основании <b>' + html(c.basis) + '</b>, с одной стороны, и ' + performerLead + ', именуемый в дальнейшем «' + role + '», с другой стороны, заключили настоящий договор.</p>' +
     '<h3>1. ПРЕДМЕТ ДОГОВОРА</h3>' +
     '<p>1.1. ' + role + ' обязуется выполнить строительно-монтажные работы на объекте: <b>' + html(project) + '</b>, а Заказчик обязуется принять и оплатить фактически выполненный и принятый результат.</p>' +
     '<p>1.2. Срок выполнения работ: с <b>' + html(dateText(contract?.startDate)) + '</b> по <b>' + html(dateText(contract?.endDate)) + '</b>. Конкретные этапы и объёмы фиксируются в системе и актах.</p>' +
@@ -177,6 +193,6 @@ export const buildPerformerContractHtml = ({
     '<table><tr><th>ЗАКАЗЧИК</th><th>' + html(role.toUpperCase()) + '</th></tr>' +
       '<tr><td><b>' + html(c.name) + '</b><br/>ИНН: ' + html(c.inn) + '<br/>Р/с: ' + html(c.rs) + '<br/>Банк: ' + html(c.bankName) + '</td>' +
       '<td><table>' + requisites + '</table></td></tr>' +
-      '<tr><td style="padding-top:40px">_____________/' + html(c.director) + '</td><td style="padding-top:40px">_____________/' + html(name) + '</td></tr>' +
+      '<tr><td style="padding-top:40px">_____________/' + html(c.director) + '</td><td style="padding-top:40px">_____________/' + html(performerSignature) + '</td></tr>' +
     '</table>';
 };

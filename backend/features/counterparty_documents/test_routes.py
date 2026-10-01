@@ -37,7 +37,7 @@ class ArchiveTests(unittest.TestCase):
         sql,args=self.cur.execute.call_args.args
         self.assertNotIn("' OR TRUE --",sql)
         self.assertEqual(args[:3],(1,"' OR TRUE --","' OR TRUE --"))
-        self.assertEqual(sql.count('d.company_id=%s'),8)
+        self.assertEqual(sql.count('d.company_id=%s'),9)
 
     def test_unsafe_links_are_withheld_and_missing_file_is_distinct(self):
         self.cur.fetchall.side_effect=[[
@@ -142,8 +142,23 @@ class ArchiveTests(unittest.TestCase):
         sql,args=self.cur.execute.call_args.args
         self.assertIn('WHERE source=%s AND id=%s',sql)
         self.assertEqual(args[-4:],('contract',9,51,0))
-        self.assertEqual(sql.count('d.company_id=%s'),8)
+        self.assertEqual(sql.count('d.company_id=%s'),9)
         self.assertEqual(response.json()['items'],[])
+
+    def test_contractor_contract_uses_frozen_original_and_exact_project(self):
+        self.cur.fetchall.side_effect=[[
+            ('contractor',71,1,'Договор с исполнителем №71 · Иванов','Договор с исполнителем',None,
+             {'contract_scan_url':'/tenant-files/88/content','project_id':44,
+              'project_name':'Лицей','status':'Подписан'})],[(88,44)]]
+        with patch('backend.features.counterparty_documents.routes.resolve_project_parent',return_value={'id':44}), patch('backend.features.counterparty_documents.routes.require_project_parent_access'):
+            item=self.client.get('/company-document-archive?category=contractor').json()['items'][0]
+        self.assertEqual(item['fileUrl'],'/tenant-files/88/content')
+        self.assertEqual(item['projectId'],44)
+        self.assertEqual(item['projectName'],'Лицей')
+        self.assertEqual(item['status'],'Подписан')
+        sql=self.cur.execute.call_args_list[0].args[0]
+        self.assertIn('FROM brigade_contracts d',sql)
+        self.assertIn('d.party_snapshot_json IS NOT NULL',sql)
 
     def test_incomplete_or_invalid_lookup_is_rejected(self):
         for query in ('source=contract','recordId=9','source=unknown&recordId=9','source=contract&recordId=-1'):

@@ -2320,7 +2320,8 @@ def _resolve_brigade_contract_actor(
         """SELECT id,company_id,project_id,project_name,
                   COALESCE(NULLIF(work_package,''),'Основная') AS work_package,
                   brigade_name,COALESCE(act_scan_url,'') AS act_scan_url,
-                  total_amount,status,contractor_id,settlement_version
+                  total_amount,status,contractor_id,settlement_version,contractor_type,
+                  COALESCE(contract_scan_url,'') AS contract_scan_url,party_snapshot_json
              FROM brigade_contracts
             WHERE id=%s""" + lock_sql,
         (normalized_contract_id,),
@@ -2340,6 +2341,9 @@ def _resolve_brigade_contract_actor(
         "status": _row_get(row, "status", 8, "") or "",
         "contractorId": _row_get(row, "contractor_id", 9),
         "settlementVersion": _row_get(row, "settlement_version", 10, 1),
+        "contractorType": _row_get(row, "contractor_type", 11, "") or "",
+        "contractScanUrl": _row_get(row, "contract_scan_url", 12, "") or "",
+        "partySnapshot": _row_get(row, "party_snapshot_json", 13),
     }
     if not _positive_int_or_none(contract["projectId"]):
         cur.execute(
@@ -3694,6 +3698,7 @@ def init_db():
         ALTER TABLE file_ownership ADD COLUMN IF NOT EXISTS deletion_status VARCHAR(30) DEFAULT 'active';
         ALTER TABLE file_ownership ADD COLUMN IF NOT EXISTS deletion_error TEXT;
         ALTER TABLE file_ownership ADD COLUMN IF NOT EXISTS deletion_requested_at TIMESTAMP;
+        ALTER TABLE file_ownership ADD COLUMN IF NOT EXISTS retained_at TIMESTAMPTZ;
         CREATE TABLE IF NOT EXISTS audit_log (
             id SERIAL PRIMARY KEY,
             user_id INT,
@@ -4422,6 +4427,10 @@ def init_db():
         ALTER TABLE brigade_contracts ADD COLUMN IF NOT EXISTS work_package VARCHAR(100) DEFAULT '';
         ALTER TABLE brigade_contracts ADD COLUMN IF NOT EXISTS act_scan_url TEXT;
         ALTER TABLE brigade_contracts ADD COLUMN IF NOT EXISTS settlement_version SMALLINT NOT NULL DEFAULT 1;
+        ALTER TABLE brigade_contracts ADD COLUMN IF NOT EXISTS contract_scan_url TEXT;
+        ALTER TABLE brigade_contracts ADD COLUMN IF NOT EXISTS party_snapshot_json JSONB;
+        ALTER TABLE brigade_contracts ADD COLUMN IF NOT EXISTS party_snapshot_hash VARCHAR(64);
+        ALTER TABLE brigade_contracts ADD COLUMN IF NOT EXISTS party_snapshot_frozen_at TIMESTAMPTZ;
         ALTER TABLE brigade_contracts ALTER COLUMN company_id SET DEFAULT 1;
         ALTER TABLE brigade_contracts ALTER COLUMN company_id DROP NOT NULL;
         UPDATE brigade_contracts bc
@@ -5055,6 +5064,14 @@ def init_db():
             ogrnip VARCHAR(50),
             profile_completed BOOLEAN DEFAULT TRUE
         );
+        ALTER TABLE master_profiles ADD COLUMN IF NOT EXISTS kpp VARCHAR(20);
+        ALTER TABLE master_profiles ADD COLUMN IF NOT EXISTS ogrn VARCHAR(20);
+        ALTER TABLE master_profiles ADD COLUMN IF NOT EXISTS legal_address TEXT;
+        ALTER TABLE master_profiles ADD COLUMN IF NOT EXISTS bank_bik VARCHAR(20);
+        ALTER TABLE master_profiles ADD COLUMN IF NOT EXISTS bank_corr VARCHAR(50);
+        ALTER TABLE master_profiles ADD COLUMN IF NOT EXISTS signatory_name VARCHAR(255);
+        ALTER TABLE master_profiles ADD COLUMN IF NOT EXISTS signatory_position VARCHAR(255);
+        ALTER TABLE master_profiles ADD COLUMN IF NOT EXISTS signatory_basis VARCHAR(255);
         CREATE TABLE IF NOT EXISTS contracts (
             id SERIAL PRIMARY KEY,
             master_id INT,
@@ -19099,7 +19116,8 @@ def get_brigade_contracts(
             "COALESCE((SELECT SUM(COALESCE(bci.quantity,0)*COALESCE(bci.price_brigade,0)) FROM brigade_contract_items bci WHERE bci.contract_id=bc.id),0) AS plan_amount,"
             "COALESCE((SELECT SUM(CASE WHEN COALESCE(bci.quantity,0)>0 THEN GREATEST(0, LEAST(COALESCE(bci.done_quantity,0), COALESCE(bci.quantity,0))) * COALESCE(bci.price_brigade,0) ELSE 0 END) FROM brigade_contract_items bci WHERE bci.contract_id=bc.id),0) AS done_amount,"
             "COALESCE((SELECT SUM(bp.amount) FROM brigade_payments bp WHERE bp.contract_id=bc.id AND bp.company_id=bc.company_id AND bp.amount IS NOT NULL AND bp.amount NOT IN ('NaN'::numeric,'Infinity'::numeric,'-Infinity'::numeric)),0) AS paid_amount,"
-            "bc.act_scan_url,bc.company_id,bc.settlement_version FROM brigade_contracts bc WHERE "
+            "bc.act_scan_url,bc.company_id,bc.settlement_version,COALESCE(bc.contract_scan_url,''),"
+            "bc.party_snapshot_json FROM brigade_contracts bc WHERE "
         )
         cur = conn.cursor()
         try:
@@ -19157,6 +19175,8 @@ def get_brigade_contracts(
                 "paidAmount": float(row[15] or 0), "workPackage": row[12] or "",
                 "actScanUrl": row[16] or "", "companyId": row[17],
                 "settlementVersion": _row_get(row, "settlement_version", 18, 1),
+                "contractScanUrl": _row_get(row, "contract_scan_url", 19, "") or "",
+                "partySnapshot": _row_get(row, "party_snapshot_json", 20),
             })
         return result
     finally:
@@ -19275,7 +19295,7 @@ def create_brigade_contract(
                 company_id, project["id"], project["name"], work_package,
                 data.get("brigadeName", ""), data.get("contractorType", "Бригада"),
                 contractor_user_id or None, data.get("totalAmount", 0),
-                data.get("status", "Черновик"), data.get("notes", ""), pricelist_id,
+                "Черновик", data.get("notes", ""), pricelist_id,
             ),
         )
         row = cur.fetchone()
@@ -19419,6 +19439,11 @@ def update_brigade_contract(
             for_update=True,
         )
         company_id = int(contract["companyId"])
+        if data.get("status") == "Подписан" and contract.get("status") != "Подписан":
+            raise HTTPException(
+                status_code=409,
+                detail="Сначала загрузите подписанный оригинал и нажмите «Сохранить договор»",
+            )
         work_package = (data.get("workPackage") or data.get("work_package") or "").strip()
         cur.execute(
             """UPDATE brigade_contracts
@@ -19470,6 +19495,8 @@ def delete_brigade_contract(
             for_update=True,
         )
         company_id = int(contract["companyId"])
+        if contract.get("partySnapshot") is not None:
+            raise HTTPException(status_code=409, detail="Подписанный договор хранится в истории и не удаляется")
         cur.execute(
             """UPDATE brigade_contracts
                   SET status='Аннулирован'
@@ -19490,6 +19517,19 @@ def delete_brigade_contract(
     finally:
         cur.close()
         conn.close()
+
+try:
+    from backend.features.contractor_contract_parties.routes import register_contractor_contract_party_routes
+except ModuleNotFoundError:
+    from features.contractor_contract_parties.routes import register_contractor_contract_party_routes
+
+
+register_contractor_contract_party_routes(app, {
+    "get_db": get_db,
+    "get_current_user": get_current_user,
+    "resolve_contract": _resolve_brigade_contract_actor,
+    "leadership_roles": LEADERSHIP_ROLES,
+})
 
 @app.post("/estimates/{estimate_id}/ai-distribute-suggest")
 def ai_suggest_distribution(estimate_id: int, data: dict, _current_user: dict = Depends(require_roles(*ESTIMATE_WRITE_ROLES))):

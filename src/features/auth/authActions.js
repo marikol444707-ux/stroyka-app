@@ -156,6 +156,14 @@ export const createAuthActions = ({
       alert('Заполните обязательные поля');
       return;
     }
+    if (profileData.contractType === 'ООО') {
+      const required = [profileData.kpp, profileData.ogrn, profileData.legalAddress,
+        profileData.signatoryName, profileData.signatoryPosition, profileData.signatoryBasis];
+      if (required.some(value => !String(value || '').trim())) {
+        alert('Для ООО заполните КПП, ОГРН, юридический адрес и данные подписанта');
+        return;
+      }
+    }
     if (!consentChecked) {
       alert('Необходимо согласие на обработку ПД');
       return;

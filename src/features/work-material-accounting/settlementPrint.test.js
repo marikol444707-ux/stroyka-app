@@ -53,6 +53,17 @@ test('printed gross, fine and net remain the saved act values when live work and
   expect(printed).not.toContain('Изменённая работа после подписания');
 });
 
+test('prints the exact parties frozen with the signed contract', () => {
+  const act = savedAct();
+  act.snapshot.contractParties = {
+    customer: { fullName: 'ООО Альянс', inn: '2611008712' },
+    contractor: { fullName: 'Иванов Иван Иванович', inn: '263200000001' },
+  };
+  const printed = text(buildSettlementAct(act));
+  expect(printed).toContain('Заказчик: ООО Альянс · ИНН 2611008712');
+  expect(printed).toContain('Исполнитель: Иванов Иван Иванович · ИНН 263200000001');
+});
+
 test('printed fine identifies its original work, defect, decision, material and documentary evidence', () => {
   const printed = text(buildSettlementAct(savedAct()));
   expect(printed).toMatch(/Брак\s*№\s*601/);

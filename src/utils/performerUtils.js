@@ -13,6 +13,14 @@ export const performerMissingRequisites = (performer = {}, contractType = '') =>
   if (!performer.inn) missing.push('ИНН');
   if ((type.includes('самозан') || type.includes('гпх')) && !performer.passport) missing.push('паспорт');
   if (type.includes('ип') && !performer.ogrnip) missing.push('ОГРНИП');
+  if (type.includes('ооо')) {
+    if (!performer.kpp) missing.push('КПП');
+    if (!performer.ogrn) missing.push('ОГРН');
+    if (!performer.legalAddress) missing.push('юридический адрес');
+    if (!performer.signatoryName) missing.push('ФИО подписанта');
+    if (!performer.signatoryPosition) missing.push('должность подписанта');
+    if (!performer.signatoryBasis) missing.push('основание полномочий');
+  }
   if (!type.includes('труд') && !performer.bankAccount) missing.push('расчётный счёт');
   if (!type.includes('труд') && !performer.bankName) missing.push('банк');
   return missing;
@@ -95,6 +103,14 @@ export const resolveContractPerformer = ({
     bankAccount: profile?.bankAccount || staffRow?.bankAccount || '',
     bankName: profile?.bankName || staffRow?.bankName || '',
     ogrnip: profile?.ogrnip || staffRow?.ogrnip || '',
+    kpp: profile?.kpp || '',
+    ogrn: profile?.ogrn || staffRow?.ogrnip || '',
+    legalAddress: profile?.legalAddress || staffRow?.address || '',
+    bankBik: profile?.bankBik || staffRow?.bankBik || '',
+    bankCorr: profile?.bankCorr || staffRow?.bankCorr || '',
+    signatoryName: profile?.signatoryName || '',
+    signatoryPosition: profile?.signatoryPosition || '',
+    signatoryBasis: profile?.signatoryBasis || '',
     phone: profile?.phone || staffRow?.phone || '',
     specialization: profile?.specialization || staffRow?.specialization || staffRow?.role || '',
     contractType: type,

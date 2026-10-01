@@ -2,6 +2,7 @@ import React, {useEffect,useState} from 'react';
 
 const categories=[
  ['company','Документы компании','company'],
+ ['contractor','Договоры с исполнителями','company'],
  ['supplier','Документы поставщиков','supplier'],
  ['contract','Договоры поставки','supplier'],
  ['offer','КП','supplier'],
