@@ -10804,6 +10804,19 @@ change.
 
 - [x] Technical follow-up: health `_app_version` supports loose, detached and packed refs, including worktree common refs, without invoking Git. Missing and unsafe refs fail closed to `unknown`.
 
+## Точный объект заявки снабжения — 02.10.2026
+
+- [x] Добавлена nullable-связь `supply_requests.project_id` с составным FK на
+      компанию объекта; основной склад остаётся company-scoped без фиктивного объекта.
+- [x] Обе формы создания передают точные `companyId + projectId`; сервер повторно
+      проверяет компанию, название, архив и неоднозначность.
+- [x] Заявки из сметы и контроля материалов сохраняют тот же точный объект.
+- [x] Добавлен read-only dry-run и guarded apply для старых строк: только одно
+      совпадение внутри компании, точное количество и SHA плана, неоднозначные строки
+      остаются в `needsReview`.
+- [x] Unit, runtime, frontend и временный PostgreSQL round-trip прошли.
+- [ ] Production dry-run, deploy, guarded backfill точных строк и post-audit.
+
 ## P9 — supplier team policy
 
 - [x] Confirm leader/manager visibility with user; inspect current owner binding.

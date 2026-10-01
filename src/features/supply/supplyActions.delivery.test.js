@@ -13,6 +13,7 @@ const context = (overrides = {}) => ({
   setSelectedSupplierIds: jest.fn(),
   setSuggestedSuppliers: jest.fn(),
   getProjectWorkPackageOptions: () => [],
+  projects: [{ id: 12, companyId: 4, name: 'Лицей' }],
   newRequest: {
     project: 'Лицей', items: [{ materialName: 'Труба', quantity: 10 }],
     selectedSuppliers: [51, 52],

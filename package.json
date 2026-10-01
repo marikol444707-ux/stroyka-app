@@ -98,6 +98,7 @@
     "audit:supplier-link-ownership": "python3 -m backend.features.supplier_link_ownership.ownership_report",
     "audit:supplier-duplicates": "python3 -m backend.features.supplier_duplicates.audit",
     "audit:supply-ownership": "python3 -m backend.features.supply_ownership.ownership_report",
+    "audit:supply-project-ids": "python3 -m backend.features.supply_project_identity.backfill --dry-run",
     "audit:supply-orphans": "python3 -m backend.features.supply_ownership.orphan_report",
     "migrate:supply-orphans": "python3 -m backend.features.supply_ownership.remediation --dry-run",
     "audit:supply-execution-ownership": "python3 -m backend.features.supply_execution_ownership.ownership_report",

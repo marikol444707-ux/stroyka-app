@@ -7791,10 +7791,21 @@ register_demo_requests_module(app, {
     "leadership_roles": LEADERSHIP_ROLES,
 })
 
+try:
+    from backend.features.supply_project_identity.service import (
+        SupplyProjectIdentityError,
+        resolve_supply_project,
+    )
+except ModuleNotFoundError:
+    from features.supply_project_identity.service import (
+        SupplyProjectIdentityError,
+        resolve_supply_project,
+    )
 
 
 SUPPLY_SELECT = ("SELECT id,material_name as \"materialName\",quantity,unit,project,"
                  "company_id as \"companyId\","
+                 "project_id as \"projectId\","
                  "COALESCE(delivery_address,'') as \"deliveryAddress\","
                  "COALESCE(work_package,'') as \"workPackage\","
                  "created_by as \"createdBy\",date,status,notes,"
@@ -7958,6 +7969,7 @@ except ModuleNotFoundError:
 def _ensure_supply_runtime_columns(cur):
     """Поднимает колонки снабжения для старых баз, где миграция могла не пройти."""
     cur.execute("ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1")
+    cur.execute("ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS project_id INT")
     cur.execute("ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1")
     cur.execute("ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS party_snapshot_json JSONB")
     cur.execute("ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1")
@@ -9365,7 +9377,7 @@ def create_supply_request(
                     status_code=400,
                     detail="Заявка из контроля материалов должна содержать точные companyId и projectId",
                 )
-        else:
+        elif not _positive_int_or_none(requested_company_id):
             project_company_id = _project_company_id(cur, project_name)
             requested_company_id = requested_company_id or project_company_id
         company_context = _resolve_work_company_context(
@@ -9392,6 +9404,17 @@ def create_supply_request(
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
         elif project_company_id and int(project_company_id) != company_id:
             raise HTTPException(status_code=400, detail="Выбранная компания не совпадает с компанией объекта. Переключите компанию в шапке или выберите другой объект.")
+        try:
+            exact_project = resolve_supply_project(
+                cur,
+                company_id=company_id,
+                project_id=project_id,
+                project_name=project_name,
+            )
+        except SupplyProjectIdentityError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        project_id = exact_project.project_id
+        project_name = exact_project.project_name
         selected_suppliers = supplier_group_scope_ids(cur, selected_suppliers)
         if is_material_control_request:
             lineage_material_keys = {}
@@ -9442,14 +9465,14 @@ def create_supply_request(
                 SELECT id, items_json
                   FROM supply_requests
                  WHERE company_id=%s
-                   AND project=%s
+                   AND (project_id=%s OR (project_id IS NULL AND project=%s))
                    AND COALESCE(status,'') IN (
                        'Новая', 'Подтверждена прорабом', 'Утверждена', 'КП запрошены',
                        'В пути', 'Частично поставлено', 'Проблема поставки', 'Утверждено'
                    )
                  FOR UPDATE
                 """,
-                (company_id, project_name),
+                (company_id, project_id, project_name),
             )
             conflicts = material_control_lineage_conflicts(
                 items,
@@ -9478,12 +9501,12 @@ def create_supply_request(
         items_json = _json.dumps(items, ensure_ascii=False)
         cur.execute(
             "INSERT INTO supply_requests "
-            "(material_name,quantity,unit,project,delivery_address,company_id,work_package,created_by,date,notes,selected_suppliers,"
+            "(material_name,quantity,unit,project,project_id,delivery_address,company_id,work_package,created_by,date,notes,selected_suppliers,"
             "status,requested_by_role,requested_by_id,urgency,category,"
             "prorab_id,prorab_name,prorab_confirmed_at,"
             "director_id,director_name,director_approved_at,items_json) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-            (agg_name, agg_qty, agg_unit, project_name, r.deliveryAddress.strip(), company_id, request_package, created_by, r.date, r.notes,
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+            (agg_name, agg_qty, agg_unit, project_name, project_id, r.deliveryAddress.strip(), company_id, request_package, created_by, r.date, r.notes,
              selected_suppliers, initial_status, role, requested_by_id, r.urgency, r.category,
              prorab_id, prorab_name, prorab_at,
              director_id, director_name, director_at, items_json))
@@ -24260,14 +24283,15 @@ def create_estimate_from_material_norm_suggestions(
                 agg_unit = "поз." if len(package_items) > 1 else package_items[0].get("unit") or "шт"
                 cur.execute(
                     "INSERT INTO supply_requests "
-                    "(material_name,quantity,unit,project,company_id,work_package,created_by,date,notes,selected_suppliers,"
+                    "(material_name,quantity,unit,project,project_id,company_id,work_package,created_by,date,notes,selected_suppliers,"
                     "status,requested_by_role,requested_by_id,urgency,category,items_json) "
-                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
                     (
                         agg_name,
                         agg_qty,
                         agg_unit,
                         project_name,
+                        project_owner["id"],
                         project_owner["companyId"],
                         request_package,
                         current_user.get("name") or "",

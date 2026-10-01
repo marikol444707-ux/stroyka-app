@@ -22,6 +22,7 @@ from backend.features.supply_lineage.service import (
     MaterialControlLineageError,
     material_control_request_intent,
 )
+from backend.features.supply_project_identity.service import SupplyProjectIdentityError
 
 
 MAIN_PATH = Path(__file__).resolve().parents[3] / "backend/main.py"
@@ -172,6 +173,9 @@ class RuntimeHarness:
         self.audit = Mock()
         self.project_access = Mock()
         self.project_company = Mock(return_value=COMPANY_ID)
+        self.resolve_project = Mock(side_effect=lambda _cur, **kwargs: SimpleNamespace(
+            project_id=kwargs.get("project_id"), project_name=kwargs.get("project_name")
+        ))
         self.company_context = Mock(return_value={"companyId": COMPANY_ID})
         self.estimate_control = Mock(side_effect=lambda _cur, _project, items, **_kwargs: items)
 
@@ -229,6 +233,8 @@ class RuntimeHarness:
             "_positive_int_or_none": lambda value: int(value) if value else None,
             "material_control_request_intent": material_control_request_intent,
             "MaterialControlLineageError": MaterialControlLineageError,
+            "SupplyProjectIdentityError": SupplyProjectIdentityError,
+            "resolve_supply_project": self.resolve_project,
             "_attach_supply_estimate_control": self.estimate_control,
             "_enforce_supply_estimate_control": lambda *_args, **_kwargs: None,
             "SUPPLY_SELECT": "SELECT * FROM supply_requests",
@@ -411,6 +417,7 @@ class RfqDeliveryRuntimeTests(unittest.TestCase):
                 result = harness.create()
                 row = harness.connection.committed["supply_requests"][result["id"]]
                 self.assertEqual("Новая", row["status"])
+                self.assertEqual(31, row["project_id"])
                 for field in ("prorab_id", "prorab_name", "prorab_confirmed_at", "director_id", "director_name", "director_approved_at"):
                     self.assertIsNone(row[field], field)
                 self.assert_no_dispatch(harness)
@@ -451,10 +458,12 @@ class RfqDeliveryRuntimeTests(unittest.TestCase):
 
     def test_creation_company_mismatch_remains_rejected_without_dispatch(self):
         harness = RuntimeHarness(self.nodes, role="директор")
-        harness.project_company.return_value = COMPANY_ID + 1
+        harness.resolve_project.side_effect = SupplyProjectIdentityError(
+            "Объект не найден в выбранной компании", status_code=404
+        )
         with self.assertRaises(HTTPException) as error:
             harness.create()
-        self.assertEqual(400, error.exception.status_code)
+        self.assertEqual(404, error.exception.status_code)
         self.assertEqual({}, harness.connection.committed["supply_requests"])
         self.assert_no_dispatch(harness)
         self.assertTrue(harness.connection.closed)
