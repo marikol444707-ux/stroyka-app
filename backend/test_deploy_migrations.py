@@ -55,6 +55,17 @@ class DeployMigrationTests(unittest.TestCase):
         self.assertLess(deploy.index(migration), deploy.index(restart))
         self.assertNotIn("alembic stamp", deploy)
 
+    def test_deploy_imports_real_backend_after_migration_before_restart(self):
+        deploy = DEPLOY_PATH.read_text(encoding="utf-8")
+
+        migration = "python3 -m alembic upgrade head"
+        import_gate = "python3 -c 'import backend.main'"
+        restart = "systemctl restart stroyka"
+
+        self.assertIn(import_gate, deploy)
+        self.assertLess(deploy.index(migration), deploy.index(import_gate))
+        self.assertLess(deploy.index(import_gate), deploy.index(restart))
+
     def test_deploy_verifies_enabled_frontend_features_before_migration(self):
         deploy = DEPLOY_PATH.read_text(encoding="utf-8")
 
