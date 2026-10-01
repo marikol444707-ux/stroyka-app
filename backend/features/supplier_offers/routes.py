@@ -34,6 +34,10 @@ try:
     from backend.features.supplier_access.service import (
         supplier_offer_visibility_filter,
     )
+    from backend.features.supplier_access.offer_party_snapshot import (
+        OfferPartySnapshotError,
+        freeze_offer_party_snapshot,
+    )
     from backend.features.company_context.service import (
         assert_rows_company_scope,
         company_id_scope_filter,
@@ -43,6 +47,10 @@ except ModuleNotFoundError:
     from features.supplier_offers.response_submission import submission_identity, is_submission_replay, require_current_response, log_response
     from features.supplier_access.service import (
         supplier_offer_visibility_filter,
+    )
+    from features.supplier_access.offer_party_snapshot import (
+        OfferPartySnapshotError,
+        freeze_offer_party_snapshot,
     )
     from features.company_context.service import (
         assert_rows_company_scope,
@@ -455,7 +463,7 @@ def register_supplier_offers_module(app, deps):
                 locked_memberships = {row['id'] for row in cur.fetchall()}
             action = data.get('action')
             cur.execute("""
-                SELECT o.id, o.supplier_id, o.request_id, o.company_id,
+                SELECT o.id, o.supplier_id, o.request_id, o.company_id, o.party_snapshot_json,
                        o.status, o.delivery_status, r.company_id AS request_company_id, r.project
                 FROM supplier_offers o
                 LEFT JOIN supply_requests r ON r.id=o.request_id
@@ -655,6 +663,13 @@ def register_supplier_offers_module(app, deps):
                 import json as _json
                 require_current_response(data, current)
                 current_status = current['status'] or ''
+                try:
+                    freeze_offer_party_snapshot(cur, offer_access, actor_user)
+                except OfferPartySnapshotError as exc:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Не удалось зафиксировать стороны КП. Проверьте реквизиты покупателя и поставщика.",
+                    ) from exc
                 items_kp = data.get('itemsKp') or []
                 if item_scope.get('requested'):
                     items_kp = validate_response_items(item_scope['requested'], items_kp)

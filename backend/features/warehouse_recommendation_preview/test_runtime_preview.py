@@ -949,7 +949,7 @@ class WarehouseAnomalyRuntimePreviewCompositionTests(unittest.TestCase):
             # Reviewed model-gateway cutovers in the composition root;
             # warehouse preview implementation and registration are unchanged.
             root / "backend/main.py": (
-                "7ae1d53e7856acbf079497676517e349a369bfbaa878839e3685f7675965af2e"
+                "7bcec09f04dcf752f142dcbcd993c8bfdf0dbfd29e6272ee799f0987170e2d07"
             ),
         }
         self.assertEqual({

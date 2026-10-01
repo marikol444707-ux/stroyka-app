@@ -43,6 +43,14 @@ export const parseOfferItems = (offer) => {
   return [];
 };
 
+export const offerPartyName = (offer, suppliers = []) => {
+  const frozen = offer?.partySnapshot?.supplier || {};
+  const frozenName = String(frozen.fullName || frozen.shortName || '').trim();
+  if (frozenName) return frozenName;
+  const live = (suppliers || []).find(supplier => supplier.id === offer?.supplierId);
+  return live?.name || ('Поставщик #' + (offer?.supplierId || '—'));
+};
+
 export const supplyNoteLines = (req) => String(req?.notes || '')
   .split(/\r?\n/)
   .map(s => s.trim())
