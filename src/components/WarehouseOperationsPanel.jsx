@@ -250,8 +250,11 @@ export default function WarehouseOperationsPanel({
               onClick={async () => {
                 const result = await applyWarehouseMovement();
                 if (!result?.success) return;
+                const printedRows = result.movements?.length
+                  ? result.movements
+                  : (newMovement.selectedMaterials || []).filter(item => item.quantity);
                 showPreview(
-                  buildMovementDoc(result.movements?.[0] || newMovement, result.movements || []),
+                  buildMovementDoc(result.movements?.[0] || newMovement, printedRows),
                   'Накладная М-11'
                 );
               }}
