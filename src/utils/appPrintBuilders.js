@@ -67,8 +67,8 @@ export const createAppPrintBuilders = ({
   buildSpecJournalContent: (projectName, kind) => buildSpecJournalDocContent(projectName, kind, printDocContext()),
   buildM2Content: (supplier, items, projectName, recipientName, recipientPassport) =>
     buildM2DocContent(supplier, items, projectName, recipientName, recipientPassport, printDocContext()),
-  buildM8Content: (projectName, masterName, periodFrom, periodTo) => buildM8ReportContent({
-    projectName,
+  buildM8Content: (project, masterName, periodFrom, periodTo) => buildM8ReportContent({
+    project,
     masterName,
     periodFrom,
     periodTo,
@@ -89,8 +89,8 @@ export const createAppPrintBuilders = ({
   buildVATBookContent: (periodFrom, periodTo) => buildVATBookDocContent(periodFrom, periodTo, printDocContext()),
   buildSupplementaryAgreementContent: (unx, project) => buildSupplementaryAgreementDocContent(unx, project, printDocContext()),
   buildExecPackageContent: (project) => buildExecPackageDocContent(project, printDocContext()),
-  buildM29Content: (projectName, periodFrom, periodTo) => buildM29ReportContent({
-    projectName,
+  buildM29Content: (project, periodFrom, periodTo) => buildM29ReportContent({
+    project,
     periodFrom,
     periodTo,
     projects,
