@@ -63,7 +63,7 @@ export default function AccountingDocumentsPanel({
     if (doc === 'М-29') {
       const today = new Date();
       const monthAgo = new Date(today.getTime() - 30 * 24 * 3600 * 1000);
-      showPreview(buildM29Content(project.name, monthAgo.toISOString().split('T')[0], today.toISOString().split('T')[0]), 'М-29 — ' + project.name);
+      showPreview(buildM29Content(project, monthAgo.toISOString().split('T')[0], today.toISOString().split('T')[0]), 'М-29 — ' + project.name);
     }
     if (doc === 'АОСК') showPreview(buildAOSKContent(project.name), 'АОСК — ' + project.name);
     if (doc === 'КС-11') showPreview(buildKS11Content(project), 'КС-11 — ' + project.name);
@@ -86,7 +86,7 @@ export default function AccountingDocumentsPanel({
     if (doc === 'М-8') {
       const today = new Date();
       const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-      showPreview(buildM8Content(project.name, '', monthStart.toISOString().split('T')[0], today.toISOString().split('T')[0]), 'М-8 Лимитно-заборная — ' + project.name);
+      showPreview(buildM8Content(project, '', monthStart.toISOString().split('T')[0], today.toISOString().split('T')[0]), 'М-8 Лимитно-заборная — ' + project.name);
     }
     if (doc === '📦 Потребность') showPreview(buildMaterialRequirementContent(project.name), 'Потребность материалов — ' + project.name);
     if (doc === '🔥 Свар') showPreview(buildSpecJournalContent(project.name, 'welding'), 'Журнал сварочных работ — ' + project.name);

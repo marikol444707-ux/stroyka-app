@@ -811,26 +811,28 @@ export const buildM8DocContent = (data = {}, context = {}) => {
   let html = '<style>.m8-tbl{border-collapse:collapse;width:100%;font-size:11px;margin:8px 0}.m8-tbl th,.m8-tbl td{border:1px solid #333;padding:5px 6px}.m8-tbl th{background:#f3f4f6}.m8-over{background:#fee2e2}.m8-ok{background:#dcfce7}</style>';
   html += '<h3 style="text-align:center;margin:6px 0">Унифицированная форма № М-8</h3>';
   html += '<h2 style="text-align:center;margin:0 0 6px">ЛИМИТНО-ЗАБОРНАЯ КАРТА</h2>';
+  html += '<p style="text-align:center;color:#92400e;font-weight:700">Черновик — не подписан</p>';
   html += '<p style="text-align:center;font-size:11px;color:#444">Утверждена Постановлением Госкомстата России от 30.10.1997 № 71а</p>';
-  html += '<p style="font-size:12px"><b>Организация:</b> ' + orgName + '</p>';
-  html += '<p style="font-size:12px"><b>Объект:</b> ' + projectName + (masterName ? ' · <b>Получатель:</b> ' + masterName : '') + '</p>';
-  html += '<p style="font-size:12px"><b>Период:</b> ' + (periodFrom || '__.__.____') + ' — ' + (periodTo || '__.__.____') + '</p>';
+  html += '<p style="font-size:12px"><b>Организация:</b> ' + docEsc(orgName) + '</p>';
+  html += '<p style="font-size:12px"><b>Объект:</b> ' + docEsc(projectName) + (masterName ? ' · <b>Получатель:</b> ' + docEsc(masterName) : '') + '</p>';
+  html += '<p style="font-size:12px"><b>Период:</b> ' + docEsc(periodFrom || '__.__.____') + ' — ' + docEsc(periodTo || '__.__.____') + '</p>';
   if (rows.length === 0) {
     html += '<p style="text-align:center;color:#888;font-size:11px;padding:14px">Нет данных за период</p>';
   } else {
-    html += '<table class="m8-tbl"><tr><th>№</th><th>Наименование материала</th><th>Ед.</th><th>Лимит (по смете)</th><th>Отпущено за период</th><th>Остаток лимита</th></tr>';
+    html += '<table class="m8-tbl"><tr><th>№</th><th>Наименование материала</th><th>Ед.</th><th>Лимит (по смете)</th><th>Отпущено со склада</th><th>Подтверждено мастером</th><th>Ожидает подписи</th><th>Остаток лимита</th></tr>';
     rows.forEach((row, index) => {
       const rem = row.limit - row.issued;
       const cls = row.limit > 0 && row.issued > row.limit ? 'm8-over' : rem >= 0 ? 'm8-ok' : '';
-      html += '<tr class="' + cls + '"><td>' + (index + 1) + '</td><td>' + row.name + '</td><td>' + row.unit + '</td><td>' + row.limit.toLocaleString('ru-RU') + '</td><td>' + row.issued.toLocaleString('ru-RU') + '</td><td>' + rem.toLocaleString('ru-RU') + '</td></tr>';
+      html += '<tr class="' + cls + '"><td>' + (index + 1) + '</td><td>' + docEsc(row.name) + (row.historical ? '<br/><small>Есть исторические выдачи: '+docEsc(row.historical)+'</small>' : '') + '</td><td>' + docEsc(row.unit) + '</td><td>' + row.limit.toLocaleString('ru-RU') + '</td><td>' + row.issued.toLocaleString('ru-RU') + '</td><td>' + Number(row.accepted || 0).toLocaleString('ru-RU') + '</td><td>' + Number(row.pending || 0).toLocaleString('ru-RU') + '</td><td>' + rem.toLocaleString('ru-RU') + '</td></tr>';
     });
     html += '</table>';
   }
   html += '<div style="margin-top:24px;display:grid;grid-template-columns:1fr 1fr;gap:20px">';
   html += '<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Установил лимит (главный инженер):</div><div style="border-bottom:1px solid #333;min-height:18px"></div></div>';
-  html += '<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Получатель:</div><div style="border-bottom:1px solid #333;min-height:18px">' + (masterName || '') + '</div></div>';
+  html += '<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Получатель:</div><div style="border-bottom:1px solid #333;min-height:18px">' + docEsc(masterName || '') + '</div></div>';
   html += '</div>';
   html += '<p style="margin-top:18px;font-size:10px;color:#666;text-align:center">Превышение лимита (красные строки) требует утверждения у главного инженера и письменного обоснования.</p>';
+  html += '<p style="font-size:10px;color:#666;text-align:center">После подписания сохраните оригинал в разделе «Настройки → Документы» вашей компании.</p>';
   return html;
 };
 
@@ -971,16 +973,17 @@ export const buildM29DocContent = (data = {}, context = {}) => {
   let html = '<style>.m29-tbl{border-collapse:collapse;width:100%;font-size:11px;margin-top:10px}.m29-tbl th,.m29-tbl td{border:1px solid #333;padding:4px 6px}.m29-tbl th{background:#f3f4f6}.m29-over{color:#dc2626;font-weight:700}.m29-ok{color:#059669}</style>';
   html += '<h3 style="text-align:center;margin:6px 0">Унифицированная форма № М-29</h3>';
   html += '<h2 style="text-align:center;margin:0 0 4px">ОТЧЁТ О РАСХОДЕ ОСНОВНЫХ МАТЕРИАЛОВ</h2>';
+  html += '<p style="text-align:center;color:#92400e;font-weight:700">Черновик — не подписан</p>';
   html += '<p style="text-align:center;font-size:11px;color:#444">в сопоставлении с производственными нормами (план/факт)</p>';
-  html += '<p style="font-size:11px"><b>Объект:</b> ' + projectName + ' · <b>Подрядчик:</b> ' + orgName + ' · <b>Период:</b> ' + (periodFrom || '__.__.____') + ' — ' + (periodTo || '__.__.____') + '</p>';
+  html += '<p style="font-size:11px"><b>Объект:</b> ' + docEsc(projectName) + ' · <b>Подрядчик:</b> ' + docEsc(orgName) + ' · <b>Период:</b> ' + docEsc(periodFrom || '__.__.____') + ' — ' + docEsc(periodTo || '__.__.____') + '</p>';
   if (rows.length === 0) {
     html += '<p style="text-align:center;color:#888;padding:20px">Нет данных — не загружена смета или нет движений по материалам</p>';
   } else {
-    html += '<table class="m29-tbl"><tr><th>№</th><th>Наименование материала</th><th>Ед.</th><th>План (смета)</th><th>Выдано мастерам</th><th>Факт (списано по ЖПР)</th><th>Отклонение</th><th>Статус</th></tr>';
+    html += '<table class="m29-tbl"><tr><th>№</th><th>Наименование материала</th><th>Ед.</th><th>План (смета)</th><th>Отпущено со склада</th><th>Подтверждено мастером</th><th>Ожидает подписи</th><th>Факт (списано по ЖПР)</th><th>Отклонение</th><th>Статус</th></tr>';
     rows.forEach((row, index) => {
       const delta = row.fact - row.plan;
       const over = row.plan > 0 && delta > row.plan * 0.05;
-      html += '<tr><td>' + (index + 1) + '</td><td>' + row.name + '</td><td>' + row.unit + '</td><td>' + row.plan.toLocaleString('ru-RU') + '</td><td>' + row.issued.toLocaleString('ru-RU') + '</td><td>' + row.fact.toLocaleString('ru-RU') + '</td><td class="' + (over ? 'm29-over' : 'm29-ok') + '">' + (delta > 0 ? '+' : '') + delta.toLocaleString('ru-RU') + '</td><td>' + (over ? '⚠️ перерасход >5%' : delta < 0 ? '✅ экономия' : '≈ в норме') + '</td></tr>';
+      html += '<tr><td>' + (index + 1) + '</td><td>' + docEsc(row.name) + (row.historical ? '<br/><small>Есть исторические выдачи: '+docEsc(row.historical)+'</small>' : '') + '</td><td>' + docEsc(row.unit) + '</td><td>' + row.plan.toLocaleString('ru-RU') + '</td><td>' + row.issued.toLocaleString('ru-RU') + '</td><td>' + Number(row.accepted || 0).toLocaleString('ru-RU') + '</td><td>' + Number(row.pending || 0).toLocaleString('ru-RU') + '</td><td>' + row.fact.toLocaleString('ru-RU') + '</td><td class="' + (over ? 'm29-over' : 'm29-ok') + '">' + (delta > 0 ? '+' : '') + delta.toLocaleString('ru-RU') + '</td><td>' + (over ? '⚠️ перерасход >5%' : delta < 0 ? '✅ экономия' : '≈ в норме') + '</td></tr>';
     });
     html += '</table>';
   }
@@ -989,6 +992,7 @@ export const buildM29DocContent = (data = {}, context = {}) => {
   html += '<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Главный инженер / технадзор:</div><div style="border-bottom:1px solid #333;min-height:18px"></div><div style="font-size:9px;color:#555;margin-top:2px">(должность, ФИО, подпись)</div></div>';
   html += '</div>';
   html += '<p style="margin-top:18px;font-size:10px;color:#666;text-align:center">Форма утверждена приказом ЦСУ СССР № 613, действует. Перерасход выше 5% от нормы требует объяснений и согласования с заказчиком.</p>';
+  html += '<p style="font-size:10px;color:#666;text-align:center">После подписания сохраните оригинал в разделе «Настройки → Документы» вашей компании.</p>';
   return html;
 };
 

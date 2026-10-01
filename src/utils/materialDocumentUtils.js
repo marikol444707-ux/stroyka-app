@@ -105,26 +105,41 @@ export const buildWarehouseInvoiceItems = (
 };
 
 export const buildM8Rows = ({
-  projectName,
+  project,
   masterName = '',
   periodFrom = '',
   periodTo = '',
   materialTransfers = [],
   activeEstimates = [],
+  legacyNameMatchAllowed = true,
 } = {}) => {
+  const projectName = typeof project === 'string' ? project : (project?.name || '');
+  const projectId = Number(typeof project === 'object' ? project?.id : 0) || null;
   const inRange = date => !date ? false : (!periodFrom || date >= periodFrom) && (!periodTo || date <= periodTo);
+  const matchesProject = transfer => {
+    const frozenId = Number(transfer?.issuePartySnapshot?.project?.id || transfer?.projectId || 0) || null;
+    return projectId && frozenId ? projectId === frozenId : legacyNameMatchAllowed && transfer.projectName === projectName;
+  };
   const transfers = (materialTransfers || []).filter(transfer => (
-    transfer.projectName === projectName
-    && (!masterName || transfer.toPerson === masterName)
+    matchesProject(transfer)
+    && (transfer.status || 'Активна') !== 'Аннулирована'
+    && (!masterName || (transfer.receiptPartySnapshot?.receiver?.name || transfer.issuePartySnapshot?.intendedReceiver?.name || transfer.toPerson) === masterName)
     && inRange(transfer.transferDate || transfer.date)
   ));
   const byMaterial = {};
 
   transfers.forEach(transfer => {
-    const key = (transfer.materialName || '').trim().toLowerCase();
+    const material = transfer.issuePartySnapshot?.material || {};
+    const name = material.name || transfer.materialName || '';
+    const unit = material.unit || transfer.unit || '';
+    const quantity = Number(material.quantity ?? transfer.quantity ?? 0);
+    const key = name.trim().toLowerCase();
     if (!key) return;
-    if (!byMaterial[key]) byMaterial[key] = { name: transfer.materialName, unit: transfer.unit || '', limit: 0, issued: 0 };
-    byMaterial[key].issued += Number(transfer.quantity || 0);
+    if (!byMaterial[key]) byMaterial[key] = { name, unit, limit: 0, issued: 0, accepted: 0, pending: 0, historical: 0 };
+    byMaterial[key].issued += quantity;
+    if (transfer.signed) byMaterial[key].accepted += quantity;
+    else byMaterial[key].pending += quantity;
+    if (!transfer.issuePartySnapshot) byMaterial[key].historical += quantity;
   });
 
   (activeEstimates || []).forEach(estimate => (
@@ -138,7 +153,7 @@ export const buildM8Rows = ({
         if (limit <= 0) return;
         const key = (item.name || '').trim().toLowerCase();
         if (!key) return;
-        if (!byMaterial[key]) byMaterial[key] = { name: item.name, unit: planMeasure.unit || item.unit || '', limit: 0, issued: 0 };
+        if (!byMaterial[key]) byMaterial[key] = { name: item.name, unit: planMeasure.unit || item.unit || '', limit: 0, issued: 0, accepted: 0, pending: 0, historical: 0 };
         if (!byMaterial[key].unit && planMeasure.unit) byMaterial[key].unit = planMeasure.unit;
         byMaterial[key].limit += limit;
       })
@@ -149,14 +164,25 @@ export const buildM8Rows = ({
 };
 
 export const buildM29Rows = ({
-  projectName,
+  project,
   periodFrom = '',
   periodTo = '',
   activeEstimates = [],
   materialTransfers = [],
   workJournal = [],
+  legacyNameMatchAllowed = true,
 } = {}) => {
+  const projectName = typeof project === 'string' ? project : (project?.name || '');
+  const projectId = Number(typeof project === 'object' ? project?.id : 0) || null;
   const inRange = date => !date ? false : (!periodFrom || String(date).slice(0, 10) >= periodFrom) && (!periodTo || String(date).slice(0, 10) <= periodTo);
+  const transferMatchesProject = transfer => {
+    const frozenId = Number(transfer?.issuePartySnapshot?.project?.id || transfer?.projectId || 0) || null;
+    return projectId && frozenId ? projectId === frozenId : legacyNameMatchAllowed && transfer.projectName === projectName;
+  };
+  const workMatchesProject = work => {
+    const workProjectId = Number(work?.projectId || work?.project_id || 0) || null;
+    return projectId && workProjectId ? projectId === workProjectId : legacyNameMatchAllowed && work.project === projectName;
+  };
   const planByName = {};
 
   (activeEstimates || []).forEach(estimate => (
@@ -169,27 +195,38 @@ export const buildM29Rows = ({
         if (planQty <= 0) return;
         const key = (item.name || '').trim().toLowerCase();
         if (!key) return;
-        if (!planByName[key]) planByName[key] = { name: item.name || '', unit: planMeasure.unit || item.unit || '', plan: 0, issued: 0, fact: 0 };
+        if (!planByName[key]) planByName[key] = { name: item.name || '', unit: planMeasure.unit || item.unit || '', plan: 0, issued: 0, accepted: 0, pending: 0, fact: 0, historical: 0 };
         if (!planByName[key].unit && planMeasure.unit) planByName[key].unit = planMeasure.unit;
         planByName[key].plan += planQty;
       })
     ))
   ));
 
-  (materialTransfers || []).filter(transfer => transfer.projectName === projectName && inRange(transfer.transferDate || transfer.date)).forEach(transfer => {
-    const key = (transfer.materialName || '').trim().toLowerCase();
+  (materialTransfers || []).filter(transfer => (
+    transferMatchesProject(transfer)
+    && (transfer.status || 'Активна') !== 'Аннулирована'
+    && inRange(transfer.transferDate || transfer.date)
+  )).forEach(transfer => {
+    const material = transfer.issuePartySnapshot?.material || {};
+    const name = material.name || transfer.materialName || '';
+    const unit = material.unit || transfer.unit || '';
+    const quantity = Number(material.quantity ?? transfer.quantity ?? 0);
+    const key = name.trim().toLowerCase();
     if (!key) return;
-    if (!planByName[key]) planByName[key] = { name: transfer.materialName || '', unit: transfer.unit || '', plan: 0, issued: 0, fact: 0 };
-    planByName[key].issued += Number(transfer.quantity || 0);
+    if (!planByName[key]) planByName[key] = { name, unit, plan: 0, issued: 0, accepted: 0, pending: 0, fact: 0, historical: 0 };
+    planByName[key].issued += quantity;
+    if (transfer.signed) planByName[key].accepted += quantity;
+    else planByName[key].pending += quantity;
+    if (!transfer.issuePartySnapshot) planByName[key].historical += quantity;
   });
 
   (workJournal || [])
-    .filter(work => work.project === projectName && work.status !== 'Отклонено' && inRange(work.date))
+    .filter(work => workMatchesProject(work) && !['Отклонено', 'Аннулировано'].includes(work.status) && inRange(work.date))
     .forEach(work => (
       parseJournalMaterialsValue(work.materialsUsed !== undefined ? work.materialsUsed : work.materials_used).forEach(material => {
         const key = (material.name || '').trim().toLowerCase();
         if (!key) return;
-        if (!planByName[key]) planByName[key] = { name: material.name || '', unit: material.unit || '', plan: 0, issued: 0, fact: 0 };
+        if (!planByName[key]) planByName[key] = { name: material.name || '', unit: material.unit || '', plan: 0, issued: 0, accepted: 0, pending: 0, fact: 0, historical: 0 };
         planByName[key].fact += Number(material.quantity || 0);
       })
     ));
@@ -198,7 +235,7 @@ export const buildM29Rows = ({
 };
 
 export const buildM8ReportContent = ({
-  projectName,
+  project,
   masterName,
   periodFrom,
   periodTo,
@@ -207,14 +244,17 @@ export const buildM8ReportContent = ({
   activeEstimatesForProject = () => [],
   printDocContext = {},
 } = {}) => {
-  const project = (projects || []).find(row => row.name === projectName) || {};
+  const selectedProject = typeof project === 'object' ? project : ((projects || []).find(row => row.name === project) || {});
+  const projectName = selectedProject.name || String(project || '');
+  const legacyNameMatchAllowed = (projects || []).filter(row => row.name === projectName).length <= 1;
   const rows = buildM8Rows({
-    projectName,
+    project: selectedProject,
     masterName,
     periodFrom,
     periodTo,
     materialTransfers,
-    activeEstimates: activeEstimatesForProject(project, 'Заказчик'),
+    activeEstimates: activeEstimatesForProject(selectedProject, 'Заказчик'),
+    legacyNameMatchAllowed,
   });
   return buildM8DocContent({ projectName, masterName, periodFrom, periodTo, rows }, printDocContext);
 };
@@ -240,7 +280,7 @@ export const buildMaterialRequirementReportContent = ({
 };
 
 export const buildM29ReportContent = ({
-  projectName,
+  project,
   periodFrom,
   periodTo,
   projects = [],
@@ -249,14 +289,17 @@ export const buildM29ReportContent = ({
   activeEstimatesForProject = () => [],
   printDocContext = {},
 } = {}) => {
-  const project = (projects || []).find(row => row.name === projectName) || {};
+  const selectedProject = typeof project === 'object' ? project : ((projects || []).find(row => row.name === project) || {});
+  const projectName = selectedProject.name || String(project || '');
+  const legacyNameMatchAllowed = (projects || []).filter(row => row.name === projectName).length <= 1;
   const rows = buildM29Rows({
-    projectName,
+    project: selectedProject,
     periodFrom,
     periodTo,
-    activeEstimates: activeEstimatesForProject(project, 'Заказчик'),
+    activeEstimates: activeEstimatesForProject(selectedProject, 'Заказчик'),
     materialTransfers,
     workJournal,
+    legacyNameMatchAllowed,
   });
   return buildM29DocContent({ projectName, periodFrom, periodTo, rows }, printDocContext);
 };
