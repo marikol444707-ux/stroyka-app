@@ -718,10 +718,10 @@ class WarehouseAnomalyRuntimeDisclosurePolicyTests(unittest.TestCase):
             backend_root / "db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Reviewed model-gateway cutovers in the composition root;
-            # warehouse preview implementation and registration are unchanged.
+            # Reviewed supplier-invoice requisites projection in the composition
+            # root; warehouse preview implementation and registration are unchanged.
             backend_root / "main.py": (
-                "7bcec09f04dcf752f142dcbcd993c8bfdf0dbfd29e6272ee799f0987170e2d07"
+                "e3cdb2d7d53408cc443beb0d84624ab4659e40f4b6bace4b87067cd545ddc3d0"
             ),
         }
         actual = {
