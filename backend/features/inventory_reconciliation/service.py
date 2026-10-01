@@ -22,6 +22,11 @@ def state(session):
     return policy.fingerprint({key: session[key] for key in ('inventory_id', 'company_id', 'version', 'state', 'counts', 'snapshot')})
 
 
+def stock_state(value):
+    """Fields that must still match before approval; document identity stays frozen."""
+    return {key: value.get(key) for key in ('projectId', 'rows')}
+
+
 def event(cur, session, actor, operation_id, action, reason):
     cur.execute('''INSERT INTO inventory_reconciliation_events(inventory_id,company_id,operation_id,
         actor_id,actor_name,action,reason,state,counts) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id''',
@@ -71,7 +76,7 @@ def command(cur, session, actor, data, operation_id, deps):
     elif action == 'approve' and current == 'submitted':
         policy.require_complete(session['snapshot']['rows'], session['counts'])
         current_snapshot = snapshot.capture(cur, actor, session['project_id'], deps)
-        if current_snapshot != session['snapshot']:
+        if stock_state(current_snapshot) != stock_state(session['snapshot']):
             raise HTTPException(409, 'Учёт изменился после начала пересчёта. Отмените эту ведомость и начните новую сверку')
         deductions = adjustments.allocations(session['snapshot']['rows'], session['counts'], data.get('lotDeductions', []))
         session['state'] = 'approved'
@@ -99,7 +104,8 @@ def view(cur, session, actor):
                      'difference': policy.difference(row, count) if row['kind'] == 'material' else None})
     return {'inventory': {'id': session['inventory_id'], 'project': session['project'], 'date': session['date'],
                          'createdBy': session['created_by'], 'notes': session['notes'], 'state': session['state'],
-                         'status': policy.STATUSES[session['state']], 'projectId': session['project_id']},
+                         'status': policy.STATUSES[session['state']], 'projectId': session['project_id'],
+                         'company': session['snapshot'].get('company')},
             'rows': rows, 'expectedState': state(session), 'history': history,
             'canCount': policy.enabled() and actor['role'] in policy.COUNTERS and session['state'] == 'draft',
             'canDecide': policy.enabled() and actor['role'] in policy.DIRECTORS and session['state'] not in ('approved', 'cancelled')}
