@@ -156,6 +156,16 @@ function SupplyDeliveriesPanel({
                 </p>}
                 {done && delivery.qualityStatus === 'Брак' && <p style={{color:C.danger,fontSize:'12px'}}>Брак — в доступный остаток не включён.</p>}
                 <p style={{color:C.textMuted,margin:0,fontSize:'11px'}}>ТТН/накладная: {delivery.waybillNumber || '—'}{delivery.vehicleNumber?' · авто '+delivery.vehicleNumber:''}{delivery.driverName?' · '+delivery.driverName:''}</p>
+                {delivery.documentParties?.reviewRequired ? (
+                  <p style={{color:C.warning,margin:'6px 0 0',fontSize:'11px',fontWeight:700}}>⚠️ {delivery.documentParties.reviewReason}</p>
+                ) : delivery.documentParties && (
+                  <div style={{padding:'8px 10px',marginTop:'7px',border:'1px solid '+C.border,borderRadius:'7px',backgroundColor:C.bgCard||C.bg,fontSize:'11px',color:C.textSec}}>
+                    <b style={{color:C.text}}>Документы поставки</b>
+                    <p style={{margin:'3px 0'}}>{delivery.documentParties.supplier?.fullName || 'Поставщик'} → {delivery.documentParties.buyer?.fullName || delivery.documentParties.consignee?.companyName || 'Заказчик'}</p>
+                    <p style={{margin:'3px 0'}}>Доставка: {delivery.documentParties.consignee?.deliveryAddress || 'адрес не указан'}{delivery.documentParties.consignee?.contactName ? ' · '+delivery.documentParties.consignee.contactName : ''}{delivery.documentParties.consignee?.contactPhone ? ' · '+delivery.documentParties.consignee.contactPhone : ''}</p>
+                    {delivery.documentParties.contract && <p style={{margin:'3px 0'}}>Договор № {delivery.documentParties.contract.number || '—'}{delivery.documentParties.contract.date ? ' от '+delivery.documentParties.contract.date : ''}</p>}
+                  </div>
+                )}
                 {delivery.aiCheckResult && <p style={{color:C.accent,margin:'5px 0 0',fontSize:'11px'}}>🤖 {delivery.aiCheckResult}</p>}
                 {claim && <p style={{color:C.danger,margin:'5px 0 0',fontSize:'11px'}}>⚠️ Претензия: {claim.claimType} · {claim.status}</p>}
                 {linkedInvoice && <p style={{color:C.success,margin:'5px 0 0',fontSize:'11px'}}>📄 Накладная № {linkedInvoice.number} · запись #{linkedInvoice.id}</p>}
@@ -201,7 +211,7 @@ function SupplyDeliveriesPanel({
                 </label>
                 <label style={{display:'flex',alignItems:'flex-start',gap:'9px',padding:'10px 12px',marginBottom:'10px',border:'1px solid '+C.border,borderRadius:'8px',color:C.text,fontSize:'12px'}}>
                   <input type="checkbox" checked={receiptConfirmed} onChange={event=>setReceiptConfirmed(event.target.checked)} style={{width:18,height:18,flex:'0 0 auto',margin:0}} />
-                  Подтверждаю: поставка физически прибыла, количество и состояние проверены. Указанное принятое количество, включая 0, соответствует факту.
+                  Подтверждаю: поставка физически прибыла по указанному адресу и от указанного поставщика; количество и состояние проверены. Указанное принятое количество, включая 0, соответствует факту.
                 </label>
                 <div style={{display:'flex',gap:'8px'}}>
                   <button disabled={!receiptConfirmed} onClick={()=>{ if (receiptConfirmed) receiveSupplyDelivery(delivery); }} style={btnO}><Check size={14}/>Подтвердить фактическую приёмку</button>

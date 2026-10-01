@@ -6,7 +6,7 @@ function Cabinet({send, paymentTerms='Постоплата', paidAmount=0, invoi
  const [shipmentForm,setShipmentForm]=React.useState({});
  return <SupplierCabinetPage API="/api" C={{}} badge={()=>({})} user={{id:7,role:'поставщик'}} supplierTab="requests" suppliers={[]} supplierRequisites={{}}
   supplierOffers={[{id:70,requestId:879,companyId:1,supplierId:158,status:'Утверждено',paymentTerms,totalPrice:526000}]}
-  supplyRequests={[{id:879,companyId:1,materialName:'Кабель',quantity:2,unit:'м',workPackage:'Основная',project:'Тест'}]}
+  supplyRequests={[{id:879,companyId:1,companyName:'ООО Заказчик',materialName:'Кабель',quantity:2,unit:'м',workPackage:'Основная',project:'Тест',deliveryAddress:'Кисловодск, ул. Школьная, 4',contactName:'Иван'}]}
   supplyDeliveries={[{id:16,offerId:70,requestId:879,companyId:1,supplierId:158,materialName:'Кабель',unit:'м',workPackage:'Основная',shippedQuantity:1,receivedQuantity:1,status:'Принято'}]}
   supplierInvoices={[{id:144,offerId:70,requestId:879,companyId:1,supplierId:158,status:invoiceStatus,amount:263000,paidAmount}]}
   parseSupplyItems={r=>[r]} shippingOfferId={shippingOfferId} setShippingOfferId={setShippingOfferId} shipmentForm={shipmentForm} setShipmentForm={setShipmentForm}
@@ -19,6 +19,8 @@ it('offers remaining quantity on the same KP and prevents a double click',async(
  render(<Cabinet send={send}/>);
  expect(screen.queryByRole('button',{name:/Выставить счёт/})).not.toBeInTheDocument();
  fireEvent.click(screen.getByRole('button',{name:/Отгрузить остаток/}));
+ expect(screen.getAllByText(/Кисловодск, ул. Школьная, 4/)).toHaveLength(2);
+ expect(screen.getByText(/ООО Заказчик · Тест/)).toBeInTheDocument();
  expect(screen.getByLabelText('Отгрузить: Кабель')).toHaveValue(1);
  const submit=screen.getByRole('button',{name:'Отгрузить'});
  fireEvent.click(submit);fireEvent.click(submit);

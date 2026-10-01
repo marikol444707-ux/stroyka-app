@@ -646,6 +646,13 @@ export default function SupplierCabinetPage({
                     {/* Сн.4: форма отгрузки поставщика */}
                     {shippingOfferId===o.id && (<fieldset disabled={shipmentBusy || attachmentBusy} style={{border:0,minWidth:0,borderTop:'1.5px solid '+C.border,paddingTop:'12px',marginTop:'10px'}}>
                       <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'8px'}}>🚚 Отгрузка по выигранному КП</b>
+                      <div style={{padding:'10px 12px',marginBottom:'10px',border:'1px solid '+C.border,borderRadius:'8px',backgroundColor:C.bgCard||C.bg}}>
+                        <b style={{color:C.text,fontSize:'11px'}}>Куда везём</b>
+                        <p style={{color:C.text,margin:'4px 0',fontSize:'12px'}}>{req.companyName || o.partySnapshot?.buyer?.fullName || 'Заказчик'} · {req.project || 'Объект не указан'}</p>
+                        <p style={{color:req.deliveryAddress?C.textSec:C.warning,margin:'3px 0',fontSize:'11px'}}>Адрес: {req.deliveryAddress || 'не указан — уточните у заказчика до отправки'}</p>
+                        {(req.contactName || req.contactEmail || req.contactPhone) && <p style={{color:C.textSec,margin:'3px 0',fontSize:'11px'}}>Контакт: {[req.contactName,req.contactEmail,req.contactPhone].filter(Boolean).join(' · ')}</p>}
+                        <p style={{color:C.textMuted,margin:'5px 0 0',fontSize:'10px'}}>Эти данные закреплены за заявкой и сохранятся в документах поставки.</p>
+                      </div>
                       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}}>
                         {(shipmentForm.shippedItems || []).map((line,index)=><label key={index} style={{fontSize:12}}>
                           {line.materialName} · {line.workPackage || 'Основная'} — остаток {line.toShip} {line.unit}
