@@ -36,13 +36,36 @@ export default function ClientsPage({
       </div>
       {showForm&&(<div style={{...card,padding:isMobile?'14px':'20px',marginBottom:'20px',maxWidth:isMobile?'720px':undefined,marginLeft:isMobile?'auto':undefined,marginRight:isMobile?'auto':undefined}}>
         <h3 style={{color:C.text,marginBottom:'15px',fontWeight:'700'}}>{editingItem?'Редактировать':'Новый клиент'}</h3>
+        <p style={{color:C.textSec,fontSize:'12px',margin:'-8px 0 14px',lineHeight:1.45}}>Карточка заказчика используется в договоре объекта и следующих документах. Сохранённые договоры не меняются при последующем редактировании карточки.</p>
         <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'repeat(auto-fit,minmax(200px,1fr))',gap:'10px'}}>
-          <input placeholder="Название *" value={newClient.name} onChange={e=>setNewClient({...newClient,name:e.target.value})} style={fieldStyle}/>
-          <input placeholder="Телефон" value={newClient.phone} onChange={e=>setNewClient({...newClient,phone:e.target.value})} style={fieldStyle}/>
-          <input placeholder="Email" value={newClient.email} onChange={e=>setNewClient({...newClient,email:e.target.value})} style={fieldStyle}/>
+          <input aria-label="Название заказчика" placeholder="Полное название *" value={newClient.name||''} onChange={e=>setNewClient({...newClient,name:e.target.value})} style={fieldStyle}/>
+          <input aria-label="ИНН заказчика" placeholder="ИНН" inputMode="numeric" value={newClient.inn||''} onChange={e=>setNewClient({...newClient,inn:e.target.value.replace(/\D/g,'').slice(0,12)})} style={fieldStyle}/>
+          <input aria-label="КПП заказчика" placeholder="КПП" inputMode="numeric" value={newClient.kpp||''} onChange={e=>setNewClient({...newClient,kpp:e.target.value.replace(/\D/g,'').slice(0,9)})} style={fieldStyle}/>
+          <input aria-label="ОГРН заказчика" placeholder="ОГРН / ОГРНИП" inputMode="numeric" value={newClient.ogrn||''} onChange={e=>setNewClient({...newClient,ogrn:e.target.value.replace(/\D/g,'').slice(0,15)})} style={fieldStyle}/>
+          <input placeholder="Телефон" value={newClient.phone||''} onChange={e=>setNewClient({...newClient,phone:e.target.value})} style={fieldStyle}/>
+          <input placeholder="Email" value={newClient.email||''} onChange={e=>setNewClient({...newClient,email:e.target.value})} style={fieldStyle}/>
           <select value={newClient.status} onChange={e=>setNewClient({...newClient,status:e.target.value})} style={fieldStyle}>{['Активный','Потенциальный','Завершён'].map(s=><option key={s}>{s}</option>)}</select>
-          <textarea placeholder="Заметки" value={newClient.notes} onChange={e=>setNewClient({...newClient,notes:e.target.value})} style={{...fieldStyle,gridColumn:isMobile?'auto':'span 2',height:isMobile?'88px':'60px',resize:'vertical'}}/>
         </div>
+        <details style={{marginTop:'12px',border:'1.5px solid '+C.border,borderRadius:'10px',padding:'12px'}}>
+          <summary style={{cursor:'pointer',color:C.text,fontWeight:700,fontSize:'13px'}}>Адрес и подписант договора</summary>
+          <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'repeat(2,minmax(0,1fr))',gap:'10px',marginTop:'12px'}}>
+            <input placeholder="Юридический адрес" value={newClient.legalAddress||''} onChange={e=>setNewClient({...newClient,legalAddress:e.target.value})} style={fieldStyle}/>
+            <input placeholder="Фактический адрес" value={newClient.actualAddress||''} onChange={e=>setNewClient({...newClient,actualAddress:e.target.value})} style={fieldStyle}/>
+            <input placeholder="ФИО подписанта" value={newClient.directorName||''} onChange={e=>setNewClient({...newClient,directorName:e.target.value})} style={fieldStyle}/>
+            <input placeholder="Должность подписанта" value={newClient.directorPosition||''} onChange={e=>setNewClient({...newClient,directorPosition:e.target.value})} style={fieldStyle}/>
+            <input placeholder="Действует на основании" value={newClient.basis||''} onChange={e=>setNewClient({...newClient,basis:e.target.value})} style={{...fieldStyle,gridColumn:isMobile?'auto':'span 2'}}/>
+          </div>
+        </details>
+        <details style={{marginTop:'10px',border:'1.5px solid '+C.border,borderRadius:'10px',padding:'12px'}}>
+          <summary style={{cursor:'pointer',color:C.text,fontWeight:700,fontSize:'13px'}}>Банковские реквизиты</summary>
+          <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'repeat(2,minmax(0,1fr))',gap:'10px',marginTop:'12px'}}>
+            <input placeholder="Банк" value={newClient.bankName||''} onChange={e=>setNewClient({...newClient,bankName:e.target.value})} style={fieldStyle}/>
+            <input placeholder="БИК" inputMode="numeric" value={newClient.bik||''} onChange={e=>setNewClient({...newClient,bik:e.target.value.replace(/\D/g,'').slice(0,9)})} style={fieldStyle}/>
+            <input placeholder="Расчётный счёт" inputMode="numeric" value={newClient.rs||''} onChange={e=>setNewClient({...newClient,rs:e.target.value.replace(/\D/g,'').slice(0,20)})} style={fieldStyle}/>
+            <input placeholder="Корреспондентский счёт" inputMode="numeric" value={newClient.ks||''} onChange={e=>setNewClient({...newClient,ks:e.target.value.replace(/\D/g,'').slice(0,20)})} style={fieldStyle}/>
+          </div>
+        </details>
+        <textarea placeholder="Заметки" value={newClient.notes||''} onChange={e=>setNewClient({...newClient,notes:e.target.value})} style={{...fieldStyle,marginTop:'10px',height:isMobile?'88px':'60px',resize:'vertical'}}/>
         <div style={{display:'flex',gap:'10px',marginTop:'15px',flexWrap:'wrap'}}><button onClick={saveClient} style={{...btnO,flex:isMobile?'1 1 160px':'0 0 auto',justifyContent:'center',minHeight:isMobile?'44px':undefined}}><Check size={14}/>{editingItem?'Сохранить':'Создать'}</button><button onClick={()=>{setShowForm(false);setEditingItem(null);}} style={{...btnG,flex:isMobile?'1 1 140px':'0 0 auto',justifyContent:'center',minHeight:isMobile?'44px':undefined}}><X size={14}/>Отмена</button></div>
       </div>)}
       <div style={{position:'relative',marginBottom:'12px'}}>

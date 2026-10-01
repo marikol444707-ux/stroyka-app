@@ -51,12 +51,16 @@ class FakeConnection:
     def __init__(self, cursor):
         self._cursor = cursor
         self.committed = False
+        self.rolled_back = False
 
     def cursor(self, **_kwargs):
         return self._cursor
 
     def commit(self):
         self.committed = True
+
+    def rollback(self):
+        self.rolled_back = True
 
     def close(self):
         self.closed = True
@@ -88,7 +92,7 @@ def build(cursor, actors=None, audit_calls=None):
     return app, connection
 
 
-ROW = {"id": 1, "companyId": 3, "name": "Объект", "client": "Клиент", "status": "В работе",
+ROW = {"id": 1, "companyId": 3, "name": "Объект", "clientId": 7, "client": "Клиент", "status": "В работе",
        "budget": 1000000, "deadline": "", "progress": 40, "tasks": [], "pricelistId": 5,
        "floors": 2, "liters": "", "warrantyStartDate": "2026-01-01", "warrantyEndDate": "2027-01-01",
        "warrantyContact": "+7", "archived": False, "archivedAt": None, "publicShowOnSite": False}
@@ -150,6 +154,61 @@ class ProjectsRoutesTest(unittest.TestCase):
         insert = next(call for call in cursor.calls if "INSERT INTO projects" in call[0])
         self.assertEqual(insert[1][0], 3)
         self.assertEqual(audit[0]["entity_type"], "project")
+        self.assertTrue(connection.committed)
+
+    def test_create_resolves_exact_customer_inside_actor_company(self):
+        audit = []
+        cursor = FakeCursor(fetchone_results=[
+            {"max_projects": None, "max_users": None},
+            {"id": 7, "name": "ООО Точный заказчик"},
+            dict(ROW, client="ООО Точный заказчик"),
+        ])
+        app, connection = build(cursor, audit_calls=audit)
+        result = app.routes[("POST", "/projects")](
+            ProjectModel(name="Объект", client="Подменённое имя", clientId=7),
+            x_company_id="3", x_company_mode="company", current_user={},
+        )
+        lookup = next(call for call in cursor.calls if "FROM clients" in call[0])
+        self.assertEqual(lookup[1], (7, 3))
+        insert = next(call for call in cursor.calls if "INSERT INTO projects" in call[0])
+        self.assertIn("client_id", insert[0])
+        self.assertEqual(insert[1][1], 7)
+        self.assertEqual(insert[1][3], "ООО Точный заказчик")
+        self.assertEqual(result["clientId"], 7)
+        self.assertTrue(connection.committed)
+
+    def test_create_rejects_customer_from_another_company(self):
+        cursor = FakeCursor(fetchone_results=[
+            {"max_projects": None, "max_users": None},
+            None,
+        ])
+        app, connection = build(cursor)
+        with self.assertRaises(HTTPException) as raised:
+            app.routes[("POST", "/projects")](
+                ProjectModel(name="Объект", clientId=99),
+                x_company_id="3", x_company_mode="company", current_user={},
+            )
+        self.assertEqual(raised.exception.status_code, 404)
+        self.assertFalse(connection.committed)
+
+    def test_update_replaces_customer_name_from_exact_selected_card(self):
+        cursor = FakeCursor(fetchone_results=[
+            {"company_id": 3, "name": "Объект"},
+            {"id": 8, "name": "ООО Новый заказчик"},
+            {"id": 1, "companyId": 3, "name": "Объект", "archived": False},
+        ])
+        app, connection = build(cursor)
+        result = app.routes[("PUT", "/projects/{id}")](
+            id=1, data={"clientId": 8, "client": "Подмена"},
+            x_company_id="3", x_company_mode="company", current_user={},
+        )
+        self.assertEqual(result, {"ok": True})
+        lookup = next(call for call in cursor.calls if "FROM clients" in call[0])
+        self.assertEqual(lookup[1], (8, 3))
+        update = next(call for call in cursor.calls if "UPDATE projects SET" in call[0])
+        self.assertIn("client_id=%s", update[0])
+        self.assertIn("client=%s", update[0])
+        self.assertEqual(update[1][:2], (8, "ООО Новый заказчик"))
         self.assertTrue(connection.committed)
 
     def test_delete_is_disabled(self):
