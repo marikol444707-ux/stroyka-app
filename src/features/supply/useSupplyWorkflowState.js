@@ -29,6 +29,8 @@ export function useSupplyWorkflowState(scopeKey = '') {
   const [suggestedSuppliers, setSuggestedSuppliers] = useState(null);
   const [selectedSupplierIds, setSelectedSupplierIds] = useState([]);
   const [requestKpLoading, setRequestKpLoading] = useState(false);
+  const [kpStage, setKpStage] = useState(null); // 'select' | 'confirm' | 'result'
+  const [kpResult, setKpResult] = useState(null);
   const [respondingOfferId, setRespondingOfferId] = useState(null);
   const [newKpResponse, setNewKpResponse] = useState(createKpResponseForm);
   const [compareResultByReq, setCompareResultByReq] = useState({});
@@ -59,6 +61,8 @@ export function useSupplyWorkflowState(scopeKey = '') {
     receiveForm,
     receivingDeliveryId,
     requestKpLoading,
+    kpStage,
+    kpResult,
     respondingOfferId,
     selectedSupplierIds,
     setCompareLoadingReqId,
@@ -73,6 +77,8 @@ export function useSupplyWorkflowState(scopeKey = '') {
     setReceiveForm,
     setReceivingDeliveryId,
     setRequestKpLoading,
+    setKpStage,
+    setKpResult,
     setRespondingOfferId,
     setSelectedSupplierIds,
     setShipmentForm,
