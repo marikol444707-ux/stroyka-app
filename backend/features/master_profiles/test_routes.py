@@ -68,7 +68,10 @@ def build(cursor, projects=("Объект",)):
 
 PROFILE = {"id": 1, "userId": 42, "fullName": "Мастер Тест", "passport": "1234",
            "inn": "5678", "contractType": "ГПХ", "bankAccount": "408", "bankName": "Банк",
-           "phone": "+7", "specialization": "электрик", "ogrnip": "9", "profileCompleted": True}
+           "phone": "+7", "specialization": "электрик", "ogrnip": "9", "kpp": "123",
+           "ogrn": "456", "legalAddress": "Адрес", "bankBik": "044", "bankCorr": "301",
+           "signatoryName": "Иванов", "signatoryPosition": "Директор", "signatoryBasis": "Устава",
+           "profileCompleted": True}
 
 
 class MasterProfilesRoutesTest(unittest.TestCase):
@@ -81,13 +84,24 @@ class MasterProfilesRoutesTest(unittest.TestCase):
         app, _conn = build(FakeCursor(rows=[dict(PROFILE)]))
         rows = app.routes[("GET", "/master-profiles")](current_user={"id": 1, "role": "прораб"})
         self.assertEqual(rows[0]["fullName"], "Мастер Тест")
-        for hidden in ("passport", "inn", "bankAccount", "bankName", "ogrnip"):
+        for hidden in ("passport", "inn", "bankAccount", "bankName", "ogrnip", "kpp", "ogrn",
+                       "legalAddress", "bankBik", "bankCorr", "signatoryName", "signatoryPosition",
+                       "signatoryBasis"):
             self.assertNotIn(hidden, rows[0])
 
     def test_finance_list_keeps_all_fields(self):
         app, _conn = build(FakeCursor(rows=[dict(PROFILE)]))
         rows = app.routes[("GET", "/master-profiles")](current_user={"id": 1, "role": "директор"})
         self.assertEqual(rows[0]["passport"], "1234")
+
+    def test_model_accepts_complete_legal_entity_requisites(self):
+        from backend.features.master_profiles.routes import MasterProfileModel
+        row = MasterProfileModel(userId=42, fullName="ООО Исполнитель", inn="1234567890",
+            contractType="ООО", bankAccount="407", bankName="Банк", kpp="123456789",
+            ogrn="1234567890123", legalAddress="Ставрополь", bankBik="044525000",
+            bankCorr="30101810000000000000", signatoryName="Иванов И.И.",
+            signatoryPosition="Директор", signatoryBasis="Устава")
+        self.assertEqual(row.signatoryName, "Иванов И.И.")
 
     def test_unknown_role_gets_empty_list(self):
         cursor = FakeCursor(rows=[dict(PROFILE)])

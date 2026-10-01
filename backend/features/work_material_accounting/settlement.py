@@ -151,6 +151,14 @@ def preview(cur, contract, *, start=None, end=None, selected_ids=None):
 def create_act(cur, contract, actor, operation_id, data):
     require_contract(cur, contract)
     require_reconciled(cur, contract)
+    contract_parties = contract.get('partySnapshot')
+    if isinstance(contract_parties, str):
+        try:
+            contract_parties = json.loads(contract_parties)
+        except (TypeError, ValueError):
+            contract_parties = None
+    if not isinstance(contract_parties, dict):
+        raise HTTPException(409, 'Сначала загрузите подписанный договор и зафиксируйте реквизиты сторон')
     start, end = period(data)
     ids = data.get('workJournalIds')
     if not isinstance(ids, list) or not 1 <= len(ids) <= 1000:
@@ -177,7 +185,8 @@ def create_act(cur, contract, actor, operation_id, data):
         'brigadeName': contract['brigadeName'], 'workPackage': contract['workPackage'],
         'periodFrom': start, 'periodTo': end, 'works': current['eligibleWorks'],
         'fines': current['fineAllocations'], 'grossAmount': str(current['grossAmount']),
-        'fineAmount': str(current['fineAmount']), 'netAmount': str(current['netAmount'])}
+        'fineAmount': str(current['fineAmount']), 'netAmount': str(current['netAmount']),
+        'contractParties': contract_parties}
     cur.execute('''INSERT INTO brigade_acts(contract_id,project_name,brigade_name,period_from,period_to,total_amount,status)
         VALUES(%s,%s,%s,%s,%s,%s,'Сформирован') RETURNING id''',
         (contract['id'], contract['projectName'], contract['brigadeName'], start, end, current['grossAmount']))

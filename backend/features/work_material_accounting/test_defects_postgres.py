@@ -43,8 +43,14 @@ class MaterialDefectsPostgresTests(unittest.TestCase):
         self.contract_id = self.sql("SELECT contract_id FROM brigade_contract_items WHERE id=%s",
                                     (self.contract_item,))[0][0]
         contract_type = getattr(getattr(self, self._testMethodName), "initial_contract_type", "Субподрядчик")
-        self.sql("UPDATE brigade_contracts SET contractor_type=%s,status='Подписан' WHERE id=%s",
-                 (contract_type, self.contract_id))
+        self.sql("""UPDATE brigade_contracts SET contractor_type=%s,status='Подписан',
+                    party_snapshot_json=%s::jsonb WHERE id=%s""",
+                 (contract_type, json.dumps({
+                     "schemaVersion": 1,
+                     "customer": {"companyId": 2, "fullName": "Synthetic customer", "inn": "2611000000"},
+                     "contractor": {"userId": self.f["users"]["worker"]["id"],
+                                    "fullName": self.f["users"]["worker"]["name"], "inn": "263200000001"},
+                 }), self.contract_id))
         journal, _ = self.create_consumption(personal=1, warehouse=1)
         self.journal_id = journal["id"]
         self.path = "/work-journal/" + str(self.journal_id)

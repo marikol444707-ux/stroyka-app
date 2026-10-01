@@ -11,7 +11,13 @@ function fineRow(fine) {
 export function buildSettlementAct(act) {
   const s = act.snapshot;
   if (!s || !Array.isArray(s.works) || !Array.isArray(s.fines)) throw new Error('Нет сохранённого состава акта.');
+  const parties = s.contractParties;
+  const partyBlock = parties?.customer && parties?.contractor
+    ? `<p><b>Заказчик:</b> ${escape(parties.customer.fullName)} · ИНН ${escape(parties.customer.inn)}<br>
+       <b>Исполнитель:</b> ${escape(parties.contractor.fullName)} · ИНН ${escape(parties.contractor.inn)}</p>`
+    : '';
   return `<h2>АКТ ВЫПОЛНЕННЫХ РАБОТ №${escape(act.id)}</h2>
+    ${partyBlock}
     <p>Объект: ${escape(s.projectName)}<br>Исполнитель: ${escape(s.brigadeName)}<br>
     Договор №${escape(s.contractId)} · ${escape(s.workPackage)}<br>Период: ${escape(s.periodFrom)} — ${escape(s.periodTo)}</p>
     <table border="1" cellpadding="6" style="width:100%;border-collapse:collapse"><thead><tr><th>ЖПР</th><th>Работа / помещение</th><th>Ед.</th><th>Объём</th><th>Цена, ₽</th><th>Сумма, ₽</th></tr></thead><tbody>

@@ -105,6 +105,7 @@ export default function ProjectBrigadeCalculationTab({
         <div>
           <ProjectBrigadeSelectedHeader
             projectName={project.name}
+            projectId={project.id}
             selectedBrigadeContract={selectedBrigadeContract}
             setSelectedBrigadeContract={setSelectedBrigadeContract}
             brigadeContractItems={brigadeContractItems}
@@ -117,6 +118,7 @@ export default function ProjectBrigadeCalculationTab({
             staff={staff}
             masterProfiles={masterProfiles}
             users={users}
+            uploadPhoto={uploadPhoto}
             C={C}
             btnG={btnG}
             btnO={btnO}

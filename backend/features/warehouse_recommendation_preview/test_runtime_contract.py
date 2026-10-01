@@ -721,7 +721,7 @@ class WarehouseAnomalyRuntimeDisclosurePolicyTests(unittest.TestCase):
             # Reviewed isolated customer-directory registration in the composition root;
             # warehouse preview implementation and registration are unchanged.
             backend_root / "main.py": (
-                "5c8e487e9a3bb00251293623f49dbe9add07a46919a0343ca142755a3c149585"
+                "815759d00c1ab5da8481724290f828a35a3c2cc18ec31e196cede051bba4a8d6"
             ),
         }
         actual = {
