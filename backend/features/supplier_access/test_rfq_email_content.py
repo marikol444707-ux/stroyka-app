@@ -9,15 +9,19 @@ class RfqEmailContentTests(unittest.TestCase):
         subject,body,sender_name,reply_to=build_rfq_email({
             'id':71,'companyName':'ООО «АльянсПромСтрой»','companyEmail':'office@example.com',
             'project':'Лицей 4','workPackage':'Электрика','itemLines':['- Кабель: 100 м'],
-            'notes':'Доставка на объект','responseDueAt':datetime(2026,9,30,9,15,tzinfo=timezone.utc),
+            'deliveryAddress':'г. Кисловодск, ул. Школьная, 4',
+            'contactName':'Иван Петров','contactEmail':'buyer@example.com','contactPhone':'+7 900 000-00-00',
+            'notes':'Позвонить перед доставкой','responseDueAt':datetime(2026,9,30,9,15,tzinfo=timezone.utc),
         },'ООО ВИСТ')
         self.assertEqual(subject,'Запрос КП №71 от ООО «АльянсПромСтрой»')
         self.assertIn('ООО «АльянсПромСтрой» приглашает вас',body)
         self.assertIn('Срок ответа: 30.09.2026, 12:15 (МСК)',body)
         self.assertIn('ответьте на это письмо',body)
         self.assertIn('Кабель: 100 м',body)
+        self.assertIn('Адрес доставки: г. Кисловодск, ул. Школьная, 4',body)
+        self.assertIn('Контакт по заявке: Иван Петров · buyer@example.com · +7 900 000-00-00',body)
         self.assertEqual(sender_name,'Стройка · ООО «АльянсПромСтрой»')
-        self.assertEqual(reply_to,'office@example.com')
+        self.assertEqual(reply_to,'buyer@example.com')
 
     def test_missing_optional_company_contact_is_not_invented(self):
         subject,body,sender_name,reply_to=build_rfq_email({

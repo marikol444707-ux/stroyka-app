@@ -80,6 +80,7 @@ export const createSupplierOfferForm = (overrides = {}) => ({
 export const createRequestForm = (overrides = {}) => ({
   items: [{materialName: '', quantity: '', unit: 'шт', workPackage: ''}],
   project: '',
+  deliveryAddress: '',
   notes: '',
   selectedSuppliers: [],
   category: '',

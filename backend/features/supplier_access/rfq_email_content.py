@@ -44,7 +44,7 @@ def build_rfq_email(request_context, supplier_name=""):
     request_id = int(context.get("id") or 0)
     company_name = _header_text(context.get("companyName"), 120) or "Компания-заказчик"
     sender_name = _header_text("Стройка · " + company_name, 78)
-    reply_to = _single_email(context.get("companyEmail"))
+    reply_to = _single_email(context.get("contactEmail")) or _single_email(context.get("companyEmail"))
     subject = _header_text(f"Запрос КП №{request_id} от {company_name}", 180)
     greeting_name = _header_text(supplier_name, 120)
     lines = [
@@ -55,6 +55,17 @@ def build_rfq_email(request_context, supplier_name=""):
         "Объект: " + (str(context.get("project") or "объект не указан").strip()),
         "Раздел: " + (str(context.get("workPackage") or "Основная").strip()),
     ]
+    delivery_address = str(context.get("deliveryAddress") or "").strip()
+    if delivery_address:
+        lines.append("Адрес доставки: " + delivery_address)
+    contact_parts = [
+        _header_text(context.get("contactName"), 120),
+        _single_email(context.get("contactEmail")),
+        _header_text(context.get("contactPhone"), 100),
+    ]
+    contact_parts = [part for part in contact_parts if part]
+    if contact_parts:
+        lines.append("Контакт по заявке: " + " · ".join(contact_parts))
     deadline = _deadline(context.get("responseDueAt"))
     if deadline:
         lines.append("Срок ответа: " + deadline)

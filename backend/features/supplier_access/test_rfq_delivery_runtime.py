@@ -159,6 +159,14 @@ class RuntimeHarness:
             "maxStatus": "MAX не привязан",
         }]
         self.notify = Mock(return_value=self.notification_rows)
+        self.freeze_requester_snapshot = Mock(return_value={
+            "version": 1, "requestId": REQUEST_ID, "companyId": COMPANY_ID,
+            "companyName": "Альянс", "companyEmail": "office@example.test",
+            "companyPhone": "", "contactUserId": 71, "contactName": "Автор заявки",
+            "contactEmail": "", "contactPhone": "", "projectId": 31,
+            "projectName": "Объект №7", "deliveryAddress": "Адрес доставки",
+            "frozenAt": "2026-10-01T12:00:00Z",
+        })
         self.background_tasks = BackgroundTasks()
         self.email_dispatch = Mock()
         self.audit = Mock()
@@ -211,6 +219,7 @@ class RuntimeHarness:
                 "visible": visible, "user_id": 401 if visible else None, "reason": "" if visible else "Нет аккаунта",
             },
             "_notify_supply_request_recipients": self.notify,
+            "freeze_rfq_requester_snapshot": self.freeze_requester_snapshot,
             "_dispatch_supply_recipient_email": self.email_dispatch,
             "response_deadline": response_deadline,
             "EMAIL_QUEUED": "В очереди email",
@@ -271,6 +280,7 @@ class RuntimeHarness:
     def create(self, *, material_control=False):
         request = SimpleNamespace(
             project="Объект №7", projectId=31, companyId=COMPANY_ID,
+            deliveryAddress="Адрес доставки",
             createdBy="", workPackage="Основная", materialName="Труба", quantity=10,
             unit="м", items=[], selectedSuppliers=[SUPPLIER_ID],
             requestSource="estimate_material_control" if material_control else "",
@@ -347,6 +357,23 @@ class RfqDeliveryRuntimeTests(unittest.TestCase):
         self.assertTrue(harness.connection.write_autocommit)
         self.assertFalse(any(harness.connection.write_autocommit))
         self.assertTrue(harness.connection.closed)
+
+    def test_dispatch_freezes_requester_identity_before_creating_notifications(self):
+        harness = RuntimeHarness(self.nodes, request=self.approved_request(
+            delivery_address="Адрес доставки", requester_snapshot_json=None,
+        ))
+        order = []
+        harness.freeze_requester_snapshot.side_effect = lambda *_args, **_kwargs: order.append("freeze") or {}
+        harness.notify.side_effect = lambda *_args, **_kwargs: order.append("notify") or harness.notification_rows
+
+        harness.dispatch()
+
+        frozen_request = harness.freeze_requester_snapshot.call_args.args[1]
+        self.assertEqual(frozen_request["id"], REQUEST_ID)
+        self.assertEqual(frozen_request["company_id"], COMPANY_ID)
+        self.assertEqual(frozen_request["delivery_address"], "Адрес доставки")
+        self.assertEqual(order, ["freeze", "notify"])
+        harness.notify.assert_called_once()
 
     def test_invisible_recipient_is_rolled_back_without_offer_or_notification(self):
         harness = RuntimeHarness(self.nodes, request=self.approved_request(), visible=False)

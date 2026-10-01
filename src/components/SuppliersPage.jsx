@@ -185,6 +185,7 @@ function SuppliersPage({
             <div style={{...card,padding:'20px',marginBottom:'16px'}}>
               <fieldset disabled={requestPending} style={{border:0,padding:0,margin:0,minWidth:0}}>
               <select value={newRequest.project} onChange={e=>updateRequestProject(e.target.value)} style={inp}><option value="">Выберите объект *</option>{projects.map(p=><option key={p.id} value={p.name}>{p.name}</option>)}</select>
+              <input placeholder="Куда доставить материалы (адрес)" maxLength={2000} value={newRequest.deliveryAddress || ''} onChange={e=>setNewRequest({...newRequest,deliveryAddress:e.target.value})} style={inp}/>
               <select value={newRequest.category} onChange={e=>setNewRequest({...newRequest,category:e.target.value})} style={inp}><option value="">Категория материала</option>{supplierCategories.map(c=><option key={c}>{c}</option>)}</select>
               {newRequest.items.map((item,idx)=>(
                 <div key={idx} style={{display:'grid',gridTemplateColumns:'minmax(180px,3fr) minmax(130px,1.5fr) 1fr 1fr auto',gap:'8px',marginBottom:'8px',alignItems:'center'}}>

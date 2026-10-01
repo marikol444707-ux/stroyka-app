@@ -171,6 +171,7 @@ export const createSupplyActions = ({
         workPackage: requestPackage,
         companyId,
         project: newRequest.project,
+        deliveryAddress: newRequest.deliveryAddress || '',
         createdBy: currentUser.name || '',
         date: new Date().toISOString().split('T')[0],
         notes: newRequest.notes,

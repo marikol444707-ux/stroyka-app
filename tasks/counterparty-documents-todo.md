@@ -279,3 +279,16 @@ Verified staging removed. This supersedes the prior multiple-selection limitatio
   before supplier cards and verifies zero request/supplier/active-user remainder.
   Two regression tests cover both failures. Twenty-three older active users with the
   explicit smoke prefix were disabled and their sessions revoked; health remained OK.
+
+### 2026-10-01 — D1c: реквизиты отправленного запроса КП
+
+- Подготовлен первый потребитель общей матрицы: запрос КП сохраняет отдельный адрес
+  доставки и при отправке фиксирует компанию, контакт и точный объект заявки.
+- Поставщик и письмо читают сохранённые данные; изменение карточки компании позже
+  не меняет уже отправленный запрос. Старые записи без снимка не переписываются.
+- Защита PostgreSQL запрещает изменение снимка, компании, объекта и адреса после
+  фиксации; downgrade не удаляет ни снимки, ни адреса черновиков.
+- Проверено локально: 40 целевых backend-тестов, 194 теста supplier_access
+  (52 PostgreSQL-only пропущены штатно), 4 отдельные проверки на настоящей
+  изолированной PostgreSQL, 35 UI-тестов и production build. Выпуск и рабочий
+  браузер ещё не выполнялись; D1c остаётся открытым для других потребителей.
