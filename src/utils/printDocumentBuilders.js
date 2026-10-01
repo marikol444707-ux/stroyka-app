@@ -755,20 +755,37 @@ export const buildMovementDocContent = (movement = {}, items = [], context = {})
 
 export const buildM15DocContent = (transfer = {}, context = {}) => {
   const { companyRequisites = {}, companyName = '' } = context;
-  const orgName = companyTitle(companyRequisites, companyName);
+  const issue = transfer.issuePartySnapshot;
+  const receipt = transfer.receiptPartySnapshot;
+  const legacySigned = transfer.signed && !issue;
+  const organization = issue?.company || {};
+  const document = issue?.document || {};
+  const material = issue?.material || {};
+  const intendedReceiver = issue?.intendedReceiver || {};
+  const actualReceiver = receipt?.receiver || {};
+  const sender = issue?.sender || {};
+  const orgName = issue
+    ? (organization.fullName || organization.shortName || 'Организация не указана')
+    : legacySigned ? 'Реквизиты не зафиксированы (историческая запись)' : companyTitle(companyRequisites, companyName);
+  const projectName = issue?.project?.name || transfer.projectName || '';
+  const fromLocation = document.fromLocation || transfer.fromLocation || 'Основной склад';
+  const workPackage = document.workPackage || transfer.workPackage || 'общий';
+  const receiverName = actualReceiver.name || intendedReceiver.name || transfer.toPerson || '';
+  const receiverRole = actualReceiver.role || intendedReceiver.role || transfer.toPersonRole || '';
   let html = '<style>.m15-tbl{border-collapse:collapse;width:100%;font-size:11px}.m15-tbl th,.m15-tbl td{border:1px solid #333;padding:5px 6px}.m15-tbl th{background:#f3f4f6}</style>';
   html += '<h3 style="text-align:center;margin:8px 0">Унифицированная форма № М-15</h3>';
-  html += `<h2 style="text-align:center;margin:0 0 4px">НАКЛАДНАЯ № ${transfer.id} на отпуск материалов на сторону</h2>`;
+  html += `<h2 style="text-align:center;margin:0 0 4px">НАКЛАДНАЯ № ${docEsc(transfer.id)} на отпуск материалов на сторону</h2>`;
   html += '<p style="text-align:center;font-size:11px;color:#444">Утверждена Постановлением Госкомстата России от 30.10.1997 № 71а</p>';
-  html += `<table class="m15-tbl"><tr><th>Организация</th><td>${orgName}</td><th>Дата</th><td>${formatShortDate(transfer.transferDate || transfer.date)}</td></tr>`;
-  html += `<tr><th>Отправитель</th><td>${transfer.fromLocation || 'Основной склад'}</td><th>Получатель</th><td>${transfer.toPerson || ''} (${transfer.toPersonRole || ''})</td></tr>`;
-  html += `<tr><th>Объект</th><td>${transfer.projectName || ''}</td><th>Пакет работ</th><td>${transfer.workPackage || 'общий'}</td></tr></table>`;
+  if (legacySigned) html += '<p style="padding:8px;border:1px solid #f59e0b;background:#fffbeb;color:#92400e"><b>Историческая запись:</b> стороны при подписании не фиксировались. Текущие реквизиты компании не подставлены.</p>';
+  html += `<table class="m15-tbl"><tr><th>Организация</th><td>${docEsc(orgName)}${organization.inn ? '<br/>ИНН '+docEsc(organization.inn) : ''}${organization.legalAddress ? '<br/>'+docEsc(organization.legalAddress) : ''}</td><th>Дата</th><td>${docEsc(formatShortDate(document.date || transfer.transferDate || transfer.date))}</td></tr>`;
+  html += `<tr><th>Отправитель</th><td>${docEsc(fromLocation)}</td><th>Получатель</th><td>${docEsc(receiverName)}${receiverRole ? ' ('+docEsc(receiverRole)+')' : ''}</td></tr>`;
+  html += `<tr><th>Объект</th><td>${docEsc(projectName)}</td><th>Пакет работ</th><td>${docEsc(workPackage)}</td></tr></table>`;
   html += '<table class="m15-tbl" style="margin-top:12px"><tr><th>№</th><th>Наименование материала</th><th>Ед.изм.</th><th>Количество</th><th>Примечание</th></tr>';
-  html += `<tr><td>1</td><td>${transfer.materialName || ''}</td><td>${transfer.unit || ''}</td><td>${transfer.quantity || 0}</td><td>${transfer.notes || ''}</td></tr>`;
+  html += `<tr><td>1</td><td>${docEsc(material.name || transfer.materialName || '')}</td><td>${docEsc(material.unit || transfer.unit || '')}</td><td>${docEsc(material.quantity || transfer.quantity || 0)}</td><td>${docEsc(document.notes || transfer.notes || '')}</td></tr>`;
   html += '</table>';
   html += '<div style="margin-top:24px;display:grid;grid-template-columns:1fr 1fr;gap:30px">';
-  html += '<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Отпустил:</div><div style="border-bottom:1px solid #333;min-height:18px"></div><div style="font-size:9px;color:#555;margin-top:2px">(должность, ФИО, подпись)</div></div>';
-  html += `<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Получил:</div><div style="border-bottom:1px solid #333;min-height:18px">${transfer.toPerson || ''}</div><div style="font-size:9px;color:#555;margin-top:2px">(должность, ФИО, подпись)</div></div>`;
+  html += `<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Отпустил:</div><div style="border-bottom:1px solid #333;min-height:18px">${docEsc([sender.role,sender.name].filter(Boolean).join(' · '))}</div><div style="font-size:9px;color:#555;margin-top:2px">(должность, ФИО, подпись)</div></div>`;
+  html += `<div><div style="font-size:11px;font-weight:600;margin-bottom:30px">Получил:</div><div style="border-bottom:1px solid #333;min-height:18px">${docEsc([receiverRole,receiverName].filter(Boolean).join(' · '))}</div><div style="font-size:9px;color:#555;margin-top:2px">(должность, ФИО, подпись)</div></div>`;
   html += '</div>';
   return html;
 };
