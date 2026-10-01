@@ -12185,6 +12185,11 @@ def list_supply_deliveries(
         except ModuleNotFoundError:
             from features.supply_claim_cases.fulfilment import enrich_deliveries
         enrich_deliveries(cur, rows)
+        try:
+            from backend.features.supplier_offers.delivery_document import enrich_delivery_documents
+        except ModuleNotFoundError:
+            from features.supplier_offers.delivery_document import enrich_delivery_documents
+        enrich_delivery_documents(cur, rows)
         if os.getenv('SUPPLIER_DOCUMENT_CONTRACT_BINDINGS_ENABLED') == '1':
             try:
                 from backend.features.supplier_deal_parties.payment_deferral import enrich_delivery_deadlines
@@ -12327,6 +12332,16 @@ def receive_supply_delivery(
             try:
                 cur.execute(DELIVERY_SELECT + " WHERE d.id=%s", (id,))
                 row = cur.fetchone()
+                if row:
+                    try:
+                        from backend.features.supplier_offers.delivery_document import enrich_delivery_documents
+                    except ModuleNotFoundError:
+                        from features.supplier_offers.delivery_document import enrich_delivery_documents
+                    projected = [dict(row)]
+                    enrich_delivery_documents(cur, projected, strict=True)
+                    row = projected[0]
+            except HTTPException:
+                raise
             except Exception as e:
                 print("DELIVERY RECOVERY SELECT ERROR:", str(e))
                 row = None
@@ -12412,6 +12427,14 @@ def receive_supply_delivery(
         _update_supply_flow_status_after_delivery(cur, delivery['request_id'], delivery['offer_id'])
         cur.execute(DELIVERY_SELECT + " WHERE d.id=%s", (id,))
         row = cur.fetchone()
+        if row:
+            try:
+                from backend.features.supplier_offers.delivery_document import enrich_delivery_documents
+            except ModuleNotFoundError:
+                from features.supplier_offers.delivery_document import enrich_delivery_documents
+            projected = [dict(row)]
+            enrich_delivery_documents(cur, projected, strict=True)
+            row = projected[0]
         conn.commit()
         cur.close(); conn.close()
         _run_project_ai_control_safely(delivery['project'], "supply_delivery:receive")
@@ -20454,6 +20477,20 @@ def get_warehouse_invoices(
     except ModuleNotFoundError:
         from features.supplier_payments.partial_receipt_runtime import receipt_settlement_context
     settlement_ids = receipt_settlement_context(cur, [row[0] for row in rows])
+    delivery_ids = [row[18] for row in rows if row[18]]
+    document_parties_by_delivery = {}
+    if delivery_ids:
+        try:
+            from backend.features.supplier_offers.delivery_document import load_delivery_document_projections
+        except ModuleNotFoundError:
+            from features.supplier_offers.delivery_document import load_delivery_document_projections
+        document_cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            document_parties_by_delivery = load_delivery_document_projections(
+                document_cur, delivery_ids, strict=False,
+            )
+        finally:
+            document_cur.close()
     cur.close(); conn.close()
     result = []
     for r in rows:
@@ -20486,6 +20523,8 @@ def get_warehouse_invoices(
             photo_urls = [r[15]]
         material_match = _json_list_or_empty(r[24]) if len(r) > 24 else []
         invoice_result = {"id":r[0],"number":r[1],"date":str(r[2]) if r[2] else "","supplierId":r[3],"supplierName":r[4] or "","acceptedBy":r[5] or "","location":r[6] or "","project":r[7] or "","vat":r[8] or "Без НДС","items":items,"totalBase":total_base,"totalVat":total_vat,"totalWithVat":total_with_vat,"status":r[13] or "Принята","addedBy":r[14] or "","photoUrl":r[15] or "","photos":photo_urls,"pagesCount":r[21] or len(photo_urls) or 1,"sourceType":r[16] or "","sourceId":r[17],"supplyDeliveryId":r[18],"supplyRequestId":r[19],"warehouseTarget":(r[22] if len(r) > 22 else "") or ("object" if r[7] else "main"),"selectedAction":(r[23] if len(r) > 23 else "") or "","materialMatch":material_match,"accountingStatus":(r[25] if len(r) > 25 else "") or "","accountingComment":(r[26] if len(r) > 26 else "") or "","accountingUpdatedBy":(r[27] if len(r) > 27 else "") or "","accountingUpdatedAt":str(r[28]) if len(r) > 28 and r[28] else "","paidAmount":float(r[29] or 0) if len(r) > 29 else 0,"paidAt":(r[30] if len(r) > 30 else "") or "","paidBy":(r[31] if len(r) > 31 else "") or "","supplierInvoiceId":r[32] if len(r) > 32 else None,"companyId":r[33] if len(r) > 33 else None}
+        if r[18]:
+            invoice_result["documentParties"] = document_parties_by_delivery.get(r[18])
         invoice_result["accountingRequired"] = warehouse_invoice_accounting_required(invoice_result)
         if r[0] in settlement_ids:
             invoice_result.update(settlement_ids[r[0]])
@@ -26370,6 +26409,11 @@ if os.getenv("SUPPLIER_DEAL_PARTIES_ENABLED", "0") == "1":
                     from features.supplier_payments.legacy_line_routes import register_legacy_line_review_routes
                 register_legacy_line_review_routes(app, supplier_deal_dependencies)
 
+try:
+    from backend.features.supplier_offers.delivery_document import enrich_delivery_documents as _enrich_delivery_documents
+except ModuleNotFoundError:
+    from features.supplier_offers.delivery_document import enrich_delivery_documents as _enrich_delivery_documents
+
 register_supplier_offers_module(app, {
     "automatic_contract_reuse": automatic_supplier_contract_reuse,
     "contract_bindings_enabled": (
@@ -26390,6 +26434,7 @@ register_supplier_offers_module(app, {
     "CLIENT_ACCOUNT_ROLES": CLIENT_ACCOUNT_ROLES,
     "OFFERS_SELECT": OFFERS_SELECT,
     "DELIVERY_SELECT": DELIVERY_SELECT,
+    "enrich_delivery_documents": _enrich_delivery_documents,
     "supplier_group_scope_ids": supplier_group_scope_ids,
     "_require_supplier_offer_visibility": _require_supplier_offer_visibility,
     "_log_supplier_offer_event": _log_supplier_offer_event,

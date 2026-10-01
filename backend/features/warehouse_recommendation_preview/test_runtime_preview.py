@@ -946,10 +946,10 @@ class WarehouseAnomalyRuntimePreviewCompositionTests(unittest.TestCase):
             root / "backend/db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Reviewed supplier-invoice requisites projection in the composition
-            # root; warehouse preview implementation and registration are unchanged.
+            # Reviewed shipment-document party projection in the composition root;
+            # warehouse preview implementation and registration are unchanged.
             root / "backend/main.py": (
-                "e3cdb2d7d53408cc443beb0d84624ab4659e40f4b6bace4b87067cd545ddc3d0"
+                "11a7e543b3d3868966d6744b6d837c3976a16bff4fa48453f6e6b227d96964a8"
             ),
         }
         self.assertEqual({

@@ -692,6 +692,16 @@ export const buildInvoiceDocContent = (data = {}, context = {}) => {
   html += '<tr><th>НДС</th><td colspan="3">' + (inv.vat || '') + '</td></tr></table>';
   if (isSupplyDelivery) {
     html += '<p style="font-size:11px;color:#0f766e;margin:6px 0">Источник: поставка снабжения #' + (inv.supplyDeliveryId || inv.sourceId || '') + (inv.supplyRequestId ? ' по заявке #' + inv.supplyRequestId : '') + '. В материальном контроле это поступление учитывается в колонке «Поставки».</p>';
+    const parties = inv.documentParties;
+    if (parties?.reviewRequired) {
+      html += '<p style="font-size:11px;color:#b45309;margin:6px 0"><b>Требуется сверка:</b> ' + docEsc(parties.reviewReason || 'реквизиты поставки не закреплены') + '.</p>';
+    } else if (parties) {
+      const consignee = parties.consignee || {};
+      const contract = parties.contract || null;
+      html += '<table><tr><th>Поставщик</th><td>' + docEsc(parties.supplier?.fullName || '') + '</td><th>Покупатель</th><td>' + docEsc(parties.buyer?.fullName || '') + '</td></tr>';
+      html += '<tr><th>Грузополучатель</th><td>' + docEsc(consignee.companyName || parties.buyer?.fullName || '') + '</td><th>Адрес доставки</th><td>' + docEsc(consignee.deliveryAddress || '') + '</td></tr>';
+      html += '<tr><th>Контакт на объекте</th><td>' + docEsc([consignee.contactName, consignee.contactPhone, consignee.contactEmail].filter(Boolean).join(' · ')) + '</td><th>Основание</th><td>' + docEsc(contract ? 'Договор № '+(contract.number || '—')+(contract.date ? ' от '+contract.date : '') : 'Утверждённое КП') + '</td></tr></table>';
+    }
   }
   if (invoiceRows.reconstructed) {
     html += '<p style="font-size:11px;color:#666;margin:6px 0">Строки восстановлены из ' + invoiceRows.source + ', потому что в старой накладной был сохранён только итог.</p>';

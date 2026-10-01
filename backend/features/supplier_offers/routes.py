@@ -96,6 +96,7 @@ def register_supplier_offers_module(app, deps):
     CLIENT_ACCOUNT_ROLES = deps["CLIENT_ACCOUNT_ROLES"]
     OFFERS_SELECT = deps["OFFERS_SELECT"]
     DELIVERY_SELECT = deps["DELIVERY_SELECT"]
+    enrich_delivery_documents = deps.get("enrich_delivery_documents", lambda cursor, rows, **_options: rows)
     supplier_group_scope_ids = deps["supplier_group_scope_ids"]
     _require_supplier_offer_visibility = deps["_require_supplier_offer_visibility"]
     _log_supplier_offer_event = deps["_log_supplier_offer_event"]
@@ -1373,6 +1374,7 @@ def register_supplier_offers_module(app, deps):
                     raise HTTPException(409, 'Этот идентификатор уже использован для другой отгрузки')
                 cur.execute(DELIVERY_SELECT + ' WHERE d.id=ANY(%s) ORDER BY d.id', (replay['delivery_ids'],))
                 rows = [dict(row) for row in cur.fetchall()]
+                enrich_delivery_documents(cur, rows, strict=True)
                 conn.commit()
                 return rows[0] if len(rows) == 1 else {'ok': True, 'count': len(rows), 'deliveries': rows}
             if data.get('waybillDate'):
@@ -1494,6 +1496,7 @@ def register_supplier_offers_module(app, deps):
             deps['_update_supply_flow_status_after_delivery'](cur, offer['request_id'], id)
             cur.execute(DELIVERY_SELECT + " WHERE d.id=ANY(%s) ORDER BY d.id", (delivery_ids,))
             rows = [dict(r) for r in cur.fetchall()]
+            enrich_delivery_documents(cur, rows, strict=True)
             row = rows[0] if rows else None
             conn.commit()
             if len(rows) == 1:
