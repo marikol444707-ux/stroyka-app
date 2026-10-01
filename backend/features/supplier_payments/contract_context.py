@@ -78,6 +78,7 @@ def load_invoice_contract(cur, invoice_id, company_id):
     except (KeyError, TypeError, ValueError):
         raise HTTPException(409, 'Сохранённые стороны или график договора требуют проверки')
     return dict(invoice=dict(invoice), contractVersionId=contract['id'],
+                snapshotHash=contract['snapshot_hash'],
                 payerCompanyId=snapshot['payer']['companyId'],
                 buyerCompanyId=snapshot['buyer']['companyId'],
                 projectId=projects[0]['id'], snapshot=snapshot)

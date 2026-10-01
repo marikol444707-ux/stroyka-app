@@ -24981,6 +24981,11 @@ def list_supplier_invoices(
 ):
     role = current_user.get("role")
     is_supplier = role == "поставщик"
+    contract_requisites_enabled = (
+        os.getenv("SUPPLIER_DEAL_PARTIES_ENABLED", "0") == "1"
+        and os.getenv("SUPPLIER_DOCUMENT_CONTRACT_BINDINGS_ENABLED", "0") == "1"
+        and os.getenv("SUPPLIER_CONTRACT_SNAPSHOTS_ENABLED", "0") == "1"
+    )
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     internal_scope_sql = ""
@@ -25010,6 +25015,13 @@ def list_supplier_invoices(
     cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS supply_request_id INT")
     cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS photo_urls TEXT")
     conn.commit()
+    contract_cols = (
+        ", si.contract_version_id, cv.snapshot_json AS contract_snapshot_json, "
+        "cv.snapshot_hash AS contract_snapshot_hash"
+        if contract_requisites_enabled else
+        ", NULL::bigint AS contract_version_id, NULL::jsonb AS contract_snapshot_json, "
+        "NULL::text AS contract_snapshot_hash"
+    )
     cols = """
         si.id, si.company_id, si.supplier_id, si.supplier_name, si.project_name, si.invoice_number,
         si.invoice_date, si.amount, si.vat_amount, si.description, si.file_url,
@@ -25041,7 +25053,7 @@ def list_supplier_invoices(
         sd.waybill_date AS delivery_waybill_date,
         sd.document_url AS delivery_document_url,
         sd.photo_url AS delivery_photo_url
-    """
+    """ + contract_cols
     where, params = [], []
     if internal_scope_sql:
         where.append(internal_scope_sql)
@@ -25067,6 +25079,7 @@ def list_supplier_invoices(
     q = f"""
         SELECT {cols}
           FROM supplier_invoices si
+          {"LEFT JOIN supplier_contract_versions cv ON cv.id=si.contract_version_id AND cv.company_id=si.company_id AND cv.offer_id=si.offer_id" if contract_requisites_enabled else ""}
           LEFT JOIN LATERAL (
               SELECT d.*
                 FROM supply_deliveries d
@@ -25117,6 +25130,19 @@ def list_supplier_invoices(
     cur.close(); conn.close()
     result = []
     for r in rows:
+        payment_requisites = None
+        if r.get("contract_version_id") is not None:
+            try:
+                from backend.features.supplier_payments.invoice_requisites import invoice_requisites_projection
+            except ModuleNotFoundError:
+                from features.supplier_payments.invoice_requisites import invoice_requisites_projection
+            payment_requisites = invoice_requisites_projection(
+                snapshot=r.get("contract_snapshot_json"),
+                snapshot_hash=r.get("contract_snapshot_hash"),
+                contract_version_id=r.get("contract_version_id"),
+                company_id=r.get("company_id"),
+                supplier_id=r.get("supplier_id"),
+            )
         warehouse_items = _json_list_or_empty(r.get("warehouse_invoice_items"))
         photo_urls = _json_list_or_empty(r.get("warehouse_invoice_photo_urls"))
         warehouse_photo_url = r.get("warehouse_invoice_photo_url") or (photo_urls[0] if photo_urls else "")
@@ -25148,6 +25174,8 @@ def list_supplier_invoices(
             "createdAt": str(r.get("created_at")) if r.get("created_at") else "",
             "paidAmount": float(r.get("paid_amount") or 0),
             "offerId": r.get("offer_id"), "requestId": r.get("request_id"),
+            "contractVersionId": r.get("contract_version_id"),
+            "paymentRequisites": payment_requisites,
             "paymentTerms": r.get("payment_terms") or "", "materialName": r.get("material_name") or "",
             "workPackage": r.get("work_package") or "", "warehouseInvoiceId": warehouse_invoice_id,
             "accountingRequired": accounting_required,

@@ -84,6 +84,32 @@ class ContractContextTests(unittest.TestCase):
         self.assertEqual(context['payerCompanyId'], 2)
         self.assertEqual(context['snapshot']['payer']['inn'], '7702222222')
 
+    def test_invoice_list_exposes_frozen_payment_requisites(self):
+        snapshot = self.sql(
+            'SELECT snapshot_json FROM supplier_contract_versions WHERE id=%s',
+            (self.contract_id,),
+        )[0][0]
+        supplier_before = self.sql('SELECT bank,account FROM suppliers WHERE id=%s',
+                                   (self.fixture['supplierId'],))[0]
+        company_before = self.sql('SELECT full_name FROM company_requisites WHERE company_id=2')[0][0]
+        try:
+            self.sql("UPDATE suppliers SET bank='Changed bank',account='40702810000000000999' WHERE id=%s",
+                     (self.fixture['supplierId'],))
+            self.sql("UPDATE company_requisites SET full_name='Changed buyer' WHERE company_id=2")
+            rows = self.api('director', 'GET', '/supplier-invoices')
+            invoice = next(row for row in rows if row['id'] == self.invoice_id)
+            self.assertEqual(invoice['contractVersionId'], self.contract_id)
+            self.assertEqual(invoice['paymentRequisites']['payer']['inn'], snapshot['payer']['inn'])
+            self.assertEqual(invoice['paymentRequisites']['payer']['fullName'], snapshot['payer']['fullName'])
+            self.assertEqual(invoice['paymentRequisites']['supplier']['inn'], snapshot['supplier']['inn'])
+            self.assertEqual(invoice['paymentRequisites']['supplier']['rs'], snapshot['supplier']['rs'])
+            self.assertNotIn('buyer', invoice['paymentRequisites'])
+        finally:
+            self.sql('UPDATE suppliers SET bank=%s,account=%s WHERE id=%s',
+                     (*supplier_before, self.fixture['supplierId']))
+            self.sql('UPDATE company_requisites SET full_name=%s WHERE company_id=2',
+                     (company_before,))
+
     def test_other_company_and_unbound_invoice_fail_closed(self):
         self.reject(status=404, company=3)
         self.cur.execute('INSERT INTO supplier_invoices(company_id,amount) VALUES(2,200) RETURNING id')

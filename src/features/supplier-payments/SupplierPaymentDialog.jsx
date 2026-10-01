@@ -62,6 +62,15 @@ function PaymentDialogContent(props) {
         {Number(state.snapshot.creditAmount)>0 && <p>Исходная сумма: {money(state.snapshot.amount)} · Уменьшение: {money(state.snapshot.creditAmount)} · К расчёту: {money(state.snapshot.effectiveAmount)}</p>}
         {Number(state.snapshot.overpaidAmount)>0 && <p>Переплата поставщику: <strong>{money(state.snapshot.overpaidAmount)}</strong>. Возврат денег фиксируется после фактического получения.</p>}
       </div>}
+      {state.snapshot?.paymentRequisites && <fieldset aria-label="Куда перечислять" className="supplier-payment-dialog-requisites">
+        <legend>Куда перечислять</legend>
+        <strong>{state.snapshot.paymentRequisites.supplier?.fullName || 'Поставщик'}</strong>
+        <p>{['ИНН '+(state.snapshot.paymentRequisites.supplier?.inn||'—'), state.snapshot.paymentRequisites.supplier?.kpp ? 'КПП '+state.snapshot.paymentRequisites.supplier.kpp : ''].filter(Boolean).join(' · ')}</p>
+        <p>{[state.snapshot.paymentRequisites.supplier?.bankName, state.snapshot.paymentRequisites.supplier?.bik ? 'БИК '+state.snapshot.paymentRequisites.supplier.bik : ''].filter(Boolean).join(' · ') || 'Банк не указан'}</p>
+        <p>Расчётный счёт: {state.snapshot.paymentRequisites.supplier?.rs || 'не указан'}</p>
+        {state.snapshot.paymentRequisites.supplier?.ks && <p>Корреспондентский счёт: {state.snapshot.paymentRequisites.supplier.ks}</p>}
+        <p>Договор № {state.snapshot.paymentRequisites.contractNumber || '—'}{state.snapshot.paymentRequisites.contractDate ? ' от '+state.snapshot.paymentRequisites.contractDate : ''}</p>
+      </fieldset>}
       {props.documentKind === 'invoice' && <SupplierLegacyBindingPanel API={props.API} userId={props.userId}
         companyId={props.companyId} invoiceId={props.documentId}
         disabled={lineReviewBlocked || allocationBlocked || refundBlocked || openingBlocked || state.busy || state.loading || !!state.pending || !!state.reversal || !!state.storageError}

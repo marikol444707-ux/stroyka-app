@@ -20,6 +20,12 @@ it('keeps reversal/history accessible for a fully paid invoice',()=>{
  render(<SupplySupplierInvoicesPanel {...base} supplierInvoices={[{...base.supplierInvoices[0],status:'Оплачен',paidAmount:100}]}/>);
  expect(screen.getByRole('button',{name:'Оплата и история'})).toBeEnabled();
 });
+it('shows the frozen contract bank briefly on the invoice card',()=>{
+ render(<SupplySupplierInvoicesPanel {...base} supplierInvoices={[{
+  ...base.supplierInvoices[0],offerId:71,paymentRequisites:{contractNumber:'Д-1',supplier:{bankName:'Тест Банк',rs:'40702810415590000143'}},
+ }]}/>);
+ expect(screen.getByText('🏦 Реквизиты из договора № Д-1 · Тест Банк · счёт •0143')).toBeInTheDocument();
+});
 it('legacy fallback records only a bank transfer the user confirms already happened',()=>{
  process.env.REACT_APP_SUPPLIER_PAYMENTS_ENABLED='false';
  const confirm=jest.spyOn(window,'confirm').mockReturnValue(false);
