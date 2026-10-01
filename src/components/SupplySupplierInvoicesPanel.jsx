@@ -4,6 +4,7 @@ import { Check, ChevronDown, ChevronUp, FileCheck2, Plus, Search, Trash2 } from 
 import { API } from '../api';
 import { createSupplierInvoiceForm } from '../features/supply/supplyInitialForms';
 import { groupSuppliers } from '../utils/supplierUtils';
+import { invoicePaymentRequisitesLabel } from '../utils/supplyUtils';
 
 function SupplySupplierInvoicesPanel({
   C,
@@ -219,6 +220,7 @@ function SupplySupplierInvoicesPanel({
                   const total = Number(invoice.effectiveAmount ?? invoice.amount ?? 0);
                   const paidAmount = Number(invoice.paidAmount||0);
                   const owe = Math.max(0,total-paidAmount);
+                  const requisitesLabel = invoicePaymentRequisitesLabel(invoice);
                   return (
                     <div key={invoice.id} style={{padding:'12px 14px',borderBottom:'1px solid '+C.border,borderLeft:'3px solid '+(invoice.status==='Оплачен'?C.success:owe>0&&paidAmount>0?C.warning:invoice.status==='Утверждён'?C.accent:C.warning),marginLeft:'10px'}}>
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px',flexWrap:'wrap'}}>
@@ -226,6 +228,7 @@ function SupplySupplierInvoicesPanel({
                           <b style={{color:C.text,fontSize:'13px'}}>{invoice.supplierName+' · № '+invoice.invoiceNumber}</b>
                           <p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{(invoice.invoiceDate||'')+(invoice.projectName?' · 🏗 '+invoice.projectName:'')+(invoice.description?' · '+invoice.description:'')}</p>
                           {(invoice.offerId||invoice.offer_id)&&<p style={{color:C.accent,margin:'2px 0',fontSize:'11px'}}>📨 Создан по выигранному КП #{invoice.offerId||invoice.offer_id}{invoice.materialName?' · '+invoice.materialName:''}{invoice.paymentTerms?' · условия: '+invoice.paymentTerms:''}</p>}
+                          {requisitesLabel&&<p style={{color:invoice.paymentRequisites?C.success:C.warning,margin:'2px 0',fontSize:'11px'}}>🏦 {requisitesLabel}</p>}
                           {invoice.workPackage&&<p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>📁 Раздел сметы: {invoice.workPackage}</p>}
                           <div style={{display:'flex',gap:'10px',marginTop:'4px',flexWrap:'wrap'}}>
                             <span style={{fontSize:'12px',color:C.text}}>{'Сумма: '+Math.round(total).toLocaleString('ru-RU')+' ₽'}</span>

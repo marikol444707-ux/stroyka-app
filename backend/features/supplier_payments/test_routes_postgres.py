@@ -212,6 +212,13 @@ class PaymentHTTPTests(unittest.TestCase):
         self.assertEqual(history['items'][-1]['reversedById'], result['operationId'])
         self.assertEqual(self.snapshot(), before)
 
+    def test_bound_invoice_read_exposes_frozen_destination_requisites(self):
+        self.invoice = type(self).invoice_id
+        doc = self.doc()
+        self.assertEqual(doc['paymentRequisites']['contractVersionId'], type(self).contract_id)
+        self.assertEqual(doc['paymentRequisites']['supplier']['supplierId'], self.fixture['supplierId'])
+        self.assertIn('rs', doc['paymentRequisites']['supplier'])
+
     def test_history_stable_cursor_equal_instalments_and_scope_filters(self):
         older = self.call('POST', body=self.body())
         newer = self.call('POST', body=self.body())

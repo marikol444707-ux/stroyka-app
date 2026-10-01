@@ -51,6 +51,20 @@ export const offerPartyName = (offer, suppliers = []) => {
   return live?.name || ('Поставщик #' + (offer?.supplierId || '—'));
 };
 
+export const invoicePaymentRequisitesLabel = (invoice = {}) => {
+  const frozen = invoice.paymentRequisites;
+  if (!frozen) return invoice.offerId || invoice.offer_id
+    ? 'Реквизиты договора требуют проверки'
+    : '';
+  const supplier = frozen.supplier || {};
+  const account = String(supplier.rs || '').replace(/\D/g, '');
+  return [
+    frozen.contractNumber ? 'Реквизиты из договора № ' + frozen.contractNumber : 'Реквизиты из договора',
+    String(supplier.bankName || '').trim(),
+    account ? 'счёт •' + account.slice(-4) : '',
+  ].filter(Boolean).join(' · ');
+};
+
 export const supplyNoteLines = (req) => String(req?.notes || '')
   .split(/\r?\n/)
   .map(s => s.trim())

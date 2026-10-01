@@ -130,6 +130,15 @@ def document(cur, deps, actor_id, company_id, kind, document_id):
     record = by_record.get((kind, document_id))
     source = sources[record['id']] if record else None
     canonical = next((d for d in documents if d['kind'] == 'invoice'), doc)
+    payment_requisites = None
+    if context.get('contract'):
+        from .invoice_requisites import invoice_requisites_projection
+        contract = context['contract']
+        payment_requisites = invoice_requisites_projection(
+            snapshot=contract['snapshot'], snapshot_hash=contract['snapshotHash'],
+            contract_version_id=contract['contractVersionId'], company_id=company_id,
+            supplier_id=canonical['supplierId'],
+        )
     table = TABLES[kind][0]
     status_column = 'accounting_status' if kind == 'warehouse' else 'NULL::text AS accounting_status'
     cur.execute(f'SELECT status,{status_column} FROM {table} WHERE id=%s AND company_id=%s',
@@ -140,6 +149,7 @@ def document(cur, deps, actor_id, company_id, kind, document_id):
     settlement['settlementsEnabled'] = settlement['settlementsEnabled'] and len(documents)==1 and record is not None
     return dict(schemaVersion=1, companyId=company_id, documentKind=kind, documentId=document_id,
         canonicalTarget=dict(documentKind=canonical['kind'], documentId=canonical['id']),
+        paymentRequisites=payment_requisites,
         scope={key: doc[key] for key in ('payerCompanyId', 'supplierId', 'projectName', 'workPackage')},
         amount=format(doc['amount'], '.2f'), paidAmount=format(doc['paidAmount'], '.2f'),
         **settlement,

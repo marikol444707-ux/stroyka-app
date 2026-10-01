@@ -1,5 +1,6 @@
 import {
   splitSupplierOffersByStatus,
+  invoicePaymentRequisitesLabel,
   offerPartyName,
   supplyEstimateControlSnapshotLabel,
   supplyRequestEstimateGroupLabel,
@@ -8,6 +9,20 @@ import {
   supplierRecipientLinkAction,
   supplierRecipientStatusSummary,
 } from './supplyUtils';
+
+describe('invoicePaymentRequisitesLabel', () => {
+  it('shows the exact contract and destination account without repeating all requisites', () => {
+    expect(invoicePaymentRequisitesLabel({ paymentRequisites: {
+      contractNumber: 'Д-1',
+      supplier: { bankName: 'Банк поставщика', rs: '40702810415590000143' },
+    } })).toBe('Реквизиты из договора № Д-1 · Банк поставщика · счёт •0143');
+  });
+
+  it('marks an offer invoice without a frozen contract', () => {
+    expect(invoicePaymentRequisitesLabel({ offerId: 71 })).toBe('Реквизиты договора требуют проверки');
+    expect(invoicePaymentRequisitesLabel({})).toBe('');
+  });
+});
 
 describe('offerPartyName', () => {
   it('keeps the frozen supplier name for a sent quotation', () => {

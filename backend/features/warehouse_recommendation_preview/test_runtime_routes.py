@@ -257,11 +257,11 @@ class WarehouseAnomalyRuntimeRouteRegistrationTests(unittest.TestCase):
         package_bytes = package_path.read_bytes()
         runtime_source = runtime_path.read_text(encoding="utf-8")
 
-        # Reviewed model-gateway cutovers in the composition root;
+        # Reviewed supplier-invoice requisites projection in the composition root;
         # warehouse preview implementation and registration are unchanged.
         self.assertEqual(
             hashlib.sha256(main_bytes).hexdigest(),
-            "7bcec09f04dcf752f142dcbcd993c8bfdf0dbfd29e6272ee799f0987170e2d07",
+            "e3cdb2d7d53408cc443beb0d84624ab4659e40f4b6bace4b87067cd545ddc3d0",
         )
         self.assertEqual(
             hashlib.sha256(package_bytes).hexdigest(),

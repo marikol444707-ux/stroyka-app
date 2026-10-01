@@ -104,6 +104,18 @@
   background: color-mix(in srgb, var(--c-warning, #d97706) 10%, var(--c-bg-white, #fff));
   font-weight: 600;
 }
+.supplier-payment-dialog.supplier-payment-dialog .supplier-payment-dialog-requisites {
+  padding: 16px;
+  border: 1px solid var(--c-border, #e2e8f0);
+  border-radius: 12px;
+  background: var(--c-bg, #f8fafc);
+  gap: 2px;
+}
+.supplier-payment-dialog .supplier-payment-dialog-requisites legend {
+  padding: 0 6px;
+  font-weight: 700;
+}
+.supplier-payment-dialog .supplier-payment-dialog-requisites p { margin: 3px 0; }
 .supplier-payment-dialog .supplier-payment-bank-check {
   display: flex;
   align-items: flex-start;

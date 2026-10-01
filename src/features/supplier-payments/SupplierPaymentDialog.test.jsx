@@ -66,6 +66,18 @@ test('payment is recorded only after explicit confirmation that bank transfer al
   expect(state.submit).toHaveBeenCalledTimes(1);
   fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' }); expect(props.onClose).toHaveBeenCalledTimes(1);
 });
+test('shows frozen destination requisites before recording a bank payment', () => {
+  state.snapshot = {...state.snapshot, paymentRequisites:{
+    contractNumber:'Д-1',contractDate:'2026-09-22',
+    supplier:{fullName:'ООО Поставщик',inn:'2632090186',kpp:'263201001',bankName:'Тест Банк',bik:'044525411',rs:'40702810415590000143',ks:'30101810145250000411'},
+  }};
+  render(<SupplierPaymentDialog {...props} />);
+  expect(screen.getByRole('group',{name:'Куда перечислять'})).toHaveTextContent('ООО Поставщик');
+  expect(screen.getByRole('group',{name:'Куда перечислять'})).toHaveTextContent('ИНН 2632090186 · КПП 263201001');
+  expect(screen.getByRole('group',{name:'Куда перечислять'})).toHaveTextContent('Тест Банк · БИК 044525411');
+  expect(screen.getByRole('group',{name:'Куда перечислять'})).toHaveTextContent('40702810415590000143');
+  expect(screen.getByRole('group',{name:'Куда перечислять'})).toHaveTextContent('Договор № Д-1 от 2026-09-22');
+});
 test('failed read still displays exact saved command and retry, without discard', () => {
   state.snapshot = null; state.history = null; state.error = 'not_found';
   state.pending = { userId: 4, companyId: 2, version: 1, body: { requestId: 'stored-uuid', kind: 'payment',
