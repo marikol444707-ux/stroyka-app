@@ -39,7 +39,7 @@ export default function ProjectsPage({ ctx }) {
     badge, brigadeCoef, brigadeContractItems, brigadeContracts, brigadePayments, btnB, btnG, btnGr,
     btnO, btnR, buildCableJournalContent, buildHiddenActContent, buildJPRContent, buildKS3Content, buildMaterialInspectionContent,
     buildPassportContent, buildTBContent, cableJournal, cableTypeOf,
-    card, checklistItems, checklists, companyName, companyRequisites,
+    card, checklistItems, checklists, clients, companyName, companyRequisites,
     deleteBrigadePayment, deleteStage,
     directorMapActionTarget, directorMapContractForProject, editProject, editingItem,
     estimateKind, estimatePackage,
@@ -172,7 +172,20 @@ export default function ProjectsPage({ ctx }) {
               <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))',gap:'10px'}}>
                 <input placeholder="Название *" value={newProject.name} onChange={e=>setNewProject({...newProject,name:e.target.value})} style={{...inp,marginBottom:0}}/>
                 <p style={{color:C.textSec,fontSize:'12px'}}>После создания объекта пригласите заказчика через «Пользователи → Коды приглашений», выбрав этот объект.</p>
-                <input placeholder="Заказчик (название)" value={newProject.client} onChange={e=>setNewProject({...newProject,client:e.target.value})} style={{...inp,marginBottom:0}}/>
+                <select
+                  aria-label="Заказчик объекта"
+                  value={newProject.clientId || ''}
+                  onChange={e=>{
+                    const clientId=e.target.value?Number(e.target.value):null;
+                    const customer=(clients||[]).find(item=>Number(item.id)===clientId);
+                    setNewProject({...newProject,clientId,client:customer?.name||''});
+                  }}
+                  style={{...inp,marginBottom:0}}
+                >
+                  <option value="">Заказчик не выбран</option>
+                  {(clients||[]).filter(item=>item.status!=='Архив').map(item=><option key={item.id} value={item.id}>{item.name}{item.inn?' · ИНН '+item.inn:''}</option>)}
+                </select>
+                {newProject.client&&!newProject.clientId&&<p role="alert" style={{color:C.warning,fontSize:'12px',margin:0}}>Старое название «{newProject.client}» не связано с точной карточкой. Выберите заказчика из списка.</p>}
                 <select value={newProject.status} onChange={e=>setNewProject({...newProject,status:e.target.value})} style={{...inp,marginBottom:0}}>{['Планирование','В работе','Заморожен'].map(s=><option key={s}>{s}</option>)}</select>
                 <input placeholder="Бюджет" type="number" step="any" inputMode="decimal" value={newProject.budget} onChange={e=>setNewProject({...newProject,budget:e.target.value})} style={{...inp,marginBottom:0}}/>
                 <input placeholder="Дедлайн" type="date" value={newProject.deadline} onChange={e=>setNewProject({...newProject,deadline:e.target.value})} style={{...inp,marginBottom:0}}/>
@@ -667,6 +680,7 @@ export default function ProjectsPage({ ctx }) {
                     <ProjectDocumentsRegistryPanel
                       projectId={p.id}
                       projectName={p.name}
+                      projectCustomerName={p.client}
                       projectDocuments={projectDocuments}
                       newProjectDoc={newProjectDoc}
                       setNewProjectDoc={setNewProjectDoc}

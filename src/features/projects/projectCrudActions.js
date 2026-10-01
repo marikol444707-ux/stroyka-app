@@ -121,8 +121,12 @@ export const createProjectCrudActions = ({
 
   const saveClient = async () => {
     if (!newClient.name) return;
-    if (editingItem) await fetch(API + '/clients/' + editingItem.id, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(newClient)});
-    else await fetch(API + '/clients', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(newClient)});
+    const data={...newClient};
+    ['id','companyId','company_id','createdAt','created_at'].forEach(key=>delete data[key]);
+    const response=editingItem
+      ? await fetch(API + '/clients/' + editingItem.id, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)})
+      : await fetch(API + '/clients', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)});
+    if (typeof readApiResult==='function') await readApiResult(response);
     await refreshData();
     setNewClient(createClientForm());
     setEditingItem(null);

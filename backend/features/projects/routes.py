@@ -18,6 +18,7 @@ from ..company_limits.service import require_project_capacity
 
 class ProjectModel(BaseModel):
     name: str
+    clientId: Optional[int] = None
     client: str = ""
     status: str = "Планирование"
     budget: float = 0
@@ -66,7 +67,7 @@ def register_projects_module(app, deps):
             ("директор", "зам_директора", "бухгалтер", "главный_инженер", "сметчик"),
         )
         cur.execute(
-            f"""SELECT p.id,p.company_id as "companyId",p.name,p.client,p.status,p.budget,p.deadline,p.progress,p.tasks,
+            f"""SELECT p.id,p.company_id as "companyId",p.name,p.client_id as "clientId",p.client,p.status,p.budget,p.deadline,p.progress,p.tasks,
                        p.pricelist_id as "pricelistId",p.floors,p.liters,
                        p.warranty_start_date as "warrantyStartDate",p.warranty_end_date as "warrantyEndDate",
                        p.warranty_contact as "warrantyContact",COALESCE(p.archived,false) as archived,
@@ -125,12 +126,21 @@ def register_projects_module(app, deps):
             )
             company_id = int(actor.get("companyId") or actor.get("company_id"))
             require_project_capacity(cur, company_id)
-            cur.execute(f"""INSERT INTO projects (company_id,name,client,status,budget,deadline,progress,tasks,pricelist_id,floors,liters)
-                             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                             RETURNING id,company_id as "companyId",name,client,status,budget,deadline,progress,tasks,
+            client_id = p.clientId
+            client_name = p.client
+            if client_id is not None:
+                cur.execute("SELECT id,name FROM clients WHERE id=%s AND company_id=%s AND COALESCE(status,'')<>'Архив' FOR SHARE", (client_id, company_id))
+                customer = cur.fetchone()
+                if not customer:
+                    raise HTTPException(status_code=404, detail="Заказчик не найден в выбранной компании")
+                client_id = customer["id"]
+                client_name = customer["name"]
+            cur.execute(f"""INSERT INTO projects (company_id,client_id,name,client,status,budget,deadline,progress,tasks,pricelist_id,floors,liters)
+                             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                             RETURNING id,company_id as "companyId",client_id as "clientId",name,client,status,budget,deadline,progress,tasks,
                                        pricelist_id as "pricelistId",floors,liters,COALESCE(archived,false) as archived,
                                        archived_at as "archivedAt",{project_public_select}""",
-                        (company_id,p.name,p.client,p.status,p.budget,p.deadline,p.progress,p.tasks,p.pricelistId,p.floors,p.liters))
+                        (company_id,client_id,p.name,client_name,p.status,p.budget,p.deadline,p.progress,p.tasks,p.pricelistId,p.floors,p.liters))
             row = cur.fetchone()
             conn.commit()
             log_audit(user_name=actor.get("name",""), user_role=actor.get("role",""),
@@ -159,8 +169,9 @@ def register_projects_module(app, deps):
             raise HTTPException(status_code=403, detail="Архивация объекта отключена. Объект может закрыть только директор отдельной процедурой закрытия.")
         if str(data.get("status") or "").strip().lower() in ("завершён", "завершен", "архив", "закрыт", "закрытый"):
             raise HTTPException(status_code=403, detail="Закрытие или архив объекта отключены в обычном редактировании. Объект закрывается только отдельной процедурой директора.")
+        client_id_present = "clientId" in data
         fields_map = [
-            ('name','name'),('client','client'),('status','status'),('budget','budget'),
+            ('name','name'),('status','status'),('budget','budget'),
             ('deadline','deadline'),('progress','progress'),('tasks','tasks'),
             ('pricelistId','pricelist_id'),('floors','floors'),('liters','liters'),
             ('warrantyStartDate','warranty_start_date'),
@@ -175,7 +186,7 @@ def register_projects_module(app, deps):
                 if db_col in ('warranty_start_date','warranty_end_date','deadline','archived_at') and not v:
                     v = None
                 vals.append(v)
-        if not sets:
+        if not sets and not client_id_present:
             return {"ok": True}
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -199,6 +210,24 @@ def register_projects_module(app, deps):
         )
         require_project_row_company(actor, project_company_id)
         require_project_access(actor, project_row.get("name") or "")
+        if client_id_present:
+            raw_client_id = data.get("clientId")
+            if raw_client_id in (None, ""):
+                sets.extend(("client_id=%s", "client=%s"))
+                vals.extend((None, ""))
+            else:
+                try:
+                    client_id = int(raw_client_id)
+                except (TypeError, ValueError):
+                    cur.close(); conn.close()
+                    raise HTTPException(status_code=422, detail="Некорректный идентификатор заказчика")
+                cur.execute("SELECT id,name FROM clients WHERE id=%s AND company_id=%s AND COALESCE(status,'')<>'Архив' FOR SHARE", (client_id, project_company_id))
+                customer = cur.fetchone()
+                if not customer:
+                    cur.close(); conn.close()
+                    raise HTTPException(status_code=404, detail="Заказчик не найден в выбранной компании")
+                sets.extend(("client_id=%s", "client=%s"))
+                vals.extend((customer["id"], customer["name"]))
         vals.extend([id, project_company_id])
         cur.execute("UPDATE projects SET " + ", ".join(sets) + " WHERE id=%s AND company_id=%s", vals)
         cur.execute("SELECT id,company_id as \"companyId\",name,COALESCE(archived,false) as archived FROM projects WHERE id=%s AND company_id=%s", (id, project_company_id))

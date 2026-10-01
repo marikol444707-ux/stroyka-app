@@ -73,6 +73,39 @@ describe('ProjectDocumentsRegistryPanel', () => {
       context: 'project-documents',
       preferProtectedUrl: true,
     }));
+    expect(props.setNewProjectDoc).toHaveBeenCalled();
+    const updater=props.setNewProjectDoc.mock.calls.at(-1)[0];
+    expect(updater(props.newProjectDoc)).toMatchObject({
+      scanUrl:'/tenant-files/41/content',signStatus:'Не подписан',
+    });
+  });
+
+  it('starts a clean next version from a frozen customer contract', () => {
+    const props=buildProps({
+      showDocForm:false,
+      projectDocuments:[{
+        id:9,projectName:'Лицей',side:'customer',docType:'Договор',number:'1',
+        docDate:'2026-10-01',counterparty:'ООО Заказчик',signStatus:'Подписан',
+        scanUrl:'/tenant-files/9/content',contractVersion:1,
+        partySnapshot:{schemaVersion:1},partySnapshotHash:'a'.repeat(64),notes:'',
+      }],
+    });
+    const {getByRole}=render(<ProjectDocumentsRegistryPanel {...props}/>);
+    fireEvent.click(getByRole('button',{name:/Новая версия/i}));
+    expect(props.setNewProjectDoc).toHaveBeenCalledWith(expect.objectContaining({
+      revisesDocumentId:9,number:'1',signStatus:'Не подписан',scanUrl:'',
+    }));
+    expect(props.setShowDocForm).toHaveBeenCalledWith(true);
+  });
+
+  it('prefills the exact project customer when opening a new document', () => {
+    const props=buildProps({showDocForm:false,projectCustomerName:'ООО Заказчик'});
+    const {getByRole}=render(<ProjectDocumentsRegistryPanel {...props}/>);
+    fireEvent.click(getByRole('button',{name:/Добавить документ/i}));
+    expect(props.setNewProjectDoc).toHaveBeenCalledWith(expect.objectContaining({
+      counterparty:'ООО Заказчик',revisesDocumentId:null,scanUrl:'',
+    }));
+    expect(props.setShowDocForm).toHaveBeenCalledWith(true);
   });
 
   it('keeps the recognition upload compatible while binding it to the exact project', async () => {
