@@ -26,3 +26,16 @@ test('project creation sends exact selected customer id', async () => {
   const body=JSON.parse(fetch.mock.calls[0][1].body);
   expect(body.clientId).toBe(12);
 });
+
+test('customer update does not submit server ownership fields', async () => {
+  const props={
+    API:'/api',editingItem:{id:12},newClient:{id:12,companyId:3,name:'ООО Заказчик',status:'Активный'},
+    readApiResult:async response=>response.json(),refreshData:jest.fn(),
+    setNewClient:jest.fn(),setEditingItem:jest.fn(),setShowForm:jest.fn(),
+  };
+  global.fetch=jest.fn(async()=>({ok:true,json:async()=>({ok:true})}));
+  await createProjectCrudActions(props).saveClient();
+  const body=JSON.parse(fetch.mock.calls[0][1].body);
+  expect(body.id).toBeUndefined();
+  expect(body.companyId).toBeUndefined();
+});

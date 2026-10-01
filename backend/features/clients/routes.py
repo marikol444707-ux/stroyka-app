@@ -111,6 +111,9 @@ def register_clients_module(app, deps):
             cur.execute(f"SELECT {SELECT_FIELDS} FROM clients WHERE company_id=%s ORDER BY name,id", (company_id,))
             rows = [_client_to_api(row) for row in cur.fetchall()]
             cur.close()
+            if actor.get("role") == "менеджер_crm":
+                public_fields = ("id", "companyId", "name", "phone", "email", "status", "notes")
+                rows = [{key: row[key] for key in public_fields} for row in rows]
             return rows
         finally:
             conn.close()

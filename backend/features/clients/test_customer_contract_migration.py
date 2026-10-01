@@ -32,6 +32,8 @@ class CustomerContractMigrationTest(unittest.TestCase):
         self.assertIn("FOREIGN KEY (client_id,company_id) REFERENCES clients(id,company_id)", sql)
         self.assertIn("party_snapshot_json JSONB", sql)
         self.assertIn("customer_client_id INTEGER", sql)
+        self.assertIn("contract_version INTEGER", sql)
+        self.assertIn("revises_document_id INTEGER", sql)
         self.assertIn("Customer contract party snapshot is immutable", sql)
         self.assertNotIn("UPDATE clients SET", sql)
         self.assertNotIn("UPDATE projects SET", sql)

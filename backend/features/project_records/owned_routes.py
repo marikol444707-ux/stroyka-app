@@ -1,5 +1,10 @@
 """Owned documents and correspondence; measurement routes remain separate."""
+import json
+
 from fastapi import Depends, HTTPException, Request
+
+from ..customer_contract_parties.storage import freeze_customer_contract_if_ready
+from ..customer_contract_parties.snapshot import is_customer_contract
 
 
 DOCUMENT_FIELDS = {
@@ -47,6 +52,15 @@ def register_owned_record_routes(app, deps):
                 columns = ','.join('r.'+column for column in fields.values())
                 correction_columns = ''
                 correction_keys = []
+                snapshot_columns = ''
+                snapshot_keys = []
+                if table == 'project_documents':
+                    snapshot_columns = (',r.party_snapshot_json,r.party_snapshot_hash,'
+                        'r.party_snapshot_frozen_at,r.customer_client_id,'
+                        'r.contract_version,r.revises_document_id')
+                    snapshot_keys = ['partySnapshot','partySnapshotHash',
+                        'partySnapshotFrozenAt','customerClientId',
+                        'contractVersion','revisesDocumentId']
                 if table == 'project_letters':
                     correction_columns = (',r.correction_reason,r.correction_requested_at,'
                         'r.corrected_by_letter_id,r.replaces_letter_id,r.delivery_status,'
@@ -55,17 +69,25 @@ def register_owned_record_routes(app, deps):
                         'correctedByLetterId','replacesLetterId','deliveryStatus',
                         'publishedAt','publishedByName']
                 cur.execute('SELECT r.id,p.name,' + columns + f',r.{actor_column},r.created_at,r.company_id,r.project_id '
-                            + correction_columns + ' '
+                            + snapshot_columns + correction_columns + ' '
                             f'FROM {table} r JOIN projects p ON p.id=r.project_id AND p.company_id=r.company_id '
                             'WHERE ' + where + ' ORDER BY r.id DESC', params)
                 rows = cur.fetchall()
-            keys = ['id','projectName',*fields,actor_key,'createdAt','companyId','projectId',*correction_keys]
+            keys = ['id','projectName',*fields,actor_key,'createdAt','companyId','projectId',
+                    *snapshot_keys,*correction_keys]
             result = []
             for row in rows:
                 record = dict(zip(keys,row))
                 for key in ('docDate','letterDate','createdAt','correctionRequestedAt','publishedAt'):
                     if key in record:
                         record[key] = str(record[key]) if record[key] else ''
+                if 'partySnapshotFrozenAt' in record:
+                    record['partySnapshotFrozenAt'] = str(record['partySnapshotFrozenAt']) if record['partySnapshotFrozenAt'] else ''
+                if isinstance(record.get('partySnapshot'), str):
+                    try:
+                        record['partySnapshot'] = json.loads(record['partySnapshot'])
+                    except (TypeError, ValueError):
+                        record['partySnapshot'] = None
                 if 'amount' in record:
                     record['amount'] = float(record['amount'] or 0)
                 for key in (*fields,actor_key):
@@ -84,6 +106,37 @@ def register_owned_record_routes(app, deps):
                 parent = scope.parent(cur, actor, data, write_roles)
                 if table == 'project_letters' and data.get('side', defaults.get('side')) == 'customer':
                     raise HTTPException(409, 'Для заказчика используйте адресную отправку по объекту')
+                contract_version = None
+                revises_document_id = data.get('revisesDocumentId') if table == 'project_documents' else None
+                if table == 'project_documents' and revises_document_id not in (None, ''):
+                    try:
+                        revises_document_id = int(revises_document_id)
+                    except (TypeError, ValueError):
+                        raise HTTPException(422, 'Некорректная исходная версия договора')
+                    scope.record(cur, actor, table, revises_document_id, write_roles)
+                    cur.execute('''SELECT d.project_id,d.company_id,d.side,d.doc_type,d.number,d.counterparty,
+                                          COALESCE(d.contract_version,1),d.party_snapshot_json,d.customer_client_id,
+                                          p.client_id AS project_client_id
+                                     FROM project_documents d
+                                     JOIN projects p ON p.id=d.project_id AND p.company_id=d.company_id
+                                    WHERE d.id=%s''', (revises_document_id,))
+                    source = cur.fetchone()
+                    if not source:
+                        raise HTTPException(404, 'Исходная версия договора не найдена')
+                    source = dict(source) if isinstance(source, dict) else dict(zip(
+                        ('project_id','company_id','side','doc_type','number','counterparty',
+                         'contract_version','party_snapshot_json','customer_client_id','project_client_id'), source))
+                    if (source['project_id'] != parent['id'] or source['company_id'] != parent['companyId']
+                            or source['party_snapshot_json'] is None
+                            or source['customer_client_id'] != source['project_client_id']
+                            or not is_customer_contract(source['side'], source['doc_type'])):
+                        raise HTTPException(409, 'Новая версия должна продолжать зафиксированный договор этого объекта')
+                    data = {**data, 'side': source['side'], 'docType': source['doc_type'],
+                            'number': source['number'], 'counterparty': source['counterparty']}
+                    contract_version = int(source['contract_version']) + 1
+                elif table == 'project_documents' and is_customer_contract(
+                        data.get('side', defaults.get('side')), data.get('docType', '')):
+                    contract_version = 1
                 values = [data.get(key, defaults.get(key,'')) for key in fields]
                 for index,key in enumerate(fields):
                     if key in ('docDate','letterDate'):
@@ -92,9 +145,14 @@ def register_owned_record_routes(app, deps):
                         values[index] = values[index] or 0
                 columns = ['project_name',*fields.values(),actor_column,'company_id','project_id','created_by_user_id']
                 values = [parent['name'],*values,actor.get('name',''),parent['companyId'],parent['id'],actor['id']]
+                if table == 'project_documents':
+                    columns.extend(('contract_version','revises_document_id'))
+                    values.extend((contract_version,revises_document_id))
                 cur.execute(f'INSERT INTO {table} (' + ','.join(columns) + ') VALUES ('
                             + ','.join(['%s']*len(values)) + ') RETURNING id',values)
                 record_id = cur.fetchone()[0]
+                if table == 'project_documents':
+                    freeze_customer_contract_if_ready(cur, record_id, actor)
             return {'ok':True,'id':record_id}
 
         if table == 'project_documents':
@@ -103,11 +161,18 @@ def register_owned_record_routes(app, deps):
                 scope = deps['record_scope']
                 with scope.transaction(_current_user, request, write_roles, write=True) as (cur, actors):
                     scope.record(cur, actors[0], table, id, write_roles)
+                    cur.execute('SELECT party_snapshot_json FROM project_documents WHERE id=%s', (id,))
+                    frozen = cur.fetchone()
+                    frozen_snapshot = frozen.get('party_snapshot_json') if isinstance(frozen, dict) else (frozen[0] if frozen else None)
+                    protected = set(fields) - {'notes'}
+                    if frozen_snapshot is not None and any(key in data for key in protected):
+                        raise HTTPException(409, 'Стороны подписанного договора уже зафиксированы. Создайте новую версию документа')
                     selected = [(column,(data[key] or None) if key=='docDate' else data[key])
                                 for key,column in fields.items() if key in data]
                     if selected:
                         cur.execute(f'UPDATE {table} SET '+','.join(column+'=%s' for column,_ in selected)
                                     +' WHERE id=%s',[value for _,value in selected]+[id])
+                    freeze_customer_contract_if_ready(cur, id, actors[0])
                 return {'ok':True}
 
         @app.delete(path+'/{id}')
@@ -115,6 +180,12 @@ def register_owned_record_routes(app, deps):
             scope = deps['record_scope']
             with scope.transaction(_current_user, request, write_roles, write=True) as (cur, actors):
                 scope.record(cur, actors[0], table, id, write_roles)
+                if table == 'project_documents':
+                    cur.execute('SELECT party_snapshot_json FROM project_documents WHERE id=%s', (id,))
+                    frozen = cur.fetchone()
+                    frozen_snapshot = frozen.get('party_snapshot_json') if isinstance(frozen, dict) else (frozen[0] if frozen else None)
+                    if frozen_snapshot is not None:
+                        raise HTTPException(409, 'Подписанная версия договора хранится в истории и не удаляется')
                 if table == 'project_letters':
                     cur.execute('''SELECT correction_requested_at,corrected_by_letter_id,replaces_letter_id,
                                           delivery_status,published_at

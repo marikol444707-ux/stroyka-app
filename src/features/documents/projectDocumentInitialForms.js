@@ -8,6 +8,7 @@ export const createProjectDocumentForm = () => ({
   scanUrl: '',
   amount: '',
   notes: '',
+  revisesDocumentId: null,
 });
 
 export const createProjectLetterForm = () => ({

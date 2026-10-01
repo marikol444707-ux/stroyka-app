@@ -94,6 +94,19 @@ class ClientsRoutesTest(unittest.TestCase):
         )
         self.assertEqual(result, [])
 
+    def test_crm_manager_does_not_receive_legal_or_bank_requisites(self):
+        cursor = FakeCursor(rows=[{
+            "id": 4, "company_id": 3, "name": "ООО Заказчик", "phone": "+7",
+            "inn": "2632090186", "rs": "40702810415590000143",
+        }])
+        app, _connection = build(cursor, actors=[{"id": 9, "companyId": 3, "role": "менеджер_crm"}])
+        row = app.routes[("GET", "/clients")](
+            current_user={"role": "менеджер_crm"}, request=REQUEST,
+        )[0]
+        self.assertEqual(row["phone"], "+7")
+        self.assertNotIn("inn", row)
+        self.assertNotIn("rs", row)
+
     def test_create_uses_server_selected_company_and_structured_requisites(self):
         cursor = FakeCursor(fetchone_results=[{
             "id": 4, "company_id": 3, "name": "ООО Заказчик", "inn": "2632090186",

@@ -35,11 +35,19 @@ def upgrade():
 
         ALTER TABLE project_documents
             ADD COLUMN IF NOT EXISTS customer_client_id INTEGER,
+            ADD COLUMN IF NOT EXISTS contract_version INTEGER,
+            ADD COLUMN IF NOT EXISTS revises_document_id INTEGER,
             ADD COLUMN IF NOT EXISTS party_snapshot_json JSONB,
             ADD COLUMN IF NOT EXISTS party_snapshot_hash VARCHAR(64),
             ADD COLUMN IF NOT EXISTS party_snapshot_frozen_at TIMESTAMPTZ;
         ALTER TABLE project_documents ADD CONSTRAINT project_documents_customer_company_fk
             FOREIGN KEY (customer_client_id,company_id) REFERENCES clients(id,company_id);
+        ALTER TABLE project_documents ADD CONSTRAINT project_documents_id_company_unique UNIQUE(id,company_id);
+        ALTER TABLE project_documents ADD CONSTRAINT project_documents_revision_company_fk
+            FOREIGN KEY (revises_document_id,company_id) REFERENCES project_documents(id,company_id);
+        ALTER TABLE project_documents ADD CONSTRAINT project_documents_contract_version_check CHECK (
+            contract_version IS NULL OR contract_version > 0
+        );
         ALTER TABLE project_documents ADD CONSTRAINT project_documents_party_snapshot_pair CHECK (
             (party_snapshot_json IS NULL AND party_snapshot_hash IS NULL AND party_snapshot_frozen_at IS NULL)
             OR
@@ -57,6 +65,8 @@ def upgrade():
              NEW.party_snapshot_hash IS DISTINCT FROM OLD.party_snapshot_hash OR
              NEW.party_snapshot_frozen_at IS DISTINCT FROM OLD.party_snapshot_frozen_at OR
              NEW.customer_client_id IS DISTINCT FROM OLD.customer_client_id OR
+             NEW.contract_version IS DISTINCT FROM OLD.contract_version OR
+             NEW.revises_document_id IS DISTINCT FROM OLD.revises_document_id OR
              NEW.company_id IS DISTINCT FROM OLD.company_id OR
              NEW.project_id IS DISTINCT FROM OLD.project_id OR
              NEW.side IS DISTINCT FROM OLD.side OR
@@ -64,6 +74,7 @@ def upgrade():
              NEW.number IS DISTINCT FROM OLD.number OR
              NEW.doc_date IS DISTINCT FROM OLD.doc_date OR
              NEW.counterparty IS DISTINCT FROM OLD.counterparty OR
+             NEW.amount IS DISTINCT FROM OLD.amount OR
              NEW.sign_status IS DISTINCT FROM OLD.sign_status OR
              NEW.scan_url IS DISTINCT FROM OLD.scan_url
           ) THEN
@@ -89,9 +100,12 @@ def downgrade():
     op.execute("DROP TRIGGER IF EXISTS trg_customer_contract_party_snapshot_guard ON project_documents")
     op.execute("DROP FUNCTION IF EXISTS public.customer_contract_party_snapshot_guard()")
     op.execute("ALTER TABLE project_documents DROP CONSTRAINT project_documents_party_snapshot_pair")
+    op.execute("ALTER TABLE project_documents DROP CONSTRAINT project_documents_contract_version_check")
+    op.execute("ALTER TABLE project_documents DROP CONSTRAINT project_documents_revision_company_fk")
+    op.execute("ALTER TABLE project_documents DROP CONSTRAINT project_documents_id_company_unique")
     op.execute("ALTER TABLE project_documents DROP CONSTRAINT project_documents_customer_company_fk")
     op.execute("DROP INDEX IF EXISTS project_documents_customer_contract_idx")
-    op.execute("ALTER TABLE project_documents DROP COLUMN party_snapshot_frozen_at, DROP COLUMN party_snapshot_hash, DROP COLUMN party_snapshot_json, DROP COLUMN customer_client_id")
+    op.execute("ALTER TABLE project_documents DROP COLUMN party_snapshot_frozen_at, DROP COLUMN party_snapshot_hash, DROP COLUMN party_snapshot_json, DROP COLUMN revises_document_id, DROP COLUMN contract_version, DROP COLUMN customer_client_id")
     op.execute("ALTER TABLE projects DROP CONSTRAINT projects_client_company_fk")
     op.execute("DROP INDEX IF EXISTS projects_company_client_idx")
     op.execute("ALTER TABLE projects DROP COLUMN client_id")

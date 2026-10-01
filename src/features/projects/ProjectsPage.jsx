@@ -680,6 +680,7 @@ export default function ProjectsPage({ ctx }) {
                     <ProjectDocumentsRegistryPanel
                       projectId={p.id}
                       projectName={p.name}
+                      projectCustomerName={p.client}
                       projectDocuments={projectDocuments}
                       newProjectDoc={newProjectDoc}
                       setNewProjectDoc={setNewProjectDoc}
