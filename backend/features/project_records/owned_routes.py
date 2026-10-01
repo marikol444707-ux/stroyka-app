@@ -4,13 +4,17 @@ import json
 from fastapi import Depends, HTTPException, Request
 
 from ..customer_contract_parties.storage import freeze_customer_contract_if_ready
+from ..customer_contract_parties.customer_act_storage import (
+    freeze_customer_act_if_ready,
+    is_customer_work_act,
+)
 from ..customer_contract_parties.snapshot import is_customer_contract
 
 
 DOCUMENT_FIELDS = {
     'side':'side','docType':'doc_type','number':'number','docDate':'doc_date',
     'counterparty':'counterparty','signStatus':'sign_status','scanUrl':'scan_url',
-    'amount':'amount','notes':'notes',
+    'amount':'amount','notes':'notes','basisContractDocumentId':'basis_contract_document_id',
 }
 LETTER_FIELDS = {
     'side':'side','direction':'direction','subject':'subject','body':'body',
@@ -23,6 +27,20 @@ def register_owned_record_routes(app, deps):
     write_roles = tuple(deps['write_roles'])
     workers = tuple(deps['worker_execution_roles'])
     authenticated = deps['get_current_user']
+
+    def normalized_basis(data, side, document_type):
+        value = data.get('basisContractDocumentId')
+        if value in (None, ''):
+            return None
+        if not is_customer_work_act(side, document_type):
+            raise HTTPException(422, 'Договор-основание можно выбрать только для КС-2 или КС-3 заказчика')
+        try:
+            value = int(value)
+        except (TypeError, ValueError):
+            raise HTTPException(422, 'Некорректный договор-основание')
+        if value <= 0:
+            raise HTTPException(422, 'Некорректный договор-основание')
+        return value
 
     def register_kind(path, table, fields, actor_key, actor_column, defaults, void_column, void_value):
         @app.get(path)
@@ -137,9 +155,15 @@ def register_owned_record_routes(app, deps):
                 elif table == 'project_documents' and is_customer_contract(
                         data.get('side', defaults.get('side')), data.get('docType', '')):
                     contract_version = 1
+                if table == 'project_documents':
+                    side = data.get('side', defaults.get('side'))
+                    document_type = data.get('docType', '')
+                    data = {**data, 'basisContractDocumentId': normalized_basis(data, side, document_type)}
                 values = [data.get(key, defaults.get(key,'')) for key in fields]
                 for index,key in enumerate(fields):
                     if key in ('docDate','letterDate'):
+                        values[index] = values[index] or None
+                    if key == 'basisContractDocumentId':
                         values[index] = values[index] or None
                     if key == 'amount':
                         values[index] = values[index] or 0
@@ -152,7 +176,12 @@ def register_owned_record_routes(app, deps):
                             + ','.join(['%s']*len(values)) + ') RETURNING id',values)
                 record_id = cur.fetchone()[0]
                 if table == 'project_documents':
-                    freeze_customer_contract_if_ready(cur, record_id, actor)
+                    side = data.get('side', defaults.get('side'))
+                    document_type = data.get('docType', '')
+                    if is_customer_contract(side, document_type):
+                        freeze_customer_contract_if_ready(cur, record_id, actor)
+                    elif is_customer_work_act(side, document_type):
+                        freeze_customer_act_if_ready(cur, record_id, actor)
             return {'ok':True,'id':record_id}
 
         if table == 'project_documents':
@@ -161,18 +190,42 @@ def register_owned_record_routes(app, deps):
                 scope = deps['record_scope']
                 with scope.transaction(_current_user, request, write_roles, write=True) as (cur, actors):
                     scope.record(cur, actors[0], table, id, write_roles)
-                    cur.execute('SELECT party_snapshot_json FROM project_documents WHERE id=%s', (id,))
+                    cur.execute('SELECT party_snapshot_json,side,doc_type,basis_contract_document_id FROM project_documents WHERE id=%s', (id,))
                     frozen = cur.fetchone()
-                    frozen_snapshot = frozen.get('party_snapshot_json') if isinstance(frozen, dict) else (frozen[0] if frozen else None)
+                    if isinstance(frozen, dict):
+                        frozen_snapshot = frozen.get('party_snapshot_json')
+                        saved_side, saved_type = frozen.get('side'), frozen.get('doc_type')
+                        saved_basis = frozen.get('basis_contract_document_id')
+                    else:
+                        frozen_snapshot = frozen[0] if frozen else None
+                        saved_side = frozen[1] if frozen and len(frozen) > 1 else None
+                        saved_type = frozen[2] if frozen and len(frozen) > 2 else None
+                        saved_basis = frozen[3] if frozen and len(frozen) > 3 else None
                     protected = set(fields) - {'notes'}
                     if frozen_snapshot is not None and any(key in data for key in protected):
-                        raise HTTPException(409, 'Стороны подписанного договора уже зафиксированы. Создайте новую версию документа')
-                    selected = [(column,(data[key] or None) if key=='docDate' else data[key])
+                        legacy_contract_snapshot = (not saved_side and isinstance(frozen_snapshot, dict)
+                                                    and frozen_snapshot.get('documentKind') != 'customerWorkAct')
+                        detail = ('Стороны подписанного договора уже зафиксированы. Создайте новую версию документа'
+                                  if is_customer_contract(saved_side, saved_type) or legacy_contract_snapshot
+                                  else 'Подписанный документ и его стороны уже зафиксированы')
+                        raise HTTPException(409, detail)
+                    target_side = data.get('side', saved_side)
+                    target_type = data.get('docType', saved_type)
+                    if 'basisContractDocumentId' in data:
+                        data = {**data, 'basisContractDocumentId': normalized_basis(data, target_side, target_type)}
+                    elif saved_basis is not None and not is_customer_work_act(target_side, target_type):
+                        data = {**data, 'basisContractDocumentId': None}
+                    selected = [(column,(data[key] or None) if key in ('docDate','basisContractDocumentId') else data[key])
                                 for key,column in fields.items() if key in data]
                     if selected:
                         cur.execute(f'UPDATE {table} SET '+','.join(column+'=%s' for column,_ in selected)
                                     +' WHERE id=%s',[value for _,value in selected]+[id])
-                    freeze_customer_contract_if_ready(cur, id, actors[0])
+                    side = data.get('side', saved_side)
+                    document_type = data.get('docType', saved_type)
+                    if is_customer_contract(side, document_type):
+                        freeze_customer_contract_if_ready(cur, id, actors[0])
+                    elif is_customer_work_act(side, document_type):
+                        freeze_customer_act_if_ready(cur, id, actors[0])
                 return {'ok':True}
 
         @app.delete(path+'/{id}')
@@ -185,7 +238,7 @@ def register_owned_record_routes(app, deps):
                     frozen = cur.fetchone()
                     frozen_snapshot = frozen.get('party_snapshot_json') if isinstance(frozen, dict) else (frozen[0] if frozen else None)
                     if frozen_snapshot is not None:
-                        raise HTTPException(409, 'Подписанная версия договора хранится в истории и не удаляется')
+                        raise HTTPException(409, 'Подписанный документ хранится в истории и не удаляется')
                 if table == 'project_letters':
                     cur.execute('''SELECT correction_requested_at,corrected_by_letter_id,replaces_letter_id,
                                           delivery_status,published_at

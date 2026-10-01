@@ -10,6 +10,8 @@ const GROUPS = [
   {key: 'customer', label: '📁 Документы с заказчиком'},
   {key: 'contractor', label: '📁 Документы с мастерами / бригадой'},
 ];
+const isCustomerContract = doc => doc?.side === 'customer' && /(договор|контракт|соглаш)/i.test(doc?.docType || '');
+const isCustomerKsAct = doc => doc?.side === 'customer' && ['Акт КС-2', 'Акт КС-3'].includes(doc?.docType);
 
 export default function ProjectDocumentsRegistryPanel({
   projectId,
@@ -34,10 +36,24 @@ export default function ProjectDocumentsRegistryPanel({
   btnB,
   btnR,
 }) {
+  const customerContracts = projectDocuments
+    .filter(doc => doc.projectName === projectName && isCustomerContract(doc) && doc.partySnapshot)
+    .sort((left, right) => Number(right.contractVersion || 1) - Number(left.contractVersion || 1) || Number(right.id) - Number(left.id));
+
   const saveDocument = async () => {
     if (!newProjectDoc.docType) {
       alert('Укажите тип документа');
       return;
+    }
+    if (isCustomerKsAct(newProjectDoc) && newProjectDoc.signStatus === 'Подписан') {
+      if (!newProjectDoc.scanUrl) {
+        alert('Загрузите подписанный КС');
+        return;
+      }
+      if (!newProjectDoc.basisContractDocumentId) {
+        alert('Выберите договор-основание для КС');
+        return;
+      }
     }
 
     const response = await fetch(API + '/project-documents', {
@@ -158,11 +174,17 @@ export default function ProjectDocumentsRegistryPanel({
         <div style={{...card, padding: '18px', marginBottom: '14px'}}>
           {newProjectDoc.revisesDocumentId&&<div style={{padding:'10px 12px',borderRadius:'10px',backgroundColor:C.accentLight,border:'1.5px solid '+C.accentBorder,color:C.text,fontSize:'12px',marginBottom:'12px'}}>Создаётся новая версия договора. Предыдущая подписанная версия останется в истории без изменений.</div>}
           <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px'}}>
-            <select value={newProjectDoc.side} onChange={e => setNewProjectDoc({...newProjectDoc, side: e.target.value})} style={{...inp, marginBottom: 0}}>
+            <select value={newProjectDoc.side} onChange={e => setNewProjectDoc({...newProjectDoc, side: e.target.value,
+              basisContractDocumentId:e.target.value==='customer'?newProjectDoc.basisContractDocumentId:null})} style={{...inp, marginBottom: 0}}>
               <option value="customer">📁 С заказчиком</option>
               <option value="contractor">📁 С мастерами/бригадой</option>
             </select>
-            <select value={newProjectDoc.docType} onChange={e => setNewProjectDoc({...newProjectDoc, docType: e.target.value})} style={{...inp, marginBottom: 0}}>
+            <select value={newProjectDoc.docType} onChange={e => {
+              const docType=e.target.value;
+              const ks=['Акт КС-2','Акт КС-3'].includes(docType) && newProjectDoc.side==='customer';
+              setNewProjectDoc({...newProjectDoc,docType,
+                basisContractDocumentId:ks?(newProjectDoc.basisContractDocumentId || (customerContracts.length===1?customerContracts[0].id:null)):null});
+            }} style={{...inp, marginBottom: 0}}>
               {DOC_TYPES.map(t => <option key={t}>{t}</option>)}
             </select>
             <input placeholder="Номер" value={newProjectDoc.number} onChange={e => setNewProjectDoc({...newProjectDoc, number: e.target.value})} style={{...inp, marginBottom: 0}}/>
@@ -171,6 +193,22 @@ export default function ProjectDocumentsRegistryPanel({
             <select value={newProjectDoc.signStatus} onChange={e => setNewProjectDoc({...newProjectDoc, signStatus: e.target.value})} style={{...inp, marginBottom: 0}}>
               {SIGN_STATUSES.map(t => <option key={t}>{t}</option>)}
             </select>
+            {isCustomerKsAct(newProjectDoc) && (
+              <label style={{gridColumn:'span 2',color:C.text,fontSize:'12px'}}>
+                Договор-основание
+                <select aria-label="Договор-основание" value={newProjectDoc.basisContractDocumentId || ''}
+                  onChange={e => setNewProjectDoc({...newProjectDoc,basisContractDocumentId:e.target.value ? Number(e.target.value) : null})}
+                  style={{...inp,margin:'5px 0 0'}}>
+                  <option value="">Выберите подписанный договор</option>
+                  {customerContracts.map(contract => <option key={contract.id} value={contract.id}>
+                    {contract.number ? 'Договор № '+contract.number : 'Договор #'+contract.id}{contract.contractVersion ? ' · версия '+contract.contractVersion : ''}
+                  </option>)}
+                </select>
+                <span style={{display:'block',color:C.textMuted,fontSize:'10px',marginTop:'4px'}}>
+                  Стороны КС будут взяты из этой подписанной версии и больше не изменятся.
+                </span>
+              </label>
+            )}
           </div>
           <input placeholder="Примечание" value={newProjectDoc.notes} onChange={e => setNewProjectDoc({...newProjectDoc, notes: e.target.value})} style={{...inp, marginTop: '10px'}}/>
           <div style={{display: 'flex', alignItems: 'center', gap: '10px', marginTop: '10px', flexWrap: 'wrap'}}>
@@ -222,7 +260,8 @@ export default function ProjectDocumentsRegistryPanel({
                   <div style={{flex: 1, minWidth: 0}}>
                     <b style={{fontSize: '12px', color: C.text}}>{doc.docType}{doc.number ? ' № ' + doc.number : ''}{doc.contractVersion ? ' · версия ' + doc.contractVersion : ''}</b>
                     <p style={{color: C.textSec, margin: '2px 0', fontSize: '11px'}}>{[doc.docDate, doc.counterparty, doc.notes].filter(Boolean).join(' · ') || '—'}</p>
-                    {doc.partySnapshot&&<p style={{color:C.success,margin:'3px 0 0',fontSize:'10px',fontWeight:700}}>Реквизиты сторон зафиксированы</p>}
+                    {doc.partySnapshot&&<p style={{color:C.success,margin:'3px 0 0',fontSize:'10px',fontWeight:700}}>{doc.partySnapshot.documentKind==='customerWorkAct'?'Стороны и договор-основание зафиксированы':'Реквизиты сторон зафиксированы'}</p>}
+                    {doc.partySnapshot?.contractBasis&&<p style={{color:C.textMuted,margin:'2px 0 0',fontSize:'10px'}}>По договору {doc.partySnapshot.contractBasis.number?'№ '+doc.partySnapshot.contractBasis.number:'#'+doc.partySnapshot.contractBasis.documentId}{doc.partySnapshot.contractBasis.version?' · версия '+doc.partySnapshot.contractBasis.version:''}</p>}
                   </div>
                   <span style={{
                     padding: '2px 8px',
@@ -245,7 +284,7 @@ export default function ProjectDocumentsRegistryPanel({
                       <input type="file" style={{display: 'none'}} onChange={e => uploadExistingScan(doc, e.target.files[0])}/>
                     </label>
                   )}
-                  {doc.partySnapshot&&<button type="button" onClick={()=>createNextVersion(doc)} style={{...btnG,padding:'4px 8px',fontSize:'11px'}}>Новая версия</button>}
+                  {doc.partySnapshot&&isCustomerContract(doc)&&<button type="button" onClick={()=>createNextVersion(doc)} style={{...btnG,padding:'4px 8px',fontSize:'11px'}}>Новая версия</button>}
                   {doc.scanUrl&&!doc.partySnapshot&&doc.signStatus!=='Подписан'&&<button type="button" onClick={()=>confirmSigned(doc)} style={{...btnO,padding:'4px 8px',fontSize:'11px'}}>Подтвердить подпись</button>}
                   {!doc.partySnapshot&&<button onClick={() => deleteDocument(doc.id)} style={{...btnR, padding: '4px 8px'}}><Trash2 size={11}/></button>}
                 </div>
