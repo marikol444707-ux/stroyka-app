@@ -29,6 +29,7 @@ export const C = {
   purpleLight: 'var(--c-purple-light)',
   sidebar: 'var(--c-sidebar)',
   sidebarHover: 'var(--c-sidebar-hover)',
+  bgAlt: 'var(--c-bg-gray)',
 };
 
 export const inp = {width:'100%',padding:'10px 12px',marginBottom:'10px',border:'1.5px solid '+C.border,borderRadius:'8px',boxSizing:'border-box',fontSize:'14px',outline:'none',backgroundColor:C.bgWhite,color:C.text,transition:'border-color 0.2s'};
