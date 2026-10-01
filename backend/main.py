@@ -721,10 +721,16 @@ from backend.features.supplier_access.supply_request_workflow import (
     validate_rfq_dispatch_request,
     validate_supply_request_transition,
 )
+from backend.features.supplier_access.rfq_requester_snapshot import (
+    RfqRequesterSnapshotError,
+    freeze_rfq_requester_snapshot,
+    requester_snapshot_identity,
+    validate_rfq_requester_snapshot,
+)
 from backend.features.supplier_access.email_attempts import (
     EMAIL_QUEUED, prepare_email_status, dispatch_recipient_email,
 )
-from backend.features.supplier_access.request_companies import attach_request_company_names
+from backend.features.supplier_access.request_companies import attach_requester_identity
 from backend.features.supplier_access.response_deadlines import response_deadline
 from backend.features.supplier_access.delivery_diagnostics import (
     attach_recipient_delivery_diagnostics,
@@ -1855,7 +1861,8 @@ def _ensure_supply_notification_messenger_tables(cur):
 
 def _supply_request_notification_context(cur, request_id: int, supplier_id=None) -> dict:
     cur.execute("""
-        SELECT id, material_name, quantity, unit, project, work_package, notes, items_json, company_id
+        SELECT id, material_name, quantity, unit, project, work_package, notes, items_json, company_id,
+               COALESCE(delivery_address,'') AS delivery_address, requester_snapshot_json
           FROM supply_requests
          WHERE id=%s
          LIMIT 1
@@ -1897,14 +1904,32 @@ def _supply_request_notification_context(cur, request_id: int, supplier_id=None)
         unit = scoped_items[0]['unit'] if len(scoped_items) == 1 else 'поз.'
     project = _row_get(row, "project", 4, "") or ""
     company_id = _row_get(row, "company_id", 8, None)
-    cur.execute("""SELECT
-            COALESCE(NULLIF(BTRIM(r.short_name),''),NULLIF(BTRIM(r.full_name),''),
-                     NULLIF(BTRIM(c.short_name),''),NULLIF(BTRIM(c.name),''),'Компания-заказчик') AS company_name,
-            COALESCE(NULLIF(BTRIM(r.email),''),NULLIF(BTRIM(c.contact_email),''),
-                     NULLIF(BTRIM(c.email),''),'') AS company_email
-        FROM companies c LEFT JOIN company_requisites r ON r.company_id=c.id
-        WHERE c.id=%s""", (company_id,))
-    company = cur.fetchone() or {}
+    requester_snapshot = _row_get(row, "requester_snapshot_json", 10, None)
+    delivery_address = _row_get(row, "delivery_address", 9, "") or ""
+    identity = {}
+    if requester_snapshot:
+        snapshot = validate_rfq_requester_snapshot(
+            requester_snapshot,
+            request_id=_row_get(row, "id", 0, request_id),
+            company_id=company_id,
+            project_name=project,
+        )
+        identity = requester_snapshot_identity(snapshot)
+        company = {
+            "company_name": identity["companyName"],
+            "company_email": identity["companyEmail"],
+        }
+        project = identity["project"]
+        delivery_address = identity["deliveryAddress"]
+    else:
+        cur.execute("""SELECT
+                COALESCE(NULLIF(BTRIM(r.short_name),''),NULLIF(BTRIM(r.full_name),''),
+                         NULLIF(BTRIM(c.short_name),''),NULLIF(BTRIM(c.name),''),'Компания-заказчик') AS company_name,
+                COALESCE(NULLIF(BTRIM(r.email),''),NULLIF(BTRIM(c.contact_email),''),
+                         NULLIF(BTRIM(c.email),''),'') AS company_email
+            FROM companies c LEFT JOIN company_requisites r ON r.company_id=c.id
+            WHERE c.id=%s""", (company_id,))
+        company = cur.fetchone() or {}
     project_id = None
     if company_id and project and project != "Основной склад":
         cur.execute(
@@ -1923,8 +1948,12 @@ def _supply_request_notification_context(cur, request_id: int, supplier_id=None)
         "companyId": company_id,
         "companyName": _row_get(company, "company_name", 0, "") or "Компания-заказчик",
         "companyEmail": _row_get(company, "company_email", 1, "") or "",
+        "contactName": identity.get("contactName", ""),
+        "contactEmail": identity.get("contactEmail", ""),
+        "contactPhone": identity.get("contactPhone", ""),
         "projectId": project_id,
         "project": project,
+        "deliveryAddress": delivery_address,
         "workPackage": _row_get(row, "work_package", 5, "") or "",
         "materialName": material,
         "quantity": quantity,
@@ -5967,6 +5996,7 @@ class SupplyRequestModel(BaseModel):
     quantity: float = 0
     unit: str = "шт"
     project: str = ""
+    deliveryAddress: str = Field(default="", max_length=2000)
     companyId: Optional[int] = None
     projectId: Optional[int] = None
     workPackage: str = ""
@@ -7762,6 +7792,7 @@ register_demo_requests_module(app, {
 
 SUPPLY_SELECT = ("SELECT id,material_name as \"materialName\",quantity,unit,project,"
                  "company_id as \"companyId\","
+                 "COALESCE(delivery_address,'') as \"deliveryAddress\","
                  "COALESCE(work_package,'') as \"workPackage\","
                  "created_by as \"createdBy\",date,status,notes,"
                  "selected_suppliers as \"selectedSuppliers\","
@@ -7927,6 +7958,8 @@ def _ensure_supply_runtime_columns(cur):
     cur.execute("ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1")
     cur.execute("ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1")
     cur.execute("ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS work_package VARCHAR(100)")
+    cur.execute("ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS delivery_address TEXT DEFAULT ''")
+    cur.execute("ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS requester_snapshot_json JSONB")
     cur.execute("ALTER TABLE supply_deliveries ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1")
     cur.execute("ALTER TABLE supply_deliveries ADD COLUMN IF NOT EXISTS work_package VARCHAR(100)")
     cur.execute("ALTER TABLE supply_claims ADD COLUMN IF NOT EXISTS work_package VARCHAR(100)")
@@ -9258,7 +9291,7 @@ def get_supply_requests(
         from backend.features.supplier_offers.item_scopes import supplier_request_scopes
         item_visibility, item_params = supplier_offer_visibility_filter(supplier_ids, current_user.get('id'))
         rows = supplier_request_scopes(cur, rows, supplier_ids, item_visibility, item_params)
-        rows = attach_request_company_names(cur, rows)
+        rows = attach_requester_identity(cur, rows)
     if is_internal_supply_reader:
         rows = attach_supply_allocation_projection(cur, rows)
     conn.close()
@@ -9441,12 +9474,12 @@ def create_supply_request(
         items_json = _json.dumps(items, ensure_ascii=False)
         cur.execute(
             "INSERT INTO supply_requests "
-            "(material_name,quantity,unit,project,company_id,work_package,created_by,date,notes,selected_suppliers,"
+            "(material_name,quantity,unit,project,delivery_address,company_id,work_package,created_by,date,notes,selected_suppliers,"
             "status,requested_by_role,requested_by_id,urgency,category,"
             "prorab_id,prorab_name,prorab_confirmed_at,"
             "director_id,director_name,director_approved_at,items_json) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-            (agg_name, agg_qty, agg_unit, project_name, company_id, request_package, created_by, r.date, r.notes,
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+            (agg_name, agg_qty, agg_unit, project_name, r.deliveryAddress.strip(), company_id, request_package, created_by, r.date, r.notes,
              selected_suppliers, initial_status, role, requested_by_id, r.urgency, r.category,
              prorab_id, prorab_name, prorab_at,
              director_id, director_name, director_at, items_json))
@@ -10169,7 +10202,10 @@ def request_kp_from_suppliers(
         else:
             _ensure_supply_runtime_columns(cur)
         # Получаем количество из заявки для preview total
-        cur.execute("SELECT quantity, material_name, unit, work_package, items_json, project, status, company_id, prorab_confirmed_at, director_approved_at FROM supply_requests WHERE id=%s FOR UPDATE", (id,))
+        cur.execute("SELECT id, quantity, material_name, unit, work_package, items_json, project, "
+                    "delivery_address, requester_snapshot_json, "
+                    "status, company_id, prorab_confirmed_at, director_approved_at "
+                    "FROM supply_requests WHERE id=%s FOR UPDATE", (id,))
         req = cur.fetchone()
         if not req:
             raise HTTPException(status_code=404, detail="Заявка не найдена")
@@ -10213,6 +10249,13 @@ def request_kp_from_suppliers(
             validate_rfq_dispatch_request(req)
         except SupplyRequestWorkflowViolation as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+        try:
+            freeze_rfq_requester_snapshot(cur, req, effective_user)
+        except RfqRequesterSnapshotError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail="Не удалось зафиксировать реквизиты заказчика и объекта для запроса КП",
+            ) from exc
         targets = explicit_supplier_targets(cur, company_id, supplier_ids)
         from backend.features.supplier_offers.item_scopes import dispatch_scopes, persist_scopes
         item_scopes = dispatch_scopes(req, supplier_ids, data.get('supplierItems'))

@@ -129,6 +129,17 @@ test('leadership creation explains actual approvals instead of automatic approva
   expect(screen.getByText(/подтверждения прораба.*утверждения директора/)).toBeInTheDocument();
 });
 
+test('supplier request form keeps delivery address separate from notes', () => {
+  render(<SuppliersPage {...common}
+    suppliersTab="requests" setSuppliersTab={jest.fn()}
+    showForm setShowForm={jest.fn()} suppliers={[]} supplierCategories={[]} units={['шт']}
+    newRequest={createRequestForm({project: 'Объект', deliveryAddress: 'Адрес объекта', items: [item], notes: 'Позвонить'})}
+    setNewRequest={jest.fn()} saveRequest={jest.fn()} supplyRequests={[]}
+  />);
+  expect(screen.getByPlaceholderText('Куда доставить материалы (адрес)')).toHaveValue('Адрес объекта');
+  expect(screen.getByText('Позвонить')).toBeInTheDocument();
+});
+
 test('supplier creation does not promise immediate RFQ and cannot be hidden while pending', async () => {
   const pending = deferred();
   const close = jest.fn();

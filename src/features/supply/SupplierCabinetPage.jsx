@@ -410,6 +410,8 @@ export default function SupplierCabinetPage({
                             {items.map((it,i)=>(<li key={i} style={{marginBottom:'2px'}}>{it.materialName} <span style={{color:C.textSec}}>— {it.quantity} {it.unit}</span></li>))}
                           </ol>
                         </>);})()}
+                        {req.deliveryAddress && <p style={{color:C.textSec,margin:'3px 0',fontSize:'11px'}}>Адрес доставки: {req.deliveryAddress}</p>}
+                        {(req.contactName || req.contactEmail || req.contactPhone) && <p style={{color:C.textSec,margin:'3px 0',fontSize:'11px'}}>Контакт по заявке: {[req.contactName,req.contactEmail,req.contactPhone].filter(Boolean).join(' · ')}</p>}
                         {req.notes && <p style={{color:C.textMuted,margin:'0',fontSize:'11px',fontStyle:'italic'}}>«{req.notes}»</p>}
                         {o.aiRecommended && <span style={badge(C.accent,C.accentLight,C.accentBorder||C.border)}>🤖 AI рекомендовал вас</span>}
                         {o.pricePerUnit>0 && (<p style={{color:C.textSec,margin:'4px 0 0',fontSize:'11px'}}>

@@ -44,6 +44,21 @@ describe('request creation in-flight protection', () => {
     expect(deps.refreshData).toHaveBeenCalledTimes(1);
   });
 
+  it('sends the explicit delivery address with a new supplier request', async () => {
+    const deps = context({
+      newRequest: {
+        project: 'Лицей', deliveryAddress: 'г. Кисловодск, ул. Школьная, 4',
+        items: [{ materialName: 'Труба', quantity: 10 }], selectedSuppliers: [],
+      },
+    });
+    global.fetch.mockResolvedValue(response({ id: 31, status: 'Новая' }));
+
+    await createSupplyActions(deps).saveRequest();
+
+    const payload = JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(payload.deliveryAddress).toBe('г. Кисловодск, ул. Школьная, 4');
+  });
+
   it('shares the same guard across both request forms, but not independent app instances', async () => {
     const pending = deferred();
     global.fetch.mockReturnValue(pending.promise);

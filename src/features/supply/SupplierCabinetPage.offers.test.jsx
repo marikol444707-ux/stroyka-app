@@ -20,7 +20,7 @@ function Cabinet({ deps, multi = false, respondedAt = null }) {
     user={{ id: 7, role: 'поставщик', name: 'Поставщик' }}
     supplierTab="requests" suppliers={[]} supplierRequisites={{}}
     supplierOffers={[{ id: 42, requestId: 31, status: 'Ожидает ответа', respondedAt }]}
-    supplyRequests={[{ id: 31, project: 'Лицей', quantity: 10, unit: 'шт', items }]}
+    supplyRequests={[{ id: 31, project: 'Лицей', deliveryAddress: 'г. Кисловодск, ул. Школьная, 4', contactName: 'Иван Петров', contactEmail: 'buyer@example.test', quantity: 10, unit: 'шт', items }]}
     parseSupplyItems={request => request.items}
     respondingOfferId={respondingOfferId} setRespondingOfferId={setRespondingOfferId}
     newKpResponse={newKpResponse} setNewKpResponse={setNewKpResponse}
@@ -39,6 +39,12 @@ describe('supplier offer submission', () => {
     window.history.replaceState({}, '', '/app');
     global.fetch = originalFetch;
     jest.restoreAllMocks();
+  });
+
+  it('shows the frozen delivery address separately from the material list', () => {
+    render(<Cabinet deps={{notify:jest.fn(),refreshData:jest.fn()}} />);
+    expect(screen.getByText('Адрес доставки: г. Кисловодск, ул. Школьная, 4')).toBeInTheDocument();
+    expect(screen.getByText('Контакт по заявке: Иван Петров · buyer@example.test')).toBeInTheDocument();
   });
 
   it('hides the draft when returning to the list and restores it on reopening', () => {
