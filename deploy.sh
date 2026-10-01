@@ -56,6 +56,8 @@ printf '%s\n' "$FRONTEND_BUILD_ENV_OUTPUT" \
 echo "Применение миграций базы данных..."
 PGOPTIONS="-c lock_timeout=5000 -c statement_timeout=60000" \
   python3 -m alembic upgrade head
+echo "Проверка загрузки backend перед перезапуском..."
+PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python3 -c 'import backend.main'
 systemctl restart stroyka
 systemctl is-active --quiet stroyka
 if systemctl is-active --quiet "$AGENT_JOB_WORKER_UNIT"; then

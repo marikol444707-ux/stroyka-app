@@ -721,7 +721,7 @@ class WarehouseAnomalyRuntimeDisclosurePolicyTests(unittest.TestCase):
             # Reviewed model-gateway cutovers in the composition root;
             # warehouse preview implementation and registration are unchanged.
             backend_root / "main.py": (
-                "e1ee04cdfaec07c28b2d6871cf21bd768bc5fe0caa1832d5ec24f6193f66e0a7"
+                "7ae1d53e7856acbf079497676517e349a369bfbaa878839e3685f7675965af2e"
             ),
         }
         actual = {

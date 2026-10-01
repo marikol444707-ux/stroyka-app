@@ -1,5 +1,7 @@
 import json
+import ast
 import unittest
+from pathlib import Path
 from unittest.mock import Mock
 
 from backend.features.supplier_access.rfq_requester_snapshot import (
@@ -12,6 +14,19 @@ from backend.features.supplier_access.rfq_requester_snapshot import (
 
 
 class RfqRequesterSnapshotTests(unittest.TestCase):
+    def test_supply_request_model_can_be_defined_from_declared_imports(self):
+        main_path = Path(__file__).resolve().parents[2] / "main.py"
+        tree = ast.parse(main_path.read_text(encoding="utf-8"))
+        selected = []
+        for node in tree.body:
+            if isinstance(node, ast.ImportFrom) and node.module in {"pydantic", "typing"}:
+                selected.append(node)
+            if isinstance(node, ast.ClassDef) and node.name == "SupplyRequestModel":
+                selected.append(node)
+        namespace = {}
+        exec(compile(ast.Module(body=selected, type_ignores=[]), str(main_path), "exec"), namespace)
+        self.assertTrue(issubclass(namespace["SupplyRequestModel"], namespace["BaseModel"]))
+
     def test_builds_bounded_server_owned_requester_and_delivery_snapshot(self):
         snapshot = build_rfq_requester_snapshot(
             request_id=81,
