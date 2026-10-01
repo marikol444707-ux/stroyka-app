@@ -2,7 +2,7 @@ from unittest import TestCase
 
 from fastapi import HTTPException
 
-from . import policy
+from . import policy, service
 
 
 class InventoryCountPolicyTests(TestCase):
@@ -44,3 +44,9 @@ class InventoryCountPolicyTests(TestCase):
             counts[key] = {**value, 'reason': ''}
             with self.assertRaises(HTTPException):
                 policy.require_complete(self.rows, counts)
+
+    def test_approval_compares_stock_state_without_replacing_frozen_company_identity(self):
+        rows = [{'key': 'material:1', 'kind': 'material', 'expected': '5.25'}]
+        opened = {'projectId': 7, 'project': 'Старое название', 'company': {'fullName': 'ООО Старое'}, 'rows': rows}
+        current = {'projectId': 7, 'project': 'Новое название', 'company': {'fullName': 'ООО Новое'}, 'rows': rows}
+        self.assertEqual(service.stock_state(opened), service.stock_state(current))

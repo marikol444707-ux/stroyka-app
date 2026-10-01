@@ -45,6 +45,16 @@ def lot_snapshot(cur, company_id, row):
 def capture(cur, actor, project_id, deps):
     name = project(cur, project_id, actor, deps)
     company_id = actor['companyId']
+    cur.execute('''SELECT c.id,
+        COALESCE(NULLIF(r.full_name,''),NULLIF(c.name,''),'') AS full_name,
+        COALESCE(NULLIF(r.short_name,''),NULLIF(c.short_name,''),'') AS short_name,
+        COALESCE(NULLIF(r.inn,''),NULLIF(c.inn,''),'') AS inn,
+        CASE WHEN r.id IS NULL THEN 'companies' ELSE 'company_requisites' END AS source
+        FROM companies c LEFT JOIN company_requisites r ON r.company_id=c.id
+        WHERE c.id=%s FOR SHARE OF c''', (company_id,))
+    company = cur.fetchone()
+    if not company:
+        raise HTTPException(409, 'Карточка выбранной компании не найдена')
     table = 'materials' if project_id else 'warehouse_main'
     package = "coalesce(nullif(work_package,''),'Основная')" if project_id else "''"
     extra, args = (' AND project=%s', [name]) if project_id else ('', [])
@@ -82,4 +92,9 @@ def capture(cur, actor, project_id, deps):
                      'fingerprint': policy.fingerprint(dict(tool))})
     if not rows:
         raise HTTPException(409, 'В выбранном месте нет материалов или инструмента для сверки')
-    return {'projectId': project_id, 'project': name, 'rows': rows}
+    return {
+        'company': {'id': company['id'], 'fullName': company['full_name'],
+                    'shortName': company['short_name'], 'inn': company['inn'],
+                    'source': company['source']},
+        'projectId': project_id, 'project': name, 'rows': rows,
+    }
