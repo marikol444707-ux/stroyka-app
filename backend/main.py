@@ -2991,40 +2991,10 @@ def _latest_backup_status() -> dict:
         status["error"] = exc.__class__.__name__
     return status
 
-def _git_dir_path() -> str:
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    dot_git = os.path.join(root, ".git")
-    if os.path.isdir(dot_git):
-        return dot_git
-    if os.path.isfile(dot_git):
-        try:
-            with open(dot_git, "r", encoding="utf-8") as f:
-                raw = f.read().strip()
-            if raw.startswith("gitdir:"):
-                gitdir = raw.split(":", 1)[1].strip()
-                return gitdir if os.path.isabs(gitdir) else os.path.abspath(os.path.join(root, gitdir))
-        except Exception:
-            return ""
-    return ""
-
 def _app_version() -> str:
-    env_version = (os.getenv("APP_VERSION") or os.getenv("GIT_COMMIT") or "").strip()
-    if env_version:
-        return env_version[:12]
-    git_dir = _git_dir_path()
-    if not git_dir:
-        return "unknown"
-    try:
-        head_path = os.path.join(git_dir, "HEAD")
-        with open(head_path, "r", encoding="utf-8") as f:
-            head = f.read().strip()
-        if head.startswith("ref:"):
-            ref_path = os.path.join(git_dir, head.split(" ", 1)[1].strip())
-            with open(ref_path, "r", encoding="utf-8") as f:
-                return f.read().strip()[:12]
-        return head[:12]
-    except Exception:
-        return "unknown"
+    from backend.features.runtime_version.service import app_version
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return app_version(root, os.environ)
 
 def _utc_now_iso() -> str:
     return dt.datetime.utcnow().replace(microsecond=0).isoformat() + "Z"

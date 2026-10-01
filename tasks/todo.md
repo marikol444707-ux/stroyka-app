@@ -10802,7 +10802,7 @@ change.
 - [x] Tests for equal names, foreign documents and revoked selection.
 - [x] Full tests/build, two-customer browser QA and backed-up release979ef693.
 
-- [ ] Technical follow-up: health `_app_version` must support Git packed refs/worktree common refs. P8 preflight exposed the existing loose-ref-only reader after automatic Git GC; restored the identical main ref and disabled automatic GC for this release fetch. No code/history/data change in this operational recovery.
+- [x] Technical follow-up: health `_app_version` supports loose, detached and packed refs, including worktree common refs, without invoking Git. Missing and unsafe refs fail closed to `unknown`.
 
 ## P9 — supplier team policy
 
