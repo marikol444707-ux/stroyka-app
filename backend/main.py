@@ -5209,6 +5209,9 @@ def init_db():
         ALTER TABLE warehouse_movements ADD COLUMN IF NOT EXISTS estimate_control_status VARCHAR(50) NOT NULL DEFAULT 'not_checked';
         ALTER TABLE warehouse_movements ADD COLUMN IF NOT EXISTS estimate_control JSONB NOT NULL DEFAULT '{}'::jsonb;
         ALTER TABLE warehouse_movements ADD COLUMN IF NOT EXISTS estimate_review_task_id INT;
+        ALTER TABLE warehouse_movements ADD COLUMN IF NOT EXISTS document_snapshot_json JSONB;
+        ALTER TABLE warehouse_movements ADD COLUMN IF NOT EXISTS document_snapshot_hash CHAR(64);
+        ALTER TABLE warehouse_movements ADD COLUMN IF NOT EXISTS document_snapshot_frozen_at TIMESTAMPTZ;
         UPDATE warehouse_movements SET company_id=1 WHERE company_id IS NULL;
         ALTER TABLE warehouse_movements ALTER COLUMN material_name TYPE TEXT;
         CREATE TABLE IF NOT EXISTS inventory (
@@ -6964,7 +6967,7 @@ def get_warehouse_movements(
     except Exception:
         cur.close(); conn.close()
         raise
-    select_sql = "SELECT wm.id,wm.company_id as \"companyId\",wm.material_name as \"materialName\",wm.from_location as \"fromLocation\",wm.to_location as \"toLocation\",wm.quantity,wm.unit,wm.work_package as \"workPackage\",wm.date,wm.created_by as \"createdBy\",wm.notes,wm.source_invoice_id as \"sourceInvoiceId\",wm.source_invoice_line_index as \"sourceInvoiceLineIndex\",wm.estimate_control_status as \"estimateControlStatus\",wm.estimate_control as \"estimateControl\",wm.estimate_review_task_id as \"estimateReviewTaskId\" FROM warehouse_movements wm WHERE TRUE"
+    select_sql = "SELECT wm.id,wm.company_id as \"companyId\",wm.material_name as \"materialName\",wm.from_location as \"fromLocation\",wm.to_location as \"toLocation\",wm.quantity,wm.unit,wm.work_package as \"workPackage\",wm.date,wm.created_by as \"createdBy\",wm.notes,wm.source_invoice_id as \"sourceInvoiceId\",wm.source_invoice_line_index as \"sourceInvoiceLineIndex\",wm.estimate_control_status as \"estimateControlStatus\",wm.estimate_control as \"estimateControl\",wm.estimate_review_task_id as \"estimateReviewTaskId\",wm.document_snapshot_json as \"documentSnapshot\",wm.document_snapshot_hash as \"documentSnapshotHash\",wm.document_snapshot_frozen_at as \"documentSnapshotFrozenAt\" FROM warehouse_movements wm WHERE TRUE"
     if current_user.get("role") == "прораб":
         projects = user_project_names(current_user)
         if not projects:
@@ -7181,6 +7184,11 @@ def _apply_warehouse_movement(cur, m, company_id, _current_user):
     row["sourceInvoiceLineIndex"] = row.pop("source_invoice_line_index", None)
     row["estimateControlStatus"] = movement_estimate_control["status"]
     row["estimateControl"] = movement_estimate_control
+    try:
+        from backend.features.warehouse_movement_documents.storage import freeze_warehouse_movement
+    except ModuleNotFoundError:
+        from features.warehouse_movement_documents.storage import freeze_warehouse_movement
+    row["documentSnapshot"] = freeze_warehouse_movement(cur, row["id"], _current_user)
     actor_name = m.createdBy or _current_user.get("name","")
     if selected_receipt_lot:
         try:

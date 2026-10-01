@@ -946,10 +946,10 @@ class WarehouseAnomalyRuntimePreviewCompositionTests(unittest.TestCase):
             root / "backend/db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Reviewed material-transfer snapshot registration in the composition root;
+            # Reviewed warehouse-movement snapshot registration in the composition root;
             # warehouse preview implementation and registration are unchanged.
             root / "backend/main.py": (
-                "4fb54319b84f64008585111b760700174ad90ef3902fbefbe3e072472b7a074d"
+                "711563637089941c6e4e77f869ac7a708fdf72ea1e859c45bc717e377ec099ce"
             ),
         }
         self.assertEqual({

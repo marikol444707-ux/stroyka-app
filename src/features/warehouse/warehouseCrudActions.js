@@ -209,6 +209,7 @@ export const createWarehouseCrudActions = ({
     }
     let reviewRequired = 0;
     let reviewTasksCreated = 0;
+    const createdMovements = [];
     for (let index = 0; index < selected.length; index += 1) {
       const item = selected[index];
       const itemWorkPackage = item.workPackage || item.work_package || newMovement.workPackage || '';
@@ -237,6 +238,7 @@ export const createWarehouseCrudActions = ({
         return {success: false};
       }
       const movement = await res.json().catch(()=>({}));
+      createdMovements.push(movement);
       if (movement?.estimateControl?.needsReview) reviewRequired += 1;
       if (movement?.estimateReviewTaskId) reviewTasksCreated += 1;
     }
@@ -248,7 +250,7 @@ export const createWarehouseCrudActions = ({
     );
     setNewMovement(createWarehouseMovementForm());
     await refreshWarehouse();
-    return {success: true, moved: selected.length};
+    return {success: true, moved: selected.length, movements: createdMovements};
   };
 
   const deleteMaterial = async () => {

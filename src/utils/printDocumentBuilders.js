@@ -740,16 +740,24 @@ export const buildInvoiceDocContent = (data = {}, context = {}) => {
 };
 
 export const buildMovementDocContent = (movement = {}, items = [], context = {}) => {
-  const { companyRequisites = {}, companyName = '', userName = '' } = context;
+  const snapshot = movement.documentSnapshot;
+  const legacy = !snapshot;
+  const company = snapshot?.company || {};
+  const document = snapshot?.document || {};
+  const route = snapshot?.route || {};
+  const actor = snapshot?.actor || {};
+  const rows = items.length ? items : [movement];
   let html = '<h2 style="text-align:center">НАКЛАДНАЯ НА ВНУТРЕННЕЕ ПЕРЕМЕЩЕНИЕ (М-11)</h2>';
-  html += `<p style="text-align:center">${companyTitle(companyRequisites, companyName)}</p>`;
-  html += `<table><tr><th>Откуда</th><td>${movement.fromLocation}</td><th>Куда</th><td>${movement.toLocation}</td></tr>`;
-  html += `<tr><th>Дата</th><td>${new Date().toLocaleDateString('ru-RU')}</td><th>Кто отправил</th><td>${userName}</td></tr></table>`;
+  if (legacy) html += '<p style="padding:8px;border:1px solid #f59e0b;background:#fffbeb;color:#92400e"><b>Историческая запись:</b> реквизиты и ответственный не фиксировались. Текущие данные компании не подставлены.</p>';
+  html += `<p style="text-align:center">${docEsc(snapshot ? (company.fullName || company.shortName || 'Организация не указана') : 'Реквизиты не зафиксированы')}</p>`;
+  html += `<table><tr><th>Откуда</th><td>${docEsc(route.from?.name || movement.fromLocation || '')}</td><th>Куда</th><td>${docEsc(route.to?.name || movement.toLocation || '')}</td></tr>`;
+  html += `<tr><th>Дата</th><td>${docEsc(formatShortDate(document.date || movement.date))}</td><th>Кто отправил</th><td>${docEsc(snapshot ? actor.name : '')}</td></tr></table>`;
   html += '<table><tr><th>N</th><th>Наименование</th><th>Ед.</th><th>Кол-во</th><th>Принял</th></tr>';
-  items.forEach((item, index) => {
-    html += `<tr><td>${index + 1}</td><td>${item.name}</td><td>${item.unit}</td><td>${item.quantity}</td><td style="min-width:120px"></td></tr>`;
+  rows.forEach((item, index) => {
+    const itemSnapshot = item.documentSnapshot?.material || item.material || {};
+    html += `<tr><td>${index + 1}</td><td>${docEsc(itemSnapshot.name || item.materialName || item.name || '')}</td><td>${docEsc(itemSnapshot.unit || item.unit || '')}</td><td>${docEsc(itemSnapshot.quantity || item.quantity || '')}</td><td style="min-width:120px"></td></tr>`;
   });
-  html += `</table><div class="signatures"><div class="sig"><div class="sig-line">Отпустил: ${userName}</div></div><div class="sig"><div class="sig-line">Принял: _______________</div></div><div class="sig"><div class="sig-line">Водитель: _______________</div></div></div>`;
+  html += `</table><div class="signatures"><div class="sig"><div class="sig-line">Отпустил: ${docEsc(snapshot ? actor.name : '')}</div></div><div class="sig"><div class="sig-line">Принял: _______________</div></div><div class="sig"><div class="sig-line">Водитель: _______________</div></div></div>`;
   return html;
 };
 

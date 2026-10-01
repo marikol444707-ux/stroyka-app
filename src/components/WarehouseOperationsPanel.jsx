@@ -251,7 +251,7 @@ export default function WarehouseOperationsPanel({
                 const result = await applyWarehouseMovement();
                 if (!result?.success) return;
                 showPreview(
-                  buildMovementDoc(newMovement, (newMovement.selectedMaterials || []).filter(item => item.quantity)),
+                  buildMovementDoc(result.movements?.[0] || newMovement, result.movements || []),
                   'Накладная М-11'
                 );
               }}
@@ -295,6 +295,7 @@ export default function WarehouseOperationsPanel({
               <th style={tblH}>Куда</th>
               <th style={tblH}>Кол-во</th>
               <th style={tblH}>Дата</th>
+              <th style={tblH}>Документ</th>
             </tr>
           </thead>
           <tbody>
@@ -307,6 +308,7 @@ export default function WarehouseOperationsPanel({
                 <td style={tblC}>{movement.toLocation}</td>
                 <td style={tblC}>{movement.quantity + ' ' + movement.unit}</td>
                 <td style={tblC}>{movement.date}</td>
+                <td style={{...tblC,fontSize:'10px',color:movement.documentSnapshot?C.textMuted:C.warning}}>{movement.documentSnapshot?'М-11 зафиксирована':'Историческая запись'}</td>
               </tr>
             ))}
           </tbody>
