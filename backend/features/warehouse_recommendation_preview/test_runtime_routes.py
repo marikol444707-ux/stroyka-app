@@ -257,11 +257,11 @@ class WarehouseAnomalyRuntimeRouteRegistrationTests(unittest.TestCase):
         package_bytes = package_path.read_bytes()
         runtime_source = runtime_path.read_text(encoding="utf-8")
 
-        # Reviewed shipment-document party projection in the composition root;
+        # Reviewed isolated customer-directory registration in the composition root;
         # warehouse preview implementation and registration are unchanged.
         self.assertEqual(
             hashlib.sha256(main_bytes).hexdigest(),
-            "11a7e543b3d3868966d6744b6d837c3976a16bff4fa48453f6e6b227d96964a8",
+            "5c8e487e9a3bb00251293623f49dbe9add07a46919a0343ca142755a3c149585",
         )
         self.assertEqual(
             hashlib.sha256(package_bytes).hexdigest(),
