@@ -4245,6 +4245,7 @@ def init_db():
         ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS ai_recommended BOOLEAN DEFAULT FALSE;
         ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS delivery_status VARCHAR(100);
         ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS items_kp_json TEXT;
+        ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS party_snapshot_json JSONB;
         CREATE TABLE IF NOT EXISTS supplier_offer_events (
             id SERIAL PRIMARY KEY,
             offer_id INT,
@@ -7956,6 +7957,7 @@ def _ensure_supply_runtime_columns(cur):
     """Поднимает колонки снабжения для старых баз, где миграция могла не пройти."""
     cur.execute("ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1")
     cur.execute("ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1")
+    cur.execute("ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS party_snapshot_json JSONB")
     cur.execute("ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1")
     cur.execute("ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS work_package VARCHAR(100)")
     cur.execute("ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS delivery_address TEXT DEFAULT ''")
@@ -10059,6 +10061,7 @@ OFFERS_SELECT = ("SELECT id, request_id as \"requestId\", supplier_id as \"suppl
                  "response_due_at as \"responseDueAt\", "
                  "ai_recommended as \"aiRecommended\","
                  "items_kp_json as \"itemsKpJson\", "
+                 "party_snapshot_json as \"partySnapshot\", "
                  "to_jsonb(supplier_offers)->>'requested_items_json' as \"requestedItemsJson\", "
                  "to_jsonb(supplier_offers)->>'awarded_items_json' as \"awardedItemsJson\" "
                  "FROM supplier_offers")

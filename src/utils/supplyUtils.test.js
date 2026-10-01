@@ -1,5 +1,6 @@
 import {
   splitSupplierOffersByStatus,
+  offerPartyName,
   supplyEstimateControlSnapshotLabel,
   supplyRequestEstimateGroupLabel,
   supplyRequestListGroup,
@@ -7,6 +8,20 @@ import {
   supplierRecipientLinkAction,
   supplierRecipientStatusSummary,
 } from './supplyUtils';
+
+describe('offerPartyName', () => {
+  it('keeps the frozen supplier name for a sent quotation', () => {
+    expect(offerPartyName({
+      supplierId: 7,
+      partySnapshot: { supplier: { fullName: 'ООО «Поставщик на дату КП»' } },
+    }, [{ id: 7, name: 'Новое название карточки' }])).toBe('ООО «Поставщик на дату КП»');
+  });
+
+  it('uses the live card only before a quotation snapshot exists', () => {
+    expect(offerPartyName({ supplierId: 7 }, [{ id: 7, name: 'ООО «Поставщик»' }]))
+      .toBe('ООО «Поставщик»');
+  });
+});
 
 describe('supplyEstimateControlSnapshotLabel', () => {
   it('marks legacy control values as a creation-time snapshot', () => {

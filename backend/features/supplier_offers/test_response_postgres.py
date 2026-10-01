@@ -66,9 +66,20 @@ class SupplierResponsePostgresTests(unittest.TestCase):
     def test_retry_requires_live_access_and_stale_edit_is_rejected(self):
         offer, path, body = self.quote()
         saved = self.api('supplier', 'PUT', path, body)
+        snapshot = saved['partySnapshot']
+        self.assertEqual(snapshot['offerId'], offer['id'])
+        self.assertEqual(snapshot['requestId'], offer['requestId'])
+        self.assertEqual(snapshot['companyId'], self.fixture['companyId'])
+        self.assertEqual(snapshot['supplierId'], self.fixture['supplierId'])
+        self.assertTrue(snapshot['buyer']['fullName'])
+        self.assertTrue(snapshot['supplier']['fullName'])
+        original_supplier_name = self.sql("SELECT name FROM suppliers WHERE id=%s", (self.fixture['supplierId'],))[0][0]
+        self.sql("UPDATE suppliers SET name='Изменённый поставщик' WHERE id=%s", (self.fixture['supplierId'],))
         self.api('supplier', 'PUT', path, dict(body, requestId=str(uuid4()), supplierMessage='stale'), expected=409)
         revised = dict(body, requestId=str(uuid4()), expectedRespondedAt=saved['respondedAt'], supplierMessage='revision')
-        self.api('supplier', 'PUT', path, revised)
+        updated = self.api('supplier', 'PUT', path, revised)
+        self.assertEqual(updated['partySnapshot'], snapshot)
+        self.sql("UPDATE suppliers SET name=%s WHERE id=%s", (original_supplier_name, self.fixture['supplierId']))
         self.api('stranger_supplier', 'PUT', path, body, expected=403)
         self.sql('UPDATE supply_request_recipients SET visible_to_supplier=FALSE WHERE request_id=%s', (offer['requestId'],))
         self.api('supplier', 'PUT', path, body, expected=403)

@@ -3,6 +3,7 @@ import { Bot, Check, Edit2, Plus, Search, Trash2, X } from 'lucide-react';
 import { API } from '../api';
 import { createRequestForm, createSupplierForm, createSupplierInviteForm } from '../features/supply/supplyInitialForms';
 import { groupSuppliers } from '../utils/supplierUtils';
+import { offerPartyName } from '../utils/supplyUtils';
 import useAsyncSubmit from '../hooks/useAsyncSubmit';
 
 function SuppliersPage({
@@ -253,12 +254,12 @@ function SuppliersPage({
                     </div>
                     <button onClick={()=>saveOffer(req.id)} style={{...btnO,fontSize:'12px',padding:'6px 14px',marginBottom:'12px'}}><Plus size={12}/>Добавить КП</button>
                     {supplierOffers.filter(o=>o.requestId===req.id).map(o=>{
-                      const sup=suppliers.find(s=>s.id===o.supplierId);
+                      const supplierName=offerPartyName(o,suppliers);
                       const hasPrice = Number(o.pricePerUnit||0) > 0;
                       return (
                         <div key={o.id} style={{padding:'10px',backgroundColor:C.bg,borderRadius:'8px',marginBottom:'6px',border:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',flexWrap:'wrap'}}>
                           <div style={{flex:1,minWidth:'180px'}}>
-                            <b style={{fontSize:'12px',color:C.text}}>{sup?sup.name:'Поставщик'}</b>
+                            <b style={{fontSize:'12px',color:C.text}}>{supplierName}</b>
                             {hasPrice
                               ? <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{'Цена: '+Number(o.pricePerUnit||0).toLocaleString('ru-RU')+' ₽/ед · Итого: '+Number(o.totalPrice||0).toLocaleString('ru-RU')+' ₽'+(o.deliveryDays?' · '+o.deliveryDays+' дней':'')+(o.notes?' · '+o.notes:'')}</p>
                               : <p style={{color:C.textMuted,margin:'2px 0',fontSize:'11px',fontStyle:'italic'}}>⏳ Ждём ответ поставщика</p>}
@@ -349,7 +350,7 @@ function SuppliersPage({
                   {compareResult && compareResult.error && (<div style={{padding:'10px 12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder,borderRadius:'8px',marginBottom:'10px',fontSize:'12px',color:C.text}}>ℹ️ {compareResult.error}</div>)}
 
                   {offers.map(o => {
-                    const sup = suppliers.find(s => s.id === o.supplierId);
+                    const supplierName = offerPartyName(o, suppliers);
                     const hasPrice = Number(o.pricePerUnit||0) > 0;
                     const stC = o.status==='Утверждено'?C.success:o.status==='Отклонено'?C.danger:o.status==='Отозвано'?C.textMuted:o.status==='Получено'?C.info:C.warning;
                     const stBg = o.status==='Утверждено'?C.successLight:o.status==='Отклонено'?C.dangerLight:o.status==='Отозвано'?C.bg:o.status==='Получено'?C.infoLight:C.warningLight;
@@ -358,7 +359,7 @@ function SuppliersPage({
                       <div key={o.id} style={{padding:'10px 12px',backgroundColor:stBg,borderRadius:'6px',marginBottom:'6px',border:'1.5px solid '+stBd}}>
                         <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'8px',flexWrap:'wrap'}}>
                           <div style={{flex:'1 1 220px'}}>
-                            <b style={{color:C.text,fontSize:'13px'}}>{sup?sup.name:'Поставщик #'+o.supplierId}{o.aiRecommended&&<span style={{marginLeft:'6px',fontSize:'10px',color:C.accent}}>🤖 AI рек.</span>}</b>
+                            <b style={{color:C.text,fontSize:'13px'}}>{supplierName}{o.aiRecommended&&<span style={{marginLeft:'6px',fontSize:'10px',color:C.accent}}>🤖 AI рек.</span>}</b>
                             {hasPrice
                               ? (<p style={{color:C.text,margin:'2px 0',fontSize:'12px'}}>{isMulti ? ('Итого за пакет: '+Number(o.totalPrice||o.pricePerUnit||0).toLocaleString('ru-RU')+' ₽') : (Number(o.pricePerUnit||0).toLocaleString('ru-RU')+' ₽/ед · итого '+Number(o.totalPrice||0).toLocaleString('ru-RU')+' ₽')}{o.deliveryDays?' · '+o.deliveryDays+' дн.':''}</p>)
                               : <p style={{color:C.textMuted,margin:'2px 0',fontSize:'12px',fontStyle:'italic'}}>⏳ Поставщик ещё не ответил</p>}
