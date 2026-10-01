@@ -66,7 +66,14 @@ test('applyWarehouseMovement reports positions that need estimate review', async
 
   const result = await actions.applyWarehouseMovement();
 
-  expect(result).toEqual({success: true, moved: 2});
+  expect(result).toEqual({
+    success: true,
+    moved: 2,
+    movements: [
+      {estimateControl: {needsReview: true}, estimateReviewTaskId: 81},
+      {estimateControl: {needsReview: false}},
+    ],
+  });
   expect(global.fetch).toHaveBeenCalledTimes(2);
   expect(notify).toHaveBeenCalledWith('Перемещение выполнено · требуют сметного разбора: 1 · задачи созданы: 1', 'ai');
   expect(refreshData).toHaveBeenCalled();

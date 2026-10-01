@@ -257,11 +257,11 @@ class WarehouseAnomalyRuntimeRouteRegistrationTests(unittest.TestCase):
         package_bytes = package_path.read_bytes()
         runtime_source = runtime_path.read_text(encoding="utf-8")
 
-        # Reviewed material-transfer snapshot registration in the composition root;
+        # Reviewed warehouse-movement snapshot registration in the composition root;
         # warehouse preview implementation and registration are unchanged.
         self.assertEqual(
             hashlib.sha256(main_bytes).hexdigest(),
-            "4fb54319b84f64008585111b760700174ad90ef3902fbefbe3e072472b7a074d",
+            "711563637089941c6e4e77f869ac7a708fdf72ea1e859c45bc717e377ec099ce",
         )
         self.assertEqual(
             hashlib.sha256(package_bytes).hexdigest(),
