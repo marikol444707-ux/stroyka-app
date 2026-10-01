@@ -7,6 +7,19 @@ const asCompanyId = (value) => {
   return Number.isFinite(id) && id > 0 ? id : null;
 };
 
+export const applyCompanyContextSelection = ({
+  currentValue,
+  nextValue,
+  setSelectedCompanyId,
+  reload,
+}) => {
+  if (String(nextValue) === String(currentValue)) return false;
+  if (typeof setSelectedCompanyId !== 'function') return false;
+  setSelectedCompanyId(nextValue);
+  if (typeof reload === 'function') reload();
+  return true;
+};
+
 export default function CompanyContextSwitcher({
   C,
   companyContext,
@@ -57,7 +70,12 @@ export default function CompanyContextSwitcher({
       <select
         value={currentValue}
         disabled={disabled}
-        onChange={(event) => ctx.setSelectedCompanyId?.(event.target.value)}
+        onChange={(event) => applyCompanyContextSelection({
+          currentValue,
+          nextValue: event.target.value,
+          setSelectedCompanyId: ctx.setSelectedCompanyId,
+          reload: () => window.location.reload(),
+        })}
         style={{
           border:'none',
           outline:'none',
