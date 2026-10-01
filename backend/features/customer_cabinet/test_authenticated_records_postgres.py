@@ -19,7 +19,12 @@ class AuthenticatedCustomerRecordTest(unittest.TestCase):
                 cur.execute(importlib.import_module('migrations.versions.0040_customer_record_owners').SCHEMA_SQL)
                 cur.execute(importlib.import_module('migrations.versions.0068_customer_file_corrections').SCHEMA_SQL)
                 cur.execute(importlib.import_module('migrations.versions.0069_addressed_customer_publications').SCHEMA_SQL)
+                cur.execute(importlib.import_module('migrations.versions.0080_outgoing_letter_parties').UPGRADE_SQL)
                 cur.execute('ALTER TABLE file_ownership ADD COLUMN IF NOT EXISTS retained_at TIMESTAMPTZ')
+                cur.execute("INSERT INTO clients(company_id,name,status,inn) VALUES(2,'Заказчик объекта','Активен','2600000000') RETURNING id")
+                cls.customer_client_id=cur.fetchone()[0]
+                cur.execute('UPDATE projects SET client_id=%s WHERE id=%s AND company_id=2',
+                            (cls.customer_client_id,cls.fixture['projectId']))
                 user_id=cls.fixture['users']['foreman']['id']
                 cur.execute("UPDATE users SET role='заказчик' WHERE id=%s",(user_id,))
                 cur.execute("UPDATE user_company_roles SET role='заказчик' WHERE user_id=%s",(user_id,))
@@ -59,7 +64,9 @@ class AuthenticatedCustomerRecordTest(unittest.TestCase):
         letter=self.api(director,'POST','/project-letters/customer-publications',{
             'requestId':'a35ad376-0e44-4821-aaaf-f4f56ad25430','projectId':project_id,
             'subject':'Согласование','body':'Согласование'})
-        self.assertIn(letter['id'],[row['id'] for row in self.api(self.customer,'GET','/project-letters')])
+        letters=self.api(self.customer,'GET','/project-letters')
+        published=next(row for row in letters if row['id']==letter['id'])
+        self.assertEqual(published['partySnapshot']['recipient']['clientId'],self.customer_client_id)
 
     def test_direct_file_url_requires_customer_publication(self):
         project_id=self.fixture['projectId']

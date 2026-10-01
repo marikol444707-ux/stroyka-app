@@ -44,7 +44,13 @@ function DocumentLibrary({ project, user, documents = [], letters = [], loadStat
           {row.partySnapshot.contractBasis?.number ? ` · договор № ${row.partySnapshot.contractBasis.number}` : ''}
         </p>}
       {kind === 'letters' && row.direction === 'outgoing' && row.deliveryStatus === 'sent' &&
-        <p style={{fontWeight:700,color:C.success || C.primary || C.text}}>Получено от компании{row.publishedByName?` · ${row.publishedByName}`:''}</p>}
+        <div style={{color:C.success || C.primary || C.text}}>
+          <p style={{fontWeight:700}}>Получено от {row.partySnapshot?.sender?.fullName || 'компании'}
+            {row.publishedByName?` · отправил: ${row.publishedByName}`:''}</p>
+          {row.partySnapshot?.recipient?.fullName &&
+            <p style={{fontSize:12}}>Для {row.partySnapshot.recipient.fullName}
+              {row.partySnapshot.sender?.inn?` · ИНН отправителя ${row.partySnapshot.sender.inn}`:''}</p>}
+        </div>}
       {kind === 'letters' && row.replacesLetterId && <p style={{fontWeight:700,color:C.textSec}}>Исправленная версия</p>}
       {kind === 'letters' && row.correctionReason && <div style={{padding:12,margin:'8px 0',border:`1px solid ${C.warning || C.border}`,borderRadius:8}}>
         <b>Нужно исправить: {row.correctionReason}</b>
