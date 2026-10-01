@@ -456,7 +456,10 @@ export function TransfersTable({
                 <span style={{fontSize: '10px', color: C.textSec}}>подписано {fmtQty(balance.issued, t.unit)} · списано {fmtQty(balance.used, t.unit)}</span>
               </td>
               <td style={tblC}>{t.transferDate}</td>
-              <td style={tblC}>{t.signed ? <span style={{color: C.success, fontSize: '12px'}}>✅ Подписано</span> : <span style={{color: C.warning, fontSize: '12px'}}>⏳ Ожидает подписи</span>}</td>
+              <td style={tblC}>{t.signed ? <span style={{color: C.success, fontSize: '12px'}}>✅ Подписано</span> : <span style={{color: C.warning, fontSize: '12px'}}>⏳ Ожидает подписи</span>}
+                {t.issuePartySnapshot&&<><br/><span style={{color:C.textMuted,fontSize:'10px'}}>{t.receiptPartySnapshot?'Стороны зафиксированы':'Выдача зафиксирована'}</span></>}
+                {t.signed&&!t.issuePartySnapshot&&<><br/><span style={{color:C.warning,fontSize:'10px'}}>Историческая запись</span></>}
+              </td>
               <td style={tblC}>
                 {!t.signed && (
                   <button onClick={() => signTransfer(t.id)} style={{...btnO, padding: '4px 10px', fontSize: '11px'}}>

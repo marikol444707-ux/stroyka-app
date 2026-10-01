@@ -4391,6 +4391,12 @@ def init_db():
         ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS invoice_number VARCHAR(100);
         ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS company_id INT;
         ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS project_id INT;
+        ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS issue_party_snapshot_json JSONB;
+        ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS issue_party_snapshot_hash CHAR(64);
+        ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS issue_party_snapshot_frozen_at TIMESTAMPTZ;
+        ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS receipt_party_snapshot_json JSONB;
+        ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS receipt_party_snapshot_hash CHAR(64);
+        ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS receipt_party_snapshot_frozen_at TIMESTAMPTZ;
         UPDATE material_transfers mt
            SET company_id=project_scope.company_id,
                project_id=project_scope.project_id
@@ -19682,7 +19688,9 @@ def get_material_transfers(
     )
     base_select = """SELECT id,project_name,from_location,to_person,to_person_role,work_package,
                             material_name,quantity,unit,transfer_date,signed,signed_at,notes,created_by,created_at,
-                            to_user_id,invoice_id,invoice_line_key,invoice_line_index,invoice_number,company_id,project_id
+                            to_user_id,invoice_id,invoice_line_key,invoice_line_index,invoice_number,company_id,project_id,
+                            issue_party_snapshot_json,issue_party_snapshot_hash,issue_party_snapshot_frozen_at,
+                            receipt_party_snapshot_json,receipt_party_snapshot_hash,receipt_party_snapshot_frozen_at
                        FROM material_transfers mt"""
     conditions = [active_filter, visibility_sql]
     params = list(visibility_params)
@@ -19692,7 +19700,7 @@ def get_material_transfers(
     cur.execute(base_select + " WHERE " + " AND ".join(conditions) + " ORDER BY mt.id DESC", tuple(params))
     rows = cur.fetchall()
     cur.close(); conn.close()
-    return [{"id":r[0],"projectName":r[1],"fromLocation":r[2],"toPerson":r[3],"toPersonRole":r[4],"workPackage":r[5] or "","materialName":r[6],"quantity":float(r[7] or 0),"unit":r[8],"transferDate":str(r[9]) if r[9] else "","signed":r[10],"signedAt":str(r[11]) if r[11] else "","notes":r[12] or "","createdBy":r[13] or "","createdAt":str(r[14]),"toUserId":r[15],"invoiceId":r[16],"invoiceLineKey":r[17] or "","invoiceLineIndex":r[18],"invoiceNumber":r[19] or "","companyId":r[20],"projectId":r[21]} for r in rows]
+    return [{"id":r[0],"projectName":r[1],"fromLocation":r[2],"toPerson":r[3],"toPersonRole":r[4],"workPackage":r[5] or "","materialName":r[6],"quantity":float(r[7] or 0),"unit":r[8],"transferDate":str(r[9]) if r[9] else "","signed":r[10],"signedAt":str(r[11]) if r[11] else "","notes":r[12] or "","createdBy":r[13] or "","createdAt":str(r[14]),"toUserId":r[15],"invoiceId":r[16],"invoiceLineKey":r[17] or "","invoiceLineIndex":r[18],"invoiceNumber":r[19] or "","companyId":r[20],"projectId":r[21],"issuePartySnapshot":r[22],"issuePartySnapshotHash":r[23] or "","issuePartySnapshotFrozenAt":str(r[24]) if r[24] else "","receiptPartySnapshot":r[25],"receiptPartySnapshotHash":r[26] or "","receiptPartySnapshotFrozenAt":str(r[27]) if r[27] else ""} for r in rows]
 
 @app.post("/material-transfers")
 def create_material_transfer(
@@ -19914,6 +19922,12 @@ def create_material_transfer(
              created_by, invoice_id, invoice_line_key, invoice_line_index, invoice_number))
         new_id = cur.fetchone().get("id")
 
+        try:
+            from backend.features.material_transfer_documents.storage import freeze_material_transfer_issue
+        except ModuleNotFoundError:
+            from features.material_transfer_documents.storage import freeze_material_transfer_issue
+        freeze_material_transfer_issue(cur, new_id, actor)
+
         cur.execute("""INSERT INTO warehouse_history
                        (company_id,material,type,quantity,unit,date,project,issued_by,work_package,date_time,
                         source_type,source_id,source_invoice_id,source_invoice_line_index)
@@ -19972,8 +19986,18 @@ def sign_material_transfer(
         if not is_target_receiver:
             raise HTTPException(status_code=403, detail="Подписать передачу материала может только получатель")
         if not transfer["signed"]:
-            cur.execute("""UPDATE material_transfers SET signed=TRUE,signed_at=NOW()
-                            WHERE id=%s AND company_id=%s""", (id, transfer["companyId"]))
+            cur.execute("SELECT issue_party_snapshot_json FROM material_transfers WHERE id=%s AND company_id=%s",
+                        (id, transfer["companyId"]))
+            has_issue_snapshot = cur.fetchone().get("issue_party_snapshot_json") is not None
+            if has_issue_snapshot:
+                try:
+                    from backend.features.material_transfer_documents.storage import freeze_material_transfer_receipt
+                except ModuleNotFoundError:
+                    from features.material_transfer_documents.storage import freeze_material_transfer_receipt
+                freeze_material_transfer_receipt(cur, id, actor)
+            else:
+                cur.execute("""UPDATE material_transfers SET signed=TRUE,signed_at=NOW()
+                                WHERE id=%s AND company_id=%s""", (id, transfer["companyId"]))
             conn.commit()
         else:
             conn.rollback()

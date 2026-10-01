@@ -154,10 +154,22 @@ class TransferWorkflowPostgresTests(unittest.TestCase):
         self.assertEqual(self.sql("""SELECT company_id,project_id,to_user_id,quantity,signed
                                      FROM material_transfers WHERE id=%s""", (tid,)),
                          [(2, self.f["projectId"], self.f["users"]["worker"]["id"], 2, False)])
+        issue_snapshot = self.sql("""SELECT issue_party_snapshot_json,receipt_party_snapshot_json
+                                      FROM material_transfers WHERE id=%s""", (tid,))[0]
+        self.assertEqual(issue_snapshot[0]["project"]["id"], self.f["projectId"])
+        self.assertEqual(issue_snapshot[0]["intendedReceiver"]["userId"], self.f["users"]["worker"]["id"])
+        self.assertIsNone(issue_snapshot[1])
         self.assertEqual(self.sql("SELECT type,quantity,source_type,source_id FROM warehouse_history"),
                          [("расход", 2, "material_transfer", tid)])
         self.denied_unchanged("worker", "POST", "/material-transfers/return", self.payload(1), 400)
         self.api("worker", "PUT", f"/material-transfers/{tid}/sign")
+        receipt_snapshot = self.sql("""SELECT receipt_party_snapshot_json FROM material_transfers
+                                        WHERE id=%s""", (tid,))[0][0]
+        self.assertEqual(receipt_snapshot["receiver"]["userId"], self.f["users"]["worker"]["id"])
+        listed = next(row for row in self.api("worker", "GET", "/material-transfers") if row["id"] == tid)
+        self.assertEqual(listed["issuePartySnapshot"]["project"]["id"], self.f["projectId"])
+        self.assertEqual(listed["receiptPartySnapshot"]["receiver"]["userId"],
+                         self.f["users"]["worker"]["id"])
         self.assert_state(0, 2, 0)
         before = self.snapshot()
         self.api("worker", "PUT", f"/material-transfers/{tid}/sign")
