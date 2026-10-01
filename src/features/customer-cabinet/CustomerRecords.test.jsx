@@ -22,6 +22,15 @@ test('documents expose only published exact-owner records and safe attachment pa
   expect(screen.getAllByRole('link')).toHaveLength(1);
   expect(screen.getByRole('link').getAttribute('href')).toBe('/tenant-files/1/content');
 });
+test('customer sees frozen KS parties and the exact contract basis', () => {
+  const doc={id:6,companyId:2,projectId:3,side:'customer',docType:'Акт КС-2',number:'2',
+    signStatus:'Подписан',scanUrl:'/tenant-files/6/content',partySnapshot:{
+      documentKind:'customerWorkAct',executor:{fullName:'ООО Исполнитель'},
+      customer:{fullName:'ООО Заказчик'},contractBasis:{documentId:1,number:'15',version:2},
+    }};
+  render(<CustomerDocuments {...base} loadState={{documents:ready,letters:ready}} documents={[doc]}/>);
+  expect(screen.getByText('ООО Исполнитель → ООО Заказчик · договор № 15')).toBeTruthy();
+});
 test('unconfirmed document load is not reported as an empty registry', () => {
   render(<CustomerDocuments {...base} loadState={{ documents: { ...ready, status: 'error', error: 'Offline' } }} />);
   expect(screen.getByText('Offline')).toBeTruthy();

@@ -17,6 +17,7 @@ const buildProps = (overrides = {}) => ({
     scanUrl: '',
     amount: '',
     notes: '',
+    basisContractDocumentId: null,
   },
   setNewProjectDoc: jest.fn(),
   showDocForm: true,
@@ -152,5 +153,44 @@ describe('ProjectDocumentsRegistryPanel', () => {
       context: 'project-documents',
       preferProtectedUrl: true,
     }));
+  });
+
+  it('selects the only signed customer contract when KS-2 is chosen', () => {
+    const contract={
+      id:40,projectName:'Лицей',side:'customer',docType:'Договор',number:'15',
+      contractVersion:2,partySnapshot:{schemaVersion:1},signStatus:'Подписан',
+      scanUrl:'/tenant-files/40/content',
+    };
+    const props=buildProps({projectDocuments:[contract]});
+    const {getByDisplayValue}=render(<ProjectDocumentsRegistryPanel {...props}/>);
+    fireEvent.change(getByDisplayValue('Договор'),{target:{value:'Акт КС-2'}});
+    expect(props.setNewProjectDoc).toHaveBeenCalledWith(expect.objectContaining({
+      docType:'Акт КС-2',basisContractDocumentId:40,
+    }));
+  });
+
+  it('does not save a signed KS act without an exact contract basis', () => {
+    const alert=jest.spyOn(window,'alert').mockImplementation(()=>{});
+    const props=buildProps({newProjectDoc:{...buildProps().newProjectDoc,
+      docType:'Акт КС-2',signStatus:'Подписан',scanUrl:'/tenant-files/78/content',
+    }});
+    global.fetch=jest.fn();
+    const {getByRole}=render(<ProjectDocumentsRegistryPanel {...props}/>);
+    fireEvent.click(getByRole('button',{name:/Сохранить/i}));
+    expect(alert).toHaveBeenCalledWith('Выберите договор-основание для КС');
+    expect(global.fetch).not.toHaveBeenCalled();
+    alert.mockRestore();
+  });
+
+  it('shows the frozen KS contract basis without offering a contract revision', () => {
+    const props=buildProps({showDocForm:false,projectDocuments:[{
+      id:44,projectName:'Лицей',side:'customer',docType:'Акт КС-3',number:'3',
+      signStatus:'Подписан',scanUrl:'/tenant-files/78/content',notes:'',
+      partySnapshot:{documentKind:'customerWorkAct',contractBasis:{documentId:40,number:'15',version:2}},
+    }]});
+    const {getByText,queryByRole}=render(<ProjectDocumentsRegistryPanel {...props}/>);
+    expect(getByText('Стороны и договор-основание зафиксированы')).toBeInTheDocument();
+    expect(getByText('По договору № 15 · версия 2')).toBeInTheDocument();
+    expect(queryByRole('button',{name:/Новая версия/i})).not.toBeInTheDocument();
   });
 });

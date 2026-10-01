@@ -9,6 +9,7 @@ export const createProjectDocumentForm = () => ({
   amount: '',
   notes: '',
   revisesDocumentId: null,
+  basisContractDocumentId: null,
 });
 
 export const createProjectLetterForm = () => ({
