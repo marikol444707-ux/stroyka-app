@@ -88,7 +88,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M2.3: Protect `DELETE /supply-requests/{id}` and its optional stock rollback by request company. Verified and released as an independent production slice.
 - [x] Task M2.4: Protect `POST /supply-requests/{id}/request-kp` by the stored request company and effective membership role. Verified and released as an independent production slice.
 - [x] Task M2.5: Protect `GET /supply-requests/{id}/recipients` by stored request company and effective membership role. Verified and released as an independent production slice.
-- [ ] Task M2.6: Store exact `project_id` on new supply requests, expose it in reads, and provide a dry-run-first guarded backfill for legacy rows. Implemented locally; production dry-run and release pending.
+- [x] Task M2.6: Store exact `project_id` on new supply requests, expose it in reads, and provide a dry-run-first guarded backfill for legacy rows. Released in production: five exact legacy rows linked, four unresolved rows left unchanged for explicit mapping.
 - [ ] Task M3: Scope supplier visibility, recipients, offers, invoices, and company-supplier terms.
 - [x] Task M3.1: Scope `GET /supplier-offers` by internal company context and explicit supplier-recipient evidence. Verified and released as an independent production slice.
 - [x] Task M3.2: Protect `GET /supplier-offers/{id}/history` and `PUT /supplier-offers/{id}` with the verified offer/request company and supplier recipient scope. Verified and released as an independent production slice.
