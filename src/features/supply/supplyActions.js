@@ -13,6 +13,7 @@ export const createSupplyActions = ({
   newSupplyReq,
   notify,
   priceHints,
+  projects = [],
   receiveForm,
   refreshData,
   selectedSupplierIds,
@@ -63,6 +64,23 @@ export const createSupplyActions = ({
       return null;
     }
     return selectedCompanyId;
+  };
+  const exactProjectId = (projectName, companyId) => {
+    if ((projectName || '').trim() === 'Основной склад') return null;
+    const candidates = (projects || []).filter(project => {
+      const id = Number(project?.id || 0);
+      const owner = Number(project?.companyId || project?.company_id || 0);
+      return id > 0 && !project?.archived
+        && (project?.name || '').trim() === (projectName || '').trim()
+        && (!owner || owner === Number(companyId));
+    });
+    if (candidates.length !== 1) {
+      alert(candidates.length
+        ? 'Найдено несколько объектов с таким названием. Выберите объект заново.'
+        : 'Не удалось определить выбранный объект. Обновите список объектов и повторите.');
+      return undefined;
+    }
+    return Number(candidates[0].id);
   };
 
   // The app supplies a useRef shared by both forms and retained across renders.
@@ -146,6 +164,8 @@ export const createSupplyActions = ({
       .filter(i => i.materialName && i.quantity)
       .map(i => ({ ...i, workPackage: i.workPackage || defaultWorkPackage }));
     if (!validItems.length || !newRequest.project) return;
+    const projectId = exactProjectId(newRequest.project, companyId);
+    if (projectId === undefined) return;
     const itemsPayload = validItems.map(item => ({
       materialName: item.materialName,
       quantity: Number(item.quantity),
@@ -170,6 +190,7 @@ export const createSupplyActions = ({
         items: itemsPayload,
         workPackage: requestPackage,
         companyId,
+        projectId,
         project: newRequest.project,
         deliveryAddress: newRequest.deliveryAddress || '',
         createdBy: currentUser.name || '',
@@ -226,11 +247,15 @@ export const createSupplyActions = ({
   };
 
   const createSupplyReq = () => runRequestCreation(async (markCreated) => {
+    const companyId = requireSelectedCompanyForWrite();
+    if (!companyId) return;
     const valid = (newSupplyReq.items || []).filter(i => i.materialName && Number(i.quantity) > 0);
     if (!valid.length || !newSupplyReq.project) {
       alert('Заполните хотя бы одну строку (материал + кол-во) и выберите объект');
       return;
     }
+    const projectId = exactProjectId(newSupplyReq.project, companyId);
+    if (projectId === undefined) return;
     const requestPackages = getProjectWorkPackageOptions(newSupplyReq.project);
     const defaultWorkPackage = newSupplyReq.workPackage || (requestPackages.length === 1 ? requestPackages[0] : '');
     const itemsPayload = valid.map(it => ({
@@ -256,6 +281,8 @@ export const createSupplyActions = ({
         unit: itemsPayload[0].unit,
         items: itemsPayload,
         workPackage: requestPackage,
+        companyId,
+        projectId,
         project: newSupplyReq.project,
         createdBy: currentUser.name || '',
         date: new Date().toISOString().split('T')[0],

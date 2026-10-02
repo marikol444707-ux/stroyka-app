@@ -543,6 +543,7 @@ export function buildAppActionGroups({
     newSupplyReq,
     notify,
     priceHints,
+    projects,
     receiveForm,
     refreshData: () => refreshData('supply'),
     selectedSupplierIds,

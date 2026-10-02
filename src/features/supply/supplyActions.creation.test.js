@@ -13,6 +13,7 @@ const context = (overrides = {}) => ({
   API: '/api', companyContext: { mode: 'company', selectedCompanyId: 4 },
   user: { id: 7, name: 'Директор', role: 'директор' },
   getProjectWorkPackageOptions: () => [],
+  projects: [{ id: 12, companyId: 4, name: 'Лицей' }],
   newRequest: { project: 'Лицей', items: [{ materialName: 'Труба', quantity: 10 }], selectedSuppliers: [] },
   newSupplyReq: { project: 'Лицей', items: [{ materialName: 'Труба', quantity: 10 }] },
   notify: jest.fn(), refreshData: jest.fn().mockResolvedValue(),
@@ -57,6 +58,26 @@ describe('request creation in-flight protection', () => {
 
     const payload = JSON.parse(global.fetch.mock.calls[0][1].body);
     expect(payload.deliveryAddress).toBe('г. Кисловодск, ул. Школьная, 4');
+    expect(payload.projectId).toBe(12);
+    expect(payload.companyId).toBe(4);
+  });
+
+  it.each(['saveRequest', 'createSupplyReq'])('sends exact project and company identity from %s', async method => {
+    const deps = context();
+    global.fetch.mockResolvedValue(response({ id: 31, status: 'Новая' }));
+    await createSupplyActions(deps)[method]();
+    const payload = JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(payload).toEqual(expect.objectContaining({ companyId: 4, projectId: 12, project: 'Лицей' }));
+  });
+
+  it.each(['saveRequest', 'createSupplyReq'])('does not create through ambiguous project name in %s', async method => {
+    const deps = context({ projects: [
+      { id: 12, companyId: 4, name: 'Лицей' },
+      { id: 13, companyId: 4, name: 'Лицей' },
+    ] });
+    await createSupplyActions(deps)[method]();
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(window.alert).toHaveBeenCalledWith(expect.stringContaining('несколько объектов'));
   });
 
   it('shares the same guard across both request forms, but not independent app instances', async () => {
