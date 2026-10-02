@@ -718,10 +718,10 @@ class WarehouseAnomalyRuntimeDisclosurePolicyTests(unittest.TestCase):
             backend_root / "db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Reviewed warehouse-movement snapshot registration in the composition root;
+            # Reviewed intercompany-transfer registration in the composition root;
             # warehouse preview implementation and registration are unchanged.
             backend_root / "main.py": (
-                "5ba8111fd7013655ee389dae885b7df5cf704ad7c82a26871c9319d656984f70"
+                "7afaf796f74f9e56533c9e594d241c000269fe5c8bcc3f8525878740a1ac9cb2"
             ),
         }
         actual = {

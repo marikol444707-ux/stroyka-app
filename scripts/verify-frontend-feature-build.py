@@ -18,7 +18,11 @@ def verify(build_dir: Path, build_environment: str) -> None:
         flags.get("REACT_APP_SUPPLIER_MATERIAL_CAPABILITY_RUNTIME_ENABLED")
         == "true"
     )
-    if not warehouse_enabled and not capability_enabled:
+    intercompany_enabled = (
+        flags.get("REACT_APP_INTERCOMPANY_WAREHOUSE_TRANSFERS_ENABLED")
+        == "true"
+    )
+    if not warehouse_enabled and not capability_enabled and not intercompany_enabled:
         return
 
     manifest = json.loads(
@@ -65,6 +69,16 @@ def verify(build_dir: Path, build_environment: str) -> None:
             raise ValueError(
                 "Frontend собран без включённой проверки материалов: "
                 + ", ".join(missing)
+            )
+
+    if intercompany_enabled:
+        if not warehouse_enabled:
+            raise ValueError(
+                "Межфирменные перемещения включены без складского рабочего пространства"
+            )
+        if "/intercompany-warehouse-transfers" not in bundle:
+            raise ValueError(
+                "Frontend собран без маршрута межфирменных перемещений"
             )
 
 

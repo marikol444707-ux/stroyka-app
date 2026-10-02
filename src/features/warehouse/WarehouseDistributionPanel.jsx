@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { API } from '../../api';
 import { pendingCommand, saveCommand, clearCommand, readResponse, validateList, validateCommandResult } from './distributionCommands';
 import WarehouseTransfersPanel from './WarehouseTransfersPanel';
+import IntercompanyWarehouseTransfersPanel from './IntercompanyWarehouseTransfersPanel';
 import './WarehouseDistributionPanel.css';
 
 const emptyRow = () => ({ lotId: '', projectId: '', quantity: '' });
@@ -28,10 +29,10 @@ export function DistributionWorkspace({ companyContext = {}, ...props }) {
   const membership = companies.find(c => Number(c.companyId) === Number(selectedCompanyId));
   if (!membership || membership.active === false || membership.companyActive === false || !readers.includes(membership.role)) return null;
   const editable = !props.readOnly && !companyContext.readOnly && !membership.readOnly && writers.includes(membership.role);
-  return <CompanyDistribution key={`${selectedCompanyId}:${editable}`} {...props} companyId={Number(selectedCompanyId)} editable={editable} />;
+  return <CompanyDistribution key={`${selectedCompanyId}:${editable}`} {...props} companyId={Number(selectedCompanyId)} companies={companies} editable={editable} />;
 }
 
-function CompanyDistribution({ companyId, editable, projects = [], refreshData, C = {} }) {
+function CompanyDistribution({ companyId, companies, editable, projects = [], warehouseMain = [], refreshData, C = {} }) {
   const transfersEnabled = process.env.REACT_APP_WAREHOUSE_DISTRIBUTION_TRANSFERS_ENABLED === 'true';
   const [transferSource, setTransferSource] = useState(null);
   const [transferBlocked, setTransferBlocked] = useState(false);
@@ -158,7 +159,7 @@ function CompanyDistribution({ companyId, editable, projects = [], refreshData, 
     setSelectedSources(sourceOptions.filter(s => next.some(r => Number(r.lotId) === s.lotId)));
   };
   const closeReturn = () => { setReturning(null); setReturnQuantity(''); setReturnReason(''); setConfirmed(false); };
-  return <section className="warehouse-distribution" style={{ '--wd-text': C.text, '--wd-muted': C.textSec || C.textMuted, '--wd-border': C.border, '--wd-surface': C.bgWhite || C.card, '--wd-accent': C.accent }} aria-label="Распределение по объектам">
+  return <><section className="warehouse-distribution" style={{ '--wd-text': C.text, '--wd-muted': C.textSec || C.textMuted, '--wd-border': C.border, '--wd-surface': C.bgWhite || C.card, '--wd-accent': C.accent }} aria-label="Распределение по объектам">
     <div className="wd-heading"><h3>Распределение по объектам</h3><button type="button" disabled={busy || loading} onClick={load}>Обновить</button></div>
     <p>Движение с общего склада — не новый долг поставщику. Осталось по распределению — выданное минус возвраты и отправки на другие объекты, а не фактический остаток на объекте.</p>
     {loading && <p role="status">Загрузка партий и распределений…</p>}
@@ -229,5 +230,6 @@ function CompanyDistribution({ companyId, editable, projects = [], refreshData, 
         <div className="wd-heading"><button type="submit" disabled={!confirmed || !validQuantity(returnQuantity) || !returnReason.trim() || Number(returnQuantity) > Number(returning.netQuantity)}>Подтвердить возврат</button><button type="button" onClick={closeReturn}>Отмена</button></div>
       </fieldset>
     </form>}
-  </section>;
+  </section><IntercompanyWarehouseTransfersPanel companyId={companyId} companies={companies} warehouseMain={warehouseMain} editable={editable} onChanged={refreshData}
+    style={{ '--wd-text': C.text, '--wd-muted': C.textSec || C.textMuted, '--wd-border': C.border, '--wd-surface': C.bgWhite || C.card, '--wd-accent': C.accent }} /></>;
 }

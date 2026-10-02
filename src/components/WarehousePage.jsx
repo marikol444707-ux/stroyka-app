@@ -315,7 +315,7 @@ export default function WarehousePage(props) {
         />
       )}
 
-      {warehouseTab === 'move' && <WarehouseDistributionPanel companyContext={companyContext} projects={projects} C={C} refreshData={refreshData} />}
+      {warehouseTab === 'move' && <WarehouseDistributionPanel companyContext={companyContext} projects={projects} warehouseMain={warehouseMain} C={C} refreshData={refreshData} />}
       {warehouseTab === 'tools' && toolCustodyEnabled() && <ToolsWorkspace {...{ tools, toolHistory, API, companyContext, user, C, refreshData }} />}
       {warehouseTab === 'inventory' && inventoryReconciliationEnabled() && <InventoryWorkspace {...{ API, companyContext, user, C, showPreview }} onChanged={refreshData} />}
 
