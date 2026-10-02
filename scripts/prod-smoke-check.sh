@@ -376,6 +376,7 @@ if public_smoke_checks_enabled; then
   check_not_spa_fallback "tenant files route" "$BASE_URL/tenant-files/1" "401 403"
   check_not_spa_fallback "tenant file content route" "$BASE_URL/tenant-files/1/content" "401 403"
   check_not_spa_fallback "warehouse invoices route" "$BASE_URL/warehouse-invoices" "401 403 422 429"
+  check_not_spa_fallback "intercompany warehouse transfers route" "$BASE_URL/intercompany-warehouse-transfers" "401 403 422 429"
   check_not_spa_fallback "supplier invoices route" "$BASE_URL/supplier-invoices" "401 403 422 429"
   check_not_spa_fallback "accounting exception checks route" "$BASE_URL/accounting-exception-checks" "401 403 404 422 429"
   check_not_spa_fallback "accounting link repairs route" "$BASE_URL/accounting-exception-link-repairs" "401 403 404 422 429"
