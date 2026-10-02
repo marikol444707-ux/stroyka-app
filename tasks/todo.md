@@ -1382,14 +1382,16 @@ mismatched ownership; the unauthenticated route returned `401`.
 
 **Description:** Apply the same kernel to projects, estimates, materials, journals, acts, staff, files, notifications, exports, audit records, and AI/OCR jobs.
 
+**Status:** Closed after the final protected AI-control isolation smoke passed on production runtime `87d7d0fe24d6`; all temporary fixtures were removed.
+
 **Acceptance criteria:**
-- [ ] Every new tenant-owned row has a traceable company source.
-- [ ] Files and background jobs cannot be fetched or executed from another tenant.
-- [ ] Platform support uses expiring, audited support sessions.
+- [x] Every new tenant-owned row has a traceable company source.
+- [x] Files and background jobs cannot be fetched or executed from another tenant.
+- [x] Platform support uses expiring, audited support sessions.
 
 **Verification:**
-- [ ] Domain-focused tests and the role matrix pass.
-- [ ] Browser smoke covers one complete director workflow.
+- [x] Domain-focused tests and the role matrix pass.
+- [x] Browser smoke covers one complete director workflow.
 
 **Dependencies:** Tasks M2-M5
 
@@ -1397,15 +1399,15 @@ mismatched ownership; the unauthenticated route returned `401`.
 
 ### Approved M6 Delivery Order
 
-- [ ] `M6.0` Build a read-only registry of tenant-owned tables, routes, parent relations, file surfaces, jobs, and the authoritative source of `company_id`.
-- [ ] `M6.1` Make projects the tenant root: selected-company reads/writes, immutable company ownership, and ID-based access instead of `project_name` security.
-- [ ] `M6.2` Protect files and document versions with parent ownership; keep legacy `/uploads` compatible while new protected documents use authorized downloads or short signed URLs.
-- [ ] `M6.3` Scope staff, memberships, personal documents, consents, and dismissal so one company membership can be disabled without disabling the global account.
-- [ ] `M6.4` Scope company messages, estimates, versions, changes, templates, and estimate chat by stored company and verified project ID.
-- [ ] `M6.5` Scope work journal, rooms/measurements, contract items, journals, acts, and their cascading material/document writes.
-- [ ] `M6.6` Scope assignments, reports, attachments, AI/OCR tasks, summaries, dedupe keys, and background execution.
-- [ ] `M6.7` Scope MAX files, notifications, deep links, and outbox dispatch by company and verified recipient membership.
-- [ ] `M6.8` Add company-aware audit/export contracts and negative read/write tests for every migrated domain.
+- [x] `M6.0` Build a read-only registry of tenant-owned tables, routes, parent relations, file surfaces, jobs, and the authoritative source of `company_id`.
+- [x] `M6.1` Make projects the tenant root: selected-company reads/writes, immutable company ownership, and ID-based access instead of `project_name` security.
+- [x] `M6.2` Protect files and document versions with parent ownership; keep legacy `/uploads` compatible while new protected documents use authorized downloads or short signed URLs.
+- [x] `M6.3` Scope staff, memberships, personal documents, consents, and dismissal so one company membership can be disabled without disabling the global account.
+- [x] `M6.4` Scope company messages, estimates, versions, changes, templates, and estimate chat by stored company and verified project ID.
+- [x] `M6.5` Scope work journal, rooms/measurements, contract items, journals, acts, and their cascading material/document writes.
+- [x] `M6.6` Scope assignments, reports, attachments, AI/OCR tasks, summaries, dedupe keys, and background execution.
+- [x] `M6.7` Scope MAX files, notifications, deep links, and outbox dispatch by company and verified recipient membership.
+- [x] `M6.8` Add company-aware audit/export contracts and negative read/write tests for every migrated domain.
 
 ## Task M6.2a: New Upload Ownership Kernel
 
@@ -3040,7 +3042,7 @@ mismatched ownership; the unauthenticated route returned `401`.
 
 **Description:** Keep the existing single-run URLs while resolving one selected company, effective company role and exact stored project owner before AI generation.
 
-**Status:** Deployed on production runtime `c6dfddaa321b`; public smoke passed. Protected single-run is intentionally deferred into the combined final M6.6 smoke.
+**Status:** Closed on production runtime `87d7d0fe24d6`; protected `/ai-control/run` and `/ai-findings/generate` passed with exact owner, foreign-project denial, and duplicate-name fail-closed behavior.
 
 **Safety:**
 - `all_companies` is rejected before project lookup or generation.
@@ -3056,7 +3058,7 @@ mismatched ownership; the unauthenticated route returned `401`.
 
 **Description:** Scope batch and automatic AI runs without changing the AI findings/tasks business algorithm.
 
-**Status:** Deployed in production runtime `8ef743a6a7d6`; public smoke passed. Combined protected M6 smoke is intentionally deferred.
+**Status:** Closed on production runtime `87d7d0fe24d6`; selected-company batch and automatic event runs passed together with cross-company denial, ambiguous-name rollback, exact `4` finding / `4` task ownership, and zero fixture residue.
 
 **Safety:**
 - User `run-all` requires one selected company and an effective leadership/engineering role.
