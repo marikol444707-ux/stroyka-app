@@ -1244,7 +1244,7 @@ mismatched ownership; the unauthenticated route returned `401`.
 
 **Description:** Close global read paths for brigade contracts, payments, items, and acts using the existing `brigade_contracts.company_id` as the parent tenant boundary. Preserve current calculations and worker price masking.
 
-**Status:** Implemented and pushed in `937d7a4f`; production release pending.
+**Status:** Released through production runtime `67002b578061`. Protected selected-company assignment/read/delete smoke and the production ownership audit passed.
 
 **Acceptance criteria:**
 - [x] Contract reads resolve selected/all-company context through effective membership roles.
@@ -1259,9 +1259,9 @@ mismatched ownership; the unauthenticated route returned `401`.
 - [x] Brigade access tests cover finance, foreman, worker, package, and fail-closed cases.
 - [x] Backend compile and focused tenant-access tests pass.
 - [x] Frontend tests and production build pass.
-- [ ] Production version and authenticated selected-company reads pass after deploy.
+- [x] Production version, protected selected-company reads, exact assignment removal, and zero-residue cleanup pass after deploy.
 
-**Known follow-up:** M5.3b1-M5.3b3 must bind payment, contract, item, act, and estimate-distribution mutations to stored company ownership before the brigade chain is pilot-ready.
+**Release evidence:** The protected production smoke verified project and estimate visibility, both assigned rows and brigade prices, and removal through the stored company boundary. The lineage audit reported 291 rows, zero invalid rows, ready constraints/writers/delete restrictions, and no writes.
 
 **Dependencies:** Task M5.2
 
@@ -1271,7 +1271,7 @@ mismatched ownership; the unauthenticated route returned `401`.
 
 **Description:** Store payment ownership explicitly and derive every brigade payment mutation from the parent contract's saved company. Keep contract/item/act writes out of this step.
 
-**Status:** Implemented locally; release pending.
+**Status:** Released through production runtime `67002b578061`. Production ownership remained consistent; the full payment create/reversal lifecycle passed in disposable PostgreSQL CI. No real production payment was created for verification.
 
 **Acceptance criteria:**
 - [x] Brigade contract/payment ownership columns are indexed; exact/unique legacy rows are backfilled, while ambiguous rows remain `NULL` and fail closed instead of being assigned to company `1`.
@@ -1291,9 +1291,9 @@ mismatched ownership; the unauthenticated route returned `401`.
 - [x] Backend compile and focused tenant-access tests pass.
 - [x] Frontend tests and production build pass.
 - [x] Isolated PostgreSQL migration test covers exact, unique, ambiguous, stale-id, one-to-one link, duplicate-link, and idempotent rerun cases.
-- [ ] Production version and authenticated selected-company payment smoke pass after deploy.
+- [x] Production version and ownership audit pass after deploy; disposable PostgreSQL tests cover selected-company payment creation, exact linked ledger entry, reversal, and failure rollback without creating a real production payment.
 
-**Known follow-up:** M5.3b2 must close contract create/update/cancel and company-safe contractor assignment. M5.3b3 must close pricelist loading, items, acts, and estimate distribution.
+**Release evidence:** Runtime `67002b578061`, full CI, 41 focused brigade tests (three PostgreSQL-only tests skipped locally and executed in CI), protected production assignment/read/delete smoke, and zero test residue after cleanup.
 
 **Dependencies:** Task M5.3a
 
