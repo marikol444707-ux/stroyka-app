@@ -28,7 +28,19 @@ def facts(*, present=False, rows=8, columns=None):
             "columns": set(columns or {"company_id", "project"}),
             "indexes": indexes,
             "totalRows": rows,
-        }
+        },
+        "public_lead_uploads": {
+            "exists": True,
+            "columns": {"company_id"},
+            "indexes": [{
+                "name": "idx_public_lead_uploads_company_id",
+                "definition": (
+                    "CREATE INDEX idx_public_lead_uploads_company_id "
+                    "ON public.public_lead_uploads USING btree (company_id)"
+                ),
+            }],
+            "totalRows": 2,
+        },
     }
 
 
@@ -97,7 +109,10 @@ class TenantIndexMigrationTests(unittest.TestCase):
         report = build_index_report(existing)
 
         self.assertTrue(report["complete"])
-        self.assertEqual(report["matchingIndex"], "idx_existing_owner_lookup")
+        self.assertEqual(
+            report["matchingIndexes"]["work_journal"],
+            "idx_existing_owner_lookup",
+        )
 
     def test_partial_index_does_not_satisfy_full_table_requirement(self):
         existing = facts()
@@ -164,6 +179,19 @@ class TenantIndexMigrationTests(unittest.TestCase):
             sql,
         )
         self.assertEqual(result["postSummary"], after["summary"])
+
+    def test_plans_missing_public_lead_company_index(self):
+        existing = facts(present=True)
+        existing["public_lead_uploads"]["indexes"] = []
+
+        report = build_index_report(existing)
+
+        self.assertTrue(report["readyForApply"])
+        self.assertEqual(report["missingCount"], 1)
+        self.assertEqual(
+            report["missingIndexes"][0]["indexName"],
+            "idx_public_lead_uploads_company_id",
+        )
 
     def test_apply_rejects_plan_drift_before_create(self):
         connection = FakeConnection()

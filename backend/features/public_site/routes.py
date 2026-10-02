@@ -123,6 +123,10 @@ def _ensure_public_lead_uploads_schema(cur) -> None:
         CREATE UNIQUE INDEX IF NOT EXISTS idx_public_lead_uploads_file
         ON public_lead_uploads(file_ownership_id)
     """)
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_public_lead_uploads_company_id
+        ON public_lead_uploads(company_id)
+    """)
 
 
 def _cleanup_expired_public_lead_uploads(get_db, delete_local_file, delete_s3_object, limit=20) -> int:

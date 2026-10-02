@@ -1,4 +1,4 @@
-"""Guarded M7 migration for the verified work-journal tenant index."""
+"""Guarded M7 migration for verified tenant lookup indexes."""
 
 import argparse
 import hashlib
@@ -10,6 +10,7 @@ import sys
 import psycopg2
 import psycopg2.extensions
 import psycopg2.extras
+from psycopg2 import sql
 
 from .report import ENV_PATH
 
@@ -17,16 +18,28 @@ from .report import ENV_PATH
 APPLY_CONFIRMATION = "APPLY_TENANT_READINESS_INDEXES"
 PLAN_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 INDEX_NAME = "idx_work_journal_company_project"
-TARGET = {
-    "resource": "work_journal",
-    "indexName": INDEX_NAME,
-    "columns": ("company_id", "project"),
-    "createSql": (
-        "CREATE INDEX IF NOT EXISTS idx_work_journal_company_project "
-        "ON work_journal(company_id,project)"
-    ),
-    "rollbackSql": "DROP INDEX IF EXISTS idx_work_journal_company_project;",
-}
+TARGETS = (
+    {
+        "resource": "work_journal",
+        "indexName": INDEX_NAME,
+        "columns": ("company_id", "project"),
+        "createSql": (
+            "CREATE INDEX IF NOT EXISTS idx_work_journal_company_project "
+            "ON work_journal(company_id,project)"
+        ),
+        "rollbackSql": "DROP INDEX IF EXISTS idx_work_journal_company_project;",
+    },
+    {
+        "resource": "public_lead_uploads",
+        "indexName": "idx_public_lead_uploads_company_id",
+        "columns": ("company_id",),
+        "createSql": (
+            "CREATE INDEX IF NOT EXISTS idx_public_lead_uploads_company_id "
+            "ON public_lead_uploads(company_id)"
+        ),
+        "rollbackSql": "DROP INDEX IF EXISTS idx_public_lead_uploads_company_id;",
+    },
+)
 
 
 def _non_negative_int(value):
@@ -57,8 +70,7 @@ def _index_columns(index_definition):
     return tuple(columns)
 
 
-def _target_index(indexes):
-    required = TARGET["columns"]
+def _target_index(indexes, required):
     for raw in indexes or []:
         item = dict(raw or {})
         definition = str(item.get("definition") or "")
@@ -85,84 +97,102 @@ def _plan_sha256(missing):
 
 
 def build_index_report(table_facts):
-    fact = dict((table_facts or {}).get(TARGET["resource"]) or {})
-    columns = set(fact.get("columns") or set())
-    missing_columns = sorted(set(TARGET["columns"]) - columns)
     blockers = []
-    if not fact.get("exists"):
-        blockers.append({"resource": TARGET["resource"], "reason": "table_missing"})
-    elif missing_columns:
-        blockers.append({
-            "resource": TARGET["resource"],
-            "reason": "columns_missing",
-            "columns": missing_columns,
-        })
-    matching_index = _target_index(fact.get("indexes") or [])
     missing = []
-    if not blockers and not matching_index:
-        missing.append({
-            "resource": TARGET["resource"],
-            "indexName": TARGET["indexName"],
-            "columns": list(TARGET["columns"]),
-            "rows": int(fact.get("totalRows") or 0),
-        })
+    matching_indexes = {}
+    total_rows = 0
+    for target in TARGETS:
+        fact = dict((table_facts or {}).get(target["resource"]) or {})
+        total_rows += int(fact.get("totalRows") or 0)
+        columns = set(fact.get("columns") or set())
+        missing_columns = sorted(set(target["columns"]) - columns)
+        target_blocked = False
+        if not fact.get("exists"):
+            blockers.append({"resource": target["resource"], "reason": "table_missing"})
+            target_blocked = True
+        elif missing_columns:
+            blockers.append({
+                "resource": target["resource"],
+                "reason": "columns_missing",
+                "columns": missing_columns,
+            })
+            target_blocked = True
+        matching_index = _target_index(fact.get("indexes") or [], target["columns"])
+        matching_indexes[target["resource"]] = matching_index or None
+        if not target_blocked and not matching_index:
+            missing.append({
+                "resource": target["resource"],
+                "indexName": target["indexName"],
+                "columns": list(target["columns"]),
+                "rows": int(fact.get("totalRows") or 0),
+            })
     complete = not blockers and not missing
     return {
         "ok": True,
-        "table": TARGET["resource"],
-        "reportConsistent": len(blockers) <= 1,
+        "tables": [target["resource"] for target in TARGETS],
+        "reportConsistent": len(blockers) <= len(TARGETS),
         "readyForApply": not blockers and bool(missing),
         "complete": complete,
         "summary": {
-            "targetIndexes": 1,
+            "targetIndexes": len(TARGETS),
             "missingIndexes": len(missing),
             "blockers": len(blockers),
-            "tableRows": int(fact.get("totalRows") or 0),
+            "tableRows": total_rows,
         },
         "missingCount": len(missing),
         "planSha256": _plan_sha256(missing),
-        "matchingIndex": matching_index or None,
+        "matchingIndexes": matching_indexes,
         "missingIndexes": missing,
         "blockers": blockers,
-        "rollbackSql": [TARGET["rollbackSql"]] if missing else [],
+        "rollbackSql": [
+            target["rollbackSql"]
+            for target in TARGETS
+            if any(item["resource"] == target["resource"] for item in missing)
+        ],
     }
 
 
 def collect_index_facts(cur):
-    cur.execute(
-        """SELECT column_name
-             FROM information_schema.columns
-            WHERE table_schema='public' AND table_name='work_journal'
-            ORDER BY ordinal_position"""
-    )
-    columns = {str(dict(row or {}).get("column_name") or "") for row in (cur.fetchall() or [])}
-    exists = bool(columns)
-    cur.execute(
-        """SELECT indexname,indexdef
-             FROM pg_indexes
-            WHERE schemaname='public' AND tablename='work_journal'
-            ORDER BY indexname"""
-    )
-    indexes = [
-        {
-            "name": str(dict(row or {}).get("indexname") or ""),
-            "definition": str(dict(row or {}).get("indexdef") or ""),
+    facts = {}
+    for target in TARGETS:
+        resource = target["resource"]
+        cur.execute(
+            """SELECT column_name FROM information_schema.columns
+                WHERE table_schema='public' AND table_name=%s ORDER BY ordinal_position""",
+            (resource,),
+        )
+        columns = {
+            str(dict(row or {}).get("column_name") or "")
+            for row in (cur.fetchall() or [])
         }
-        for row in (cur.fetchall() or [])
-    ]
-    rows = 0
-    if exists:
-        cur.execute("SELECT COUNT(*) AS total_rows FROM work_journal")
-        row = cur.fetchone()
-        rows = int(dict(row or {}).get("total_rows") or 0)
-    return {
-        TARGET["resource"]: {
+        exists = bool(columns)
+        cur.execute(
+            """SELECT indexname,indexdef FROM pg_indexes
+                WHERE schemaname='public' AND tablename=%s ORDER BY indexname""",
+            (resource,),
+        )
+        indexes = [
+            {
+                "name": str(dict(row or {}).get("indexname") or ""),
+                "definition": str(dict(row or {}).get("indexdef") or ""),
+            }
+            for row in (cur.fetchall() or [])
+        ]
+        rows = 0
+        if exists:
+            cur.execute(
+                sql.SQL("SELECT COUNT(*) AS total_rows FROM {}").format(
+                    sql.Identifier(resource)
+                )
+            )
+            rows = int(dict(cur.fetchone() or {}).get("total_rows") or 0)
+        facts[resource] = {
             "exists": exists,
             "columns": columns,
             "indexes": indexes,
             "totalRows": rows,
         }
-    }
+    return facts
 
 
 def run_index_migration(
@@ -234,7 +264,10 @@ def run_index_migration(
             raise RuntimeError("index count changed; rerun dry-run")
         if before["planSha256"] != normalized_sha:
             raise RuntimeError("index plan changed; rerun dry-run")
-        cur.execute(TARGET["createSql"])
+        missing_resources = {item["resource"] for item in before["missingIndexes"]}
+        for target in TARGETS:
+            if target["resource"] in missing_resources:
+                cur.execute(target["createSql"])
         after = build_index_report(collect_index_facts(cur))
         if not after["complete"]:
             conn.rollback()
@@ -244,7 +277,7 @@ def run_index_migration(
                 "mode": "apply",
                 "dryRun": False,
                 "failureReason": "postcheck_failed",
-                "schemaWritesAttempted": 1,
+                "schemaWritesAttempted": len(missing_resources),
                 "rolledBack": True,
             }
         conn.commit()
@@ -253,10 +286,14 @@ def run_index_migration(
             "mode": "apply",
             "dryRun": False,
             "expectedPlanSha256": before["planSha256"],
-            "schemaWritesAttempted": 1,
+            "schemaWritesAttempted": len(missing_resources),
             "rolledBack": False,
             "postSummary": after["summary"],
-            "rollbackSql": [TARGET["rollbackSql"]],
+            "rollbackSql": [
+                target["rollbackSql"]
+                for target in TARGETS
+                if target["resource"] in missing_resources
+            ],
         }
     except Exception:
         conn.rollback()

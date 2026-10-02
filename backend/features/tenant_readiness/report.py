@@ -134,6 +134,9 @@ def build_report(entries, table_facts):
             ),
             "orphanCompanyRows": int(fact.get("orphanCompanyRows") or 0),
             "orphanProjectRows": int(fact.get("orphanProjectRows") or 0),
+            "historicalOrphanProjectRows": int(
+                fact.get("historicalOrphanProjectRows") or 0
+            ),
             "mismatchedProjectRows": int(fact.get("mismatchedProjectRows") or 0),
             "invalidOwnerScopeRows": int(fact.get("invalidOwnerScopeRows") or 0),
             "constraintCount": len(constraints),
@@ -165,6 +168,11 @@ def build_report(entries, table_facts):
 
 
 def collect_table_facts(cur, entries):
+    entry_by_resource = {
+        str(item.get("resource") or "").strip(): item
+        for item in entries
+        if item.get("kind") == "table"
+    }
     table_names = sorted({
         str(item.get("resource") or "").strip()
         for item in entries
@@ -225,6 +233,7 @@ def collect_table_facts(cur, entries):
             facts[table]["constraints"].append(str(item.get("constraint_name") or ""))
 
     for table in table_names:
+        registry_entry = dict(entry_by_resource.get(table) or {})
         columns = facts[table]["columns"]
         if not facts[table]["exists"]:
             continue
@@ -243,6 +252,14 @@ def collect_table_facts(cur, entries):
             ]
             joins = [sql.SQL("LEFT JOIN companies c ON c.id=t.company_id")]
             if "owner_scope" in columns:
+                allowed_scopes = registry_entry.get("ownerScopes") or [
+                    "company", "platform", "legacy"
+                ]
+                allowed_scopes = sorted({
+                    str(scope).strip()
+                    for scope in allowed_scopes
+                    if str(scope).strip()
+                })
                 count_fields.extend([
                     sql.SQL(
                         "COUNT(*) FILTER (WHERE t.owner_scope IS NULL) AS owner_scope_null_rows"
@@ -253,20 +270,28 @@ def collect_table_facts(cur, entries):
                     ),
                     sql.SQL(
                         "COUNT(*) FILTER (WHERE t.owner_scope IS NOT NULL "
-                        "AND t.owner_scope NOT IN ('company','platform','legacy')) "
+                        "AND t.owner_scope NOT IN ({})) "
                         "AS invalid_owner_scope_rows"
-                    ),
+                    ).format(sql.SQL(",").join(map(sql.Literal, allowed_scopes))),
                 ])
             if "project_id" in columns:
                 joins.append(sql.SQL("LEFT JOIN projects p ON p.id=t.project_id"))
+                historical_project_reference = (
+                    registry_entry.get("projectReferenceState") == "historical_optional"
+                )
                 count_fields.extend([
                     sql.SQL(
                         "COUNT(*) FILTER (WHERE t.project_id IS NOT NULL) AS project_rows"
                     ),
                     sql.SQL(
-                        "COUNT(*) FILTER (WHERE t.project_id IS NOT NULL AND p.id IS NULL) "
+                        "COUNT(*) FILTER (WHERE t.project_id IS NOT NULL AND p.id IS NULL "
+                        "AND {strict}) "
                         "AS orphan_project_rows"
-                    ),
+                    ).format(strict=sql.Literal(not historical_project_reference)),
+                    sql.SQL(
+                        "COUNT(*) FILTER (WHERE t.project_id IS NOT NULL AND p.id IS NULL "
+                        "AND {historical}) AS historical_orphan_project_rows"
+                    ).format(historical=sql.Literal(historical_project_reference)),
                     sql.SQL(
                         "COUNT(*) FILTER (WHERE t.project_id IS NOT NULL AND p.id IS NOT NULL "
                         "AND t.company_id IS DISTINCT FROM p.company_id) "
@@ -290,6 +315,9 @@ def collect_table_facts(cur, entries):
             "orphanCompanyRows": int(counts.get("orphan_company_rows") or 0),
             "projectRows": int(counts.get("project_rows") or 0),
             "orphanProjectRows": int(counts.get("orphan_project_rows") or 0),
+            "historicalOrphanProjectRows": int(
+                counts.get("historical_orphan_project_rows") or 0
+            ),
             "mismatchedProjectRows": int(counts.get("mismatched_project_rows") or 0),
         })
     return facts
