@@ -37,23 +37,24 @@ def _evidence_dir(value: str | None) -> Path:
     return path
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Stroyka Jev Browser QA worker")
-    parser.add_argument("--url", required=True)
-    parser.add_argument("--goal", required=True)
-    parser.add_argument("--record-dir")
-    parser.add_argument("--expect-text", action="append", default=[])
-    parser.add_argument("--forbid-text", action="append", default=[])
-    parser.add_argument("--expect-url-contains", action="append", default=[])
-    parser.add_argument("--max-seconds", type=float, default=90.0)
-    args = parser.parse_args()
-
+def execute_task(
+    *,
+    url: str,
+    goal: str,
+    record_dir: str | None = None,
+    expect_text: list[str] | None = None,
+    forbid_text: list[str] | None = None,
+    expect_url_contains: list[str] | None = None,
+    max_seconds: float = 90.0,
+) -> dict:
     base_url = (os.environ.get("QA_BASE_URL") or "").strip()
     if not base_url:
-        raise SystemExit("QA_BASE_URL is required; arbitrary browsing is disabled")
-    _assert_allowed_url(args.url, base_url)
+        raise ValueError("QA_BASE_URL is required; arbitrary browsing is disabled")
+    _assert_allowed_url(url, base_url)
+    if not goal.strip():
+        raise ValueError("goal must not be empty")
 
-    evidence = _evidence_dir(args.record_dir)
+    evidence = _evidence_dir(record_dir)
     install_timeweb_provider()
 
     from jev_ultrafast import Agent
@@ -62,7 +63,7 @@ def main() -> int:
     final_state = None
     error = None
     try:
-        with Agent(args.url, args.goal, record_dir=evidence, screenshots=True) as agent:
+        with Agent(url, goal, record_dir=evidence, screenshots=True) as agent:
             for state in agent.run():
                 final_state = state
                 current_url = str((state.get("page") or {}).get("url") or "")
@@ -71,8 +72,8 @@ def main() -> int:
                 except ValueError as exc:
                     error = f"outside_qa_scope: {exc}"
                     break
-                if time.monotonic() - started > args.max_seconds:
-                    error = f"worker_timeout>{args.max_seconds}s"
+                if time.monotonic() - started > max_seconds:
+                    error = f"worker_timeout>{max_seconds}s"
                     break
             if final_state is None:
                 final_state = agent.snapshot()
@@ -82,9 +83,9 @@ def main() -> int:
 
     result = verify_final_state(
         final_state,
-        expect_text=args.expect_text,
-        forbid_text=args.forbid_text,
-        expect_url_contains=args.expect_url_contains,
+        expect_text=expect_text or (),
+        forbid_text=forbid_text or (),
+        expect_url_contains=expect_url_contains or (),
     )
     if error:
         result = type(result)(
@@ -111,11 +112,39 @@ def main() -> int:
             }
             for item in final_state.get("decisions", [])
         ],
+        "evidence": str(evidence),
     }
     (evidence / "result.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    return report
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Stroyka Jev Browser QA worker")
+    parser.add_argument("--url", required=True)
+    parser.add_argument("--goal", required=True)
+    parser.add_argument("--record-dir")
+    parser.add_argument("--expect-text", action="append", default=[])
+    parser.add_argument("--forbid-text", action="append", default=[])
+    parser.add_argument("--expect-url-contains", action="append", default=[])
+    parser.add_argument("--max-seconds", type=float, default=90.0)
+    args = parser.parse_args()
+
+    try:
+        report = execute_task(
+            url=args.url,
+            goal=args.goal,
+            record_dir=args.record_dir,
+            expect_text=args.expect_text,
+            forbid_text=args.forbid_text,
+            expect_url_contains=args.expect_url_contains,
+            max_seconds=args.max_seconds,
+        )
+    except Exception as exc:
+        print(json.dumps({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, ensure_ascii=False))
+        return 2
 
     print(json.dumps({
         "ok": report["ok"],
@@ -123,9 +152,9 @@ def main() -> int:
         "final_url": report["final_url"],
         "checks": report["checks"],
         "failures": report["failures"],
-        "evidence": str(evidence),
+        "evidence": report["evidence"],
     }, ensure_ascii=False))
-    return 0 if result.ok else 2
+    return 0 if report["ok"] else 2
 
 
 if __name__ == "__main__":
