@@ -111,9 +111,9 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [ ] Task M5: Scope payments, accounting, contracts, and financial reports.
 - [x] Task M5.1: Isolate company requisites by selected company and remove the global destructive replace. Deployed in `69f55f4b`; authenticated tenant smoke pending.
 - [x] Task M5.2: Isolate `project_payments` reads, writes, reversals, automatic document payments, and AI payment context by company. Deployed in `5db2e496`; authenticated tenant smoke pending.
-- [ ] Task M5.3: Add stored company ownership to brigade contracts/payments and close their remaining global read paths.
-- [ ] Task M5.3a: Scope brigade contract, payment, item, and act reads by effective company membership. Pushed in `937d7a4f`; production release pending.
-- [ ] Task M5.3b1: Store brigade payment ownership and authorize create/reversal from the parent contract company. Pushed in `83529e6c`; production release pending.
+- [x] Task M5.3: Add stored company ownership to brigade contracts/payments and close their remaining global read paths. Closed on production runtime `67002b578061`: protected assignment/read/delete smoke, zero-invalid lineage audit, disposable PostgreSQL payment lifecycle, full CI, and browser smoke passed.
+- [x] Task M5.3a: Scope brigade contract, payment, item, and act reads by effective company membership. Released through `67002b578061`; protected selected-company reads and production ownership audit passed.
+- [x] Task M5.3b1: Store brigade payment ownership and authorize create/reversal from the parent contract company. Released through `67002b578061`; production ownership audit and disposable PostgreSQL create/reversal tests passed. No real production payment was created.
 - [x] Task M5.3b2: Enforce selected-company ownership for brigade contract create/update/cancel and contractor assignment. Deployed in `8c971801`; public production smoke passed.
 - [x] Task M5.3b3: Enforce parent-company ownership for pricelist loading, contract items, brigade acts, and estimate distribution. Deployed in `d885ba52`; public production smoke passed.
 - [x] Task M5.3b4: Isolate the primary `Назначить мастеру` work-assignment route by the estimate's stored company and exact project. Deployed in `d885ba52`; public production smoke passed.
