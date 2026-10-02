@@ -902,8 +902,8 @@ mismatched ownership; the unauthenticated route returned `401`.
 **Description:** Scope warehouse balances, invoices, receipts, write-offs, and history by company. Model cross-company movement as an explicit transfer rather than a normal warehouse edit.
 
 **Acceptance criteria:**
-- [ ] Warehouse reads and writes require verified company context.
-- [ ] Duplicate invoice checks include company.
+- [x] Warehouse reads and writes require verified company context.
+- [x] Duplicate invoice checks include company.
 - [ ] A cross-company transfer records source, destination, both sides, documents, and audit events.
 
 **Verification:**
@@ -918,7 +918,7 @@ mismatched ownership; the unauthenticated route returned `401`.
 
 **Description:** Make `GET /warehouse-main` resolve the selected company context and return only main-warehouse rows belonging to the selected company or the allowed account summary.
 
-**Status:** Implemented and pushed in `83529e6c`; production release pending.
+**Status:** Complete in production. Runtime `f99ae042`; ownership audit verified all `572/572` warehouse rows.
 
 **Acceptance criteria:**
 - [x] The endpoint accepts `X-Company-Id` and `X-Company-Mode` using the tenant context kernel.
@@ -938,7 +938,7 @@ mismatched ownership; the unauthenticated route returned `401`.
 
 **Description:** Add a compatible `company_id` to warehouse movements and scope movement reads by the selected tenant context. Existing rows use the legacy company `1` until a later audited backfill.
 
-**Status:** Implemented locally; release pending.
+**Status:** Complete in production. Runtime `f99ae042`; ownership audit verified all `572/572` warehouse rows.
 
 **Acceptance criteria:**
 - [x] Existing movement rows receive a non-null legacy company value.
@@ -958,7 +958,7 @@ mismatched ownership; the unauthenticated route returned `401`.
 
 **Description:** Require a verified company context when creating a warehouse movement and keep source, target, material, and movement rows inside that company.
 
-**Status:** Implemented locally; release pending.
+**Status:** Complete in production. Runtime `f99ae042`; ownership audit verified all `572/572` warehouse rows.
 
 **Acceptance criteria:**
 - [x] The movement write resolves the selected company context.
@@ -979,7 +979,7 @@ mismatched ownership; the unauthenticated route returned `401`.
 
 **Description:** Scope warehouse history reads by the selected company while preserving role, project, and package restrictions.
 
-**Status:** Implemented locally; release pending.
+**Status:** Complete in production. Runtime `f99ae042`; ownership audit verified all `572/572` warehouse rows.
 
 **Acceptance criteria:**
 - [x] The endpoint resolves `X-Company-Id` and `X-Company-Mode`.
@@ -999,7 +999,7 @@ mismatched ownership; the unauthenticated route returned `401`.
 
 **Description:** Bind manual warehouse history corrections to one selected company and authorize the action through the user's effective role in that company.
 
-**Status:** Implemented locally; release pending.
+**Status:** Complete in production. Runtime `f99ae042`; ownership audit verified all `572/572` warehouse rows.
 
 **Acceptance criteria:**
 - [x] `all_companies` mode cannot create a manual correction.
@@ -1020,7 +1020,7 @@ mismatched ownership; the unauthenticated route returned `401`.
 
 **Description:** Verify the stored history-row company and the user's effective company role before returning the existing non-destructive deletion response.
 
-**Status:** Implemented locally; release pending.
+**Status:** Complete in production. Runtime `f99ae042`; ownership audit verified all `572/572` warehouse rows.
 
 **Acceptance criteria:**
 - [x] The endpoint resolves access from the row's stored `company_id`.
@@ -1040,7 +1040,7 @@ mismatched ownership; the unauthenticated route returned `401`.
 
 **Description:** Scope `GET /warehouse-invoices` by the selected company context while preserving existing role, project, package, and price behavior.
 
-**Status:** Implemented locally; release pending.
+**Status:** Complete in production. Runtime `f99ae042`; ownership audit verified all `572/572` warehouse rows.
 
 **Acceptance criteria:**
 - [x] The endpoint resolves `X-Company-Id` and `X-Company-Mode`.
@@ -1061,7 +1061,7 @@ mismatched ownership; the unauthenticated route returned `401`.
 
 **Description:** Resolve one verified company for manual warehouse invoice creation and keep the invoice, linked documents, stock rows, and history inside that company.
 
-**Status:** Implemented locally; release pending.
+**Status:** Complete in production. Runtime `f99ae042`; ownership audit verified all `572/572` warehouse rows.
 
 **Acceptance criteria:**
 - [x] `all_companies` mode cannot create an invoice.
@@ -1085,7 +1085,7 @@ mismatched ownership; the unauthenticated route returned `401`.
 
 **Description:** Authorize accounting changes through the warehouse invoice's stored company and prevent linking a supplier invoice from another company.
 
-**Status:** Implemented locally; release pending.
+**Status:** Complete in production. Runtime `f99ae042`; ownership audit verified all `572/572` warehouse rows.
 
 **Acceptance criteria:**
 - [x] The stored warehouse-invoice company is the authorization source.
@@ -1108,7 +1108,7 @@ mismatched ownership; the unauthenticated route returned `401`.
 
 **Description:** Authorize annulment from the stored warehouse-invoice company and reverse stock only inside that company.
 
-**Status:** Implemented locally; release pending.
+**Status:** Complete in production. Runtime `f99ae042`; ownership audit verified all `572/572` warehouse rows.
 
 **Acceptance criteria:**
 - [x] Authorization runs before delivery/status details are returned.
@@ -1131,7 +1131,7 @@ mismatched ownership; the unauthenticated route returned `401`.
 
 **Description:** Bind creation and updates of main-warehouse material cards to one selected company and authorize through the effective membership role.
 
-**Status:** Implemented locally; release pending.
+**Status:** Complete in production. Runtime `f99ae042`; ownership audit verified all `572/572` warehouse rows.
 
 **Acceptance criteria:**
 - [x] `POST /warehouse-main` requires one writable company and stores `company_id`.
@@ -1147,6 +1147,28 @@ mismatched ownership; the unauthenticated route returned `401`.
 **Dependencies:** Task M4.10
 
 **Estimated scope:** S
+
+## Task M4.12: Explicit Intercompany Warehouse Transfer
+
+**Description:** Move material between two different companies only through a dedicated transfer transaction. The source company approves the issue, the destination company approves receipt, and the system creates paired company-owned documents and audit events.
+
+**Status:** Planned after the completed single-company warehouse isolation.
+
+**Acceptance criteria:**
+- [ ] The initiator must have warehouse authority in the source company and access to the source stock.
+- [ ] A destination-company director or warehouse manager must accept before destination stock increases.
+- [ ] Source issue and destination receipt use immutable company IDs and one shared transfer ID.
+- [ ] Rejection or cancellation cannot leave a one-sided stock posting.
+- [ ] Both companies see only their own document side and the minimum counterparty details required for acceptance.
+- [ ] Audit history records creation, source approval, destination acceptance, rejection, and cancellation.
+
+**Verification:**
+- [ ] PostgreSQL tests cover success, rejection, concurrent acceptance, insufficient stock, and cross-company access denial.
+- [ ] Production smoke creates and removes a disposable two-company transfer without changing real balances.
+
+**Dependencies:** Task M4.11
+
+**Estimated scope:** M
 
 ## Task M5: Finance And Accounting Isolation
 

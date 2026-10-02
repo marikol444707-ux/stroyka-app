@@ -96,17 +96,18 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M3.4: Protect `POST /supplier-offers/{id}/create-invoice` with verified offer/request company and supplier recipient scope. Verified and released as an independent production slice.
 - [x] Task M3.5: Protect `GET /supplier-invoices` with internal company context, supplier identity scope, and same-company document joins. Production re-audit on 2026-10-02 verified all 51 current invoice/delivery rows and the unauthenticated route returned 401.
 - [ ] Task M4: Scope warehouse balances, invoices, history, and explicit cross-company transfers.
-- [ ] Task M4.1: Scope `GET /warehouse-main` by the selected company context. Implemented locally; release pending.
-- [ ] Task M4.2: Add company identity and read isolation to warehouse movements. Implemented locally; release pending.
-- [ ] Task M4.3: Require company context when creating warehouse movements. Implemented locally; release pending.
-- [ ] Task M4.4: Scope warehouse history reads by company context. Implemented locally; release pending.
-- [ ] Task M4.5: Require selected-company leadership for manual warehouse history corrections. Implemented locally; release pending.
-- [ ] Task M4.6: Protect access to individual warehouse history records by stored company. Implemented locally; release pending.
-- [ ] Task M4.7: Scope warehouse invoice list reads by company context. Implemented locally; release pending.
-- [ ] Task M4.8: Require one verified company across warehouse invoice creation and stock updates. Implemented locally; release pending.
-- [ ] Task M4.9: Protect warehouse invoice accounting updates by stored company and effective finance role. Implemented locally; release pending.
-- [ ] Task M4.10: Protect warehouse invoice annulment and stock reversal by stored company. Implemented locally; release pending.
-- [ ] Task M4.11: Protect main-warehouse card creation and updates by selected company. Implemented locally; release pending.
+- [x] Task M4.1: Scope `GET /warehouse-main` by the selected company context. Released in production; warehouse ownership audit verified 572/572 rows on runtime `f99ae042`.
+- [x] Task M4.2: Add company identity and read isolation to warehouse movements. Released in production; warehouse ownership audit verified 572/572 rows on runtime `f99ae042`.
+- [x] Task M4.3: Require company context when creating warehouse movements. Released in production; warehouse ownership audit verified 572/572 rows on runtime `f99ae042`.
+- [x] Task M4.4: Scope warehouse history reads by company context. Released in production; warehouse ownership audit verified 572/572 rows on runtime `f99ae042`.
+- [x] Task M4.5: Require selected-company leadership for manual warehouse history corrections. Released in production; warehouse ownership audit verified 572/572 rows on runtime `f99ae042`.
+- [x] Task M4.6: Protect access to individual warehouse history records by stored company. Released in production; warehouse ownership audit verified 572/572 rows on runtime `f99ae042`.
+- [x] Task M4.7: Scope warehouse invoice list reads by company context. Released in production; warehouse ownership audit verified 572/572 rows on runtime `f99ae042`.
+- [x] Task M4.8: Require one verified company across warehouse invoice creation and stock updates. Released in production; warehouse ownership audit verified 572/572 rows on runtime `f99ae042`.
+- [x] Task M4.9: Protect warehouse invoice accounting updates by stored company and effective finance role. Released in production; warehouse ownership audit verified 572/572 rows on runtime `f99ae042`.
+- [x] Task M4.10: Protect warehouse invoice annulment and stock reversal by stored company. Released in production; warehouse ownership audit verified 572/572 rows on runtime `f99ae042`.
+- [x] Task M4.11: Protect main-warehouse card creation and updates by selected company. Released in production; warehouse ownership audit verified 572/572 rows on runtime `f99ae042`.
+- [ ] Task M4.12: Add an explicit intercompany warehouse transfer with source and destination approvals, paired documents, stock postings, and audit history.
 - [ ] Task M5: Scope payments, accounting, contracts, and financial reports.
 - [x] Task M5.1: Isolate company requisites by selected company and remove the global destructive replace. Deployed in `69f55f4b`; authenticated tenant smoke pending.
 - [x] Task M5.2: Isolate `project_payments` reads, writes, reversals, automatic document payments, and AI payment context by company. Deployed in `5db2e496`; authenticated tenant smoke pending.
