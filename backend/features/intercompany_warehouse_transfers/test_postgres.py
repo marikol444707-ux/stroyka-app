@@ -40,6 +40,9 @@ class IntercompanyWarehouseTransferPostgresTests(unittest.TestCase):
 
     def setUp(self):
         support.TransferWorkflowPostgresTests.setUp(self)
+        self.sql("""INSERT INTO user_company_roles(user_id,company_id,platform_account_id,role,active,is_default)
+            VALUES(%s,3,1,'директор',TRUE,FALSE) ON CONFLICT DO NOTHING""",
+            (self.f["users"]["director"]["id"],))
         self.source_stock_id = self.sql("""INSERT INTO warehouse_main
             (company_id,name,unit,quantity,price,min_quantity,category)
             VALUES(2,%s,'шт',10,125,0,'Кабель') RETURNING id""", ("INTERCOMPANY " + uuid4().hex,))[0][0]
@@ -112,6 +115,15 @@ class IntercompanyWarehouseTransferPostgresTests(unittest.TestCase):
                                   (transfer["id"],)), [("pending",)])
         self.assertEqual(self.sql("SELECT count(*) FROM warehouse_history WHERE source_type='intercompany_warehouse_transfer' AND source_id=%s",
                                   (transfer["id"],)), [(0,)])
+
+    def test_source_cannot_target_a_company_outside_its_cabinet(self):
+        self.sql("""INSERT INTO companies(id,name,short_name,plan,active,payment_status,platform_account_id)
+            VALUES(4,'FOREIGN company','FOREIGN','pro',TRUE,'active',2)""")
+        self.addCleanup(self.sql, "DELETE FROM companies WHERE id=4")
+        self.api("director", "POST", "/intercompany-warehouse-transfers",
+                 self.payload(destinationCompanyId=4), expected=403, **self.headers(2))
+        self.assertEqual(self.sql("SELECT count(*) FROM intercompany_warehouse_transfers WHERE destination_company_id=4"),
+                         [(0,)])
 
     def test_concurrent_destination_acceptance_posts_stock_only_once(self):
         from fastapi.testclient import TestClient

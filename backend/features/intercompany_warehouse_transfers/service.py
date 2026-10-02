@@ -133,6 +133,24 @@ def _snapshot(transfer_id, kind, own_company, counterparty, stock, quantity, rea
     return snapshot
 
 
+def _require_destination_access(cur, actor, destination_company_id):
+    user_id = _positive_int(actor.get("id"), "пользователя")
+    platform_account_id = _positive_int(
+        actor.get("platformAccountId") or actor.get("platform_account_id"),
+        "клиентский аккаунт",
+    )
+    cur.execute("""SELECT 1
+        FROM user_company_roles membership
+        JOIN companies company ON company.id=membership.company_id
+        WHERE membership.user_id=%s AND membership.company_id=%s
+          AND COALESCE(membership.active,TRUE) IS TRUE
+          AND COALESCE(company.active,TRUE) IS TRUE
+          AND COALESCE(membership.platform_account_id,company.platform_account_id)=%s""",
+        (user_id, destination_company_id, platform_account_id))
+    if not cur.fetchone():
+        raise PermissionError("Компания-получатель недоступна в вашем кабинете")
+
+
 def create(cur, actor, source_company_id, data):
     values = parse_create(data, source_company_id)
     # One company-level lock closes the concurrent same-request insert race and
@@ -148,6 +166,7 @@ def create(cur, actor, source_company_id, data):
                 or replay["reason"] != values["reason"]):
             raise ValueError("Номер запроса уже использован с другим содержимым")
         return side_view(replay, source_company_id)
+    _require_destination_access(cur, actor, values["destinationCompanyId"])
     cur.execute("SELECT id,name,active FROM companies WHERE id IN (%s,%s) ORDER BY id FOR SHARE",
                 (source_company_id, values["destinationCompanyId"]))
     companies = {int(row["id"]): row for row in cur.fetchall()}

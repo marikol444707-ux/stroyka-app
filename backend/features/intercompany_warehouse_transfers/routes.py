@@ -76,7 +76,8 @@ def register_intercompany_warehouse_transfers(app, deps):
                                               (data or {}).get("reason") or ""), write=True)
 
     @app.post("/intercompany-warehouse-transfers/{transfer_id}/accept")
-    def accept(transfer_id: int, data: dict = {}, x_company_id: Optional[str] = Header(None, alias="X-Company-Id"),
+    def accept(transfer_id: int, data: Optional[dict] = None,
+               x_company_id: Optional[str] = Header(None, alias="X-Company-Id"),
                x_company_mode: Optional[str] = Header(None, alias="X-Company-Mode"), user: dict = Depends(get_user)):
         return decision("accept", transfer_id, data, x_company_id, x_company_mode, user)
 
