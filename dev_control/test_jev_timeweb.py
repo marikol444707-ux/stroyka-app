@@ -25,6 +25,31 @@ class JevTimewebClientTest(unittest.TestCase):
         self.assertEqual(client.endpoint, DEFAULT_SYSTEMONE_URL)
         self.assertEqual(client.model, DEFAULT_MODEL)
 
+
+    @patch("dev_control.jev_timeweb.urlopen")
+    def test_ask_accepts_structured_state_from_real_jev(self, mocked_urlopen):
+        response = MagicMock()
+        response.status = 200
+        response.read.return_value = json.dumps(
+            {"answers": {"operation": {"choice": "DONE", "probabilities": {"DONE": 1.0}, "confidence": 1.0}}}
+        ).encode("utf-8")
+        mocked_urlopen.return_value.__enter__.return_value = response
+
+        client = JevTimewebClient(api_key="secret")
+        state = {
+            "page": {"url": "https://example.test", "title": "Example", "text": "Ready"},
+            "elements": [{"index": "1", "label": "Continue", "operations": ["CLICK"]}],
+            "recent_actions": [],
+        }
+        result = client.ask(
+            state=state,
+            questions={"operation": {"type": "choice", "criteria": {"DONE": "done"}}},
+        )
+
+        self.assertIn("answers", result)
+        sent = json.loads(mocked_urlopen.call_args.args[0].data.decode("utf-8"))
+        self.assertEqual(sent["state"], state)
+
     @patch("dev_control.jev_timeweb.urlopen")
     def test_ask_sends_bearer_model_state_and_questions(self, mocked_urlopen):
         response = MagicMock()
