@@ -189,6 +189,18 @@ def cleanup():
         conn.close()
 
 
+def provision_company_membership(cur, *, user_id, platform_account_id, company_id, role):
+    cur.execute(
+        """
+        INSERT INTO user_company_roles
+            (user_id, platform_account_id, company_id, role,
+             assigned_projects, assigned_packages, active, is_default)
+        VALUES (%s, %s, %s, %s, '[]'::jsonb, '[]'::jsonb, TRUE, TRUE)
+        """,
+        (user_id, platform_account_id, company_id, role),
+    )
+
+
 def create_temp_director_token(company_id, platform_account_id):
     conn = db_conn()
     cur = conn.cursor()
@@ -213,14 +225,12 @@ def create_temp_director_token(company_id, platform_account_id):
             ),
         )
         row = cur.fetchone()
-        cur.execute(
-            """
-            INSERT INTO user_company_roles
-                (user_id, platform_account_id, company_id, role,
-                 assigned_projects, assigned_packages, active, is_default)
-            VALUES (%s, %s, %s, 'зам_директора', '[]'::jsonb, '[]'::jsonb, TRUE, TRUE)
-            """,
-            (row[0], platform_account_id, company_id),
+        provision_company_membership(
+            cur,
+            user_id=row[0],
+            platform_account_id=platform_account_id,
+            company_id=company_id,
+            role="зам_директора",
         )
         conn.commit()
         return auth_token_for({"id": row[0], "name": row[1], "email": row[2], "role": row[3]})
@@ -281,14 +291,30 @@ def prepare_scope():
         cur.execute(
             """
             INSERT INTO users
-                (name, email, password, role, project_id, project_name, assigned_projects, assigned_packages, active, two_factor_required, two_factor_enabled)
+                (name, email, password, role, company_id, platform_account_id,
+                 project_id, project_name, assigned_projects, assigned_packages,
+                 active, two_factor_required, two_factor_enabled)
             VALUES
-                (%s, %s, %s, 'мастер', NULL, '', '[]'::jsonb, '[]'::jsonb, TRUE, FALSE, FALSE)
+                (%s, %s, %s, 'мастер', %s, %s,
+                 NULL, '', '[]'::jsonb, '[]'::jsonb, TRUE, FALSE, FALSE)
             RETURNING id, name, email, role
             """,
-            (WORKER_NAME, WORKER_EMAIL, hash_password(secrets.token_urlsafe(12))),
+            (
+                WORKER_NAME,
+                WORKER_EMAIL,
+                hash_password(secrets.token_urlsafe(12)),
+                company_id,
+                platform_account_id,
+            ),
         )
         worker = {"id": cur.fetchone()[0], "name": WORKER_NAME, "email": WORKER_EMAIL, "role": "мастер"}
+        provision_company_membership(
+            cur,
+            user_id=worker["id"],
+            platform_account_id=platform_account_id,
+            company_id=company_id,
+            role="мастер",
+        )
         conn.commit()
         return project_id, estimate_id, worker, company_id, platform_account_id
     finally:

@@ -78,7 +78,24 @@ class WorkAssignmentSmokeTests(unittest.TestCase):
             MODULE.create_temp_director_token(company_id=7, platform_account_id=3)
 
         membership = next(call for call in calls if "INSERT INTO user_company_roles" in call[0])
-        self.assertEqual(membership[1], (501, 3, 7))
+        self.assertEqual(membership[1], (501, 3, 7, "зам_директора"))
+
+    def test_membership_helper_preserves_worker_role(self):
+        calls = []
+
+        class Cursor:
+            def execute(self, sql, params):
+                calls.append((" ".join(sql.split()), params))
+
+        MODULE.provision_company_membership(
+            Cursor(),
+            user_id=601,
+            platform_account_id=4,
+            company_id=8,
+            role="мастер",
+        )
+
+        self.assertEqual(calls[0][1], (601, 4, 8, "мастер"))
 
 
 if __name__ == "__main__":
