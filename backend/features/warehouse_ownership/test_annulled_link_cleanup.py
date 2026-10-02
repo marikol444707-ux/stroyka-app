@@ -1,5 +1,9 @@
 import unittest
+from unittest.mock import Mock, patch
 
+import psycopg2.extensions
+
+from . import annulled_link_cleanup as cleanup
 from .annulled_link_cleanup import build_report, classify_rows
 
 
@@ -59,6 +63,35 @@ class AnnulledWarehouseLinkCleanupTests(unittest.TestCase):
 
         self.assertEqual(first["planSha256"], second["planSha256"])
         self.assertEqual(len(first["planSha256"]), 64)
+
+    def test_apply_uses_payment_company_lock_and_read_committed(self):
+        conn = Mock()
+        cur = Mock()
+        conn.cursor.return_value = cur
+        cur.fetchall.return_value = [{"company_id": 1}]
+        cur.rowcount = 1
+        source = [row()]
+        expected = build_report(source)
+
+        with patch.object(cleanup, "load_rows", side_effect=[source, []]):
+            result = cleanup.run_cleanup(
+                conn,
+                apply=True,
+                expected_ready_count=1,
+                expected_plan_sha256=expected["planSha256"],
+            )
+
+        conn.set_session.assert_called_once_with(
+            readonly=False,
+            autocommit=False,
+            isolation_level=psycopg2.extensions.ISOLATION_LEVEL_READ_COMMITTED,
+        )
+        self.assertTrue(any(
+            "supplier_allocation_lock" in call.args[0]
+            for call in cur.execute.call_args_list
+        ))
+        conn.commit.assert_called_once_with()
+        self.assertTrue(result["complete"])
 
 
 if __name__ == "__main__":
