@@ -10815,7 +10815,7 @@ change.
       совпадение внутри компании, точное количество и SHA плана, неоднозначные строки
       остаются в `needsReview`.
 - [x] Unit, runtime, frontend и временный PostgreSQL round-trip прошли.
-- [ ] Production dry-run, deploy, guarded backfill точных строк и post-audit.
+- [x] Production dry-run, deploy, guarded backfill точных строк и post-audit: 5 точных строк привязаны, 4 неразрешённые оставлены без изменений.
 
 ## P9 — supplier team policy
 
