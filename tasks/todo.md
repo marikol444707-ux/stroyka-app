@@ -1152,7 +1152,7 @@ mismatched ownership; the unauthenticated route returned `401`.
 
 **Description:** Move material between two different companies only through a dedicated transfer transaction. The source company approves the issue, the destination company approves receipt, and the system creates paired company-owned documents and audit events.
 
-**Status:** Temporarily disabled in production. The first release changed aggregate stock without consuming the exact accepted receipt lot. The corrected schema `0083_intercompany_lot_lineage` requires an empty transfer registry, binds the request to one source lot, creates a destination inventory-only receipt and lot, and records both lot movements. Focused unit, frontend, build, rollback, concurrency, and disposable PostgreSQL tests pass; production release remains.
+**Status:** Corrected and enabled in production runtime `8083f792b325` with schema `0083_intercompany_lot_lineage`. The release binds the request to one source lot, creates a destination inventory-only receipt and lot, and records both lot movements. The nginx route now reaches backend JSON instead of the SPA.
 
 **Acceptance criteria:**
 - [x] The initiator must have warehouse authority in the source company and select one active accepted receipt lot.
@@ -1164,7 +1164,7 @@ mismatched ownership; the unauthenticated route returned `401`.
 
 **Verification:**
 - [x] PostgreSQL tests cover success, rejection, concurrent acceptance, insufficient exact-lot balance, accounting-free destination receipt, and cross-company access denial.
-- [ ] Production smoke verifies schema `0083`, the enabled route, empty transfer ledger, unchanged warehouse counts, frontend hashes, and browser load without writing business data.
+- [x] Production smoke verifies schema `0083`, the enabled route, empty transfer ledger, unchanged warehouse counts, frontend hashes, nginx JSON routing, and browser load without writing business data.
 
 **Dependencies:** Task M4.11
 
