@@ -1696,6 +1696,29 @@ mismatched ownership; the unauthenticated route returned `401`.
 
 **Estimated scope:** S
 
+## Task M6.2d8: Private Tenant-File Cutover Closure
+
+**Description:** Make the production tenant-file smoke understand private S3 delivery, permit a short-lived in-memory service token for non-interactive verification, and close the parent cutover only from current production evidence.
+
+**Status:** Complete. The candidate smoke passed against production company `1` / project `1`; it created and removed only its disposable PNG.
+
+**Acceptance criteria:**
+- [x] Private S3 compatibility URLs must be blocked for anonymous callers; a `403` is not treated as independent proof that an object was deleted.
+- [x] Public compatibility mode retains the exact-byte and post-delete disappearance checks.
+- [x] Protected metadata and byte delivery require the authenticated tenant route and return the exact uploaded bytes with private cache policy.
+- [x] A caller can supply a short-lived `SMOKE_AUTH_TOKEN` in memory without storing or printing it; email/password/2FA login remains available as fallback.
+- [x] The protected delete API confirms storage cleanup before removing ownership metadata; both protected routes return `404` after deletion.
+- [x] Current production audits report `268/268` verified owners, `167/167` private S3 objects, zero public/unregistered/missing objects, and no public uploads mount.
+
+**Verification:**
+- [x] Tenant-file smoke unit suite passes (`6` tests); document storage/service/route suites pass (`53` tests).
+- [x] Production ownership, public-exposure, and private-ACL read-only audits pass with no blockers.
+- [x] Authenticated production upload/read/anonymous-denial/delete smoke passes for company `1` / project `1` and leaves no disposable file.
+
+**Dependencies:** Tasks M6.2c1 and M6.2d1-M6.2d7
+
+**Estimated scope:** S
+
 ## Task M6.4a: Tenant-Scoped Company Messages
 
 **Description:** Add stored company ownership to the existing general company chat and scope list, create, and mark-read operations to one verified selected company. Keep project chat, estimate chat, protected upload return values, and legacy row backfill outside this slice.
