@@ -5,7 +5,7 @@ export BU_CDP_URL="${BU_CDP_URL:-http://127.0.0.1:9222}"
 export BH_HOME="${BH_HOME:-/tmp/browser-harness}"
 
 profile="${CHROME_USER_DATA_DIR:-/tmp/stroyka-dev-chrome}"
-mkdir -p "$profile" "$BH_HOME"
+mkdir -p "$profile" "$BH_HOME" "${QA_EVIDENCE_DIR:-/tmp/stroyka-qa-evidence}"
 
 chrome_args=(
   --headless=new
@@ -18,7 +18,7 @@ chrome_args=(
   about:blank
 )
 
-# Disabled by default. Some runtimes may require this explicit opt-in.
+# Chrome sandbox stays enabled by default. Opt-out must be explicit.
 if [[ "${CHROME_NO_SANDBOX:-0}" == "1" ]]; then
   chrome_args=(--no-sandbox "${chrome_args[@]}")
 fi
@@ -27,7 +27,7 @@ google-chrome-stable "${chrome_args[@]}" >/tmp/stroyka-dev-chrome.log 2>&1 &
 chrome_pid=$!
 trap 'kill "$chrome_pid" 2>/dev/null || true' EXIT
 
-for _ in $(seq 1 40); do
+for _ in $(seq 1 60); do
   if python - <<'PY'
 import json, urllib.request
 try:
@@ -36,7 +36,7 @@ except Exception:
     raise SystemExit(1)
 PY
   then
-    exec python -m dev_control.browser_worker.run "$@"
+    exec uvicorn dev_control.browser_worker.service:app --host 0.0.0.0 --port "${PORT:-8080}" --workers 1
   fi
   sleep 0.25
 done
