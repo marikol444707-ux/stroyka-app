@@ -41,6 +41,17 @@ class FrontendFeatureBuildTests(unittest.TestCase):
         module.verify(root, "REACT_APP_WAREHOUSE_DISTRIBUTION_ENABLED=false\n"
                             "REACT_APP_WAREHOUSE_DISTRIBUTION_TRANSFERS_ENABLED=false\n")
 
+    def test_intercompany_flag_requires_its_route_in_the_warehouse_bundle(self):
+        root = self.make_build("warehouse-distributions /transfers two-stage-v1")
+        flags = ("REACT_APP_WAREHOUSE_DISTRIBUTION_ENABLED=true\n"
+                 "REACT_APP_WAREHOUSE_DISTRIBUTION_TRANSFERS_ENABLED=true\n"
+                 "REACT_APP_INTERCOMPANY_WAREHOUSE_TRANSFERS_ENABLED=true\n")
+        with self.assertRaisesRegex(ValueError, "межфирменных"):
+            module.verify(root, flags)
+        root = self.make_build(
+            "warehouse-distributions /transfers two-stage-v1 /intercompany-warehouse-transfers")
+        module.verify(root, flags)
+
     def test_accepts_enabled_material_capability_bundle_with_all_routes(self):
         root = self.make_build(
             "material-capability-proof material-capability-confirmations "

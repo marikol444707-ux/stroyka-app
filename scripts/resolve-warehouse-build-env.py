@@ -9,6 +9,7 @@ def resolve(service_environment, backend_env_path):
         'WAREHOUSE_DISTRIBUTION_ENABLED',
         'WAREHOUSE_DISTRIBUTION_TRANSFERS_ENABLED',
         'OWNED_DISTRIBUTION_QUALITY_ENABLED',
+        'INTERCOMPANY_WAREHOUSE_TRANSFERS_ENABLED',
     }
     values = {}
     path = Path(backend_env_path) if backend_env_path else None
@@ -23,11 +24,13 @@ def resolve(service_environment, backend_env_path):
             values[key] = value
     distribution = values.get('WAREHOUSE_DISTRIBUTION_ENABLED') == '1'
     transfers = values.get('WAREHOUSE_DISTRIBUTION_TRANSFERS_ENABLED') == '1'
+    intercompany = values.get('INTERCOMPANY_WAREHOUSE_TRANSFERS_ENABLED') == '1'
     if values.get('OWNED_DISTRIBUTION_QUALITY_ENABLED') == '1' and not (distribution and transfers):
         raise ValueError('Журнал качества требует включённых распределений и перемещений по партиям')
     return [
         'REACT_APP_WAREHOUSE_DISTRIBUTION_ENABLED=' + str(distribution).lower(),
         'REACT_APP_WAREHOUSE_DISTRIBUTION_TRANSFERS_ENABLED=' + str(distribution and transfers).lower(),
+        'REACT_APP_INTERCOMPANY_WAREHOUSE_TRANSFERS_ENABLED=' + str(distribution and intercompany).lower(),
     ]
 
 
