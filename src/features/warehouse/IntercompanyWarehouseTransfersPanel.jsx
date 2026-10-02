@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { API } from '../../api';
 import { readResponse } from './distributionCommands';
 
-const writers = ['директор', 'зам_директора', 'кладовщик', 'снабженец'];
 const statusText = { pending: 'Ожидает решения', accepted: 'Принято', rejected: 'Отклонено', cancelled: 'Отменено' };
 const pendingKey = companyId => `intercompany-warehouse-transfer.pending.v1.${companyId}`;
 
@@ -26,7 +25,7 @@ export default function IntercompanyWarehouseTransfersPanel(props) {
   return <IntercompanyWarehouseTransfersWorkspace {...props} />;
 }
 
-export function IntercompanyWarehouseTransfersWorkspace({ companyId, companies = [], warehouseMain = [], editable = false, onChanged }) {
+export function IntercompanyWarehouseTransfersWorkspace({ companyId, companies = [], warehouseMain = [], editable = false, onChanged, style }) {
   const headers = useMemo(() => ({ 'X-Company-Id': String(companyId), 'X-Company-Mode': 'company' }), [companyId]);
   const destinations = companies.filter(company => Number(company.companyId) !== Number(companyId)
     && company.active !== false && company.companyActive !== false);
@@ -90,7 +89,7 @@ export function IntercompanyWarehouseTransfersWorkspace({ companyId, companies =
     send(`/intercompany-warehouse-transfers/${item.id}/${action}`, { reason: reason.trim() }, labels[action]);
   }
 
-  return <section className="intercompany-transfers" aria-label="Между компаниями">
+  return <section className="intercompany-transfers" aria-label="Между компаниями" style={style}>
     <div className="wd-heading"><div><h3>Передача между компаниями</h3><p>Отправитель оформляет передачу. Остатки изменятся после подтверждения получателем.</p></div><button type="button" disabled={busy || loading} onClick={load}>Обновить</button></div>
     {error && <p role="alert">{error}</p>}{notice && <p role="status">{notice}</p>}{loading && <p role="status">Загрузка передач…</p>}
     {editable && <form className="ict-form" onSubmit={event => { event.preventDefault(); if (!pendingCreate && !valid) return; createTransfer(); }}>

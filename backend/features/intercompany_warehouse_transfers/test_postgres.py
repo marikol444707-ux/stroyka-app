@@ -69,6 +69,8 @@ class IntercompanyWarehouseTransferPostgresTests(unittest.TestCase):
         self.assertEqual(self.balances(material), [(2, 10)])
         replay = self.create(payload)
         self.assertEqual(replay["id"], created["id"])
+        self.api("director", "POST", "/intercompany-warehouse-transfers",
+                 {**payload, "quantity": "3"}, expected=409, **self.headers(2))
         incoming = self.api("stranger", "GET", "/intercompany-warehouse-transfers", **self.headers(3))
         received = next(item for item in incoming["items"] if item["id"] == created["id"])
         self.assertEqual((received["side"], received["document"]["kind"]),

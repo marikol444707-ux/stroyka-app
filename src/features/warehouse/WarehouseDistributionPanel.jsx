@@ -230,5 +230,6 @@ function CompanyDistribution({ companyId, companies, editable, projects = [], wa
         <div className="wd-heading"><button type="submit" disabled={!confirmed || !validQuantity(returnQuantity) || !returnReason.trim() || Number(returnQuantity) > Number(returning.netQuantity)}>Подтвердить возврат</button><button type="button" onClick={closeReturn}>Отмена</button></div>
       </fieldset>
     </form>}
-  </section><IntercompanyWarehouseTransfersPanel companyId={companyId} companies={companies} warehouseMain={warehouseMain} editable={editable} onChanged={refreshData} /></>;
+  </section><IntercompanyWarehouseTransfersPanel companyId={companyId} companies={companies} warehouseMain={warehouseMain} editable={editable} onChanged={refreshData}
+    style={{ '--wd-text': C.text, '--wd-muted': C.textSec || C.textMuted, '--wd-border': C.border, '--wd-surface': C.bgWhite || C.card, '--wd-accent': C.accent }} /></>;
 }

@@ -3,7 +3,7 @@
 from alembic import op
 
 
-revision = "0082_intercompany_warehouse_transfers"
+revision = "0082_intercompany_transfers"
 down_revision = "0081_supply_project_id"
 branch_labels = None
 depends_on = None
@@ -29,6 +29,7 @@ def upgrade():
         created_by_user_id INTEGER NOT NULL REFERENCES users(id),
         created_by_name TEXT NOT NULL,
         source_approved_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        decision_company_id INTEGER REFERENCES companies(id),
         decided_by_user_id INTEGER REFERENCES users(id),
         decided_by_name TEXT,
         decided_at TIMESTAMPTZ,
@@ -43,6 +44,24 @@ def upgrade():
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         CHECK(source_company_id<>destination_company_id),
+        CHECK(
+          (status='pending' AND decision_company_id IS NULL AND decided_by_user_id IS NULL
+            AND decided_at IS NULL AND source_movement_id IS NULL AND destination_movement_id IS NULL)
+          OR
+          (status='accepted' AND decision_company_id=destination_company_id
+            AND decided_by_user_id IS NOT NULL AND decided_at IS NOT NULL
+            AND source_movement_id IS NOT NULL AND destination_movement_id IS NOT NULL)
+          OR
+          (status='rejected' AND decision_company_id=destination_company_id
+            AND decided_by_user_id IS NOT NULL AND decided_at IS NOT NULL
+            AND length(btrim(decision_reason))>0
+            AND source_movement_id IS NULL AND destination_movement_id IS NULL)
+          OR
+          (status='cancelled' AND decision_company_id=source_company_id
+            AND decided_by_user_id IS NOT NULL AND decided_at IS NOT NULL
+            AND length(btrim(decision_reason))>0
+            AND source_movement_id IS NULL AND destination_movement_id IS NULL)
+        ),
         UNIQUE(source_company_id,request_id)
     )""")
     op.execute("CREATE INDEX intercompany_transfer_source_feed ON intercompany_warehouse_transfers(source_company_id,id DESC)")

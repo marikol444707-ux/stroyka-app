@@ -135,10 +135,18 @@ def _snapshot(transfer_id, kind, own_company, counterparty, stock, quantity, rea
 
 def create(cur, actor, source_company_id, data):
     values = parse_create(data, source_company_id)
+    # One company-level lock closes the concurrent same-request insert race and
+    # keeps idempotent retries on the normal replay path.
+    cur.execute("SELECT pg_advisory_xact_lock(872342,%s)", (source_company_id,))
     cur.execute(SELECT + " WHERE t.source_company_id=%s AND t.request_id=%s",
                 (source_company_id, values["requestId"]))
     replay = cur.fetchone()
     if replay:
+        if (int(replay["destinationCompanyId"]) != values["destinationCompanyId"]
+                or int(replay["sourceStockId"]) != values["sourceStockId"]
+                or Decimal(str(replay["quantity"])) != values["quantity"]
+                or replay["reason"] != values["reason"]):
+            raise ValueError("Номер запроса уже использован с другим содержимым")
         return side_view(replay, source_company_id)
     cur.execute("SELECT id,name,active FROM companies WHERE id IN (%s,%s) ORDER BY id FOR SHARE",
                 (source_company_id, values["destinationCompanyId"]))
@@ -254,10 +262,10 @@ def decide(cur, actor, company_id, transfer_id, action, reason=""):
                 (owner, item["materialName"], kind, quantity, item["unit"], dt.date.today().isoformat(),
                  project, counterpart, actor.get("name") or "", now_text, item["id"]))
     event_action = {"accept": "destination_accepted", "reject": "destination_rejected", "cancel": "source_cancelled"}[action]
-    cur.execute("""UPDATE intercompany_warehouse_transfers SET status=%s,decided_by_user_id=%s,
+    cur.execute("""UPDATE intercompany_warehouse_transfers SET status=%s,decision_company_id=%s,decided_by_user_id=%s,
         decided_by_name=%s,decided_at=now(),decision_reason=%s,source_movement_id=%s,
         destination_movement_id=%s,version=version+1,updated_at=now() WHERE id=%s""",
-        (target_status, actor["id"], actor.get("name") or "", decision_reason or None,
+        (target_status, company_id, actor["id"], actor.get("name") or "", decision_reason or None,
          source_movement_id, destination_movement_id, item["id"]))
     cur.execute("""INSERT INTO intercompany_warehouse_transfer_events
         (transfer_id,company_id,actor_id,actor_name,action,details) VALUES(%s,%s,%s,%s,%s,%s)""",
