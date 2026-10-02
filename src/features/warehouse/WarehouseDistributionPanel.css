@@ -17,3 +17,20 @@
 .wd-filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin: 16px 0; }
 .wd-filters label { flex: 1 1 180px; }
 @media (max-width: 767px) { .wd-row { grid-template-columns: minmax(0, 1fr); } .warehouse-distribution { padding: 12px; } }
+.intercompany-transfers { color: var(--wd-text, #182536); background: var(--wd-surface, #fff); border: 1px solid var(--wd-border, #ccd4dc); border-radius: 12px; padding: 16px; margin: 16px 0; }
+.intercompany-transfers h3, .intercompany-transfers h4, .intercompany-transfers p { margin: 6px 0; }
+.intercompany-transfers label { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.intercompany-transfers input, .intercompany-transfers select, .intercompany-transfers textarea, .intercompany-transfers button { font: inherit; color: inherit; background: var(--wd-surface, #fff); border: 1px solid var(--wd-border, #ccd4dc); border-radius: 8px; padding: 9px; box-sizing: border-box; min-height: 40px; }
+.intercompany-transfers button { cursor: pointer; }
+.intercompany-transfers button:disabled { opacity: .55; cursor: not-allowed; }
+.ict-form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; border: 1px solid var(--wd-border, #ccd4dc); border-radius: 10px; padding: 14px; margin: 16px 0; }
+.ict-form label:last-of-type, .ict-form > p { grid-column: 1 / -1; }
+.ict-form textarea { min-height: 72px; resize: vertical; }
+.ict-form > button { justify-self: start; }
+.ict-list { display: grid; gap: 10px; }
+.ict-list article { border: 1px solid var(--wd-border, #ccd4dc); border-radius: 10px; padding: 12px; }
+.ict-list article > div:first-child { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.ict-status { font-size: 12px; padding: 3px 8px; border-radius: 999px; background: color-mix(in srgb, var(--wd-accent, #126797) 14%, transparent); }
+.ict-accepted { color: #087a55; }.ict-rejected, .ict-cancelled { color: #9f2f2f; }
+.ict-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+@media (max-width: 767px) { .ict-form { grid-template-columns: minmax(0, 1fr); } .ict-form label:last-of-type, .ict-form > p { grid-column: auto; } .intercompany-transfers { padding: 12px; } }

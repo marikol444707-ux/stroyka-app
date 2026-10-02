@@ -1,5 +1,6 @@
 """Authenticated two-company transfer lifecycle on the guarded disposable PG fixture."""
 import importlib.util
+from concurrent.futures import ThreadPoolExecutor
 import os
 from pathlib import Path
 import sys
@@ -79,9 +80,10 @@ class IntercompanyWarehouseTransferPostgresTests(unittest.TestCase):
         self.api("stranger", "POST", f"/intercompany-warehouse-transfers/{created['id']}/accept",
                  {}, **self.headers(3))
         self.assertEqual(self.balances(material), [(2, 6), (3, 4)])
+        movement_ids = self.sql("""SELECT source_movement_id,destination_movement_id
+            FROM intercompany_warehouse_transfers WHERE id=%s""", (created["id"],))[0]
         self.assertEqual(self.sql("""SELECT company_id,count(*) FROM warehouse_movements
-            WHERE id IN (%s,%s) GROUP BY company_id ORDER BY company_id""",
-            (accepted["sourceMovementId"], accepted["destinationMovementId"])), [(2, 1), (3, 1)])
+            WHERE id IN (%s,%s) GROUP BY company_id ORDER BY company_id""", movement_ids), [(2, 1), (3, 1)])
         self.assertEqual(self.sql("""SELECT company_id,type FROM warehouse_history
             WHERE source_type='intercompany_warehouse_transfer' AND source_id=%s ORDER BY company_id""",
             (created["id"],)), [(2, "межфирменная передача: списание"),
@@ -108,6 +110,23 @@ class IntercompanyWarehouseTransferPostgresTests(unittest.TestCase):
                                   (transfer["id"],)), [("pending",)])
         self.assertEqual(self.sql("SELECT count(*) FROM warehouse_history WHERE source_type='intercompany_warehouse_transfer' AND source_id=%s",
                                   (transfer["id"],)), [(0,)])
+
+    def test_concurrent_destination_acceptance_posts_stock_only_once(self):
+        from fastapi.testclient import TestClient
+        transfer = self.create()
+        token = self.main.create_auth_token(self.f["users"]["stranger"], two_factor_passed=True)
+
+        def accept():
+            with TestClient(self.main.app) as client:
+                return client.post(f"/intercompany-warehouse-transfers/{transfer['id']}/accept", json={},
+                    headers={"Authorization": "Bearer " + token, **self.headers(3)})
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            responses = [future.result(timeout=20) for future in (pool.submit(accept), pool.submit(accept))]
+        self.assertEqual([response.status_code for response in responses], [200, 200])
+        self.assertEqual(self.sql("SELECT quantity FROM warehouse_main WHERE id=%s", (self.source_stock_id,)), [(6,)])
+        self.assertEqual(self.sql("""SELECT count(*) FROM warehouse_history
+            WHERE source_type='intercompany_warehouse_transfer' AND source_id=%s""", (transfer["id"],)), [(2,)])
 
 
 if __name__ == "__main__":

@@ -83,9 +83,12 @@ def side_view(row, company_id):
         raise ValueError("Передача не относится к выбранной компании")
     public = {key: value for key, value in item.items() if key not in (
         "sourceDocument", "destinationDocument", "sourceCompanyName", "destinationCompanyName",
-        "unitPrice", "category",
+        "unitPrice", "category", "sourceStockId", "sourceMovementId", "destinationMovementId",
     )}
-    public.update(side=side, counterparty=counterparty, document=document)
+    if side == "destination":
+        public.pop("requestId", None)
+    movement_id = item.get("sourceMovementId") if side == "source" else item.get("destinationMovementId")
+    public.update(side=side, counterparty=counterparty, document=document, movementId=movement_id)
     return public
 
 

@@ -40,3 +40,4 @@ class IntercompanyWarehouseTransferServiceTests(unittest.TestCase):
         self.assertNotIn("destinationDocument", source)
         self.assertNotIn("unitPrice", destination)
         self.assertNotIn("category", destination)
+        self.assertNotIn("sourceStockId", destination)
