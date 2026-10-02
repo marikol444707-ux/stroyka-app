@@ -8,7 +8,7 @@ const pendingKey = companyId => `intercompany-warehouse-transfer.pending.v1.${co
 function readPending(companyId) {
   try {
     const value = JSON.parse(sessionStorage.getItem(pendingKey(companyId)) || 'null');
-    return value && value.requestId && Number(value.sourceStockId) > 0 && Number(value.destinationCompanyId) > 0 ? value : null;
+    return value && value.requestId && Number(value.sourceLotId) > 0 && Number(value.destinationCompanyId) > 0 ? value : null;
   } catch (_) { return null; }
 }
 
@@ -25,12 +25,13 @@ export default function IntercompanyWarehouseTransfersPanel(props) {
   return <IntercompanyWarehouseTransfersWorkspace {...props} />;
 }
 
-export function IntercompanyWarehouseTransfersWorkspace({ companyId, companies = [], warehouseMain = [], editable = false, onChanged, style }) {
+export function IntercompanyWarehouseTransfersWorkspace({ companyId, companies = [], editable = false, onChanged, style }) {
   const headers = useMemo(() => ({ 'X-Company-Id': String(companyId), 'X-Company-Mode': 'company' }), [companyId]);
   const destinations = companies.filter(company => Number(company.companyId) !== Number(companyId)
     && company.active !== false && company.companyActive !== false);
   const [items, setItems] = useState([]);
-  const [form, setForm] = useState({ destinationCompanyId: '', sourceStockId: '', quantity: '', reason: '' });
+  const [lots, setLots] = useState([]);
+  const [form, setForm] = useState({ destinationCompanyId: '', sourceLotId: '', quantity: '', reason: '' });
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -40,17 +41,20 @@ export function IntercompanyWarehouseTransfersWorkspace({ companyId, companies =
   const load = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const data = await fetch(`${API}/intercompany-warehouse-transfers`, { credentials: 'include', headers }).then(readResponse);
-      if (alive.current) setItems(Array.isArray(data?.items) ? data.items : []);
+      const [data, sources] = await Promise.all([
+        fetch(`${API}/intercompany-warehouse-transfers`, { credentials: 'include', headers }).then(readResponse),
+        fetch(`${API}/warehouse-distributions/sources?limit=200`, { credentials: 'include', headers }).then(readResponse),
+      ]);
+      if (alive.current) { setItems(Array.isArray(data?.items) ? data.items : []); setLots(Array.isArray(sources?.items) ? sources.items : []); }
     } catch (e) {
-      if (alive.current) { setItems([]); setError(e.message || 'Не удалось загрузить межфирменные перемещения.'); }
+      if (alive.current) { setItems([]); setLots([]); setError(e.message || 'Не удалось загрузить межфирменные перемещения.'); }
     } finally { if (alive.current) setLoading(false); }
   }, [headers]);
   useEffect(() => { alive.current = true; load(); return () => { alive.current = false; }; }, [load]);
 
-  const stock = warehouseMain.find(item => Number(item.id) === Number(form.sourceStockId));
+  const stock = lots.find(item => Number(item.lotId) === Number(form.sourceLotId));
   const valid = destinations.some(item => Number(item.companyId) === Number(form.destinationCompanyId))
-    && stock && Number(form.quantity) > 0 && Number(form.quantity) <= Number(stock.quantity) && form.reason.trim();
+    && stock && Number(form.quantity) > 0 && Number(form.quantity) <= Number(stock.availableQuantity) && form.reason.trim();
 
   async function send(path, body, success) {
     if (busy) return false;
@@ -67,7 +71,7 @@ export function IntercompanyWarehouseTransfersWorkspace({ companyId, companies =
 
   async function createTransfer() {
     const payload = pendingCreate || { ...form, destinationCompanyId: Number(form.destinationCompanyId),
-      sourceStockId: Number(form.sourceStockId), requestId: requestId(), reason: form.reason.trim() };
+      sourceLotId: Number(form.sourceLotId), requestId: requestId(), reason: form.reason.trim() };
     if (!pendingCreate) {
       sessionStorage.setItem(pendingKey(companyId), JSON.stringify(payload));
       setPendingCreate(payload);
@@ -75,7 +79,7 @@ export function IntercompanyWarehouseTransfersWorkspace({ companyId, companies =
     const saved = await send('/intercompany-warehouse-transfers', payload, 'Передача отправлена на подтверждение.');
     if (saved) {
       sessionStorage.removeItem(pendingKey(companyId)); setPendingCreate(null);
-      setForm({ destinationCompanyId: '', sourceStockId: '', quantity: '', reason: '' });
+      setForm({ destinationCompanyId: '', sourceLotId: '', quantity: '', reason: '' });
     }
   }
 
@@ -94,7 +98,7 @@ export function IntercompanyWarehouseTransfersWorkspace({ companyId, companies =
     {error && <p role="alert">{error}</p>}{notice && <p role="status">{notice}</p>}{loading && <p role="status">Загрузка передач…</p>}
     {editable && <form className="ict-form" onSubmit={event => { event.preventDefault(); if (!pendingCreate && !valid) return; createTransfer(); }}>
       <label>Компания-получатель<select aria-label="Компания-получатель" value={form.destinationCompanyId} onChange={event => setForm({ ...form, destinationCompanyId: event.target.value })}><option value="">Выберите компанию</option>{destinations.map(company => <option key={company.companyId} value={company.companyId}>{company.companyName || company.shortName || `Компания #${company.companyId}`}</option>)}</select></label>
-      <label>Материал<select aria-label="Материал" value={form.sourceStockId} onChange={event => setForm({ ...form, sourceStockId: event.target.value, quantity: '' })}><option value="">Выберите материал</option>{warehouseMain.filter(item => Number(item.quantity) > 0).map(item => <option key={item.id} value={item.id}>{item.name} · доступно {item.quantity} {item.unit}</option>)}</select></label>
+      <label>Партия материала<select aria-label="Партия материала" value={form.sourceLotId} onChange={event => setForm({ ...form, sourceLotId: event.target.value, quantity: '' })}><option value="">Выберите принятую партию</option>{lots.map(item => <option key={item.lotId} value={item.lotId}>{item.materialName} · накладная {item.invoiceNumber || `#${item.warehouseInvoiceId}`} · доступно {item.availableQuantity} {item.unit}</option>)}</select></label>
       <label>Количество<input aria-label="Количество" inputMode="decimal" value={form.quantity} onChange={event => setForm({ ...form, quantity: event.target.value.replace(',', '.') })} /></label>
       <label>Основание передачи<textarea aria-label="Основание передачи" maxLength={1000} value={form.reason} onChange={event => setForm({ ...form, reason: event.target.value })} /></label>
       {!destinations.length && <p>Для передачи нужен доступ к карточке второй компании в вашем кабинете.</p>}

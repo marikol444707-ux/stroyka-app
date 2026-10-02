@@ -7,6 +7,8 @@ from uuid import UUID
 
 from psycopg2.extras import Json
 
+from ..warehouse_distribution.service import lock_sources
+
 
 READERS = ("директор", "зам_директора", "кладовщик", "снабженец", "бухгалтер")
 WRITERS = ("директор", "зам_директора", "кладовщик", "снабженец")
@@ -40,7 +42,7 @@ def parse_create(data, source_company_id):
     destination = _positive_int(data.get("destinationCompanyId"), "компанию-получателя")
     if destination == int(source_company_id):
         raise ValueError("Выберите другую компанию-получателя")
-    stock_id = _positive_int(data.get("sourceStockId"), "материал основного склада")
+    lot_id = _positive_int(data.get("sourceLotId"), "партию основного склада")
     reason = str(data.get("reason") or "").strip()[:1000]
     if not reason:
         raise ValueError("Укажите основание передачи")
@@ -51,7 +53,7 @@ def parse_create(data, source_company_id):
         raise ValueError("Некорректный номер запроса")
     return {
         "destinationCompanyId": destination,
-        "sourceStockId": stock_id,
+        "sourceLotId": lot_id,
         "quantity": quantity,
         "reason": reason,
         "requestId": request_id,
@@ -83,19 +85,24 @@ def side_view(row, company_id):
         raise ValueError("Передача не относится к выбранной компании")
     public = {key: value for key, value in item.items() if key not in (
         "sourceDocument", "destinationDocument", "sourceCompanyName", "destinationCompanyName",
-        "unitPrice", "category", "sourceStockId", "sourceMovementId", "destinationMovementId",
+        "unitPrice", "category", "sourceStockId", "sourceLotId", "sourceMovementId", "destinationMovementId",
+        "destinationReceiptId", "destinationLotId",
     )}
     if side == "destination":
         public.pop("requestId", None)
     movement_id = item.get("sourceMovementId") if side == "source" else item.get("destinationMovementId")
     public.update(side=side, counterparty=counterparty, document=document, movementId=movement_id)
+    if side == "destination" and item.get("destinationReceiptId"):
+        public["receiptId"] = item["destinationReceiptId"]
     return public
 
 
 SELECT = """SELECT t.id,t.request_id::text AS \"requestId\",
  t.source_company_id AS \"sourceCompanyId\",t.destination_company_id AS \"destinationCompanyId\",
  sc.name AS \"sourceCompanyName\",dc.name AS \"destinationCompanyName\",
- t.source_stock_id AS \"sourceStockId\",t.material_name AS \"materialName\",t.unit,t.quantity,
+ t.source_stock_id AS \"sourceStockId\",t.source_lot_id AS \"sourceLotId\",
+ t.destination_receipt_id AS \"destinationReceiptId\",t.destination_lot_id AS \"destinationLotId\",
+ t.material_name AS \"materialName\",t.unit,t.quantity,
  t.unit_price AS \"unitPrice\",t.category,t.reason,t.status,t.created_by_name AS \"createdBy\",
  t.source_approved_at AS \"sourceApprovedAt\",t.decided_by_name AS \"decidedBy\",
  t.decided_at AS \"decidedAt\",t.decision_reason AS \"decisionReason\",
@@ -161,7 +168,7 @@ def create(cur, actor, source_company_id, data):
     replay = cur.fetchone()
     if replay:
         if (int(replay["destinationCompanyId"]) != values["destinationCompanyId"]
-                or int(replay["sourceStockId"]) != values["sourceStockId"]
+                or int(replay["sourceLotId"]) != values["sourceLotId"]
                 or Decimal(str(replay["quantity"])) != values["quantity"]
                 or replay["reason"] != values["reason"]):
             raise ValueError("Номер запроса уже использован с другим содержимым")
@@ -176,26 +183,37 @@ def create(cur, actor, source_company_id, data):
         raise ValueError("Компания-отправитель недоступна")
     if not destination_company or destination_company.get("active") is False:
         raise ValueError("Компания-получатель не найдена или отключена")
+    lots, receipts = lock_sources(cur, source_company_id, [values["sourceLotId"]])
+    lot = lots[values["sourceLotId"]]
+    receipt = receipts[lot["warehouse_invoice_id"]]
+    if Decimal(str(lot.get("available_quantity") or 0)) < values["quantity"]:
+        raise ValueError("В выбранной партии недостаточно материала")
     cur.execute("""SELECT id,name,unit,quantity,price,category FROM warehouse_main
-        WHERE id=%s AND company_id=%s FOR UPDATE""", (values["sourceStockId"], source_company_id))
-    stock = cur.fetchone()
-    if not stock:
-        raise ValueError("Материал не найден на основном складе выбранной компании")
+        WHERE company_id=%s AND lower(name)=lower(%s)
+          AND lower(COALESCE(NULLIF(unit,''),'шт'))=lower(%s) ORDER BY id FOR UPDATE""",
+        (source_company_id, lot["material_name"], lot.get("unit") or "шт"))
+    stocks = cur.fetchall()
+    if len(stocks) != 1:
+        raise ValueError("Общий остаток выбранной партии требует сверки")
+    stock = stocks[0]
     if Decimal(str(stock.get("quantity") or 0)) < values["quantity"]:
         raise ValueError("На основном складе недостаточно материала")
     cur.execute("SELECT nextval(pg_get_serial_sequence('intercompany_warehouse_transfers','id')) AS id")
     transfer_id = int(cur.fetchone()["id"])
     source_document = _snapshot(transfer_id, "intercompany_dispatch", source_company, destination_company,
                                 stock, values["quantity"], values["reason"], actor)
+    source_document["sourceReceipt"] = {"id": lot["warehouse_invoice_id"],
+        "number": str(receipt.get("number") or ""), "lineIndex": lot["invoice_line_index"],
+        "lotId": lot["id"]}
     destination_document = _snapshot(transfer_id, "intercompany_receipt", destination_company, source_company,
                                      stock, values["quantity"], values["reason"], actor)
     cur.execute("""INSERT INTO intercompany_warehouse_transfers
-        (id,request_id,source_company_id,destination_company_id,source_stock_id,material_name,unit,quantity,
+        (id,request_id,source_company_id,destination_company_id,source_stock_id,source_lot_id,material_name,unit,quantity,
          unit_price,category,reason,created_by_user_id,created_by_name,source_document_json,
          destination_document_json,source_document_hash,destination_document_hash)
-        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
         (transfer_id, values["requestId"], source_company_id, values["destinationCompanyId"], stock["id"],
-         stock["name"], stock.get("unit") or "шт", values["quantity"], stock.get("price") or 0,
+         lot["id"], stock["name"], stock.get("unit") or "шт", values["quantity"], stock.get("price") or 0,
          stock.get("category") or "", values["reason"], actor["id"], actor.get("name") or "",
          Json(source_document), Json(destination_document), _canonical_hash(source_document),
          _canonical_hash(destination_document)))
@@ -238,13 +256,22 @@ def decide(cur, actor, company_id, transfer_id, action, reason=""):
     if action in ("reject", "cancel") and not decision_reason:
         raise ValueError("Укажите причину")
     source_movement_id = destination_movement_id = None
+    destination_receipt_id = destination_lot_id = None
     if action == "accept":
         for locked_company in sorted((int(item["sourceCompanyId"]), int(item["destinationCompanyId"]))):
             cur.execute("SELECT pg_advisory_xact_lock(872341,%s)", (locked_company,))
+        cur.execute("LOCK TABLE materials,warehouse_main,projects IN SHARE ROW EXCLUSIVE MODE")
+        lots, _ = lock_sources(cur, item["sourceCompanyId"], [item["sourceLotId"]])
+        lot = lots[item["sourceLotId"]]
+        quantity = Decimal(str(item["quantity"]))
+        if (lot.get("material_name") != item["materialName"]
+                or (lot.get("unit") or "шт") != item["unit"]):
+            raise ValueError("Исходная партия изменилась; создайте новое перемещение")
+        if Decimal(str(lot.get("available_quantity") or 0)) < quantity:
+            raise ValueError("В выбранной партии недостаточно материала")
         cur.execute("""SELECT id,name,unit,quantity,price,category FROM warehouse_main
             WHERE id=%s AND company_id=%s FOR UPDATE""", (item["sourceStockId"], item["sourceCompanyId"]))
         stock = cur.fetchone()
-        quantity = Decimal(str(item["quantity"]))
         if not stock or stock["name"] != item["materialName"] or (stock.get("unit") or "шт") != item["unit"]:
             raise ValueError("Исходная складская позиция изменилась; создайте новое перемещение")
         if Decimal(str(stock.get("quantity") or 0)) < quantity:
@@ -252,9 +279,12 @@ def decide(cur, actor, company_id, transfer_id, action, reason=""):
         cur.execute("UPDATE warehouse_main SET quantity=quantity-%s WHERE id=%s AND company_id=%s",
                     (quantity, stock["id"], item["sourceCompanyId"]))
         cur.execute("""SELECT id FROM warehouse_main WHERE company_id=%s AND lower(name)=lower(%s)
-            AND lower(COALESCE(NULLIF(unit,''),'шт'))=lower(%s) ORDER BY id LIMIT 1 FOR UPDATE""",
+            AND lower(COALESCE(NULLIF(unit,''),'шт'))=lower(%s) ORDER BY id FOR UPDATE""",
             (item["destinationCompanyId"], item["materialName"], item["unit"]))
-        destination = cur.fetchone()
+        destination_rows = cur.fetchall()
+        if len(destination_rows) > 1:
+            raise ValueError("Общий остаток получателя требует сверки")
+        destination = destination_rows[0] if destination_rows else None
         if destination:
             cur.execute("""UPDATE warehouse_main SET quantity=quantity+%s,
                 price=CASE WHEN %s>0 THEN %s ELSE price END,
@@ -270,6 +300,42 @@ def decide(cur, actor, company_id, transfer_id, action, reason=""):
             item["unit"], "Основной склад", transit, actor, item["reason"])
         destination_movement_id = _insert_movement(cur, item["destinationCompanyId"], item["materialName"], quantity,
             item["unit"], transit, "Основной склад", actor, item["reason"])
+        cur.execute("""UPDATE warehouse_receipt_lots SET available_quantity=available_quantity-%s
+            WHERE id=%s AND company_id=%s AND status='active' AND available_quantity>=%s
+            RETURNING available_quantity""", (quantity, lot["id"], item["sourceCompanyId"], quantity))
+        if not cur.fetchone():
+            raise ValueError("Остаток выбранной партии изменился; обновите данные")
+        cur.execute("""INSERT INTO warehouse_lot_movements
+            (lot_id,company_id,warehouse_movement_id,operation_type,quantity,unit,from_location,to_location,created_by)
+            VALUES(%s,%s,%s,'intercompany_dispatch',%s,%s,'Основной склад',%s,%s)""",
+            (lot["id"], item["sourceCompanyId"], source_movement_id, quantity, item["unit"], transit,
+             actor.get("name") or ""))
+        invoice_number = "МП-" + str(item["id"])
+        invoice_item = {"name": item["materialName"], "quantity": str(quantity), "unit": item["unit"],
+                        "price": str(item["unitPrice"]), "category": item.get("category") or ""}
+        invoice_total = quantity * Decimal(str(item["unitPrice"]))
+        cur.execute("""INSERT INTO warehouse_invoices
+            (company_id,number,date,supplier_id,supplier_name,accepted_by,location,project,vat,items,
+             total_base,total_vat,total_with_vat,status,added_by,source_type,source_id,pages_count,
+             warehouse_target,selected_action)
+            VALUES(%s,%s,%s,NULL,'',%s,'Основной склад','','Без НДС',%s,%s,0,%s,'Принята',%s,
+                   'intercompany_warehouse_transfer',%s,1,'main','receive_stock_without_supplier') RETURNING id""",
+            (item["destinationCompanyId"], invoice_number, dt.date.today().isoformat(), actor.get("name") or "",
+             Json([invoice_item]), invoice_total, invoice_total, actor.get("name") or "", str(item["id"])))
+        destination_receipt_id = int(cur.fetchone()["id"])
+        cur.execute("""INSERT INTO warehouse_receipt_lots
+            (company_id,project_id,project_name,warehouse_location,warehouse_target,warehouse_invoice_id,
+             invoice_line_index,material_name,document_quantity,document_unit,received_quantity,unit,
+             available_quantity,status,created_by)
+            VALUES(%s,NULL,'','Основной склад','main',%s,0,%s,%s,%s,%s,%s,%s,'active',%s) RETURNING id""",
+            (item["destinationCompanyId"], destination_receipt_id, item["materialName"], quantity,
+             item["unit"], quantity, item["unit"], quantity, actor.get("name") or ""))
+        destination_lot_id = int(cur.fetchone()["id"])
+        cur.execute("""INSERT INTO warehouse_lot_movements
+            (lot_id,company_id,warehouse_movement_id,operation_type,quantity,unit,from_location,to_location,created_by)
+            VALUES(%s,%s,%s,'intercompany_receipt',%s,%s,%s,'Основной склад',%s)""",
+            (destination_lot_id, item["destinationCompanyId"], destination_movement_id, quantity,
+             item["unit"], transit, actor.get("name") or ""))
         now_text = dt.datetime.now().strftime("%d.%m.%Y, %H:%M")
         for owner, kind, project, counterpart, movement_id in (
             (item["sourceCompanyId"], "межфирменная передача: списание", "Основной склад", item["destinationCompanyName"], source_movement_id),
@@ -283,9 +349,10 @@ def decide(cur, actor, company_id, transfer_id, action, reason=""):
     event_action = {"accept": "destination_accepted", "reject": "destination_rejected", "cancel": "source_cancelled"}[action]
     cur.execute("""UPDATE intercompany_warehouse_transfers SET status=%s,decision_company_id=%s,decided_by_user_id=%s,
         decided_by_name=%s,decided_at=now(),decision_reason=%s,source_movement_id=%s,
-        destination_movement_id=%s,version=version+1,updated_at=now() WHERE id=%s""",
+        destination_movement_id=%s,destination_receipt_id=%s,destination_lot_id=%s,
+        version=version+1,updated_at=now() WHERE id=%s""",
         (target_status, company_id, actor["id"], actor.get("name") or "", decision_reason or None,
-         source_movement_id, destination_movement_id, item["id"]))
+         source_movement_id, destination_movement_id, destination_receipt_id, destination_lot_id, item["id"]))
     cur.execute("""INSERT INTO intercompany_warehouse_transfer_events
         (transfer_id,company_id,actor_id,actor_name,action,details) VALUES(%s,%s,%s,%s,%s,%s)""",
         (item["id"], company_id, actor["id"], actor.get("name") or "", event_action,
