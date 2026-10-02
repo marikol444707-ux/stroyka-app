@@ -2575,8 +2575,10 @@ mismatched ownership; the unauthenticated route returned `401`.
 - [x] Registry entries describe the exact owner source and route family for all eight tables.
 - [x] The legacy `counterparties` draft and mixed-scope `supplier_documents` table remain unregistered until their separate ownership contracts are hardened.
 - [x] The migration is reversible and contains no data mutation.
-- [ ] Focused registry, readiness and migration tests pass locally and in CI.
-- [ ] Production migration applies, readiness has no new schema blockers, coverage falls from `138` to `130`, and public smoke passes.
+- [x] Focused registry, readiness and migration tests pass locally and in CI.
+- [x] Production migration applies, readiness has no new schema blockers, coverage falls from `138` to `130`, and public smoke passes.
+
+**Production result:** Runtime `83a773de` deployed on 2026-10-03. Alembic reports `0085_supplier_contract_indexes (head)`. The read-only post-audits checked all eight registered tables and `10` current rows, found all six new indexes, zero null/orphan stored owners, zero mismatches across nine exact parent checks and zero readiness schema blockers, then rolled back. Registry coverage is now `85` physical tables with `130` still unregistered (`82 critical`, `14 high`, `34 unclassified`). Public smoke, health/database, frontend asset checks and a Chromium `/app` render passed; no temporary frontend build remains.
 
 **Dependencies:** M7m1
 
