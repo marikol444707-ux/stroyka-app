@@ -65,6 +65,12 @@ def main() -> int:
         with Agent(args.url, args.goal, record_dir=evidence, screenshots=True) as agent:
             for state in agent.run():
                 final_state = state
+                current_url = str((state.get("page") or {}).get("url") or "")
+                try:
+                    _assert_allowed_url(current_url, base_url)
+                except ValueError as exc:
+                    error = f"outside_qa_scope: {exc}"
+                    break
                 if time.monotonic() - started > args.max_seconds:
                     error = f"worker_timeout>{args.max_seconds}s"
                     break
