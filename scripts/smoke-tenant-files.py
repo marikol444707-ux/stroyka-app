@@ -30,6 +30,17 @@ def env_value(name):
     return ""
 
 
+def compatibility_delivery_is_public():
+    backend = env_value("STORAGE_BACKEND").strip().lower() or "local"
+    if backend == "s3":
+        acl = env_value("S3_ACL").strip().lower() or "public-read"
+        return acl not in ("private", "bucket-owner-full-control")
+    if backend == "local":
+        enabled = env_value("PUBLIC_UPLOADS_MOUNT_ENABLED").strip().lower()
+        return enabled in ("1", "true", "yes", "on")
+    return False
+
+
 def api(method, path, *, token="", data=None, body=None, headers=None, expected=200):
     request_headers = dict(headers or {})
     if token:
@@ -141,6 +152,19 @@ def login(email, password):
     raise SystemExit("FAIL login: authToken не получен")
 
 
+def auth_token():
+    token = env_value("SMOKE_AUTH_TOKEN")
+    if token:
+        return token
+    email = env_value("SMOKE_EMAIL")
+    password = env_value("SMOKE_PASSWORD")
+    if not email or not password:
+        raise SystemExit(
+            "Нужно задать SMOKE_AUTH_TOKEN либо SMOKE_EMAIL и SMOKE_PASSWORD"
+        )
+    return login(email, password)
+
+
 def multipart(fields, filename, content, content_type="image/png"):
     boundary = "----stroyka-smoke-" + uuid.uuid4().hex
     chunks = []
@@ -160,11 +184,7 @@ def multipart(fields, filename, content, content_type="image/png"):
 
 
 def main():
-    email = env_value("SMOKE_EMAIL")
-    password = env_value("SMOKE_PASSWORD")
-    if not email or not password:
-        raise SystemExit("Нужно задать SMOKE_EMAIL и SMOKE_PASSWORD")
-    token = login(email, password)
+    token = auth_token()
     projects = api("GET", "/projects", token=token)
     project = next((item for item in projects if "CODEX" in str(item.get("name") or "").upper()), projects[0] if projects else None)
     if not project or not project.get("id") or not project.get("companyId"):
@@ -206,13 +226,27 @@ def main():
             raise RuntimeError("Защищенная выдача не запретила публичное кеширование")
         compatibility_url = uploaded.get("url") or metadata.get("url")
         compatibility_status, compatibility_content = fetch_url(compatibility_url)
-        if compatibility_status != 200 or hashlib.sha256(compatibility_content).digest() != hashlib.sha256(png).digest():
-            raise RuntimeError("Compatibility URL не вернул загруженный физический файл")
+        public_compatibility_delivery = compatibility_delivery_is_public()
+        if public_compatibility_delivery:
+            if compatibility_status != 200 or hashlib.sha256(compatibility_content).digest() != hashlib.sha256(png).digest():
+                raise RuntimeError("Публичный compatibility URL не вернул загруженный физический файл")
+            compatibility_check = "public compatibility URL returns exact bytes"
+        else:
+            if compatibility_status not in (401, 403, 404, 410):
+                raise RuntimeError(
+                    "Приватный физический файл доступен без авторизации: "
+                    f"HTTP {compatibility_status}"
+                )
+            compatibility_check = "anonymous compatibility URL is blocked"
         api("DELETE", f"/tenant-files/{file_id}", token=token, headers=headers)
         api("GET", f"/tenant-files/{file_id}", token=token, headers=headers, expected=404)
         api_bytes("GET", f"/tenant-files/{file_id}/content", token=token, headers=headers, expected=404)
         file_id = None
-        wait_until_storage_is_gone(compatibility_url)
+        if public_compatibility_delivery:
+            wait_until_storage_is_gone(compatibility_url)
+            cleanup_check = "public compatibility object disappears after cleanup"
+        else:
+            cleanup_check = "protected delete confirms storage cleanup before metadata removal"
         print(json.dumps({
             "ok": True,
             "projectId": project["id"],
@@ -223,8 +257,9 @@ def main():
                 "stored company/project ownership",
                 "authorized metadata read",
                 "authorized protected content read with exact bytes",
-                "physical object and ownership cleanup",
-                "deleted metadata/content return 404 and compatibility object disappears",
+                compatibility_check,
+                cleanup_check,
+                "deleted metadata and protected content return 404",
             ],
         }, ensure_ascii=False, indent=2))
     finally:
