@@ -127,13 +127,32 @@ def run_cleanup(conn, *, apply=False, expected_ready_count=None, expected_plan_s
         raise ValueError("Apply requires a valid expected_plan_sha256")
     session = {"readonly": not apply, "autocommit": False}
     if apply:
-        session["isolation_level"] = psycopg2.extensions.ISOLATION_LEVEL_SERIALIZABLE
+        # Supplier-payment integrity triggers intentionally require the shared
+        # company advisory lock and READ COMMITTED used by every ledger writer.
+        session["isolation_level"] = psycopg2.extensions.ISOLATION_LEVEL_READ_COMMITTED
     conn.set_session(**session)
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
         if apply:
             cur.execute("SET LOCAL lock_timeout='5s'")
             cur.execute("SET LOCAL statement_timeout='60s'")
+            cur.execute(
+                """SELECT DISTINCT company_id
+                     FROM warehouse_invoices
+                    WHERE supplier_invoice_id IS NOT NULL
+                    ORDER BY company_id"""
+            )
+            company_ids = [
+                _positive_int((row or {}).get("company_id"))
+                for row in (cur.fetchall() or [])
+            ]
+            if any(company_id is None for company_id in company_ids):
+                raise RuntimeError("Linked warehouse company is missing")
+            for company_id in company_ids:
+                cur.execute(
+                    "SELECT public.supplier_allocation_lock(%s)",
+                    (company_id,),
+                )
             cur.execute("LOCK TABLE supplier_invoices IN SHARE MODE")
             cur.execute("LOCK TABLE supplier_payment_documents IN SHARE MODE")
             cur.execute("LOCK TABLE warehouse_invoices IN SHARE ROW EXCLUSIVE MODE")
