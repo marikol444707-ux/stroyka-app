@@ -15541,11 +15541,11 @@ def _close_stale_ai_tasks(
     if not project_name or not prefixes:
         return 0
     try:
-        from backend.features.ai_tasks.service import resolve_task_owner, task_owner_filter
+        from backend.features.ai_tasks.service import normalize_task_owner, task_owner_filter
     except ModuleNotFoundError:
-        from features.ai_tasks.service import resolve_task_owner, task_owner_filter
-    owner = task_owner or resolve_task_owner(
-        cur, {"projectName": project_name}, system_project_name=SYSTEM_PROJECT_NAME,
+        from features.ai_tasks.service import normalize_task_owner, task_owner_filter
+    owner = normalize_task_owner(
+        cur, project_name, task_owner, system_project_name=SYSTEM_PROJECT_NAME,
     )
     owner_sql, owner_params = task_owner_filter(owner)
     where = " OR ".join(["dedupe_key LIKE %s" for _ in prefixes])

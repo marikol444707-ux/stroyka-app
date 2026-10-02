@@ -718,10 +718,10 @@ class WarehouseAnomalyRuntimeDisclosurePolicyTests(unittest.TestCase):
             backend_root / "db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Reviewed intercompany-transfer registration in the composition root;
+            # Reviewed AI task-owner normalization in the composition root;
             # warehouse preview implementation and registration are unchanged.
             backend_root / "main.py": (
-                "7afaf796f74f9e56533c9e594d241c000269fe5c8bcc3f8525878740a1ac9cb2"
+                "2f97d56af403a8207d38fb8667d5c2ae740f520050b4b04520827c3ac3935b15"
             ),
         }
         actual = {

@@ -2,7 +2,7 @@ import unittest
 
 from fastapi import HTTPException
 
-from backend.features.ai_tasks.service import resolve_task_owner, task_owner_filter
+from backend.features.ai_tasks.service import normalize_task_owner, resolve_task_owner, task_owner_filter
 
 
 class FakeCursor:
@@ -57,6 +57,24 @@ class AiTaskRuntimeServiceTests(unittest.TestCase):
         sql, params = task_owner_filter({"scope": "company", "companyId": 4, "projectId": 10}, alias="t")
         self.assertEqual(sql, "t.owner_scope='company' AND t.company_id=%s AND t.project_id=%s")
         self.assertEqual(params, [4, 10])
+
+    def test_normalize_task_owner_converts_exact_project_owner(self):
+        cur = FakeCursor([])
+        owner = normalize_task_owner(
+            cur,
+            "Объект A",
+            {"id": 10, "companyId": 4, "name": "Объект A"},
+        )
+        sql, params = task_owner_filter(owner)
+        self.assertEqual(owner, {
+            "scope": "company",
+            "companyId": 4,
+            "projectId": 10,
+            "projectName": "Объект A",
+        })
+        self.assertIn("company_id=%s", sql)
+        self.assertEqual(params, [4, 10])
+        self.assertEqual(cur.calls, [])
 
 
 if __name__ == "__main__":
