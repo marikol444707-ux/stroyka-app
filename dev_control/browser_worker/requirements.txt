@@ -1,2 +1,4 @@
-# Pinned upstream revision reviewed when this worker was created.
+# Worker-only dependencies. Not used by the production Stroyka backend.
 jev-ultrafast @ git+https://github.com/browser-use/jev-ultrafast.git@1231850a0bf1a0c0341fe408ef1668dbbfdfac46
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30,<1
