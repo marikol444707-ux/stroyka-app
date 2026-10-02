@@ -131,6 +131,18 @@ class TenantReadinessReportTests(unittest.TestCase):
         self.assertEqual(report["schemaBlockers"][0]["reason"], "owner_scope_invalid")
         self.assertEqual(report["schemaBlockers"][0]["count"], 4)
 
+    def test_historical_project_reference_is_reported_without_blocking(self):
+        fact = company_fact()
+        fact["columns"]["project_id"] = {"nullable": True}
+        fact["indexes"].append("CREATE INDEX idx_project ON sample(project_id)")
+        fact["projectRows"] = 2
+        fact["historicalOrphanProjectRows"] = 2
+
+        report = build_report([entry("sample")], {"sample": fact})
+
+        self.assertTrue(report["readyForConstraints"])
+        self.assertEqual(report["tables"][0]["historicalOrphanProjectRows"], 2)
+
     def test_run_report_forces_read_only_transaction_and_rolls_back(self):
         conn = Mock()
         cur = Mock()
