@@ -1,7 +1,7 @@
 ЗАКРЫТО
 - Базовый CI-контур уже есть: backend compile/tests, frontend tests и frontend build входят в обязательную проверку. Evidence: `.github/workflows/ci.yml`, `tasks/plan.md` Task 15.
 - Изоляция журнала работ закрывалась отдельными срезами `M6.5a–M6.5d`; в плане записаны production runtime/post-audit evidence для create/read/update/delete. Evidence: `tasks/plan.md`.
-- Read-only post-audit по `supplier_invoices` и `supply_deliveries` в `M7j` проверил `53/53` строк без review rows. Evidence: `tasks/plan.md`.
+- Read-only post-audit по `supplier_invoices` и `supply_deliveries` повторно проверен 02.10.2026: `51/51` текущих строк без review rows. Evidence: `tasks/plan.md`.
 
 ОБЯЗАТЕЛЬНО ДО BETA
 - `M4.2–M4.9`: warehouse company isolation в текущем плане всё ещё помечена `implemented locally; release pending`. До release/verification эти пункты нельзя считать закрытыми. Evidence: `tasks/plan.md`.
