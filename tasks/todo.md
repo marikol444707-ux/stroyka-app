@@ -2546,6 +2546,23 @@ mismatched ownership; the unauthenticated route returned `401`.
 
 **Safety:** Coverage and readiness reports remain read-only. Any backfill, constraint or runtime change discovered by classification is split into its own guarded task.
 
+### Task M7m1: Register The Supplier Ledger
+
+**Description:** Register the 19 tables behind supplier payments, allocation revisions, opening confirmations, invoice-line evidence and receipt proofs. Their stored `company_id` is protected by exact immutable parent chains and company-scoped routes. Add direct company lookup indexes to the seven child tables whose existing composite keys do not begin with `company_id`.
+
+**Pre-apply evidence:** The 2026-10-03 production inspection was read-only. All 19 tables have non-null stored company ownership; eight current rows belong to an existing company and the remaining tables are empty. Seven tables lack a direct company index. Migration `0084_supplier_ledger_indexes` contains only seven `CREATE INDEX` operations and a matching seven-index downgrade; it performs no row writes.
+
+**Acceptance criteria:**
+- [x] Registry entries name the exact owner source and runtime route family for all 19 tables.
+- [x] The migration is reversible and contains no data mutation.
+- [x] Focused registry, readiness and migration tests pass locally.
+- [ ] CI applies the full Alembic chain and passes PostgreSQL isolation tests.
+- [ ] Production migration applies, readiness has no new schema blockers, coverage falls from `157` to `138`, and public smoke passes.
+
+**Dependencies:** M7m production coverage snapshot
+
+**Estimated scope:** S
+
 **Dependencies:** M7l and the completed M6 runtime isolation slices
 
 **Estimated scope:** L, delivered in domain batches
