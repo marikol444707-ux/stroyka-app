@@ -1,0 +1,2 @@
+# Pinned upstream revision reviewed when this worker was created.
+jev-ultrafast @ git+https://github.com/browser-use/jev-ultrafast.git@1231850a0bf1a0c0341fe408ef1668dbbfdfac46
