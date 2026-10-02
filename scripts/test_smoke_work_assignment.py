@@ -2,6 +2,7 @@ import importlib.util
 import json
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 SCRIPT_PATH = Path(__file__).with_name("smoke-work-assignment.py")
@@ -22,6 +23,33 @@ class WorkAssignmentSmokeTests(unittest.TestCase):
         payload = json.loads(MODULE.base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
 
         self.assertIs(payload["twoFactorPassed"], True)
+
+    def test_cleanup_deletes_estimate_versions_before_estimates(self):
+        calls = []
+
+        class Cursor:
+            def execute(self, sql, params):
+                calls.append(" ".join(sql.split()))
+
+            def close(self):
+                pass
+
+        class Connection:
+            def cursor(self):
+                return Cursor()
+
+            def commit(self):
+                pass
+
+            def close(self):
+                pass
+
+        with patch.object(MODULE, "db_conn", return_value=Connection()):
+            MODULE.cleanup()
+
+        version_delete = next(i for i, sql in enumerate(calls) if sql.startswith("DELETE FROM estimate_versions"))
+        estimate_delete = next(i for i, sql in enumerate(calls) if sql.startswith("DELETE FROM estimates"))
+        self.assertLess(version_delete, estimate_delete)
 
 
 if __name__ == "__main__":
