@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import base64
-import copy
 import hashlib
 import hmac
 import json
@@ -439,75 +438,6 @@ def main():
         if round(float(target2.get("quantity") or 0), 2) != 9 or round(float(target2.get("priceBrigade") or 0), 2) != 300:
             raise RuntimeError(f"assigned item 2 values are wrong: {target2}")
 
-        work_key = f"{estimate_id}:0:0"
-        work_key_2 = f"{estimate_id}:0:1"
-        daily_date = "2026-07-07"
-        daily_comment = f"{PREFIX} daily batch"
-        daily_photo = f"/uploads/{RUN_ID}-daily.jpg"
-        updated_estimate = copy.deepcopy(full_estimate)
-        updated_estimate["sections"][0]["items"][0]["doneQuantity"] = 5
-        updated_estimate["sections"][0]["items"][1]["doneQuantity"] = 3
-        updated_estimate["_workJournalParams"] = {
-            work_key: {
-                "estimateItemKey": ITEM_KEY,
-                "contractItemId": target.get("id"),
-                "workPackage": WORK_PACKAGE,
-                "executionPricePerUnit": target.get("priceBrigade"),
-                "executionPriceMode": "brigade_contract",
-                "date": daily_date,
-                "comment": daily_comment,
-                "photoUrl": daily_photo,
-            },
-            work_key_2: {
-                "estimateItemKey": ITEM_KEY_2,
-                "contractItemId": target2.get("id"),
-                "workPackage": WORK_PACKAGE,
-                "executionPricePerUnit": target2.get("priceBrigade"),
-                "executionPriceMode": "brigade_contract",
-                "date": daily_date,
-                "comment": daily_comment,
-                "photoUrl": daily_photo,
-            }
-        }
-        updated_estimate["_workJournalMaterials"] = {work_key: [], work_key_2: []}
-        api_json("PUT", f"/estimates/{estimate_id}", token=worker_token, data=updated_estimate, expected=200)
-        conn = db_conn()
-        cur = conn.cursor()
-        try:
-            cur.execute(
-                """
-                SELECT estimate_item_key, room_name, quantity, contract_item_id, date, comment, photo_url
-                  FROM work_journal
-                 WHERE project=%s AND estimate_item_key IN (%s, %s)
-                 ORDER BY estimate_item_key
-                """,
-                (PROJECT_NAME, ITEM_KEY, ITEM_KEY_2),
-            )
-            work_rows = cur.fetchall()
-            if len(work_rows) != 2:
-                raise RuntimeError(f"worker daily batch did not create two work_journal rows: {work_rows}")
-            expected = {
-                ITEM_KEY: {"qty": 5, "contractItemId": target.get("id")},
-                ITEM_KEY_2: {"qty": 3, "contractItemId": target2.get("id")},
-            }
-            for work_row in work_rows:
-                key = work_row[0]
-                if (work_row[1] or "") != "Без помещения":
-                    raise RuntimeError(f"worker estimate submit used wrong room fallback: {work_row}")
-                if round(float(work_row[2] or 0), 2) != expected[key]["qty"]:
-                    raise RuntimeError(f"worker estimate submit used wrong quantity: {work_row}")
-                if int(work_row[3] or 0) != int(expected[key]["contractItemId"] or 0):
-                    raise RuntimeError(f"worker estimate submit used wrong contract item: {work_row}")
-                if str(work_row[4])[:10] != daily_date:
-                    raise RuntimeError(f"worker daily batch used wrong date: {work_row}")
-                if (work_row[5] or "") != daily_comment:
-                    raise RuntimeError(f"worker daily batch used wrong comment: {work_row}")
-                if (work_row[6] or "") != daily_photo:
-                    raise RuntimeError(f"worker daily batch used wrong photo: {work_row}")
-        finally:
-            cur.close()
-            conn.close()
-
         api_json("DELETE", f"/brigade-contract-items/{target.get('id')}", token=director_token, expected=200)
         api_json("DELETE", f"/brigade-contract-items/{target2.get('id')}", token=director_token, expected=200)
         _, after_delete_items = api_json("GET", "/brigade-contract-items-all", token=worker_token, expected=200)
@@ -524,8 +454,6 @@ def main():
             "projectEditArchivedFalseChecked": True,
             "projectArchiveBlockedChecked": True,
             "directorEstimateSummaryChecked": True,
-            "noRoomWorkSubmitChecked": True,
-            "dailyBatchTwoEstimateRowsChecked": True,
             "deleteChecked": True,
         }, ensure_ascii=False, indent=2))
     finally:

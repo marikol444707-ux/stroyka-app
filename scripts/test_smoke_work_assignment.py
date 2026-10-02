@@ -97,6 +97,11 @@ class WorkAssignmentSmokeTests(unittest.TestCase):
 
         self.assertEqual(calls[0][1], (601, 4, 8, "мастер"))
 
+    def test_production_smoke_does_not_create_immutable_work_ledger_rows(self):
+        source = SCRIPT_PATH.read_text(encoding="utf-8")
+
+        self.assertNotIn('api_json("PUT", f"/estimates/', source)
+
 
 if __name__ == "__main__":
     unittest.main()
