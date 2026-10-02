@@ -5,11 +5,13 @@ from __future__ import annotations
 import hmac
 import os
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from uuid import uuid4
 
 from fastapi import FastAPI, Header, HTTPException
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 from dev_control.browser_worker.run import execute_task
@@ -28,6 +30,15 @@ class JobRequest(BaseModel):
     forbid_text: list[str] = Field(default_factory=list, max_length=20)
     expect_url_contains: list[str] = Field(default_factory=list, max_length=20)
     max_seconds: float = Field(default=90.0, ge=5.0, le=180.0)
+
+
+def _startup_selftest_enabled() -> bool:
+    return (
+        (os.environ.get("QA_SELFTEST_ON_START") or "").strip() == "1"
+        and (os.environ.get("QA_BASE_URL") or "").strip().rstrip("/") == "http://127.0.0.1:8080"
+        and (os.environ.get("QA_ENVIRONMENT") or "").strip().lower() in {"qa", "test", "staging"}
+        and bool((os.environ.get("TIMEWEB_AI_API_KEY") or "").strip())
+    )
 
 
 def _configured() -> bool:
@@ -86,11 +97,51 @@ def _execute(job_id: str, request: JobRequest) -> None:
 
 @app.get("/health")
 def health():
+    with _jobs_lock:
+        selftest = _jobs.get("startup-selftest")
+        selftest_status = selftest.get("status") if selftest else "not_requested"
     return {
         "ok": _configured(),
         "service": "stroyka-jev-browser-worker",
         "environment": (os.environ.get("QA_ENVIRONMENT") or "unconfigured").lower(),
+        "startup_selftest": selftest_status,
     }
+
+
+@app.get("/selftest-page", response_class=HTMLResponse)
+def selftest_page():
+    return """<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Stroyka Jev Self Test</title></head>
+<body>
+  <h1>Stroyka Jev Browser Self Test</h1>
+  <p id="result">WAITING</p>
+  <button id="run-test" onclick="document.getElementById('result').textContent='JEV_BROWSER_OK'; this.disabled=true">
+    Run browser self-test
+  </button>
+</body>
+</html>"""
+
+
+def _run_startup_selftest() -> None:
+    # Uvicorn begins accepting connections immediately after startup returns.
+    time.sleep(1.0)
+    request = JobRequest(
+        url="http://127.0.0.1:8080/selftest-page",
+        goal="Click the Run browser self-test button. Finish only when JEV_BROWSER_OK is visibly present.",
+        expect_text=["JEV_BROWSER_OK"],
+        forbid_text=[],
+        expect_url_contains=["/selftest-page"],
+        max_seconds=60.0,
+    )
+    _execute("startup-selftest", request)
+
+
+@app.on_event("startup")
+def schedule_startup_selftest():
+    if _startup_selftest_enabled():
+        _set_job("startup-selftest", status="queued", result=None)
+        _executor.submit(_run_startup_selftest)
 
 
 @app.post("/jobs", status_code=202)
