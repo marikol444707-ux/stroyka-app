@@ -2,42 +2,68 @@
 
 Отдельный Python 3.12 worker для браузерного QA. В production backend он не устанавливается.
 
+## Как работает
+
+Work Control отправляет защищённую HTTP-задачу -> worker ставит её в очередь ->
+Chrome + Jev выполняют сценарий -> deterministic verifier проверяет итог ->
+Work Control забирает результат и evidence.
+
 ## Безопасность
 
 - `QA_BASE_URL` обязателен: worker отказывается открывать другой origin/path.
+- Граница QA проверяется снова после каждого браузерного действия.
+- `QA_ENVIRONMENT` должен быть только `qa`, `test` или `staging`.
+- `DEV_CONTROL_API_TOKEN` обязателен для `/jobs`.
 - `TIMEWEB_AI_API_KEY` хранится только в runtime secrets.
-- Jev-запросы к hard-coded TypeSafe SystemOne перенаправляются только на Timeweb.
 - В `TYPESAFE_API_KEY` кладётся не секрет, а безопасный sentinel.
 - Jev `DONE` не считается успехом без детерминированных assertions.
-- Скриншоты и `result.json` сохраняются отдельно как evidence.
 - Production deploy и migrations worker не выполняет.
+- Очередь ограничена одним одновременно выполняемым browser job.
 
-## Сборка
+## Timeweb App Platform
 
-Из корня репозитория:
+При создании приложения из репозитория выбрать:
 
-    docker build -f dev_control/browser_worker/Dockerfile -t stroyka-jev-worker .
+    branch: dev-control/jev-browser-worker   (пока только тестовый этап)
+    project directory: dev_control
+    Dockerfile: dev_control/Dockerfile
+    health path: /health
 
-## Обязательные переменные
+После принятия PR ветка будет заменена на стабильную ветку Dev Control.
+
+Обязательные переменные:
 
     TIMEWEB_AI_API_KEY=<secret>
-    QA_BASE_URL=https://qa.example.test
+    DEV_CONTROL_API_TOKEN=<отдельный случайный secret>
+    QA_ENVIRONMENT=staging
+    QA_BASE_URL=https://<отдельный QA URL>
 
 Опционально:
 
     JEV_SYSTEMONE_URL=https://api.timeweb.ai/v1/systemone
     JEV_MODEL=jev-latest
-    QA_EVIDENCE_DIR=/evidence
+    QA_EVIDENCE_DIR=/tmp/stroyka-qa-evidence
     TIMEWEB_TEXT_MODEL=<явно выбранная Timeweb chat-модель>
 
-`TIMEWEB_TEXT_MODEL` намеренно не угадывается. Если задача требует TYPE_TEXT,
-а модель не настроена, worker должен упасть, а не выбрать неизвестный провайдер.
+`TIMEWEB_TEXT_MODEL` намеренно не угадывается. Без неё задача, требующая TYPE_TEXT,
+должна завершиться ошибкой, а не уйти к неизвестному провайдеру.
 
-## Первый smoke test
+## API
 
-Сначала используем read-only QA URL. Реальный складской сценарий добавляется
-только после появления отдельной QA/test среды и тестовых данных.
+Проверка живости:
 
-Целевой сценарий:
+    GET /health
 
-    склад -> отклонённое перемещение -> М-11 не должен открыться
+Создание задачи (Bearer token обязателен):
+
+    POST /jobs
+
+Проверка результата:
+
+    GET /jobs/{job_id}
+
+## Первый реальный сценарий
+
+Только в отдельной QA/test среде с тестовыми данными:
+
+    склад -> запросить перемещение больше остатка -> сервер отклоняет -> М-11 не открывается
