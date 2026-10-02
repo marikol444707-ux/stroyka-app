@@ -148,7 +148,8 @@
     "check:smeta": "python3 scripts/check-smeta-parser.py",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
-    "smoke:role-package": "python3 scripts/smoke-role-package-access.py"
+    "smoke:role-package": "python3 scripts/smoke-role-package-access.py",
+    "smoke:ai-control-isolation": "python3 scripts/smoke-ai-control-isolation.py"
   },
   "eslintConfig": {
     "extends": [

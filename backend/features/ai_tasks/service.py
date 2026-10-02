@@ -72,3 +72,15 @@ def task_owner_filter(owner, *, alias=""):
     if not company_id or not project_id:
         raise HTTPException(status_code=409, detail="Владелец задачи не определён")
     return f"{prefix}owner_scope='company' AND {prefix}company_id=%s AND {prefix}project_id=%s", [company_id, project_id]
+
+
+def normalize_task_owner(cur, project_name, task_owner=None, *, system_project_name="Система"):
+    """Return one task-scope owner from either a task owner or a project owner."""
+    if task_owner and task_owner.get("scope"):
+        return task_owner
+    return resolve_task_owner(
+        cur,
+        {"projectName": project_name},
+        system_project_name=system_project_name,
+        project_owner=task_owner,
+    )
