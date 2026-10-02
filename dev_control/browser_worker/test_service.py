@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from fastapi import HTTPException
 
-from dev_control.browser_worker.service import _authorize, _configured, _startup_selftest_enabled
+from dev_control.browser_worker.service import _authorize, _configured, _max_pending_jobs, _startup_selftest_enabled
 
 
 class BrowserWorkerServiceConfigTest(unittest.TestCase):
@@ -33,6 +33,13 @@ class BrowserWorkerServiceConfigTest(unittest.TestCase):
         with patch.dict(os.environ, {**base, "QA_BASE_URL": "https://stroyka26.pro"}, clear=True):
             self.assertFalse(_startup_selftest_enabled())
 
+    def test_queue_limit_is_small_and_clamped(self):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(_max_pending_jobs(), 2)
+        with patch.dict(os.environ, {"QA_MAX_PENDING_JOBS": "999"}, clear=True):
+            self.assertEqual(_max_pending_jobs(), 10)
+        with patch.dict(os.environ, {"QA_MAX_PENDING_JOBS": "0"}, clear=True):
+            self.assertEqual(_max_pending_jobs(), 1)
     def test_authorize_uses_bearer_token(self):
         with patch.dict(os.environ, {"DEV_CONTROL_API_TOKEN": "expected"}, clear=True):
             _authorize("Bearer expected")
