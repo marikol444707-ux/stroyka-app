@@ -95,7 +95,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M3.3: Protect `POST /supplier-offers` with stored request company, explicit recipient scope, and idempotent pending-offer reuse. Verified and released as an independent production slice.
 - [x] Task M3.4: Protect `POST /supplier-offers/{id}/create-invoice` with verified offer/request company and supplier recipient scope. Verified and released as an independent production slice.
 - [x] Task M3.5: Protect `GET /supplier-invoices` with internal company context, supplier identity scope, and same-company document joins. Production re-audit on 2026-10-02 verified all 51 current invoice/delivery rows and the unauthenticated route returned 401.
-- [ ] Task M4: Scope warehouse balances, invoices, history, and explicit cross-company transfers. The company-scoped warehouse is live; M4.12 remains disabled until exact receipt-lot lineage is released.
+- [x] Task M4: Scope warehouse balances, invoices, history, and explicit cross-company transfers. Completed in production runtime `8083f792b325` with exact receipt-lot lineage and the corrected nginx route.
 - [x] Task M4.1: Scope `GET /warehouse-main` by the selected company context. Released in production; warehouse ownership audit verified 572/572 rows on runtime `f99ae042`.
 - [x] Task M4.2: Add company identity and read isolation to warehouse movements. Released in production; warehouse ownership audit verified 572/572 rows on runtime `f99ae042`.
 - [x] Task M4.3: Require company context when creating warehouse movements. Released in production; warehouse ownership audit verified 572/572 rows on runtime `f99ae042`.
@@ -107,7 +107,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M4.9: Protect warehouse invoice accounting updates by stored company and effective finance role. Released in production; warehouse ownership audit verified 572/572 rows on runtime `f99ae042`.
 - [x] Task M4.10: Protect warehouse invoice annulment and stock reversal by stored company. Released in production; warehouse ownership audit verified 572/572 rows on runtime `f99ae042`.
 - [x] Task M4.11: Protect main-warehouse card creation and updates by selected company. Released in production; warehouse ownership audit verified 572/572 rows on runtime `f99ae042`.
-- [ ] Task M4.12: Add an explicit intercompany warehouse transfer with source and destination approvals, paired documents, exact receipt-lot postings, and audit history. Runtime flag is off after the aggregate-only posting gap was found; schema `0083_intercompany_lot_lineage` and the corrected lifecycle pass focused unit, frontend, build, and disposable PostgreSQL tests pending release.
+- [x] Task M4.12: Add an explicit intercompany warehouse transfer with source and destination approvals, paired documents, exact receipt-lot postings, and audit history. Production runtime `8083f792b325`, schema `0083_intercompany_lot_lineage`, feature flag, nginx API route, zero-row audit, public browser smoke, focused tests, full CI, and disposable PostgreSQL lifecycle passed.
 - [ ] Task M5: Scope payments, accounting, contracts, and financial reports.
 - [x] Task M5.1: Isolate company requisites by selected company and remove the global destructive replace. Deployed in `69f55f4b`; authenticated tenant smoke pending.
 - [x] Task M5.2: Isolate `project_payments` reads, writes, reversals, automatic document payments, and AI payment context by company. Deployed in `5db2e496`; authenticated tenant smoke pending.
