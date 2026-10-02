@@ -16645,6 +16645,18 @@ register_company_warehouses(app, {
 })
 
 try:
+    from backend.features.intercompany_warehouse_transfers.routes import register_intercompany_warehouse_transfers
+except ModuleNotFoundError:
+    from features.intercompany_warehouse_transfers.routes import register_intercompany_warehouse_transfers
+
+register_intercompany_warehouse_transfers(app, {
+    "get_db": get_db,
+    "get_current_user": get_current_user,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
+})
+
+try:
     from backend.features.company_requisites.routes import register_company_requisites_module
 except ModuleNotFoundError:
     from features.company_requisites.routes import register_company_requisites_module
