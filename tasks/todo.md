@@ -858,7 +858,9 @@ company at a time.
 
 **Description:** Protect `GET /supplier-invoices`. Internal users read only the selected company or the companies available in their account context. The external supplier cabinet remains unified across client companies, but only for the authenticated supplier group and explicit offer-recipient chain. Joined delivery and warehouse data must remain in the invoice company.
 
-**Status:** Implemented and verified locally on 2026-07-10; independent production release is pending.
+**Status:** Complete in production. A fresh read-only audit on 2026-10-02 verified all
+`49 supplier_invoices + 2 supply_deliveries` rows with no unresolved, ambiguous or
+mismatched ownership; the unauthenticated route returned `401`.
 
 **Acceptance criteria:**
 - [x] Internal invoice reads resolve `X-Company-Id` / `X-Company-Mode` through the company-context kernel.
@@ -877,6 +879,8 @@ company at a time.
 - [x] Tracked frontend tests (14 suites / 66 tests passed).
 - [x] `npm run build`.
 - [x] Supply smoke selects the internal company explicitly, rejects any foreign-company row, compares supplier/internal invoice company, and verifies linked document visibility.
+- [x] Fresh production ownership audit: `51/51` verified, `readyForStrictRuntime=true`, zero writes.
+- [x] Current company-context, supplier-access and ownership suites: `60` tests passed.
 
 **Dependencies:** Task M3.4
 

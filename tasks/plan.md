@@ -89,12 +89,12 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M2.4: Protect `POST /supply-requests/{id}/request-kp` by the stored request company and effective membership role. Verified and released as an independent production slice.
 - [x] Task M2.5: Protect `GET /supply-requests/{id}/recipients` by stored request company and effective membership role. Verified and released as an independent production slice.
 - [x] Task M2.6: Store exact `project_id` on new supply requests, expose it in reads, and provide a dry-run-first guarded backfill for legacy rows. Released in production: five exact legacy rows linked, four unresolved rows left unchanged for explicit mapping.
-- [ ] Task M3: Scope supplier visibility, recipients, offers, invoices, and company-supplier terms.
+- [x] Task M3: Scope supplier visibility, recipients, offers, invoices, and company-supplier terms. Completed in production; the final supplier-invoice read audit verified all current rows.
 - [x] Task M3.1: Scope `GET /supplier-offers` by internal company context and explicit supplier-recipient evidence. Verified and released as an independent production slice.
 - [x] Task M3.2: Protect `GET /supplier-offers/{id}/history` and `PUT /supplier-offers/{id}` with the verified offer/request company and supplier recipient scope. Verified and released as an independent production slice.
 - [x] Task M3.3: Protect `POST /supplier-offers` with stored request company, explicit recipient scope, and idempotent pending-offer reuse. Verified and released as an independent production slice.
 - [x] Task M3.4: Protect `POST /supplier-offers/{id}/create-invoice` with verified offer/request company and supplier recipient scope. Verified and released as an independent production slice.
-- [ ] Task M3.5: Protect `GET /supplier-invoices` with internal company context, supplier identity scope, and same-company document joins. Implemented locally; release pending.
+- [x] Task M3.5: Protect `GET /supplier-invoices` with internal company context, supplier identity scope, and same-company document joins. Production re-audit on 2026-10-02 verified all 51 current invoice/delivery rows and the unauthenticated route returned 401.
 - [ ] Task M4: Scope warehouse balances, invoices, history, and explicit cross-company transfers.
 - [ ] Task M4.1: Scope `GET /warehouse-main` by the selected company context. Implemented locally; release pending.
 - [ ] Task M4.2: Add company identity and read isolation to warehouse movements. Implemented locally; release pending.
