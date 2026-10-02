@@ -82,3 +82,10 @@ startup_selftest=passed или failed.
 
 Для реального QA Stroyka QA_SELFTEST_ON_START выключается, а QA_BASE_URL
 заменяется на отдельный staging/QA URL.
+
+## Лимиты
+
+- App Platform: держать ровно 1 replica без autoscaling, пока очередь хранится в памяти.
+- QA_MAX_PENDING_JOBS по умолчанию 2, допустимый диапазон 1..10.
+- Одна браузерная проверка выполняется одновременно.
+- max_seconds одной задачи ограничен API значением 180 секунд.
