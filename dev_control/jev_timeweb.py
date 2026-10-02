@@ -49,10 +49,12 @@ class JevTimewebClient:
     def ask(
         self,
         *,
-        state: str,
+        state: Any,
         questions: Mapping[str, Mapping[str, Any]],
     ) -> dict[str, Any]:
-        if not state.strip():
+        if state is None or (isinstance(state, str) and not state.strip()):
+            raise JevError("state must not be empty")
+        if isinstance(state, (dict, list, tuple)) and not state:
             raise JevError("state must not be empty")
         if not questions:
             raise JevError("questions must not be empty")
