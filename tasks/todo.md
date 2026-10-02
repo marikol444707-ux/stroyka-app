@@ -1152,19 +1152,19 @@ mismatched ownership; the unauthenticated route returned `401`.
 
 **Description:** Move material between two different companies only through a dedicated transfer transaction. The source company approves the issue, the destination company approves receipt, and the system creates paired company-owned documents and audit events.
 
-**Status:** Deployed and enabled in runtime `6cfc1b653a1d` with schema `0082_intercompany_transfers`. Production verification was read-only; the full posting lifecycle passed against a disposable PostgreSQL database.
+**Status:** Temporarily disabled in production. The first release changed aggregate stock without consuming the exact accepted receipt lot. The corrected schema `0083_intercompany_lot_lineage` requires an empty transfer registry, binds the request to one source lot, creates a destination inventory-only receipt and lot, and records both lot movements. Focused unit, frontend, build, rollback, concurrency, and disposable PostgreSQL tests pass; production release remains.
 
 **Acceptance criteria:**
-- [x] The initiator must have warehouse authority in the source company and access to the source stock.
+- [x] The initiator must have warehouse authority in the source company and select one active accepted receipt lot.
 - [x] A destination-company director or warehouse manager must accept before destination stock increases.
-- [x] Source issue and destination receipt use immutable company IDs and one shared transfer ID.
+- [x] Source issue and destination receipt use immutable company IDs, one shared transfer ID, and exact source/destination lot lineage.
 - [x] Rejection or cancellation cannot leave a one-sided stock posting.
 - [x] Both companies see only their own document side and the minimum counterparty details required for acceptance.
 - [x] Audit history records creation, source approval, destination acceptance, rejection, and cancellation.
 
 **Verification:**
-- [x] PostgreSQL tests cover success, rejection, concurrent acceptance, insufficient stock, and cross-company access denial.
-- [x] Disposable PostgreSQL smoke covers the complete two-company lifecycle; production smoke verifies the enabled route, empty transfer ledger, unchanged warehouse counts, frontend hashes, and browser load without writing business data.
+- [x] PostgreSQL tests cover success, rejection, concurrent acceptance, insufficient exact-lot balance, accounting-free destination receipt, and cross-company access denial.
+- [ ] Production smoke verifies schema `0083`, the enabled route, empty transfer ledger, unchanged warehouse counts, frontend hashes, and browser load without writing business data.
 
 **Dependencies:** Task M4.11
 

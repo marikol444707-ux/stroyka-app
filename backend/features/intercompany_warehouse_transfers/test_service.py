@@ -7,18 +7,18 @@ from .service import parse_create, side_view
 class IntercompanyWarehouseTransferServiceTests(unittest.TestCase):
     def test_create_requires_a_different_destination_and_positive_finite_quantity(self):
         with self.assertRaisesRegex(ValueError, "другую компанию"):
-            parse_create({"destinationCompanyId": 2, "sourceStockId": 7, "quantity": "1", "reason": "Передача"}, 2)
+            parse_create({"destinationCompanyId": 2, "sourceLotId": 7, "quantity": "1", "reason": "Передача"}, 2)
         for value in ("0", "-1", "NaN", "Infinity", "bad"):
             with self.subTest(value=value), self.assertRaisesRegex(ValueError, "количество"):
-                parse_create({"destinationCompanyId": 3, "sourceStockId": 7, "quantity": value, "reason": "Передача"}, 2)
+                parse_create({"destinationCompanyId": 3, "sourceLotId": 7, "quantity": value, "reason": "Передача"}, 2)
 
     def test_create_normalizes_only_authoritative_identifiers_and_reason(self):
         parsed = parse_create({
-            "destinationCompanyId": "3", "sourceStockId": "7", "quantity": "1.2500",
+            "destinationCompanyId": "3", "sourceLotId": "7", "quantity": "1.2500",
             "reason": "  Для второго объекта  ", "requestId": "7a990fae-9d83-4c5d-b22e-8f31d370e5f7",
         }, 2)
         self.assertEqual(parsed, {
-            "destinationCompanyId": 3, "sourceStockId": 7, "quantity": Decimal("1.2500"),
+            "destinationCompanyId": 3, "sourceLotId": 7, "quantity": Decimal("1.2500"),
             "reason": "Для второго объекта", "requestId": "7a990fae-9d83-4c5d-b22e-8f31d370e5f7",
         })
 
