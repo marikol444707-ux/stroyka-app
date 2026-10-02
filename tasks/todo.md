@@ -2565,6 +2565,23 @@ mismatched ownership; the unauthenticated route returned `401`.
 
 **Estimated scope:** S
 
+### Task M7m2: Register Company Archives And Supplier Contracts
+
+**Description:** Register the eight tables whose current runtime already enforces one stored company through selected-company requisites, protected company files, exact supplier-offer party snapshots, immutable contract versions, registry membership, archive events and addressed publication. Add direct company-first indexes where existing primary/composite indexes cannot serve a company-scoped lookup efficiently.
+
+**Pre-apply evidence:** The 2026-10-03 production inspection was read-only. All ten current rows across these eight tables belong to existing companies. Exact checks found zero mismatches between company documents and protected files; contract versions and offers/files; registry members and registry/contract parents; publications and immutable snapshot hashes; archive events and registries; or buyer and payer companies. Migration `0085_supplier_contract_indexes` contains only six `CREATE INDEX` operations and a matching downgrade, with no row writes.
+
+**Acceptance criteria:**
+- [x] Registry entries describe the exact owner source and route family for all eight tables.
+- [x] The legacy `counterparties` draft and mixed-scope `supplier_documents` table remain unregistered until their separate ownership contracts are hardened.
+- [x] The migration is reversible and contains no data mutation.
+- [ ] Focused registry, readiness and migration tests pass locally and in CI.
+- [ ] Production migration applies, readiness has no new schema blockers, coverage falls from `138` to `130`, and public smoke passes.
+
+**Dependencies:** M7m1
+
+**Estimated scope:** S
+
 **Dependencies:** M7l and the completed M6 runtime isolation slices
 
 **Estimated scope:** L, delivered in domain batches
