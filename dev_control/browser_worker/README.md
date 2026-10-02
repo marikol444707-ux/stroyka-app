@@ -67,3 +67,18 @@ Work Control забирает результат и evidence.
 Только в отдельной QA/test среде с тестовыми данными:
 
     склад -> запросить перемещение больше остатка -> сервер отклоняет -> М-11 не открывается
+
+## Безопасный первый запуск без Stroyka
+
+Чтобы сначала проверить только цепочку App Platform -> Chrome -> Jev -> Timeweb,
+не давая worker доступ к Stroyka, используется внутренняя self-test страница:
+
+    QA_BASE_URL=http://127.0.0.1:8080
+    QA_SELFTEST_ON_START=1
+
+После старта worker один раз открывает /selftest-page, нажимает безопасную кнопку
+и должен получить JEV_BROWSER_OK. Результат виден в /health как
+startup_selftest=passed или failed.
+
+Для реального QA Stroyka QA_SELFTEST_ON_START выключается, а QA_BASE_URL
+заменяется на отдельный staging/QA URL.
