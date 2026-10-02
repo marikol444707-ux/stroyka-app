@@ -32,10 +32,17 @@ class JobRequest(BaseModel):
     max_seconds: float = Field(default=90.0, ge=5.0, le=180.0)
 
 
+def _selftest_base_url() -> str:
+    port = (os.environ.get("PORT") or "8080").strip()
+    if not port.isdigit():
+        port = "8080"
+    return f"http://127.0.0.1:{port}"
+
+
 def _startup_selftest_enabled() -> bool:
     return (
         (os.environ.get("QA_SELFTEST_ON_START") or "").strip() == "1"
-        and (os.environ.get("QA_BASE_URL") or "").strip().rstrip("/") == "http://127.0.0.1:8080"
+        and (os.environ.get("QA_BASE_URL") or "").strip().rstrip("/") == _selftest_base_url()
         and (os.environ.get("QA_ENVIRONMENT") or "").strip().lower() in {"qa", "test", "staging"}
         and bool((os.environ.get("TIMEWEB_AI_API_KEY") or "").strip())
     )
@@ -127,7 +134,7 @@ def _run_startup_selftest() -> None:
     # Uvicorn begins accepting connections immediately after startup returns.
     time.sleep(1.0)
     request = JobRequest(
-        url="http://127.0.0.1:8080/selftest-page",
+        url=f"{_selftest_base_url()}/selftest-page",
         goal="Click the Run browser self-test button. Finish only when JEV_BROWSER_OK is visibly present.",
         expect_text=["JEV_BROWSER_OK"],
         forbid_text=[],
