@@ -2584,6 +2584,24 @@ mismatched ownership; the unauthenticated route returned `401`.
 
 **Estimated scope:** S
 
+### Task M7m3: Harden Project-Launch And Supplier-Document Owners
+
+**Description:** Remove `company_id DEFAULT 1` from `counterparties`, `project_contract_terms` and `project_launch_drafts`; require an existing company instead. Give each supplier document an explicit `company` or `supplier` owner scope and enforce its required owner columns in the database, API and readiness audit.
+
+**Pre-apply evidence:** The 2026-10-03 production inspection was read-only and found all four tables empty, with no null or orphan rows to assign. The existing supplier-document API already separates selected-company and supplier-private reads; this slice makes that distinction explicit and fail-closed in stored data.
+
+**Acceptance criteria:**
+- [ ] No project-launch table can silently inherit company `1`.
+- [ ] Company documents require `company_id`; supplier-private documents require `supplier_id` and forbid `company_id`.
+- [ ] Supplier-document reads, creates and archives require the matching explicit scope.
+- [ ] Readiness validates alternate-scope owner columns and the registry covers all four tables.
+- [ ] Focused tests, CI, production migration, post-audit and smoke pass.
+
+**Dependencies:** M7m2
+
+**Estimated scope:** S
+
+
 **Dependencies:** M7l and the completed M6 runtime isolation slices
 
 **Estimated scope:** L, delivered in domain batches

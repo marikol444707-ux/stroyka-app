@@ -89,14 +89,14 @@ class SupplierDocumentsTest(unittest.TestCase):
         self.assertFalse(cursor.calls)
 
     def test_supplier_cannot_archive_customer_owned_document(self):
-        cursor = FakeCursor(fetchone_results=[(5, 12)])
+        cursor = FakeCursor(fetchone_results=[(5, 12, "company")])
         app, _ = build(cursor, own_ids=[5])
         with self.assertRaises(HTTPException) as error:
             app.routes[("DELETE", "/supplier-documents/{id}")](id=1, current_user={"role": "поставщик"})
         self.assertEqual(error.exception.status_code, 403)
 
     def test_archive_preserves_row_and_commits(self):
-        cursor = FakeCursor(fetchone_results=[(5, 12)])
+        cursor = FakeCursor(fetchone_results=[(5, 12, "company")])
         app, conn = build(cursor)
         result = app.routes[("DELETE", "/supplier-documents/{id}")](id=1, current_user={"role": "бухгалтер"})
         self.assertTrue(result['archived'])
@@ -145,7 +145,7 @@ class SupplierDocumentsTest(unittest.TestCase):
         cursor = FakeCursor()
         app, _ = build(cursor)
         app.routes[("GET", "/supplier-documents")](supplier_id=None, current_user={"role": "бухгалтер"})
-        self.assertIn("company_id = ANY(%s)", cursor.calls[-1][0])
+        self.assertIn("owner_scope='company' AND company_id = ANY(%s)", cursor.calls[-1][0])
         self.assertIn([12], cursor.calls[-1][1])
 
     def test_company_role_not_global_role_controls_read(self):
@@ -156,7 +156,7 @@ class SupplierDocumentsTest(unittest.TestCase):
         self.assertFalse(cursor.calls)
 
     def test_cannot_delete_another_company_document(self):
-        cursor = FakeCursor(fetchone_results=[(5, 99)])
+        cursor = FakeCursor(fetchone_results=[(5, 99, "company")])
         app, _ = build(cursor)
         with self.assertRaises(HTTPException) as error:
             app.routes[("DELETE", "/supplier-documents/{id}")](id=1, current_user={"role": "бухгалтер"})
@@ -164,7 +164,7 @@ class SupplierDocumentsTest(unittest.TestCase):
         self.assertFalse(any(sql.startswith("DELETE") for sql, _ in cursor.calls))
 
     def test_unassigned_legacy_document_cannot_be_deleted_by_customer(self):
-        cursor = FakeCursor(fetchone_results=[(5, None)])
+        cursor = FakeCursor(fetchone_results=[(5, None, "supplier")])
         app, _ = build(cursor)
         with self.assertRaises(HTTPException):
             app.routes[("DELETE", "/supplier-documents/{id}")](id=1, current_user={"role": "директор"})
@@ -179,6 +179,7 @@ class SupplierDocumentsTest(unittest.TestCase):
         )
         sql, params = cursor.calls[-1]
         self.assertIn("company_id", sql)
+        self.assertIn("owner_scope", sql)
         self.assertIn(12, params)
         self.assertIn("Анна", params)
         self.assertNotIn("Другой сотрудник", params)
@@ -193,7 +194,7 @@ class SupplierDocumentsTest(unittest.TestCase):
         cursor = FakeCursor(rows=[])
         app, _conn = build(cursor, own_ids=[5])
         app.routes[("GET", "/supplier-documents")](supplier_id=None, current_user={"role": "поставщик"})
-        self.assertIn("WHERE supplier_id = ANY(%s) AND company_id IS NULL", cursor.calls[0][0])
+        self.assertIn("WHERE supplier_id = ANY(%s) AND owner_scope='supplier' AND company_id IS NULL", cursor.calls[0][0])
         self.assertEqual(cursor.calls[0][1], ([5],))
 
     def test_read_widens_to_duplicate_group_for_admin(self):

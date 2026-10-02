@@ -207,6 +207,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [ ] Task M7m: Classify the tables added after the original M6 registry snapshot in domain-owned batches before the registry can be frozen. After M7m1–M7m2, the 2026-10-03 production coverage audit is read-only and reports `130` unregistered tables (`82 critical`, `14 high`, `34 unclassified`) with no missing or duplicate registered tables.
 - [x] Task M7m1: Register the 19 supplier-ledger tables and add seven reversible company lookup indexes. Production runtime `5e259299` is on Alembic head `0084`; all `10/10` current rows have stored owners, every registered ledger table has a company index, readiness has zero schema blockers, and coverage fell from `157` to `138`.
 - [x] Task M7m2: Register the eight proven company-profile, company-archive and supplier-contract tables and add six reversible company lookup indexes. Production runtime `83a773de` is on Alembic head `0085`; all `10/10` rows retain valid stored owners, all nine relationship checks are clean, readiness has zero schema blockers, and coverage fell from `138` to `130`.
+- [ ] Task M7m3: Remove implicit company `1` ownership from the three project-launch tables and add explicit company/supplier ownership to `supplier_documents`. Production preflight found all four tables empty, so the schema can become strict without assigning legacy rows.
 
 ### Checkpoint: SaaS Boundary
 

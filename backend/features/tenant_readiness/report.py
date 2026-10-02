@@ -73,8 +73,18 @@ def build_report(entries, table_facts):
             ):
                 resource_blockers.append({"resource": resource, "reason": "project_index_missing"})
             if "owner_scope" in columns:
+                scope_owner_columns = dict(item.get("scopeOwnerColumns") or {})
+                for scope, column in sorted(scope_owner_columns.items()):
+                    if not TABLE_RE.fullmatch(str(column or "")) or column not in columns:
+                        resource_blockers.append({
+                            "resource": resource,
+                            "reason": "scope_owner_column_missing",
+                            "scope": scope,
+                            "column": column,
+                        })
                 owner_scope_null = int(fact.get("ownerScopeNullRows") or 0)
                 company_owner_null = int(fact.get("companyOwnerNullRows") or 0)
+                scope_owner_null = int(fact.get("scopeOwnerNullRows") or 0)
                 invalid_owner_scope = int(fact.get("invalidOwnerScopeRows") or 0)
                 if owner_scope_null:
                     resource_blockers.append({
@@ -87,6 +97,12 @@ def build_report(entries, table_facts):
                         "resource": resource,
                         "reason": "company_scope_owner_missing",
                         "count": company_owner_null,
+                    })
+                if scope_owner_null:
+                    resource_blockers.append({
+                        "resource": resource,
+                        "reason": "scope_owner_missing",
+                        "count": scope_owner_null,
                     })
                 if invalid_owner_scope:
                     resource_blockers.append({
@@ -124,6 +140,7 @@ def build_report(entries, table_facts):
             "companyNullRows": int(fact.get("companyNullRows") or 0),
             "ownerScopeNullRows": int(fact.get("ownerScopeNullRows") or 0),
             "companyOwnerNullRows": int(fact.get("companyOwnerNullRows") or 0),
+            "scopeOwnerNullRows": int(fact.get("scopeOwnerNullRows") or 0),
             "companyColumnNullable": bool((columns.get("company_id") or {}).get("nullable", True)),
             "ownerScopeColumn": "owner_scope" in columns,
             "companyIndex": any(_index_has_column(index, "company_id") for index in indexes),
@@ -274,6 +291,21 @@ def collect_table_facts(cur, entries):
                         "AS invalid_owner_scope_rows"
                     ).format(sql.SQL(",").join(map(sql.Literal, allowed_scopes))),
                 ])
+                scope_owner_columns = dict(registry_entry.get("scopeOwnerColumns") or {})
+                valid_scope_owners = [
+                    (str(scope).strip(), str(column).strip())
+                    for scope, column in scope_owner_columns.items()
+                    if str(scope).strip() and TABLE_RE.fullmatch(str(column).strip())
+                    and str(column).strip() in columns
+                ]
+                if valid_scope_owners:
+                    count_fields.append(sql.SQL(
+                        "COUNT(*) FILTER (WHERE {}) AS scope_owner_null_rows"
+                    ).format(sql.SQL(" OR ").join(
+                        sql.SQL("(t.owner_scope={} AND t.{} IS NULL)").format(
+                            sql.Literal(scope), sql.Identifier(column)
+                        ) for scope, column in valid_scope_owners
+                    )))
             if "project_id" in columns:
                 joins.append(sql.SQL("LEFT JOIN projects p ON p.id=t.project_id"))
                 historical_project_reference = (
@@ -311,6 +343,7 @@ def collect_table_facts(cur, entries):
             "companyNullRows": int(counts.get("company_null_rows") or 0),
             "ownerScopeNullRows": int(counts.get("owner_scope_null_rows") or 0),
             "companyOwnerNullRows": int(counts.get("company_owner_null_rows") or 0),
+            "scopeOwnerNullRows": int(counts.get("scope_owner_null_rows") or 0),
             "invalidOwnerScopeRows": int(counts.get("invalid_owner_scope_rows") or 0),
             "orphanCompanyRows": int(counts.get("orphan_company_rows") or 0),
             "projectRows": int(counts.get("project_rows") or 0),

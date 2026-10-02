@@ -21,14 +21,15 @@ class SupplierDocumentPostgresTest(unittest.TestCase):
         cur = self.conn.cursor()
         cur.execute('SET search_path TO pg_temp')
         cur.execute('''CREATE TEMP TABLE supplier_documents (
-            id SERIAL PRIMARY KEY, supplier_id INTEGER, company_id INTEGER,
+            id SERIAL PRIMARY KEY, supplier_id INTEGER, company_id INTEGER, owner_scope TEXT NOT NULL,
             doc_type TEXT, title TEXT, file_url TEXT, status TEXT,
             signed_at DATE, expires_at DATE, notes TEXT, uploaded_by TEXT,
             created_at TIMESTAMP DEFAULT NOW(), archived_at TIMESTAMP)''')
         cur.execute('CREATE TEMP TABLE suppliers (id INTEGER PRIMARY KEY)')
         cur.execute('INSERT INTO suppliers VALUES (5)')
-        cur.execute('''INSERT INTO supplier_documents (supplier_id,company_id,title)
-                       VALUES (5,12,'Customer A'), (5,99,'Customer B'), (5,NULL,'Unassigned')''')
+        cur.execute('''INSERT INTO supplier_documents (supplier_id,company_id,owner_scope,title)
+                       VALUES (5,12,'company','Customer A'), (5,99,'company','Customer B'),
+                              (5,NULL,'supplier','Unassigned')''')
         cur.close()
         actual = self.conn
 
@@ -77,5 +78,5 @@ class SupplierDocumentPostgresTest(unittest.TestCase):
             {'supplierId': 5, 'title': 'New contract', 'uploadedBy': 'Spoof'},
             current_user=self.user)
         with self.conn.cursor() as cur:
-            cur.execute('SELECT company_id,uploaded_by FROM supplier_documents WHERE id=%s', (result['id'],))
-            self.assertEqual(cur.fetchone(), (12, 'Test actor'))
+            cur.execute('SELECT company_id,owner_scope,uploaded_by FROM supplier_documents WHERE id=%s', (result['id'],))
+            self.assertEqual(cur.fetchone(), (12, 'company', 'Test actor'))

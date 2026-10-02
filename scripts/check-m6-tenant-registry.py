@@ -55,6 +55,14 @@ def main():
             fail(f"{resource}: unsupported companyState {entry['companyState']}", failures)
         if entry["priority"] not in ALLOWED_PRIORITIES:
             fail(f"{resource}: unsupported priority {entry['priority']}", failures)
+        scope_owner_columns = entry.get("scopeOwnerColumns") or {}
+        if not isinstance(scope_owner_columns, dict) or any(
+            not re.fullmatch(r"[a-z][a-z0-9_]*", str(scope or ""))
+            or not re.fullmatch(r"[a-z][a-z0-9_]*", str(column or ""))
+            or scope not in (entry.get("ownerScopes") or [])
+            for scope, column in scope_owner_columns.items()
+        ):
+            fail(f"{resource}: invalid scopeOwnerColumns", failures)
         if not re.fullmatch(r"M(?:6\.[0-8]|7[a-z][0-9]*)", str(entry["stage"])):
             fail(f"{resource}: invalid stage {entry['stage']}", failures)
         if entry["kind"] == "table" and not re.search(
