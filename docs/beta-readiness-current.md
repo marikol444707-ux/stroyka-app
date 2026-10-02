@@ -4,7 +4,7 @@
 - Read-only post-audit по `supplier_invoices` и `supply_deliveries` повторно проверен 02.10.2026: `51/51` текущих строк без review rows. Evidence: `tasks/plan.md`.
 
 ОБЯЗАТЕЛЬНО ДО BETA
-- `M4.12`: базовая изоляция склада M4.1–M4.11 выпущена и production-аудит подтвердил `572/572` строк. До Beta остаётся отдельная операция межфирменного перемещения с подтверждением обеих компаний. Evidence: `tasks/plan.md`, `tasks/todo.md`.
+- `M4.12`: межфирменное перемещение выпущено в runtime `6cfc1b653a1d`: подтверждение получателем, парные документы/движения, идемпотентность и изоляция компаний проверены. Production-аудит выполнен без записи в рабочие остатки. Evidence: `tasks/plan.md`, `tasks/todo.md`.
 - `M6.6f1–M6.6f2`: public smoke зафиксирован, но combined protected single/batch/event и negative cross-company smoke остаётся deferred. Evidence: `tasks/plan.md`.
 - `M6.2d`: parent protected-file migration остаётся открытым до полного usage audit и безопасного private-storage cutover для новых S3 objects. Evidence: `tasks/plan.md`.
 
