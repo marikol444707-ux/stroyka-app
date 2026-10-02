@@ -170,6 +170,13 @@ def cleanup():
             (PROJECT_NAME,),
         )
         cur.execute("DELETE FROM brigade_contracts WHERE project_name=%s", (PROJECT_NAME,))
+        cur.execute(
+            """
+            DELETE FROM estimate_versions
+            WHERE estimate_id IN (SELECT id FROM estimates WHERE project_name=%s)
+            """,
+            (PROJECT_NAME,),
+        )
         cur.execute("DELETE FROM estimates WHERE project_name=%s", (PROJECT_NAME,))
         cur.execute("DELETE FROM projects WHERE name=%s", (PROJECT_NAME,))
         cur.execute(
