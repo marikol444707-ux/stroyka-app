@@ -259,7 +259,7 @@ def main() -> None:
         )
         api_json(
             "POST", "/ai-control/run-all", token=token,
-            headers={"X-Company-Mode": "all_companies"}, expected=409, data={},
+            headers={"X-Company-Mode": "all_companies"}, expected=400, data={},
         )
 
         conn = psycopg2.connect(**db_config())
