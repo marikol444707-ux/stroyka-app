@@ -51,6 +51,35 @@ class WorkAssignmentSmokeTests(unittest.TestCase):
         estimate_delete = next(i for i, sql in enumerate(calls) if sql.startswith("DELETE FROM estimates"))
         self.assertLess(version_delete, estimate_delete)
 
+    def test_temporary_director_gets_explicit_company_membership(self):
+        calls = []
+
+        class Cursor:
+            def execute(self, sql, params):
+                calls.append((" ".join(sql.split()), params))
+
+            def fetchone(self):
+                return (501, "Smoke Deputy", "smoke@example.test", "зам_директора")
+
+            def close(self):
+                pass
+
+        class Connection:
+            def cursor(self):
+                return Cursor()
+
+            def commit(self):
+                pass
+
+            def close(self):
+                pass
+
+        with patch.object(MODULE, "db_conn", return_value=Connection()):
+            MODULE.create_temp_director_token(company_id=7, platform_account_id=3)
+
+        membership = next(call for call in calls if "INSERT INTO user_company_roles" in call[0])
+        self.assertEqual(membership[1], (501, 3, 7))
+
 
 if __name__ == "__main__":
     unittest.main()

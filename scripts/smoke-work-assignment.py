@@ -189,21 +189,39 @@ def cleanup():
         conn.close()
 
 
-def create_temp_director_token():
+def create_temp_director_token(company_id, platform_account_id):
     conn = db_conn()
     cur = conn.cursor()
     try:
         cur.execute(
             """
             INSERT INTO users
-                (name, email, password, role, project_id, project_name, assigned_projects, assigned_packages, active, two_factor_required, two_factor_enabled)
+                (name, email, password, role, company_id, platform_account_id,
+                 project_id, project_name, assigned_projects, assigned_packages,
+                 active, two_factor_required, two_factor_enabled)
             VALUES
-                (%s, %s, %s, 'зам_директора', NULL, '', '[]'::jsonb, '[]'::jsonb, TRUE, FALSE, FALSE)
+                (%s, %s, %s, 'зам_директора', %s, %s,
+                 NULL, '', '[]'::jsonb, '[]'::jsonb, TRUE, FALSE, FALSE)
             RETURNING id, name, email, role
             """,
-            (DIRECTOR_NAME, DIRECTOR_EMAIL, hash_password(secrets.token_urlsafe(16))),
+            (
+                DIRECTOR_NAME,
+                DIRECTOR_EMAIL,
+                hash_password(secrets.token_urlsafe(16)),
+                company_id,
+                platform_account_id,
+            ),
         )
         row = cur.fetchone()
+        cur.execute(
+            """
+            INSERT INTO user_company_roles
+                (user_id, platform_account_id, company_id, role,
+                 assigned_projects, assigned_packages, active, is_default)
+            VALUES (%s, %s, %s, 'зам_директора', '[]'::jsonb, '[]'::jsonb, TRUE, TRUE)
+            """,
+            (row[0], platform_account_id, company_id),
+        )
         conn.commit()
         return auth_token_for({"id": row[0], "name": row[1], "email": row[2], "role": row[3]})
     finally:
@@ -220,11 +238,16 @@ def prepare_scope():
             """
             INSERT INTO projects (name, client, status, budget, deadline, progress, tasks, pricelist_id)
             VALUES (%s, %s, 'В работе', 0, '2026-07-31', 0, '{}'::text[], NULL)
-            RETURNING id
+            RETURNING id, company_id
             """,
             (PROJECT_NAME, f"{PREFIX} Client"),
         )
-        project_id = cur.fetchone()[0]
+        project_id, company_id = cur.fetchone()
+        cur.execute("SELECT platform_account_id FROM companies WHERE id=%s", (company_id,))
+        company = cur.fetchone()
+        if not company:
+            raise RuntimeError(f"smoke project company #{company_id} not found")
+        platform_account_id = company[0]
         sections = [
             {
                 "name": "Раздел smoke",
@@ -267,7 +290,7 @@ def prepare_scope():
         )
         worker = {"id": cur.fetchone()[0], "name": WORKER_NAME, "email": WORKER_EMAIL, "role": "мастер"}
         conn.commit()
-        return project_id, estimate_id, worker
+        return project_id, estimate_id, worker, company_id, platform_account_id
     finally:
         cur.close()
         conn.close()
@@ -299,9 +322,9 @@ def clear_worker_explicit_access(worker_id):
 
 def main():
     director_token = login_director()
-    project_id, estimate_id, worker = prepare_scope()
+    project_id, estimate_id, worker, company_id, platform_account_id = prepare_scope()
     if not director_token:
-        director_token = create_temp_director_token()
+        director_token = create_temp_director_token(company_id, platform_account_id)
     worker_token = auth_token_for(worker)
     try:
         api_json(
