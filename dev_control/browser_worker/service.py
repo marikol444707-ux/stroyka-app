@@ -67,6 +67,23 @@ def _authorize(authorization: str | None) -> None:
         raise HTTPException(status_code=401, detail="unauthorized")
 
 
+def _max_pending_jobs() -> int:
+    raw = (os.environ.get("QA_MAX_PENDING_JOBS") or "2").strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        value = 2
+    return min(max(value, 1), 10)
+
+
+def _pending_job_count() -> int:
+    return sum(
+        1
+        for value in _jobs.values()
+        if value.get("status") in {"queued", "running"}
+    )
+
+
 def _set_job(job_id: str, **values) -> None:
     with _jobs_lock:
         current = _jobs.setdefault(job_id, {})
@@ -156,8 +173,12 @@ def create_job(request: JobRequest, authorization: str | None = Header(default=N
     _authorize(authorization)
     if not _configured():
         raise HTTPException(status_code=503, detail="QA worker is not fully configured")
-    job_id = uuid4().hex
-    _set_job(job_id, status="queued", result=None)
+    with _jobs_lock:
+        if _pending_job_count() >= _max_pending_jobs():
+            raise HTTPException(status_code=429, detail="QA queue is full")
+        job_id = uuid4().hex
+        current = _jobs.setdefault(job_id, {})
+        current.update(status="queued", result=None)
     _executor.submit(_execute, job_id, request)
     return {"job_id": job_id, "status": "queued"}
 
