@@ -27,6 +27,24 @@ def _assert_allowed_url(url: str, base_url: str) -> None:
         raise ValueError("QA URL is outside QA_BASE_URL path")
 
 
+def _sanitize_history(history: list[dict] | None) -> list[dict]:
+    """Keep action metadata but never persist typed field values or helper output."""
+
+    return [
+        {
+            "step": item.get("step"),
+            "action": item.get("action"),
+            "kind": item.get("kind"),
+            "page_changed": item.get("page_changed"),
+            "url": item.get("url"),
+            "operation": item.get("operation"),
+            "target": item.get("target"),
+            "elapsed_ms": item.get("elapsed_ms"),
+        }
+        for item in (history or [])
+    ]
+
+
 def _evidence_dir(value: str | None) -> Path:
     if value:
         path = Path(value)
@@ -101,19 +119,7 @@ def execute_task(
         "status": final_state.get("status"),
         "final_url": (final_state.get("page") or {}).get("url"),
         "elapsed_ms": final_state.get("elapsed_ms"),
-        "history": [
-            {
-                "step": item.get("step"),
-                "action": item.get("action"),
-                "kind": item.get("kind"),
-                "page_changed": item.get("page_changed"),
-                "url": item.get("url"),
-                "operation": item.get("operation"),
-                "target": item.get("target"),
-                "elapsed_ms": item.get("elapsed_ms"),
-            }
-            for item in final_state.get("history", [])
-        ],
+        "history": _sanitize_history(final_state.get("history")),
         "decisions": [
             {
                 "operation": item.get("operation"),
