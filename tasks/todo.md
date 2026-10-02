@@ -2147,7 +2147,7 @@ mismatched ownership; the unauthenticated route returned `401`.
 
 **Description:** Correct the generic readiness rule so an optional `project_id` column requires an index only when project-owned rows exist, then add one guarded additive index for the confirmed ЖПР query path: `work_journal(company_id, project)`. Do not add constraints, alter business rows, or touch the 35 unresolved registry/runtime scopes.
 
-**Status:** Complete in production. The guarded plan added the one confirmed index; the post-readiness report shows `work_journal.projectIndex=true` and `schemaBlockers=0`. The separate `runtime_release_pending` registry blocker remains intentionally open.
+**Status:** Complete in production. The guarded plan added the original `work_journal(company_id, project)` index and runtime `3724f91e` extended the same exact-count/SHA flow to `public_lead_uploads(company_id)`. The 2026-10-03 post-readiness report has `schemaBlockers=0`; registry classification remains separate in M7m.
 
 **Acceptance criteria:**
 - [x] Empty optional project scope no longer produces a false `project_index_missing` blocker.
@@ -2512,7 +2512,7 @@ mismatched ownership; the unauthenticated route returned `401`.
 
 **Description:** Add a read-only ownership report for `tools`, `tool_history`, `inventory`, and inventory children, resolve exact company/project parents, then add stored tenant ownership and selected-company runtime filtering in guarded slices.
 
-**Status:** Pending. Runtime `2af7b25bb333` fixes immediate post-save visibility and error handling only. Production currently contains three tool rows, and the tables remain global without `company_id`; do not treat this UI fix as multi-company isolation.
+**Status:** Complete in production. The guarded migration, selected-company runtime and protected boundary smoke are live. The 2026-10-03 strict post-audit verified all `13/13` current rows with stored ownership and zero legacy, unresolved, ambiguous or mismatched rows.
 
 **Progress:** M7l1 adds a read-only report over `tools`, `tool_history`, `inventory`, and `inventory_items`. It accepts only a globally unique project owner or an exact verified parent; names of tools/masters and empty project fields never infer ownership. Production found three empty-project tools in the main warehouse; owner confirmed all three as company-wide for company `1`. M7l2 applied on 2026-08-03 with exact SHA/count guards: all three tools now store company `1` with company-wide scope; `tool_history`, `inventory` and `inventory_items` have the guarded schema but contain no legacy rows.
 
@@ -2531,6 +2531,24 @@ mismatched ownership; the unauthenticated route returned `401`.
 **Safety:** `npm run audit:legacy-fallback` opens a read-only transaction, returns only IDs and ownership classifications, rolls back, and does not change schema, data, route filtering or legacy visibility.
 
 **Production result:** `npm run audit:legacy-fallback` passed on 2026-08-03 without writes: all `39/39` rows were verified (`projects=4`, `staff=7`, `estimates=21`, `brigade_contracts=4`, `interim_acts=2`, `hidden_works_acts=1`), with `fallback=0`, `unresolved=0` and empty review lists. The legacy-fallback SaaS checkpoint is closed.
+
+## Task M7m: Reconcile The Expanded Tenant Registry
+
+**Description:** Classify every table added after the original M6 registry snapshot as stored tenant ownership, exact verified-parent ownership, shared/platform scope, or an explicit blocker. Work in domain-owned batches; do not silence an unregistered table through a broad name rule or an assumed owner.
+
+**Current production evidence:** The read-only 2026-10-03 coverage audit sees `215` public tables, `58` registered physical tables and `157` unregistered tables (`109 critical`, `14 high`, `34 unclassified`). Registered tables have no missing or duplicate entries. The companion readiness audit now has zero schema blockers after adding `public_lead_uploads(company_id)`, accepting the registry-declared project scope for inventory, and retaining `28` deleted-project audit references as visible historical facts rather than live ownership failures.
+
+**Acceptance criteria:**
+- [ ] Every unregistered critical table has an explicit registry entry and evidence for its owner source.
+- [ ] Parent-scoped, shared-identity and platform-global tables are represented explicitly instead of being mislabeled as stored tenant tables.
+- [ ] Each batch has focused isolation tests or an existing production audit reference.
+- [ ] `audit:tenant-registry-coverage` reports no unclassified tables before registry freeze.
+
+**Safety:** Coverage and readiness reports remain read-only. Any backfill, constraint or runtime change discovered by classification is split into its own guarded task.
+
+**Dependencies:** M7l and the completed M6 runtime isolation slices
+
+**Estimated scope:** L, delivered in domain batches
 
 ## Task P3a: Packaging Stock-Correction Readiness
 
