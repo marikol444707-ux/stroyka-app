@@ -205,7 +205,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M7l2: Add the guarded schema/backfill migration for explicitly confirmed company-wide tools, then run the production dry-run and apply only with its exact row count and SHA-256 plan. Production applied 2026-08-03: `tools` 3 stored rows, child tables empty, zero unresolved/ambiguous/mismatched rows.
 - [x] Task M7l3: Enforce selected-company owner filtering and owner-stamped writes for tools, history and inventory without altering operational status/location data. Production runtime `5ff69f3d` passed protected smoke: company-owned tool, inherited history, project inventory, inherited item and all-companies write rejection; cleanup, strict audit and deploy smoke passed.
 - [ ] Task M7m: Classify the `157` tables added after the original M6 registry snapshot in domain-owned batches before the registry can be frozen. The 2026-10-03 production coverage audit is read-only and reports `109 critical`, `14 high`, and `34 unclassified` tables with no missing or duplicate registered tables.
-- [ ] Task M7m1: Register the 19 supplier-ledger tables and add seven reversible company lookup indexes. Implementation is in PR #250; production migration and post-audits remain pending.
+- [x] Task M7m1: Register the 19 supplier-ledger tables and add seven reversible company lookup indexes. Production runtime `5e259299` is on Alembic head `0084`; all `10/10` current rows have stored owners, every registered ledger table has a company index, readiness has zero schema blockers, and coverage fell from `157` to `138`.
 
 ### Checkpoint: SaaS Boundary
 

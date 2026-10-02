@@ -2550,14 +2550,16 @@ mismatched ownership; the unauthenticated route returned `401`.
 
 **Description:** Register the 19 tables behind supplier payments, allocation revisions, opening confirmations, invoice-line evidence and receipt proofs. Their stored `company_id` is protected by exact immutable parent chains and company-scoped routes. Add direct company lookup indexes to the seven child tables whose existing composite keys do not begin with `company_id`.
 
-**Pre-apply evidence:** The 2026-10-03 production inspection was read-only. All 19 tables have non-null stored company ownership; eight current rows belong to an existing company and the remaining tables are empty. Seven tables lack a direct company index. Migration `0084_supplier_ledger_indexes` contains only seven `CREATE INDEX` operations and a matching seven-index downgrade; it performs no row writes.
+**Pre-apply evidence:** The 2026-10-03 production inspection was read-only. All 19 tables have non-null stored company ownership; ten current rows belong to an existing company and the remaining tables are empty. Seven tables lacked a direct company index. Migration `0084_supplier_ledger_indexes` contains only seven `CREATE INDEX` operations and a matching seven-index downgrade; it performs no row writes.
 
 **Acceptance criteria:**
 - [x] Registry entries name the exact owner source and runtime route family for all 19 tables.
 - [x] The migration is reversible and contains no data mutation.
 - [x] Focused registry, readiness and migration tests pass locally.
-- [ ] CI applies the full Alembic chain and passes PostgreSQL isolation tests.
-- [ ] Production migration applies, readiness has no new schema blockers, coverage falls from `157` to `138`, and public smoke passes.
+- [x] CI applies the full Alembic chain and passes PostgreSQL isolation tests.
+- [x] Production migration applies, readiness has no new schema blockers, coverage falls from `157` to `138`, and public smoke passes.
+
+**Production result:** Runtime `5e259299` deployed on 2026-10-03. Alembic reports `0084_supplier_ledger_indexes (head)`. The read-only post-audits checked all 19 registered ledger tables and `10` current rows, found no missing company indexes or schema blockers, and rolled back. Registry coverage is now `77` physical tables with `138` still unregistered (`90 critical`, `14 high`, `34 unclassified`). Public smoke and health/database checks passed.
 
 **Dependencies:** M7m production coverage snapshot
 
