@@ -101,7 +101,19 @@ def execute_task(
         "status": final_state.get("status"),
         "final_url": (final_state.get("page") or {}).get("url"),
         "elapsed_ms": final_state.get("elapsed_ms"),
-        "history": final_state.get("history", []),
+        "history": [
+            {
+                "step": item.get("step"),
+                "action": item.get("action"),
+                "kind": item.get("kind"),
+                "page_changed": item.get("page_changed"),
+                "url": item.get("url"),
+                "operation": item.get("operation"),
+                "target": item.get("target"),
+                "elapsed_ms": item.get("elapsed_ms"),
+            }
+            for item in final_state.get("history", [])
+        ],
         "decisions": [
             {
                 "operation": item.get("operation"),
