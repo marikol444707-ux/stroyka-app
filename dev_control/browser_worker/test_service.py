@@ -10,6 +10,7 @@ from dev_control.browser_worker.service import (
     _evidence_ttl_seconds,
     _max_pending_jobs,
     _qa_base_is_nonproduction,
+    _valid_job_id,
     _startup_selftest_enabled,
     health,
 )
@@ -57,6 +58,34 @@ class BrowserWorkerServiceConfigTest(unittest.TestCase):
     def test_health_is_503_when_required_configuration_is_missing(self):
         with patch.dict(os.environ, {}, clear=True):
             self.assertEqual(health().status_code, 503)
+
+
+    def test_production_host_trailing_dot_is_denied(self):
+        env = {
+            "DEV_CONTROL_API_TOKEN": "api-secret",
+            "TIMEWEB_AI_API_KEY": "ai-secret",
+            "QA_BASE_URL": "https://stroyka26.pro.",
+            "QA_ENVIRONMENT": "staging",
+        }
+        with patch.dict(os.environ, env, clear=True):
+            self.assertFalse(_qa_base_is_nonproduction())
+            self.assertFalse(_configured())
+
+    def test_non_http_qa_base_is_not_ready(self):
+        env = {
+            "DEV_CONTROL_API_TOKEN": "api-secret",
+            "TIMEWEB_AI_API_KEY": "ai-secret",
+            "QA_BASE_URL": "ftp://qa.example.test",
+            "QA_ENVIRONMENT": "staging",
+        }
+        with patch.dict(os.environ, env, clear=True):
+            self.assertFalse(_configured())
+
+    def test_job_ids_reject_path_traversal(self):
+        self.assertTrue(_valid_job_id("a" * 32))
+        self.assertTrue(_valid_job_id("startup-selftest"))
+        self.assertFalse(_valid_job_id(".."))
+        self.assertFalse(_valid_job_id("../outside"))
 
     def test_evidence_ttl_is_bounded(self):
         with patch.dict(os.environ, {"QA_EVIDENCE_TTL_SECONDS": "1"}, clear=True):
