@@ -389,7 +389,6 @@ class TransitQualityPostgresTests(TransitPostgresTests):
     def setUp(self):
         super().setUp()
         self.fixture.query('''CREATE UNIQUE INDEX projects_owner ON projects(id,company_id);
-            CREATE TABLE supply_deliveries(id serial PRIMARY KEY,company_id integer);
             CREATE TABLE material_inspection_journal(id serial PRIMARY KEY,project_name text,
                 warehouse_history_id integer,source_type text,source_id integer,source_item_key text,
                 material_name text,quantity NUMERIC(14,4),unit text,work_package text,supplier text,received_at text,

@@ -2696,6 +2696,41 @@ mismatched ownership; the unauthenticated route returned `401`.
 
 **Estimated scope:** S
 
+### Task M7m9: Register Warehouse Operations And Directory Ownership
+
+**Description:** Register the complete warehouse distribution, inventory reconciliation,
+intercompany transfer and warehouse-directory chain. Treat intercompany transfers as an
+intentional dual-owner resource instead of inventing one canonical `company_id`. Keep the
+single ownerless legacy warehouse card isolated and review-only while registering its
+strictly owned immutable event history.
+
+**Local implementation:** The registry now classifies all 12 tables. Migration
+`0092_warehouse_operations_idx` adds only four missing company/project-leading indexes for
+inventory reconciliation, inventory adjustments and intercompany transfer events. It does
+not insert, update or delete business rows. Warehouse PostgreSQL fixtures were refreshed
+for the already released movement-document and receipt-source dependencies.
+
+**Verification:** Registry, readiness, coverage, migration and warehouse unit tests pass
+(`60`). Disposable PostgreSQL tests pass for distribution (`24`), two-stage transfers and
+quality receipts (`49`), inventory reconciliation (`15`) and intercompany transfers (`6`).
+The new migration was applied and downgraded on a disposable PostgreSQL schema: all four
+indexes were created and removed cleanly. The pre-existing populated release fixture and
+empty-database Alembic bootstrap currently fail before `0092` because their old synthetic
+schemas omit newer supplier-document and supplier-invoice prerequisites; the new head and
+standalone migration path are verified.
+
+**Release gates:**
+- [ ] Run a read-only production count and relationship audit for all 12 tables.
+- [ ] Confirm the ownerless legacy warehouse card remains excluded or assign it only from
+      explicit owner evidence.
+- [ ] Apply `0092`, rerun tenant readiness and coverage, and verify coverage falls from
+      `104` to `92` without changing business-row counts.
+- [ ] Run public smoke, health/service checks and deployment cleanup.
+
+**Dependencies:** M7m8; explicit legacy warehouse owner review remains separate.
+
+**Estimated scope:** S
+
 
 **Dependencies:** M7l and the completed M6 runtime isolation slices
 
