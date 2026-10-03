@@ -77,6 +77,16 @@ jobs:
             backend.features.work_acceptance.test_postgres.WorkAcceptancePostgresTests \
             backend.features.contractor_contract_parties.test_postgres.ContractorContractPartiesPostgresTests
 
+      - name: Run supplier quote and staff access PostgreSQL checks
+        run: |
+          export PATH="$(pg_config --bindir):$PATH"
+          python scripts/run_supplier_catalog_postgres_tests.py \
+            backend.features.supplier_offers.test_response_postgres.SupplierResponsePostgresTests \
+            backend.features.supplier_offers.test_offer_mutation_ledger_postgres.OfferMutationLedgerTests \
+            backend.features.supplier_offers.test_offer_mutation_preledger_postgres.OfferMutationPreledgerTests \
+            backend.features.staff.test_access_postgres.StaffAccessPostgresTests \
+            backend.features.invite_codes.test_supplier_registration_postgres.SupplierRegistrationPostgresTests
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
