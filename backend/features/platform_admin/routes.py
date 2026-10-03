@@ -28,6 +28,10 @@ try:
     from backend.features.model_gateway.yandex_adapter import (
         build_yandex_model_adapter,
     )
+    from backend.features.model_gateway.vision_ocr import (
+        YANDEX_VISION_OCR_URL,
+        recognize_text_with_vision as _recognize_client_card_text_with_vision,
+    )
 except ModuleNotFoundError:
     from features.model_gateway.contract import (
         MODEL_GATEWAY_EMPTY_OUTPUT,
@@ -37,6 +41,10 @@ except ModuleNotFoundError:
         build_model_request,
     )
     from features.model_gateway.yandex_adapter import build_yandex_model_adapter
+    from features.model_gateway.vision_ocr import (
+        YANDEX_VISION_OCR_URL,
+        recognize_text_with_vision as _recognize_client_card_text_with_vision,
+    )
 
 try:
     from backend.features.company_requisites.service import upsert_company_requisites
@@ -56,7 +64,6 @@ CLIENT_INVITE_ROLES = (
     "прораб", "главный_инженер", "сметчик", "кладовщик", "снабженец",
     "мастер", "бригадир", "субподрядчик", "поставщик", "менеджер_crm", "стройконтроль", "технадзор",
 )
-
 PLATFORM_ROLE_LABELS = {
     "system_owner": "Владелец платформы",
     "platform_admin": "Администратор платформы",
@@ -1757,6 +1764,7 @@ def register_platform_admin_routes(app, deps):
         file_url = ""
         file_name = ""
         content_type = ""
+        vision_recognized = False
         warnings = []
         if file:
             file_name = file.filename or "client-card"
@@ -1769,6 +1777,19 @@ def register_platform_admin_routes(app, deps):
                 warnings.append(file_warning)
             if file_text:
                 pasted_text = "\n\n".join(part for part in (pasted_text, file_text) if part)
+            if not file_text:
+                vision_text, vision_warning = _recognize_client_card_text_with_vision(
+                    file_content,
+                    file_name,
+                    content_type,
+                    yandex_api_key,
+                    yandex_folder_id,
+                )
+                if vision_text:
+                    vision_recognized = True
+                    pasted_text = "\n\n".join(part for part in (pasted_text, vision_text) if part)
+                elif vision_warning:
+                    warnings.append(vision_warning)
             if save_upload_file:
                 try:
                     file.file.seek(0)
@@ -1804,7 +1825,10 @@ def register_platform_admin_routes(app, deps):
                 confidence = float(ai_fields.get("confidence") or 0)
             except Exception:
                 confidence = 0
-        source = "ai" if ai_fields else ("heuristic" if any(fallback.values()) else "empty")
+        source = "ai" if ai_fields else (
+            "ocr" if vision_recognized and any(fallback.values())
+            else ("heuristic" if any(fallback.values()) else "empty")
+        )
         if source == "empty":
             warnings.append("Не удалось уверенно выделить поля. Проверьте качество фото или заполните вручную.")
 
