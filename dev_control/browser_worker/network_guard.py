@@ -42,7 +42,12 @@ def redact_boundary_url(url: str) -> str:
             if any(marker in lowered for marker in _SENSITIVE_MARKERS)
             else (key, value)
         )
-    return urlunsplit((parts.scheme, parts.netloc, "/".join(output), urlencode(query), ""))
+    host = parts.hostname or ""
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    port = f":{parts.port}" if parts.port is not None else ""
+    authority = f"{host}{port}"
+    return urlunsplit((parts.scheme, authority, "/".join(output), urlencode(query), ""))
 
 
 def _fully_unquote(value: str) -> str:
