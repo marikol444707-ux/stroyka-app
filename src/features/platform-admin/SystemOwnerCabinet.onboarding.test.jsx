@@ -84,6 +84,45 @@ describe('SystemOwnerCabinet company onboarding', () => {
     expect(screen.getByPlaceholderText('Компания / юрлицо * (например: ООО Земля 1)')).toHaveValue('');
   });
 
+  test('recognition and reapplication preserve manual fields including edits while scanning', async () => {
+    let completeRecognition;
+    const previousFetch = global.fetch;
+    global.fetch = jest.fn((url, options) => url === '/system/client-card/recognize'
+      ? new Promise(resolve => { completeRecognition = resolve; })
+      : previousFetch(url, options));
+    const {container} = render(<SystemOwnerCabinet
+      user={{name: 'Владелец', role: 'system_owner'}} setUser={jest.fn()} C={colors}
+      card={{}} btnO={{}} btnG={{}} btnGr={{}} btnR={{}} inp={{}} badge={() => ({})} API="" />);
+    fireEvent.click(screen.getByRole('button', {name: /Аккаунты\/компании/}));
+    fireEvent.click(screen.getByRole('button', {name: /Подключить аккаунт\/компанию/}));
+    const name = screen.getByPlaceholderText(/Компания \/ юрлицо/);
+    const inn = screen.getByPlaceholderText('ИНН');
+    const bik = screen.getByPlaceholderText('БИК');
+    fireEvent.change(name, {target: {value: 'ООО Проверенная компания'}});
+    fireEvent.change(inn, {target: {value: '1234567890'}});
+    fireEvent.change(screen.getByPlaceholderText('Руководитель'), {target: {value: 'Ручной Подписант'}});
+    fireEvent.change(container.querySelector('input[type="file"]'), {
+      target: {files: [new File(['card'], 'card.jpg', {type: 'image/jpeg'})]},
+    });
+    await waitFor(() => expect(completeRecognition).toBeDefined());
+    fireEvent.change(bik, {target: {value: '044525225'}});
+    completeRecognition(jsonResponse({ok: true, source: 'ocr', warnings: [], fields: {
+      companyName: 'ООО Из файла', inn: '0987654321', bik: '044525411', directorName: 'Подписант из файла',
+      contactEmail: 'card@example.test', legalAddress: 'Адрес из карты',
+    }}));
+    const apply = await screen.findByRole('button', {name: 'Заполнить пустые поля'});
+    expect(name).toHaveValue('ООО Проверенная компания');
+    expect(inn).toHaveValue('1234567890');
+    expect(bik).toHaveValue('044525225');
+    expect(screen.getByPlaceholderText('Руководитель')).toHaveValue('Ручной Подписант');
+    expect(screen.getByPlaceholderText('Юридический адрес')).toHaveValue('Адрес из карты');
+    expect(screen.getByPlaceholderText('Email')).toHaveValue('card@example.test');
+    fireEvent.change(screen.getByPlaceholderText('Email'), {target: {value: 'manual@example.test'}});
+    fireEvent.click(apply);
+    expect(screen.getByPlaceholderText('Email')).toHaveValue('manual@example.test');
+    expect(name).toHaveValue('ООО Проверенная компания');
+  });
+
   test('creates a company and shows the first director handoff', async () => {
     render(
       <SystemOwnerCabinet

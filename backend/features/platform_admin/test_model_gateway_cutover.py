@@ -247,6 +247,28 @@ class PlatformClientCardGatewayCutoverTest(unittest.TestCase):
         self.assertEqual(fields["platformAccountName"], "Иванов Иван Иванович")
         self.assertEqual(fields["contactPhone"], "+7 (928) 123-45-67")
 
+    def test_wrapped_address_and_spaced_phone_keep_complete_requisites(self):
+        fields = routes._client_card_heuristic("""ИП Иванов Иван Иванович
+Юридический адрес
+123456, Тестовый край, г. Тестовый,
+ул. Тестовая, дом 4
+Почтовый адрес
+123456, Тестовый край, г. Тестовый,
+ул. Тестовая, дом 4
+ИНН 123456789012
+ОГРНИП 123456789012345
+Банк Тестовый банк
+Адрес банка 654321, Другая улица 8
+Телефон
++ 7 (961) 463 53 65
+Email person@example.test""")
+        address = "123456, Тестовый край, г. Тестовый, ул. Тестовая, дом 4"
+        self.assertEqual(fields["legalAddress"], address)
+        self.assertEqual(fields["actualAddress"], address)
+        self.assertEqual(fields["contactPhone"], "+7 (961) 463 53 65")
+        self.assertEqual(fields["inn"], "123456789012")
+        self.assertNotIn("Другая улица", fields["legalAddress"])
+
     def test_heuristic_reads_full_ip_requisites_table(self):
         fields = routes._client_card_heuristic(
             """ИНДИВИДУАЛЬНЫЙ ПРЕДПРИНИМАТЕЛЬ ИГНАТЯН АРА ГЕВОРГОВИЧ
