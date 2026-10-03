@@ -10,6 +10,8 @@ import threading
 import queue
 import re
 import time
+import json
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import urlparse
@@ -161,6 +163,15 @@ def _startup_selftest_enabled() -> bool:
         and (os.environ.get("QA_ENVIRONMENT") or "").strip().lower() in {"qa", "test", "staging"}
         and bool((os.environ.get("TIMEWEB_AI_API_KEY") or "").strip())
     )
+
+
+def _chrome_alive() -> bool:
+    cdp_url = (os.environ.get("BU_CDP_URL") or "http://127.0.0.1:9222").rstrip("/")
+    try:
+        with urllib.request.urlopen(f"{cdp_url}/json/version", timeout=0.5) as response:
+            return 200 <= int(getattr(response, "status", 200)) < 300
+    except Exception:
+        return False
 
 
 def _configured() -> bool:
@@ -358,8 +369,14 @@ def _execute(job_id: str, request: JobRequest) -> None:
             "failures": [f"browser subprocess startup failed: {type(exc).__name__}: {exc}"],
         }
 
-    files = _evidence_files(job_id)
     report.pop("evidence", None)
+    evidence_dir = _job_evidence_dir(job_id)
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    (evidence_dir / "result.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    files = _evidence_files(job_id)
     report["evidence_files"] = [
         f"/jobs/{job_id}/evidence/{name}"
         for name in files
@@ -374,7 +391,7 @@ def health():
         selftest = _jobs.get("startup-selftest")
         selftest_status = selftest.get("status") if selftest else "not_requested"
 
-    ready = _configured()
+    ready = _configured() and _chrome_alive()
     if _startup_selftest_enabled():
         ready = ready and selftest_status == "passed"
 
