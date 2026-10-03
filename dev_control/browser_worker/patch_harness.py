@@ -6,10 +6,15 @@ secrets are read. Unexpected versions or routing code fail the image build.
 from __future__ import annotations
 
 import ast
+import hashlib
 from importlib.metadata import distribution
 from pathlib import Path
 
 EXPECTED_VERSION = "0.1.13"
+# Full-file pins, not values derived from untrusted installed metadata or env.
+# Provenance and verification are documented in CDP_COMPATIBILITY.md.
+EXPECTED_ORIGINAL_SHA256 = "7f05f904e62af8c07153c34a1fd3d334acf5c5aded8d0ddab974596bb50a8c97"
+EXPECTED_PATCHED_SHA256 = "c91b78c5bf6bd8858721bc6f834104666f0191965ae2946b01c832af004aca46"
 OLD_ROUTE = 'sid = None if method.startswith("Target.") else (req.get("session_id") or self.session)'
 NEW_ROUTE = ('sid = (req.get("session_id") if method == "Target.setAutoAttach" '
              'else None) if method.startswith("Target.") '
@@ -19,6 +24,11 @@ NEW_ROUTE = ('sid = (req.get("session_id") if method == "Target.setAutoAttach" '
 def patched_source(source: str, version: str) -> str:
     if version != EXPECTED_VERSION:
         raise ValueError("Unsupported browser-harness version; review compatibility first")
+    digest = hashlib.sha256(source.encode("utf-8")).hexdigest()
+    if digest == EXPECTED_PATCHED_SHA256:
+        return source  # Accept only the exact previously verified output.
+    if digest != EXPECTED_ORIGINAL_SHA256:
+        raise ValueError("Unrecognized daemon.py SHA256; no patch applied")
     tree = ast.parse(source)
     classes = [node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "Daemon"]
     if len(classes) != 1:
@@ -44,14 +54,17 @@ def patched_source(source: str, version: str) -> str:
         1,
     )
     ast.parse(result)
+    if hashlib.sha256(result.encode("utf-8")).hexdigest() != EXPECTED_PATCHED_SHA256:
+        raise ValueError("Unexpected patched daemon.py SHA256; no write performed")
     return result
 
 
 def patch_file(path: Path, version: str) -> None:
-    original = path.read_text(encoding="utf-8")
+    # Do not normalize line endings before checking the full-file fingerprint.
+    original = path.read_bytes().decode("utf-8")
     changed = patched_source(original, version)
     if changed != original:
-        path.write_text(changed, encoding="utf-8")
+        path.write_bytes(changed.encode("utf-8"))
 
 
 def main() -> None:

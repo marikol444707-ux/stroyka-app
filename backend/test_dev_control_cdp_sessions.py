@@ -1,12 +1,14 @@
 """Offline regressions for #275. No Chrome, external HTTP or model calls.
 
 Tests use the actual NetworkBoundary methods with a fake CDP transport and
-execute the patched dispatcher in a minimal Daemon fixture. Existing backend
+execute routing in a minimal synthetic Daemon fixture. Full-file hash checks
+use a scoped synthetic trust reference; production pins are checked separately. Existing backend
 unittest discovery includes this file without installing worker dependencies.
 """
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from pathlib import Path
 import tempfile
 import threading
@@ -16,7 +18,8 @@ from unittest.mock import Mock, patch
 
 from dev_control.browser_worker.network_guard import NetworkBoundary
 from dev_control.browser_worker.patch_harness import (
-    EXPECTED_VERSION, NEW_ROUTE, OLD_ROUTE, patch_file, patched_source,
+    EXPECTED_VERSION, EXPECTED_ORIGINAL_SHA256, EXPECTED_PATCHED_SHA256,
+    NEW_ROUTE, OLD_ROUTE, patch_file, patched_source,
 )
 from dev_control.jev_timeweb import JevError
 
@@ -29,6 +32,23 @@ SOURCE = ('class Daemon:\n'
 
 
 class HarnessRoutingPatchTest(unittest.TestCase):
+    def setUp(self):
+        from dev_control.browser_worker import patch_harness
+        # Real pins are fixed in production code; tests never take trust from
+        # the mutated input under test. Use one static synthetic reference here
+        # to keep ordinary backend CI independent of the third-party package.
+        self.assertEqual(EXPECTED_ORIGINAL_SHA256,
+                         '7f05f904e62af8c07153c34a1fd3d334acf5c5aded8d0ddab974596bb50a8c97')
+        self.assertEqual(EXPECTED_PATCHED_SHA256,
+                         'c91b78c5bf6bd8858721bc6f834104666f0191965ae2946b01c832af004aca46')
+        self.fixture_original_hash = hashlib.sha256(SOURCE.encode()).hexdigest()
+        self.fixture_patched_hash = hashlib.sha256(SOURCE.replace(OLD_ROUTE, NEW_ROUTE, 1).encode()).hexdigest()
+        for name, value in (('EXPECTED_ORIGINAL_SHA256', self.fixture_original_hash),
+                            ('EXPECTED_PATCHED_SHA256', self.fixture_patched_hash)):
+            handle = patch.object(patch_harness, name, value)
+            handle.start()
+            self.addCleanup(handle.stop)
+
     def routed(self, source, method, session):
         namespace = {}
         exec(compile(source, '<daemon-fixture>', 'exec'), namespace)
@@ -86,6 +106,70 @@ class HarnessRoutingPatchTest(unittest.TestCase):
             self.assertEqual(path.read_text(), SOURCE)
             patch_file(path, EXPECTED_VERSION)
             self.assertEqual(path.read_text(), patched_source(SOURCE, EXPECTED_VERSION))
+
+    def test_original_and_patched_full_file_digests_on_synthetic_fixture(self):
+        self.assertEqual(hashlib.sha256(SOURCE.encode()).hexdigest(), self.fixture_original_hash)
+        output = patched_source(SOURCE, EXPECTED_VERSION)
+        self.assertEqual(hashlib.sha256(output.encode()).hexdigest(), self.fixture_patched_hash)
+
+    def test_early_return_and_request_rewrite_are_rejected(self):
+        for source in (SOURCE, patched_source(SOURCE, EXPECTED_VERSION)):
+            route = NEW_ROUTE if NEW_ROUTE in source else OLD_ROUTE
+            mutations = (
+                source.replace('        ' + route, '        return {"result": {"sid": "foreign-tab"}}\n        ' + route),
+                source.replace('        ' + route, '        req["session_id"] = "foreign-tab"\n        ' + route),
+                source.replace('        ' + route, '        method = "Target.closeTarget"\n        ' + route),
+                source.replace('return sid', 'return "foreign-tab"'),
+                source + '\n# unreviewed module change\n',
+            )
+            for changed in mutations:
+                with self.subTest(patched=route == NEW_ROUTE), self.assertRaisesRegex(ValueError, 'SHA256'):
+                    patched_source(changed, EXPECTED_VERSION)
+
+    def test_changed_line_endings_bom_or_truncation_rejected_without_write(self):
+        original = SOURCE.encode('utf-8')
+        for raw in (original.replace(b'\n', b'\r\n'), b'\xef\xbb\xbf' + original,
+                    original[:-1], original + b'\n', original + b'\xff'):
+            with self.subTest(size=len(raw)), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / 'daemon.py'
+                path.write_bytes(raw)
+                with self.assertRaises((ValueError, UnicodeDecodeError)):
+                    patch_file(path, EXPECTED_VERSION)
+                self.assertEqual(path.read_bytes(), raw)
+
+    def test_unrecognized_original_or_patched_file_is_not_written(self):
+        for source in (SOURCE, patched_source(SOURCE, EXPECTED_VERSION)):
+            changed = source + '\n# downstream code\n'
+            with tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / 'daemon.py'
+                path.write_bytes(changed.encode())
+                with self.assertRaisesRegex(ValueError, 'SHA256'):
+                    patch_file(path, EXPECTED_VERSION)
+                self.assertEqual(path.read_bytes(), changed.encode())
+
+    def test_bad_transform_output_cannot_be_written(self):
+        from dev_control.browser_worker import patch_harness
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'daemon.py'
+            path.write_bytes(SOURCE.encode())
+            with patch.object(patch_harness, 'NEW_ROUTE', 'sid = req.get("diagnostic-test-route")'):
+                with self.assertRaisesRegex(ValueError, 'patched daemon.py SHA256'):
+                    patch_file(path, EXPECTED_VERSION)
+            self.assertEqual(path.read_bytes(), SOURCE.encode())
+
+    def test_failed_entrypoint_prints_no_readiness_marker(self):
+        from dev_control.browser_worker import patch_harness
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'daemon.py'
+            raw = (SOURCE + '\n# changed\n').encode()
+            path.write_bytes(raw)
+            dist = SimpleNamespace(version=EXPECTED_VERSION, files=['browser_harness/daemon.py'],
+                                   locate_file=lambda _: path)
+            with patch.object(patch_harness, 'distribution', return_value=dist):
+                with patch('builtins.print') as output, self.assertRaisesRegex(ValueError, 'SHA256'):
+                    patch_harness.main()
+                output.assert_not_called()
+            self.assertEqual(path.read_bytes(), raw)
 
     def test_build_pins_dependency_and_applies_patch_before_nonroot_runtime(self):
         root = Path(__file__).resolve().parents[1]
