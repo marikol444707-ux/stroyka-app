@@ -25,6 +25,12 @@ def verify_final_state(
     failures: list[str] = []
     checks: list[str] = []
 
+    expect_text = tuple(expect_text)
+    forbid_text = tuple(forbid_text)
+    expect_url_contains = tuple(expect_url_contains)
+    if not any((expect_text, forbid_text, expect_url_contains)):
+        failures.append("no_deterministic_assertions")
+
     status = str(state.get("status") or "")
     if status == "done":
         checks.append("agent_status=done")
