@@ -87,7 +87,7 @@ class BrowserWorkerUrlSafetyTest(unittest.TestCase):
         redacted = _redact_url(
             "https://qa.example.test/password-reset/super-secret-token?next=warehouse"
         )
-        self.assertIn("/password-reset/%5BREDACTED%5D", redacted)
+        self.assertIn("/password-reset/[REDACTED]", redacted)
         self.assertNotIn("super-secret-token", redacted)
         self.assertIn("next=warehouse", redacted)
 
