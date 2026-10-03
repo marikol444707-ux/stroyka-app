@@ -285,7 +285,11 @@ def _set_job(job_id: str, **values) -> None:
         current = _jobs.setdefault(job_id, {})
         current.update(values)
         if len(_jobs) > 100:
-            finished = [key for key, value in _jobs.items() if value.get("status") in {"passed", "failed"}]
+            finished = [
+                key
+                for key, value in _jobs.items()
+                if key != "startup-selftest" and value.get("status") in {"passed", "failed"}
+            ]
             for key in finished[: len(_jobs) - 100]:
                 _jobs.pop(key, None)
 
