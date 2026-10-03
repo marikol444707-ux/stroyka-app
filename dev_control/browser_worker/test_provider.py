@@ -5,12 +5,36 @@ from unittest.mock import patch
 
 from dev_control.browser_worker.provider import (
     UPSTREAM_TYPESAFE_URL,
+    _sanitize_state_for_provider,
     install_timeweb_provider,
 )
 from dev_control.jev_timeweb import JevError
 
 
 class ProviderPatchTest(unittest.TestCase):
+
+    def test_provider_state_redacts_typed_values_and_url_credentials(self):
+        state = {
+            "page": {"url": "https://qa.example.test/?invite=secret-code"},
+            "recent_actions": [
+                {
+                    "operation": "TYPE_TEXT",
+                    "text": "my-password",
+                    "value": "another-secret",
+                    "url": "https://qa.example.test/reset/path-token?code=query-token",
+                }
+            ],
+        }
+        safe = _sanitize_state_for_provider(state)
+        rendered = repr(safe)
+        self.assertNotIn("secret-code", rendered)
+        self.assertNotIn("my-password", rendered)
+        self.assertNotIn("another-secret", rendered)
+        self.assertNotIn("path-token", rendered)
+        self.assertNotIn("query-token", rendered)
+        self.assertIn("[REDACTED]", rendered)
+        self.assertEqual(state["recent_actions"][0]["text"], "my-password")
+
     def test_requires_timeweb_key(self):
         fake = types.SimpleNamespace(post_json=lambda *_: {})
         with patch.dict(os.environ, {}, clear=True):
