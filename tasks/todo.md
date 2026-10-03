@@ -2648,11 +2648,13 @@ mismatched ownership; the unauthenticated route returned `401`.
 **Pre-apply evidence:** The 2026-10-03 production inspection was read-only. `work_contract_acts`, `work_contract_act_items`, `work_contract_fine_allocations`, `work_contract_act_signatures` and `work_contract_act_payments` are empty. No company owner is null or orphaned, and all 17 company, contract, generated act, work, operation, defect, decision, signature actor, contractor payment and project payment relationship checks report zero mismatches.
 
 **Acceptance criteria:**
-- [ ] Registry entries identify the exact stored owner and parent chain for all five tables.
-- [ ] Company-leading indexes cover acts, items, fine allocations, signatures and payments.
-- [ ] The migration is reversible and contains no data mutation.
-- [ ] Focused settlement, ownership and migration tests pass locally and in CI.
-- [ ] Production migration applies, all five tables remain unchanged, readiness has no new schema blockers, coverage falls from `117` to `112`, and smoke passes.
+- [x] Registry entries identify the exact stored owner and parent chain for all five tables.
+- [x] Company-leading indexes cover acts, items, fine allocations, signatures and payments.
+- [x] The migration is reversible and contains no data mutation.
+- [x] Focused settlement, ownership and migration tests pass locally and in CI.
+- [x] Production migration applies, all five tables remain unchanged, readiness has no new schema blockers, coverage falls from `117` to `112`, and smoke passes.
+
+**Production result:** Runtime `2e4966eb` deployed on 2026-10-03. Alembic reports `0089_work_contract_act_indexes (head)`, and all five company-leading indexes exist. The contractor-act, item, fine-allocation, signature and payment-link tables remain empty, and all 17 exact company, contract, generated act, work, operation, defect, decision, actor and payment checks report zero mismatches. The read-only readiness audit has zero schema blockers; registry coverage is now `103` physical tables with `112` still unregistered (`64 critical`, `14 high`, `34 unclassified`). Both application services and nginx are active, public and asset smoke passed, `54G` remains free and no temporary frontend build remains.
 
 **Dependencies:** M7m5
 
