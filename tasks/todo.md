@@ -2603,6 +2603,23 @@ mismatched ownership; the unauthenticated route returned `401`.
 
 **Estimated scope:** S
 
+### Task M7m4: Register Work-Material Accounting Ownership
+
+**Description:** Register the immutable operation, actual-consumption and material-defect chain as strict stored-company data. Add company-leading indexes for project accounts, defect items and director decisions without changing quantities, defect decisions, fines or historical rows.
+
+**Pre-apply evidence:** The 2026-10-03 production inspection was read-only. `work_material_operations` contains five completed `inventory-reconciliation` operations for company `1`; the other five tables are empty. No company owner is null or orphaned, all operation actors exist, and all 14 account, project, contract, operation, correction, material, defect and entry relationships match their stored company.
+
+**Acceptance criteria:**
+- [ ] Registry entries identify the exact stored owner and parent chain for all six tables.
+- [ ] Company-leading indexes cover project accounts, defect items and defect decisions.
+- [ ] The migration is reversible and contains no data mutation.
+- [ ] Focused ownership, material-accounting and migration tests pass locally and in CI.
+- [ ] Production migration applies, all five operations remain unchanged, readiness has no new schema blockers, coverage falls from `126` to `120`, and smoke passes.
+
+**Dependencies:** M7m3
+
+**Estimated scope:** S
+
 
 **Dependencies:** M7l and the completed M6 runtime isolation slices
 
