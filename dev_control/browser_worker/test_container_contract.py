@@ -23,7 +23,8 @@ class BrowserWorkerContainerContractTest(unittest.TestCase):
         service = Path("dev_control/browser_worker/service.py").read_text(encoding="utf-8")
         network_guard = Path("dev_control/browser_worker/network_guard.py").read_text(encoding="utf-8")
 
-        self.assertIn("process.join(timeout=request.max_seconds)", service)
+        self.assertIn("result_queue.get(timeout=remaining)", service)
+        self.assertIn("deadline = time.monotonic() + request.max_seconds", service)
         self.assertIn("process.terminate()", service)
         self.assertIn('/jobs/{job_id}/evidence/{filename}', service)
         self.assertIn("_authorize(authorization)", service)
