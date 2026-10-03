@@ -26,6 +26,14 @@ def _sanitize_state_for_provider(state):
     if isinstance(page, dict) and page.get("url"):
         page["url"] = redact_boundary_url(str(page["url"]))
 
+    elements = safe.get("elements")
+    if isinstance(elements, list):
+        for element in elements:
+            if not isinstance(element, dict):
+                continue
+            if "value" in element and element["value"] not in (None, ""):
+                element["value"] = "[POPULATED]"
+
     for key in ("recent_actions", "history"):
         items = safe.get(key)
         if not isinstance(items, list):
@@ -38,6 +46,23 @@ def _sanitize_state_for_provider(state):
             for secret_key in ("text", "value", "typed_text", "input", "text_helper"):
                 if secret_key in item:
                     item[secret_key] = "[REDACTED]"
+    return safe
+
+
+def _sanitize_questions_for_provider(questions):
+    safe = copy.deepcopy(questions)
+    if not isinstance(safe, dict):
+        return safe
+    for question in safe.values():
+        if not isinstance(question, dict):
+            continue
+        if "current_value" in question and question["current_value"] not in (None, ""):
+            question["current_value"] = "[POPULATED]"
+        criteria = question.get("criteria")
+        if isinstance(criteria, dict):
+            for value in criteria.values():
+                if isinstance(value, dict) and "current_value" in value and value["current_value"] not in (None, ""):
+                    value["current_value"] = "[POPULATED]"
     return safe
 
 
@@ -82,7 +107,10 @@ def install_timeweb_provider(
                 questions = body["questions"]
             except (KeyError, TypeError) as exc:
                 raise JevError("Upstream Jev request has no state/questions") from exc
-            result = client.ask(state=_sanitize_state_for_provider(state), questions=questions)
+            result = client.ask(
+                state=_sanitize_state_for_provider(state),
+                questions=_sanitize_questions_for_provider(questions),
+            )
             result.setdefault("model", model)
             result.setdefault("usage", {})
             return result
