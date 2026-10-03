@@ -9897,7 +9897,12 @@ def delete_supply_request(
         conn.close()
 
 @app.get("/supply-requests/{id}/stock-check")
-def supply_request_stock_check(id: int, current_user: dict = Depends(require_roles(*SUPPLY_ROLES))):
+def supply_request_stock_check(
+    id: int,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    current_user: dict = Depends(require_roles(*SUPPLY_ROLES)),
+):
     """Возвращает остатки похожих материалов на складе и бюджет проекта.
        Используется UI чтобы показать «есть X из Y, закупить Z»."""
     conn = None
@@ -9905,12 +9910,22 @@ def supply_request_stock_check(id: int, current_user: dict = Depends(require_rol
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         is_worker = current_user.get("role") in WORKER_EXECUTION_ROLES
+        company_context = _resolve_work_company_context(
+            cur,
+            current_user,
+            None,
+            "read",
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+        )
+        request_scope_sql, request_scope_params = company_id_scope_filter(company_context, "company_id")
         cur.execute("""SELECT material_name, quantity, unit, project, COALESCE(work_package,'') AS work_package,
-                              items_json, requested_by_id, created_by
-                       FROM supply_requests WHERE id=%s""", (id,))
+                              items_json, requested_by_id, created_by, company_id
+                       FROM supply_requests WHERE id=%s""" + request_scope_sql, tuple([id] + request_scope_params))
         req = cur.fetchone()
         if not req:
             return {"error": "Заявка не найдена"}
+        company_id = int(req["company_id"])
         if is_worker:
             current_user_id = str(current_user.get("id") or "")
             current_user_name = (current_user.get("name") or "").strip().lower()
@@ -9951,8 +9966,9 @@ def supply_request_stock_check(id: int, current_user: dict = Depends(require_rol
             tokens = [t for t in name.split() if len(t) >= 4]
             search = tokens[0] if tokens else name
             cur.execute(
-                "SELECT id, name, quantity, unit, price, category FROM warehouse_main WHERE name ILIKE %s ORDER BY quantity DESC LIMIT 10",
-                ('%' + search + '%',))
+                """SELECT id, name, quantity, unit, price, category FROM warehouse_main
+                   WHERE company_id=%s AND name ILIKE %s ORDER BY quantity DESC LIMIT 10""",
+                (company_id, '%' + search + '%'))
             for row in cur.fetchall():
                 stock_matches.append({
                     "id": row['id'], "name": row['name'],
@@ -9969,9 +9985,10 @@ def supply_request_stock_check(id: int, current_user: dict = Depends(require_rol
                     cur.execute(
                         """SELECT id, name, quantity, unit, price, category, COALESCE(work_package,'') AS work_package
                            FROM materials
-                           WHERE project=%s AND name ILIKE %s AND COALESCE(NULLIF(work_package,''),'Основная')=%s
+                           WHERE company_id=%s AND project=%s AND name ILIKE %s
+                             AND COALESCE(NULLIF(work_package,''),'Основная')=%s
                            LIMIT 10""",
-                        (project, '%' + search + '%', item_package))
+                        (company_id, project, '%' + search + '%', item_package))
                     for row in cur.fetchall():
                         stock_matches.append({
                             "id": row['id'], "name": '[На объекте] ' + (row['name'] or ''),
@@ -9999,7 +10016,7 @@ def supply_request_stock_check(id: int, current_user: dict = Depends(require_rol
         project_pending_cost = 0.0
         if project:
             try:
-                cur.execute("SELECT budget FROM projects WHERE name=%s", (project,))
+                cur.execute("SELECT budget FROM projects WHERE company_id=%s AND name=%s", (company_id, project))
                 pr = cur.fetchone()
                 project_budget = float(pr['budget'] or 0) if pr else 0.0
             except Exception:
@@ -10008,8 +10025,10 @@ def supply_request_stock_check(id: int, current_user: dict = Depends(require_rol
             # Старые агрегаты вида «N позиций» нельзя умножать как материал: это ломает бюджет и пакеты работ.
             try:
                 cur.execute(
-                    "SELECT material_name, quantity, unit, status, COALESCE(work_package,'') AS work_package, items_json FROM supply_requests WHERE project=%s",
-                    (project,))
+                    """SELECT material_name, quantity, unit, status,
+                              COALESCE(work_package,'') AS work_package, items_json
+                         FROM supply_requests WHERE company_id=%s AND project=%s""",
+                    (company_id, project))
                 requests_rows = cur.fetchall()
                 for row in requests_rows:
                     raw_items = _json_list_or_empty(row.get("items_json"))
@@ -10030,8 +10049,9 @@ def supply_request_stock_check(id: int, current_user: dict = Depends(require_rol
                         first_word = mname.split()[0]
                         try:
                             cur.execute(
-                                "SELECT AVG(price) AS avg_price FROM warehouse_main WHERE name ILIKE %s",
-                                ('%' + first_word + '%',))
+                                """SELECT AVG(price) AS avg_price FROM warehouse_main
+                                   WHERE company_id=%s AND name ILIKE %s""",
+                                (company_id, '%' + first_word + '%'))
                             avg_row = cur.fetchone()
                             avg_price = float(avg_row['avg_price'] or 0) if avg_row else 0.0
                         except Exception:
@@ -16546,6 +16566,10 @@ def ai_chat(
                 finance_actors,
                 FINANCE_ROLES,
             )
+            warehouse_visibility_sql, warehouse_visibility_params = company_id_scope_filter(
+                company_context,
+                "company_id",
+            )
         except Exception:
             scope_cur.close()
             conn.close()
@@ -16561,7 +16585,10 @@ def ai_chat(
             cur.execute("SELECT name, status FROM projects WHERE FALSE")
         projects = cur.fetchall()
         if current_user.get("role") in WAREHOUSE_ROLES or current_user.get("role") in FINANCE_ROLES:
-            cur.execute("SELECT name, quantity, unit FROM warehouse_main")
+            cur.execute(
+                "SELECT name, quantity, unit FROM warehouse_main WHERE TRUE" + warehouse_visibility_sql,
+                tuple(warehouse_visibility_params),
+            )
             materials = cur.fetchall()
         else:
             materials = []
