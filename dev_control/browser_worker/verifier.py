@@ -46,26 +46,26 @@ def verify_final_state(
     full_text = str(full_text_value) if full_text_value is not None else None
     url = str(page.get("url") or "")
 
-    for needle in expect_text:
+    for index, needle in enumerate(expect_text):
         haystack = full_text if full_text is not None else text
         if needle in haystack:
-            checks.append(f"text_present:{needle}")
+            checks.append(f"expect_text[{index}]:present")
         else:
-            failures.append(f"text_missing:{needle}")
+            failures.append(f"expect_text[{index}]:missing")
 
-    for needle in forbid_text:
+    for index, needle in enumerate(forbid_text):
         if full_text is None:
-            failures.append(f"full_text_unavailable:{needle}")
+            failures.append(f"forbid_text[{index}]:full_text_unavailable")
         elif needle not in full_text:
-            checks.append(f"text_absent:{needle}")
+            checks.append(f"forbid_text[{index}]:absent")
         else:
-            failures.append(f"forbidden_text_present:{needle}")
+            failures.append(f"forbid_text[{index}]:present")
 
-    for needle in expect_url_contains:
+    for index, needle in enumerate(expect_url_contains):
         if needle in url:
-            checks.append(f"url_contains:{needle}")
+            checks.append(f"expect_url_contains[{index}]:present")
         else:
-            failures.append(f"url_missing:{needle}")
+            failures.append(f"expect_url_contains[{index}]:missing")
 
     return VerificationResult(
         ok=not failures,
