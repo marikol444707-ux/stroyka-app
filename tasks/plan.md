@@ -213,6 +213,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M7m6: Register the five contractor-act settlement tables and add five reversible company-leading indexes. Production runtime `2e4966eb` is on Alembic head `0089`; all five tables remain empty, all 17 parent checks are clean, and coverage fell from `117` to `112`.
 - [x] Task M7m7: Register the four tool-responsibility tables and add three missing company-leading indexes without changing custody history, incidents, director decisions or act fines. Production runtime `42035523` is on Alembic head `0090`; all four tables remain empty, all 22 relationship checks are clean, readiness has zero schema blockers, and coverage fell from `112` to `108`.
 - [x] Task M7m8: Register the four owned warehouse stock-chain tables, scope the remaining stock-check and AI reads, and add three missing company/project lookup indexes. Production runtime `b4be1811` is on Alembic head `0091`; all `320` rows and their SHA-256 snapshots are unchanged, all 15 relationship checks are clean, and coverage fell from `108` to `104`. The one unowned legacy warehouse-directory card remains isolated for explicit review.
+- [ ] Task M7m9: Register the 12 warehouse distribution, inventory reconciliation, intercompany transfer and warehouse-directory tables. Local implementation adds four reversible owner indexes and preserves the one isolated ownerless legacy warehouse card; production audit, migration and release remain pending.
 
 ### Checkpoint: SaaS Boundary
 

@@ -82,6 +82,9 @@ DDL = '''
 CREATE TABLE companies(id integer PRIMARY KEY, name text, short_name text,
     active boolean DEFAULT TRUE, platform_account_id integer, plan text DEFAULT 'demo',
     trial_until date, plan_expires_at date, payment_status text, suspended_at timestamp);
+CREATE TABLE company_requisites(company_id integer PRIMARY KEY REFERENCES companies(id),
+    full_name text, short_name text, inn text, kpp text, ogrn text,
+    legal_address text, actual_address text, phone text, email text);
 CREATE TABLE users(id integer PRIMARY KEY, company_id integer REFERENCES companies(id),
     name text, role text, active boolean DEFAULT TRUE);
 CREATE TABLE user_company_roles(id serial PRIMARY KEY, user_id integer NOT NULL REFERENCES users(id),
@@ -93,6 +96,8 @@ CREATE TABLE warehouse_invoices(id serial PRIMARY KEY, company_id integer, numbe
     supplier_name text DEFAULT 'Synthetic supplier',
     items jsonb, status text DEFAULT 'Принята', project text DEFAULT '', location text DEFAULT 'Основной склад',
     payment_status text DEFAULT 'Не оплачено');
+CREATE TABLE supply_deliveries(id serial PRIMARY KEY, company_id integer,
+    received_at timestamptz, received_quantity numeric, quality_status text);
 CREATE TABLE warehouse_main(id serial PRIMARY KEY, company_id integer,name text,unit text,
     quantity double precision,price numeric DEFAULT 0,min_quantity numeric DEFAULT 0,category text DEFAULT '');
 CREATE TABLE materials(id serial PRIMARY KEY, company_id integer,name text,unit text,
@@ -101,7 +106,8 @@ CREATE TABLE materials(id serial PRIMARY KEY, company_id integer,name text,unit 
 CREATE TABLE warehouse_movements(id serial PRIMARY KEY, company_id integer,material_name text,
     from_location text,to_location text,quantity double precision,unit text,work_package text,date text,
     created_by text,notes text,source_invoice_id integer,source_invoice_line_index integer,
-    estimate_control_status text,estimate_control jsonb);
+    estimate_control_status text,estimate_control jsonb,document_snapshot_json jsonb,
+    document_snapshot_hash char(64),document_snapshot_frozen_at timestamptz);
 CREATE TABLE warehouse_history(id serial PRIMARY KEY,company_id integer,material text,type text,
     quantity double precision,unit text,date text,project text,issued_to text,issued_by text,
     work_package text,date_time text,source_type text,source_id integer,
