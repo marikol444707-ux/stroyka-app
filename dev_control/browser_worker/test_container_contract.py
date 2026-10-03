@@ -26,6 +26,7 @@ class BrowserWorkerContainerContractTest(unittest.TestCase):
         self.assertIn("result_queue.get(timeout=remaining)", service)
         self.assertIn("deadline = time.monotonic() + request.max_seconds", service)
         self.assertIn("process.terminate()", service)
+        self.assertGreaterEqual(service.count("_cleanup_qa_browser_contexts()"), 3)
         self.assertIn('/jobs/{job_id}/evidence/{filename}', service)
         self.assertIn("_authorize(authorization)", service)
         self.assertIn("Fetch.enable", network_guard)
