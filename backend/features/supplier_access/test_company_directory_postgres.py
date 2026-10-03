@@ -339,7 +339,7 @@ class CompanyDirectoryPostgresTests(unittest.TestCase):
         sid = self.fixture['supplierId']
         own = self.api('director', 'POST', '/supplier-documents', {'supplierId': sid, 'title': 'Customer A contract'})
         other = self.api('stranger', 'POST', '/supplier-documents', {'supplierId': sid, 'title': 'Customer B contract'})
-        personal = self.sql("INSERT INTO supplier_documents(supplier_id,title,notes) VALUES(%s,'Personal document','Own notes') RETURNING id", (sid,))[0][0]
+        personal = self.sql("INSERT INTO supplier_documents(supplier_id,owner_scope,title,notes) VALUES(%s,'supplier','Personal document','Own notes') RETURNING id", (sid,))[0][0]
         visible = [r['id'] for r in self.api('supplier', 'GET', '/supplier-documents')]
         self.assertIn(personal, visible)
         self.assertNotIn(own['id'], visible)

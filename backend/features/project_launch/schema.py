@@ -4,7 +4,7 @@ def ensure_project_launch_schema(get_db):
     cur.execute("""
         CREATE TABLE IF NOT EXISTS counterparties (
             id SERIAL PRIMARY KEY,
-            company_id INT DEFAULT 1,
+            company_id INT NOT NULL REFERENCES companies(id),
             type TEXT DEFAULT 'customer',
             name TEXT,
             legal_form TEXT,
@@ -32,7 +32,7 @@ def ensure_project_launch_schema(get_db):
             id SERIAL PRIMARY KEY,
             project_id INT,
             project_name TEXT,
-            company_id INT DEFAULT 1,
+            company_id INT NOT NULL REFERENCES companies(id),
             document_id INT,
             contract_number TEXT,
             contract_date DATE,
@@ -54,12 +54,13 @@ def ensure_project_launch_schema(get_db):
         );
         CREATE INDEX IF NOT EXISTS idx_project_contract_terms_project ON project_contract_terms(project_name);
         CREATE INDEX IF NOT EXISTS idx_project_contract_terms_document ON project_contract_terms(document_id);
+        CREATE INDEX IF NOT EXISTS idx_project_contract_terms_company ON project_contract_terms(company_id, project_id, id);
 
         CREATE TABLE IF NOT EXISTS project_launch_drafts (
             id SERIAL PRIMARY KEY,
             project_id INT,
             project_name TEXT,
-            company_id INT DEFAULT 1,
+            company_id INT NOT NULL REFERENCES companies(id),
             source_document_id INT,
             source_file_url TEXT,
             source_file_name TEXT,
@@ -84,6 +85,7 @@ def ensure_project_launch_schema(get_db):
         CREATE INDEX IF NOT EXISTS idx_project_launch_drafts_project ON project_launch_drafts(project_name);
         CREATE INDEX IF NOT EXISTS idx_project_launch_drafts_status ON project_launch_drafts(status);
         CREATE INDEX IF NOT EXISTS idx_project_launch_drafts_document ON project_launch_drafts(source_document_id);
+        CREATE INDEX IF NOT EXISTS idx_project_launch_drafts_company ON project_launch_drafts(company_id, project_id, id);
     """)
     conn.commit()
     cur.close()

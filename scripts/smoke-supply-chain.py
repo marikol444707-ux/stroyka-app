@@ -1762,8 +1762,8 @@ def assert_supplier_documents_group_scope(token, supplier_id, stamp, created):
             cur.execute(
                 """
                 INSERT INTO supplier_documents
-                    (supplier_id, doc_type, title, file_url, status, notes, uploaded_by)
-                VALUES (%s,'Реквизиты',%s,'','Загружен',%s,'CODEX QA')
+                    (supplier_id, doc_type, title, file_url, status, notes, uploaded_by, owner_scope)
+                VALUES (%s,'Реквизиты',%s,'','Загружен',%s,'CODEX QA','supplier')
                 RETURNING id
                 """,
                 (sid, title + " " + stamp, TEST_NOTE_PREFIX),

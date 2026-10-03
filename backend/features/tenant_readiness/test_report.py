@@ -3,7 +3,12 @@ from contextlib import redirect_stderr
 from io import StringIO
 from unittest.mock import Mock, patch
 
-from backend.features.tenant_readiness.report import build_report, main, run_report
+from backend.features.tenant_readiness.report import (
+    build_report,
+    collect_table_facts,
+    main,
+    run_report,
+)
 
 
 def entry(resource, state="stored", *, kind="table", access="verified"):
@@ -26,6 +31,7 @@ def company_fact(*, index=True, null_rows=0):
         "companyNullRows": null_rows,
         "ownerScopeNullRows": 0,
         "companyOwnerNullRows": 0,
+        "scopeOwnerNullRows": 0,
         "invalidOwnerScopeRows": 0,
         "orphanCompanyRows": 0,
         "projectRows": 0,
@@ -35,6 +41,50 @@ def company_fact(*, index=True, null_rows=0):
 
 
 class TenantReadinessReportTests(unittest.TestCase):
+    def test_collector_preserves_alternate_scope_owner_failures(self):
+        class Cursor:
+            def __init__(self):
+                self.calls = 0
+
+            def execute(self, _query, _params=None):
+                self.calls += 1
+
+            def fetchall(self):
+                if self.calls == 1:
+                    return [
+                        {"table_name": "supplier_documents", "column_name": "company_id", "is_nullable": "YES"},
+                        {"table_name": "supplier_documents", "column_name": "owner_scope", "is_nullable": "NO"},
+                        {"table_name": "supplier_documents", "column_name": "supplier_id", "is_nullable": "NO"},
+                    ]
+                if self.calls == 2:
+                    return [{
+                        "tablename": "supplier_documents",
+                        "indexname": "idx_supplier_documents_company",
+                        "indexdef": "CREATE INDEX ON supplier_documents(company_id)",
+                    }]
+                if self.calls == 3:
+                    return []
+                raise AssertionError(f"unexpected fetchall call {self.calls}")
+
+            def fetchone(self):
+                return {
+                    "total_rows": 1,
+                    "company_null_rows": 1,
+                    "orphan_company_rows": 0,
+                    "owner_scope_null_rows": 0,
+                    "company_owner_null_rows": 0,
+                    "scope_owner_null_rows": 1,
+                    "invalid_owner_scope_rows": 0,
+                }
+
+        scoped = entry("supplier_documents")
+        scoped["ownerScopes"] = ["company", "supplier"]
+        scoped["scopeOwnerColumns"] = {"company": "supplier_id", "supplier": "supplier_id"}
+
+        facts = collect_table_facts(Cursor(), [scoped])
+
+        self.assertEqual(facts["supplier_documents"]["scopeOwnerNullRows"], 1)
+
     def test_registry_states_and_pending_runtime_block_constraints(self):
         entries = [
             entry("missing_table", "missing", access=""),
@@ -130,6 +180,24 @@ class TenantReadinessReportTests(unittest.TestCase):
         self.assertFalse(report["readyForConstraints"])
         self.assertEqual(report["schemaBlockers"][0]["reason"], "owner_scope_invalid")
         self.assertEqual(report["schemaBlockers"][0]["count"], 4)
+
+    def test_alternate_scope_requires_its_declared_owner_column(self):
+        fact = company_fact()
+        fact["columns"].update({
+            "owner_scope": {"nullable": False},
+            "supplier_id": {"nullable": True},
+        })
+        scoped = entry("supplier_documents")
+        scoped["ownerScopes"] = ["company", "supplier"]
+        scoped["scopeOwnerColumns"] = {"supplier": "supplier_id"}
+
+        report = build_report([scoped], {"supplier_documents": fact})
+        self.assertTrue(report["readyForConstraints"])
+
+        fact["scopeOwnerNullRows"] = 1
+        report = build_report([scoped], {"supplier_documents": fact})
+        self.assertFalse(report["readyForConstraints"])
+        self.assertEqual(report["schemaBlockers"][0]["reason"], "scope_owner_missing")
 
     def test_historical_project_reference_is_reported_without_blocking(self):
         fact = company_fact()
