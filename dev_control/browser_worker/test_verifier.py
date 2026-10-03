@@ -4,6 +4,14 @@ from dev_control.browser_worker.verifier import verify_final_state
 
 
 class VerifierTest(unittest.TestCase):
+
+    def test_done_without_observable_assertion_fails(self):
+        result = verify_final_state(
+            {"status": "done", "page": {"url": "https://qa.test", "text": "Anything"}},
+        )
+        self.assertFalse(result.ok)
+        self.assertIn("no_deterministic_assertions", result.failures)
+
     def test_done_is_not_enough_when_expected_evidence_is_missing(self):
         result = verify_final_state(
             {"status": "done", "page": {"url": "https://qa.test/x", "text": "Other"}},
