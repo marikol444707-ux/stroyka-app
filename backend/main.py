@@ -12609,6 +12609,8 @@ except ModuleNotFoundError:
 
 
 register_supply_history_module(app, {
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
     "platform_staff_roles": PLATFORM_STAFF_ROLES,
     "client_account_roles": CLIENT_ACCOUNT_ROLES,
     "get_db": get_db,

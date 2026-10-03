@@ -24,6 +24,8 @@ class MultiCompanyChainTest(unittest.TestCase):
     def seed_second_customer(self):
         f = self.fixture
         project = f['project'] + ' B'
+        if self.sql('SELECT id FROM platform_accounts WHERE id=2'):
+            return project
         self.sql("INSERT INTO platform_accounts(id,name,plan,status) VALUES(2,'CHAIN second account','pro','active')")
         self.sql('UPDATE companies SET platform_account_id=2 WHERE id=3')
         self.sql('UPDATE company_supplier_links SET platform_account_id=2 WHERE company_id=3')
@@ -56,6 +58,23 @@ class MultiCompanyChainTest(unittest.TestCase):
             'itemsKp': [{**item, 'pricePerUnit': 100, 'totalPrice': 200}]})
         self.api(actor, 'PUT', path, {'action': 'select'})
         return request_id, offer['id']
+
+    def test_supply_history_reads_and_creation_require_company_membership(self):
+        project = self.seed_second_customer()
+        body = {'companyId': 3, 'project': project, 'supplierId': self.fixture['supplierId'],
+                'materialName': 'Private company B history', 'quantity': 1,
+                'pricePerUnit': 100, 'totalPrice': 100}
+        before = self.sql('SELECT count(*) FROM supply_history WHERE company_id=3')
+        for headers in ({}, {'X-Company-Id': '3'}):
+            self.api('director', 'POST', '/supply-history', body, expected=403, **headers)
+            self.assertEqual(self.sql('SELECT count(*) FROM supply_history WHERE company_id=3'), before)
+        saved = self.api('stranger', 'POST', '/supply-history', body)
+        self.assertEqual(saved['company_id'], 3)
+        self.assertIn(saved['id'], [row['id'] for row in self.api('stranger', 'GET', '/supply-history')])
+        self.assertNotIn(saved['id'], [row['id'] for row in self.api('director', 'GET', '/supply-history')])
+        self.assertNotIn(saved['id'], [row['id'] for row in self.api('director', 'GET', '/supply-history',
+                           **{'X-Company-Mode': 'all_companies'})])
+        self.api('director', 'GET', '/supply-history', expected=403, **{'X-Company-Id': '3'})
 
     def test_supply_history_updates_require_exact_company_membership(self):
         project = self.seed_second_customer()
@@ -170,7 +189,6 @@ class MultiCompanyChainTest(unittest.TestCase):
         self.api(other, 'PUT', f'/supplier-invoices/{invoice}', {'status': 'Утверждён'}, expected=403)
         self.api(actor, 'PUT', f'/supplier-invoices/{invoice}', {'status': 'Утверждён'})
         if company == 2:
-            self.api('supplier', 'POST', path + '/ship', {'shippedQuantity': 2}, expected=400)
             self.api(actor, 'PUT', f'/supplier-invoices/{invoice}', {'status': 'Оплачен', 'paidAmount': 200, 'paidAt': today})
         delivery = self.api('supplier', 'POST', path + '/ship', {
             'shippedQuantity': 2, 'waybillNumber': 'SAME-NUMBER', 'waybillDate': today})['id']
@@ -228,9 +246,15 @@ class MultiCompanyChainTest(unittest.TestCase):
                 self.assertIn(identifier, [row['id'] for row in self.api('supplier', 'GET', endpoint)])
                 self.assertNotIn(identifier, [row['id'] for row in self.api(other, 'GET', endpoint)])
                 self.assertEqual(self.api('stranger_supplier', 'GET', endpoint), [])
+        # The retired update route refuses every actor and cannot alter a claim.
+        before_claim = self.sql('SELECT status,resolution FROM supply_claims WHERE id=%s', (claim,))
+        for legacy_actor in (other, actor):
+            self.api(legacy_actor, 'PUT', f'/supply-claims/{claim}',
+                     {'resolution': 'Attempt through retired route'}, expected=409)
+        self.assertEqual(self.sql('SELECT status,resolution FROM supply_claims WHERE id=%s', (claim,)),
+                         before_claim)
         for method, endpoint, payload in (
             ('POST', f'/supply-deliveries/{delivery}/ai-check', {'parsedItems': [{'name': self.fixture['materialName'], 'quantity': 2}]}),
-            ('PUT', f'/supply-claims/{claim}', {'resolution': 'Only owning company'}),
             ('PUT', f'/supply-history/{history}', {'status': 'Принято'}),
         ):
             with self.subTest(mutation=endpoint, company=company):

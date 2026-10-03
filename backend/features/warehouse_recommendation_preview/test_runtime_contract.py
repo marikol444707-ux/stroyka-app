@@ -721,7 +721,7 @@ class WarehouseAnomalyRuntimeDisclosurePolicyTests(unittest.TestCase):
             # Reviewed company-scoped warehouse reads in the composition root;
             # warehouse preview implementation and registration are unchanged.
             backend_root / "main.py": (
-                "b67a1cf2284784cf258f13a627462b56c624e37da33b79eb68208b1311693a89"
+                "51f7a99f729e8282fca871d5d3b263a5fa4f5545751d226f33c19cf45ce6b4c4"
             ),
         }
         actual = {
