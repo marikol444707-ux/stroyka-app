@@ -1227,6 +1227,9 @@ _CLIENT_CARD_PERSON_LABELS = frozenset({
     "организация",
     "предприниматель",
     "реквизиты",
+    "реквизитов",
+    "пожалуйста",
+    "или",
     "телефон",
     "юридический",
 })
@@ -1263,7 +1266,7 @@ def _client_card_company(value) -> str:
 def _client_card_person(value) -> str:
     person = _client_card_text(value, 200).strip(" ,;")
     words = re.findall(r"[A-Za-zА-Яа-яЁё-]+", person)
-    if not 2 <= len(words) <= 3:
+    if not 2 <= len(words) <= 3 or not re.fullmatch(r"(?:[A-Za-zА-Яа-яЁё-]+|[A-Za-zА-Яа-яЁё]\.)(?:\s+(?:[A-Za-zА-Яа-яЁё-]+|[A-Za-zА-Яа-яЁё]\.)){1,2}", person):
         return ""
     if any(word.casefold() in _CLIENT_CARD_PERSON_LABELS for word in words):
         return ""
@@ -1343,18 +1346,24 @@ def _client_card_heuristic(text: str) -> dict:
 
 
 def _client_card_model_fields(output_text: str) -> dict:
-    fields = _client_card_json(output_text)
-    if fields:
-        return fields
-    fields = _client_card_heuristic(output_text)
     identity_keys = (
         "companyName", "inn", "ogrn", "contactName", "contactPhone",
         "contactEmail", "legalAddress", "actualAddress", "bankName",
         "bik", "rs", "ks",
     )
-    if any(fields.get(key) for key in identity_keys):
-        return fields
-    return {}
+    fields = _client_card_json(output_text)
+    if fields:
+        normalized = _normalize_client_card_fields(fields, {})
+        return fields if any(normalized.get(key) for key in identity_keys) else {}
+    # A provider's conversational refusal must never become source document text.
+    if re.search(
+        r"(?:не удалось|не могу|невозможно)\s+(?:над[её]жно\s+)?(?:распознать|прочитать|извлечь)"
+        r"|(?:пожалуйста|прошу)[, ]+загрузите",
+        output_text or "", re.IGNORECASE,
+    ):
+        return {}
+    fields = _normalize_client_card_fields(_client_card_heuristic(output_text), {})
+    return fields if any(fields.get(key) for key in identity_keys) else {}
 
 
 def _normalize_client_card_fields(ai_fields, fallback_fields) -> dict:
@@ -1825,10 +1834,15 @@ def register_platform_admin_routes(app, deps):
                 confidence = float(ai_fields.get("confidence") or 0)
             except Exception:
                 confidence = 0
-        source = "ai" if ai_fields else (
-            "ocr" if vision_recognized and any(fallback.values())
-            else ("heuristic" if any(fallback.values()) else "empty")
-        )
+        has_fields = any(fields.get(key) for key in CLIENT_CARD_KEYS if key != "notes")
+        if not has_fields:
+            source = "empty"
+        elif ai_fields:
+            source = "ai"
+        elif vision_recognized:
+            source = "ocr"
+        else:
+            source = "heuristic"
         if source == "empty":
             warnings.append("Не удалось уверенно выделить поля. Проверьте качество фото или заполните вручную.")
 

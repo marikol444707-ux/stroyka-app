@@ -65,6 +65,25 @@ describe('SystemOwnerCabinet company onboarding', () => {
     jest.restoreAllMocks();
   });
 
+  test('shows a failed recognition honestly and keeps signer defaults empty', async () => {
+    const previousFetch = global.fetch;
+    global.fetch = jest.fn(async (url, options) => url === '/system/client-card/recognize'
+      ? jsonResponse({ok: true, source: 'empty', fields: {}, warnings: ['OCR: нет доступа (HTTP 403).']})
+      : previousFetch(url, options));
+    const {container} = render(<SystemOwnerCabinet
+      user={{name: 'Владелец', role: 'system_owner'}} setUser={jest.fn()} C={colors}
+      card={{}} btnO={{}} btnG={{}} btnGr={{}} btnR={{}} inp={{}} badge={() => ({})} API="" />);
+    fireEvent.click(screen.getByRole('button', {name: /Аккаунты\/компании/}));
+    fireEvent.click(screen.getByRole('button', {name: /Подключить аккаунт\/компанию/}));
+    expect(screen.getByPlaceholderText('Должность руководителя')).toHaveValue('');
+    fireEvent.change(container.querySelector('input[type="file"]'), {
+      target: {files: [new File(['card'], 'card.jpg', {type: 'image/jpeg'})]},
+    });
+    await screen.findByText('Не удалось распознать реквизиты');
+    expect(screen.queryByText('Распознано: AI/OCR')).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Компания / юрлицо * (например: ООО Земля 1)')).toHaveValue('');
+  });
+
   test('creates a company and shows the first director handoff', async () => {
     render(
       <SystemOwnerCabinet
