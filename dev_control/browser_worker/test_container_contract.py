@@ -32,6 +32,10 @@ class BrowserWorkerContainerContractTest(unittest.TestCase):
         self.assertIn("Target.setAutoAttach", network_guard)
         self.assertIn("waitForDebuggerOnStart=True", network_guard)
         self.assertIn("Runtime.runIfWaitingForDebugger", network_guard)
+        self.assertIn("Target.createBrowserContext", network_guard)
+        self.assertIn("Target.disposeBrowserContext", network_guard)
+        self.assertIn('"type": "worker"', network_guard)
+        self.assertIn('"type": "iframe"', network_guard)
 
 if __name__ == "__main__":
     unittest.main()
