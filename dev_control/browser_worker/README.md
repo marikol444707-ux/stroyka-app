@@ -37,6 +37,7 @@ Work Control забирает результат и evidence.
     DEV_CONTROL_API_TOKEN=<отдельный случайный secret>
     QA_ENVIRONMENT=staging
     QA_BASE_URL=https://<отдельный QA URL>
+    QA_ALLOWED_ORIGIN=https://<тот же точный QA origin>
 
 Опционально:
 
@@ -101,3 +102,7 @@ startup_selftest=passed или failed.
 - Evidence доступно Work Control через защищённые `/jobs/{job_id}/evidence/{filename}`.
 - Evidence удаляется по TTL; активные jobs очистка не трогает.
 - Timeweb text helper настраивается атомарно и не смешивает ключи разных провайдеров.
+
+Для удалённого QA QA_ALLOWED_ORIGIN обязателен и должен точно совпадать с
+origin QA_BASE_URL (scheme + host + port). Известные production-домены/IP
+блокируются дополнительно. Для локального startup self-test allowlist не нужен.
