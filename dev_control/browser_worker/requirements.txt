@@ -1,5 +1,7 @@
 # Worker-only dependencies. Not used by the production Stroyka backend.
 jev-ultrafast @ git+https://github.com/browser-use/jev-ultrafast.git@1231850a0bf1a0c0341fe408ef1668dbbfdfac46
+# The build-time session-routing patch is reviewed only for this version.
+browser-harness==0.1.13
 fastapi==0.128.8
 uvicorn[standard]==0.39.0
 pydantic==2.13.4

@@ -167,6 +167,10 @@ class NetworkBoundary:
 
     def _handle_attached_target(self, params: dict) -> None:
         child_session = params.get("sessionId")
+        # Auto-attach can announce the root or an already protected session again.
+        # Do not re-enable Fetch or resume it, or register the root as a child.
+        if child_session and child_session in self._guarded_sessions:
+            return
         target_info = params.get("targetInfo") or {}
         target_id = target_info.get("targetId")
         target_type = target_info.get("type")

@@ -24,6 +24,7 @@ COPY browser_worker/requirements.txt /tmp/browser-worker-requirements.txt
 RUN python -m pip install --no-cache-dir -r /tmp/browser-worker-requirements.txt
 
 COPY . /app/dev_control
+RUN python /app/dev_control/browser_worker/patch_harness.py
 RUN chmod +x /app/dev_control/browser_worker/start.sh \
     && chown -R worker:worker /app /home/worker
 
