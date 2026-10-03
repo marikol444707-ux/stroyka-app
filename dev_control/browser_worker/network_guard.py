@@ -5,9 +5,44 @@ from __future__ import annotations
 import posixpath
 import threading
 import time
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qsl, unquote, urlencode, urlparse, urlsplit, urlunsplit
 
 from dev_control.jev_timeweb import JevError
+
+
+_SENSITIVE_MARKERS = (
+    "token", "code", "password", "secret", "key", "auth", "signature", "sig", "session",
+)
+_SENSITIVE_PATH_MARKERS = frozenset({
+    "reset", "password-reset", "magic", "magic-link", "verify", "verification",
+    "invite", "invitation", "callback", "oauth", "token",
+})
+
+
+def redact_boundary_url(url: str) -> str:
+    parts = urlsplit(str(url))
+    path_segments = parts.path.split("/")
+    output = []
+    redact_next = False
+    for segment in path_segments:
+        lowered = segment.lower()
+        if redact_next and segment:
+            output.append("[REDACTED]")
+            redact_next = False
+            continue
+        output.append(segment)
+        if lowered in _SENSITIVE_PATH_MARKERS:
+            redact_next = True
+
+    query = []
+    for key, value in parse_qsl(parts.query, keep_blank_values=True):
+        lowered = key.lower()
+        query.append(
+            (key, "[REDACTED]")
+            if any(marker in lowered for marker in _SENSITIVE_MARKERS)
+            else (key, value)
+        )
+    return urlunsplit((parts.scheme, parts.netloc, "/".join(output), urlencode(query), ""))
 
 
 def _fully_unquote(value: str) -> str:
@@ -129,7 +164,7 @@ class NetworkBoundary:
             if not request_allowed(initial_url, self._base_url, "Document"):
                 if target_id:
                     self._cdp("Target.closeTarget", targetId=target_id)
-                self._error = f"blocked out-of-scope popup target: {initial_url}"
+                self._error = f"blocked out-of-scope popup target: {redact_boundary_url(initial_url)}"
                 return
 
         self._enable_session(child_session)
@@ -174,7 +209,7 @@ class NetworkBoundary:
                             requestId=request_id,
                             errorReason="BlockedByClient",
                         )
-                        self._error = f"blocked out-of-scope browser request: {url}"
+                        self._error = f"blocked out-of-scope browser request: {redact_boundary_url(url)}"
                 except Exception as exc:
                     self._error = f"network boundary enforcement failed: {exc}"
                     return
@@ -211,53 +246,79 @@ def install_safe_browser(base_url: str):
     class SafeBrowser(upstream_browser):
         def __init__(self, url):
             assert_allowed_document_url(url, base_url)
-            ensure_daemon()
-            self.browser_context_id = cdp("Target.createBrowserContext", disposeOnDetach=True)["browserContextId"]
-            self.target = cdp(
-                "Target.createTarget",
-                url="about:blank",
-                background=True,
-                browserContextId=self.browser_context_id,
-            )["targetId"]
-            self.session = cdp(
-                "Target.attachToTarget",
-                targetId=self.target,
-                flatten=True,
-            )["sessionId"]
-            self.call(
-                "Emulation.setDeviceMetricsOverride",
-                width=1120,
-                height=780,
-                deviceScaleFactor=1,
-                mobile=False,
-            )
-            self.call("Emulation.setFocusEmulationEnabled", enabled=True)
+            self.browser_context_id = None
+            self.target = None
+            self.session = None
             self._qa_boundary = None
             try:
+                ensure_daemon()
+                self.browser_context_id = cdp(
+                    "Target.createBrowserContext",
+                    disposeOnDetach=True,
+                )["browserContextId"]
+                self.target = cdp(
+                    "Target.createTarget",
+                    url="about:blank",
+                    background=True,
+                    browserContextId=self.browser_context_id,
+                )["targetId"]
+                self.session = cdp(
+                    "Target.attachToTarget",
+                    targetId=self.target,
+                    flatten=True,
+                )["sessionId"]
+                self.call(
+                    "Emulation.setDeviceMetricsOverride",
+                    width=1120,
+                    height=780,
+                    deviceScaleFactor=1,
+                    mobile=False,
+                )
+                self.call("Emulation.setFocusEmulationEnabled", enabled=True)
                 self._qa_boundary = NetworkBoundary(self.session, base_url)
                 self._qa_boundary.start()
-                self.call("Page.navigate", url=url)
+
+                nav = self.call("Page.navigate", url=url)
+                expected_loader = nav.get("loaderId")
                 deadline = time.monotonic() + 15
+                committed = False
                 while time.monotonic() < deadline:
                     self._qa_boundary.raise_if_failed()
-                    if self.evaluate("document.readyState") == "complete":
+                    current_url = str(self.evaluate("location.href") or "")
+                    if current_url not in {"", "about:blank"}:
+                        try:
+                            assert_allowed_document_url(current_url, base_url)
+                            committed = True
+                        except ValueError:
+                            committed = False
+                    if committed and self.evaluate("document.readyState") == "complete":
                         break
                     time.sleep(0.02)
+                else:
+                    raise RuntimeError(
+                        f"QA navigation did not commit within 15s (loader={expected_loader or 'unknown'})"
+                    )
                 self._qa_boundary.raise_if_failed()
             except Exception:
-                if self._qa_boundary is not None:
-                    self._qa_boundary.close()
-                if self.target:
-                    try:
-                        cdp("Target.closeTarget", targetId=self.target)
-                    finally:
-                        self.target = None
-                if getattr(self, "browser_context_id", None):
-                    try:
-                        cdp("Target.disposeBrowserContext", browserContextId=self.browser_context_id)
-                    finally:
-                        self.browser_context_id = None
+                self._cleanup_allocations()
                 raise
+
+        def _cleanup_allocations(self):
+            if self._qa_boundary is not None:
+                self._qa_boundary.close()
+                self._qa_boundary = None
+            if self.target:
+                try:
+                    cdp("Target.closeTarget", targetId=self.target)
+                except Exception:
+                    pass
+                self.target = None
+            if self.browser_context_id:
+                try:
+                    cdp("Target.disposeBrowserContext", browserContextId=self.browser_context_id)
+                except Exception:
+                    pass
+                self.browser_context_id = None
 
         def observe(self, screenshot=True):
             self._qa_boundary.raise_if_failed()
@@ -272,15 +333,7 @@ def install_safe_browser(base_url: str):
             return result
 
         def close(self):
-            boundary = getattr(self, "_qa_boundary", None)
-            if boundary is not None:
-                boundary.close()
-            super().close()
-            if getattr(self, "browser_context_id", None):
-                try:
-                    cdp("Target.disposeBrowserContext", browserContextId=self.browser_context_id)
-                finally:
-                    self.browser_context_id = None
+            self._cleanup_allocations()
 
     agent_module.Browser = SafeBrowser
     return SafeBrowser
