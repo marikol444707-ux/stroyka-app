@@ -7,6 +7,8 @@ import multiprocessing
 import os
 import shutil
 import threading
+import queue
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -17,6 +19,7 @@ from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
+from dev_control.browser_worker.network_guard import assert_allowed_document_url
 from dev_control.browser_worker.run import execute_task
 
 
@@ -59,8 +62,12 @@ def _selftest_base_url() -> str:
 def _qa_base_is_nonproduction() -> bool:
     base = (os.environ.get("QA_BASE_URL") or "").strip()
     parsed = urlparse(base)
-    host = (parsed.hostname or "").lower()
-    if not host:
+    host = (parsed.hostname or "").lower().rstrip(".")
+    if not host or parsed.scheme not in {"http", "https"}:
+        return False
+    try:
+        assert_allowed_document_url(base, base)
+    except ValueError:
         return False
     if host in _PRODUCTION_HOSTS:
         return False
@@ -164,8 +171,43 @@ def _task_process_entry(payload: dict, result_queue) -> None:
     result_queue.put(report)
 
 
+_JOB_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+
+
+def _valid_job_id(job_id: str) -> bool:
+    return job_id == "startup-selftest" or bool(_JOB_ID_RE.fullmatch(job_id))
+
+
+def _job_evidence_dir(job_id: str) -> Path:
+    if not _valid_job_id(job_id):
+        raise ValueError("invalid job id")
+    root = _evidence_root().resolve()
+    path = (root / job_id).resolve()
+    if path.parent != root:
+        raise ValueError("evidence path escapes root")
+    return path
+
+
+def _cleanup_qa_browser_contexts() -> None:
+    """Best-effort cleanup after a killed subprocess; contexts are QA-owned only."""
+
+    try:
+        from browser_harness.helpers import cdp
+        contexts = cdp("Target.getBrowserContexts").get("browserContextIds", [])
+        for context_id in contexts:
+            try:
+                cdp("Target.disposeBrowserContext", browserContextId=context_id)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
 def _evidence_files(job_id: str) -> list[str]:
-    root = (_evidence_root() / job_id)
+    try:
+        root = _job_evidence_dir(job_id)
+    except ValueError:
+        return []
     if not root.is_dir():
         return []
     return sorted(
@@ -177,7 +219,7 @@ def _evidence_files(job_id: str) -> list[str]:
 
 def _execute(job_id: str, request: JobRequest) -> None:
     _set_job(job_id, status="running")
-    record_dir = str(_evidence_root() / job_id)
+    record_dir = str(_job_evidence_dir(job_id))
     payload = {
         "url": request.url,
         "goal": request.goal,
@@ -188,28 +230,48 @@ def _execute(job_id: str, request: JobRequest) -> None:
         "max_seconds": request.max_seconds,
     }
 
+    process = None
     try:
         ctx = multiprocessing.get_context("spawn")
         result_queue = ctx.Queue(maxsize=1)
         process = ctx.Process(target=_task_process_entry, args=(payload, result_queue))
         process.start()
-        process.join(timeout=request.max_seconds)
-        if process.is_alive():
+
+        deadline = time.monotonic() + request.max_seconds
+        report = None
+        while time.monotonic() < deadline:
+            remaining = max(0.05, min(0.5, deadline - time.monotonic()))
+            try:
+                report = result_queue.get(timeout=remaining)
+                break
+            except queue.Empty:
+                if not process.is_alive():
+                    break
+
+        if report is None and process.is_alive():
             process.terminate()
             process.join(timeout=3.0)
             if process.is_alive():
                 process.kill()
                 process.join(timeout=1.0)
+            _cleanup_qa_browser_contexts()
             report = {"ok": False, "failures": [f"worker_timeout>{request.max_seconds}s"]}
+        elif report is None:
+            process.join(timeout=1.0)
+            report = {
+                "ok": False,
+                "failures": [f"browser subprocess exited without result (code={process.exitcode})"],
+            }
         else:
-            try:
-                report = result_queue.get_nowait()
-            except Exception:
-                report = {
-                    "ok": False,
-                    "failures": [f"browser subprocess exited without result (code={process.exitcode})"],
-                }
+            process.join(timeout=3.0)
+            if process.is_alive():
+                process.terminate()
+                process.join(timeout=1.0)
     except Exception as exc:
+        if process is not None and process.is_alive():
+            process.terminate()
+            process.join(timeout=1.0)
+        _cleanup_qa_browser_contexts()
         report = {
             "ok": False,
             "failures": [f"browser subprocess startup failed: {type(exc).__name__}: {exc}"],
@@ -312,8 +374,11 @@ def get_job(job_id: str, authorization: str | None = Header(default=None)):
 def get_evidence(job_id: str, filename: str, authorization: str | None = Header(default=None)):
     _authorize(authorization)
     _cleanup_expired_evidence()
-    if "/" in filename or "\\" in filename or filename not in _evidence_files(job_id):
+    if not _valid_job_id(job_id) or "/" in filename or "\\" in filename or filename not in _evidence_files(job_id):
         raise HTTPException(status_code=404, detail="evidence not found")
-    path = _evidence_root() / job_id / filename
+    try:
+        path = _job_evidence_dir(job_id) / filename
+    except ValueError:
+        raise HTTPException(status_code=404, detail="evidence not found")
     media_type = "application/json" if filename == "result.json" else "image/jpeg"
     return FileResponse(path, media_type=media_type, filename=filename)
