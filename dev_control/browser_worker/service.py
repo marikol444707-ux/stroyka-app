@@ -212,6 +212,15 @@ def _evidence_ttl_seconds() -> int:
     return min(max(value, 60), 86400)
 
 
+def _evidence_max_bytes() -> int:
+    raw = (os.environ.get("QA_EVIDENCE_MAX_BYTES") or str(8 * 1024 * 1024)).strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        value = 8 * 1024 * 1024
+    return min(max(value, 1024 * 1024), 32 * 1024 * 1024)
+
+
 def _evidence_root() -> Path:
     return Path(os.environ.get("QA_EVIDENCE_DIR", "/tmp/stroyka-qa-evidence"))
 
@@ -370,17 +379,38 @@ def _execute(job_id: str, request: JobRequest) -> None:
         }
 
     report.pop("evidence", None)
-    evidence_dir = _job_evidence_dir(job_id)
-    evidence_dir.mkdir(parents=True, exist_ok=True)
-    (evidence_dir / "result.json").write_text(
-        json.dumps(report, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    files = _evidence_files(job_id)
-    report["evidence_files"] = [
-        f"/jobs/{job_id}/evidence/{name}"
-        for name in files
-    ]
+    try:
+        evidence_dir = _job_evidence_dir(job_id)
+        evidence_dir.mkdir(parents=True, exist_ok=True)
+
+        current_size = sum(
+            path.stat().st_size
+            for path in evidence_dir.iterdir()
+            if path.is_file()
+        )
+        if current_size > _evidence_max_bytes():
+            raise OSError(
+                f"evidence quota exceeded: {current_size}>{_evidence_max_bytes()}"
+            )
+
+        result_payload = json.dumps(report, ensure_ascii=False, indent=2)
+        result_bytes = result_payload.encode("utf-8")
+        if current_size + len(result_bytes) > _evidence_max_bytes():
+            raise OSError("evidence quota would be exceeded by result.json")
+
+        (evidence_dir / "result.json").write_bytes(result_bytes)
+        files = _evidence_files(job_id)
+        report["evidence_files"] = [
+            f"/jobs/{job_id}/evidence/{name}"
+            for name in files
+        ]
+    except Exception as exc:
+        report = {
+            "ok": False,
+            "failures": [f"evidence finalization failed: {type(exc).__name__}: {exc}"],
+            "evidence_files": [],
+        }
+
     _set_job(job_id, status="passed" if report.get("ok") else "failed", result=report)
 
 
