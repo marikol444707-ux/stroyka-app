@@ -127,6 +127,19 @@ class BrowserWorkerUrlSafetyTest(unittest.TestCase):
         self.assertNotIn("super-secret-token", redacted)
         self.assertIn("next=warehouse", redacted)
 
+    def test_url_userinfo_is_removed_from_evidence(self):
+        redacted = _redact_url(
+            "https://qa-user:qa-password@qa.example.test/app?next=ok"
+        )
+        self.assertNotIn("qa-user", redacted)
+        self.assertNotIn("qa-password", redacted)
+        self.assertEqual(redacted, "https://qa.example.test/app?next=ok")
+
+        boundary = redact_boundary_url(
+            "https://qa-user:qa-password@qa.example.test/app"
+        )
+        self.assertNotIn("qa-user", boundary)
+        self.assertNotIn("qa-password", boundary)
     def test_rejects_non_http_scheme(self):
         with self.assertRaisesRegex(ValueError, "http"):
             _assert_allowed_url(
