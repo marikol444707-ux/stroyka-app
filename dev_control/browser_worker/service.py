@@ -107,6 +107,9 @@ app.add_middleware(PreAuthBodyLimitMiddleware)
 _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="jev-qa")
 _jobs: dict[str, dict] = {}
 _jobs_lock = threading.Lock()
+_active_process_lock = threading.Lock()
+_active_process = None
+_accepting_jobs = True
 _PRODUCTION_HOSTS = frozenset({
     "stroyka26.pro",
     "www.stroyka26.pro",
@@ -149,10 +152,30 @@ def _qa_base_is_nonproduction() -> bool:
         assert_allowed_document_url(base, base)
     except ValueError:
         return False
-    if host in _PRODUCTION_HOSTS:
-        return False
+
     if host in {"127.0.0.1", "localhost"}:
         return base.rstrip("/") == _selftest_base_url()
+
+    # Remote QA is fail-closed: the operator must explicitly register the exact
+    # QA origin. This prevents production IPs, subdomains and aliases from being
+    # accepted merely because they were absent from a denylist.
+    allowed_origin = (os.environ.get("QA_ALLOWED_ORIGIN") or "").strip().rstrip("/")
+    if not allowed_origin:
+        return False
+    allowed = urlparse(allowed_origin)
+    allowed_host = (allowed.hostname or "").lower().rstrip(".")
+    if allowed.scheme != "https" or parsed.scheme != "https":
+        return False
+    if (parsed.scheme, host, parsed.port or 443) != (
+        allowed.scheme,
+        allowed_host,
+        allowed.port or 443,
+    ):
+        return False
+    if host in _PRODUCTION_HOSTS or host.endswith(".stroyka26.pro") or host.endswith(".stroyka.pro"):
+        return False
+    if host == "147.45.237.127":
+        return False
     return True
 
 
@@ -336,6 +359,9 @@ def _execute(job_id: str, request: JobRequest) -> None:
         result_queue = ctx.Queue(maxsize=1)
         process = ctx.Process(target=_task_process_entry, args=(payload, result_queue))
         process.start()
+        global _active_process
+        with _active_process_lock:
+            _active_process = process
 
         deadline = time.monotonic() + request.max_seconds
         report = None
@@ -378,6 +404,10 @@ def _execute(job_id: str, request: JobRequest) -> None:
             "failures": [f"browser subprocess startup failed: {type(exc).__name__}: {exc}"],
         }
 
+    with _active_process_lock:
+        if _active_process is process:
+            _active_process = None
+
     report.pop("evidence", None)
     try:
         evidence_dir = _job_evidence_dir(job_id)
@@ -389,14 +419,16 @@ def _execute(job_id: str, request: JobRequest) -> None:
             if path.is_file()
         )
         if current_size > _evidence_max_bytes():
+            shutil.rmtree(evidence_dir, ignore_errors=True)
             raise OSError(
-                f"evidence quota exceeded: {current_size}>{_evidence_max_bytes()}"
+                f"evidence quota exceeded and was deleted: {current_size}>{_evidence_max_bytes()}"
             )
 
         result_payload = json.dumps(report, ensure_ascii=False, indent=2)
         result_bytes = result_payload.encode("utf-8")
         if current_size + len(result_bytes) > _evidence_max_bytes():
-            raise OSError("evidence quota would be exceeded by result.json")
+            shutil.rmtree(evidence_dir, ignore_errors=True)
+            raise OSError("evidence quota would be exceeded by result.json; evidence deleted")
 
         (evidence_dir / "result.json").write_bytes(result_bytes)
         files = _evidence_files(job_id)
@@ -469,9 +501,28 @@ def schedule_startup_selftest():
         _executor.submit(_run_startup_selftest)
 
 
+@app.on_event("shutdown")
+def shutdown_worker():
+    global _accepting_jobs, _active_process
+    _accepting_jobs = False
+    with _active_process_lock:
+        process = _active_process
+        _active_process = None
+    if process is not None and process.is_alive():
+        process.terminate()
+        process.join(timeout=2.0)
+        if process.is_alive():
+            process.kill()
+            process.join(timeout=1.0)
+    _executor.shutdown(wait=False, cancel_futures=True)
+    _cleanup_qa_browser_contexts()
+
+
 @app.post("/jobs", status_code=202)
 def create_job(request: JobRequest, authorization: str | None = Header(default=None)):
     _authorize(authorization)
+    if not _accepting_jobs:
+        raise HTTPException(status_code=503, detail="QA worker is shutting down")
     _cleanup_expired_evidence()
     if not _configured():
         raise HTTPException(status_code=503, detail="QA worker is not fully configured")
