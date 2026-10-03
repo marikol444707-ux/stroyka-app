@@ -50,6 +50,19 @@ class BrowserWorkerServiceConfigTest(unittest.TestCase):
         with patch.dict(os.environ, {**base, "QA_ALLOWED_ORIGIN": "https://other.example.test"}, clear=True):
             self.assertFalse(_configured())
 
+
+    def test_malformed_allowlist_port_fails_closed(self):
+        env = {
+            "DEV_CONTROL_API_TOKEN": "api-secret",
+            "TIMEWEB_AI_API_KEY": "ai-secret",
+            "QA_ENVIRONMENT": "staging",
+            "QA_BASE_URL": "https://qa.example.test",
+            "QA_ALLOWED_ORIGIN": "https://qa.example.test:notaport",
+        }
+        with patch.dict(os.environ, env, clear=True):
+            self.assertFalse(_configured())
+            self.assertEqual(health().status_code, 503)
+
     def test_known_production_ip_and_subdomains_are_denied(self):
         for url in ("https://147.45.237.127", "https://app.stroyka26.pro", "https://qa.stroyka.pro"):
             env = {
