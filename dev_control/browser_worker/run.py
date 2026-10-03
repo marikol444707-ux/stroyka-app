@@ -7,6 +7,7 @@ import json
 import os
 import time
 from pathlib import Path
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from dev_control.browser_worker.network_guard import assert_allowed_document_url, install_safe_browser
 from dev_control.browser_worker.provider import install_timeweb_provider
 from dev_control.browser_worker.verifier import verify_final_state
@@ -15,6 +16,26 @@ from dev_control.browser_worker.verifier import verify_final_state
 def _assert_allowed_url(url: str, base_url: str) -> None:
     # Backward-compatible name used by offline tests.
     assert_allowed_document_url(url, base_url)
+
+
+_SENSITIVE_QUERY_MARKERS = (
+    "token", "code", "password", "secret", "key", "auth", "signature", "sig", "session",
+)
+
+
+def _redact_url(url: str | None) -> str | None:
+    if not url:
+        return url
+    parts = urlsplit(str(url))
+    safe_query = []
+    for key, value in parse_qsl(parts.query, keep_blank_values=True):
+        lowered = key.lower()
+        safe_query.append(
+            (key, "[REDACTED]")
+            if any(marker in lowered for marker in _SENSITIVE_QUERY_MARKERS)
+            else (key, value)
+        )
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(safe_query), ""))
 
 
 def _sanitize_history(history: list[dict] | None) -> list[dict]:
@@ -26,7 +47,7 @@ def _sanitize_history(history: list[dict] | None) -> list[dict]:
             "action": item.get("action"),
             "kind": item.get("kind"),
             "page_changed": item.get("page_changed"),
-            "url": item.get("url"),
+            "url": _redact_url(item.get("url")),
             "operation": item.get("operation"),
             "target": item.get("target"),
             "elapsed_ms": item.get("elapsed_ms"),
@@ -88,6 +109,11 @@ def execute_task(
                     break
             if final_state is None:
                 final_state = agent.snapshot()
+            try:
+                full_text = agent.browser.evaluate("document.body ? document.body.innerText : ''") or ""
+                final_state.setdefault("page", {})["full_text"] = str(full_text)
+            except Exception:
+                final_state.setdefault("page", {})["full_text"] = None
     except Exception as exc:
         error = f"{type(exc).__name__}: {exc}"
         final_state = final_state or {"status": "error", "page": {}}
@@ -112,7 +138,7 @@ def execute_task(
         "checks": list(result.checks),
         "failures": list(result.failures),
         "status": final_state.get("status"),
-        "final_url": (final_state.get("page") or {}).get("url"),
+        "final_url": _redact_url((final_state.get("page") or {}).get("url")),
         "elapsed_ms": final_state.get("elapsed_ms"),
         "history": _sanitize_history(final_state.get("history")),
         "decisions": [
