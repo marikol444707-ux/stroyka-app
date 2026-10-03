@@ -76,6 +76,37 @@ class PlatformClientCardGatewayCutoverTest(unittest.TestCase):
         self.assertEqual(fields["platformAccountName"], "Иванов Иван Иванович")
         self.assertEqual(fields["contactPhone"], "+7 (928) 123-45-67")
 
+    def test_heuristic_reads_full_ip_requisites_table(self):
+        fields = routes._client_card_heuristic(
+            """ИНДИВИДУАЛЬНЫЙ ПРЕДПРИНИМАТЕЛЬ ИГНАТЯН АРА ГЕВОРГОВИЧ
+Юридический адрес 357915, Ставропольский край, Советский р-н, г. Зеленокумск, ул. Садовый проезд 4
+Почтовый адрес 357915, Ставропольский край, Советский р-н, г. Зеленокумск, ул. Садовый проезд 4
+ИНН 261908462260
+ОГРНИП 320265100091192
+Расчётный счёт 40802810010590001272
+Корреспондентский счёт 30101810145250000411
+БИК 044525411
+Банк Филиал «Центральный» Банк ВТБ (ПАО) в г. Москве
+Email Ignatyan_ara@mail.ru
+Телефон +7 (961) 463 53 65"""
+        )
+
+        self.assertEqual(fields["companyName"], "ИП ИГНАТЯН АРА ГЕВОРГОВИЧ")
+        self.assertEqual(fields["platformAccountName"], "ИГНАТЯН АРА ГЕВОРГОВИЧ")
+        self.assertEqual(fields["contactName"], "ИГНАТЯН АРА ГЕВОРГОВИЧ")
+        self.assertEqual(fields["directorName"], "ИГНАТЯН АРА ГЕВОРГОВИЧ")
+        self.assertEqual(fields["inn"], "261908462260")
+        self.assertEqual(fields["ogrn"], "320265100091192")
+        self.assertEqual(fields["bik"], "044525411")
+        self.assertEqual(fields["rs"], "40802810010590001272")
+        self.assertEqual(fields["ks"], "30101810145250000411")
+        self.assertEqual(fields["contactEmail"], "Ignatyan_ara@mail.ru")
+        self.assertEqual(fields["contactPhone"], "+7 (961) 463 53 65")
+        self.assertIn("357915", fields["legalAddress"])
+        self.assertIn("357915", fields["actualAddress"])
+        self.assertIn("Банк ВТБ", fields["bankName"])
+        self.assertEqual(fields["basis"], "записи в ЕГРИП")
+
     def test_normalization_rejects_identifier_only_ai_names(self):
         fields = routes._normalize_client_card_fields(
             {
@@ -142,6 +173,60 @@ class PlatformClientCardGatewayCutoverTest(unittest.TestCase):
             warnings,
             ["AI/OCR не смог надёжно распознать поля карты клиента. Проверьте документ и заполните недостающие поля вручную."],
         )
+
+    def test_gateway_recovers_fields_from_plain_ocr_text(self):
+        gateway = FakeGateway(output_text="""ИНДИВИДУАЛЬНЫЙ ПРЕДПРИНИМАТЕЛЬ ИГНАТЯН АРА ГЕВОРГОВИЧ
+ИНН 261908462260
+ОГРНИП 320265100091192
+БИК 044525411
+Расчётный счёт 40802810010590001272""")
+        with patch.object(
+            routes,
+            "build_yandex_model_adapter",
+            lambda **_values: gateway,
+        ):
+            fields, warnings = routes._recognize_client_card_with_ai(
+                **_arguments(
+                    file_content=b"jpeg",
+                    file_name="card.jpg",
+                    content_type="image/jpeg",
+                    source_text="",
+                ),
+            )
+
+        self.assertEqual(fields["companyName"], "ИП ИГНАТЯН АРА ГЕВОРГОВИЧ")
+        self.assertEqual(fields["inn"], "261908462260")
+        self.assertEqual(fields["ogrn"], "320265100091192")
+        self.assertEqual(fields["bik"], "044525411")
+        self.assertEqual(fields["rs"], "40802810010590001272")
+        self.assertEqual(warnings, [])
+        self.assertEqual(len(gateway.requests), 1)
+
+    def test_gateway_retries_an_image_when_first_answer_has_no_fields(self):
+        gateway = FakeGateway(output_texts=(
+            '{"confidence":0,"warnings":["не распознано"]}',
+            '{"companyName":"ИП Иванов Иван Иванович","inn":"123456789012","confidence":0.92}',
+        ))
+        with patch.object(
+            routes,
+            "build_yandex_model_adapter",
+            lambda **_values: gateway,
+        ):
+            fields, warnings = routes._recognize_client_card_with_ai(
+                **_arguments(
+                    file_content=b"jpeg",
+                    file_name="card.jpg",
+                    content_type="image/jpeg",
+                    source_text="",
+                ),
+            )
+
+        self.assertEqual(fields["companyName"], "ИП Иванов Иван Иванович")
+        self.assertEqual(fields["inn"], "123456789012")
+        self.assertEqual(warnings, [])
+        self.assertEqual(len(gateway.requests), 2)
+        self.assertTrue(any(part.kind == "image_data_url" for part in gateway.requests[1].input_parts))
+        self.assertIn("прочитай", gateway.requests[1].instructions.casefold())
 
     def test_gateway_preserves_text_image_and_pdf_part_shapes(self):
         cases = (
