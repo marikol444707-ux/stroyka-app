@@ -44,6 +44,16 @@ export default function AccountingIncomingDocumentsPanel({
   companyContext,
   user,
 }) {
+  // local fallbacks: ensure dark-mode tokens are applied when callers pass empty objects
+  const localCard = Object.keys(card || {}).length ? card : { backgroundColor: C.card || C.bg, borderRadius: "12px", border: "1.5px solid " + C.border, overflow: "hidden" };
+  const localInp = Object.keys(inp || {}).length ? inp : { width: "100%", padding: "10px 12px", marginBottom: "10px", border: "1.5px solid " + C.border, borderRadius: "8px", boxSizing: "border-box", fontSize: "14px", outline: "none", backgroundColor: C.bg, color: C.text, transition: "border-color 0.2s" };
+  const localBtnBase = { padding: "7px 14px", borderRadius: "8px", cursor: "pointer", fontSize: "13px", display: "inline-flex", alignItems: "center", gap: "6px" };
+  const localBtnG = Object.keys(btnG || {}).length ? btnG : { ...localBtnBase, backgroundColor: C.bgAlt, color: C.textSec, border: "1.5px solid " + C.border };
+  const localBtnR = Object.keys(btnR || {}).length ? btnR : { ...localBtnBase, backgroundColor: C.dangerLight, color: C.danger, border: "1.5px solid " + C.dangerBorder };
+  const localBtnGr = Object.keys(btnGr || {}).length ? btnGr : { ...localBtnBase, backgroundColor: C.successLight, color: C.success, border: "1.5px solid " + C.successBorder };
+  const localBtnB = Object.keys(btnB || {}).length ? btnB : { ...localBtnBase, backgroundColor: C.infoLight, color: C.info, border: "1.5px solid " + C.infoBorder };
+  const localBtnO = Object.keys(btnO || {}).length ? btnO : { ...localBtnBase, backgroundColor: C.accentLight || C.infoLight, color: C.accent || C.info, border: "1.5px solid " + (C.accentBorder || C.infoBorder) };
+
   const [activeStatus, setActiveStatus] = React.useState('Нет фото');
   const [openedId, setOpenedId] = React.useState(null);
   const [busyId, setBusyId] = React.useState(null);
@@ -561,7 +571,7 @@ export default function AccountingIncomingDocumentsPanel({
       .filter(supplier => Number(supplier?.id || 0) > 0)
       .sort((left, right) => String(left.name || '').localeCompare(String(right.name || ''), 'ru'));
     return (
-      <div id={'accounting-invoice-detail-' + inv.id} style={{ ...card, padding: '14px', marginBottom: '14px', backgroundColor: C.bg, border: '1.5px solid ' + C.accentBorder }}>
+      <div id={'accounting-invoice-detail-' + inv.id} style={{ ...localCard, padding: '14px', marginBottom: '14px', backgroundColor: C.bg, border: '1.5px solid ' + C.accentBorder }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: '12px' }}>
           <div>
             <b style={{ color: C.text, fontSize: '15px' }}>Накладная № {inv.number || inv.id}</b>
@@ -698,7 +708,7 @@ export default function AccountingIncomingDocumentsPanel({
         })}
       </div>
 
-      <div style={{ ...card, padding: '12px', marginBottom: '14px', backgroundColor: C.bg }}>
+      <div style={{ ...localCard, padding: '12px', marginBottom: '14px', backgroundColor: C.bg }}>
         <b style={{ color: C.text, fontSize: '14px' }}>Входящие документы · {activeStatus === 'Все' ? 'все' : accountingStatusGroupLabels[activeStatus]}</b>
       </div>
 
@@ -713,7 +723,7 @@ export default function AccountingIncomingDocumentsPanel({
             const tone = statusTone(row.status, C);
             const linkedSupplierInvoice = getLinkedSupplierInvoice(row);
             return (
-              <div key={inv.id} style={{ ...card, padding: '14px', border: '1.5px solid ' + tone.border, backgroundColor: C.bg }}>
+              <div key={inv.id} style={{ ...localCard, padding: '14px', border: '1.5px solid ' + tone.border, backgroundColor: C.bg }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))', gap: '12px', alignItems: 'start' }}>
                   <div>
                     <b style={{ color: C.text, fontSize: '13px' }}>№ {inv.number || inv.id} · {inv.date || 'без даты'}</b>
