@@ -83,6 +83,19 @@ def _sanitize_history(history: list[dict] | None) -> list[dict]:
     ]
 
 
+def _sanitize_decisions(decisions: list[dict] | None) -> list[dict]:
+    return [
+        {
+            "operation": item.get("operation"),
+            "target": item.get("target"),
+            "confidence": item.get("confidence"),
+            "latency_ms": item.get("latency_ms"),
+            "usage": item.get("usage", {}),
+        }
+        for item in (decisions or [])
+    ]
+
+
 def _evidence_dir(value: str | None) -> Path:
     if value:
         path = Path(value)
@@ -91,6 +104,47 @@ def _evidence_dir(value: str | None) -> Path:
         path = root / time.strftime("%Y%m%d-%H%M%S")
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def _write_progress(
+    evidence: Path,
+    state: dict | None,
+    phase: str,
+    *,
+    verified_ok: bool | None = None,
+    checks: list[str] | tuple[str, ...] = (),
+    failures: list[str] | tuple[str, ...] = (),
+) -> None:
+    """Persist a small redacted live-view snapshot without typed values or prompts."""
+
+    state = state or {}
+    payload = {
+        "phase": phase,
+        "status": state.get("status"),
+        "current_url": _redact_url((state.get("page") or {}).get("url")),
+        "elapsed_ms": state.get("elapsed_ms"),
+        "history": _sanitize_history(state.get("history")),
+        "decisions": _sanitize_decisions(state.get("decisions")),
+        "updated_at_ms": int(time.time() * 1000),
+    }
+    if verified_ok is not None:
+        payload.update(
+            verified_ok=bool(verified_ok),
+            checks=list(checks),
+            failures=list(failures),
+        )
+    temporary = evidence / ".progress.json.tmp"
+    try:
+        temporary.write_text(
+            json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+            encoding="utf-8",
+        )
+        os.replace(temporary, evidence / "progress.json")
+    except OSError:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def execute_task(
@@ -123,8 +177,10 @@ def execute_task(
     error = None
     try:
         with Agent(url, goal, record_dir=evidence, screenshots=True) as agent:
+            _write_progress(evidence, agent.snapshot(), "observed")
             for state in agent.run():
                 final_state = state
+                _write_progress(evidence, final_state, "action_complete")
                 current_url = str((state.get("page") or {}).get("url") or "")
                 try:
                     _assert_allowed_url(current_url, base_url)
@@ -160,6 +216,15 @@ def execute_task(
             failures=result.failures + (error,),
         )
 
+    _write_progress(
+        evidence,
+        final_state,
+        "verification_complete",
+        verified_ok=result.ok,
+        checks=result.checks,
+        failures=result.failures,
+    )
+
     report = {
         "ok": result.ok,
         "checks": list(result.checks),
@@ -168,16 +233,7 @@ def execute_task(
         "final_url": _redact_url((final_state.get("page") or {}).get("url")),
         "elapsed_ms": final_state.get("elapsed_ms"),
         "history": _sanitize_history(final_state.get("history")),
-        "decisions": [
-            {
-                "operation": item.get("operation"),
-                "target": item.get("target"),
-                "confidence": item.get("confidence"),
-                "latency_ms": item.get("latency_ms"),
-                "usage": item.get("usage", {}),
-            }
-            for item in final_state.get("decisions", [])
-        ],
+        "decisions": _sanitize_decisions(final_state.get("decisions")),
         "evidence": str(evidence),
     }
     (evidence / "result.json").write_text(

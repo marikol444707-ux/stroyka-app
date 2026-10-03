@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from dev_control.browser_worker.network_guard import assert_allowed_document_url
 from dev_control.browser_worker.run import execute_task
+from dev_control.browser_worker.viewer import VIEWER_HTML, viewer_headers
 
 
 _MAX_JOB_BODY_BYTES = 32 * 1024
@@ -109,6 +110,7 @@ _jobs: dict[str, dict] = {}
 _jobs_lock = threading.Lock()
 _active_process_lock = threading.Lock()
 _active_process = None
+_active_job_id = None
 _accepting_jobs = True
 _PRODUCTION_HOSTS = frozenset({
     "stroyka26.pro",
@@ -125,6 +127,20 @@ class JobRequest(BaseModel):
     forbid_text: list[str] = Field(default_factory=list, max_length=20)
     expect_url_contains: list[str] = Field(default_factory=list, max_length=20)
     max_seconds: float = Field(default=90.0, ge=5.0, le=180.0)
+    display_name: str | None = Field(default=None, max_length=160)
+    issue_number: int | None = Field(default=None, ge=1)
+    pr_number: int | None = Field(default=None, ge=1)
+    commit_sha: str | None = Field(default=None, min_length=7, max_length=64)
+
+    @field_validator("commit_sha")
+    @classmethod
+    def commit_sha_must_be_hex(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip().lower()
+        if not re.fullmatch(r"[0-9a-f]{7,64}", value):
+            raise ValueError("commit_sha must contain only hexadecimal characters")
+        return value
 
     @field_validator("expect_text", "forbid_text", "expect_url_contains")
     @classmethod
@@ -262,7 +278,7 @@ def _cleanup_expired_evidence() -> None:
         active = {
             job_id
             for job_id, value in _jobs.items()
-            if value.get("status") in {"queued", "running"}
+            if value.get("status") in {"queued", "running", "cancelling"}
         }
     for child in root.iterdir():
         try:
@@ -277,18 +293,19 @@ def _cleanup_expired_evidence() -> None:
 
 
 def _pending_job_count() -> int:
-    return sum(1 for value in _jobs.values() if value.get("status") in {"queued", "running"})
+    return sum(1 for value in _jobs.values() if value.get("status") in {"queued", "running", "cancelling"})
 
 
 def _set_job(job_id: str, **values) -> None:
     with _jobs_lock:
         current = _jobs.setdefault(job_id, {})
         current.update(values)
+        current["updated_at_ms"] = int(time.time() * 1000)
         if len(_jobs) > 100:
             finished = [
                 key
                 for key, value in _jobs.items()
-                if key != "startup-selftest" and value.get("status") in {"passed", "failed"}
+                if key != "startup-selftest" and value.get("status") in {"passed", "failed", "cancelled"}
             ]
             for key in finished[: len(_jobs) - 100]:
                 _jobs.pop(key, None)
@@ -349,7 +366,32 @@ def _evidence_files(job_id: str) -> list[str]:
     )
 
 
+def _read_progress(job_id: str) -> dict | None:
+    try:
+        path = _job_evidence_dir(job_id) / "progress.json"
+        if not path.is_file() or path.stat().st_size > 128 * 1024:
+            return None
+        value = json.loads(path.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else None
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None
+
+
+def _cancel_requested(job_id: str) -> bool:
+    with _jobs_lock:
+        return bool((_jobs.get(job_id) or {}).get("cancel_requested"))
+
+
 def _execute(job_id: str, request: JobRequest) -> None:
+    with _jobs_lock:
+        if (_jobs.get(job_id) or {}).get("cancel_requested"):
+            current = _jobs.setdefault(job_id, {})
+            current.update(
+                status="cancelled",
+                result={"ok": False, "cancelled": True, "failures": ["cancelled_by_owner"], "evidence_files": []},
+                updated_at_ms=int(time.time() * 1000),
+            )
+            return
     _set_job(job_id, status="running")
     record_dir = str(_job_evidence_dir(job_id))
     payload = {
@@ -368,13 +410,24 @@ def _execute(job_id: str, request: JobRequest) -> None:
         result_queue = ctx.Queue(maxsize=1)
         process = ctx.Process(target=_task_process_entry, args=(payload, result_queue))
         process.start()
-        global _active_process
+        global _active_process, _active_job_id
         with _active_process_lock:
             _active_process = process
+            _active_job_id = job_id
 
         deadline = time.monotonic() + request.max_seconds
         report = None
         while time.monotonic() < deadline:
+            if _cancel_requested(job_id):
+                if process.is_alive():
+                    process.terminate()
+                    process.join(timeout=2.0)
+                    if process.is_alive():
+                        process.kill()
+                        process.join(timeout=1.0)
+                _cleanup_qa_browser_contexts()
+                report = {"ok": False, "cancelled": True, "failures": ["cancelled_by_owner"]}
+                break
             remaining = max(0.05, min(0.5, deadline - time.monotonic()))
             try:
                 report = result_queue.get(timeout=remaining)
@@ -383,7 +436,11 @@ def _execute(job_id: str, request: JobRequest) -> None:
                 if not process.is_alive():
                     break
 
-        if report is None and process.is_alive():
+        if report is None and _cancel_requested(job_id):
+            process.join(timeout=1.0)
+            _cleanup_qa_browser_contexts()
+            report = {"ok": False, "cancelled": True, "failures": ["cancelled_by_owner"]}
+        elif report is None and process.is_alive():
             process.terminate()
             process.join(timeout=3.0)
             if process.is_alive():
@@ -416,6 +473,7 @@ def _execute(job_id: str, request: JobRequest) -> None:
     with _active_process_lock:
         if _active_process is process:
             _active_process = None
+            _active_job_id = None
 
     report.pop("evidence", None)
     try:
@@ -452,7 +510,8 @@ def _execute(job_id: str, request: JobRequest) -> None:
             "evidence_files": [],
         }
 
-    _set_job(job_id, status="passed" if report.get("ok") else "failed", result=report)
+    final_status = "cancelled" if report.get("cancelled") else ("passed" if report.get("ok") else "failed")
+    _set_job(job_id, status=final_status, result=report)
 
 
 @app.get("/health")
@@ -512,11 +571,12 @@ def schedule_startup_selftest():
 
 @app.on_event("shutdown")
 def shutdown_worker():
-    global _accepting_jobs, _active_process
+    global _accepting_jobs, _active_process, _active_job_id
     _accepting_jobs = False
     with _active_process_lock:
         process = _active_process
         _active_process = None
+        _active_job_id = None
     if process is not None and process.is_alive():
         process.terminate()
         process.join(timeout=2.0)
@@ -542,9 +602,41 @@ def create_job(request: JobRequest, authorization: str | None = Header(default=N
             raise HTTPException(status_code=429, detail="QA queue is full")
         job_id = uuid4().hex
         current = _jobs.setdefault(job_id, {})
-        current.update(status="queued", result=None)
+        current.update(
+            status="queued",
+            result=None,
+            cancel_requested=False,
+            created_at_ms=int(time.time() * 1000),
+            updated_at_ms=int(time.time() * 1000),
+            metadata={
+                "display_name": request.display_name,
+                "issue_number": request.issue_number,
+                "pr_number": request.pr_number,
+                "commit_sha": request.commit_sha,
+            },
+        )
     _executor.submit(_execute, job_id, request)
     return {"job_id": job_id, "status": "queued"}
+
+
+@app.get("/jobs")
+def list_jobs(authorization: str | None = Header(default=None)):
+    _authorize(authorization)
+    _cleanup_expired_evidence()
+    with _jobs_lock:
+        rows = [
+            {
+                "job_id": job_id,
+                "status": value.get("status"),
+                "metadata": value.get("metadata") or {},
+                "created_at_ms": value.get("created_at_ms"),
+                "updated_at_ms": value.get("updated_at_ms"),
+            }
+            for job_id, value in _jobs.items()
+            if _valid_job_id(job_id)
+        ]
+    rows.sort(key=lambda row: row.get("created_at_ms") or 0, reverse=True)
+    return {"jobs": rows[:30]}
 
 
 @app.get("/jobs/{job_id}")
@@ -555,7 +647,40 @@ def get_job(job_id: str, authorization: str | None = Header(default=None)):
         job = _jobs.get(job_id)
         if job is None:
             raise HTTPException(status_code=404, detail="job not found")
-        return {"job_id": job_id, **job}
+        snapshot = dict(job)
+    snapshot["evidence_files"] = [
+        f"/jobs/{job_id}/evidence/{name}" for name in _evidence_files(job_id)
+    ]
+    snapshot["progress"] = _read_progress(job_id)
+    return {"job_id": job_id, **snapshot}
+
+
+@app.post("/jobs/{job_id}/cancel", status_code=202)
+def cancel_job(job_id: str, authorization: str | None = Header(default=None)):
+    _authorize(authorization)
+    if not _valid_job_id(job_id):
+        raise HTTPException(status_code=404, detail="job not found")
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="job not found")
+        status = job.get("status")
+        if status in {"passed", "failed", "cancelled"}:
+            return {"job_id": job_id, "status": status, "stopped": status == "cancelled", "already_finished": True}
+        job["cancel_requested"] = True
+        job["status"] = "cancelled" if status == "queued" else "cancelling"
+        job["updated_at_ms"] = int(time.time() * 1000)
+        response_status = job["status"]
+    with _active_process_lock:
+        process = _active_process if _active_job_id == job_id else None
+    if process is not None and process.is_alive():
+        process.terminate()
+    return {"job_id": job_id, "status": response_status, "stopped": response_status == "cancelled"}
+
+
+@app.get("/viewer", response_class=HTMLResponse)
+def viewer():
+    return HTMLResponse(VIEWER_HTML, headers=viewer_headers())
 
 
 @app.get("/jobs/{job_id}/evidence/{filename}")
@@ -569,4 +694,9 @@ def get_evidence(job_id: str, filename: str, authorization: str | None = Header(
     except ValueError:
         raise HTTPException(status_code=404, detail="evidence not found")
     media_type = "application/json" if filename == "result.json" else "image/jpeg"
-    return FileResponse(path, media_type=media_type, filename=filename)
+    return FileResponse(
+        path,
+        media_type=media_type,
+        filename=filename,
+        headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+    )
