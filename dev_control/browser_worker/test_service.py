@@ -15,6 +15,7 @@ from dev_control.browser_worker.service import (
     _valid_job_id,
     _startup_selftest_enabled,
     health,
+    shutdown_worker,
 )
 
 
@@ -24,6 +25,7 @@ class BrowserWorkerServiceConfigTest(unittest.TestCase):
             "DEV_CONTROL_API_TOKEN": "api-secret",
             "TIMEWEB_AI_API_KEY": "ai-secret",
             "QA_BASE_URL": "https://qa.example.test",
+            "QA_ALLOWED_ORIGIN": "https://qa.example.test",
             "QA_ENVIRONMENT": "staging",
         }
         with patch.dict(os.environ, good, clear=True):
@@ -32,6 +34,33 @@ class BrowserWorkerServiceConfigTest(unittest.TestCase):
         bad = dict(good, QA_ENVIRONMENT="production")
         with patch.dict(os.environ, bad, clear=True):
             self.assertFalse(_configured())
+
+
+    def test_remote_qa_requires_exact_explicit_allowlist(self):
+        base = {
+            "DEV_CONTROL_API_TOKEN": "api-secret",
+            "TIMEWEB_AI_API_KEY": "ai-secret",
+            "QA_ENVIRONMENT": "staging",
+            "QA_BASE_URL": "https://qa.example.test",
+        }
+        with patch.dict(os.environ, base, clear=True):
+            self.assertFalse(_configured())
+        with patch.dict(os.environ, {**base, "QA_ALLOWED_ORIGIN": "https://qa.example.test"}, clear=True):
+            self.assertTrue(_configured())
+        with patch.dict(os.environ, {**base, "QA_ALLOWED_ORIGIN": "https://other.example.test"}, clear=True):
+            self.assertFalse(_configured())
+
+    def test_known_production_ip_and_subdomains_are_denied(self):
+        for url in ("https://147.45.237.127", "https://app.stroyka26.pro", "https://qa.stroyka.pro"):
+            env = {
+                "DEV_CONTROL_API_TOKEN": "api-secret",
+                "TIMEWEB_AI_API_KEY": "ai-secret",
+                "QA_ENVIRONMENT": "staging",
+                "QA_BASE_URL": url,
+                "QA_ALLOWED_ORIGIN": url,
+            }
+            with self.subTest(url=url), patch.dict(os.environ, env, clear=True):
+                self.assertFalse(_configured())
 
     def test_startup_selftest_is_local_only(self):
         base = {
