@@ -151,17 +151,24 @@ def register_work_assignment_module(app, deps):
                 match_params = [contractor_user_id]
             else:
                 match_params = [brigade_name]
+            # Acquire advisory lock for this contract identity to avoid race creating multiple drafts
+            lock_key = f"brigade_contract:{company_id}:{project_id}:{work_package}:{match_params[0]}"
+            cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (lock_key,))
+            # Prefer existing single draft in this exact scope
             cur.execute(
                 f"""SELECT id FROM brigade_contracts
                     WHERE company_id=%s
                       AND project_id=%s
                       AND COALESCE(NULLIF(work_package,''),'Основная')=%s
-                      AND COALESCE(status,'') NOT IN ('Аннулирован','Удалён','Удален')
+                      AND COALESCE(status,'') = 'Черновик'
                       AND {match_sql}
-                    ORDER BY id DESC LIMIT 1 FOR UPDATE""",
+                    FOR UPDATE""",
                 tuple([company_id, project_id, work_package] + match_params),
             )
-            row = cur.fetchone()
+            rows = cur.fetchall()
+            if rows and len(rows) > 1:
+                raise HTTPException(status_code=409, detail="Найдено несколько черновиков договора; требуется разбор")
+            row = rows[0] if rows else None
             created_contract = False
             if row:
                 contract_id = row[0]

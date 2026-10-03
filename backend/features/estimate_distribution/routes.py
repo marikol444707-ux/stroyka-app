@@ -208,17 +208,23 @@ def register_estimate_distribution_module(app, deps):
                     group["brigadeName"],
                 )
                 identity_sql, identity_param = _contract_identity(contractor_user_id, group["brigadeName"])
+                # Acquire advisory lock for this contract identity to avoid race creating multiple drafts
+                lock_key = f"brigade_contract:{company_id}:{project_id}:{work_package}:{identity_param}"
+                cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (lock_key,))
                 cur.execute(
                     f"""SELECT id FROM brigade_contracts
                         WHERE company_id=%s
                           AND project_id=%s
                           AND COALESCE(NULLIF(work_package,''),'Основная')=%s
-                          AND COALESCE(status,'') NOT IN ('Аннулирован','Удалён','Удален')
+                          AND COALESCE(status,'') = 'Черновик'
                           AND {identity_sql}
-                        ORDER BY id DESC LIMIT 1 FOR UPDATE""",
+                        FOR UPDATE""",
                     (company_id, project_id, work_package, identity_param),
                 )
-                contract = cur.fetchone()
+                rows = cur.fetchall()
+                if rows and len(rows) > 1:
+                    raise HTTPException(status_code=409, detail="Найдено несколько черновиков договора; требуется разбор")
+                contract = rows[0] if rows else None
                 created = not bool(contract)
                 if contract:
                     contract_id = contract[0]
