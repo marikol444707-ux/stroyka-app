@@ -35,6 +35,8 @@ class BrowserWorkerContainerContractTest(unittest.TestCase):
         self.assertIn("Runtime.runIfWaitingForDebugger", network_guard)
         self.assertIn("Target.createBrowserContext", network_guard)
         self.assertIn("Target.disposeBrowserContext", network_guard)
+        self.assertIn("QA navigation did not commit within 15s", network_guard)
+        self.assertIn("self._cleanup_allocations()", network_guard)
         self.assertIn('"type": "worker"', network_guard)
         self.assertIn('"type": "iframe"', network_guard)
 
