@@ -89,3 +89,15 @@ startup_selftest=passed или failed.
 - QA_MAX_PENDING_JOBS по умолчанию 2, допустимый диапазон 1..10.
 - Одна браузерная проверка выполняется одновременно.
 - max_seconds одной задачи ограничен API значением 180 секунд.
+
+## Дополнительные гарантии после security review
+
+- Известные production-хосты Stroyka (`stroyka26.pro`, `stroyka.pro`) запрещены независимо от `QA_ENVIRONMENT`.
+- Любой browser job обязан иметь хотя бы один детерминированный assertion.
+- CDP Fetch перехватывает запросы Chrome до отправки: чужой origin и document вне QA path блокируются до загрузки.
+- URL с `..`, `%2e%2e` и повторным percent-encoding отклоняются до запуска Jev.
+- Каждый job выполняется в отдельном subprocess; по `max_seconds` процесс принудительно завершается.
+- `/health` возвращает HTTP 503, пока конфигурация или startup self-test не готовы.
+- Evidence доступно Work Control через защищённые `/jobs/{job_id}/evidence/{filename}`.
+- Evidence удаляется по TTL; активные jobs очистка не трогает.
+- Timeweb text helper настраивается атомарно и не смешивает ключи разных провайдеров.
