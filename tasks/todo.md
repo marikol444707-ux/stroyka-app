@@ -2678,6 +2678,23 @@ mismatched ownership; the unauthenticated route returned `401`.
 
 **Estimated scope:** S
 
+### Task M7m8: Register Warehouse Stock-Chain Ownership
+
+**Description:** Register company-wide main-warehouse balances, warehouse movements, receipt lots and exact lot movements as stored-company data. Add only the missing company-leading indexes for balances and movements plus the missing project lookup for receipt lots. Do not update quantities, prices, lot balances or movement history.
+
+**Pre-apply evidence:** The 2026-10-03 production inspection was read-only. `warehouse_main` has `173` rows, `warehouse_movements` has `1`, `warehouse_receipt_lots` has `146`, and `warehouse_lot_movements` is empty; all `320` current rows belong to company `1`. Fifteen company, invoice, invoice-line, project, balance, lot, movement and reversal checks for these four tables are clean. The separate `warehouses` directory has one legacy card without `company_id`, so it and its empty event table remain outside this slice pending explicit owner review.
+
+**Acceptance criteria:**
+- [ ] Registry entries identify the stored owner and exact source chain for all four stock tables.
+- [ ] Every registered table has a company-leading index and receipt lots have a project lookup index.
+- [ ] The migration is reversible and contains no data mutation.
+- [ ] Focused migration, readiness, warehouse distribution and material traceability tests pass locally and in CI.
+- [ ] Production migration preserves all counts and quantities, all 15 relationship checks stay clean, readiness has no new schema blockers, coverage falls from `108` to `104`, and smoke passes.
+
+**Dependencies:** M7m8 follows M7m7; warehouse-directory ownership is deliberately separate.
+
+**Estimated scope:** S
+
 
 **Dependencies:** M7l and the completed M6 runtime isolation slices
 
