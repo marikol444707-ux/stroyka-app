@@ -1,5 +1,6 @@
 import unittest
 
+from dev_control.browser_worker.network_guard import request_allowed
 from dev_control.browser_worker.run import _assert_allowed_url, _sanitize_history
 
 
@@ -24,6 +25,32 @@ class BrowserWorkerUrlSafetyTest(unittest.TestCase):
                 "https://qa.example.test/app",
             )
 
+    def test_rejects_dot_segment_and_encoded_dot_segment_bypass(self):
+        for url in (
+            "https://qa.example.test/app/../admin",
+            "https://qa.example.test/app/%2e%2e/admin",
+            "https://qa.example.test/app/%252e%252e/admin",
+        ):
+            with self.subTest(url=url):
+                with self.assertRaisesRegex(ValueError, "dot path segments"):
+                    _assert_allowed_url(url, "https://qa.example.test/app")
+
+    def test_network_guard_blocks_external_before_request(self):
+        self.assertFalse(request_allowed(
+            "https://evil.example/steal",
+            "https://qa.example.test/app",
+            "Document",
+        ))
+        self.assertFalse(request_allowed(
+            "https://qa.example.test/admin",
+            "https://qa.example.test/app",
+            "Document",
+        ))
+        self.assertTrue(request_allowed(
+            "https://qa.example.test/api/data",
+            "https://qa.example.test/app",
+            "XHR",
+        ))
     def test_sanitized_history_never_persists_typed_text(self):
         history = _sanitize_history([
             {
