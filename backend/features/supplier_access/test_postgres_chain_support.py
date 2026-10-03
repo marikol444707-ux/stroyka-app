@@ -96,12 +96,19 @@ def _initialize_schema(runtime, source):
             runtime.init_db()
             runtime.ensure_agent_jobs_schema(runtime.get_db)
             from importlib import import_module
+            from backend.features.supplier_deal_parties.test_contract_postgres import statements
             conn = runtime.get_db()
             try:
                 with conn.cursor() as cur:
                     cur.execute(import_module('migrations.versions.0036_supplier_invite_company').SCHEMA_SQL)
                     cur.execute(import_module('migrations.versions.0037_supplier_shipment_batches').SCHEMA_SQL)
                     cur.execute(import_module('migrations.versions.0039_supplier_email_history').SCHEMA_SQL)
+                    # Quote and delivery writers require the migrated party snapshots,
+                    # including requests seeded directly rather than through the API.
+                    for migration in ('0073_rfq_requester_snapshots.py',
+                                      '0074_offer_party_snapshots.py'):
+                        for statement in statements('upgrade', migration):
+                            cur.execute(statement)
             finally:
                 conn.close()
             return prerequisites

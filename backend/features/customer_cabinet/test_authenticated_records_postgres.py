@@ -17,6 +17,9 @@ class AuthenticatedCustomerRecordTest(unittest.TestCase):
                 # The legacy supply fixture uses init_db, not the full Alembic chain.
                 cur.execute('CREATE UNIQUE INDEX IF NOT EXISTS quality_projects_id_company_idx ON projects(id,company_id)')
                 cur.execute(importlib.import_module('migrations.versions.0040_customer_record_owners').SCHEMA_SQL)
+                from backend.features.supplier_deal_parties.test_contract_postgres import statements
+                for statement in statements('upgrade', '0075_customer_contract_parties.py'):
+                    cur.execute(statement)
                 cur.execute(importlib.import_module('migrations.versions.0068_customer_file_corrections').SCHEMA_SQL)
                 cur.execute(importlib.import_module('migrations.versions.0069_addressed_customer_publications').SCHEMA_SQL)
                 cur.execute(importlib.import_module('migrations.versions.0080_outgoing_letter_parties').UPGRADE_SQL)
