@@ -2591,11 +2591,13 @@ mismatched ownership; the unauthenticated route returned `401`.
 **Pre-apply evidence:** The 2026-10-03 production inspection was read-only and found all four tables empty, with no null or orphan rows to assign. The existing supplier-document API already separates selected-company and supplier-private reads; this slice makes that distinction explicit and fail-closed in stored data.
 
 **Acceptance criteria:**
-- [ ] No project-launch table can silently inherit company `1`.
-- [ ] Company documents require `company_id`; supplier-private documents require `supplier_id` and forbid `company_id`.
-- [ ] Supplier-document reads, creates and archives require the matching explicit scope.
-- [ ] Readiness validates alternate-scope owner columns and the registry covers all four tables.
-- [ ] Focused tests, CI, production migration, post-audit and smoke pass.
+- [x] No project-launch table can silently inherit company `1`.
+- [x] Company documents require `company_id`; supplier-private documents require `supplier_id` and forbid `company_id`.
+- [x] Supplier-document reads, creates and archives require the matching explicit scope.
+- [x] Readiness validates alternate-scope owner columns and the registry covers all four tables.
+- [x] Focused tests, CI, production migration, post-audit and smoke pass.
+
+**Production result:** Runtime `858624dc` deployed on 2026-10-03. Alembic reports `0086_counterparty_doc_owners (head)`. The three project-launch owner columns are required, have no default and reference existing companies. `supplier_documents` has an explicit required scope plus company and supplier owner constraints. All four tables remain empty, so no historical rows were assigned or changed. The read-only readiness audit found zero schema blockers; registry coverage is now `89` physical tables with `126` still unregistered (`78 critical`, `14 high`, `34 unclassified`). Both services, public smoke, frontend assets and a Chromium `/app` render passed; `54G` remains free and no temporary frontend build remains.
 
 **Dependencies:** M7m2
 
