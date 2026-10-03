@@ -103,7 +103,14 @@ class NetworkBoundary:
             autoAttach=True,
             waitForDebuggerOnStart=True,
             flatten=True,
-            filter=[{"type": "page", "exclude": False}, {"exclude": True}],
+            filter=[
+                {"type": "page", "exclude": False},
+                {"type": "iframe", "exclude": False},
+                {"type": "worker", "exclude": False},
+                {"type": "shared_worker", "exclude": False},
+                {"type": "service_worker", "exclude": False},
+                {"exclude": True},
+            ],
         )
         self._guarded_sessions.add(session_id)
 
@@ -118,7 +125,7 @@ class NetworkBoundary:
             self._child_targets.add(target_id)
         if not child_session:
             return
-        if target_type == "page" and initial_url not in {"", "about:blank"}:
+        if target_type in {"page", "iframe"} and initial_url not in {"", "about:blank"}:
             if not request_allowed(initial_url, self._base_url, "Document"):
                 if target_id:
                     self._cdp("Target.closeTarget", targetId=target_id)
@@ -205,7 +212,13 @@ def install_safe_browser(base_url: str):
         def __init__(self, url):
             assert_allowed_document_url(url, base_url)
             ensure_daemon()
-            self.target = cdp("Target.createTarget", url="about:blank", background=True)["targetId"]
+            self.browser_context_id = cdp("Target.createBrowserContext", disposeOnDetach=True)["browserContextId"]
+            self.target = cdp(
+                "Target.createTarget",
+                url="about:blank",
+                background=True,
+                browserContextId=self.browser_context_id,
+            )["targetId"]
             self.session = cdp(
                 "Target.attachToTarget",
                 targetId=self.target,
@@ -239,6 +252,11 @@ def install_safe_browser(base_url: str):
                         cdp("Target.closeTarget", targetId=self.target)
                     finally:
                         self.target = None
+                if getattr(self, "browser_context_id", None):
+                    try:
+                        cdp("Target.disposeBrowserContext", browserContextId=self.browser_context_id)
+                    finally:
+                        self.browser_context_id = None
                 raise
 
         def observe(self, screenshot=True):
@@ -258,6 +276,11 @@ def install_safe_browser(base_url: str):
             if boundary is not None:
                 boundary.close()
             super().close()
+            if getattr(self, "browser_context_id", None):
+                try:
+                    cdp("Target.disposeBrowserContext", browserContextId=self.browser_context_id)
+                finally:
+                    self.browser_context_id = None
 
     agent_module.Browser = SafeBrowser
     return SafeBrowser
