@@ -102,6 +102,7 @@ class NetworkBoundary:
             autoAttach=True,
             waitForDebuggerOnStart=True,
             flatten=True,
+            filter=[{"type": "page", "exclude": False}, {"exclude": True}],
         )
         self._guarded_sessions.add(session_id)
 
