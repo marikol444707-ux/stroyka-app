@@ -1,6 +1,7 @@
 """Authenticated acceptance/rework conservation on disposable socket-only PG."""
 from decimal import Decimal
 import importlib.util
+import json
 import os
 from pathlib import Path
 import sys
@@ -58,8 +59,17 @@ class WorkAcceptancePostgresTests(unittest.TestCase):
             self.sql("DELETE FROM " + table)
         self.contract_id = self.sql("SELECT contract_id FROM brigade_contract_items WHERE id=%s",
                                     (self.contract_item,))[0][0]
-        self.sql("UPDATE brigade_contracts SET contractor_type='Субподрядчик',status='Подписан' WHERE id=%s",
-                 (self.contract_id,))
+        # Synthetic frozen parties, matching the signed-contract prerequisite.
+        # Production signing/ownership is covered by contractor_contract_parties tests.
+        self.contract_parties = {
+            "schemaVersion": 1,
+            "customer": {"companyId": 2, "fullName": "Synthetic customer", "inn": "2611000000"},
+            "contractor": {"userId": self.f["users"]["worker"]["id"],
+                           "fullName": self.f["users"]["worker"]["name"], "inn": "263200000001"},
+        }
+        self.sql("""UPDATE brigade_contracts SET contractor_type='Субподрядчик',status='Подписан',
+                    party_snapshot_json=%s::jsonb WHERE id=%s""",
+                 (json.dumps(self.contract_parties), self.contract_id))
         self.photo = self.registered_file(content_type="image/jpeg")
         journal, self.submission = self.create_consumption(
             personal=1, warehouse=1, roomName="Synthetic acceptance room", photoUrl=self.photo,
@@ -132,15 +142,18 @@ class WorkAcceptancePostgresTests(unittest.TestCase):
         self.assertEqual(row[2:], (2, self.f["project"], self.f["users"]["worker"]["id"],
                                   self.contract_item, self.f["workPackage"]))
 
-    def create_act(self, journal_id):
+    def act_payload(self, journal_id):
         preview = self.api("director", "GET", self.contract_path + "/settlement")
         self.assertEqual([row["id"] for row in preview["eligibleWorks"]], [journal_id])
         work_date = str(self.sql("SELECT date FROM work_journal WHERE id=%s", (journal_id,))[0][0])
-        return self.api("director", "POST", self.contract_path + "/acts", {
+        return {
             "requestId": str(uuid4()), "workJournalIds": [journal_id],
             "expectedGrossAmount": str(preview["grossAmount"]), "expectedFineAmount": str(preview["fineAmount"]),
             "fineAllocations": preview["fineAllocations"], "periodFrom": work_date, "periodTo": work_date,
-        })
+        }
+
+    def create_act(self, journal_id):
+        return self.api("director", "POST", self.contract_path + "/acts", self.act_payload(journal_id))
 
     def test_preview_exposes_state_history_and_role_actions(self):
         director = self.view()
@@ -263,7 +276,14 @@ class WorkAcceptancePostgresTests(unittest.TestCase):
 
     def test_accepted_rework_does_not_rewrite_already_formed_parent_act(self):
         child = self.partial()
-        first = self.create_act(self.journal_id)
+        payload = self.act_payload(self.journal_id)
+        first = self.api("director", "POST", self.contract_path + "/acts", payload)
+        self.assertEqual(first["snapshot"]["contractParties"], self.contract_parties)
+        after_first = self.snapshot()
+        self.assertEqual(self.api("director", "POST", self.contract_path + "/acts", payload), first)
+        self.assertEqual(self.snapshot(), after_first)
+        self.assert_rejected_unchanged("director", "POST", self.contract_path + "/acts",
+                                       {**payload, "requestId": str(uuid4())}, 409)
         self.assertEqual(Decimal(str(first["totalAmount"])), Decimal("6"))
         saved = self.sql("SELECT row_to_json(t)::text FROM brigade_acts t WHERE id=%s", (first["id"],))
         self.resubmit(child)
@@ -273,6 +293,15 @@ class WorkAcceptancePostgresTests(unittest.TestCase):
         self.assertEqual(Decimal(str(first["totalAmount"])) + Decimal(str(second["totalAmount"])), Decimal("10"))
         self.assertEqual(self.sql("SELECT row_to_json(t)::text FROM brigade_acts t WHERE id=%s", (first["id"],)), saved)
         self.assert_original_entries_unchanged()
+        self.assertEqual(self.api("director", "GET", self.contract_path + "/settlement")["eligibleWorks"], [])
+        self.assertEqual(self.stock_quantity(), 1)
+        self.assertEqual(self.balance(), dict(issued=2, used=1, returned=0, available=1))
+
+    def test_accepted_work_cannot_create_act_without_frozen_contract_parties(self):
+        self.review()
+        self.sql("UPDATE brigade_contracts SET party_snapshot_json=NULL WHERE id=%s", (self.contract_id,))
+        self.assert_rejected_unchanged("director", "POST", self.contract_path + "/acts",
+                                       self.act_payload(self.journal_id), 409)
 
 
 if __name__ == "__main__":
