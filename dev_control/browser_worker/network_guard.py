@@ -268,6 +268,29 @@ def install_safe_browser(base_url: str):
 })();
 """
 
+    def _bootstrap_auth(browser_context_id: str) -> None:
+        """Inject an optional pre-created QA session locally, never through Jev."""
+
+        cookie_value = (os.environ.get("QA_SESSION_COOKIE_VALUE") or "").strip()
+        if not cookie_value:
+            return
+        cookie_name = (os.environ.get("QA_SESSION_COOKIE_NAME") or "session").strip()
+        parsed = urlparse(base_url)
+        cookie = {
+            "name": cookie_name,
+            "value": cookie_value,
+            "domain": parsed.hostname,
+            "path": "/",
+            "secure": parsed.scheme == "https",
+            "httpOnly": True,
+            "sameSite": "Lax",
+        }
+        cdp(
+            "Storage.setCookies",
+            cookies=[cookie],
+            browserContextId=browser_context_id,
+        )
+
     class SafeBrowser(upstream_browser):
         def __init__(self, url):
             assert_allowed_document_url(url, base_url)
@@ -281,6 +304,7 @@ def install_safe_browser(base_url: str):
                     "Target.createBrowserContext",
                     disposeOnDetach=True,
                 )["browserContextId"]
+                _bootstrap_auth(self.browser_context_id)
                 self.target = cdp(
                     "Target.createTarget",
                     url="about:blank",
