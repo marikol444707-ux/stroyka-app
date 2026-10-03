@@ -93,6 +93,22 @@ class BrowserWorkerUrlSafetyTest(unittest.TestCase):
         self.assertNotIn("fragment", redacted)
         self.assertIn("[REDACTED]", redacted)
 
+
+    def test_stroyka_invite_query_is_redacted(self):
+        redacted = _redact_url(
+            "https://qa.example.test/?invite=company-membership-code&next=register"
+        )
+        self.assertNotIn("company-membership-code", redacted)
+        self.assertIn("invite=%5BREDACTED%5D", redacted)
+        self.assertIn("next=register", redacted)
+
+    def test_boundary_redactor_hides_stroyka_invite_query(self):
+        redacted = redact_boundary_url(
+            "https://qa.example.test/?invite=company-membership-code"
+        )
+        self.assertNotIn("company-membership-code", redacted)
+        self.assertIn("invite=%5BREDACTED%5D", redacted)
+
     def test_sensitive_path_token_is_redacted(self):
         redacted = _redact_url(
             "https://qa.example.test/password-reset/super-secret-token?next=warehouse"
