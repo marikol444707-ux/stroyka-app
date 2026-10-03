@@ -1,8 +1,20 @@
 #!/usr/bin/env python3
-"""Fail a release when an enabled warehouse UI was removed from its build."""
+"""Reject mismatched work-material modes and missing enabled feature workflows."""
 import json
+from html.parser import HTMLParser
 import sys
 from pathlib import Path
+
+
+class WorkMaterialBuildMetadata(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.values = []
+
+    def handle_starttag(self, tag, attrs):
+        values = dict(attrs)
+        if tag == "meta" and values.get("name") == "stroyka-work-material-accounting":
+            self.values.append(values.get("content"))
 
 
 def verify(build_dir: Path, build_environment: str) -> None:
@@ -11,6 +23,15 @@ def verify(build_dir: Path, build_environment: str) -> None:
         for line in build_environment.splitlines()
         if "=" in line
     )
+    work_mode = flags.get("REACT_APP_WORK_MATERIAL_ACCOUNTING_ENABLED")
+    if work_mode is not None:
+        if work_mode not in {"0", "1"}:
+            raise ValueError("Некорректный режим учёта материалов в сборке")
+        metadata = WorkMaterialBuildMetadata()
+        metadata.feed((build_dir / "index.html").read_text(encoding="utf-8"))
+        if metadata.values != [work_mode]:
+            raise ValueError("Frontend собран с другим режимом учёта материалов")
+    work_enabled = work_mode == "1"
     warehouse_enabled = (
         flags.get("REACT_APP_WAREHOUSE_DISTRIBUTION_ENABLED") == "true"
     )
@@ -22,7 +43,7 @@ def verify(build_dir: Path, build_environment: str) -> None:
         flags.get("REACT_APP_INTERCOMPANY_WAREHOUSE_TRANSFERS_ENABLED")
         == "true"
     )
-    if not warehouse_enabled and not capability_enabled and not intercompany_enabled:
+    if not warehouse_enabled and not capability_enabled and not intercompany_enabled and not work_enabled:
         return
 
     manifest = json.loads(
@@ -35,6 +56,12 @@ def verify(build_dir: Path, build_environment: str) -> None:
             if path.is_file():
                 javascript.append(path.read_text(encoding="utf-8"))
     bundle = "\n".join(javascript)
+
+    if work_enabled:
+        missing = [marker for marker in ("materialAccountingVersion", "stroyka:work-material-batch:v2:")
+                   if marker not in bundle]
+        if missing:
+            raise ValueError("Frontend собран без безопасной отправки работ: " + ", ".join(missing))
 
     if warehouse_enabled:
         if (

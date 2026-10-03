@@ -6,6 +6,7 @@ backend_env_path="${2-}"
 warehouse_flags="$(python3 "$(dirname "$0")/resolve-warehouse-build-env.py" "$service_environment" "$backend_env_path")"
 supplier_flags="$(python3 "$(dirname "$0")/resolve-supplier-build-env.py" "$service_environment" "$backend_env_path")"
 material_capability_flag="$(python3 "$(dirname "$0")/resolve-material-capability-build-env.py" "$service_environment" "$backend_env_path")"
+work_material_flag="$(python3 "$(dirname "$0")/resolve-work-material-build-env.py" "$service_environment" "$backend_env_path")"
 http_enabled=""
 company_ids=""
 http_was_set=false
@@ -70,7 +71,7 @@ if [ -n "$backend_env_path" ] && [ -f "$backend_env_path" ]; then
 fi
 
 if [ "$http_enabled" != "true" ]; then
-  printf '%s\n' "$warehouse_flags" "$supplier_flags" "$material_capability_flag"
+  printf '%s\n' "$warehouse_flags" "$supplier_flags" "$material_capability_flag" "$work_material_flag"
   exit 0
 fi
 
@@ -97,6 +98,6 @@ for company_id in "${parsed_company_ids[@]}"; do
 done
 
 printf '%s\n' \
-  "$warehouse_flags" "$supplier_flags" "$material_capability_flag" \
+  "$warehouse_flags" "$supplier_flags" "$material_capability_flag" "$work_material_flag" \
   'REACT_APP_ASSIGNMENT_DAILY_DRAFT_PREVIEW_ENABLED=true' \
   "REACT_APP_ASSIGNMENT_DAILY_DRAFT_PREVIEW_COMPANY_IDS=$company_ids"

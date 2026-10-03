@@ -48,7 +48,7 @@ while IFS= read -r build_variable; do
   fi
 done <<< "$FRONTEND_BUILD_ENV_OUTPUT"
 if [ "${#FRONTEND_BUILD_ENV[@]}" -gt 0 ]; then
-  echo "Frontend A10 включён для backend allowlist."
+  echo "Frontend: настройки рабочих режимов получены из конфигурации backend."
 fi
 env "${FRONTEND_BUILD_ENV[@]}" BUILD_PATH="$FRONTEND_BUILD_DIR" npm run build
 printf '%s\n' "$FRONTEND_BUILD_ENV_OUTPUT" \
