@@ -218,6 +218,8 @@ def _cleanup_expired_evidence() -> None:
         }
     for child in root.iterdir():
         try:
+            if not _valid_job_id(child.name):
+                continue
             if child.name in active:
                 continue
             if child.is_dir() and child.stat().st_mtime < cutoff:
