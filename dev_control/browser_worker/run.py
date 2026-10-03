@@ -57,7 +57,12 @@ def _redact_url(url: str | None) -> str | None:
             if any(marker in lowered for marker in _SENSITIVE_QUERY_MARKERS)
             else (key, value)
         )
-    return urlunsplit((parts.scheme, parts.netloc, _redact_path(parts.path), urlencode(safe_query), ""))
+    host = parts.hostname or ""
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    port = f":{parts.port}" if parts.port is not None else ""
+    authority = f"{host}{port}"
+    return urlunsplit((parts.scheme, authority, _redact_path(parts.path), urlencode(safe_query), ""))
 
 
 def _sanitize_history(history: list[dict] | None) -> list[dict]:
