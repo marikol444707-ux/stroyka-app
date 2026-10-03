@@ -2,15 +2,43 @@
 
 from __future__ import annotations
 
+import copy
 import os
 from dataclasses import dataclass
 from types import ModuleType
 from typing import MutableMapping
 
+from dev_control.browser_worker.network_guard import redact_boundary_url
 from dev_control.jev_timeweb import DEFAULT_MODEL, DEFAULT_SYSTEMONE_URL, JevError, JevTimewebClient
 
 
 UPSTREAM_TYPESAFE_URL = "https://api.typesafe.ai/v1/systemone"
+
+
+def _sanitize_state_for_provider(state):
+    """Remove credentials from Jev state before it leaves the worker."""
+
+    safe = copy.deepcopy(state)
+    if not isinstance(safe, dict):
+        return safe
+
+    page = safe.get("page")
+    if isinstance(page, dict) and page.get("url"):
+        page["url"] = redact_boundary_url(str(page["url"]))
+
+    for key in ("recent_actions", "history"):
+        items = safe.get(key)
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            if item.get("url"):
+                item["url"] = redact_boundary_url(str(item["url"]))
+            for secret_key in ("text", "value", "typed_text", "input", "text_helper"):
+                if secret_key in item:
+                    item[secret_key] = "[REDACTED]"
+    return safe
 
 
 @dataclass
@@ -54,7 +82,7 @@ def install_timeweb_provider(
                 questions = body["questions"]
             except (KeyError, TypeError) as exc:
                 raise JevError("Upstream Jev request has no state/questions") from exc
-            result = client.ask(state=state, questions=questions)
+            result = client.ask(state=_sanitize_state_for_provider(state), questions=questions)
             result.setdefault("model", model)
             result.setdefault("usage", {})
             return result
