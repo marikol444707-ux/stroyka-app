@@ -11,7 +11,7 @@ from dev_control.jev_timeweb import JevError
 
 
 _SENSITIVE_MARKERS = (
-    "token", "code", "password", "secret", "key", "auth", "signature", "sig", "session",
+    "token", "code", "invite", "password", "secret", "key", "auth", "signature", "sig", "session",
 )
 _SENSITIVE_PATH_MARKERS = frozenset({
     "reset", "password-reset", "magic", "magic-link", "verify", "verification",
