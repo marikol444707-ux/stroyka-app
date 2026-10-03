@@ -34,6 +34,10 @@ class BrowserWorkerContainerContractTest(unittest.TestCase):
         self.assertIn("PreAuthBodyLimitMiddleware", service)
         self.assertIn("_MAX_JOB_BODY_BYTES = 32 * 1024", service)
         self.assertIn("status_code=413", service)
+
+        crash_branch = service.split("elif report is None:", 1)[1].split("else:", 1)[0]
+        self.assertIn("_cleanup_qa_browser_contexts()", crash_branch)
+
         self.assertIn("Target.setAutoAttach", network_guard)
         self.assertIn("waitForDebuggerOnStart=True", network_guard)
         self.assertIn("Runtime.runIfWaitingForDebugger", network_guard)
