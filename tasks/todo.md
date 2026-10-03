@@ -2610,11 +2610,13 @@ mismatched ownership; the unauthenticated route returned `401`.
 **Pre-apply evidence:** The 2026-10-03 production inspection was read-only. `work_material_operations` contains five completed `inventory-reconciliation` operations for company `1`; the other five tables are empty. No company owner is null or orphaned, all operation actors exist, and all 14 account, project, contract, operation, correction, material, defect and entry relationships match their stored company.
 
 **Acceptance criteria:**
-- [ ] Registry entries identify the exact stored owner and parent chain for all six tables.
-- [ ] Company-leading indexes cover project accounts, defect items and defect decisions.
-- [ ] The migration is reversible and contains no data mutation.
-- [ ] Focused ownership, material-accounting and migration tests pass locally and in CI.
-- [ ] Production migration applies, all five operations remain unchanged, readiness has no new schema blockers, coverage falls from `126` to `120`, and smoke passes.
+- [x] Registry entries identify the exact stored owner and parent chain for all six tables.
+- [x] Company-leading indexes cover project accounts, defect items and defect decisions.
+- [x] The migration is reversible and contains no data mutation.
+- [x] Focused ownership, material-accounting and migration tests pass locally and in CI.
+- [x] Production migration applies, all five operations remain unchanged, readiness has no new schema blockers, coverage falls from `126` to `120`, and smoke passes.
+
+**Production result:** Runtime `04407278` deployed on 2026-10-03. Alembic reports `0087_work_material_indexes (head)`. All three company-leading indexes exist. The five completed company `1` inventory-reconciliation operations remain unchanged; the five material-accounting child tables remain empty, and all 14 exact parent checks report zero mismatches. The read-only readiness audit has zero schema blockers; registry coverage is now `95` physical tables with `120` still unregistered (`72 critical`, `14 high`, `34 unclassified`). Both services, health, public routes and frontend asset smoke passed; `54G` remains free and no temporary frontend build remains.
 
 **Dependencies:** M7m3
 
