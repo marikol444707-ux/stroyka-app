@@ -188,26 +188,32 @@ def _execute(job_id: str, request: JobRequest) -> None:
         "max_seconds": request.max_seconds,
     }
 
-    ctx = multiprocessing.get_context("spawn")
-    result_queue = ctx.Queue(maxsize=1)
-    process = ctx.Process(target=_task_process_entry, args=(payload, result_queue))
-    process.start()
-    process.join(timeout=request.max_seconds)
-    if process.is_alive():
-        process.terminate()
-        process.join(timeout=3.0)
+    try:
+        ctx = multiprocessing.get_context("spawn")
+        result_queue = ctx.Queue(maxsize=1)
+        process = ctx.Process(target=_task_process_entry, args=(payload, result_queue))
+        process.start()
+        process.join(timeout=request.max_seconds)
         if process.is_alive():
-            process.kill()
-            process.join(timeout=1.0)
-        report = {"ok": False, "failures": [f"worker_timeout>{request.max_seconds}s"]}
-    else:
-        try:
-            report = result_queue.get_nowait()
-        except Exception:
-            report = {
-                "ok": False,
-                "failures": [f"browser subprocess exited without result (code={process.exitcode})"],
-            }
+            process.terminate()
+            process.join(timeout=3.0)
+            if process.is_alive():
+                process.kill()
+                process.join(timeout=1.0)
+            report = {"ok": False, "failures": [f"worker_timeout>{request.max_seconds}s"]}
+        else:
+            try:
+                report = result_queue.get_nowait()
+            except Exception:
+                report = {
+                    "ok": False,
+                    "failures": [f"browser subprocess exited without result (code={process.exitcode})"],
+                }
+    except Exception as exc:
+        report = {
+            "ok": False,
+            "failures": [f"browser subprocess startup failed: {type(exc).__name__}: {exc}"],
+        }
 
     files = _evidence_files(job_id)
     report.pop("evidence", None)
