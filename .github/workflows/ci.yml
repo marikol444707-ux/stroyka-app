@@ -70,6 +70,13 @@ jobs:
           COMPANY_CONTEXT_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/stroyka_company_context_test
         run: PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python -m unittest backend.features.company_context.test_membership_security_postgres -v
 
+      - name: Run acceptance-to-act PostgreSQL chain
+        run: |
+          export PATH="$(pg_config --bindir):$PATH"
+          python scripts/run_supplier_catalog_postgres_tests.py \
+            backend.features.work_acceptance.test_postgres.WorkAcceptancePostgresTests \
+            backend.features.contractor_contract_parties.test_postgres.ContractorContractPartiesPostgresTests
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
