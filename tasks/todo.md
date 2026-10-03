@@ -2720,12 +2720,20 @@ schemas omit newer supplier-document and supplier-invoice prerequisites; the new
 standalone migration path are verified.
 
 **Release gates:**
-- [ ] Run a read-only production count and relationship audit for all 12 tables.
-- [ ] Confirm the ownerless legacy warehouse card remains excluded or assign it only from
+- [x] Run the read-only production tenant-readiness audit across all stored registry tables.
+- [x] Confirm the ownerless legacy warehouse card remains excluded or assign it only from
       explicit owner evidence.
-- [ ] Apply `0092`, rerun tenant readiness and coverage, and verify coverage falls from
+- [x] Apply `0092`, rerun tenant readiness and coverage, and verify coverage falls from
       `104` to `92` without changing business-row counts.
-- [ ] Run public smoke, health/service checks and deployment cleanup.
+- [x] Run public smoke, health/service checks and deployment cleanup.
+
+**Production result:** Runtime `4e787d1d` was deployed on 2026-10-03 at Alembic
+head `0092_warehouse_operations_idx`. The read-only tenant-readiness audit checked
+`94` stored tables and returned `schemaBlockers=0`; the coverage audit reports `123`
+registered physical tables, `92` unregistered (`45` critical, `14` high and `33`
+unclassified), no missing registry tables and no duplicate entries. Both reports
+rolled back with zero writes. The deploy smoke passed, `/health` reports the released
+runtime with a healthy database, and both `/` and `/app` return `200`.
 
 **Dependencies:** M7m8; explicit legacy warehouse owner review remains separate.
 
