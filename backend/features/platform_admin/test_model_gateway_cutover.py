@@ -1,5 +1,6 @@
 import ast
 import base64
+import json
 import sys
 import types
 import unittest
@@ -32,6 +33,20 @@ class FakeGateway:
         return SimpleNamespace(output_text=self.output_text)
 
 
+class FakeHttpResponse:
+    def __init__(self, payload):
+        self.payload = json.dumps(payload).encode("utf-8")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def read(self, _limit=-1):
+        return self.payload
+
+
 def _arguments(**overrides):
     values = {
         "file_content": b"",
@@ -46,6 +61,80 @@ def _arguments(**overrides):
 
 
 class PlatformClientCardGatewayCutoverTest(unittest.TestCase):
+    def test_vision_ocr_returns_full_text_with_private_logging_disabled(self):
+        captured = {}
+
+        def open_request(request, timeout):
+            captured["request"] = request
+            captured["timeout"] = timeout
+            return FakeHttpResponse({
+                "textAnnotation": {
+                    "fullText": "ИНН 261908462260\nОГРНИП 320265100091192",
+                },
+            })
+
+        text, warning = routes._recognize_client_card_text_with_vision(
+            b"image-bytes",
+            "card.jpg",
+            "image/jpeg",
+            "private-api-key",
+            "folder-1",
+            open_request=open_request,
+        )
+
+        self.assertEqual(text, "ИНН 261908462260\nОГРНИП 320265100091192")
+        self.assertEqual(warning, "")
+        self.assertEqual(captured["timeout"], 45)
+        request = captured["request"]
+        self.assertEqual(request.full_url, routes.YANDEX_VISION_OCR_URL)
+        self.assertEqual(request.get_header("Authorization"), "Api-Key private-api-key")
+        self.assertEqual(request.get_header("X-data-logging-enabled"), "false")
+        self.assertEqual(request.get_header("X-folder-id"), "folder-1")
+        payload = json.loads(request.data)
+        self.assertEqual(payload["mimeType"], "JPEG")
+        self.assertEqual(payload["languageCodes"], ["ru", "en"])
+        self.assertEqual(payload["model"], "page")
+        self.assertEqual(base64.b64decode(payload["content"]), b"image-bytes")
+
+    def test_vision_ocr_failure_is_safe_and_does_not_leak_credentials(self):
+        def fail_request(_request, _timeout):
+            raise RuntimeError("provider leaked private-api-key")
+
+        text, warning = routes._recognize_client_card_text_with_vision(
+            b"image-bytes",
+            "card.png",
+            "image/png",
+            "private-api-key",
+            "folder-1",
+            open_request=fail_request,
+        )
+
+        self.assertEqual(text, "")
+        self.assertEqual(
+            warning,
+            "Текст изображения не распознан отдельным OCR; использован AI-анализ.",
+        )
+        self.assertNotIn("private-api-key", warning)
+
+    def test_vision_ocr_skips_unsupported_files_without_a_network_call(self):
+        called = False
+
+        def open_request(_request, _timeout):
+            nonlocal called
+            called = True
+
+        text, warning = routes._recognize_client_card_text_with_vision(
+            b"document",
+            "card.docx",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "private-api-key",
+            "folder-1",
+            open_request=open_request,
+        )
+
+        self.assertEqual((text, warning), ("", ""))
+        self.assertFalse(called)
+
     def test_heuristic_does_not_turn_identifiers_or_labels_into_people(self):
         fields = routes._client_card_heuristic(
             """Реквизиты

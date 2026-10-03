@@ -1,6 +1,7 @@
 import {
   buildCompanyOnboardingResult,
   describeClientCardConfidence,
+  describeClientCardSource,
 } from './companyOnboarding';
 
 
@@ -17,6 +18,12 @@ describe('client company onboarding presentation', () => {
       label: 'уверенность 86%',
       level: 'success',
     });
+  });
+
+  test('labels dedicated OCR separately from deterministic rules', () => {
+    expect(describeClientCardSource({source: 'ocr'})).toBe('OCR');
+    expect(describeClientCardSource({source: 'ai'})).toBe('AI/OCR');
+    expect(describeClientCardSource({source: 'heuristic'})).toBe('правила');
   });
 
   test('builds the director handoff from the enriched API response', () => {

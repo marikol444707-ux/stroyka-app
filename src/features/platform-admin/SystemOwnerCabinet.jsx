@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   buildCompanyOnboardingResult,
   describeClientCardConfidence,
+  describeClientCardSource,
 } from './companyOnboarding';
 import ClientContractsPanel from './ClientContractsPanel';
 import './SystemOwnerCabinet.css';
@@ -928,7 +929,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
                 {clientCardRecognition && (
                   <div style={{marginTop:'10px',padding:'10px',backgroundColor:C.card,border:'1px solid '+C.border,borderRadius:'8px'}}>
                     <div style={{display:'flex',justifyContent:'space-between',gap:'8px',alignItems:'center',flexWrap:'wrap',marginBottom:'8px'}}>
-                      <b style={{color:C.text,fontSize:'12px'}}>Распознано: {clientCardRecognition.source === 'ai' ? 'AI/OCR' : 'правила'}</b>
+                      <b style={{color:C.text,fontSize:'12px'}}>Распознано: {describeClientCardSource(clientCardRecognition)}</b>
                       <span style={clientCardConfidence.level === 'success'
                         ? badge(C.success, C.successLight, C.successBorder)
                         : badge(C.warning, C.warningLight, C.warningBorder)}>

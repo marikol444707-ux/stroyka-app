@@ -11,6 +11,13 @@ export function describeClientCardConfidence(recognition = {}) {
 }
 
 
+export function describeClientCardSource(recognition = {}) {
+  if (recognition.source === 'ai') return 'AI/OCR';
+  if (recognition.source === 'ocr') return 'OCR';
+  return 'правила';
+}
+
+
 export function buildCompanyOnboardingResult(response = {}, draft = {}, origin = '') {
   const onboarding = response.onboarding || {};
   const inviteCode = response.inviteCode || onboarding.code || '';
