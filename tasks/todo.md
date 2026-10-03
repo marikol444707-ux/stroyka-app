@@ -2739,6 +2739,40 @@ runtime with a healthy database, and both `/` and `/app` return `200`.
 
 **Estimated scope:** S
 
+### Task M7m10: Register Finance Journal Ownership
+
+**Description:** Register the ten remaining platform/company payment, project and
+contractor payment, accountable, expense-report, payroll and expense journals.
+Treat `company_scope_verified=TRUE` plus exact server-owned parents as the trust
+boundary. Register unverified legacy rows as isolated instead of assigning an
+owner from display names or the historical company `1` default.
+
+**Local implementation:** The registry classifies all ten tables. Migration
+`0093_finance_journal_indexes` adds only the missing company-payment owner index
+and legacy brigade-act parent lookup. It does not insert, update or delete any
+business row and it does not activate the separately gated A11 accounting canary.
+
+**Verification:** Tenant-readiness discovery passes `55/55`; focused finance
+route and ownership tests pass `87/87`; the registry validator reports `134`
+entries with no failures. A disposable PostgreSQL cluster proves both indexes
+are created idempotently and removed by downgrade. Python compilation and diff
+checks pass.
+
+**Release gates:**
+- [ ] Run the bounded read-only production ownership inventory and record only
+      per-source counts/classifications, never money, notes, names or files.
+- [ ] Confirm all unverified legacy rows remain excluded from selected-company
+      reads; do not run the guarded A11 schema/backfill or remediation commands.
+- [ ] Apply `0093`, rerun tenant readiness and coverage, and verify coverage falls
+      from `92` to `82` without changing business-row counts.
+- [ ] Run public smoke, health/service checks and deployment cleanup.
+
+**Dependencies:** M7m9; existing selected-company finance route guards and the
+private A11 inventory/schema contracts. A11 production activation remains a
+separate explicitly approved task.
+
+**Estimated scope:** S
+
 
 **Dependencies:** M7l and the completed M6 runtime isolation slices
 
