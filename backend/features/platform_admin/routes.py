@@ -1286,18 +1286,27 @@ def _client_card_heuristic(text: str) -> dict:
         website = ""
     fields["website"] = website
     fields["legalAddress"] = _client_card_first_match(r"(?:адрес|юр\.?\s*адрес|местонахождение)\s*[:\-]?\s*([^\n]{8,220})", raw)
-    fields["actualAddress"] = _client_card_first_match(r"(?:факт\.?\s*адрес|фактический адрес)\s*[:\-]?\s*([^\n]{8,220})", raw)
+    fields["actualAddress"] = _client_card_first_match(r"(?:факт\.?\s*адрес|фактический адрес|почтовый адрес)\s*[:\-]?\s*([^\n]{8,220})", raw)
     company = _client_card_first_match(r"((?:ООО|АО|ПАО|ЗАО|ИП)\s+[\"«]?[А-ЯЁA-Z0-9][^,\n;]{2,160})", raw)
     if company:
         company = re.sub(r"\s+(?:ИНН|КПП|ОГРН|тел\.?|email|e-mail).*$", "", company, flags=re.IGNORECASE).strip(" ,;")
     company = _client_card_company(company)
+    ip_person = ""
+    if not company:
+        ip_person = _client_card_first_match(
+            r"\bиндивидуальный\s+предприниматель\b\s*[:\-]?\s*([^\n,;]{5,160})",
+            raw,
+        )
+        ip_person = _client_card_person(ip_person)
+        if ip_person:
+            company = "ИП " + ip_person
     fields["companyName"] = company
     if company:
         fields["platformAccountName"] = re.sub(r"^(?:ООО|АО|ПАО|ЗАО|ИП)\s+", "", company, flags=re.IGNORECASE).strip(" \"«»")
         fields["shortName"] = fields["platformAccountName"][:80]
-    person = _client_card_first_match(r"([А-ЯЁ][а-яё-]+(?:\s+[А-ЯЁ][а-яё.-]+){1,2})\s*(?:\n|,|$)", raw)
+    person = ip_person or _client_card_first_match(r"([А-ЯЁ][а-яё-]+(?:\s+[А-ЯЁ][а-яё.-]+){1,2})\s*(?:\n|,|$)", raw)
     person = _client_card_person(person)
-    if person and (not company or person not in company):
+    if person and (ip_person or not company or person not in company):
         fields["contactName"] = person
     position = _client_card_first_match(r"(?:должность|позиция)\s*[:\-]?\s*([^\n]{3,120})", raw)
     if not position:
@@ -1324,6 +1333,21 @@ def _client_card_heuristic(text: str) -> dict:
         note_bits.append("Текст карты: " + compact[:500])
     fields["notes"] = "\n".join(note_bits)
     return fields
+
+
+def _client_card_model_fields(output_text: str) -> dict:
+    fields = _client_card_json(output_text)
+    if fields:
+        return fields
+    fields = _client_card_heuristic(output_text)
+    identity_keys = (
+        "companyName", "inn", "ogrn", "contactName", "contactPhone",
+        "contactEmail", "legalAddress", "actualAddress", "bankName",
+        "bik", "rs", "ks",
+    )
+    if any(fields.get(key) for key in identity_keys):
+        return fields
+    return {}
 
 
 def _normalize_client_card_fields(ai_fields, fallback_fields) -> dict:
@@ -1510,6 +1534,12 @@ _CLIENT_CARD_INSTRUCTIONS = (
     "Верни только валидный JSON."
 )
 
+_CLIENT_CARD_RETRY_INSTRUCTIONS = (
+    _CLIENT_CARD_INSTRUCTIONS
+    + " Первый ответ не содержал реквизитов. Внимательно прочитай изображение или PDF "
+      "построчно, включая таблицы, и верни заполненные поля строго в JSON."
+)
+
 _CLIENT_CARD_PROMPT = (
     "Распознай карту клиента/визитку/реквизиты потенциального клиента строительной ERP. "
     "Верни только JSON без markdown. Не выдумывай значения. Если поля нет — пустая строка. "
@@ -1620,23 +1650,35 @@ def _recognize_client_card_with_ai(file_content: bytes, file_name: str, content_
         fields = {}
         try:
             response = gateway.generate(request)
-            fields = _client_card_json(response.output_text)
+            fields = _client_card_model_fields(response.output_text)
         except ModelGatewayError as error:
             if error.code != MODEL_GATEWAY_EMPTY_OUTPUT:
                 raise
-        retry_input = _client_card_text_retry_input(source_text)
-        if not fields and retry_input:
-            retry_request = build_model_request(
-                capability="platform_client_card",
-                instructions=_CLIENT_CARD_INSTRUCTIONS,
-                input_text=retry_input,
-                temperature=0.1,
-                max_output_tokens=2500,
-                deadline_seconds=120,
-            )
+        retry_request = None
+        if not fields:
+            retry_input = _client_card_text_retry_input(source_text)
+            if retry_input:
+                retry_request = build_model_request(
+                    capability="platform_client_card",
+                    instructions=_CLIENT_CARD_INSTRUCTIONS,
+                    input_text=retry_input,
+                    temperature=0.1,
+                    max_output_tokens=2500,
+                    deadline_seconds=120,
+                )
+            elif file_content:
+                retry_request = build_model_request(
+                    capability="platform_client_card",
+                    instructions=_CLIENT_CARD_RETRY_INSTRUCTIONS,
+                    input_parts=tuple(parts),
+                    temperature=0,
+                    max_output_tokens=2500,
+                    deadline_seconds=120,
+                )
+        if retry_request is not None:
             try:
                 response = gateway.generate(retry_request)
-                fields = _client_card_json(response.output_text)
+                fields = _client_card_model_fields(response.output_text)
             except ModelGatewayError as error:
                 if error.code != MODEL_GATEWAY_EMPTY_OUTPUT:
                     raise
