@@ -19,7 +19,7 @@ class ReleaseRevisionGraphTests(unittest.TestCase):
         config = Config(str(root / 'alembic.ini'))
         config.set_main_option('script_location', str(root / 'migrations'))
         graph = ScriptDirectory.from_config(config)
-        self.assertEqual(graph.get_heads(), ['0092_warehouse_operations_idx'])
+        self.assertEqual(graph.get_heads(), ['0093_finance_journal_indexes'])
         for revision in graph.walk_revisions():
             self.assertLessEqual(len(revision.revision), 32, revision.revision)
 
