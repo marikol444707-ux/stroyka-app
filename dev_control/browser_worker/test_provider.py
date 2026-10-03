@@ -54,6 +54,27 @@ class ProviderPatchTest(unittest.TestCase):
         self.assertEqual(calls[0][0], "https://api.timeweb.ai/v1/chat/completions")
         patch_handle.restore()
 
+
+    def test_rejects_partial_or_foreign_text_model_configuration(self):
+        fake = types.SimpleNamespace(post_json=lambda *_: {})
+        partial = {
+            "TIMEWEB_AI_API_KEY": "secret",
+            "TIMEWEB_TEXT_MODEL": "timeweb-text",
+            "TEXT_MODEL_BASE_URL": "https://external.example/v1",
+        }
+        with self.assertRaisesRegex(JevError, "partial TEXT_MODEL"):
+            install_timeweb_provider(model_module=fake, environ=partial)
+
+        foreign = {
+            "TIMEWEB_AI_API_KEY": "secret",
+            "TIMEWEB_TEXT_MODEL": "timeweb-text",
+            "TEXT_MODEL_API_KEY": "other-secret",
+            "TEXT_MODEL_BASE_URL": "https://external.example/v1",
+            "TEXT_MODEL": "other-model",
+        }
+        with self.assertRaisesRegex(JevError, "cannot be mixed"):
+            install_timeweb_provider(model_module=fake, environ=foreign)
+
     def test_text_helper_is_configured_only_when_explicit_model_is_set(self):
         fake = types.SimpleNamespace(post_json=lambda *_: {})
         env = {
