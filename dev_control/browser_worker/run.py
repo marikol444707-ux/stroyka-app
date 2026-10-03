@@ -7,24 +7,14 @@ import json
 import os
 import time
 from pathlib import Path
-from urllib.parse import urlparse
-
+from dev_control.browser_worker.network_guard import assert_allowed_document_url, install_safe_browser
 from dev_control.browser_worker.provider import install_timeweb_provider
 from dev_control.browser_worker.verifier import verify_final_state
 
 
 def _assert_allowed_url(url: str, base_url: str) -> None:
-    target = urlparse(url)
-    base = urlparse(base_url)
-    if target.scheme not in {"http", "https"}:
-        raise ValueError("QA URL must use http or https")
-    if not base.scheme or not base.netloc:
-        raise ValueError("QA_BASE_URL must be an absolute URL")
-    if (target.scheme, target.netloc) != (base.scheme, base.netloc):
-        raise ValueError("QA URL is outside QA_BASE_URL origin")
-    base_path = base.path.rstrip("/")
-    if base_path and not (target.path == base_path or target.path.startswith(base_path + "/")):
-        raise ValueError("QA URL is outside QA_BASE_URL path")
+    # Backward-compatible name used by offline tests.
+    assert_allowed_document_url(url, base_url)
 
 
 def _sanitize_history(history: list[dict] | None) -> list[dict]:
@@ -71,9 +61,12 @@ def execute_task(
     _assert_allowed_url(url, base_url)
     if not goal.strip():
         raise ValueError("goal must not be empty")
+    if not any((expect_text or (), forbid_text or (), expect_url_contains or ())):
+        raise ValueError("at least one deterministic browser assertion is required")
 
     evidence = _evidence_dir(record_dir)
-    install_timeweb_provider()
+    provider_patch = install_timeweb_provider()
+    install_safe_browser(base_url)
 
     from jev_ultrafast import Agent
 
@@ -98,6 +91,8 @@ def execute_task(
     except Exception as exc:
         error = f"{type(exc).__name__}: {exc}"
         final_state = final_state or {"status": "error", "page": {}}
+    finally:
+        provider_patch.restore()
 
     result = verify_final_state(
         final_state,
