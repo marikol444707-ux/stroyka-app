@@ -54,6 +54,15 @@ class VerifierTest(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertIn("forbid_text[0]:full_text_unavailable", result.failures)
 
+    def test_assertion_values_are_never_echoed_into_result(self):
+        value = "private-assertion-value"
+        result = verify_final_state(
+            {"status": "done", "page": {"url": "https://qa.test/", "text": "", "full_text": ""}},
+            expect_url_contains=[value],
+        )
+        self.assertFalse(result.ok)
+        self.assertNotIn(value, repr(result))
+        self.assertIn("expect_url_contains[0]:missing", result.failures)
     def test_blocked_agent_fails_even_if_text_matches(self):
         result = verify_final_state(
             {"status": "blocked", "page": {"url": "https://qa.test", "text": "Success"}},
