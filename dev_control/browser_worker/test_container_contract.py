@@ -54,6 +54,8 @@ class BrowserWorkerContainerContractTest(unittest.TestCase):
         self.assertIn("WebSocket", network_guard)
         self.assertIn("WebTransport", network_guard)
         self.assertIn("RTCPeerConnection", network_guard)
+        self.assertIn("Storage.setCookies", network_guard)
+        self.assertIn("QA_SESSION_COOKIE_VALUE", network_guard)
         self.assertIn("QA navigation did not commit within 15s", network_guard)
         self.assertIn("self._cleanup_allocations()", network_guard)
         self.assertIn('"type": "worker"', network_guard)
