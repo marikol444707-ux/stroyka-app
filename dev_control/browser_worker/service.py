@@ -24,7 +24,12 @@ app = FastAPI(title="Stroyka Dev Control Browser Worker", docs_url=None, redoc_u
 _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="jev-qa")
 _jobs: dict[str, dict] = {}
 _jobs_lock = threading.Lock()
-_PRODUCTION_HOSTS = frozenset({"stroyka26.pro", "www.stroyka26.pro"})
+_PRODUCTION_HOSTS = frozenset({
+    "stroyka26.pro",
+    "www.stroyka26.pro",
+    "stroyka.pro",
+    "www.stroyka.pro",
+})
 
 
 class JobRequest(BaseModel):
