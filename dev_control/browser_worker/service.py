@@ -166,10 +166,15 @@ def _qa_base_is_nonproduction() -> bool:
     allowed_host = (allowed.hostname or "").lower().rstrip(".")
     if allowed.scheme != "https" or parsed.scheme != "https":
         return False
-    if (parsed.scheme, host, parsed.port or 443) != (
+    try:
+        parsed_port = parsed.port or 443
+        allowed_port = allowed.port or 443
+    except ValueError:
+        return False
+    if (parsed.scheme, host, parsed_port) != (
         allowed.scheme,
         allowed_host,
-        allowed.port or 443,
+        allowed_port,
     ):
         return False
     if host in _PRODUCTION_HOSTS or host.endswith(".stroyka26.pro") or host.endswith(".stroyka.pro"):
