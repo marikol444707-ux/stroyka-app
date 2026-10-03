@@ -28,8 +28,11 @@ def verify_final_state(
     expect_text = tuple(expect_text)
     forbid_text = tuple(forbid_text)
     expect_url_contains = tuple(expect_url_contains)
-    if not any((expect_text, forbid_text, expect_url_contains)):
+    assertions = expect_text + forbid_text + expect_url_contains
+    if not assertions:
         failures.append("no_deterministic_assertions")
+    elif any(not str(value).strip() for value in assertions):
+        failures.append("blank_deterministic_assertion")
 
     status = str(state.get("status") or "")
     if status == "done":
