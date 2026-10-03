@@ -338,6 +338,7 @@ def _execute(job_id: str, request: JobRequest) -> None:
             report = {"ok": False, "failures": [f"worker_timeout>{request.max_seconds}s"]}
         elif report is None:
             process.join(timeout=1.0)
+            _cleanup_qa_browser_contexts()
             report = {
                 "ok": False,
                 "failures": [f"browser subprocess exited without result (code={process.exitcode})"],
