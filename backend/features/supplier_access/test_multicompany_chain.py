@@ -26,6 +26,7 @@ class MultiCompanyChainTest(unittest.TestCase):
         project = f['project'] + ' B'
         self.sql("INSERT INTO platform_accounts(id,name,plan,status) VALUES(2,'CHAIN second account','pro','active')")
         self.sql('UPDATE companies SET platform_account_id=2 WHERE id=3')
+        self.sql('UPDATE company_supplier_links SET platform_account_id=2 WHERE company_id=3')
         self.sql('UPDATE users SET platform_account_id=2 WHERE id=%s', (f['users']['stranger']['id'],))
         self.sql('UPDATE user_company_roles SET platform_account_id=2 WHERE company_id=3')
         f['users']['stranger']['platform_account_id'] = 2
@@ -55,6 +56,21 @@ class MultiCompanyChainTest(unittest.TestCase):
             'itemsKp': [{**item, 'pricePerUnit': 100, 'totalPrice': 200}]})
         self.api(actor, 'PUT', path, {'action': 'select'})
         return request_id, offer['id']
+
+    def test_supply_history_updates_require_exact_company_membership(self):
+        project = self.seed_second_customer()
+        row_id = self.sql("""INSERT INTO supply_history(company_id,supplier_id,material_name,project,status,work_package)
+            VALUES(3,%s,'Test history',%s,'Ожидает поставки','Основная') RETURNING id""",
+            (self.fixture['supplierId'], project))[0][0]
+        path = f'/supply-history/{row_id}'
+        for headers in ({}, {'X-Company-Id': '3'}):
+            self.api('director', 'PUT', path, {'status': 'Принято'}, expected=403, **headers)
+            self.assertEqual(self.sql('SELECT status FROM supply_history WHERE id=%s', (row_id,)),
+                             [('Ожидает поставки',)])
+        self.api('stranger', 'PUT', path, {'status': 'Принято', 'companyId': 2}, expected=409)
+        self.api('stranger', 'PUT', path, {'status': 'Принято'})
+        self.assertEqual(self.sql('SELECT status,company_id FROM supply_history WHERE id=%s', (row_id,)),
+                         [('Принято', 3)])
 
     def test_one_supplier_sees_both_accounts_without_customer_cross_access(self):
         f = self.fixture

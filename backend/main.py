@@ -12609,6 +12609,8 @@ except ModuleNotFoundError:
 
 
 register_supply_history_module(app, {
+    "platform_staff_roles": PLATFORM_STAFF_ROLES,
+    "client_account_roles": CLIENT_ACCOUNT_ROLES,
     "get_db": get_db,
     "get_current_user": get_current_user,
     "require_roles": require_roles,
