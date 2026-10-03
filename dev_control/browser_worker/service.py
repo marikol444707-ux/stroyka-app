@@ -23,7 +23,78 @@ from dev_control.browser_worker.network_guard import assert_allowed_document_url
 from dev_control.browser_worker.run import execute_task
 
 
+_MAX_JOB_BODY_BYTES = 32 * 1024
+
+
+class PreAuthBodyLimitMiddleware:
+    """Authenticate /jobs and cap request bytes before FastAPI parses JSON."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") != "http" or not (
+            scope.get("method") == "POST" and scope.get("path") == "/jobs"
+        ):
+            await self.app(scope, receive, send)
+            return
+
+        headers = {
+            key.decode("latin-1").lower(): value.decode("latin-1")
+            for key, value in scope.get("headers", [])
+        }
+        expected = (os.environ.get("DEV_CONTROL_API_TOKEN") or "").strip()
+        supplied = headers.get("authorization", "")
+        prefix = "Bearer "
+        token = supplied[len(prefix):].strip() if supplied.startswith(prefix) else ""
+        if not expected or not token or not hmac.compare_digest(token, expected):
+            response = JSONResponse(status_code=401, content={"detail": "unauthorized"})
+            await response(scope, receive, send)
+            return
+
+        content_length = headers.get("content-length")
+        if content_length:
+            try:
+                if int(content_length) > _MAX_JOB_BODY_BYTES:
+                    response = JSONResponse(status_code=413, content={"detail": "request body too large"})
+                    await response(scope, receive, send)
+                    return
+            except ValueError:
+                response = JSONResponse(status_code=400, content={"detail": "invalid content-length"})
+                await response(scope, receive, send)
+                return
+
+        total = 0
+        buffered = []
+        more = True
+        while more:
+            message = await receive()
+            if message.get("type") != "http.request":
+                continue
+            body = message.get("body", b"")
+            total += len(body)
+            if total > _MAX_JOB_BODY_BYTES:
+                response = JSONResponse(status_code=413, content={"detail": "request body too large"})
+                await response(scope, receive, send)
+                return
+            buffered.append(body)
+            more = bool(message.get("more_body"))
+
+        payload = b"".join(buffered)
+        delivered = False
+
+        async def replay_receive():
+            nonlocal delivered
+            if delivered:
+                return {"type": "http.request", "body": b"", "more_body": False}
+            delivered = True
+            return {"type": "http.request", "body": payload, "more_body": False}
+
+        await self.app(scope, replay_receive, send)
+
+
 app = FastAPI(title="Stroyka Dev Control Browser Worker", docs_url=None, redoc_url=None)
+app.add_middleware(PreAuthBodyLimitMiddleware)
 _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="jev-qa")
 _jobs: dict[str, dict] = {}
 _jobs_lock = threading.Lock()
