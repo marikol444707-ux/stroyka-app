@@ -2685,12 +2685,13 @@ mismatched ownership; the unauthenticated route returned `401`.
 **Pre-apply evidence:** The 2026-10-03 production inspection was read-only. `warehouse_main` has `173` rows, `warehouse_movements` has `1`, `warehouse_receipt_lots` has `146`, and `warehouse_lot_movements` is empty; all `320` current rows belong to company `1`. Fifteen company, invoice, invoice-line, project, balance, lot, movement and reversal checks for these four tables are clean. The separate `warehouses` directory has one legacy card without `company_id`, so it and its empty event table remain outside this slice pending explicit owner review.
 
 **Acceptance criteria:**
-- [ ] Registry entries identify the stored owner and exact source chain for all four stock tables.
-- [ ] Every registered table has a company-leading index and receipt lots have a project lookup index.
-- [ ] The migration is reversible and contains no data mutation.
-- [ ] Focused migration, readiness, warehouse distribution and material traceability tests pass locally and in CI.
-- [ ] Production migration preserves all counts and quantities, all 15 relationship checks stay clean, readiness has no new schema blockers, coverage falls from `108` to `104`, and smoke passes.
+- [x] Registry entries identify the stored owner and exact source chain for all four stock tables.
+- [x] Every registered table has a company-leading index and receipt lots have a project lookup index.
+- [x] The migration is reversible and contains no data mutation.
+- [x] Focused migration, readiness, warehouse distribution and material traceability tests pass locally and in CI.
+- [x] Production migration preserves all counts and quantities, all 15 relationship checks stay clean, readiness has no new schema blockers, coverage falls from `108` to `104`, and smoke passes.
 
+**Production result:** Runtime `b4be1811` deployed on 2026-10-03 at Alembic head `0091_warehouse_stock_chain_idx`. The pre/post SHA-256 snapshots and totals match for all four tables: `warehouse_main` `173`, `warehouse_movements` `1`, `warehouse_receipt_lots` `146`, and `warehouse_lot_movements` `0`. All 15 owner and lineage checks are zero, the four company-leading indexes and the receipt-lot project lookup are present, and readiness checked `84` stored tables with `schemaBlockers=0`. Coverage now has `111` registered physical tables and `104` remaining (`56 critical`, `14 high`, `34 unclassified`). Deploy smoke passed, all three services are active, `54G` is free, and no temporary frontend build remains.
 **Dependencies:** M7m8 follows M7m7; warehouse-directory ownership is deliberately separate.
 
 **Estimated scope:** S
