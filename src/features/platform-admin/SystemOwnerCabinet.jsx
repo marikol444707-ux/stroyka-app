@@ -731,28 +731,26 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
     setNewCompany(prev => {
       return {
         ...prev,
-        platformAccountName: prev.platformAccountId ? prev.platformAccountName : (fields.platformAccountName || prev.platformAccountName),
-        name: fields.companyName || prev.name,
-        shortName: fields.shortName || prev.shortName,
-        inn: fields.inn || prev.inn,
-        kpp: fields.kpp || prev.kpp,
-        ogrn: fields.ogrn || prev.ogrn,
-        legalAddress: fields.legalAddress || prev.legalAddress,
-        actualAddress: fields.actualAddress || prev.actualAddress,
-        directorName: fields.directorName || fields.contactName || prev.directorName,
-        directorPosition: fields.directorPosition || fields.contactPosition || prev.directorPosition,
-        basis: fields.basis || prev.basis,
-        bankName: fields.bankName || prev.bankName,
-        bik: fields.bik || prev.bik,
-        rs: fields.rs || prev.rs,
-        ks: fields.ks || prev.ks,
-        contactName: fields.contactName || prev.contactName,
-        contactPhone: fields.contactPhone || prev.contactPhone,
-        contactEmail: fields.contactEmail || prev.contactEmail,
-        website: fields.website || prev.website,
-        notes: fields.notes && !String(prev.notes || '').includes(fields.notes)
-          ? [prev.notes, fields.notes].filter(Boolean).join('\n')
-          : prev.notes,
+        platformAccountName: prev.platformAccountId ? prev.platformAccountName : (prev.platformAccountName || fields.platformAccountName || ''),
+        name: prev.name || fields.companyName || '',
+        shortName: prev.shortName || fields.shortName || '',
+        inn: prev.inn || fields.inn || '',
+        kpp: prev.kpp || fields.kpp || '',
+        ogrn: prev.ogrn || fields.ogrn || '',
+        legalAddress: prev.legalAddress || fields.legalAddress || '',
+        actualAddress: prev.actualAddress || fields.actualAddress || '',
+        directorName: prev.directorName || fields.directorName || fields.contactName || '',
+        directorPosition: prev.directorPosition || fields.directorPosition || fields.contactPosition || '',
+        basis: prev.basis || fields.basis || '',
+        bankName: prev.bankName || fields.bankName || '',
+        bik: prev.bik || fields.bik || '',
+        rs: prev.rs || fields.rs || '',
+        ks: prev.ks || fields.ks || '',
+        contactName: prev.contactName || fields.contactName || '',
+        contactPhone: prev.contactPhone || fields.contactPhone || '',
+        contactEmail: prev.contactEmail || fields.contactEmail || '',
+        website: prev.website || fields.website || '',
+        notes: prev.notes || fields.notes || '',
       };
     });
   }, []);
@@ -919,7 +917,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',flexWrap:'wrap'}}>
                   <div>
                     <b style={{color:C.info,fontSize:'13px',display:'block'}}>⚡ Быстрая загрузка карты клиента</b>
-                    <p style={{color:C.textSec,fontSize:'11px',margin:'3px 0 0'}}>Фото, PDF, Word, Excel, TXT/CSV/RTF или другой файл с реквизитами. Система заполнит поля формы, но компанию создаст только после сохранения.</p>
+                    <p style={{color:C.textSec,fontSize:'11px',margin:'3px 0 0'}}>Фото, PDF, Word, Excel, TXT/CSV/RTF или другой файл с реквизитами. Заполним пустые поля, а введённые данные сохраним. Компания создаётся только после сохранения.</p>
                   </div>
                   <label style={{...btnO,cursor:clientCardScanning?'default':'pointer',opacity:clientCardScanning?0.65:1}}>
                     {clientCardScanning?'⏳ Распознаю...':'📷 Загрузить карту'}
@@ -956,7 +954,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
                     {(clientCardRecognition.warnings || []).length > 0 && (
                       <p style={{color:C.warning,fontSize:'11px',margin:'8px 0 0'}}>⚠️ {clientCardRecognition.warnings.join(' · ')}</p>
                     )}
-                    <button type='button' onClick={()=>applyClientCardFields(clientCardRecognition.fields || {})} style={{...btnG,padding:'5px 10px',fontSize:'11px',marginTop:'8px'}}>Применить поля еще раз</button>
+                    <button type='button' onClick={()=>applyClientCardFields(clientCardRecognition.fields || {})} style={{...btnG,padding:'5px 10px',fontSize:'11px',marginTop:'8px'}}>Заполнить пустые поля</button>
                   </div>
                 )}
               </div>
