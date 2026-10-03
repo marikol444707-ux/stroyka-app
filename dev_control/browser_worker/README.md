@@ -112,3 +112,15 @@ origin QA_BASE_URL (scheme + host + port). Известные production-дом�
 - Автоматический deploy/build from latest commit должен быть ВЫКЛЮЧЕН.
 - Развёртывание worker выполняется только вручную с заранее проверенного commit SHA.
 - Production deploy и production migrations этим worker не выполняются.
+
+## Авторизация QA
+
+Пароли, 2FA-коды и session tokens нельзя помещать в goal или assertions.
+Для защищённых сценариев worker принимает заранее созданную тестовую session cookie
+только через runtime secrets:
+
+    QA_SESSION_COOKIE_NAME=<имя cookie>
+    QA_SESSION_COOKIE_VALUE=<секрет>
+
+Cookie внедряется локально в новый изолированный BrowserContext до открытия страницы
+и не передаётся Jev/Timeweb. Для startup self-test эти переменные не нужны.
