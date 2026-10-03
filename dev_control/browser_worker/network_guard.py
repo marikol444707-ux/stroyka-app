@@ -85,6 +85,7 @@ class NetworkBoundary:
         self._error: str | None = None
         self._thread = threading.Thread(target=self._loop, name="qa-network-boundary", daemon=True)
         self._guarded_sessions = {session_id}
+        self._child_targets: set[str] = set()
 
     def start(self) -> None:
         self._enable_session(self._session_id)
@@ -113,6 +114,8 @@ class NetworkBoundary:
         target_type = target_info.get("type")
         initial_url = str(target_info.get("url") or "about:blank")
 
+        if target_id:
+            self._child_targets.add(target_id)
         if not child_session:
             return
         if target_type == "page" and initial_url not in {"", "about:blank"}:
@@ -177,6 +180,11 @@ class NetworkBoundary:
     def close(self) -> None:
         self._stop.set()
         self._thread.join(timeout=1.0)
+        for target_id in tuple(self._child_targets):
+            try:
+                self._cdp("Target.closeTarget", targetId=target_id)
+            except Exception:
+                pass
         try:
             self._cdp("Fetch.disable", session_id=self._session_id)
         except Exception:
