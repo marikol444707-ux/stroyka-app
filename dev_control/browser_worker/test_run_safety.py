@@ -11,6 +11,16 @@ class BrowserWorkerUrlSafetyTest(unittest.TestCase):
             "https://qa.example.test/app",
         )
 
+    def test_default_https_port_is_canonicalized(self):
+        _assert_allowed_url(
+            "https://qa.example.test/app/warehouse",
+            "https://qa.example.test:443/app",
+        )
+        self.assertTrue(request_allowed(
+            "https://qa.example.test/app/data",
+            "https://qa.example.test:443/app",
+            "XHR",
+        ))
     def test_rejects_other_origin(self):
         with self.assertRaisesRegex(ValueError, "origin"):
             _assert_allowed_url(
