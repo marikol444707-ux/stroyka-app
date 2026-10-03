@@ -2622,6 +2622,23 @@ mismatched ownership; the unauthenticated route returned `401`.
 
 **Estimated scope:** S
 
+### Task M7m5: Register Work-Acceptance And Rework Ownership
+
+**Description:** Register immutable work acceptance decisions, their exact parent-child rework lineage and repeat submissions as strict stored-company data. Add company-leading indexes for reviews, rework links and submissions without changing work quantities, statuses, decisions or historical rows.
+
+**Pre-apply evidence:** The 2026-10-03 production inspection was read-only. `work_acceptance_reviews`, `work_rework_links` and `work_rework_submissions` are empty. No company owner is null or orphaned, and all 15 company, project, work account, operation, review, parent, link and actor relationship checks report zero mismatches.
+
+**Acceptance criteria:**
+- [ ] Registry entries identify the exact stored owner and parent chain for all three tables.
+- [ ] Company-leading indexes cover acceptance reviews, rework links and repeat submissions.
+- [ ] The migration is reversible and contains no data mutation.
+- [ ] Focused acceptance, ownership and migration tests pass locally and in CI.
+- [ ] Production migration applies, all three tables remain unchanged, readiness has no new schema blockers, coverage falls from `120` to `117`, and smoke passes.
+
+**Dependencies:** M7m4
+
+**Estimated scope:** S
+
 
 **Dependencies:** M7l and the completed M6 runtime isolation slices
 

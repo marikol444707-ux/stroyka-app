@@ -209,6 +209,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M7m2: Register the eight proven company-profile, company-archive and supplier-contract tables and add six reversible company lookup indexes. Production runtime `83a773de` is on Alembic head `0085`; all `10/10` rows retain valid stored owners, all nine relationship checks are clean, readiness has zero schema blockers, and coverage fell from `138` to `130`.
 - [x] Task M7m3: Remove implicit company `1` ownership from the three project-launch tables and add explicit company/supplier ownership to `supplier_documents`. Production runtime `858624dc` is on Alembic head `0086`; all four tables remain empty, all five owner constraints are installed, readiness has zero schema blockers, and coverage fell from `130` to `126`.
 - [x] Task M7m4: Register the six work-material accounting tables and add three reversible company-leading indexes. Production runtime `04407278` is on Alembic head `0087`; all five idempotency operations remain complete and unchanged, the child tables remain empty, all 14 parent checks are clean, and coverage fell from `126` to `120`.
+- [ ] Task M7m5: Register the three work-acceptance and rework tables and add three reversible company-leading indexes without changing work quantities, statuses, decisions or history.
 
 ### Checkpoint: SaaS Boundary
 
