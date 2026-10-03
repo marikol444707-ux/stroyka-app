@@ -55,3 +55,13 @@ export const detectMobileLayout = () => {
   const mobileUa = typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
   return width < 768 || ((coarsePointer || mobileUa) && width < 1100);
 };
+
+// Return the effective style: if `prop` is an object with keys, use it; otherwise use `def`.
+export const effectiveStyle = (prop, def) => {
+  try {
+    if (prop && typeof prop === 'object' && !Array.isArray(prop) && Object.keys(prop).length > 0) return prop;
+  } catch (e) {
+    // ignore and fallthrough to default
+  }
+  return def;
+};
