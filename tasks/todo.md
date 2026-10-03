@@ -2629,11 +2629,13 @@ mismatched ownership; the unauthenticated route returned `401`.
 **Pre-apply evidence:** The 2026-10-03 production inspection was read-only. `work_acceptance_reviews`, `work_rework_links` and `work_rework_submissions` are empty. No company owner is null or orphaned, and all 15 company, project, work account, operation, review, parent, link and actor relationship checks report zero mismatches.
 
 **Acceptance criteria:**
-- [ ] Registry entries identify the exact stored owner and parent chain for all three tables.
-- [ ] Company-leading indexes cover acceptance reviews, rework links and repeat submissions.
-- [ ] The migration is reversible and contains no data mutation.
-- [ ] Focused acceptance, ownership and migration tests pass locally and in CI.
-- [ ] Production migration applies, all three tables remain unchanged, readiness has no new schema blockers, coverage falls from `120` to `117`, and smoke passes.
+- [x] Registry entries identify the exact stored owner and parent chain for all three tables.
+- [x] Company-leading indexes cover acceptance reviews, rework links and repeat submissions.
+- [x] The migration is reversible and contains no data mutation.
+- [x] Focused acceptance, ownership and migration tests pass locally and in CI.
+- [x] Production migration applies, all three tables remain unchanged, readiness has no new schema blockers, coverage falls from `120` to `117`, and smoke passes.
+
+**Production result:** Runtime `58931393` deployed on 2026-10-03. Alembic reports `0088_work_acceptance_indexes (head)`, and all three company-leading indexes exist. The acceptance-review, rework-link and repeat-submission tables remain empty, and all 15 exact company, project, work, operation, review, parent, link and actor checks report zero mismatches. The read-only readiness audit has zero schema blockers; registry coverage is now `98` physical tables with `117` still unregistered (`69 critical`, `14 high`, `34 unclassified`). Both application services and nginx are active, public and asset smoke passed, `54G` remains free and no temporary frontend build remains.
 
 **Dependencies:** M7m4
 
