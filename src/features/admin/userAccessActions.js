@@ -13,6 +13,7 @@ export const createUserAccessActions = ({
   setShowForm,
   supplierInviteForm,
   user,
+  companyContext,
 }) => {
   const scopedFetch = async (url, options = {}) => {
     const companyId = companyContext?.selectedCompanyId;
@@ -126,6 +127,7 @@ export const createUserAccessActions = ({
       presetName: supplierInviteForm.presetName || '',
       presetCategory: supplierInviteForm.presetCategory || '',
       supplierId: supplierInviteForm.supplierId,
+      companyId: companyContext?.selectedCompanyId || companyContext?.selectedCompany?.companyId || null,
       expiresInDays: supplierInviteForm.expiresInDays || 14,
       createdBy: user?.name || '',
     };
