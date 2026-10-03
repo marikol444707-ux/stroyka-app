@@ -18,7 +18,7 @@ class VerifierTest(unittest.TestCase):
             expect_text=["Success"],
         )
         self.assertFalse(result.ok)
-        self.assertIn("text_missing:Success", result.failures)
+        self.assertIn("expect_text[0]:missing", result.failures)
 
     def test_passes_observable_assertions(self):
         result = verify_final_state(
@@ -52,7 +52,7 @@ class VerifierTest(unittest.TestCase):
             forbid_text=["Forbidden"],
         )
         self.assertFalse(result.ok)
-        self.assertIn("full_text_unavailable:Forbidden", result.failures)
+        self.assertIn("forbid_text[0]:full_text_unavailable", result.failures)
 
     def test_blocked_agent_fails_even_if_text_matches(self):
         result = verify_final_state(
