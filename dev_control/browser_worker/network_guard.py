@@ -290,6 +290,7 @@ def install_safe_browser(base_url: str):
                     mobile=False,
                 )
                 self.call("Emulation.setFocusEmulationEnabled", enabled=True)
+                self.call("Browser.setDownloadBehavior", behavior="deny")
                 self._qa_boundary = NetworkBoundary(self.session, base_url)
                 self._qa_boundary.start()
 
