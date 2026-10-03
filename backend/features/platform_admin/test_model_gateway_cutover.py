@@ -61,6 +61,38 @@ def _arguments(**overrides):
 
 
 class PlatformClientCardGatewayCutoverTest(unittest.TestCase):
+    def test_provider_refusal_is_not_requisites(self):
+        reply = "Не удалось распознать изображение карточки или реквизитов. Пожалуйста, загрузите документ ещё раз."
+        self.assertEqual(routes._client_card_model_fields(reply), {})
+        self.assertEqual(routes._client_card_person("или реквизитов. Пожалуйста"), "")
+
+    def test_vision_http_denial_explains_access_without_leaking_body(self):
+        from urllib.error import HTTPError
+        def denied(request, timeout):
+            raise HTTPError(request.full_url, 403, "private-key", {}, None)
+        text, warning = routes._recognize_client_card_text_with_vision(
+            b"image", "card.jpg", "image/jpeg", "private-key", "folder", open_request=denied)
+        self.assertEqual(text, "")
+        self.assertIn("403", warning)
+        self.assertIn("доступ", warning)
+        self.assertNotIn("private-key", warning)
+
+    def test_rejected_image_answer_retries_and_returns_no_fields(self):
+        gateway = FakeGateway(output_texts=[
+            "Не удалось распознать изображение карточки или реквизитов. Пожалуйста, загрузите документ ещё раз.",
+            "Не могу прочитать изображение.",
+        ])
+        with patch.object(routes, "build_yandex_model_adapter", return_value=gateway):
+            fields, warnings = routes._recognize_client_card_with_ai(**_arguments(
+                file_content=b"image", file_name="card.jpg", content_type="image/jpeg", source_text=""))
+        self.assertEqual(fields, {})
+        self.assertEqual(len(gateway.requests), 2)
+        self.assertIn(routes._CLIENT_CARD_INVALID_OUTPUT_WARNING, warnings)
+
+    def test_person_validation_preserves_full_names_and_initials(self):
+        for name in ("Иванов Иван Иванович", "ИГНАТЯН АРА ГЕВОРГОВИЧ", "Иванов И. И."):
+            self.assertEqual(routes._client_card_person(name), name)
+
     def test_vision_ocr_returns_full_text_with_private_logging_disabled(self):
         captured = {}
 
@@ -97,7 +129,7 @@ class PlatformClientCardGatewayCutoverTest(unittest.TestCase):
         self.assertEqual(base64.b64decode(payload["content"]), b"image-bytes")
 
     def test_vision_ocr_failure_is_safe_and_does_not_leak_credentials(self):
-        def fail_request(_request, _timeout):
+        def fail_request(_request, timeout):
             raise RuntimeError("provider leaked private-api-key")
 
         text, warning = routes._recognize_client_card_text_with_vision(
@@ -112,7 +144,7 @@ class PlatformClientCardGatewayCutoverTest(unittest.TestCase):
         self.assertEqual(text, "")
         self.assertEqual(
             warning,
-            "Текст изображения не распознан отдельным OCR; использован AI-анализ.",
+            "OCR: внутренняя ошибка обработки ответа.",
         )
         self.assertNotIn("private-api-key", warning)
 

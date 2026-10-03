@@ -4,6 +4,8 @@ import base64
 import json
 import mimetypes
 import urllib.request
+import urllib.error
+import socket
 
 
 YANDEX_VISION_OCR_URL = "https://ai.api.cloud.yandex.net/ocr/v1/recognizeText"
@@ -71,6 +73,22 @@ def recognize_text_with_vision(
         text = str(text or "").strip()[:32000]
         if text:
             return text, ""
+    except urllib.error.HTTPError as error:
+        explanations = {
+            400: "сервис отклонил файл или параметры запроса",
+            401: "ключ не прошёл проверку",
+            403: "нет доступа к OCR: проверьте права ключа и сервисного аккаунта",
+            429: "превышен лимит запросов",
+        }
+        reason = explanations.get(error.code, "ошибка сервиса распознавания")
+        return "", f"OCR: {reason} (HTTP {error.code})."
+    except (TimeoutError, socket.timeout):
+        return "", "OCR: сервис не ответил за 45 секунд."
+    except urllib.error.URLError:
+        return "", "OCR: не удалось соединиться с сервисом распознавания."
+    except (ValueError, UnicodeError):
+        return "", "OCR: сервис вернул некорректный ответ."
     except Exception:
-        pass
-    return "", "Текст изображения не распознан отдельным OCR; использован AI-анализ."
+        return "", "OCR: внутренняя ошибка обработки ответа."
+
+    return "", "OCR: сервис не нашёл текст в файле."

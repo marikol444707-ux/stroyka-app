@@ -28,7 +28,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
   const [showNewCompany, setShowNewCompany] = useState(false);
   const emptyCompanyForm = {
     platformAccountId:'', platformAccountName:'', name:'', shortName:'', inn:'', kpp:'', ogrn:'',
-    legalAddress:'', actualAddress:'', directorName:'', directorPosition:'Генеральный директор', basis:'Устава',
+    legalAddress:'', actualAddress:'', directorName:'', directorPosition:'', basis:'',
     bankName:'', bik:'', rs:'', ks:'', contactName:'', contactPhone:'', contactEmail:'', website:'',
     plan:'demo', trialDays:30, monthlyFee:'', maxProjects:'', maxUsers:'', notes:'',
   };
@@ -929,7 +929,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
                 {clientCardRecognition && (
                   <div style={{marginTop:'10px',padding:'10px',backgroundColor:C.card,border:'1px solid '+C.border,borderRadius:'8px'}}>
                     <div style={{display:'flex',justifyContent:'space-between',gap:'8px',alignItems:'center',flexWrap:'wrap',marginBottom:'8px'}}>
-                      <b style={{color:C.text,fontSize:'12px'}}>Распознано: {describeClientCardSource(clientCardRecognition)}</b>
+                      <b style={{color:C.text,fontSize:'12px'}}>{clientCardRecognition.source === 'empty' ? 'Не удалось распознать реквизиты' : `Распознано: ${describeClientCardSource(clientCardRecognition)}`}</b>
                       <span style={clientCardConfidence.level === 'success'
                         ? badge(C.success, C.successLight, C.successBorder)
                         : badge(C.warning, C.warningLight, C.warningBorder)}>
