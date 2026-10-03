@@ -4,7 +4,15 @@ from unittest.mock import patch
 
 from fastapi import HTTPException
 
-from dev_control.browser_worker.service import _authorize, _configured, _max_pending_jobs, _startup_selftest_enabled
+from dev_control.browser_worker.service import (
+    _authorize,
+    _configured,
+    _evidence_ttl_seconds,
+    _max_pending_jobs,
+    _qa_base_is_nonproduction,
+    _startup_selftest_enabled,
+    health,
+)
 
 
 class BrowserWorkerServiceConfigTest(unittest.TestCase):
@@ -32,6 +40,29 @@ class BrowserWorkerServiceConfigTest(unittest.TestCase):
             self.assertTrue(_startup_selftest_enabled())
         with patch.dict(os.environ, {**base, "QA_BASE_URL": "https://stroyka26.pro"}, clear=True):
             self.assertFalse(_startup_selftest_enabled())
+
+
+    def test_production_origin_is_denied_even_when_labeled_staging(self):
+        env = {
+            "DEV_CONTROL_API_TOKEN": "api-secret",
+            "TIMEWEB_AI_API_KEY": "ai-secret",
+            "QA_BASE_URL": "https://stroyka26.pro",
+            "QA_ENVIRONMENT": "staging",
+        }
+        with patch.dict(os.environ, env, clear=True):
+            self.assertFalse(_qa_base_is_nonproduction())
+            self.assertFalse(_configured())
+            self.assertEqual(health().status_code, 503)
+
+    def test_health_is_503_when_required_configuration_is_missing(self):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(health().status_code, 503)
+
+    def test_evidence_ttl_is_bounded(self):
+        with patch.dict(os.environ, {"QA_EVIDENCE_TTL_SECONDS": "1"}, clear=True):
+            self.assertEqual(_evidence_ttl_seconds(), 60)
+        with patch.dict(os.environ, {"QA_EVIDENCE_TTL_SECONDS": "999999"}, clear=True):
+            self.assertEqual(_evidence_ttl_seconds(), 86400)
 
     def test_queue_limit_is_small_and_clamped(self):
         with patch.dict(os.environ, {}, clear=True):
