@@ -18,6 +18,28 @@ def _assert_allowed_url(url: str, base_url: str) -> None:
     assert_allowed_document_url(url, base_url)
 
 
+_SENSITIVE_PATH_MARKERS = frozenset({
+    "reset", "password-reset", "magic", "magic-link", "verify", "verification",
+    "invite", "invitation", "callback", "oauth", "token",
+})
+
+
+def _redact_path(path: str) -> str:
+    segments = path.split("/")
+    redact_next = False
+    output = []
+    for segment in segments:
+        lowered = segment.lower()
+        if redact_next and segment:
+            output.append("[REDACTED]")
+            redact_next = False
+            continue
+        output.append(segment)
+        if lowered in _SENSITIVE_PATH_MARKERS:
+            redact_next = True
+    return "/".join(output)
+
+
 _SENSITIVE_QUERY_MARKERS = (
     "token", "code", "password", "secret", "key", "auth", "signature", "sig", "session",
 )
@@ -35,7 +57,7 @@ def _redact_url(url: str | None) -> str | None:
             if any(marker in lowered for marker in _SENSITIVE_QUERY_MARKERS)
             else (key, value)
         )
-    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(safe_query), ""))
+    return urlunsplit((parts.scheme, parts.netloc, _redact_path(parts.path), urlencode(safe_query), ""))
 
 
 def _sanitize_history(history: list[dict] | None) -> list[dict]:
