@@ -61,6 +61,30 @@ def _arguments(**overrides):
 
 
 class PlatformClientCardGatewayCutoverTest(unittest.TestCase):
+    def test_server_probe_uses_synthetic_input_and_never_prints_provider_text(self):
+        import contextlib
+        import io
+        import runpy
+        from backend.features.model_gateway import vision_ocr
+        script = BACKEND_ROOT.parent / "scripts" / "check-vision-ocr.py"
+        probe = runpy.run_path(str(script))["main"]
+        config = SimpleNamespace(YANDEX_API_KEY="private-key", YANDEX_FOLDER_ID="folder")
+        for result, exit_code, message in (
+            (("1234567890", ""), 0, "OK OCR"),
+            (("private document", ""), 1, "тестовые цифры"),
+            (("", "OCR: нет доступа (HTTP 403)."), 1, "403"),
+        ):
+            with self.subTest(result=result):
+                output = io.StringIO()
+                with patch.dict(sys.modules, {"backend.config": config}), patch.object(
+                    vision_ocr, "recognize_text_with_vision", return_value=result,
+                ) as recognize, contextlib.redirect_stdout(output):
+                    self.assertEqual(probe(), exit_code)
+                self.assertTrue(recognize.call_args.args[0].startswith(b"\x89PNG"))
+                self.assertIn(message, output.getvalue())
+                self.assertNotIn("private-key", output.getvalue())
+                self.assertNotIn("private document", output.getvalue())
+
     def test_provider_refusal_is_not_requisites(self):
         reply = "Не удалось распознать изображение карточки или реквизитов. Пожалуйста, загрузите документ ещё раз."
         self.assertEqual(routes._client_card_model_fields(reply), {})
@@ -88,6 +112,14 @@ class PlatformClientCardGatewayCutoverTest(unittest.TestCase):
         self.assertEqual(fields, {})
         self.assertEqual(len(gateway.requests), 2)
         self.assertIn(routes._CLIENT_CARD_INVALID_OUTPUT_WARNING, warnings)
+
+    def test_json_warning_does_not_discard_real_identifiers(self):
+        reply = json.dumps({"inn": "261908462260", "warnings": ["Не удалось распознать адрес"]})
+        self.assertEqual(routes._client_card_model_fields(reply)["inn"], "261908462260")
+
+    def test_json_with_only_invalid_names_and_guessed_position_is_empty(self):
+        reply = json.dumps({"contactName": "или реквизитов. Пожалуйста", "directorPosition": "Генеральный директор", "basis": "Устава"})
+        self.assertEqual(routes._client_card_model_fields(reply), {})
 
     def test_person_validation_preserves_full_names_and_initials(self):
         for name in ("Иванов Иван Иванович", "ИГНАТЯН АРА ГЕВОРГОВИЧ", "Иванов И. И."):

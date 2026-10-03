@@ -1346,21 +1346,24 @@ def _client_card_heuristic(text: str) -> dict:
 
 
 def _client_card_model_fields(output_text: str) -> dict:
-    # A provider's conversational refusal must never become source document text.
-    if re.search(r"(?:не удалось|не могу|невозможно)\s+(?:над[её]жно\s+)?(?:распознать|прочитать|извлечь)|(?:пожалуйста|прошу)[, ]+загрузите", output_text or "", re.IGNORECASE):
-        return {}
-    fields = _client_card_json(output_text)
-    if fields:
-        return fields
-    fields = _client_card_heuristic(output_text)
     identity_keys = (
         "companyName", "inn", "ogrn", "contactName", "contactPhone",
         "contactEmail", "legalAddress", "actualAddress", "bankName",
         "bik", "rs", "ks",
     )
-    if any(fields.get(key) for key in identity_keys):
-        return fields
-    return {}
+    fields = _client_card_json(output_text)
+    if fields:
+        normalized = _normalize_client_card_fields(fields, {})
+        return fields if any(normalized.get(key) for key in identity_keys) else {}
+    # A provider's conversational refusal must never become source document text.
+    if re.search(
+        r"(?:не удалось|не могу|невозможно)\s+(?:над[её]жно\s+)?(?:распознать|прочитать|извлечь)"
+        r"|(?:пожалуйста|прошу)[, ]+загрузите",
+        output_text or "", re.IGNORECASE,
+    ):
+        return {}
+    fields = _normalize_client_card_fields(_client_card_heuristic(output_text), {})
+    return fields if any(fields.get(key) for key in identity_keys) else {}
 
 
 def _normalize_client_card_fields(ai_fields, fallback_fields) -> dict:
