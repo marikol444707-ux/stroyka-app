@@ -68,9 +68,14 @@ def recognize_text_with_vision(
         if len(raw) > YANDEX_VISION_OCR_MAX_RESPONSE_BYTES:
             raise ValueError("OCR response is too large")
         data = json.loads(raw.decode("utf-8"))
-        annotation = data.get("textAnnotation") if isinstance(data, dict) else None
-        text = annotation.get("fullText") if isinstance(annotation, dict) else ""
-        text = str(text or "").strip()[:32000]
+        result = data.get("result") if isinstance(data, dict) else None
+        annotation = result.get("textAnnotation") if isinstance(result, dict) else None
+        if not isinstance(annotation, dict):
+            raise ValueError("Unexpected OCR response envelope")
+        text = annotation.get("fullText", "")
+        if not isinstance(text, str):
+            raise ValueError("Unexpected OCR text type")
+        text = text.strip()[:32000]
         if text:
             return text, ""
     except urllib.error.HTTPError as error:

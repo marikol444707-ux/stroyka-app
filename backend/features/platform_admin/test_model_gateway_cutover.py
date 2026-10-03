@@ -132,8 +132,10 @@ class PlatformClientCardGatewayCutoverTest(unittest.TestCase):
             captured["request"] = request
             captured["timeout"] = timeout
             return FakeHttpResponse({
-                "textAnnotation": {
-                    "fullText": "ИНН 261908462260\nОГРНИП 320265100091192",
+                "result": {
+                    "textAnnotation": {
+                        "fullText": "ИНН 261908462260\nОГРНИП 320265100091192",
+                    },
                 },
             })
 
@@ -159,6 +161,22 @@ class PlatformClientCardGatewayCutoverTest(unittest.TestCase):
         self.assertEqual(payload["languageCodes"], ["ru", "en"])
         self.assertEqual(payload["model"], "page")
         self.assertEqual(base64.b64decode(payload["content"]), b"image-bytes")
+
+    def test_vision_ocr_distinguishes_empty_annotation_from_invalid_response(self):
+        for payload, expected in (
+            ({"result": {"textAnnotation": {"fullText": ""}}}, "не нашёл текст"),
+            ({"textAnnotation": {"fullText": "1234567890"}}, "некорректный ответ"),
+            ({"result": {"textAnnotation": {"fullText": ["123"]}}}, "некорректный ответ"),
+            ({"result": {"private": "secret-value"}}, "некорректный ответ"),
+        ):
+            with self.subTest(payload=payload):
+                text, warning = routes._recognize_client_card_text_with_vision(
+                    b"image", "card.png", "image/png", "key", "folder",
+                    open_request=lambda request, timeout: FakeHttpResponse(payload),
+                )
+                self.assertEqual(text, "")
+                self.assertIn(expected, warning)
+                self.assertNotIn("secret-value", warning)
 
     def test_vision_ocr_failure_is_safe_and_does_not_leak_credentials(self):
         def fail_request(_request, timeout):
