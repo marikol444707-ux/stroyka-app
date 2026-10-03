@@ -56,6 +56,27 @@ class WorkMaterialBuildFlagsTests(unittest.TestCase):
         self.assertIn(KEY + '=1', result.stdout.splitlines())
         self.assertIn('REACT_APP_ASSIGNMENT_DAILY_DRAFT_PREVIEW_COMPANY_IDS=2', result.stdout)
 
+    def test_acceptance_mode_is_mirrored_with_service_precedence(self):
+        result = self.resolve('WORK_ACCEPTANCE_ENABLED=1', 'WORK_ACCEPTANCE_ENABLED=0')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('REACT_APP_WORK_ACCEPTANCE_ENABLED=1', result.stdout.splitlines())
+        result = self.resolve(contents='WORK_ACCEPTANCE_ENABLED=1')
+        self.assertIn('REACT_APP_WORK_ACCEPTANCE_ENABLED=1', result.stdout.splitlines())
+        result = self.resolve('WORK_ACCEPTANCE_ENABLED=invalid-value')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn('invalid-value', result.stderr)
+
+    def test_acceptance_release_rejects_mismatched_mode_or_missing_workflow(self):
+        for mode in ('0', '1'):
+            root = self.build('1')
+            with (root / 'index.html').open('a') as file:
+                file.write(f'<meta name="stroyka-work-acceptance" content="{mode}">')
+            with self.assertRaisesRegex(ValueError, 'приёмки работ'):
+                verify_module.verify(root, 'REACT_APP_WORK_ACCEPTANCE_ENABLED=1')
+            if mode == '1':
+                (root / 'main.js').write_text('/acceptance /resubmit')
+                verify_module.verify(root, 'REACT_APP_WORK_ACCEPTANCE_ENABLED=1')
+
     def build(self, mode, source='materialAccountingVersion stroyka:work-material-batch:v2:'):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)

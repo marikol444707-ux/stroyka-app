@@ -6,14 +6,15 @@ import sys
 from pathlib import Path
 
 
-class WorkMaterialBuildMetadata(HTMLParser):
-    def __init__(self):
+class FeatureBuildMetadata(HTMLParser):
+    def __init__(self, name):
         super().__init__()
+        self.name = name
         self.values = []
 
     def handle_starttag(self, tag, attrs):
         values = dict(attrs)
-        if tag == "meta" and values.get("name") == "stroyka-work-material-accounting":
+        if tag == "meta" and values.get("name") == self.name:
             self.values.append(values.get("content"))
 
 
@@ -23,15 +24,21 @@ def verify(build_dir: Path, build_environment: str) -> None:
         for line in build_environment.splitlines()
         if "=" in line
     )
-    work_mode = flags.get("REACT_APP_WORK_MATERIAL_ACCOUNTING_ENABLED")
-    if work_mode is not None:
-        if work_mode not in {"0", "1"}:
-            raise ValueError("Некорректный режим учёта материалов в сборке")
-        metadata = WorkMaterialBuildMetadata()
+    for key, metadata_name, label in (
+        ("REACT_APP_WORK_MATERIAL_ACCOUNTING_ENABLED", "stroyka-work-material-accounting", "учёта материалов"),
+        ("REACT_APP_WORK_ACCEPTANCE_ENABLED", "stroyka-work-acceptance", "приёмки работ"),
+    ):
+        mode = flags.get(key)
+        if mode is None:
+            continue
+        if mode not in {"0", "1"}:
+            raise ValueError(f"Некорректный режим {label} в сборке")
+        metadata = FeatureBuildMetadata(metadata_name)
         metadata.feed((build_dir / "index.html").read_text(encoding="utf-8"))
-        if metadata.values != [work_mode]:
-            raise ValueError("Frontend собран с другим режимом учёта материалов")
-    work_enabled = work_mode == "1"
+        if metadata.values != [mode]:
+            raise ValueError(f"Frontend собран с другим режимом {label}")
+    work_enabled = flags.get("REACT_APP_WORK_MATERIAL_ACCOUNTING_ENABLED") == "1"
+    acceptance_enabled = flags.get("REACT_APP_WORK_ACCEPTANCE_ENABLED") == "1"
     warehouse_enabled = (
         flags.get("REACT_APP_WAREHOUSE_DISTRIBUTION_ENABLED") == "true"
     )
@@ -43,7 +50,7 @@ def verify(build_dir: Path, build_environment: str) -> None:
         flags.get("REACT_APP_INTERCOMPANY_WAREHOUSE_TRANSFERS_ENABLED")
         == "true"
     )
-    if not warehouse_enabled and not capability_enabled and not intercompany_enabled and not work_enabled:
+    if not warehouse_enabled and not capability_enabled and not intercompany_enabled and not work_enabled and not acceptance_enabled:
         return
 
     manifest = json.loads(
@@ -62,6 +69,9 @@ def verify(build_dir: Path, build_environment: str) -> None:
                    if marker not in bundle]
         if missing:
             raise ValueError("Frontend собран без безопасной отправки работ: " + ", ".join(missing))
+
+    if acceptance_enabled and any(marker not in bundle for marker in ("/acceptance", "/resubmit")):
+        raise ValueError("Frontend собран без новой приёмки работ")
 
     if warehouse_enabled:
         if (

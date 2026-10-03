@@ -85,6 +85,7 @@ jobs:
       - name: Build frontend
         env:
           REACT_APP_WORK_MATERIAL_ACCOUNTING_ENABLED: "1"
+          REACT_APP_WORK_ACCEPTANCE_ENABLED: "1"
         run: |
           npm run build
-          printf '%s\n' 'REACT_APP_WORK_MATERIAL_ACCOUNTING_ENABLED=1' | python3 scripts/verify-frontend-feature-build.py build
+          printf '%s\n' 'REACT_APP_WORK_MATERIAL_ACCOUNTING_ENABLED=1' 'REACT_APP_WORK_ACCEPTANCE_ENABLED=1' | python3 scripts/verify-frontend-feature-build.py build
