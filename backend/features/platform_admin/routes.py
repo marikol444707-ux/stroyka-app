@@ -1273,6 +1273,19 @@ def _client_card_person(value) -> str:
     return person
 
 
+def _client_card_address(pattern: str, text: str) -> str:
+    # OCR often splits one table cell across lines; stop at the next labelled row.
+    row_labels = (r"(?:юридический|почтовый|фактический|юр\.?|факт\.?)\s*адрес|адрес|"
+                  r"ИНН|КПП|ОГРНИП|ОГРН|БИК|ОКТМО|банк|наименование банка|"
+                  r"расч[её]тный сч[её]т|корреспондентский сч[её]т|р/с|к/с|"
+                  r"телефон|тел\.?|моб\.?|email|e-mail|налогообложение|сайт|"
+                  r"директор|руководитель|подписант|должность|основание")
+    value = _client_card_first_match(
+        pattern + r"\s*[:|\-]?\s*([^\n]{8,220}(?:\n(?!\s*(?:" + row_labels
+        + r")\b)[^\n]{1,220}){0,4})", text)
+    return re.sub(r"\s+", " ", value).strip()
+
+
 def _client_card_heuristic(text: str) -> dict:
     raw = text or ""
     compact = re.sub(r"\s+", " ", raw).strip()
@@ -1282,21 +1295,21 @@ def _client_card_heuristic(text: str) -> dict:
     fields["kpp"] = _client_card_digits(_client_card_first_match(r"\bКПП\b[^\d]{0,20}(\d{9})", raw))[:9]
     fields["ogrn"] = _client_card_digits(_client_card_first_match(r"\bОГРН(?:ИП)?\b[^\d]{0,20}(\d{13,15})", raw))[:15]
     phone = _client_card_first_match(
-        r"(?:телефон|тел\.?|моб\.?)\s*[:\-]?\s*((?:\+7|7|8)?[\s(.-]*\d{3}[\s)./-]*\d{3}[\s.-]*\d{2}[\s.-]*\d{2})",
+        r"(?:телефон|тел\.?|моб\.?)\s*[:\-]?\s*((?:\+\s*7|7|8)?[\s(.-]*\d{3}[\s)./-]*\d{3}[\s.-]*\d{2}[\s.-]*\d{2})",
         raw,
     )
     if not phone:
         phone = _client_card_first_match(
-            r"((?:\+7[\s(.-]*\d{3}[\s)./-]*\d{3}[\s.-]*\d{2}[\s.-]*\d{2}|8[\s(.-]+\d{3}[\s)./-]*\d{3}[\s.-]*\d{2}[\s.-]*\d{2}))",
+            r"((?:\+\s*7[\s(.-]*\d{3}[\s)./-]*\d{3}[\s.-]*\d{2}[\s.-]*\d{2}|8[\s(.-]+\d{3}[\s)./-]*\d{3}[\s.-]*\d{2}[\s.-]*\d{2}))",
             raw,
         )
-    fields["contactPhone"] = re.sub(r"\s+", " ", phone).strip()
+    fields["contactPhone"] = re.sub(r"\+\s+7", "+7", re.sub(r"\s+", " ", phone).strip())
     website = _client_card_first_match(r"((?:https?://)?(?:www\.)?[A-Z0-9][A-Z0-9\-]*(?:\.[A-Z0-9][A-Z0-9\-]*)+\S*)", raw, re.IGNORECASE)
     if fields["contactEmail"] and website and website in fields["contactEmail"] and not re.search(r"(?:https?://|www\.)" + re.escape(website), raw, re.IGNORECASE):
         website = ""
     fields["website"] = website
-    fields["legalAddress"] = _client_card_first_match(r"(?:адрес|юр\.?\s*адрес|местонахождение)\s*[:\-]?\s*([^\n]{8,220})", raw)
-    fields["actualAddress"] = _client_card_first_match(r"(?:факт\.?\s*адрес|фактический адрес|почтовый адрес)\s*[:\-]?\s*([^\n]{8,220})", raw)
+    fields["legalAddress"] = _client_card_address(r"(?:юридический адрес|юр\.?\s*адрес|местонахождение|адрес)", raw)
+    fields["actualAddress"] = _client_card_address(r"(?:факт\.?\s*адрес|фактический адрес|почтовый адрес)", raw)
     company = _client_card_first_match(r"((?:ООО|АО|ПАО|ЗАО|ИП)\s+[\"«]?[А-ЯЁA-Z0-9][^,\n;]{2,160})", raw)
     if company:
         company = re.sub(r"\s+(?:ИНН|КПП|ОГРН|тел\.?|email|e-mail).*$", "", company, flags=re.IGNORECASE).strip(" ,;")
