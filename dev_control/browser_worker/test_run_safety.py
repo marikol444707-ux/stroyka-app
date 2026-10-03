@@ -1,6 +1,6 @@
 import unittest
 
-from dev_control.browser_worker.network_guard import request_allowed
+from dev_control.browser_worker.network_guard import redact_boundary_url, request_allowed
 from dev_control.browser_worker.run import _assert_allowed_url, _redact_url, _sanitize_history
 
 
@@ -82,6 +82,16 @@ class BrowserWorkerUrlSafetyTest(unittest.TestCase):
         self.assertNotIn("secret", redacted)
         self.assertNotIn("fragment-token", redacted)
 
+
+
+    def test_boundary_errors_redact_sensitive_urls(self):
+        redacted = redact_boundary_url(
+            "https://evil.example/reset/secret-token?code=abc123&next=ok#fragment"
+        )
+        self.assertNotIn("secret-token", redacted)
+        self.assertNotIn("abc123", redacted)
+        self.assertNotIn("fragment", redacted)
+        self.assertIn("[REDACTED]", redacted)
 
     def test_sensitive_path_token_is_redacted(self):
         redacted = _redact_url(
