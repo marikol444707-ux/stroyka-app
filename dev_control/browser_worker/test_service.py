@@ -6,6 +6,7 @@ from fastapi import HTTPException
 
 from dev_control.browser_worker.service import (
     _authorize,
+    _chrome_alive,
     _configured,
     _evidence_ttl_seconds,
     _max_pending_jobs,
@@ -54,6 +55,16 @@ class BrowserWorkerServiceConfigTest(unittest.TestCase):
             self.assertFalse(_qa_base_is_nonproduction())
             self.assertFalse(_configured())
             self.assertEqual(health().status_code, 503)
+
+
+    @patch("dev_control.browser_worker.service.urllib.request.urlopen")
+    def test_chrome_liveness_uses_cdp_version_endpoint(self, urlopen):
+        response = unittest.mock.MagicMock()
+        response.status = 200
+        urlopen.return_value.__enter__.return_value = response
+        with patch.dict(os.environ, {"BU_CDP_URL": "http://127.0.0.1:9222"}, clear=True):
+            self.assertTrue(_chrome_alive())
+        self.assertEqual(urlopen.call_args.args[0], "http://127.0.0.1:9222/json/version")
 
     def test_health_is_503_when_required_configuration_is_missing(self):
         with patch.dict(os.environ, {}, clear=True):
