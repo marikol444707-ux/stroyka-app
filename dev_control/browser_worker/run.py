@@ -41,7 +41,7 @@ def _redact_path(path: str) -> str:
 
 
 _SENSITIVE_QUERY_MARKERS = (
-    "token", "code", "password", "secret", "key", "auth", "signature", "sig", "session",
+    "token", "code", "invite", "password", "secret", "key", "auth", "signature", "sig", "session",
 )
 
 
