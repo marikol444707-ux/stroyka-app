@@ -2667,12 +2667,13 @@ mismatched ownership; the unauthenticated route returned `401`.
 **Pre-apply evidence:** The 2026-10-03 production inspection was read-only. `tool_custody_events`, `tool_incidents`, `tool_incident_decisions` and `tool_fine_allocations` are empty. No company owner is null or orphaned, and all 22 company, tool, project, holder, contract, operation, actor, event, incident, decision, act and latest-confirmed-decision relationship checks report zero mismatches. The event table already has `tool_custody_history(company_id,tool_id,id)`; the other three tables need company-leading indexes.
 
 **Acceptance criteria:**
-- [ ] Registry entries identify the exact stored owner and parent chain for all four tables.
-- [ ] Every table has a company-leading index; only the three missing indexes are added.
-- [ ] The migration is reversible and contains no data mutation.
-- [ ] Focused custody, settlement, ownership and migration tests pass locally and in CI.
-- [ ] Production migration applies, all four tables remain unchanged, readiness has no new schema blockers, coverage falls from `112` to `108`, and smoke passes.
+- [x] Registry entries identify the exact stored owner and parent chain for all four tables.
+- [x] Every table has a company-leading index; only the three missing indexes are added.
+- [x] The migration is reversible and contains no data mutation.
+- [x] Focused custody, settlement, ownership and migration tests pass locally and in CI.
+- [x] Production migration applies, all four tables remain unchanged, readiness has no new schema blockers, coverage falls from `112` to `108`, and smoke passes.
 
+**Production result:** Runtime `42035523` deployed on 2026-10-03 at Alembic head `0090_tool_responsibility_idx`. `tool_custody_events`, `tool_incidents`, `tool_incident_decisions` and `tool_fine_allocations` remain empty; all 22 company and parent-lineage checks are zero. The existing custody-history index and all three new company-leading indexes are present. Readiness checked `80` stored tables with `schemaBlockers=0`; coverage now has `107` registered physical tables and `108` remaining (`60 critical`, `14 high`, `34 unclassified`). The read-only audits rolled back, deploy smoke passed, all three services are active, the root filesystem has `54G` free, and no temporary frontend build remains.
 **Dependencies:** M7m6
 
 **Estimated scope:** S
