@@ -84,14 +84,45 @@ class NetworkBoundary:
         self._stop = threading.Event()
         self._error: str | None = None
         self._thread = threading.Thread(target=self._loop, name="qa-network-boundary", daemon=True)
+        self._guarded_sessions = {session_id}
 
     def start(self) -> None:
+        self._enable_session(self._session_id)
+        self._thread.start()
+
+    def _enable_session(self, session_id: str) -> None:
         self._cdp(
             "Fetch.enable",
-            session_id=self._session_id,
+            session_id=session_id,
             patterns=[{"urlPattern": "*", "requestStage": "Request"}],
         )
-        self._thread.start()
+        self._cdp(
+            "Target.setAutoAttach",
+            session_id=session_id,
+            autoAttach=True,
+            waitForDebuggerOnStart=True,
+            flatten=True,
+        )
+        self._guarded_sessions.add(session_id)
+
+    def _handle_attached_target(self, params: dict) -> None:
+        child_session = params.get("sessionId")
+        target_info = params.get("targetInfo") or {}
+        target_id = target_info.get("targetId")
+        target_type = target_info.get("type")
+        initial_url = str(target_info.get("url") or "about:blank")
+
+        if not child_session:
+            return
+        if target_type == "page" and initial_url not in {"", "about:blank"}:
+            if not request_allowed(initial_url, self._base_url, "Document"):
+                if target_id:
+                    self._cdp("Target.closeTarget", targetId=target_id)
+                self._error = f"blocked out-of-scope popup target: {initial_url}"
+                return
+
+        self._enable_session(child_session)
+        self._cdp("Runtime.runIfWaitingForDebugger", session_id=child_session)
 
     def _loop(self) -> None:
         while not self._stop.is_set():
@@ -101,9 +132,17 @@ class NetworkBoundary:
                 self._error = f"network boundary event loop failed: {exc}"
                 return
             for event in events:
-                if event.get("method") != "Fetch.requestPaused":
-                    continue
+                method = event.get("method")
                 params = event.get("params") or {}
+                if method == "Target.attachedToTarget":
+                    try:
+                        self._handle_attached_target(params)
+                    except Exception as exc:
+                        self._error = f"popup boundary enforcement failed: {exc}"
+                        return
+                    continue
+                if method != "Fetch.requestPaused":
+                    continue
                 request_id = params.get("requestId")
                 url = str((params.get("request") or {}).get("url") or "")
                 resource_type = params.get("resourceType")
@@ -171,16 +210,27 @@ def install_safe_browser(base_url: str):
                 mobile=False,
             )
             self.call("Emulation.setFocusEmulationEnabled", enabled=True)
-            self._qa_boundary = NetworkBoundary(self.session, base_url)
-            self._qa_boundary.start()
-            self.call("Page.navigate", url=url)
-            deadline = time.monotonic() + 15
-            while time.monotonic() < deadline:
+            self._qa_boundary = None
+            try:
+                self._qa_boundary = NetworkBoundary(self.session, base_url)
+                self._qa_boundary.start()
+                self.call("Page.navigate", url=url)
+                deadline = time.monotonic() + 15
+                while time.monotonic() < deadline:
+                    self._qa_boundary.raise_if_failed()
+                    if self.evaluate("document.readyState") == "complete":
+                        break
+                    time.sleep(0.02)
                 self._qa_boundary.raise_if_failed()
-                if self.evaluate("document.readyState") == "complete":
-                    break
-                time.sleep(0.02)
-            self._qa_boundary.raise_if_failed()
+            except Exception:
+                if self._qa_boundary is not None:
+                    self._qa_boundary.close()
+                if self.target:
+                    try:
+                        cdp("Target.closeTarget", targetId=self.target)
+                    finally:
+                        self.target = None
+                raise
 
         def observe(self, screenshot=True):
             self._qa_boundary.raise_if_failed()
