@@ -2660,6 +2660,23 @@ mismatched ownership; the unauthenticated route returned `401`.
 
 **Estimated scope:** S
 
+### Task M7m7: Register Tool-Responsibility Ownership
+
+**Description:** Register immutable custody events, damage/loss incidents, director decisions and contractor-act fine allocations as strict stored-company data. Keep the existing company-leading event-history index and add the three missing company-leading indexes without changing custody history, incidents, decisions or fines.
+
+**Pre-apply evidence:** The 2026-10-03 production inspection was read-only. `tool_custody_events`, `tool_incidents`, `tool_incident_decisions` and `tool_fine_allocations` are empty. No company owner is null or orphaned, and all 22 company, tool, project, holder, contract, operation, actor, event, incident, decision, act and latest-confirmed-decision relationship checks report zero mismatches. The event table already has `tool_custody_history(company_id,tool_id,id)`; the other three tables need company-leading indexes.
+
+**Acceptance criteria:**
+- [ ] Registry entries identify the exact stored owner and parent chain for all four tables.
+- [ ] Every table has a company-leading index; only the three missing indexes are added.
+- [ ] The migration is reversible and contains no data mutation.
+- [ ] Focused custody, settlement, ownership and migration tests pass locally and in CI.
+- [ ] Production migration applies, all four tables remain unchanged, readiness has no new schema blockers, coverage falls from `112` to `108`, and smoke passes.
+
+**Dependencies:** M7m6
+
+**Estimated scope:** S
+
 
 **Dependencies:** M7l and the completed M6 runtime isolation slices
 

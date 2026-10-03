@@ -211,6 +211,7 @@ Improve `stroyka-app` in small, safe steps so the current working ERP can move t
 - [x] Task M7m4: Register the six work-material accounting tables and add three reversible company-leading indexes. Production runtime `04407278` is on Alembic head `0087`; all five idempotency operations remain complete and unchanged, the child tables remain empty, all 14 parent checks are clean, and coverage fell from `126` to `120`.
 - [x] Task M7m5: Register the three work-acceptance and rework tables and add three reversible company-leading indexes. Production runtime `58931393` is on Alembic head `0088`; all three tables remain empty, all 15 parent checks are clean, and coverage fell from `120` to `117`.
 - [x] Task M7m6: Register the five contractor-act settlement tables and add five reversible company-leading indexes. Production runtime `2e4966eb` is on Alembic head `0089`; all five tables remain empty, all 17 parent checks are clean, and coverage fell from `117` to `112`.
+- [ ] Task M7m7: Register the four tool-responsibility tables and add three missing company-leading indexes without changing custody history, incidents, director decisions or act fines.
 
 ### Checkpoint: SaaS Boundary
 
