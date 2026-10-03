@@ -34,6 +34,11 @@ class BrowserWorkerContainerContractTest(unittest.TestCase):
         self.assertIn("PreAuthBodyLimitMiddleware", service)
         self.assertIn("_MAX_JOB_BODY_BYTES = 32 * 1024", service)
         self.assertIn("status_code=413", service)
+        self.assertIn("QA_ALLOWED_ORIGIN", service)
+        self.assertIn('host.endswith(".stroyka26.pro")', service)
+        self.assertIn('"147.45.237.127"', service)
+        self.assertIn("shutil.rmtree(evidence_dir, ignore_errors=True)", service)
+        self.assertIn("_executor.shutdown(wait=False, cancel_futures=True)", service)
 
         crash_branch = service.split("elif report is None:", 1)[1].split("else:", 1)[0]
         self.assertIn("_cleanup_qa_browser_contexts()", crash_branch)
