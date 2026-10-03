@@ -29,6 +29,9 @@ class BrowserWorkerContainerContractTest(unittest.TestCase):
         self.assertIn("_authorize(authorization)", service)
         self.assertIn("Fetch.enable", network_guard)
         self.assertIn("Fetch.failRequest", network_guard)
+        self.assertIn("Target.setAutoAttach", network_guard)
+        self.assertIn("waitForDebuggerOnStart=True", network_guard)
+        self.assertIn("Runtime.runIfWaitingForDebugger", network_guard)
 
 if __name__ == "__main__":
     unittest.main()
