@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from dev_control.browser_worker.provider import (
     UPSTREAM_TYPESAFE_URL,
+    _sanitize_questions_for_provider,
     _sanitize_state_for_provider,
     install_timeweb_provider,
 )
@@ -12,6 +13,27 @@ from dev_control.jev_timeweb import JevError
 
 
 class ProviderPatchTest(unittest.TestCase):
+
+
+    def test_provider_payload_redacts_element_and_question_values(self):
+        state = {
+            "page": {"url": "https://qa.example.test/form"},
+            "elements": [{"index": "1", "value": "invite-secret", "label": "Invite code"}],
+        }
+        questions = {
+            "target": {
+                "type": "choice",
+                "current_value": "reset-secret",
+                "criteria": {"1": {"current_value": "nested-secret"}},
+            }
+        }
+        safe_state = _sanitize_state_for_provider(state)
+        safe_questions = _sanitize_questions_for_provider(questions)
+        rendered = repr((safe_state, safe_questions))
+        self.assertNotIn("invite-secret", rendered)
+        self.assertNotIn("reset-secret", rendered)
+        self.assertNotIn("nested-secret", rendered)
+        self.assertIn("[POPULATED]", rendered)
 
     def test_provider_state_redacts_typed_values_and_url_credentials(self):
         state = {
