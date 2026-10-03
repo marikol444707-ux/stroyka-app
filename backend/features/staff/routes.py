@@ -322,8 +322,53 @@ def register_staff_module(app, deps):
         require_user_capacity(cur, company_id, user_id)
         full_name = (s.name or "Сотрудник").strip()
         if user_id:
-            # A password and the global user identity are shared by all company
-            # memberships. A manager of one company must never rewrite them.
+            # Determine if this global user identity is single-company (owned
+            # by this company) or shared across multiple companies. Only when
+            # the identity is effectively single-company we allow updating
+            # the global `public.users` email/password. If the identity is
+            # shared, disallow global changes (409).
+            cur.execute(
+                """SELECT COUNT(*) AS cnt
+                       FROM public.user_company_roles
+                      WHERE user_id=%s AND COALESCE(active,TRUE)=TRUE""",
+                (user_id,),
+            )
+            cnt_row = cur.fetchone() or {}
+            memberships_cnt = int(_row_value(cnt_row, "cnt", 0) or 0)
+
+            existing_company_id = _positive_int(_row_value(existing, "company_id", 1))
+
+            # If identity is linked to multiple active memberships and at
+            # least one of them is not our company, forbid changing global
+            # email/password from another company.
+            if memberships_cnt > 1 and existing_company_id != company_id:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Нельзя изменить глобальную учётную запись, принадлежащую нескольким компаниям",
+                )
+
+            # Allowed to update global `users` if this identity is single-company
+            # (either owned by this company or has no other active membership).
+            if memberships_cnt <= 1 and (existing_company_id is None or existing_company_id == company_id):
+                # If caller provided a password or email/name differs, update users table.
+                to_update = []
+                params = []
+                full_name = (s.name or _row_value(existing, "name", 1) or "").strip()
+                if full_name:
+                    to_update.append("name=%s")
+                    params.append(full_name)
+                if email and email != (str(_row_value(existing, "email", 1) or "").strip().lower()):
+                    to_update.append("email=%s")
+                    params.append(email)
+                if password:
+                    to_update.append("password=%s")
+                    params.append(hash_password(password))
+                if to_update:
+                    params.append(user_id)
+                    cur.execute(
+                        "UPDATE public.users SET " + ",".join(to_update) + " WHERE id=%s",
+                        tuple(params),
+                    )
             action = "updated"
             if existing.get('company_id') == company_id and not existing.get('shared'):
                 if existing.get('role') in ('директор', 'зам_директора') and actor.get('role') == 'зам_директора':
