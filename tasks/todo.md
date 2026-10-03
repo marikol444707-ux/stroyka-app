@@ -2641,6 +2641,23 @@ mismatched ownership; the unauthenticated route returned `401`.
 
 **Estimated scope:** S
 
+### Task M7m6: Register Contractor-Act Settlement Ownership
+
+**Description:** Register immutable contractor acts, act items, material-fine allocations, signatures and act-payment links as strict stored-company data. Add company-leading indexes for the complete settlement chain without changing acts, fines, signatures, payments or work rows.
+
+**Pre-apply evidence:** The 2026-10-03 production inspection was read-only. `work_contract_acts`, `work_contract_act_items`, `work_contract_fine_allocations`, `work_contract_act_signatures` and `work_contract_act_payments` are empty. No company owner is null or orphaned, and all 17 company, contract, generated act, work, operation, defect, decision, signature actor, contractor payment and project payment relationship checks report zero mismatches.
+
+**Acceptance criteria:**
+- [ ] Registry entries identify the exact stored owner and parent chain for all five tables.
+- [ ] Company-leading indexes cover acts, items, fine allocations, signatures and payments.
+- [ ] The migration is reversible and contains no data mutation.
+- [ ] Focused settlement, ownership and migration tests pass locally and in CI.
+- [ ] Production migration applies, all five tables remain unchanged, readiness has no new schema blockers, coverage falls from `117` to `112`, and smoke passes.
+
+**Dependencies:** M7m5
+
+**Estimated scope:** S
+
 
 **Dependencies:** M7l and the completed M6 runtime isolation slices
 
