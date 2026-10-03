@@ -55,6 +55,18 @@ class ProviderPatchTest(unittest.TestCase):
         patch_handle.restore()
 
 
+
+    def test_rejects_inherited_text_provider_without_explicit_timeweb_model(self):
+        fake = types.SimpleNamespace(post_json=lambda *_: {})
+        env = {
+            "TIMEWEB_AI_API_KEY": "secret",
+            "TEXT_MODEL_API_KEY": "stale-secret",
+            "TEXT_MODEL_BASE_URL": "https://external.example/v1",
+            "TEXT_MODEL": "stale-model",
+        }
+        with self.assertRaisesRegex(JevError, "inherited TEXT_MODEL"):
+            install_timeweb_provider(model_module=fake, environ=env)
+
     def test_rejects_partial_or_foreign_text_model_configuration(self):
         fake = types.SimpleNamespace(post_json=lambda *_: {})
         partial = {
