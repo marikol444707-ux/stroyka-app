@@ -68,6 +68,12 @@ def install_timeweb_provider(
     env["TYPESAFE_MODEL"] = model
 
     text_model = (env.get("TIMEWEB_TEXT_MODEL") or "").strip()
+    inherited_text = {
+        name: (env.get(name) or "").strip()
+        for name in ("TEXT_MODEL_API_KEY", "TEXT_MODEL_BASE_URL", "TEXT_MODEL")
+    }
+    if not text_model and any(inherited_text.values()):
+        raise JevError("inherited TEXT_MODEL_* configuration is forbidden without TIMEWEB_TEXT_MODEL")
     if text_model:
         existing = {
             name: (env.get(name) or "").strip()
