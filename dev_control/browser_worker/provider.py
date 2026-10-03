@@ -69,9 +69,20 @@ def install_timeweb_provider(
 
     text_model = (env.get("TIMEWEB_TEXT_MODEL") or "").strip()
     if text_model:
-        env.setdefault("TEXT_MODEL_API_KEY", key)
-        env.setdefault("TEXT_MODEL_BASE_URL", "https://api.timeweb.ai/v1")
-        env.setdefault("TEXT_MODEL", text_model)
-        env.setdefault("TEXT_MODEL_REASONING", "none")
+        existing = {
+            name: (env.get(name) or "").strip()
+            for name in ("TEXT_MODEL_API_KEY", "TEXT_MODEL_BASE_URL", "TEXT_MODEL")
+        }
+        if any(existing.values()) and not all(existing.values()):
+            raise JevError("partial TEXT_MODEL_* configuration is unsafe")
+        if all(existing.values()):
+            if existing["TEXT_MODEL_BASE_URL"].rstrip("/") != "https://api.timeweb.ai/v1":
+                raise JevError("TIMEWEB_TEXT_MODEL cannot be mixed with another TEXT_MODEL_BASE_URL")
+            if existing["TEXT_MODEL_API_KEY"] != key or existing["TEXT_MODEL"] != text_model:
+                raise JevError("TIMEWEB_TEXT_MODEL conflicts with existing TEXT_MODEL_* configuration")
+        env["TEXT_MODEL_API_KEY"] = key
+        env["TEXT_MODEL_BASE_URL"] = "https://api.timeweb.ai/v1"
+        env["TEXT_MODEL"] = text_model
+        env["TEXT_MODEL_REASONING"] = "none"
 
     return ProviderPatch(model_module=model_module, original_post_json=original)
