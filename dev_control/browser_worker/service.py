@@ -69,6 +69,13 @@ class PreAuthBodyLimitMiddleware:
         more = True
         while more:
             message = await receive()
+            if message.get("type") == "http.disconnect":
+                response = JSONResponse(status_code=400, content={"detail": "client disconnected"})
+                try:
+                    await response(scope, receive, send)
+                except Exception:
+                    pass
+                return
             if message.get("type") != "http.request":
                 continue
             body = message.get("body", b"")
