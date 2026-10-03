@@ -55,6 +55,16 @@ def _fully_unquote(value: str) -> str:
     raise ValueError("URL path is excessively encoded")
 
 
+def canonical_origin(url: str) -> tuple[str, str, int | None]:
+    parsed = urlparse(url)
+    scheme = parsed.scheme.lower()
+    host = (parsed.hostname or "").lower().rstrip(".")
+    port = parsed.port
+    if port is None:
+        port = 443 if scheme == "https" else 80 if scheme == "http" else None
+    return scheme, host, port
+
+
 def normalized_path(url: str) -> str:
     parsed = urlparse(url)
     raw = _fully_unquote(parsed.path or "/").replace("\\", "/")
@@ -76,7 +86,7 @@ def assert_allowed_document_url(url: str, base_url: str) -> None:
         raise ValueError("QA URL must use http or https")
     if base.scheme not in {"http", "https"} or not base.netloc:
         raise ValueError("QA_BASE_URL must be an absolute http(s) URL")
-    if (target.scheme.lower(), target.netloc.lower()) != (base.scheme.lower(), base.netloc.lower()):
+    if canonical_origin(url) != canonical_origin(base_url):
         raise ValueError("QA URL is outside QA_BASE_URL origin")
 
     target_path = normalized_path(url)
@@ -96,7 +106,7 @@ def request_allowed(url: str, base_url: str, resource_type: str | None) -> bool:
         return True
     if target.scheme not in {"http", "https"}:
         return False
-    if (target.scheme.lower(), target.netloc.lower()) != (base.scheme.lower(), base.netloc.lower()):
+    if canonical_origin(url) != canonical_origin(base_url):
         return False
     if resource_type == "Document":
         try:
