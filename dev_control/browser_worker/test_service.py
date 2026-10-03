@@ -8,6 +8,7 @@ from dev_control.browser_worker.service import (
     _authorize,
     _chrome_alive,
     _configured,
+    _evidence_max_bytes,
     _evidence_ttl_seconds,
     _max_pending_jobs,
     _qa_base_is_nonproduction,
@@ -97,6 +98,13 @@ class BrowserWorkerServiceConfigTest(unittest.TestCase):
         self.assertTrue(_valid_job_id("startup-selftest"))
         self.assertFalse(_valid_job_id(".."))
         self.assertFalse(_valid_job_id("../outside"))
+
+
+    def test_evidence_quota_is_bounded(self):
+        with patch.dict(os.environ, {"QA_EVIDENCE_MAX_BYTES": "1"}, clear=True):
+            self.assertEqual(_evidence_max_bytes(), 1024 * 1024)
+        with patch.dict(os.environ, {"QA_EVIDENCE_MAX_BYTES": str(100 * 1024 * 1024)}, clear=True):
+            self.assertEqual(_evidence_max_bytes(), 32 * 1024 * 1024)
 
     def test_evidence_ttl_is_bounded(self):
         with patch.dict(os.environ, {"QA_EVIDENCE_TTL_SECONDS": "1"}, clear=True):
