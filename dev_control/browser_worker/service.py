@@ -112,8 +112,16 @@ def _cleanup_expired_evidence() -> None:
     if not root.exists():
         return
     cutoff = time.time() - _evidence_ttl_seconds()
+    with _jobs_lock:
+        active = {
+            job_id
+            for job_id, value in _jobs.items()
+            if value.get("status") in {"queued", "running"}
+        }
     for child in root.iterdir():
         try:
+            if child.name in active:
+                continue
             if child.is_dir() and child.stat().st_mtime < cutoff:
                 shutil.rmtree(child)
         except OSError:
@@ -169,7 +177,7 @@ def _execute(job_id: str, request: JobRequest) -> None:
 
     ctx = multiprocessing.get_context("spawn")
     result_queue = ctx.Queue(maxsize=1)
-    process = ctx.Process(target=_task_process_entry, args=(payload, result_queue), daemon=True)
+    process = ctx.Process(target=_task_process_entry, args=(payload, result_queue))
     process.start()
     process.join(timeout=request.max_seconds)
     if process.is_alive():
