@@ -87,6 +87,12 @@ jobs:
             backend.features.staff.test_access_postgres.StaffAccessPostgresTests \
             backend.features.invite_codes.test_supplier_registration_postgres.SupplierRegistrationPostgresTests
 
+      - name: Run supply history company boundary regression
+        run: |
+          export PATH="$(pg_config --bindir):$PATH"
+          python scripts/run_supplier_catalog_postgres_tests.py \
+            backend.features.supplier_access.test_multicompany_chain.MultiCompanyChainTest.test_supply_history_updates_require_exact_company_membership
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:

@@ -949,7 +949,7 @@ class WarehouseAnomalyRuntimePreviewCompositionTests(unittest.TestCase):
             # Reviewed company-scoped warehouse reads in the composition root;
             # warehouse preview implementation and registration are unchanged.
             root / "backend/main.py": (
-                "604b2883c852ab2f25722ffc71a0e752a40c3fcda992f63d570e52e4d100962f"
+                "b67a1cf2284784cf258f13a627462b56c624e37da33b79eb68208b1311693a89"
             ),
         }
         self.assertEqual({

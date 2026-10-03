@@ -10,7 +10,7 @@ moved here — these routes were its only user.
 from typing import Optional
 
 import psycopg2.extras
-from fastapi import Depends, HTTPException
+from fastapi import Depends, Header, HTTPException
 from pydantic import BaseModel
 
 
@@ -106,24 +106,41 @@ def register_supply_history_module(app, deps):
         return dict(row)
 
     @app.put("/supply-history/{id}")
-    def update_supply_history(id: int, data: dict, _current_user: dict = Depends(require_roles(*write_roles))):
+    def update_supply_history(id: int, data: dict,
+                              x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+                              x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+                              _current_user: dict = Depends(require_roles(*write_roles))):
         conn = get_db()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        ensure_supply_runtime_columns(cur)
-        conn.commit()
-        cur.execute("SELECT project, COALESCE(NULLIF(work_package,''),'Основная') AS work_package FROM supply_history WHERE id=%s", (id,))
-        row = cur.fetchone()
-        if not row:
-            cur.close(); conn.close()
-            raise HTTPException(status_code=404, detail="Запись истории поставок не найдена")
-        if row.get("project"):
-            require_project_or_warehouse_access(_current_user, row.get("project") or "")
-        if not has_package_access(_current_user, row.get("work_package") or "Основная"):
-            cur.close(); conn.close()
-            raise HTTPException(status_code=403, detail="Нет доступа к пакету поставки")
-        status = data.get('status','')
-        confirmed_by = data.get('confirmedBy','')
-        cur.execute("UPDATE supply_history SET status=%s,confirmed_by=%s WHERE id=%s", (status,confirmed_by,id))
-        conn.commit()
-        conn.close()
-        return {"ok": True}
+        cur = None
+        try:
+            conn.autocommit = False
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            ensure_supply_runtime_columns(cur)
+            cur.execute("SELECT company_id,project,COALESCE(NULLIF(work_package,''),'Основная') AS work_package FROM supply_history WHERE id=%s FOR UPDATE", (id,))
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(404, "Запись истории поставок не найдена")
+            from backend.features.company_context.service import resolve_resource_company_actor
+            _context, actor = resolve_resource_company_actor(
+                cur, _current_user, row.get("company_id"), "update",
+                claimed_company_id=data.get("companyId", data.get("company_id")),
+                x_company_id=x_company_id, x_company_mode=x_company_mode,
+                allowed_roles=write_roles,
+                platform_staff_roles=deps.get("platform_staff_roles", ()),
+                client_account_roles=deps.get("client_account_roles", ()),
+            )
+            if row.get("project"):
+                require_project_or_warehouse_access(actor, row["project"])
+            if not has_package_access(actor, row["work_package"]):
+                raise HTTPException(403, "Нет доступа к пакету поставки")
+            cur.execute("UPDATE supply_history SET status=%s,confirmed_by=%s WHERE id=%s AND company_id=%s",
+                        (data.get("status", ""), data.get("confirmedBy", ""), id, row["company_id"]))
+            conn.commit()
+            return {"ok": True}
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            if cur is not None:
+                cur.close()
+            conn.close()
