@@ -15,7 +15,7 @@ from uuid import uuid4
 
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from dev_control.browser_worker.run import execute_task
 
@@ -39,6 +39,14 @@ class JobRequest(BaseModel):
     forbid_text: list[str] = Field(default_factory=list, max_length=20)
     expect_url_contains: list[str] = Field(default_factory=list, max_length=20)
     max_seconds: float = Field(default=90.0, ge=5.0, le=180.0)
+
+    @field_validator("expect_text", "forbid_text", "expect_url_contains")
+    @classmethod
+    def assertions_must_be_nonblank(cls, values: list[str]) -> list[str]:
+        cleaned = [value.strip() for value in values]
+        if any(not value for value in cleaned):
+            raise ValueError("assertions must contain non-whitespace text")
+        return cleaned
 
 
 def _selftest_base_url() -> str:
