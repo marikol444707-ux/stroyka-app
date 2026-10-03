@@ -82,6 +82,15 @@ class BrowserWorkerUrlSafetyTest(unittest.TestCase):
         self.assertNotIn("secret", redacted)
         self.assertNotIn("fragment-token", redacted)
 
+
+    def test_sensitive_path_token_is_redacted(self):
+        redacted = _redact_url(
+            "https://qa.example.test/password-reset/super-secret-token?next=warehouse"
+        )
+        self.assertIn("/password-reset/%5BREDACTED%5D", redacted)
+        self.assertNotIn("super-secret-token", redacted)
+        self.assertIn("next=warehouse", redacted)
+
     def test_rejects_non_http_scheme(self):
         with self.assertRaisesRegex(ValueError, "http"):
             _assert_allowed_url(
