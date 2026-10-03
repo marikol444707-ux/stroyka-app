@@ -106,3 +106,9 @@ startup_selftest=passed или failed.
 Для удалённого QA QA_ALLOWED_ORIGIN обязателен и должен точно совпадать с
 origin QA_BASE_URL (scheme + host + port). Известные production-домены/IP
 блокируются дополнительно. Для локального startup self-test allowlist не нужен.
+
+## Важно для Timeweb App Platform
+
+- Автоматический deploy/build from latest commit должен быть ВЫКЛЮЧЕН.
+- Развёртывание worker выполняется только вручную с заранее проверенного commit SHA.
+- Production deploy и production migrations этим worker не выполняются.
