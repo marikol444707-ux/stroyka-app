@@ -1,7 +1,7 @@
 import unittest
 
 from dev_control.browser_worker.network_guard import request_allowed
-from dev_control.browser_worker.run import _assert_allowed_url, _sanitize_history
+from dev_control.browser_worker.run import _assert_allowed_url, _redact_url, _sanitize_history
 
 
 class BrowserWorkerUrlSafetyTest(unittest.TestCase):
@@ -70,6 +70,18 @@ class BrowserWorkerUrlSafetyTest(unittest.TestCase):
         self.assertNotIn("text", history[0])
         self.assertNotIn("text_helper", history[0])
         self.assertNotIn("super-secret-password", repr(history))
+
+    def test_sensitive_query_values_and_fragments_are_redacted(self):
+        redacted = _redact_url(
+            "https://qa.example.test/callback?code=abc123&next=warehouse&access_token=secret#fragment-token"
+        )
+        self.assertIn("code=%5BREDACTED%5D", redacted)
+        self.assertIn("access_token=%5BREDACTED%5D", redacted)
+        self.assertIn("next=warehouse", redacted)
+        self.assertNotIn("abc123", redacted)
+        self.assertNotIn("secret", redacted)
+        self.assertNotIn("fragment-token", redacted)
+
     def test_rejects_non_http_scheme(self):
         with self.assertRaisesRegex(ValueError, "http"):
             _assert_allowed_url(
