@@ -258,6 +258,16 @@ def install_safe_browser(base_url: str):
 
     upstream_browser = browser_module.Browser
 
+    transport_block_script = r"""
+(() => {
+  const blocked = () => { throw new Error('Blocked by Stroyka QA network policy'); };
+  try { Object.defineProperty(window, 'WebSocket', {value: function(){ blocked(); }, configurable: false}); } catch (_) {}
+  try { Object.defineProperty(window, 'WebTransport', {value: function(){ blocked(); }, configurable: false}); } catch (_) {}
+  try { Object.defineProperty(window, 'RTCPeerConnection', {value: function(){ blocked(); }, configurable: false}); } catch (_) {}
+  try { Object.defineProperty(window, 'webkitRTCPeerConnection', {value: function(){ blocked(); }, configurable: false}); } catch (_) {}
+})();
+"""
+
     class SafeBrowser(upstream_browser):
         def __init__(self, url):
             assert_allowed_document_url(url, base_url)
@@ -290,6 +300,11 @@ def install_safe_browser(base_url: str):
                     mobile=False,
                 )
                 self.call("Emulation.setFocusEmulationEnabled", enabled=True)
+                self.call(
+                    "Page.addScriptToEvaluateOnNewDocument",
+                    source=transport_block_script,
+                    runImmediately=True,
+                )
                 cdp(
                     "Browser.setDownloadBehavior",
                     behavior="deny",
