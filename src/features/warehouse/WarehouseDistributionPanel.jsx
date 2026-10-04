@@ -9,6 +9,17 @@ const emptyRow = () => ({ lotId: '', projectId: '', quantity: '' });
 const writers = ['директор', 'зам_директора', 'кладовщик', 'снабженец'];
 const readers = [...writers, 'бухгалтер'];
 const validQuantity = value => /^\d+(\.\d{1,6})?$/.test(value) && Number(value) > 0 && Number(value) < 100000000;
+const quantityUnits = value => {
+  const [whole, fraction = ''] = String(value).split('.');
+  return /^\d+$/.test(whole) && /^\d{0,6}$/.test(fraction) ? Number(whole) * 1000000 + Number(fraction.padEnd(6, '0')) : null;
+};
+const formatUnits = value => String(value / 1000000);
+const countLabel = (count, one, few, many) => {
+  const lastTwo = count % 100;
+  if (lastTwo >= 11 && lastTwo <= 14) return many;
+  const last = count % 10;
+  return last === 1 ? one : last >= 2 && last <= 4 ? few : many;
+};
 function requestId() {
   if (window.crypto?.randomUUID) return window.crypto.randomUUID();
   if (!window.crypto?.getRandomValues) throw new Error('Для сохранения откройте платформу по HTTPS в современном браузере.');
@@ -152,7 +163,12 @@ function CompanyDistribution({ companyId, companies, editable, projects = [], wa
     }
   }
   const sourceOptions = [...sources, ...selectedSources.filter(s => !sources.some(item => item.lotId === s.lotId))];
-  const batchValid = rows.every(r => sourceOptions.some(s => s.lotId === Number(r.lotId)) && ownProjects.some(p => Number(p.id) === Number(r.projectId)) && validQuantity(r.quantity)) && reason.trim();
+  const lotTotals = new Map();
+  rows.forEach(row => {
+    if (!row.lotId || !validQuantity(row.quantity)) return;
+    const lotId = Number(row.lotId);
+    lotTotals.set(lotId, (lotTotals.get(lotId) || 0) + quantityUnits(row.quantity));
+  });
   const batchProblems = rows.flatMap((row, index) => {
     const missing = [];
     if (!sourceOptions.some(source => source.lotId === Number(row.lotId))) missing.push('выберите партию');
@@ -160,7 +176,16 @@ function CompanyDistribution({ companyId, companies, editable, projects = [], wa
     if (!validQuantity(row.quantity)) missing.push('укажите количество больше нуля (до 6 знаков после запятой)');
     return missing.length ? [`Строка ${index + 1}: ${missing.join('; ')}.`] : [];
   });
+  sourceOptions.forEach(source => {
+    const requested = lotTotals.get(source.lotId);
+    const available = quantityUnits(source.availableQuantity);
+    if (requested != null && available != null && requested > available) {
+      batchProblems.push(`Партия «${source.materialName}»: указано ${formatUnits(requested)} ${source.unit}, доступно ${formatUnits(available)} ${source.unit}. Уменьшите количество в строках этой партии.`);
+    }
+  });
   if (!reason.trim()) batchProblems.push('Укажите основание распределения.');
+  const batchValid = batchProblems.length === 0;
+  const selectedProjectCount = new Set(rows.filter(row => ownProjects.some(project => Number(project.id) === Number(row.projectId))).map(row => row.projectId)).size;
   const updateRow = (index, field, value) => {
     const next = rows.map((r, i) => i === index ? { ...r, [field]: value } : r);
     setRows(next);
@@ -191,18 +216,24 @@ function CompanyDistribution({ companyId, companies, editable, projects = [], wa
         {!loading && !sources.length && <p>{applied.current.sources.q
           ? 'По заданному поиску партий не найдено.'
           : 'Нет доступных партий общего склада. Старые поступления без учёта партий здесь не распределяются.'}</p>}
+        <div className="wd-table-head" aria-hidden="true"><span>Партия и материал</span><span>Объект</span><span>Количество</span><span>Остаток после выдачи</span><span></span></div>
         {rows.map((row, index) => {
           const selectedLot = sourceOptions.find(source => source.lotId === Number(row.lotId));
+          const available = selectedLot && quantityUnits(selectedLot.availableQuantity);
+          const requested = selectedLot && lotTotals.get(selectedLot.lotId);
+          const remaining = available != null && requested != null ? formatUnits(available - requested) : null;
           return <div className="wd-row" key={index}>
-          <div className="wd-row-heading"><strong>Материал {index + 1}</strong><button type="button" disabled={rows.length === 1} aria-label={`Удалить строку ${index + 1}`} onClick={() => setRows(rows.filter((_, i) => i !== index))}>Удалить</button></div>
+          <div className="wd-row-heading"><strong>Материал {index + 1}</strong></div>
           <label>Партия {index + 1}<select value={row.lotId} onChange={e => updateRow(index, 'lotId', e.target.value)}><option value="">Выберите поступление</option>{sourceOptions.map(s => <option key={s.lotId} value={s.lotId}>{s.invoiceNumber || `Накладная #${s.warehouseInvoiceId}`} · {s.materialName} · доступно {s.availableQuantity} {s.unit} · строка {s.invoiceLineIndex + 1}</option>)}</select></label>
           <label>Объект {index + 1}<select value={row.projectId} onChange={e => updateRow(index, 'projectId', e.target.value)}><option value="">Выберите объект</option>{ownProjects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
           <label>Количество {index + 1}<input inputMode="decimal" value={row.quantity} onChange={e => updateRow(index, 'quantity', e.target.value.replace(',', '.'))} /></label>
-          {selectedLot && <p className="wd-row-available">Доступно: {selectedLot.availableQuantity} {selectedLot.unit}</p>}
+          <p className={`wd-row-available${remaining != null && Number(remaining) < 0 ? ' wd-overdrawn' : ''}`}>{selectedLot ? `Доступно ${selectedLot.availableQuantity} ${selectedLot.unit}${remaining != null ? ` · останется ${remaining} ${selectedLot.unit}` : ''}` : 'Выберите партию'}</p>
+          <button type="button" disabled={rows.length === 1} aria-label={`Удалить строку ${index + 1}`} onClick={() => setRows(rows.filter((_, i) => i !== index))}>Удалить</button>
         </div>;
         })}
         <button className="wd-add-row" type="button" disabled={rows.length >= 50} onClick={() => setRows([...rows, emptyRow()])}>+ Добавить материал</button>
         <label>Основание распределения<textarea maxLength={1000} value={reason} onChange={e => setReason(e.target.value)} placeholder="Например: передача материалов на объект" /></label>
+        <p className="wd-batch-summary">В пакете: {rows.length} {countLabel(rows.length, 'строка', 'строки', 'строк')} · {selectedProjectCount} {countLabel(selectedProjectCount, 'объект', 'объекта', 'объектов')} · {lotTotals.size} {countLabel(lotTotals.size, 'партия', 'партии', 'партий')}</p>
         <button className="wd-submit" type="submit" disabled={!batchValid} aria-describedby="distribution-submit-feedback">Распределить одним пакетом</button>
       </fieldset>
       <div id="distribution-submit-feedback" aria-live="polite">
