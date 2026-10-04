@@ -25,17 +25,49 @@ _WORKER_TARGETS = frozenset({"worker", "shared_worker", "service_worker"})
 _TRANSPORT_BLOCK_SCRIPT = r"""
 (() => {
   const root = globalThis;
+  const marker = '__stroykaTransportBlocked';
   const blocked = function(){ throw new Error('Blocked by Stroyka QA network policy'); };
+  try {
+    Object.defineProperty(blocked, marker, {value: true, configurable: false, writable: false});
+  } catch (_) {
+    throw new Error('STROYKA_TRANSPORT_BLOCK_FAILED:marker');
+  }
   for (const name of ['WebSocket', 'WebTransport', 'RTCPeerConnection', 'webkitRTCPeerConnection']) {
+    let alreadyBlocked = false;
+    try { alreadyBlocked = Boolean(root[name] && root[name][marker] === true); } catch (_) {}
+    if (alreadyBlocked) continue;
+
+    let installed = false;
     try {
       Object.defineProperty(root, name, {
         value: blocked,
         configurable: false,
         writable: false
       });
-    } catch (_) {
-      try { root[name] = blocked; } catch (_) {}
+      installed = root[name] === blocked;
+    } catch (_) {}
+    if (!installed) {
+      try {
+        root[name] = blocked;
+        installed = root[name] === blocked;
+      } catch (_) {}
     }
+    if (!installed) {
+      throw new Error('STROYKA_TRANSPORT_BLOCK_FAILED:' + name);
+    }
+  }
+  return 'STROYKA_TRANSPORT_BLOCKED';
+})();
+"""
+
+_TRANSPORT_VERIFY_SCRIPT = r"""
+(() => {
+  const root = globalThis;
+  const marker = '__stroykaTransportBlocked';
+  for (const name of ['WebSocket', 'WebTransport', 'RTCPeerConnection', 'webkitRTCPeerConnection']) {
+    let blocked = false;
+    try { blocked = Boolean(root[name] && root[name][marker] === true); } catch (_) {}
+    if (!blocked) throw new Error('STROYKA_TRANSPORT_BLOCK_FAILED:' + name);
   }
   return 'STROYKA_TRANSPORT_BLOCKED';
 })();
@@ -44,6 +76,10 @@ _TRANSPORT_BLOCK_SCRIPT = r"""
 
 def assert_dedicated_loopback_cdp_url(value: str | None = None) -> str:
     """Only the worker-owned loopback Chrome may be used for browser QA."""
+
+    websocket_override = (os.environ.get("BU_CDP_WS") or "").strip()
+    if websocket_override:
+        raise ValueError("BU_CDP_WS is forbidden; Jev QA must use the dedicated loopback Chrome")
 
     configured = (
         value
@@ -217,12 +253,14 @@ class NetworkBoundary:
         self._stop = threading.Event()
         self._error: str | None = None
         self._thread = threading.Thread(target=self._loop, name="qa-network-boundary", daemon=True)
+        self._thread_started = False
         self._guarded_sessions: set[str] = set()
         self._child_targets: set[str] = set()
 
     def start(self) -> None:
         self._enable_session(self._session_id, "page")
         self._thread.start()
+        self._thread_started = True
 
     def _enable_session(self, session_id: str, target_type: str) -> None:
         self._cdp(
@@ -253,6 +291,14 @@ class NetworkBoundary:
                 source=_TRANSPORT_BLOCK_SCRIPT,
                 runImmediately=True,
             )
+            result = self._cdp(
+                "Runtime.evaluate",
+                session_id=session_id,
+                expression=_TRANSPORT_VERIFY_SCRIPT,
+                returnByValue=True,
+            )
+            if (result or {}).get("exceptionDetails"):
+                raise RuntimeError("failed to verify non-Fetch transport block in page target")
         elif target_type in _WORKER_TARGETS:
             result = self._cdp(
                 "Runtime.evaluate",
@@ -346,7 +392,8 @@ class NetworkBoundary:
 
     def close(self) -> None:
         self._stop.set()
-        self._thread.join(timeout=1.0)
+        if self._thread_started:
+            self._thread.join(timeout=1.0)
         for target_id in tuple(self._child_targets):
             try:
                 self._cdp("Target.closeTarget", targetId=target_id)

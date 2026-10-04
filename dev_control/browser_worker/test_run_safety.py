@@ -174,6 +174,15 @@ class BrowserWorkerUrlSafetyTest(unittest.TestCase):
             with self.subTest(value=value), self.assertRaisesRegex(ValueError, "dedicated loopback"):
                 assert_dedicated_loopback_cdp_url(value)
 
+    def test_cdp_rejects_websocket_override_even_if_url_is_loopback(self):
+        with patch.dict(
+            os.environ,
+            {"BU_CDP_URL": DEDICATED_CDP_URL, "BU_CDP_WS": "ws://10.0.0.5:9222/devtools/browser/foreign"},
+            clear=True,
+        ):
+            with self.assertRaisesRegex(ValueError, "BU_CDP_WS"):
+                assert_dedicated_loopback_cdp_url()
+
     def test_session_cookie_bootstrap_is_https_httponly_and_local_to_context(self):
         cdp = Mock()
         with patch.dict(

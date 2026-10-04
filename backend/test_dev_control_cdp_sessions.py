@@ -232,16 +232,15 @@ class RegisteredSessionRegressionTest(unittest.TestCase):
                 guard = self.guard()
                 guard._handle_attached_target(self.event('new-child', kind))
                 calls = guard._cdp.call_args_list
-                expected_transport = (
-                    'Page.addScriptToEvaluateOnNewDocument'
-                    if kind in {'page', 'iframe'}
-                    else 'Runtime.evaluate'
-                )
-                self.assertEqual(
-                    [item.args[0] for item in calls],
+                expected_methods = (
                     ['Fetch.enable', 'Target.setAutoAttach',
-                     expected_transport, 'Runtime.runIfWaitingForDebugger'],
+                     'Page.addScriptToEvaluateOnNewDocument',
+                     'Runtime.evaluate', 'Runtime.runIfWaitingForDebugger']
+                    if kind in {'page', 'iframe'}
+                    else ['Fetch.enable', 'Target.setAutoAttach',
+                          'Runtime.evaluate', 'Runtime.runIfWaitingForDebugger']
                 )
+                self.assertEqual([item.args[0] for item in calls], expected_methods)
                 self.assertTrue(all(item.kwargs['session_id'] == 'new-child' for item in calls))
                 self.assertTrue(calls[1].kwargs['waitForDebuggerOnStart'])
                 self.assertIn('new-child', guard._guarded_sessions)
@@ -249,6 +248,8 @@ class RegisteredSessionRegressionTest(unittest.TestCase):
     def test_transport_block_is_worker_safe_and_covers_required_non_fetch_apis(self):
         self.assertIn('globalThis', _TRANSPORT_BLOCK_SCRIPT)
         self.assertNotIn('window', _TRANSPORT_BLOCK_SCRIPT)
+        self.assertIn('STROYKA_TRANSPORT_BLOCK_FAILED', _TRANSPORT_BLOCK_SCRIPT)
+        self.assertIn('if (!installed)', _TRANSPORT_BLOCK_SCRIPT)
         for api in ('WebSocket', 'WebTransport', 'RTCPeerConnection', 'webkitRTCPeerConnection'):
             self.assertIn(api, _TRANSPORT_BLOCK_SCRIPT)
 
@@ -258,7 +259,7 @@ class RegisteredSessionRegressionTest(unittest.TestCase):
         first._handle_attached_target(event)
         self.assertNotIn('child', second._guarded_sessions)
         second._handle_attached_target(event)
-        self.assertEqual(second._cdp.call_count, 4)
+        self.assertEqual(second._cdp.call_count, 5)
 
     def test_unapproved_page_or_iframe_closed_without_resume(self):
         for kind in ('page', 'iframe'):
@@ -276,6 +277,7 @@ class RegisteredSessionRegressionTest(unittest.TestCase):
             ('page', 'Fetch.enable'),
             ('page', 'Target.setAutoAttach'),
             ('page', 'Page.addScriptToEvaluateOnNewDocument'),
+            ('page', 'Runtime.evaluate'),
             ('worker', 'Runtime.evaluate'),
             ('shared_worker', 'Runtime.evaluate'),
             ('service_worker', 'Runtime.evaluate'),
@@ -296,6 +298,13 @@ class RegisteredSessionRegressionTest(unittest.TestCase):
                                  [item.args[0] for item in guard._cdp.call_args_list])
                 with self.assertRaises(JevError):
                     guard.raise_if_failed()
+
+    def test_close_is_safe_when_root_protection_failed_before_thread_start(self):
+        guard = self.guard()
+        guard._thread = threading.Thread(target=lambda: None)
+        guard._thread_started = False
+        guard.close()
+        guard._cdp.assert_called_once_with('Fetch.disable', session_id='root-session')
 
     def test_paused_request_still_blocked_after_ignored_root_event(self):
         guard = self.guard()

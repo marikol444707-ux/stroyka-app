@@ -129,6 +129,23 @@ class BrowserWorkerServiceConfigTest(unittest.TestCase):
             self.assertEqual(health().status_code, 503)
         urlopen.assert_not_called()
 
+    @patch("dev_control.browser_worker.service.urllib.request.urlopen")
+    def test_external_cdp_websocket_is_rejected_without_network_probe(self, urlopen):
+        env = {
+            "DEV_CONTROL_API_TOKEN": "api-secret",
+            "TIMEWEB_AI_API_KEY": "ai-secret",
+            "QA_BASE_URL": "https://qa.example.test",
+            "QA_ALLOWED_ORIGIN": "https://qa.example.test",
+            "QA_ENVIRONMENT": "staging",
+            "BU_CDP_URL": "http://127.0.0.1:9222",
+            "BU_CDP_WS": "ws://10.0.0.5:9222/devtools/browser/foreign",
+        }
+        with patch.dict(os.environ, env, clear=True):
+            self.assertFalse(_configured())
+            self.assertFalse(_chrome_alive())
+            self.assertEqual(health().status_code, 503)
+        urlopen.assert_not_called()
+
     def test_health_is_503_when_required_configuration_is_missing(self):
         with patch.dict(os.environ, {}, clear=True):
             self.assertEqual(health().status_code, 503)

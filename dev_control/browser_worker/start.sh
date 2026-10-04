@@ -2,6 +2,11 @@
 set -euo pipefail
 
 readonly expected_cdp_url="http://127.0.0.1:9222"
+if [[ -n "${BU_CDP_WS:-}" ]]; then
+  echo "Refusing BU_CDP_WS; Jev QA must use dedicated loopback Chrome only" >&2
+  exit 2
+fi
+unset BU_CDP_WS
 if [[ -n "${BU_CDP_URL:-}" && "${BU_CDP_URL}" != "${expected_cdp_url}" ]]; then
   echo "Refusing external BU_CDP_URL; Jev QA must use dedicated loopback Chrome only" >&2
   exit 2
