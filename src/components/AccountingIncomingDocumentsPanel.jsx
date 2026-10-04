@@ -1,5 +1,6 @@
 import React from 'react';
 import SupplierPaymentButton from '../features/supplier-payments/SupplierPaymentButton';
+import AccountingDocumentAttachment from './AccountingDocumentAttachment';
 import { AlertTriangle, CheckCircle2, CreditCard, Eye, FileText, Link2, MessageSquare, Upload, XCircle } from 'lucide-react';
 import { API } from '../api';
 import {
@@ -649,7 +650,8 @@ export default function AccountingIncomingDocumentsPanel({
 
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: showSupplierRecovery ? '12px' : 0 }}>
           {row.photos.map((url, index) => (
-            <img key={url + index} src={fileSrc ? fileSrc(url) : url} alt="" onClick={() => setShowPhotoModal && setShowPhotoModal(fileSrc ? fileSrc(url) : url)} style={{ width: '72px', height: '72px', objectFit: 'cover', borderRadius: '8px', border: '1px solid ' + C.border, cursor: 'pointer' }} />
+            <AccountingDocumentAttachment key={url + index} url={url} fileSrc={fileSrc}
+              onPhoto={setShowPhotoModal} C={C}/>
           ))}
         </div>
 
