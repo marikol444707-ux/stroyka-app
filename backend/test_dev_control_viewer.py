@@ -23,6 +23,19 @@ class ViewerContractTest(unittest.TestCase):
         self.assertNotIn("localStorage", VIEWER_HTML)
         self.assertNotIn("?token=", VIEWER_HTML)
         self.assertNotIn("innerHTML", VIEWER_HTML)
+        self.assertNotIn("tokenInput.value=token", VIEWER_HTML)
+        self.assertIn("tokenInput.value=''", VIEWER_HTML)
+
+    def test_viewer_binds_stop_to_rendered_run_and_discards_stale_details(self):
+        self.assertIn("rendered!==selected", VIEWER_HTML)
+        self.assertIn("const requested=selected", VIEWER_HTML)
+        self.assertIn("selected!==requested||seq!==detailSeq", VIEWER_HTML)
+        self.assertIn("const requested=rendered", VIEWER_HTML)
+
+    def test_viewer_clears_old_frame_when_switching_or_no_image_exists(self):
+        self.assertIn("function clearFrame()", VIEWER_HTML)
+        self.assertIn("if(!latest){if(selected===requested&&seq===detailSeq)clearFrame();return;}", VIEWER_HTML)
+        self.assertIn("rendered=null;detailSeq++;clearFrame()", VIEWER_HTML)
 
     def test_viewer_security_headers_deny_embedding_and_caching(self):
         headers = viewer_headers()
@@ -123,6 +136,29 @@ class ViewerJobAccessTest(unittest.TestCase):
         with service._jobs_lock:
             self.assertEqual(service._jobs[job_id]["status"], "cancelled")
             self.assertTrue(service._jobs[job_id]["result"]["cancelled"])
+
+    @patch("dev_control.browser_worker.service._executor.submit")
+    def test_startup_selftest_clears_previous_fixed_evidence_before_queueing(self, submit):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            os.environ,
+            {
+                "QA_EVIDENCE_DIR": directory,
+                "QA_SELFTEST_ON_START": "1",
+                "QA_BASE_URL": "http://127.0.0.1:8080",
+                "QA_ENVIRONMENT": "test",
+                "TIMEWEB_AI_API_KEY": "test-only",
+            },
+            clear=True,
+        ):
+            root = Path(directory) / "startup-selftest"
+            root.mkdir()
+            (root / "000000.jpg").write_bytes(b"old-frame")
+            (root / "progress.json").write_text('{"phase":"old"}', encoding="utf-8")
+            service.schedule_startup_selftest()
+            self.assertFalse(root.exists())
+            with service._jobs_lock:
+                self.assertEqual(service._jobs["startup-selftest"]["status"], "queued")
+            submit.assert_called_once()
 
     def test_job_list_requires_auth_and_returns_only_public_metadata(self):
         job_id = "1" * 32

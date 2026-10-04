@@ -565,7 +565,15 @@ def _run_startup_selftest() -> None:
 def schedule_startup_selftest():
     _cleanup_expired_evidence()
     if _startup_selftest_enabled():
-        _set_job("startup-selftest", status="queued", result=None)
+        stale = _job_evidence_dir("startup-selftest")
+        if stale.exists():
+            shutil.rmtree(stale)
+        _set_job(
+            "startup-selftest",
+            status="queued",
+            result=None,
+            created_at_ms=int(time.time() * 1000),
+        )
         _executor.submit(_run_startup_selftest)
 
 
