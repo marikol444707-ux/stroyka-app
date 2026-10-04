@@ -450,3 +450,19 @@ describe('two-stage transfer integration', () => {
     await waitFor(() => expect(screen.getByText('Оформить возврат')).toBeEnabled());
   });
 });
+
+
+test('explains an incomplete earlier row next to the batch button', async () => {
+  render(<DistributionWorkspace {...props} />);
+  await screen.findByText(/Осталось по распределению: 15 м/);
+  fireEvent.click(screen.getByRole('button', { name: 'Добавить строку' }));
+  fireEvent.change(screen.getByLabelText('Партия 2'), { target: { value: '5' } });
+  fireEvent.change(screen.getByLabelText('Объект 2'), { target: { value: '11' } });
+  fireEvent.change(screen.getByLabelText('Количество 2'), { target: { value: '85' } });
+  fireEvent.change(screen.getByLabelText('Основание распределения'), { target: { value: 'Перемещение на объект' } });
+  expect(screen.getByRole('button', { name: 'Распределить одним пакетом' })).toBeDisabled();
+  const feedback = document.getElementById('distribution-submit-feedback');
+  expect(feedback).toHaveTextContent('Строка 1: выберите партию; выберите объект; укажите количество');
+  expect(feedback).not.toHaveTextContent('Строка 2:');
+  expect(global.fetch.mock.calls.some(call => call[1]?.method === 'POST')).toBe(false);
+});

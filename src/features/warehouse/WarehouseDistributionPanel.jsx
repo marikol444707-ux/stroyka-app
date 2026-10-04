@@ -153,6 +153,14 @@ function CompanyDistribution({ companyId, companies, editable, projects = [], wa
   }
   const sourceOptions = [...sources, ...selectedSources.filter(s => !sources.some(item => item.lotId === s.lotId))];
   const batchValid = rows.every(r => sourceOptions.some(s => s.lotId === Number(r.lotId)) && ownProjects.some(p => Number(p.id) === Number(r.projectId)) && validQuantity(r.quantity)) && reason.trim();
+  const batchProblems = rows.flatMap((row, index) => {
+    const missing = [];
+    if (!sourceOptions.some(source => source.lotId === Number(row.lotId))) missing.push('выберите партию');
+    if (!ownProjects.some(project => Number(project.id) === Number(row.projectId))) missing.push('выберите объект');
+    if (!validQuantity(row.quantity)) missing.push('укажите количество больше нуля (до 6 знаков после запятой)');
+    return missing.length ? [`Строка ${index + 1}: ${missing.join('; ')}.`] : [];
+  });
+  if (!reason.trim()) batchProblems.push('Укажите основание распределения.');
   const updateRow = (index, field, value) => {
     const next = rows.map((r, i) => i === index ? { ...r, [field]: value } : r);
     setRows(next);
@@ -163,14 +171,14 @@ function CompanyDistribution({ companyId, companies, editable, projects = [], wa
     <div className="wd-heading"><h3>Распределение по объектам</h3><button type="button" disabled={busy || loading} onClick={load}>Обновить</button></div>
     <p>Движение с общего склада — не новый долг поставщику. Осталось по распределению — выданное минус возвраты и отправки на другие объекты, а не фактический остаток на объекте.</p>
     {loading && <p role="status">Загрузка партий и распределений…</p>}
-    {error && <p role="alert">{error}</p>}
+    {!editable && error && <p role="alert">{error}</p>}
     {pages.history.error && <p role="alert">{pages.history.error}</p>}
     {pages.sources.error && <p role="alert">{pages.sources.error}</p>}
     {pendingError && <p role="alert">{pendingError}</p>}
     {pending && editable && <div role="status"><p>Есть неподтверждённая операция. Новая выдача заблокирована до проверки её результата. Повтор безопасен: используется прежний номер запроса.</p>
       <details><summary>Состав неподтверждённой операции</summary><p>{pending.payload.reason}</p>{pending.payload.rows ? <ul>{pending.payload.rows.map((r, i) => <li key={i}>Партия #{r.lotId} → объект #{r.projectId}: {r.quantity}</li>)}</ul> : <p>Возврат по распределению #{pending.path.split('/')[2]}: {pending.payload.quantity}</p>}</details>
       <button type="button" disabled={busy || accessDenied || transferBlocked || Boolean(transferSource)} onClick={() => submit(pending.path, pending.payload, () => { setRows([emptyRow()]); setReason(''); closeReturn(); }, pending)}>Повторить неподтверждённую операцию</button></div>}
-    {notice && <p role="status">{notice}</p>}
+    {!editable && notice && <p role="status">{notice}</p>}
     {((pages.history.truncated && !pages.history.nextCursor) || (pages.sources.truncated && !pages.sources.nextCursor)) && <p>Сервер вернул неполный реестр без продолжения. Уточните поиск.</p>}
     {editable && <form className="wd-filters" onSubmit={e => { e.preventDefault(); applied.current.sources = { q: sourceSearch.trim() }; loadPage('sources'); }}>
       <label>Поиск партий<input type="search" maxLength={200} value={sourceSearch} onChange={e => setSourceSearch(e.target.value)} /></label>
@@ -190,8 +198,20 @@ function CompanyDistribution({ companyId, companies, editable, projects = [], wa
         </div>)}
         <button type="button" disabled={rows.length >= 50} onClick={() => setRows([...rows, emptyRow()])}>Добавить строку</button>
         <label>Основание распределения<textarea maxLength={1000} value={reason} onChange={e => setReason(e.target.value)} /></label>
-        <button type="submit" disabled={!batchValid}>Распределить одним пакетом</button>
+        <button type="submit" disabled={!batchValid} aria-describedby="distribution-submit-feedback">Распределить одним пакетом</button>
       </fieldset>
+      <div id="distribution-submit-feedback" aria-live="polite">
+        {busy ? <p role="status">Сохраняем распределение…</p> : <>
+          {error && <p role="alert">{error}</p>}
+          {notice && <p role="status">{notice}</p>}
+
+          {pending && <p>Результат предыдущей операции ещё не подтверждён. Используйте кнопку «Повторить неподтверждённую операцию» выше.</p>}
+          {loading && <p>Дождитесь загрузки партий и распределений.</p>}
+          {(returning || transferBlocked || transferSource) && <p>Сначала завершите или закройте текущий возврат или перемещение.</p>}
+          {!loading && !pending && !accessDenied && !pendingError && batchProblems.length > 0 && <><p>Чтобы распределить материалы:</p><ul>{batchProblems.map(problem => <li key={problem}>{problem}</li>)}</ul></>}
+        </>}
+      </div>
+
     </form>}
     <h4>История выдачи и возвратов</h4>
     <p>Период включает обе даты, дни считаются по UTC. Поиск применяется ко всей истории на сервере.</p>
