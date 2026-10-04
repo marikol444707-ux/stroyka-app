@@ -6,6 +6,7 @@ const EMPTY_PROTECTED_STATE = {
   src: '',
   loading: false,
   error: '',
+  contentType: '',
 };
 
 export const isProtectedTenantFileUrl = value => {
@@ -37,7 +38,7 @@ export default function useProtectedFileObjectUrl(fileUrl, fileSrc = value => va
         const blob = await response.blob();
         if (controller.signal.aborted) return;
         objectUrl = URL.createObjectURL(blob);
-        setProtectedState({sourceUrl: resolvedUrl, src: objectUrl, loading: false, error: ''});
+        setProtectedState({sourceUrl: resolvedUrl, src: objectUrl, loading: false, error: '', contentType: blob.type || ''});
       } catch (error) {
         if (controller.signal.aborted) return;
         setProtectedState({
@@ -62,5 +63,6 @@ export default function useProtectedFileObjectUrl(fileUrl, fileSrc = value => va
     src: protectedState.src,
     loading: protectedState.loading,
     error: protectedState.error,
+    contentType: protectedState.contentType || '',
   };
 }

@@ -1,6 +1,7 @@
 import React from 'react';
 import { AlertTriangle, ChevronDown, ChevronUp, Eye, FileText, Link2, RefreshCw, Search } from 'lucide-react';
 import { API } from '../api';
+import AccountingDocumentAttachment from './AccountingDocumentAttachment';
 import { buildAccountingInvoiceRows } from '../utils/accountingInvoices';
 import {
   groupSuppliers,
@@ -479,9 +480,8 @@ export default function AccountingSupplierDocumentsPanel({
                         <div style={{marginTop:'10px',paddingTop:'10px',borderTop:'1px dashed '+C.border}}>
                           <div style={{display:'flex',gap:'8px',flexWrap:'wrap',marginBottom:'10px'}}>
                             {(doc.photos || []).map((url, index) => (
-                              <button key={url + index} onClick={()=>setShowPhotoModal && setShowPhotoModal(fileSrc ? fileSrc(url) : url)} style={{border:'1px solid '+C.border,background:C.bg,borderRadius:'8px',padding:'4px',cursor:'pointer'}}>
-                                <img src={fileSrc ? fileSrc(url) : url} alt='' style={{width:'72px',height:'72px',objectFit:'cover',borderRadius:'6px',display:'block'}}/>
-                              </button>
+                              <AccountingDocumentAttachment key={url + index} url={url} fileSrc={fileSrc}
+                                onPhoto={setShowPhotoModal} C={C}/>
                             ))}
                             {!doc.photos?.length && <span style={{color:C.textMuted,fontSize:'12px'}}>Фото не прикреплено</span>}
                           </div>
