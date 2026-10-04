@@ -56,19 +56,53 @@ export default function WarehouseOperationsPanel({
   user,
   isMobile = false,
 }) {
+  const [movementSearch, setMovementSearch] = React.useState('');
+  const [selectedOnly, setSelectedOnly] = React.useState(false);
+  const [movementBusy, setMovementBusy] = React.useState(false);
+  const movementReviewRef = React.useRef(null);
   const touchCompact = typeof window !== 'undefined'
     && (window.visualViewport?.width || window.innerWidth || 0) < 1100
     && (
       (typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches)
       || (typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || ''))
     );
-  const compactRows = isMobile || touchCompact;
+  const compactRows = isMobile || touchCompact || (typeof window !== 'undefined' && window.innerWidth < 1150);
 
   if (warehouseTab === 'move') {
     const sourceMaterials = newMovement.fromLocation === 'Основной склад'
       ? warehouseMain
       : materials.filter(material => material.project === newMovement.fromLocation);
-    const visibleSourceMaterials = compactRows ? sourceMaterials.slice(0, 40) : sourceMaterials;
+    const movementMaterialKey = (material = {}) => [
+      material.id || '',
+      material.name || '',
+      material.project || '',
+      material.workPackage || material.work_package || '',
+      material.unit || '',
+    ].join('|');
+    const selectedMaterials = newMovement.selectedMaterials || [];
+    const positionWord = selectedMaterials.length % 10 === 1 && selectedMaterials.length % 100 !== 11
+      ? 'позицию'
+      : ([2, 3, 4].includes(selectedMaterials.length % 10) && ![12, 13, 14].includes(selectedMaterials.length % 100) ? 'позиции' : 'позиций');
+    const invalidQuantityCount = selectedMaterials.filter(item => !Number.isFinite(Number(item.quantity)) || Number(item.quantity) <= 0).length;
+    const canSubmitMovement = Boolean(newMovement.toLocation && selectedMaterials.length && !invalidQuantityCount && !movementBusy);
+    const submitMovement = async (print = false) => {
+      if (!canSubmitMovement) return;
+      setMovementBusy(true);
+      try {
+        const result = await applyWarehouseMovement();
+        if (!print || !result?.success) return;
+        const printedRows = result.movements?.length ? result.movements : selectedMaterials.filter(item => item.quantity);
+        showPreview(buildMovementDoc(result.movements?.[0] || newMovement, printedRows), 'Накладная М-11');
+      } finally {
+        setMovementBusy(false);
+      }
+    };
+    const searchText = movementSearch.trim().toLocaleLowerCase('ru-RU');
+    const matchingMaterials = sourceMaterials.filter(material => {
+      if (selectedOnly && !selectedMaterials.some(item => movementMaterialKey(item) === movementMaterialKey(material))) return false;
+      return !searchText || `${material.name} ${material.workPackage || material.work_package || ''}`.toLocaleLowerCase('ru-RU').includes(searchText);
+    });
+    const visibleSourceMaterials = compactRows ? matchingMaterials.slice(0, 40) : matchingMaterials;
     const normalizeSourceText = (value) => String(value || '').trim().toLocaleLowerCase('ru-RU');
     const sourceCandidatesForMaterial = (material) => (warehouseInvoices || []).flatMap((invoice) => {
       const invoiceLocation = invoice.project || invoice.location || '';
@@ -85,28 +119,29 @@ export default function WarehouseOperationsPanel({
           : []
       ));
     });
-    const movementMaterialKey = (material = {}) => [
-      material.id || '',
-      material.name || '',
-      material.project || '',
-      material.workPackage || material.work_package || '',
-      material.unit || '',
-    ].join('|');
-
     return (
       <div>
-        <h3 style={{ color: C.text, marginBottom: '15px', fontSize: '15px', fontWeight: '700' }}>
-          Перемещение материалов
-        </h3>
-        <div style={{ ...card, padding: compactRows ? '14px' : '20px', marginBottom: '16px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: compactRows ? '1fr' : '1fr 1fr', gap: '10px', marginBottom: '15px' }}>
+        <div style={{marginBottom:'16px'}}>
+          <h2 style={{color:C.text,margin:'0 0 4px',fontSize:compactRows?'19px':'22px'}}>Перемещение материалов</h2>
+          <p style={{color:C.textSec,margin:0,fontSize:'13px'}}>Выберите склад и материалы. Перед отправкой проверьте количество и источник прихода.</p>
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:compactRows?'minmax(0,1fr)':'minmax(0,1fr) minmax(270px,320px)',
+          gridTemplateAreas:compactRows?'"route" "materials" "review"':'"route review" "materials review"',gap:'14px',marginBottom:'18px',alignItems:'start'}}>
+          <section style={{...card,gridArea:'route',padding:compactRows?'16px':'20px',minWidth:0,margin:0}}>
+          <h3 style={{color:C.text,fontSize:'16px',margin:'0 0 15px'}}>Маршрут</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: compactRows?'minmax(0,1fr)':'minmax(0,1fr) minmax(0,1fr)', gap: '12px' }}>
             <div>
               <label style={{ fontSize: '12px', color: C.textSec, display: 'block', marginBottom: '5px' }}>
-                Откуда:
+                Со склада
               </label>
               <select
                 value={newMovement.fromLocation}
-                onChange={e => setNewMovement({ ...newMovement, fromLocation: e.target.value, selectedMaterials: [] })}
+                onChange={e => {
+                  setSelectedOnly(false);
+                  setNewMovement({ ...newMovement, fromLocation: e.target.value,
+                    toLocation: newMovement.toLocation === e.target.value ? '' : newMovement.toLocation,
+                    selectedMaterials: [] });
+                }}
                 style={inp}
               >
                 <option value="Основной склад">Основной склад</option>
@@ -117,7 +152,7 @@ export default function WarehouseOperationsPanel({
             </div>
             <div>
               <label style={{ fontSize: '12px', color: C.textSec, display: 'block', marginBottom: '5px' }}>
-                Куда:
+                На объект или склад
               </label>
               <select
                 value={newMovement.toLocation}
@@ -125,7 +160,7 @@ export default function WarehouseOperationsPanel({
                 style={inp}
               >
                 <option value="">Выберите...</option>
-                <option value="Основной склад">Основной склад</option>
+                {newMovement.fromLocation !== 'Основной склад' && <option value="Основной склад">Основной склад</option>}
                 {visibleActiveProjects(projects)
                   .filter(project => project.name !== newMovement.fromLocation)
                   .map(project => (
@@ -134,10 +169,32 @@ export default function WarehouseOperationsPanel({
               </select>
             </div>
           </div>
+          </section>
 
-          <b style={{ color: C.text, fontSize: '13px', display: 'block', marginBottom: '10px' }}>
-            Выберите материалы:
-          </b>
+          <section style={{...card,gridArea:'materials',padding:compactRows?'16px':'20px',minWidth:0,margin:0}}>
+            <h3 style={{color:C.text,fontSize:'16px',margin:'0 0 14px'}}>Материалы</h3>
+            <div style={{display:'flex',gap:'8px',flexWrap:'wrap',alignItems:'center',marginBottom:'12px'}}>
+              <input
+                type="search"
+                aria-label="Поиск материала"
+                placeholder="Найти материал или пакет работ"
+                value={movementSearch}
+                onChange={event => setMovementSearch(event.target.value)}
+                style={{...inp,margin:0,minWidth:compactRows?'100%':'260px',flex:'1 1 260px'}}
+              />
+              <button type="button" onClick={() => setSelectedOnly(value => !value)}
+                aria-pressed={selectedOnly} style={{...(selectedOnly ? btnO : btnG),whiteSpace:'nowrap'}}>
+                {selectedOnly ? 'Показаны выбранные' : `Выбрано: ${selectedMaterials.length}`}
+              </button>
+              {compactRows && selectedMaterials.length > 0 && <button type="button"
+                onClick={() => movementReviewRef.current?.scrollIntoView({behavior:'smooth',block:'start'})}
+                style={{...btnG,whiteSpace:'nowrap'}}>К отправке ↓</button>}
+            </div>
+            {sourceMaterials.length > 0 && matchingMaterials.length === 0 && (
+              <p role="status" style={{color:C.textSec,fontSize:'13px'}}>По вашему запросу материалов нет. Измените поиск или покажите все позиции.</p>
+            )}
+            {sourceMaterials.length === 0 && <p role="status" style={{color:C.textSec,fontSize:'13px'}}>На выбранном складе нет материалов для перемещения.</p>}
+          <div style={{maxHeight:compactRows?'55vh':'540px',overflowY:'auto',paddingRight:'4px'}}>
           {visibleSourceMaterials.map(material => {
             const materialKey = movementMaterialKey(material);
             const selected = newMovement.selectedMaterials?.find(item => movementMaterialKey(item) === materialKey);
@@ -146,11 +203,11 @@ export default function WarehouseOperationsPanel({
               <div
                 key={material.id}
                 style={{
-                  padding: '10px',
-                  borderRadius: '8px',
-                  marginBottom: '6px',
-                  border: '1.5px solid ' + (selected ? C.accent : C.border),
-                  backgroundColor: selected ? C.accentLight : C.bgWhite,
+                  padding: compactRows?'13px 8px':'13px 8px',
+                  borderRadius: '0',
+                  borderTop: '1px solid ' + C.border,
+                  borderLeft: selected ? '3px solid ' + C.accent : '3px solid transparent',
+                  backgroundColor: selected ? C.accentLight : 'transparent',
                   display: 'flex',
                   flexDirection: compactRows ? 'column' : 'row',
                   alignItems: 'center',
@@ -175,12 +232,12 @@ export default function WarehouseOperationsPanel({
                         selectedMaterials: (prev.selectedMaterials || []).filter(item => movementMaterialKey(item) !== materialKey),
                       }));
                     }}
-                    style={{ width: '16px', height: '16px', accentColor: C.accent, flex:'0 0 auto', marginTop:'2px' }}
+                    style={{ width: '20px', height: '20px', accentColor: C.accent, flex:'0 0 auto', marginTop:'1px' }}
                   />
                   <span style={{ flex: 1, minWidth:0, fontSize: '13px', color: C.text, overflowWrap:'anywhere', lineHeight:'1.35' }}>
                     {material.name}
                     <small style={{ display: 'block', color: C.textSec, marginTop: '3px' }}>
-                      Есть: {material.quantity} {material.unit}
+                      На складе: {material.quantity} {material.unit}
                     </small>
                     {(material.workPackage || material.work_package) && (
                       <small style={{ display: 'block', color: C.textSec, marginTop: '2px' }}>
@@ -191,8 +248,10 @@ export default function WarehouseOperationsPanel({
                 </label>
                 {selected && <div style={{display:'grid',gap:'6px',width:compactRows ? '100%' : '190px',flex:'0 0 auto'}}>
                   <input
-                    placeholder="Кол-во"
+                    placeholder="Количество"
+                    aria-label={`Количество: ${material.name}`}
                     type="number"
+                    min="0"
                     step="any"
                     inputMode="decimal"
                     value={selected.quantity}
@@ -202,10 +261,7 @@ export default function WarehouseOperationsPanel({
                         movementMaterialKey(item) === materialKey ? { ...item, quantity: e.target.value } : item
                       )),
                     }))}
-                    style={{
-                      width: '100%', boxSizing:'border-box', padding: '5px 8px',
-                      border: '1.5px solid ' + C.accent, borderRadius: '6px', fontSize: '12px',
-                    }}
+                    style={{...inp,width:'100%',boxSizing:'border-box',margin:0,padding:'9px',fontSize:'14px'}}
                   />
                   {sourceCandidates.length > 0 && <select
                     aria-label={`Источник прихода: ${material.name}`}
@@ -223,48 +279,64 @@ export default function WarehouseOperationsPanel({
                     }}
                     style={{...inp,margin:0,padding:'5px 8px',fontSize:'11px',width:'100%',boxSizing:'border-box'}}
                   >
-                    <option value="">Источник прихода: не выбран</option>
+                    <option value="">Выберите партию прихода</option>
                     {sourceCandidates.map(candidate => <option key={candidate.key} value={candidate.key}>{candidate.label}</option>)}
                   </select>}
-                  {sourceCandidates.length === 0 && <div role="status" style={{fontSize:'11px',color:C.textSec}}>
-                    Нет доступных строк с подтверждённым индексом. Источник не будет привязан; обновите данные или проверьте накладную.
+                  {sourceCandidates.length === 0 && <div role="status" style={{fontSize:'12px',color:C.textSec}}>
+                    Накладная не найдена. Перемещение сохранится без привязки к источнику прихода.
                   </div>}
                 </div>}
               </div>
             );
           })}
-          {visibleSourceMaterials.length < sourceMaterials.length && (
+          </div>
+          {visibleSourceMaterials.length < matchingMaterials.length && (
             <div style={{ padding: '10px 12px', color: C.textMuted, fontSize: '11px', textAlign: 'center' }}>
-              Показаны первые {visibleSourceMaterials.length} из {sourceMaterials.length}. Для полного списка откройте склад на компьютере или уточните источник перемещения.
+              Показаны первые {visibleSourceMaterials.length} из {matchingMaterials.length}. Используйте поиск, чтобы найти нужный материал.
             </div>
           )}
+          </section>
 
+          <section ref={movementReviewRef} style={{...card,gridArea:'review',padding:compactRows?'16px':'20px',minWidth:0,margin:0,
+            position:compactRows?'static':'sticky',top:'12px'}}>
+          <h3 style={{color:C.text,fontSize:'16px',margin:'0 0 8px'}}>К отправке</h3>
+          <p style={{color:C.textSec,fontSize:'13px',margin:'0 0 10px'}}>
+            {selectedMaterials.length ? `${newMovement.fromLocation} → ${newMovement.toLocation || 'выберите место назначения'} · ${selectedMaterials.length} поз.` : 'Пока ничего не выбрано. Отметьте материалы выше.'}
+          </p>
+          {selectedMaterials.length > 0 && <div style={{display:'grid',gap:'5px',marginBottom:'12px'}}>
+            {selectedMaterials.map(item => <div key={movementMaterialKey(item)} style={{display:'flex',justifyContent:'space-between',gap:'12px',borderBottom:`1px solid ${C.border}`,padding:'5px 0',fontSize:'13px'}}>
+              <span style={{color:C.text,overflowWrap:'anywhere'}}>{item.name}</span>
+              <strong style={{color: Number(item.quantity) > 0 ? C.text : C.warning,whiteSpace:'nowrap'}}>
+                {Number(item.quantity) > 0 ? `${item.quantity} ${item.unit}` : 'Укажите количество'}
+              </strong>
+            </div>)}
+          </div>}
+          {!newMovement.toLocation && <p role="status" style={{color:C.warning,fontSize:'12px',margin:'0 0 7px'}}>Выберите, куда переместить материалы.</p>}
+          {invalidQuantityCount > 0 && <p role="status" style={{color:C.warning,fontSize:'12px',margin:'0 0 7px'}}>
+            Укажите количество для {invalidQuantityCount} {invalidQuantityCount === 1 ? 'позиции' : 'позиций'}.
+          </p>}
           <input
-            placeholder="Примечание"
+            aria-label="Примечание к перемещению"
+            placeholder="Примечание к перемещению (необязательно)"
             value={newMovement.notes}
             onChange={e => setNewMovement({ ...newMovement, notes: e.target.value })}
             style={{ ...inp, marginTop: '10px' }}
           />
           <div style={{ display: 'flex', gap: '8px', marginTop: '10px', flexWrap:'wrap' }}>
+            <button disabled={!canSubmitMovement} onClick={() => submitMovement(false)}
+              style={{...btnO,flex:'1 1 100%',justifyContent:'center',opacity:canSubmitMovement?1:0.55}}>
+              {movementBusy ? 'Перемещаем…' : selectedMaterials.length ? `Переместить ${selectedMaterials.length} ${positionWord}` : 'Переместить материалы'}
+            </button>
             <button
-              onClick={async () => {
-                const result = await applyWarehouseMovement();
-                if (!result?.success) return;
-                const printedRows = result.movements?.length
-                  ? result.movements
-                  : (newMovement.selectedMaterials || []).filter(item => item.quantity);
-                showPreview(
-                  buildMovementDoc(result.movements?.[0] || newMovement, printedRows),
-                  'Накладная М-11'
-                );
-              }}
-              style={{...btnO,...(compactRows ? {flex:'1 1 100%',justifyContent:'center'} : {})}}
+              onClick={() => submitMovement(true)}
+              disabled={!canSubmitMovement}
+              style={{...btnG,flex:'1 1 100%',justifyContent:'center'}}
             >
               <Check size={14} />
               Переместить и распечатать
             </button>
-            <button onClick={applyWarehouseMovement} style={{...btnG,...(compactRows ? {flex:'1 1 100%',justifyContent:'center'} : {})}}>Переместить</button>
           </div>
+          </section>
         </div>
 
         <h3 style={{ color: C.text, marginBottom: '10px', fontSize: '14px', fontWeight: '700' }}>
