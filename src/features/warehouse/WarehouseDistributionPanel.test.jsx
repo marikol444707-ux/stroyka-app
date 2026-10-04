@@ -466,3 +466,25 @@ test('explains an incomplete earlier row next to the batch button', async () => 
   expect(feedback).not.toHaveTextContent('Строка 2:');
   expect(global.fetch.mock.calls.some(call => call[1]?.method === 'POST')).toBe(false);
 });
+
+test('shows combined shortage when the same lot is used for two projects before posting', async () => {
+  const localProps = { ...props, projects: [...props.projects, { id: 13, companyId: 2, name: 'Корпус 2' }] };
+  render(<DistributionWorkspace {...localProps} />);
+  await screen.findByText(/Осталось по распределению: 15 м/);
+  fireEvent.change(screen.getByLabelText('Партия 1'), { target: { value: '5' } });
+  fireEvent.change(screen.getByLabelText('Объект 1'), { target: { value: '11' } });
+  fireEvent.change(screen.getByLabelText('Количество 1'), { target: { value: '60' } });
+  fireEvent.click(screen.getByRole('button', { name: '+ Добавить материал' }));
+  fireEvent.change(screen.getByLabelText('Партия 2'), { target: { value: '5' } });
+  fireEvent.change(screen.getByLabelText('Объект 2'), { target: { value: '13' } });
+  fireEvent.change(screen.getByLabelText('Количество 2'), { target: { value: '50' } });
+  fireEvent.change(screen.getByLabelText('Основание распределения'), { target: { value: 'Передача на объекты' } });
+  expect(screen.getByText(/В пакете: 2 строки · 2 объекта · 1 партия/)).toBeInTheDocument();
+  expect(screen.getByText(/указано 110 м, доступно 100 м/)).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Распределить одним пакетом' })).toBeDisabled();
+  expect(global.fetch.mock.calls.some(call => call[1]?.method === 'POST')).toBe(false);
+  fireEvent.change(screen.getByLabelText('Количество 2'), { target: { value: '40' } });
+  expect(screen.getByRole('button', { name: 'Распределить одним пакетом' })).toBeEnabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Распределить одним пакетом' }));
+  await waitFor(() => expect(global.fetch.mock.calls.filter(call => call[1]?.method === 'POST')).toHaveLength(1));
+});
