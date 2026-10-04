@@ -186,19 +186,24 @@ function CompanyDistribution({ companyId, companies, editable, projects = [], wa
       {pages.sources.nextCursor && <button type="button" disabled={busy || pages.sources.loading || accessDenied} onClick={() => loadPage('sources', pages.sources.nextCursor)}>Загрузить ещё партии</button>}
     </form>}
     {editable && <form onSubmit={e => { e.preventDefault(); if (batchValid) submit('/warehouse-distributions', { companyId, reason: reason.trim(), rows: rows.map(r => ({ lotId: Number(r.lotId), projectId: Number(r.projectId), quantity: r.quantity })) }, () => { setRows([emptyRow()]); setReason(''); }); }}>
-      <fieldset disabled={busy || loading || Boolean(returning) || Boolean(pending) || Boolean(pendingError) || accessDenied || transferBlocked || Boolean(transferSource)}><legend>Один пакет — все строки или ни одной</legend>
+      <fieldset className="wd-batch" disabled={busy || loading || Boolean(returning) || Boolean(pending) || Boolean(pendingError) || accessDenied || transferBlocked || Boolean(transferSource)}><legend>Распределить материалы по объектам</legend>
+        <p className="wd-batch-intro">Добавьте материал, объект и количество. Все строки сохранятся вместе.</p>
         {!loading && !sources.length && <p>{applied.current.sources.q
           ? 'По заданному поиску партий не найдено.'
           : 'Нет доступных партий общего склада. Старые поступления без учёта партий здесь не распределяются.'}</p>}
-        {rows.map((row, index) => <div className="wd-row" key={index}>
+        {rows.map((row, index) => {
+          const selectedLot = sourceOptions.find(source => source.lotId === Number(row.lotId));
+          return <div className="wd-row" key={index}>
+          <div className="wd-row-heading"><strong>Материал {index + 1}</strong><button type="button" disabled={rows.length === 1} aria-label={`Удалить строку ${index + 1}`} onClick={() => setRows(rows.filter((_, i) => i !== index))}>Удалить</button></div>
           <label>Партия {index + 1}<select value={row.lotId} onChange={e => updateRow(index, 'lotId', e.target.value)}><option value="">Выберите поступление</option>{sourceOptions.map(s => <option key={s.lotId} value={s.lotId}>{s.invoiceNumber || `Накладная #${s.warehouseInvoiceId}`} · {s.materialName} · доступно {s.availableQuantity} {s.unit} · строка {s.invoiceLineIndex + 1}</option>)}</select></label>
           <label>Объект {index + 1}<select value={row.projectId} onChange={e => updateRow(index, 'projectId', e.target.value)}><option value="">Выберите объект</option>{ownProjects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
           <label>Количество {index + 1}<input inputMode="decimal" value={row.quantity} onChange={e => updateRow(index, 'quantity', e.target.value.replace(',', '.'))} /></label>
-          <button type="button" disabled={rows.length === 1} aria-label={`Удалить строку ${index + 1}`} onClick={() => setRows(rows.filter((_, i) => i !== index))}>Удалить</button>
-        </div>)}
-        <button type="button" disabled={rows.length >= 50} onClick={() => setRows([...rows, emptyRow()])}>Добавить строку</button>
-        <label>Основание распределения<textarea maxLength={1000} value={reason} onChange={e => setReason(e.target.value)} /></label>
-        <button type="submit" disabled={!batchValid} aria-describedby="distribution-submit-feedback">Распределить одним пакетом</button>
+          {selectedLot && <p className="wd-row-available">Доступно: {selectedLot.availableQuantity} {selectedLot.unit}</p>}
+        </div>;
+        })}
+        <button className="wd-add-row" type="button" disabled={rows.length >= 50} onClick={() => setRows([...rows, emptyRow()])}>+ Добавить материал</button>
+        <label>Основание распределения<textarea maxLength={1000} value={reason} onChange={e => setReason(e.target.value)} placeholder="Например: передача материалов на объект" /></label>
+        <button className="wd-submit" type="submit" disabled={!batchValid} aria-describedby="distribution-submit-feedback">Распределить одним пакетом</button>
       </fieldset>
       <div id="distribution-submit-feedback" aria-live="polite">
         {busy ? <p role="status">Сохраняем распределение…</p> : <>
