@@ -293,7 +293,12 @@ def _cleanup_expired_evidence() -> None:
 
 
 def _pending_job_count() -> int:
-    return sum(1 for value in _jobs.values() if value.get("status") in {"queued", "running", "cancelling"})
+    return sum(
+        1
+        for value in _jobs.values()
+        if value.get("queue_pending")
+        or value.get("status") in {"queued", "running", "cancelling"}
+    )
 
 
 def _set_job(job_id: str, **values) -> None:
@@ -393,9 +398,41 @@ def _stop_subprocess(process, *, timeout: float = 2.0) -> None:
         process.join(timeout=1.0)
 
 
+def _commit_final_state(job_id: str, report: dict) -> tuple[dict, str]:
+    """Atomically arbitrate completion vs an already-acknowledged owner cancel."""
+    with _jobs_lock:
+        current = _jobs.setdefault(job_id, {})
+        if current.get("cancel_requested") and not report.get("cancelled"):
+            report = {
+                "ok": False,
+                "cancelled": True,
+                "failures": ["cancelled_by_owner"],
+                "evidence_files": list(report.get("evidence_files") or []),
+            }
+        final_status = "cancelled" if report.get("cancelled") else ("passed" if report.get("ok") else "failed")
+        current.update(
+            status=final_status,
+            result=report,
+            queue_pending=False,
+            updated_at_ms=int(time.time() * 1000),
+        )
+        if len(_jobs) > 100:
+            finished = [
+                key
+                for key, value in _jobs.items()
+                if key != "startup-selftest"
+                and not value.get("queue_pending")
+                and value.get("status") in {"passed", "failed", "cancelled"}
+            ]
+            for key in finished[: len(_jobs) - 100]:
+                _jobs.pop(key, None)
+    return report, final_status
+
+
 def _execute(job_id: str, request: JobRequest) -> None:
     with _jobs_lock:
         current = _jobs.setdefault(job_id, {})
+        current["queue_pending"] = False
         if current.get("cancel_requested"):
             current.update(
                 status="cancelled",
@@ -437,6 +474,10 @@ def _execute(job_id: str, request: JobRequest) -> None:
             remaining = max(0.05, min(0.5, deadline - time.monotonic()))
             try:
                 report = result_queue.get(timeout=remaining)
+                if _cancel_requested(job_id):
+                    _stop_subprocess(process)
+                    _cleanup_qa_browser_contexts()
+                    report = {"ok": False, "cancelled": True, "failures": ["cancelled_by_owner"]}
                 break
             except queue.Empty:
                 if not process.is_alive():
@@ -510,8 +551,17 @@ def _execute(job_id: str, request: JobRequest) -> None:
             "evidence_files": [],
         }
 
-    final_status = "cancelled" if report.get("cancelled") else ("passed" if report.get("ok") else "failed")
-    _set_job(job_id, status=final_status, result=report)
+    report, final_status = _commit_final_state(job_id, report)
+    if report.get("cancelled"):
+        try:
+            evidence_dir = _job_evidence_dir(job_id)
+            if evidence_dir.is_dir():
+                (evidence_dir / "result.json").write_text(
+                    json.dumps(report, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+        except OSError:
+            pass
 
 
 @app.get("/health")
@@ -572,6 +622,7 @@ def schedule_startup_selftest():
             "startup-selftest",
             status="queued",
             result=None,
+            queue_pending=True,
             created_at_ms=int(time.time() * 1000),
         )
         _executor.submit(_run_startup_selftest)
@@ -614,6 +665,7 @@ def create_job(request: JobRequest, authorization: str | None = Header(default=N
             status="queued",
             result=None,
             cancel_requested=False,
+            queue_pending=True,
             created_at_ms=int(time.time() * 1000),
             updated_at_ms=int(time.time() * 1000),
             metadata={

@@ -149,10 +149,40 @@ class ViewerJobAccessTest(unittest.TestCase):
     def test_cancelled_queued_job_never_spawns_browser_process(self, get_context):
         job_id = "f" * 32
         with service._jobs_lock:
-            service._jobs[job_id] = {"status": "cancelled", "cancel_requested": True}
+            service._jobs[job_id] = {"status": "cancelled", "cancel_requested": True, "queue_pending": True}
         request = service.JobRequest(url="http://127.0.0.1:8080/selftest-page", goal="test", expect_text=["x"])
         service._execute(job_id, request)
         get_context.assert_not_called()
+        with service._jobs_lock:
+            self.assertEqual(service._jobs[job_id]["status"], "cancelled")
+            self.assertTrue(service._jobs[job_id]["result"]["cancelled"])
+            self.assertFalse(service._jobs[job_id]["queue_pending"])
+
+    def test_cancelled_queued_job_keeps_queue_slot_until_executor_dequeues_it(self):
+        with service._jobs_lock:
+            service._jobs["2" * 32] = {
+                "status": "cancelled",
+                "cancel_requested": True,
+                "queue_pending": True,
+            }
+            service._jobs["3" * 32] = {
+                "status": "running",
+                "cancel_requested": False,
+                "queue_pending": False,
+            }
+            self.assertEqual(service._pending_job_count(), 2)
+
+    def test_acknowledged_cancel_wins_atomic_finalization(self):
+        job_id = "4" * 32
+        with service._jobs_lock:
+            service._jobs[job_id] = {
+                "status": "cancelling",
+                "cancel_requested": True,
+                "queue_pending": False,
+            }
+        report, status = service._commit_final_state(job_id, {"ok": True, "checks": ["done"], "evidence_files": []})
+        self.assertEqual(status, "cancelled")
+        self.assertTrue(report["cancelled"])
         with service._jobs_lock:
             self.assertEqual(service._jobs[job_id]["status"], "cancelled")
             self.assertTrue(service._jobs[job_id]["result"]["cancelled"])
@@ -178,6 +208,7 @@ class ViewerJobAccessTest(unittest.TestCase):
             self.assertFalse(root.exists())
             with service._jobs_lock:
                 self.assertEqual(service._jobs["startup-selftest"]["status"], "queued")
+                self.assertTrue(service._jobs["startup-selftest"]["queue_pending"])
             submit.assert_called_once()
 
     def test_job_list_requires_auth_and_returns_only_public_metadata(self):
