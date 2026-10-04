@@ -382,17 +382,28 @@ def _cancel_requested(job_id: str) -> bool:
         return bool((_jobs.get(job_id) or {}).get("cancel_requested"))
 
 
+def _stop_subprocess(process, *, timeout: float = 2.0) -> None:
+    if process is None:
+        return
+    if process.is_alive():
+        process.terminate()
+    process.join(timeout=timeout)
+    if process.is_alive():
+        process.kill()
+        process.join(timeout=1.0)
+
+
 def _execute(job_id: str, request: JobRequest) -> None:
     with _jobs_lock:
-        if (_jobs.get(job_id) or {}).get("cancel_requested"):
-            current = _jobs.setdefault(job_id, {})
+        current = _jobs.setdefault(job_id, {})
+        if current.get("cancel_requested"):
             current.update(
                 status="cancelled",
                 result={"ok": False, "cancelled": True, "failures": ["cancelled_by_owner"], "evidence_files": []},
                 updated_at_ms=int(time.time() * 1000),
             )
             return
-    _set_job(job_id, status="running")
+        current.update(status="running", updated_at_ms=int(time.time() * 1000))
     record_dir = str(_job_evidence_dir(job_id))
     payload = {
         "url": request.url,
@@ -419,12 +430,7 @@ def _execute(job_id: str, request: JobRequest) -> None:
         report = None
         while time.monotonic() < deadline:
             if _cancel_requested(job_id):
-                if process.is_alive():
-                    process.terminate()
-                    process.join(timeout=2.0)
-                    if process.is_alive():
-                        process.kill()
-                        process.join(timeout=1.0)
+                _stop_subprocess(process)
                 _cleanup_qa_browser_contexts()
                 report = {"ok": False, "cancelled": True, "failures": ["cancelled_by_owner"]}
                 break
@@ -437,15 +443,11 @@ def _execute(job_id: str, request: JobRequest) -> None:
                     break
 
         if report is None and _cancel_requested(job_id):
-            process.join(timeout=1.0)
+            _stop_subprocess(process)
             _cleanup_qa_browser_contexts()
             report = {"ok": False, "cancelled": True, "failures": ["cancelled_by_owner"]}
         elif report is None and process.is_alive():
-            process.terminate()
-            process.join(timeout=3.0)
-            if process.is_alive():
-                process.kill()
-                process.join(timeout=1.0)
+            _stop_subprocess(process, timeout=3.0)
             _cleanup_qa_browser_contexts()
             report = {"ok": False, "failures": [f"worker_timeout>{request.max_seconds}s"]}
         elif report is None:
@@ -458,12 +460,10 @@ def _execute(job_id: str, request: JobRequest) -> None:
         else:
             process.join(timeout=3.0)
             if process.is_alive():
-                process.terminate()
-                process.join(timeout=1.0)
+                _stop_subprocess(process, timeout=1.0)
     except Exception as exc:
-        if process is not None and process.is_alive():
-            process.terminate()
-            process.join(timeout=1.0)
+        if process is not None:
+            _stop_subprocess(process, timeout=1.0)
         _cleanup_qa_browser_contexts()
         report = {
             "ok": False,

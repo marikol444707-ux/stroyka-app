@@ -34,8 +34,13 @@ class ViewerContractTest(unittest.TestCase):
 
     def test_viewer_clears_old_frame_when_switching_or_no_image_exists(self):
         self.assertIn("function clearFrame()", VIEWER_HTML)
+        self.assertIn("function clearRenderedDetail()", VIEWER_HTML)
         self.assertIn("if(!latest){if(selected===requested&&seq===detailSeq)clearFrame();return;}", VIEWER_HTML)
-        self.assertIn("rendered=null;detailSeq++;clearFrame()", VIEWER_HTML)
+        self.assertIn("detailSeq++;clearRenderedDetail()", VIEWER_HTML)
+
+    def test_viewer_clears_rendered_detail_on_fetch_error_and_keys_frames_by_invocation(self):
+        self.assertIn("clearRenderedDetail();freshEl.textContent='Ошибка:", VIEWER_HTML)
+        self.assertIn("String(job.created_at_ms||'unknown')", VIEWER_HTML)
 
     def test_viewer_security_headers_deny_embedding_and_caching(self):
         headers = viewer_headers()
@@ -124,6 +129,21 @@ class ViewerJobAccessTest(unittest.TestCase):
             process.reset_mock()
             service.cancel_job(second, self.auth())
             process.terminate.assert_not_called()
+
+    def test_stop_subprocess_escalates_to_kill_when_terminate_does_not_finish(self):
+        process = Mock()
+        process.is_alive.side_effect = [True, True]
+        service._stop_subprocess(process)
+        process.terminate.assert_called_once_with()
+        process.kill.assert_called_once_with()
+        self.assertEqual(process.join.call_count, 2)
+
+    def test_execute_transitions_to_running_under_jobs_lock_without_set_job_gap(self):
+        import inspect
+        source = inspect.getsource(service._execute)
+        prefix = source.split("record_dir =", 1)[0]
+        self.assertIn('current.update(status="running"', prefix)
+        self.assertNotIn('_set_job(job_id, status="running")', prefix)
 
     @patch("dev_control.browser_worker.service.multiprocessing.get_context")
     def test_cancelled_queued_job_never_spawns_browser_process(self, get_context):
