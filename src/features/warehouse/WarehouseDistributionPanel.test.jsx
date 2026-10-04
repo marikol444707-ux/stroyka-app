@@ -84,7 +84,7 @@ async function fillBatch() {
 test('two rows are sent atomically and rapid double click does not duplicate command', async () => {
   render(<DistributionWorkspace {...props} />);
   await fillBatch();
-  fireEvent.click(screen.getByText('Добавить строку'));
+  fireEvent.click(screen.getByText('+ Добавить материал'));
   fireEvent.change(screen.getByLabelText('Партия 2'), { target: { value: '5' } });
   fireEvent.change(screen.getByLabelText('Объект 2'), { target: { value: '11' } });
   fireEvent.change(screen.getByLabelText('Количество 2'), { target: { value: '2.5' } });
@@ -455,7 +455,7 @@ describe('two-stage transfer integration', () => {
 test('explains an incomplete earlier row next to the batch button', async () => {
   render(<DistributionWorkspace {...props} />);
   await screen.findByText(/Осталось по распределению: 15 м/);
-  fireEvent.click(screen.getByRole('button', { name: 'Добавить строку' }));
+  fireEvent.click(screen.getByRole('button', { name: '+ Добавить материал' }));
   fireEvent.change(screen.getByLabelText('Партия 2'), { target: { value: '5' } });
   fireEvent.change(screen.getByLabelText('Объект 2'), { target: { value: '11' } });
   fireEvent.change(screen.getByLabelText('Количество 2'), { target: { value: '85' } });

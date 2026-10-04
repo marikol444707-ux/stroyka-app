@@ -17,6 +17,26 @@
 .wd-filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin: 16px 0; }
 .wd-filters label { flex: 1 1 180px; }
 @media (max-width: 767px) { .wd-row { grid-template-columns: minmax(0, 1fr); } .warehouse-distribution { padding: 12px; } }
+.warehouse-distribution .wd-batch { border-radius: 12px; padding: 16px; }
+.wd-batch legend { font-weight: 700; padding: 0 6px; }
+.warehouse-distribution .wd-batch-intro { color: var(--wd-muted, #657184); margin: 0 0 16px; }
+.warehouse-distribution .wd-row { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(130px, 0.7fr); gap: 8px 12px; padding: 16px; margin: 0 0 12px; border: 1px solid var(--wd-border, #ccd4dc); border-radius: 10px; }
+.wd-row-heading { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.warehouse-distribution .wd-row-heading button { min-height: 36px; padding: 4px 10px; }
+.warehouse-distribution .wd-row-available { grid-column: 3; color: var(--wd-muted, #657184); font-size: 0.875rem; margin: 0; }
+.warehouse-distribution .wd-add-row { margin: 4px 0 16px; border-style: dashed; }
+.warehouse-distribution .wd-submit { background: var(--wd-accent, #126797); color: #fff; border-color: var(--wd-accent, #126797); font-weight: 700; padding: 10px 16px; min-height: 44px; }
+.warehouse-distribution .wd-submit:disabled { opacity: 0.55; }
+.warehouse-distribution #distribution-submit-feedback:not(:empty) { border-left: 3px solid var(--wd-accent, #126797); padding: 4px 12px; margin: -6px 0 16px; }
+.warehouse-distribution #distribution-submit-feedback p { margin: 6px 0; }
+.warehouse-distribution #distribution-submit-feedback ul { margin: 6px 0; padding-left: 20px; }
+@media (max-width: 767px) {
+  .warehouse-distribution .wd-batch { padding: 12px; }
+  .warehouse-distribution .wd-row { grid-template-columns: minmax(0, 1fr); padding: 12px; gap: 4px; }
+  .warehouse-distribution .wd-row-available { grid-column: 1; }
+  .warehouse-distribution .wd-row select { width: 100%; }
+  .warehouse-distribution .wd-add-row, .warehouse-distribution .wd-submit { width: 100%; }
+}
 .intercompany-transfers { color: var(--wd-text, #182536); background: var(--wd-surface, #fff); border: 1px solid var(--wd-border, #ccd4dc); border-radius: 12px; padding: 16px; margin: 16px 0; }
 .intercompany-transfers h3, .intercompany-transfers h4, .intercompany-transfers p { margin: 6px 0; }
 .intercompany-transfers label { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
