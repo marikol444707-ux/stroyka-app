@@ -272,6 +272,11 @@ def _build_isolated_fixture(settings, *, contract_review=False, document_binding
                                       + statements('upgrade','0064_supplier_contract_registry.py')
                                       + statements('upgrade','0065_contract_archive.py')):
                         cur.execute(statement)
+                    # This supply fixture does not bootstrap project-launch tables.
+                    # Apply the existing migration's supplier-document statements only.
+                    for statement in statements('upgrade', '0086_counterparty_document_owners.py'):
+                        if 'public.supplier_documents' in statement:
+                            cur.execute(statement)
                     if document_bindings:
                         for statement in binding_statements():
                             cur.execute(statement)

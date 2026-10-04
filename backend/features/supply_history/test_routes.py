@@ -56,6 +56,9 @@ class FakeConnection:
     def cursor(self, **_kwargs):
         return self._cursor
 
+    def rollback(self):
+        pass
+
     def commit(self):
         self.committed = True
 
@@ -84,6 +87,8 @@ def history_build(cursor, all_data=False):
     app = FakeApp()
     connection = FakeConnection(cursor)
     register_supply_history_module(app, {
+        "resolve_work_company_context": lambda *args, **kwargs: {"mode": "company"},
+        "effective_company_actors": lambda *args: [{"companyId": 3, "role": "директор"}],
         "get_db": lambda: connection,
         "get_current_user": lambda: {},
         "require_roles": lambda *roles: (lambda: None),
@@ -147,7 +152,7 @@ class ContractsAndSupplyHistoryTest(unittest.TestCase):
 
     def test_history_create_resolves_company(self):
         row = {"id": 9, "companyId": 3}
-        cursor = FakeCursor(fetchone_results=[row])
+        cursor = FakeCursor(fetchone_results=[{"id": 1}, row])
         app, connection = history_build(cursor)
         result = app.routes[("POST", "/supply-history")](
             SupplyHistoryModel(supplierId=1, materialName="Цемент", quantity=5,
