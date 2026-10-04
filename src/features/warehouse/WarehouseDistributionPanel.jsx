@@ -193,8 +193,8 @@ function CompanyDistribution({ companyId, companies, editable, projects = [], wa
   };
   const closeReturn = () => { setReturning(null); setReturnQuantity(''); setReturnReason(''); setConfirmed(false); };
   return <><section className="warehouse-distribution" style={{ '--wd-text': C.text, '--wd-muted': C.textSec || C.textMuted, '--wd-border': C.border, '--wd-surface': C.bgWhite || C.card, '--wd-accent': C.accent }} aria-label="Распределение по объектам">
-    <div className="wd-heading"><h3>Распределение по объектам</h3><button type="button" disabled={busy || loading} onClick={load}>Обновить</button></div>
-    <p>Движение с общего склада — не новый долг поставщику. Осталось по распределению — выданное минус возвраты и отправки на другие объекты, а не фактический остаток на объекте.</p>
+    <div className="wd-heading"><div><h3>Материалы по объектам</h3><p>Выдайте материалы с общего склада и отслеживайте возвраты.</p></div><button type="button" disabled={busy || loading} onClick={load}>Обновить</button></div>
+    <details className="wd-help"><summary>Как считается остаток</summary><p>В истории показано, сколько было выдано, возвращено и отправлено на другой объект. Это не фактический остаток на объекте и не новый долг поставщику.</p></details>
     {loading && <p role="status">Загрузка партий и распределений…</p>}
     {!editable && error && <p role="alert">{error}</p>}
     {pages.history.error && <p role="alert">{pages.history.error}</p>}
@@ -211,8 +211,8 @@ function CompanyDistribution({ companyId, companies, editable, projects = [], wa
       {pages.sources.nextCursor && <button type="button" disabled={busy || pages.sources.loading || accessDenied} onClick={() => loadPage('sources', pages.sources.nextCursor)}>Загрузить ещё партии</button>}
     </form>}
     {editable && <form onSubmit={e => { e.preventDefault(); if (batchValid) submit('/warehouse-distributions', { companyId, reason: reason.trim(), rows: rows.map(r => ({ lotId: Number(r.lotId), projectId: Number(r.projectId), quantity: r.quantity })) }, () => { setRows([emptyRow()]); setReason(''); }); }}>
-      <fieldset className="wd-batch" disabled={busy || loading || Boolean(returning) || Boolean(pending) || Boolean(pendingError) || accessDenied || transferBlocked || Boolean(transferSource)}><legend>Распределить материалы по объектам</legend>
-        <p className="wd-batch-intro">Добавьте материал, объект и количество. Все строки сохранятся вместе.</p>
+      <fieldset className="wd-batch" disabled={busy || loading || Boolean(returning) || Boolean(pending) || Boolean(pendingError) || accessDenied || transferBlocked || Boolean(transferSource)}><legend>Новая выдача</legend>
+        <p className="wd-batch-intro">Выберите партию, объект и количество. Можно добавить несколько материалов.</p>
         {!loading && !sources.length && <p>{applied.current.sources.q
           ? 'По заданному поиску партий не найдено.'
           : 'Нет доступных партий общего склада. Старые поступления без учёта партий здесь не распределяются.'}</p>}
@@ -250,7 +250,7 @@ function CompanyDistribution({ companyId, companies, editable, projects = [], wa
 
     </form>}
     <h4>История выдачи и возвратов</h4>
-    <p>Период включает обе даты, дни считаются по UTC. Поиск применяется ко всей истории на сервере.</p>
+    <details className="wd-help"><summary>О поиске и датах</summary><p>Поиск проверяет всю историю на сервере. Период включает обе выбранные даты; дни считаются по UTC.</p></details>
     <form className="wd-filters" onSubmit={e => { e.preventDefault(); applied.current.history = { q: search.trim(), ...filters }; closeReturn(); loadPage('history'); }}>
       <label>Найти по объекту, материалу или накладной<input type="search" maxLength={200} value={search} onChange={e => setSearch(e.target.value)} /></label>
       <label>История: объект<select value={filters.projectId} onChange={e => setFilters({ ...filters, projectId: e.target.value })}><option value="">Все объекты</option>{projects.filter(p => Number(p.companyId ?? p.company_id) === companyId).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>

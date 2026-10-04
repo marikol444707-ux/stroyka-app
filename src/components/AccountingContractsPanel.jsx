@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Check, Eye, Plus, Search, Trash2, X } from 'lucide-react';
 
 export default function AccountingContractsPanel({
@@ -35,6 +35,7 @@ export default function AccountingContractsPanel({
   buildContractContent,
   deleteContract,
 }) {
+  const [showHistory, setShowHistory] = useState(false);
   const emptyFn = () => {};
   const canEditFinance = typeof isFinanceRole === 'function' ? isFinanceRole : () => Boolean(isFinanceRole);
   const searchMatches = typeof matchSearch === 'function'
@@ -168,7 +169,14 @@ export default function AccountingContractsPanel({
     return { accrued, paid, retention, payable, owe, missingDocs, actsCount: rowActs.length };
   };
 
+  const historicalRows = sourceRows.filter(row => row._kind === 'brigade' && (row.status === 'Аннулирован' || (row.status === 'Черновик'
+    && sourceRows.some(other => other._kind === 'brigade' && other.id !== row.id
+      && !['Черновик', 'Аннулирован'].includes(other.status)
+      && String(other.projectName || '') === String(row.projectName || '')
+      && String(other.workPackage || 'Основная') === String(row.workPackage || 'Основная')
+      && personKey(other.brigadeName) === personKey(row.brigadeName)))));
   const visibleRows = sourceRows.filter(row => {
+    if (!showHistory && historicalRows.includes(row)) return false;
     const performer = resolvePerformer(row);
     return searchMatches(listSearch, row.contractNumber, row.project, row.projectName, row.masterName, row.brigadeName, performer.fullName, performer.inn);
   });
@@ -308,14 +316,18 @@ export default function AccountingContractsPanel({
         <input placeholder='🔍 Поиск договора (номер, мастер, объект)' value={listSearch || ''} onChange={event => updateSearch(event.target.value)} style={{ ...inp, marginBottom: 0, paddingLeft: '32px' }} />
       </div>
 
+      {historicalRows.length > 0 && <button type="button" onClick={() => setShowHistory(value => !value)} style={{...btnG,marginBottom:'12px'}}>
+        {showHistory ? 'Скрыть историю и черновики' : `История и черновики · ${historicalRows.length}`}
+      </button>}
+
       {groupedRows.length === 0 ? (
         <p style={{ color: C.textMuted, textAlign: 'center', padding: '30px' }}>Договоров и расчётов с исполнителями нет</p>
       ) : (
         groupedRows.map(group => (
-          <div key={group.key} style={{ ...card, padding: '14px', marginBottom: '10px', borderLeft: '3px solid ' + (group.warnings.size || group.missingDocs.size ? C.warning : C.accent) }}>
+          <div key={group.key} style={{ ...card, padding: '18px', marginBottom: '10px', border: '1px solid ' + C.border, borderRadius: '14px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px', flexWrap: 'wrap', marginBottom: '10px' }}>
               <div>
-                <b style={{ color: C.text, fontSize: '14px' }}>📁 {group.name}</b>
+                <b style={{ color: C.text, fontSize: '15px' }}>{group.name}</b>
                 <p style={{ color: C.textSec, margin: '3px 0', fontSize: '12px' }}>{Array.from(group.types).filter(Boolean).join(' · ') || 'Исполнитель'} · {group.rows.length} док. · {Array.from(group.projects).join(', ') || 'без объекта'}</p>
                 {group.performer.inn && <p style={{ color: C.textMuted, margin: 0, fontSize: '11px' }}>ИНН: {group.performer.inn}{group.performer.bankName ? ' · ' + group.performer.bankName : ''}</p>}
               </div>
@@ -329,6 +341,8 @@ export default function AccountingContractsPanel({
             </div>
 
             {(group.total > 0 || group.paid > 0) && (
+              <details style={{marginBottom:'10px',color:C.textSec,fontSize:'12px'}}>
+                <summary style={{cursor:'pointer',padding:'6px 0'}}>Подробный расчёт</summary>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(120px,1fr))', gap: '8px', marginBottom: '8px' }}>
                 <div style={{ padding: '8px', borderRadius: '8px', backgroundColor: C.bg, border: '1px solid ' + C.border }}><p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 2px' }}>Начислено</p><b style={{ color: C.text, fontSize: '12px' }}>{Math.round(group.total).toLocaleString('ru-RU')} ₽</b></div>
                 <div style={{ padding: '8px', borderRadius: '8px', backgroundColor: C.bg, border: '1px solid ' + C.border }}><p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 2px' }}>Удержание 5%</p><b style={{ color: C.warning, fontSize: '12px' }}>{Math.round(group.retention).toLocaleString('ru-RU')} ₽</b></div>
@@ -336,6 +350,7 @@ export default function AccountingContractsPanel({
                 <div style={{ padding: '8px', borderRadius: '8px', backgroundColor: C.bg, border: '1px solid ' + C.border }}><p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 2px' }}>Оплачено</p><b style={{ color: C.success, fontSize: '12px' }}>{Math.round(group.paid).toLocaleString('ru-RU')} ₽</b></div>
                 <div style={{ padding: '8px', borderRadius: '8px', backgroundColor: C.bg, border: '1px solid ' + C.border }}><p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 2px' }}>Остаток к выплате</p><b style={{ color: group.owe > 0 ? C.danger : C.success, fontSize: '12px' }}>{group.owe > 0 ? Math.round(group.owe).toLocaleString('ru-RU') + ' ₽' : 'закрыто'}</b></div>
               </div>
+              </details>
             )}
 
             {group.warnings.size > 0 && <div style={{ padding: '8px 10px', borderRadius: '8px', backgroundColor: C.warningLight, border: '1px solid ' + C.warningBorder, color: C.warning, fontSize: '11px', marginBottom: '8px' }}>{Array.from(group.warnings)[0]}</div>}

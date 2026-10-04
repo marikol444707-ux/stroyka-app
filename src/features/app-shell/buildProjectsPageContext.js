@@ -36,6 +36,7 @@ import {
   PROJECT_MEASUREMENT_STATUSES,
 } from '../../constants/estimateConstants';
 import { DIRECTOR_MAP_FEATURE_ENABLED } from '../../constants/appConfig';
+import { aiSeverityMeta } from '../../utils/statusMetaUtils';
 import { CHECKLIST_TEMPLATES, TB_INSTRUCTIONS, TB_TYPES_GOST } from '../../constants/documentTemplates';
 import { createProjectMeasurementActions } from '../project-measurements/projectMeasurementActions';
 import {
@@ -95,6 +96,7 @@ export function buildProjectsPageContext({
     companyContext,
     user,
     API,
+    aiSeverityMeta,
     Archive,
     Bot,
     CHECKLIST_TEMPLATES,

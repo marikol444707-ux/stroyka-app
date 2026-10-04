@@ -84,6 +84,7 @@ export default function ProjectBrigadeCalculationTab({
       {showLeadership && showBrigadeForm && (
         <ProjectBrigadeCreateForm
           project={project}
+          brigadeContracts={brigadeContracts}
           newBrigadeContract={newBrigadeContract}
           setNewBrigadeContract={setNewBrigadeContract}
           staff={staff}
@@ -91,6 +92,7 @@ export default function ProjectBrigadeCalculationTab({
           pricelists={pricelists}
           setBrigadeContracts={setBrigadeContracts}
           setSelectedBrigadeContract={setSelectedBrigadeContract}
+          openBrigadeContract={openBrigadeContract}
           setBrigadeContractItems={setBrigadeContractItems}
           setBrigadePayments={setBrigadePayments}
           setShowBrigadeForm={setShowBrigadeForm}

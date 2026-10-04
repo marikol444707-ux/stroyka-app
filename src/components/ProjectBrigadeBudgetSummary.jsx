@@ -7,7 +7,7 @@ export default function ProjectBrigadeBudgetSummary({
   C,
   card,
 }) {
-  const projectContracts = brigadeContracts.filter(bc => bc.projectName === projectName);
+  const projectContracts = brigadeContracts.filter(bc => bc.projectName === projectName && bc.status !== 'Аннулирован');
   const brigadeTotal = projectContracts.reduce((sum, bc) => sum + Number(bc.totalAmount || 0), 0);
 
   if (projectContracts.length === 0 || smetaTotal === 0) return null;
