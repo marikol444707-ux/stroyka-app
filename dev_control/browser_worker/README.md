@@ -19,6 +19,8 @@ Work Control забирает результат и evidence.
 - Jev `DONE` не считается успехом без детерминированных assertions.
 - Production deploy и migrations worker не выполняет.
 - Очередь ограничена одним одновременно выполняемым browser job.
+- `BU_CDP_URL` принимается только как `http://127.0.0.1:9222`; внешний CDP запрещён.
+- WebSocket/WebTransport/WebRTC блокируются до resume не только в page/iframe, но и в worker/shared-worker/service-worker targets.
 
 ## Timeweb App Platform
 
@@ -122,5 +124,11 @@ origin QA_BASE_URL (scheme + host + port). Известные production-дом�
     QA_SESSION_COOKIE_NAME=<имя cookie>
     QA_SESSION_COOKIE_VALUE=<секрет>
 
-Cookie внедряется локально в новый изолированный BrowserContext до открытия страницы
-и не передаётся Jev/Timeweb. Для startup self-test эти переменные не нужны.
+Cookie внедряется локально в новый изолированный BrowserContext до открытия страницы,
+только для HTTPS QA origin, с HttpOnly/Secure, и не передаётся Jev/Timeweb.
+Worker не выполняет model-side login: логин/пароль/2FA нельзя передавать в goal/assertions;
+для авторизованного QA используется только заранее созданная тестовая session cookie.
+Для startup self-test эти переменные не нужны.
+
+`startup-selftest` зарезервирован в журнале jobs и не удаляется обычным eviction,
+чтобы результат первоначальной проверки контура оставался видимым.

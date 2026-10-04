@@ -21,7 +21,10 @@ from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
-from dev_control.browser_worker.network_guard import assert_allowed_document_url
+from dev_control.browser_worker.network_guard import (
+    assert_allowed_document_url,
+    assert_dedicated_loopback_cdp_url,
+)
 from dev_control.browser_worker.run import execute_task
 from dev_control.browser_worker.viewer import VIEWER_HTML, viewer_headers
 
@@ -200,17 +203,29 @@ def _qa_base_is_nonproduction() -> bool:
     return True
 
 
+def _cdp_is_dedicated_loopback() -> bool:
+    try:
+        assert_dedicated_loopback_cdp_url()
+        return True
+    except ValueError:
+        return False
+
+
 def _startup_selftest_enabled() -> bool:
     return (
         (os.environ.get("QA_SELFTEST_ON_START") or "").strip() == "1"
         and (os.environ.get("QA_BASE_URL") or "").strip().rstrip("/") == _selftest_base_url()
         and (os.environ.get("QA_ENVIRONMENT") or "").strip().lower() in {"qa", "test", "staging"}
         and bool((os.environ.get("TIMEWEB_AI_API_KEY") or "").strip())
+        and _cdp_is_dedicated_loopback()
     )
 
 
 def _chrome_alive() -> bool:
-    cdp_url = (os.environ.get("BU_CDP_URL") or "http://127.0.0.1:9222").rstrip("/")
+    try:
+        cdp_url = assert_dedicated_loopback_cdp_url()
+    except ValueError:
+        return False
     try:
         with urllib.request.urlopen(f"{cdp_url}/json/version", timeout=0.5) as response:
             return 200 <= int(getattr(response, "status", 200)) < 300
@@ -224,6 +239,7 @@ def _configured() -> bool:
         and (os.environ.get("TIMEWEB_AI_API_KEY") or "").strip()
         and (os.environ.get("QA_BASE_URL") or "").strip()
         and _qa_base_is_nonproduction()
+        and _cdp_is_dedicated_loopback()
         and (os.environ.get("QA_ENVIRONMENT") or "").strip().lower() in {"qa", "test", "staging"}
     )
 

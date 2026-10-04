@@ -22,6 +22,7 @@ class BrowserWorkerContainerContractTest(unittest.TestCase):
     def test_worker_has_hard_timeout_and_authenticated_evidence_contract(self):
         service = Path("dev_control/browser_worker/service.py").read_text(encoding="utf-8")
         network_guard = Path("dev_control/browser_worker/network_guard.py").read_text(encoding="utf-8")
+        start_script = Path("dev_control/browser_worker/start.sh").read_text(encoding="utf-8")
 
         self.assertIn("result_queue.get(timeout=remaining)", service)
         self.assertIn("deadline = time.monotonic() + request.max_seconds", service)
@@ -59,7 +60,14 @@ class BrowserWorkerContainerContractTest(unittest.TestCase):
         self.assertIn("QA navigation did not commit within 15s", network_guard)
         self.assertIn("self._cleanup_allocations()", network_guard)
         self.assertIn('"type": "worker"', network_guard)
+        self.assertIn('"type": "shared_worker"', network_guard)
+        self.assertIn('"type": "service_worker"', network_guard)
         self.assertIn('"type": "iframe"', network_guard)
+        self.assertIn("globalThis", network_guard)
+        self.assertIn("Runtime.evaluate", network_guard)
+        self.assertIn("DEDICATED_CDP_URL = \"http://127.0.0.1:9222\"", network_guard)
+        self.assertIn("Refusing external BU_CDP_URL", start_script)
+        self.assertIn('export BU_CDP_URL="${expected_cdp_url}"', start_script)
 
 if __name__ == "__main__":
     unittest.main()

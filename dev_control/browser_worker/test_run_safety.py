@@ -1,6 +1,14 @@
+import os
 import unittest
+from unittest.mock import Mock, patch
 
-from dev_control.browser_worker.network_guard import redact_boundary_url, request_allowed
+from dev_control.browser_worker.network_guard import (
+    DEDICATED_CDP_URL,
+    assert_dedicated_loopback_cdp_url,
+    bootstrap_session_cookie,
+    redact_boundary_url,
+    request_allowed,
+)
 from dev_control.browser_worker.run import _assert_allowed_url, _redact_url, _sanitize_history
 
 
@@ -146,6 +154,71 @@ class BrowserWorkerUrlSafetyTest(unittest.TestCase):
                 "file:///etc/passwd",
                 "https://qa.example.test",
             )
+
+    def test_rejects_credentials_embedded_in_qa_urls(self):
+        with self.assertRaisesRegex(ValueError, "credentials"):
+            _assert_allowed_url(
+                "https://user:password@qa.example.test/app",
+                "https://qa.example.test/app",
+            )
+
+    def test_cdp_must_be_exact_dedicated_loopback_endpoint(self):
+        self.assertEqual(assert_dedicated_loopback_cdp_url(), DEDICATED_CDP_URL)
+        for value in (
+            "http://localhost:9222",
+            "http://127.0.0.1:9222/",
+            "http://10.0.0.5:9222",
+            "https://127.0.0.1:9222",
+            "ws://127.0.0.1:9222",
+        ):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "dedicated loopback"):
+                assert_dedicated_loopback_cdp_url(value)
+
+    def test_session_cookie_bootstrap_is_https_httponly_and_local_to_context(self):
+        cdp = Mock()
+        with patch.dict(
+            os.environ,
+            {"QA_SESSION_COOKIE_NAME": "qa_session", "QA_SESSION_COOKIE_VALUE": "session-secret"},
+            clear=True,
+        ):
+            self.assertTrue(
+                bootstrap_session_cookie(
+                    "https://qa.example.test/app",
+                    "context-1",
+                    cdp,
+                )
+            )
+        cdp.assert_called_once()
+        args, kwargs = cdp.call_args
+        self.assertEqual(args[0], "Storage.setCookies")
+        self.assertEqual(kwargs["browserContextId"], "context-1")
+        cookie = kwargs["cookies"][0]
+        self.assertEqual(cookie["name"], "qa_session")
+        self.assertEqual(cookie["value"], "session-secret")
+        self.assertEqual(cookie["url"], "https://qa.example.test/")
+        self.assertTrue(cookie["secure"])
+        self.assertTrue(cookie["httpOnly"])
+        self.assertNotIn("domain", cookie)
+
+    def test_session_cookie_bootstrap_refuses_plain_http_and_no_cookie_is_noop(self):
+        cdp = Mock()
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertFalse(
+                bootstrap_session_cookie(
+                    "https://qa.example.test/app",
+                    "context-1",
+                    cdp,
+                )
+            )
+        cdp.assert_not_called()
+
+        with patch.dict(os.environ, {"QA_SESSION_COOKIE_VALUE": "session-secret"}, clear=True):
+            with self.assertRaisesRegex(ValueError, "HTTPS"):
+                bootstrap_session_cookie(
+                    "http://qa.example.test/app",
+                    "context-1",
+                    cdp,
+                )
 
 
 if __name__ == "__main__":

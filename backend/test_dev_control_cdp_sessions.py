@@ -16,7 +16,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
-from dev_control.browser_worker.network_guard import NetworkBoundary
+from dev_control.browser_worker.network_guard import NetworkBoundary, _TRANSPORT_BLOCK_SCRIPT
 from dev_control.browser_worker.patch_harness import (
     EXPECTED_VERSION, EXPECTED_ORIGINAL_SHA256, EXPECTED_PATCHED_SHA256,
     NEW_ROUTE, OLD_ROUTE, patch_file, patched_source,
@@ -226,18 +226,31 @@ class RegisteredSessionRegressionTest(unittest.TestCase):
         guard._cdp.assert_not_called()
         self.assertEqual(guard._child_targets, {'target-child'})
 
-    def test_new_targets_keep_fetch_and_autoattach_before_resume(self):
+    def test_new_targets_install_fetch_and_transport_block_before_resume(self):
         for kind in ('page', 'iframe', 'worker', 'shared_worker', 'service_worker'):
             with self.subTest(kind=kind):
                 guard = self.guard()
                 guard._handle_attached_target(self.event('new-child', kind))
                 calls = guard._cdp.call_args_list
-                self.assertEqual([item.args[0] for item in calls],
-                                 ['Fetch.enable', 'Target.setAutoAttach',
-                                  'Runtime.runIfWaitingForDebugger'])
+                expected_transport = (
+                    'Page.addScriptToEvaluateOnNewDocument'
+                    if kind in {'page', 'iframe'}
+                    else 'Runtime.evaluate'
+                )
+                self.assertEqual(
+                    [item.args[0] for item in calls],
+                    ['Fetch.enable', 'Target.setAutoAttach',
+                     expected_transport, 'Runtime.runIfWaitingForDebugger'],
+                )
                 self.assertTrue(all(item.kwargs['session_id'] == 'new-child' for item in calls))
                 self.assertTrue(calls[1].kwargs['waitForDebuggerOnStart'])
                 self.assertIn('new-child', guard._guarded_sessions)
+
+    def test_transport_block_is_worker_safe_and_covers_required_non_fetch_apis(self):
+        self.assertIn('globalThis', _TRANSPORT_BLOCK_SCRIPT)
+        self.assertNotIn('window', _TRANSPORT_BLOCK_SCRIPT)
+        for api in ('WebSocket', 'WebTransport', 'RTCPeerConnection', 'webkitRTCPeerConnection'):
+            self.assertIn(api, _TRANSPORT_BLOCK_SCRIPT)
 
     def test_registration_is_local_to_each_job_not_global(self):
         first, second = self.guard('company-a'), self.guard('company-b')
@@ -245,7 +258,7 @@ class RegisteredSessionRegressionTest(unittest.TestCase):
         first._handle_attached_target(event)
         self.assertNotIn('child', second._guarded_sessions)
         second._handle_attached_target(event)
-        self.assertEqual(second._cdp.call_count, 3)
+        self.assertEqual(second._cdp.call_count, 4)
 
     def test_unapproved_page_or_iframe_closed_without_resume(self):
         for kind in ('page', 'iframe'):
@@ -259,8 +272,16 @@ class RegisteredSessionRegressionTest(unittest.TestCase):
                         guard.raise_if_failed()
 
     def test_failed_protection_never_registers_or_resumes_new_session(self):
-        for failed_method in ('Fetch.enable', 'Target.setAutoAttach'):
-            with self.subTest(method=failed_method):
+        cases = (
+            ('page', 'Fetch.enable'),
+            ('page', 'Target.setAutoAttach'),
+            ('page', 'Page.addScriptToEvaluateOnNewDocument'),
+            ('worker', 'Runtime.evaluate'),
+            ('shared_worker', 'Runtime.evaluate'),
+            ('service_worker', 'Runtime.evaluate'),
+        )
+        for kind, failed_method in cases:
+            with self.subTest(kind=kind, method=failed_method):
                 guard = self.guard()
                 def fail(method, **params):
                     if method == failed_method:
@@ -268,7 +289,7 @@ class RegisteredSessionRegressionTest(unittest.TestCase):
                     return {}
                 guard._cdp.side_effect = fail
                 guard._drain_events = lambda: [{'method': 'Target.attachedToTarget',
-                                                'params': self.event('new-child')}]
+                                                'params': self.event('new-child', kind)}]
                 guard._loop()
                 self.assertNotIn('new-child', guard._guarded_sessions)
                 self.assertNotIn('Runtime.runIfWaitingForDebugger',

@@ -14,6 +14,10 @@ from dev_control.browser_worker.service import (
     _qa_base_is_nonproduction,
     _valid_job_id,
     _startup_selftest_enabled,
+    _commit_final_state,
+    _jobs,
+    _jobs_lock,
+    _set_job,
     health,
     shutdown_worker,
 )
@@ -109,6 +113,22 @@ class BrowserWorkerServiceConfigTest(unittest.TestCase):
             self.assertTrue(_chrome_alive())
         self.assertEqual(urlopen.call_args.args[0], "http://127.0.0.1:9222/json/version")
 
+    @patch("dev_control.browser_worker.service.urllib.request.urlopen")
+    def test_external_cdp_endpoint_is_rejected_without_network_probe(self, urlopen):
+        env = {
+            "DEV_CONTROL_API_TOKEN": "api-secret",
+            "TIMEWEB_AI_API_KEY": "ai-secret",
+            "QA_BASE_URL": "https://qa.example.test",
+            "QA_ALLOWED_ORIGIN": "https://qa.example.test",
+            "QA_ENVIRONMENT": "staging",
+            "BU_CDP_URL": "http://10.0.0.5:9222",
+        }
+        with patch.dict(os.environ, env, clear=True):
+            self.assertFalse(_configured())
+            self.assertFalse(_chrome_alive())
+            self.assertEqual(health().status_code, 503)
+        urlopen.assert_not_called()
+
     def test_health_is_503_when_required_configuration_is_missing(self):
         with patch.dict(os.environ, {}, clear=True):
             self.assertEqual(health().status_code, 503)
@@ -161,6 +181,37 @@ class BrowserWorkerServiceConfigTest(unittest.TestCase):
             self.assertEqual(_max_pending_jobs(), 10)
         with patch.dict(os.environ, {"QA_MAX_PENDING_JOBS": "0"}, clear=True):
             self.assertEqual(_max_pending_jobs(), 1)
+    def test_startup_selftest_record_survives_eviction_paths(self):
+        with _jobs_lock:
+            previous = dict(_jobs)
+            _jobs.clear()
+        try:
+            with _jobs_lock:
+                _jobs["startup-selftest"] = {"status": "passed", "result": {"ok": True}}
+                for index in range(101):
+                    _jobs[f"{index:032x}"] = {"status": "passed", "queue_pending": False}
+            _set_job("f" * 32, status="passed")
+            with _jobs_lock:
+                self.assertIn("startup-selftest", _jobs)
+
+            with _jobs_lock:
+                _jobs.clear()
+                _jobs["startup-selftest"] = {"status": "passed", "result": {"ok": True}}
+                for index in range(101):
+                    _jobs[f"{index:032x}"] = {"status": "passed", "queue_pending": False}
+                _jobs["e" * 32] = {
+                    "status": "running",
+                    "cancel_requested": False,
+                    "queue_pending": False,
+                }
+            _commit_final_state("e" * 32, {"ok": True, "evidence_files": []})
+            with _jobs_lock:
+                self.assertIn("startup-selftest", _jobs)
+        finally:
+            with _jobs_lock:
+                _jobs.clear()
+                _jobs.update(previous)
+
     def test_authorize_uses_bearer_token(self):
         with patch.dict(os.environ, {"DEV_CONTROL_API_TOKEN": "expected"}, clear=True):
             _authorize("Bearer expected")

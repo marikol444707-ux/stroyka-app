@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-export BU_CDP_URL="${BU_CDP_URL:-http://127.0.0.1:9222}"
+readonly expected_cdp_url="http://127.0.0.1:9222"
+if [[ -n "${BU_CDP_URL:-}" && "${BU_CDP_URL}" != "${expected_cdp_url}" ]]; then
+  echo "Refusing external BU_CDP_URL; Jev QA must use dedicated loopback Chrome only" >&2
+  exit 2
+fi
+export BU_CDP_URL="${expected_cdp_url}"
 export BH_HOME="${BH_HOME:-/tmp/browser-harness}"
 
 profile="${CHROME_USER_DATA_DIR:-/tmp/stroyka-dev-chrome}"

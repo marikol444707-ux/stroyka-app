@@ -19,6 +19,81 @@ _SENSITIVE_PATH_MARKERS = frozenset({
     "invite", "invitation", "callback", "oauth", "token",
 })
 
+DEDICATED_CDP_URL = "http://127.0.0.1:9222"
+_PAGE_LIKE_TARGETS = frozenset({"page", "iframe"})
+_WORKER_TARGETS = frozenset({"worker", "shared_worker", "service_worker"})
+_TRANSPORT_BLOCK_SCRIPT = r"""
+(() => {
+  const root = globalThis;
+  const blocked = function(){ throw new Error('Blocked by Stroyka QA network policy'); };
+  for (const name of ['WebSocket', 'WebTransport', 'RTCPeerConnection', 'webkitRTCPeerConnection']) {
+    try {
+      Object.defineProperty(root, name, {
+        value: blocked,
+        configurable: false,
+        writable: false
+      });
+    } catch (_) {
+      try { root[name] = blocked; } catch (_) {}
+    }
+  }
+  return 'STROYKA_TRANSPORT_BLOCKED';
+})();
+"""
+
+
+def assert_dedicated_loopback_cdp_url(value: str | None = None) -> str:
+    """Only the worker-owned loopback Chrome may be used for browser QA."""
+
+    configured = (
+        value
+        if value is not None
+        else (os.environ.get("BU_CDP_URL") or DEDICATED_CDP_URL)
+    ).strip()
+    if configured != DEDICATED_CDP_URL:
+        raise ValueError(
+            "BU_CDP_URL must point exactly to the dedicated loopback Chrome "
+            f"({DEDICATED_CDP_URL})"
+        )
+    return configured
+
+
+def bootstrap_session_cookie(base_url: str, browser_context_id: str, cdp_fn) -> bool:
+    """Inject a pre-created QA session locally without exposing it to Jev/Timeweb."""
+
+    cookie_value = (os.environ.get("QA_SESSION_COOKIE_VALUE") or "").strip()
+    if not cookie_value:
+        return False
+
+    parsed = urlparse(base_url)
+    if parsed.scheme != "https" or not parsed.hostname:
+        raise ValueError("QA session cookie bootstrap requires an HTTPS QA_BASE_URL")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("QA_BASE_URL must not contain credentials")
+
+    cookie_name = (os.environ.get("QA_SESSION_COOKIE_NAME") or "session").strip()
+    if (
+        not cookie_name
+        or len(cookie_name) > 128
+        or any(ch.isspace() or ch in ";=," for ch in cookie_name)
+    ):
+        raise ValueError("QA session cookie name is invalid")
+
+    origin = urlunsplit((parsed.scheme, parsed.netloc, "/", "", ""))
+    cdp_fn(
+        "Storage.setCookies",
+        cookies=[{
+            "name": cookie_name,
+            "value": cookie_value,
+            "url": origin,
+            "secure": True,
+            "httpOnly": True,
+            "sameSite": "Lax",
+        }],
+        browserContextId=browser_context_id,
+    )
+    return True
+
 
 def redact_boundary_url(url: str) -> str:
     parts = urlsplit(str(url))
@@ -92,6 +167,13 @@ def assert_allowed_document_url(url: str, base_url: str) -> None:
         raise ValueError("QA URL must use http or https")
     if base.scheme not in {"http", "https"} or not base.netloc:
         raise ValueError("QA_BASE_URL must be an absolute http(s) URL")
+    if (
+        target.username is not None
+        or target.password is not None
+        or base.username is not None
+        or base.password is not None
+    ):
+        raise ValueError("QA URLs must not contain credentials")
     if canonical_origin(url) != canonical_origin(base_url):
         raise ValueError("QA URL is outside QA_BASE_URL origin")
 
@@ -135,14 +217,14 @@ class NetworkBoundary:
         self._stop = threading.Event()
         self._error: str | None = None
         self._thread = threading.Thread(target=self._loop, name="qa-network-boundary", daemon=True)
-        self._guarded_sessions = {session_id}
+        self._guarded_sessions: set[str] = set()
         self._child_targets: set[str] = set()
 
     def start(self) -> None:
-        self._enable_session(self._session_id)
+        self._enable_session(self._session_id, "page")
         self._thread.start()
 
-    def _enable_session(self, session_id: str) -> None:
+    def _enable_session(self, session_id: str, target_type: str) -> None:
         self._cdp(
             "Fetch.enable",
             session_id=session_id,
@@ -163,6 +245,28 @@ class NetworkBoundary:
                 {"exclude": True},
             ],
         )
+
+        if target_type in _PAGE_LIKE_TARGETS:
+            self._cdp(
+                "Page.addScriptToEvaluateOnNewDocument",
+                session_id=session_id,
+                source=_TRANSPORT_BLOCK_SCRIPT,
+                runImmediately=True,
+            )
+        elif target_type in _WORKER_TARGETS:
+            result = self._cdp(
+                "Runtime.evaluate",
+                session_id=session_id,
+                expression=_TRANSPORT_BLOCK_SCRIPT,
+                returnByValue=True,
+            )
+            if (result or {}).get("exceptionDetails"):
+                raise RuntimeError("failed to install non-Fetch transport block in worker")
+        else:
+            raise RuntimeError(f"unsupported attached target type: {target_type!r}")
+
+        # A session is considered guarded only after Fetch + transport blocking
+        # have both been installed successfully.
         self._guarded_sessions.add(session_id)
 
     def _handle_attached_target(self, params: dict) -> None:
@@ -180,14 +284,15 @@ class NetworkBoundary:
             self._child_targets.add(target_id)
         if not child_session:
             return
-        if target_type in {"page", "iframe"} and initial_url not in {"", "about:blank"}:
-            if not request_allowed(initial_url, self._base_url, "Document"):
+        if initial_url not in {"", "about:blank"}:
+            resource_type = "Document" if target_type in _PAGE_LIKE_TARGETS else None
+            if not request_allowed(initial_url, self._base_url, resource_type):
                 if target_id:
                     self._cdp("Target.closeTarget", targetId=target_id)
-                self._error = f"blocked out-of-scope popup target: {redact_boundary_url(initial_url)}"
+                self._error = f"blocked out-of-scope attached target: {redact_boundary_url(initial_url)}"
                 return
 
-        self._enable_session(child_session)
+        self._enable_session(child_session, target_type)
         self._cdp("Runtime.runIfWaitingForDebugger", session_id=child_session)
 
     def _loop(self) -> None:
@@ -261,40 +366,8 @@ def install_safe_browser(base_url: str):
     from browser_harness.admin import ensure_daemon
     from browser_harness.helpers import cdp
 
+    assert_dedicated_loopback_cdp_url()
     upstream_browser = browser_module.Browser
-
-    transport_block_script = r"""
-(() => {
-  const blocked = () => { throw new Error('Blocked by Stroyka QA network policy'); };
-  try { Object.defineProperty(window, 'WebSocket', {value: function(){ blocked(); }, configurable: false}); } catch (_) {}
-  try { Object.defineProperty(window, 'WebTransport', {value: function(){ blocked(); }, configurable: false}); } catch (_) {}
-  try { Object.defineProperty(window, 'RTCPeerConnection', {value: function(){ blocked(); }, configurable: false}); } catch (_) {}
-  try { Object.defineProperty(window, 'webkitRTCPeerConnection', {value: function(){ blocked(); }, configurable: false}); } catch (_) {}
-})();
-"""
-
-    def _bootstrap_auth(browser_context_id: str) -> None:
-        """Inject an optional pre-created QA session locally, never through Jev."""
-
-        cookie_value = (os.environ.get("QA_SESSION_COOKIE_VALUE") or "").strip()
-        if not cookie_value:
-            return
-        cookie_name = (os.environ.get("QA_SESSION_COOKIE_NAME") or "session").strip()
-        parsed = urlparse(base_url)
-        cookie = {
-            "name": cookie_name,
-            "value": cookie_value,
-            "domain": parsed.hostname,
-            "path": "/",
-            "secure": parsed.scheme == "https",
-            "httpOnly": True,
-            "sameSite": "Lax",
-        }
-        cdp(
-            "Storage.setCookies",
-            cookies=[cookie],
-            browserContextId=browser_context_id,
-        )
 
     class SafeBrowser(upstream_browser):
         def __init__(self, url):
@@ -309,7 +382,7 @@ def install_safe_browser(base_url: str):
                     "Target.createBrowserContext",
                     disposeOnDetach=True,
                 )["browserContextId"]
-                _bootstrap_auth(self.browser_context_id)
+                bootstrap_session_cookie(base_url, self.browser_context_id, cdp)
                 self.target = cdp(
                     "Target.createTarget",
                     url="about:blank",
@@ -329,11 +402,6 @@ def install_safe_browser(base_url: str):
                     mobile=False,
                 )
                 self.call("Emulation.setFocusEmulationEnabled", enabled=True)
-                self.call(
-                    "Page.addScriptToEvaluateOnNewDocument",
-                    source=transport_block_script,
-                    runImmediately=True,
-                )
                 cdp(
                     "Browser.setDownloadBehavior",
                     behavior="deny",
