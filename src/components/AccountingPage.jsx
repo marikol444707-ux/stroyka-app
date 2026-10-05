@@ -256,6 +256,8 @@ export default function AccountingPage(props) {
 
       {accountingTab === 'contracts' && (
         <AccountingContractsPanel
+          API={API}
+          refreshData={refreshData}
           C={C}
           card={card}
           inp={inp}

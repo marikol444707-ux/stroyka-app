@@ -19563,6 +19563,11 @@ def delete_brigade_contract(
         company_id = int(contract["companyId"])
         if contract.get("partySnapshot") is not None:
             raise HTTPException(status_code=409, detail="Подписанный договор хранится в истории и не удаляется")
+        try:
+            from backend.features.brigade_access.archive_policy import require_empty_signed_duplicate
+        except ModuleNotFoundError:
+            from features.brigade_access.archive_policy import require_empty_signed_duplicate
+        require_empty_signed_duplicate(cur, contract)
         cur.execute(
             """UPDATE brigade_contracts
                   SET status='Аннулирован'

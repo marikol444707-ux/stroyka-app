@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { Check, Eye, Plus, Search, Trash2, X } from 'lucide-react';
 
 export default function AccountingContractsPanel({
+  API,
+  refreshData,
   C,
   card,
   inp,
@@ -36,6 +38,10 @@ export default function AccountingContractsPanel({
   deleteContract,
 }) {
   const [showHistory, setShowHistory] = useState(false);
+  const [archiveBusyId, setArchiveBusyId] = useState(null);
+  const [archiveError, setArchiveError] = useState('');
+  const [archiveNotice, setArchiveNotice] = useState('');
+  const [archivedIds, setArchivedIds] = useState({});
   const emptyFn = () => {};
   const canEditFinance = typeof isFinanceRole === 'function' ? isFinanceRole : () => Boolean(isFinanceRole);
   const searchMatches = typeof matchSearch === 'function'
@@ -74,7 +80,8 @@ export default function AccountingContractsPanel({
     ? badge
     : (color, bg, border) => ({ color, backgroundColor: bg, border: '1px solid ' + border, borderRadius: '999px', padding: '4px 8px', fontSize: '11px', fontWeight: 800 });
   const contractRows = Array.isArray(contracts) ? contracts.filter(Boolean) : [];
-  const brigadeContractRows = Array.isArray(brigadeContracts) ? brigadeContracts.filter(Boolean) : [];
+  const brigadeContractRows = Array.isArray(brigadeContracts)
+    ? brigadeContracts.filter(Boolean).map(row => archivedIds[row.id] ? {...row, status: 'Аннулирован'} : row) : [];
   const documents = Array.isArray(projectDocuments) ? projectDocuments : [];
   const brigadePayments = Array.isArray(allBrigadePayments) ? allBrigadePayments : [];
   const acts = Array.isArray(interimActs) ? interimActs : [];
@@ -105,6 +112,27 @@ export default function AccountingContractsPanel({
         '</div>',
         title,
       );
+    }
+  };
+  const archiveEmptyDuplicate = async row => {
+    if (!window.confirm('Убрать пустой дубль из действующих договоров? Запись останется в истории.')) return;
+    setArchiveError('');
+    setArchiveNotice('');
+    setArchiveBusyId(row.id);
+    try {
+      const response = await fetch(API + '/brigade-contracts/' + row.id, {method: 'DELETE'});
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Не удалось убрать дубль');
+      setArchivedIds(previous => ({...previous, [row.id]: true}));
+      try {
+        if (typeof refreshData === 'function') await refreshData();
+      } catch (_) {
+        setArchiveNotice('Дубль убран. Чтобы обновить остальные данные, перезагрузите страницу.');
+      }
+    } catch (error) {
+      setArchiveError(error.message || 'Не удалось убрать дубль. Повторите попытку.');
+    } finally {
+      setArchiveBusyId(null);
     }
   };
 
@@ -319,6 +347,8 @@ export default function AccountingContractsPanel({
       {historicalRows.length > 0 && <button type="button" onClick={() => setShowHistory(value => !value)} style={{...btnG,marginBottom:'12px'}}>
         {showHistory ? 'Скрыть историю и черновики' : `История и черновики · ${historicalRows.length}`}
       </button>}
+      {archiveError && <p role="alert" style={{color: C.danger, margin: '0 0 12px'}}>{archiveError}</p>}
+      {archiveNotice && <p role="status" style={{color: C.success, margin: '0 0 12px'}}>{archiveNotice}</p>}
 
       {groupedRows.length === 0 ? (
         <p style={{ color: C.textMuted, textAlign: 'center', padding: '30px' }}>Договоров и расчётов с исполнителями нет</p>
@@ -359,6 +389,18 @@ export default function AccountingContractsPanel({
             {group.rows.sort((left, right) => String(left.project || '').localeCompare(String(right.project || ''), 'ru')).map(row => {
               const isBrigade = row._kind === 'brigade';
               const items = isBrigade ? brigadeItems.filter(item => Number(item.contractId) === Number(row.id)) : [];
+              const hasActivePeer = isBrigade && brigadeContractRows.some(peer => peer.id !== row.id
+                && peer.status === 'Подписан'
+                && Number(peer.companyId) === Number(row.companyId)
+                && Number(peer.projectId) === Number(row.projectId)
+                && String(peer.workPackage || 'Основная') === String(row.workPackage || 'Основная')
+                && (row.contractorId
+                  ? Number(peer.contractorId) === Number(row.contractorId)
+                  : !peer.contractorId && personKey(peer.brigadeName) === personKey(row.brigadeName))
+                && brigadeItems.some(item => Number(item.contractId) === Number(peer.id)));
+              const canArchiveEmptyDuplicate = isBrigade && canEditFinance() && row.status === 'Подписан'
+                && !items.length && !row.contractScanUrl && !row.actScanUrl && !row.partySnapshot
+                && row.finance.accrued === 0 && row.finance.paid === 0 && hasActivePeer;
               return (
                 <div key={row._rowKey} style={{ padding: '8px 0', borderTop: '1px solid ' + C.border, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                   <div>
@@ -375,6 +417,7 @@ export default function AccountingContractsPanel({
                     </button>
                     {!isBrigade && consents.find(consent => Number(consent.userId) === Number(row.masterId)) && <span style={renderBadge(C.success, C.successLight, C.successBorder)}>ПД ✅</span>}
                     {!isBrigade && <button onClick={() => removeContract(row.id)} style={{ ...btnR, padding: '4px 8px' }}><Trash2 size={11} /></button>}
+                    {canArchiveEmptyDuplicate && <button type="button" disabled={archiveBusyId === row.id} onClick={() => archiveEmptyDuplicate(row)} style={{...btnR, padding: '4px 8px'}} aria-label={'Убрать пустой дубль № ' + row.contractNumber}>Убрать пустой дубль</button>}
                   </div>
                 </div>
               );
