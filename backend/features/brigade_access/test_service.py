@@ -4,6 +4,7 @@ from decimal import Decimal
 from fastapi import HTTPException
 
 from backend.features.brigade_access.service import (
+    find_existing_brigade_contract_id,
     brigade_contract_project_reference,
     brigade_contract_visibility_filter,
     grant_brigade_contractor_scope,
@@ -13,6 +14,27 @@ from backend.features.brigade_access.service import (
     require_positive_brigade_amount,
     resolve_brigade_contractor_user,
 )
+
+
+class BrigadeDuplicateGuardTests(unittest.TestCase):
+    def test_existing_contract_is_scoped_by_company_project_package_and_user(self):
+        cur = SequencedCursor(one=[(71,)])
+        self.assertEqual(find_existing_brigade_contract_id(cur, 4, 17, "Основная", 9, "Дугин Паша"), 71)
+        sql, params = cur.calls[0]
+        self.assertIn("company_id=%s", sql)
+        self.assertIn("project_id=%s", sql)
+        self.assertIn("contractor_id=%s", sql)
+        self.assertIn("contractor_id IS NULL", sql)
+        self.assertIn("Аннулирован", sql)
+        self.assertEqual(params, (4, 17, "Основная", 9, "Дугин Паша"))
+
+    def test_name_fallback_does_not_match_another_user(self):
+        cur = SequencedCursor(one=[None])
+        self.assertIsNone(find_existing_brigade_contract_id(cur, 4, 17, "Основная", None, "  Бригада Север  "))
+        sql, params = cur.calls[0]
+        self.assertIn("contractor_id IS NULL", sql)
+        self.assertIn("LOWER(BTRIM(brigade_name))", sql)
+        self.assertEqual(params, (4, 17, "Основная", "Бригада Север"))
 
 
 FULL_VIEW_ROLES = ("директор", "зам_директора", "бухгалтер", "главный_инженер", "сметчик")

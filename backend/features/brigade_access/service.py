@@ -77,6 +77,31 @@ def require_brigade_write_actor(company_actors, write_roles):
     return actor
 
 
+def find_existing_brigade_contract_id(cur, company_id, project_id, work_package, contractor_id, brigade_name):
+    """Find the one active contract that the create form would otherwise duplicate."""
+    normalized_name = str(brigade_name or "").strip()
+    if contractor_id:
+        identity_sql = (
+            "(contractor_id=%s OR (contractor_id IS NULL "
+            "AND LOWER(BTRIM(brigade_name))=LOWER(%s)))"
+        )
+        identity = (int(contractor_id), normalized_name)
+    else:
+        if not normalized_name:
+            raise HTTPException(status_code=400, detail="Укажите исполнителя или название бригады")
+        identity_sql = "contractor_id IS NULL AND LOWER(BTRIM(brigade_name))=LOWER(%s)"
+        identity = (normalized_name,)
+    cur.execute(
+        "SELECT id FROM brigade_contracts WHERE company_id=%s AND project_id=%s "
+        "AND COALESCE(NULLIF(work_package,''),'Основная')=%s "
+        "AND COALESCE(status,'') NOT IN ('Аннулирован','Удалён','Удален') "
+        f"AND {identity_sql} ORDER BY id DESC LIMIT 1 FOR UPDATE",
+        (int(company_id), int(project_id), work_package, *identity),
+    )
+    row = cur.fetchone()
+    return _row_value(row, "id", 0) if row else None
+
+
 def resolve_brigade_contractor_user(cur, company_id, contractor_id=None, contractor_name=""):
     """Resolve an optional contractor user without crossing the selected-company boundary."""
     normalized_company_id = _positive_int(company_id)

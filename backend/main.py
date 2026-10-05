@@ -386,6 +386,7 @@ try:
     from backend.features.brigade_access.service import (
         brigade_contract_project_reference,
         brigade_contract_visibility_filter,
+        find_existing_brigade_contract_id,
         grant_brigade_contractor_scope,
         require_brigade_child_company,
         require_brigade_project_payment_link,
@@ -397,6 +398,7 @@ except ModuleNotFoundError:
     from features.brigade_access.service import (
         brigade_contract_project_reference,
         brigade_contract_visibility_filter,
+        find_existing_brigade_contract_id,
         grant_brigade_contractor_scope,
         require_brigade_child_company,
         require_brigade_project_payment_link,
@@ -19335,6 +19337,20 @@ def create_brigade_contract(
             data.get("contractorId"),
             data.get("brigadeName", ""),
         )
+        existing_id = find_existing_brigade_contract_id(
+            cur, company_id, project["id"], work_package,
+            contractor_user_id, data.get("brigadeName", ""),
+        )
+        if existing_id:
+            conn.rollback()
+            return {
+                "id": existing_id,
+                "ok": True,
+                "reused": True,
+                "itemsLoaded": 0,
+                "companyId": company_id,
+                "projectId": project["id"],
+            }
         cur.execute(
             """INSERT INTO brigade_contracts
                    (company_id,project_id,project_name,work_package,brigade_name,contractor_type,
