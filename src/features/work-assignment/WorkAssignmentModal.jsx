@@ -79,6 +79,7 @@ export default function WorkAssignmentModal({
 }) {
   const [selectedIds, setSelectedIds] = useState({});
   const [contractorId, setContractorId] = useState('');
+  const [manualPerformer, setManualPerformer] = useState(false);
   const [manualName, setManualName] = useState('');
   const [coefficient, setCoefficient] = useState('0.6');
   const [priceMode, setPriceMode] = useState('coefficient');
@@ -127,6 +128,7 @@ export default function WorkAssignmentModal({
     initializedSourceRef.current = sourceKey;
     setSelectedIds(Object.fromEntries(rows.map(row => [row.id, true])));
     setContractorId(performers.length === 1 ? performerOptionId(performers[0]) : '');
+    setManualPerformer(false);
     setManualName('');
     setCoefficient('0.6');
     setPriceMode('coefficient');
@@ -224,30 +226,36 @@ export default function WorkAssignmentModal({
 
   return (
     <div onClick={() => !submitting && onClose()} style={{position: 'fixed', inset: 0, backgroundColor: 'rgba(15,23,42,.62)', zIndex: 760, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: isMobile ? '10px' : '22px'}}>
-      <div onClick={event => event.stopPropagation()} style={{...card, width: modalWidth, maxHeight: '92vh', overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: 0}}>
+      <div role="dialog" aria-modal="true" aria-labelledby="work-assignment-title" onClick={event => event.stopPropagation()} style={{...card, width: modalWidth, maxHeight: '92vh', overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: 0}}>
         <div style={{padding: '18px 20px', borderBottom: '1px solid ' + C.border, display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start'}}>
           <div>
             <div style={{display: 'flex', gap: '8px', alignItems: 'center'}}>
               <UserCheck size={20} color={C.accent} />
-              <b style={{color: C.text, fontSize: '16px'}}>Назначить работы исполнителю</b>
+              <b id="work-assignment-title" style={{color: C.text, fontSize: '16px'}}>Назначить работы исполнителю</b>
             </div>
             <p style={{color: C.textSec, fontSize: '12px', margin: '5px 0 0'}}>
               {selectedEstimate.projectName || 'Объект'} · {selectedEstimate.workPackage || selectedEstimate.work_package || 'Основная'}
             </p>
           </div>
-          <button type="button" onClick={onClose} disabled={submitting} style={{...btnG, padding: '7px 9px'}}><X size={14} /></button>
+          <button type="button" aria-label="Закрыть назначение работ" onClick={onClose} disabled={submitting} style={{...btnG, padding: '7px 9px'}}><X size={14} /></button>
         </div>
 
         <div style={{padding: '16px 20px', overflowY: 'auto'}}>
           <div style={{marginBottom: '18px'}}>
             <b style={{display: 'block', color: C.text, fontSize: '15px', marginBottom: '4px'}}>1. Кому выдать работы</b>
-            <p style={{color: C.textSec, fontSize: '12px', margin: '0 0 10px'}}>Выберите исполнителя из списка. Если его там нет, впишите название бригады.</p>
+            <p style={{color: C.textSec, fontSize: '12px', margin: '0 0 10px'}}>Выберите человека или бригаду. Новую бригаду можно указать в этом же списке.</p>
             <div style={{display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(260px,1fr) minmax(200px,1fr)', gap: '10px'}}>
-            <select aria-label="Исполнитель" value={contractorId} onChange={event => { setContractorId(event.target.value); if (event.target.value) setManualName(''); }} style={{...inp, marginBottom: 0}}>
-              <option value="">Выберите мастера / субподрядчика / бригаду</option>
-              {performers.map(item => <option key={performerOptionId(item) + '-' + item.name} value={performerOptionId(item)}>{item.name}</option>)}
-            </select>
-            <input value={manualName} onChange={event => { setManualName(event.target.value); if (event.target.value) setContractorId(''); }} placeholder="Или название бригады" style={{...inp, marginBottom: 0}} />
+              <select aria-label="Исполнитель" value={manualPerformer ? '__manual__' : contractorId} onChange={event => {
+                const isManual = event.target.value === '__manual__';
+                setManualPerformer(isManual);
+                setContractorId(isManual ? '' : event.target.value);
+                if (!isManual) setManualName('');
+              }} style={{...inp, marginBottom: 0}}>
+                <option value="">Выберите исполнителя</option>
+                {performers.map(item => <option key={performerOptionId(item) + '-' + item.name} value={performerOptionId(item)}>{item.name}</option>)}
+                <option value="__manual__">+ Новая бригада</option>
+              </select>
+              {manualPerformer && <input aria-label="Название новой бригады" autoFocus value={manualName} onChange={event => setManualName(event.target.value)} placeholder="Название бригады" style={{...inp, marginBottom: 0}} />}
             </div>
           </div>
 
@@ -268,7 +276,7 @@ export default function WorkAssignmentModal({
           <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', marginBottom: '10px'}}>
             <div>
               <b style={{display: 'block', color: C.text, fontSize: '15px'}}>3. Сколько получит исполнитель</b>
-              <span style={{color: C.textSec, fontSize: '12px'}}>По умолчанию цена работы составляет 60% от сметной.</span>
+              <span style={{color: C.textSec, fontSize: '12px'}}>По умолчанию исполнителю идёт 60% от цены работы в смете. Перед выдачей проверьте сумму ниже.</span>
             </div>
             <button type="button" onClick={() => setShowPriceSettings(value => !value)} style={btnG}>
               <Settings2 size={14} />{showPriceSettings ? 'Скрыть цену' : 'Настроить цену'}
@@ -277,10 +285,10 @@ export default function WorkAssignmentModal({
 
           {showPriceSettings && (
             <div style={{display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '180px 180px 1fr', gap: '10px', alignItems: 'center', marginBottom: '14px', padding: '10px', border: '1px solid ' + C.border, borderRadius: '8px', backgroundColor: C.bg}}>
-              <button type="button" onClick={() => setPriceMode('coefficient')} style={priceMode === 'coefficient' ? btnO : btnG}>По коэффициенту</button>
-              <button type="button" onClick={() => setPriceMode('manual')} style={priceMode === 'manual' ? btnO : btnG}>Ручная</button>
+              <button type="button" onClick={() => setPriceMode('coefficient')} style={priceMode === 'coefficient' ? btnO : btnG}>Доля от сметы</button>
+              <button type="button" onClick={() => setPriceMode('manual')} style={priceMode === 'manual' ? btnO : btnG}>Своя цена</button>
               <label style={{display: 'flex', alignItems: 'center', gap: '8px', color: C.textSec, fontSize: '12px'}}>
-                Коэффициент
+                Доля (0,6 = 60%)
                 <input aria-label="Коэффициент" disabled={priceMode !== 'coefficient'} type="number" min="0.01" step="0.01" value={coefficient} onChange={event => setCoefficient(event.target.value)} style={{...inp, width: '86px', marginBottom: 0, opacity: priceMode === 'coefficient' ? 1 : 0.55}} />
               </label>
             </div>
@@ -309,10 +317,12 @@ export default function WorkAssignmentModal({
                     <div style={{minWidth: 0}}>
                       <b style={{display: 'block', color: C.text, fontSize: '12px', overflow: 'hidden', textOverflow: 'ellipsis'}}>{row.name}</b>
                       <span style={{color: C.textMuted, fontSize: '10px'}}>{row.section}{isMobile ? ' · ' + formatQty(row.quantity, row.unit) : ''}</span>
+                      {isMobile && <span style={{display: 'block', color: C.textSec, fontSize: '11px', marginTop: '3px'}}>Смета: {formatMoney(row.priceSmeta)}/ед. · Исполнителю: {formatMoney(masterPrice)}/ед.</span>}
                     </div>
                     <span style={{color: C.textSec, fontSize: '12px', display: isMobile ? 'none' : undefined}}>{formatQty(row.quantity, row.unit)}</span>
                     <span style={{color: C.textSec, fontSize: '12px', display: isMobile ? 'none' : undefined}}>{formatMoney(row.priceSmeta)}</span>
                     {showPriceSettings ? <div style={{display: 'grid', gridTemplateColumns: rowHasManualPrice && priceMode === 'coefficient' ? 'minmax(0,1fr) 26px' : 'minmax(0,1fr)', gap: '4px', alignItems: 'center', gridColumn: isMobile ? '2 / -1' : undefined, gridRow: isMobile ? '2' : undefined}}>
+                      {isMobile && <span style={{gridColumn: '1 / -1', color: C.textSec, fontSize: '11px'}}>Цена исполнителю за единицу</span>}
                       <input
                         aria-label={'Цена исполнителю: ' + row.name}
                         type="number"

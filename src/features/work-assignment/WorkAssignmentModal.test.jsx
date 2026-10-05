@@ -2,6 +2,11 @@ import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import WorkAssignmentModal, { performerRows } from './WorkAssignmentModal';
 
+function typeManualBrigade(name) {
+  fireEvent.change(screen.getByRole('combobox', {name: 'Исполнитель'}), {target: {value: '__manual__'}});
+  fireEvent.change(screen.getByPlaceholderText('Название бригады'), {target: {value: name}});
+}
+
 describe('work assignment performers', () => {
   it('offers a subcontractor as an estimate work assignee', () => {
     const rows = performerRows([], [
@@ -46,6 +51,29 @@ describe('work assignment prices', () => {
     jest.restoreAllMocks();
   });
 
+  it('uses one performer choice and only asks for a name for a new brigade', () => {
+    render(
+      <WorkAssignmentModal
+        show onClose={jest.fn()}
+        selectedEstimate={{id: 25, sections: [{name: 'Монтаж', items: [
+          {name: 'Блок управления', unit: 'шт', quantity: 1, priceWork: 2000, estimateItemKey: 'work-1'},
+        ]}]}}
+        staff={[]} users={[{id: 11, name: 'Мастер Иван', role: 'мастер'}]}
+        API="/api" loadAll={jest.fn()}
+        C={{}} card={{}} inp={{}} btnO={{}} btnG={{}} btnB={{}} isMobile
+      />
+    );
+
+    expect(screen.queryByPlaceholderText('Название бригады')).not.toBeInTheDocument();
+    expect(screen.getByRole('combobox', {name: 'Исполнитель'})).toHaveValue('11');
+    expect(screen.getByText(/Смета: 2\s?000 ₽\/ед/)).toBeInTheDocument();
+
+    typeManualBrigade('Бригада Север');
+    expect(screen.getByPlaceholderText('Название бригады')).toHaveValue('Бригада Север');
+    fireEvent.change(screen.getByRole('combobox', {name: 'Исполнитель'}), {target: {value: '11'}});
+    expect(screen.queryByPlaceholderText('Название бригады')).not.toBeInTheDocument();
+  });
+
   it('applies the coefficient to all rows and sends one edited row as a manual price', async () => {
     render(
       <WorkAssignmentModal
@@ -76,7 +104,7 @@ describe('work assignment prices', () => {
       />
     );
 
-    fireEvent.change(screen.getByPlaceholderText('Или название бригады'), {target: {value: 'Бригада'}});
+    typeManualBrigade('Бригада');
     fireEvent.click(screen.getByRole('button', {name: 'Настроить цену'}));
     fireEvent.change(screen.getByLabelText('Коэффициент'), {target: {value: '0.4'}});
     fireEvent.change(screen.getByLabelText('Цена исполнителю: Блок управления'), {target: {value: '1000'}});
@@ -118,7 +146,7 @@ describe('work assignment prices', () => {
       />
     );
 
-    fireEvent.change(screen.getByPlaceholderText('Или название бригады'), {target: {value: 'Бригада'}});
+    typeManualBrigade('Бригада');
     fireEvent.click(screen.getByRole('button', {name: 'Выдать в работу'}));
 
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
@@ -144,13 +172,13 @@ describe('work assignment prices', () => {
       />
     );
 
-    fireEvent.change(screen.getByPlaceholderText('Или название бригады'), {target: {value: 'Бригада'}});
+    typeManualBrigade('Бригада');
     fireEvent.click(screen.getByRole('button', {name: 'Выдать в работу'}));
 
     await waitFor(() => expect(window.alert).toHaveBeenCalledWith('Работы уже назначены'));
     expect(onClose).not.toHaveBeenCalled();
     expect(loadAll).not.toHaveBeenCalled();
-    expect(screen.getByPlaceholderText('Или название бригады')).toHaveValue('Бригада');
+    expect(screen.getByPlaceholderText('Название бригады')).toHaveValue('Бригада');
   });
 
   it('preserves an in-progress assignment when performer data refreshes', () => {
@@ -168,7 +196,7 @@ describe('work assignment prices', () => {
       C: {}, card: {}, inp: {}, btnO: {}, btnG: {}, btnB: {}, isMobile: false,
     };
     const {rerender} = render(<WorkAssignmentModal {...props} />);
-    fireEvent.change(screen.getByPlaceholderText('Или название бригады'), {target: {value: 'Бригада Север'}});
+    typeManualBrigade('Бригада Север');
     fireEvent.click(screen.getByLabelText('Выбрать работу: Прокладка кабеля'));
     fireEvent.click(screen.getByRole('button', {name: 'Настроить цену'}));
     fireEvent.change(screen.getByLabelText('Коэффициент'), {target: {value: '0.4'}});
@@ -176,7 +204,7 @@ describe('work assignment prices', () => {
 
     rerender(<WorkAssignmentModal {...props} users={[{id: 11, name: 'Новый мастер', role: 'мастер'}]} />);
 
-    expect(screen.getByPlaceholderText('Или название бригады')).toHaveValue('Бригада Север');
+    expect(screen.getByPlaceholderText('Название бригады')).toHaveValue('Бригада Север');
     expect(screen.getByLabelText('Выбрать работу: Прокладка кабеля')).not.toBeChecked();
     expect(screen.getByLabelText('Коэффициент')).toHaveValue(0.4);
     expect(screen.getByLabelText('Цена исполнителю: Блок управления')).toHaveValue(950);
@@ -189,12 +217,12 @@ describe('work assignment prices', () => {
       ]}],
     };
     rerender(<WorkAssignmentModal {...props} selectedEstimate={changedEstimate} />);
-    expect(screen.getByPlaceholderText('Или название бригады')).toHaveValue('');
+    expect(screen.queryByPlaceholderText('Название бригады')).not.toBeInTheDocument();
     expect(screen.getByLabelText('Выбрать работу: Прокладка кабеля')).toBeChecked();
 
     rerender(<WorkAssignmentModal {...props} show={false} />);
     rerender(<WorkAssignmentModal {...props} />);
-    expect(screen.getByPlaceholderText('Или название бригады')).toHaveValue('');
+    expect(screen.queryByPlaceholderText('Название бригады')).not.toBeInTheDocument();
     expect(screen.getByLabelText('Выбрать работу: Прокладка кабеля')).toBeChecked();
   });
 
@@ -242,9 +270,9 @@ describe('work assignment prices', () => {
     expect(screen.getByText('Уже назначено: 1')).toBeInTheDocument();
     expect(screen.getByText('Выбрано: 1 из 1')).toBeInTheDocument();
     expect(screen.getByRole('button', {name: 'Настроить цену'})).toBeInTheDocument();
-    expect(screen.queryByRole('button', {name: 'Ручная'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {name: 'Своя цена'})).not.toBeInTheDocument();
 
-    fireEvent.change(screen.getByPlaceholderText('Или название бригады'), {target: {value: 'Бригада 2'}});
+    typeManualBrigade('Бригада 2');
     fireEvent.click(screen.getByRole('button', {name: 'Выдать в работу'}));
 
     await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
