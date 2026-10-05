@@ -2,6 +2,21 @@ import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import WarehouseOperationsPanel from './WarehouseOperationsPanel';
 
+test('mobile search finds a material beyond the first forty positions', () => {
+  const warehouseMain = Array.from({length: 45}, (_, index) => ({
+    id: index + 1, name: index === 44 ? 'Кабель ВВГнг' : `Материал ${index + 1}`, quantity: 10, unit: 'м',
+  }));
+  render(<WarehouseOperationsPanel warehouseTab="move" isMobile C={{}} card={{}} inp={{}}
+    projects={[]} visibleActiveProjects={value => value} warehouseMain={warehouseMain} materials={[]}
+    newMovement={{fromLocation:'Основной склад',toLocation:'',notes:'',selectedMaterials:[]}}
+    warehouseMovements={[]} warehouseInvoices={[]} />);
+
+  fireEvent.change(screen.getByRole('searchbox', {name:'Поиск материала'}), {target:{value:'ВВГнг'}});
+
+  expect(screen.getByText('Кабель ВВГнг')).toBeInTheDocument();
+  expect(screen.queryByText('Материал 1')).not.toBeInTheDocument();
+});
+
 test.each([false, true])('movement history includes source and unlinked states, compact=%s', isMobile => {
   render(<WarehouseOperationsPanel warehouseTab="move" isMobile={isMobile} C={{}} card={{}} inp={{}}
     projects={[]} visibleActiveProjects={value => value} warehouseMain={[]} materials={[]}
@@ -39,7 +54,7 @@ test('unidentified source offers no selector and explains why', () => {
     newMovement={{ fromLocation: 'Основной склад', selectedMaterials: [{ ...material, quantity: '1' }] }} warehouseMovements={[]}
     warehouseInvoices={[{ id: 5, location: 'Основной склад', items: [material] }]} />);
   expect(screen.queryByRole('option', { name: /Накладная/ })).not.toBeInTheDocument();
-  expect(screen.getByText(/Нет доступных строк с подтверждённым индексом/)).toBeInTheDocument();
+  expect(screen.getByText(/Накладная не найдена/)).toBeInTheDocument();
 });
 
 test('a rejected receipt is not offered as a source even when matching good stock exists', () => {
@@ -84,4 +99,26 @@ test('opens M-11 preview after the server confirms the movement', async () => {
 
   await waitFor(() => expect(showPreview).toHaveBeenCalledWith(document,'Накладная М-11'));
   expect(buildMovementDoc).toHaveBeenCalledWith(draft,draft.selectedMaterials);
+});
+
+test('shows the missing quantity before submit and prevents a repeated movement while sending', async () => {
+  const material = {id:1,name:'Кабель',unit:'м',quantity:10};
+  const draft = {fromLocation:'Основной склад',toLocation:'Объект 1',notes:'',selectedMaterials:[{...material,quantity:''}]};
+  const applyWarehouseMovement = jest.fn(() => new Promise(() => {}));
+  const {rerender} = render(<WarehouseOperationsPanel warehouseTab="move" C={{}} card={{}} inp={{}}
+    projects={[]} visibleActiveProjects={v=>v} warehouseMain={[material]} materials={[]}
+    newMovement={draft} warehouseMovements={[]} warehouseInvoices={[]}
+    applyWarehouseMovement={applyWarehouseMovement} />);
+
+  expect(screen.getByText('Укажите количество для 1 позиции.')).toBeInTheDocument();
+  expect(screen.getByRole('button',{name:'Переместить 1 позицию'})).toBeDisabled();
+  rerender(<WarehouseOperationsPanel warehouseTab="move" C={{}} card={{}} inp={{}}
+    projects={[]} visibleActiveProjects={v=>v} warehouseMain={[material]} materials={[]}
+    newMovement={{...draft,selectedMaterials:[{...material,quantity:'2'}]}} warehouseMovements={[]}
+    warehouseInvoices={[]} applyWarehouseMovement={applyWarehouseMovement} />);
+
+  fireEvent.click(screen.getByRole('button',{name:'Переместить 1 позицию'}));
+  expect(screen.getByRole('button',{name:'Перемещаем…'})).toBeDisabled();
+  expect(screen.getByRole('button',{name:'Переместить и распечатать'})).toBeDisabled();
+  expect(applyWarehouseMovement).toHaveBeenCalledTimes(1);
 });

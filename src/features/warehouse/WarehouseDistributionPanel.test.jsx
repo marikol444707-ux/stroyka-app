@@ -30,7 +30,7 @@ test('company-scoped sources and records show net issued, not supplier debt', as
   render(<DistributionWorkspace {...props} />);
   expect(await screen.findByText(/Осталось по распределению: 15 м/)).toBeInTheDocument();
   expect(screen.getByText(/не новый долг/)).toBeInTheDocument();
-  expect(screen.getByText(/Осталось по распределению — выданное минус возвраты и отправки на другие объекты, а не фактический остаток на объекте/)).toBeInTheDocument();
+  expect(screen.getByText(/В истории показано, сколько было выдано, возвращено и отправлено на другой объект/)).toBeInTheDocument();
   expect(screen.queryByText(/Не возвращено/)).not.toBeInTheDocument();
   expect(screen.getAllByRole('option', { name: /Школа/ })).toHaveLength(2);
 });
@@ -380,7 +380,7 @@ describe('two-stage transfer integration', () => {
     render(<DistributionWorkspace {...props} projects={[...props.projects, { id: 13, companyId: 2, name: 'Сад' }]} />);
     fireEvent.click(await screen.findByText('Отправить на другой объект'));
     expect(screen.getByText(/Отправлено на другие объекты: 3 м/)).toBeInTheDocument();
-    expect(screen.getByText(/выданное минус возвраты и отправки/)).toBeInTheDocument();
+    expect(screen.getByText(/В истории показано, сколько было выдано, возвращено и отправлено/)).toBeInTheDocument();
     expect(screen.getByText(/Распределение #8. Максимум: 12 м/)).toBeInTheDocument();
     expect(global.fetch).toHaveBeenCalledTimes(3);
     expect(screen.getByText('Оформить возврат')).toBeDisabled();

@@ -74,9 +74,9 @@ export default class AppErrorBoundary extends React.Component {
           padding: 24,
           boxShadow: '0 24px 80px rgba(0,0,0,.35)',
         }}>
-          <div style={{fontSize: 28, fontWeight: 900, marginBottom: 12}}>Приложение нужно обновить</div>
+          <div style={{fontSize: 28, fontWeight: 900, marginBottom: 12}}>Не удалось открыть этот экран</div>
           <div style={{fontSize: 17, color: '#cbd5e1', lineHeight: 1.5, marginBottom: 16}}>
-            После входа загрузился устаревший или поврежденный файл интерфейса. Нажмите обновление, кэш приложения будет сброшен.
+            В интерфейсе произошла ошибка. Мы сохранили её для проверки. Попробуйте обновить страницу.
           </div>
           <div style={{
             border: '1px solid #7f1d1d',

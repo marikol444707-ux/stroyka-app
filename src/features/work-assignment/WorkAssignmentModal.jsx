@@ -202,7 +202,7 @@ export default function WorkAssignmentModal({
   };
 
   const modalWidth = isMobile ? 'calc(100vw - 20px)' : '920px';
-  const rowGrid = isMobile ? '28px minmax(0,1fr)' : '28px minmax(220px,1.4fr) 110px 110px 126px 126px';
+  const rowGrid = '28px minmax(220px,1.4fr) 110px 110px 126px 126px';
 
   return (
     <div onClick={() => !submitting && onClose()} style={{position: 'fixed', inset: 0, backgroundColor: 'rgba(15,23,42,.62)', zIndex: 760, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: isMobile ? '10px' : '22px'}}>
@@ -221,24 +221,40 @@ export default function WorkAssignmentModal({
         </div>
 
         <div style={{padding: '16px 20px', overflowY: 'auto'}}>
-          <div style={{display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(260px,1fr) 220px auto', gap: '10px', marginBottom: '14px'}}>
-            <select value={contractorId} onChange={event => { setContractorId(event.target.value); if (event.target.value) setManualName(''); }} style={{...inp, marginBottom: 0}}>
+          <div style={{marginBottom: '18px'}}>
+            <b style={{display: 'block', color: C.text, fontSize: '15px', marginBottom: '4px'}}>1. Кому выдать работы</b>
+            <p style={{color: C.textSec, fontSize: '12px', margin: '0 0 10px'}}>Выберите исполнителя из списка. Если его там нет, впишите название бригады.</p>
+            <div style={{display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(260px,1fr) minmax(200px,1fr)', gap: '10px'}}>
+            <select aria-label="Исполнитель" value={contractorId} onChange={event => { setContractorId(event.target.value); if (event.target.value) setManualName(''); }} style={{...inp, marginBottom: 0}}>
               <option value="">Выберите мастера / субподрядчика / бригаду</option>
               {performers.map(item => <option key={performerOptionId(item) + '-' + item.name} value={performerOptionId(item)}>{item.name}</option>)}
             </select>
             <input value={manualName} onChange={event => { setManualName(event.target.value); if (event.target.value) setContractorId(''); }} placeholder="Или название бригады" style={{...inp, marginBottom: 0}} />
-            <button type="button" onClick={() => setShowPriceSettings(value => !value)} style={btnG}>
-              <Settings2 size={14} />{showPriceSettings ? 'Скрыть цену' : 'Настроить цену'}
-            </button>
+            </div>
           </div>
 
+          <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', marginBottom: '10px'}}>
+            <div>
+              <b style={{display: 'block', color: C.text, fontSize: '15px'}}>2. Какие работы выдать</b>
+              <span style={{color: C.textSec, fontSize: '12px'}}>Показаны только ещё не назначенные работы.</span>
+            </div>
+            {rows.length > 0 && <button type="button" onClick={toggleAll} style={btnB}><CheckSquare size={14} />{rows.every(row => selectedIds[row.id]) ? 'Снять все' : 'Выбрать все'}</button>}
+          </div>
           <div style={{display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(220px,1fr) auto', gap: '10px', alignItems: 'center', marginBottom: '14px'}}>
             <div style={{padding: '9px 12px', border: '1px solid ' + C.border, borderRadius: '8px', backgroundColor: C.bg}}>
               <b style={{color: C.text, fontSize: '12px'}}>Выбрано: {selectedRows.length} из {rows.length}</b>
               {assignedCount > 0 && <span style={{color: C.success, fontSize: '12px', marginLeft: '8px'}}>Уже назначено: {assignedCount}</span>}
-              <span style={{color: C.textSec, fontSize: '12px', marginLeft: '8px'}}>к оплате исполнителю: {formatMoney(selectedTotal)}</span>
             </div>
-            {rows.length > 0 && <button type="button" onClick={toggleAll} style={btnB}><CheckSquare size={14} />{rows.every(row => selectedIds[row.id]) ? 'Снять все' : 'Выбрать все'}</button>}
+          </div>
+
+          <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', marginBottom: '10px'}}>
+            <div>
+              <b style={{display: 'block', color: C.text, fontSize: '15px'}}>3. Сколько получит исполнитель</b>
+              <span style={{color: C.textSec, fontSize: '12px'}}>По умолчанию цена работы составляет 60% от сметной.</span>
+            </div>
+            <button type="button" onClick={() => setShowPriceSettings(value => !value)} style={btnG}>
+              <Settings2 size={14} />{showPriceSettings ? 'Скрыть цену' : 'Настроить цену'}
+            </button>
           </div>
 
           {showPriceSettings && (
@@ -270,15 +286,15 @@ export default function WorkAssignmentModal({
                 const masterPrice = priceForRow(row);
                 const displayedPrice = rowHasManualPrice ? manualPrices[row.id] : Math.round(row.priceSmeta * coef * 100) / 100;
                 return (
-                  <div key={row.id} style={{display: 'grid', gridTemplateColumns: rowGrid, gap: '8px', alignItems: 'center', padding: '10px', borderTop: '1px solid ' + C.border, backgroundColor: checked ? C.accentLight : C.bgWhite}}>
-                    <input type="checkbox" checked={checked} onChange={event => setSelectedIds(prev => ({...prev, [row.id]: event.target.checked}))} style={{width: '16px', height: '16px', accentColor: C.accent}} />
+                  <div key={row.id} style={{display: 'grid', gridTemplateColumns: isMobile ? '28px minmax(0,1fr) auto' : rowGrid, gap: '8px', alignItems: 'center', padding: isMobile ? '14px 12px' : '10px', borderTop: '1px solid ' + C.border, backgroundColor: checked ? C.accentLight : C.bgWhite}}>
+                    <input aria-label={'Выбрать работу: ' + row.name} type="checkbox" checked={checked} onChange={event => setSelectedIds(prev => ({...prev, [row.id]: event.target.checked}))} style={{width: '18px', height: '18px', accentColor: C.accent}} />
                     <div style={{minWidth: 0}}>
                       <b style={{display: 'block', color: C.text, fontSize: '12px', overflow: 'hidden', textOverflow: 'ellipsis'}}>{row.name}</b>
-                      <span style={{color: C.textMuted, fontSize: '10px'}}>{row.section}</span>
+                      <span style={{color: C.textMuted, fontSize: '10px'}}>{row.section}{isMobile ? ' · ' + formatQty(row.quantity, row.unit) : ''}</span>
                     </div>
-                    <span style={{color: C.textSec, fontSize: '12px'}}>{formatQty(row.quantity, row.unit)}</span>
-                    <span style={{color: C.textSec, fontSize: '12px'}}>{formatMoney(row.priceSmeta)}</span>
-                    {showPriceSettings ? <div style={{display: 'grid', gridTemplateColumns: rowHasManualPrice && priceMode === 'coefficient' ? 'minmax(0,1fr) 26px' : 'minmax(0,1fr)', gap: '4px', alignItems: 'center'}}>
+                    <span style={{color: C.textSec, fontSize: '12px', display: isMobile ? 'none' : undefined}}>{formatQty(row.quantity, row.unit)}</span>
+                    <span style={{color: C.textSec, fontSize: '12px', display: isMobile ? 'none' : undefined}}>{formatMoney(row.priceSmeta)}</span>
+                    {showPriceSettings ? <div style={{display: 'grid', gridTemplateColumns: rowHasManualPrice && priceMode === 'coefficient' ? 'minmax(0,1fr) 26px' : 'minmax(0,1fr)', gap: '4px', alignItems: 'center', gridColumn: isMobile ? '2 / -1' : undefined, gridRow: isMobile ? '2' : undefined}}>
                       <input
                         aria-label={'Цена исполнителю: ' + row.name}
                         type="number"
@@ -306,8 +322,8 @@ export default function WorkAssignmentModal({
                           <RotateCcw size={13} />
                         </button>
                       )}
-                    </div> : <span style={{color: C.textSec, fontSize: '12px'}}>{formatMoney(masterPrice)}</span>}
-                    <span style={{color: C.success, fontSize: '12px', fontWeight: 800}}>{checked ? formatMoney(row.quantity * masterPrice) : '—'}</span>
+                    </div> : <span style={{color: C.textSec, fontSize: '12px', display: isMobile ? 'none' : undefined}}>{formatMoney(masterPrice)}</span>}
+                    <span style={{color: C.success, fontSize: '12px', fontWeight: 800, gridColumn: isMobile ? '3' : undefined, gridRow: isMobile ? '1' : undefined}}>{checked ? formatMoney(row.quantity * masterPrice) : '—'}</span>
                   </div>
                 );
               })}
@@ -316,8 +332,8 @@ export default function WorkAssignmentModal({
           </div>
         </div>
 
-        <div style={{padding: '14px 20px', borderTop: '1px solid ' + C.border, display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap'}}>
-          <p style={{margin: 0, color: C.textSec, fontSize: '11px'}}>После выдачи мастер увидит выбранные строки в кабинете и сможет отправлять объемы в ЖПР.</p>
+        <div style={{padding: '14px 20px', borderTop: '1px solid ' + C.border, backgroundColor: C.bgWhite, display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', alignItems: 'center'}}>
+          <div><b style={{display: 'block', color: C.text, fontSize: '14px'}}>Исполнителю: {formatMoney(selectedTotal)}</b><span style={{color: C.textSec, fontSize: '11px'}}>Выбрано работ: {selectedRows.length}</span></div>
           <div style={{display: 'flex', gap: '8px'}}>
             <button type="button" onClick={onClose} disabled={submitting} style={btnG}>Отмена</button>
             <button type="button" onClick={submit} disabled={submitting || !selectedRows.length || !brigadeName} style={{...btnO, opacity: submitting || !selectedRows.length || !brigadeName ? 0.65 : 1}}>

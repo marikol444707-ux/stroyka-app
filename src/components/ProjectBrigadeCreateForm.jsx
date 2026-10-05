@@ -14,12 +14,14 @@ const emptyBrigadeContract = () => ({
 
 export default function ProjectBrigadeCreateForm({
   project,
+  brigadeContracts = [],
   newBrigadeContract,
   setNewBrigadeContract,
   staff = [],
   pricelists = [],
   setBrigadeContracts,
   setSelectedBrigadeContract,
+  openBrigadeContract,
   setBrigadeContractItems,
   setBrigadePayments,
   setShowBrigadeForm,
@@ -28,8 +30,21 @@ export default function ProjectBrigadeCreateForm({
   btnO,
   btnG,
 }) {
+  const normalizedName = String(newBrigadeContract.brigadeName || '').trim().toLocaleLowerCase('ru-RU');
+  const existingContract = normalizedName && brigadeContracts.find(contract => contract.projectName === project.name
+    && contract.status !== 'Аннулирован'
+    && String(contract.workPackage || 'Основная') === String(newBrigadeContract.workPackage || 'Основная')
+    && (newBrigadeContract.contractorId && contract.contractorId
+      ? String(contract.contractorId) === String(newBrigadeContract.contractorId)
+      : String(contract.brigadeName || '').trim().toLocaleLowerCase('ru-RU') === normalizedName));
   const createBrigadeContract = async () => {
     if (!newBrigadeContract.brigadeName) return;
+    if (existingContract) {
+      if (typeof openBrigadeContract === 'function') openBrigadeContract(existingContract);
+      else setSelectedBrigadeContract(existingContract);
+      setShowBrigadeForm(false);
+      return;
+    }
 
     const data = {
       ...newBrigadeContract,
@@ -81,8 +96,9 @@ export default function ProjectBrigadeCreateForm({
         </select>
         <textarea placeholder="Примечание" value={newBrigadeContract.notes} onChange={e => setNewBrigadeContract({...newBrigadeContract, notes: e.target.value})} style={{...inp, marginBottom: 0, height: '60px'}}/>
       </div>
+      {existingContract && <p role="status" style={{margin:'12px 0 0',fontSize:'13px'}}>У этого исполнителя уже есть договор по объекту. Откройте его и добавьте работы туда.</p>}
       <div style={{display: 'flex', gap: '8px', marginTop: '12px'}}>
-        <button onClick={createBrigadeContract} style={btnO}><Check size={14}/>Создать</button>
+        <button onClick={createBrigadeContract} style={btnO}><Check size={14}/>{existingContract ? 'Открыть договор' : 'Создать договор'}</button>
         <button onClick={() => setShowBrigadeForm(false)} style={btnG}><X size={14}/>Отмена</button>
       </div>
     </div>

@@ -48,7 +48,7 @@ describe('ProjectBrigadeCreateForm', () => {
     window.alert = jest.fn();
 
     render(<ProjectBrigadeCreateForm {...props} />);
-    fireEvent.click(screen.getByRole('button', {name: 'Создать'}));
+    fireEvent.click(screen.getByRole('button', {name: 'Создать договор'}));
 
     await waitFor(() => expect(window.alert).toHaveBeenCalledWith(
       'Не удалось создать договор: Исполнитель не найден в выбранной компании',
@@ -65,12 +65,27 @@ describe('ProjectBrigadeCreateForm', () => {
     });
 
     render(<ProjectBrigadeCreateForm {...props} />);
-    fireEvent.click(screen.getByRole('button', {name: 'Создать'}));
+    fireEvent.click(screen.getByRole('button', {name: 'Создать договор'}));
 
     await waitFor(() => expect(props.setBrigadeContracts).toHaveBeenCalled());
     const appendContract = props.setBrigadeContracts.mock.calls[0][0];
     const [savedContract] = appendContract([]);
     expect(savedContract).toMatchObject({id: 51, companyId: 4, projectId: 17});
     expect(props.setSelectedBrigadeContract).toHaveBeenCalledWith(savedContract);
+  });
+
+  it('opens an existing performer contract instead of creating a duplicate', () => {
+    const existing = {id: 70, projectName: 'Лицей', brigadeName: 'Бригада Север', status: 'Подписан'};
+    const props = buildProps({brigadeContracts: [existing], openBrigadeContract: jest.fn()});
+    window.fetch = jest.fn();
+
+    render(<ProjectBrigadeCreateForm {...props} />);
+    expect(screen.getByText(/у этого исполнителя уже есть договор/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', {name: 'Открыть договор'}));
+
+    expect(window.fetch).not.toHaveBeenCalled();
+    expect(props.openBrigadeContract).toHaveBeenCalledWith(existing);
+    expect(props.setSelectedBrigadeContract).not.toHaveBeenCalled();
+    expect(props.setShowBrigadeForm).toHaveBeenCalledWith(false);
   });
 });
