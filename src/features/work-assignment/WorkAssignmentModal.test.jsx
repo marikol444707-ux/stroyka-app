@@ -94,6 +94,51 @@ describe('work assignment prices', () => {
     expect(payload.items[1].manualPrice).toBeUndefined();
   });
 
+  it('preserves an in-progress assignment when performer data refreshes', () => {
+    const selectedEstimate = {
+      id: 25,
+      projectName: 'Объект',
+      sections: [{name: 'Монтаж', items: [
+        {name: 'Блок управления', unit: 'шт', quantity: 1, priceWork: 2000, estimateItemKey: 'work-1'},
+        {name: 'Прокладка кабеля', unit: 'м', quantity: 10, priceWork: 100, estimateItemKey: 'work-2'},
+      ]}],
+    };
+    const props = {
+      show: true, onClose: jest.fn(), selectedEstimate, brigadeContracts: [],
+      brigadeContractItems: [], staff: [], users: [], API: '/api', loadAll: jest.fn(),
+      C: {}, card: {}, inp: {}, btnO: {}, btnG: {}, btnB: {}, isMobile: false,
+    };
+    const {rerender} = render(<WorkAssignmentModal {...props} />);
+    fireEvent.change(screen.getByPlaceholderText('Или название бригады'), {target: {value: 'Бригада Север'}});
+    fireEvent.click(screen.getByLabelText('Выбрать работу: Прокладка кабеля'));
+    fireEvent.click(screen.getByRole('button', {name: 'Настроить цену'}));
+    fireEvent.change(screen.getByLabelText('Коэффициент'), {target: {value: '0.4'}});
+    fireEvent.change(screen.getByLabelText('Цена исполнителю: Блок управления'), {target: {value: '950'}});
+
+    rerender(<WorkAssignmentModal {...props} users={[{id: 11, name: 'Новый мастер', role: 'мастер'}]} />);
+
+    expect(screen.getByPlaceholderText('Или название бригады')).toHaveValue('Бригада Север');
+    expect(screen.getByLabelText('Выбрать работу: Прокладка кабеля')).not.toBeChecked();
+    expect(screen.getByLabelText('Коэффициент')).toHaveValue(0.4);
+    expect(screen.getByLabelText('Цена исполнителю: Блок управления')).toHaveValue(950);
+
+    const changedEstimate = {
+      ...selectedEstimate,
+      sections: [{...selectedEstimate.sections[0], items: [
+        {...selectedEstimate.sections[0].items[0], quantity: 2},
+        selectedEstimate.sections[0].items[1],
+      ]}],
+    };
+    rerender(<WorkAssignmentModal {...props} selectedEstimate={changedEstimate} />);
+    expect(screen.getByPlaceholderText('Или название бригады')).toHaveValue('');
+    expect(screen.getByLabelText('Выбрать работу: Прокладка кабеля')).toBeChecked();
+
+    rerender(<WorkAssignmentModal {...props} show={false} />);
+    rerender(<WorkAssignmentModal {...props} />);
+    expect(screen.getByPlaceholderText('Или название бригады')).toHaveValue('');
+    expect(screen.getByLabelText('Выбрать работу: Прокладка кабеля')).toBeChecked();
+  });
+
   it('selects only unassigned work by default and sends it in one action', async () => {
     render(
       <WorkAssignmentModal
