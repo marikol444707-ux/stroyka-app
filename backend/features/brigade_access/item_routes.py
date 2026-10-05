@@ -323,7 +323,7 @@ def register_brigade_contract_items_module(app, deps):
         conn.autocommit = False
         cur = conn.cursor()
         try:
-            cur.execute("SELECT contract_id,COALESCE(NULLIF(work_package,''),'Основная') FROM brigade_contract_items WHERE id=%s FOR UPDATE", (id,))
+            cur.execute("SELECT contract_id,COALESCE(NULLIF(work_package,''),'Основная'),COALESCE(done_quantity,0) FROM brigade_contract_items WHERE id=%s FOR UPDATE", (id,))
             item = cur.fetchone()
             if not item:
                 raise HTTPException(status_code=404, detail="Запись не найдена")
@@ -339,10 +339,11 @@ def register_brigade_contract_items_module(app, deps):
             item_package = row_get(item, "work_package", 1) or contract["workPackage"]
             if not has_package_access(actor, item_package):
                 raise HTTPException(status_code=403, detail="Нет доступа к пакету работ")
-            cur.execute("""SELECT 1 FROM work_journal w JOIN brigade_contracts c ON c.id=%s
-                WHERE w.contract_item_id=%s AND (w.material_accounting_version=2 OR c.settlement_version=2) LIMIT 1""", (contract['id'], id))
+            if float(row_get(item, "done_quantity", 2, 0) or 0) > 0:
+                raise HTTPException(409, "По этой позиции уже начаты работы. Удалить назначение нельзя")
+            cur.execute("SELECT 1 FROM work_journal WHERE contract_item_id=%s LIMIT 1", (id,))
             if cur.fetchone():
-                raise HTTPException(409, "Позиция связана с фактическим расходом по работе и не может быть удалена")
+                raise HTTPException(409, "По этой позиции уже есть запись о работе. Удалить назначение нельзя")
             cur.execute("DELETE FROM brigade_contract_items WHERE id=%s AND contract_id=%s RETURNING contract_id", (id, contract["id"]))
             row = cur.fetchone()
             if not row:

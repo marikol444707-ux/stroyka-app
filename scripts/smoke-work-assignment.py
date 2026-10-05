@@ -438,11 +438,11 @@ def main():
         if round(float(target2.get("quantity") or 0), 2) != 9 or round(float(target2.get("priceBrigade") or 0), 2) != 300:
             raise RuntimeError(f"assigned item 2 values are wrong: {target2}")
 
-        api_json("DELETE", f"/brigade-contract-items/{target.get('id')}", token=director_token, expected=200)
-        api_json("DELETE", f"/brigade-contract-items/{target2.get('id')}", token=director_token, expected=200)
+        api_json("DELETE", f"/brigade-contract-items/{target.get('id')}", token=director_token, expected=409)
+        api_json("DELETE", f"/brigade-contract-items/{target2.get('id')}", token=director_token, expected=409)
         _, after_delete_items = api_json("GET", "/brigade-contract-items-all", token=worker_token, expected=200)
-        if any(isinstance(row, dict) and row.get("estimateItemKey") in (ITEM_KEY, ITEM_KEY_2) for row in rows(after_delete_items)):
-            raise RuntimeError("worker still sees assignment after delete")
+        if not all(any(isinstance(row, dict) and row.get("estimateItemKey") == key for row in rows(after_delete_items)) for key in (ITEM_KEY, ITEM_KEY_2)):
+            raise RuntimeError("worker lost an assignment after work started")
 
         print(json.dumps({
             "ok": True,
@@ -454,7 +454,7 @@ def main():
             "projectEditArchivedFalseChecked": True,
             "projectArchiveBlockedChecked": True,
             "directorEstimateSummaryChecked": True,
-            "deleteChecked": True,
+            "deleteAfterWorkBlockedChecked": True,
         }, ensure_ascii=False, indent=2))
     finally:
         cleanup()
