@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import { API } from '../api';
 
@@ -21,6 +21,8 @@ export default function ProjectBrigadeCalculationTable({
   inp,
   btnR,
 }) {
+  const [deleteError, setDeleteError] = useState('');
+  const [deletingId, setDeletingId] = useState(null);
   const updateQuantity = async (item, index, rawValue) => {
     const factor = normalizeMeasure(1, item.unit).factor;
     const quantity = toNum(rawValue) / factor;
@@ -46,13 +48,26 @@ export default function ProjectBrigadeCalculationTable({
     });
   };
 
-  const deleteItem = async (item, index) => {
-    await fetch(API + '/brigade-contract-items/' + item.id, {method: 'DELETE'});
-    setBrigadeContractItems(prev => prev.filter((_, i) => i !== index));
+  const deleteItem = async (item) => {
+    setDeleteError('');
+    setDeletingId(item.id);
+    try {
+      const response = await fetch(API + '/brigade-contract-items/' + item.id, {method: 'DELETE'});
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.ok === false) {
+        setDeleteError(typeof data.detail === 'string' ? data.detail : 'Не удалось удалить позицию. Повторите попытку.');
+        return;
+      }
+      setBrigadeContractItems(prev => prev.filter(row => row.id !== item.id));
+    } catch (_) {
+      setDeleteError('Не удалось удалить позицию. Проверьте соединение.');
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   return (
-    <table style={tbl}>
+    <><table style={tbl}>
       <thead>
         <tr>
           <th style={tblH}>Наименование</th>
@@ -121,7 +136,7 @@ export default function ProjectBrigadeCalculationTable({
               <td style={{...tblC, fontWeight: '600', color: C.accent, display: showLeadership ? '' : 'none'}}>{toPay.toLocaleString('ru-RU') + ' ₽'}</td>
               <td style={{...tblC, fontWeight: '600', color: C.success, display: showFinance ? '' : 'none'}}>{economy.toLocaleString('ru-RU') + ' ₽'}</td>
               <td style={{...tblC, display: showLeadership ? '' : 'none'}}>
-                <button onClick={() => deleteItem(item, index)} style={{...btnR, padding: '3px 7px'}}>
+                <button type="button" onClick={() => deleteItem(item)} disabled={deletingId === item.id} aria-label={'Удалить ' + item.name} style={{...btnR, padding: '3px 7px'}}>
                   <Trash2 size={11}/>
                 </button>
               </td>
@@ -129,6 +144,6 @@ export default function ProjectBrigadeCalculationTable({
           );
         })}
       </tbody>
-    </table>
+    </table>{deleteError && <p role="alert" style={{color: C.danger, margin: '8px 0'}}>{deleteError}</p>}</>
   );
 }
