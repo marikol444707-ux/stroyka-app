@@ -257,11 +257,11 @@ class WarehouseAnomalyRuntimeRouteRegistrationTests(unittest.TestCase):
         package_bytes = package_path.read_bytes()
         runtime_source = runtime_path.read_text(encoding="utf-8")
 
-        # Reviewed AI task-owner normalization in the composition root;
+        # Reviewed brigade contract duplicate guard in the composition root;
         # warehouse preview implementation and registration are unchanged.
         self.assertEqual(
             hashlib.sha256(main_bytes).hexdigest(),
-            "51f7a99f729e8282fca871d5d3b263a5fa4f5545751d226f33c19cf45ce6b4c4",
+            "a7670909e1cdc9c22c2d8f0dd029181c0d308779bcc685d543237e82adcfb888",
         )
         self.assertEqual(
             hashlib.sha256(package_bytes).hexdigest(),

@@ -946,10 +946,10 @@ class WarehouseAnomalyRuntimePreviewCompositionTests(unittest.TestCase):
             root / "backend/db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Reviewed company-scoped warehouse reads in the composition root;
+            # Reviewed brigade contract duplicate guard in the composition root;
             # warehouse preview implementation and registration are unchanged.
             root / "backend/main.py": (
-                "51f7a99f729e8282fca871d5d3b263a5fa4f5545751d226f33c19cf45ce6b4c4"
+                "a7670909e1cdc9c22c2d8f0dd029181c0d308779bcc685d543237e82adcfb888"
             ),
         }
         self.assertEqual({

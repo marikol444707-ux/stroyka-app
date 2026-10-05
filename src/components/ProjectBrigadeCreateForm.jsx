@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Check, X } from 'lucide-react';
 import { API } from '../api';
 
@@ -30,6 +30,7 @@ export default function ProjectBrigadeCreateForm({
   btnO,
   btnG,
 }) {
+  const [saving, setSaving] = useState(false);
   const normalizedName = String(newBrigadeContract.brigadeName || '').trim().toLocaleLowerCase('ru-RU');
   const existingContract = normalizedName && brigadeContracts.find(contract => contract.projectName === project.name
     && contract.status !== 'Аннулирован'
@@ -38,6 +39,7 @@ export default function ProjectBrigadeCreateForm({
       ? String(contract.contractorId) === String(newBrigadeContract.contractorId)
       : String(contract.brigadeName || '').trim().toLocaleLowerCase('ru-RU') === normalizedName));
   const createBrigadeContract = async () => {
+    if (saving) return;
     if (!newBrigadeContract.brigadeName) return;
     if (existingContract) {
       if (typeof openBrigadeContract === 'function') openBrigadeContract(existingContract);
@@ -51,32 +53,48 @@ export default function ProjectBrigadeCreateForm({
       projectId: project.id,
       projectName: project.name,
     };
-    const res = await fetch(API + '/brigade-contracts', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(data),
-    });
-    const saved = await res.json();
-    if (!res.ok || !saved.ok || !saved.id) {
-      alert('Не удалось создать договор: ' + (saved.detail || 'проверьте компанию, объект и исполнителя'));
-      return;
+    setSaving(true);
+    try {
+      const res = await fetch(API + '/brigade-contracts', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data),
+      });
+      const saved = await res.json().catch(() => ({}));
+      if (!res.ok || !saved.ok || !saved.id) {
+        throw new Error(saved.detail || 'проверьте компанию, объект и исполнителя');
+      }
+      if (saved.reused) {
+        const listResponse = await fetch(API + '/brigade-contracts');
+        const latest = await listResponse.json().catch(() => []);
+        const existing = listResponse.ok && Array.isArray(latest)
+          ? latest.find(contract => Number(contract.id) === Number(saved.id)) : null;
+        if (!existing) throw new Error('Договор уже есть, но не удалось открыть его. Обновите страницу');
+        setBrigadeContracts(prev => [...prev.filter(contract => Number(contract.id) !== Number(saved.id)), existing]);
+        if (typeof openBrigadeContract === 'function') openBrigadeContract(existing);
+        else setSelectedBrigadeContract(existing);
+      } else {
+        const newContract = {
+          ...data,
+          id: saved.id,
+          companyId: saved.companyId,
+          projectId: saved.projectId || project.id,
+          totalAmount: 0,
+          status: 'Черновик',
+          items: [],
+        };
+        setBrigadeContracts(prev => [...prev, newContract]);
+        setSelectedBrigadeContract(newContract);
+        setBrigadeContractItems([]);
+        setBrigadePayments([]);
+      }
+      setShowBrigadeForm(false);
+      setNewBrigadeContract(emptyBrigadeContract());
+    } catch (error) {
+      alert('Не удалось создать договор: ' + (error.message || 'проверьте соединение'));
+    } finally {
+      setSaving(false);
     }
-    const newContract = {
-      ...data,
-      id: saved.id,
-      companyId: saved.companyId,
-      projectId: saved.projectId || project.id,
-      totalAmount: 0,
-      status: 'Черновик',
-      items: [],
-    };
-
-    setBrigadeContracts(prev => [...prev, newContract]);
-    setSelectedBrigadeContract(newContract);
-    setBrigadeContractItems([]);
-    setBrigadePayments([]);
-    setShowBrigadeForm(false);
-    setNewBrigadeContract(emptyBrigadeContract());
   };
 
   return (
@@ -98,7 +116,7 @@ export default function ProjectBrigadeCreateForm({
       </div>
       {existingContract && <p role="status" style={{margin:'12px 0 0',fontSize:'13px'}}>У этого исполнителя уже есть договор по объекту. Откройте его и добавьте работы туда.</p>}
       <div style={{display: 'flex', gap: '8px', marginTop: '12px'}}>
-        <button onClick={createBrigadeContract} style={btnO}><Check size={14}/>{existingContract ? 'Открыть договор' : 'Создать договор'}</button>
+        <button onClick={createBrigadeContract} disabled={saving} style={btnO}><Check size={14}/>{saving ? 'Сохраняем…' : existingContract ? 'Открыть договор' : 'Создать договор'}</button>
         <button onClick={() => setShowBrigadeForm(false)} style={btnG}><X size={14}/>Отмена</button>
       </div>
     </div>

@@ -88,4 +88,22 @@ describe('ProjectBrigadeCreateForm', () => {
     expect(props.setSelectedBrigadeContract).not.toHaveBeenCalled();
     expect(props.setShowBrigadeForm).toHaveBeenCalledWith(false);
   });
+
+  it('opens the existing contract when the server detects a duplicate after the page loaded', async () => {
+    const props = buildProps({openBrigadeContract: jest.fn()});
+    window.fetch = jest.fn()
+      .mockResolvedValueOnce({ok: true, json: async () => ({ok: true, id: 70, reused: true})})
+      .mockResolvedValueOnce({ok: true, json: async () => ([
+        {id: 70, projectName: 'Лицей', brigadeName: 'Бригада Север', status: 'Подписан'},
+      ])});
+
+    render(<ProjectBrigadeCreateForm {...props} />);
+    fireEvent.click(screen.getByRole('button', {name: 'Создать договор'}));
+
+    await waitFor(() => expect(props.openBrigadeContract).toHaveBeenCalledWith(
+      expect.objectContaining({id: 70, status: 'Подписан'}),
+    ));
+    expect(props.setBrigadeContracts).toHaveBeenCalled();
+    expect(props.setSelectedBrigadeContract).not.toHaveBeenCalled();
+  });
 });
