@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CheckSquare, RotateCcw, Settings2, UserCheck, X } from 'lucide-react';
 import { assignmentsForEstimate, formatMoney, formatQty, toNumber } from './workAssignmentUtils';
 import { findUserForStaff, normalizePersonKey } from '../../utils/performerUtils';
@@ -85,6 +85,7 @@ export default function WorkAssignmentModal({
   const [manualPrices, setManualPrices] = useState({});
   const [showPriceSettings, setShowPriceSettings] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const initializedSourceRef = useRef(null);
 
   const assignmentRows = useMemo(
     () => assignmentsForEstimate(selectedEstimate, brigadeContractItems || [], brigadeContracts || []),
@@ -99,6 +100,10 @@ export default function WorkAssignmentModal({
     () => performerRows(staff || [], users || [], brigadeContracts || []),
     [staff, users, brigadeContracts],
   );
+  const sourceKey = useMemo(() => JSON.stringify([
+    selectedEstimate?.id,
+    assignmentRows.map(row => [row.estimateItemKey, row.name, row.quantity, row.priceSmeta, row.assignments.map(item => item.contractId || item.contract_id)]),
+  ]), [selectedEstimate?.id, assignmentRows]);
   const selectedRows = rows.filter(row => selectedIds[row.id]);
   const selectedPerformer = performers.find(item => performerOptionId(item) === String(contractorId));
   const brigadeName = (selectedPerformer?.name || manualName || '').trim();
@@ -114,7 +119,12 @@ export default function WorkAssignmentModal({
   }, 0);
 
   useEffect(() => {
-    if (!show || !selectedEstimate) return;
+    if (!show || !selectedEstimate) {
+      initializedSourceRef.current = null;
+      return;
+    }
+    if (initializedSourceRef.current === sourceKey) return;
+    initializedSourceRef.current = sourceKey;
     setSelectedIds(Object.fromEntries(rows.map(row => [row.id, true])));
     setContractorId(performers.length === 1 ? performerOptionId(performers[0]) : '');
     setManualName('');
@@ -122,7 +132,7 @@ export default function WorkAssignmentModal({
     setPriceMode('coefficient');
     setManualPrices({});
     setShowPriceSettings(false);
-  }, [show, selectedEstimate, rows, performers]);
+  }, [show, selectedEstimate, rows, performers, sourceKey]);
 
   if (!show || !selectedEstimate) return null;
 
