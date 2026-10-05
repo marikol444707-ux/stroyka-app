@@ -94,6 +94,65 @@ describe('work assignment prices', () => {
     expect(payload.items[1].manualPrice).toBeUndefined();
   });
 
+  it('reports a saved assignment as successful when the follow-up refresh fails', async () => {
+    const onClose = jest.fn();
+    const loadAll = jest.fn().mockRejectedValue(new Error('refresh unavailable'));
+    render(
+      <WorkAssignmentModal
+        show
+        onClose={onClose}
+        selectedEstimate={{id: 25, projectName: 'Объект', sections: [{name: 'Монтаж', items: [
+          {name: 'Блок управления', unit: 'шт', quantity: 1, priceWork: 2000, estimateItemKey: 'work-1'},
+        ]}]}}
+        staff={[]}
+        users={[]}
+        API="/api"
+        loadAll={loadAll}
+        C={{}}
+        card={{}}
+        inp={{}}
+        btnO={{}}
+        btnG={{}}
+        btnB={{}}
+        isMobile={false}
+      />
+    );
+
+    fireEvent.change(screen.getByPlaceholderText('Или название бригады'), {target: {value: 'Бригада'}});
+    fireEvent.click(screen.getByRole('button', {name: 'Выдать в работу'}));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(loadAll).toHaveBeenCalledTimes(1);
+    expect(window.alert).toHaveBeenCalledWith(expect.stringContaining('Работы выданы'));
+    expect(window.alert).toHaveBeenCalledWith(expect.stringContaining('Обновите страницу'));
+    expect(window.alert).not.toHaveBeenCalledWith(expect.stringContaining('Не удалось назначить работы'));
+  });
+
+  it('keeps the draft open when the assignment request itself fails', async () => {
+    global.fetch.mockResolvedValueOnce({ok: false, json: async () => ({detail: 'Работы уже назначены'})});
+    const onClose = jest.fn();
+    const loadAll = jest.fn();
+    render(
+      <WorkAssignmentModal
+        show onClose={onClose}
+        selectedEstimate={{id: 25, sections: [{name: 'Монтаж', items: [
+          {name: 'Блок управления', unit: 'шт', quantity: 1, priceWork: 2000, estimateItemKey: 'work-1'},
+        ]}]}}
+        staff={[]} users={[]} API="/api" loadAll={loadAll}
+        C={{}} card={{}} inp={{}} btnO={{}} btnG={{}} btnB={{}} isMobile={false}
+      />
+    );
+
+    fireEvent.change(screen.getByPlaceholderText('Или название бригады'), {target: {value: 'Бригада'}});
+    fireEvent.click(screen.getByRole('button', {name: 'Выдать в работу'}));
+
+    await waitFor(() => expect(window.alert).toHaveBeenCalledWith('Работы уже назначены'));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(loadAll).not.toHaveBeenCalled();
+    expect(screen.getByPlaceholderText('Или название бригады')).toHaveValue('Бригада');
+  });
+
   it('preserves an in-progress assignment when performer data refreshes', () => {
     const selectedEstimate = {
       id: 25,

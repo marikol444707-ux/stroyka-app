@@ -199,11 +199,19 @@ export default function WorkAssignmentModal({
         alert(data.detail || 'Не удалось назначить работы');
         return;
       }
-      await loadAll();
+      let refreshFailed = false;
+      try {
+        await loadAll();
+      } catch (_) {
+        refreshFailed = true;
+      }
       setSelectedIds({});
       setManualPrices({});
       onClose();
-      alert('Работы выданы: ' + data.brigadeName + '\nПозиции: ' + data.items.length + '\nНаряд #' + data.contractId);
+      alert('Работы выданы: ' + (data.brigadeName || brigadeName)
+        + '\nПозиции: ' + (Array.isArray(data.items) ? data.items.length : selectedRows.length)
+        + (data.contractId ? '\nНаряд #' + data.contractId : '')
+        + (refreshFailed ? '\nСписок не обновился. Обновите страницу.' : ''));
     } catch (err) {
       alert('Не удалось назначить работы: ' + (err?.message || err));
     } finally {
