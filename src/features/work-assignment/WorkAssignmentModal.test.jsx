@@ -37,6 +37,25 @@ describe('work assignment performers', () => {
   });
 });
 
+it('finds a work in a long estimate without changing the selected assignments', () => {
+  const items = Array.from({length: 10}, (_, index) => ({
+    name: `Монтаж кабеля ${index + 1}`, unit: 'м', quantity: 1, priceWork: 100,
+    estimateItemKey: `work-${index + 1}`,
+  }));
+  render(<WorkAssignmentModal show onClose={jest.fn()}
+    selectedEstimate={{id:25, sections:[{name:'Электрика',items}]}}
+    staff={[]} users={[{id:11,name:'Мастер Иван',role:'мастер'}]}
+    API="/api" loadAll={jest.fn()} C={{}} card={{}} inp={{}} btnO={{}} btnG={{}} btnB={{}} isMobile />);
+
+  fireEvent.change(screen.getByRole('searchbox',{name:'Найти работу'}), {target:{value:'кабеля 10'}});
+  expect(screen.getByText('Монтаж кабеля 10')).toBeInTheDocument();
+  expect(screen.queryByText('Монтаж кабеля 1')).not.toBeInTheDocument();
+  expect(screen.getByText(/Показано: 1 из 10/)).toBeInTheDocument();
+  expect(screen.getByText('Выбрано: 10 из 10')).toBeInTheDocument();
+  fireEvent.change(screen.getByRole('searchbox',{name:'Найти работу'}), {target:{value:'неизвестная'}});
+  expect(screen.getByText('Работы не найдены. Очистите поиск.')).toBeInTheDocument();
+});
+
 describe('work assignment prices', () => {
   beforeEach(() => {
     global.fetch = jest.fn().mockResolvedValue({

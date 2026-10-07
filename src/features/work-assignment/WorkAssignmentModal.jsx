@@ -85,6 +85,7 @@ export default function WorkAssignmentModal({
   const [priceMode, setPriceMode] = useState('coefficient');
   const [manualPrices, setManualPrices] = useState({});
   const [showPriceSettings, setShowPriceSettings] = useState(false);
+  const [workSearch, setWorkSearch] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const initializedSourceRef = useRef(null);
 
@@ -96,6 +97,10 @@ export default function WorkAssignmentModal({
     () => assignmentRows.filter(row => row.assignments.length === 0),
     [assignmentRows],
   );
+  const visibleRows = useMemo(() => {
+    const query = workSearch.trim().toLocaleLowerCase('ru-RU');
+    return query ? rows.filter(row => [row.name, row.section].some(value => String(value || '').toLocaleLowerCase('ru-RU').includes(query))) : rows;
+  }, [rows, workSearch]);
   const assignedCount = assignmentRows.length - rows.length;
   const performers = useMemo(
     () => performerRows(staff || [], users || [], brigadeContracts || []),
@@ -134,6 +139,7 @@ export default function WorkAssignmentModal({
     setPriceMode('coefficient');
     setManualPrices({});
     setShowPriceSettings(false);
+    setWorkSearch('');
   }, [show, selectedEstimate, rows, performers, sourceKey]);
 
   if (!show || !selectedEstimate) return null;
@@ -273,6 +279,11 @@ export default function WorkAssignmentModal({
             </div>
           </div>
 
+          {rows.length > 8 && <div style={{marginBottom:'10px'}}>
+            <input type="search" aria-label="Найти работу" value={workSearch} onChange={event => setWorkSearch(event.target.value)} placeholder="Найти работу или раздел" style={{...inp,width:'100%',boxSizing:'border-box',marginBottom:'4px'}} />
+            <span style={{color:C.textSec,fontSize:'11px'}}>Показано: {visibleRows.length} из {rows.length}. Поиск не меняет выбранные работы.</span>
+          </div>}
+
           <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', marginBottom: '10px'}}>
             <div>
               <b style={{display: 'block', color: C.text, fontSize: '15px'}}>3. Сколько получит исполнитель</b>
@@ -306,7 +317,7 @@ export default function WorkAssignmentModal({
               </div>
             )}
             <div style={{maxHeight: isMobile ? '48vh' : '420px', overflowY: 'auto'}}>
-              {rows.map(row => {
+              {visibleRows.map(row => {
                 const checked = !!selectedIds[row.id];
                 const rowHasManualPrice = hasManualPrice(row.id);
                 const masterPrice = priceForRow(row);
@@ -355,7 +366,7 @@ export default function WorkAssignmentModal({
                   </div>
                 );
               })}
-              {!rows.length && <div style={{padding: '24px', textAlign: 'center', color: C.textMuted}}>{assignmentRows.length ? 'Все работы этой сметы уже назначены' : 'В смете нет рабочих строк для назначения'}</div>}
+              {!visibleRows.length && <div style={{padding: '24px', textAlign: 'center', color: C.textMuted}}>{rows.length ? 'Работы не найдены. Очистите поиск.' : assignmentRows.length ? 'Все работы этой сметы уже назначены' : 'В смете нет рабочих строк для назначения'}</div>}
             </div>
           </div>
         </div>
