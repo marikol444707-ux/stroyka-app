@@ -32,6 +32,20 @@ test.each([false, true])('movement history includes source and unlinked states, 
   expect(screen.getByText(/не создаёт новый долг/)).toBeInTheDocument();
 });
 
+test.each([false, true])('opens a saved M-11 from movement history, compact=%s', isMobile => {
+  const movement = {id:42,materialName:'Кабель',fromLocation:'Основной склад',toLocation:'Школа',quantity:1,unit:'м',documentSnapshot:{document:{number:'М-11-42'}}};
+  const buildMovementDoc = jest.fn(() => '<p>М-11</p>');
+  const showPreview = jest.fn();
+  render(<WarehouseOperationsPanel warehouseTab="move" isMobile={isMobile} C={{}} card={{}} inp={{}}
+    projects={[]} visibleActiveProjects={value => value} warehouseMain={[]} materials={[]}
+    newMovement={{fromLocation:'Основной склад',toLocation:'',selectedMaterials:[]}}
+    warehouseMovements={[movement]} warehouseInvoices={[]}
+    buildMovementDoc={buildMovementDoc} showPreview={showPreview} />);
+  fireEvent.click(screen.getByRole('button',{name:'Открыть М-11'}));
+  expect(buildMovementDoc).toHaveBeenCalledWith(movement,[movement]);
+  expect(showPreview).toHaveBeenCalledWith('<p>М-11</p>','Накладная М-11');
+});
+
 test('selector excludes unidentified and duplicate indices and sends original visible line index', () => {
   const material = { id: 1, name: 'Кабель', unit: 'м', quantity: 10 };
   const state = { fromLocation: 'Основной склад', toLocation: '', notes: '', selectedMaterials: [{ ...material, quantity: '1' }] };
@@ -87,7 +101,8 @@ test('opens M-11 preview after the server confirms the movement', async () => {
   const material = {id:1,name:'Кабель',unit:'м',quantity:10};
   const draft = {fromLocation:'Основной склад',toLocation:'Объект 1',notes:'',selectedMaterials:[{...material,quantity:'1'}]};
   const document = '<p>М-11</p>';
-  const applyWarehouseMovement = jest.fn(async () => ({success:true,moved:1}));
+  const confirmed = {...draft.selectedMaterials[0],id:42,documentSnapshot:{document:{number:'М-11-42'}}};
+  const applyWarehouseMovement = jest.fn(async () => ({success:true,moved:1,movements:[confirmed]}));
   const buildMovementDoc = jest.fn(() => document);
   const showPreview = jest.fn();
   render(<WarehouseOperationsPanel warehouseTab="move" C={{}} card={{}} inp={{}}
@@ -98,7 +113,25 @@ test('opens M-11 preview after the server confirms the movement', async () => {
   fireEvent.click(screen.getByRole('button',{name:'Переместить и распечатать'}));
 
   await waitFor(() => expect(showPreview).toHaveBeenCalledWith(document,'Накладная М-11'));
-  expect(buildMovementDoc).toHaveBeenCalledWith(draft,draft.selectedMaterials);
+  expect(buildMovementDoc).toHaveBeenCalledWith(confirmed,[confirmed]);
+});
+
+test.each([
+  {movements:[]},
+  {movements:[{id:42,name:'Кабель',quantity:1}]},
+])('does not print a draft when a successful response lacks a confirmed M-11 snapshot ($movements)', async ({movements}) => {
+  const material = {id:1,name:'Кабель',unit:'м',quantity:10};
+  const showPreview = jest.fn();
+  render(<WarehouseOperationsPanel warehouseTab="move" C={{}} card={{}} inp={{}}
+    projects={[]} visibleActiveProjects={v=>v} warehouseMain={[material]} materials={[]}
+    newMovement={{fromLocation:'Основной склад',toLocation:'Объект 1',notes:'',selectedMaterials:[{...material,quantity:'1'}]}}
+    warehouseMovements={[]} warehouseInvoices={[]}
+    applyWarehouseMovement={jest.fn(async () => ({success:true,moved:1,movements}))}
+    buildMovementDoc={jest.fn()} showPreview={showPreview} />);
+
+  fireEvent.click(screen.getByRole('button',{name:'Переместить и распечатать'}));
+  await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Накладная не получена'));
+  expect(showPreview).not.toHaveBeenCalled();
 });
 
 test('shows the missing quantity before submit and prevents a repeated movement while sending', async () => {
