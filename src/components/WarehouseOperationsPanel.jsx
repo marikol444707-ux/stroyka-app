@@ -59,6 +59,7 @@ export default function WarehouseOperationsPanel({
   const [movementSearch, setMovementSearch] = React.useState('');
   const [selectedOnly, setSelectedOnly] = React.useState(false);
   const [movementBusy, setMovementBusy] = React.useState(false);
+  const [movementPrintError, setMovementPrintError] = React.useState('');
   const movementReviewRef = React.useRef(null);
   const touchCompact = typeof window !== 'undefined'
     && (window.visualViewport?.width || window.innerWidth || 0) < 1100
@@ -69,6 +70,10 @@ export default function WarehouseOperationsPanel({
   const compactRows = isMobile || touchCompact || (typeof window !== 'undefined' && window.innerWidth < 1150);
 
   if (warehouseTab === 'move') {
+    const printSavedMovement = movement => {
+      if (!movement.documentSnapshot) return;
+      showPreview(buildMovementDoc(movement, [movement]), 'Накладная М-11');
+    };
     const sourceMaterials = newMovement.fromLocation === 'Основной склад'
       ? warehouseMain
       : materials.filter(material => material.project === newMovement.fromLocation);
@@ -87,12 +92,18 @@ export default function WarehouseOperationsPanel({
     const canSubmitMovement = Boolean(newMovement.toLocation && selectedMaterials.length && !invalidQuantityCount && !movementBusy);
     const submitMovement = async (print = false) => {
       if (!canSubmitMovement) return;
+      setMovementPrintError('');
       setMovementBusy(true);
       try {
         const result = await applyWarehouseMovement();
         if (!print || !result?.success) return;
-        const printedRows = result.movements?.length ? result.movements : selectedMaterials.filter(item => item.quantity);
-        showPreview(buildMovementDoc(result.movements?.[0] || newMovement, printedRows), 'Накладная М-11');
+        const printedRows = result.movements;
+        if (!Array.isArray(printedRows) || printedRows.length !== selectedMaterials.length
+          || printedRows.some(row => !row?.id || !row.documentSnapshot)) {
+          setMovementPrintError('Накладная не получена. Проверьте перемещение в истории и откройте М-11 оттуда.');
+          return;
+        }
+        showPreview(buildMovementDoc(printedRows[0], printedRows), 'Накладная М-11');
       } finally {
         setMovementBusy(false);
       }
@@ -336,6 +347,7 @@ export default function WarehouseOperationsPanel({
               Переместить и распечатать
             </button>
           </div>
+          {movementPrintError && <p role="alert" style={{color:C.warning,fontSize:'12px',margin:'8px 0 0'}}>{movementPrintError}</p>}
           </section>
         </div>
 
@@ -358,6 +370,7 @@ export default function WarehouseOperationsPanel({
                   <span><b style={{color:C.text}}>Кол-во:</b> {movement.quantity} {movement.unit}</span>
                   <span><b style={{color:C.text}}>Дата:</b> {movement.date || '—'}</span>
                 </div>
+                {movement.documentSnapshot && <button type="button" onClick={() => printSavedMovement(movement)} style={btnG}>Открыть М-11</button>}
               </div>
             ))}
           </div>
@@ -383,7 +396,11 @@ export default function WarehouseOperationsPanel({
                 <td style={tblC}>{movement.toLocation}</td>
                 <td style={tblC}>{movement.quantity + ' ' + movement.unit}</td>
                 <td style={tblC}>{movement.date}</td>
-                <td style={{...tblC,fontSize:'10px',color:movement.documentSnapshot?C.textMuted:C.warning}}>{movement.documentSnapshot?'М-11 зафиксирована':'Историческая запись'}</td>
+                <td style={{...tblC,fontSize:'10px',color:movement.documentSnapshot?C.textMuted:C.warning}}>
+                  {movement.documentSnapshot
+                    ? <button type="button" onClick={() => printSavedMovement(movement)} style={btnG}>Открыть М-11</button>
+                    : 'Историческая запись'}
+                </td>
               </tr>
             ))}
           </tbody>
