@@ -18566,16 +18566,13 @@ def _update_estimate_with_connection(conn, id, data, x_company_id, x_company_mod
     auto_confirmed_at = today if auto_journal_status == "Подтверждено" else None
     work_journal_materials = data.get("_workJournalMaterials") or {}
     work_journal_params = data.get("_workJournalParams") or {}
+    try:
+        from backend.features.estimate_access.journal_keys import journal_item_keys
+    except ModuleNotFoundError:
+        from features.estimate_access.journal_keys import journal_item_keys
 
     def _journal_params_for_delta(section_idx, item_idx, section_name, item_name, item=None):
-        keys = [
-            str(id) + ":" + str(section_idx) + ":" + str(item_idx),
-            str(section_idx) + ":" + str(item_idx),
-            str(section_name or "") + "|" + str(item_name or ""),
-        ]
-        item_key = str((item or {}).get("estimateItemKey") or (item or {}).get("estimate_item_key") or "").strip()
-        if item_key:
-            keys.insert(0, item_key)
+        keys = journal_item_keys(id, section_idx, item_idx, section_name, item_name, item)
         for k in keys:
             if k in work_journal_params and isinstance(work_journal_params.get(k), dict):
                 params = dict(work_journal_params.get(k) or {})
@@ -18586,14 +18583,7 @@ def _update_estimate_with_connection(conn, id, data, x_company_id, x_company_mod
     matched_material_keys = set()
 
     def _materials_for_delta(section_idx, item_idx, section_name, item_name, item=None):
-        keys = [
-            str(id) + ":" + str(section_idx) + ":" + str(item_idx),
-            str(section_idx) + ":" + str(item_idx),
-            str(section_name or "") + "|" + str(item_name or ""),
-        ]
-        item_key = str((item or {}).get("estimateItemKey") or (item or {}).get("estimate_item_key") or "").strip()
-        if item_key:
-            keys.insert(0, item_key)
+        keys = journal_item_keys(id, section_idx, item_idx, section_name, item_name, item)
         matched_material_keys.update(k for k in keys if k in work_journal_materials)
         if use_material_v2:
             provided = [work_journal_materials[k] for k in keys if k in work_journal_materials]
