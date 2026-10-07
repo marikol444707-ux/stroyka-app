@@ -257,11 +257,11 @@ class WarehouseAnomalyRuntimeRouteRegistrationTests(unittest.TestCase):
         package_bytes = package_path.read_bytes()
         runtime_source = runtime_path.read_text(encoding="utf-8")
 
-        # Reviewed brigade contract duplicate guard in the composition root;
+        # Reviewed estimate journal key lookup in the composition root;
         # warehouse preview implementation and registration are unchanged.
         self.assertEqual(
             hashlib.sha256(main_bytes).hexdigest(),
-            "93a07f594e6eb54d5ed868fb7be46fb7cf6fb816ff053d7277c318e2ec62fa34",
+            "521bb1124db32894c9e924599f58a570b6ad2f85248228b80e69b7e9115a6be7",
         )
         self.assertEqual(
             hashlib.sha256(package_bytes).hexdigest(),
