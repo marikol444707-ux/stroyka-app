@@ -79,6 +79,9 @@ def require_brigade_write_actor(company_actors, write_roles):
 
 def find_existing_brigade_contract_id(cur, company_id, project_id, work_package, contractor_id, brigade_name):
     """Find the one active contract that the create form would otherwise duplicate."""
+    # Lock the scope even when no contract exists yet. Row locks on an empty
+    # SELECT cannot stop two simultaneous requests from both inserting.
+    cur.execute("SELECT pg_advisory_xact_lock(%s,%s)", (int(company_id), int(project_id)))
     normalized_name = str(brigade_name or "").strip()
     if contractor_id:
         identity_sql = (
@@ -95,7 +98,10 @@ def find_existing_brigade_contract_id(cur, company_id, project_id, work_package,
         "SELECT id FROM brigade_contracts WHERE company_id=%s AND project_id=%s "
         "AND COALESCE(NULLIF(work_package,''),'Основная')=%s "
         "AND COALESCE(status,'') NOT IN ('Аннулирован','Удалён','Удален') "
-        f"AND {identity_sql} ORDER BY id DESC LIMIT 1 FOR UPDATE",
+        f"AND {identity_sql} "
+        "ORDER BY CASE WHEN EXISTS (SELECT 1 FROM brigade_contract_items i WHERE i.contract_id=brigade_contracts.id) "
+        "THEN 0 ELSE 1 END, CASE WHEN status='Подписан' THEN 0 ELSE 1 END, id DESC "
+        "LIMIT 1 FOR UPDATE",
         (int(company_id), int(project_id), work_package, *identity),
     )
     row = cur.fetchone()

@@ -172,6 +172,10 @@ class EstimateDistributionRouteTests(unittest.TestCase):
         self.assertEqual(grant_calls[0][:4], (4, 41, "Лицей", "Отделка"))
         self.assertEqual(result["createdContracts"][0]["inserted"], 1)
         self.assertEqual(result["createdContracts"][0]["reused"], 0)
+        self.assertIn(
+            ("SELECT pg_advisory_xact_lock(%s,%s)", (4, 19)),
+            connection.cursor_value.calls,
+        )
         self.assertTrue(connection.committed)
         self.assertTrue(connection.closed)
 

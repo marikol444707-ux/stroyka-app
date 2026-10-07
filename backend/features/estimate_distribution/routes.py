@@ -3,6 +3,11 @@ from typing import Optional
 from fastapi import Depends, Header, HTTPException
 
 try:
+    from backend.features.brigade_access.service import find_existing_brigade_contract_id
+except ModuleNotFoundError:
+    from features.brigade_access.service import find_existing_brigade_contract_id
+
+try:
     from backend.features.brigade_lineage.snapshot_service import (
         LineageResolutionError,
         SnapshotItemCoordinate,
@@ -42,12 +47,6 @@ def _positive_int(value):
     except (TypeError, ValueError):
         return None
     return result if result > 0 else None
-
-
-def _contract_identity(contractor_user_id, brigade_name):
-    if contractor_user_id:
-        return "COALESCE(contractor_id,0)=%s", contractor_user_id
-    return "LOWER(TRIM(COALESCE(brigade_name,'')))=LOWER(TRIM(%s))", brigade_name
 
 
 def register_estimate_distribution_module(app, deps):
@@ -207,21 +206,12 @@ def register_estimate_distribution_module(app, deps):
                     group["contractorId"],
                     group["brigadeName"],
                 )
-                identity_sql, identity_param = _contract_identity(contractor_user_id, group["brigadeName"])
-                cur.execute(
-                    f"""SELECT id FROM brigade_contracts
-                        WHERE company_id=%s
-                          AND project_id=%s
-                          AND COALESCE(NULLIF(work_package,''),'Основная')=%s
-                          AND COALESCE(status,'') NOT IN ('Аннулирован','Удалён','Удален')
-                          AND {identity_sql}
-                        ORDER BY id DESC LIMIT 1 FOR UPDATE""",
-                    (company_id, project_id, work_package, identity_param),
+                existing_id = find_existing_brigade_contract_id(
+                    cur, company_id, project_id, work_package, contractor_user_id, group["brigadeName"],
                 )
-                contract = cur.fetchone()
-                created = not bool(contract)
-                if contract:
-                    contract_id = contract[0]
+                created = not bool(existing_id)
+                if existing_id:
+                    contract_id = existing_id
                     cur.execute(
                         """UPDATE brigade_contracts
                            SET brigade_name=%s,contractor_type=%s,contractor_id=COALESCE(%s,contractor_id),

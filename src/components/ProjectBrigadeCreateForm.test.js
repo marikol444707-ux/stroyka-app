@@ -75,7 +75,7 @@ describe('ProjectBrigadeCreateForm', () => {
   });
 
   it('opens an existing performer contract instead of creating a duplicate', () => {
-    const existing = {id: 70, projectName: 'Лицей', brigadeName: 'Бригада Север', status: 'Подписан'};
+    const existing = {id: 70, projectId: 17, projectName: 'Лицей', brigadeName: 'Бригада Север', status: 'Подписан'};
     const props = buildProps({brigadeContracts: [existing], openBrigadeContract: jest.fn()});
     window.fetch = jest.fn();
 
@@ -87,6 +87,26 @@ describe('ProjectBrigadeCreateForm', () => {
     expect(props.openBrigadeContract).toHaveBeenCalledWith(existing);
     expect(props.setSelectedBrigadeContract).not.toHaveBeenCalled();
     expect(props.setShowBrigadeForm).toHaveBeenCalledWith(false);
+  });
+
+  it('opens the contract with work when a newer empty legacy duplicate is visible', () => {
+    const original = {id: 18, projectId: 17, projectName: 'Лицей', brigadeName: 'Бригада Север', status: 'Подписан', planAmount: 2000};
+    const emptyDuplicate = {id: 20, projectId: 17, projectName: 'Лицей', brigadeName: 'Бригада Север', status: 'Подписан', planAmount: 0};
+    const props = buildProps({brigadeContracts: [emptyDuplicate, original], openBrigadeContract: jest.fn()});
+    window.fetch = jest.fn();
+
+    render(<ProjectBrigadeCreateForm {...props} />);
+    fireEvent.click(screen.getByRole('button', {name: 'Открыть договор'}));
+
+    expect(props.openBrigadeContract).toHaveBeenCalledWith(original);
+    expect(window.fetch).not.toHaveBeenCalled();
+  });
+
+  it('does not offer a contract from another project with the same name', () => {
+    const otherProjectContract = {id: 72, projectId: 99, projectName: 'Лицей', brigadeName: 'Бригада Север', status: 'Подписан', planAmount: 3000};
+    const props = buildProps({brigadeContracts: [otherProjectContract]});
+    render(<ProjectBrigadeCreateForm {...props} />);
+    expect(screen.getByRole('button', {name: 'Создать договор'})).toBeInTheDocument();
   });
 
   it('opens the existing contract when the server detects a duplicate after the page loaded', async () => {
