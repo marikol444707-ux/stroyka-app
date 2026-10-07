@@ -32,12 +32,15 @@ export default function ProjectBrigadeCreateForm({
 }) {
   const [saving, setSaving] = useState(false);
   const normalizedName = String(newBrigadeContract.brigadeName || '').trim().toLocaleLowerCase('ru-RU');
-  const existingContract = normalizedName && brigadeContracts.find(contract => contract.projectName === project.name
+  const existingContract = normalizedName && brigadeContracts.filter(contract => Number(contract.projectId) === Number(project.id)
     && contract.status !== 'Аннулирован'
     && String(contract.workPackage || 'Основная') === String(newBrigadeContract.workPackage || 'Основная')
     && (newBrigadeContract.contractorId && contract.contractorId
       ? String(contract.contractorId) === String(newBrigadeContract.contractorId)
-      : String(contract.brigadeName || '').trim().toLocaleLowerCase('ru-RU') === normalizedName));
+      : String(contract.brigadeName || '').trim().toLocaleLowerCase('ru-RU') === normalizedName))
+    .sort((left, right) => Number(Number(right.planAmount || 0) > 0) - Number(Number(left.planAmount || 0) > 0)
+      || Number(right.status === 'Подписан') - Number(left.status === 'Подписан')
+      || Number(left.id) - Number(right.id))[0];
   const createBrigadeContract = async () => {
     if (saving) return;
     if (!newBrigadeContract.brigadeName) return;

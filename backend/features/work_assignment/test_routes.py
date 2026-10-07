@@ -225,6 +225,10 @@ class WorkAssignmentTenantRouteTests(unittest.TestCase):
         self.assertIn("company_id=%s", lookup_sql)
         self.assertIn("project_id=%s", lookup_sql)
         self.assertEqual(lookup_params[:2], (4, 19))
+        self.assertIn(
+            ("SELECT pg_advisory_xact_lock(%s,%s)", (4, 19)),
+            connection.cursor_value.calls,
+        )
 
         insert_sql, insert_params = next(
             call for call in connection.cursor_value.calls
