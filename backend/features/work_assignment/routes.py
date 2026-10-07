@@ -4,6 +4,11 @@ from typing import Optional
 from fastapi import Depends, Header, HTTPException
 
 try:
+    from backend.features.brigade_access.service import find_existing_brigade_contract_id
+except ModuleNotFoundError:
+    from features.brigade_access.service import find_existing_brigade_contract_id
+
+try:
     from backend.features.brigade_lineage.snapshot_service import (
         LineageResolutionError,
         SnapshotItemCoordinate,
@@ -43,12 +48,6 @@ except ModuleNotFoundError:
 
 def _text(value, limit=255):
     return str(value or "").strip()[:limit]
-
-
-def _contract_match_sql(contractor_user_id):
-    if contractor_user_id:
-        return "COALESCE(contractor_id,0)=%s", [contractor_user_id]
-    return "LOWER(TRIM(COALESCE(brigade_name,'')))=LOWER(TRIM(%s))", []
 
 
 def register_work_assignment_module(app, deps):
@@ -146,25 +145,12 @@ def register_work_assignment_module(app, deps):
                 brigade_name,
             )
 
-            match_sql, match_params = _contract_match_sql(contractor_user_id)
-            if contractor_user_id:
-                match_params = [contractor_user_id]
-            else:
-                match_params = [brigade_name]
-            cur.execute(
-                f"""SELECT id FROM brigade_contracts
-                    WHERE company_id=%s
-                      AND project_id=%s
-                      AND COALESCE(NULLIF(work_package,''),'Основная')=%s
-                      AND COALESCE(status,'') NOT IN ('Аннулирован','Удалён','Удален')
-                      AND {match_sql}
-                    ORDER BY id DESC LIMIT 1 FOR UPDATE""",
-                tuple([company_id, project_id, work_package] + match_params),
+            existing_id = find_existing_brigade_contract_id(
+                cur, company_id, project_id, work_package, contractor_user_id, brigade_name,
             )
-            row = cur.fetchone()
             created_contract = False
-            if row:
-                contract_id = row[0]
+            if existing_id:
+                contract_id = existing_id
                 cur.execute(
                     """UPDATE brigade_contracts
                        SET brigade_name=%s, contractor_type=%s, contractor_id=COALESCE(%s, contractor_id)
