@@ -11,10 +11,43 @@ it('keeps cancelled brigade documents in history instead of repeating them in th
     ]}
   />);
   expect(screen.getByText(/1 док\./)).toBeInTheDocument();
+  expect(screen.getByText(/БР-1/)).toBeInTheDocument();
+  expect(screen.queryByRole('button', {name: /Скрыть договоры/})).not.toBeInTheDocument();
   expect(screen.queryByText(/БР-2/)).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', {name: /История и черновики/}));
   expect(screen.getByText(/2 док\./)).toBeInTheDocument();
   expect(screen.getByText(/БР-2/)).toBeInTheDocument();
+});
+
+it('shows one compact performer card and expands documents on request', () => {
+  render(<AccountingContractsPanel
+    C={{}} card={{}} inp={{}} btnO={{}} btnG={{}} btnB={{}} btnR={{}}
+    brigadeContracts={[
+      {id: 3, projectId: 10, projectName: 'Лицей', brigadeName: 'Бригада Север', status: 'Подписан'},
+      {id: 4, projectId: 11, projectName: 'Школа', brigadeName: 'Бригада Север', status: 'Подписан'},
+    ]}
+  />);
+
+  const toggle = screen.getByRole('button', {name: /Показать договоры.*2/});
+  expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  expect(screen.queryByText(/БР-3/)).not.toBeInTheDocument();
+  fireEvent.click(toggle);
+  expect(screen.getByRole('button', {name: /Скрыть договоры/})).toHaveAttribute('aria-expanded', 'true');
+  expect(screen.getByText(/БР-3/)).toBeInTheDocument();
+  expect(screen.getByText(/БР-4/)).toBeInTheDocument();
+});
+
+it('reveals matching documents during a search', () => {
+  render(<AccountingContractsPanel
+    C={{}} card={{}} inp={{}} btnO={{}} btnG={{}} btnB={{}} btnR={{}}
+    listSearch="БР-4"
+    brigadeContracts={[
+      {id: 3, projectId: 10, projectName: 'Лицей', brigadeName: 'Бригада Север', status: 'Подписан'},
+      {id: 4, projectId: 11, projectName: 'Школа', brigadeName: 'Бригада Север', status: 'Подписан'},
+    ]}
+  />);
+  expect(screen.getByText(/БР-4/)).toBeInTheDocument();
+  expect(screen.queryByText(/БР-3/)).not.toBeInTheDocument();
 });
 
 const duplicateContracts = [
@@ -37,6 +70,8 @@ it('offers archiving only for the empty signed duplicate and keeps the original'
   jest.spyOn(window, 'confirm').mockReturnValue(true);
   const request = jest.spyOn(global, 'fetch').mockResolvedValue({ok: true, json: async () => ({ok: true})});
   renderDuplicatePanel();
+
+  expect(screen.getByText('Есть пустой дубль договора')).toBeInTheDocument();
 
   expect(screen.queryByRole('button', {name: 'Убрать пустой дубль № БР-18'})).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', {name: 'Убрать пустой дубль № БР-20'}));

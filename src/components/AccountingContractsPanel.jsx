@@ -42,6 +42,7 @@ export default function AccountingContractsPanel({
   const [archiveError, setArchiveError] = useState('');
   const [archiveNotice, setArchiveNotice] = useState('');
   const [archivedIds, setArchivedIds] = useState({});
+  const [expandedGroups, setExpandedGroups] = useState({});
   const emptyFn = () => {};
   const canEditFinance = typeof isFinanceRole === 'function' ? isFinanceRole : () => Boolean(isFinanceRole);
   const searchMatches = typeof matchSearch === 'function'
@@ -196,6 +197,21 @@ export default function AccountingContractsPanel({
     if (paid > 0 && type.includes('самозан') && !hasClosingDoc(row, performer, 'self-employed-receipt')) missingDocs.push('чек НПД');
     return { accrued, paid, retention, payable, owe, missingDocs, actsCount: rowActs.length };
   };
+
+  const isEmptySignedDuplicate = row => row._kind === 'brigade' && row.status === 'Подписан'
+    && !row.contractScanUrl && !row.actScanUrl && !row.partySnapshot
+    && Number(row.doneAmount || 0) === 0 && Number(row.paidAmount || 0) === 0
+    && !brigadeItems.some(item => Number(item.contractId) === Number(row.id))
+    && !brigadePayments.some(payment => Number(payment.contractId) === Number(row.id))
+    && !acts.some(act => Number(act.contractId) === Number(row.id))
+    && brigadeContractRows.some(peer => peer.id !== row.id && peer.status === 'Подписан'
+      && Number(peer.companyId) === Number(row.companyId)
+      && Number(peer.projectId) === Number(row.projectId)
+      && String(peer.workPackage || 'Основная') === String(row.workPackage || 'Основная')
+      && (row.contractorId
+        ? Number(peer.contractorId) === Number(row.contractorId)
+        : !peer.contractorId && personKey(peer.brigadeName) === personKey(row.brigadeName))
+      && brigadeItems.some(item => Number(item.contractId) === Number(peer.id)));
 
   const historicalRows = sourceRows.filter(row => row._kind === 'brigade' && (row.status === 'Аннулирован' || (row.status === 'Черновик'
     && sourceRows.some(other => other._kind === 'brigade' && other.id !== row.id
@@ -353,7 +369,11 @@ export default function AccountingContractsPanel({
       {groupedRows.length === 0 ? (
         <p style={{ color: C.textMuted, textAlign: 'center', padding: '30px' }}>Договоров и расчётов с исполнителями нет</p>
       ) : (
-        groupedRows.map(group => (
+        groupedRows.map(group => {
+          const hasEmptyDuplicate = canEditFinance() && group.rows.some(isEmptySignedDuplicate);
+          const isExpanded = group.rows.length === 1 || Boolean(String(listSearch || '').trim())
+            || (expandedGroups[group.key] ?? (showHistory || hasEmptyDuplicate));
+          return (
           <div key={group.key} style={{ ...card, padding: '18px', marginBottom: '10px', border: '1px solid ' + C.border, borderRadius: '14px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px', flexWrap: 'wrap', marginBottom: '10px' }}>
               <div>
@@ -366,9 +386,18 @@ export default function AccountingContractsPanel({
                 {group.owe > 0 && <p style={{ color: C.danger, margin: '3px 0 0', fontSize: '11px', fontWeight: '700' }}>к выплате: {Math.round(group.owe).toLocaleString('ru-RU')} ₽</p>}
                 {group.warnings.size > 0 && <p style={{ color: C.warning, margin: '3px 0 0', fontSize: '11px', fontWeight: '700' }}>⚠️ реквизиты не полные</p>}
                 {group.missingDocs.size > 0 && <p style={{ color: C.warning, margin: '3px 0 0', fontSize: '11px', fontWeight: '700' }}>⚠️ закрывающие не полные</p>}
-                {!group.warnings.size && !group.missingDocs.size && <p style={{ color: C.success, margin: '3px 0 0', fontSize: '11px', fontWeight: '700' }}>документы в порядке</p>}
+                {hasEmptyDuplicate && <p style={{ color: C.warning, margin: '3px 0 0', fontSize: '11px', fontWeight: '700' }}>Есть пустой дубль договора</p>}
+                {!hasEmptyDuplicate && !group.warnings.size && !group.missingDocs.size && <p style={{ color: C.success, margin: '3px 0 0', fontSize: '11px', fontWeight: '700' }}>документы в порядке</p>}
               </div>
             </div>
+
+            {group.rows.length > 1 && <button type="button" aria-expanded={isExpanded}
+              onClick={() => setExpandedGroups(previous => ({...previous, [group.key]: !isExpanded}))}
+              style={{...btnG, width:'100%', textAlign:'left', marginBottom:isExpanded ? '10px' : 0}}>
+              <span>{isExpanded ? 'Скрыть договоры' : `Показать договоры · ${group.rows.length}`}</span>
+            </button>}
+
+            {isExpanded && <div>
 
             {(group.total > 0 || group.paid > 0) && (
               <details style={{marginBottom:'10px',color:C.textSec,fontSize:'12px'}}>
@@ -389,18 +418,7 @@ export default function AccountingContractsPanel({
             {group.rows.sort((left, right) => String(left.project || '').localeCompare(String(right.project || ''), 'ru')).map(row => {
               const isBrigade = row._kind === 'brigade';
               const items = isBrigade ? brigadeItems.filter(item => Number(item.contractId) === Number(row.id)) : [];
-              const hasActivePeer = isBrigade && brigadeContractRows.some(peer => peer.id !== row.id
-                && peer.status === 'Подписан'
-                && Number(peer.companyId) === Number(row.companyId)
-                && Number(peer.projectId) === Number(row.projectId)
-                && String(peer.workPackage || 'Основная') === String(row.workPackage || 'Основная')
-                && (row.contractorId
-                  ? Number(peer.contractorId) === Number(row.contractorId)
-                  : !peer.contractorId && personKey(peer.brigadeName) === personKey(row.brigadeName))
-                && brigadeItems.some(item => Number(item.contractId) === Number(peer.id)));
-              const canArchiveEmptyDuplicate = isBrigade && canEditFinance() && row.status === 'Подписан'
-                && !items.length && !row.contractScanUrl && !row.actScanUrl && !row.partySnapshot
-                && row.finance.accrued === 0 && row.finance.paid === 0 && hasActivePeer;
+              const canArchiveEmptyDuplicate = canEditFinance() && isEmptySignedDuplicate(row);
               return (
                 <div key={row._rowKey} style={{ padding: '8px 0', borderTop: '1px solid ' + C.border, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                   <div>
@@ -422,8 +440,10 @@ export default function AccountingContractsPanel({
                 </div>
               );
             })}
+            </div>}
           </div>
-        ))
+          );
+        })
       )}
     </div>
   );
