@@ -23,6 +23,9 @@ class EmailTenantIsolationPostgresTests(unittest.TestCase):
             VALUES(2,'CUSTOMER A','a@example.test'),(3,'CUSTOMER B','b@example.test')
             ON CONFLICT(company_id) DO UPDATE SET short_name=EXCLUDED.short_name,email=EXCLUDED.email""")
         request_a, recipient_a = self.queued()
+        # New RFQs freeze the requester/contact at approval. Later edits to
+        # company settings must not change the already-addressed notification.
+        self.sql("UPDATE company_requisites SET short_name='CHANGED CUSTOMER A',email='changed@example.test' WHERE company_id=2")
         self.sql("UPDATE supply_requests SET notes='PRIVATE COMPANY A' WHERE id=%s", (request_a,))
         project_b = 'PRIVATE COMPANY B OBJECT'
         self.sql("INSERT INTO projects(name,company_id,status,archived) VALUES (%s,3,'В работе',FALSE)", (project_b,))
@@ -69,7 +72,8 @@ class EmailTenantIsolationPostgresTests(unittest.TestCase):
         row_b = next(row for row in captured if 'PRIVATE COMPANY B' in row[2])
         body_a,body_b=row_a[2],row_b[2]
         self.assertEqual((row_a[1],row_a[3],row_a[4]),
-            ('Запрос КП №'+str(request_a)+' от CUSTOMER A','Стройка · CUSTOMER A','a@example.test'))
+            ('Запрос КП №'+str(request_a)+' от CUSTOMER A','Стройка · CUSTOMER A',
+             self.fixture['users']['director']['email']))
         self.assertEqual((row_b[1],row_b[3],row_b[4]),
             ('Запрос КП №'+str(request_b)+' от CUSTOMER B','Стройка · CUSTOMER B','b@example.test'))
         self.assertIn('PRIVATE COMPANY A', body_a)
