@@ -257,11 +257,11 @@ class WarehouseAnomalyRuntimeRouteRegistrationTests(unittest.TestCase):
         package_bytes = package_path.read_bytes()
         runtime_source = runtime_path.read_text(encoding="utf-8")
 
-        # Reviewed read-only canonical brigade act summary in the composition root;
+        # Reviewed read-only complete-basket quotation comparison in the composition root;
         # warehouse preview implementation and registration are unchanged.
         self.assertEqual(
             hashlib.sha256(main_bytes).hexdigest(),
-            "4529cb050b386a42adedfef1fe70f645f137ac42208ce8b92b1c2ee04e34f762",
+            "e608cbf861ee3ab5e828eaf122bd7c0a4e17dc553d455c7f2fd2525cd35bc8f3",
         )
         self.assertEqual(
             hashlib.sha256(package_bytes).hexdigest(),

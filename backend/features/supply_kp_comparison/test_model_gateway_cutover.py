@@ -130,7 +130,8 @@ class SupplyKpComparisonGatewayCutoverTest(unittest.TestCase):
         route_source = ast.unparse(routes[0])
         self.assertIn("generate_supply_kp_comparison", route_source)
         self.assertNotIn("SUPPLY_KP_COMPARISON_MODEL_GATEWAY_ENABLED", route_source)
-        self.assertIn("offers_summary.sort", route_source)
+        self.assertIn("compare_commercial_offers(dict(req), offers)", route_source)
+        self.assertIn("verified_explanation(output", route_source)
         self.assertIn("bestOfferId", route_source)
         self.assertNotIn("OpenAI", route_source)
         self.assertEqual(

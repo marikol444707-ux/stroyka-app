@@ -1,5 +1,19 @@
 import { createSupplyActions } from './supplyActions';
 
+describe('runCompareKp', () => {
+  const originalFetch = global.fetch;
+  afterEach(() => { global.fetch = originalFetch; });
+  it('shows denied comparison as an error, never as an empty recommendation', async () => {
+    global.fetch = jest.fn(async () => ({ ok: false, json: async () => ({ detail: 'Нет доступа к заявке' }) }));
+    let results = {};
+    const setLoading = jest.fn();
+    await createSupplyActions({ API: '/api', setCompareLoadingReqId: setLoading,
+      setCompareResultByReq: update => { results = update(results); } }).runCompareKp(42);
+    expect(results[42]).toEqual({ error: 'Нет доступа к заявке' });
+    expect(setLoading).toHaveBeenLastCalledWith(null);
+  });
+});
+
 describe('selectSupplierOffer', () => {
   const originalFetch = global.fetch;
   beforeEach(() => {

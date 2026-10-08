@@ -49,7 +49,7 @@ class Cursor:
                 return [{"id": identity, "supplier_id": identity, "supplier_name": "Поставщик " + str(identity),
                          "price_per_unit": 100, "total_price": 1000, "delivery_days": 3,
                          "payment_terms": "По факту", "vat_included": True, "valid_until": None,
-                         "supplier_message": "", "rating": 2} for identity in ids]
+                         "supplier_message": "", "rating": 2, "items_kp_json": [{"materialName": "Кабель", "quantity": 10, "unit": "м", "pricePerUnit": 100}]} for identity in ids]
         return []
 
     def close(self):

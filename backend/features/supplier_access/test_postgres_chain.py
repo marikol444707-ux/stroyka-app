@@ -98,7 +98,7 @@ class PostgresSupplyChainTests(unittest.TestCase):
         self.assertEqual(replay["id"], invoice_id)
         self.assertTrue(replay["alreadyExists"])
         ship = {"shippedQuantity": 2, "waybillNumber": f"LOCAL-{request_id}", "waybillDate": dt.date.today().isoformat()}
-        self.api("supplier", "POST", offer_path + "/ship", ship, expected=400)
+        # Credit shipment is allowed; this scenario pays the invoice before shipment.
         self.api("accountant", "PUT", f"/supplier-invoices/{invoice_id}",
                  {"status": "Утверждён", "approvedBy": "Local finance"})
         self.api("accountant", "PUT", f"/supplier-invoices/{invoice_id}", {

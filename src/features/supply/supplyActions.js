@@ -539,7 +539,7 @@ export const createSupplyActions = ({
     try {
       const r = await fetch(API + '/supply-requests/' + reqId + '/compare-kp');
       const data = await r.json();
-      setCompareResultByReq(prev => ({ ...prev, [reqId]: data }));
+      setCompareResultByReq(prev => ({ ...prev, [reqId]: r.ok ? data : { error: typeof data.detail === 'string' ? data.detail : 'Не удалось получить сравнение КП' } }));
     } catch (e) {
       setCompareResultByReq(prev => ({ ...prev, [reqId]: { error: 'Не удалось получить сравнение' } }));
     }
