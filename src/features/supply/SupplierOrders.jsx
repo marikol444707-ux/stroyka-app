@@ -1,4 +1,5 @@
 import React from 'react';
+import SupplierDocumentButton from '../uploads/SupplierDocumentButton';
 import useSupplierInbox from './useSupplierInbox';
 import { supplierOrders } from './supplierOrderProjection';
 
@@ -33,7 +34,7 @@ export function SupplierOrderCards({orders,onOpen,fileSrc}) {
    {order.lines.some(l=>l.toReceive>0) && order.shipments.some(d=>d.receivedAt || ['Принято','Проблема','Принято с замечаниями'].includes(d.status)) && <p>Остаток к отгрузке можно отправить новой партией по этому КП. Недостача и брак разбираются по претензии.</p>}
    <details><summary>Поставки и документы ({order.shipments.length + order.documents.length})</summary>
     {order.shipments.map(d=><p key={'d'+d.id}>Поставка №{d.id} · {d.materialName} · {d.status}{supplierDocumentUrl(d.documentUrl,fileSrc) && <> · <a href={supplierDocumentUrl(d.documentUrl,fileSrc)} target="_blank" rel="noopener noreferrer">Накладная {d.waybillNumber || d.id}</a></>}</p>)}
-    {order.documents.map(i=><p key={'i'+i.id}>Счёт №{i.invoiceNumber || i.id} · {i.status}{supplierDocumentUrl(i.fileUrl,fileSrc) && <> · <a href={supplierDocumentUrl(i.fileUrl,fileSrc)} target="_blank" rel="noopener noreferrer">Файл счёта</a></>}</p>)}
+    {order.documents.map(i=><p key={'i'+i.id}>Счёт №{i.invoiceNumber || i.id} · {i.status}{supplierDocumentUrl(i.fileUrl,fileSrc) && <> · <SupplierDocumentButton url={i.fileUrl} fileSrc={fileSrc} label="Открыть счёт"/></>}</p>)}
     {!order.shipments.length && !order.documents.length && <p>Поставок и документов пока нет.</p>}
    </details>
    <button type="button" onClick={()=>onOpen(order.request.id)}>Открыть заявку и действия</button>

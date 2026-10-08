@@ -1,4 +1,5 @@
 import React from 'react';
+import SupplierDocumentButton from '../../features/uploads/SupplierDocumentButton';
 import CommercialComparison from './CommercialComparison';
 import SupplierOfferContractPreparation from '../../features/supply/SupplierOfferContractPreparation';
 import OfferLineSelection from './OfferLineSelection';
@@ -402,7 +403,7 @@ export function OffersBlock({
             ) : <p style={{ color: C.textMuted, margin: '2px 0', fontSize: '12px', fontStyle: 'italic' }}>Поставщик ещё не ответил...</p>}
             {o.paymentTerms && <p style={{ color: C.textMuted, margin: 0, fontSize: '11px' }}>💳 {o.paymentTerms}{o.vatIncluded === false ? ' · без НДС' : ' · с НДС'}{o.validUntil ? ' · до ' + o.validUntil : ''}</p>}
             {o.supplierMessage && <p style={{ color: C.textSec, margin: '4px 0 0', fontSize: '11px', fontStyle: 'italic' }}>💬 «{o.supplierMessage}»</p>}
-            {o.pdfUrl && <a href={fileSrc(o.pdfUrl)} target='_blank' rel='noopener noreferrer' style={{ fontSize: '11px', color: C.accent, display: 'inline-block', marginTop: '4px' }}>📄 PDF</a>}
+            {o.pdfUrl && <SupplierDocumentButton url={o.pdfUrl} fileSrc={fileSrc} label="Открыть предложение"/>}
             <OfferItemsDetails C={C} offer={o} parseOfferItems={parseOfferItems} />
             {!compact && <SupplierOfferContractPreparation API={API} user={user} companyContext={companyContext} request={request} offer={o}/>}
             {!compact && (

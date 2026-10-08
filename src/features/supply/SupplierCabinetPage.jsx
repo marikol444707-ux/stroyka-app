@@ -1,3 +1,4 @@
+import SupplierDocumentButton from '../uploads/SupplierDocumentButton';
 import SupplierContractDocuments from './SupplierContractDocuments';
 import SupplierInvoiceContractChoice from './SupplierInvoiceContractChoice';
 import SupplyFileLink from './SupplyFileLink';
@@ -460,7 +461,7 @@ export default function SupplierCabinetPage({
                         )}
                       </div>
                     </div>
-                    <SupplyFileLink url={o.pdfUrl} fileSrc={fileSrc}>Скачать файл КП</SupplyFileLink>
+                    <SupplierDocumentButton url={o.pdfUrl} fileSrc={fileSrc} label="Открыть предложение"/>
                     {/* Форма ответа КП — постатейная для multi-item */}
                     {isResponding && (()=>{
                       const reqItems = parseSupplyItems(req);
@@ -819,7 +820,7 @@ export default function SupplierCabinetPage({
                   )}
                   {(inv.fileUrl||inv.photoUrl||warehouseInvoicePhoto||inv.deliveryDocumentUrl||inv.deliveryPhotoUrl)&&(
                     <div style={{display:'flex',gap:'8px',flexWrap:'wrap',marginTop:'8px'}}>
-                      {inv.fileUrl&&<SupplyFileLink url={inv.fileUrl} fileSrc={fileSrc}>Файл счёта</SupplyFileLink>}
+                      {inv.fileUrl&&<SupplierDocumentButton url={inv.fileUrl} fileSrc={fileSrc} label="Открыть счёт"/>}
                       {inv.photoUrl&&<SupplyFileLink url={inv.photoUrl} fileSrc={fileSrc}>Фото</SupplyFileLink>}
                       {warehouseInvoicePhoto&&<SupplyFileLink url={warehouseInvoicePhoto} fileSrc={fileSrc}>Фото складской накладной</SupplyFileLink>}
                       {inv.deliveryDocumentUrl&&<SupplyFileLink url={inv.deliveryDocumentUrl} fileSrc={fileSrc}>Документ отгрузки</SupplyFileLink>}
