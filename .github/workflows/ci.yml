@@ -82,6 +82,7 @@ jobs:
           export PATH="$(pg_config --bindir):$PATH"
           python scripts/run_supplier_catalog_postgres_tests.py \
             backend.features.supplier_offers.test_response_postgres.SupplierResponsePostgresTests \
+            backend.features.supplier_access.test_comparison_chain_postgres.ComparisonChainPostgresTests \
             backend.features.supplier_offers.test_offer_mutation_ledger_postgres.OfferMutationLedgerTests \
             backend.features.supplier_offers.test_offer_mutation_preledger_postgres.OfferMutationPreledgerTests \
             backend.features.staff.test_access_postgres.StaffAccessPostgresTests \

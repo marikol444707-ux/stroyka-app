@@ -1,5 +1,41 @@
 # Supply requests: current implementation map
 
+## Comparison verification, 2026-10-08
+
+The commercial comparison now checks structured positions, quantities, units,
+work packages, line arithmetic, offer total, delivery time, VAT disclosure and
+expiry before ranking. Complete comparable quotations are ranked by the quoted
+total for the whole request (40%), delivery (20%), payment terms (20%) and the
+company's supplier rating (20%). Partial, ambiguous, expired or incomplete
+quotations are listed with reasons rather than becoming a whole-request winner.
+Partial awards remain available through the existing explicit line-selection flow.
+Delivery charges are included only when the supplier includes them in the quote;
+this does not calculate additional costs or the buyer's tax treatment.
+
+The existing technical matcher checks offered names and units where names differ.
+This is a check of entered data, not proof of the contents of an attached PDF or
+physical product. Source-file technical comparison remains a separate operation.
+
+The model explains the computed winner; a different offer ID or unstructured
+answer is rejected. Its actual fenced JSON/sentence-list output is normalized.
+Provider failure leaves the calculation available, with an explicit unavailable
+AI explanation. Comparison never approves an offer, creates an invoice or posts stock.
+
+`test_comparison_chain_postgres` creates synthetic requests, two addressed supplier
+cabinets, responses, comparison and explicit approval through authenticated HTTP.
+It checks repeated dispatch, company/role denials, full-basket costs, expiry,
+incomplete legacy data, model disagreement and provider failure. The opt-in
+`run_supplier_catalog_postgres_tests.py` provisions disposable socket-only databases
+and deletes the cluster in `finally`, including failed runs. No production business
+records or real supplier messages are created. A separate synthetic-only live
+provider call verified the server's model transport and response format.
+
+Related quote-response and allocated-line suites verify safe retries and independent
+awards. The invoice/payment/receipt chain was also run in a disposable database.
+Its obsolete prepayment-only expectation was removed: credit shipment is allowed.
+Authenticated production UI and real email/MAX delivery are separate checks and
+are not established by these local fixtures or the standalone model call.
+
 Code audit: 2026-09-06, runtime fixes at `197464ac`.
 This is an implementation map, not evidence of production delivery or a new
 workflow specification. Last user-confirmed production code was `20cf455a`.
