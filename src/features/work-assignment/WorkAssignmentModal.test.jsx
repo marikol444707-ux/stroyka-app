@@ -195,10 +195,26 @@ describe('work assignment prices', () => {
     typeManualBrigade('Бригада');
     fireEvent.click(screen.getByRole('button', {name: 'Выдать в работу'}));
 
-    await waitFor(() => expect(window.alert).toHaveBeenCalledWith('Работы уже назначены'));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Работы уже назначены'));
+    expect(window.alert).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
     expect(loadAll).not.toHaveBeenCalled();
     expect(screen.getByPlaceholderText('Название бригады')).toHaveValue('Бригада');
+  });
+
+  it('explains why issue is unavailable before sending', () => {
+    render(<WorkAssignmentModal show onClose={jest.fn()}
+      selectedEstimate={{id:25,sections:[{name:'Монтаж',items:[
+        {name:'Блок управления',unit:'шт',quantity:1,priceWork:2000,estimateItemKey:'work-1'},
+      ]}]}}
+      staff={[]} users={[]} API="/api" loadAll={jest.fn()}
+      C={{}} card={{}} inp={{}} btnO={{}} btnG={{}} btnB={{}} isMobile={false} />);
+
+    expect(screen.getByText('Сначала выберите исполнителя.')).toBeInTheDocument();
+    typeManualBrigade('Бригада');
+    expect(screen.queryByText('Сначала выберите исполнителя.')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('Выбрать работу: Блок управления'));
+    expect(screen.getByText('Отметьте хотя бы одну работу.')).toBeInTheDocument();
   });
 
   it('preserves an in-progress assignment when performer data refreshes', () => {
