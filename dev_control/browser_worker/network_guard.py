@@ -341,6 +341,35 @@ class NetworkBoundary:
         self._enable_session(child_session, target_type)
         self._cdp("Runtime.runIfWaitingForDebugger", session_id=child_session)
 
+    def _handle_javascript_dialog(self, event: dict) -> None:
+        """Unblock native JS dialogs without approving confirm/prompt actions.
+
+        An alert has no user decision to make; acknowledging it is safe.
+        Stop the agent afterwards so it cannot retry a failed write.
+        Dialog text is deliberately not persisted because it may contain secrets.
+        """
+        params = event.get("params") or {}
+        kind = str(params.get("type") or "")
+        session_id = event.get("session_id") or self._session_id
+        if session_id not in self._guarded_sessions:
+            self._error = "QA dialog from unguarded browser session"
+            return
+        if kind not in {"alert", "confirm", "prompt", "beforeunload"}:
+            self._error = "unknown QA JavaScript dialog type"
+            return
+
+        # CDP must handle a modal before Runtime.evaluate can resume.
+        # confirm/prompt/beforeunload must never be automatically accepted.
+        self._cdp(
+            "Page.handleJavaScriptDialog",
+            session_id=session_id,
+            accept=kind == "alert",
+        )
+        if kind == "alert":
+            self._error = "QA JavaScript alert observed and dismissed; verify HTTP response and DB before PASS"
+        else:
+            self._error = f"QA JavaScript {kind} dismissed without approval"
+
     def _loop(self) -> None:
         while not self._stop.is_set():
             try:
@@ -358,6 +387,14 @@ class NetworkBoundary:
                         self._error = f"popup boundary enforcement failed: {exc}"
                         return
                     continue
+                if method == "Page.javascriptDialogOpening":
+                    try:
+                        self._handle_javascript_dialog(event)
+                    except Exception:
+                        self._error = "QA JavaScript dialog handling failed"
+                    # Do not allow further browser actions after a dialog,
+                    # even if the page is still visible and responsive.
+                    return
                 if method != "Fetch.requestPaused":
                     continue
                 request_id = params.get("requestId")
