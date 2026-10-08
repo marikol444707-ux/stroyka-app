@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CheckSquare, RotateCcw, Settings2, UserCheck, X } from 'lucide-react';
-import { assignmentsForEstimate, formatMoney, formatQty, toNumber } from './workAssignmentUtils';
+import { assignmentsForEstimate, contractName, formatMoney, formatQty, toNumber } from './workAssignmentUtils';
 import { findUserForStaff, normalizePersonKey } from '../../utils/performerUtils';
 
 function isPerformer(item = {}) {
@@ -87,6 +87,8 @@ export default function WorkAssignmentModal({
   const [showPriceSettings, setShowPriceSettings] = useState(false);
   const [workSearch, setWorkSearch] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [submissionError, setSubmissionError] = useState('');
+  const [showAssigned, setShowAssigned] = useState(false);
   const initializedSourceRef = useRef(null);
 
   const assignmentRows = useMemo(
@@ -97,11 +99,15 @@ export default function WorkAssignmentModal({
     () => assignmentRows.filter(row => row.assignments.length === 0),
     [assignmentRows],
   );
+  const assignedRows = useMemo(
+    () => assignmentRows.filter(row => row.assignments.length > 0),
+    [assignmentRows],
+  );
   const visibleRows = useMemo(() => {
     const query = workSearch.trim().toLocaleLowerCase('ru-RU');
     return query ? rows.filter(row => [row.name, row.section].some(value => String(value || '').toLocaleLowerCase('ru-RU').includes(query))) : rows;
   }, [rows, workSearch]);
-  const assignedCount = assignmentRows.length - rows.length;
+  const assignedCount = assignedRows.length;
   const performers = useMemo(
     () => performerRows(staff || [], users || [], brigadeContracts || []),
     [staff, users, brigadeContracts],
@@ -123,6 +129,11 @@ export default function WorkAssignmentModal({
   const selectedTotal = selectedRows.reduce((sum, row) => {
     return sum + row.quantity * priceForRow(row);
   }, 0);
+  const missingStep = !brigadeName ? 'Сначала выберите исполнителя.' : !selectedRows.length ? 'Отметьте хотя бы одну работу.' : '';
+
+  useEffect(() => {
+    setSubmissionError('');
+  }, [brigadeName, selectedIds, percentage, manualPrices, priceMode]);
 
   useEffect(() => {
     if (!show || !selectedEstimate) {
@@ -140,7 +151,9 @@ export default function WorkAssignmentModal({
     setManualPrices({});
     setShowPriceSettings(false);
     setWorkSearch('');
-  }, [show, selectedEstimate, rows, performers, sourceKey]);
+    setSubmissionError('');
+    setShowAssigned(rows.length === 0 && assignedRows.length > 0);
+  }, [show, selectedEstimate, rows, assignedRows, performers, sourceKey]);
 
   if (!show || !selectedEstimate) return null;
 
@@ -154,22 +167,23 @@ export default function WorkAssignmentModal({
   };
 
   const submit = async () => {
+    setSubmissionError('');
     if (!brigadeName) {
-      alert('Выберите исполнителя или укажите название бригады');
+      setSubmissionError('Выберите исполнителя или укажите название бригады');
       return;
     }
     if (!selectedRows.length) {
-      alert('Выберите работы');
+      setSubmissionError('Выберите работы');
       return;
     }
     if (priceMode === 'coefficient' && coef <= 0) {
-      alert('Укажите долю исполнителя больше 0%');
+      setSubmissionError('Укажите долю исполнителя больше 0%');
       return;
     }
     if (selectedRows.some(row => (
       (priceMode === 'manual' || hasManualPrice(row.id)) && toNumber(manualPrices[row.id]) <= 0
     ))) {
-      alert('Для ручной цены заполните цену исполнителю по каждой выбранной строке');
+      setSubmissionError('Для ручной цены заполните цену исполнителю по каждой выбранной строке');
       return;
     }
     setSubmitting(true);
@@ -204,7 +218,7 @@ export default function WorkAssignmentModal({
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.ok) {
-        alert(data.detail || 'Не удалось назначить работы');
+        setSubmissionError(typeof data.detail === 'string' ? data.detail : 'Не удалось назначить работы');
         return;
       }
       let refreshFailed = false;
@@ -220,8 +234,8 @@ export default function WorkAssignmentModal({
         + '\nПозиции: ' + (Array.isArray(data.items) ? data.items.length : selectedRows.length)
         + (data.contractId ? '\nНаряд #' + data.contractId : '')
         + (refreshFailed ? '\nСписок не обновился. Обновите страницу.' : ''));
-    } catch (err) {
-      alert('Не удалось назначить работы: ' + (err?.message || err));
+    } catch (_) {
+      setSubmissionError('Не удалось назначить работы. Проверьте соединение и повторите попытку.');
     } finally {
       setSubmitting(false);
     }
@@ -275,9 +289,15 @@ export default function WorkAssignmentModal({
           <div style={{display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(220px,1fr) auto', gap: '10px', alignItems: 'center', marginBottom: '14px'}}>
             <div style={{padding: '9px 12px', border: '1px solid ' + C.border, borderRadius: '8px', backgroundColor: C.bg}}>
               <b style={{color: C.text, fontSize: '12px'}}>Выбрано: {selectedRows.length} из {rows.length}</b>
-              {assignedCount > 0 && <span style={{color: C.success, fontSize: '12px', marginLeft: '8px'}}>Уже назначено: {assignedCount}</span>}
+              {assignedCount > 0 && <button type="button" aria-expanded={showAssigned} aria-controls="work-assignment-existing" onClick={() => setShowAssigned(value => !value)} style={{border: 0, background: 'none', padding: 0, marginLeft: '8px', color: C.success, fontSize: '12px', cursor: 'pointer', textDecoration: 'underline'}}>Уже назначено: {assignedCount}</button>}
             </div>
           </div>
+          {showAssigned && assignedCount > 0 && <div id="work-assignment-existing" role="region" aria-label="Уже назначенные работы" style={{display: 'grid', gap: '7px', marginBottom: '14px', padding: '10px', border: '1px solid ' + C.border, borderRadius: '8px', backgroundColor: C.bg}}>
+            {assignedRows.map(row => <div key={row.id} style={{display: 'flex', gap: '4px 10px', justifyContent: 'space-between', flexWrap: 'wrap', padding: '7px 8px', borderRadius: '6px', backgroundColor: C.bgWhite, color: C.text, fontSize: '12px'}}>
+              <span>{row.name}</span>
+              <span style={{color: C.textSec}}>{row.assignments.map(assignment => contractName(assignment.contract) || contractName(assignment) || 'Исполнитель не указан').join(', ')}</span>
+            </div>)}
+          </div>}
 
           {rows.length > 8 && <div style={{marginBottom:'10px'}}>
             <input type="search" aria-label="Найти работу" value={workSearch} onChange={event => setWorkSearch(event.target.value)} placeholder="Найти работу или раздел" style={{...inp,width:'100%',boxSizing:'border-box',marginBottom:'4px'}} />
@@ -379,6 +399,9 @@ export default function WorkAssignmentModal({
               {submitting ? 'Выдаю...' : 'Выдать в работу'}
             </button>
           </div>
+          {submissionError
+            ? <p role="alert" style={{order: 1, flexBasis: '100%', color: C.danger || '#b91c1c', margin: 0, fontSize: '12px'}}>{submissionError}</p>
+            : missingStep && <p role="status" style={{order: 1, flexBasis: '100%', color: C.textSec, margin: 0, fontSize: '12px'}}>{missingStep}</p>}
         </div>
       </div>
     </div>
