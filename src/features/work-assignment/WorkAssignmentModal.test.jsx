@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import WorkAssignmentModal, { performerRows } from './WorkAssignmentModal';
 
 function typeManualBrigade(name) {
@@ -304,6 +304,11 @@ describe('work assignment prices', () => {
     expect(screen.queryByText('Уже выданная работа')).not.toBeInTheDocument();
     expect(screen.getByText('Новая работа')).toBeInTheDocument();
     expect(screen.getByText('Уже назначено: 1')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Уже назначено: 1'));
+    const assignedList = screen.getByRole('region', {name: 'Уже назначенные работы'});
+    expect(within(assignedList).getByText('Уже выданная работа')).toBeInTheDocument();
+    expect(within(assignedList).getByText('Бригада 1')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Выбрать работу: Уже выданная работа')).not.toBeInTheDocument();
     expect(screen.getByText('Выбрано: 1 из 1')).toBeInTheDocument();
     expect(screen.getByRole('button', {name: 'Настроить цену'})).toBeInTheDocument();
     expect(screen.queryByRole('button', {name: 'Своя цена'})).not.toBeInTheDocument();

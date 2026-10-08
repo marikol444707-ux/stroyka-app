@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CheckSquare, RotateCcw, Settings2, UserCheck, X } from 'lucide-react';
-import { assignmentsForEstimate, formatMoney, formatQty, toNumber } from './workAssignmentUtils';
+import { assignmentsForEstimate, contractName, formatMoney, formatQty, toNumber } from './workAssignmentUtils';
 import { findUserForStaff, normalizePersonKey } from '../../utils/performerUtils';
 
 function isPerformer(item = {}) {
@@ -88,6 +88,7 @@ export default function WorkAssignmentModal({
   const [workSearch, setWorkSearch] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submissionError, setSubmissionError] = useState('');
+  const [showAssigned, setShowAssigned] = useState(false);
   const initializedSourceRef = useRef(null);
 
   const assignmentRows = useMemo(
@@ -98,11 +99,15 @@ export default function WorkAssignmentModal({
     () => assignmentRows.filter(row => row.assignments.length === 0),
     [assignmentRows],
   );
+  const assignedRows = useMemo(
+    () => assignmentRows.filter(row => row.assignments.length > 0),
+    [assignmentRows],
+  );
   const visibleRows = useMemo(() => {
     const query = workSearch.trim().toLocaleLowerCase('ru-RU');
     return query ? rows.filter(row => [row.name, row.section].some(value => String(value || '').toLocaleLowerCase('ru-RU').includes(query))) : rows;
   }, [rows, workSearch]);
-  const assignedCount = assignmentRows.length - rows.length;
+  const assignedCount = assignedRows.length;
   const performers = useMemo(
     () => performerRows(staff || [], users || [], brigadeContracts || []),
     [staff, users, brigadeContracts],
@@ -147,7 +152,8 @@ export default function WorkAssignmentModal({
     setShowPriceSettings(false);
     setWorkSearch('');
     setSubmissionError('');
-  }, [show, selectedEstimate, rows, performers, sourceKey]);
+    setShowAssigned(rows.length === 0 && assignedRows.length > 0);
+  }, [show, selectedEstimate, rows, assignedRows, performers, sourceKey]);
 
   if (!show || !selectedEstimate) return null;
 
@@ -283,9 +289,15 @@ export default function WorkAssignmentModal({
           <div style={{display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(220px,1fr) auto', gap: '10px', alignItems: 'center', marginBottom: '14px'}}>
             <div style={{padding: '9px 12px', border: '1px solid ' + C.border, borderRadius: '8px', backgroundColor: C.bg}}>
               <b style={{color: C.text, fontSize: '12px'}}>Выбрано: {selectedRows.length} из {rows.length}</b>
-              {assignedCount > 0 && <span style={{color: C.success, fontSize: '12px', marginLeft: '8px'}}>Уже назначено: {assignedCount}</span>}
+              {assignedCount > 0 && <button type="button" aria-expanded={showAssigned} aria-controls="work-assignment-existing" onClick={() => setShowAssigned(value => !value)} style={{border: 0, background: 'none', padding: 0, marginLeft: '8px', color: C.success, fontSize: '12px', cursor: 'pointer', textDecoration: 'underline'}}>Уже назначено: {assignedCount}</button>}
             </div>
           </div>
+          {showAssigned && assignedCount > 0 && <div id="work-assignment-existing" role="region" aria-label="Уже назначенные работы" style={{display: 'grid', gap: '7px', marginBottom: '14px', padding: '10px', border: '1px solid ' + C.border, borderRadius: '8px', backgroundColor: C.bg}}>
+            {assignedRows.map(row => <div key={row.id} style={{display: 'flex', gap: '4px 10px', justifyContent: 'space-between', flexWrap: 'wrap', padding: '7px 8px', borderRadius: '6px', backgroundColor: C.bgWhite, color: C.text, fontSize: '12px'}}>
+              <span>{row.name}</span>
+              <span style={{color: C.textSec}}>{row.assignments.map(assignment => contractName(assignment.contract) || contractName(assignment) || 'Исполнитель не указан').join(', ')}</span>
+            </div>)}
+          </div>}
 
           {rows.length > 8 && <div style={{marginBottom:'10px'}}>
             <input type="search" aria-label="Найти работу" value={workSearch} onChange={event => setWorkSearch(event.target.value)} placeholder="Найти работу или раздел" style={{...inp,width:'100%',boxSizing:'border-box',marginBottom:'4px'}} />
