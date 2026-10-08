@@ -355,7 +355,7 @@ export default function AccountingContractsPanel({
         <input placeholder='🔍 Поиск договора (номер, мастер, объект)' value={listSearch || ''} onChange={event => updateSearch(event.target.value)} style={{ ...inp, marginBottom: 0, paddingLeft: '32px' }} />
       </div>
 
-      {historicalRows.length > 0 && <button type="button" aria-pressed={showHistory} onClick={() => setShowHistory(value => !value)} style={{...btnG,marginBottom:'12px'}}>
+      {(showHistory || historicalRows.length > 0) && <button type="button" aria-pressed={showHistory} onClick={() => setShowHistory(value => !value)} style={{...btnG,marginBottom:'12px'}}>
         {showHistory ? 'Скрыть историю и черновики' : `История и черновики · ${historicalRows.length}`}
       </button>}
       {archiveError && <p role="alert" style={{color: C.danger, margin: '0 0 12px'}}>{archiveError}</p>}

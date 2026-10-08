@@ -40,3 +40,14 @@ it('does not hide a draft when annulment fails on the server', async () => {
     window.confirm = oldConfirm;
   }
 });
+
+it('keeps a way back when the last historical contract changes status', () => {
+  const draft = {id: 4, projectName: 'Лицей', brigadeName: 'Новая бригада', contractorType: 'ИП', status: 'Черновик'};
+  const {rerender} = render(<ProjectBrigadesList {...props} brigadeContracts={[draft]} />);
+  fireEvent.click(screen.getByRole('button', {name: /История и черновики/}));
+  rerender(<ProjectBrigadesList {...props} brigadeContracts={[{...draft, status: 'Подписан'}]} />);
+
+  expect(screen.getByRole('button', {name: 'Скрыть историю'})).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', {name: 'Скрыть историю'}));
+  expect(screen.getByText('Новая бригада')).toBeInTheDocument();
+});

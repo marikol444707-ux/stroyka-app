@@ -49,7 +49,7 @@ export default function ProjectBrigadesList({
     <div>
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:'12px',flexWrap:'wrap',marginBottom:'12px'}}>
         <div><b style={{color:C.text,fontSize:'16px'}}>Исполнители</b><p style={{color:C.textSec,fontSize:'12px',margin:'3px 0 0'}}>Действующие договоры и расчёты по объекту</p></div>
-        {historical.length > 0 && <button type="button" aria-pressed={showHistory} onClick={() => setShowHistory(value => !value)} style={{background:'transparent',border:'1px solid '+C.border,borderRadius:'8px',padding:'8px 12px',color:C.text,cursor:'pointer'}}>{showHistory ? 'Скрыть историю' : `История и черновики · ${historical.length}`}</button>}
+        {(showHistory || historical.length > 0) && <button type="button" aria-pressed={showHistory} onClick={() => setShowHistory(value => !value)} style={{background:'transparent',border:'1px solid '+C.border,borderRadius:'8px',padding:'8px 12px',color:C.text,cursor:'pointer'}}>{showHistory ? 'Скрыть историю' : `История и черновики · ${historical.length}`}</button>}
       </div>
       {deleteError && <p role="alert" style={{color:C.danger,fontSize:'13px'}}>{deleteError}</p>}
       <div style={{...card, padding: '14px', marginBottom: '12px', backgroundColor: C.bg, display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '10px'}}>
