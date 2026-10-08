@@ -14,6 +14,57 @@ from dev_control.jev_timeweb import DEFAULT_MODEL, DEFAULT_SYSTEMONE_URL, JevErr
 
 UPSTREAM_TYPESAFE_URL = "https://api.typesafe.ai/v1/systemone"
 
+# Task-agnostic guidance for form completion; no CSS selectors, field values,
+# warehouse-specific rules or automatic execution overrides.
+QA_FORM_POLICY = (
+    "For forms, complete the explicitly requested required controls before optional fields. "
+    "When a goal explicitly names a visible unchecked checkbox, select that checkbox before "
+    "filling unrelated notes or comments. When a requested dropdown value is already selected, "
+    "do not change it; never undo a correct selection just to take another action. "
+    "After selecting a checkbox, observe again for conditionally revealed required fields "
+    "(including numeric inputs) and fill those before submitting. "
+    "Do not fill optional notes/comments unless the goal explicitly asks for them. "
+    "Do not repeat a field action that made no relevant progress. "
+    "Do not submit, modify records, or claim success unless the user's task authorizes it. "
+    "BLOCKED is appropriate only when no supported action can progress the goal."
+)
+
+_SENSITIVE_CONTROL_MARKERS = (
+    "password", "secret", "token", "cookie", "session", "credential",
+    "authorization", "api key", "2fa", "otp", "пароль", "секрет",
+    "токен", "код подтверждения",
+)
+
+
+def _visible_select_value(value, control):
+    """Expose only short, non-secret native SELECT labels already visible in QA UI."""
+    if not isinstance(control, dict) or control.get("role") != "combobox":
+        return "[POPULATED]"
+    label = str(control.get("label") or "").lower()
+    if any(marker in label for marker in _SENSITIVE_CONTROL_MARKERS):
+        return "[POPULATED]"
+    if not isinstance(value, str) or len(value) > 120:
+        return "[POPULATED]"
+    return value
+
+
+def _with_form_policy(questions):
+    """Add generic decision guidance without changing the TypeSafe answer schema."""
+    safe = copy.deepcopy(questions)
+    for key in ("operation", "click_target", "select_target", "type_text_target"):
+        question = safe.get(key)
+        if not isinstance(question, dict):
+            continue
+        instructions = question.get("instructions")
+        if not isinstance(instructions, dict):
+            continue
+        rules = instructions.get("rules")
+        if isinstance(rules, str):
+            instructions["rules"] = rules + "\n" + QA_FORM_POLICY
+        elif isinstance(rules, list):
+            instructions["rules"] = [*rules, QA_FORM_POLICY]
+    return safe
+
 
 def _sanitize_state_for_provider(state):
     """Remove credentials from Jev state before it leaves the worker."""
@@ -32,7 +83,7 @@ def _sanitize_state_for_provider(state):
             if not isinstance(element, dict):
                 continue
             if "value" in element and element["value"] not in (None, ""):
-                element["value"] = "[POPULATED]"
+                element["value"] = _visible_select_value(element["value"], element)
 
     for key in ("recent_actions", "history"):
         items = safe.get(key)
@@ -62,7 +113,7 @@ def _sanitize_questions_for_provider(questions):
         if isinstance(criteria, dict):
             for value in criteria.values():
                 if isinstance(value, dict) and "current_value" in value and value["current_value"] not in (None, ""):
-                    value["current_value"] = "[POPULATED]"
+                    value["current_value"] = _visible_select_value(value["current_value"], value)
     return safe
 
 
@@ -109,7 +160,7 @@ def install_timeweb_provider(
                 raise JevError("Upstream Jev request has no state/questions") from exc
             result = client.ask(
                 state=_sanitize_state_for_provider(state),
-                questions=_sanitize_questions_for_provider(questions),
+                questions=_with_form_policy(_sanitize_questions_for_provider(questions)),
             )
             result.setdefault("model", model)
             result.setdefault("usage", {})
