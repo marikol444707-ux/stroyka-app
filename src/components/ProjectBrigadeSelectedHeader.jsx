@@ -2,6 +2,7 @@ import React, { useRef, useState } from 'react';
 import { ArrowLeft, Check, Download, Eye, Upload } from 'lucide-react';
 import { API } from '../api';
 import { buildPerformerContractHtml } from '../utils/contractTemplates';
+import ProjectBrigadeOverview from './ProjectBrigadeOverview';
 
 export default function ProjectBrigadeSelectedHeader({
   projectName,
@@ -9,6 +10,8 @@ export default function ProjectBrigadeSelectedHeader({
   selectedBrigadeContract,
   setSelectedBrigadeContract,
   brigadeContractItems = [],
+  brigadePayments = [],
+  showFinance = false,
   setBrigadeContractItems,
   setBrigadeContracts,
   setBrigadePayments,
@@ -166,12 +169,15 @@ export default function ProjectBrigadeSelectedHeader({
 
   return (
     <div style={{padding: '14px', border: `1px solid ${C.border}`, borderRadius: '14px', marginBottom: '15px', background: C.card}}>
-    <div style={{display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap'}}>
+    <div style={{display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap'}}>
       <button onClick={closeContract} style={btnG}><ArrowLeft size={14}/>Назад</button>
-      <b style={{color: C.text, fontSize: '14px'}}>{selectedBrigadeContract.brigadeName}</b>
-      <span style={{padding: '3px 8px', borderRadius: '6px', fontSize: '11px', backgroundColor: C.accentLight, color: C.accent}}>
-        {selectedBrigadeContract.contractorType}
-      </span>
+      <span style={{padding: '4px 9px', borderRadius: '999px', fontSize: '11px', backgroundColor: C.accentLight, color: C.accent, fontWeight: 700}}>{selectedBrigadeContract.status || 'Статус не указан'}</span>
+    </div>
+    <div style={{marginTop: '12px'}}>
+      <h3 style={{color: C.text, fontSize: '18px', lineHeight: 1.3, margin: 0}}>{selectedBrigadeContract.brigadeName}</h3>
+      <p style={{color: C.textSec, fontSize: '12px', margin: '4px 0 0'}}>{projectName} · {selectedBrigadeContract.contractorType || 'Исполнитель'} · Договор {selectedBrigadeContract.contractNumber || 'БР-' + selectedBrigadeContract.id}</p>
+    </div>
+    <div style={{display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', marginTop: '14px'}}>
       {!selectedBrigadeContract.partySnapshot && (
         <>
           <input ref={contractFileRef} type="file" accept="image/*,.pdf" style={{display: 'none'}} onChange={e => signContract(e.target.files?.[0])}/>
@@ -190,6 +196,7 @@ export default function ProjectBrigadeSelectedHeader({
     </div>
     {contractError && <p role="alert" style={{color: '#dc2626', margin: '10px 0 0', fontSize: '12px'}}>{contractError}</p>}
     {selectedBrigadeContract.contractScanUrl && <p style={{color: C.textSec, margin: '10px 0 0', fontSize: '12px'}}>Подписанный оригинал сохранён в документах компании и используется во всех актах.</p>}
+    <ProjectBrigadeOverview contract={selectedBrigadeContract} items={brigadeContractItems} payments={brigadePayments} showFinance={showFinance} C={C} />
     </div>
   );
 }

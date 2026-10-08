@@ -61,3 +61,47 @@ test('lets an old signed contract freeze its original before a new act', () => {
   }})}/>);
   expect(screen.getByRole('button', {name: /Проверить подписанный договор/i})).toBeInTheDocument();
 });
+
+test('puts the contract status and current work settlement at the top', () => {
+  render(<ProjectBrigadeSelectedHeader {...props({
+    selectedBrigadeContract: {...contract, status: 'Подписан', contractScanUrl: '/file'},
+    brigadeContractItems: [
+      {id: 1, quantity: 10, doneQuantity: 4, priceBrigade: 100, priceSmeta: 150},
+    ],
+    brigadePayments: [{id: 9, amount: 150}],
+    showFinance: true,
+  })}/>);
+
+  expect(screen.getByText(/Договор БР-71/)).toBeInTheDocument();
+  expect(screen.getByText('Подписан')).toBeInTheDocument();
+  expect(screen.getByText('1 000 ₽')).toBeInTheDocument();
+  expect(screen.getByText('400 ₽')).toBeInTheDocument();
+  expect(screen.getByText('150 ₽')).toBeInTheDocument();
+  expect(screen.getByText('250 ₽')).toBeInTheDocument();
+  expect(screen.getByText(/По смете заказчика:.*разница:/)).toBeInTheDocument();
+  expect(screen.getByRole('region', {name: 'Сводка по исполнителю'})).toHaveTextContent('Следующий шаг: Загрузите подписанный акт');
+});
+
+test('keeps customer estimate and difference out of the non-finance overview', () => {
+  render(<ProjectBrigadeSelectedHeader {...props({
+    brigadeContractItems: [{id: 1, quantity: 2, priceBrigade: 100, priceSmeta: 150}],
+    showFinance: false,
+  })}/>);
+
+  expect(screen.queryByText(/По смете заказчика:/)).not.toBeInTheDocument();
+  expect(screen.getByText('200 ₽')).toBeInTheDocument();
+});
+
+test('uses server settlement totals for the newer settlement flow', () => {
+  render(<ProjectBrigadeSelectedHeader {...props({
+    selectedBrigadeContract: {
+      ...contract, status: 'Подписан', contractScanUrl: '/file', settlementVersion: 2,
+      planAmount: 5000, doneAmount: 3000, paidAmount: 1000,
+    },
+  })}/>);
+
+  expect(screen.getByText('5 000 ₽')).toBeInTheDocument();
+  expect(screen.getByText('3 000 ₽')).toBeInTheDocument();
+  expect(screen.getByText('2 000 ₽')).toBeInTheDocument();
+  expect(screen.getByRole('region', {name: 'Сводка по исполнителю'})).toHaveTextContent('Следующий шаг: Проверьте расчёты и оплату');
+});

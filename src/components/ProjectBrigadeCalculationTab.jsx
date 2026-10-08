@@ -4,7 +4,6 @@ import ProjectBrigadeBudgetSummary from './ProjectBrigadeBudgetSummary';
 import ProjectBrigadeCreateForm from './ProjectBrigadeCreateForm';
 import ProjectBrigadesList from './ProjectBrigadesList';
 import ProjectBrigadeSelectedHeader from './ProjectBrigadeSelectedHeader';
-import ProjectBrigadeCalculationSummary from './ProjectBrigadeCalculationSummary';
 import ProjectBrigadeWorkEntryPanel from './ProjectBrigadeWorkEntryPanel';
 import ProjectBrigadeBulkPricePanel from './ProjectBrigadeBulkPricePanel';
 import ProjectBrigadeCalculationTable from './ProjectBrigadeCalculationTable';
@@ -111,6 +110,8 @@ export default function ProjectBrigadeCalculationTab({
             selectedBrigadeContract={selectedBrigadeContract}
             setSelectedBrigadeContract={setSelectedBrigadeContract}
             brigadeContractItems={brigadeContractItems}
+            brigadePayments={brigadePayments}
+            showFinance={showFinance}
             setBrigadeContractItems={setBrigadeContractItems}
             setBrigadeContracts={setBrigadeContracts}
             setBrigadePayments={setBrigadePayments}
@@ -125,13 +126,6 @@ export default function ProjectBrigadeCalculationTab({
             btnG={btnG}
             btnO={btnO}
             btnB={btnB}
-          />
-
-          <ProjectBrigadeCalculationSummary
-            brigadeContractItems={brigadeContractItems}
-            showFinance={showFinance}
-            C={C}
-            card={card}
           />
 
           <ProjectBrigadeWorkEntryPanel
