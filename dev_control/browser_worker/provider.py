@@ -24,6 +24,8 @@ QA_FORM_POLICY = (
     "After selecting a checkbox, observe again for conditionally revealed required fields "
     "(including numeric inputs) and fill those before submitting. "
     "Do not fill optional notes/comments unless the goal explicitly asks for them. "
+    "A field marked [LAST_ENTRY_CONFIRMED] already contains the last text you entered; "
+    "do not type into it again. Continue to the next unfinished required control. "
     "Do not repeat a field action that made no relevant progress. "
     "Do not submit, modify records, or claim success unless the user's task authorizes it. "
     "BLOCKED is appropriate only when no supported action can progress the goal."
@@ -77,13 +79,36 @@ def _sanitize_state_for_provider(state):
     if isinstance(page, dict) and page.get("url"):
         page["url"] = redact_boundary_url(str(page["url"]))
 
+    # Compare the actual visible value with the last locally executed fill.
+    # Only a confirmation marker is sent to Timeweb, never the typed value.
+    last_fills = {}
+    recent = safe.get("recent_actions")
+    if isinstance(recent, list):
+        for item in recent:
+            if not isinstance(item, dict) or item.get("kind") != "fill":
+                continue
+            label, entered = item.get("action"), item.get("text")
+            if isinstance(label, str) and isinstance(entered, str) and entered.strip():
+                last_fills[label] = entered
+
     elements = safe.get("elements")
     if isinstance(elements, list):
         for element in elements:
             if not isinstance(element, dict):
                 continue
-            if "value" in element and element["value"] not in (None, ""):
-                element["value"] = _visible_select_value(element["value"], element)
+            value = element.get("value")
+            if value in (None, ""):
+                continue
+            if element.get("role") == "combobox":
+                element["value"] = _visible_select_value(value, element)
+                continue
+            label = element.get("label")
+            last = last_fills.get(label) if isinstance(label, str) else None
+            element["value"] = (
+                "[LAST_ENTRY_CONFIRMED]"
+                if isinstance(value, str) and last is not None and value == last
+                else "[POPULATED]"
+            )
 
     for key in ("recent_actions", "history"):
         items = safe.get(key)
