@@ -242,7 +242,7 @@ export default function WorkAssignmentModal({
   };
 
   const modalWidth = isMobile ? 'calc(100vw - 20px)' : '920px';
-  const rowGrid = '28px minmax(220px,1.4fr) 110px 110px 126px 126px';
+  const rowGrid = '28px minmax(140px,1.4fr) minmax(70px,.7fr) minmax(70px,.7fr) minmax(90px,.85fr) minmax(90px,.85fr)';
 
   return (
     <div onClick={() => !submitting && onClose()} style={{position: 'fixed', inset: 0, backgroundColor: 'rgba(15,23,42,.62)', zIndex: 760, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: isMobile ? '10px' : '22px'}}>

@@ -26,7 +26,8 @@ export default function ProjectBrigadeOverview({contract, items = [], payments =
         : completed <= 0 ? 'Отмечайте выполнение работ'
           : !settlementV2 && !contract.actScanUrl ? 'Загрузите подписанный акт'
             : remaining > 0 ? 'Проверьте расчёты и оплату'
-              : 'Расчёты закрыты';
+              : completed < plan ? 'Продолжайте выполнение оставшихся работ'
+                : 'Выполненные работы оплачены';
   const figures = [
     ['По договору', money(plan)],
     ['Выполнено', money(completed)],
