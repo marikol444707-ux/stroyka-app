@@ -16,10 +16,12 @@ const props = {
 it('shows current contracts without historical duplicates and keeps history accessible', () => {
   render(<ProjectBrigadesList {...props} />);
   expect(screen.getAllByText('Бригада Север')).toHaveLength(1);
-  expect(screen.getByText('Бригада Юг')).toBeInTheDocument();
+  expect(screen.queryByText('Бригада Юг')).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', {name: /История и черновики/}));
-  expect(screen.getAllByText('Бригада Север')).toHaveLength(2);
+  expect(screen.getAllByText('Бригада Север')).toHaveLength(1);
   expect(screen.getByText('Бригада Юг')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', {name: 'Скрыть историю'}));
+  expect(screen.queryByText('Бригада Юг')).not.toBeInTheDocument();
 });
 
 it('does not hide a draft when annulment fails on the server', async () => {
@@ -29,6 +31,7 @@ it('does not hide a draft when annulment fails on the server', async () => {
   window.confirm = jest.fn(() => true);
   try {
     render(<ProjectBrigadesList {...props} />);
+    fireEvent.click(screen.getByRole('button', {name: /История и черновики/}));
     fireEvent.click(screen.getByRole('button', {name: 'Аннулировать черновик Бригада Юг'}));
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Нет прав'));
     expect(props.setBrigadeContracts).not.toHaveBeenCalled();

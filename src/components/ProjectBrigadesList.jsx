@@ -14,11 +14,8 @@ export default function ProjectBrigadesList({
   const [showHistory, setShowHistory] = useState(false);
   const [deleteError, setDeleteError] = useState('');
   const projectContracts = brigadeContracts.filter(bc => bc.projectName === projectName);
-  const historical = projectContracts.filter(bc => bc.status === 'Аннулирован' || (bc.status === 'Черновик'
-    && projectContracts.some(other => other.id !== bc.id && !['Черновик', 'Аннулирован'].includes(other.status)
-      && String(other.brigadeName || '').trim().toLocaleLowerCase('ru-RU') === String(bc.brigadeName || '').trim().toLocaleLowerCase('ru-RU')
-      && String(other.workPackage || 'Основная') === String(bc.workPackage || 'Основная'))));
-  const contracts = projectContracts.filter(bc => showHistory || !historical.includes(bc));
+  const historical = projectContracts.filter(bc => ['Черновик', 'Аннулирован'].includes(bc.status));
+  const contracts = projectContracts.filter(bc => showHistory ? historical.includes(bc) : !historical.includes(bc));
 
   const deleteBrigade = async (event, brigadeId) => {
     event.stopPropagation();
@@ -52,7 +49,7 @@ export default function ProjectBrigadesList({
     <div>
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:'12px',flexWrap:'wrap',marginBottom:'12px'}}>
         <div><b style={{color:C.text,fontSize:'16px'}}>Исполнители</b><p style={{color:C.textSec,fontSize:'12px',margin:'3px 0 0'}}>Действующие договоры и расчёты по объекту</p></div>
-        {historical.length > 0 && <button type="button" onClick={() => setShowHistory(value => !value)} style={{background:'transparent',border:'1px solid '+C.border,borderRadius:'8px',padding:'8px 12px',color:C.text,cursor:'pointer'}}>{showHistory ? 'Скрыть историю' : `История и черновики · ${historical.length}`}</button>}
+        {historical.length > 0 && <button type="button" aria-pressed={showHistory} onClick={() => setShowHistory(value => !value)} style={{background:'transparent',border:'1px solid '+C.border,borderRadius:'8px',padding:'8px 12px',color:C.text,cursor:'pointer'}}>{showHistory ? 'Скрыть историю' : `История и черновики · ${historical.length}`}</button>}
       </div>
       {deleteError && <p role="alert" style={{color:C.danger,fontSize:'13px'}}>{deleteError}</p>}
       <div style={{...card, padding: '14px', marginBottom: '12px', backgroundColor: C.bg, display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '10px'}}>
@@ -70,7 +67,7 @@ export default function ProjectBrigadesList({
         </div>
       </div>
 
-      {contracts.length === 0 && <p style={{color:C.textSec}}>Действующих договоров нет. Черновики и аннулированные записи находятся в истории.</p>}
+      {contracts.length === 0 && <p style={{color:C.textSec}}>{showHistory ? 'В истории пока нет договоров.' : 'Действующих договоров нет. Черновики и аннулированные записи находятся в истории.'}</p>}
       <div style={{...card,padding:'0 16px',overflow:'hidden'}}>
       {contracts.map(bc => {
         const due = Math.round(Number(bc.doneAmount || 0));
