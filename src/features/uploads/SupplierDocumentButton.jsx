@@ -6,6 +6,14 @@ import './supplierDocumentViewer.css';
 
 const identity = value => value;
 class DocumentViewError extends Error {}
+function validDocumentPath(url) {
+  if(/^\/tenant-files\/[1-9]\d*\/content\/?$/.test(url))return true;
+  if(!/^\/uploads\/[^?#]+$/.test(url))return false;
+  try{return url.slice('/uploads/'.length).split('/').every(part=>{
+    const decoded=decodeURIComponent(part);
+    return decoded && decoded!=='.' && decoded!=='..' && !decoded.includes('/') && !decoded.includes(String.fromCharCode(92)) && !decoded.includes(String.fromCharCode(0));
+  });}catch{return false;}
+}
 export default function SupplierDocumentButton({url, fileSrc=identity, label='Открыть документ'}) {
   return url ? <DocumentButton key={`${url}:${fileSrc(url)}`} {...{url,fileSrc,label}}/> : null;
 }
@@ -44,7 +52,7 @@ function DocumentViewer({url,fileSrc,label,onClose}) {
     const controller=new AbortController();let objectUrl='',loadingTask,filename='Документ';
     setState({loading:true});setPage(1);setZoom(1);setRenderError('');
     (async()=>{
-      if(!/^\/tenant-files\/[1-9]\d*\/content\/?$/.test(url) && !(/^\/uploads\/[^?#]+$/.test(url) && new URL(url,window.location.origin).pathname===url))throw new DocumentViewError('Ссылка на файл устарела. Прикрепите оригинал документа заново.');
+      if(!validDocumentPath(url))throw new DocumentViewError('Ссылка на файл устарела. Прикрепите оригинал документа заново.');
       const response=await fetch(resolvedUrl,{credentials:'include',cache:'no-store',signal:controller.signal});
       if(!response.ok)throw new DocumentViewError(response.status===404?'Файл не найден. Прикрепите оригинал документа заново.':response.status===401?'Войдите в приложение и откройте документ ещё раз.':response.status===403?'Нет доступа к этому документу.':'Не удалось загрузить документ. Попробуйте ещё раз.');
       const blob=await response.blob();

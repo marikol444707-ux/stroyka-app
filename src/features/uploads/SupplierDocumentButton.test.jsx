@@ -53,6 +53,17 @@ test('external links are not fetched',async()=>{
  expect(await screen.findByRole('alert')).toHaveTextContent('Ссылка на файл устарела');
  expect(fetch).not.toHaveBeenCalled();
 });
+test.each(['/uploads/../secret.pdf','/uploads/%2e%2e/secret.pdf','/uploads/a%2fb.pdf'])('rejects noncanonical legacy path %s',async url=>{
+ render(<SupplierDocumentButton url={url}/>);
+ fireEvent.click(screen.getByRole('button',{name:'Открыть документ'}));
+ await screen.findByRole('alert');expect(fetch).not.toHaveBeenCalled();
+});
+test('opens a legacy PDF with a Russian filename',async()=>{
+ render(<SupplierDocumentButton url="/uploads/Предложение.pdf"/>);
+ fireEvent.click(screen.getByRole('button',{name:'Открыть документ'}));
+ await screen.findByRole('link',{name:'Скачать'});
+ expect(fetch).toHaveBeenCalledWith('/uploads/Предложение.pdf',expect.objectContaining({credentials:'include'}));
+});
 test('changing company invalidates the viewer and aborts the download',async()=>{
  fetch.mockImplementation(()=>new Promise(()=>{}));
  render(<SupplierDocumentButton url="/tenant-files/7/content"/>);
