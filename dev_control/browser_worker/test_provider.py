@@ -199,5 +199,36 @@ class ProviderPatchTest(unittest.TestCase):
 
 
 
+    def test_confirmed_fill_marker_without_leaking_typed_text(self):
+        state = {
+            "elements": [
+                {"index": "1", "role": "spinbutton", "label": "Кол-во", "value": "15"},
+                {"index": "2", "role": "textbox", "label": "Примечание", "value": "private note"},
+                {"index": "3", "role": "textbox", "label": "Token", "value": "secret-token"},
+            ],
+            "recent_actions": [
+                {"kind": "fill", "action": "Кол-во", "text": "15"},
+                {"kind": "fill", "action": "Token", "text": "secret-token"},
+            ],
+        }
+        safe = _sanitize_state_for_provider(state)
+        self.assertEqual(safe["elements"][0]["value"], "[LAST_ENTRY_CONFIRMED]")
+        self.assertEqual(safe["elements"][1]["value"], "[POPULATED]")
+        self.assertEqual(safe["elements"][2]["value"], "[LAST_ENTRY_CONFIRMED]")
+        self.assertEqual(safe["recent_actions"][0]["text"], "[REDACTED]")
+        self.assertNotIn("secret-token", repr(safe))
+        self.assertNotIn("private note", repr(safe))
+        self.assertEqual(state["elements"][0]["value"], "15")
+
+    def test_changed_input_is_not_marked_confirmed(self):
+        state = {
+            "elements": [{"index": "1", "role": "spinbutton", "label": "Quantity", "value": "10"}],
+            "recent_actions": [{"kind": "fill", "action": "Quantity", "text": "15"}],
+        }
+        safe = _sanitize_state_for_provider(state)
+        self.assertEqual(safe["elements"][0]["value"], "[POPULATED]")
+
+
+
 if __name__ == "__main__":
     unittest.main()
