@@ -8,15 +8,18 @@ it('keeps cancelled brigade documents in history instead of repeating them in th
     brigadeContracts={[
       {id: 1, projectName: 'Лицей', brigadeName: 'Бригада Север', contractorType: 'ГПХ', status: 'Подписан'},
       {id: 2, projectName: 'Лицей', brigadeName: 'Бригада Север', contractorType: 'ГПХ', status: 'Аннулирован'},
+      {id: 3, projectName: 'Лицей', brigadeName: 'Бригада Юг', contractorType: 'ГПХ', status: 'Черновик'},
     ]}
   />);
-  expect(screen.getByText(/1 док\./)).toBeInTheDocument();
+  expect(screen.getAllByText(/1 док\./)).toHaveLength(1);
   expect(screen.getByText(/БР-1/)).toBeInTheDocument();
   expect(screen.queryByRole('button', {name: /Скрыть договоры/})).not.toBeInTheDocument();
   expect(screen.queryByText(/БР-2/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/БР-3/)).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', {name: /История и черновики/}));
-  expect(screen.getByText(/2 док\./)).toBeInTheDocument();
+  expect(screen.queryByText(/БР-1/)).not.toBeInTheDocument();
   expect(screen.getByText(/БР-2/)).toBeInTheDocument();
+  expect(screen.getByText(/БР-3/)).toBeInTheDocument();
 });
 
 it('shows one compact performer card and expands documents on request', () => {

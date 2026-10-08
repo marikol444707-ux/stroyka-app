@@ -213,14 +213,9 @@ export default function AccountingContractsPanel({
         : !peer.contractorId && personKey(peer.brigadeName) === personKey(row.brigadeName))
       && brigadeItems.some(item => Number(item.contractId) === Number(peer.id)));
 
-  const historicalRows = sourceRows.filter(row => row._kind === 'brigade' && (row.status === 'Аннулирован' || (row.status === 'Черновик'
-    && sourceRows.some(other => other._kind === 'brigade' && other.id !== row.id
-      && !['Черновик', 'Аннулирован'].includes(other.status)
-      && String(other.projectName || '') === String(row.projectName || '')
-      && String(other.workPackage || 'Основная') === String(row.workPackage || 'Основная')
-      && personKey(other.brigadeName) === personKey(row.brigadeName)))));
+  const historicalRows = sourceRows.filter(row => row._kind === 'brigade' && ['Черновик', 'Аннулирован'].includes(row.status));
   const visibleRows = sourceRows.filter(row => {
-    if (!showHistory && historicalRows.includes(row)) return false;
+    if (showHistory ? !historicalRows.includes(row) : historicalRows.includes(row)) return false;
     const performer = resolvePerformer(row);
     return searchMatches(listSearch, row.contractNumber, row.project, row.projectName, row.masterName, row.brigadeName, performer.fullName, performer.inn);
   });
@@ -360,14 +355,14 @@ export default function AccountingContractsPanel({
         <input placeholder='🔍 Поиск договора (номер, мастер, объект)' value={listSearch || ''} onChange={event => updateSearch(event.target.value)} style={{ ...inp, marginBottom: 0, paddingLeft: '32px' }} />
       </div>
 
-      {historicalRows.length > 0 && <button type="button" onClick={() => setShowHistory(value => !value)} style={{...btnG,marginBottom:'12px'}}>
+      {(showHistory || historicalRows.length > 0) && <button type="button" aria-pressed={showHistory} onClick={() => setShowHistory(value => !value)} style={{...btnG,marginBottom:'12px'}}>
         {showHistory ? 'Скрыть историю и черновики' : `История и черновики · ${historicalRows.length}`}
       </button>}
       {archiveError && <p role="alert" style={{color: C.danger, margin: '0 0 12px'}}>{archiveError}</p>}
       {archiveNotice && <p role="status" style={{color: C.success, margin: '0 0 12px'}}>{archiveNotice}</p>}
 
       {groupedRows.length === 0 ? (
-        <p style={{ color: C.textMuted, textAlign: 'center', padding: '30px' }}>Договоров и расчётов с исполнителями нет</p>
+        <p style={{ color: C.textMuted, textAlign: 'center', padding: '30px' }}>{showHistory ? 'В истории пока нет договоров' : historicalRows.length ? 'Действующих договоров нет. Черновики и аннулированные записи находятся в истории.' : 'Договоров и расчётов с исполнителями нет'}</p>
       ) : (
         groupedRows.map(group => {
           const hasEmptyDuplicate = canEditFinance() && group.rows.some(isEmptySignedDuplicate);

@@ -16,10 +16,12 @@ const props = {
 it('shows current contracts without historical duplicates and keeps history accessible', () => {
   render(<ProjectBrigadesList {...props} />);
   expect(screen.getAllByText('Бригада Север')).toHaveLength(1);
-  expect(screen.getByText('Бригада Юг')).toBeInTheDocument();
+  expect(screen.queryByText('Бригада Юг')).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', {name: /История и черновики/}));
-  expect(screen.getAllByText('Бригада Север')).toHaveLength(2);
+  expect(screen.getAllByText('Бригада Север')).toHaveLength(1);
   expect(screen.getByText('Бригада Юг')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', {name: 'Скрыть историю'}));
+  expect(screen.queryByText('Бригада Юг')).not.toBeInTheDocument();
 });
 
 it('does not hide a draft when annulment fails on the server', async () => {
@@ -29,6 +31,7 @@ it('does not hide a draft when annulment fails on the server', async () => {
   window.confirm = jest.fn(() => true);
   try {
     render(<ProjectBrigadesList {...props} />);
+    fireEvent.click(screen.getByRole('button', {name: /История и черновики/}));
     fireEvent.click(screen.getByRole('button', {name: 'Аннулировать черновик Бригада Юг'}));
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Нет прав'));
     expect(props.setBrigadeContracts).not.toHaveBeenCalled();
@@ -36,4 +39,15 @@ it('does not hide a draft when annulment fails on the server', async () => {
     global.fetch = oldFetch;
     window.confirm = oldConfirm;
   }
+});
+
+it('keeps a way back when the last historical contract changes status', () => {
+  const draft = {id: 4, projectName: 'Лицей', brigadeName: 'Новая бригада', contractorType: 'ИП', status: 'Черновик'};
+  const {rerender} = render(<ProjectBrigadesList {...props} brigadeContracts={[draft]} />);
+  fireEvent.click(screen.getByRole('button', {name: /История и черновики/}));
+  rerender(<ProjectBrigadesList {...props} brigadeContracts={[{...draft, status: 'Подписан'}]} />);
+
+  expect(screen.getByRole('button', {name: 'Скрыть историю'})).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', {name: 'Скрыть историю'}));
+  expect(screen.getByText('Новая бригада')).toBeInTheDocument();
 });
