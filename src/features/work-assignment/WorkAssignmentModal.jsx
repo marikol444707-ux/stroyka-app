@@ -117,6 +117,7 @@ export default function WorkAssignmentModal({
     assignmentRows.map(row => [row.estimateItemKey, row.name, row.quantity, row.priceSmeta, row.assignments.map(item => item.contractId || item.contract_id)]),
   ]), [selectedEstimate?.id, assignmentRows]);
   const selectedRows = rows.filter(row => selectedIds[row.id]);
+  const allVisibleSelected = visibleRows.length > 0 && visibleRows.every(row => selectedIds[row.id]);
   const selectedPerformer = performers.find(item => performerOptionId(item) === String(contractorId));
   const brigadeName = (selectedPerformer?.name || manualName || '').trim();
   const coef = Math.max(0, toNumber(percentage) / 100);
@@ -158,12 +159,11 @@ export default function WorkAssignmentModal({
   if (!show || !selectedEstimate) return null;
 
   const toggleAll = () => {
-    const allSelected = rows.length > 0 && rows.every(row => selectedIds[row.id]);
-    if (allSelected) {
-      setSelectedIds({});
-      return;
-    }
-    setSelectedIds(Object.fromEntries(rows.map(row => [row.id, true])));
+    setSelectedIds(previous => {
+      const next = {...previous};
+      visibleRows.forEach(row => { next[row.id] = !allVisibleSelected; });
+      return next;
+    });
   };
 
   const submit = async () => {
@@ -284,7 +284,7 @@ export default function WorkAssignmentModal({
               <b style={{display: 'block', color: C.text, fontSize: '15px'}}>2. Какие работы выдать</b>
               <span style={{color: C.textSec, fontSize: '12px'}}>Показаны только ещё не назначенные работы.</span>
             </div>
-            {rows.length > 0 && <button type="button" onClick={toggleAll} style={btnB}><CheckSquare size={14} />{rows.every(row => selectedIds[row.id]) ? 'Снять все' : 'Выбрать все'}</button>}
+            {rows.length > 0 && <button type="button" onClick={toggleAll} disabled={!visibleRows.length} style={btnB}><CheckSquare size={14} />{workSearch.trim() ? (allVisibleSelected ? 'Снять показанные' : 'Выбрать показанные') : (allVisibleSelected ? 'Снять все' : 'Выбрать все')}</button>}
           </div>
           <div style={{display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(220px,1fr) auto', gap: '10px', alignItems: 'center', marginBottom: '14px'}}>
             <div style={{padding: '9px 12px', border: '1px solid ' + C.border, borderRadius: '8px', backgroundColor: C.bg}}>
@@ -301,7 +301,7 @@ export default function WorkAssignmentModal({
 
           {rows.length > 8 && <div style={{marginBottom:'10px'}}>
             <input type="search" aria-label="Найти работу" value={workSearch} onChange={event => setWorkSearch(event.target.value)} placeholder="Найти работу или раздел" style={{...inp,width:'100%',boxSizing:'border-box',marginBottom:'4px'}} />
-            <span style={{color:C.textSec,fontSize:'11px'}}>Показано: {visibleRows.length} из {rows.length}. Поиск не меняет выбранные работы.</span>
+            <span style={{color:C.textSec,fontSize:'11px'}}>Показано: {visibleRows.length} из {rows.length}. Кнопка выбора действует только на показанные работы.</span>
           </div>}
 
           <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', marginBottom: '10px'}}>
