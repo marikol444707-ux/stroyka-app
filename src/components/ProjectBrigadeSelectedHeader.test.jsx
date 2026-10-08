@@ -97,11 +97,12 @@ test('uses server settlement totals for the newer settlement flow', () => {
     selectedBrigadeContract: {
       ...contract, status: 'Подписан', contractScanUrl: '/file', settlementVersion: 2,
       planAmount: 5000, doneAmount: 3000, paidAmount: 1000,
+      settlementSummary: {grossAmount: 3000, fineAmount: 0, netAmount: 3000, paidAmount: 1000, remainingAmount: 2000},
     },
   })}/>);
 
   expect(screen.getByText('5 000 ₽')).toBeInTheDocument();
-  expect(screen.getByText('3 000 ₽')).toBeInTheDocument();
+  expect(screen.getByText('Выполнено').parentElement).toHaveTextContent('3 000 ₽');
   expect(screen.getByText('2 000 ₽')).toBeInTheDocument();
   expect(screen.getByRole('region', {name: 'Сводка по исполнителю'})).toHaveTextContent('Следующий шаг: Проверьте расчёты и оплату');
 });

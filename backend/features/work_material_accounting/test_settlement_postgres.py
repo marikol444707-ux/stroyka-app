@@ -113,6 +113,36 @@ class MaterialSettlementPostgresTests(unittest.TestCase):
         if carry is not None:
             self.assertEqual(Decimal(str(result["carryFineAmount"])), Decimal(str(carry)))
 
+    def test_contract_list_balance_matches_fines_and_partial_then_full_act_payment(self):
+        self.confirm_defect()
+        act, _ = self.create_act()
+        self.sign_act(act['id'])
+        for payment, expected_paid, expected_remaining in [('2.25', '2.25', '3.75'), ('3.75', '6', '0')]:
+            self.api('director', 'POST', '/brigade-payments', self.payment_payload(act['id'], payment))
+            contracts = self.api('director', 'GET', '/brigade-contracts')
+            contract = next(row for row in contracts if row['id'] == self.contract_id)
+            summary = contract['settlementSummary']
+            saved = self.preview()['acts'][0]
+            self.assertEqual(summary['actCount'], 1)
+            for key, expected in [('grossAmount', '10'), ('fineAmount', '4'), ('netAmount', '6'),
+                                  ('paidAmount', expected_paid), ('remainingAmount', expected_remaining)]:
+                self.assertEqual(Decimal(str(summary[key])), Decimal(expected))
+            self.assertEqual(Decimal(str(summary['remainingAmount'])), Decimal(str(saved['remainingAmount'])))
+            foreign = self.api('stranger', 'GET', '/brigade-contracts')
+            self.assertFalse(any(row['id'] == self.contract_id for row in foreign))
+
+    def test_contract_list_marks_unlinked_historical_payment_for_reconciliation(self):
+        self.sql("INSERT INTO brigade_payments(contract_id,company_id,amount) VALUES(%s,2,3)", (self.contract_id,))
+        contracts = self.api('director', 'GET', '/brigade-contracts')
+        summary = next(row for row in contracts if row['id'] == self.contract_id)['settlementSummary']
+        self.assertTrue(summary['needsReconciliation'])
+
+    def test_contract_list_without_acts_has_no_invented_payable_debt(self):
+        contracts = self.api('director', 'GET', '/brigade-contracts')
+        summary = next(row for row in contracts if row['id'] == self.contract_id)['settlementSummary']
+        self.assertEqual(summary, dict(actCount=0, grossAmount=0, fineAmount=0,
+                                       netAmount=0, paidAmount=0, remainingAmount=0, unsignedActCount=0))
+
     def test_preview_keeps_gross_work_and_deducts_only_confirmed_material_penalty(self):
         defect, _ = self.confirm_defect()
         expenses = self.expense_state()

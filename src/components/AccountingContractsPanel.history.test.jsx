@@ -95,3 +95,21 @@ it('keeps the duplicate visible when the server finds linked records', async () 
   await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('есть работы или расчёты'));
   expect(screen.getByText(/БР-20/)).toBeInTheDocument();
 });
+
+it('uses actual act fine and net instead of automatic five percent retention', () => {
+  render(<AccountingContractsPanel C={{}} card={{}} inp={{}} btnO={{}} btnG={{}} btnB={{}} btnR={{}}
+    brigadeContracts={[{id: 30, brigadeName: 'Мастер по актам', projectName: 'Лицей', status: 'Подписан',
+      settlementVersion: 2, doneAmount: 10000, paidAmount: 8000,
+      settlementSummary: {grossAmount: 10000, fineAmount: 2000, netAmount: 8000, paidAmount: 8000, remainingAmount: 0}}]} />);
+  expect(screen.getByText('Штрафы по актам').parentElement).toHaveTextContent('2 000 ₽');
+  expect(screen.queryByText('Удержание 5%')).not.toBeInTheDocument();
+  expect(screen.getByText('Остаток к выплате').parentElement).toHaveTextContent('0 ₽');
+  expect(screen.queryByText(/к выплате:/)).not.toBeInTheDocument();
+});
+
+it('does not round a remaining act debt of 25 kopecks to closed', () => {
+  render(<AccountingContractsPanel C={{}} card={{}} inp={{}} btnO={{}} btnG={{}} btnB={{}} btnR={{}}
+    brigadeContracts={[{id: 30, brigadeName: 'Мастер по актам', status: 'Подписан', settlementVersion: 2,
+      settlementSummary: {grossAmount: 10, fineAmount: 4, netAmount: 6, paidAmount: 5.75, remainingAmount: 0.25}}]} />);
+  expect(screen.getByText('Остаток к выплате').parentElement).toHaveTextContent('0,25 ₽');
+});

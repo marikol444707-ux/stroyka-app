@@ -1,3 +1,4 @@
+import {brigadeBalance, balanceMoney} from './brigadeBalance';
 import React, { useState } from 'react';
 import { Check, Eye, Plus, Search, Trash2, X } from 'lucide-react';
 
@@ -171,6 +172,13 @@ export default function AccountingContractsPanel({
     const isBrigade = row._kind === 'brigade';
     const type = String(row.contractType || row.contractorType || performer.contractType || '').toLowerCase();
     if (isBrigade) {
+      if (Number(row.settlementVersion) === 2) {
+        const balance = brigadeBalance(row);
+        return {accrued: Number(row.settlementSummary?.grossAmount || 0),
+          paid: balance.paid, retention: balance.fine, payable: balance.due,
+          owe: balance.remaining, missingDocs: !balance.known ? ['расчёт по актам'] : Number(row.settlementSummary?.unsignedActCount) > 0 ? ['скан подписанного акта'] : [],
+          byActs: true, known: balance.known};
+      }
       const accrued = Number(row.doneAmount || 0);
       const paid = brigadePayments.filter(payment => Number(payment.contractId) === Number(row.id)).reduce((sum, payment) => sum + Number(payment.amount || 0), 0) || Number(row.paidAmount || 0);
       const retention = Math.round(accrued * 0.05);
@@ -234,6 +242,7 @@ export default function AccountingContractsPanel({
           rows: [],
           projects: new Set(),
           types: new Set(),
+          known: true,
           total: 0,
           paid: 0,
           retention: 0,
@@ -246,6 +255,7 @@ export default function AccountingContractsPanel({
       groups[key].rows.push({ ...row, performer, finance });
       if (row.project || row.projectName) groups[key].projects.add(row.project || row.projectName);
       if (row.contractType || row.contractorType) groups[key].types.add(row.contractType || row.contractorType);
+      groups[key].known = groups[key].known && finance.known !== false;
       groups[key].total += finance.accrued;
       groups[key].paid += finance.paid;
       groups[key].retention += finance.retention;
@@ -377,8 +387,9 @@ export default function AccountingContractsPanel({
                 {group.performer.inn && <p style={{ color: C.textMuted, margin: 0, fontSize: '11px' }}>ИНН: {group.performer.inn}{group.performer.bankName ? ' · ' + group.performer.bankName : ''}</p>}
               </div>
               <div style={{ textAlign: 'right' }}>
-                {group.total > 0 && <b style={{ color: C.success, fontSize: '14px' }}>{Math.round(group.total).toLocaleString('ru-RU') + ' ₽ начислено'}</b>}
-                {group.owe > 0 && <p style={{ color: C.danger, margin: '3px 0 0', fontSize: '11px', fontWeight: '700' }}>к выплате: {Math.round(group.owe).toLocaleString('ru-RU')} ₽</p>}
+                {!group.known && <p>Расчёт по актам недоступен</p>}
+                {group.known && group.total > 0 && <b style={{ color: C.success, fontSize: '14px' }}>{balanceMoney(group.total) + ' начислено'}</b>}
+                {group.known && group.owe > 0 && <p style={{ color: C.danger, margin: '3px 0 0', fontSize: '11px', fontWeight: '700' }}>к выплате: {balanceMoney(group.owe)}</p>}
                 {group.warnings.size > 0 && <p style={{ color: C.warning, margin: '3px 0 0', fontSize: '11px', fontWeight: '700' }}>⚠️ реквизиты не полные</p>}
                 {group.missingDocs.size > 0 && <p style={{ color: C.warning, margin: '3px 0 0', fontSize: '11px', fontWeight: '700' }}>⚠️ закрывающие не полные</p>}
                 {hasEmptyDuplicate && <p style={{ color: C.warning, margin: '3px 0 0', fontSize: '11px', fontWeight: '700' }}>Есть пустой дубль договора</p>}
@@ -394,15 +405,15 @@ export default function AccountingContractsPanel({
 
             {isExpanded && <div>
 
-            {(group.total > 0 || group.paid > 0) && (
+            {group.known && (group.total > 0 || group.paid > 0) && (
               <details style={{marginBottom:'10px',color:C.textSec,fontSize:'12px'}}>
                 <summary style={{cursor:'pointer',padding:'6px 0'}}>Подробный расчёт</summary>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(120px,1fr))', gap: '8px', marginBottom: '8px' }}>
-                <div style={{ padding: '8px', borderRadius: '8px', backgroundColor: C.bg, border: '1px solid ' + C.border }}><p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 2px' }}>Начислено</p><b style={{ color: C.text, fontSize: '12px' }}>{Math.round(group.total).toLocaleString('ru-RU')} ₽</b></div>
-                <div style={{ padding: '8px', borderRadius: '8px', backgroundColor: C.bg, border: '1px solid ' + C.border }}><p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 2px' }}>Удержание 5%</p><b style={{ color: C.warning, fontSize: '12px' }}>{Math.round(group.retention).toLocaleString('ru-RU')} ₽</b></div>
-                <div style={{ padding: '8px', borderRadius: '8px', backgroundColor: C.bg, border: '1px solid ' + C.border }}><p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 2px' }}>Можно выплатить</p><b style={{ color: C.accent, fontSize: '12px' }}>{Math.round(group.payable).toLocaleString('ru-RU')} ₽</b></div>
-                <div style={{ padding: '8px', borderRadius: '8px', backgroundColor: C.bg, border: '1px solid ' + C.border }}><p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 2px' }}>Оплачено</p><b style={{ color: C.success, fontSize: '12px' }}>{Math.round(group.paid).toLocaleString('ru-RU')} ₽</b></div>
-                <div style={{ padding: '8px', borderRadius: '8px', backgroundColor: C.bg, border: '1px solid ' + C.border }}><p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 2px' }}>Остаток к выплате</p><b style={{ color: group.owe > 0 ? C.danger : C.success, fontSize: '12px' }}>{group.owe > 0 ? Math.round(group.owe).toLocaleString('ru-RU') + ' ₽' : 'закрыто'}</b></div>
+                <div style={{ padding: '8px', borderRadius: '8px', backgroundColor: C.bg, border: '1px solid ' + C.border }}><p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 2px' }}>Начислено</p><b style={{ color: C.text, fontSize: '12px' }}>{balanceMoney(group.total)}</b></div>
+                <div style={{ padding: '8px', borderRadius: '8px', backgroundColor: C.bg, border: '1px solid ' + C.border }}><p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 2px' }}>{group.rows.every(row => row.finance.byActs) ? 'Штрафы по актам' : group.rows.some(row => row.finance.byActs) ? 'Штрафы и удержания' : 'Удержание 5%'}</p><b style={{ color: C.warning, fontSize: '12px' }}>{balanceMoney(group.retention)}</b></div>
+                <div style={{ padding: '8px', borderRadius: '8px', backgroundColor: C.bg, border: '1px solid ' + C.border }}><p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 2px' }}>{group.rows.every(row => row.finance.byActs) ? 'По актам после штрафов' : 'Можно выплатить'}</p><b style={{ color: C.accent, fontSize: '12px' }}>{balanceMoney(group.payable)}</b></div>
+                <div style={{ padding: '8px', borderRadius: '8px', backgroundColor: C.bg, border: '1px solid ' + C.border }}><p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 2px' }}>Оплачено</p><b style={{ color: C.success, fontSize: '12px' }}>{balanceMoney(group.paid)}</b></div>
+                <div style={{ padding: '8px', borderRadius: '8px', backgroundColor: C.bg, border: '1px solid ' + C.border }}><p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 2px' }}>Остаток к выплате</p><b style={{ color: group.owe > 0 ? C.danger : C.success, fontSize: '12px' }}>{balanceMoney(group.owe)}</b></div>
               </div>
               </details>
             )}
@@ -419,7 +430,7 @@ export default function AccountingContractsPanel({
                   <div>
                     <b style={{ color: C.text, fontSize: '12px' }}>{isBrigade ? 'Расчёт/договор бригады № ' : 'Договор № '}{row.contractNumber}</b>
                     <p style={{ color: C.textSec, margin: '2px 0', fontSize: '11px' }}>{(row.project || row.projectName || 'без объекта') + ' · ' + (row.contractType || row.contractorType || '')}{isBrigade && row.status ? ' · ' + row.status : ''}</p>
-                    {(row.finance.accrued > 0 || row.finance.paid > 0) && <p style={{ color: C.textMuted, margin: 0, fontSize: '10px' }}>начислено {Math.round(row.finance.accrued).toLocaleString('ru-RU')} ₽ · удержание {Math.round(row.finance.retention).toLocaleString('ru-RU')} ₽ · можно выплатить {Math.round(row.finance.payable).toLocaleString('ru-RU')} ₽ · оплачено {Math.round(row.finance.paid).toLocaleString('ru-RU')} ₽ · остаток {Math.round(row.finance.owe).toLocaleString('ru-RU')} ₽</p>}
+                    {(row.finance.accrued > 0 || row.finance.paid > 0) && <p style={{ color: C.textMuted, margin: 0, fontSize: '10px' }}>начислено {balanceMoney(row.finance.accrued)} · {row.finance.byActs ? 'штрафы по актам' : 'удержание'} {balanceMoney(row.finance.retention)} · можно выплатить {balanceMoney(row.finance.payable)} · оплачено {balanceMoney(row.finance.paid)} · остаток {balanceMoney(row.finance.owe)}</p>}
                     {row.finance.missingDocs?.length > 0 && <p style={{ color: C.warning, margin: '2px 0 0', fontSize: '10px', fontWeight: '700' }}>⚠️ Не хватает: {row.finance.missingDocs.join(', ')}</p>}
                     {!isBrigade && <p style={{ color: C.textMuted, margin: 0, fontSize: '10px' }}>{(row.startDate || '') + ' — ' + (row.endDate || '')}</p>}
                   </div>
