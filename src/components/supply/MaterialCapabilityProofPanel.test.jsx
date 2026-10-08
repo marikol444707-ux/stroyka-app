@@ -151,6 +151,35 @@ describe('MaterialCapabilityProofPanel', () => {
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
+  it('removes old confirmation actions while refreshing the source', async () => {
+    let resolveRefresh;
+    global.fetch.mockResolvedValueOnce(response(proof('missing')))
+      .mockImplementationOnce(() => new Promise(resolve => { resolveRefresh = resolve; }));
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', {name: 'Проверить доказуемость'}));
+    await screen.findByRole('button', {name: 'Подтвердить поставщика'});
+    fireEvent.click(screen.getByRole('button', {name: 'Проверить доказуемость'}));
+    expect(screen.queryByRole('button', {name: 'Подтвердить поставщика'})).not.toBeInTheDocument();
+    await act(async () => { resolveRefresh(response(proof('revoked'))); });
+    expect(screen.getByText('Подтверждение отозвано')).toBeInTheDocument();
+  });
+
+  it('keeps a failed save visible after the authoritative status is refreshed', async () => {
+    global.fetch.mockResolvedValueOnce(response(proof('missing')))
+      .mockRejectedValueOnce(new Error('connection lost'))
+      .mockResolvedValueOnce(response(proof('missing')));
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', {name:'Проверить доказуемость'}));
+    fireEvent.click(await screen.findByRole('button', {name:'Подтвердить поставщика'}));
+    const dialog=screen.getByRole('dialog', {name:'Подтверждение возможности поставщика'});
+    fireEvent.click(within(dialog).getByRole('checkbox'));
+    fireEvent.click(within(dialog).getByRole('button', {name:'Подтвердить доказуемость'}));
+    await waitFor(()=>expect(global.fetch).toHaveBeenCalledTimes(3));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Не удалось подтвердить сохранение');
+    expect(screen.getByText('Подтверждение отсутствует')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
   it('confirms one missing subject only after acknowledgement, blocks double submit and reloads proof', async () => {
     let resolveConfirmation;
     global.fetch

@@ -148,10 +148,13 @@ export default function MaterialCapabilityProofPanel({
 
   const proofUrl = `${API || ''}/supply-requests/${requestId}/items/${requestItemIndex}/material-capability-proof`;
 
-  const loadProof = React.useCallback(async () => {
+  const loadProof = React.useCallback(async (preservedError = '') => {
     const generation = scopeGeneration.current;
     setLoading(true);
-    setError('');
+    setProof(null);
+    setAction(null);
+    setAcknowledged(false);
+    setError(typeof preservedError === 'string' ? preservedError : '');
     try {
       const response = await fetch(proofUrl);
       const data = await safeJson(response);
@@ -203,6 +206,7 @@ export default function MaterialCapabilityProofPanel({
       supplierId: subject.supplierId,
       confirmationSubjectSha256: subject.confirmationSubjectSha256,
     } : {};
+    let actionError = '';
     try {
       const response = await fetch(url, {
         method: 'POST',
@@ -216,16 +220,15 @@ export default function MaterialCapabilityProofPanel({
       if (!response.ok && response.status !== 409) {
         throw new Error('write unavailable');
       }
+      if (response.status === 409) actionError = PROOF_ERRORS[409];
     } catch (_error) {
-      if (generation === scopeGeneration.current) {
-        setError('Действие не подтверждено сервером. Статус перечитан.');
-      }
+      actionError = 'Не удалось подтвердить сохранение. Проверьте обновлённый статус перед повторным действием.';
     } finally {
       if (generation !== scopeGeneration.current) return;
       closeAction();
       submittingRef.current = false;
       setSubmitting(false);
-      await loadProof();
+      await loadProof(actionError);
     }
   };
 
