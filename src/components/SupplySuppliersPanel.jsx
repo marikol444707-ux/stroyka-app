@@ -1,5 +1,6 @@
 import React from 'react';
 import SupplierContracts from '../features/supplier-payments/SupplierContracts';
+import SupplierCardDetails from '../features/supply/SupplierCardDetails';
 import { Check, ChevronDown, ChevronUp, Edit2, Link2, Plus, Search, Trash2, X } from 'lucide-react';
 import { API } from '../api';
 import { createSupplierForm, createSupplierInviteForm } from '../features/supply/supplyInitialForms';
@@ -699,7 +700,8 @@ function SupplySuppliersPanel({
                   </div>
 
                   {isOpen && (
-                    <div style={{marginTop:'12px',paddingTop:'12px',borderTop:'1px solid '+C.border}}>
+                    <div onClick={event=>event.stopPropagation()} style={{marginTop:'12px',paddingTop:'12px',borderTop:'1px solid '+C.border}}>
+                      <SupplierCardDetails supplier={supplier} C={C} onEdit={canEditSuppliers ? event=>editSupplier(supplier,event) : undefined}/>
                       <SupplierContracts API={API} companyId={supplier.companyId} supplierId={supplier.id} userId={user?.id}/>
                       {reviewInfo.needsReview && (
                         <div onClick={event=>event.stopPropagation()} style={{padding:'10px',borderRadius:'8px',backgroundColor:C.warningLight,border:'1px solid '+C.warningBorder,marginBottom:'10px'}}>
