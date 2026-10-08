@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import WarehouseTransfersPanel from './WarehouseTransfersPanel';
 
 const transfer = { id: 30, companyId: 2, sourceAllocationId: 8, fromProjectId: 11, fromProjectName: 'Школа', toProjectId: 13, toProjectName: 'Сад', warehouseInvoiceId: 10, invoiceNumber: 'НК-10', lotId: 5, materialName: 'Кабель', unit: 'м', quantity: '10', receivedQuantity: '0', inTransitQuantity: '10', status: 'in_transit', receipts: [], reason: 'По заявке', createdAt: '2026-09-16', createdBy: 'Иван' };
@@ -203,4 +203,18 @@ test('company switch and denial discard old data and commands', async () => {
   await act(async () => late(page()));
   expect(screen.queryByText('В пути: 10 м')).not.toBeInTheDocument();
   expect(props.onDenied).toHaveBeenCalled();
+});
+
+test('receipt opens inside the chosen transfer and cancel leaves other transfers unchanged', async () => {
+  global.fetch = jest.fn(async () => page([transfer, { ...transfer, id: 29, toProjectName: 'Лицей' }]));
+  render(<WarehouseTransfersPanel {...props} source={null} />);
+  const title = await screen.findByText('Школа → Лицей · Кабель');
+  const card = title.closest('article');
+  fireEvent.click(within(card).getByRole('button', { name: 'Принять на объекте' }));
+  expect(within(card).getByLabelText('Фактически принято')).toBeInTheDocument();
+  expect(screen.getAllByLabelText('Фактически принято')).toHaveLength(1);
+  fireEvent.click(within(card).getByRole('button', { name: 'Отменить приёмку' }));
+  expect(screen.queryByLabelText('Фактически принято')).not.toBeInTheDocument();
+  expect(screen.getAllByRole('button', { name: 'Принять на объекте' })).toHaveLength(2);
+  expect(global.fetch.mock.calls.filter(([, options]) => options?.method === 'POST')).toHaveLength(0);
 });

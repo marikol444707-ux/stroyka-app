@@ -127,9 +127,9 @@ function Transfers({ companyId, editable, source, projects = [], blocked = false
       <strong>В пути: {item.inTransitQuantity} {item.unit}</strong><p>{statusLabels[item.status]} · {item.reason} · {item.createdAt} · {item.createdBy}</p>
       {item.receipts.length > 0 && <details><summary>Приёмки и расхождения ({item.receipts.length})</summary><ul>{item.receipts.map(receipt => <li key={receipt.id}>Ожидалось {receipt.expectedQuantity} · принято {receipt.quantity} · расхождение {receipt.discrepancyQuantity} {item.unit} · {receipt.reason} · {receipt.createdAt} · {receipt.createdBy}</li>)}</ul></details>}
       {editable && Number(item.inTransitQuantity) > 0 && <button type="button" disabled={disabled} onClick={() => { onClose?.(); setReceiving(item); }}>Принять на объекте</button>}
+      {editable && receiving?.id === item.id && !denied && <ReceiptForm key={item.id} item={item} companyId={companyId} disabled={disabled} onClose={() => setReceiving(null)} onSubmit={payload => submit(`${transferPath}/${item.id}/receipts`, payload)} />}
     </article>)}</div>
     {cursor !== null && <button type="button" disabled={busy || loading || denied} onClick={() => load(cursor)}>Загрузить ещё перемещения</button>}
-    {editable && receiving && !denied && <ReceiptForm key={receiving.id} item={receiving} companyId={companyId} disabled={disabled} onClose={() => setReceiving(null)} onSubmit={payload => submit(`${transferPath}/${receiving.id}/receipts`, payload)} />}
   </section>;
 }
 
