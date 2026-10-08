@@ -88,6 +88,15 @@ jobs:
             backend.features.staff.test_access_postgres.StaffAccessPostgresTests \
             backend.features.invite_codes.test_supplier_registration_postgres.SupplierRegistrationPostgresTests
 
+      - name: Run supplier notification delivery and requester boundaries
+        run: |
+          export PATH="$(pg_config --bindir):$PATH"
+          python scripts/run_supplier_catalog_postgres_tests.py \
+            backend.features.supplier_access.test_email_retry_postgres \
+            backend.features.supplier_access.test_email_tenant_isolation_postgres \
+            backend.features.supplier_access.test_delivery_evidence_postgres \
+            backend.features.supplier_access.test_rfq_requester_snapshot_postgres
+
       - name: Run supplier document and supply history company boundaries
         run: |
           export PATH="$(pg_config --bindir):$PATH"
