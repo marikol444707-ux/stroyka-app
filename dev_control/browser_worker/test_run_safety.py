@@ -278,5 +278,18 @@ class BrowserWorkerUrlSafetyTest(unittest.TestCase):
 
 
 
+    def test_page_domain_is_enabled_for_dialog_events(self):
+        guard = NetworkBoundary.__new__(NetworkBoundary)
+        guard._cdp = Mock(return_value={})
+        guard._session_id = "root"
+        guard._guarded_sessions = set()
+        guard._enable_session("root", "page")
+        methods = [call.args[0] for call in guard._cdp.call_args_list]
+        self.assertIn("Page.enable", methods)
+        self.assertLess(methods.index("Page.enable"), methods.index("Page.addScriptToEvaluateOnNewDocument"))
+        self.assertIn("root", guard._guarded_sessions)
+
+
+
 if __name__ == "__main__":
     unittest.main()
