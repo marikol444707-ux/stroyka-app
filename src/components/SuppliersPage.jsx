@@ -1,4 +1,5 @@
 import React from 'react';
+import CommercialComparison from './supply/CommercialComparison';
 import { Bot, Check, Edit2, Plus, Search, Trash2, X } from 'lucide-react';
 import { API } from '../api';
 import { createRequestForm, createSupplierForm, createSupplierInviteForm } from '../features/supply/supplyInitialForms';
@@ -315,39 +316,7 @@ function SuppliersPage({
                     )}
                   </div>
 
-                  {compareResult && !compareResult.error && (
-                    <div style={{padding:'12px',backgroundColor:C.successLight,border:'1.5px solid '+C.successBorder,borderRadius:'8px',marginBottom:'10px'}}>
-                      <b style={{color:C.success,fontSize:'11px',display:'block',marginBottom:'6px'}}>🤖 AI рекомендует: {compareResult.bestSupplier}</b>
-                      {compareResult.aiText && <p style={{color:C.text,fontSize:'12px',margin:'0 0 8px',lineHeight:'1.5'}}>{compareResult.aiText}</p>}
-                      <table style={{width:'100%',borderCollapse:'collapse',fontSize:'11px'}}>
-                        <thead>
-                          <tr style={{backgroundColor:C.bg}}>
-                            <th style={{padding:'4px 6px',textAlign:'left',color:C.textSec,fontWeight:'600',borderBottom:'1px solid '+C.border}}>#</th>
-                            <th style={{padding:'4px 6px',textAlign:'left',color:C.textSec,fontWeight:'600',borderBottom:'1px solid '+C.border}}>Поставщик</th>
-                            <th style={{padding:'4px 6px',textAlign:'right',color:C.textSec,fontWeight:'600',borderBottom:'1px solid '+C.border}}>Цена</th>
-                            <th style={{padding:'4px 6px',textAlign:'center',color:C.textSec,fontWeight:'600',borderBottom:'1px solid '+C.border}}>Срок</th>
-                            <th style={{padding:'4px 6px',textAlign:'left',color:C.textSec,fontWeight:'600',borderBottom:'1px solid '+C.border}}>Оплата</th>
-                            <th style={{padding:'4px 6px',textAlign:'center',color:C.textSec,fontWeight:'600',borderBottom:'1px solid '+C.border}}>Балл</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {compareResult.ranking.map((r,i)=>(
-                            <tr key={r.offerId} style={{backgroundColor:i===0?'rgba(34,197,94,0.08)':'transparent'}}>
-                              <td style={{padding:'4px 6px',color:i===0?C.success:C.textSec,fontWeight:'600'}}>{i===0?'🥇':i===1?'🥈':i===2?'🥉':(i+1)+'.'}</td>
-                              <td style={{padding:'4px 6px',color:C.text}}>{r.supplier}{r.rating>0?' ⭐'+r.rating:''}</td>
-                              <td style={{padding:'4px 6px',textAlign:'right',color:C.text}}>{Number(r.pricePerUnit||r.totalPrice||0).toLocaleString('ru-RU')} ₽</td>
-                              <td style={{padding:'4px 6px',textAlign:'center',color:C.text}}>{r.deliveryDays} дн.</td>
-                              <td style={{padding:'4px 6px',color:C.text,fontSize:'10px'}}>{r.paymentTerms}{r.vatIncluded===false?' · б/НДС':''}</td>
-                              <td style={{padding:'4px 6px',textAlign:'center',color:i===0?C.success:C.text,fontWeight:i===0?'700':'400'}}>{r.score}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                      <p style={{color:C.textMuted,fontSize:'10px',margin:'6px 0 0',fontStyle:'italic'}}>Балл: цена 40% · срок 20% · условия 20% · рейтинг 20%. Финальное решение за вами.</p>
-                    </div>
-                  )}
-
-                  {compareResult && compareResult.error && (<div style={{padding:'10px 12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder,borderRadius:'8px',marginBottom:'10px',fontSize:'12px',color:C.text}}>ℹ️ {compareResult.error}</div>)}
+                  <CommercialComparison C={C} compareResult={compareResult} />
 
                   {offers.map(o => {
                     const supplierName = offerPartyName(o, suppliers);
