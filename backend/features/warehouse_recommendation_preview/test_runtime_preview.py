@@ -946,10 +946,10 @@ class WarehouseAnomalyRuntimePreviewCompositionTests(unittest.TestCase):
             root / "backend/db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Reviewed estimate journal key lookup in the composition root;
+            # Reviewed read-only canonical brigade act summary in the composition root;
             # warehouse preview implementation and registration are unchanged.
             root / "backend/main.py": (
-                "521bb1124db32894c9e924599f58a570b6ad2f85248228b80e69b7e9115a6be7"
+                "4529cb050b386a42adedfef1fe70f645f137ac42208ce8b92b1c2ee04e34f762"
             ),
         }
         self.assertEqual({
