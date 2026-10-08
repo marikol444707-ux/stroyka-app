@@ -146,5 +146,58 @@ class ProviderPatchTest(unittest.TestCase):
         patch_handle.restore()
 
 
+    def test_visible_nonsecret_select_keeps_current_value(self):
+        state = {"elements": [
+            {"index": "1", "role": "combobox", "label": "Куда", "value": "JEV QA Объект A"},
+            {"index": "2", "role": "textbox", "label": "Примечание", "value": "private note"},
+            {"index": "3", "role": "combobox", "label": "Session token", "value": "secret-token"},
+        ]}
+        questions = {"select_target": {
+            "criteria": {
+                "1:1": {"role": "combobox", "label": "Куда", "current_value": "JEV QA Объект A"},
+                "2:1": {"role": "combobox", "label": "Session token", "current_value": "secret-token"},
+            }
+        }}
+        safe_state = _sanitize_state_for_provider(state)
+        safe_questions = _sanitize_questions_for_provider(questions)
+        self.assertEqual(safe_state["elements"][0]["value"], "JEV QA Объект A")
+        self.assertEqual(safe_state["elements"][1]["value"], "[POPULATED]")
+        self.assertEqual(safe_state["elements"][2]["value"], "[POPULATED]")
+        self.assertEqual(safe_questions["select_target"]["criteria"]["1:1"]["current_value"], "JEV QA Объект A")
+        self.assertEqual(safe_questions["select_target"]["criteria"]["2:1"]["current_value"], "[POPULATED]")
+        self.assertEqual(state["elements"][1]["value"], "private note")
+
+    def test_form_policy_reaches_timeweb_without_overriding_choice_schema(self):
+        fake = types.SimpleNamespace(post_json=lambda *_: {})
+        env = {"TIMEWEB_AI_API_KEY": "secret"}
+        questions = {
+            "operation": {
+                "type": "choice",
+                "criteria": {"CLICK": "Click", "BLOCKED": "Blocked"},
+                "instructions": {"goal": "Choose item", "rules": "Existing rule"},
+            },
+            "click_target": {
+                "type": "choice",
+                "criteria": {"1": {"role": "checkbox", "label": "Test item"}},
+                "instructions": {"rules": ["Existing target rule"]},
+            },
+        }
+        with patch("dev_control.browser_worker.provider.JevTimewebClient.ask") as ask:
+            ask.return_value = {"answers": {}, "model": "jev-latest"}
+            handle = install_timeweb_provider(model_module=fake, environ=env)
+            fake.post_json(UPSTREAM_TYPESAFE_URL, env["TYPESAFE_API_KEY"], {
+                "state": {"page": {"url": "https://qa.example.test/app"}},
+                "questions": questions,
+            })
+            handle.restore()
+        sent = ask.call_args.kwargs["questions"]
+        self.assertEqual(sent["operation"]["criteria"], questions["operation"]["criteria"])
+        self.assertIn("optional notes", sent["operation"]["instructions"]["rules"])
+        self.assertIn("Existing target rule", sent["click_target"]["instructions"]["rules"])
+        self.assertTrue(any("checkbox" in rule for rule in sent["click_target"]["instructions"]["rules"]))
+        self.assertEqual(questions["operation"]["instructions"]["rules"], "Existing rule")
+
+
+
 if __name__ == "__main__":
     unittest.main()
