@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import CommercialComparison from './CommercialComparison';
 
 test('shows full total, excluded quotes and honest model fallback', () => {
@@ -29,4 +29,12 @@ test('does not claim an approved supplier is unselected', () => {
  render(<CommercialComparison C={{}} hasSelectedOffer compareResult={{bestSupplier: 'Вист', ranking: []}} />);
  expect(screen.getByText('Поставщик уже выбран. Сравнение не меняет ваш выбор.')).toBeInTheDocument();
  expect(screen.queryByText('Это рекомендация. Поставщик пока не выбран.')).not.toBeInTheDocument();
+});
+
+test('opens the recommended offer without choosing or approving it', () => {
+ const open = jest.fn();
+ render(<CommercialComparison C={{}} onShowOffer={open} compareResult={{bestOfferId: 9, bestSupplier: 'Вист', ranking: []}} />);
+ fireEvent.click(screen.getByRole('button', {name: 'Открыть предложение'}));
+ expect(open).toHaveBeenCalledWith(9);
+ expect(screen.getByText('Это рекомендация. Поставщик пока не выбран.')).toBeInTheDocument();
 });

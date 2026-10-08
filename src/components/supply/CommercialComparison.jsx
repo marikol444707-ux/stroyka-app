@@ -2,7 +2,7 @@ import React from 'react';
 
 const money = value => Number(value).toLocaleString('ru-RU', { maximumFractionDigits: 2 }) + ' ₽';
 
-export default function CommercialComparison({ C, compareResult: result, hasSelectedOffer = false }) {
+export default function CommercialComparison({ C, compareResult: result, hasSelectedOffer = false, onShowOffer }) {
   if (!result) return null;
   const ranking = result.ranking || [];
   const best = ranking.find(row => row.offerId === result.bestOfferId) || ranking[0];
@@ -17,6 +17,7 @@ export default function CommercialComparison({ C, compareResult: result, hasSele
           <span>{best.paymentTerms || 'Условия оплаты не указаны'}</span>
         </div>}
         <p style={{ marginBottom: 0, fontSize: 13 }}>{hasSelectedOffer ? 'Результат сравнения показан для справки.' : 'Чтобы выбрать поставщика, проверьте его КП и нажмите «Выбрать» в карточке ниже.'}</p>
+        {!hasSelectedOffer && onShowOffer && <button type="button" onClick={() => onShowOffer(result.bestOfferId)} style={{ marginTop: 12, padding: '10px 14px', background: C.success, color: '#fff', border: 0, borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}>Открыть предложение</button>}
       </div>
       <p style={{ fontSize: 13 }}>{result.aiText ? 'Почему этот вариант: '+result.aiText : 'Сравнение готово. Пояснение ИИ сейчас недоступно.'}</p>
       {ranking.length === 1 && <p style={{ fontSize: 13 }}>Из полученных предложений только это покрывает всю заявку.</p>}
