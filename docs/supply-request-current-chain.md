@@ -91,8 +91,8 @@ separate manual and review groups; that alone does not mean duplicated records.
 7. A separate action creates the supplier invoice: `На утверждении`. An
    accountant/director/deputy approves it and records payment manually.
 8. Shipment creates per-position deliveries and moves the request to `В пути`.
-   Prepayment/50-50 require the relevant payment first; postpayment can ship
-   before payment and before invoice creation.
+   Free-text payment terms do not block shipment. An explicitly saved scheduled
+   advance is checked separately; credit shipment can precede payment and invoice creation.
 9. Foreman/storekeeper/supply specialist/director/deputy records actual receipt
    quantity and quality. The system writes receipt history, warehouse invoice,
    project stock and, where applicable, a claim.
@@ -218,7 +218,7 @@ An isolated PostgreSQL and authenticated ASGI test traverses the real routes:
 new request → foreman confirmation → director approval → RFQ → addressed
 supplier read/response → selection → invoice → approval/payment → project
 payment ledger → shipment → receipt → company-2 stock and warehouse invoice.
-It also checks premature RFQ/shipment rejection, foreign director/supplier
+It also checks premature RFQ rejection, foreign director/supplier
 denial, expired buyer plus forged company header, continued reads, invoice
 replay and receipt replay without duplicate stock/history/invoices.
 
