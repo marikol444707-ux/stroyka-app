@@ -56,6 +56,26 @@ it('finds a work in a long estimate without changing the selected assignments', 
   expect(screen.getByText('Работы не найдены. Очистите поиск.')).toBeInTheDocument();
 });
 
+it('changes only visible work when selecting or clearing a filtered list', () => {
+  const items = Array.from({length: 10}, (_, index) => ({
+    name: `Монтаж кабеля ${index + 1}`, unit: 'м', quantity: 1, priceWork: 100,
+    estimateItemKey: `work-${index + 1}`,
+  }));
+  render(<WorkAssignmentModal show onClose={jest.fn()}
+    selectedEstimate={{id:25, sections:[{name:'Электрика',items}]}}
+    staff={[]} users={[{id:11,name:'Мастер Иван',role:'мастер'}]}
+    API="/api" loadAll={jest.fn()} C={{}} card={{}} inp={{}} btnO={{}} btnG={{}} btnB={{}} isMobile />);
+
+  fireEvent.change(screen.getByRole('searchbox', {name:'Найти работу'}), {target:{value:'кабеля 10'}});
+  fireEvent.click(screen.getByRole('button', {name:'Снять показанные'}));
+  expect(screen.getByText('Выбрано: 9 из 10')).toBeInTheDocument();
+  expect(screen.getByLabelText('Выбрать работу: Монтаж кабеля 10')).not.toBeChecked();
+  fireEvent.click(screen.getByRole('button', {name:'Выбрать показанные'}));
+  expect(screen.getByText('Выбрано: 10 из 10')).toBeInTheDocument();
+  fireEvent.change(screen.getByRole('searchbox', {name:'Найти работу'}), {target:{value:'нет совпадений'}});
+  expect(screen.getByRole('button', {name:'Выбрать показанные'})).toBeDisabled();
+});
+
 describe('work assignment prices', () => {
   beforeEach(() => {
     global.fetch = jest.fn().mockResolvedValue({
