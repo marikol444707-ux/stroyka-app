@@ -113,3 +113,11 @@ it('does not round a remaining act debt of 25 kopecks to closed', () => {
       settlementSummary: {grossAmount: 10, fineAmount: 4, netAmount: 6, paidAmount: 5.75, remainingAmount: 0.25}}]} />);
   expect(screen.getByText('Остаток к выплате').parentElement).toHaveTextContent('0,25 ₽');
 });
+
+it('still requires an NPD receipt after paying a self-employed canonical act', () => {
+  render(<AccountingContractsPanel C={{}} card={{}} inp={{}} btnO={{}} btnG={{}} btnB={{}} btnR={{}}
+    brigadeContracts={[{id: 30, brigadeName: 'Самозанятый мастер', contractorType: 'Самозанятый',
+      status: 'Подписан', settlementVersion: 2,
+      settlementSummary: {grossAmount: 10, fineAmount: 0, netAmount: 10, paidAmount: 10, remainingAmount: 0}}]} />);
+  expect(screen.getByText('⚠️ Не хватает: чек НПД')).toBeInTheDocument();
+});

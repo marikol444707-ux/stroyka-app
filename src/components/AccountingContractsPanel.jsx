@@ -174,9 +174,14 @@ export default function AccountingContractsPanel({
     if (isBrigade) {
       if (Number(row.settlementVersion) === 2) {
         const balance = brigadeBalance(row);
+        const missingDocs = !balance.known ? ['расчёт по актам']
+          : Number(row.settlementSummary?.unsignedActCount) > 0 ? ['скан подписанного акта'] : [];
+        if (balance.paid > 0 && type.includes('самозан') && !hasClosingDoc(row, performer, 'self-employed-receipt')) {
+          missingDocs.push('чек НПД');
+        }
         return {accrued: Number(row.settlementSummary?.grossAmount || 0),
           paid: balance.paid, retention: balance.fine, payable: balance.due,
-          owe: balance.remaining, missingDocs: !balance.known ? ['расчёт по актам'] : Number(row.settlementSummary?.unsignedActCount) > 0 ? ['скан подписанного акта'] : [],
+          owe: balance.remaining, missingDocs,
           byActs: true, known: balance.known};
       }
       const accrued = Number(row.doneAmount || 0);
@@ -430,7 +435,7 @@ export default function AccountingContractsPanel({
                   <div>
                     <b style={{ color: C.text, fontSize: '12px' }}>{isBrigade ? 'Расчёт/договор бригады № ' : 'Договор № '}{row.contractNumber}</b>
                     <p style={{ color: C.textSec, margin: '2px 0', fontSize: '11px' }}>{(row.project || row.projectName || 'без объекта') + ' · ' + (row.contractType || row.contractorType || '')}{isBrigade && row.status ? ' · ' + row.status : ''}</p>
-                    {(row.finance.accrued > 0 || row.finance.paid > 0) && <p style={{ color: C.textMuted, margin: 0, fontSize: '10px' }}>начислено {balanceMoney(row.finance.accrued)} · {row.finance.byActs ? 'штрафы по актам' : 'удержание'} {balanceMoney(row.finance.retention)} · можно выплатить {balanceMoney(row.finance.payable)} · оплачено {balanceMoney(row.finance.paid)} · остаток {balanceMoney(row.finance.owe)}</p>}
+                    {(row.finance.accrued > 0 || row.finance.paid > 0) && <p style={{ color: C.textMuted, margin: 0, fontSize: '10px' }}>начислено {balanceMoney(row.finance.accrued)} · {row.finance.byActs ? 'штрафы по актам' : 'удержание'} {balanceMoney(row.finance.retention)} · {row.finance.byActs ? 'по актам после штрафов' : 'можно выплатить'} {balanceMoney(row.finance.payable)} · оплачено {balanceMoney(row.finance.paid)} · остаток {balanceMoney(row.finance.owe)}</p>}
                     {row.finance.missingDocs?.length > 0 && <p style={{ color: C.warning, margin: '2px 0 0', fontSize: '10px', fontWeight: '700' }}>⚠️ Не хватает: {row.finance.missingDocs.join(', ')}</p>}
                     {!isBrigade && <p style={{ color: C.textMuted, margin: 0, fontSize: '10px' }}>{(row.startDate || '') + ' — ' + (row.endDate || '')}</p>}
                   </div>

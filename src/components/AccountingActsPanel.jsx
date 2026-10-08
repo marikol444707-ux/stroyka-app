@@ -412,7 +412,7 @@ export default function AccountingActsPanel({
                       <span style={{ fontSize: '11px', color: C.accent }}>{(Number(contract.settlementVersion) === 2 ? 'По актам: ' : 'К оплате: ') + balanceMoney(due)}</span>
                       <span style={{ fontSize: '11px', color: C.success }}>{'Оплачено: ' + balanceMoney(paid)}</span>
                       {owe > 0 && <span style={{ fontSize: '11px', color: C.danger, fontWeight: '700' }}>{'Остаток: ' + balanceMoney(owe)}</span>}
-                      {due > 0 && owe <= 0 && <span style={{ fontSize: '11px', color: C.success, fontWeight: '700' }}>✓ Оплачено по актам</span>}
+                      {due > 0 && owe <= 0 && <span style={{ fontSize: '11px', color: C.success, fontWeight: '700' }}>{Number(contract.settlementVersion) === 2 ? '✓ Оплачено по актам' : '✓ Оплачено'}</span>}
                     </div>}
                   </div>
                   <button onClick={() => {
