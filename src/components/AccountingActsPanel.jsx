@@ -1,3 +1,4 @@
+import {brigadeBalance, balanceMoney} from './brigadeBalance';
 import React from 'react';
 import {
   Check,
@@ -401,19 +402,17 @@ export default function AccountingActsPanel({
           <div key={projectName} style={{ ...card, padding: '12px 14px', marginBottom: '8px' }}>
             <b style={{ color: C.text, fontSize: '13px', display: 'block', marginBottom: '8px' }}>🏗 {projectName}</b>
             {brigadeByProject[projectName].map(contract => {
-              const due = Math.round(Number(contract.doneAmount || 0));
-              const paid = Math.round(Number(contract.paidAmount || 0));
-              const owe = Math.max(0, due - paid);
+              const {due, paid, remaining: owe, known} = brigadeBalance(contract);
               return (
                 <div key={contract.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', padding: '8px 0', borderBottom: '1px solid ' + C.border, flexWrap: 'wrap' }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <b style={{ fontSize: '12px', color: C.text }}>{contract.brigadeName}</b>
                     <span style={{ color: C.textSec, fontSize: '11px', marginLeft: '6px' }}>{contract.contractorType}</span>
-                    {contract.settlementVersion === 2 ? <p style={{fontSize: 12, color: C.textSec}}>Стоимость работ, штрафы и оплата — в актах договора</p> : <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '2px' }}>
-                      <span style={{ fontSize: '11px', color: C.accent }}>{'К оплате: ' + due.toLocaleString('ru-RU') + ' ₽'}</span>
-                      <span style={{ fontSize: '11px', color: C.success }}>{'Оплачено: ' + paid.toLocaleString('ru-RU') + ' ₽'}</span>
-                      {owe > 0 && <span style={{ fontSize: '11px', color: C.danger, fontWeight: '700' }}>{'Остаток: ' + owe.toLocaleString('ru-RU') + ' ₽'}</span>}
-                      {due > 0 && owe <= 0 && <span style={{ fontSize: '11px', color: C.success, fontWeight: '700' }}>✓ закрыто</span>}
+                    {!known ? <p style={{fontSize: 12, color: C.textSec}}>Откройте акты для проверки расчёта</p> : <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '2px' }}>
+                      <span style={{ fontSize: '11px', color: C.accent }}>{(Number(contract.settlementVersion) === 2 ? 'По актам: ' : 'К оплате: ') + balanceMoney(due)}</span>
+                      <span style={{ fontSize: '11px', color: C.success }}>{'Оплачено: ' + balanceMoney(paid)}</span>
+                      {owe > 0 && <span style={{ fontSize: '11px', color: C.danger, fontWeight: '700' }}>{'Остаток: ' + balanceMoney(owe)}</span>}
+                      {due > 0 && owe <= 0 && <span style={{ fontSize: '11px', color: C.success, fontWeight: '700' }}>{Number(contract.settlementVersion) === 2 ? '✓ Оплачено по актам' : '✓ Оплачено'}</span>}
                     </div>}
                   </div>
                   <button onClick={() => {

@@ -51,3 +51,19 @@ it('keeps a way back when the last historical contract changes status', () => {
   fireEvent.click(screen.getByRole('button', {name: 'Скрыть историю'}));
   expect(screen.getByText('Новая бригада')).toBeInTheDocument();
 });
+
+it('shows paid net after a fine with no fictitious outstanding gross amount', () => {
+  render(<ProjectBrigadesList {...props} brigadeContracts={[{...contracts[0], settlementVersion: 2,
+    doneAmount: 10000, paidAmount: 8000,
+    settlementSummary: {netAmount: 8000, fineAmount: 2000, paidAmount: 8000, remainingAmount: 0}}]} />);
+  expect(screen.getByText('По актам: 8 000 ₽')).toBeInTheDocument();
+  expect(screen.queryByText('Остаток: 2 000 ₽')).not.toBeInTheDocument();
+});
+
+it('sums each contract debt without offsetting another contract advance', () => {
+  render(<ProjectBrigadesList {...props} brigadeContracts={[
+    {...contracts[0], doneAmount: 1000, paidAmount: 2000},
+    {...contracts[0], id: 7, brigadeName: 'Вторая бригада', doneAmount: 1000, paidAmount: 0},
+  ]} />);
+  expect(screen.getByText('Остаток').parentElement).toHaveTextContent('1 000 ₽');
+});

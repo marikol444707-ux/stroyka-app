@@ -19181,6 +19181,11 @@ def get_brigade_contracts(
                     continue
                 scoped_groups.setdefault(tuple(packages), []).append(row[0])
                 package_scoped_contract_ids.add(row[0])
+            from backend.features.brigade_access.settlement_summary import read_settlement_summaries
+            settlement_summaries = read_settlement_summaries(cur, [
+                (row[0], row[17]) for row in rows
+                if row[18] == 2 and row[0] not in package_scoped_contract_ids
+            ])
             scoped_item_amounts = {}
             for packages, contract_ids in scoped_groups.items():
                 cur.execute("""SELECT contract_id,
@@ -19217,6 +19222,7 @@ def get_brigade_contracts(
                 "paidAmount": float(row[15] or 0), "workPackage": row[12] or "",
                 "actScanUrl": row[16] or "", "companyId": row[17],
                 "settlementVersion": _row_get(row, "settlement_version", 18, 1),
+                "settlementSummary": settlement_summaries.get((row[0], row[17])),
                 "contractScanUrl": _row_get(row, "contract_scan_url", 19, "") or "",
                 "partySnapshot": _row_get(row, "party_snapshot_json", 20),
             })

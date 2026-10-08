@@ -1,3 +1,4 @@
+import {brigadeBalance, balanceMoney} from './brigadeBalance';
 import React, { useState } from 'react';
 import { ChevronRight, Trash2, Users } from 'lucide-react';
 import { API } from '../api';
@@ -32,9 +33,11 @@ export default function ProjectBrigadesList({
   };
 
   const activeContracts = projectContracts.filter(bc => bc.status !== 'Аннулирован');
-  const totalDue = activeContracts.reduce((sum, bc) => sum + Number(bc.doneAmount || 0), 0);
-  const totalPaid = activeContracts.reduce((sum, bc) => sum + Number(bc.paidAmount || 0), 0);
-  const totalOwe = Math.max(0, totalDue - totalPaid);
+  const balances = activeContracts.map(brigadeBalance);
+  const totalsKnown = balances.every(balance => balance.known);
+  const totalDue = totalsKnown ? balances.reduce((sum, balance) => sum + balance.due, 0) : null;
+  const totalPaid = totalsKnown ? balances.reduce((sum, balance) => sum + balance.paid, 0) : null;
+  const totalOwe = totalsKnown ? balances.reduce((sum, balance) => sum + balance.remaining, 0) : null;
 
   if (projectContracts.length === 0) {
     return (
@@ -55,24 +58,22 @@ export default function ProjectBrigadesList({
       <div style={{...card, padding: '14px', marginBottom: '12px', backgroundColor: C.bg, display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '10px'}}>
         <div>
           <p style={{color: C.textSec, fontSize: '11px', margin: '0 0 3px'}}>Всего к оплате бригадам</p>
-          <b style={{color: C.accent, fontSize: '15px'}}>{Math.round(totalDue).toLocaleString('ru-RU') + ' ₽'}</b>
+          <b style={{color: C.accent, fontSize: '15px'}}>{balanceMoney(totalDue)}</b>
         </div>
         <div>
           <p style={{color: C.textSec, fontSize: '11px', margin: '0 0 3px'}}>Оплачено</p>
-          <b style={{color: C.success, fontSize: '15px'}}>{Math.round(totalPaid).toLocaleString('ru-RU') + ' ₽'}</b>
+          <b style={{color: C.success, fontSize: '15px'}}>{balanceMoney(totalPaid)}</b>
         </div>
         <div>
           <p style={{color: C.textSec, fontSize: '11px', margin: '0 0 3px'}}>Остаток</p>
-          <b style={{color: totalOwe > 0 ? C.danger : C.success, fontSize: '15px'}}>{Math.round(totalOwe).toLocaleString('ru-RU') + ' ₽'}</b>
+          <b style={{color: totalOwe > 0 ? C.danger : C.success, fontSize: '15px'}}>{balanceMoney(totalOwe)}</b>
         </div>
       </div>
 
       {contracts.length === 0 && <p style={{color:C.textSec}}>{showHistory ? 'В истории пока нет договоров.' : 'Действующих договоров нет. Черновики и аннулированные записи находятся в истории.'}</p>}
       <div style={{...card,padding:'0 16px',overflow:'hidden'}}>
       {contracts.map(bc => {
-        const due = Math.round(Number(bc.doneAmount || 0));
-        const paid = Math.round(Number(bc.paidAmount || 0));
-        const owe = Math.max(0, due - paid);
+        const {due, paid, remaining: owe, known} = brigadeBalance(bc);
 
         return (
           <div key={bc.id} style={{padding:'16px 4px',borderBottom:'1px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'12px',cursor:'pointer'}} onClick={() => openBrigadeContract(bc)}>
@@ -80,10 +81,10 @@ export default function ProjectBrigadesList({
               <b style={{color: C.text, fontSize: '13px'}}>{bc.brigadeName}</b>
               <p style={{color: C.textSec, margin: '3px 0', fontSize: '12px'}}>{bc.contractorType + ' · ' + bc.status}{bc.workPackage ? ' · ' + bc.workPackage : ''}</p>
               <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '2px'}}>
-                <span style={{fontSize: '12px', color: C.accent}}>{'К оплате: ' + due.toLocaleString('ru-RU') + ' ₽'}</span>
-                <span style={{fontSize: '12px', color: C.success}}>{'Оплачено: ' + paid.toLocaleString('ru-RU') + ' ₽'}</span>
-                {owe > 0 && <span style={{fontSize: '12px', color: C.danger, fontWeight: '700'}}>{'Остаток: ' + owe.toLocaleString('ru-RU') + ' ₽'}</span>}
-                {due > 0 && owe <= 0 && <span style={{fontSize: '12px', color: C.success, fontWeight: '700'}}>✓ Оплачено полностью</span>}
+                <span style={{fontSize: '12px', color: C.accent}}>{(Number(bc.settlementVersion) === 2 ? 'По актам: ' : 'К оплате: ') + balanceMoney(due)}</span>
+                <span style={{fontSize: '12px', color: C.success}}>{'Оплачено: ' + balanceMoney(paid)}</span>
+                {owe > 0 && <span style={{fontSize: '12px', color: C.danger, fontWeight: '700'}}>{'Остаток: ' + balanceMoney(owe)}</span>}
+                {known && due > 0 && owe <= 0 && <span style={{fontSize: '12px', color: C.success, fontWeight: '700'}}>✓ Оплачено полностью</span>}
               </div>
             </div>
             <div style={{display: 'flex', gap: '8px', alignItems: 'center'}}>
