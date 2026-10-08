@@ -270,7 +270,7 @@ describe('SupplyTechnicalComparisonPanel', () => {
       />,
     );
 
-    expect(screen.getByRole('link', { name: /PDF/ })).toHaveAttribute('href', '/tenant-files/44/content');
+    expect(screen.getByRole('button', { name: 'Открыть предложение' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Проверить характеристики' }));
     await waitFor(() => expect(global.fetch).toHaveBeenCalledWith(
       '/api/supply-requests/31/technical-comparisons/supplier_offer/81?projectId=7&fileId=44',

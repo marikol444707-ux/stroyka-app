@@ -1,6 +1,7 @@
 import React, {useState} from 'react';
 import {FileText} from 'lucide-react';
 import useProtectedFileObjectUrl from '../features/uploads/useProtectedFileObjectUrl';
+import SupplierDocumentButton from '../features/uploads/SupplierDocumentButton';
 
 export default function AccountingDocumentAttachment({url, fileSrc, onPhoto, C}) {
   const {src, loading, error, contentType} = useProtectedFileObjectUrl(url, fileSrc);
@@ -20,6 +21,7 @@ export default function AccountingDocumentAttachment({url, fileSrc, onPhoto, C})
   );
   const pdf = contentType === 'application/pdf' || /\.pdf(?:[?#]|$)/i.test(url);
   return <div style={{display:'flex',flexDirection:'column',gap:'4px'}}>
+    {pdf && <SupplierDocumentButton url={url} fileSrc={fileSrc} label="Открыть документ"/>}
     {image && <span role="status" style={{color:C.textMuted}}>Превью недоступно</span>}
     <a href={src} download={pdf ? 'Накладная.pdf' : ''} style={frame}><FileText size={18}/>
       {pdf ? 'Скачать PDF' : 'Скачать файл'}
