@@ -309,14 +309,15 @@ function SuppliersPage({
                       {isMulti && (<ol style={{margin:'4px 0 0',paddingLeft:'18px',color:C.textSec,fontSize:'11px'}}>{items.map((it,i)=>(<li key={i} style={{marginBottom:'1px'}}>{it.materialName} <span>— {it.quantity} {it.unit}</span></li>))}</ol>)}
                       {renderSupplyRequestOrigin(req,{compact:true})}
                     </div>
-                    {receivedOffers.length>=2 && isLeadershipUser && !winner && (
-                      <button onClick={()=>runCompareKp(req.id)} disabled={compareLoading} style={{...btnGr,padding:'5px 12px',fontSize:'12px',opacity:compareLoading?0.6:1}}>
-                        <Bot size={12}/>{compareLoading?'AI сравнивает...':'🤖 Сравнить через AI'}
+                    {isLeadershipUser && !winner && (
+                      <button onClick={()=>runCompareKp(req.id)} disabled={compareLoading || receivedOffers.length < 2} style={{...btnGr,padding:'5px 12px',fontSize:'12px',opacity:compareLoading?0.6:1}}>
+                        <Bot size={12}/>{compareLoading?'Сравниваем предложения…':'Сравнить предложения'}
                       </button>
                     )}
                   </div>
 
-                  <CommercialComparison C={C} compareResult={compareResult} />
+                  {isLeadershipUser && !winner && receivedOffers.length < 2 && <p style={{color:C.textSec,fontSize:12}}>Для сравнения нужны ответы двух поставщиков. Получено: {receivedOffers.length} из 2.</p>}
+                  <CommercialComparison C={C} compareResult={compareResult} hasSelectedOffer={Boolean(winner)} />
 
                   {offers.map(o => {
                     const supplierName = offerPartyName(o, suppliers);

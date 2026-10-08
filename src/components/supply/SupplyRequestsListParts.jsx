@@ -441,9 +441,9 @@ export function OffersBlock({
     <div style={{ borderTop: '1.5px dashed ' + C.border, paddingTop: '10px', marginTop: '10px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', gap: '8px', flexWrap: 'wrap' }}>
         <b style={{ color: C.text, fontSize: '12px' }}>📊 КП от поставщиков ({offerCounterText}){winner ? ' · ✅ выбрано' : ''}</b>
-        {receivedOffers.length >= 2 && canApprove && (
-          <button onClick={() => runCompareKp(request.id)} disabled={compareLoading} style={{ ...btnGr, padding: '4px 10px', fontSize: '11px', opacity: compareLoading ? 0.6 : 1 }}>
-            <Bot size={11} />{compareLoading ? 'AI сравнивает...' : '🤖 Сравнить через AI'}
+        {canApprove && (
+          <button onClick={() => runCompareKp(request.id)} disabled={compareLoading || receivedOffers.length < 2} style={{ ...btnGr, padding: '4px 10px', fontSize: '11px', opacity: compareLoading ? 0.6 : 1 }}>
+            <Bot size={11} />{compareLoading ? 'Сравниваем предложения…' : 'Сравнить предложения'}
           </button>
         )}
         {canApprove && (
@@ -452,7 +452,8 @@ export function OffersBlock({
           </button>
         )}
       </div>
-      <CommercialComparison C={C} compareResult={compareResult} />
+      {canApprove && receivedOffers.length < 2 && <p style={{ color: C.textSec, fontSize: 12 }}>Для сравнения нужны ответы двух поставщиков. Получено: {receivedOffers.length} из 2.</p>}
+      <CommercialComparison C={C} compareResult={compareResult} hasSelectedOffer={Boolean(winner)} />
       {recipientCheck.status === 'loading' && <p role='status'>Обновляем КП и сведения об уведомлениях…</p>}
       {recipientCheck.error && (
         <div role='alert' style={{ padding: '8px 10px', backgroundColor: C.dangerLight, borderRadius: '6px', border: '1px solid ' + C.dangerBorder, marginBottom: '8px', fontSize: '11px', color: C.danger }}>

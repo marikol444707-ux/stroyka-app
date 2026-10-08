@@ -34,3 +34,14 @@ it('discards an old company response after switching context', async () => {
   await act(async () => { finishes.forEach(finish => finish({ ok: true, json: async () => [{ ...offer, supplierMessage: 'Чужие данные' }] })); });
   await waitFor(() => expect(screen.queryByText(/Чужие данные/)).not.toBeInTheDocument());
 });
+it('keeps comparison discoverable and explains the missing response', () => {
+  render(<OffersBlock {...props} />);
+  expect(screen.getByRole('button', { name: 'Сравнить предложения' })).toBeDisabled();
+  expect(screen.getByText(/Получено: 1 из 2/)).toBeInTheDocument();
+});
+it('compares the current request when two suppliers have replied', () => {
+  const compare = jest.fn();
+  render(<OffersBlock {...props} runCompareKp={compare} supplierOffers={[offer, {...offer, id: 9, supplierId: 4}]} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Сравнить предложения' }));
+  expect(compare).toHaveBeenCalledWith(1);
+});
