@@ -34,3 +34,38 @@ it('discards an old company response after switching context', async () => {
   await act(async () => { finishes.forEach(finish => finish({ ok: true, json: async () => [{ ...offer, supplierMessage: 'Чужие данные' }] })); });
   await waitFor(() => expect(screen.queryByText(/Чужие данные/)).not.toBeInTheDocument());
 });
+it('keeps comparison discoverable and explains the missing response', () => {
+  render(<OffersBlock {...props} />);
+  expect(screen.getByRole('button', { name: 'Сравнить предложения' })).toBeDisabled();
+  expect(screen.getByText(/Получено: 1 из 2/)).toBeInTheDocument();
+});
+it('compares the current request when two suppliers have replied', () => {
+  const compare = jest.fn();
+  render(<OffersBlock {...props} runCompareKp={compare} supplierOffers={[offer, {...offer, id: 9, supplierId: 4}]} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Сравнить предложения' }));
+  expect(compare).toHaveBeenCalledWith(1);
+});
+it('marks only the current comparison winner and ignores old AI flags', () => {
+  render(<OffersBlock {...props} supplierOffers={[{...offer, aiRecommended: true}, {...offer, id: 9, supplierId: 4}]} compareResultByReq={{1: {bestOfferId: 9, bestSupplier: 'Другой', ranking: []}}} />);
+  expect(screen.getAllByText('Лучшее по сравнению')).toHaveLength(1);
+  expect(screen.queryByText('🤖 AI рек.')).not.toBeInTheDocument();
+});
+it('does not label a quote recommended when comparison fails', () => {
+  render(<OffersBlock {...props} compareResultByReq={{1: {bestOfferId: 7, error: 'Сравнение недоступно'}}} />);
+  expect(screen.queryByText('Лучшее по сравнению')).not.toBeInTheDocument();
+});
+it('opens and focuses the recommended card without selecting the supplier', () => {
+  const originalScroll = HTMLElement.prototype.scrollIntoView;
+  const scroll = jest.fn();
+  HTMLElement.prototype.scrollIntoView = scroll;
+  const select = jest.fn();
+  try {
+    render(<OffersBlock {...props} selectSupplierOffer={select} compareResultByReq={{1: {bestOfferId: 7, bestSupplier: 'Поставщик', ranking: []}}} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть предложение' }));
+    expect(document.activeElement).toBe(document.getElementById('request-1-offer-7'));
+    expect(scroll).toHaveBeenCalledWith({block: 'center'});
+    expect(select).not.toHaveBeenCalled();
+  } finally {
+    HTMLElement.prototype.scrollIntoView = originalScroll;
+  }
+});

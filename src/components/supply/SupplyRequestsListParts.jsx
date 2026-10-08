@@ -380,6 +380,7 @@ export function OffersBlock({
   const renderOffer = (o, compact = false) => {
     const sup = suppliers.find(s => s.id === o.supplierId);
     const isWin = o.status === 'Утверждено';
+    const isRecommended = !compareResult?.error && compareResult?.bestOfferId === o.id && o.status === 'Получено';
     const isWait = o.status === 'Ожидает ответа';
     const isRej = o.status === 'Отклонено';
     const isWithdrawn = o.status === 'Отозвано';
@@ -388,10 +389,10 @@ export function OffersBlock({
     const stBd = isWin ? C.successBorder : isRej ? C.dangerBorder : isWithdrawn ? C.border : isWait ? C.warningBorder : C.infoBorder;
 
     return (
-      <div key={o.id} style={{ padding: compact ? '8px' : '10px', backgroundColor: stBg, borderRadius: '6px', marginBottom: '6px', border: '1.5px solid ' + stBd, opacity: compact ? 0.92 : 1 }}>
+      <div id={`request-${request.id}-offer-${o.id}`} tabIndex={-1} key={o.id} style={{ padding: compact ? '8px' : '10px', backgroundColor: stBg, borderRadius: '6px', marginBottom: '6px', border: '1.5px solid ' + stBd, opacity: compact ? 0.92 : 1 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', flexWrap: 'wrap' }}>
           <div style={{ flex: 1, minWidth: '200px' }}>
-            <b style={{ fontSize: compact ? '12px' : '13px', color: C.text }}>{sup ? sup.name : 'Поставщик #' + o.supplierId}{o.aiRecommended && <span style={{ marginLeft: '6px', fontSize: '10px', color: C.accent }}>🤖 AI рек.</span>}</b>
+            <b style={{ fontSize: compact ? '12px' : '13px', color: C.text }}>{sup ? sup.name : 'Поставщик #' + o.supplierId}{isRecommended && <span style={{ marginLeft: '6px', fontSize: '12px', color: C.success }}>Лучшее по сравнению</span>}</b>
             {o.pricePerUnit ? (
               <p style={{ color: C.textSec, margin: '2px 0', fontSize: '12px' }}>
                 {Number(o.pricePerUnit).toLocaleString('ru-RU') + ' ₽/ед'}
@@ -441,9 +442,9 @@ export function OffersBlock({
     <div style={{ borderTop: '1.5px dashed ' + C.border, paddingTop: '10px', marginTop: '10px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', gap: '8px', flexWrap: 'wrap' }}>
         <b style={{ color: C.text, fontSize: '12px' }}>📊 КП от поставщиков ({offerCounterText}){winner ? ' · ✅ выбрано' : ''}</b>
-        {receivedOffers.length >= 2 && canApprove && (
-          <button onClick={() => runCompareKp(request.id)} disabled={compareLoading} style={{ ...btnGr, padding: '4px 10px', fontSize: '11px', opacity: compareLoading ? 0.6 : 1 }}>
-            <Bot size={11} />{compareLoading ? 'AI сравнивает...' : '🤖 Сравнить через AI'}
+        {canApprove && (
+          <button onClick={() => runCompareKp(request.id)} disabled={compareLoading || receivedOffers.length < 2} style={{ ...btnGr, padding: '4px 10px', fontSize: '11px', opacity: compareLoading ? 0.6 : 1 }}>
+            <Bot size={11} />{compareLoading ? 'Сравниваем предложения…' : 'Сравнить предложения'}
           </button>
         )}
         {canApprove && (
@@ -452,7 +453,8 @@ export function OffersBlock({
           </button>
         )}
       </div>
-      <CommercialComparison C={C} compareResult={compareResult} />
+      {canApprove && receivedOffers.length < 2 && <p style={{ color: C.textSec, fontSize: 12 }}>Для сравнения нужны ответы двух поставщиков. Получено: {receivedOffers.length} из 2.</p>}
+      <CommercialComparison C={C} compareResult={compareResult} hasSelectedOffer={Boolean(winner)} onShowOffer={id => { const card = document.getElementById(`request-${request.id}-offer-${id}`); card?.scrollIntoView({ block: 'center' }); card?.focus({ preventScroll: true }); }} />
       {recipientCheck.status === 'loading' && <p role='status'>Обновляем КП и сведения об уведомлениях…</p>}
       {recipientCheck.error && (
         <div role='alert' style={{ padding: '8px 10px', backgroundColor: C.dangerLight, borderRadius: '6px', border: '1px solid ' + C.dangerBorder, marginBottom: '8px', fontSize: '11px', color: C.danger }}>

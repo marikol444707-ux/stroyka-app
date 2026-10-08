@@ -309,26 +309,28 @@ function SuppliersPage({
                       {isMulti && (<ol style={{margin:'4px 0 0',paddingLeft:'18px',color:C.textSec,fontSize:'11px'}}>{items.map((it,i)=>(<li key={i} style={{marginBottom:'1px'}}>{it.materialName} <span>— {it.quantity} {it.unit}</span></li>))}</ol>)}
                       {renderSupplyRequestOrigin(req,{compact:true})}
                     </div>
-                    {receivedOffers.length>=2 && isLeadershipUser && !winner && (
-                      <button onClick={()=>runCompareKp(req.id)} disabled={compareLoading} style={{...btnGr,padding:'5px 12px',fontSize:'12px',opacity:compareLoading?0.6:1}}>
-                        <Bot size={12}/>{compareLoading?'AI сравнивает...':'🤖 Сравнить через AI'}
+                    {isLeadershipUser && !winner && (
+                      <button onClick={()=>runCompareKp(req.id)} disabled={compareLoading || receivedOffers.length < 2} style={{...btnGr,padding:'5px 12px',fontSize:'12px',opacity:compareLoading?0.6:1}}>
+                        <Bot size={12}/>{compareLoading?'Сравниваем предложения…':'Сравнить предложения'}
                       </button>
                     )}
                   </div>
 
-                  <CommercialComparison C={C} compareResult={compareResult} />
+                  {isLeadershipUser && !winner && receivedOffers.length < 2 && <p style={{color:C.textSec,fontSize:12}}>Для сравнения нужны ответы двух поставщиков. Получено: {receivedOffers.length} из 2.</p>}
+                  <CommercialComparison C={C} compareResult={compareResult} hasSelectedOffer={Boolean(winner)} onShowOffer={id => { const card = document.getElementById(`comparison-${req.id}-offer-${id}`); card?.scrollIntoView({ block: 'center' }); card?.focus({ preventScroll: true }); }} />
 
                   {offers.map(o => {
                     const supplierName = offerPartyName(o, suppliers);
+                    const isRecommended = !compareResult?.error && compareResult?.bestOfferId === o.id && o.status === 'Получено';
                     const hasPrice = Number(o.pricePerUnit||0) > 0;
                     const stC = o.status==='Утверждено'?C.success:o.status==='Отклонено'?C.danger:o.status==='Отозвано'?C.textMuted:o.status==='Получено'?C.info:C.warning;
                     const stBg = o.status==='Утверждено'?C.successLight:o.status==='Отклонено'?C.dangerLight:o.status==='Отозвано'?C.bg:o.status==='Получено'?C.infoLight:C.warningLight;
                     const stBd = o.status==='Утверждено'?C.successBorder:o.status==='Отклонено'?C.dangerBorder:o.status==='Отозвано'?C.border:o.status==='Получено'?C.infoBorder:C.warningBorder;
                     return (
-                      <div key={o.id} style={{padding:'10px 12px',backgroundColor:stBg,borderRadius:'6px',marginBottom:'6px',border:'1.5px solid '+stBd}}>
+                      <div id={`comparison-${req.id}-offer-${o.id}`} tabIndex={-1} key={o.id} style={{padding:'10px 12px',backgroundColor:stBg,borderRadius:'6px',marginBottom:'6px',border:'1.5px solid '+stBd}}>
                         <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'8px',flexWrap:'wrap'}}>
                           <div style={{flex:'1 1 220px'}}>
-                            <b style={{color:C.text,fontSize:'13px'}}>{supplierName}{o.aiRecommended&&<span style={{marginLeft:'6px',fontSize:'10px',color:C.accent}}>🤖 AI рек.</span>}</b>
+                            <b style={{color:C.text,fontSize:'13px'}}>{supplierName}{isRecommended&&<span style={{marginLeft:'6px',fontSize:'12px',color:C.success}}>Лучшее по сравнению</span>}</b>
                             {hasPrice
                               ? (<p style={{color:C.text,margin:'2px 0',fontSize:'12px'}}>{isMulti ? ('Итого за пакет: '+Number(o.totalPrice||o.pricePerUnit||0).toLocaleString('ru-RU')+' ₽') : (Number(o.pricePerUnit||0).toLocaleString('ru-RU')+' ₽/ед · итого '+Number(o.totalPrice||0).toLocaleString('ru-RU')+' ₽')}{o.deliveryDays?' · '+o.deliveryDays+' дн.':''}</p>)
                               : <p style={{color:C.textMuted,margin:'2px 0',fontSize:'12px',fontStyle:'italic'}}>⏳ Поставщик ещё не ответил</p>}
