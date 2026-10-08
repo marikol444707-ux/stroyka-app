@@ -285,6 +285,8 @@ class NetworkBoundary:
         )
 
         if target_type in _PAGE_LIKE_TARGETS:
+            # Page.enable is required for Page.javascriptDialogOpening events.
+            self._cdp("Page.enable", session_id=session_id)
             self._cdp(
                 "Page.addScriptToEvaluateOnNewDocument",
                 session_id=session_id,
