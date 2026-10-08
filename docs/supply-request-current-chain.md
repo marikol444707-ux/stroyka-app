@@ -289,3 +289,25 @@ opt-in integration test are preserved. The budget inventory implementation,
 allowlist, runtime application, and migrations are unchanged by this correction.
 The corrected tree passes the full Python 3.11 backend discovery: 3012 tests,
 63 explicit skips, no failures. GitHub CI must also pass before deployment.
+
+### Additional notification verification — 2026-10-08
+
+The installed comparison release is `2cd7f64909685ae55e797e2f7dd057abc462b2a8`.
+The production email timer is active and its last inspected invocation succeeded.
+A single explicitly authorized control email used the deployed RFQ content builder
+and SMTP sender. SMTP acknowledged it at 19:00:48 UTC; the user confirmed reception
+in their inbox. This control email created no production request, offer or other
+business record. It verifies real email transport, not an authenticated supplier
+browser submission or MAX inbox delivery.
+
+Additional local checks passed: 32 notification unit/runtime tests and 16 isolated
+PostgreSQL/HTTP tests covering safe retry, two buyer companies sharing a supplier,
+delivery evidence, comparison, supplier response retries and immutable requester
+snapshots. Disposable database clusters were removed by the test runner.
+
+The two-company email test had an obsolete Reply-To expectation. Current RFQs
+freeze the requesting contact at approval and use that contact for replies;
+legacy requests without snapshots retain the company email fallback. The corrected
+test also changes company settings after freezing and confirms that the original
+customer identity survives. Runtime notification behavior was not changed.
+The notification and requester PostgreSQL suites are now included in CI.
