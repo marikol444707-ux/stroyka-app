@@ -4,6 +4,7 @@ from unittest.mock import Mock, patch
 
 from dev_control.browser_worker.network_guard import (
     DEDICATED_CDP_URL,
+    NetworkBoundary,
     assert_dedicated_loopback_cdp_url,
     bootstrap_session_cookie,
     redact_boundary_url,
@@ -228,6 +229,53 @@ class BrowserWorkerUrlSafetyTest(unittest.TestCase):
                     "context-1",
                     cdp,
                 )
+
+
+    def test_qa_alert_is_acknowledged_and_stops_unsafe_retry(self):
+        guard = NetworkBoundary.__new__(NetworkBoundary)
+        guard._cdp = Mock()
+        guard._session_id = "root"
+        guard._guarded_sessions = {"root"}
+        guard._error = None
+        guard._handle_javascript_dialog({
+            "method": "Page.javascriptDialogOpening",
+            "session_id": "root",
+            "params": {"type": "alert", "message": "private error detail"},
+        })
+        guard._cdp.assert_called_once_with(
+            "Page.handleJavaScriptDialog", session_id="root", accept=True,
+        )
+        self.assertIn("alert observed", guard._error)
+        self.assertNotIn("private error detail", guard._error)
+
+    def test_confirm_prompt_and_beforeunload_are_never_approved(self):
+        for kind in ("confirm", "prompt", "beforeunload"):
+            with self.subTest(kind=kind):
+                guard = NetworkBoundary.__new__(NetworkBoundary)
+                guard._cdp = Mock()
+                guard._session_id = "root"
+                guard._guarded_sessions = {"root"}
+                guard._error = None
+                guard._handle_javascript_dialog({
+                    "session_id": "root", "params": {"type": kind},
+                })
+                guard._cdp.assert_called_once_with(
+                    "Page.handleJavaScriptDialog", session_id="root", accept=False,
+                )
+                self.assertIn("without approval", guard._error)
+
+    def test_dialog_from_unguarded_session_fails_closed(self):
+        guard = NetworkBoundary.__new__(NetworkBoundary)
+        guard._cdp = Mock()
+        guard._session_id = "root"
+        guard._guarded_sessions = {"root"}
+        guard._error = None
+        guard._handle_javascript_dialog({
+            "session_id": "foreign", "params": {"type": "alert"},
+        })
+        guard._cdp.assert_not_called()
+        self.assertIn("unguarded", guard._error)
+
 
 
 if __name__ == "__main__":
