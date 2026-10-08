@@ -125,7 +125,8 @@ describe('work assignment prices', () => {
 
     typeManualBrigade('Бригада');
     fireEvent.click(screen.getByRole('button', {name: 'Настроить цену'}));
-    fireEvent.change(screen.getByLabelText('Коэффициент'), {target: {value: '0.4'}});
+    expect(screen.getByLabelText('Доля исполнителя, %')).toHaveValue(60);
+    fireEvent.change(screen.getByLabelText('Доля исполнителя, %'), {target: {value: '40'}});
     fireEvent.change(screen.getByLabelText('Цена исполнителю: Блок управления'), {target: {value: '1000'}});
     fireEvent.click(screen.getByRole('button', {name: 'Выдать в работу'}));
 
@@ -218,14 +219,14 @@ describe('work assignment prices', () => {
     typeManualBrigade('Бригада Север');
     fireEvent.click(screen.getByLabelText('Выбрать работу: Прокладка кабеля'));
     fireEvent.click(screen.getByRole('button', {name: 'Настроить цену'}));
-    fireEvent.change(screen.getByLabelText('Коэффициент'), {target: {value: '0.4'}});
+    fireEvent.change(screen.getByLabelText('Доля исполнителя, %'), {target: {value: '40'}});
     fireEvent.change(screen.getByLabelText('Цена исполнителю: Блок управления'), {target: {value: '950'}});
 
     rerender(<WorkAssignmentModal {...props} users={[{id: 11, name: 'Новый мастер', role: 'мастер'}]} />);
 
     expect(screen.getByPlaceholderText('Название бригады')).toHaveValue('Бригада Север');
     expect(screen.getByLabelText('Выбрать работу: Прокладка кабеля')).not.toBeChecked();
-    expect(screen.getByLabelText('Коэффициент')).toHaveValue(0.4);
+    expect(screen.getByLabelText('Доля исполнителя, %')).toHaveValue(40);
     expect(screen.getByLabelText('Цена исполнителю: Блок управления')).toHaveValue(950);
 
     const changedEstimate = {
@@ -296,6 +297,7 @@ describe('work assignment prices', () => {
 
     await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
     const payload = JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(payload.coefficient).toBe(0.6);
     expect(payload.items).toEqual([
       expect.objectContaining({estimateItemKey: 'work-2'}),
     ]);

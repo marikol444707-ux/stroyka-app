@@ -81,7 +81,7 @@ export default function WorkAssignmentModal({
   const [contractorId, setContractorId] = useState('');
   const [manualPerformer, setManualPerformer] = useState(false);
   const [manualName, setManualName] = useState('');
-  const [coefficient, setCoefficient] = useState('0.6');
+  const [percentage, setPercentage] = useState('60');
   const [priceMode, setPriceMode] = useState('coefficient');
   const [manualPrices, setManualPrices] = useState({});
   const [showPriceSettings, setShowPriceSettings] = useState(false);
@@ -113,7 +113,7 @@ export default function WorkAssignmentModal({
   const selectedRows = rows.filter(row => selectedIds[row.id]);
   const selectedPerformer = performers.find(item => performerOptionId(item) === String(contractorId));
   const brigadeName = (selectedPerformer?.name || manualName || '').trim();
-  const coef = Math.max(0, toNumber(coefficient));
+  const coef = Math.max(0, toNumber(percentage) / 100);
   const hasManualPrice = rowId => Object.prototype.hasOwnProperty.call(manualPrices, rowId);
   const priceForRow = row => (
     priceMode === 'manual' || hasManualPrice(row.id)
@@ -135,7 +135,7 @@ export default function WorkAssignmentModal({
     setContractorId(performers.length === 1 ? performerOptionId(performers[0]) : '');
     setManualPerformer(false);
     setManualName('');
-    setCoefficient('0.6');
+    setPercentage('60');
     setPriceMode('coefficient');
     setManualPrices({});
     setShowPriceSettings(false);
@@ -163,7 +163,7 @@ export default function WorkAssignmentModal({
       return;
     }
     if (priceMode === 'coefficient' && coef <= 0) {
-      alert('Коэффициент должен быть больше нуля');
+      alert('Укажите долю исполнителя больше 0%');
       return;
     }
     if (selectedRows.some(row => (
@@ -299,8 +299,8 @@ export default function WorkAssignmentModal({
               <button type="button" onClick={() => setPriceMode('coefficient')} style={priceMode === 'coefficient' ? btnO : btnG}>Доля от сметы</button>
               <button type="button" onClick={() => setPriceMode('manual')} style={priceMode === 'manual' ? btnO : btnG}>Своя цена</button>
               <label style={{display: 'flex', alignItems: 'center', gap: '8px', color: C.textSec, fontSize: '12px'}}>
-                Доля (0,6 = 60%)
-                <input aria-label="Коэффициент" disabled={priceMode !== 'coefficient'} type="number" min="0.01" step="0.01" value={coefficient} onChange={event => setCoefficient(event.target.value)} style={{...inp, width: '86px', marginBottom: 0, opacity: priceMode === 'coefficient' ? 1 : 0.55}} />
+                Доля исполнителя, %
+                <input aria-label="Доля исполнителя, %" disabled={priceMode !== 'coefficient'} type="number" min="0.01" step="any" value={percentage} onChange={event => setPercentage(event.target.value)} style={{...inp, width: '86px', marginBottom: 0, opacity: priceMode === 'coefficient' ? 1 : 0.55}} />
               </label>
             </div>
           )}
