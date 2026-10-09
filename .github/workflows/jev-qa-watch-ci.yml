@@ -1,0 +1,29 @@
+name: JEVA QA watcher tests
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/jev_qa_watch.py'
+      - 'scripts/test_jev_qa_watch.py'
+      - 'scripts/install_jev_qa_watch.sh'
+      - 'ops/systemd/stroyka-jev-watch.*'
+      - '.github/workflows/jev-qa-watch-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile and test QA watcher (no secrets or server access)
+        run: |
+          python -m py_compile scripts/jev_qa_watch.py scripts/test_jev_qa_watch.py
+          python -m unittest scripts.test_jev_qa_watch -v
+          bash -n scripts/install_jev_qa_watch.sh
