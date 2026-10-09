@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Stroyka JEVA QA smoke daily without an operator
+
+[Timer]
+OnCalendar=*-*-* 08:00:00
+RandomizedDelaySec=15m
+AccuracySec=5m
+Persistent=true
+Unit=stroyka-jev-watch.service
+
+[Install]
+WantedBy=timers.target
