@@ -13,6 +13,7 @@ from dev_control.browser_worker.network_guard import (
     redact_boundary_url,
     request_allowed,
 )
+from dev_control.jev_timeweb import JevError
 from dev_control.browser_worker.run import (
     _assert_allowed_url, _redact_url, _sanitize_history,
     _refresh_live_observation, execute_task,
