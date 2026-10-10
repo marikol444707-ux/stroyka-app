@@ -8,7 +8,10 @@ class BrowserWorkerContainerContractTest(unittest.TestCase):
         requirements = Path("dev_control/browser_worker/requirements.txt").read_text(encoding="utf-8")
 
         self.assertIn("FROM python:3.12", dockerfile)
-        self.assertIn("USER worker", dockerfile)
+        self.assertIn("USER root", dockerfile)
+        self.assertIn("useradd --create-home --uid 10001 worker", dockerfile)
+        self.assertIn("useradd --create-home --uid 10002 chrome", dockerfile)
+        self.assertIn("runuser", Path("dev_control/browser_worker/start.sh").read_text(encoding="utf-8"))
         self.assertIn("EXPOSE 8080", dockerfile)
         self.assertIn("COPY . /app/dev_control", dockerfile)
         self.assertNotIn("COPY backend", dockerfile)
