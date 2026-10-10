@@ -80,7 +80,7 @@ class JevTimewebClientTest(unittest.TestCase):
         response.read.return_value = json.dumps(
             {"answers": {"is_test": ["noul"]}}
         ).encode("utf-8")
-        mocked_urlopen.return_value.__enter__.return_value = response
+        mocked_urlopen.return_value.open.return_value.__enter__.return_value = response
 
         client = JevTimewebClient(api_key="top-secret")
         result = client.ask(
@@ -94,7 +94,7 @@ class JevTimewebClientTest(unittest.TestCase):
         )
 
         self.assertIn("answers", result)
-        request = mocked_urlopen.call_args.args[0]
+        request = mocked_urlopen.return_value.open.call_args.args[0]
         self.assertEqual(request.full_url, DEFAULT_SYSTEMONE_URL)
         self.assertEqual(request.get_method(), "POST")
         self.assertEqual(request.headers["Authorization"], "Bearer top-secret")
@@ -129,7 +129,7 @@ class JevTimewebClientTest(unittest.TestCase):
         response = MagicMock()
         response.status = 200
         response.read.return_value = b'{"ok":true}'
-        mocked_urlopen.return_value.__enter__.return_value = response
+        mocked_urlopen.return_value.open.return_value.__enter__.return_value = response
 
         client = JevTimewebClient(api_key="secret")
         with self.assertRaisesRegex(JevError, "answers"):
