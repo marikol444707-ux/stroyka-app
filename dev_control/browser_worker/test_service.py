@@ -322,13 +322,13 @@ class BrowserWorkerServiceConfigTest(unittest.TestCase):
                 _watcher_seen_nonces.update(previous)
 
     def test_watcher_smoke_request_is_server_fixed_and_read_only(self):
-        env = {"QA_BASE_URL": "https://qa.example.test/app", "JEV_WATCH_QA_URL": "https://qa.example.test/app"}
+        env = {"QA_BASE_URL": "https://stroyka-qa-gateway/app"}
         with patch.dict(os.environ, env, clear=True):
             request = _watcher_smoke_request()
         self.assertTrue(request.read_only)
-        self.assertEqual(request.url, "https://qa.example.test/app")
+        self.assertEqual(request.url, "https://stroyka-qa-gateway/app")
         self.assertEqual(request.expect_text, ["Склад"])
-        self.assertEqual(request.expect_url_contains, ["qa.example.test"])
+        self.assertEqual(request.expect_url_contains, ["stroyka-qa-gateway/app"])
         self.assertEqual(request.issue_number, 311)
 
 
