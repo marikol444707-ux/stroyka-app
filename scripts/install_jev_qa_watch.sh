@@ -21,12 +21,12 @@ if [[ -z "$TOKEN_LINE" ]]; then
   exit 1
 fi
 TOKEN_VALUE="${TOKEN_LINE#DEV_CONTROL_API_TOKEN=}"
-WATCHER_TOKEN="$(python3 - "$TOKEN_VALUE" <<'PY'
+WATCHER_TOKEN="$(JEV_WORKER_TOKEN_STDIN="$TOKEN_VALUE" python3 - <<'PY'
 import hashlib
 import hmac
-import sys
+import os
 
-token = sys.argv[1]
+token = os.environ["JEV_WORKER_TOKEN_STDIN"]
 print(hmac.new(
     token.encode("ascii"),
     b"stroyka-jev-watch-read-only-v2",
