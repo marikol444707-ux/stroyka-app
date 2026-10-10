@@ -8,7 +8,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     BH_HOME=/home/worker/.browser-harness
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates curl gnupg fonts-liberation git \
+      ca-certificates curl gnupg fonts-liberation git util-linux \
     && curl -fsSL https://dl.google.com/linux/linux_signing_key.pub \
       | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg \
     && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] https://dl.google.com/linux/chrome/deb/ stable main" \
@@ -17,7 +17,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get install -y --no-install-recommends google-chrome-stable \
     && rm -rf /var/lib/apt/lists/*
 
-RUN useradd --create-home --uid 10001 worker
+RUN useradd --create-home --uid 10001 worker \
+    && useradd --create-home --uid 10002 chrome
 WORKDIR /app
 
 COPY browser_worker/requirements.txt /tmp/browser-worker-requirements.txt
@@ -26,8 +27,9 @@ RUN python -m pip install --no-cache-dir -r /tmp/browser-worker-requirements.txt
 COPY . /app/dev_control
 RUN python /app/dev_control/browser_worker/patch_harness.py
 RUN chmod +x /app/dev_control/browser_worker/start.sh \
-    && chown -R worker:worker /app /home/worker
+    && chown -R worker:worker /app /home/worker \
+    && chown -R chrome:chrome /home/chrome
 
-USER worker
+USER root
 EXPOSE 8080
 ENTRYPOINT ["/app/dev_control/browser_worker/start.sh"]
