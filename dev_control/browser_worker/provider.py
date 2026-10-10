@@ -56,6 +56,20 @@ def _visible_select_value(value, control):
     return value
 
 
+def _redact_nested_option_values(value):
+    if isinstance(value, list):
+        return [_redact_nested_option_values(item) for item in value]
+    if isinstance(value, dict):
+        safe = {}
+        for key, item in value.items():
+            if key == "value":
+                safe[key] = "[REDACTED]"
+            else:
+                safe[key] = _redact_nested_option_values(item)
+        return safe
+    return value
+
+
 def _with_form_policy(questions):
     """Add generic decision guidance without changing the TypeSafe answer schema."""
     safe = copy.deepcopy(questions)
@@ -102,6 +116,8 @@ def _sanitize_state_for_provider(state):
         for element in elements:
             if not isinstance(element, dict):
                 continue
+            if "options" in element:
+                element["options"] = _redact_nested_option_values(element.get("options"))
             value = element.get("value")
             if value in (None, ""):
                 continue
