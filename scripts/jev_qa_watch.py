@@ -112,6 +112,7 @@ def run_smoke(call, *, sleep=time.sleep, monotonic=time.monotonic):
     if (
         health.get("ok") is not True
         or str(health.get("environment") or "").lower() not in ALLOWED_QA_ENVIRONMENTS
+        or health.get("watcher_target") != QA_URL
     ):
         raise WatchError("QA_WORKER_NOT_READY")
 
