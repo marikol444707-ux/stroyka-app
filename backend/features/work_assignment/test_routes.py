@@ -51,7 +51,8 @@ class FakeCursor:
             }]
             self.result = (9, "Смета", 19, "Лицей", "Отделка", json.dumps(sections), "Активная")
         elif normalized.startswith("SELECT id FROM brigade_contracts"):
-            self.result = (self.existing_contract_id,) if self.existing_contract_id else None
+            self.result = None
+            self.rows = [(self.existing_contract_id,)] if self.existing_contract_id else []
         elif normalized.startswith("UPDATE brigade_contracts SET brigade_name"):
             self.result = (self.existing_contract_id,) if self.existing_contract_id else None
         elif "INSERT INTO brigade_contracts" in normalized:
