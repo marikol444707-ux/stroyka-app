@@ -152,11 +152,16 @@ def redact_boundary_url(url: str) -> str:
 
     query = []
     for key, value in parse_qsl(parts.query, keep_blank_values=True):
-        lowered = key.lower()
+        try:
+            decoded_key = _fully_unquote(key)
+        except ValueError:
+            query.append(("[REDACTED_KEY]", "[REDACTED]"))
+            continue
+        lowered = decoded_key.lower()
         query.append(
-            (key, "[REDACTED]")
+            (decoded_key, "[REDACTED]")
             if any(marker in lowered for marker in _SENSITIVE_MARKERS)
-            else (key, value)
+            else (decoded_key, value)
         )
     host = parts.hostname or ""
     if ":" in host and not host.startswith("["):
@@ -225,11 +230,20 @@ def assert_allowed_document_url(url: str, base_url: str) -> None:
         raise ValueError("QA URL is outside QA_BASE_URL path")
 
 
-def request_allowed(url: str, base_url: str, resource_type: str | None) -> bool:
-    """Allow same-origin resources; document navigations must also stay in base path."""
+def request_allowed(
+    url: str,
+    base_url: str,
+    resource_type: str | None,
+    *,
+    request_method: str = "GET",
+    read_only: bool = False,
+) -> bool:
+    """Allow only QA-scoped requests; read-only mode blocks mutating HTTP methods."""
 
     target = urlparse(url)
     base = urlparse(base_url)
+    if read_only and str(request_method or "GET").upper() not in {"GET", "HEAD", "OPTIONS"}:
+        return False
     if target.scheme in {"data", "blob"}:
         return resource_type != "Document"
     if target.scheme not in {"http", "https"}:
@@ -247,13 +261,14 @@ def request_allowed(url: str, base_url: str, resource_type: str | None) -> bool:
 class NetworkBoundary:
     """CDP Fetch guard that fails disallowed requests before Chrome sends them."""
 
-    def __init__(self, session_id: str, base_url: str):
+    def __init__(self, session_id: str, base_url: str, *, read_only: bool = False):
         from browser_harness.helpers import cdp, drain_events
 
         self._cdp = cdp
         self._drain_events = drain_events
         self._session_id = session_id
         self._base_url = base_url
+        self._read_only = bool(read_only)
         self._stop = threading.Event()
         self._error: str | None = None
         self._thread = threading.Thread(target=self._loop, name="qa-network-boundary", daemon=True)
@@ -338,7 +353,12 @@ class NetworkBoundary:
             return
         if initial_url not in {"", "about:blank"}:
             resource_type = "Document" if target_type in _PAGE_LIKE_TARGETS else None
-            if not request_allowed(initial_url, self._base_url, resource_type):
+            if not request_allowed(
+                initial_url,
+                self._base_url,
+                resource_type,
+                read_only=self._read_only,
+            ):
                 if target_id:
                     self._cdp("Target.closeTarget", targetId=target_id)
                 self._error = f"blocked out-of-scope attached target: {redact_boundary_url(initial_url)}"
@@ -404,13 +424,21 @@ class NetworkBoundary:
                 if method != "Fetch.requestPaused":
                     continue
                 request_id = params.get("requestId")
-                url = str((params.get("request") or {}).get("url") or "")
+                request = params.get("request") or {}
+                url = str(request.get("url") or "")
+                request_method = str(request.get("method") or "GET")
                 resource_type = params.get("resourceType")
                 event_session = event.get("session_id") or self._session_id
                 if not request_id:
                     continue
                 try:
-                    if request_allowed(url, self._base_url, resource_type):
+                    if request_allowed(
+                        url,
+                        self._base_url,
+                        resource_type,
+                        request_method=request_method,
+                        read_only=self._read_only,
+                    ):
                         self._cdp(
                             "Fetch.continueRequest",
                             session_id=event_session,
@@ -423,7 +451,14 @@ class NetworkBoundary:
                             requestId=request_id,
                             errorReason="BlockedByClient",
                         )
-                        self._error = f"blocked out-of-scope browser request: {redact_boundary_url(url)}"
+                        reason = "read-only write" if (
+                            self._read_only
+                            and request_method.upper() not in {"GET", "HEAD", "OPTIONS"}
+                        ) else "out-of-scope"
+                        self._error = (
+                            f"blocked {reason} browser request: "
+                            f"{redact_boundary_url(url)}"
+                        )
                 except Exception as exc:
                     self._error = f"network boundary enforcement failed: {exc}"
                     return
@@ -448,7 +483,7 @@ class NetworkBoundary:
             pass
 
 
-def install_safe_browser(base_url: str):
+def install_safe_browser(base_url: str, *, read_only: bool = False):
     """Patch Jev Agent to use a Browser with Fetch interception before navigation."""
 
     import jev_ultrafast.agent as agent_module
@@ -497,7 +532,11 @@ def install_safe_browser(base_url: str):
                     behavior="deny",
                     browserContextId=self.browser_context_id,
                 )
-                self._qa_boundary = NetworkBoundary(self.session, base_url)
+                self._qa_boundary = NetworkBoundary(
+                    self.session,
+                    base_url,
+                    read_only=read_only,
+                )
                 self._qa_boundary.start()
 
                 nav = self.call("Page.navigate", url=url)
