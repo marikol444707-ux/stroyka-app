@@ -147,6 +147,13 @@ class JevQaWatchTest(unittest.TestCase):
     def test_read_only_violation_is_redacted_to_fixed_code(self):
         self.assertEqual(classify_failures(["read_only_action_detected: private"]), ["READ_ONLY_VIOLATION"])
 
+    def test_installer_writes_only_scoped_watcher_token(self):
+        script = (Path(__file__).resolve().parent / "install_jev_qa_watch.sh").read_text()
+        self.assertIn("JEV_WATCHER_TOKEN=", script)
+        self.assertIn("stroyka-jev-watch-read-only-v2", script)
+        self.assertNotIn("printf '%s\\n' \"$TOKEN_LINE\"", script)
+        self.assertIn("unset TOKEN_VALUE TOKEN_LINE", script)
+
     def test_atomic_report_written_with_expected_fields(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp)
