@@ -53,6 +53,16 @@ def _redact_path(path: str) -> str:
     return "/".join(output)
 
 
+def _bounded_unquote_query_key(value: str) -> str | None:
+    current = str(value or "")
+    for _ in range(8):
+        decoded = unquote(current)
+        if decoded == current:
+            return decoded
+        current = decoded
+    return None
+
+
 _SENSITIVE_QUERY_MARKERS = (
     "token", "code", "invite", "password", "secret", "key", "auth", "signature", "sig", "session",
 )
@@ -64,11 +74,15 @@ def _redact_url(url: str | None) -> str | None:
     parts = urlsplit(str(url))
     safe_query = []
     for key, value in parse_qsl(parts.query, keep_blank_values=True):
-        lowered = key.lower()
+        decoded_key = _bounded_unquote_query_key(key)
+        if decoded_key is None:
+            safe_query.append(("[REDACTED_KEY]", "[REDACTED]"))
+            continue
+        lowered = decoded_key.lower()
         safe_query.append(
-            (key, "[REDACTED]")
+            (decoded_key, "[REDACTED]")
             if any(marker in lowered for marker in _SENSITIVE_QUERY_MARKERS)
-            else (key, value)
+            else (decoded_key, value)
         )
     host = parts.hostname or ""
     if ":" in host and not host.startswith("["):
@@ -198,7 +212,7 @@ def execute_task(
 
     evidence = _evidence_dir(record_dir)
     provider_patch = None if read_only else install_timeweb_provider()
-    install_safe_browser(base_url)
+    install_safe_browser(base_url, read_only=read_only)
 
     from jev_ultrafast import Agent
 
