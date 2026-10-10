@@ -1,6 +1,5 @@
 """Offline tests for the unattended JEVA QA watcher. No Docker/network needed."""
 import hashlib
-import hmac
 import json
 import tempfile
 import unittest
@@ -8,9 +7,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from scripts.jev_qa_watch import (
-    QA_HOST, QA_URL, REQUIRED_CHECKS, WatchError, classify_failures,
-    _watcher_hmac_key, github_report, run_smoke, save_report,
-    verify_worker_identity, worker_base,
+    REQUIRED_CHECKS, WatchError, _watcher_signature, call_worker,
+    classify_failures, github_report, run_smoke, save_report, worker_base,
 )
 
 
@@ -28,15 +26,15 @@ class FakeWorker:
         }
         self.calls = []
 
-    def __call__(self, method, path, payload=None):
-        self.calls.append((method, path, payload))
-        if path == "/health":
+    def __call__(self, method, path):
+        self.calls.append((method, path))
+        if path == "/watcher/health":
             return {"ok": True, "environment": self.environment}
-        if method == "POST" and path == "/jobs":
+        if method == "POST" and path == "/watcher/smoke":
             return {"job_id": JOB_ID, "status": "queued"}
-        if path == "/jobs/" + JOB_ID:
+        if path == "/watcher/jobs/" + JOB_ID:
             return {"job_id": JOB_ID, "status": self.status, "result": self.result}
-        if method == "POST" and path == "/jobs/" + JOB_ID + "/cancel":
+        if method == "POST" and path == "/watcher/jobs/" + JOB_ID + "/cancel":
             self.status = "cancelled"
             return {"job_id": JOB_ID, "status": "cancelled", "stopped": True}
         raise AssertionError((method, path))
@@ -49,70 +47,53 @@ class JevQaWatchTest(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(WatchError):
                 worker_base(value)
 
-    def test_worker_identity_challenge_sends_no_api_token(self):
+    def test_signed_request_sends_no_worker_token_and_binds_method_path(self):
         token = "d" * 64
-        nonce = "e" * 64
         captured = {}
 
         class FakeResponse:
-            def __enter__(self):
-                return self
-            def __exit__(self, *_args):
-                return False
+            def __enter__(self): return self
+            def __exit__(self, *_args): return False
+            def read(self): return b'{"ok":true,"environment":"qa"}'
 
         def fake_open(request, timeout):
             captured["request"] = request
-            payload = json.loads(request.data.decode("utf-8"))
-            self.assertEqual(payload, {"nonce": nonce})
-            proof = hmac.new(
-                _watcher_hmac_key(token),
-                nonce.encode("ascii"),
-                hashlib.sha256,
-            ).hexdigest()
-            response = FakeResponse()
-            response.read = lambda: json.dumps({"proof": proof}).encode("utf-8")
-            return response
+            return FakeResponse()
 
-        with patch("scripts.jev_qa_watch.secrets.token_hex", return_value=nonce), patch(
-            "scripts.jev_qa_watch.urllib.request.urlopen",
-            side_effect=fake_open,
+        with patch("scripts.jev_qa_watch.time.time", return_value=1700000000), patch(
+            "scripts.jev_qa_watch.secrets.token_hex", return_value="1" * 32
+        ), patch(
+            "scripts.jev_qa_watch.urllib.request.urlopen", side_effect=fake_open
         ):
-            verify_worker_identity("http://127.0.0.1:18088", token)
+            call_worker("http://127.0.0.1:18088", token, "GET", "/watcher/health")
 
         request = captured["request"]
-        self.assertTrue(request.full_url.endswith("/watcher-challenge"))
         self.assertNotIn("Authorization", request.headers)
-        self.assertNotIn(token, request.data.decode("utf-8"))
+        self.assertNotIn(token, repr(request.headers))
+        expected = _watcher_signature(
+            token, "GET", "/watcher/health", "1700000000", "1" * 32
+        )
+        self.assertEqual(request.headers["X-jev-watcher-signature"], expected)
 
-    def test_worker_identity_rejects_wrong_proof_and_weak_token(self):
-        class FakeResponse:
-            def __enter__(self):
-                return self
-            def __exit__(self, *_args):
-                return False
-            def read(self):
-                return b'{"proof":"wrong"}'
+    def test_watcher_token_is_validated_before_network(self):
+        with patch("scripts.jev_qa_watch.urllib.request.urlopen") as urlopen:
+            with self.assertRaisesRegex(WatchError, "INVALID_WATCHER_TOKEN"):
+                call_worker(
+                    "http://127.0.0.1:18088",
+                    "short",
+                    "GET",
+                    "/watcher/health",
+                )
+        urlopen.assert_not_called()
 
-        with self.assertRaisesRegex(WatchError, "INVALID_WORKER_TOKEN"):
-            verify_worker_identity("http://127.0.0.1:18088", "short")
-        with patch(
-            "scripts.jev_qa_watch.urllib.request.urlopen",
-            return_value=FakeResponse(),
-        ), self.assertRaisesRegex(WatchError, "WORKER_IDENTITY_MISMATCH"):
-            verify_worker_identity("http://127.0.0.1:18088", "d" * 64)
-
-    def test_read_only_goal_and_deterministic_assertions(self):
+    def test_read_only_smoke_uses_only_scoped_server_endpoints(self):
         worker = FakeWorker()
         report = run_smoke(worker, sleep=lambda _: None)
         self.assertEqual(report["outcome"], "passed")
-        request = worker.calls[1]
-        self.assertEqual(request[0:2], ("POST", "/jobs"))
-        self.assertEqual(request[2]["url"], QA_URL)
-        self.assertEqual(request[2]["expect_text"], ["Склад"])
-        self.assertEqual(request[2]["expect_url_contains"], [QA_HOST])
-        self.assertIs(request[2]["read_only"], True)
-        self.assertIn("Do not click", request[2]["goal"])
-        self.assertNotIn("password", json.dumps(request[2]).lower())
+        self.assertEqual(worker.calls[0], ("GET", "/watcher/health"))
+        self.assertEqual(worker.calls[1], ("POST", "/watcher/smoke"))
+        self.assertEqual(worker.calls[2], ("GET", "/watcher/jobs/" + JOB_ID))
+        self.assertTrue(all("/jobs" not in path or path.startswith("/watcher/jobs") for _, path in worker.calls))
 
     def test_all_supported_nonproduction_worker_labels_are_accepted(self):
         for environment in ("qa", "test", "staging"):
@@ -125,7 +106,7 @@ class JevQaWatchTest(unittest.TestCase):
         ticks = iter((0, 86))
         with self.assertRaisesRegex(WatchError, "POLL_TIMEOUT"):
             run_smoke(worker, sleep=lambda _: None, monotonic=lambda: next(ticks))
-        self.assertIn(("POST", "/jobs/" + JOB_ID + "/cancel", None), worker.calls)
+        self.assertIn(("POST", "/watcher/jobs/" + JOB_ID + "/cancel"), worker.calls)
         self.assertEqual(worker.status, "cancelled")
 
     def test_read_only_marker_without_assertions_is_not_pass(self):
