@@ -15,7 +15,9 @@ export BU_CDP_URL="${expected_cdp_url}"
 export BH_HOME="${BH_HOME:-/tmp/browser-harness}"
 
 profile="${CHROME_USER_DATA_DIR:-/tmp/stroyka-dev-chrome}"
-mkdir -p "$profile" "$BH_HOME" "${QA_EVIDENCE_DIR:-/tmp/stroyka-qa-evidence}"
+evidence_dir="${QA_EVIDENCE_DIR:-/tmp/stroyka-qa-evidence}"
+install -d -m 0700 -o chrome -g chrome "$profile"
+install -d -m 0700 -o worker -g worker "$BH_HOME" "$evidence_dir"
 
 chrome_args=(
   --headless=new
@@ -33,11 +35,14 @@ if [[ "${CHROME_NO_SANDBOX:-0}" == "1" ]]; then
   chrome_args=(--no-sandbox "${chrome_args[@]}")
 fi
 
-env \
+setpriv --reuid=10002 --regid=10002 --init-groups \
+  env \
+  HOME=/home/chrome \
   -u TIMEWEB_AI_API_KEY \
   -u DEV_CONTROL_API_TOKEN \
   -u QA_SESSION_COOKIE_VALUE \
   -u JEV_WATCH_GITHUB_TOKEN \
+  -u JEV_WATCHER_TOKEN \
   -u TYPESAFE_API_KEY \
   -u TEXT_MODEL_API_KEY \
   google-chrome-stable "${chrome_args[@]}" >/tmp/stroyka-dev-chrome.log 2>&1 &
@@ -53,7 +58,8 @@ except Exception:
     raise SystemExit(1)
 PY
   then
-    exec uvicorn dev_control.browser_worker.service:app --host 0.0.0.0 --port "${PORT:-8080}" --workers 1
+    exec setpriv --reuid=10001 --regid=10001 --init-groups \
+      uvicorn dev_control.browser_worker.service:app --host 0.0.0.0 --port "${PORT:-8080}" --workers 1
   fi
   sleep 0.25
 done
