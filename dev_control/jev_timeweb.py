@@ -14,11 +14,17 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 
 DEFAULT_SYSTEMONE_URL = "https://api.timeweb.ai/v1/systemone"
 DEFAULT_MODEL = "jev-latest"
+
+
+class _NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
 
 
 def validate_systemone_endpoint(value: str) -> str:
@@ -95,11 +101,11 @@ class JevTimewebClient:
         )
 
         try:
-            with urlopen(request, timeout=self.timeout_seconds) as response:
+            with build_opener(_NoRedirect()).open(request, timeout=self.timeout_seconds) as response:
                 raw = response.read()
                 status = getattr(response, "status", 200)
         except HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")[:500]
+            detail = "redirect refused" if 300 <= exc.code < 400 else "request rejected"
             raise JevError(f"Timeweb Jev HTTP {exc.code}: {detail}") from exc
         except URLError as exc:
             raise JevError(f"Timeweb Jev network error: {exc.reason}") from exc
