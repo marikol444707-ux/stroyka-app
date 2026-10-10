@@ -51,51 +51,50 @@ def worker_base(port_value: str) -> str:
     return f"http://127.0.0.1:{port}"
 
 
-def _watcher_hmac_key(token: str) -> bytes:
-    return hashlib.sha256(b"stroyka-jev-watch-v1\0" + token.encode("ascii")).digest()
-
-
-def verify_worker_identity(base: str, token: str) -> None:
-    if not re.fullmatch(r"[0-9a-fA-F]{64}", token):
-        raise WatchError("INVALID_WORKER_TOKEN")
-    nonce = secrets.token_hex(32)
-    request = urllib.request.Request(
-        base + "/watcher-challenge",
-        data=json.dumps({"nonce": nonce}).encode("utf-8"),
-        method="POST",
-        headers={"Content-Type": "application/json"},
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=5) as response:
-            result = json.load(response)
-    except Exception as exc:
-        raise WatchError("WORKER_IDENTITY_UNAVAILABLE") from exc
-    proof = result.get("proof") if isinstance(result, dict) else None
-    expected = hmac.new(
-        _watcher_hmac_key(token),
-        nonce.encode("ascii"),
+def _watcher_signature(
+    scoped_token: str,
+    method: str,
+    path: str,
+    timestamp: str,
+    nonce: str,
+    body: bytes = b"",
+) -> str:
+    if not re.fullmatch(r"[0-9a-fA-F]{64}", scoped_token):
+        raise WatchError("INVALID_WATCHER_TOKEN")
+    body_hash = hashlib.sha256(body).hexdigest()
+    message = "\n".join((
+        method.upper(),
+        path,
+        timestamp,
+        nonce,
+        body_hash,
+    )).encode("utf-8")
+    return hmac.new(
+        bytes.fromhex(scoped_token),
+        message,
         hashlib.sha256,
     ).hexdigest()
-    if not isinstance(proof, str) or not hmac.compare_digest(proof, expected):
-        raise WatchError("WORKER_IDENTITY_MISMATCH")
 
 
-def call_worker(base: str, token: str, method: str, path: str, payload=None):
+def call_worker(base: str, token: str, method: str, path: str):
     if method not in {"GET", "POST"} or not (
-        path == "/health"
-        or path == "/jobs"
-        or re.fullmatch(r"/jobs/[0-9a-f]{32}", path)
-        or re.fullmatch(r"/jobs/[0-9a-f]{32}/cancel", path)
+        path == "/watcher/health"
+        or path == "/watcher/smoke"
+        or re.fullmatch(r"/watcher/jobs/[0-9a-f]{32}", path)
+        or re.fullmatch(r"/watcher/jobs/[0-9a-f]{32}/cancel", path)
     ):
         raise WatchError("INVALID_API_PATH")
-    body = json.dumps(payload).encode("utf-8") if payload is not None else None
+    timestamp = str(int(time.time()))
+    nonce = secrets.token_hex(16)
+    signature = _watcher_signature(token, method, path, timestamp, nonce)
     request = urllib.request.Request(
         base + path,
-        data=body,
+        data=b"" if method == "POST" else None,
         method=method,
         headers={
-            "Authorization": "Bearer " + token,
-            "Content-Type": "application/json",
+            "X-Jev-Watcher-Time": timestamp,
+            "X-Jev-Watcher-Nonce": nonce,
+            "X-Jev-Watcher-Signature": signature,
         },
     )
     try:
@@ -109,35 +108,21 @@ def call_worker(base: str, token: str, method: str, path: str, payload=None):
 
 
 def run_smoke(call, *, sleep=time.sleep, monotonic=time.monotonic):
-    health = call("GET", "/health")
+    health = call("GET", "/watcher/health")
     if (
         health.get("ok") is not True
         or str(health.get("environment") or "").lower() not in ALLOWED_QA_ENVIRONMENTS
     ):
         raise WatchError("QA_WORKER_NOT_READY")
 
-    payload = {
-        "url": QA_URL,
-        "goal": (
-            "Open the authenticated Stroyka QA application and wait until the "
-            "navigation menu including Склад is visible. Do not click, type, "
-            "submit, download, or modify any data. Finish when the menu is visible."
-        ),
-        "expect_text": ["Склад"],
-        "expect_url_contains": [QA_HOST],
-        "max_seconds": 60,
-        "display_name": "Daily QA read-only smoke",
-        "issue_number": 311,
-        "read_only": True,
-    }
-    created = call("POST", "/jobs", payload)
+    created = call("POST", "/watcher/smoke")
     job_id = created.get("job_id")
     if not isinstance(job_id, str) or not re.fullmatch(r"[0-9a-f]{32}", job_id):
         raise WatchError("INVALID_JOB_ID")
 
     deadline = monotonic() + 85
     while monotonic() < deadline:
-        state = call("GET", "/jobs/" + job_id)
+        state = call("GET", "/watcher/jobs/" + job_id)
         status = state.get("status")
         if status in {"passed", "failed", "cancelled"}:
             result = state.get("result") or {}
@@ -164,7 +149,7 @@ def run_smoke(call, *, sleep=time.sleep, monotonic=time.monotonic):
             raise WatchError("UNKNOWN_JOB_STATUS")
         sleep(3)
     try:
-        cancelled = call("POST", "/jobs/" + job_id + "/cancel")
+        cancelled = call("POST", "/watcher/jobs/" + job_id + "/cancel")
     except Exception as exc:
         raise WatchError("POLL_TIMEOUT_CANCEL_FAILED") from exc
     if not isinstance(cancelled, dict) or cancelled.get("status") not in {
@@ -262,14 +247,13 @@ def main() -> int:
         "checks": [],
         "failure_codes": [],
     }
-    token = os.environ.get("DEV_CONTROL_API_TOKEN", "").strip()
+    token = os.environ.get("JEV_WATCHER_TOKEN", "").strip()
     try:
-        if not token:
-            raise WatchError("MISSING_WORKER_TOKEN")
+        if not re.fullmatch(r"[0-9a-fA-F]{64}", token):
+            raise WatchError("MISSING_OR_INVALID_WATCHER_TOKEN")
         base = worker_base(os.environ.get("JEV_WATCH_PORT", "18088"))
-        verify_worker_identity(base, token)
-        result = run_smoke(lambda method, path, payload=None: call_worker(
-            base, token, method, path, payload
+        result = run_smoke(lambda method, path: call_worker(
+            base, token, method, path
         ))
         report.update(result)
     except WatchError as exc:
