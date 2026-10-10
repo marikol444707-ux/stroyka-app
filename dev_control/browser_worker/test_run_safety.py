@@ -13,7 +13,10 @@ from dev_control.browser_worker.network_guard import (
     redact_boundary_url,
     request_allowed,
 )
-from dev_control.browser_worker.run import _assert_allowed_url, _redact_url, _sanitize_history, execute_task
+from dev_control.browser_worker.run import (
+    _assert_allowed_url, _redact_url, _sanitize_history,
+    _refresh_live_observation, execute_task,
+)
 
 
 class BrowserWorkerUrlSafetyTest(unittest.TestCase):
@@ -272,7 +275,12 @@ class BrowserWorkerUrlSafetyTest(unittest.TestCase):
         run_called = []
 
         class FakeBrowser:
-            def evaluate(self, _expression):
+            def __init__(self):
+                self._qa_boundary = None
+
+            def evaluate(self, expression):
+                if expression == "location.href":
+                    return "https://qa.example.test/app"
                 return "СтройКа\nСклад\nСнабжение"
 
         class FakeAgent:
@@ -328,6 +336,42 @@ class BrowserWorkerUrlSafetyTest(unittest.TestCase):
         self.assertEqual(run_called, [])
         self.assertEqual(report["history"], [])
         self.assertEqual(report["decisions"], [])
+
+    def test_read_only_live_url_overrides_stale_cached_snapshot(self):
+        class FakeBrowser:
+            _qa_boundary = None
+            def evaluate(self, expression):
+                if expression == "location.href":
+                    return "https://qa.example.test/login"
+                return "Login page"
+
+        agent = SimpleNamespace(browser=FakeBrowser())
+        state = {
+            "status": "observed",
+            "page": {"url": "https://qa.example.test/app", "text": "Склад"},
+            "history": [],
+            "decisions": [],
+        }
+        refreshed = _refresh_live_observation(
+            agent, state, "https://qa.example.test"
+        )
+        self.assertEqual(refreshed["page"]["url"], "https://qa.example.test/login")
+        self.assertEqual(refreshed["page"]["full_text"], "Login page")
+
+    def test_live_observation_fails_closed_on_boundary_error_before_pass(self):
+        class Boundary:
+            def raise_if_failed(self):
+                raise JevError("blocked out-of-scope browser request")
+
+        class FakeBrowser:
+            _qa_boundary = Boundary()
+            def evaluate(self, _expression):
+                return "https://qa.example.test/app"
+
+        agent = SimpleNamespace(browser=FakeBrowser())
+        state = {"status": "observed", "page": {}, "history": [], "decisions": []}
+        with self.assertRaisesRegex(JevError, "blocked out-of-scope"):
+            _refresh_live_observation(agent, state, "https://qa.example.test")
 
     def test_qa_alert_is_acknowledged_and_stops_unsafe_retry(self):
         guard = NetworkBoundary.__new__(NetworkBoundary)
