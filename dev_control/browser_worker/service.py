@@ -39,12 +39,32 @@ def _worker_api_token() -> str:
     return value if _API_TOKEN_RE.fullmatch(value) else ""
 
 
-def _watcher_hmac_key(token: str) -> bytes:
-    return hashlib.sha256(b"stroyka-jev-watch-v1\0" + token.encode("ascii")).digest()
+def _watcher_scoped_token(token: str) -> str:
+    """Derive a one-way credential that cannot authorize the general /jobs API."""
+    return hmac.new(
+        token.encode("ascii"),
+        b"stroyka-jev-watch-read-only-v2",
+        hashlib.sha256,
+    ).hexdigest()
 
 
-def _watcher_proof(token: str, nonce: str) -> str:
-    return hmac.new(_watcher_hmac_key(token), nonce.encode("ascii"), hashlib.sha256).hexdigest()
+def _watcher_signature(
+    scoped_token: str,
+    method: str,
+    path: str,
+    timestamp: str,
+    nonce: str,
+    body: bytes = b"",
+) -> str:
+    body_hash = hashlib.sha256(body).hexdigest()
+    message = "\n".join((
+        method.upper(),
+        path,
+        timestamp,
+        nonce,
+        body_hash,
+    )).encode("utf-8")
+    return hmac.new(bytes.fromhex(scoped_token), message, hashlib.sha256).hexdigest()
 
 
 class PreAuthBodyLimitMiddleware:
@@ -134,24 +154,14 @@ _active_process_lock = threading.Lock()
 _active_process = None
 _active_job_id = None
 _accepting_jobs = True
+_watcher_nonce_lock = threading.Lock()
+_watcher_seen_nonces: dict[str, int] = {}
 _PRODUCTION_HOSTS = frozenset({
     "stroyka26.pro",
     "www.stroyka26.pro",
     "stroyka.pro",
     "www.stroyka.pro",
 })
-
-
-class WatcherChallengeRequest(BaseModel):
-    nonce: str = Field(min_length=64, max_length=64)
-
-    @field_validator("nonce")
-    @classmethod
-    def nonce_must_be_hex(cls, value: str) -> str:
-        value = value.strip().lower()
-        if not re.fullmatch(r"[0-9a-f]{64}", value):
-            raise ValueError("nonce must be 64 hexadecimal characters")
-        return value
 
 
 class JobRequest(BaseModel):
@@ -285,6 +295,85 @@ def _authorize(authorization: str | None) -> None:
     if not supplied or not hmac.compare_digest(supplied, expected):
         raise HTTPException(status_code=401, detail="unauthorized")
 
+
+
+def _authorize_watcher_request(
+    method: str,
+    path: str,
+    timestamp: str | None,
+    nonce: str | None,
+    signature: str | None,
+) -> None:
+    token = _worker_api_token()
+    if not token:
+        raise HTTPException(status_code=503, detail="worker API token is not securely configured")
+    if not timestamp or not nonce or not signature:
+        raise HTTPException(status_code=401, detail="watcher authentication required")
+    if not re.fullmatch(r"[0-9]{10}", timestamp):
+        raise HTTPException(status_code=401, detail="invalid watcher timestamp")
+    if not re.fullmatch(r"[0-9a-f]{32}", nonce):
+        raise HTTPException(status_code=401, detail="invalid watcher nonce")
+    if not re.fullmatch(r"[0-9a-f]{64}", signature):
+        raise HTTPException(status_code=401, detail="invalid watcher signature")
+    now = int(time.time())
+    issued = int(timestamp)
+    if abs(now - issued) > 60:
+        raise HTTPException(status_code=401, detail="stale watcher request")
+    scoped = _watcher_scoped_token(token)
+    expected = _watcher_signature(scoped, method, path, timestamp, nonce)
+    if not hmac.compare_digest(signature, expected):
+        raise HTTPException(status_code=401, detail="invalid watcher signature")
+    with _watcher_nonce_lock:
+        cutoff = now - 120
+        for seen, seen_at in list(_watcher_seen_nonces.items()):
+            if seen_at < cutoff:
+                _watcher_seen_nonces.pop(seen, None)
+        if nonce in _watcher_seen_nonces:
+            raise HTTPException(status_code=409, detail="watcher nonce replay")
+        _watcher_seen_nonces[nonce] = now
+
+
+def _watcher_auth(
+    method: str,
+    path: str,
+    x_jev_watcher_time: str | None,
+    x_jev_watcher_nonce: str | None,
+    x_jev_watcher_signature: str | None,
+) -> None:
+    _authorize_watcher_request(
+        method,
+        path,
+        x_jev_watcher_time,
+        x_jev_watcher_nonce,
+        x_jev_watcher_signature,
+    )
+
+
+def _watcher_job_is_owned(job_id: str) -> bool:
+    with _jobs_lock:
+        job = _jobs.get(job_id) or {}
+        metadata = job.get("metadata") or {}
+        return bool(metadata.get("watcher_owned") and metadata.get("read_only"))
+
+
+def _watcher_smoke_request() -> JobRequest:
+    base = (os.environ.get("QA_BASE_URL") or "").strip()
+    host = (urlparse(base).hostname or "").lower()
+    if not base or not host:
+        raise HTTPException(status_code=503, detail="QA worker is not fully configured")
+    return JobRequest(
+        url=base,
+        goal=(
+            "Observe the authenticated Stroyka QA application until the navigation "
+            "menu including Склад is visible. This job is server-enforced read-only."
+        ),
+        expect_text=["Склад"],
+        expect_url_contains=[host],
+        max_seconds=60.0,
+        display_name="Daily QA read-only smoke",
+        issue_number=311,
+        read_only=True,
+    )
 
 def _max_pending_jobs() -> int:
     raw = (os.environ.get("QA_MAX_PENDING_JOBS") or "2").strip()
@@ -617,12 +706,77 @@ def _execute(job_id: str, request: JobRequest) -> None:
             pass
 
 
-@app.post("/watcher-challenge")
-def watcher_challenge(request: WatcherChallengeRequest):
-    token = _worker_api_token()
-    if not token:
-        raise HTTPException(status_code=503, detail="worker API token is not securely configured")
-    return {"proof": _watcher_proof(token, request.nonce)}
+@app.get("/watcher/health")
+def watcher_health(
+    x_jev_watcher_time: str | None = Header(default=None),
+    x_jev_watcher_nonce: str | None = Header(default=None),
+    x_jev_watcher_signature: str | None = Header(default=None),
+):
+    _watcher_auth(
+        "GET", "/watcher/health",
+        x_jev_watcher_time, x_jev_watcher_nonce, x_jev_watcher_signature,
+    )
+    return health()
+
+
+@app.post("/watcher/smoke", status_code=202)
+def watcher_create_smoke(
+    x_jev_watcher_time: str | None = Header(default=None),
+    x_jev_watcher_nonce: str | None = Header(default=None),
+    x_jev_watcher_signature: str | None = Header(default=None),
+):
+    _watcher_auth(
+        "POST", "/watcher/smoke",
+        x_jev_watcher_time, x_jev_watcher_nonce, x_jev_watcher_signature,
+    )
+    request = _watcher_smoke_request()
+    result = create_job(request, authorization="Bearer " + _worker_api_token())
+    with _jobs_lock:
+        current = _jobs.get(result["job_id"]) or {}
+        metadata = current.setdefault("metadata", {})
+        metadata["watcher_owned"] = True
+        metadata["read_only"] = True
+    return result
+
+
+@app.get("/watcher/jobs/{job_id}")
+def watcher_get_job(
+    job_id: str,
+    x_jev_watcher_time: str | None = Header(default=None),
+    x_jev_watcher_nonce: str | None = Header(default=None),
+    x_jev_watcher_signature: str | None = Header(default=None),
+):
+    path = f"/watcher/jobs/{job_id}"
+    _watcher_auth(
+        "GET", path,
+        x_jev_watcher_time, x_jev_watcher_nonce, x_jev_watcher_signature,
+    )
+    if not _valid_job_id(job_id) or not _watcher_job_is_owned(job_id):
+        raise HTTPException(status_code=404, detail="watcher job not found")
+    with _jobs_lock:
+        job = dict(_jobs.get(job_id) or {})
+    return {
+        "job_id": job_id,
+        "status": job.get("status"),
+        "result": job.get("result"),
+    }
+
+
+@app.post("/watcher/jobs/{job_id}/cancel", status_code=202)
+def watcher_cancel_job(
+    job_id: str,
+    x_jev_watcher_time: str | None = Header(default=None),
+    x_jev_watcher_nonce: str | None = Header(default=None),
+    x_jev_watcher_signature: str | None = Header(default=None),
+):
+    path = f"/watcher/jobs/{job_id}/cancel"
+    _watcher_auth(
+        "POST", path,
+        x_jev_watcher_time, x_jev_watcher_nonce, x_jev_watcher_signature,
+    )
+    if not _valid_job_id(job_id) or not _watcher_job_is_owned(job_id):
+        raise HTTPException(status_code=404, detail="watcher job not found")
+    return cancel_job(job_id, authorization="Bearer " + _worker_api_token())
 
 
 @app.get("/health")
