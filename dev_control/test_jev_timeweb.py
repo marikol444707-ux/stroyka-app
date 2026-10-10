@@ -4,6 +4,8 @@ import os
 import unittest
 from unittest.mock import MagicMock, patch
 from urllib.error import HTTPError
+from urllib.request import Request
+from dev_control.jev_timeweb import _NoRedirect
 
 from dev_control.jev_timeweb import (
     DEFAULT_MODEL,
@@ -14,6 +16,11 @@ from dev_control.jev_timeweb import (
 
 
 class JevTimewebClientTest(unittest.TestCase):
+    def test_redirect_handler_refuses_foreign_origin(self):
+        handler = _NoRedirect()
+        request = Request(DEFAULT_SYSTEMONE_URL, headers={"Authorization": "Bearer secret"})
+        self.assertIsNone(handler.redirect_request(request, None, 302, "Found", {}, "https://attacker.example/collect"))
+
     def test_from_env_requires_secret(self):
         with patch.dict(os.environ, {}, clear=True):
             with self.assertRaisesRegex(JevError, "TIMEWEB_AI_API_KEY"):
@@ -35,7 +42,7 @@ class JevTimewebClientTest(unittest.TestCase):
             with self.assertRaisesRegex(JevError, "exactly the Timeweb"):
                 JevTimewebClient.from_env()
 
-    @patch("dev_control.jev_timeweb.urlopen")
+    @patch("dev_control.jev_timeweb.build_opener")
     def test_manually_constructed_client_cannot_send_key_to_foreign_endpoint(self, mocked_urlopen):
         client = JevTimewebClient(api_key="secret", endpoint="https://attacker.example/systemone")
         with self.assertRaisesRegex(JevError, "exactly the Timeweb"):
@@ -49,7 +56,7 @@ class JevTimewebClientTest(unittest.TestCase):
         response.read.return_value = json.dumps(
             {"answers": {"operation": {"choice": "DONE", "probabilities": {"DONE": 1.0}, "confidence": 1.0}}}
         ).encode("utf-8")
-        mocked_urlopen.return_value.__enter__.return_value = response
+        mocked_urlopen.return_value.open.return_value.__enter__.return_value = response
 
         client = JevTimewebClient(api_key="secret")
         state = {
@@ -63,7 +70,7 @@ class JevTimewebClientTest(unittest.TestCase):
         )
 
         self.assertIn("answers", result)
-        sent = json.loads(mocked_urlopen.call_args.args[0].data.decode("utf-8"))
+        sent = json.loads(mocked_urlopen.return_value.open.call_args.args[0].data.decode("utf-8"))
         self.assertEqual(sent["state"], state)
 
     @patch("dev_control.jev_timeweb.urlopen")
@@ -99,7 +106,7 @@ class JevTimewebClientTest(unittest.TestCase):
 
     @patch("dev_control.jev_timeweb.urlopen")
     def test_ask_does_not_leak_key_in_http_error(self, mocked_urlopen):
-        mocked_urlopen.side_effect = HTTPError(
+        mocked_urlopen.return_value.open.side_effect = HTTPError(
             DEFAULT_SYSTEMONE_URL,
             401,
             "Unauthorized",
