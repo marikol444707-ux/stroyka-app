@@ -160,6 +160,22 @@ def _write_progress(
             pass
 
 
+def _refresh_live_observation(agent, state: dict, base_url: str) -> dict:
+    browser = agent.browser
+    boundary = getattr(browser, "_qa_boundary", None)
+    if boundary is not None:
+        boundary.raise_if_failed()
+    live_url = str(browser.evaluate("location.href") or "")
+    _assert_allowed_url(live_url, base_url)
+    full_text = browser.evaluate("document.body ? document.body.innerText : ''") or ""
+    if boundary is not None:
+        boundary.raise_if_failed()
+    page = state.setdefault("page", {})
+    page["url"] = live_url
+    page["full_text"] = str(full_text)
+    return state
+
+
 def execute_task(
     *,
     url: str,
@@ -198,17 +214,11 @@ def execute_task(
                 deadline = started + min(max_seconds, 30.0)
                 while True:
                     final_state = agent.snapshot()
-                    current_url = str((final_state.get("page") or {}).get("url") or "")
                     try:
-                        _assert_allowed_url(current_url, base_url)
-                    except ValueError as exc:
-                        error = f"outside_qa_scope: {exc}"
+                        final_state = _refresh_live_observation(agent, final_state, base_url)
+                    except Exception as exc:
+                        error = f"read_only_live_observation_failed: {type(exc).__name__}: {exc}"
                         break
-                    try:
-                        full_text = agent.browser.evaluate("document.body ? document.body.innerText : ''") or ""
-                        final_state.setdefault("page", {})["full_text"] = str(full_text)
-                    except Exception:
-                        final_state.setdefault("page", {})["full_text"] = None
                     probe = verify_final_state(
                         final_state,
                         expect_text=expect_text or (),
@@ -242,11 +252,7 @@ def execute_task(
                         break
                 if final_state is None:
                     final_state = agent.snapshot()
-                try:
-                    full_text = agent.browser.evaluate("document.body ? document.body.innerText : ''") or ""
-                    final_state.setdefault("page", {})["full_text"] = str(full_text)
-                except Exception:
-                    final_state.setdefault("page", {})["full_text"] = None
+                final_state = _refresh_live_observation(agent, final_state, base_url)
     except Exception as exc:
         error = f"{type(exc).__name__}: {exc}"
         final_state = final_state or {"status": "error", "page": {}}
