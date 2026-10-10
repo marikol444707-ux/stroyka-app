@@ -37,7 +37,8 @@ class FakeCursor:
         elif "SELECT id, coefficient FROM pricelists" in normalized:
             self.rows = [(3, 0.6)]
         elif normalized.startswith("SELECT id FROM brigade_contracts"):
-            self.result = (77,) if self.existing_contract else None
+            self.result = None
+            self.rows = [(77,)] if self.existing_contract else []
         elif normalized.startswith("INSERT INTO brigade_contracts"):
             self.result = (77,)
         elif normalized.startswith("UPDATE brigade_contracts") and "RETURNING id" in normalized:
