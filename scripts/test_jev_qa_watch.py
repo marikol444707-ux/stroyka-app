@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from scripts.jev_qa_watch import (
-    REQUIRED_CHECKS, WatchError, _watcher_signature, call_worker,
+    QA_URL, REQUIRED_CHECKS, WatchError, _watcher_signature, call_worker,
     classify_failures, github_report, run_smoke, save_report, worker_base,
 )
 
@@ -29,7 +29,7 @@ class FakeWorker:
     def __call__(self, method, path):
         self.calls.append((method, path))
         if path == "/watcher/health":
-            return {"ok": True, "environment": self.environment}
+            return {"ok": True, "environment": self.environment, "watcher_target": QA_URL}
         if method == "POST" and path == "/watcher/smoke":
             return {"job_id": JOB_ID, "status": "queued"}
         if path == "/watcher/jobs/" + JOB_ID:
