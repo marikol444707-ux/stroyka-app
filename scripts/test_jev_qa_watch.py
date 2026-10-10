@@ -128,10 +128,10 @@ class JevQaWatchTest(unittest.TestCase):
 
     def test_unhealthy_worker_never_starts_job(self):
         worker = FakeWorker()
-        def unhealthy(method, path, payload=None):
-            if path == "/health":
+        def unhealthy(method, path):
+            if path == "/watcher/health":
                 return {"ok": True, "environment": "production"}
-            return worker(method, path, payload)
+            return worker(method, path)
         with self.assertRaisesRegex(WatchError, "QA_WORKER_NOT_READY"):
             run_smoke(unhealthy, sleep=lambda _: None)
         self.assertEqual(worker.calls, [])
@@ -152,6 +152,7 @@ class JevQaWatchTest(unittest.TestCase):
         self.assertIn("JEV_WATCHER_TOKEN=", script)
         self.assertIn("stroyka-jev-watch-read-only-v2", script)
         self.assertNotIn("printf '%s\\n' \"$TOKEN_LINE\"", script)
+        self.assertNotIn("DEV_CONTROL_API_TOKEN=%s", script)
         self.assertIn("unset TOKEN_VALUE TOKEN_LINE", script)
 
     def test_atomic_report_written_with_expected_fields(self):
