@@ -322,7 +322,7 @@ class BrowserWorkerServiceConfigTest(unittest.TestCase):
                 _watcher_seen_nonces.update(previous)
 
     def test_watcher_smoke_request_is_server_fixed_and_read_only(self):
-        env = {"QA_BASE_URL": "https://qa.example.test/app"}
+        env = {"QA_BASE_URL": "https://qa.example.test/app", "JEV_WATCH_QA_URL": "https://qa.example.test/app"}
         with patch.dict(os.environ, env, clear=True):
             request = _watcher_smoke_request()
         self.assertTrue(request.read_only)
