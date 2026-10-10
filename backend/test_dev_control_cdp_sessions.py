@@ -178,7 +178,7 @@ class HarnessRoutingPatchTest(unittest.TestCase):
         self.assertIn('browser-harness==0.1.13', requirements)
         apply = 'RUN python /app/dev_control/browser_worker/patch_harness.py'
         self.assertLess(dockerfile.index('COPY . /app/dev_control'), dockerfile.index(apply))
-        self.assertLess(dockerfile.index(apply), dockerfile.index('USER worker'))
+        self.assertLess(dockerfile.index(apply), dockerfile.index('USER root'))
 
     def test_installed_distribution_entrypoint_without_importing_daemon(self):
         from dev_control.browser_worker import patch_harness
