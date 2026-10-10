@@ -21,19 +21,13 @@ if [[ -z "$TOKEN_LINE" ]]; then
   exit 1
 fi
 TOKEN_VALUE="${TOKEN_LINE#DEV_CONTROL_API_TOKEN=}"
-WATCHER_TOKEN="$(JEV_WORKER_TOKEN_STDIN="$TOKEN_VALUE" python3 - <<'PY'
+WATCHER_TOKEN="$(python3 -c '
 import hashlib
 import hmac
-import os
-
-token = os.environ["JEV_WORKER_TOKEN_STDIN"]
-print(hmac.new(
-    token.encode("ascii"),
-    b"stroyka-jev-watch-read-only-v2",
-    hashlib.sha256,
-).hexdigest())
-PY
-)"
+import sys
+token = sys.stdin.read().strip()
+print(hmac.new(token.encode("ascii"), b"stroyka-jev-watch-read-only-v2", hashlib.sha256).hexdigest())
+' <<< "$TOKEN_VALUE")"
 if [[ ! "$WATCHER_TOKEN" =~ ^[0-9a-f]{64}$ ]]; then
   echo "Failed to derive scoped watcher token." >&2
   exit 1
