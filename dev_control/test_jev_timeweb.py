@@ -49,7 +49,7 @@ class JevTimewebClientTest(unittest.TestCase):
             client.ask(state="test", questions={"q": {"type": "noul", "instructions": "test"}})
         mocked_urlopen.assert_not_called()
 
-    @patch("dev_control.jev_timeweb.urlopen")
+    @patch("dev_control.jev_timeweb.build_opener")
     def test_ask_accepts_structured_state_from_real_jev(self, mocked_urlopen):
         response = MagicMock()
         response.status = 200
@@ -73,7 +73,7 @@ class JevTimewebClientTest(unittest.TestCase):
         sent = json.loads(mocked_urlopen.return_value.open.call_args.args[0].data.decode("utf-8"))
         self.assertEqual(sent["state"], state)
 
-    @patch("dev_control.jev_timeweb.urlopen")
+    @patch("dev_control.jev_timeweb.build_opener")
     def test_ask_sends_bearer_model_state_and_questions(self, mocked_urlopen):
         response = MagicMock()
         response.status = 200
@@ -104,7 +104,7 @@ class JevTimewebClientTest(unittest.TestCase):
         self.assertEqual(sent["state"], "state-value")
         self.assertIn("is_test", sent["questions"])
 
-    @patch("dev_control.jev_timeweb.urlopen")
+    @patch("dev_control.jev_timeweb.build_opener")
     def test_ask_does_not_leak_key_in_http_error(self, mocked_urlopen):
         mocked_urlopen.return_value.open.side_effect = HTTPError(
             DEFAULT_SYSTEMONE_URL,
@@ -124,7 +124,7 @@ class JevTimewebClientTest(unittest.TestCase):
         self.assertNotIn("do-not-print-me", str(caught.exception))
         self.assertIn("HTTP 401", str(caught.exception))
 
-    @patch("dev_control.jev_timeweb.urlopen")
+    @patch("dev_control.jev_timeweb.build_opener")
     def test_ask_rejects_response_without_answers(self, mocked_urlopen):
         response = MagicMock()
         response.status = 200
