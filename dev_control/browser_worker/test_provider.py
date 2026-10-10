@@ -155,6 +155,29 @@ class ProviderPatchTest(unittest.TestCase):
         patch_handle.restore()
 
 
+    def test_nested_select_option_values_are_always_redacted(self):
+        state = {
+            "elements": [{
+                "index": "1",
+                "role": "combobox",
+                "label": "Компания",
+                "value": "Visible choice",
+                "options": [
+                    {"label": "Компания A", "value": "invite-secret-A", "index": 0},
+                    {"label": "Компания B", "value": "account-secret-B", "index": 1},
+                    {"group": {"label": "Nested", "value": "nested-secret"}},
+                ],
+            }]
+        }
+        safe = _sanitize_state_for_provider(state)
+        rendered = repr(safe)
+        self.assertNotIn("invite-secret-A", rendered)
+        self.assertNotIn("account-secret-B", rendered)
+        self.assertNotIn("nested-secret", rendered)
+        self.assertIn("Компания A", rendered)
+        self.assertIn("[REDACTED]", rendered)
+        self.assertEqual(state["elements"][0]["options"][0]["value"], "invite-secret-A")
+
     def test_visible_nonsecret_select_keeps_current_value(self):
         state = {"elements": [
             {"index": "1", "role": "combobox", "label": "Куда", "value": "JEV QA Объект A"},
