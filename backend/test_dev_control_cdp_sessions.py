@@ -203,6 +203,7 @@ class RegisteredSessionRegressionTest(unittest.TestCase):
         guard._guarded_sessions = {root}
         guard._child_targets = set()
         guard._base_url = 'https://qa.example.test/app'
+        guard._read_only = False
         guard._error = None
         guard._stop = threading.Event()
         return guard
