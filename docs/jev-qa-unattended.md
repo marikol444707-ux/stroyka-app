@@ -2,13 +2,14 @@
 
 ## Что уже автоматизировано
 
-Один раз в день systemd запускает **только read-only smoke** через существующий
-`stroyka-jev-dialog-test` на `127.0.0.1:18088`. Агент открывает
+Один раз в день systemd запускает **только read-only smoke** через локальный
+QA worker на `127.0.0.1:18088`. Worker открывает
 `https://stroyka-qa-gateway/app` и проверяет наличие меню `Склад`.
-Запрещены клики, ввод текста, подтверждения, загрузки и изменение данных.
-Тест считается успешным только при подтверждённых детерминированных проверках
-`agent_status=done`, `expect_text[0]:present`,
-`expect_url_contains[0]:present` и отсутствии ошибок.
+В scheduled read-only режиме цикл действий Jev (`agent.run()`) вообще не
+запускается: доступны только наблюдение DOM/URL и детерминированная проверка.
+Тест считается успешным только при проверках
+`read_only_observation`, `expect_text[0]:present`,
+`expect_url_contains[0]:present` и отсутствии ошибок/boundary violations.
 
 Это **не** полноценный автономный тест перемещения. Он отдельно потребует
 изолированных тестовых данных, подтверждения тела запроса, проверки БД и
@@ -32,11 +33,17 @@
 sudo bash scripts/install_jev_qa_watch.sh
 ```
 
-Установщик не изменяет Docker-контейнеры, Caddy и production. Он создаёт
-`/etc/stroyka-jev-watch.env` с **только** API-токеном QA worker
-(из `/etc/stroyka-jev-qa.env`) и портом 18088, доступный root и группе
-`stroyka`. Сам watcher выполняется под пользователем `stroyka`,
-а не root.
+Установщик не изменяет Docker-контейнеры, Caddy и production. Под `root`
+он однократно читает сильный `DEV_CONTROL_API_TOKEN` из
+`/etc/stroyka-jev-qa.env`, выводит из него односторонний scoped
+`JEV_WATCHER_TOKEN` и записывает в `/etc/stroyka-jev-watch.env`
+**только scoped read-only credential** и порт 18088. Общий worker-token,
+ключ Timeweb и QA session туда не копируются.
+
+Watcher подписывает каждый запрос к фиксированным `/watcher/*` endpoint'ам
+HMAC по method/path/timestamp/nonce/body hash. Сервер сам формирует
+фиксированный read-only smoke; scoped credential не авторизует общий
+`/jobs`. Сам watcher выполняется под пользователем `stroyka`, а не root.
 
 ```bash
 systemctl list-timers stroyka-jev-watch.timer
