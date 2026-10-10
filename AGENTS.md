@@ -47,6 +47,11 @@ health endpoint alone is insufficient. Missing/failed verification retains backu
 
 # Repository rules
 
+- The ordinary procurement flow is request -> supplier quotes -> comparison ->
+  explicit user choice. A supplier declares its ability to supply by answering
+  with a quote; do not add a separate director capability-confirmation step to
+  request cards. Check the offered goods against the request and show mismatches.
+
 - GitHub is the source of truth. Inspect and extend the existing architecture;
   keep changes small and scoped.
 - Never modify production data directly, deploy automatically, run destructive
