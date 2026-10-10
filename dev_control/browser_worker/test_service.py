@@ -18,7 +18,12 @@ from dev_control.browser_worker.service import (
     _qa_base_is_nonproduction,
     _valid_job_id,
     _startup_selftest_enabled,
-    _watcher_proof,
+    _authorize_watcher_request,
+    _watcher_scoped_token,
+    _watcher_signature,
+    _watcher_smoke_request,
+    _watcher_seen_nonces,
+    _watcher_nonce_lock,
     _worker_api_token,
     _commit_final_state,
     _jobs,
@@ -270,13 +275,61 @@ class BrowserWorkerServiceConfigTest(unittest.TestCase):
                 _authorize("Bearer " + WRONG_STRONG_TOKEN)
             self.assertEqual(caught.exception.status_code, 401)
 
-    def test_watcher_proof_is_deterministic_and_nonce_bound(self):
-        first = _watcher_proof(STRONG_TOKEN, "1" * 64)
-        second = _watcher_proof(STRONG_TOKEN, "1" * 64)
-        other = _watcher_proof(STRONG_TOKEN, "2" * 64)
-        self.assertEqual(first, second)
-        self.assertNotEqual(first, other)
-        self.assertRegex(first, r"^[0-9a-f]{64}$")
+    def test_watcher_scoped_token_cannot_authorize_general_jobs(self):
+        scoped = _watcher_scoped_token(STRONG_TOKEN)
+        self.assertRegex(scoped, r"^[0-9a-f]{64}$")
+        self.assertNotEqual(scoped, STRONG_TOKEN)
+        with patch.dict(os.environ, {"DEV_CONTROL_API_TOKEN": STRONG_TOKEN}, clear=True):
+            with self.assertRaises(HTTPException) as caught:
+                _authorize("Bearer " + scoped)
+            self.assertEqual(caught.exception.status_code, 401)
+
+    def test_watcher_request_signature_is_path_bound_and_replay_protected(self):
+        timestamp = "1700000000"
+        nonce = "1" * 32
+        scoped = _watcher_scoped_token(STRONG_TOKEN)
+        signature = _watcher_signature(
+            scoped, "GET", "/watcher/health", timestamp, nonce
+        )
+        with _watcher_nonce_lock:
+            previous = dict(_watcher_seen_nonces)
+            _watcher_seen_nonces.clear()
+        try:
+            with patch.dict(os.environ, {"DEV_CONTROL_API_TOKEN": STRONG_TOKEN}, clear=True), patch(
+                "dev_control.browser_worker.service.time.time", return_value=1700000000
+            ):
+                _authorize_watcher_request(
+                    "GET", "/watcher/health", timestamp, nonce, signature
+                )
+                with self.assertRaises(HTTPException) as replay:
+                    _authorize_watcher_request(
+                        "GET", "/watcher/health", timestamp, nonce, signature
+                    )
+                self.assertEqual(replay.exception.status_code, 409)
+
+                tampered_nonce = "2" * 32
+                with self.assertRaises(HTTPException) as tampered:
+                    _authorize_watcher_request(
+                        "GET", "/watcher/jobs/" + "a" * 32,
+                        timestamp,
+                        tampered_nonce,
+                        signature,
+                    )
+                self.assertEqual(tampered.exception.status_code, 401)
+        finally:
+            with _watcher_nonce_lock:
+                _watcher_seen_nonces.clear()
+                _watcher_seen_nonces.update(previous)
+
+    def test_watcher_smoke_request_is_server_fixed_and_read_only(self):
+        env = {"QA_BASE_URL": "https://qa.example.test/app"}
+        with patch.dict(os.environ, env, clear=True):
+            request = _watcher_smoke_request()
+        self.assertTrue(request.read_only)
+        self.assertEqual(request.url, "https://qa.example.test/app")
+        self.assertEqual(request.expect_text, ["Склад"])
+        self.assertEqual(request.expect_url_contains, ["qa.example.test"])
+        self.assertEqual(request.issue_number, 311)
 
 
 if __name__ == "__main__":
