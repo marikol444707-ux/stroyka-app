@@ -156,6 +156,8 @@ _active_job_id = None
 _accepting_jobs = True
 _watcher_nonce_lock = threading.Lock()
 _watcher_seen_nonces: dict[str, int] = {}
+WATCHER_QA_URL = "https://stroyka-qa-gateway/app"
+
 _PRODUCTION_HOSTS = frozenset({
     "stroyka26.pro",
     "www.stroyka26.pro",
@@ -358,17 +360,23 @@ def _watcher_job_is_owned(job_id: str) -> bool:
 
 def _watcher_smoke_request() -> JobRequest:
     base = (os.environ.get("QA_BASE_URL") or "").strip()
-    host = (urlparse(base).hostname or "").lower()
-    if not base or not host:
+    if not base:
         raise HTTPException(status_code=503, detail="QA worker is not fully configured")
+    try:
+        assert_allowed_document_url(WATCHER_QA_URL, base)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="QA worker target does not include scheduled watcher target",
+        ) from exc
     return JobRequest(
-        url=base,
+        url=WATCHER_QA_URL,
         goal=(
             "Observe the authenticated Stroyka QA application until the navigation "
             "menu including Склад is visible. This job is server-enforced read-only."
         ),
         expect_text=["Склад"],
-        expect_url_contains=[host],
+        expect_url_contains=["stroyka-qa-gateway/app"],
         max_seconds=60.0,
         display_name="Daily QA read-only smoke",
         issue_number=311,
@@ -716,7 +724,10 @@ def watcher_health(
         "GET", "/watcher/health",
         x_jev_watcher_time, x_jev_watcher_nonce, x_jev_watcher_signature,
     )
-    return health()
+    response = health()
+    payload = dict(response.body and json.loads(response.body) or {})
+    payload["watcher_target"] = WATCHER_QA_URL
+    return JSONResponse(status_code=response.status_code, content=payload)
 
 
 @app.post("/watcher/smoke", status_code=202)
