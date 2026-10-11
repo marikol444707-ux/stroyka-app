@@ -22,6 +22,47 @@ from dev_control.browser_worker.run import (
 
 
 class BrowserWorkerUrlSafetyTest(unittest.TestCase):
+    def test_direct_execute_task_rejects_production_before_model_or_browser(self):
+        for base in (
+            "https://stroyka.pro",
+            "https://www.stroyka26.pro/app",
+            "https://qa.stroyka.pro/app",
+            "https://147.45.237.127",
+        ):
+            env = {
+                "QA_ENVIRONMENT": "staging",
+                "QA_BASE_URL": base,
+                "QA_ALLOWED_ORIGIN": base.split("/app")[0],
+            }
+            with self.subTest(base=base), patch.dict(os.environ, env, clear=True), patch(
+                "dev_control.browser_worker.run.install_timeweb_provider"
+            ) as model, patch(
+                "dev_control.browser_worker.run.install_safe_browser"
+            ) as browser:
+                with self.assertRaisesRegex(ValueError, "nonproduction"):
+                    execute_task(
+                        url=base, goal="Attempt unsafe production access",
+                        expect_text=["Something"], read_only=False,
+                    )
+                model.assert_not_called()
+                browser.assert_not_called()
+
+    def test_direct_execute_task_requires_explicit_qa_label_and_origin(self):
+        base = "https://qa.example.test/app"
+        cases = (
+            {"QA_BASE_URL": base, "QA_ALLOWED_ORIGIN": "https://qa.example.test"},
+            {"QA_BASE_URL": base, "QA_ENVIRONMENT": "qa"},
+            {"QA_BASE_URL": base, "QA_ALLOWED_ORIGIN": "https://evil.test", "QA_ENVIRONMENT": "qa"},
+            {"QA_BASE_URL": base, "QA_ALLOWED_ORIGIN": "https://qa.example.test/other", "QA_ENVIRONMENT": "qa"},
+        )
+        for env in cases:
+            with self.subTest(env=env), patch.dict(os.environ, env, clear=True), patch(
+                "dev_control.browser_worker.run.install_safe_browser"
+            ) as browser:
+                with self.assertRaises(ValueError):
+                    execute_task(url=base, goal="Observe", expect_text=["Test"], read_only=True)
+                browser.assert_not_called()
+
     def test_allows_same_origin_and_base_path(self):
         _assert_allowed_url(
             "https://qa.example.test/app/warehouse",
@@ -389,7 +430,11 @@ class BrowserWorkerUrlSafetyTest(unittest.TestCase):
         fake_jev = SimpleNamespace(Agent=FakeAgent)
         with tempfile.TemporaryDirectory() as evidence, patch.dict(
             os.environ,
-            {"QA_BASE_URL": "https://qa.example.test/app"},
+            {
+                "QA_BASE_URL": "https://qa.example.test/app",
+                "QA_ALLOWED_ORIGIN": "https://qa.example.test",
+                "QA_ENVIRONMENT": "qa",
+            },
             clear=True,
         ), patch.dict(
             sys.modules,
