@@ -175,3 +175,22 @@ jobs:
           else:
               raise AssertionError("local browser read-only fixture exceeded the CI deadline")
           PY
+
+          # Exercise the real worker HTTP route and the watcher's reply MAC.
+          python3 - <<'PY'
+          import hashlib
+          import hmac
+          from scripts.jev_qa_watch import call_worker
+
+          full = "0123456789abcdef" * 4  # fixed CI-only dummy credential
+          scoped = hmac.new(
+              full.encode("ascii"), b"stroyka-jev-watch-read-only-v2",
+              hashlib.sha256,
+          ).hexdigest()
+          result = call_worker(
+              "http://127.0.0.1:18089", scoped, "GET", "/watcher/health",
+          )
+          assert result.get("ok") is True, result
+          assert result.get("watcher_target") == "https://stroyka-qa-gateway/app", result
+          print("Real signed watcher health response verified over loopback: PASS")
+          PY
