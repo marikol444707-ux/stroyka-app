@@ -1,7 +1,7 @@
 """Strict QA-only projection of a server-validated company-context response.
 
 This module NEVER authenticates by itself. Callers must first GET the existing
-/users/qa-readonly-context/identity endpoint in the isolated QA BrowserContext using its
+/api/users/qa-readonly-context/identity endpoint in the isolated QA BrowserContext using its
 HttpOnly session cookie and validate the response status, origin and TLS.
 Until that flow is wired end-to-end, the worker remains AUTH_NOT_ESTABLISHED.
 Do not persist tokens, session hashes or fabricated user/company identities.
@@ -93,7 +93,7 @@ def verify_qa_identity_http_response(
             or target.username is not None
             or target.password is not None
             or target.query or target.fragment
-            or target.path != "/users/qa-readonly-context/identity"
+            or target.path != "/api/users/qa-readonly-context/identity"
             or (base.scheme, base.hostname.lower().rstrip("."), base.port or 443)
                != (target.scheme, (target.hostname or "").lower().rstrip("."), target.port or 443)
             or type(status) is not int or status != 200
@@ -111,7 +111,7 @@ _QA_IDENTITY_FETCH_JS = r"""(async () => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
   try {
-    const response = await fetch('/users/qa-readonly-context/identity', {
+    const response = await fetch('/api/users/qa-readonly-context/identity', {
       method: 'GET', credentials: 'same-origin', redirect: 'error',
       cache: 'no-store', signal: controller.signal,
     });
