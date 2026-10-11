@@ -98,18 +98,24 @@ def inspect_host(command: Callable[[list[str]], str | None] = _command) -> dict:
             "verified": "inventory_only",
         }
 
-    names = sorted(
-        n for n in raw_names.splitlines()
-        if SAFE_CONTAINER.fullmatch(n) and n.startswith("stroyka-")
-        and ("jev" in n or n in NEEDED_QA or n == "stroyka-qa-db")
-    )
-    containers: dict[str, dict] = {}
+    # EVERY running container may own the watcher port, not just stroyka-*.
+    # Keep detailed reporting restricted to the recognized QA containers.
+    raw_container_names = [n for n in raw_names.splitlines() if n]
+    if any(not SAFE_CONTAINER.fullmatch(n) for n in raw_container_names):
+        blockers.append("UNINSPECTABLE_CONTAINER_NAME")
+    names = sorted(set(n for n in raw_container_names if SAFE_CONTAINER.fullmatch(n)))
+    all_containers: dict[str, dict] = {}
     for name in names:
         details = _inspect(name, command)
         if details is None:
             blockers.append("DOCKER_INSPECT_FAILED")
             continue
-        containers[name] = details
+        all_containers[name] = details
+    containers = {
+        name: details for name, details in all_containers.items()
+        if name.startswith("stroyka-")
+        and ("jev" in name or name in NEEDED_QA or name == "stroyka-qa-db")
+    }
 
     for name in NEEDED_QA:
         if (containers.get(name) or {}).get("state") != "running":
@@ -123,7 +129,7 @@ def inspect_host(command: Callable[[list[str]], str | None] = _command) -> dict:
         blockers.append("EXPECTED_JEV_WORKER_NOT_RUNNING")
 
     # Stopped containers do not own active host TCP listeners.
-    owners = _host_port_owners({n: d for n, d in containers.items()
+    owners = _host_port_owners({n: d for n, d in all_containers.items()
                                 if d.get("state") == "running"})
     watcher_owners = owners.get(WATCH_PORT, [])
     if watcher_owners != [EXPECTED_WORKER]:
@@ -147,8 +153,17 @@ def inspect_host(command: Callable[[list[str]], str | None] = _command) -> dict:
 
     timer_active = command(["systemctl", "is-active", "stroyka-jev-watch.timer"])
     timer_enabled = command(["systemctl", "is-enabled", "stroyka-jev-watch.timer"])
+    # Until #345 (write-on-GET) and #346 (unverified auth bootstrap) are
+    # resolved, ANY active/enabled watcher timer is unsafe, even on the
+    # expected port. Read-only preflight must never change timer state.
     if timer_active == "active":
-        observations.append("WATCHER_TIMER_ALREADY_ACTIVE")
+        blockers.append("WATCHER_TIMER_ACTIVE_BEFORE_ACCEPTANCE")
+    if timer_enabled == "enabled":
+        blockers.append("WATCHER_TIMER_ENABLED_BEFORE_ACCEPTANCE")
+    if timer_active not in {"active", "inactive", "failed"}:
+        blockers.append("WATCHER_TIMER_STATE_UNKNOWN")
+    if timer_enabled not in {"enabled", "disabled", "static"}:
+        blockers.append("WATCHER_TIMER_ENABLE_STATE_UNKNOWN")
     if timer_active == "active" and watcher_owners != [EXPECTED_WORKER]:
         blockers.append("ACTIVE_TIMER_WITH_WRONG_WATCHER_ENDPOINT")
 
