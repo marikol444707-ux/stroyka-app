@@ -5,6 +5,7 @@ import unittest
 from dev_control.browser_worker.qa_identity import (
     QAIdentityNotEstablished,
     project_qa_user,
+    verify_qa_identity_http_response,
 )
 
 
@@ -33,6 +34,37 @@ class QAIdentityTest(unittest.TestCase):
             "id": 21, "companyId": 17, "role": "прораб",
             "name": "QA Viewer", "email": "qa@example.test",
         })
+
+    def test_requires_exact_https_qa_identity_response(self):
+        args = {
+            "base_url": "https://qa.example.test/app",
+            "response_url": "https://qa.example.test/users/company-context",
+            "status": 200,
+            "content_type": "application/json; charset=utf-8",
+            "payload": valid_response(),
+        }
+        self.assertEqual(
+            verify_qa_identity_http_response(**args)["companyId"], 17
+        )
+        bad_cases = [
+            {"response_url": "https://evil.example/users/company-context"},
+            {"response_url": "http://qa.example.test/users/company-context"},
+            {"response_url": "https://qa.example.test/login"},
+            {"response_url": "https://qa.example.test/users/company-context?token=secret"},
+            {"response_url": "https://user:pass@qa.example.test/users/company-context"},
+            {"response_url": "https://qa.example.test:444/users/company-context"},
+            {"status": 302},
+            {"status": 401},
+            {"status": 403},
+            {"status": True},
+            {"content_type": "text/html"},
+            {"payload": {"ok": False}},
+            {"base_url": "http://qa.example.test/app"},
+        ]
+        for changed in bad_cases:
+            with self.subTest(changed=changed):
+                with self.assertRaises(QAIdentityNotEstablished):
+                    verify_qa_identity_http_response(**(args | changed))
 
     def test_rejects_unverified_or_cross_tenant_identity(self):
         def mutate(path, value):
