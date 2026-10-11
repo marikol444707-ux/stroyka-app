@@ -86,6 +86,7 @@ export default function WorkAssignmentModal({
   const [manualPrices, setManualPrices] = useState({});
   const [showPriceSettings, setShowPriceSettings] = useState(false);
   const [workSearch, setWorkSearch] = useState('');
+  const [sectionFilter, setSectionFilter] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submissionError, setSubmissionError] = useState('');
   const [showAssigned, setShowAssigned] = useState(false);
@@ -106,10 +107,15 @@ export default function WorkAssignmentModal({
     () => assignmentRows.filter(row => row.assignments.length > 0),
     [assignmentRows],
   );
+  const workSections = useMemo(() => Array.from(new Map(rows.map(row => [
+    String(row.sectionIndex), {id: String(row.sectionIndex), name: row.section, number: row.sectionIndex + 1},
+  ])).values()), [rows]);
+  const hasWorkFilter = Boolean(workSearch.trim() || sectionFilter);
   const visibleRows = useMemo(() => {
     const query = workSearch.trim().toLocaleLowerCase('ru-RU');
-    return query ? rows.filter(row => [row.name, row.section].some(value => String(value || '').toLocaleLowerCase('ru-RU').includes(query))) : rows;
-  }, [rows, workSearch]);
+    return rows.filter(row => (sectionFilter === '' || String(row.sectionIndex) === sectionFilter)
+      && (!query || [row.name, row.section].some(value => String(value || '').toLocaleLowerCase('ru-RU').includes(query))));
+  }, [rows, workSearch, sectionFilter]);
   const assignedCount = assignedRows.length;
   const performers = useMemo(
     () => performerRows(staff || [], users || [], brigadeContracts || []),
@@ -158,6 +164,7 @@ export default function WorkAssignmentModal({
     setManualPrices({});
     setShowPriceSettings(false);
     setWorkSearch('');
+    setSectionFilter('');
     setSubmissionError('');
     setShowAssigned(rows.length === 0 && assignedRows.length > 0);
   }, [show, selectedEstimate, rows, assignedRows, performers, sourceKey]);
@@ -292,7 +299,7 @@ export default function WorkAssignmentModal({
               <b style={{display: 'block', color: C.text, fontSize: '15px'}}>2. Какие работы выдать</b>
               <span style={{color: C.textSec, fontSize: '12px'}}>Показаны только ещё не назначенные работы.</span>
             </div>
-            {rows.length > 0 && <button type="button" onClick={toggleAll} disabled={!visibleRows.length} style={btnB}><CheckSquare size={14} />{workSearch.trim() ? (allVisibleSelected ? 'Снять показанные' : 'Выбрать показанные') : (allVisibleSelected ? 'Снять все' : 'Выбрать все')}</button>}
+            {rows.length > 0 && <button type="button" onClick={toggleAll} disabled={!visibleRows.length} style={btnB}><CheckSquare size={14} />{hasWorkFilter ? (allVisibleSelected ? 'Снять показанные' : 'Выбрать показанные') : (allVisibleSelected ? 'Снять все' : 'Выбрать все')}</button>}
           </div>
           <div style={{display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(220px,1fr) auto', gap: '10px', alignItems: 'center', marginBottom: '14px'}}>
             <div style={{padding: '9px 12px', border: '1px solid ' + C.border, borderRadius: '8px', backgroundColor: C.bg}}>
@@ -307,11 +314,17 @@ export default function WorkAssignmentModal({
             </div>)}
           </div>}
 
-          {rows.length > 8 && <div style={{marginBottom:'10px'}}>
+          {(rows.length > 8 || workSections.length > 1) && <div style={{marginBottom:'10px'}}>
+            {workSections.length > 1 && <label style={{display:'grid',gap:4,color:C.textSec,fontSize:12,marginBottom:8}}>Раздел сметы
+              <select aria-label="Раздел сметы" value={sectionFilter} onChange={event => setSectionFilter(event.target.value)} style={{...inp,width:'100%',boxSizing:'border-box',marginBottom:0}}>
+                <option value="">Все разделы</option>
+                {workSections.map(section => <option key={section.id} value={section.id}>{section.number}. {section.name || 'Без названия'}</option>)}
+              </select>
+            </label>}
             <input type="search" aria-label="Найти работу" value={workSearch} onChange={event => setWorkSearch(event.target.value)} placeholder="Найти работу или раздел" style={{...inp,width:'100%',boxSizing:'border-box',marginBottom:'4px'}} />
             <span style={{color:C.textSec,fontSize:'11px'}}>Показано: {visibleRows.length} из {rows.length}. Кнопка выбора действует только на показанные работы.</span>
             {hiddenSelectedCount > 0 && <div role="status" style={{marginTop:'8px',padding:'10px',border:'1px solid '+C.border,borderRadius:'8px'}}>
-              <p style={{color:C.text,margin:'0 0 8px',fontSize:'12px'}}>Ещё {hiddenSelectedCount} выбранных работ скрыты поиском. Они тоже будут выданы исполнителю.</p>
+              <p style={{color:C.text,margin:'0 0 8px',fontSize:'12px'}}>Ещё {hiddenSelectedCount} выбранных работ скрыты {sectionFilter ? 'фильтром' : 'поиском'}. Они тоже будут выданы исполнителю.</p>
               <button type="button" disabled={submitting} onClick={() => setSelectedIds(previous => Object.fromEntries(
                 Object.entries(previous).filter(([id]) => visibleRows.some(row => String(row.id) === id)),
               ))} style={{...btnB,minHeight:'44px'}}>Оставить только найденные</button>
@@ -405,7 +418,7 @@ export default function WorkAssignmentModal({
                   </div>
                 );
               })}
-              {!(isMobile && mobileStep === 3 ? selectedRows : visibleRows).length && <div style={{padding: '24px', textAlign: 'center', color: C.textMuted}}>{rows.length ? 'Работы не найдены. Очистите поиск.' : assignmentRows.length ? 'Все работы этой сметы уже назначены' : 'В смете нет рабочих строк для назначения'}</div>}
+              {!(isMobile && mobileStep === 3 ? selectedRows : visibleRows).length && <div style={{padding: '24px', textAlign: 'center', color: C.textMuted}}>{rows.length ? (sectionFilter ? 'Работы не найдены. Измените раздел или очистите поиск.' : 'Работы не найдены. Очистите поиск.') : assignmentRows.length ? 'Все работы этой сметы уже назначены' : 'В смете нет рабочих строк для назначения'}</div>}
             </div>
           </div>
           </div>
