@@ -422,3 +422,41 @@ describe('work assignment prices', () => {
     expect(screen.getByRole('button', {name: 'Выдать в работу'})).toBeDisabled();
   });
 });
+
+
+it('filters exact estimate sections without losing selections from another section', () => {
+  render(<WorkAssignmentModal show onClose={jest.fn()}
+    selectedEstimate={{id:25, sections:[
+      {name:'Монтаж', items:[{name:'Монтаж кабеля',unit:'м',quantity:10,priceWork:100,estimateItemKey:'electrical'}]},
+      {name:'Монтаж', items:[{name:'Монтаж трубы',unit:'м',quantity:5,priceWork:200,estimateItemKey:'plumbing'}]},
+    ]}} staff={[]} users={[{id:11,name:'Мастер Иван',role:'мастер'}]}
+    API="/api" loadAll={jest.fn()} C={{}} card={{}} inp={{}} btnO={{}} btnG={{}} btnB={{}} isMobile />);
+  fireEvent.click(screen.getByRole('button', {name:'Далее'}));
+  fireEvent.change(screen.getByRole('combobox', {name:'Раздел сметы'}), {target:{value:'0'}});
+  expect(screen.getByRole('checkbox', {name:'Выбрать работу: Монтаж кабеля'})).toBeChecked();
+  expect(screen.queryByRole('checkbox', {name:'Выбрать работу: Монтаж трубы'})).not.toBeInTheDocument();
+  expect(screen.getByText('Выбрано: 2 из 2')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', {name:'Снять показанные'}));
+  expect(screen.getByText('Выбрано: 1 из 2')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', {name:'Далее'}));
+  expect(screen.getByRole('checkbox', {name:'Выбрать работу: Монтаж трубы'})).toBeChecked();
+  expect(screen.queryByRole('checkbox', {name:'Выбрать работу: Монтаж кабеля'})).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', {name:'Назад'}));
+  expect(screen.getByRole('combobox', {name:'Раздел сметы'})).toHaveValue('0');
+});
+
+it('combines section and text filters when retaining only found work', () => {
+  render(<WorkAssignmentModal show onClose={jest.fn()}
+    selectedEstimate={{id:25, sections:[
+      {name:'Электрика', items:[{name:'Монтаж кабеля',unit:'м',quantity:10,priceWork:100,estimateItemKey:'cable'}]},
+      {name:'Отделка', items:[{name:'Монтаж панели',unit:'м2',quantity:5,priceWork:200,estimateItemKey:'panel'}]},
+    ]}} staff={[]} users={[{id:11,name:'Мастер Иван',role:'мастер'}]}
+    API="/api" loadAll={jest.fn()} C={{}} card={{}} inp={{}} btnO={{}} btnG={{}} btnB={{}} isMobile={false} />);
+  fireEvent.change(screen.getByRole('combobox', {name:'Раздел сметы'}), {target:{value:'1'}});
+  fireEvent.change(screen.getByRole('searchbox', {name:'Найти работу'}), {target:{value:'Монтаж'}});
+  fireEvent.click(screen.getByRole('button', {name:'Оставить только найденные'}));
+  expect(screen.getByText('Выбрано: 1 из 2')).toBeInTheDocument();
+  fireEvent.change(screen.getByRole('combobox', {name:'Раздел сметы'}), {target:{value:''}});
+  expect(screen.getByRole('checkbox', {name:'Выбрать работу: Монтаж кабеля'})).not.toBeChecked();
+  expect(screen.getByRole('checkbox', {name:'Выбрать работу: Монтаж панели'})).toBeChecked();
+});
