@@ -8,6 +8,7 @@ backend.auth.build_cookie_session_authentication. No deployment is authorized.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 
 _SESSION_HASH_RE = re.compile(r"^[0-9a-f]{64}$")
 _QA_COMPANY_ROLES = frozenset({
@@ -62,11 +63,11 @@ def resolve_qa_identity_read_only(cur, authentication: object) -> dict:
         # opened a PostgreSQL READ ONLY transaction before accessing sessions.
         cur.execute("SHOW transaction_read_only")
         state = cur.fetchone()
-        if type(state) is not dict or state.get("transaction_read_only") != "on":
+        if not isinstance(state, Mapping) or state.get("transaction_read_only") != "on":
             raise QAReadOnlyAuthRejected()
         cur.execute(_SQL, (authentication["sessionHash"],))
         rows = cur.fetchall()
-        if type(rows) is not list or len(rows) != 1 or type(rows[0]) is not dict:
+        if type(rows) is not list or len(rows) != 1 or not isinstance(rows[0], Mapping):
             raise QAReadOnlyAuthRejected()
         row = rows[0]
         for field in ("user_id", "company_id", "membership_id"):
