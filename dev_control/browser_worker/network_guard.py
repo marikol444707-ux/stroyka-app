@@ -108,7 +108,7 @@ def bootstrap_session_cookie(base_url: str, browser_context_id: str, cdp_fn) -> 
     if parsed.username is not None or parsed.password is not None:
         raise ValueError("QA_BASE_URL must not contain credentials")
 
-    cookie_name = (os.environ.get("QA_SESSION_COOKIE_NAME") or "session").strip()
+    cookie_name = (os.environ.get("QA_SESSION_COOKIE_NAME") or "stroyka_session").strip()
     if (
         not cookie_name
         or len(cookie_name) > 128
