@@ -21,3 +21,20 @@ Supplier payment UI: 21 suites / 185 tests passed. Production build passed.
 All settlement records are synthetic and removed with the disposable database.
 No real payment, act or contractor record was changed. Authenticated production
 workflow and the exact data problem in invoice 159 are not verified here.
+
+## Compact payment form follow-up
+
+The ordinary payment form precedes legacy document correction panels. The
+recipient and saved account remain visible; other requisites and the contract
+expand on demand. Payment history is collapsed until opened. On phones the
+amount and date share a row when space permits; the close header remains sticky.
+The remaining-debt shortcut fills only the draft amount from the authorized
+snapshot and never confirms or records a payment. It is unavailable when blocked
+and does not apply to refunds or credits.
+
+Verification: 187 supplier-payment tests, 18 focused dialog tests, ESLint and
+production build passed. Local real-browser checks at 320, 390 and 1280 px
+verified no horizontal overflow, amount filling, confirmation gating, the form
+before corrections and expandable requisites/history. The preview uses synthetic
+records and disables writes. Invoice 159 remains a separate data-reconciliation
+issue; this UI change does not bypass or repair its warehouse-package validation.

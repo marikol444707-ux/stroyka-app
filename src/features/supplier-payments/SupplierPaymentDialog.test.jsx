@@ -113,7 +113,7 @@ test('focus is trapped and restored on close', () => {
   const { unmount } = render(<SupplierPaymentDialog {...props} />);
   const close = screen.getByRole('button', { name: 'Закрыть' }); expect(close).toHaveFocus();
   fireEvent.keyDown(close, { key: 'Tab', shiftKey: true });
-  expect(screen.getByRole('checkbox', { name: 'Подтверждаю: деньги уже перечислены поставщику через банк' })).toHaveFocus();
+  expect(screen.getByText('История платежей · 0')).toHaveFocus();
   unmount(); expect(opener).toHaveFocus(); opener.remove();
 });
 
@@ -123,6 +123,7 @@ test('eligible history offers reversal; form shows original amount/date and expl
   state.history.items = [operation, { ...operation, operationId: 52, reversedById: 53 }];
   state.beginReversal = jest.fn(); state.updateReversal = jest.fn(); state.submitReversal = jest.fn(); state.cancelReversal = jest.fn();
   const { rerender } = render(<SupplierPaymentDialog {...props} />);
+  fireEvent.click(screen.getByText('История платежей · 2'));
   expect(screen.getAllByRole('button', { name: /Сторнировать платёж/ })).toHaveLength(1);
   fireEvent.click(screen.getByRole('button', { name: 'Сторнировать платёж #51' }));
   expect(state.beginReversal).toHaveBeenCalledWith(51);
@@ -167,7 +168,7 @@ test('cancelled attempt is distinct from confirmed money operation', () => {
 
 test('ordinary payment keeps legacy corrections collapsed', () => {
   render(<SupplierPaymentDialog {...props} documentKind="invoice" documentId={9} />);
-  expect(screen.getByText('Сверка документов и исправления').closest('details')).not.toHaveAttribute('open');
+  expect(screen.getByRole('group', {name: 'Сверка документов и исправления'})).not.toHaveAttribute('open');
   expect(screen.getByRole('form', { name: 'Запись платежа' })).toBeInTheDocument();
 });
 
@@ -177,7 +178,7 @@ test('opening review remains reachable when an unregistered mixed document canno
   try {
     state.snapshot = null; state.history = null; state.error = 'Пакет накладной требует сверки';
     const { rerender } = render(<SupplierPaymentDialog {...props} documentKind="invoice" documentId={9} />);
-    expect(screen.getByText('Сверка документов и исправления').closest('details')).toHaveAttribute('open');
+    expect(screen.getByRole('group', {name: 'Сверка документов и исправления'})).toHaveAttribute('open');
     expect(screen.getByRole('button', { name: 'Сверить прежнюю оплату' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Зафиксировать выполненную оплату' })).toBeDisabled();
     state = { ...state, busy: true };
@@ -187,4 +188,22 @@ test('opening review remains reachable when an unregistered mixed document canno
     if (previous === undefined) delete process.env.REACT_APP_SUPPLIER_OPENING_CONFIRMATIONS_ENABLED;
     else process.env.REACT_APP_SUPPLIER_OPENING_CONFIRMATIONS_ENABLED = previous;
   }
+});
+
+
+test('fills the remaining debt without recording a payment or confirming a transfer', () => {
+  render(<SupplierPaymentDialog {...props} />);
+  fireEvent.click(screen.getByRole('button', {name: 'Весь остаток: 200,00 ₽'}));
+  expect(state.updateDraft).toHaveBeenCalledWith({amount: '200.00'});
+  expect(state.submit).not.toHaveBeenCalled();
+  expect(screen.getByRole('checkbox', {name: 'Подтверждаю: деньги уже перечислены поставщику через банк'})).not.toBeChecked();
+});
+
+test('remaining debt shortcut is disabled while busy and absent for a refund', () => {
+  state.busy = true;
+  const {rerender} = render(<SupplierPaymentDialog {...props} />);
+  expect(screen.getByRole('button', {name: /Весь остаток/})).toBeDisabled();
+  state = {...state, busy: false, draft: {...state.draft, kind: 'refund'}};
+  rerender(<SupplierPaymentDialog {...props} />);
+  expect(screen.queryByRole('button', {name: /Весь остаток/})).not.toBeInTheDocument();
 });
