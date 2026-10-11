@@ -5,7 +5,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PYTHONPATH=/app \
     BU_CDP_URL=http://127.0.0.1:9222 \
-    BH_HOME=/home/worker/.browser-harness
+    BH_HOME=/var/lib/stroyka-jev-qa/harness \
+    QA_EVIDENCE_DIR=/var/lib/stroyka-jev-qa/evidence \
+    CHROME_USER_DATA_DIR=/var/lib/stroyka-jev-qa/chrome
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl gnupg fonts-liberation git util-linux \
@@ -32,6 +34,10 @@ RUN chmod +x /app/dev_control/browser_worker/start.sh \
     && chown -R root:root /app /home/worker \
     && chmod -R go-w /app \
     && chown -R chrome:chrome /home/chrome
+
+# Root-owned parent cannot be renamed by worker/chrome UIDs. At runtime
+# these accounts only own their leaf dirs, preventing symlink/chown attacks.
+RUN install -d -m 0755 -o root -g root /var/lib/stroyka-jev-qa
 
 USER root
 EXPOSE 8080
