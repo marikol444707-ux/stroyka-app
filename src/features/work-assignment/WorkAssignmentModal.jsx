@@ -117,6 +117,8 @@ export default function WorkAssignmentModal({
     assignmentRows.map(row => [row.estimateItemKey, row.name, row.quantity, row.priceSmeta, row.assignments.map(item => item.contractId || item.contract_id)]),
   ]), [selectedEstimate?.id, assignmentRows]);
   const selectedRows = rows.filter(row => selectedIds[row.id]);
+  const visibleIds = new Set(visibleRows.map(row => row.id));
+  const hiddenSelectedCount = selectedRows.filter(row => !visibleIds.has(row.id)).length;
   const allVisibleSelected = visibleRows.length > 0 && visibleRows.every(row => selectedIds[row.id]);
   const selectedPerformer = performers.find(item => performerOptionId(item) === String(contractorId));
   const brigadeName = (selectedPerformer?.name || manualName || '').trim();
@@ -302,6 +304,12 @@ export default function WorkAssignmentModal({
           {rows.length > 8 && <div style={{marginBottom:'10px'}}>
             <input type="search" aria-label="Найти работу" value={workSearch} onChange={event => setWorkSearch(event.target.value)} placeholder="Найти работу или раздел" style={{...inp,width:'100%',boxSizing:'border-box',marginBottom:'4px'}} />
             <span style={{color:C.textSec,fontSize:'11px'}}>Показано: {visibleRows.length} из {rows.length}. Кнопка выбора действует только на показанные работы.</span>
+            {hiddenSelectedCount > 0 && <div role="status" style={{marginTop:'8px',padding:'10px',border:'1px solid '+C.border,borderRadius:'8px'}}>
+              <p style={{color:C.text,margin:'0 0 8px',fontSize:'12px'}}>Ещё {hiddenSelectedCount} выбранных работ скрыты поиском. Они тоже будут выданы исполнителю.</p>
+              <button type="button" disabled={submitting} onClick={() => setSelectedIds(previous => Object.fromEntries(
+                Object.entries(previous).filter(([id]) => visibleRows.some(row => String(row.id) === id)),
+              ))} style={{...btnB,minHeight:'44px'}}>Оставить только найденные</button>
+            </div>}
           </div>}
 
           <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', marginBottom: '10px'}}>
