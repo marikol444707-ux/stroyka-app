@@ -32,6 +32,7 @@ function PaymentDialogContent(props) {
   const titleId = useId();
   const root = useRef(null);
   const close = useRef(null);
+  const review = useRef(null);
   useEffect(() => {
     const previous = document.activeElement;
     close.current?.focus();
@@ -57,9 +58,14 @@ function PaymentDialogContent(props) {
       <p>{documentLabel(props.documentKind)} № {props.documentId}</p>
       {state.loading && <p role="status">Загрузка документа и истории…</p>}
       {state.error && <p role="alert">{state.error === 'Пакет накладной требует сверки'
-        ? 'Не удалось проверить данные накладной. Оплата пока недоступна. Откройте сверку документов ниже; если данные верны, нужна проверка связанного счёта и накладной.'
+        ? 'Нужно сверить разделы работ, суммы и прежнюю оплату в счёте и накладной. До сверки запись новой оплаты недоступна.'
         : state.error}</p>}
       {state.storageError && <p role="alert">{state.storageError} Отправка заблокирована.</p>}
+      {state.error && props.documentKind === 'invoice' && <button type="button" disabled={state.busy || state.loading} onClick={() => {
+        setReviewOpen(true);
+        review.current?.scrollIntoView({block: 'start'});
+        review.current?.querySelector('summary')?.focus();
+      }}>Перейти к сверке</button>}
       {(state.error || state.storageError) && <button type="button" disabled={state.busy || state.loading} onClick={state.reload}>Обновить</button>}
       {state.snapshot && <div className="supplier-payment-dialog-summary">
         <p>Документ оплаты: {documentLabel(state.snapshot.canonicalTarget.documentKind)} #{state.snapshot.canonicalTarget.documentId}</p>
@@ -150,7 +156,7 @@ function PaymentDialogContent(props) {
         </fieldset>
       </form>}
       {state.busy && <p role="status">Ожидаем подтверждение. При закрытии окна сохранённый запрос останется доступен для повтора.</p>}
-      {props.documentKind === 'invoice' && <details className="supplier-payment-review" aria-label="Сверка документов и исправления" open={reviewOpen}
+      {props.documentKind === 'invoice' && <details ref={review} className="supplier-payment-review" aria-label="Сверка документов и исправления" open={reviewOpen}
         onToggle={event => setReviewOpen(event.currentTarget.open)}>
         <summary>Сверка документов и исправления{needsReview ? ' · требуется действие' : ''}</summary>
         <p>Открывайте, если нужно исправить старый счёт, учесть прежнюю оплату или распределить её по накладным.</p>
