@@ -167,7 +167,7 @@ test('lost response preserves the action draft and retries byte-identical UUID, 
 
   expect(await screen.findByRole('alert')).toHaveTextContent('Связь прервалась');
   expect(screen.getByLabelText('Сообщение')).toHaveValue('Нужны фотографии паллеты');
-  fireEvent.click(screen.getByRole('button', { name: 'Повторить сохранённую отправку' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Завершить отправку' }));
 
   await waitFor(() => expect(posts).toHaveLength(2));
   expect(posts[1]).toEqual(posts[0]);
@@ -193,9 +193,9 @@ test('recovering another claim command does not clear the currently edited claim
   const card = await openClaim();
   fireEvent.change(within(card).getByLabelText('Действие'), { target: { value: 'resolve' } });
   fireEvent.change(within(card).getByLabelText('Сообщение'), { target: { value: 'Текущий черновик решения' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Повторить сохранённую отправку' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Завершить отправку' }));
 
-  await waitFor(() => expect(screen.queryByText('Есть сохранённая отправка')).not.toBeInTheDocument());
+  await waitFor(() => expect(screen.queryByText('Нужно проверить результат отправки')).not.toBeInTheDocument());
   expect(screen.getByLabelText('Действие')).toHaveValue('resolve');
   expect(screen.getByLabelText('Сообщение')).toHaveValue('Текущий черновик решения');
 });
@@ -305,9 +305,9 @@ test('refresh after a committed lost response preserves the frozen command and r
   const pending = JSON.parse(sessionStorage.getItem('stroyka:work-material-batch:v2:2:9'));
   expect(pending.commands[0].payload.expectedVersion).toBe(3);
 
-  fireEvent.click(screen.getByRole('button', { name: 'Повторить сохранённую отправку' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Завершить отправку' }));
   await waitFor(() => expect(screen.getByLabelText('Сообщение')).toHaveValue(''));
-  await waitFor(() => expect(screen.queryByText('Есть сохранённая отправка')).not.toBeInTheDocument());
+  await waitFor(() => expect(screen.queryByText('Нужно проверить результат отправки')).not.toBeInTheDocument());
   expect(posts).toHaveLength(2);
   expect(posts[1]).toBe(posts[0]);
   expect(JSON.parse(posts[1]).expectedVersion).toBe(3);

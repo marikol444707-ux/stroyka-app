@@ -144,7 +144,7 @@ test('a lost save response keeps the draft and recovery retries the identical UU
 
   await screen.findByText(/Связь прервалась/);
   expect(screen.getByLabelText('Факт: Цемент М500')).toHaveValue(4.5);
-  fireEvent.click(screen.getByRole('button', { name: 'Повторить сохранённую отправку' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Завершить отправку' }));
   await waitFor(() => expect(posts).toHaveLength(2));
   expect(posts[1]).toEqual(posts[0]);
   await waitFor(() => expect(screen.queryByText(/Связь прервалась/)).not.toBeInTheDocument());
