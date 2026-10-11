@@ -42,7 +42,9 @@ jobs:
         run: |
           set -euo pipefail
           # Constant fake values only. Never expose production/QA credentials to CI.
-          docker run -d --name stroyka-jev-qa-ci \
+          # CI-only: permit Chrome's unprivileged sandbox namespace syscalls.
+          # No real credentials or Stroyka app access; QA deployment must be verified separately.
+          docker run -d --security-opt seccomp=unconfined --name stroyka-jev-qa-ci \
             -p 127.0.0.1:18089:8080 \
             -e QA_BASE_URL=http://127.0.0.1:8080 \
             -e QA_ENVIRONMENT=qa \
