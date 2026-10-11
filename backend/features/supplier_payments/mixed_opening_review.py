@@ -66,6 +66,8 @@ def review(cur, authorize, actor_id, company_id, invoice_id):
     receipt = dict(common(warehouse, warehouse['project'] or warehouse['location'] or ''),
                    amount=warehouse['total_with_vat'] or warehouse['total_base'], invoiceId=warehouse['supplier_invoice_id'])
     result = mixed_reconciliation_preview(source, [receipt], raw)
+    if result.get('reason') == 'receiptBalanceMismatch':
+        raise HTTPException(409, 'В счёте и накладной указаны разные суммы или разная оплата. Сверьте их с документами и банковской выпиской.')
     if result['scenario'] != 'mixedPackageLegacyPair':
         raise HTTPException(409, 'Связи, реквизиты или остатки документов требуют сверки')
     evidence = source_evidence(cur, company_id, invoice_id, warehouse['id'])

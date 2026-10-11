@@ -38,3 +38,23 @@ verified no horizontal overflow, amount filling, confirmation gating, the form
 before corrections and expandable requisites/history. The preview uses synthetic
 records and disables writes. Invoice 159 remains a separate data-reconciliation
 issue; this UI change does not bypass or repair its warehouse-package validation.
+
+## Invoice 159 diagnosis and reconciliation guidance
+
+A read-only production audit found invoice 159 linked reciprocally to receipt 26
+in company 1. Receipt items span three work packages; the paid amounts disagree
+between the two documents. Neither document has a registered ledger baseline.
+The canonical audit reports receiptBalanceMismatch and missing original line
+evidence. These are existing-data blockers, not proof of a bank payment. No
+production document, balance, registration or financial operation was changed.
+
+The mixed-package review now explains a balance mismatch after authorization of
+every involved package. Denied package access still returns 403 before exposing
+financial diagnostics. Payment errors offer a button that scrolls/focuses the
+existing reconciliation section without submitting a command. Opening copy now
+explains that sums are reviewed from source documents; it does not suggest an
+unavailable manual amount input. Confirmation and payment gates remain intact.
+
+Checks: four disposable PostgreSQL review tests, 188 supplier-payment UI tests,
+ESLint and production build; local browser review navigation at 390/1280 px.
+The factual bank-payment status remains required before correcting live data.

@@ -207,3 +207,18 @@ test('remaining debt shortcut is disabled while busy and absent for a refund', (
   rerender(<SupplierPaymentDialog {...props} />);
   expect(screen.queryByRole('button', {name: /Весь остаток/})).not.toBeInTheDocument();
 });
+
+
+test('document error offers navigation to reconciliation without sending money', () => {
+  state.snapshot = null; state.history = null; state.error = 'Пакет накладной требует сверки';
+  const originalScroll = Element.prototype.scrollIntoView;
+  Element.prototype.scrollIntoView = jest.fn();
+  try {
+    render(<SupplierPaymentDialog {...props} documentKind="invoice" documentId={9} />);
+    fireEvent.click(screen.getByRole('button', {name: 'Перейти к сверке'}));
+    expect(screen.getByText('Сверка документов и исправления')).toHaveFocus();
+    expect(state.submit).not.toHaveBeenCalled();
+  } finally {
+    Element.prototype.scrollIntoView = originalScroll;
+  }
+});
