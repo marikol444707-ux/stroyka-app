@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from scripts.jev_qa_watch import (
-    QA_URL, REQUIRED_CHECKS, WatchError, _watcher_signature, call_worker,
+    QA_URL, REQUIRED_CHECKS, WatchError, _watcher_signature, _watcher_response_signature, call_worker,
     classify_failures, github_report, run_smoke, save_report, worker_base,
 )
 
@@ -52,9 +52,17 @@ class JevQaWatchTest(unittest.TestCase):
         captured = {}
 
         class FakeResponse:
+            status = 200
+            body = b'{"ok":true,"environment":"qa"}'
+            headers = {
+                "X-Jev-Watcher-Response-Signature": _watcher_response_signature(
+                    token, "GET", "/watcher/health",
+                    "1700000000", "1" * 32, 200, body
+                ),
+            }
             def __enter__(self): return self
             def __exit__(self, *_args): return False
-            def read(self): return b'{"ok":true,"environment":"qa"}'
+            def read(self, *_args): return self.body
 
         def fake_open(request, timeout):
             captured["request"] = request
@@ -74,6 +82,46 @@ class JevQaWatchTest(unittest.TestCase):
             token, "GET", "/watcher/health", "1700000000", "1" * 32
         )
         self.assertEqual(request.headers["X-jev-watcher-signature"], expected)
+
+    def test_unsigned_and_tampered_worker_pass_are_rejected(self):
+        # A local process on the expected port cannot simply return fake PASS.
+        token = "d" * 64
+        body = b'{"ok":true,"watcher_target":"https://stroyka-qa-gateway/app"}'
+        timestamp = "1700000000"
+        nonce = "1" * 32
+        correct = _watcher_response_signature(
+            token, "GET", "/watcher/health", timestamp, nonce, 200, body
+        )
+
+        class FakeResponse:
+            status = 200
+            def __init__(self, signature="", body=body):
+                self.headers = {"X-Jev-Watcher-Response-Signature": signature}
+                self.body = body
+            def __enter__(self): return self
+            def __exit__(self, *_args): return False
+            def read(self, *_args): return self.body
+
+        variants = (
+            ("unsigned", FakeResponse()),
+            ("tampered_body", FakeResponse(correct, body + b" ")),
+            ("wrong_nonce", FakeResponse(_watcher_response_signature(
+                token, "GET", "/watcher/health", timestamp, "2" * 32, 200, body
+            ))),
+            ("wrong_path", FakeResponse(_watcher_response_signature(
+                token, "GET", "/watcher/jobs/" + "a" * 32, timestamp, nonce, 200, body
+            ))),
+        )
+        for label, result in variants:
+            with self.subTest(label=label), patch(
+                "scripts.jev_qa_watch.time.time", return_value=1700000000
+            ), patch(
+                "scripts.jev_qa_watch.secrets.token_hex", return_value=nonce
+            ), patch(
+                "scripts.jev_qa_watch.urllib.request.urlopen", return_value=result
+            ):
+                with self.assertRaisesRegex(WatchError, "WORKER_RESPONSE_UNAUTHENTICATED"):
+                    call_worker("http://127.0.0.1:18088", token, "GET", "/watcher/health")
 
     def test_watcher_token_is_validated_before_network(self):
         with patch("scripts.jev_qa_watch.urllib.request.urlopen") as urlopen:
