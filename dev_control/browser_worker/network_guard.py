@@ -261,7 +261,11 @@ def qa_base_is_nonproduction(base_url: str | None = None) -> bool:
         if (allowed.username is not None or allowed.password is not None
                 or allowed.path not in {"", "/"} or allowed.query or allowed.fragment):
             return False
-        base_port, allowed_port = parsed.port or 443, allowed.port or 443
+        # Explicit port 0 is invalid and must not silently become 443.
+        base_port = 443 if parsed.port is None else parsed.port
+        allowed_port = 443 if allowed.port is None else allowed.port
+        if not (1 <= base_port <= 65535 and 1 <= allowed_port <= 65535):
+            return False
     except (ValueError, TypeError):
         return False
     if (parsed.scheme, host, base_port) != (
