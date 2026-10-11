@@ -72,40 +72,14 @@ function PaymentDialogContent(props) {
       {state.snapshot?.paymentRequisites && <fieldset aria-label="Куда перечислять" className="supplier-payment-dialog-requisites">
         <legend>Куда перечислять</legend>
         <strong>{state.snapshot.paymentRequisites.supplier?.fullName || 'Поставщик'}</strong>
+        <p>Расчётный счёт: {state.snapshot.paymentRequisites.supplier?.rs || 'не указан'}</p>
+        <details className="supplier-payment-extra"><summary>Реквизиты и договор</summary>
         <p>{['ИНН '+(state.snapshot.paymentRequisites.supplier?.inn||'—'), state.snapshot.paymentRequisites.supplier?.kpp ? 'КПП '+state.snapshot.paymentRequisites.supplier.kpp : ''].filter(Boolean).join(' · ')}</p>
         <p>{[state.snapshot.paymentRequisites.supplier?.bankName, state.snapshot.paymentRequisites.supplier?.bik ? 'БИК '+state.snapshot.paymentRequisites.supplier.bik : ''].filter(Boolean).join(' · ') || 'Банк не указан'}</p>
-        <p>Расчётный счёт: {state.snapshot.paymentRequisites.supplier?.rs || 'не указан'}</p>
         {state.snapshot.paymentRequisites.supplier?.ks && <p>Корреспондентский счёт: {state.snapshot.paymentRequisites.supplier.ks}</p>}
         <p>Договор № {state.snapshot.paymentRequisites.contractNumber || '—'}{state.snapshot.paymentRequisites.contractDate ? ' от '+state.snapshot.paymentRequisites.contractDate : ''}</p>
+        </details>
       </fieldset>}
-      {props.documentKind === 'invoice' && <details className="supplier-payment-review" open={reviewOpen}
-        onToggle={event => setReviewOpen(event.currentTarget.open)}>
-        <summary>Сверка документов и исправления{needsReview ? ' · требуется действие' : ''}</summary>
-        <p>Открывайте, если нужно исправить старый счёт, учесть прежнюю оплату или распределить её по накладным.</p>
-      <SupplierLegacyBindingPanel API={props.API} userId={props.userId}
-        companyId={props.companyId} invoiceId={props.documentId}
-        disabled={lineReviewBlocked || allocationBlocked || refundBlocked || openingBlocked || state.busy || state.loading || !!state.pending || !!state.reversal || !!state.storageError}
-        onBlocked={setBindingBlocked} onSuccess={() => { state.reload(); props.onSuccess?.(); }} />}
-      {props.documentKind === 'invoice' && <SupplierLegacyLineReviewPanel API={props.API} userId={props.userId}
-        companyId={props.companyId} invoiceId={props.documentId}
-        disabled={bindingBlocked || allocationBlocked || openingBlocked || refundBlocked || state.busy || state.loading || !!state.pending || !!state.reversal || !!state.storageError}
-        onBlocked={setLineReviewBlocked} onSuccess={() => { state.reload(); props.onSuccess?.(); }} />}
-      {props.documentKind === 'invoice' && <SupplierOpeningPanel API={props.API} userId={props.userId}
-        companyId={props.companyId} invoiceId={props.documentId}
-        registered={state.snapshot?.openingPaidAmount != null}
-        // Opening preview has its own server authorization and must remain reachable
-        // when the payment read rejects an unregistered mixed-package receipt.
-        disabled={lineReviewBlocked || bindingBlocked || allocationBlocked || refundBlocked || state.busy || state.loading || !!state.pending || !!state.reversal || !!state.storageError}
-        onBlocked={setOpeningBlocked} onSuccess={() => { state.reload(); props.onSuccess?.(); }} />}
-      {props.documentKind === 'invoice' && <SupplierAllocationPanel API={props.API} userId={props.userId}
-        companyId={props.companyId} invoiceId={props.documentId}
-        disabled={lineReviewBlocked || bindingBlocked || openingBlocked || refundBlocked || state.busy || state.loading || !!state.pending || !!state.reversal || !!state.storageError}
-        onBlocked={setAllocationBlocked} onSuccess={() => { state.reload(); props.onSuccess?.(); }} />}
-      {props.documentKind === 'invoice' && <SupplierRefundPanel API={props.API} userId={props.userId}
-        companyId={props.companyId} invoiceId={props.documentId}
-        disabled={lineReviewBlocked || bindingBlocked || allocationBlocked || openingBlocked || state.busy || state.loading || !!state.pending || !!state.reversal || !!state.storageError || !state.snapshot}
-        onBlocked={setRefundBlocked} onSuccess={() => { state.reload(); props.onSuccess?.(); }} />}
-      </details>}
       {state.pending && <section aria-label="Незавершённая операция">
         <h3>Сохранённый запрос</h3>
         <p>Не удалось получить подтверждение. Проверьте результат предыдущей попытки, прежде чем записывать новый платёж. Она может относиться к другому счёту вашей компании.</p>
@@ -156,10 +130,14 @@ function PaymentDialogContent(props) {
             <option value="credit">Уменьшение суммы счёта</option>
           </select></label>}
           {paymentMode && <p className="supplier-payment-bank-warning">Программа не переводит деньги и не принимает товар на склад. Запишите оплату только после списания денег в банке.</p>}
+          <div className="supplier-payment-fields"><div>
           <label>Сумма, ₽<input inputMode="decimal" autoComplete="off" required value={state.draft.amount}
             onChange={event => state.updateDraft({ amount: event.target.value })} /></label>
+          {paymentMode && paymentKopecks(state.snapshot?.remainingAmount) > 0 && <button type="button" onClick={() => state.updateDraft({amount: state.snapshot.remainingAmount})}>Весь остаток: {money(state.snapshot.remainingAmount)}</button>}
+          </div>
           <label>{state.draft.kind && state.draft.kind!=='payment' ? 'Дата операции' : 'Дата оплаты'}<input type="date" required value={state.draft.paidAt}
             onChange={event => state.updateDraft({ paidAt: event.target.value })} /></label>
+          </div>
           <label>{state.draft.kind && state.draft.kind!=='payment' ? 'Основание и номер документа' : 'Номер платёжного поручения или основание'}<textarea required maxLength={1000} value={state.draft.reason}
             onChange={event => state.updateDraft({ reason: event.target.value })} /></label>
           <p>{state.draft.kind==='credit' ? 'Укажите документ, по которому уменьшилась сумма счёта. Это не возврат денег.'
@@ -172,7 +150,36 @@ function PaymentDialogContent(props) {
         </fieldset>
       </form>}
       {state.busy && <p role="status">Ожидаем подтверждение. При закрытии окна сохранённый запрос останется доступен для повтора.</p>}
+      {props.documentKind === 'invoice' && <details className="supplier-payment-review" aria-label="Сверка документов и исправления" open={reviewOpen}
+        onToggle={event => setReviewOpen(event.currentTarget.open)}>
+        <summary>Сверка документов и исправления{needsReview ? ' · требуется действие' : ''}</summary>
+        <p>Открывайте, если нужно исправить старый счёт, учесть прежнюю оплату или распределить её по накладным.</p>
+      <SupplierLegacyBindingPanel API={props.API} userId={props.userId}
+        companyId={props.companyId} invoiceId={props.documentId}
+        disabled={lineReviewBlocked || allocationBlocked || refundBlocked || openingBlocked || state.busy || state.loading || !!state.pending || !!state.reversal || !!state.storageError}
+        onBlocked={setBindingBlocked} onSuccess={() => { state.reload(); props.onSuccess?.(); }} />}
+      {props.documentKind === 'invoice' && <SupplierLegacyLineReviewPanel API={props.API} userId={props.userId}
+        companyId={props.companyId} invoiceId={props.documentId}
+        disabled={bindingBlocked || allocationBlocked || openingBlocked || refundBlocked || state.busy || state.loading || !!state.pending || !!state.reversal || !!state.storageError}
+        onBlocked={setLineReviewBlocked} onSuccess={() => { state.reload(); props.onSuccess?.(); }} />}
+      {props.documentKind === 'invoice' && <SupplierOpeningPanel API={props.API} userId={props.userId}
+        companyId={props.companyId} invoiceId={props.documentId}
+        registered={state.snapshot?.openingPaidAmount != null}
+        // Opening preview has its own server authorization and must remain reachable
+        // when the payment read rejects an unregistered mixed-package receipt.
+        disabled={lineReviewBlocked || bindingBlocked || allocationBlocked || refundBlocked || state.busy || state.loading || !!state.pending || !!state.reversal || !!state.storageError}
+        onBlocked={setOpeningBlocked} onSuccess={() => { state.reload(); props.onSuccess?.(); }} />}
+      {props.documentKind === 'invoice' && <SupplierAllocationPanel API={props.API} userId={props.userId}
+        companyId={props.companyId} invoiceId={props.documentId}
+        disabled={lineReviewBlocked || bindingBlocked || openingBlocked || refundBlocked || state.busy || state.loading || !!state.pending || !!state.reversal || !!state.storageError}
+        onBlocked={setAllocationBlocked} onSuccess={() => { state.reload(); props.onSuccess?.(); }} />}
+      {props.documentKind === 'invoice' && <SupplierRefundPanel API={props.API} userId={props.userId}
+        companyId={props.companyId} invoiceId={props.documentId}
+        disabled={lineReviewBlocked || bindingBlocked || allocationBlocked || openingBlocked || state.busy || state.loading || !!state.pending || !!state.reversal || !!state.storageError || !state.snapshot}
+        onBlocked={setRefundBlocked} onSuccess={() => { state.reload(); props.onSuccess?.(); }} />}
+      </details>}
       {state.history && <section aria-label="История платежей">
+        <details className="supplier-payment-extra"><summary>История платежей · {state.history.items.length}{state.history.hasMore ? "+" : ""}</summary>
         <h3>Последние операции</h3>
         {!state.history.items.length && <p>Платежей пока нет.</p>}
         <ul>{state.history.items.map(item => <li key={item.operationId}>
@@ -184,6 +191,7 @@ function PaymentDialogContent(props) {
             {item.kind==='payment' ? 'Сторнировать платёж' : 'Сторнировать операцию'} #{item.operationId}</button>}
         </li>)}</ul>
         {state.history.hasMore && <p>Показаны последние 50 операций.</p>}
+        </details>
       </section>}
     </section>
   </div>;
