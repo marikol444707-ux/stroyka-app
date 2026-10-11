@@ -13,7 +13,7 @@ class Cursor:
         self.read_only = read_only
         self.queries = []
 
-    def execute(self, sql, parameters):
+    def execute(self, sql, parameters=None):
         self.queries.append((sql, parameters))
 
     def fetchone(self):
