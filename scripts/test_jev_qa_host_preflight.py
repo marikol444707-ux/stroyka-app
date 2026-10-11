@@ -6,7 +6,7 @@ from unittest.mock import patch
 from scripts.jev_qa_host_preflight import inspect_host, _inspect, _host_port_owners
 
 
-def _container(port, *, state="running", user="10001", privileged=False, security=None):
+def _container(port, *, state="running", user="10001", privileged=False, security=None, network_mode="bridge"):
     return {
         "state": state,
         "user": user,
@@ -14,10 +14,12 @@ def _container(port, *, state="running", user="10001", privileged=False, securit
         "privileged": privileged,
         "security": security or [],
         "pid_mode": "",
+        "network_mode": network_mode,
     }
 
 
-def _fake_command(items, *, timer="inactive", enabled="disabled"):
+def _fake_command(items, *, timer="inactive", enabled="disabled",
+                  service="inactive", service_enabled="disabled"):
     fields = {
         "{{json .State.Status}}": "state",
         "{{json .Config.User}}": "user",
@@ -25,6 +27,7 @@ def _fake_command(items, *, timer="inactive", enabled="disabled"):
         "{{json .HostConfig.Privileged}}": "privileged",
         "{{json .HostConfig.SecurityOpt}}": "security",
         "{{json .HostConfig.PidMode}}": "pid_mode",
+        "{{json .HostConfig.NetworkMode}}": "network_mode",
     }
     calls = []
 
@@ -37,6 +40,10 @@ def _fake_command(items, *, timer="inactive", enabled="disabled"):
             if name not in items:
                 return None
             return json.dumps(items[name][fields[fmt]])
+        if args == ["systemctl", "is-active", "stroyka-jev-watch.service"]:
+            return service
+        if args == ["systemctl", "is-enabled", "stroyka-jev-watch.service"]:
+            return service_enabled
         if args == ["systemctl", "is-active", "stroyka-jev-watch.timer"]:
             return timer
         if args == ["systemctl", "is-enabled", "stroyka-jev-watch.timer"]:
@@ -124,6 +131,45 @@ class HostPreflightTest(unittest.TestCase):
                     self.assertIn("WATCHER_TIMER_ACTIVE_BEFORE_ACCEPTANCE", result["blockers"])
                 if enabled == "enabled":
                     self.assertIn("WATCHER_TIMER_ENABLED_BEFORE_ACCEPTANCE", result["blockers"])
+
+    def test_host_network_container_cannot_be_proven_port_safe(self):
+        containers = {
+            "stroyka-jev-qa": _container(18088),
+            "stroyka-qa-backend": _container(8001),
+            "stroyka-qa-gateway": _container(8443),
+            "foreign-host-net": _container(None, network_mode="host"),
+        }
+        command, _ = _fake_command(containers)
+        with patch("scripts.jev_qa_host_preflight._read_setting", return_value="unknown"):
+            result = inspect_host(command)
+        self.assertIn("HOST_NETWORK_PORT_18088_UNVERIFIED", result["blockers"])
+        self.assertEqual(result["status"], "blocked")
+
+    def test_direct_service_enablement_or_activation_blocks_even_without_timer(self):
+        containers = {
+            "stroyka-jev-qa": _container(18088),
+            "stroyka-qa-backend": _container(8001),
+            "stroyka-qa-gateway": _container(8443),
+        }
+        for state, enabled in (("active", "disabled"), ("inactive", "enabled")):
+            with self.subTest(state=state, enabled=enabled):
+                command, _ = _fake_command(containers, service=state, service_enabled=enabled)
+                with patch("scripts.jev_qa_host_preflight._read_setting", return_value="unknown"):
+                    result = inspect_host(command)
+                self.assertEqual(result["status"], "blocked")
+                self.assertTrue(any("WATCHER_SERVICE_" in item for item in result["blockers"]))
+
+    def test_missing_service_state_blocks(self):
+        containers = {
+            "stroyka-jev-qa": _container(18088),
+            "stroyka-qa-backend": _container(8001),
+            "stroyka-qa-gateway": _container(8443),
+        }
+        command, _ = _fake_command(containers, service="unknown", service_enabled="unknown")
+        with patch("scripts.jev_qa_host_preflight._read_setting", return_value="unknown"):
+            result = inspect_host(command)
+        self.assertIn("WATCHER_SERVICE_STATE_UNKNOWN", result["blockers"])
+        self.assertIn("WATCHER_SERVICE_ENABLE_STATE_UNKNOWN", result["blockers"])
 
     def test_foreign_container_binding_same_port_is_detected(self):
         rogue = _container(18088)
