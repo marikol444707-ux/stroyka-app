@@ -7,6 +7,8 @@ on:
       - 'scripts/test_jev_qa_watch.py'
       - 'scripts/install_jev_qa_watch.sh'
       - 'ops/systemd/stroyka-jev-watch.*'
+      - 'dev_control/Dockerfile'
+      - 'dev_control/browser_worker/**'
       - '.github/workflows/jev-qa-watch-ci.yml'
   workflow_dispatch:
 
@@ -27,3 +29,89 @@ jobs:
           python -m py_compile scripts/jev_qa_watch.py scripts/test_jev_qa_watch.py
           python -m unittest scripts.test_jev_qa_watch -v
           bash -n scripts/install_jev_qa_watch.sh
+
+  container-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build isolated QA worker image (no runtime credentials)
+        run: docker build --file dev_control/Dockerfile --tag stroyka-jev-qa-ci dev_control
+      - name: Boot Chrome, check worker health and cross-UID secret boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Constant fake values only. Never expose production/QA credentials to CI.
+          docker run -d --name stroyka-jev-qa-ci \
+            -p 127.0.0.1:18089:8080 \
+            -e QA_BASE_URL=http://127.0.0.1:8080 \
+            -e QA_ENVIRONMENT=qa \
+            -e DEV_CONTROL_API_TOKEN=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+            -e TIMEWEB_AI_API_KEY=ci-dummy-not-a-real-key \
+            stroyka-jev-qa-ci >/dev/null
+          trap 'docker logs --tail 60 stroyka-jev-qa-ci || true; docker rm -f stroyka-jev-qa-ci || true' EXIT
+
+          ready=0
+          for attempt in $(seq 1 60); do
+            if curl --silent --fail http://127.0.0.1:18089/health > /tmp/jev-qa-health.json; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [[ "$ready" != "1" ]]; then
+            echo "QA worker failed to boot with Chrome in the isolated container" >&2
+            exit 1
+          fi
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          health = json.loads(Path("/tmp/jev-qa-health.json").read_text())
+          assert health.get("ok") is True, health
+          assert health.get("environment") == "qa", health
+          assert health.get("startup_selftest") == "not_requested", health
+          print("QA container health and Chrome CDP startup: PASS (no application session)")
+          PY
+
+          docker exec -i stroyka-jev-qa-ci python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from urllib.request import urlopen
+          with urlopen("http://127.0.0.1:9222/json/version", timeout=3) as response:
+              assert "Browser" in json.load(response)
+          assert os.stat("/proc/1").st_uid == 10001, "worker must run as UID 10001"
+          chrome_pids = []
+          for proc in Path("/proc").iterdir():
+              if not proc.name.isdigit():
+                  continue
+              try:
+                  comm = (proc / "comm").read_text().strip().lower()
+                  if "chrome" not in comm:
+                      continue
+                  chrome_pids.append(proc.name)
+                  assert proc.stat().st_uid == 10002, "Chrome must use a separate UID"
+                  env = (proc / "environ").read_bytes()
+                  for key in (b"TIMEWEB_AI_API_KEY=", b"DEV_CONTROL_API_TOKEN=",
+                              b"QA_SESSION_COOKIE_VALUE=", b"JEV_WATCHER_TOKEN="):
+                      assert key not in env, "Chrome inherited a protected credential"
+                  argv = (proc / "cmdline").read_bytes()
+                  assert b"--no-sandbox" not in argv, "Chrome sandbox opt-out is forbidden in this CI smoke"
+              except FileNotFoundError:
+                  continue
+          assert chrome_pids, "no Chrome process was found"
+          print("Chrome process UID, scrubbed environment, and sandbox arguments: PASS")
+          PY
+
+          docker exec --user 10002 stroyka-jev-qa-ci python3 -c '
+          import os
+          assert os.stat("/proc/1").st_uid == 10001
+          try:
+              with open("/proc/1/environ", "rb") as stream:
+                  stream.read()
+          except PermissionError:
+              print("Chrome UID cannot read Uvicorn environment via /proc: PASS")
+          else:
+              raise AssertionError("Chrome UID can read worker secret-bearing environment")
+          '
