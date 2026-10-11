@@ -8,6 +8,8 @@ Do not persist tokens, session hashes or fabricated user/company identities.
 """
 from __future__ import annotations
 
+from urllib.parse import urlsplit
+
 
 class QAIdentityNotEstablished(ValueError):
     def __init__(self):
@@ -67,3 +69,38 @@ def project_qa_user(payload: object) -> dict:
         "name": name.strip(),
         "email": email.strip(),
     }
+
+def verify_qa_identity_http_response(
+    *, base_url: str, response_url: str, status: int,
+    content_type: str, payload: object,
+) -> dict:
+    """Fail closed unless the exact authenticated QA context GET returned 200.
+
+    The caller must fetch in the SAME isolated Chrome BrowserContext with its
+    HttpOnly cookie. This helper does not fetch, authenticate, or grant access.
+    Redirected login HTML and foreign-origin responses must never be accepted.
+    """
+    try:
+        base = urlsplit(base_url)
+        target = urlsplit(response_url)
+        if (
+            base.scheme != "https"
+            or not base.hostname
+            or base.username is not None
+            or base.password is not None
+            or base.query or base.fragment
+            or target.scheme != "https"
+            or target.username is not None
+            or target.password is not None
+            or target.query or target.fragment
+            or target.path != "/users/company-context"
+            or (base.scheme, base.hostname.lower().rstrip("."), base.port or 443)
+               != (target.scheme, (target.hostname or "").lower().rstrip("."), target.port or 443)
+            or type(status) is not int or status != 200
+            or type(content_type) is not str
+            or content_type.split(";", 1)[0].strip().lower() != "application/json"
+        ):
+            raise QAIdentityNotEstablished()
+    except (ValueError, TypeError) as exc:
+        raise QAIdentityNotEstablished() from None
+    return project_qa_user(payload)
