@@ -19,7 +19,7 @@ from urllib.parse import urlparse
 from uuid import uuid4
 
 from fastapi import FastAPI, Header, HTTPException
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel, Field, field_validator
 
 from dev_control.browser_worker.network_guard import (
@@ -65,6 +65,51 @@ def _watcher_signature(
         body_hash,
     )).encode("utf-8")
     return hmac.new(bytes.fromhex(scoped_token), message, hashlib.sha256).hexdigest()
+
+
+def _watcher_response_signature(
+    scoped_token: str,
+    method: str,
+    path: str,
+    timestamp: str,
+    nonce: str,
+    status_code: int,
+    body: bytes,
+) -> str:
+    """Domain-separated HMAC: a signed request cannot become a forged PASS."""
+    message = "\n".join((
+        "stroyka-jev-response-v1",
+        method.upper(),
+        path,
+        timestamp,
+        nonce,
+        str(status_code),
+        hashlib.sha256(body).hexdigest(),
+    )).encode("utf-8")
+    return hmac.new(bytes.fromhex(scoped_token), message, hashlib.sha256).hexdigest()
+
+
+def _signed_watcher_response(
+    payload: dict,
+    *,
+    method: str,
+    path: str,
+    timestamp: str,
+    nonce: str,
+    status_code: int = 200,
+) -> Response:
+    """Sign the actual bytes returned by each authenticated watcher endpoint."""
+    token = _worker_api_token()
+    if not token:
+        raise HTTPException(status_code=503, detail="worker API token is not securely configured")
+    body = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    signature = _watcher_response_signature(
+        _watcher_scoped_token(token), method, path, timestamp, nonce, status_code, body
+    )
+    return Response(
+        content=body, status_code=status_code, media_type="application/json",
+        headers={"X-Jev-Watcher-Response-Signature": signature},
+    )
 
 
 class PreAuthBodyLimitMiddleware:
@@ -727,7 +772,11 @@ def watcher_health(
     response = health()
     payload = dict(response.body and json.loads(response.body) or {})
     payload["watcher_target"] = WATCHER_QA_URL
-    return JSONResponse(status_code=response.status_code, content=payload)
+    return _signed_watcher_response(
+        payload, method="GET", path="/watcher/health",
+        timestamp=x_jev_watcher_time, nonce=x_jev_watcher_nonce,
+        status_code=response.status_code,
+    )
 
 
 @app.post("/watcher/smoke", status_code=202)
@@ -747,7 +796,10 @@ def watcher_create_smoke(
         metadata = current.setdefault("metadata", {})
         metadata["watcher_owned"] = True
         metadata["read_only"] = True
-    return result
+    return _signed_watcher_response(
+        result, method="POST", path="/watcher/smoke",
+        timestamp=x_jev_watcher_time, nonce=x_jev_watcher_nonce, status_code=202,
+    )
 
 
 @app.get("/watcher/jobs/{job_id}")
@@ -766,11 +818,15 @@ def watcher_get_job(
         raise HTTPException(status_code=404, detail="watcher job not found")
     with _jobs_lock:
         job = dict(_jobs.get(job_id) or {})
-    return {
-        "job_id": job_id,
-        "status": job.get("status"),
-        "result": job.get("result"),
-    }
+    return _signed_watcher_response(
+        {
+            "job_id": job_id,
+            "status": job.get("status"),
+            "result": job.get("result"),
+        },
+        method="GET", path=path,
+        timestamp=x_jev_watcher_time, nonce=x_jev_watcher_nonce,
+    )
 
 
 @app.post("/watcher/jobs/{job_id}/cancel", status_code=202)
@@ -787,7 +843,11 @@ def watcher_cancel_job(
     )
     if not _valid_job_id(job_id) or not _watcher_job_is_owned(job_id):
         raise HTTPException(status_code=404, detail="watcher job not found")
-    return cancel_job(job_id, authorization="Bearer " + _worker_api_token())
+    result = cancel_job(job_id, authorization="Bearer " + _worker_api_token())
+    return _signed_watcher_response(
+        result, method="POST", path=path,
+        timestamp=x_jev_watcher_time, nonce=x_jev_watcher_nonce, status_code=202,
+    )
 
 
 @app.get("/health")
