@@ -265,7 +265,9 @@ def qa_base_is_nonproduction(base_url: str | None = None) -> bool:
     except (ValueError, TypeError):
         return False
     if (parsed.scheme, host, base_port) != (
-            "https", (allowed.hostname or "").lower().rstrip("."), allowed_port):
+            allowed.scheme, (allowed.hostname or "").lower().rstrip("."), allowed_port):
+        return False
+    if allowed.scheme != "https":
         return False
     if host in {"stroyka26.pro", "www.stroyka26.pro", "stroyka.pro", "www.stroyka.pro"}:
         return False
