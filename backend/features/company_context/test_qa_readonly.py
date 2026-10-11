@@ -8,12 +8,16 @@ from backend.features.company_context.qa_readonly import (
 
 
 class Cursor:
-    def __init__(self, rows):
+    def __init__(self, rows, read_only="on"):
         self.rows = rows
+        self.read_only = read_only
         self.queries = []
 
     def execute(self, sql, parameters):
         self.queries.append((sql, parameters))
+
+    def fetchone(self):
+        return {"transaction_read_only": self.read_only}
 
     def fetchall(self):
         return self.rows
@@ -34,8 +38,9 @@ class ReadOnlyAuthTest(unittest.TestCase):
             {"authenticationKind": "cookie_session", "sessionHash": "a" * 64},
         )
         self.assertEqual(result["user"]["companyId"], 5)
-        self.assertEqual(len(cursor.queries), 1)
-        sql = cursor.queries[0][0].upper()
+        self.assertEqual(len(cursor.queries), 2)
+        self.assertEqual(cursor.queries[0][0], "SHOW transaction_read_only")
+        sql = cursor.queries[1][0].upper()
         self.assertTrue(sql.strip().startswith("SELECT "))
         for forbidden in ("UPDATE ", "INSERT ", "DELETE ", "FOR UPDATE", "LAST_SEEN_AT"):
             self.assertNotIn(forbidden, sql)
@@ -50,7 +55,7 @@ class ReadOnlyAuthTest(unittest.TestCase):
                         cursor,
                         {"authenticationKind": "cookie_session", "sessionHash": "a" * 64},
                     )
-                self.assertEqual(len(cursor.queries), 1)
+                self.assertEqual(len(cursor.queries), 2)
 
     def test_invalid_session_claims_do_not_query_database(self):
         for claims in (None, {}, {"authenticationKind": "bearer", "sessionHash": "a" * 64},
@@ -60,6 +65,15 @@ class ReadOnlyAuthTest(unittest.TestCase):
                 with self.assertRaises(QAReadOnlyAuthRejected):
                     resolve_qa_identity_read_only(cursor, claims)
                 self.assertEqual(cursor.queries, [])
+
+    def test_write_enabled_transaction_is_rejected_before_session_query(self):
+        cursor = Cursor([row()], read_only="off")
+        with self.assertRaises(QAReadOnlyAuthRejected):
+            resolve_qa_identity_read_only(
+                cursor,
+                {"authenticationKind": "cookie_session", "sessionHash": "a" * 64},
+            )
+        self.assertEqual(cursor.queries, [("SHOW transaction_read_only", None)])
 
     def test_ambiguous_memberships_are_rejected(self):
         cursor = Cursor([row(), row()])
