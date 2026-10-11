@@ -56,7 +56,7 @@ class FakeConnection:
 
 def request(headers=()):
     return Request({"type": "http", "method": "GET",
-                    "path": "/users/qa-readonly-context",
+                    "path": "/users/qa-readonly-context/identity",
                     "headers": list(headers), "query_string": b""})
 
 
@@ -79,7 +79,7 @@ class QAEndpointTests(unittest.TestCase):
             "get_db": lambda: self.conn,
             "get_current_user": lambda: None,
         })
-        self.endpoint = self.app.routes["/users/qa-readonly-context"]
+        self.endpoint = self.app.routes["/users/qa-readonly-context/identity"]
 
     def test_disabled_by_default_without_database_access(self):
         with patch.dict("os.environ", {}, clear=True):
