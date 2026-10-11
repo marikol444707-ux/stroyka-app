@@ -27,7 +27,18 @@ SELECT u.id AS user_id, u.name AS user_name, u.email AS user_email,
  WHERE s.session_hash=%s
    AND s.revoked_at IS NULL
    AND s.expires_at>clock_timestamp()
-   AND s.two_factor_passed IS TRUE
+   AND (
+     s.two_factor_passed IS TRUE
+     OR (
+       s.two_factor_passed IS FALSE
+       AND u.two_factor_required IS FALSE
+       AND u.two_factor_enabled IS FALSE
+       AND u.role IN ('прораб','главный_инженер','сметчик','кладовщик',
+                      'снабженец','стройконтроль','мастер')
+       AND m.role IN ('прораб','главный_инженер','сметчик','кладовщик',
+                      'снабженец','стройконтроль','мастер')
+     )
+   )
    AND u.active IS TRUE
    AND m.active IS TRUE
    AND c.active IS TRUE
