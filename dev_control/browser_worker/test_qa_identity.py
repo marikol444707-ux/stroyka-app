@@ -39,7 +39,7 @@ class QAIdentityTest(unittest.TestCase):
     def test_requires_exact_https_qa_identity_response(self):
         args = {
             "base_url": "https://qa.example.test/app",
-            "response_url": "https://qa.example.test/users/company-context",
+            "response_url": "https://qa.example.test/users/qa-readonly-context",
             "status": 200,
             "content_type": "application/json; charset=utf-8",
             "payload": valid_response(),
@@ -48,12 +48,12 @@ class QAIdentityTest(unittest.TestCase):
             verify_qa_identity_http_response(**args)["companyId"], 17
         )
         bad_cases = [
-            {"response_url": "https://evil.example/users/company-context"},
-            {"response_url": "http://qa.example.test/users/company-context"},
+            {"response_url": "https://evil.example/users/qa-readonly-context"},
+            {"response_url": "http://qa.example.test/users/qa-readonly-context"},
             {"response_url": "https://qa.example.test/login"},
-            {"response_url": "https://qa.example.test/users/company-context?token=secret"},
-            {"response_url": "https://user:pass@qa.example.test/users/company-context"},
-            {"response_url": "https://qa.example.test:444/users/company-context"},
+            {"response_url": "https://qa.example.test/users/qa-readonly-context?token=secret"},
+            {"response_url": "https://user:pass@qa.example.test/users/qa-readonly-context"},
+            {"response_url": "https://qa.example.test:444/users/qa-readonly-context"},
             {"status": 302},
             {"status": 401},
             {"status": 403},
@@ -74,7 +74,7 @@ class QAIdentityTest(unittest.TestCase):
             {"frameTree": {"frame": {"id": "qa-frame"}}},
             {"executionContextId": 77},
             {"result": {"value": {
-                "url": "https://qa.example.test/users/company-context",
+                "url": "https://qa.example.test/users/qa-readonly-context",
                 "status": 200, "content_type": "application/json",
                 "payload": valid_response(),
             }}},
