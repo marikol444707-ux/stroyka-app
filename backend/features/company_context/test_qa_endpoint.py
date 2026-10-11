@@ -81,6 +81,33 @@ class QAEndpointTests(unittest.TestCase):
         })
         self.endpoint = self.app.routes["/users/qa-readonly-context/identity"]
 
+    def test_static_qa_get_is_not_shadowed_by_earlier_user_update_route(self):
+        from fastapi import FastAPI
+        from starlette.routing import Match
+
+        app = FastAPI()
+
+        @app.put("/users/{user_id}")
+        def earlier_user_update(user_id: int):
+            return {"id": user_id}
+
+        register_company_context_module(app, {
+            "get_db": lambda: self.conn,
+            "get_current_user": lambda: None,
+        })
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/users/qa-readonly-context/identity",
+            "root_path": "",
+        }
+        first_match = next(
+            route for route in app.router.routes
+            if route.matches(scope)[0] is Match.FULL
+        )
+        self.assertEqual(first_match.path, "/users/qa-readonly-context/identity")
+        self.assertIn("GET", first_match.methods)
+
     def test_disabled_by_default_without_database_access(self):
         with patch.dict("os.environ", {}, clear=True):
             with self.assertRaises(HTTPException) as raised:
