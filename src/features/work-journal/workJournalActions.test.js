@@ -15,6 +15,16 @@ describe('createWorkJournalActions hidden-work photo rule', () => {
     global.fetch = originalFetch;
   });
 
+  it.each([NaN, Infinity, -Infinity, 2, 1, 11])('rejects invalid or unavailable total volume %s before sending', async total => {
+    const actions = createWorkJournalActions({
+      denormalizeMeasure: Number, toNum: Number, fmtMeasure: String,
+      masterProjectId: '3', projects: [{id: 3}], estimatesList: [{id: 7}],
+    });
+    await actions.submitEstimateWorkDone({estId: 7, quantity: 10, doneQuantity: 2, unit: 'м'}, total);
+    expect(global.alert).toHaveBeenCalledWith(expect.stringMatching(/объём|осталось/i));
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
   it('stops a hidden estimate work before sending when its photo is missing', async () => {
     const actions = createWorkJournalActions({
       API: 'https://api.test',
