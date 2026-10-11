@@ -116,6 +116,17 @@ jobs:
           print("Chrome process UID and inspectable environment/sandbox arguments: PASS")
           PY
 
+          docker exec --user 10001 stroyka-jev-qa-ci python3 - <<'PY'
+          import os
+          from pathlib import Path
+          entry = Path("/app/dev_control/browser_worker/start.sh")
+          code = Path("/app/dev_control/browser_worker/service.py")
+          for target in (entry, code):
+              assert target.stat().st_uid == 0, "container code must be root-owned"
+              assert not os.access(target, os.W_OK), "worker must not edit root-run code"
+          print("Worker cannot modify root-owned entrypoint or application code: PASS")
+          PY
+
           docker exec --user 10002 stroyka-jev-qa-ci python3 -c '
           import os
           assert os.stat("/proc/1").st_uid == 10001
