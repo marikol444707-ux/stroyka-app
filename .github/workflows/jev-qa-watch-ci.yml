@@ -50,6 +50,7 @@ jobs:
           docker run --rm --entrypoint python stroyka-jev-qa-ci -m unittest -v \
             dev_control.test_jev_timeweb \
             dev_control.browser_worker.test_run_safety \
+            dev_control.browser_worker.test_qa_identity \
             dev_control.browser_worker.test_container_contract
       - name: Boot Chrome, check worker health and cross-UID secret boundary
         shell: bash
