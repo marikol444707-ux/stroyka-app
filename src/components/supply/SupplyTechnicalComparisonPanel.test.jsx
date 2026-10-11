@@ -228,7 +228,7 @@ describe('SupplyTechnicalComparisonPanel', () => {
     expect(screen.queryByText('Сопоставимо')).not.toBeInTheDocument();
   });
 
-  it('embeds one read-only check in the existing supplier offer card with exact derived selectors', async () => {
+  it('keeps the offer document but does not expose contract or technical administration in procurement', async () => {
     global.fetch.mockResolvedValueOnce(response(report()));
     const request = {
       id: 31,
@@ -271,11 +271,8 @@ describe('SupplyTechnicalComparisonPanel', () => {
     );
 
     expect(screen.getByRole('button', { name: 'Открыть предложение' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Проверить характеристики' }));
-    await waitFor(() => expect(global.fetch).toHaveBeenCalledWith(
-      '/api/supply-requests/31/technical-comparisons/supplier_offer/81?projectId=7&fileId=44',
-      expect.objectContaining({ credentials: 'include', cache: 'no-store' }),
-    ));
-    expect(await screen.findByText('Сопоставимо')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Проверить характеристики' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Изменить договор')).not.toBeInTheDocument();
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 });
