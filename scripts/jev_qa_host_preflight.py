@@ -42,20 +42,26 @@ def _read_setting(path: str) -> str:
 def _inspect(name: str, command: Callable[[list[str]], str | None]) -> dict | None:
     if not SAFE_CONTAINER.fullmatch(name):
         return None
-    # Explicit allowlist of fields: NEVER inspect .Config.Env or file mounts.
-    fmt = (
-        '{{json (dict "state" .State.Status "user" .Config.User '
-        '"ports" .HostConfig.PortBindings "privileged" .HostConfig.Privileged '
-        '"security" .HostConfig.SecurityOpt "pid_mode" .HostConfig.PidMode)}}'
-    )
-    raw = command(["docker", "inspect", "--format", fmt, name])
-    if not raw:
-        return None
-    try:
-        data = json.loads(raw)
-        return data if isinstance(data, dict) else None
-    except (ValueError, TypeError):
-        return None
+    # Docker's Go template does not support arbitrary dict construction.
+    # Read only explicitly allowlisted fields, never Config.Env or mounts.
+    fields = {
+        "state": ".State.Status",
+        "user": ".Config.User",
+        "ports": ".HostConfig.PortBindings",
+        "privileged": ".HostConfig.Privileged",
+        "security": ".HostConfig.SecurityOpt",
+        "pid_mode": ".HostConfig.PidMode",
+    }
+    data = {}
+    for key, field in fields.items():
+        raw = command(["docker", "inspect", "--format", "{{json " + field + "}}", name])
+        if raw is None:
+            return None
+        try:
+            data[key] = json.loads(raw)
+        except (ValueError, TypeError):
+            return None
+    return data
 
 
 def _host_port_owners(containers: dict[str, dict]) -> dict[int, list[str]]:
@@ -116,7 +122,7 @@ def inspect_host(command: Callable[[list[str]], str | None] = _command) -> dict:
     if EXPECTED_WORKER not in active_jev:
         blockers.append("EXPECTED_JEV_WORKER_NOT_RUNNING")
 
-    owners = _host_port_owners(containers)
+    # Stopped containers do not own active host TCP listeners.\n    owners = _host_port_owners({n: d for n, d in containers.items()\n                                if d.get("state") == "running"})
     watcher_owners = owners.get(WATCH_PORT, [])
     if watcher_owners != [EXPECTED_WORKER]:
         blockers.append("WATCH_PORT_18088_NOT_OWNED_BY_EXPECTED_WORKER")
