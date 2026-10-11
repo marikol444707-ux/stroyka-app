@@ -214,6 +214,8 @@ def execute_task(
         raise ValueError("goal must not be empty")
     if not any((expect_text or (), forbid_text or (), expect_url_contains or ())):
         raise ValueError("at least one deterministic browser assertion is required")
+    if (os.environ.get("QA_SESSION_COOKIE_VALUE") or "").strip() and not read_only:
+        raise ValueError("authenticated QA actions are blocked until separately reviewed")
 
     evidence = _evidence_dir(record_dir)
     provider_patch = None if read_only else install_timeweb_provider()
@@ -225,9 +227,11 @@ def execute_task(
     final_state = None
     error = None
     boundary_ref = None
+    qa_identity_verified = False
     try:
         with Agent(url, goal, record_dir=evidence, screenshots=True) as agent:
             boundary_ref = getattr(agent.browser, "_qa_boundary", None)
+            qa_identity_verified = getattr(agent.browser, "_qa_identity_verified", False) is True
             _write_progress(evidence, agent.snapshot(), "observed")
             if read_only:
                 # Hard read-only mode: never invoke agent.run(), so the model
@@ -310,7 +314,7 @@ def execute_task(
     # authenticated a user or resolved their company membership. Until
     # a server-validated session bootstrap is implemented, never claim an
     # authenticated read-only smoke passed merely because page text matched.
-    if read_only and (os.environ.get("QA_SESSION_COOKIE_VALUE") or "").strip():
+    if read_only and (os.environ.get("QA_SESSION_COOKIE_VALUE") or "").strip() and not qa_identity_verified:
         result = type(result)(
             ok=False,
             checks=result.checks,
