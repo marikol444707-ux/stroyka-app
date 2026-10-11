@@ -116,7 +116,7 @@ jobs:
           print("Chrome process UID and inspectable environment/sandbox arguments: PASS")
           PY
 
-          docker exec --user 10001 stroyka-jev-qa-ci python3 - <<'PY'
+          docker exec -i --user 10001 stroyka-jev-qa-ci python3 - <<'PY'
           import os
           from pathlib import Path
           entry = Path("/app/dev_control/browser_worker/start.sh")
