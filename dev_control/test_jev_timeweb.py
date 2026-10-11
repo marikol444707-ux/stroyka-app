@@ -12,6 +12,7 @@ from dev_control.jev_timeweb import (
     DEFAULT_SYSTEMONE_URL,
     JevError,
     JevTimewebClient,
+    _MAX_SYSTEMONE_RESPONSE_BYTES,
 )
 
 
@@ -123,6 +124,19 @@ class JevTimewebClientTest(unittest.TestCase):
 
         self.assertNotIn("do-not-print-me", str(caught.exception))
         self.assertIn("HTTP 401", str(caught.exception))
+
+    @patch("dev_control.jev_timeweb.build_opener")
+    def test_ask_rejects_oversized_stream_before_json_and_limits_read(self, mocked_urlopen):
+        response = MagicMock()
+        response.status = 200
+        response.read.return_value = b"x" * (_MAX_SYSTEMONE_RESPONSE_BYTES + 1)
+        mocked_urlopen.return_value.open.return_value.__enter__.return_value = response
+        with self.assertRaisesRegex(JevError, "size limit"):
+            JevTimewebClient(api_key="secret").ask(
+                state="safe fixture",
+                questions={"q": {"type": "noul", "instructions": "test"}},
+            )
+        response.read.assert_called_once_with(_MAX_SYSTEMONE_RESPONSE_BYTES + 1)
 
     @patch("dev_control.jev_timeweb.build_opener")
     def test_ask_rejects_response_without_answers(self, mocked_urlopen):
