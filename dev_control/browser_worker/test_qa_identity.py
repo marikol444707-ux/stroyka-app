@@ -6,6 +6,7 @@ from dev_control.browser_worker.qa_identity import (
     QAIdentityNotEstablished,
     project_qa_user,
     verify_qa_identity_http_response,
+    verify_qa_identity_in_browser,
 )
 
 
@@ -65,6 +66,46 @@ class QAIdentityTest(unittest.TestCase):
             with self.subTest(changed=changed):
                 with self.assertRaises(QAIdentityNotEstablished):
                     verify_qa_identity_http_response(**(args | changed))
+
+    def test_isolated_world_browser_probe_verifies_backend_not_page_text(self):
+        from unittest.mock import Mock
+        browser = Mock()
+        browser.call.side_effect = [
+            {"frameTree": {"frame": {"id": "qa-frame"}}},
+            {"executionContextId": 77},
+            {"result": {"value": {
+                "url": "https://qa.example.test/users/company-context",
+                "status": 200, "content_type": "application/json",
+                "payload": valid_response(),
+            }}},
+        ]
+        self.assertTrue(verify_qa_identity_in_browser(browser, "https://qa.example.test/app"))
+        self.assertEqual(browser.call.call_args_list[1].args, ("Page.createIsolatedWorld",))
+        self.assertEqual(browser.call.call_args_list[2].args, ("Runtime.evaluate",))
+        self.assertEqual(browser.call.call_args_list[2].kwargs["contextId"], 77)
+        self.assertTrue(browser.call.call_args_list[2].kwargs["awaitPromise"])
+        self.assertIn("credentials: 'same-origin'", browser.call.call_args_list[2].kwargs["expression"])
+        self.assertIn("redirect: 'error'", browser.call.call_args_list[2].kwargs["expression"])
+        self.assertNotIn("qa@example.test", browser.call.call_args_list[2].kwargs["expression"])
+
+    def test_isolated_world_probe_rejects_errors_without_leaking_details(self):
+        from unittest.mock import Mock
+        cases = [
+            [{"frameTree": {"frame": {"id": "qa-frame"}}},
+             {"executionContextId": 77},
+             {"exceptionDetails": {"text": "SECRET-DO-NOT-LOG"}}],
+            [{"frameTree": {"frame": {"id": "qa-frame"}}},
+             {"executionContextId": 77},
+             {"result": {"value": {"status": 401, "url": "https://qa.example.test/login",
+                                   "content_type": "text/html", "payload": {}}}}],
+        ]
+        for side_effect in cases:
+            with self.subTest(side_effect=side_effect):
+                browser = Mock()
+                browser.call.side_effect = side_effect
+                with self.assertRaises(QAIdentityNotEstablished) as exc:
+                    verify_qa_identity_in_browser(browser, "https://qa.example.test/app")
+                self.assertEqual(str(exc.exception), "AUTH_NOT_ESTABLISHED")
 
     def test_rejects_unverified_or_cross_tenant_identity(self):
         def mutate(path, value):
