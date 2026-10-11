@@ -1,10 +1,46 @@
 import os
+from urllib.parse import urlsplit
 import psycopg2.extras
 from fastapi import Depends, Request, HTTPException
 
 from .service import build_company_context_response
 from .qa_readonly import QAReadOnlyAuthRejected, resolve_qa_identity_read_only
 from backend.auth import build_cookie_session_authentication, CookieSessionAuthenticationError
+
+
+_PRODUCTION_QA_DENYLIST = frozenset({
+    "stroyka26.pro", "www.stroyka26.pro",
+    "stroyka.pro", "www.stroyka.pro", "147.45.237.127",
+})
+
+
+def qa_readonly_endpoint_enabled() -> bool:
+    """Use server-side config, never the untrusted request Host header."""
+    if (
+        os.getenv("JEV_QA_READONLY_AUTH_ENABLED") != "1"
+        or os.getenv("QA_ENVIRONMENT", "").strip().lower() not in {"qa", "test", "staging"}
+    ):
+        return False
+    public = os.getenv("APP_PUBLIC_URL", "").strip()
+    permitted = os.getenv("QA_ALLOWED_ORIGIN", "").strip()
+    try:
+        left, right = urlsplit(public), urlsplit(permitted)
+        host = (left.hostname or "").lower().rstrip(".")
+        if (
+            left.scheme != "https" or right.scheme != "https"
+            or not host or host in _PRODUCTION_QA_DENYLIST
+            or host.endswith(".stroyka26.pro") or host.endswith(".stroyka.pro")
+            or left.username is not None or left.password is not None
+            or right.username is not None or right.password is not None
+            or left.path not in {"", "/"} or right.path not in {"", "/"}
+            or left.query or right.query or left.fragment or right.fragment
+            or (left.scheme, host, left.port or 443)
+               != (right.scheme, (right.hostname or "").lower().rstrip("."), right.port or 443)
+        ):
+            return False
+    except (ValueError, TypeError):
+        return False
+    return True
 
 
 def register_company_context_module(app, deps):
@@ -45,7 +81,7 @@ def register_company_context_module(app, deps):
         read-only before the first user/session query; do not call the legacy
         get_current_user dependency or write audit/presence records.
         """
-        if os.getenv("JEV_QA_READONLY_AUTH_ENABLED") != "1":
+        if not qa_readonly_endpoint_enabled():
             raise HTTPException(status_code=404, detail="not found")
         if request.headers.get("authorization") is not None:
             raise HTTPException(status_code=401, detail="QA_READ_ONLY_AUTH_REJECTED")
