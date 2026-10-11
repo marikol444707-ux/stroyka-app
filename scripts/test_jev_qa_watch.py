@@ -101,6 +101,22 @@ class JevQaWatchTest(unittest.TestCase):
                 worker = FakeWorker(environment=environment)
                 self.assertEqual(run_smoke(worker, sleep=lambda _: None)["outcome"], "passed")
 
+    def test_foreign_qa_target_never_starts_smoke(self):
+        worker = FakeWorker()
+        def wrong_target(method, path):
+            if path == "/watcher/health":
+                worker.calls.append((method, path))
+                return {
+                    "ok": True,
+                    "environment": "staging",
+                    "watcher_target": "https://other-staging.example.test/app",
+                }
+            return worker(method, path)
+
+        with self.assertRaisesRegex(WatchError, "QA_WORKER_NOT_READY"):
+            run_smoke(wrong_target, sleep=lambda _: None)
+        self.assertEqual(worker.calls, [("GET", "/watcher/health")])
+
     def test_poll_timeout_cancels_job_before_failing(self):
         worker = FakeWorker(status="queued")
         ticks = iter((0, 86))
@@ -154,6 +170,9 @@ class JevQaWatchTest(unittest.TestCase):
         self.assertNotIn("printf '%s\\n' \"$TOKEN_LINE\"", script)
         self.assertNotIn("DEV_CONTROL_API_TOKEN=%s", script)
         self.assertIn("unset TOKEN_VALUE TOKEN_LINE", script)
+        self.assertIn("token = sys.stdin.read().strip()", script)
+        self.assertIn('<<< "$TOKEN_VALUE"', script)
+        self.assertNotIn("sys.argv[1]", script)
 
     def test_atomic_report_written_with_expected_fields(self):
         with tempfile.TemporaryDirectory() as tmp:
