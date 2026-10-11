@@ -26,6 +26,17 @@ class BrowserWorkerContainerContractTest(unittest.TestCase):
 
 
 
+    def test_runtime_paths_cannot_be_replaced_by_worker_owned_symlinks(self):
+        dockerfile = Path("dev_control/Dockerfile").read_text(encoding="utf-8")
+        start = Path("dev_control/browser_worker/start.sh").read_text(encoding="utf-8")
+        self.assertIn("install -d -m 0755 -o root -g root /var/lib/stroyka-jev-qa", dockerfile)
+        for path in ("harness", "evidence", "chrome"):
+            self.assertIn("/var/lib/stroyka-jev-qa/" + path, dockerfile)
+        self.assertIn('if [[ -L "$runtime_root"', start)
+        self.assertIn('if [[ -L "$path" ]]', start)
+        self.assertIn("Refusing untrusted browser/evidence runtime directory overrides", start)
+        self.assertIn("0:0:755", start)
+
     def test_chrome_env_options_precede_assignments(self):
         # GNU env stops processing -u flags after its first NAME=VALUE operand.
         # The former 'env HOME=/home/chrome -u TOKEN ...' failed to start Chrome.
