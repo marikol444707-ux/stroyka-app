@@ -2,7 +2,7 @@
 
 ## Что уже автоматизировано
 
-Один раз в день systemd запускает **только read-only smoke** через локальный
+После отдельной приёмки и ручного включения systemd сможет запускать **только read-only smoke** через локальный
 QA worker на `127.0.0.1:18088`. Worker открывает
 `https://stroyka-qa-gateway/app` и проверяет наличие меню `Склад`.
 В scheduled read-only режиме цикл действий Jev (`agent.run()`) вообще не
@@ -74,15 +74,19 @@ HMAC по method/path/timestamp/nonce/body hash. Сервер сам форми�
 `/jobs`. Сам watcher выполняется под пользователем `stroyka`, а не root.
 
 ```bash
-systemctl list-timers stroyka-jev-watch.timer
-sudo systemctl start stroyka-jev-watch.service
-sudo cat /var/lib/stroyka-jev-watch/last.json
+systemctl is-active stroyka-jev-watch.timer
+systemctl is-enabled stroyka-jev-watch.timer
+
+# Пока не закрыты #345 и #346, статус должен быть inactive/disabled.
+# НЕ запускать service, НЕ включать timer до отдельного release gate.
 ```
 
-По умолчанию таймер работает ежедневно в **08:00 по часовому поясу сервера**
-с разбросом до 15 минут. Изменить расписание можно отдельным override
-systemd. При выключенном сервере `Persistent=true` запускает пропущенную
-проверку после включения.
+Установщик **только размещает файлы**: таймер не запускается и не
+включается автоматически. Если он уже активен или включён, установщик
+откажется продолжать до ручного аудита. После отдельного разрешения
+владельца и закрытия блокировок расписание может быть включено:
+08:00 по часовому поясу сервера с разбросом до 15 минут.
+Текущий PR не разрешает включать его.
 
 При неуспехе watcher возвращает код 1 и фиксирует только категорию ошибки
 в `/var/lib/stroyka-jev-watch/last.json`. Подробности доступны в
