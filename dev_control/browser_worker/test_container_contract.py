@@ -23,6 +23,19 @@ class BrowserWorkerContainerContractTest(unittest.TestCase):
 
 
 
+    def test_chrome_env_options_precede_assignments(self):
+        # GNU env stops processing -u flags after its first NAME=VALUE operand.
+        # The former 'env HOME=/home/chrome -u TOKEN ...' failed to start Chrome.
+        script = Path("dev_control/browser_worker/start.sh").read_text(encoding="utf-8")
+        launch = script.split("setpriv --reuid=10002", 1)[1].split("google-chrome-stable", 1)[0]
+        self.assertIn("  env \\\n  -u TIMEWEB_AI_API_KEY", launch)
+        for secret_name in (
+            "TIMEWEB_AI_API_KEY", "DEV_CONTROL_API_TOKEN",
+            "QA_SESSION_COOKIE_VALUE", "JEV_WATCH_GITHUB_TOKEN",
+            "JEV_WATCHER_TOKEN", "TYPESAFE_API_KEY", "TEXT_MODEL_API_KEY",
+        ):
+            self.assertLess(launch.index("-u " + secret_name), launch.index("HOME=/home/chrome"))
+
     def test_worker_has_hard_timeout_and_authenticated_evidence_contract(self):
         service = Path("dev_control/browser_worker/service.py").read_text(encoding="utf-8")
         network_guard = Path("dev_control/browser_worker/network_guard.py").read_text(encoding="utf-8")
