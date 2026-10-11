@@ -19,6 +19,8 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 DEFAULT_SYSTEMONE_URL = "https://api.timeweb.ai/v1/systemone"
 DEFAULT_MODEL = "jev-latest"
+# Bound untrusted provider responses before JSON parsing or decoding.
+_MAX_SYSTEMONE_RESPONSE_BYTES = 1024 * 1024
 
 
 class _NoRedirect(HTTPRedirectHandler):
@@ -102,7 +104,9 @@ class JevTimewebClient:
 
         try:
             with build_opener(_NoRedirect()).open(request, timeout=self.timeout_seconds) as response:
-                raw = response.read()
+                raw = response.read(_MAX_SYSTEMONE_RESPONSE_BYTES + 1)
+                if len(raw) > _MAX_SYSTEMONE_RESPONSE_BYTES:
+                    raise JevError("Timeweb Jev response exceeds the size limit")
                 status = getattr(response, "status", 200)
         except HTTPError as exc:
             detail = "redirect refused" if 300 <= exc.code < 400 else "request rejected"
