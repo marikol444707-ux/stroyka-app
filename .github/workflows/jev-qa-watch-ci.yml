@@ -127,3 +127,51 @@ jobs:
           else:
               raise AssertionError("Chrome UID can read worker secret-bearing environment")
           '
+
+          # This makes a real Chrome BrowserContext + Fetch-boundary + verifier
+          # observation without model calls, login, Timeweb requests, or writes.
+          python3 - <<'PY'
+          import json
+          import time
+          from urllib.request import Request, urlopen
+
+          base = "http://127.0.0.1:18089"
+          fake_token = "0123456789abcdef" * 4
+          headers = {"Authorization": "Bearer " + fake_token}
+          body = json.dumps({
+              "url": "http://127.0.0.1:8080/selftest-page",
+              "goal": "Observe only the local QA self-test fixture, without interactions",
+              "read_only": True,
+              "max_seconds": 45,
+              "expect_text": ["Run browser self-test"],
+              "expect_url_contains": ["selftest-page"],
+          }).encode()
+          req = Request(base + "/jobs", data=body, method="POST",
+                        headers={**headers, "Content-Type": "application/json"})
+          with urlopen(req, timeout=5) as response:
+              created = json.load(response)
+              assert response.status == 202, created
+          job_id = created["job_id"]
+          assert len(job_id) == 32 and all(c in "0123456789abcdef" for c in job_id)
+
+          deadline = time.monotonic() + 80
+          while time.monotonic() < deadline:
+              req = Request(base + "/jobs/" + job_id, headers=headers)
+              with urlopen(req, timeout=5) as response:
+                  state = json.load(response)
+              if state.get("status") in ("passed", "failed", "cancelled"):
+                  result = state.get("result") or {}
+                  assert state["status"] == "passed" and result.get("ok") is True, {
+                      "status": state["status"],
+                      "failures": result.get("failures"),
+                  }
+                  checks = result.get("checks") or []
+                  assert "read_only_observation" in checks, checks
+                  assert "expect_text[0]:present" in checks, checks
+                  assert "expect_url_contains[0]:present" in checks, checks
+                  print("Real Chrome BrowserContext + read-only verifier fixture: PASS")
+                  break
+              time.sleep(0.5)
+          else:
+              raise AssertionError("local browser read-only fixture exceeded the CI deadline")
+          PY
