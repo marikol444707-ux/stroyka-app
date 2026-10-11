@@ -95,6 +95,29 @@ class QAEndpointTests(unittest.TestCase):
         self.assertTrue(self.conn.closed)
         self.assertTrue(self.conn.cursor_obj.closed)
 
+    def test_multiple_companies_are_denied_and_connection_closed(self):
+        self.conn.cursor_obj.rows = self.conn.cursor_obj.rows * 2
+        with patch.dict("os.environ", {"JEV_QA_READONLY_AUTH_ENABLED": "1"}), patch(
+            "backend.features.company_context.routes.build_cookie_session_authentication",
+            return_value={"authenticationKind": "cookie_session", "sessionHash": "a" * 64},
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                self.endpoint(request())
+        self.assertEqual(raised.exception.status_code, 401)
+        self.assertTrue(self.conn.rolled_back)
+        self.assertTrue(self.conn.closed)
+
+    def test_bad_cookie_rejected_before_database(self):
+        from backend.auth import CookieSessionAuthenticationError
+        with patch.dict("os.environ", {"JEV_QA_READONLY_AUTH_ENABLED": "1"}), patch(
+            "backend.features.company_context.routes.build_cookie_session_authentication",
+            side_effect=CookieSessionAuthenticationError("cookie_session_authentication_required"),
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                self.endpoint(request())
+        self.assertEqual(raised.exception.status_code, 401)
+        self.assertEqual(self.conn.cursor_obj.queries, [])
+
     def test_authorization_header_is_rejected_before_database(self):
         with patch.dict("os.environ", {"JEV_QA_READONLY_AUTH_ENABLED": "1"}):
             with self.assertRaises(HTTPException) as raised:
