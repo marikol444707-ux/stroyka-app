@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field, field_validator
 from dev_control.browser_worker.network_guard import (
     assert_allowed_document_url,
     assert_dedicated_loopback_cdp_url,
+    qa_base_is_nonproduction,
 )
 from dev_control.browser_worker.run import execute_task
 from dev_control.browser_worker.viewer import VIEWER_HTML, viewer_headers
@@ -251,45 +252,9 @@ def _selftest_base_url() -> str:
 
 
 def _qa_base_is_nonproduction() -> bool:
-    base = (os.environ.get("QA_BASE_URL") or "").strip()
-    parsed = urlparse(base)
-    host = (parsed.hostname or "").lower().rstrip(".")
-    if not host or parsed.scheme not in {"http", "https"}:
-        return False
-    try:
-        assert_allowed_document_url(base, base)
-    except ValueError:
-        return False
+    # This same validator is required by direct execute_task/CLI calls.
+    return qa_base_is_nonproduction()
 
-    if host in {"127.0.0.1", "localhost"}:
-        return base.rstrip("/") == _selftest_base_url()
-
-    # Remote QA is fail-closed: the operator must explicitly register the exact
-    # QA origin. This prevents production IPs, subdomains and aliases from being
-    # accepted merely because they were absent from a denylist.
-    allowed_origin = (os.environ.get("QA_ALLOWED_ORIGIN") or "").strip().rstrip("/")
-    if not allowed_origin:
-        return False
-    allowed = urlparse(allowed_origin)
-    allowed_host = (allowed.hostname or "").lower().rstrip(".")
-    if allowed.scheme != "https" or parsed.scheme != "https":
-        return False
-    try:
-        parsed_port = parsed.port or 443
-        allowed_port = allowed.port or 443
-    except ValueError:
-        return False
-    if (parsed.scheme, host, parsed_port) != (
-        allowed.scheme,
-        allowed_host,
-        allowed_port,
-    ):
-        return False
-    if host in _PRODUCTION_HOSTS or host.endswith(".stroyka26.pro") or host.endswith(".stroyka.pro"):
-        return False
-    if host == "147.45.237.127":
-        return False
-    return True
 
 
 def _cdp_is_dedicated_loopback() -> bool:
