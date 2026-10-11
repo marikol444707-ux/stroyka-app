@@ -37,7 +37,6 @@ fi
 
 setpriv --reuid=10002 --regid=10002 --init-groups \
   env \
-  HOME=/home/chrome \
   -u TIMEWEB_AI_API_KEY \
   -u DEV_CONTROL_API_TOKEN \
   -u QA_SESSION_COOKIE_VALUE \
@@ -45,6 +44,7 @@ setpriv --reuid=10002 --regid=10002 --init-groups \
   -u JEV_WATCHER_TOKEN \
   -u TYPESAFE_API_KEY \
   -u TEXT_MODEL_API_KEY \
+  HOME=/home/chrome \
   google-chrome-stable "${chrome_args[@]}" >/tmp/stroyka-dev-chrome.log 2>&1 &
 chrome_pid=$!
 trap 'kill "$chrome_pid" 2>/dev/null || true' EXIT
