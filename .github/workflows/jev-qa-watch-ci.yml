@@ -41,6 +41,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build isolated QA worker image (no runtime credentials)
         run: docker build --file dev_control/Dockerfile --tag stroyka-jev-qa-ci dev_control
+      - name: Run worker security regression modules inside built image
+        run: |
+          docker run --rm --entrypoint python stroyka-jev-qa-ci -m unittest -v \
+            dev_control.test_jev_timeweb \
+            dev_control.browser_worker.test_run_safety \
+            dev_control.browser_worker.test_container_contract
       - name: Boot Chrome, check worker health and cross-UID secret boundary
         shell: bash
         run: |
