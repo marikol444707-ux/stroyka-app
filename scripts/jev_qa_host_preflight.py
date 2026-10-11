@@ -134,7 +134,16 @@ def inspect_host(command: Callable[[list[str]], str | None] = _command) -> dict:
             blockers.append("PRIVILEGED_CONTAINER:" + name)
         opts = details.get("security") or []
         if any("unconfined" in str(opt).lower() for opt in opts):
-            observations.append("UNCONFINED_SECURITY_OPTION_REQUIRES_REVIEW:" + name)
+            blockers.append("UNCONFINED_CONTAINER_SECURITY:" + name)
+        # Jev exposes screenshots/session evidence. Never publish its HTTP API
+        # on a host-wide interface, even if access currently needs a token.
+        if "jev" in name and details.get("state") == "running":
+            for bindings in (details.get("ports") or {}).values():
+                if not isinstance(bindings, list):
+                    continue
+                for bind in bindings:
+                    if isinstance(bind, dict) and bind.get("HostIp") not in {"127.0.0.1", "::1"}:
+                        blockers.append("JEV_WORKER_NOT_LOOPBACK_ONLY:" + name)
 
     timer_active = command(["systemctl", "is-active", "stroyka-jev-watch.timer"])
     timer_enabled = command(["systemctl", "is-enabled", "stroyka-jev-watch.timer"])
