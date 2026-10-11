@@ -73,7 +73,7 @@ def register_company_context_module(app, deps):
         """Alias под уже проксируемый nginx prefix /users."""
         return company_context_payload(current_user)
 
-    @app.get("/users/qa-readonly-context")
+    @app.get("/users/qa-readonly-context/identity")
     def get_qa_readonly_context(request: Request):
         """Opt-in QA-only, cookie-only session projection without DB writes.
 
