@@ -58,6 +58,12 @@ def resolve_qa_identity_read_only(cur, authentication: object) -> dict:
     ):
         raise QAReadOnlyAuthRejected()
     try:
+        # A SELECT-only implementation is not enough: enforce that the caller
+        # opened a PostgreSQL READ ONLY transaction before accessing sessions.
+        cur.execute("SHOW transaction_read_only")
+        state = cur.fetchone()
+        if type(state) is not dict or state.get("transaction_read_only") != "on":
+            raise QAReadOnlyAuthRejected()
         cur.execute(_SQL, (authentication["sessionHash"],))
         rows = cur.fetchall()
         if type(rows) is not list or len(rows) != 1 or type(rows[0]) is not dict:
