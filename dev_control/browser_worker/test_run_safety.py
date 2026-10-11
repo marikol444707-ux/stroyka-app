@@ -155,7 +155,7 @@ class BrowserWorkerUrlSafetyTest(unittest.TestCase):
                 with self.subTest(url=url, redact=redact.__name__):
                     result = redact(url)
                     self.assertNotIn("VERYSECRET", result)
-                    self.assertIn("[REDACTED]", result)
+                    self.assertIn("%5BREDACTED%5D", result)
 
         encoded_key = "%74oken"
         for _ in range(15):
