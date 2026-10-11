@@ -89,6 +89,9 @@ export default function WorkAssignmentModal({
   const [submitting, setSubmitting] = useState(false);
   const [submissionError, setSubmissionError] = useState('');
   const [showAssigned, setShowAssigned] = useState(false);
+  const [mobileStep, setMobileStep] = useState(1);
+  const bodyRef = useRef(null);
+  useEffect(() => { if (bodyRef.current) bodyRef.current.scrollTop = 0; }, [mobileStep]);
   const initializedSourceRef = useRef(null);
 
   const assignmentRows = useMemo(
@@ -149,6 +152,7 @@ export default function WorkAssignmentModal({
     setContractorId(performers.length === 1 ? performerOptionId(performers[0]) : '');
     setManualPerformer(false);
     setManualName('');
+    setMobileStep(1);
     setPercentage('60');
     setPriceMode('coefficient');
     setManualPrices({});
@@ -262,8 +266,9 @@ export default function WorkAssignmentModal({
           <button type="button" aria-label="Закрыть назначение работ" onClick={onClose} disabled={submitting} style={{...btnG, padding: '7px 9px'}}><X size={14} /></button>
         </div>
 
-        <div style={{padding: isMobile ? '12px' : '16px 20px', overflowY: 'auto', minHeight: 0, flex: '1 1 auto', overscrollBehavior: 'contain'}}>
-          <div style={{marginBottom: '18px'}}>
+        {isMobile && <p role="status" style={{margin:'10px 12px',color:C.textSec,fontSize:13}}>Шаг {mobileStep} из 3 · {['Исполнитель','Работы','Проверка суммы'][mobileStep-1]}</p>}
+        <div ref={bodyRef} style={{padding: isMobile ? '12px' : '16px 20px', overflowY: 'auto', minHeight: 0, flex: '1 1 auto', overscrollBehavior: 'contain'}}>
+          <div style={{display: isMobile && mobileStep !== 1 ? 'none' : undefined, marginBottom: '18px'}}>
             <b style={{display: 'block', color: C.text, fontSize: '15px', marginBottom: '4px'}}>1. Кому выдать работы</b>
             <p style={{color: C.textSec, fontSize: '12px', margin: '0 0 10px'}}>Выберите человека или бригаду. Новую бригаду можно указать в этом же списке.</p>
             <div style={{display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(260px,1fr) minmax(200px,1fr)', gap: '10px'}}>
@@ -281,6 +286,7 @@ export default function WorkAssignmentModal({
             </div>
           </div>
 
+          <div style={{display:isMobile && mobileStep !== 2 ? 'none' : undefined}}>
           <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', marginBottom: '10px'}}>
             <div>
               <b style={{display: 'block', color: C.text, fontSize: '15px'}}>2. Какие работы выдать</b>
@@ -312,6 +318,9 @@ export default function WorkAssignmentModal({
             </div>}
           </div>}
 
+          </div>
+          <div style={{display:isMobile && mobileStep !== 3 ? 'none' : undefined}}>
+          {isMobile && <p style={{color:C.text}}>Исполнитель: <strong>{brigadeName}</strong></p>}
           <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', marginBottom: '10px'}}>
             <div>
               <b style={{display: 'block', color: C.text, fontSize: '15px'}}>3. Сколько получит исполнитель</b>
@@ -333,6 +342,8 @@ export default function WorkAssignmentModal({
             </div>
           )}
 
+          </div>
+          <div style={{display:isMobile && mobileStep === 1 ? 'none' : undefined}}>
           <div style={{border: '1px solid ' + C.border, borderRadius: '10px', overflow: 'hidden'}}>
             {!isMobile && (
               <div style={{display: 'grid', gridTemplateColumns: rowGrid, gap: '8px', padding: '9px 10px', backgroundColor: C.bg, color: C.textMuted, fontSize: '10px', textTransform: 'uppercase', fontWeight: 700}}>
@@ -345,7 +356,7 @@ export default function WorkAssignmentModal({
               </div>
             )}
             <div style={{maxHeight: isMobile ? undefined : '420px', overflowY: isMobile ? 'visible' : 'auto'}}>
-              {visibleRows.map(row => {
+              {(isMobile && mobileStep === 3 ? selectedRows : visibleRows).map(row => {
                 const checked = !!selectedIds[row.id];
                 const rowHasManualPrice = hasManualPrice(row.id);
                 const masterPrice = priceForRow(row);
@@ -360,7 +371,7 @@ export default function WorkAssignmentModal({
                     </div>
                     <span style={{color: C.textSec, fontSize: '12px', display: isMobile ? 'none' : undefined}}>{formatQty(row.quantity, row.unit)}</span>
                     <span style={{color: C.textSec, fontSize: '12px', display: isMobile ? 'none' : undefined}}>{formatMoney(row.priceSmeta)}</span>
-                    {showPriceSettings ? <div style={{display: 'grid', gridTemplateColumns: rowHasManualPrice && priceMode === 'coefficient' ? 'minmax(0,1fr) 26px' : 'minmax(0,1fr)', gap: '4px', alignItems: 'center', gridColumn: isMobile ? '2 / -1' : undefined, gridRow: isMobile ? '2' : undefined}}>
+                    {showPriceSettings && (!isMobile || mobileStep === 3) ? <div style={{display: 'grid', gridTemplateColumns: rowHasManualPrice && priceMode === 'coefficient' ? 'minmax(0,1fr) 26px' : 'minmax(0,1fr)', gap: '4px', alignItems: 'center', gridColumn: isMobile ? '2 / -1' : undefined, gridRow: isMobile ? '2' : undefined}}>
                       {isMobile && <span style={{gridColumn: '1 / -1', color: C.textSec, fontSize: '11px'}}>Цена исполнителю за единицу</span>}
                       <input
                         aria-label={'Цена исполнителю: ' + row.name}
@@ -394,18 +405,20 @@ export default function WorkAssignmentModal({
                   </div>
                 );
               })}
-              {!visibleRows.length && <div style={{padding: '24px', textAlign: 'center', color: C.textMuted}}>{rows.length ? 'Работы не найдены. Очистите поиск.' : assignmentRows.length ? 'Все работы этой сметы уже назначены' : 'В смете нет рабочих строк для назначения'}</div>}
+              {!(isMobile && mobileStep === 3 ? selectedRows : visibleRows).length && <div style={{padding: '24px', textAlign: 'center', color: C.textMuted}}>{rows.length ? 'Работы не найдены. Очистите поиск.' : assignmentRows.length ? 'Все работы этой сметы уже назначены' : 'В смете нет рабочих строк для назначения'}</div>}
             </div>
+          </div>
           </div>
         </div>
 
         <div style={{flexShrink: 0, padding: isMobile ? '12px' : '14px 20px', borderTop: '1px solid ' + C.border, backgroundColor: C.bgWhite, display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', alignItems: 'center'}}>
           <div><b style={{display: 'block', color: C.text, fontSize: '14px'}}>Исполнителю: {formatMoney(selectedTotal)}</b><span style={{color: C.textSec, fontSize: '11px'}}>Выбрано работ: {selectedRows.length}</span></div>
           <div style={{display: 'flex', gap: '8px'}}>
+            {isMobile && mobileStep > 1 && <button type="button" disabled={submitting} onClick={()=>setMobileStep(step=>step-1)} style={{...btnG,minHeight:44}}>Назад</button>}
             <button type="button" onClick={onClose} disabled={submitting} style={btnG}>Отмена</button>
-            <button type="button" onClick={submit} disabled={submitting || !selectedRows.length || !brigadeName} style={{...btnO, opacity: submitting || !selectedRows.length || !brigadeName ? 0.65 : 1}}>
+            {isMobile && mobileStep < 3 ? <button type="button" disabled={submitting || (mobileStep===1 ? !brigadeName : !selectedRows.length)} onClick={()=>setMobileStep(step=>step+1)} style={{...btnO,minHeight:44}}>Далее</button> : <button type="button" onClick={submit} disabled={submitting || !selectedRows.length || !brigadeName} style={{...btnO, opacity: submitting || !selectedRows.length || !brigadeName ? 0.65 : 1}}>
               {submitting ? 'Выдаю...' : 'Выдать в работу'}
-            </button>
+            </button>}
           </div>
           {submissionError
             ? <p role="alert" style={{order: 1, flexBasis: '100%', color: C.danger || '#b91c1c', margin: 0, fontSize: '12px'}}>{submissionError}</p>
