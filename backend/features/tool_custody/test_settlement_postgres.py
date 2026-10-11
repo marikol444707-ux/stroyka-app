@@ -35,6 +35,15 @@ class ToolSettlementPostgresTests(ToolCustodyPostgresSupport, unittest.TestCase)
 
     def setUp(self):
         super().setUp()
+        # Financial acts require the frozen parties of the signed contract.
+        # Arrange the same complete synthetic contract as material settlements.
+        self.sql("UPDATE brigade_contracts SET party_snapshot_json=%s::jsonb WHERE id=%s",
+                 (json.dumps({
+                     "schemaVersion": 1,
+                     "customer": {"companyId": 2, "fullName": "Synthetic customer", "inn": "2611000000"},
+                     "contractor": {"userId": self.f["users"]["worker"]["id"],
+                                    "fullName": self.f["users"]["worker"]["name"], "inn": "263200000001"},
+                 }), self.contract_id))
         for table in ("brigade_payments", "project_payments", "interim_acts", "piecework", "file_ownership"):
             self.sql("DELETE FROM " + table)
         journal, _ = self.create_consumption(personal=1, warehouse=1)
