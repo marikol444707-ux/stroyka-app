@@ -26,8 +26,11 @@ RUN python -m pip install --no-cache-dir -r /tmp/browser-worker-requirements.txt
 
 COPY . /app/dev_control
 RUN python /app/dev_control/browser_worker/patch_harness.py
+# The entrypoint is executed by root on every container restart.
+# Never make application code or its entrypoint writable by the worker UID.
 RUN chmod +x /app/dev_control/browser_worker/start.sh \
-    && chown -R worker:worker /app /home/worker \
+    && chown -R root:root /app /home/worker \
+    && chmod -R go-w /app \
     && chown -R chrome:chrome /home/chrome
 
 USER root
