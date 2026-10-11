@@ -95,6 +95,10 @@ def register_company_context_module(app, deps):
         conn = get_db()
         cur = None
         try:
+            # get_db() normally enables autocommit. SET TRANSACTION READ ONLY
+            # is ineffective outside an explicit transaction in that mode.
+            # This is a fresh per-request connection, never a shared pool.
+            conn.autocommit = False
             cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
             cur.execute("SET TRANSACTION READ ONLY")
             return resolve_qa_identity_read_only(cur, authentication)
