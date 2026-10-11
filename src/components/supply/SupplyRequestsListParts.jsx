@@ -13,7 +13,6 @@ import {
   supplierRecipientStatusSummary,
 } from '../../utils/supplyUtils';
 import { supplierEmailNotificationLabel, supplierMaxNotificationLabel } from '../../utils/supplyNotificationUtils';
-import MaterialCapabilityProofPanel from './MaterialCapabilityProofPanel';
 import SupplyTechnicalComparisonPanel, {
   protectedTenantFileId,
   uniqueScopedProjectId,
@@ -675,18 +674,6 @@ export function SupplyRequestCard(props) {
           supplyAiText={supplyAiText}
         />
       )}
-      {expanded && ['Утверждена', 'КП запрошены'].includes(request.status) && items.map((item, requestItemIndex) => (
-        <MaterialCapabilityProofPanel
-          key={`${companyContext?.mode || ''}:${companyContext?.selectedCompanyId || companyContext?.selectedCompany?.companyId || ''}:${companyContext?.selectedCompany?.role || ''}:${request.id}:${requestItemIndex}`}
-          API={API}
-          C={C}
-          requestId={request.id}
-          requestItemIndex={requestItemIndex}
-          materialName={item.materialName || item.name || request.materialName}
-          suppliers={suppliers}
-          companyContext={companyContext}
-        />
-      ))}
       <OffersBlock
         user={user}
         API={API}
