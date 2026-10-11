@@ -165,12 +165,19 @@ test('cancelled attempt is distinct from confirmed money operation', () => {
 });
 
 
+test('ordinary payment keeps legacy corrections collapsed', () => {
+  render(<SupplierPaymentDialog {...props} documentKind="invoice" documentId={9} />);
+  expect(screen.getByText('Сверка документов и исправления').closest('details')).not.toHaveAttribute('open');
+  expect(screen.getByRole('form', { name: 'Запись платежа' })).toBeInTheDocument();
+});
+
 test('opening review remains reachable when an unregistered mixed document cannot load', () => {
   const previous = process.env.REACT_APP_SUPPLIER_OPENING_CONFIRMATIONS_ENABLED;
   process.env.REACT_APP_SUPPLIER_OPENING_CONFIRMATIONS_ENABLED = 'true';
   try {
     state.snapshot = null; state.history = null; state.error = 'Пакет накладной требует сверки';
     const { rerender } = render(<SupplierPaymentDialog {...props} documentKind="invoice" documentId={9} />);
+    expect(screen.getByText('Сверка документов и исправления').closest('details')).toHaveAttribute('open');
     expect(screen.getByRole('button', { name: 'Сверить прежнюю оплату' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Зафиксировать выполненную оплату' })).toBeDisabled();
     state = { ...state, busy: true };

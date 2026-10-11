@@ -24,6 +24,11 @@ function PaymentDialogContent(props) {
   const [allocationBlocked, setAllocationBlocked] = useState(false);
   const [bindingBlocked, setBindingBlocked] = useState(false);
   const [lineReviewBlocked, setLineReviewBlocked] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const needsReview = bindingBlocked || lineReviewBlocked || openingBlocked || allocationBlocked || refundBlocked;
+  useEffect(() => {
+    if (needsReview || state.error || state.storageError) setReviewOpen(true);
+  }, [needsReview, state.error, state.storageError]);
   const titleId = useId();
   const root = useRef(null);
   const close = useRef(null);
@@ -35,8 +40,8 @@ function PaymentDialogContent(props) {
   const keyDown = event => {
     if (event.key === 'Escape') { event.stopPropagation(); props.onClose?.(); }
     if (event.key !== 'Tab') return;
-    const nodes = [...root.current.querySelectorAll('button, input, select, textarea, [tabindex="0"]')]
-      .filter(node => !node.matches(':disabled'));
+    const nodes = [...root.current.querySelectorAll('button, input, select, textarea, summary, [tabindex="0"]')]
+      .filter(node => !node.matches(':disabled') && (!node.closest('details:not([open])') || node.tagName === 'SUMMARY'));
     const first = nodes[0], last = nodes[nodes.length - 1];
     if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
@@ -51,7 +56,9 @@ function PaymentDialogContent(props) {
       <header><h2 id={titleId}>Оплата поставщику</h2><button type="button" ref={close} onClick={props.onClose}>Закрыть</button></header>
       <p>{documentLabel(props.documentKind)} № {props.documentId}</p>
       {state.loading && <p role="status">Загрузка документа и истории…</p>}
-      {state.error && <p role="alert">{state.error}</p>}
+      {state.error && <p role="alert">{state.error === 'Пакет накладной требует сверки'
+        ? 'Не удалось проверить данные накладной. Оплата пока недоступна. Откройте сверку документов ниже; если данные верны, нужна проверка связанного счёта и накладной.'
+        : state.error}</p>}
       {state.storageError && <p role="alert">{state.storageError} Отправка заблокирована.</p>}
       {(state.error || state.storageError) && <button type="button" disabled={state.busy || state.loading} onClick={state.reload}>Обновить</button>}
       {state.snapshot && <div className="supplier-payment-dialog-summary">
@@ -71,7 +78,11 @@ function PaymentDialogContent(props) {
         {state.snapshot.paymentRequisites.supplier?.ks && <p>Корреспондентский счёт: {state.snapshot.paymentRequisites.supplier.ks}</p>}
         <p>Договор № {state.snapshot.paymentRequisites.contractNumber || '—'}{state.snapshot.paymentRequisites.contractDate ? ' от '+state.snapshot.paymentRequisites.contractDate : ''}</p>
       </fieldset>}
-      {props.documentKind === 'invoice' && <SupplierLegacyBindingPanel API={props.API} userId={props.userId}
+      {props.documentKind === 'invoice' && <details className="supplier-payment-review" open={reviewOpen}
+        onToggle={event => setReviewOpen(event.currentTarget.open)}>
+        <summary>Сверка документов и исправления{needsReview ? ' · требуется действие' : ''}</summary>
+        <p>Открывайте, если нужно исправить старый счёт, учесть прежнюю оплату или распределить её по накладным.</p>
+      <SupplierLegacyBindingPanel API={props.API} userId={props.userId}
         companyId={props.companyId} invoiceId={props.documentId}
         disabled={lineReviewBlocked || allocationBlocked || refundBlocked || openingBlocked || state.busy || state.loading || !!state.pending || !!state.reversal || !!state.storageError}
         onBlocked={setBindingBlocked} onSuccess={() => { state.reload(); props.onSuccess?.(); }} />}
@@ -94,6 +105,7 @@ function PaymentDialogContent(props) {
         companyId={props.companyId} invoiceId={props.documentId}
         disabled={lineReviewBlocked || bindingBlocked || allocationBlocked || openingBlocked || state.busy || state.loading || !!state.pending || !!state.reversal || !!state.storageError || !state.snapshot}
         onBlocked={setRefundBlocked} onSuccess={() => { state.reload(); props.onSuccess?.(); }} />}
+      </details>}
       {state.pending && <section aria-label="Незавершённая операция">
         <h3>Сохранённый запрос</h3>
         <p>Не удалось получить подтверждение. Проверьте результат предыдущей попытки, прежде чем записывать новый платёж. Она может относиться к другому счёту вашей компании.</p>
