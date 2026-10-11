@@ -24,13 +24,13 @@ class SupplierBuildFlagsTests(unittest.TestCase):
             result.stdout,
         )
 
-    def test_material_capability_ui_mirrors_enabled_backend_runtime(self):
+    def test_retired_material_capability_ui_stays_off_with_enabled_backend(self):
         result = self.resolve(
             'SUPPLIER_MATERIAL_CAPABILITY_RUNTIME_ENABLED=true'
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(
-            'REACT_APP_SUPPLIER_MATERIAL_CAPABILITY_RUNTIME_ENABLED=true',
+            'REACT_APP_SUPPLIER_MATERIAL_CAPABILITY_RUNTIME_ENABLED=false',
             result.stdout,
         )
 
