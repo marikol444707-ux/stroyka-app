@@ -12,10 +12,34 @@ if [[ -n "${BU_CDP_URL:-}" && "${BU_CDP_URL}" != "${expected_cdp_url}" ]]; then
   exit 2
 fi
 export BU_CDP_URL="${expected_cdp_url}"
-export BH_HOME="${BH_HOME:-/tmp/browser-harness}"
-
-profile="${CHROME_USER_DATA_DIR:-/tmp/stroyka-dev-chrome}"
-evidence_dir="${QA_EVIDENCE_DIR:-/tmp/stroyka-qa-evidence}"
+# The directory parent MUST be root-owned and non-writable. Worker/chrome
+# cannot replace leaf folders with symlinks between container restarts.
+readonly runtime_root="/var/lib/stroyka-jev-qa"
+readonly expected_harness="$runtime_root/harness"
+readonly expected_evidence="$runtime_root/evidence"
+readonly expected_profile="$runtime_root/chrome"
+if [[ "${BH_HOME:-$expected_harness}" != "$expected_harness" ||
+      "${QA_EVIDENCE_DIR:-$expected_evidence}" != "$expected_evidence" ||
+      "${CHROME_USER_DATA_DIR:-$expected_profile}" != "$expected_profile" ]]; then
+  echo "Refusing untrusted browser/evidence runtime directory overrides" >&2
+  exit 2
+fi
+if [[ -L "$runtime_root" || ! -d "$runtime_root" ||
+      "$(stat -c '%u:%g:%a' "$runtime_root")" != "0:0:755" ]]; then
+  echo "QA runtime parent must be an existing, root-owned 0755 directory" >&2
+  exit 2
+fi
+export BH_HOME="$expected_harness"
+export QA_EVIDENCE_DIR="$expected_evidence"
+export CHROME_USER_DATA_DIR="$expected_profile"
+profile="$CHROME_USER_DATA_DIR"
+evidence_dir="$QA_EVIDENCE_DIR"
+for path in "$profile" "$BH_HOME" "$evidence_dir"; do
+  if [[ -L "$path" ]]; then
+    echo "Refusing symlinked QA runtime directory" >&2
+    exit 2
+  fi
+done
 install -d -m 0700 -o chrome -g chrome "$profile"
 install -d -m 0700 -o worker -g worker "$BH_HOME" "$evidence_dir"
 
