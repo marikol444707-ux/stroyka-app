@@ -10,6 +10,7 @@ import json
 import os
 import time
 import unittest
+from uuid import uuid4
 
 from backend.features.work_acceptance import test_postgres as lifecycle
 
@@ -42,6 +43,16 @@ class WorkAcceptanceIntegrationPostgresTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         lifecycle.WorkAcceptancePostgresTests.setUpClass.__func__(cls)
+        # This guarded disposable fixture also exercises the assignment writer,
+        # whose snapshot lineage schema is provisioned separately in production.
+        from backend.features.brigade_lineage.migration import _ensure_bci_schema, _ensure_snapshot_schema
+        conn = cls.main.get_db()
+        try:
+            with conn, conn.cursor() as cur:
+                _ensure_snapshot_schema(cur)
+                _ensure_bci_schema(cur)
+        finally:
+            conn.close()
 
     def setUp(self):
         estimate_id = self.fixture["estimateId"]
@@ -118,6 +129,56 @@ class WorkAcceptanceIntegrationPostgresTests(unittest.TestCase):
         response = self.request("POST", f"/work-journal/{journal_id}/acceptance", payload, actor="director")
         self.assertIn(response.status_code, (400, 409), response.text)
         self.assertEqual(self.snapshot(), before)
+
+    def test_assignment_is_visible_to_exact_worker_and_submission_reaches_acceptance(self):
+        estimate_id = self.f["estimateId"]
+        worker = self.f["users"]["other_worker"]
+        key = "assignment-chain-" + str(estimate_id)
+        sections = [{"name": "Assignment chain", "items": [
+            {"estimateItemKey": key, "name": "Assigned cable", "type": "work",
+             "unit": "м", "quantity": 5, "priceWork": 100},
+            {"estimateItemKey": key + "-unselected", "name": "Unselected work",
+             "type": "work", "unit": "шт", "quantity": 3, "priceWork": 200},
+        ]}]
+        self.sql("UPDATE estimates SET sections_json=%s WHERE id=%s",
+                 (json.dumps(sections), estimate_id))
+        payload = {
+            "assignee": {"contractorId": worker["id"], "brigadeName": worker["name"]},
+            "priceMode": "coefficient", "coefficient": 0.6,
+            "items": [{"sectionIndex": 0, "itemIndex": 0, "estimateItemKey": key}],
+        }
+        assignment = self.api("director", "POST", f"/estimates/{estimate_id}/work-assignment", payload)
+        contract_id = assignment["contractId"]
+        items = self.api("other_worker", "GET", f"/brigade-contract-items/{contract_id}")
+        self.assertEqual(len(items), 1)
+        item = items[0]
+        self.assertEqual((item["name"], item["quantity"], item["priceBrigade"]),
+                         ("Assigned cable", 5, 60))
+        self.assertEqual(item["priceSmeta"], 0)
+        self.assertEqual(item["estimateItemKey"], key)
+        cabinet_items = self.api("other_worker", "GET", "/brigade-contract-items-all")
+        self.assertEqual([row["id"] for row in cabinet_items], [item["id"]])
+        self.assertEqual(cabinet_items[0]["projectName"], self.f["project"])
+        self.assertEqual(cabinet_items[0]["workPackage"], self.f["workPackage"])
+        self.assertEqual(self.api("worker", "GET", f"/brigade-contract-items/{contract_id}"), [])
+        self.assertEqual(self.api("stranger", "GET", f"/brigade-contract-items/{contract_id}"), [])
+        repeated = self.api("director", "POST", f"/estimates/{estimate_id}/work-assignment", payload)
+        self.assertEqual(repeated["contractId"], contract_id)
+        self.assertEqual(len(self.api("other_worker", "GET", f"/brigade-contract-items/{contract_id}")), 1)
+        submitted = self.api("other_worker", "POST", "/work-journal", {
+            "masterId": worker["id"], "masterName": worker["name"],
+            "project": self.f["project"], "workPackage": self.f["workPackage"],
+            "description": item["name"], "unit": item["unit"], "quantity": 2,
+            "date": "2026-10-11", "contractItemId": item["id"], "materialsUsed": [],
+            "materialAccountingVersion": 2, "requestId": str(uuid4()),
+        })
+        journal_id = submitted["id"]
+        self.assertEqual(self.sql("SELECT status,execution_total FROM work_journal WHERE id=%s",
+                                  (journal_id,)), [("На проверке", 120)])
+        self.review(journal_id)
+        accepted = self.api("other_worker", "GET", f"/brigade-contract-items/{contract_id}")[0]
+        self.assertEqual(accepted["doneQuantity"], 2)
+        self.assertEqual(accepted["status"], "В работе")
 
     def test_split_keeps_submitted_price_snapshot_after_contract_price_changes(self):
         self.sql("""UPDATE work_journal SET customer_price_per_unit=30,customer_total=30

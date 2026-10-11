@@ -1,4 +1,5 @@
 import { pricelistAssignments } from '../features/work-material-accounting/pricelistAssignments';
+import { matchesAssignedWork } from '../features/work-assignment/matchesAssignedWork';
 import { clearSubmittedDrafts } from '../features/work-material-accounting/workDrafts';
 import { workMaterialAccountingEnabled } from '../features/work-material-accounting/materialSources';
 import { sendWorkBatch, clearWorkBatch, pendingWorkBatch, workBatchScope } from '../features/work-material-accounting/workCommands';
@@ -416,15 +417,7 @@ export default function MasterCabinetPage(props) {
       const assignedContractItem = contractCandidates.find(contractItem => {
         if (seenContractCandidates.has(contractItem)) return false;
         seenContractCandidates.add(contractItem);
-        const contractKey = String(contractItem.estimateItemKey || contractItem.estimate_item_key || '').trim();
-        const contractName = String(contractItem.name || contractItem.description || '').trim().toLowerCase();
-        const contractUnit = String(contractItem.unit || '').trim().toLowerCase();
-        const contractSection = String(contractItem.estimateSection || contractItem.estimate_section || '').trim().toLowerCase();
-        const contractProject = String(contractItem.projectName || contractItem.project_name || '').trim();
-        const sameProject = !contractProject || contractProject === projectName;
-        const sameKey = itemKey && contractKey && contractKey === itemKey;
-        const sameName = contractName && contractName === itemName && (!contractSection || !sectionName || contractSection === sectionName) && (!itemUnit || !contractUnit || contractUnit === itemUnit);
-        return sameProject && (sameKey || sameName);
+        return matchesAssignedWork(contractItem, {projectName, itemKey, itemName, sectionName, itemUnit});
       });
       if ((assignedContractItems.length > 0 && assignedContractItem) || (assignedContractItems.length === 0 && (packageAllowed || namedToMe))) {
         myItems.push({
