@@ -26,6 +26,23 @@ class BrowserWorkerContainerContractTest(unittest.TestCase):
 
 
 
+    def test_docker_context_allowlists_code_and_excludes_untracked_secrets(self):
+        rules = Path("dev_control/.dockerignore").read_text(encoding="utf-8").splitlines()
+        rules = [line.strip() for line in rules if line.strip() and not line.startswith("#")]
+        self.assertEqual(rules[0], "*")
+        self.assertIn("browser_worker/*", rules)
+        self.assertIn("!browser_worker/service.py", rules)
+        self.assertIn("!browser_worker/qa_identity.py", rules)
+        self.assertIn("!jev_timeweb.py", rules)
+        self.assertNotIn("!browser_worker/*.py", rules)
+        self.assertNotIn("!browser_worker/**", rules)
+        self.assertNotIn("!**", rules)
+        for name in (".env", ".env.local", "qa-token.txt", "id_rsa",
+                     "secrets.json", "browser_worker/.env",
+                     "browser_worker/evidence/result.json",
+                     "browser_worker/qa-session.pem"):
+            self.assertNotIn("!" + name, rules)
+
     def test_runtime_paths_cannot_be_replaced_by_worker_owned_symlinks(self):
         dockerfile = Path("dev_control/Dockerfile").read_text(encoding="utf-8")
         start = Path("dev_control/browser_worker/start.sh").read_text(encoding="utf-8")
