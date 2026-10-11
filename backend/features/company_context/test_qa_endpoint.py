@@ -40,6 +40,7 @@ class FakeCursor:
 class FakeConnection:
     def __init__(self, rows):
         self.cursor_obj = FakeCursor(rows)
+        self.autocommit = True  # matches backend.db.get_db()
         self.rolled_back = False
         self.closed = False
 
@@ -112,6 +113,7 @@ class QAEndpointTests(unittest.TestCase):
         ):
             result = self.endpoint(request())
         self.assertEqual(result["user"]["companyId"], 5)
+        self.assertIs(self.conn.autocommit, False, "QA auth must disable default autocommit")
         sql = [entry[0] for entry in self.conn.cursor_obj.queries]
         self.assertEqual(sql[0], "SET TRANSACTION READ ONLY")
         self.assertEqual(sql[1], "SHOW transaction_read_only")
