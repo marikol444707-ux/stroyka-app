@@ -459,6 +459,78 @@ class BrowserWorkerUrlSafetyTest(unittest.TestCase):
         self.assertEqual(report["history"], [])
         self.assertEqual(report["decisions"], [])
 
+    def test_delayed_boundary_failure_after_agent_exit_is_not_pass(self):
+        class LateBoundary:
+            failed = False
+            def raise_if_failed(self):
+                if self.failed:
+                    raise JevError("blocked read-only write during shutdown")
+        boundary = LateBoundary()
+        class FakeBrowser:
+            _qa_boundary = boundary
+            def evaluate(self, expression):
+                if expression == "location.href":
+                    return "https://qa.example.test/app"
+                return "Склад"
+        class FakeAgent:
+            def __init__(self, url, goal, record_dir=None, screenshots=False):
+                self.browser = FakeBrowser()
+                self.url = url
+            def __enter__(self):
+                return self
+            def __exit__(self, *_args):
+                boundary.failed = True
+            def snapshot(self):
+                return {"status": "observed", "page": {"url": self.url}, "history": [], "decisions": []}
+            def run(self):
+                raise AssertionError("read-only must not perform actions")
+
+        with tempfile.TemporaryDirectory() as evidence, patch.dict(
+            os.environ,
+            {"QA_ENVIRONMENT": "qa", "QA_BASE_URL": "https://qa.example.test/app",
+             "QA_ALLOWED_ORIGIN": "https://qa.example.test"},
+            clear=True,
+        ), patch.dict(
+            sys.modules, {"jev_ultrafast": SimpleNamespace(Agent=FakeAgent)},
+        ), patch("dev_control.browser_worker.run.install_safe_browser"):
+            result = execute_task(
+                url="https://qa.example.test/app", goal="observe menu",
+                record_dir=evidence, read_only=True, expect_text=["Склад"],
+                expect_url_contains=["qa.example.test"], max_seconds=5,
+            )
+        self.assertFalse(result["ok"])
+        self.assertTrue(any("during shutdown" in f for f in result["failures"]))
+
+    def test_only_exact_https_qa_allowlist_is_accepted(self):
+        from dev_control.browser_worker.network_guard import qa_base_is_nonproduction
+        base = "https://qa.example.test/app"
+        for allowed in ("http://qa.example.test", "ftp://qa.example.test",
+                        "https://qa.example.test:444", "https://other.example.test"):
+            with self.subTest(allowed=allowed), patch.dict(os.environ, {
+                "QA_ALLOWED_ORIGIN": allowed, "QA_ENVIRONMENT": "qa",
+                "QA_BASE_URL": base,
+            }, clear=True):
+                self.assertFalse(qa_base_is_nonproduction())
+        with patch.dict(os.environ, {
+            "QA_ALLOWED_ORIGIN": "https://qa.example.test", "QA_ENVIRONMENT": "qa",
+            "QA_BASE_URL": base,
+        }, clear=True):
+            self.assertTrue(qa_base_is_nonproduction())
+
+    def test_boundary_shutdown_without_thread_exit_fails_closed(self):
+        guard = NetworkBoundary.__new__(NetworkBoundary)
+        guard._stop = threading.Event()
+        guard._thread_started = True
+        guard._thread = Mock()
+        guard._thread.is_alive.return_value = True
+        guard._error = None
+        guard._child_targets = set()
+        guard._cdp = Mock()
+        guard._session_id = "root"
+        guard.close()
+        with self.assertRaisesRegex(JevError, "did not stop cleanly"):
+            guard.raise_if_failed()
+
     def test_read_only_live_url_overrides_stale_cached_snapshot(self):
         class FakeBrowser:
             _qa_boundary = None
