@@ -17,7 +17,7 @@ def _container(port, *, state="running", user="10001", privileged=False, securit
     }
 
 
-def _fake_command(items, *, timer="inactive"):
+def _fake_command(items, *, timer="inactive", enabled="disabled"):
     fields = {
         "{{json .State.Status}}": "state",
         "{{json .Config.User}}": "user",
@@ -40,7 +40,7 @@ def _fake_command(items, *, timer="inactive"):
         if args == ["systemctl", "is-active", "stroyka-jev-watch.timer"]:
             return timer
         if args == ["systemctl", "is-enabled", "stroyka-jev-watch.timer"]:
-            return "disabled"
+            return enabled
         raise AssertionError("Unexpected command or mutation attempt: " + repr(args))
 
     return command, calls
@@ -107,6 +107,40 @@ class HostPreflightTest(unittest.TestCase):
         self.assertIn("JEV_WORKER_NOT_LOOPBACK_ONLY:stroyka-jev-qa", result["blockers"])
         self.assertIn("UNCONFINED_CONTAINER_SECURITY:stroyka-jev-qa", result["blockers"])
         self.assertEqual(result["status"], "blocked")
+
+    def test_enabled_or_active_watcher_is_blocked_until_qa_is_read_only(self):
+        containers = {
+            "stroyka-jev-qa": _container(18088),
+            "stroyka-qa-backend": _container(8001),
+            "stroyka-qa-gateway": _container(8443),
+        }
+        for timer, enabled in (("active", "disabled"), ("inactive", "enabled"), ("active", "enabled")):
+            with self.subTest(timer=timer, enabled=enabled):
+                command, _ = _fake_command(containers, timer=timer, enabled=enabled)
+                with patch("scripts.jev_qa_host_preflight._read_setting", return_value="unknown"):
+                    result = inspect_host(command)
+                self.assertEqual(result["status"], "blocked")
+                if timer == "active":
+                    self.assertIn("WATCHER_TIMER_ACTIVE_BEFORE_ACCEPTANCE", result["blockers"])
+                if enabled == "enabled":
+                    self.assertIn("WATCHER_TIMER_ENABLED_BEFORE_ACCEPTANCE", result["blockers"])
+
+    def test_foreign_container_binding_same_port_is_detected(self):
+        rogue = _container(18088)
+        rogue["ports"]["8080/tcp"][0]["HostIp"] = "0.0.0.0"
+        containers = {
+            "stroyka-jev-qa": _container(18088),
+            "stroyka-qa-backend": _container(8001),
+            "stroyka-qa-gateway": _container(8443),
+            "legacy-renamed-worker": rogue,
+        }
+        command, calls = _fake_command(containers)
+        with patch("scripts.jev_qa_host_preflight._read_setting", return_value="unknown"):
+            result = inspect_host(command)
+        self.assertIn("WATCH_PORT_18088_NOT_OWNED_BY_EXPECTED_WORKER", result["blockers"])
+        self.assertIn("legacy-renamed-worker", result["watch_port"]["owners"])
+        self.assertNotIn("legacy-renamed-worker", result["containers"])
+        self.assertTrue(any(c[0:3] == ["docker", "inspect", "--format"] and c[-1] == "legacy-renamed-worker" for c in calls))
 
     def test_docker_permission_missing_reports_blocker_without_details(self):
         result = inspect_host(lambda _: None)
