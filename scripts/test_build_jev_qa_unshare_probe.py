@@ -41,6 +41,35 @@ class SeccompProbeTest(unittest.TestCase):
         self.assertEqual(result["defaultAction"], "SCMP_ACT_ERRNO")
         self.assertNotIn("SCMP_ACT_ALLOW", [result["defaultAction"]])
 
+    def test_optional_clone_userns_is_masked_and_does_not_open_other_namespaces(self):
+        original = example_default()
+        result = probe.make_probe_profile(original, clone_userns_probe=True)
+        self.assertEqual(original, example_default())
+        appended = result["syscalls"][len(original["syscalls"]):]
+        self.assertEqual(len(appended), 3)
+        clone = appended[2]
+        self.assertEqual(clone["names"], ["clone"])
+        self.assertEqual(clone["action"], "SCMP_ACT_ALLOW")
+        self.assertEqual(clone["args"], [{
+            "index": 0,
+            "value": 0x7E020000,
+            "valueTwo": 0x10000000,
+            "op": "SCMP_CMP_MASKED_EQ",
+        }])
+        # Mask matches ONLY NEWUSER among all namespace bits,
+        # not combinations with NEWNET/NEWNS/NEWPID/NEWIPC/NEWUTS.
+        self.assertNotEqual(0x10000000 & 0x7E020000, 0)
+        for extra in (0x20000000, 0x40000000, 0x00020000, 0x08000000):
+            self.assertNotEqual(
+                (0x10000000 | extra) & clone["args"][0]["value"],
+                clone["args"][0]["valueTwo"],
+            )
+        self.assertEqual(result["defaultAction"], "SCMP_ACT_ERRNO")
+        self.assertEqual(
+            [x["names"] for x in original["syscalls"]],
+            [x["names"] for x in result["syscalls"][:-3]],
+        )
+
     def test_rejects_malformed_or_overpermissive_upstream(self):
         for edit in (
             lambda x: x.update(defaultAction="SCMP_ACT_ALLOW"),
