@@ -40,7 +40,7 @@ class QAReadOnlySessionPostgresTest(unittest.TestCase):
                     raise RuntimeError("fixture would overwrite an existing table")
             cur.execute("CREATE TABLE public.platform_accounts (id integer PRIMARY KEY, active boolean, status text)")
             cur.execute("CREATE TABLE public.companies (id integer PRIMARY KEY, platform_account_id integer, active boolean)")
-            cur.execute("CREATE TABLE public.users (id integer PRIMARY KEY, name text, email text, active boolean)")
+            cur.execute("CREATE TABLE public.users (id integer PRIMARY KEY, name text, email text, active boolean, role text, two_factor_required boolean, two_factor_enabled boolean)")
             cur.execute("""CREATE TABLE public.user_sessions
                 (user_id integer, session_hash text, revoked_at timestamptz,
                  expires_at timestamptz, two_factor_passed boolean)""")
@@ -49,7 +49,7 @@ class QAReadOnlySessionPostgresTest(unittest.TestCase):
                  platform_account_id integer, role text, active boolean)""")
             cur.execute("INSERT INTO public.platform_accounts VALUES (3, TRUE, 'active')")
             cur.execute("INSERT INTO public.companies VALUES (5, 3, TRUE), (6, 3, TRUE)")
-            cur.execute("INSERT INTO public.users VALUES (9, 'QA', 'qa@example.test', TRUE)")
+            cur.execute("INSERT INTO public.users VALUES (9, 'QA', 'qa@example.test', TRUE, 'прораб', FALSE, FALSE)")
             cur.execute("""INSERT INTO public.user_sessions VALUES
                 (9, %s, NULL, clock_timestamp() + interval '1 hour', TRUE)""",
                 (_CLAIMS["sessionHash"],))
@@ -97,11 +97,10 @@ class QAReadOnlySessionPostgresTest(unittest.TestCase):
             with self.db.cursor() as cur:
                 cur.execute("DELETE FROM public.user_company_roles WHERE id=13")
 
-    def test_expired_revoked_and_no_2fa_sessions_are_rejected(self):
+    def test_expired_and_revoked_sessions_are_rejected(self):
         changes = (
             ("expires_at=clock_timestamp() - interval '1 hour'",),
             ("revoked_at=clock_timestamp()",),
-            ("two_factor_passed=FALSE",),
         )
         for (change,) in changes:
             with self.subTest(change=change):
@@ -115,6 +114,44 @@ class QAReadOnlySessionPostgresTest(unittest.TestCase):
                         cur.execute("""UPDATE public.user_sessions SET
                             expires_at=clock_timestamp() + interval '1 hour',
                             revoked_at=NULL, two_factor_passed=TRUE""")
+
+    def test_non_2fa_proраб_login_session_is_accepted(self):
+        # Real /login records FALSE for roles that do not require 2FA.
+        with self.db.cursor() as cur:
+            cur.execute("UPDATE public.user_sessions SET two_factor_passed=FALSE")
+        try:
+            self.assertEqual(self._resolve()["user"]["companyId"], 5)
+        finally:
+            with self.db.cursor() as cur:
+                cur.execute("UPDATE public.user_sessions SET two_factor_passed=TRUE")
+
+    def test_required_or_enabled_2fa_still_rejects_unverified_session(self):
+        with self.db.cursor() as cur:
+            cur.execute("UPDATE public.user_sessions SET two_factor_passed=FALSE")
+        try:
+            for column in ("two_factor_required", "two_factor_enabled"):
+                with self.subTest(column=column):
+                    with self.db.cursor() as cur:
+                        cur.execute("UPDATE public.users SET " + column + "=TRUE WHERE id=9")
+                    try:
+                        with self.assertRaises(QAReadOnlyAuthRejected):
+                            self._resolve()
+                    finally:
+                        with self.db.cursor() as cur:
+                            cur.execute("UPDATE public.users SET " + column + "=FALSE WHERE id=9")
+            for role in ("директор", "platform_admin"):
+                with self.subTest(role=role):
+                    with self.db.cursor() as cur:
+                        cur.execute("UPDATE public.users SET role=%s WHERE id=9", (role,))
+                    try:
+                        with self.assertRaises(QAReadOnlyAuthRejected):
+                            self._resolve()
+                    finally:
+                        with self.db.cursor() as cur:
+                            cur.execute("UPDATE public.users SET role='прораб' WHERE id=9")
+        finally:
+            with self.db.cursor() as cur:
+                cur.execute("UPDATE public.user_sessions SET two_factor_passed=TRUE")
 
     def test_inactive_company_and_membership_are_rejected(self):
         for table in ("companies", "user_company_roles"):
