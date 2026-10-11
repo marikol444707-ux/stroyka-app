@@ -83,7 +83,7 @@ def contracts_build(cursor, visible=None):
     return app, connection
 
 
-def history_build(cursor, all_data=False):
+def history_build(cursor, all_data=False, ensure_columns=None):
     app = FakeApp()
     connection = FakeConnection(cursor)
     register_supply_history_module(app, {
@@ -95,7 +95,7 @@ def history_build(cursor, all_data=False):
         "write_roles": ("директор",),
         "worker_execution_roles": ("мастер",),
         "limit_offset_sql": lambda limit, offset: (" LIMIT 200", []),
-        "ensure_supply_runtime_columns": lambda cur: None,
+        "ensure_supply_runtime_columns": ensure_columns or (lambda cur: None),
         "can_see_all_company_data": lambda user: all_data,
         "scoped_project_where": lambda user, col: (" WHERE project = ANY(%s)", [["Объект"]]),
         "current_supplier_ids": lambda cur, user: [],
@@ -138,6 +138,42 @@ class ContractsAndSupplyHistoryTest(unittest.TestCase):
         app, _conn = history_build(cursor)
         result = app.routes[("GET", "/supply-history")](limit=None, offset=0, current_user={"role": "поставщик"})
         self.assertEqual(result, [])
+
+    def test_history_get_never_initializes_schema_or_commits_for_company(self):
+        def forbidden_schema_write(_cur):
+            raise AssertionError("GET must not call schema migration helper")
+
+        cursor = FakeCursor(rows=[{"id": 9, "companyId": 3}])
+        app, connection = history_build(
+            cursor, all_data=True, ensure_columns=forbidden_schema_write,
+        )
+        result = app.routes[("GET", "/supply-history")](
+            limit=None, offset=0,
+            current_user={"id": 7, "role": "директор", "companyId": 3},
+            x_company_id="3", x_company_mode="company",
+        )
+        self.assertEqual(result, [{"id": 9, "companyId": 3}])
+        self.assertFalse(connection.committed, "GET must never commit")
+        self.assertTrue(connection.closed)
+        self.assertEqual(len(cursor.calls), 1)
+        sql, params = cursor.calls[0]
+        self.assertTrue(sql.startswith("SELECT "), sql)
+        self.assertIn("company_id=%s", sql)
+        self.assertEqual(params, (3,))
+
+    def test_history_get_supplier_empty_does_not_mutate_schema(self):
+        def forbidden_schema_write(_cur):
+            raise AssertionError("GET must not initialize schema")
+
+        cursor = FakeCursor()
+        app, connection = history_build(cursor, ensure_columns=forbidden_schema_write)
+        result = app.routes[("GET", "/supply-history")](
+            limit=None, offset=0, current_user={"role": "поставщик"},
+        )
+        self.assertEqual(result, [])
+        self.assertFalse(connection.committed)
+        self.assertEqual(cursor.calls, [])
+        self.assertTrue(connection.closed)
 
     def test_history_create_blocks_foreign_package(self):
         cursor = FakeCursor()
