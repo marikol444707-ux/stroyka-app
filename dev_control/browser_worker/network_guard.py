@@ -9,6 +9,7 @@ import time
 from urllib.parse import parse_qsl, unquote, urlencode, urlparse, urlsplit, urlunsplit
 
 from dev_control.jev_timeweb import JevError
+from dev_control.browser_worker.qa_identity import verify_qa_identity_in_browser
 
 
 _SENSITIVE_MARKERS = (
@@ -584,6 +585,7 @@ def install_safe_browser(base_url: str, *, read_only: bool = False):
             self.target = None
             self.session = None
             self._qa_boundary = None
+            self._qa_identity_verified = False
             try:
                 ensure_daemon()
                 self.browser_context_id = cdp(
@@ -643,6 +645,9 @@ def install_safe_browser(base_url: str, *, read_only: bool = False):
                         f"QA navigation did not commit within 15s (loader={expected_loader or 'unknown'})"
                     )
                 self._qa_boundary.raise_if_failed()
+                if read_only and (os.environ.get("QA_SESSION_COOKIE_VALUE") or "").strip():
+                    self._qa_identity_verified = verify_qa_identity_in_browser(self, base_url)
+                    self._qa_boundary.raise_if_failed()
             except Exception:
                 self._cleanup_allocations()
                 raise
