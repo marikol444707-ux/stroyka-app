@@ -38,6 +38,12 @@ ALLOWED_CHECKS = REQUIRED_CHECKS | frozenset({
 })
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Reject redirects so the optional GitHub bearer never leaves its host."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 class WatchError(Exception):
     """A sanitized failure category, never an upstream error body."""
 
@@ -271,7 +277,7 @@ def github_report(report: dict, token: str) -> None:
         },
     )
     try:
-        with urllib.request.urlopen(request, timeout=12) as response:
+        with urllib.request.build_opener(_NoRedirect()).open(request, timeout=12) as response:
             if response.status != 201:
                 raise WatchError("REPORT_DELIVERY_FAILED")
     except Exception as exc:
