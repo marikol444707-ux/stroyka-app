@@ -5,6 +5,8 @@ on:
     paths:
       - 'scripts/jev_qa_watch.py'
       - 'scripts/test_jev_qa_watch.py'
+      - 'scripts/jev_qa_host_preflight.py'
+      - 'scripts/test_jev_qa_host_preflight.py'
       - 'scripts/install_jev_qa_watch.sh'
       - 'ops/systemd/stroyka-jev-watch.*'
       - 'dev_control/Dockerfile'
@@ -28,6 +30,8 @@ jobs:
         run: |
           python -m py_compile scripts/jev_qa_watch.py scripts/test_jev_qa_watch.py
           python -m unittest scripts.test_jev_qa_watch -v
+          python -m py_compile scripts/jev_qa_host_preflight.py scripts/test_jev_qa_host_preflight.py
+          python -m unittest scripts.test_jev_qa_host_preflight -v
           bash -n scripts/install_jev_qa_watch.sh
 
   container-smoke:
