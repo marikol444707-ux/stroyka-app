@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from scripts.jev_qa_watch import (
-    QA_URL, REQUIRED_CHECKS, WatchError, _watcher_signature, _watcher_response_signature, call_worker,
+    QA_URL, REQUIRED_CHECKS, WatchError, _NoRedirect, _watcher_signature, _watcher_response_signature, call_worker,
     classify_failures, github_report, run_smoke, save_report, worker_base,
 )
 
@@ -230,6 +230,17 @@ class JevQaWatchTest(unittest.TestCase):
             self.assertEqual(json.loads((path / "last.json").read_text()), report)
             self.assertEqual((path / "last.json").stat().st_mode & 0o777, 0o600)
 
+    def test_github_redirect_handler_cannot_forward_bearer(self):
+        handler = _NoRedirect()
+        # 301/302/307/308 must all be refused, not only cross-origin 302.
+        for status in (301, 302, 303, 307, 308):
+            with self.subTest(status=status):
+                self.assertIsNone(handler.redirect_request(
+                    None, None, status, "redirect",
+                    {"Authorization": "Bearer secret"},
+                    "https://untrusted.example/steal",
+                ))
+
     def test_github_comment_uses_fixed_url_and_no_raw_errors(self):
         captured = {}
         class FakeResponse:
@@ -247,8 +258,15 @@ class JevQaWatchTest(unittest.TestCase):
             "checks": ["expect_text[0]:missing"],
             "failure_codes": ["TEXT_NOT_FOUND"],
         }
-        with patch("scripts.jev_qa_watch.urllib.request.urlopen", side_effect=fake_open):
+        class FakeOpener:
+            def open(self, request, timeout):
+                return fake_open(request, timeout)
+        with patch(
+            "scripts.jev_qa_watch.urllib.request.build_opener",
+            return_value=FakeOpener(),
+        ) as build:
             github_report(report, "test-token")
+            self.assertIsInstance(build.call_args.args[0], _NoRedirect)
         request = captured["request"]
         self.assertEqual(request.full_url, "https://api.github.com/repos/marikol444707-ux/stroyka-app/issues/311/comments")
         self.assertIn("TEXT_NOT_FOUND", request.data.decode())
