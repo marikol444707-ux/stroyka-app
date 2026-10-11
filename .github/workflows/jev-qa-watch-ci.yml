@@ -13,6 +13,8 @@ on:
       - 'ops/systemd/stroyka-jev-watch.*'
       - 'dev_control/Dockerfile'
       - 'dev_control/browser_worker/**'
+      - 'dev_control/jev_timeweb.py'
+      - 'dev_control/test_jev_timeweb.py'
       - '.github/workflows/jev-qa-watch-ci.yml'
   workflow_dispatch:
 
