@@ -1,5 +1,6 @@
 import os
 import sys
+import threading
 import tempfile
 import unittest
 from types import SimpleNamespace
@@ -143,6 +144,27 @@ class BrowserWorkerUrlSafetyTest(unittest.TestCase):
         self.assertIn("[REDACTED]", _redact_url(url))
         self.assertIn("[REDACTED]", redact_boundary_url(url))
 
+    def test_double_encoded_and_excessive_query_keys_hide_secrets(self):
+        from urllib.parse import quote
+
+        for url in (
+            "https://qa.example.test/app?%2574oken=VERYSECRET&next=ok",
+            "https://qa.example.test/app?%2569nvite=VERYSECRET",
+        ):
+            for redact in (_redact_url, redact_boundary_url):
+                with self.subTest(url=url, redact=redact.__name__):
+                    result = redact(url)
+                    self.assertNotIn("VERYSECRET", result)
+                    self.assertIn("[REDACTED]", result)
+
+        encoded_key = "%74oken"
+        for _ in range(15):
+            encoded_key = quote(encoded_key, safe="")
+        url = "https://qa.example.test/app?" + encoded_key + "=VERYSECRET"
+        for redact in (_redact_url, redact_boundary_url):
+            with self.subTest(redact=redact.__name__):
+                self.assertNotIn("VERYSECRET", redact(url))
+
     def test_boundary_errors_redact_sensitive_urls(self):
         redacted = redact_boundary_url(
             "https://evil.example/reset/secret-token?code=abc123&next=ok#fragment"
@@ -271,6 +293,60 @@ class BrowserWorkerUrlSafetyTest(unittest.TestCase):
                 )
 
 
+
+    def test_read_only_drops_presence_ping_but_rejects_other_writes(self):
+        # The real Stroyka frontend POSTs /api/online upon login. The
+        # observer must block it on the wire without failing every smoke.
+        def check(method, url):
+            guard = NetworkBoundary.__new__(NetworkBoundary)
+            guard._cdp = Mock()
+            guard._base_url = "https://qa.example.test/app"
+            guard._read_only = True
+            guard._session_id = "root"
+            guard._stop = threading.Event()
+            guard._error = None
+            guard.blocked_presence_pings = 0
+
+            def one_event():
+                guard._stop.set()
+                return [{
+                    "method": "Fetch.requestPaused",
+                    "session_id": "root",
+                    "params": {
+                        "requestId": "req-1",
+                        "resourceType": "XHR",
+                        "request": {"url": url, "method": method},
+                    },
+                }]
+            guard._drain_events = one_event
+            guard._loop()
+            return guard
+
+        presence = check("POST", "https://qa.example.test/api/online")
+        presence._cdp.assert_called_once_with(
+            "Fetch.failRequest",
+            session_id="root",
+            requestId="req-1",
+            errorReason="BlockedByClient",
+        )
+        self.assertIsNone(presence._error)
+        self.assertEqual(presence.blocked_presence_pings, 1)
+
+        for url in (
+            "https://qa.example.test/api/projects",
+            "https://evil.example/api/online",
+            "https://qa.example.test/api/online?token=secret",
+        ):
+            with self.subTest(url=url):
+                unsafe = check("POST", url)
+                self.assertIn("blocked", unsafe._error)
+                self.assertEqual(unsafe.blocked_presence_pings, 0)
+
+        read = check("GET", "https://qa.example.test/api/projects")
+        read._cdp.assert_called_once_with(
+            "Fetch.continueRequest", session_id="root", requestId="req-1",
+        )
+        self.assertIsNone(read._error)
 
     def test_read_only_execute_never_runs_agent_actions(self):
         run_called = []
