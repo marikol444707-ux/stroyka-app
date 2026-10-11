@@ -10,6 +10,13 @@ if ! id stroyka >/dev/null 2>&1; then
   echo "Missing unprivileged user: stroyka" >&2
   exit 1
 fi
+# Watcher cannot run safely while #345/#346 are open.
+# Do not modify already scheduled services under the guise of installation.
+if systemctl is-active --quiet stroyka-jev-watch.timer ||
+   systemctl is-enabled --quiet stroyka-jev-watch.timer; then
+  echo "Refusing install: QA watcher is already active or enabled. Manual audit required." >&2
+  exit 1
+fi
 if [[ ! -f /etc/stroyka-jev-qa.env ]]; then
   echo "Missing /etc/stroyka-jev-qa.env" >&2
   exit 1
@@ -60,11 +67,11 @@ chmod 0640 /etc/stroyka-jev-watch.env
 unset WATCHER_TOKEN
 
 systemctl daemon-reload
-systemctl enable --now stroyka-jev-watch.timer
-
-echo "JEVA QA timer installed (daily at 08:00 server local time +/- 15m)."
+# Explicitly do not start/enable until #345 + #346 and live QA verification.
+echo "JEVA QA watcher files staged. Timer NOT enabled or started."
+echo "Do not enable authenticated smoke until security and read-only QA gates pass."
 echo "Watcher env contains only a scoped read-only credential."
 echo "No GitHub notification is sent until JEV_WATCH_GITHUB_TOKEN is configured."
 echo "Check: systemctl list-timers stroyka-jev-watch.timer"
-echo "Manual one-time smoke: systemctl start stroyka-jev-watch.service"
+echo "Authenticated smoke remains blocked pending #345 and #346."
 echo "Report: /var/lib/stroyka-jev-watch/last.json"
