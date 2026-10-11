@@ -1,5 +1,6 @@
 """Offline regression tests for QA read-only session lookup."""
 import unittest
+from collections import UserDict
 
 from backend.features.company_context.qa_readonly import (
     QAReadOnlyAuthRejected,
@@ -74,6 +75,15 @@ class ReadOnlyAuthTest(unittest.TestCase):
                 {"authenticationKind": "cookie_session", "sessionHash": "a" * 64},
             )
         self.assertEqual(cursor.queries, [("SHOW transaction_read_only", None)])
+
+    def test_psycopg_mapping_rows_are_accepted(self):
+        cursor = Cursor([UserDict(row())])
+        cursor.fetchone = lambda: UserDict({"transaction_read_only": "on"})
+        result = resolve_qa_identity_read_only(
+            cursor,
+            {"authenticationKind": "cookie_session", "sessionHash": "a" * 64},
+        )
+        self.assertEqual(result["defaultCompanyId"], 5)
 
     def test_ambiguous_memberships_are_rejected(self):
         cursor = Cursor([row(), row()])
