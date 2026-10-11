@@ -27,9 +27,18 @@ def _command(args: list[str]) -> str | None:
         )
     except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
         return None
-    if result.returncode != 0 or len(result.stdout) > 100_000:
+    if len(result.stdout) > 100_000:
         return None
-    return result.stdout.strip()
+    # systemctl is-active/is-enabled return nonzero for healthy inactive/
+    # disabled states. Preserve their exact stdout without masking errors
+    # for Docker commands or treating arbitrary output as a valid state.
+    if result.returncode != 0 and not (
+        len(args) == 3
+        and args[:2] in (["systemctl", "is-active"], ["systemctl", "is-enabled"])
+        and args[2] in {"stroyka-jev-watch.timer", "stroyka-jev-watch.service"}
+    ):
+        return None
+    return result.stdout.strip() or None
 
 
 def _read_setting(path: str) -> str:
@@ -51,6 +60,7 @@ def _inspect(name: str, command: Callable[[list[str]], str | None]) -> dict | No
         "privileged": ".HostConfig.Privileged",
         "security": ".HostConfig.SecurityOpt",
         "pid_mode": ".HostConfig.PidMode",
+        "network_mode": ".HostConfig.NetworkMode",
     }
     data = {}
     for key, field in fields.items():
@@ -132,6 +142,11 @@ def inspect_host(command: Callable[[list[str]], str | None] = _command) -> dict:
     owners = _host_port_owners({n: d for n, d in all_containers.items()
                                 if d.get("state") == "running"})
     watcher_owners = owners.get(WATCH_PORT, [])
+    # Host-network containers have no PortBindings; no read-only inventory
+    # can establish whether they listen on 18088. Fail closed.
+    if any(d.get("state") == "running" and d.get("network_mode") == "host"
+           for d in all_containers.values()):
+        blockers.append("HOST_NETWORK_PORT_18088_UNVERIFIED")
     if watcher_owners != [EXPECTED_WORKER]:
         blockers.append("WATCH_PORT_18088_NOT_OWNED_BY_EXPECTED_WORKER")
 
@@ -150,6 +165,17 @@ def inspect_host(command: Callable[[list[str]], str | None] = _command) -> dict:
                 for bind in bindings:
                     if isinstance(bind, dict) and bind.get("HostIp") not in {"127.0.0.1", "::1"}:
                         blockers.append("JEV_WORKER_NOT_LOOPBACK_ONLY:" + name)
+
+    service_active = command(["systemctl", "is-active", "stroyka-jev-watch.service"])
+    service_enabled = command(["systemctl", "is-enabled", "stroyka-jev-watch.service"])
+    if service_active == "active":
+        blockers.append("WATCHER_SERVICE_ACTIVE_BEFORE_ACCEPTANCE")
+    if service_enabled == "enabled":
+        blockers.append("WATCHER_SERVICE_ENABLED_BEFORE_ACCEPTANCE")
+    if service_active not in {"active", "inactive", "failed"}:
+        blockers.append("WATCHER_SERVICE_STATE_UNKNOWN")
+    if service_enabled not in {"enabled", "disabled", "static"}:
+        blockers.append("WATCHER_SERVICE_ENABLE_STATE_UNKNOWN")
 
     timer_active = command(["systemctl", "is-active", "stroyka-jev-watch.timer"])
     timer_enabled = command(["systemctl", "is-enabled", "stroyka-jev-watch.timer"])
@@ -187,6 +213,10 @@ def inspect_host(command: Callable[[list[str]], str | None] = _command) -> dict:
         "watcher_timer": {
             "active": timer_active if timer_active in {"active", "inactive", "failed"} else "unknown",
             "enabled": timer_enabled if timer_enabled in {"enabled", "disabled", "static"} else "unknown",
+        },
+        "watcher_service": {
+            "active": service_active if service_active in {"active", "inactive", "failed"} else "unknown",
+            "enabled": service_enabled if service_enabled in {"enabled", "disabled", "static"} else "unknown",
         },
         "sandbox": {
             "unprivileged_userns_clone": _read_setting("/proc/sys/kernel/unprivileged_userns_clone"),
