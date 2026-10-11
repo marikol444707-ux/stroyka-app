@@ -104,3 +104,70 @@ def verify_qa_identity_http_response(
     except (ValueError, TypeError) as exc:
         raise QAIdentityNotEstablished() from None
     return project_qa_user(payload)
+
+# Execute only in a CDP-created isolated world, never in the app's main JS
+# world. No cookie, token or personal data is included in the script.
+_QA_IDENTITY_FETCH_JS = r"""(async () => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    const response = await fetch('/users/company-context', {
+      method: 'GET', credentials: 'same-origin', redirect: 'error',
+      cache: 'no-store', signal: controller.signal,
+    });
+    const type = response.headers.get('content-type') || '';
+    const length = Number(response.headers.get('content-length') || '0');
+    if (length > 16384) throw Error('oversize');
+    const body = await response.text();
+    if (body.length > 16384) throw Error('oversize');
+    return {
+      status: response.status,
+      url: response.url,
+      content_type: type,
+      payload: JSON.parse(body),
+    };
+  } finally { clearTimeout(timer); }
+})()"""
+
+
+def verify_qa_identity_in_browser(browser, base_url: str) -> bool:
+    """Validate session against QA backend using a CDP isolated world.
+
+    Must be invoked only after navigation to the exact allowed QA origin,
+    with Fetch network guard already active and an injected HttpOnly cookie.
+    Return only a boolean to the caller; never persist the user projection.
+    """
+    try:
+        tree = browser.call("Page.getFrameTree")
+        frame_id = tree["frameTree"]["frame"]["id"]
+        world = browser.call(
+            "Page.createIsolatedWorld",
+            frameId=frame_id,
+            worldName="stroyka-qa-session-probe",
+            grantUniveralAccess=False,
+        )
+        result = browser.call(
+            "Runtime.evaluate",
+            contextId=world["executionContextId"],
+            expression=_QA_IDENTITY_FETCH_JS,
+            awaitPromise=True,
+            returnByValue=True,
+            timeout=10000,
+        )
+        if result.get("exceptionDetails"):
+            raise QAIdentityNotEstablished()
+        value = result["result"]["value"]
+        if type(value) is not dict:
+            raise QAIdentityNotEstablished()
+        verify_qa_identity_http_response(
+            base_url=base_url,
+            response_url=value.get("url"),
+            status=value.get("status"),
+            content_type=value.get("content_type"),
+            payload=value.get("payload"),
+        )
+        return True
+    except Exception:
+        # Never include exception details: CDP/browser errors may contain
+        # URLs, response text, cookies or other secret-bearing values.
+        raise QAIdentityNotEstablished() from None
