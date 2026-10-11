@@ -248,8 +248,8 @@ export default function WorkAssignmentModal({
 
   return (
     <div onClick={() => !submitting && onClose()} style={{position: 'fixed', inset: 0, backgroundColor: 'rgba(15,23,42,.62)', zIndex: 760, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: isMobile ? '10px' : '22px'}}>
-      <div role="dialog" aria-modal="true" aria-labelledby="work-assignment-title" onClick={event => event.stopPropagation()} style={{...card, width: modalWidth, maxHeight: '92vh', overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: 0}}>
-        <div style={{padding: '18px 20px', borderBottom: '1px solid ' + C.border, display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start'}}>
+      <div role="dialog" aria-modal="true" aria-labelledby="work-assignment-title" onClick={event => event.stopPropagation()} style={{...card, width: modalWidth, maxHeight: 'calc(100dvh - 20px)', minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: 0}}>
+        <div style={{flexShrink: 0, padding: isMobile ? '12px' : '18px 20px', borderBottom: '1px solid ' + C.border, display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start'}}>
           <div>
             <div style={{display: 'flex', gap: '8px', alignItems: 'center'}}>
               <UserCheck size={20} color={C.accent} />
@@ -262,7 +262,7 @@ export default function WorkAssignmentModal({
           <button type="button" aria-label="Закрыть назначение работ" onClick={onClose} disabled={submitting} style={{...btnG, padding: '7px 9px'}}><X size={14} /></button>
         </div>
 
-        <div style={{padding: '16px 20px', overflowY: 'auto'}}>
+        <div style={{padding: isMobile ? '12px' : '16px 20px', overflowY: 'auto', minHeight: 0, flex: '1 1 auto', overscrollBehavior: 'contain'}}>
           <div style={{marginBottom: '18px'}}>
             <b style={{display: 'block', color: C.text, fontSize: '15px', marginBottom: '4px'}}>1. Кому выдать работы</b>
             <p style={{color: C.textSec, fontSize: '12px', margin: '0 0 10px'}}>Выберите человека или бригаду. Новую бригаду можно указать в этом же списке.</p>
@@ -344,7 +344,7 @@ export default function WorkAssignmentModal({
                 <span>Сумма</span>
               </div>
             )}
-            <div style={{maxHeight: isMobile ? '48vh' : '420px', overflowY: 'auto'}}>
+            <div style={{maxHeight: isMobile ? undefined : '420px', overflowY: isMobile ? 'visible' : 'auto'}}>
               {visibleRows.map(row => {
                 const checked = !!selectedIds[row.id];
                 const rowHasManualPrice = hasManualPrice(row.id);
@@ -399,7 +399,7 @@ export default function WorkAssignmentModal({
           </div>
         </div>
 
-        <div style={{padding: '14px 20px', borderTop: '1px solid ' + C.border, backgroundColor: C.bgWhite, display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', alignItems: 'center'}}>
+        <div style={{flexShrink: 0, padding: isMobile ? '12px' : '14px 20px', borderTop: '1px solid ' + C.border, backgroundColor: C.bgWhite, display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', alignItems: 'center'}}>
           <div><b style={{display: 'block', color: C.text, fontSize: '14px'}}>Исполнителю: {formatMoney(selectedTotal)}</b><span style={{color: C.textSec, fontSize: '11px'}}>Выбрано работ: {selectedRows.length}</span></div>
           <div style={{display: 'flex', gap: '8px'}}>
             <button type="button" onClick={onClose} disabled={submitting} style={btnG}>Отмена</button>
