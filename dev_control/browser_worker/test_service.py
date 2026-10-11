@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import patch
 
 from fastapi import HTTPException
+from scripts.jev_qa_watch import _watcher_response_signature as watcher_client_response_signature
 
 from dev_control.browser_worker.service import (
     JobRequest,
@@ -21,6 +22,8 @@ from dev_control.browser_worker.service import (
     _authorize_watcher_request,
     _watcher_scoped_token,
     _watcher_signature,
+    _watcher_response_signature,
+    _signed_watcher_response,
     _watcher_smoke_request,
     _watcher_seen_nonces,
     _watcher_nonce_lock,
@@ -320,6 +323,35 @@ class BrowserWorkerServiceConfigTest(unittest.TestCase):
             with _watcher_nonce_lock:
                 _watcher_seen_nonces.clear()
                 _watcher_seen_nonces.update(previous)
+
+    def test_watcher_response_is_bound_to_request_nonce_and_body(self):
+        scoped = _watcher_scoped_token(STRONG_TOKEN)
+        timestamp, nonce = "1700000000", "1" * 32
+        with patch.dict(os.environ, {"DEV_CONTROL_API_TOKEN": STRONG_TOKEN}, clear=True):
+            response = _signed_watcher_response(
+                {"ok": True, "watcher_target": "https://stroyka-qa-gateway/app"},
+                method="GET", path="/watcher/health",
+                timestamp=timestamp, nonce=nonce,
+            )
+        signature = response.headers["X-Jev-Watcher-Response-Signature"]
+        expected = watcher_client_response_signature(
+            scoped, "GET", "/watcher/health", timestamp, nonce,
+            200, response.body,
+        )
+        self.assertEqual(signature, expected)
+        self.assertEqual(signature, _watcher_response_signature(
+            scoped, "GET", "/watcher/health", timestamp, nonce, 200, response.body,
+        ))
+        for changed_body, changed_status, changed_nonce in (
+            (response.body + b" ", 200, nonce),
+            (response.body, 202, nonce),
+            (response.body, 200, "2" * 32),
+        ):
+            with self.subTest(body=changed_body, status=changed_status, nonce=changed_nonce):
+                self.assertNotEqual(signature, watcher_client_response_signature(
+                    scoped, "GET", "/watcher/health",
+                    timestamp, changed_nonce, changed_status, changed_body,
+                ))
 
     def test_watcher_smoke_request_is_server_fixed_and_read_only(self):
         env = {"QA_BASE_URL": "https://stroyka-qa-gateway/app"}
