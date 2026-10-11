@@ -549,6 +549,8 @@ class NetworkBoundary:
         self._stop.set()
         if self._thread_started:
             self._thread.join(timeout=1.0)
+            if self._thread.is_alive():
+                self._error = self._error or "network boundary did not stop cleanly"
         for target_id in tuple(self._child_targets):
             try:
                 self._cdp("Target.closeTarget", targetId=target_id)
@@ -671,7 +673,12 @@ def install_safe_browser(base_url: str, *, read_only: bool = False):
             return result
 
         def close(self):
+            # Keep the boundary reference through shutdown so late alerts or
+            # blocked requests cannot turn a read-only observation into PASS.
+            boundary = self._qa_boundary
             self._cleanup_allocations()
+            if boundary is not None:
+                boundary.raise_if_failed()
 
     agent_module.Browser = SafeBrowser
     return SafeBrowser
