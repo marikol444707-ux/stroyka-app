@@ -12,6 +12,7 @@ on:
       - 'scripts/install_jev_qa_watch.sh'
       - 'ops/systemd/stroyka-jev-watch.*'
       - 'dev_control/Dockerfile'
+      - 'dev_control/.dockerignore'
       - 'dev_control/browser_worker/**'
       - 'dev_control/jev_timeweb.py'
       - 'dev_control/test_jev_timeweb.py'
@@ -38,6 +39,7 @@ jobs:
           python -m unittest scripts.test_jev_qa_host_preflight -v
           python -m py_compile scripts/build_jev_qa_unshare_probe.py scripts/test_build_jev_qa_unshare_probe.py
           python -m unittest scripts.test_build_jev_qa_unshare_probe -v
+          python -m unittest dev_control.browser_worker.test_container_contract.BrowserWorkerContainerContractTest.test_docker_context_allowlists_code_and_excludes_untracked_secrets -v
           bash -n scripts/install_jev_qa_watch.sh
 
   container-smoke:
