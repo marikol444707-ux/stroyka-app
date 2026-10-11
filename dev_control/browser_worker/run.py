@@ -224,8 +224,10 @@ def execute_task(
     started = time.monotonic()
     final_state = None
     error = None
+    boundary_ref = None
     try:
         with Agent(url, goal, record_dir=evidence, screenshots=True) as agent:
+            boundary_ref = getattr(agent.browser, "_qa_boundary", None)
             _write_progress(evidence, agent.snapshot(), "observed")
             if read_only:
                 # Hard read-only mode: never invoke agent.run(), so the model
@@ -272,6 +274,10 @@ def execute_task(
                 if final_state is None:
                     final_state = agent.snapshot()
                 final_state = _refresh_live_observation(agent, final_state, base_url)
+        # Check once more AFTER Agent.__exit__ / browser close. Late Fetch
+        # failures must not be erased when _qa_boundary is detached.
+        if boundary_ref is not None:
+            boundary_ref.raise_if_failed()
     except Exception as exc:
         error = f"{type(exc).__name__}: {exc}"
         final_state = final_state or {"status": "error", "page": {}}
