@@ -93,6 +93,21 @@ class HostPreflightTest(unittest.TestCase):
         self.assertEqual(result["watch_port"]["owners"], ["stroyka-jev-qa"])
         self.assertEqual(result["status"], "review_required")
 
+    def test_exposed_jev_api_port_and_unconfined_seccomp_are_blocked(self):
+        worker = _container(18088, security=["seccomp=unconfined"])
+        worker["ports"]["8080/tcp"][0]["HostIp"] = "0.0.0.0"
+        containers = {
+            "stroyka-jev-qa": worker,
+            "stroyka-qa-backend": _container(8001),
+            "stroyka-qa-gateway": _container(8443),
+        }
+        command, _ = _fake_command(containers)
+        with patch("scripts.jev_qa_host_preflight._read_setting", return_value="unknown"):
+            result = inspect_host(command)
+        self.assertIn("JEV_WORKER_NOT_LOOPBACK_ONLY:stroyka-jev-qa", result["blockers"])
+        self.assertIn("UNCONFINED_CONTAINER_SECURITY:stroyka-jev-qa", result["blockers"])
+        self.assertEqual(result["status"], "blocked")
+
     def test_docker_permission_missing_reports_blocker_without_details(self):
         result = inspect_host(lambda _: None)
         self.assertEqual(result["status"], "blocked")
