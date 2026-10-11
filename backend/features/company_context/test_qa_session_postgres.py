@@ -115,7 +115,7 @@ class QAReadOnlySessionPostgresTest(unittest.TestCase):
                             expires_at=clock_timestamp() + interval '1 hour',
                             revoked_at=NULL, two_factor_passed=TRUE""")
 
-    def test_non_2fa_proраб_login_session_is_accepted(self):
+    def test_non_2fa_foreman_login_session_is_accepted(self):
         # Real /login records FALSE for roles that do not require 2FA.
         with self.db.cursor() as cur:
             cur.execute("UPDATE public.user_sessions SET two_factor_passed=FALSE")
