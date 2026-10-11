@@ -52,7 +52,7 @@ class BrowserWorkerContainerContractTest(unittest.TestCase):
         self.assertIn("PreAuthBodyLimitMiddleware", service)
         self.assertIn("_MAX_JOB_BODY_BYTES = 32 * 1024", service)
         self.assertIn("status_code=413", service)
-        self.assertIn("QA_ALLOWED_ORIGIN", service)
+        self.assertIn("QA_ALLOWED_ORIGIN", network_guard)
         self.assertIn('host.endswith(".stroyka26.pro")', network_guard)
         self.assertIn('"147.45.237.127"', service)
         self.assertIn("shutil.rmtree(evidence_dir, ignore_errors=True)", service)
