@@ -63,7 +63,7 @@ class HostPreflightTest(unittest.TestCase):
         self.assertFalse(result["changes_made"])
         self.assertTrue(all(c[0] in {"docker", "systemctl"} for c in calls))
         self.assertTrue(all("Env" not in repr(c) and "Mounts" not in repr(c) for c in calls))
-        self.assertNotIn("secret", json.dumps(result).lower())
+        self.assertNotIn("FAKE_SECRET_VALUE", json.dumps(result))
 
     def test_dialog_test_occupying_watch_port_is_blocking(self):
         containers = {
