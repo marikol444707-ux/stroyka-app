@@ -463,7 +463,20 @@ class BrowserWorkerUrlSafetyTest(unittest.TestCase):
                     max_seconds=5,
                     read_only=True,
                 )
+                # Mock the SafeBrowser internal flag only. In production it
+                # is set exclusively by the isolated-world server probe.
+                FakeBrowser._qa_identity_verified = True
+                verified_report = execute_task(
+                    url="https://qa.example.test/app",
+                    goal="Observe server-verified QA menu without actions.",
+                    record_dir=evidence,
+                    expect_text=["Склад"],
+                    expect_url_contains=["qa.example.test"],
+                    max_seconds=5,
+                    read_only=True,
+                )
 
+        self.assertTrue(verified_report["ok"])
         self.assertFalse(cookie_report["ok"])
         self.assertIn("AUTH_NOT_ESTABLISHED", cookie_report["failures"])
         self.assertNotIn("dummy-qa-cookie", repr(cookie_report))
