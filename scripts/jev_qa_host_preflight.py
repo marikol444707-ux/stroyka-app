@@ -122,7 +122,9 @@ def inspect_host(command: Callable[[list[str]], str | None] = _command) -> dict:
     if EXPECTED_WORKER not in active_jev:
         blockers.append("EXPECTED_JEV_WORKER_NOT_RUNNING")
 
-    # Stopped containers do not own active host TCP listeners.\n    owners = _host_port_owners({n: d for n, d in containers.items()\n                                if d.get("state") == "running"})
+    # Stopped containers do not own active host TCP listeners.
+    owners = _host_port_owners({n: d for n, d in containers.items()
+                                if d.get("state") == "running"})
     watcher_owners = owners.get(WATCH_PORT, [])
     if watcher_owners != [EXPECTED_WORKER]:
         blockers.append("WATCH_PORT_18088_NOT_OWNED_BY_EXPECTED_WORKER")
