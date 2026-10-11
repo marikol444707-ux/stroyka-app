@@ -52,6 +52,11 @@ it('finds a work in a long estimate without changing the selected assignments', 
   expect(screen.queryByText('Монтаж кабеля 1')).not.toBeInTheDocument();
   expect(screen.getByText(/Показано: 1 из 10/)).toBeInTheDocument();
   expect(screen.getByText('Выбрано: 10 из 10')).toBeInTheDocument();
+  expect(screen.getByText('Ещё 9 выбранных работ скрыты поиском. Они тоже будут выданы исполнителю.')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', {name: 'Оставить только найденные'}));
+  expect(screen.getByText('Выбрано: 1 из 10')).toBeInTheDocument();
+  expect(screen.getByLabelText('Выбрать работу: Монтаж кабеля 10')).toBeChecked();
+  expect(screen.queryByRole('button', {name: 'Оставить только найденные'})).not.toBeInTheDocument();
   fireEvent.change(screen.getByRole('searchbox',{name:'Найти работу'}), {target:{value:'неизвестная'}});
   expect(screen.getByText('Работы не найдены. Очистите поиск.')).toBeInTheDocument();
 });
