@@ -10,6 +10,11 @@ from __future__ import annotations
 import re
 
 _SESSION_HASH_RE = re.compile(r"^[0-9a-f]{64}$")
+_QA_COMPANY_ROLES = frozenset({
+    "директор", "зам_директора", "бухгалтер", "прораб",
+    "главный_инженер", "сметчик", "кладовщик", "снабженец",
+    "стройконтроль", "мастер",
+})
 _SQL = """
 SELECT u.id AS user_id, u.name AS user_name, u.email AS user_email,
        m.company_id, m.id AS membership_id, m.role
@@ -65,7 +70,7 @@ def resolve_qa_identity_read_only(cur, authentication: object) -> dict:
         name = row.get("user_name")
         email = row.get("user_email")
         if (
-            type(role) is not str or not role or role != role.strip()
+            type(role) is not str or role not in _QA_COMPANY_ROLES
             or type(name) is not str or type(email) is not str
             or not (name.strip() or email.strip())
         ):
