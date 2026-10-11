@@ -8,7 +8,9 @@ import os
 import time
 from pathlib import Path
 from urllib.parse import parse_qsl, unquote, urlencode, urlsplit, urlunsplit
-from dev_control.browser_worker.network_guard import assert_allowed_document_url, install_safe_browser
+from dev_control.browser_worker.network_guard import (
+    assert_allowed_document_url, assert_qa_execution_scope, install_safe_browser,
+)
 from dev_control.browser_worker.provider import install_timeweb_provider
 from dev_control.browser_worker.verifier import verify_final_state
 
@@ -204,6 +206,9 @@ def execute_task(
     base_url = (os.environ.get("QA_BASE_URL") or "").strip()
     if not base_url:
         raise ValueError("QA_BASE_URL is required; arbitrary browsing is disabled")
+    # Apply the same QA-only policy to HTTP jobs, direct CLI, and library callers
+    # before installing a model provider or allocating a browser session.
+    assert_qa_execution_scope(base_url)
     _assert_allowed_url(url, base_url)
     if not goal.strip():
         raise ValueError("goal must not be empty")
