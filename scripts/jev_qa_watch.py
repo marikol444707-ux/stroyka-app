@@ -76,6 +76,30 @@ def _watcher_signature(
     ).hexdigest()
 
 
+def _watcher_response_signature(
+    scoped_token: str,
+    method: str,
+    path: str,
+    timestamp: str,
+    nonce: str,
+    status_code: int,
+    body: bytes,
+) -> str:
+    """Authenticate the actual response bytes and prevent fake local PASS."""
+    if not re.fullmatch(r"[0-9a-fA-F]{64}", scoped_token):
+        raise WatchError("INVALID_WATCHER_TOKEN")
+    message = "\n".join((
+        "stroyka-jev-response-v1",
+        method.upper(),
+        path,
+        timestamp,
+        nonce,
+        str(status_code),
+        hashlib.sha256(body).hexdigest(),
+    )).encode("utf-8")
+    return hmac.new(bytes.fromhex(scoped_token), message, hashlib.sha256).hexdigest()
+
+
 def call_worker(base: str, token: str, method: str, path: str):
     if method not in {"GET", "POST"} or not (
         path == "/watcher/health"
@@ -99,9 +123,25 @@ def call_worker(base: str, token: str, method: str, path: str):
     )
     try:
         with urllib.request.urlopen(request, timeout=12) as response:
-            result = json.load(response)
+            # A bogus process on loopback must not cause an unlimited read.
+            body = response.read(64 * 1024 + 1)
+            status_code = response.status
+            response_signature = response.headers.get("X-Jev-Watcher-Response-Signature", "")
     except Exception as exc:
         raise WatchError("WORKER_API_UNAVAILABLE") from exc
+    if len(body) > 64 * 1024:
+        raise WatchError("WORKER_RESPONSE_TOO_LARGE")
+    expected_signature = _watcher_response_signature(
+        token, method, path, timestamp, nonce, status_code, body,
+    )
+    if not isinstance(response_signature, str) or not hmac.compare_digest(
+        response_signature, expected_signature
+    ):
+        raise WatchError("WORKER_RESPONSE_UNAUTHENTICATED")
+    try:
+        result = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise WatchError("INVALID_WORKER_RESPONSE") from exc
     if not isinstance(result, dict):
         raise WatchError("INVALID_WORKER_RESPONSE")
     return result
