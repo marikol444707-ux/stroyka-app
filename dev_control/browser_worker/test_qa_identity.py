@@ -51,6 +51,7 @@ class QAIdentityTest(unittest.TestCase):
             {"response_url": "https://evil.example/api/users/qa-readonly-context/identity"},
             {"response_url": "http://qa.example.test/api/users/qa-readonly-context/identity"},
             {"response_url": "https://qa.example.test/login"},
+            {"response_url": "https://qa.example.test/users/qa-readonly-context/identity"},
             {"response_url": "https://qa.example.test/api/users/qa-readonly-context/identity?token=secret"},
             {"response_url": "https://user:pass@qa.example.test/api/users/qa-readonly-context/identity"},
             {"response_url": "https://qa.example.test:444/api/users/qa-readonly-context/identity"},
