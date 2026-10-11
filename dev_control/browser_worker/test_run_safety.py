@@ -313,6 +313,19 @@ class BrowserWorkerUrlSafetyTest(unittest.TestCase):
         self.assertTrue(cookie["httpOnly"])
         self.assertNotIn("domain", cookie)
 
+    def test_session_cookie_bootstrap_uses_real_backend_cookie_name_by_default(self):
+        cdp = Mock()
+        with patch.dict(
+            os.environ, {"QA_SESSION_COOKIE_VALUE": "opaque-test-session"}, clear=True,
+        ):
+            self.assertTrue(bootstrap_session_cookie(
+                "https://qa.example.test/app", "context-1", cdp,
+            ))
+        cookie = cdp.call_args.kwargs["cookies"][0]
+        self.assertEqual(cookie["name"], "stroyka_session")
+        self.assertTrue(cookie["httpOnly"])
+        self.assertTrue(cookie["secure"])
+
     def test_session_cookie_bootstrap_refuses_plain_http_and_no_cookie_is_noop(self):
         cdp = Mock()
         with patch.dict(os.environ, {}, clear=True):
