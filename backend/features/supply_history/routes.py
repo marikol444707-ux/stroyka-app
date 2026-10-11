@@ -55,8 +55,9 @@ def register_supply_history_module(app, deps):
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
-            ensure_supply_runtime_columns(cur)
-            conn.commit()
+            # GET must not run schema initialization or commit a transaction.
+            # Missing columns are a deployment/schema readiness error, not
+            # permission to mutate the database during a read-only QA visit.
             role = current_user.get("role")
             page_sql, page_params = limit_offset_sql(limit, offset)
             select_sql = ("SELECT id,company_id as \"companyId\",supplier_id as \"supplierId\",material_name as \"materialName\",quantity,unit,"
