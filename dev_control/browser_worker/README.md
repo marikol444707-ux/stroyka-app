@@ -45,7 +45,8 @@ Work Control забирает результат и evidence.
 
     JEV_SYSTEMONE_URL=https://api.timeweb.ai/v1/systemone
     JEV_MODEL=jev-latest
-    QA_EVIDENCE_DIR=/tmp/stroyka-qa-evidence
+    # QA_EVIDENCE_DIR не переопределять: внутри контейнера допустим только
+    # /var/lib/stroyka-jev-qa/evidence (проверяется start.sh)
     TIMEWEB_TEXT_MODEL=<явно выбранная Timeweb chat-модель>
 
 `TIMEWEB_TEXT_MODEL` намеренно не угадывается. Без неё задача, требующая TYPE_TEXT,
