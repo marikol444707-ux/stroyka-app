@@ -165,11 +165,11 @@ test('network failure preserves the return form and retry sends the exact same U
   await screen.findByText(/Связь прервалась/);
   expect(screen.getByLabelText('Состояние при возврате')).toHaveValue('lost');
   expect(screen.getByLabelText('Причина / примечание')).toHaveValue('Не найден на объекте');
-  fireEvent.click(screen.getByRole('button', { name: 'Повторить сохранённую отправку' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Завершить отправку' }));
 
   await waitFor(() => expect(posts).toHaveLength(2));
   expect(posts[1]).toEqual(posts[0]);
-  await waitFor(() => expect(screen.queryByText('Есть сохранённая отправка')).not.toBeInTheDocument());
+  await waitFor(() => expect(screen.queryByText('Нужно проверить результат отправки')).not.toBeInTheDocument());
 });
 
 test('changing actor role or company remounts the form and clears draft selections', async () => {

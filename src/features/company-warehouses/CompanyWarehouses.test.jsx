@@ -36,7 +36,7 @@ test('lost update response preserves the form and retries exact UUID, version, c
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить карточку' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('Связь прервалась');
   expect(screen.getByLabelText('Название склада')).toHaveValue('Новый адрес');
-  fireEvent.click(screen.getByRole('button', { name: 'Повторить сохранённую отправку' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Завершить отправку' }));
   await waitFor(() => expect(posts).toHaveLength(2));
   expect(posts[1]).toEqual(posts[0]);
   expect(posts[0]).toMatchObject({ action: 'update', expectedVersion: 3, expectedCompanyId: 2, expectedActorId: 9, name: 'Новый адрес' });
@@ -85,9 +85,9 @@ test('recovering an unrelated saved command does not discard an open warehouse d
   render(<CompanyWarehouses {...props} />);
   fireEvent.click(await screen.findByRole('button', { name: 'Изменить Лесной' }));
   fireEvent.change(screen.getByLabelText('Заметки'), { target: { value: 'Не терять этот черновик' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Повторить сохранённую отправку' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Завершить отправку' }));
 
-  await waitFor(() => expect(screen.queryByText('Есть сохранённая отправка')).not.toBeInTheDocument());
+  await waitFor(() => expect(screen.queryByText('Нужно проверить результат отправки')).not.toBeInTheDocument());
   expect(screen.getByLabelText('Заметки')).toHaveValue('Не терять этот черновик');
 });
 
@@ -106,9 +106,9 @@ test('recovering another warehouse command does not discard the warehouse curren
   render(<CompanyWarehouses {...props} />);
   fireEvent.click(await screen.findByRole('button', { name: 'Изменить Лесной' }));
   fireEvent.change(screen.getByLabelText('Заметки'), { target: { value: 'Текущая карточка остаётся открытой' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Повторить сохранённую отправку' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Завершить отправку' }));
 
-  await waitFor(() => expect(screen.queryByText('Есть сохранённая отправка')).not.toBeInTheDocument());
+  await waitFor(() => expect(screen.queryByText('Нужно проверить результат отправки')).not.toBeInTheDocument());
   expect(screen.getByLabelText('Заметки')).toHaveValue('Текущая карточка остаётся открытой');
 });
 

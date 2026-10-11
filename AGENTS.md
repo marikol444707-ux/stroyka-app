@@ -51,6 +51,10 @@ health endpoint alone is insufficient. Missing/failed verification retains backu
   explicit user choice. A supplier declares its ability to supply by answering
   with a quote; do not add a separate director capability-confirmation step to
   request cards. Check the offered goods against the request and show mismatches.
+- Manage supplier contracts and standalone technical document checks in
+  Accounting -> Supplier documents. Procurement offer and supplier cards must
+  not embed contract editors or separate technical-administration panels.
+  Keep commercial comparison, offer originals and explicit supplier choice there.
 
 - GitHub is the source of truth. Inspect and extend the existing architecture;
   keep changes small and scoped.

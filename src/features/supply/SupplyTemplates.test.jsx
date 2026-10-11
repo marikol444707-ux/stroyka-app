@@ -127,7 +127,7 @@ test('lost create response keeps the form and recovery sends the exact UUID and 
 
   expect(await screen.findByRole('alert')).toHaveTextContent('Связь прервалась');
   expect(screen.getByLabelText('Название шаблона')).toHaveValue('Повторяемый набор');
-  fireEvent.click(screen.getByRole('button', { name: 'Повторить сохранённую отправку' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Завершить отправку' }));
 
   await waitFor(() => expect(posts).toHaveLength(2));
   expect(posts[1]).toEqual(posts[0]);
