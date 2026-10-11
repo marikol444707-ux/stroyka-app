@@ -306,6 +306,16 @@ def execute_task(
             checks=result.checks,
             failures=result.failures + (error,),
         )
+    # #346: a cookie in BrowserContext is NOT proof that Stroyka has
+    # authenticated a user or resolved their company membership. Until
+    # a server-validated session bootstrap is implemented, never claim an
+    # authenticated read-only smoke passed merely because page text matched.
+    if read_only and (os.environ.get("QA_SESSION_COOKIE_VALUE") or "").strip():
+        result = type(result)(
+            ok=False,
+            checks=result.checks,
+            failures=result.failures + ("AUTH_NOT_ESTABLISHED",),
+        )
 
     _write_progress(
         evidence,
