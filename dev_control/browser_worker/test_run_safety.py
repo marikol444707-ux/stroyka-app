@@ -505,7 +505,8 @@ class BrowserWorkerUrlSafetyTest(unittest.TestCase):
         from dev_control.browser_worker.network_guard import qa_base_is_nonproduction
         base = "https://qa.example.test/app"
         for allowed in ("http://qa.example.test", "ftp://qa.example.test",
-                        "https://qa.example.test:444", "https://other.example.test"):
+                        "https://qa.example.test:0", "https://qa.example.test:444",
+                        "https://other.example.test"):
             with self.subTest(allowed=allowed), patch.dict(os.environ, {
                 "QA_ALLOWED_ORIGIN": allowed, "QA_ENVIRONMENT": "qa",
                 "QA_BASE_URL": base,
