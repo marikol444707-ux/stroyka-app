@@ -59,6 +59,14 @@ def request(headers=()):
                     "headers": list(headers), "query_string": b""})
 
 
+QA_ENV = {
+    "JEV_QA_READONLY_AUTH_ENABLED": "1",
+    "QA_ENVIRONMENT": "qa",
+    "APP_PUBLIC_URL": "https://qa.example.test",
+    "QA_ALLOWED_ORIGIN": "https://qa.example.test",
+}
+
+
 class QAEndpointTests(unittest.TestCase):
     def setUp(self):
         self.conn = FakeConnection([{
@@ -79,8 +87,26 @@ class QAEndpointTests(unittest.TestCase):
         self.assertEqual(raised.exception.status_code, 404)
         self.assertEqual(self.conn.cursor_obj.queries, [])
 
+    def test_enabled_flag_does_not_expose_route_on_production(self):
+        for overrides in (
+            {"APP_PUBLIC_URL": "https://stroyka26.pro",
+             "QA_ALLOWED_ORIGIN": "https://stroyka26.pro"},
+            {"APP_PUBLIC_URL": "https://qa.stroyka26.pro",
+             "QA_ALLOWED_ORIGIN": "https://qa.stroyka26.pro"},
+            {"QA_ENVIRONMENT": "production"},
+            {"QA_ALLOWED_ORIGIN": "https://different.example.test"},
+            {"APP_PUBLIC_URL": "http://qa.example.test"},
+            {"APP_PUBLIC_URL": ""},
+        ):
+            with self.subTest(overrides=overrides):
+                with patch.dict("os.environ", QA_ENV | overrides, clear=True):
+                    with self.assertRaises(HTTPException) as raised:
+                        self.endpoint(request())
+                self.assertEqual(raised.exception.status_code, 404)
+                self.assertEqual(self.conn.cursor_obj.queries, [])
+
     def test_verified_cookie_uses_readonly_transaction_and_rollback(self):
-        with patch.dict("os.environ", {"JEV_QA_READONLY_AUTH_ENABLED": "1"}), patch(
+        with patch.dict("os.environ", QA_ENV, clear=True), patch(
             "backend.features.company_context.routes.build_cookie_session_authentication",
             return_value={"authenticationKind": "cookie_session", "sessionHash": "a" * 64},
         ):
@@ -97,7 +123,7 @@ class QAEndpointTests(unittest.TestCase):
 
     def test_multiple_companies_are_denied_and_connection_closed(self):
         self.conn.cursor_obj.rows = self.conn.cursor_obj.rows * 2
-        with patch.dict("os.environ", {"JEV_QA_READONLY_AUTH_ENABLED": "1"}), patch(
+        with patch.dict("os.environ", QA_ENV, clear=True), patch(
             "backend.features.company_context.routes.build_cookie_session_authentication",
             return_value={"authenticationKind": "cookie_session", "sessionHash": "a" * 64},
         ):
@@ -109,7 +135,7 @@ class QAEndpointTests(unittest.TestCase):
 
     def test_bad_cookie_rejected_before_database(self):
         from backend.auth import CookieSessionAuthenticationError
-        with patch.dict("os.environ", {"JEV_QA_READONLY_AUTH_ENABLED": "1"}), patch(
+        with patch.dict("os.environ", QA_ENV, clear=True), patch(
             "backend.features.company_context.routes.build_cookie_session_authentication",
             side_effect=CookieSessionAuthenticationError("cookie_session_authentication_required"),
         ):
@@ -119,7 +145,7 @@ class QAEndpointTests(unittest.TestCase):
         self.assertEqual(self.conn.cursor_obj.queries, [])
 
     def test_authorization_header_is_rejected_before_database(self):
-        with patch.dict("os.environ", {"JEV_QA_READONLY_AUTH_ENABLED": "1"}):
+        with patch.dict("os.environ", QA_ENV, clear=True):
             with self.assertRaises(HTTPException) as raised:
                 self.endpoint(request([(b"authorization", b"Bearer fake")]))
         self.assertEqual(raised.exception.status_code, 401)
