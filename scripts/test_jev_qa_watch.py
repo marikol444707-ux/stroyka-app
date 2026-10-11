@@ -221,6 +221,10 @@ class JevQaWatchTest(unittest.TestCase):
         self.assertIn("token = sys.stdin.read().strip()", script)
         self.assertIn('<<< "$TOKEN_VALUE"', script)
         self.assertNotIn("sys.argv[1]", script)
+        self.assertNotIn("systemctl enable --now stroyka-jev-watch.timer", script)
+        self.assertIn("systemctl is-active --quiet stroyka-jev-watch.timer", script)
+        self.assertIn("systemctl is-enabled --quiet stroyka-jev-watch.timer", script)
+        self.assertIn("Timer NOT enabled or started", script)
 
     def test_atomic_report_written_with_expected_fields(self):
         with tempfile.TemporaryDirectory() as tmp:
