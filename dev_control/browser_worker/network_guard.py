@@ -230,6 +230,60 @@ def assert_allowed_document_url(url: str, base_url: str) -> None:
         raise ValueError("QA URL is outside QA_BASE_URL path")
 
 
+
+def qa_base_is_nonproduction(base_url: str | None = None) -> bool:
+    """Shared fail-closed boundary for both the HTTP worker and direct CLI.
+
+    Local HTTP is accepted only for the worker's own loopback self-test.
+    Every remote origin must be explicit HTTPS and outside production hosts.
+    """
+    base = (base_url if base_url is not None else os.environ.get("QA_BASE_URL") or "").strip()
+    try:
+        parsed = urlparse(base)
+        host = (parsed.hostname or "").lower().rstrip(".")
+        assert_allowed_document_url(base, base)
+    except (ValueError, TypeError):
+        return False
+    if not host or parsed.scheme not in {"http", "https"}:
+        return False
+
+    if host in {"127.0.0.1", "localhost"}:
+        port = (os.environ.get("PORT") or "8080").strip()
+        if not port.isdigit():
+            port = "8080"
+        return base.rstrip("/") == f"http://127.0.0.1:{port}"
+
+    allowed_value = (os.environ.get("QA_ALLOWED_ORIGIN") or "").strip().rstrip("/")
+    if not allowed_value:
+        return False
+    try:
+        allowed = urlparse(allowed_value)
+        if (allowed.username is not None or allowed.password is not None
+                or allowed.path not in {"", "/"} or allowed.query or allowed.fragment):
+            return False
+        base_port, allowed_port = parsed.port or 443, allowed.port or 443
+    except (ValueError, TypeError):
+        return False
+    if (parsed.scheme, host, base_port) != (
+            "https", (allowed.hostname or "").lower().rstrip("."), allowed_port):
+        return False
+    if host in {"stroyka26.pro", "www.stroyka26.pro", "stroyka.pro", "www.stroyka.pro"}:
+        return False
+    if host.endswith(".stroyka26.pro") or host.endswith(".stroyka.pro"):
+        return False
+    if host == "147.45.237.127":
+        return False
+    return True
+
+
+def assert_qa_execution_scope(base_url: str) -> None:
+    """Never permit direct CLI or service jobs to browse production."""
+    if (os.environ.get("QA_ENVIRONMENT") or "").strip().lower() not in {"qa", "test", "staging"}:
+        raise ValueError("QA_ENVIRONMENT must be qa, test, or staging")
+    if not qa_base_is_nonproduction(base_url):
+        raise ValueError("QA_BASE_URL is not an explicitly permitted nonproduction target")
+
+
 def request_allowed(
     url: str,
     base_url: str,
