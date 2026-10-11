@@ -15,6 +15,9 @@ class BrowserWorkerContainerContractTest(unittest.TestCase):
         self.assertIn("setpriv --reuid=10001", Path("dev_control/browser_worker/start.sh").read_text(encoding="utf-8"))
         self.assertIn("EXPOSE 8080", dockerfile)
         self.assertIn("COPY . /app/dev_control", dockerfile)
+        self.assertIn("chown -R root:root /app /home/worker", dockerfile)
+        self.assertIn("chmod -R go-w /app", dockerfile)
+        self.assertNotIn("chown -R worker:worker /app", dockerfile)
         self.assertNotIn("COPY backend", dockerfile)
         self.assertIn(
             "1231850a0bf1a0c0341fe408ef1668dbbfdfac46",
