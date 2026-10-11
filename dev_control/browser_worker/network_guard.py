@@ -269,6 +269,7 @@ class NetworkBoundary:
         self._session_id = session_id
         self._base_url = base_url
         self._read_only = bool(read_only)
+        self.blocked_presence_pings = 0
         self._stop = threading.Event()
         self._error: str | None = None
         self._thread = threading.Thread(target=self._loop, name="qa-network-boundary", daemon=True)
@@ -396,6 +397,23 @@ class NetworkBoundary:
         else:
             self._error = f"QA JavaScript {kind} dismissed without approval"
 
+    def _expected_blocked_presence_ping(self, url: str, method: str) -> bool:
+        """An app-shell presence POST is safely denied, not an agent write.
+
+        The QA app automatically calls POST /api/online even if the observer
+        never interacts with the page. Never send it; only suppress the
+        expected *failure signal* for this exact, same-origin request.
+        All other blocked requests remain terminal failures.
+        """
+        parsed = urlparse(url)
+        return (
+            self._read_only
+            and method.upper() == "POST"
+            and parsed.path == "/api/online"
+            and not parsed.query
+            and canonical_origin(url) == canonical_origin(self._base_url)
+        )
+
     def _loop(self) -> None:
         while not self._stop.is_set():
             try:
@@ -455,10 +473,13 @@ class NetworkBoundary:
                             self._read_only
                             and request_method.upper() not in {"GET", "HEAD", "OPTIONS"}
                         ) else "out-of-scope"
-                        self._error = (
-                            f"blocked {reason} browser request: "
-                            f"{redact_boundary_url(url)}"
-                        )
+                        if self._expected_blocked_presence_ping(url, request_method):
+                            self.blocked_presence_pings += 1
+                        else:
+                            self._error = (
+                                f"blocked {reason} browser request: "
+                                f"{redact_boundary_url(url)}"
+                            )
                 except Exception as exc:
                     self._error = f"network boundary enforcement failed: {exc}"
                     return
