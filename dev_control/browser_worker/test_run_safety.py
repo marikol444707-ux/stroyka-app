@@ -451,7 +451,22 @@ class BrowserWorkerUrlSafetyTest(unittest.TestCase):
                 max_seconds=5,
                 read_only=True,
             )
+            # A matching menu is not evidence that the injected cookie
+            # corresponds to an authenticated, company-scoped QA user.
+            with patch.dict(os.environ, {"QA_SESSION_COOKIE_VALUE": "dummy-qa-cookie"}):
+                cookie_report = execute_task(
+                    url="https://qa.example.test/app",
+                    goal="Observe authenticated QA menu without actions.",
+                    record_dir=evidence,
+                    expect_text=["Склад"],
+                    expect_url_contains=["qa.example.test"],
+                    max_seconds=5,
+                    read_only=True,
+                )
 
+        self.assertFalse(cookie_report["ok"])
+        self.assertIn("AUTH_NOT_ESTABLISHED", cookie_report["failures"])
+        self.assertNotIn("dummy-qa-cookie", repr(cookie_report))
         self.assertTrue(report["ok"])
         self.assertTrue(report["read_only"])
         self.assertIn("read_only_observation", report["checks"])
