@@ -24,6 +24,7 @@ class CompanyDirectoryPostgresTests(unittest.TestCase):
         cls.addClassCleanup(cls.client.close)
         conn = cls.main.get_db()
         try:
+            conn.autocommit = False
             with conn.cursor() as cur:
                 from backend.features.api_error_ownership.migration import _ensure_schema as error_schema
                 error_schema(cur)
@@ -43,6 +44,7 @@ class CompanyDirectoryPostgresTests(unittest.TestCase):
                 cur.execute("ALTER TABLE supplier_documents ALTER COLUMN owner_scope SET NOT NULL")
                 cur.execute("ALTER TABLE supplier_documents ADD CHECK ((owner_scope='company' AND company_id IS NOT NULL AND supplier_id IS NOT NULL) OR (owner_scope='supplier' AND company_id IS NULL AND supplier_id IS NOT NULL))")
                 cls.migration = migration
+            conn.commit()
         finally:
             conn.close()
 
