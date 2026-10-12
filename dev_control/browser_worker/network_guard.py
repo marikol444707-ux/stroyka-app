@@ -95,8 +95,13 @@ def assert_dedicated_loopback_cdp_url(value: str | None = None) -> str:
     return configured
 
 
-def bootstrap_session_cookie(base_url: str, browser_context_id: str, cdp_fn) -> bool:
-    """Inject a pre-created QA session locally without exposing it to Jev/Timeweb."""
+def bootstrap_session_cookie(base_url: str, browser_session_id: str, cdp_fn) -> bool:
+    """Set the QA HttpOnly cookie via the attached isolated page session.
+
+    Storage.setCookies with browserContextId is rejected by the deployed
+    browser-harness CDP transport. Network.setCookie on the isolated target
+    session scopes the cookie to that target's browser context.
+    """
 
     cookie_value = (os.environ.get("QA_SESSION_COOKIE_VALUE") or "").strip()
     if not cookie_value:
@@ -116,19 +121,21 @@ def bootstrap_session_cookie(base_url: str, browser_context_id: str, cdp_fn) -> 
     ):
         raise ValueError("QA session cookie name is invalid")
 
+    if type(browser_session_id) is not str or not browser_session_id:
+        raise ValueError("QA browser session is required for cookie bootstrap")
     origin = urlunsplit((parsed.scheme, parsed.netloc, "/", "", ""))
-    cdp_fn(
-        "Storage.setCookies",
-        cookies=[{
-            "name": cookie_name,
-            "value": cookie_value,
-            "url": origin,
-            "secure": True,
-            "httpOnly": True,
-            "sameSite": "Lax",
-        }],
-        browserContextId=browser_context_id,
+    result = cdp_fn(
+        "Network.setCookie",
+        session_id=browser_session_id,
+        name=cookie_name,
+        value=cookie_value,
+        url=origin,
+        secure=True,
+        httpOnly=True,
+        sameSite="Lax",
     )
+    if type(result) is not dict or result.get("success") is not True:
+        raise ValueError("QA session cookie bootstrap was not confirmed")
     return True
 
 
@@ -592,7 +599,6 @@ def install_safe_browser(base_url: str, *, read_only: bool = False):
                     "Target.createBrowserContext",
                     disposeOnDetach=True,
                 )["browserContextId"]
-                bootstrap_session_cookie(base_url, self.browser_context_id, cdp)
                 self.target = cdp(
                     "Target.createTarget",
                     url="about:blank",
@@ -604,6 +610,7 @@ def install_safe_browser(base_url: str, *, read_only: bool = False):
                     targetId=self.target,
                     flatten=True,
                 )["sessionId"]
+                bootstrap_session_cookie(base_url, self.session, cdp)
                 self.call(
                     "Emulation.setDeviceMetricsOverride",
                     width=1120,
