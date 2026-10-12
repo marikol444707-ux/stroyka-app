@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import './OrganizationParticipants.css';
+import { directoryTabs, MembershipItem, InvitationItem } from './ParticipantDirectoryItems';
 
 export const ticketStatuses = {new:'Новое',in_progress:'В работе',waiting:'Ожидает сведения',resolved:'Исправлено',closed:'Проверено и закрыто'};
 const transitions = {new:['in_progress'],in_progress:['waiting','resolved'],waiting:['in_progress'],resolved:['closed','in_progress'],closed:['in_progress']};
@@ -21,11 +22,17 @@ export default function OrganizationParticipants({company,API,C,btnG,btnO,inp}) 
   const alive = useRef(true);
   const command = useRef(0);
   const prefix = API+'/system/companies/'+company.id;
+  const selectedTab = directoryTabs[tab];
+  const states = tab==='tickets'?ticketStatuses:selectedTab.states;
   useEffect(()=>{alive.current=true;return ()=>{alive.current=false;command.current+=1;};},[company.id]);
   useEffect(()=>{
     const abort = new AbortController();
     setData(null);setError('');setDetail(null);setBusy(false);command.current+=1;
-    const path = tab==='participants'?'/participants?search='+encodeURIComponent(search):'/participant-tickets?status='+status;
+    const config = directoryTabs[tab];
+    const filters = new URLSearchParams();
+    if(config.searchLabel) filters.set('search',search);
+    if(config.statusLabel) filters.set('status',status);
+    const path = config.path+'?'+filters.toString();
     (async()=>{
       try {
         const response = await fetch(prefix+path+'&limit=25&offset='+offset,{signal:abort.signal});
@@ -62,30 +69,32 @@ export default function OrganizationParticipants({company,API,C,btnG,btnO,inp}) 
     } catch(e) {if(alive.current&&command.current===version)setError(e.message);}
     finally {if(alive.current&&command.current===version)setBusy(false);}
   };
-  const switchTab = value => {if(busy)return;setTab(value);setOffset(0);setDetail(null);};
+  const switchTab = value => {if(busy||value===tab)return;setTab(value);setOffset(0);setDetail(null);setData(null);setQuery('');setSearch('');setStatus('');};
   return <section aria-label={'Участники и доступ: '+company.name} className="organization-participants" style={{color:C.text,borderColor:C.border,background:C.bg}}>
     <h3>Участники и доступ · {company.name}</h3>
-    <p className="organization-participants__muted" style={{color:C.textSec}}>Поставщики и обращения этой организации. Здесь проверяются связи; доступ к документам не изменяется.</p>
-    <div className="organization-participants__toolbar">
-      <button type="button" disabled={busy} aria-pressed={tab==='participants'} onClick={()=>switchTab('participants')} style={tab==='participants'?btnO:btnG}>Поставщики</button>
-      <button type="button" disabled={busy} aria-pressed={tab==='tickets'} onClick={()=>switchTab('tickets')} style={tab==='tickets'?btnO:btnG}>Проблемы и обращения</button>
+    <p className="organization-participants__muted" style={{color:C.textSec}}>Участники, приглашения и обращения выбранной организации.</p>
+    <div className="organization-participants__toolbar organization-participants__tabs">
+      {Object.entries(directoryTabs).map(([key,config])=><button key={key} type="button" disabled={busy} aria-pressed={tab===key} onClick={()=>switchTab(key)} style={tab===key?btnO:btnG}>{config.label}</button>)}
     </div>
-    {tab==='participants'?<form onSubmit={e=>{e.preventDefault();if(busy)return;setOffset(0);setSearch(query);}} className="organization-participants__toolbar">
-      <label className="organization-participants__search">Название или ИНН<input disabled={busy} value={query} onChange={e=>setQuery(e.target.value)} maxLength={100} style={{...inp,marginBottom:0}}/></label>
+    {tab==='memberships'&&<p className="organization-participants__muted">Показаны сохранённые членства, включая отключённые. Доступ к объектам и документам проверяется отдельно.</p>}
+    {tab==='invitations'&&<p className="organization-participants__muted">Здесь видны назначение и срок. Возможность принять приглашение проверяет сервер при регистрации. Удалённые приглашения в этот список не входят.</p>}
+    {selectedTab.searchLabel&&<form onSubmit={e=>{e.preventDefault();if(busy)return;setOffset(0);setSearch(query.trim());}} className="organization-participants__toolbar">
+      <label className="organization-participants__search">{selectedTab.searchLabel}<input disabled={busy} value={query} onChange={e=>setQuery(e.target.value)} maxLength={100} style={{...inp,marginBottom:0}}/></label>
       <button type="submit" disabled={busy} style={btnG}>Найти</button>
-    </form>:<label>Статус обращения<select value={status} disabled={busy} onChange={e=>{setStatus(e.target.value);setOffset(0);}} style={inp}>
-      <option value="">Все статусы</option>{Object.entries(ticketStatuses).map(([key,label])=><option key={key} value={key}>{label}</option>)}
+    </form>}
+    {selectedTab.statusLabel&&<label>{selectedTab.statusLabel}<select value={status} disabled={busy} onChange={e=>{setStatus(e.target.value);setOffset(0);}} style={inp}>
+      <option value="">Все состояния</option>{Object.entries(states).map(([key,label])=><option key={key} value={key}>{label}</option>)}
     </select></label>}
     {error&&<div role="alert"><p>{error}</p><button type="button" onClick={()=>{setBusy(false);setRetry(n=>n+1);}} style={btnG}>Повторить загрузку</button></div>}
     {!data&&!error&&<p role="status">Загружаю…</p>}
-    {data&&data.items.length===0&&<p>{search||status?'По выбранным условиям ничего не найдено.':tab==='participants'?'Поставщики этой организации пока не подключены.':'Обращений этой организации пока нет.'}</p>}
-    {data&&<ul className="organization-participants__list">{data.items.map(item=><li key={item.id} style={{borderColor:C.border}}>
+    {data&&data.items.length===0&&<p>{search||status?'По выбранным условиям ничего не найдено.':selectedTab.empty}</p>}
+    {data&&<ul className="organization-participants__list">{data.items.map(item=><li key={item[selectedTab.idKey]} style={{borderColor:C.border}}>
       {tab==='participants'?<>
         <strong>{item.name}</strong><span>ИНН: {item.inn||'не указан'}</span>
         <span>{item.has_account?'Кабинет зарегистрирован':'Без кабинета'} · {sources[item.source_type]||'Источник создания неизвестен'}</span>
         <span>Отношение: {item.status||'не указано'}{item.merged_into_supplier_id?' · Карточка объединена':''}</span>
         {Number(item.open_tickets)>0&&<button style={btnG} onClick={()=>switchTab('tickets')}>Обращения: {item.open_tickets}</button>}
-      </>:<>
+      </>:tab==='memberships'?<MembershipItem item={item}/>:tab==='invitations'?<InvitationItem item={item}/>:<>
         <strong>№{item.id} · {item.context?.participantName||'Участник'}</strong>
         <span>{ticketStatuses[item.status]}</span><span>{item.reason}</span>
         <button type="button" disabled={busy} onClick={()=>open(item.id)} style={btnG}>Разобрать обращение</button>

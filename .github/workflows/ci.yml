@@ -87,6 +87,7 @@ jobs:
             backend.features.supplier_offers.test_offer_mutation_preledger_postgres.OfferMutationPreledgerTests \
             backend.features.staff.test_access_postgres.StaffAccessPostgresTests \
             backend.features.participant_support.test_postgres.ParticipantSupportPostgresTests \
+            backend.features.participant_support.test_directory_postgres.OrganizationDirectoryPostgresTests \
             backend.features.invite_codes.test_supplier_registration_postgres.SupplierRegistrationPostgresTests \
             backend.features.supplier_access.test_company_merge_postgres.CompanyMergePostgresTests \
             backend.features.supplier_access.test_company_directory_postgres.CompanyDirectoryPostgresTests

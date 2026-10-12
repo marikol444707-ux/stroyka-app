@@ -11,4 +11,8 @@
 .organization-participants__list button { justify-self:start; }
 .organization-participants__detail { padding:16px 0 0; border-top:1px solid; }
 .organization-participants__detail label { display:block; margin-top:12px; }
+@media(max-width:599px) {
+  .organization-participants__tabs { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .organization-participants__tabs button { width:100%; min-width:0; }
+}
 @media(min-width:800px) { .organization-participants__list { grid-template-columns:repeat(2,minmax(0,1fr)); } }

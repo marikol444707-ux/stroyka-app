@@ -39,3 +39,34 @@ test('loading failure differs from empty list and can be retried',async()=>{
   fireEvent.click(screen.getByText('Повторить загрузку'));
   expect(await screen.findByText('Поставщики этой организации пока не подключены.')).toBeInTheDocument();
 });
+
+test('memberships show the company role and typed diagnostics; invite purpose and filters stay separate',async()=>{
+  global.fetch=jest.fn(async url=>response(url.includes('/participant-memberships?')?{items:[{membershipId:31,userId:7,name:'Synthetic colleague',role:'мастер',status:'review',activeRoleCount:2}],hasMore:false}:url.includes('/participant-invitations?')?{items:[{inviteId:12,purpose:'supplier_registration',role:'поставщик',status:'expired',expiresAt:'2026-01-01T12:00:00'}],hasMore:false}:{items:[],hasMore:false}));
+  render(<OrganizationParticipants {...props}/>);
+  fireEvent.click(screen.getByRole('button',{name:'Сотрудники и роли'}));
+  expect(await screen.findByText('Synthetic colleague')).toBeInTheDocument();
+  expect(screen.getByText('Мастер')).toBeInTheDocument();
+  expect(screen.getByText(/Несколько включённых ролей/)).toBeInTheDocument();
+  expect(screen.getByText(/Членство: 31 · Пользователь: 7/)).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Имя или роль'),{target:{value:'мастер'}});
+  fireEvent.click(screen.getByRole('button',{name:'Найти'}));
+  await waitFor(()=>expect(fetch.mock.calls.some(([url])=>url.includes('participant-memberships?search='+encodeURIComponent('мастер')))).toBe(true));
+  fireEvent.click(screen.getByRole('button',{name:'Приглашения'}));
+  expect(await screen.findByText('Приглашение №12')).toBeInTheDocument();
+  expect(screen.getByText('Регистрация поставщика')).toBeInTheDocument();
+  expect(screen.queryByText('Synthetic colleague')).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Состояние приглашения'),{target:{value:'expired'}});
+  await waitFor(()=>expect(fetch.mock.calls.some(([url])=>url.includes('participant-invitations?status=expired'))).toBe(true));
+  expect(fetch.mock.calls.every(([,options])=>!options.method)).toBe(true);
+});
+
+test('switching tabs aborts late membership response and resets previous search',async()=>{
+  let late;
+  global.fetch=jest.fn(url=>url.includes('/participant-memberships?')?new Promise(resolve=>{late=resolve;}):Promise.resolve(response({items:[],hasMore:false})));
+  render(<OrganizationParticipants {...props}/>);
+  fireEvent.click(screen.getByRole('button',{name:'Сотрудники и роли'}));
+  fireEvent.click(screen.getByRole('button',{name:'Приглашения'}));
+  expect(await screen.findByText('Сохранённых приглашений этой организации пока нет.')).toBeInTheDocument();
+  await act(async()=>late(response({items:[{membershipId:3,name:'LATE PRIVATE EMPLOYEE'}],hasMore:false})));
+  expect(screen.queryByText('LATE PRIVATE EMPLOYEE')).not.toBeInTheDocument();
+});

@@ -10,7 +10,7 @@ class FakeApp:
     def __init__(self):
         self.routes = {}
 
-    def get(self, path):
+    def get(self, path, **_options):
         return self._register("GET", path)
 
     def post(self, path):
