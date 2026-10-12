@@ -32,6 +32,8 @@ RUN python /app/dev_control/browser_worker/patch_harness.py
 # Never make application code or its entrypoint writable by the worker UID.
 RUN chmod +x /app/dev_control/browser_worker/start.sh \
     && chown -R root:root /app /home/worker \
+    && find /app/dev_control -type d -exec chmod 755 {} + \
+    && find /app/dev_control -type f -name '*.py' -exec chmod 644 {} + \
     && chmod -R go-w /app \
     && chown -R chrome:chrome /home/chrome
 
