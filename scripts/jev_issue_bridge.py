@@ -31,7 +31,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 def github(token, method, path, payload=None):
     if not re.fullmatch(r"[A-Za-z0-9_-]{20,255}", token):
         raise BridgeError("INVALID_GITHUB_TOKEN")
-    if not (path == "/issues?state=open&per_page=100&sort=created&direction=asc" or re.fullmatch(r"/issues/[0-9]+(?:/comments)?", path)):
+    if not (path == "/issues?state=open&per_page=100&sort=created&direction=desc" or re.fullmatch(r"/issues/[0-9]+(?:/comments)?", path)):
         raise BridgeError("INVALID_GITHUB_PATH")
     if method not in ("GET", "POST", "PATCH"):
         raise BridgeError("INVALID_GITHUB_METHOD")
@@ -79,7 +79,7 @@ def format_comment(report):
         + "No secrets, screenshots or raw browser content uploaded.")
 
 def run_once(db, gh, worker, minimum=0):
-    issues = gh("GET", "/issues?state=open&per_page=100&sort=created&direction=asc")
+    issues = gh("GET", "/issues?state=open&per_page=100&sort=created&direction=desc")
     if not isinstance(issues, list):
         raise BridgeError("GITHUB_ISSUES_INVALID")
     for issue in issues:
@@ -117,6 +117,7 @@ def run_once(db, gh, worker, minimum=0):
         if row[0] == "reported":
             # A failed close is retried; the browser job is never replayed.
             gh("PATCH", f"/issues/{n}", {"state": "closed"})
+            return  # One browser job per invocation; bounded systemd runtime.
 
 def main():
     token = os.environ.get("JEV_CONTROL_GITHUB_TOKEN", "").strip()
