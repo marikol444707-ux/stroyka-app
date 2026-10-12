@@ -1,0 +1,11 @@
+[Unit]
+Description=Check GitHub for approved Jev QA smoke commands every 5 minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitInactiveSec=5min
+AccuracySec=30s
+Unit=stroyka-jev-issue-bridge.service
+
+[Install]
+WantedBy=timers.target
