@@ -15,10 +15,10 @@ id stroyka >/dev/null || { echo 'STOP: USER_MISSING'; exit 1; }
 # Create-only, private; never print credentials.
 umask 077
 {
-  printf '%s\\n' "$TOKEN"
-  printf 'JEV_CONTROL_GITHUB_TOKEN=%s\\n' "${GITHUB#JEV_WATCH_GITHUB_TOKEN=}"
-  printf '%s\\n' 'JEV_WATCH_PORT=18084'
-  printf '%s\\n' 'JEV_CONTROL_MIN_ISSUE_NUMBER=0'
+  printf '%s\n' "$TOKEN"
+  printf 'JEV_CONTROL_GITHUB_TOKEN=%s\n' "${GITHUB#JEV_WATCH_GITHUB_TOKEN=}"
+  printf '%s\n' 'JEV_WATCH_PORT=18084'
+  printf '%s\n' 'JEV_CONTROL_MIN_ISSUE_NUMBER=0'
 } > "$TARGET"
 chown root:stroyka "$TARGET"
 chmod 0640 "$TARGET"
