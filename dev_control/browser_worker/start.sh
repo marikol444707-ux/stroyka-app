@@ -71,6 +71,45 @@ if [[ -n "${QA_CHROME_CERT_SPKI:-}" ]]; then
   chrome_args=("--ignore-certificate-errors-spki-list=$qa_spki" "${chrome_args[@]}")
 fi
 
+# Import the QA gateway's root CA into the dedicated Chrome user's NSS store.
+# This is opt-in and requires a read-only, root-owned CA bind mount at a
+# fixed path. The QA-only Fetch guard remains active; never bypass all TLS.
+readonly qa_ca_path="/etc/stroyka-qa/caddy-root.crt"
+if [[ "${QA_CHROME_CA_TRUST:-0}" == "1" ]]; then
+  if [[ "${QA_ENVIRONMENT:-}" != "qa" ||
+        "${QA_BASE_URL:-}" != "https://stroyka-qa-gateway" ||
+        -n "${QA_CHROME_CERT_SPKI:-}" ]]; then
+    echo "QA Chrome CA trust requires dedicated QA scope without SPKI override" >&2
+    exit 2
+  fi
+  if [[ ! -f "$qa_ca_path" || -L "$qa_ca_path" ||
+        "$(stat -c '%u:%g' "$qa_ca_path")" != "0:0" ]]; then
+    echo "QA root CA must be a root-owned regular file" >&2
+    exit 2
+  fi
+  if [[ ! -r "$qa_ca_path" ]]; then
+    echo "QA root CA is not readable" >&2
+    exit 2
+  fi
+  readonly nss_dir="/home/chrome/.pki/nssdb"
+  install -d -m 0700 -o chrome -g chrome /home/chrome/.pki "$nss_dir"
+  if [[ ! -f "$nss_dir/cert9.db" ]]; then
+    setpriv --reuid=10002 --regid=10002 --init-groups \
+      certutil -N -d "sql:$nss_dir" --empty-password
+  fi
+  setpriv --reuid=10002 --regid=10002 --init-groups \
+    certutil -D -d "sql:$nss_dir" -n "Stroyka QA Caddy Root" >/dev/null 2>&1 || true
+  setpriv --reuid=10002 --regid=10002 --init-groups \
+    certutil -A -d "sql:$nss_dir" -n "Stroyka QA Caddy Root" \
+      -t "C,," -i "$qa_ca_path"
+  setpriv --reuid=10002 --regid=10002 --init-groups \
+    certutil -L -d "sql:$nss_dir" -n "Stroyka QA Caddy Root" >/dev/null
+  echo "QA_CHROME_NSS_CA_READY"
+elif [[ "${QA_CHROME_CA_TRUST:-0}" != "0" ]]; then
+  echo "Invalid QA_CHROME_CA_TRUST toggle" >&2
+  exit 2
+fi
+
 # Chrome sandbox stays enabled by default. Opt-out must be explicit.
 if [[ "${CHROME_NO_SANDBOX:-0}" == "1" ]]; then
   chrome_args=(--no-sandbox "${chrome_args[@]}")
