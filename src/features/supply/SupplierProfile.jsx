@@ -93,11 +93,12 @@ function Profile({API, supplierId, C, card, inp, btnO, btnG, onSaved}) {
 
 export default function SupplierProfile({suppliers=[], user, ...props}) {
   const [selected, setSelected] = useState('');
-  const current = suppliers.find(s=>String(s.id)===selected) || suppliers[0];
+  const companies = suppliers.filter(s=>!s.canonicalSupplierId || s.canonicalSupplierId===s.id);
+  const current = companies.find(s=>String(s.id)===selected) || companies[0];
   if (!current) return <p>Профиль доступен руководителю поставщика после подтверждения прав.</p>;
   return <>
-    {suppliers.length>1 && <label>Компания поставщика<select value={current.id} onChange={e=>setSelected(e.target.value)}>
-      {suppliers.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+    {companies.length>1 && <label>Компания поставщика<select value={current.id} onChange={e=>setSelected(e.target.value)}>
+      {companies.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
     </select></label>}
     <Profile key={`${user?.id}:${user?.role}:${props.API}:${current.id}`} {...props} supplierId={current.id}/>
   </>;

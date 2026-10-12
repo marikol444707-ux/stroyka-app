@@ -121,6 +121,38 @@ class SupplierRegistrationPostgresTests(unittest.TestCase):
         self.assertEqual(again.status_code, 409, again.text)
         self.client.cookies.clear()
 
+    def test_generic_invite_reuses_exact_own_unclaimed_receipt_card(self):
+        sid = self.sql("INSERT INTO suppliers(name,inn) VALUES('Synthetic receipt identity','7799112233') RETURNING id")[0][0]
+        self.sql('INSERT INTO company_supplier_links(company_id,supplier_id,platform_account_id) VALUES(2,%s,1)', (sid,))
+        invite = self.invite()
+        payload = self.registration(invite, inn='7799112233')
+        response = self.client.post('/register', json=payload)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.sql('SELECT id FROM suppliers WHERE inn=%s', ('7799112233',)), [(sid,)])
+        self.assertEqual(self.sql('SELECT s.id FROM suppliers s JOIN users u ON u.id=s.user_id WHERE u.email=%s', (payload['email'],)), [(sid,)])
+        self.client.cookies.clear()
+
+    def test_targeted_invite_fills_missing_identity_without_creating_card(self):
+        sid = self.sql("INSERT INTO suppliers(name) VALUES('Synthetic receipt without INN') RETURNING id")[0][0]
+        self.sql('INSERT INTO company_supplier_links(company_id,supplier_id,platform_account_id) VALUES(2,%s,1)', (sid,))
+        invite = self.api('director', 'POST', '/invite-codes', {'role':'поставщик','supplierId':sid}, **{'X-Company-Id':'2'})
+        payload = self.registration(invite, inn='7799223344')
+        response = self.client.post('/register', json=payload)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.sql('SELECT id FROM suppliers WHERE inn=%s', ('7799223344',)), [(sid,)])
+        self.client.cookies.clear()
+
+    def test_name_only_collision_requires_targeted_invite_without_partial_signup(self):
+        sid = self.sql("INSERT INTO suppliers(name) VALUES('Synthetic same-name receipt') RETURNING id")[0][0]
+        self.sql('INSERT INTO company_supplier_links(company_id,supplier_id,platform_account_id) VALUES(2,%s,1)', (sid,))
+        invite = self.invite()
+        payload = self.registration(invite, inn='7799334455')
+        payload['companyName'] = 'Synthetic same-name receipt'
+        response = self.client.post('/register', json=payload)
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertEqual(self.sql('SELECT id FROM users WHERE email=%s', (payload['email'],)), [])
+        self.assertEqual(self.sql('SELECT used FROM invite_codes WHERE id=%s', (invite['id'],)), [(False,)])
+
     def test_invite_rejects_foreign_and_shared_unclaimed_card(self):
         sid = self.sql("INSERT INTO suppliers(name) VALUES('Foreign invoice card') RETURNING id")[0][0]
         self.sql('INSERT INTO company_supplier_links(company_id,supplier_id,platform_account_id) VALUES(3,%s,1)', (sid,))

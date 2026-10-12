@@ -16,7 +16,7 @@ export default function SupplierInviteForm({C, inp, btnO, btnG, supplierInviteFo
       <label style={{fontSize:'12px',color:C.textSec,display:'block',marginBottom:'4px'}}>Привязать к существующей компании (опц.)</label>
       <select value={supplierInviteForm.supplierId||''} onChange={e=>setSupplierInviteForm({...supplierInviteForm,supplierId:e.target.value?Number(e.target.value):null})} style={inp}>
         <option value=''>— новая компания —</option>
-        {(suppliers||[]).filter(s=>!s.user_id&&!s.userId).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+        {(suppliers||[]).filter(s=>!s.user_id&&!s.userId&&!s.hasSupplierAccount&&(!s.canonicalSupplierId||s.canonicalSupplierId===s.id)).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
       </select>
       <label style={{fontSize:'12px',color:C.textSec,display:'block',marginBottom:'4px'}}>Срок действия ссылки (дней)</label>
       <input type='number' value={supplierInviteForm.expiresInDays} onChange={e=>setSupplierInviteForm({...supplierInviteForm,expiresInDays:Number(e.target.value)})} style={inp}/>

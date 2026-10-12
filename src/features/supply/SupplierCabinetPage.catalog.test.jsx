@@ -20,7 +20,7 @@ it('does not add a rejected imported row to the displayed catalog', async () => 
   const setSupplierCatalog = jest.fn();
   try {
     render(<SupplierCabinetPage API="/api" C={{}} user={{ id: 7, role: 'поставщик', name: 'Поставщик' }}
-      supplierTab="catalog" suppliers={[{ id: 1, userId: 7, name: 'Поставщик' }]}
+      supplierTab="catalog" suppliers={[{ id: 1, userId: 7, name: 'Поставщик',canonicalSupplierId:12,relatedSupplierIds:[1,12] },{id:12,userId:7,name:'Поставщик',canonicalSupplierId:12,relatedSupplierIds:[1,12]}]}
       supplierRequisites={{ priceUrl: 'https://example.test/price.xlsx' }}
       supplierCatalog={[]} setSupplierCatalog={setSupplierCatalog} setSupplierRequisites={() => {}} />);
     fireEvent.click(screen.getByRole('button', { name: 'По ссылке' }));
@@ -30,6 +30,7 @@ it('does not add a rejected imported row to the displayed catalog', async () => 
       expect(global.fetch.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(true);
     });
     await screen.findByText(/Подтверждено сохранений: 0/);
+    expect(JSON.parse(global.fetch.mock.calls.find(([, options])=>options?.method==='POST')[1].body).supplierId).toBe(12);
     expect(setSupplierCatalog).not.toHaveBeenCalled();
   } finally { global.fetch = originalFetch; alert.mockRestore(); }
 });

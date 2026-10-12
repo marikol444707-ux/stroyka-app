@@ -71,3 +71,11 @@ health endpoint alone is insufficient. Missing/failed verification retains backu
   relevant backend tests and frontend build/tests.
 - Work on a dedicated branch or worktree and never write directly to `main`.
   Report changed files, tests, failures, and remaining risks.
+
+- Supplier invitation registration must reuse one exact legal identity in the
+  inviting company's catalog. A name alone never grants supplier account access.
+  Existing receipt cards can be merged only by explicit company-scoped preview
+  and confirmation. Keep original document IDs, legal/bank snapshots and paid
+  amounts unchanged; use the canonical card for new supplier operations.
+  Provisional cards with another company’s history or an existing account require
+  ownership review, never automatic reassignment.

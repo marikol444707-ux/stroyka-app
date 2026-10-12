@@ -1,5 +1,6 @@
 import React from 'react';
 import SupplierCardDetails from '../features/supply/SupplierCardDetails';
+import SupplierMergeDialog from '../features/supply/SupplierMergeDialog';
 import { Check, ChevronDown, ChevronUp, Edit2, Link2, Plus, Search, Trash2, X } from 'lucide-react';
 import { API } from '../api';
 import { createSupplierForm, createSupplierInviteForm } from '../features/supply/supplyInitialForms';
@@ -127,6 +128,9 @@ function SupplySuppliersPanel({
   const [duplicateLinkingSupplierId, setDuplicateLinkingSupplierId] = React.useState(null);
   const [duplicateSupplierId, setDuplicateSupplierId] = React.useState('');
   const [sourceFilter, setSourceFilter] = React.useState('all');
+  const [mergeSupplier, setMergeSupplier] = React.useState(null);
+  const catalogCompanyId = suppliers[0]?.companyId;
+  React.useEffect(()=>setMergeSupplier(null), [catalogCompanyId]);
   const [collapsedCategories, setCollapsedCategories] = React.useState(() => new Set());
   const canEditSuppliers = ['директор','зам_директора','кладовщик','снабженец','бухгалтер'].includes(user?.role || '');
   const canLinkSupplierUsers = ['system_owner','platform_admin'].includes(user?.role || '');
@@ -523,6 +527,7 @@ function SupplySuppliersPanel({
 
   return (
     <div>
+      {mergeSupplier && <SupplierMergeDialog key={String(mergeSupplier.companyId)+'-'+mergeSupplier.id} supplier={mergeSupplier} suppliers={suppliers} API={API} C={C} loadAll={loadAll} onClose={()=>setMergeSupplier(null)}/>}
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',gap:'8px',flexWrap:'wrap'}}>
         <div>
           <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>🚚 Поставщики</b>
@@ -677,7 +682,9 @@ function SupplySuppliersPanel({
                       <span style={{color:C.textSec,fontSize:'11px'}}>Каталог: <b style={{color:C.text}}>{stats.catalog.length}</b></span>
                       {stats.total > 0 && <span style={{fontSize:'11px',fontWeight:'700',color:C.success,padding:'3px 8px',borderRadius:'999px',backgroundColor:C.successLight,border:'1px solid '+C.successBorder}}>{formatMoney(stats.total)}</span>}
                       {(canEditSuppliers || canLinkSupplierUsers)&&(
-                        <div style={{display:'flex',gap:'6px'}}>
+                        <div style={{display:'flex',gap:'6px',flexWrap:'wrap'}}>
+                          {['директор','зам_директора','бухгалтер'].includes(user?.role) && <button type="button" onClick={event=>{event.stopPropagation();const ids=supplier._supplierIds || [supplier.id]; const primary=suppliers.find(item=>ids.includes(item.id) && item.hasSupplierAccount && (!item.canonicalSupplierId || item.canonicalSupplierId===item.id)) || suppliers.find(item=>item.id===supplier.id) || supplier; setMergeSupplier(primary);}} style={{...btnG,minHeight:44}}>Объединить</button>}
+                          {['директор','зам_директора'].includes(user?.role) && !suppliers.some(item=>(supplier._supplierIds || [supplier.id]).includes(item.id) && item.hasSupplierAccount) && <button type="button" onClick={event=>{event.stopPropagation();setSupplierInviteForm(createSupplierInviteForm({supplierId:supplier.id,presetName:supplier.name}));setGeneratedInviteLink(null);setShowSupplierInviteModal(true);}} style={{...btnB,minHeight:44}}>Пригласить</button>}
                           {canLinkSupplierUsers&&(
                             <button title="Связать кабинет поставщика" onClick={event=>openLinkSupplier(supplier, event)} style={{...btnB,padding:'5px 10px'}}><Link2 size={11}/></button>
                           )}

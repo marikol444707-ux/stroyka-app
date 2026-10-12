@@ -69,13 +69,14 @@ def access_ids(cursor, user):
           AND (s.user_id=u.id OR EXISTS (
             SELECT 1 FROM supplier_team_members m
             WHERE m.supplier_id=s.id AND m.user_id=u.id AND m.active))
-        ORDER BY s.id''', (user.get('id'),))
+        ORDER BY EXISTS(SELECT 1 FROM company_supplier_links l WHERE l.supplier_id=s.id
+            AND to_jsonb(l)->'profile' ? 'mergedIntoSupplierId'),s.id''', (user.get('id'),))
     return [int(row['id'] if isinstance(row, dict) else row[0]) for row in cursor.fetchall()]
 
 
 def leader_ids(cursor, user):
     sql, params = leader_policy(user.get('id'), 's.id')
-    cursor.execute('SELECT s.id FROM suppliers s WHERE '+sql+' ORDER BY s.id', params)
+    cursor.execute('SELECT s.id FROM suppliers s WHERE '+sql+" ORDER BY EXISTS(SELECT 1 FROM company_supplier_links l WHERE l.supplier_id=s.id AND to_jsonb(l)->'profile' ? 'mergedIntoSupplierId'),s.id", params)
     return [int(row['id'] if isinstance(row, dict) else row[0]) for row in cursor.fetchall()]
 
 
