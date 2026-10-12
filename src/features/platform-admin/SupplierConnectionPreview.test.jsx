@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import SupplierConnectionPreview from './SupplierConnectionPreview';
 import OrganizationParticipants from './OrganizationParticipants';
 
@@ -51,4 +51,32 @@ test('supplier card opens its exact organization inspection and tab change cance
   await act(async()=>late(response(preview)));
   expect(screen.queryByText('Найден существующий кабинет')).not.toBeInTheDocument();
   expect(fetch.mock.calls.every(([,options])=>!options.method)).toBe(true);
+});
+
+test('successful merge refreshes the company list and opens the canonical cabinet',async()=>{
+  const previous=process.env.REACT_APP_PARTICIPANT_HISTORY_MERGE_ENABLED;
+  process.env.REACT_APP_PARTICIPANT_HISTORY_MERGE_ENABLED='1';
+  let merged=false;
+  global.fetch=jest.fn(async url=>{
+    if(url.endsWith('/confirm')){merged=true;return response({ok:true,sourceId:7,targetId:8});}
+    if(url.endsWith('/history-merge-plans'))return response({id:'synthetic',sourceId:7,targetId:8,newAccess:{invoices:[101],offers:[],files:[]},stillClosed:{invoices:[],offers:[]}});
+    if(url.endsWith('/7/connection-preview'))return response({...preview,scenario:'merge_cards',supplier:{...preview.supplier,name:'Receipt'},blockers:[]});
+    if(url.endsWith('/8/connection-preview'))return response({...preview,scenario:'already_connected'});
+    return response({items:[{id:7,name:'Receipt',has_account:merged,merged_into_supplier_id:merged?'8':null}],hasMore:false});
+  });
+  try {
+    render(<OrganizationParticipants company={{id:2,name:'Synthetic A'}} API="" C={{}} btnG={{}} btnO={{}} inp={{}}/>);
+    fireEvent.click(await screen.findByRole('button',{name:'Проверить кабинет'}));
+    fireEvent.click(await screen.findByRole('button',{name:'Объединить карточки'}));
+    fireEvent.click(screen.getByRole('button',{name:'Проверить последствия'}));
+    const dialog=screen.getByRole('dialog');
+    fireEvent.click(await within(dialog).findByRole('checkbox'));
+    fireEvent.change(within(dialog).getByRole('textbox'),{target:{value:'Проверены исходные документы'}});
+    fireEvent.click(within(dialog).getByRole('button',{name:'Подтвердить объединение'}));
+    await within(dialog).findByRole('status');fireEvent.keyDown(dialog,{key:'Escape'});
+    fireEvent.click(await screen.findByRole('button',{name:'Открыть основную карточку'}));
+    expect(await screen.findByText('Кабинет уже связан с карточкой')).toBeInTheDocument();
+    expect(screen.queryByRole('button',{name:'Объединить карточки'})).not.toBeInTheDocument();
+    expect(screen.queryByText(/Без кабинета/)).not.toBeInTheDocument();
+  } finally {if(previous===undefined)delete process.env.REACT_APP_PARTICIPANT_HISTORY_MERGE_ENABLED;else process.env.REACT_APP_PARTICIPANT_HISTORY_MERGE_ENABLED=previous;}
 });

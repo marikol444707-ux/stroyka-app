@@ -108,6 +108,8 @@ def diagnose(cur, company, supplier_id):
                 FROM suppliers s LEFT JOIN company_supplier_links l ON l.supplier_id=s.id
                     AND l.company_id=%s AND l.platform_account_id=%s
                 WHERE s.id<>%s AND s.user_id IS NOT NULL
+                    AND NOT EXISTS(SELECT 1 FROM company_supplier_links merged
+                        WHERE merged.supplier_id=s.id AND merged.profile ? 'mergedIntoSupplierId')
                     AND ((%s<>'' AND s.inn=%s) OR (%s<>'' AND s.ogrn=%s))
                 ORDER BY s.id LIMIT 2''',
                 (company['id'],company['platform_account_id'],supplier_id,inn,inn,ogrn,ogrn))

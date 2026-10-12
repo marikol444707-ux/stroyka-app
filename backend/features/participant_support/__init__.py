@@ -1,1 +1,1 @@
-"""Organization-scoped diagnostics; never grants business access."""
+"""Organization-scoped diagnostics and explicitly authorized access commands."""

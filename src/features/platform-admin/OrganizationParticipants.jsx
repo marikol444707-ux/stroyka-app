@@ -93,11 +93,12 @@ export default function OrganizationParticipants({company,API,C,btnG,btnO,inp}) 
     {data&&<ul className="organization-participants__list">{data.items.map(item=><li key={item[selectedTab.idKey]} style={{borderColor:C.border}}>
       {tab==='participants'?<>
         <strong>{item.name}</strong><span>ИНН: {item.inn||'не указан'}</span>
-        <span>{item.has_account?'Кабинет зарегистрирован':'Без кабинета'} · {sources[item.source_type]||'Источник создания неизвестен'}</span>
+        <span>{item.merged_into_supplier_id?'Объединённая карточка':item.has_account?'Кабинет зарегистрирован':'Без кабинета'} · {sources[item.source_type]||'Источник создания неизвестен'}</span>
         <span>Отношение: {item.status||'не указано'}{item.merged_into_supplier_id?' · Карточка объединена':''}</span>
         {Number(item.open_tickets)>0&&<button style={btnG} onClick={()=>switchTab('tickets')}>Обращения: {item.open_tickets}</button>}
-        <button type="button" disabled={busy} style={btnG} onClick={()=>setPreviewId(item.id)}>Проверить кабинет</button>
-        {previewId===item.id&&<SupplierConnectionPreview key={prefix+'/'+item.id} prefix={prefix} supplierId={item.id} btnG={btnG} onClose={()=>setPreviewId(null)}/>}
+        <button type="button" disabled={busy} style={btnG} onClick={()=>setPreviewId(item.id)}>{item.merged_into_supplier_id?'Открыть основную карточку':'Проверить кабинет'}</button>
+        {previewId===item.id&&<SupplierConnectionPreview key={prefix+'/'+item.id} prefix={prefix}
+          supplierId={Number(item.merged_into_supplier_id)||item.id} btnG={btnG} onClose={()=>setPreviewId(null)} onChanged={()=>setRetry(n=>n+1)}/>}
       </>:tab==='memberships'?<MembershipItem item={item}/>:tab==='invitations'?<InvitationItem item={item}/>:<>
         <strong>№{item.id} · {item.context?.participantName||'Участник'}</strong>
         <span>{ticketStatuses[item.status]}</span><span>{item.reason}</span>
@@ -118,7 +119,7 @@ export default function OrganizationParticipants({company,API,C,btnG,btnO,inp}) 
       <p><strong>Следующее действие:</strong> {detail.recommendedAction}</p>
       <p><strong>Результат:</strong> {detail.result||'Ещё не указан'}</p>
       {detail.participant_type==='supplier'&&<><button type="button" disabled={busy} style={btnG} onClick={()=>setPreviewId(detail.participant_id)}>Проверить кабинет</button>
-        {previewId===detail.participant_id&&<SupplierConnectionPreview key={prefix+'/'+detail.participant_id} prefix={prefix} supplierId={detail.participant_id} btnG={btnG} onClose={()=>setPreviewId(null)}/>}</>}
+        {previewId===detail.participant_id&&<SupplierConnectionPreview key={prefix+'/'+detail.participant_id} prefix={prefix} supplierId={detail.participant_id} btnG={btnG} onClose={()=>setPreviewId(null)} onChanged={()=>setRetry(n=>n+1)}/>}</>}
       <details><summary>История и диагностика</summary><p>Причина: {detail.reason_code} · Номер диагностики: {detail.diagnostic_id}</p>
         <p>Версия приложения: {detail.context.applicationVersion} · Роль: {detail.context.role}</p>
         <ul>{detail.history.map((event,n)=><li key={n}>{ticketStatuses[event.to_status]} · {new Date(event.created_at).toLocaleString('ru-RU')}{event.result?' · '+event.result:''}</li>)}</ul>

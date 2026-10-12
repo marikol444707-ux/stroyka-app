@@ -7762,6 +7762,8 @@ except ModuleNotFoundError:
 from backend.features.supplier_team.routes import register_supplier_team_module
 register_supplier_team_module(app, {"get_db": get_db, "require_roles": require_roles})
 
+from backend.features.document_access.service import require_document_storage_identity
+
 register_invite_codes_module(app, {
     "get_db": get_db,
     "authenticated": get_current_user,
@@ -7771,6 +7773,9 @@ register_invite_codes_module(app, {
     "prepare_user_access_scope": _prepare_user_access_scope,
     "platform_staff_roles": PLATFORM_STAFF_ROLES,
     "client_account_roles": CLIENT_ACCOUNT_ROLES,
+    "history_file_storage": lambda row: require_document_storage_identity(
+        row['company_id'],row.get('project_id'),row.get('context') or 'general',row.get('file_url'),row.get('storage_key') or '',
+        s3_prefix=(S3_PREFIX,*S3_LEGACY_PREFIXES),expected_s3_urls=_s3_allowed_object_urls(row['storage_key']) if row.get('storage_key') else ()),
 })
 
 @app.get("/companies")

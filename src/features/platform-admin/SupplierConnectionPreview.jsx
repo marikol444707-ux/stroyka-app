@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react';
 import SupplierConnectionRequests from './SupplierConnectionRequests';
 import SupplierHistoryPreview from './SupplierHistoryPreview';
+import SupplierHistoryMergeDialog from './SupplierHistoryMergeDialog';
 
 const titles={already_connected:'Кабинет уже связан с карточкой',connect_existing:'Найден существующий кабинет',merge_cards:'В каталоге есть две карточки',no_cabinet:'Существующий кабинет не найден',ambiguous:'Найдено несколько кабинетов',review:'Нужна проверка карточки'};
 const accounts={active:'Пользователь включён',disabled:'Пользователь отключён',wrong_role:'У пользователя другая роль',missing:'Пользователь не найден'};
 
-export default function SupplierConnectionPreview({prefix,supplierId,btnG,onClose}) {
+export default function SupplierConnectionPreview({prefix,supplierId,btnG,onClose,onChanged}) {
   const [data,setData]=useState(null);
   const [error,setError]=useState('');
   const [retry,setRetry]=useState(0);
+  const [mergeOpen,setMergeOpen]=useState(false);
   useEffect(()=>{
     const abort=new AbortController();
     setData(null);setError('');
@@ -33,6 +35,12 @@ export default function SupplierConnectionPreview({prefix,supplierId,btnG,onClos
       {data.currentVisibility&&<p>Сейчас пользователь кабинета может видеть: счета — {data.currentVisibility.invoices}, КП — {data.currentVisibility.offers}. Файлы и договоры проверяются отдельно.</p>}
       {data.blockers.length>0&&<><h4>Что нужно уточнить</h4><ul>{data.blockers.map(item=><li key={item.code}>{item.message}</li>)}</ul></>}
       <p className="organization-participants__muted">Это проверка. Подключение и доступ к истории здесь не изменяются.</p>
+      {process.env.REACT_APP_PARTICIPANT_HISTORY_MERGE_ENABLED==='1'&&data.scenario==='merge_cards'&&data.cabinet&&<>
+        <button type="button" style={btnG} onClick={()=>setMergeOpen(true)}>Объединить карточки</button>
+        {mergeOpen&&<SupplierHistoryMergeDialog key={prefix+'/'+supplierId+'/'+data.cabinet.supplierId}
+          prefix={prefix} sourceId={supplierId} targetId={data.cabinet.supplierId} sourceName={data.supplier.name} targetName={data.cabinet.name}
+          onClose={()=>setMergeOpen(false)} onDone={()=>{setMergeOpen(false);if(onChanged)onChanged();else setRetry(n=>n+1);}}/>}
+      </>}
       {process.env.REACT_APP_PARTICIPANT_HISTORY_PREVIEW_ENABLED==='1'&&data.scenario==='merge_cards'&&data.cabinet&&
         <SupplierHistoryPreview key={prefix+'/'+supplierId+'/'+data.cabinet.supplierId+'/'+retry}
           prefix={prefix} sourceId={supplierId} targetId={data.cabinet.supplierId}/>}

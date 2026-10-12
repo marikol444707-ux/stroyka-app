@@ -94,17 +94,24 @@ def confirm(directory, data, user, headers, target_id):
         if actor.get('role') not in ('директор', 'зам_директора', 'бухгалтер'):
             raise HTTPException(403, 'Объединять карточки может руководитель или бухгалтер')
         target, source = pair(cur, company, target_id, data.get('sourceId'))
+        if target.get('user_id'):
+            raise HTTPException(409, 'Объединение с кабинетом открывает старую историю. Выполните проверку в Администратор → Организации → Участники и доступ → Поставщики.')
         if any(type(data.get(key)) is not int or data[key] != row['link_version']
                for key, row in (('targetVersion', target), ('sourceVersion', source))):
             raise HTTPException(409, 'Карточки изменились. Проверьте объединение ещё раз')
-        profile = {**(source['profile'] or {}), 'mergedIntoSupplierId': target_id}
-        cur.execute('UPDATE company_supplier_links SET profile=%s,version=version+1 WHERE id=%s',
-                    (Json(profile), source['link_id']))
-        cur.execute('UPDATE company_supplier_links SET version=version+1 WHERE id=%s', (target['link_id'],))
-        if target.get('user_id'):
-            cur.execute('UPDATE suppliers SET user_id=%s WHERE id=%s', (target['user_id'], source['id']))
+        apply_pair(cur,target,source)
         directory.audit(cur, actor, company, source['link_id'], 'supplier_cards_merged')
         return dict(ok=True, targetId=target_id, sourceId=source['id'])
+
+
+def apply_pair(cur,target,source):
+    """Caller must lock/revalidate the pair and authorize historical disclosure."""
+    profile={**(source['profile'] or {}),'mergedIntoSupplierId':target['id']}
+    cur.execute('UPDATE company_supplier_links SET profile=%s,version=version+1 WHERE id=%s',
+                (Json(profile),source['link_id']))
+    cur.execute('UPDATE company_supplier_links SET version=version+1 WHERE id=%s',(target['link_id'],))
+    if target.get('user_id'):
+        cur.execute('UPDATE suppliers SET user_id=%s WHERE id=%s',(target['user_id'],source['id']))
 
 
 def document_relationship(cur, supplier_id, company_id):

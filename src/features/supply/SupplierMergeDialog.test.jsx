@@ -5,9 +5,19 @@ import SupplierMergeDialog from './SupplierMergeDialog';
 const originalFetch=global.fetch;
 const supplier={id:12,companyId:2,name:'Поставщик с кабинетом',hasSupplierAccount:true,_supplierIds:[4,12]};
 const sources=[supplier,{id:4,companyId:2,name:'Поставщик из накладной'}];
-const review={targetId:12,sourceId:4,targetVersion:3,sourceVersion:1,targetName:supplier.name,sourceName:sources[1].name,hasSupplierAccount:true,documents:{supplier_invoices:2,warehouse_invoices:1,supplier_offers:0}};
+const review={targetId:12,sourceId:4,targetVersion:3,sourceVersion:1,targetName:supplier.name,sourceName:sources[1].name,hasSupplierAccount:false,documents:{supplier_invoices:2,warehouse_invoices:1,supplier_offers:0}};
 const response=data=>({ok:true,json:async()=>data});
 afterEach(()=>{global.fetch=originalFetch;jest.restoreAllMocks();});
+
+test('an existing cabinet must use the organization historical access review',async()=>{
+  global.fetch=jest.fn().mockResolvedValue(response({...review,hasSupplierAccount:true}));
+  render(<SupplierMergeDialog supplier={supplier} suppliers={sources} API="/api" C={{}} onClose={jest.fn()} loadAll={jest.fn()}/>);
+  fireEvent.change(screen.getByRole('combobox'),{target:{value:'4'}});
+  fireEvent.click(screen.getByRole('button',{name:'Проверить карточки'}));
+  expect(await screen.findByText(/Там проверяется доступ к старым документам/)).toBeInTheDocument();
+  expect(screen.queryByRole('button',{name:'Подтвердить объединение'})).not.toBeInTheDocument();
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
 
 test('previews before confirmation and does not repeat a pending merge',async()=>{
   let finish;
