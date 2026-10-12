@@ -87,6 +87,12 @@ export const installAuthFetch = () => {
   const csrfHeaderName = 'X-CSRF-Token';
   let csrfToken = '';
   let csrfTokenPromise = null;
+  let sessionGeneration = 0;
+  const resetSessionCsrf = () => {
+    sessionGeneration += 1;
+    csrfToken = '';
+    csrfTokenPromise = null;
+  };
   const getRequestPath = (input) => {
     try {
       const url = typeof input === 'string' ? input : input?.url;
@@ -114,17 +120,20 @@ export const installAuthFetch = () => {
   const fetchCsrfToken = async () => {
     if (csrfToken) return csrfToken;
     if (!csrfTokenPromise) {
-      csrfTokenPromise = nativeFetch(API + '/csrf-token', { credentials: 'include' })
+      const generation = sessionGeneration;
+      const pending = nativeFetch(API + '/csrf-token', { credentials: 'include' })
         .then(async (response) => {
           if (!response.ok) return '';
           const data = await response.json().catch(() => ({}));
+          if (generation !== sessionGeneration) return '';
           csrfToken = typeof data.csrfToken === 'string' ? data.csrfToken : '';
           return csrfToken;
         })
         .catch(() => '')
         .finally(() => {
-          csrfTokenPromise = null;
+          if (csrfTokenPromise === pending) csrfTokenPromise = null;
         });
+      csrfTokenPromise = pending;
     }
     return csrfTokenPromise;
   };
@@ -162,14 +171,25 @@ export const installAuthFetch = () => {
   window.fetch = async (input, init = {}) => {
     const path = getRequestPath(input);
     const isPublicAuthRequest = isAuthPublicPath(path);
-    if (isPublicAuthRequest) return nativeFetch(input, {...init, credentials: init.credentials || 'include'});
+    if (isPublicAuthRequest) {
+      const isLogin = path === '/login' || path === '/login/2fa/verify' || path === '/login/2fa/setup-confirm';
+      if (isLogin) resetSessionCsrf();
+      const response = await nativeFetch(input, {...init, credentials: init.credentials || 'include'});
+      if (isLogin && response.ok) resetSessionCsrf();
+      return response;
+    }
+    const generation = sessionGeneration;
     const method = getRequestMethod(input, init);
     let nextInit = withStoredCompanyContextHeaders({...init, credentials: init.credentials || 'include'});
     nextInit = withSupplierPaymentContext(path, nextInit);
     if (csrfMethods.has(method) && !hasCsrfHeader(input, init)) {
       nextInit = withCsrfToken(nextInit, await fetchCsrfToken());
     }
+    // A mutation waiting for old CSRF must never continue under the next login.
+    if (generation !== sessionGeneration) throw new DOMException('Session changed', 'AbortError');
     const response = await nativeFetch(input, nextInit);
+    if (generation !== sessionGeneration) return response;
+    if (path === '/logout' && response.ok) resetSessionCsrf();
     if (response.status === 403) return explainSubscriptionReadOnly(response);
     if (response.status !== 401) return response;
     return expireFrontendSession(response);

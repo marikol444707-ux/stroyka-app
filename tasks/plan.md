@@ -21,8 +21,9 @@
 обращению, срок/отзыв/epochs/audit и отдельный экран; [приёмка и ограничения](participant-access-stage2e1-review.md).
 Срез 2д2 добавляет отказной аудит и инвентарь прямых HTTP/auth/file/export/job/WS
 поверхностей; [приёмка и ограничения](participant-access-stage2e2-review.md).
-Далее — полный App login E2E, исключение лишнего бизнес-bootstrap поддержки и
-коррекция ошибочной связи. Большие архивы/нагрузка остаются отдельной задачей;
+Срез 2д3 закрывает полный App login E2E, company/bootstrap/CSRF и смену
+сотрудника поддержки; [приёмка и границы](participant-access-stage2e3-review.md).
+Далее — коррекция ошибочной связи. Большие архивы/нагрузка остаются отдельной задачей;
 production не выполнен.
 Проверки и оставшиеся команды: [этап 2а](participant-access-stage2a-review.md).
 Последняя проверка: [этап 2б](participant-access-stage2b-review.md).

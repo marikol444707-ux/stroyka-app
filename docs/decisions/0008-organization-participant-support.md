@@ -270,3 +270,16 @@ Append-only guards включают TRUNCATE; сбой аудита не отк�
 маршруты зафиксированы явным CI-инвентарём. Полный App login и общий bootstrap
 поддержки остаются следующим блоком. Никакого production enable/apply.
 [Приёмка](../../tasks/participant-access-stage2e2-review.md).
+
+## Срез 2д3: отдельный bootstrap и жизненный цикл входа
+
+При включённом новом UI режиме platform_support исключён из общей загрузки
+компании, бизнес-разделов, presence/push и bootstrap-кэша. Predicate выбирает
+экран; server capability остаётся единственным источником полномочий.
+Company responses отменяются и проверяются по scope/generation; смена
+сотрудника перемонтирует рабочее место. Login/2FA/logout сбрасывают CSRF кэш,
+старая ожидающая его mutation не отправляется под следующим входом.
+Настоящие cookie/TOTP/reload/logout проверяются в отдельном PostgreSQL и
+полном App в Chromium. Production не выполнен; следующий шаг — корректирующая
+связь с точным preview, не универсальный undo.
+[Приёмка и точные границы](../../tasks/participant-access-stage2e3-review.md).

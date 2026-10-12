@@ -1,3 +1,4 @@
+import { isSupportWorkspaceUser } from '../features/participant-support/workspaceMode';
 import React from 'react';
 import LoginPage from '../pages/LoginPage';
 import {
@@ -99,8 +100,8 @@ export default function AppEntryRoutes({ user, page, pageFallback, ui = {}, cons
     );
   }
 
-  if (user.role==='platform_support'&&process.env.REACT_APP_PARTICIPANT_SUPPORT_ACCESS_ENABLED==='1') {
-    return <React.Suspense fallback={pageFallback}><SupportWorkspace API={API} C={C} btnG={btnG} onLogout={handleLogout}/></React.Suspense>;
+  if (isSupportWorkspaceUser(user)) {
+    return <React.Suspense fallback={pageFallback}><SupportWorkspace key={user.id || user.email} API={API} C={C} btnG={btnG} onLogout={handleLogout}/></React.Suspense>;
   }
 
   if (['system_owner', 'platform_admin', 'platform_support', 'billing_admin'].includes(user.role)) {

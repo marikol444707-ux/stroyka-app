@@ -1,0 +1,20 @@
+import {act, fireEvent, render, screen} from '@testing-library/react';
+import AppEntryRoutes from './AppEntryRoutes';
+const original=process.env.REACT_APP_PARTICIPANT_SUPPORT_ACCESS_ENABLED;
+const originalFetch=global.fetch;
+const response=body=>({ok:true,json:async()=>body});
+afterEach(()=>{global.fetch=originalFetch;if(original===undefined)delete process.env.REACT_APP_PARTICIPANT_SUPPORT_ACCESS_ENABLED;else process.env.REACT_APP_PARTICIPANT_SUPPORT_ACCESS_ENABLED=original;});
+test('same-role actor switch discards the prior list and ignores a late diagnostic',async()=>{
+  process.env.REACT_APP_PARTICIPANT_SUPPORT_ACCESS_ENABLED='1';
+  const grant={id:'synthetic-grant',companyName:'Old company',companyId:2,ticketId:9,reasonLabel:'Synthetic',expiresAt:'2099-01-01T00:00:00Z'};
+  let late;
+  global.fetch=jest.fn(url=>url.includes('/diagnostic')?new Promise(resolve=>{late=resolve;}):Promise.resolve(response({items:[grant],hasMore:false})));
+  const view=render(<AppEntryRoutes user={{id:12,role:'platform_support'}} ui={{API:'/api'}}/>);
+  fireEvent.click(await screen.findByRole('button',{name:'Открыть диагностику №9'}));
+  global.fetch=jest.fn(async()=>response({items:[],hasMore:false}));
+  view.rerender(<AppEntryRoutes user={{id:13,role:'platform_support'}} ui={{API:'/api'}}/>);
+  expect(screen.queryByText('Old company')).not.toBeInTheDocument();
+  expect(await screen.findByText(/Назначенных обращений нет/)).toBeInTheDocument();
+  await act(async()=>late(response({...grant,comment:'PRIVATE OLD DIAGNOSTIC',context:{}})));
+  expect(screen.queryByText('PRIVATE OLD DIAGNOSTIC')).not.toBeInTheDocument();
+});

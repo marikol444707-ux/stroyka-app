@@ -21,6 +21,39 @@ describe('installAuthFetch', () => {
     delete window.__stroykaSubscriptionReadOnlyNotified;
   });
 
+  it('gets fresh CSRF after logout and a second login in the same page', async () => {
+    let session = 1;
+    const nativeFetch = jest.fn(async (url, init = {}) => {
+      if (String(url).endsWith('/csrf-token')) return new Response(JSON.stringify({csrfToken: 'csrf-' + session}), {status: 200});
+      if (url === '/login/2fa/verify') {session = 2;return new Response('{}', {status: 200});}
+      const valid = new Headers(init.headers).get('X-CSRF-Token') === 'csrf-' + session;
+      return new Response('{}', {status: valid ? 200 : 403});
+    });
+    window.fetch = nativeFetch;installAuthFetch();
+    expect((await window.fetch('/logout', {method: 'POST'})).status).toBe(200);
+    await window.fetch('/login/2fa/verify', {method: 'POST'});
+    expect((await window.fetch('/logout', {method: 'POST'})).status).toBe(200);
+    expect(nativeFetch.mock.calls.filter(([url]) => String(url).endsWith('/csrf-token'))).toHaveLength(2);
+  });
+
+  it('a late old CSRF lookup cannot send an old mutation under a new login', async () => {
+    let oldReply;
+    const nativeFetch = jest.fn(url => String(url).endsWith('/csrf-token')
+      ? new Promise(resolve => {oldReply = resolve;}) : Promise.resolve(new Response('{}', {status: 200})));
+    window.fetch = nativeFetch;installAuthFetch();
+    const pending = window.fetch('/project-payments', {method: 'POST'});
+    const rejection = expect(pending).rejects.toMatchObject({name: 'AbortError'});
+    await window.fetch('/login/2fa/verify', {method: 'POST'});
+    oldReply(new Response('{"csrfToken":"OLD-SESSION"}', {status: 200}));
+    await rejection;
+    expect(nativeFetch.mock.calls.some(([url]) => url === '/project-payments')).toBe(false);
+    nativeFetch.mockImplementation(async url => new Response(String(url).endsWith('/csrf-token')
+      ? '{"csrfToken":"NEW-SESSION"}' : '{}', {status: 200}));
+    await window.fetch('/logout', {method: 'POST'});
+    const call = nativeFetch.mock.calls.find(([url]) => url === '/logout');
+    expect(new Headers(call[1].headers).get('X-CSRF-Token')).toBe('NEW-SESSION');
+  });
+
   it('uses only the cookie session and removes a legacy browser token', async () => {
     localStorage.setItem('authToken', 'legacy-token');
     const nativeFetch = jest.fn().mockResolvedValue(new Response('{}', { status: 200 }));
