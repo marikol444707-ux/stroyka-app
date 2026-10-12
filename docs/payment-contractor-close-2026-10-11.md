@@ -58,3 +58,21 @@ unavailable manual amount input. Confirmation and payment gates remain intact.
 Checks: four disposable PostgreSQL review tests, 188 supplier-payment UI tests,
 ESLint and production build; local browser review navigation at 390/1280 px.
 The factual bank-payment status remains required before correcting live data.
+
+## Active legacy invoice audit
+
+The read-only operator report excludes annulled supplier invoices from its active
+inventory. An unregistered annulled invoice referencing the same receipt no
+longer makes a valid live pair ambiguous. A competing active invoice or any
+annulled competitor with a registered ledger document still blocks the preview.
+No admission, link repair, balance update or payment is performed by this report.
+
+Production diagnosis: invoice 144 is annulled and receipt 167 reciprocally links
+to live invoice 160. Invoice 15 and receipt 37 lack a supplier; invoice 83 and
+receipt 1 reference different supplier IDs despite matching names. These need
+source-document review. Twenty other pairs have equal document totals but zero
+paid in the invoice and full paid in the receipt; bank evidence remains required.
+
+Regression cases cover ignored annulled/unregistered competitors, blocking live
+competitors, blocking registered annulled competitors, unchanged source records
+and both text and JSONB receipt items, using separate disposable databases.

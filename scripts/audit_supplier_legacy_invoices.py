@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Operator-only, read-only inventory of invoice evidence; never grants admission.
+"""Operator-only, read-only inventory of active invoice evidence; never grants admission.
 
 Uses libpq PG* environment variables. Requires an explicit company, and exports
 only that company's invoice IDs and evidence flags (no credentials or contacts).
+Annulled competitors remain blockers when they have registered ledger evidence.
 """
 import argparse
 import json
@@ -42,7 +43,9 @@ def audit(connection, company_id):
                 i.warehouse_invoice_id IS NOT NULL OR EXISTS(
                     SELECT 1 FROM warehouse_invoices w WHERE w.supplier_invoice_id=i.id
                 ) AS legacy_receipt_link
-                FROM supplier_invoices i WHERE i.company_id=%s ORDER BY i.id''', (company_id,))
+                FROM supplier_invoices i WHERE i.company_id=%s
+                    AND COALESCE(i.status,'') <> 'Аннулирован'
+                ORDER BY i.id''', (company_id,))
             rows = cur.fetchall()
             cur.execute("""SELECT i.id AS root_invoice_id, w.id, w.company_id, w.supplier_id,
                 w.project, w.location, w.items::text AS items, w.supplier_invoice_id,
@@ -52,10 +55,16 @@ def audit(connection, company_id):
                     d.company_id=w.company_id AND d.document_kind='warehouse'
                     AND d.document_id=w.id) AS registered,
                 EXISTS(SELECT 1 FROM supplier_invoices other WHERE
-                    other.warehouse_invoice_id=w.id AND other.id<>i.id) AS other_invoice_links
+                    other.warehouse_invoice_id=w.id AND other.id<>i.id
+                    AND (COALESCE(other.status,'') <> 'Аннулирован'
+                        OR EXISTS(SELECT 1 FROM supplier_payment_documents od
+                            WHERE od.company_id=other.company_id
+                                AND od.document_kind='invoice'
+                                AND od.document_id=other.id))) AS other_invoice_links
                 FROM supplier_invoices i JOIN warehouse_invoices w
                     ON w.id=i.warehouse_invoice_id OR w.supplier_invoice_id=i.id
-                WHERE i.company_id=%s ORDER BY i.id,w.id""", (company_id,))
+                WHERE i.company_id=%s AND COALESCE(i.status,'') <> 'Аннулирован'
+                ORDER BY i.id,w.id""", (company_id,))
             groups = {}
             invalid_packages = set()
             mixed_sources = {}
