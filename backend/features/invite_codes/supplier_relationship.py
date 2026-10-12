@@ -68,6 +68,15 @@ def create_supplier_invite(deps, user, data, headers):
         return invite
 
 
+def lock_inviting_company(cur, invite):
+    # Receipt/catalog writers pin the company before legal-identity locks too.
+    # Keep the same order so simultaneous receipt creation and signup can wait.
+    cur.execute("""SELECT c.id FROM supplier_invite_companies b
+        JOIN companies c ON c.id=b.company_id AND c.platform_account_id=b.platform_account_id
+        WHERE b.invite_id=%s FOR SHARE OF c""", (invite['id'],))
+    cur.fetchall()
+
+
 def claim_invited_supplier(cur, invite, user, requisites):
     cur.execute('SELECT company_id,platform_account_id FROM supplier_invite_companies WHERE invite_id=%s', (invite['id'],))
     binding = cur.fetchone()

@@ -118,3 +118,57 @@ class CompanyMergePostgresTests(unittest.TestCase):
         self.assertEqual(self.sql('SELECT user_id FROM suppliers WHERE id=%s',(source,)),[(None,)])
         self.assertEqual(self.sql('SELECT id FROM users WHERE email=%s',(payload['email'],)),[])
         self.assertEqual(self.sql('SELECT used FROM invite_codes WHERE id=%s',(invite['id'],)),[(False,)])
+
+    def test_actual_receipt_card_is_invited_without_another_identity(self):
+        import secrets
+        name = 'Synthetic receipt to registration ' + secrets.token_hex(6)
+        inn = '7799110000'
+        result = self.api('director','POST','/warehouse-invoices',
+                          dict(companyId=2,location='Основной склад',warehouseTarget='main',
+                               supplierName=name,supplierInn=inn,number=name,date='2026-10-12',vat='Без НДС',
+                               items=[dict(name=name+' material',unit='шт',quantity=2,price=100)],syncSupplierInvoice=True),
+                          **{'X-Company-Id':'2'})
+        self.assertNotIn('accountingWarning',result)
+        supplier_id = self.sql('SELECT supplier_id FROM warehouse_invoices WHERE id=%s',(result['id'],))[0][0]
+        self.assertIsNotNone(supplier_id)
+        rows = self.api('director','GET','/suppliers',**{'X-Company-Id':'2'})
+        self.assertIn(supplier_id,[row['id'] for row in rows])
+        before = self.sql('SELECT to_jsonb(w) FROM warehouse_invoices w WHERE id=%s',(result['id'],))
+        invite = self.api('director','POST','/invite-codes',{'role':'поставщик','expiresInDays':1},**{'X-Company-Id':'2'})
+        payload = base.SupplierRegistrationPostgresTests.registration(self,invite,inn=inn)
+        response = self.client.post('/register',json=payload)
+        self.assertEqual(response.status_code,200,response.text)
+        self.assertEqual(self.sql('SELECT count(*) FROM suppliers WHERE inn=%s',(inn,)),[(1,)])
+        self.assertEqual(self.sql('SELECT to_jsonb(w) FROM warehouse_invoices w WHERE id=%s',(result['id'],)),before)
+        self.assertEqual(self.sql('SELECT supplier_id FROM company_supplier_links WHERE company_id=2 AND supplier_id=%s',(supplier_id,)),[(supplier_id,)])
+        self.client.cookies.clear()
+
+    def test_simultaneous_receipt_and_signup_create_one_supplier(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Barrier
+        from fastapi.testclient import TestClient
+        import secrets
+        inn = '7799220000'
+        name = 'Synthetic concurrent receipt ' + secrets.token_hex(6)
+        invite = self.api('director','POST','/invite-codes',{'role':'поставщик','expiresInDays':1},**{'X-Company-Id':'2'})
+        payload = base.SupplierRegistrationPostgresTests.registration(self,invite,inn=inn)
+        token = self.main.create_auth_token(self.fixture['users']['director'],two_factor_passed=True)
+        barrier = Barrier(2)
+        def request(path, body, headers=None):
+            with TestClient(self.main.app) as client:
+                barrier.wait(timeout=10)
+                return client.post(path,json=body,headers=headers or {})
+        receipt = dict(companyId=2,location='Основной склад',warehouseTarget='main',supplierName=name,supplierInn=inn,
+                       number=name,date='2026-10-12',vat='Без НДС',syncSupplierInvoice=True,
+                       items=[dict(name=name+' material',unit='шт',quantity=2,price=100)])
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            signup = pool.submit(request,'/register',payload)
+            delivery = pool.submit(request,'/warehouse-invoices',receipt,{'Authorization':'Bearer '+token,'X-Company-Id':'2'})
+            signup_result, delivery_result = signup.result(timeout=30), delivery.result(timeout=30)
+        self.assertEqual(signup_result.status_code,200,signup_result.text)
+        self.assertEqual(delivery_result.status_code,200,delivery_result.text)
+        self.assertNotIn('accountingWarning',delivery_result.json())
+        rows = self.sql('SELECT id,user_id FROM suppliers WHERE inn=%s',(inn,))
+        self.assertEqual(len(rows),1)
+        self.assertIsNotNone(rows[0][1])
+        self.assertEqual(self.sql('SELECT supplier_id FROM warehouse_invoices WHERE id=%s',(delivery_result.json()['id'],)),[(rows[0][0],)])

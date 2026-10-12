@@ -105,3 +105,21 @@ def confirm(directory, data, user, headers, target_id):
             cur.execute('UPDATE suppliers SET user_id=%s WHERE id=%s', (target['user_id'], source['id']))
         directory.audit(cur, actor, company, source['link_id'], 'supplier_cards_merged')
         return dict(ok=True, targetId=target_id, sourceId=source['id'])
+
+
+def document_relationship(cur, supplier_id, company_id):
+    """Catalog provenance comes from the caller's locked, company-owned receipt."""
+    if not supplier_id:
+        return
+    cur.execute('SELECT platform_account_id FROM companies WHERE id=%s FOR SHARE', (company_id,))
+    company = cur.fetchone()
+    if not company or not company.get('platform_account_id'):
+        raise HTTPException(409, 'Компания накладной не привязана к аккаунту платформы')
+    cur.execute("""INSERT INTO company_supplier_links(company_id,supplier_id,platform_account_id,source_type,source_detail)
+        VALUES(%s,%s,%s,'warehouse_invoice','Из накладной компании')
+        ON CONFLICT(company_id,supplier_id) DO NOTHING""",
+        (company_id, supplier_id, company['platform_account_id']))
+    cur.execute('SELECT platform_account_id FROM company_supplier_links WHERE company_id=%s AND supplier_id=%s',
+                (company_id, supplier_id))
+    if cur.fetchone()['platform_account_id'] != company['platform_account_id']:
+        raise HTTPException(409, 'Связь поставщика с аккаунтом компании требует проверки')

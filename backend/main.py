@@ -1310,8 +1310,8 @@ def _resolve_or_create_document_supplier(cur, data: dict, fallback_name: str = "
     payload["sourceType"] = "accounting_document_recognition"
     payload["sourceDetail"] = source_detail or "Определено по реквизитам бухгалтерского документа"
     requisites = _supplier_extract_requisites(payload)
-    identity_key = "inn:" + requisites["inn"] if requisites["inn"] else "ogrn:" + requisites["ogrn"]
-    cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("supplier:" + identity_key,))
+    for identity in sorted({requisites.get(key, "") for key in ("inn", "ogrn")} - {""}):
+        cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", ("supplier-legal:" + identity,))
 
     matched = _supplier_find_match(
         cur,
@@ -6644,6 +6644,8 @@ def register(data: dict, response: Response, request: Request):
                 "sourceDetail": "Регистрация поставщика по ссылке приглашения",
             }
             requisites = _supplier_extract_requisites(supplier_payload)
+            from backend.features.invite_codes.supplier_relationship import lock_inviting_company
+            lock_inviting_company(cur, invite)
             for identity in sorted({requisites.get(key, '') for key in ('inn', 'ogrn')} - {''}):
                 cur.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))', ('supplier-legal:' + identity,))
             if not supplier_id:
@@ -21193,6 +21195,8 @@ def _sync_supplier_invoice_from_warehouse_in_transaction(cur, warehouse_invoice_
                                                      warehouse_invoice_id, ledger_present)
         if existing_link.get('warehouse_invoice_id') != warehouse_invoice_id:
             raise HTTPException(409, 'Обратная связь счёта и накладной требует сверки')
+        from backend.features.supplier_access.company_merge import document_relationship
+        document_relationship(cur, warehouse_invoice.get("supplier_id"), company_id)
         return {"id": existing_supplier_invoice_id, "ok": True, "alreadyExists": True}
     if not warehouse_invoice_accounting_required(warehouse_invoice):
         raise HTTPException(
@@ -21227,12 +21231,8 @@ def _sync_supplier_invoice_from_warehouse_in_transaction(cur, warehouse_invoice_
     legal_supplier_identity = has_legal_supplier_identity(supplier_payload)
     if legal_supplier_identity and not supplier_id:
         identity_requisites = _supplier_extract_requisites(supplier_payload)
-        identity_key = (
-            "inn:" + identity_requisites["inn"]
-            if identity_requisites["inn"]
-            else "ogrn:" + identity_requisites["ogrn"]
-        )
-        cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("supplier:" + identity_key,))
+        for identity in sorted({identity_requisites.get(key, "") for key in ("inn", "ogrn")} - {""}):
+            cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", ("supplier-legal:" + identity,))
     matched_supplier = _supplier_find_match(
         cur,
         supplier_payload,
@@ -21271,6 +21271,9 @@ def _sync_supplier_invoice_from_warehouse_in_transaction(cur, warehouse_invoice_
             supplier_name = supplier_row.get("name") or supplier_name
             created_supplier = True
             _remember_supplier_alias(cur, supplier_id, supplier_payload, source="warehouse_accounting")
+
+    from backend.features.supplier_access.company_merge import document_relationship
+    document_relationship(cur, supplier_id, company_id)
 
     review_state = {"needsReview": False, "reviewReason": "", "accountingStatus": "На проверке", "supplierInvoiceStatus": "На утверждении"}
     if review_uncertain_supplier_match or (supplier_name and not supplier_id):

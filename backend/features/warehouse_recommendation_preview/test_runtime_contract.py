@@ -721,7 +721,7 @@ class WarehouseAnomalyRuntimeDisclosurePolicyTests(unittest.TestCase):
             # Reviewed read-only complete-basket quotation comparison in the composition root;
             # warehouse preview implementation and registration are unchanged.
             backend_root / "main.py": (
-                "0be14cccc93493f9f3648b36048a68dda7f0daac8b9dbd39000834ca6ba696cc"
+                "9f7b3f03fe9e1db816d65e854e927235fb7790b61ec08212286a830d194dbde1"
             ),
         }
         actual = {
