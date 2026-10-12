@@ -106,7 +106,7 @@ def create_ticket(deps, user, headers, data):
 
 
 @contextmanager
-def admin_transaction(deps, user, company_id):
+def admin_transaction(deps, user, company_id, *, snapshot=False):
     # Support session labels grant no authority here. Least privilege until stage 2.
     if user.get('role') not in ADMIN_ROLES:
         raise HTTPException(403, 'Раздел доступен администратору платформы')
@@ -114,6 +114,8 @@ def admin_transaction(deps, user, company_id):
     try:
         conn.autocommit = False
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            if snapshot:
+                cur.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ')
             cur.execute("SET LOCAL statement_timeout='15s'")
             ready(cur)
             cur.execute('SELECT id,platform_account_id FROM companies WHERE id=%s FOR SHARE', (company_id,))

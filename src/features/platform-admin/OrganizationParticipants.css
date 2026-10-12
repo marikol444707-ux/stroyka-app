@@ -6,11 +6,14 @@
 .organization-participants button { min-height:44px; max-width:100%; white-space:normal; }
 .organization-participants input:not([type=checkbox]), .organization-participants select, .organization-participants textarea { width:100%; min-width:0; min-height:44px; display:block; margin-top:6px; }
 .organization-participants__search { flex:1 1 220px; min-width:0; }
-.organization-participants__list { padding:0; margin:12px 0; list-style:none; display:grid; gap:8px; }
+.organization-participants__list { padding:0; margin:12px 0; list-style:none; display:grid; align-items:start; gap:8px; }
 .organization-participants__list > li { padding:12px; border:1px solid; border-radius:10px; display:grid; gap:6px; }
 .organization-participants__list button { justify-self:start; }
 .organization-participants__detail { padding:16px 0 0; border-top:1px solid; }
 .organization-participants__detail label { display:block; margin-top:12px; }
+.organization-participants__preview { min-width:0; border-top:1px solid currentColor; margin-top:8px; padding-top:8px; }
+.organization-participants__preview h4 { margin:0; }
+.organization-participants__preview ul { padding-left:20px; }
 @media(max-width:599px) {
   .organization-participants__tabs { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
   .organization-participants__tabs button { width:100%; min-width:0; }
