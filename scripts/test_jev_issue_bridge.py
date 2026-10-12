@@ -60,6 +60,16 @@ class BridgeTest(unittest.TestCase):
         self.assertIn("UNEXPECTED_WATCH_ERROR", text)
         self.assertNotIn("secret-raw-error", text)
 
+    def test_only_one_browser_job_per_poll(self):
+        issues = [self.issue, {**self.issue, "number": 55556}]
+        def gh(method, path, payload=None):
+            if method == "GET":
+                return issues
+            return {}
+        run_once(self.db, gh, self.worker)
+        self.worker.assert_called_once()
+        self.assertEqual(self.db.execute("SELECT count(*) FROM tasks").fetchone()[0], 1)
+
     def test_comment_failure_is_retryable_without_job_replay(self):
         fail = {"yes": True}
         def gh(method, path, payload=None):
