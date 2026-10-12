@@ -17,6 +17,9 @@ class BrowserWorkerContainerContractTest(unittest.TestCase):
         self.assertIn("COPY . /app/dev_control", dockerfile)
         self.assertIn("chown -R root:root /app /home/worker", dockerfile)
         self.assertIn("chmod -R go-w /app", dockerfile)
+        self.assertIn("find /app/dev_control -type d -exec chmod 755 {} +", dockerfile)
+        self.assertIn("find /app/dev_control -type f -name '*.py' -exec chmod 644 {} +", dockerfile)
+        self.assertNotIn("chmod -R a+r /app", dockerfile)
         self.assertNotIn("chown -R worker:worker /app", dockerfile)
         self.assertNotIn("COPY backend", dockerfile)
         self.assertIn(
