@@ -3,7 +3,7 @@ import {fireEvent, render, screen, waitFor} from '@testing-library/react';
 import SupplierMergeDialog from './SupplierMergeDialog';
 
 const originalFetch=global.fetch;
-const supplier={id:12,companyId:2,name:'Поставщик с кабинетом'};
+const supplier={id:12,companyId:2,name:'Поставщик с кабинетом',hasSupplierAccount:true,_supplierIds:[4,12]};
 const sources=[supplier,{id:4,companyId:2,name:'Поставщик из накладной'}];
 const review={targetId:12,sourceId:4,targetVersion:3,sourceVersion:1,targetName:supplier.name,sourceName:sources[1].name,hasSupplierAccount:true,documents:{supplier_invoices:2,warehouse_invoices:1,supplier_offers:0}};
 const response=data=>({ok:true,json:async()=>data});
