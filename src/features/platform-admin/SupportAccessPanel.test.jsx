@@ -46,3 +46,14 @@ test('grant failure remains visible and does not show a successful grant',async(
   expect(await screen.findByRole('alert')).toHaveTextContent('Обращение изменилось');
   await waitFor(()=>expect(screen.getByRole('button',{name:'Дать доступ к диагностике'})).not.toBeDisabled());
 });
+
+test('refused diagnostic attempts appear beside the exact grant history',async()=>{
+  global.fetch=jest.fn(async url=>response(url.endsWith('support-assignees')?{items:[]}:{items:[{
+    id:'grant',assigneeId:17,assigneeName:'Поддержка',active:false,revokedAt:'2026-10-13T12:00:00Z',
+    expiresAt:'2026-10-13T13:00:00Z',reason:'Проверить приглашение',history:[],
+    denials:[{actor_id:17,status_code:403,created_at:'2026-10-13T12:01:00Z'}],
+  }],hasMore:false}));
+  render(<SupportAccessPanel {...props}/>);
+  expect(await screen.findByText('Попытки открыть без доступа · 1')).toBeInTheDocument();
+  expect(screen.getByText(/В доступе отказано/)).toBeInTheDocument();
+});

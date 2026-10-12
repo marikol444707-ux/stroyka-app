@@ -23,6 +23,7 @@ class SupportCapabilitiesPostgresTests(unittest.TestCase):
             cls.fixture['users'][key] = dict(id=uid, role='platform_support', name=key)
         schema = importlib.import_module('backend.features.participant_support.capability_schema')
         cls.sql(cls, schema.SCHEMA_SQL)
+        cls.sql(cls, importlib.import_module('backend.features.participant_support.security_schema').SCHEMA_SQL)
 
     def ticket(self):
         return self.report(self.failure(self.seed(True), 'SUPPLIER_ACCOUNT_EXISTS'))['id']
@@ -42,16 +43,20 @@ class SupportCapabilitiesPostgresTests(unittest.TestCase):
     def test_00_empty_migration_downgrade_and_replay(self):
         from types import SimpleNamespace
         migration = importlib.import_module('migrations.versions.0097_participant_support_access')
+        security_migration = importlib.import_module('migrations.versions.0098_participant_support_denials')
         conn = self.main.get_db()
         try:
             conn.autocommit = False
-            with conn.cursor() as cur, patch.object(migration, 'op', SimpleNamespace(execute=cur.execute)):
+            with conn.cursor() as cur, patch.object(migration, 'op', SimpleNamespace(execute=cur.execute)), patch.object(security_migration, 'op', SimpleNamespace(execute=cur.execute)):
                 self.assertEqual(self.sql('SELECT count(*) FROM participant_support_access'), [(0,)])
+                security_migration.downgrade()
                 migration.downgrade()
                 cur.execute("SELECT to_regclass('public.participant_support_access')")
                 self.assertIsNone(cur.fetchone()[0])
                 migration.upgrade()
                 migration.upgrade()
+                security_migration.upgrade()
+                security_migration.upgrade()
             conn.commit()
         finally:
             conn.close()

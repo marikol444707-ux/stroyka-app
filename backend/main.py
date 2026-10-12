@@ -678,7 +678,7 @@ def get_current_user(request: Request, authorization: Optional[str] = Header(def
         from backend.features.participant_support.capabilities import enforce_support_route
     except ImportError:
         from features.participant_support.capabilities import enforce_support_route
-    enforce_support_route(user, request)
+    enforce_support_route(user, request, get_db=get_db)
     return user
 
 def require_csrf_for_cookie_mutation(
@@ -2937,6 +2937,9 @@ except ModuleNotFoundError:
     )
 
 PUBLIC_UPLOADS_MOUNT_ENABLED = public_uploads_mount_enabled()
+from backend.features.participant_support.security import validate_storage_configuration
+validate_storage_configuration(PUBLIC_UPLOADS_MOUNT_ENABLED,
+                               os.getenv('STORAGE_BACKEND', 'local').strip().lower(), os.getenv('S3_ACL', 'public-read'))
 if PUBLIC_UPLOADS_MOUNT_ENABLED:
     app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 

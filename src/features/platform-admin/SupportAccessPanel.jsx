@@ -66,9 +66,10 @@ export default function SupportAccessPanel({prefix, ticketId, btnG, btnO, inp}) 
         <span>{grant.reason}</span>
         {!grant.revokedAt&&<button type="button" disabled={busy} style={btnG} onClick={()=>send(path+'/'+grant.id+'/revoke', {reason:'Администратор отозвал доступ к обращению'})}>Отозвать доступ</button>}
         <details><summary>Последние действия</summary><ul>{grant.history.map((event,n)=><li key={n}>{({granted:'Доступ выдан',listed:'Показано в списке', 'diagnostic.read':'Диагностика открыта', revoked:'Доступ отозван'})[event.action]} · сотрудник №{event.actor_id} · {new Date(event.created_at).toLocaleString('ru-RU')}</li>)}</ul></details>
+        {grant.denials?.length>0&&<details><summary>Попытки открыть без доступа · {grant.denials.length}</summary><ul>{grant.denials.map((event,n)=><li key={n}>В доступе отказано · сотрудник №{event.actor_id} · {new Date(event.created_at).toLocaleString('ru-RU')}</li>)}</ul></details>}
       </li>)}</ul>
       {data.hasMore&&<p>Показаны последние 25 доступов.</p>}
     </>}
-    {error&&<button type="button" disabled={busy} style={btnG} onClick={()=>setRetry(n=>n+1)}>Обновить доступ</button>}
+    <button type="button" disabled={busy} style={btnG} onClick={()=>setRetry(n=>n+1)}>Обновить историю</button>
   </section>;
 }

@@ -255,3 +255,18 @@ Expiry проверяется по clock_timestamp после блокирово
 security-denial audit, обходные auth/file/export/WS/job поверхности и полный App
 E2E перед включением. Подробности и проверки:
 [participant-access-stage2e1-review.md](../../tasks/participant-access-stage2e1-review.md).
+
+
+## Срез 2д2: отдельный отказной аудит
+
+0098 сохраняет отказы после rollback бизнес-чтения. Scope покупателя выводится
+только из grant этого assignee; неизвестные/чужие UUID и прямые бизнес-пробы
+остаются в области платформы. URL/query/body/credentials не сохраняются.
+Append-only guards включают TRUNCATE; сбой аудита не открывает данные.
+Новый режим нельзя запустить с публичным upload mount или public S3 ACL.
+Это проверка конфигурации, а не доказательство закрытия bucket policy/CDN.
+
+Локально проверены 556 прямых бизнес-операций; отдельные auth/public/integration
+маршруты зафиксированы явным CI-инвентарём. Полный App login и общий bootstrap
+поддержки остаются следующим блоком. Никакого production enable/apply.
+[Приёмка](../../tasks/participant-access-stage2e2-review.md).

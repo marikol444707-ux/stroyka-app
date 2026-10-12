@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, conint, constr
 
 from .service import ADMIN_ROLES, ready
 from .reasons import REASONS
+from .security import record_denial, surface_for_path
 
 Id = conint(strict=True, ge=1, le=2147483647)
 Reason = constr(strip_whitespace=True, min_length=5, max_length=1000)
@@ -38,7 +39,7 @@ def enabled():
     return os.getenv('PARTICIPANT_SUPPORT_ACCESS_ENABLED', '0') == '1'
 
 
-def enforce_support_route(user, request):
+def enforce_support_route(user, request, *, get_db=None):
     """When enabled, support has a dedicated workspace, including direct URLs.
 
     Existing administrator/owner roles retain their ordinary independent rights.
@@ -50,7 +51,9 @@ def enforce_support_route(user, request):
     allowed = path == '/participant-support/workspace' or bool(re.fullmatch(
         r'/participant-support/workspace/[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}/diagnostic', path))
     if request.method != 'GET' or not allowed:
-        raise HTTPException(403, 'Поддержке доступны только назначенные обращения')
+        if get_db:
+            record_denial(get_db, user, surface=surface_for_path(path), method=request.method)
+        raise HTTPException(403, 'Поддержке доступны только назначенные обращения', headers={'Cache-Control':'private, no-store'})
 
 
 @contextmanager
@@ -63,7 +66,7 @@ def transaction(deps):
             ready(cur)
             if not enabled():
                 raise HTTPException(503, 'Доступ поддержки пока не включён')
-            cur.execute("SELECT to_regclass('public.participant_support_access') AS grants, to_regclass('public.participant_support_access_events') AS events")
+            cur.execute("SELECT to_regclass('public.participant_support_access') AS grants, to_regclass('public.participant_support_access_events') AS events, to_regclass('public.participant_support_denials') AS denials")
             if not all(cur.fetchone().values()):
                 raise HTTPException(503, 'Доступ поддержки требует обновления схемы')
             yield cur
@@ -226,7 +229,9 @@ def register_capabilities(app, deps, admin):
                 people = actors(cur, [row['assignee_id'], row['issuer_id']], lock=False)
                 cur.execute('SELECT action,actor_id,created_at FROM participant_support_access_events WHERE access_id=%s ORDER BY id DESC LIMIT 25', (str(row['id']),))
                 audit = list(reversed([dict(e) for e in cur.fetchall()]))
-                items.append(dict(view(row), assigneeName=row['assignee_name'], active=valid(cur, row, people, current), history=audit))
+                cur.execute('SELECT actor_id,status_code,created_at FROM participant_support_denials WHERE access_id=%s ORDER BY id DESC LIMIT 25', (str(row['id']),))
+                denials = [dict(e) for e in cur.fetchall()]
+                items.append(dict(view(row), assigneeName=row['assignee_name'], active=valid(cur, row, people, current), history=audit, denials=denials))
             return dict(items=items, hasMore=len(rows)>25)
 
     @app.get('/participant-support/workspace')
@@ -264,6 +269,15 @@ def register_capabilities(app, deps, admin):
     @app.get('/participant-support/workspace/{access_id}/diagnostic')
     def diagnostic(access_id: uuid.UUID, response: Response, user: dict = Depends(authenticated)):
         response.headers['Cache-Control'] = 'private, no-store'
+        try:
+            return read_diagnostic(access_id, user)
+        except HTTPException as exc:
+            if exc.status_code in (403,404):
+                record_denial(deps['get_db'], user, surface='diagnostic', status=exc.status_code, access_id=access_id)
+                exc.headers = dict(exc.headers or {}, **{'Cache-Control':'private, no-store'})
+            raise
+
+    def read_diagnostic(access_id, user):
         with transaction(deps) as cur:
             grant, owner, current = authorized_grant(cur, user, access_id)
             cur.execute('SELECT context FROM participant_access_diagnostics WHERE id=%s AND company_id=%s AND platform_account_id=%s',

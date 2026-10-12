@@ -88,6 +88,7 @@ jobs:
             backend.features.staff.test_access_postgres.StaffAccessPostgresTests \
             backend.features.participant_support.test_postgres.ParticipantSupportPostgresTests \
             backend.features.participant_support.test_capabilities_postgres.SupportCapabilitiesPostgresTests \
+            backend.features.participant_support.test_security_postgres.SupportSecurityPostgresTests \
             backend.features.participant_support.test_directory_postgres.OrganizationDirectoryPostgresTests \
             backend.features.participant_support.test_connection_preview_postgres.SupplierConnectionPreviewPostgresTests \
             backend.features.participant_support.test_connections_postgres.SupplierConnectionsPostgresTests \

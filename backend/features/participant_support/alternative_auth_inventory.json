@@ -1,0 +1,372 @@
+[
+  {
+    "methods": [
+      "GET"
+    ],
+    "path": "/health",
+    "dependencies": [
+      "health"
+    ]
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "path": "/login",
+    "dependencies": [
+      "login"
+    ]
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "path": "/login/2fa/verify",
+    "dependencies": [
+      "verify_login_2fa"
+    ]
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "path": "/login/2fa/setup-confirm",
+    "dependencies": [
+      "confirm_login_2fa_setup"
+    ]
+  },
+  {
+    "methods": [
+      "GET"
+    ],
+    "path": "/csrf-token",
+    "dependencies": [
+      "csrf_token"
+    ]
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "path": "/logout",
+    "dependencies": [
+      "logout",
+      "require_csrf_for_cookie_mutation"
+    ]
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "path": "/password-reset-request",
+    "dependencies": [
+      "password_reset_request"
+    ]
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "path": "/password-reset",
+    "dependencies": [
+      "password_reset"
+    ]
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "path": "/register",
+    "dependencies": [
+      "register"
+    ]
+  },
+  {
+    "methods": [
+      "GET"
+    ],
+    "path": "/invite-codes/{code}/info",
+    "dependencies": [
+      "invite_code_info"
+    ]
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "path": "/demo-request",
+    "dependencies": [
+      "create_demo_request"
+    ]
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "path": "/workflow/invoice/preview",
+    "dependencies": [
+      "require_workflow_token",
+      "workflow_invoice_preview"
+    ]
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "path": "/client-errors",
+    "dependencies": [
+      "log_client_error"
+    ]
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "path": "/telegram/own-expenses",
+    "dependencies": [
+      "create_telegram_own_expense",
+      "require_telegram_bot_token"
+    ]
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "path": "/telegram/warehouse-invoices",
+    "dependencies": [
+      "create_telegram_warehouse_invoice",
+      "require_telegram_bot_token"
+    ]
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "path": "/ai-control/run-all",
+    "dependencies": [
+      "get_ai_control_runner",
+      "run_all_ai_control"
+    ]
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "path": "/system/payment-webhooks/{provider}",
+    "dependencies": [
+      "system_payment_webhook"
+    ]
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "path": "/site/lead-files",
+    "dependencies": [
+      "create_site_lead_file"
+    ]
+  },
+  {
+    "methods": [
+      "GET"
+    ],
+    "path": "/site/projects",
+    "dependencies": [
+      "get_site_projects"
+    ]
+  },
+  {
+    "methods": [
+      "GET"
+    ],
+    "path": "/site/pricing",
+    "dependencies": [
+      "get_site_pricing"
+    ]
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "path": "/site/leads",
+    "dependencies": [
+      "create_site_lead"
+    ]
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "path": "/max/miniapp/validate",
+    "dependencies": [
+      "validate_max_miniapp"
+    ]
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "path": "/max/miniapp/session",
+    "dependencies": [
+      "create_max_miniapp_session"
+    ]
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "path": "/max/register",
+    "dependencies": [
+      "register_via_max"
+    ]
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "path": "/max/marketing-leads",
+    "dependencies": [
+      "create_max_marketing_lead",
+      "require_max_bot_token"
+    ]
+  },
+  {
+    "methods": [
+      "GET"
+    ],
+    "path": "/max/outbox",
+    "dependencies": [
+      "list_max_outbox",
+      "require_max_bot_token"
+    ]
+  },
+  {
+    "methods": [
+      "GET"
+    ],
+    "path": "/max/bot/status",
+    "dependencies": [
+      "get_max_bot_status",
+      "require_max_bot_token"
+    ]
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "path": "/max/supplier-email/dispatch",
+    "dependencies": [
+      "require_max_bot_token",
+      "resume_supplier_email"
+    ]
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "path": "/max/outbox/dispatch",
+    "dependencies": [
+      "dispatch_max_outbox",
+      "require_max_bot_token"
+    ]
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "path": "/max/outbox/{message_id}/status",
+    "dependencies": [
+      "require_max_bot_token",
+      "update_max_outbox_status"
+    ]
+  },
+  {
+    "methods": [
+      "GET"
+    ],
+    "path": "/max/webhook/subscriptions",
+    "dependencies": [
+      "list_max_webhook_subscriptions",
+      "require_max_bot_token"
+    ]
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "path": "/max/webhook/subscribe",
+    "dependencies": [
+      "require_max_bot_token",
+      "subscribe_max_webhook"
+    ]
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "path": "/max/files",
+    "dependencies": [
+      "require_max_bot_token",
+      "upload_max_file"
+    ]
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "path": "/max/warehouse-invoices/preview",
+    "dependencies": [
+      "preview_max_warehouse_invoice",
+      "require_max_bot_token"
+    ]
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "path": "/max/warehouse-invoices/confirm",
+    "dependencies": [
+      "confirm_max_warehouse_invoice",
+      "require_max_bot_token"
+    ]
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "path": "/max/warehouse-invoices/reject",
+    "dependencies": [
+      "reject_max_warehouse_invoice",
+      "require_max_bot_token"
+    ]
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "path": "/max/warehouse-invoices",
+    "dependencies": [
+      "create_max_warehouse_invoice",
+      "require_max_bot_token"
+    ]
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "path": "/max/webhook",
+    "dependencies": [
+      "max_webhook",
+      "require_max_bot_token"
+    ]
+  },
+  {
+    "methods": [
+      "GET"
+    ],
+    "path": "/site/publications",
+    "dependencies": [
+      "list_site_publications"
+    ]
+  }
+]
