@@ -59,6 +59,16 @@ class BrowserWorkerContainerContractTest(unittest.TestCase):
         self.assertIn("Refusing untrusted browser/evidence runtime directory overrides", start)
         self.assertIn("0:0:755", start)
 
+    def test_qa_spki_is_pinned_without_global_certificate_bypass(self):
+        script = Path("dev_control/browser_worker/start.sh").read_text(encoding="utf-8")
+        self.assertIn('QA_CHROME_CERT_SPKI', script)
+        self.assertIn('qa_spki="${QA_CHROME_CERT_SPKI#sha256/}"', script)
+        self.assertIn('--ignore-certificate-errors-spki-list=$qa_spki', script)
+        self.assertIn('QA Chrome SPKI trust is restricted to the dedicated QA gateway', script)
+        self.assertIn('Invalid QA Chrome SPKI pin format', script)
+        self.assertNotIn('--ignore-certificate-errors ', script)
+        self.assertNotIn('chrome_args=(--ignore-certificate-errors "', script)
+
     def test_chrome_env_options_precede_assignments(self):
         # GNU env stops processing -u flags after its first NAME=VALUE operand.
         # The former 'env HOME=/home/chrome -u TOKEN ...' failed to start Chrome.
