@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import SupplierConnectionRequests from './SupplierConnectionRequests';
 
 const titles={already_connected:'Кабинет уже связан с карточкой',connect_existing:'Найден существующий кабинет',merge_cards:'В каталоге есть две карточки',no_cabinet:'Существующий кабинет не найден',ambiguous:'Найдено несколько кабинетов',review:'Нужна проверка карточки'};
 const accounts={active:'Пользователь включён',disabled:'Пользователь отключён',wrong_role:'У пользователя другая роль',missing:'Пользователь не найден'};
@@ -31,6 +32,10 @@ export default function SupplierConnectionPreview({prefix,supplierId,btnG,onClos
       {data.currentVisibility&&<p>Сейчас пользователь кабинета может видеть: счета — {data.currentVisibility.invoices}, КП — {data.currentVisibility.offers}. Файлы и договоры проверяются отдельно.</p>}
       {data.blockers.length>0&&<><h4>Что нужно уточнить</h4><ul>{data.blockers.map(item=><li key={item.code}>{item.message}</li>)}</ul></>}
       <p className="organization-participants__muted">Это проверка. Подключение и доступ к истории здесь не изменяются.</p>
+      {process.env.REACT_APP_PARTICIPANT_CONNECTIONS_ENABLED==='1'&&<SupplierConnectionRequests key={prefix+'/'+supplierId+'/'+retry}
+        prefix={prefix} supplierId={supplierId} cabinet={data.cabinet} sourceVersion={data.supplier.relationshipVersion}
+        canRequest={data.scenario==='connect_existing'&&data.cabinet?.accountState==='active'&&data.blockers.every(b=>
+          ['OWNER_VERIFICATION_REQUIRED','HISTORY_REVIEW_REQUIRED','SHARED_SOURCE_CARD','DOCUMENT_OWNER_REVIEW'].includes(b.code))}/>}
       <details><summary>Данные проверки</summary><p>Компания: {data.companyId} · Аккаунт компании: {data.platformAccountId}<br/>Карточка: {data.supplier.supplierId} · Версия связи: {data.supplier.relationshipVersion}</p>
         {data.cabinet&&<p>Карточка кабинета: {data.cabinet.supplierId} · Пользователь: {data.cabinet.ownerUserId}<br/>Версия связи с компанией: {data.cabinet.relationshipVersion??'Связи нет'}</p>}
         {data.blockers.length>0&&<p>Причины: {data.blockers.map(item=>item.code).join(', ')}</p>}

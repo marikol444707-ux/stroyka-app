@@ -122,7 +122,10 @@ def diagnose(cur, company, supplier_id):
                     if source[key] and target[key] and str(source[key]).strip()!=str(target[key]).strip():
                         block('LEGAL_IDENTITY_CONFLICT','ИНН или ОГРН карточек различаются. Объединять разные юрлица нельзя.')
                         break
-                block('OWNER_VERIFICATION_REQUIRED','Нужно подтвердить принадлежность существующего кабинета. Совпадение реквизитов не выдаёт доступ.')
+                if scenario=='merge_cards':
+                    block('HISTORICAL_ACCESS_REVIEW_REQUIRED','Кабинет уже есть у этого покупателя. Объединение старой карточки и доступ к её документам проверяются отдельно.')
+                else:
+                    block('OWNER_VERIFICATION_REQUIRED','Нужно подтвердить принадлежность существующего кабинета. Совпадение реквизитов не выдаёт доступ.')
             else:
                 block('NO_EXISTING_CABINET','По точным реквизитам кабинет не найден. Это не подтверждает, что других кабинетов нет.')
         cur.execute('''SELECT 1 FROM company_supplier_links WHERE supplier_id=%s

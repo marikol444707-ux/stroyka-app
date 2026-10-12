@@ -5,7 +5,7 @@ import SupplierConnectionPreview from './SupplierConnectionPreview';
 
 export const ticketStatuses = {new:'Новое',in_progress:'В работе',waiting:'Ожидает сведения',resolved:'Исправлено',closed:'Проверено и закрыто'};
 const transitions = {new:['in_progress'],in_progress:['waiting','resolved'],waiting:['in_progress'],resolved:['closed','in_progress'],closed:['in_progress']};
-const sources = {warehouse_invoice:'Из накладной',invite_link:'По приглашению',manual:'Создана вручную'};
+const sources = {warehouse_invoice:'Из накладной',invite_link:'По приглашению',manual:'Создана вручную',owner_confirmed_connection:'Подтверждено владельцем кабинета'};
 
 export default function OrganizationParticipants({company,API,C,btnG,btnO,inp}) {
   const [tab,setTab] = useState('participants');

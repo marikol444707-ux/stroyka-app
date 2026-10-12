@@ -4,6 +4,7 @@ from .service import admin_transaction, create_ticket, ready, ticket_view, ADMIN
 from ..invite_codes.supplier_relationship import directory
 from .organization_directory import register_organization_directory
 from .connection_preview import register_connection_preview
+from .connection_routes import register_connections
 
 TRANSITIONS = {
     'new': {'in_progress'}, 'in_progress': {'waiting','resolved'},
@@ -16,6 +17,7 @@ def register_participant_support(app, deps):
     admin = deps['require_roles'](*ADMIN_ROLES)
     register_organization_directory(app, deps, admin)
     register_connection_preview(app, deps, admin)
+    register_connections(app, deps, admin)
 
     @app.post('/participant-support/tickets')
     def report(data: dict, user: dict = Depends(authenticated),

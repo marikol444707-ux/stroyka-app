@@ -13,7 +13,7 @@ class FakeApp:
     def get(self, path, **_options):
         return self._register("GET", path)
 
-    def post(self, path):
+    def post(self, path, **_options):
         return self._register("POST", path)
 
     def put(self, path):
