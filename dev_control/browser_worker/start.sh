@@ -54,6 +54,23 @@ chrome_args=(
   about:blank
 )
 
+# Trust only the explicitly pinned public key of the internal QA TLS certificate.
+# The network boundary still restricts browser requests to QA_BASE_URL.
+# Never disable global certificate verification.
+if [[ -n "${QA_CHROME_CERT_SPKI:-}" ]]; then
+  if [[ "${QA_ENVIRONMENT:-}" != "qa" ||
+        "${QA_BASE_URL:-}" != "https://stroyka-qa-gateway" ]]; then
+    echo "QA Chrome SPKI trust is restricted to the dedicated QA gateway" >&2
+    exit 2
+  fi
+  qa_spki="${QA_CHROME_CERT_SPKI#sha256/}"
+  if [[ ! "$qa_spki" =~ ^[A-Za-z0-9+/]{43}=$ ]]; then
+    echo "Invalid QA Chrome SPKI pin format" >&2
+    exit 2
+  fi
+  chrome_args=("--ignore-certificate-errors-spki-list=$qa_spki" "${chrome_args[@]}")
+fi
+
 # Chrome sandbox stays enabled by default. Opt-out must be explicit.
 if [[ "${CHROME_NO_SANDBOX:-0}" == "1" ]]; then
   chrome_args=(--no-sandbox "${chrome_args[@]}")
