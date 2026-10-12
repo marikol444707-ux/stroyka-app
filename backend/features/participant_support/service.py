@@ -115,10 +115,11 @@ def admin_transaction(deps, user, company_id, *, snapshot=False):
         conn.autocommit = False
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             if snapshot:
-                cur.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ')
+                cur.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY')
             cur.execute("SET LOCAL statement_timeout='15s'")
             ready(cur)
-            cur.execute('SELECT id,platform_account_id FROM companies WHERE id=%s FOR SHARE', (company_id,))
+            cur.execute('SELECT id,platform_account_id FROM companies WHERE id=%s'+
+                        ('' if snapshot else ' FOR SHARE'), (company_id,))
             company = cur.fetchone()
             if not company or not company['platform_account_id']:
                 raise HTTPException(404, 'Организация недоступна')

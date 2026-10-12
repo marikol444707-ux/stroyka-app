@@ -90,6 +90,7 @@ jobs:
             backend.features.participant_support.test_directory_postgres.OrganizationDirectoryPostgresTests \
             backend.features.participant_support.test_connection_preview_postgres.SupplierConnectionPreviewPostgresTests \
             backend.features.participant_support.test_connections_postgres.SupplierConnectionsPostgresTests \
+            backend.features.participant_support.test_history_preview_postgres.SupplierHistoryPreviewPostgresTests \
             backend.features.invite_codes.test_supplier_registration_postgres.SupplierRegistrationPostgresTests \
             backend.features.supplier_access.test_company_merge_postgres.CompanyMergePostgresTests \
             backend.features.supplier_access.test_company_directory_postgres.CompanyDirectoryPostgresTests

@@ -5,6 +5,7 @@ from ..invite_codes.supplier_relationship import directory
 from .organization_directory import register_organization_directory
 from .connection_preview import register_connection_preview
 from .connection_routes import register_connections
+from .history_preview import register_history_preview
 
 TRANSITIONS = {
     'new': {'in_progress'}, 'in_progress': {'waiting','resolved'},
@@ -18,6 +19,7 @@ def register_participant_support(app, deps):
     register_organization_directory(app, deps, admin)
     register_connection_preview(app, deps, admin)
     register_connections(app, deps, admin)
+    register_history_preview(app, deps, admin)
 
     @app.post('/participant-support/tickets')
     def report(data: dict, user: dict = Depends(authenticated),
