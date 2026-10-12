@@ -1,0 +1,24 @@
+name: Jev Issue Bridge offline tests
+on:
+  pull_request:
+    paths:
+      - 'scripts/jev_issue_bridge.py'
+      - 'scripts/test_jev_issue_bridge.py'
+      - 'scripts/jev_qa_watch.py'
+      - 'scripts/install_jev_issue_bridge.sh'
+      - 'ops/systemd/stroyka-jev-issue-bridge.*'
+      - '.github/workflows/jev-issue-bridge-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m unittest scripts.test_jev_issue_bridge -v
+      - run: bash -n scripts/install_jev_issue_bridge.sh
