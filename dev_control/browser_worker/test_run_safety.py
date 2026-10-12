@@ -287,66 +287,68 @@ class BrowserWorkerUrlSafetyTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "BU_CDP_WS"):
                 assert_dedicated_loopback_cdp_url()
 
-    def test_session_cookie_bootstrap_is_https_httponly_and_local_to_context(self):
-        cdp = Mock()
+    def test_session_cookie_bootstrap_is_https_httponly_and_target_scoped(self):
+        cdp = Mock(return_value={"success": True})
         with patch.dict(
             os.environ,
             {"QA_SESSION_COOKIE_NAME": "qa_session", "QA_SESSION_COOKIE_VALUE": "session-secret"},
             clear=True,
         ):
-            self.assertTrue(
-                bootstrap_session_cookie(
-                    "https://qa.example.test/app",
-                    "context-1",
-                    cdp,
-                )
-            )
+            self.assertTrue(bootstrap_session_cookie(
+                "https://qa.example.test/app", "page-session-1", cdp,
+            ))
         cdp.assert_called_once()
         args, kwargs = cdp.call_args
-        self.assertEqual(args[0], "Storage.setCookies")
-        self.assertEqual(kwargs["browserContextId"], "context-1")
-        cookie = kwargs["cookies"][0]
-        self.assertEqual(cookie["name"], "qa_session")
-        self.assertEqual(cookie["value"], "session-secret")
-        self.assertEqual(cookie["url"], "https://qa.example.test/")
-        self.assertTrue(cookie["secure"])
-        self.assertTrue(cookie["httpOnly"])
-        self.assertNotIn("domain", cookie)
+        self.assertEqual(args[0], "Network.setCookie")
+        self.assertEqual(kwargs["session_id"], "page-session-1")
+        self.assertNotIn("browserContextId", kwargs)
+        self.assertEqual(kwargs["name"], "qa_session")
+        self.assertEqual(kwargs["value"], "session-secret")
+        self.assertEqual(kwargs["url"], "https://qa.example.test/")
+        self.assertTrue(kwargs["secure"])
+        self.assertTrue(kwargs["httpOnly"])
+        self.assertEqual(kwargs["sameSite"], "Lax")
+        self.assertNotIn("domain", kwargs)
 
     def test_session_cookie_bootstrap_uses_real_backend_cookie_name_by_default(self):
-        cdp = Mock()
+        cdp = Mock(return_value={"success": True})
         with patch.dict(
             os.environ, {"QA_SESSION_COOKIE_VALUE": "opaque-test-session"}, clear=True,
         ):
             self.assertTrue(bootstrap_session_cookie(
-                "https://qa.example.test/app", "context-1", cdp,
+                "https://qa.example.test/app", "page-session-1", cdp,
             ))
-        cookie = cdp.call_args.kwargs["cookies"][0]
-        self.assertEqual(cookie["name"], "stroyka_session")
-        self.assertTrue(cookie["httpOnly"])
-        self.assertTrue(cookie["secure"])
+        kwargs = cdp.call_args.kwargs
+        self.assertEqual(kwargs["name"], "stroyka_session")
+        self.assertTrue(kwargs["httpOnly"])
+        self.assertTrue(kwargs["secure"])
+
+    def test_session_cookie_bootstrap_fails_closed_if_not_confirmed(self):
+        with patch.dict(os.environ, {"QA_SESSION_COOKIE_VALUE": "opaque-test-session"}, clear=True):
+            for result in ({}, {"success": False}, None):
+                with self.subTest(result=result):
+                    cdp = Mock(return_value=result)
+                    with self.assertRaisesRegex(ValueError, "not confirmed"):
+                        bootstrap_session_cookie("https://qa.example.test/", "page-session-1", cdp)
+            cdp = Mock()
+            with self.assertRaisesRegex(ValueError, "browser session"):
+                bootstrap_session_cookie("https://qa.example.test/", "", cdp)
+            cdp.assert_not_called()
 
     def test_session_cookie_bootstrap_refuses_plain_http_and_no_cookie_is_noop(self):
         cdp = Mock()
         with patch.dict(os.environ, {}, clear=True):
-            self.assertFalse(
-                bootstrap_session_cookie(
-                    "https://qa.example.test/app",
-                    "context-1",
-                    cdp,
-                )
-            )
+            self.assertFalse(bootstrap_session_cookie(
+                "https://qa.example.test/app", "page-session-1", cdp,
+            ))
         cdp.assert_not_called()
 
         with patch.dict(os.environ, {"QA_SESSION_COOKIE_VALUE": "session-secret"}, clear=True):
             with self.assertRaisesRegex(ValueError, "HTTPS"):
                 bootstrap_session_cookie(
-                    "http://qa.example.test/app",
-                    "context-1",
-                    cdp,
+                    "http://qa.example.test/app", "page-session-1", cdp,
                 )
-
-
+            cdp.assert_not_called()
 
     def test_read_only_drops_presence_ping_but_rejects_other_writes(self):
         # The real Stroyka frontend POSTs /api/online upon login. The
