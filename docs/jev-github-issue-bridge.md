@@ -24,6 +24,8 @@ JEV_CONTROL_MIN_ISSUE_NUMBER=<latest issue number before activation>
 
 Never put these values in GitHub Issues, terminal history or chat. The watcher token is the **scoped** credential derived as `HMAC_SHA256(DEV_CONTROL_API_TOKEN, "stroyka-jev-watch-read-only-v2")`, **not** the full Jev API token. An existing `/etc/stroyka-jev-watch.env` may already contain this scoped token; verify without displaying it. The GitHub PAT is only required on the QA host.
 
+If the existing watcher already has both scoped `JEV_WATCHER_TOKEN` and `JEV_WATCH_GITHUB_TOKEN` in `/etc/stroyka-jev-watch.env`, the optional `scripts/bootstrap_jev_issue_bridge.sh` can create the bridge environment without exposing tokens. It refuses to proceed if either token is missing. Review and set `JEV_CONTROL_MIN_ISSUE_NUMBER` to the latest issue number before enabling the timer.
+
 From a reviewed checkout:
 
 ```bash
