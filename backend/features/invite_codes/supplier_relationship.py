@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from psycopg2.extras import Json
 
 from ..supplier_access.company_directory import CompanySupplierDirectory
+from ..participant_support.reasons import InviteDiagnostic
 
 
 def directory(deps):
@@ -20,16 +21,23 @@ def unclaimed_supplier(cur, supplier_id, company_id, account_id, canonical_id=No
     links = cur.fetchall()
     if not supplier or not any(r['company_id'] == company_id and r['platform_account_id'] == account_id for r in links):
         raise HTTPException(404, 'Поставщик не найден в выбранной компании')
-    if supplier['user_id'] or any(r['company_id'] != company_id or r['platform_account_id'] != account_id for r in links):
-        raise HTTPException(409, 'У поставщика уже есть кабинет или связи с другими компаниями. Для подключения обратитесь к администратору платформы')
+    if supplier['user_id']:
+        raise InviteDiagnostic('SUPPLIER_ACCOUNT_EXISTS', supplier_id)
+    if any(r['company_id'] != company_id or r['platform_account_id'] != account_id for r in links):
+        raise InviteDiagnostic('SUPPLIER_SHARED_CARD', supplier_id)
     if any((r.get('profile') or {}).get('mergedIntoSupplierId') and
            (r.get('profile') or {}).get('mergedIntoSupplierId') != canonical_id for r in links):
-        raise HTTPException(409, 'Карточка уже объединена. Пригласите поставщика из основной карточки')
+        raise InviteDiagnostic('SUPPLIER_CARD_MERGED', supplier_id)
     from ..supplier_access.company_merge import check_company_documents
-    check_company_documents(cur, supplier_id, company_id)
+    try:
+        check_company_documents(cur, supplier_id, company_id)
+    except HTTPException as error:
+        if error.status_code != 409:
+            raise
+        raise InviteDiagnostic('SUPPLIER_DOCUMENT_OWNERSHIP', supplier_id) from error
     cur.execute('SELECT 1 FROM supplier_team_members WHERE supplier_id=%s LIMIT 1', (supplier_id,))
     if cur.fetchone():
-        raise HTTPException(409, 'У поставщика уже есть команда. Используйте его кабинет')
+        raise InviteDiagnostic('SUPPLIER_TEAM_EXISTS', supplier_id)
     return supplier
 
 

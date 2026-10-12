@@ -44,6 +44,13 @@ export function useSupplyWorkflowState(scopeKey = '') {
   const [showSupplierInviteModal, setShowSupplierInviteModal] = useState(false);
   const [supplierInviteForm, setSupplierInviteForm] = useState(createSupplierInviteForm);
   const [generatedInviteLink, setGeneratedInviteLink] = useState(null);
+  const [inviteScope,setInviteScope] = useState(scopeKey);
+  if (inviteScope !== scopeKey) {
+    setInviteScope(scopeKey);
+    setShowSupplierInviteModal(false);
+    setSupplierInviteForm(createSupplierInviteForm());
+    setGeneratedInviteLink(null);
+  }
 
   return {
     supplyRequestCreationRef,

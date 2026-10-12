@@ -19,6 +19,9 @@ class FakeApp:
     def put(self, path):
         return self._register("PUT", path)
 
+    def patch(self, path):
+        return self._register("PATCH", path)
+
     def delete(self, path):
         return self._register("DELETE", path)
 

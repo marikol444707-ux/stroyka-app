@@ -5,6 +5,7 @@ import {
   describeClientCardSource,
 } from './companyOnboarding';
 import ClientContractsPanel from './ClientContractsPanel';
+import OrganizationParticipants from './OrganizationParticipants';
 import './SystemOwnerCabinet.css';
 import { pendingPayment, preparePayment, finishPayment } from './paymentCommands';
 
@@ -38,6 +39,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
   const [companyPreview, setCompanyPreview] = useState(null);
   const [companyPreviewLoading, setCompanyPreviewLoading] = useState(false);
   const [contractCompanyId, setContractCompanyId] = useState(null);
+  const [participantsCompanyId,setParticipantsCompanyId] = useState(null);
   const [newPayment, setNewPayment] = useState(() => pendingPayment(user.id) || {companyId:'',clientContractId:'',amount:'',paymentDate:new Date().toISOString().split('T')[0],method:'card',invoiceNumber:'',periodStart:'',periodEnd:'',notes:''});
   const [showNewPayment, setShowNewPayment] = useState(() => Boolean(pendingPayment(user.id)));
   const [paymentWorking, setPaymentWorking] = useState(false);
@@ -1113,6 +1115,8 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
 	                    </div>
 	                  </div>
 	                  {billingState.reason && <p style={{color:billingColors.color,fontSize:'11px',margin:'6px 0 0',fontWeight:billingNeedsAction(billingState)?700:400}}>🚦 {billingState.reason}</p>}
+                    {canManagePlatform && process.env.REACT_APP_PARTICIPANT_SUPPORT_ENABLED==='1' && <button type="button" aria-expanded={participantsCompanyId===c.id} onClick={()=>setParticipantsCompanyId(participantsCompanyId===c.id?null:c.id)} style={{...btnG,minHeight:44,marginTop:8}}>Участники и доступ</button>}
+                    {participantsCompanyId===c.id && canManagePlatform && <OrganizationParticipants key={c.id} company={c} API={API} C={C} inp={inp} btnO={btnO} btnG={btnG}/>}
 	                  {canManagePlatform && c.id!==1 && (
 	                    <div style={{display:'flex',gap:'6px',marginTop:'8px',flexWrap:'wrap'}}>
 	                      {isDemo && <button onClick={()=>extendCompanyTrial(c)} style={{...btnG,padding:'4px 10px',fontSize:'11px'}}>📅 Продлить триал</button>}
