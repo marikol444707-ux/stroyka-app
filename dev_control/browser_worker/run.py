@@ -192,6 +192,35 @@ def _refresh_live_observation(agent, state: dict, base_url: str) -> dict:
     return state
 
 
+
+def _capture_final_frame(evidence: Path) -> None:
+    """Save a real JPEG from the current QA browser session, never a renamed PNG."""
+    from browser_harness.helpers import capture_screenshot
+    from PIL import Image
+
+    source = evidence / "final.png"
+    destination = evidence / "final.jpg"
+    try:
+        capture_screenshot(path=str(source))
+        if not source.is_file() or source.stat().st_size == 0:
+            raise RuntimeError("final screenshot was not created")
+        with Image.open(source) as image:
+            if image.format != "PNG":
+                raise RuntimeError("unexpected final screenshot format")
+            if image.width < 1 or image.height < 1 or image.width * image.height > 16000000:
+                raise RuntimeError("final screenshot dimensions out of bounds")
+            image.convert("RGB").save(destination, format="JPEG", quality=82)
+        with Image.open(destination) as check:
+            if check.format != "JPEG":
+                raise RuntimeError("final screenshot is not JPEG")
+            check.verify()
+    except Exception:
+        destination.unlink(missing_ok=True)
+        raise
+    finally:
+        source.unlink(missing_ok=True)
+
+
 def execute_task(
     *,
     url: str,
@@ -259,7 +288,37 @@ def execute_task(
                         checks=probe.checks,
                         failures=probe.failures,
                     )
-                    if probe.ok or time.monotonic() >= deadline:
+                    if probe.ok:
+                        # Verify a second observation after a short stable interval.
+                        # The initial Agent screenshot is frequently just the React loader.
+                        time.sleep(1.0)
+                        final_state = _refresh_live_observation(agent, agent.snapshot(), base_url)
+                        stable_probe = verify_final_state(
+                            final_state,
+                            expect_text=expect_text or (),
+                            forbid_text=forbid_text or (),
+                            expect_url_contains=expect_url_contains or (),
+                            require_agent_done=False,
+                        )
+                        if stable_probe.ok:
+                            try:
+                                _capture_final_frame(evidence)
+                                # Recheck the DOM after capture; a transition during
+                                # the screenshot must never count as a clean pass.
+                                final_state = _refresh_live_observation(agent, agent.snapshot(), base_url)
+                                post_capture = verify_final_state(
+                                    final_state,
+                                    expect_text=expect_text or (),
+                                    forbid_text=forbid_text or (),
+                                    expect_url_contains=expect_url_contains or (),
+                                    require_agent_done=False,
+                                )
+                                if not post_capture.ok:
+                                    error = "final_frame_verification_mismatch"
+                            except Exception as exc:
+                                error = f"final_screenshot_failed: {type(exc).__name__}"
+                            break
+                    if time.monotonic() >= deadline:
                         break
                     time.sleep(1.0)
             else:
