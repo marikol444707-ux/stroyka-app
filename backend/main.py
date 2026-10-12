@@ -671,8 +671,15 @@ def _current_user_from_session_cookie(request: Optional[Request]) -> dict:
 
 def get_current_user(request: Request, authorization: Optional[str] = Header(default=None)) -> dict:
     if authorization and authorization.lower().startswith("bearer "):
-        return _current_user_from_bearer(authorization)
-    return _current_user_from_session_cookie(request)
+        user = _current_user_from_bearer(authorization)
+    else:
+        user = _current_user_from_session_cookie(request)
+    try:
+        from backend.features.participant_support.capabilities import enforce_support_route
+    except ImportError:
+        from features.participant_support.capabilities import enforce_support_route
+    enforce_support_route(user, request)
+    return user
 
 def require_csrf_for_cookie_mutation(
     request: Request,

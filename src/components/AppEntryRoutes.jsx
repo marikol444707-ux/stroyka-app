@@ -5,6 +5,7 @@ import {
   PublicSitePage,
   RegisterPage,
   SystemOwnerCabinet,
+  SupportWorkspace,
 } from '../app/lazyComponents';
 
 export default function AppEntryRoutes({ user, page, pageFallback, ui = {}, constants = {}, state = {}, actions = {} }) {
@@ -96,6 +97,10 @@ export default function AppEntryRoutes({ user, page, pageFallback, ui = {}, cons
         }} />
       </React.Suspense>
     );
+  }
+
+  if (user.role==='platform_support'&&process.env.REACT_APP_PARTICIPANT_SUPPORT_ACCESS_ENABLED==='1') {
+    return <React.Suspense fallback={pageFallback}><SupportWorkspace API={API} C={C} btnG={btnG} onLogout={handleLogout}/></React.Suspense>;
   }
 
   if (['system_owner', 'platform_admin', 'platform_support', 'billing_admin'].includes(user.role)) {

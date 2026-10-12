@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import './OrganizationParticipants.css';
 import { directoryTabs, MembershipItem, InvitationItem } from './ParticipantDirectoryItems';
 import SupplierConnectionPreview from './SupplierConnectionPreview';
+import SupportAccessPanel from './SupportAccessPanel';
 
 export const ticketStatuses = {new:'Новое',in_progress:'В работе',waiting:'Ожидает сведения',resolved:'Исправлено',closed:'Проверено и закрыто'};
 const transitions = {new:['in_progress'],in_progress:['waiting','resolved'],waiting:['in_progress'],resolved:['closed','in_progress'],closed:['in_progress']};
@@ -124,6 +125,7 @@ export default function OrganizationParticipants({company,API,C,btnG,btnO,inp}) 
         <p>Версия приложения: {detail.context.applicationVersion} · Роль: {detail.context.role}</p>
         <ul>{detail.history.map((event,n)=><li key={n}>{ticketStatuses[event.to_status]} · {new Date(event.created_at).toLocaleString('ru-RU')}{event.result?' · '+event.result:''}</li>)}</ul>
       </details>
+      {process.env.REACT_APP_PARTICIPANT_SUPPORT_ACCESS_ENABLED==='1'&&<details><summary>Доступ сотрудника поддержки</summary><SupportAccessPanel key={prefix+'/'+detail.id+'/'+detail.version} prefix={prefix} ticketId={detail.id} btnG={btnG} btnO={btnO} inp={inp}/></details>}
       <label>Сообщение о результате — видно автору обращения<textarea value={result} onChange={e=>setResult(e.target.value)} maxLength={2000} style={{...inp,minHeight:80}}/></label>
       {detail.status==='resolved'&&<label><input type="checkbox" checked={verified} onChange={e=>setVerified(e.target.checked)}/> Исходный сценарий проверен</label>}
       <div className="organization-participants__toolbar">{transitions[detail.status].map(next=><button key={next} type="button" disabled={busy||(next==='closed'&&!verified)||(['resolved','closed'].includes(next)&&result.trim().length<5)} onClick={()=>update(next)} style={btnO}>{next==='in_progress'&&detail.status!=='new'?'Вернуть в работу':ticketStatuses[next]}</button>)}

@@ -233,3 +233,25 @@ timeout 15s. Нагрузочная приёмка и общие company-scoped 
 команда для target с кабинетом возвращает 409 независимо от нового флага;
 merge без кабинета сохранён. Полная локальная приёмка:
 [participant-access-stage2d2-review.md](../../tasks/participant-access-stage2d2-review.md).
+
+
+## Срез 2д1: ограниченная диагностика поддержки (13.10.2026)
+
+Legacy `platform_support_sessions` не конвертируются в полномочия. Новый UUID
+привязан составным FK к точному company/account/ticket, к `platform_support`
+assignee, к действующему issuer-admin и epochs обоих. Единственное действие —
+`diagnostic.read`; обычные бизнес-API не принимают это разрешение. Включённый
+новый режим роли поддержки ограничивает общую dependency аутентификации до
+точных GET рабочего места/диагностики и выводит отдельный frontend кабинет.
+
+Проверка происходит в PostgreSQL под company/user/ticket/grant row locks.
+Expiry проверяется по clock_timestamp после блокировок; отзыв сериализуется
+с чтением, успешные использования входят в append-only audit. Повторная выдача
+отзывает старый UUID. Изменение ticket version или role/active epoch требует
+новой выдачи. Никаких постоянных членств, имперсонации и бизнес-writes.
+
+Миграция 0097, новые backend/frontend флаги default-off. Это законченная
+диагностическая команда, а не завершение всего support-контура: остаются
+security-denial audit, обходные auth/file/export/WS/job поверхности и полный App
+E2E перед включением. Подробности и проверки:
+[participant-access-stage2e1-review.md](../../tasks/participant-access-stage2e1-review.md).

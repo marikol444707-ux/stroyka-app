@@ -7,6 +7,7 @@ from .connection_preview import register_connection_preview
 from .connection_routes import register_connections
 from .history_preview import register_history_preview
 from .history_merge import register_history_merge
+from .capabilities import register_capabilities
 
 TRANSITIONS = {
     'new': {'in_progress'}, 'in_progress': {'waiting','resolved'},
@@ -22,6 +23,7 @@ def register_participant_support(app, deps):
     register_connections(app, deps, admin)
     register_history_preview(app, deps, admin)
     register_history_merge(app, deps, admin)
+    register_capabilities(app, deps, admin)
 
     @app.post('/participant-support/tickets')
     def report(data: dict, user: dict = Depends(authenticated),

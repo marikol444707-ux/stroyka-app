@@ -59,3 +59,5 @@ export const DashboardDirectorAiPanel = React.lazy(() => import('../components/D
 export const DashboardSupplyPanel = React.lazy(() => import('../components/DashboardSupplyPanel'));
 export const DashboardProductionSummaryPanel = React.lazy(() => import('../components/DashboardProductionSummaryPanel'));
 export const DashboardActivityPanel = React.lazy(() => import('../components/DashboardActivityPanel'));
+
+export const SupportWorkspace = React.lazy(() => import('../features/participant-support/SupportWorkspace'));
