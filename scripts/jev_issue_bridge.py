@@ -29,7 +29,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 def github(token, method, path, payload=None):
-    if not re.fullmatch(r"[A-Za-z0-9_\\-]{20,255}", token):
+    if not re.fullmatch(r"[A-Za-z0-9_-]{20,255}", token):
         raise BridgeError("INVALID_GITHUB_TOKEN")
     if not (path == "/issues?state=open&per_page=100&sort=created&direction=asc" or re.fullmatch(r"/issues/[0-9]+(?:/comments)?", path)):
         raise BridgeError("INVALID_GITHUB_PATH")
@@ -72,10 +72,10 @@ def safe_report(outcome, job_id=None, codes=()):
             "codes": sorted(set(codes) & CODES) or ([] if outcome == "passed" else ["UNEXPECTED_WATCH_ERROR"])}
 
 def format_comment(report):
-    return ("**Jev QA: " + report["outcome"].upper() + "**\\n\\n"
-        + "Scenario: `authenticated-qa-menu-smoke` (read-only)\\n"
-        + "Job: `" + report["job_id"] + "`\\n"
-        + "Failure codes: `" + (", ".join(report["codes"]) or "none") + "`\\n\\n"
+    return ("**Jev QA: " + report["outcome"].upper() + "**\n\n"
+        + "Scenario: `authenticated-qa-menu-smoke` (read-only)\n"
+        + "Job: `" + report["job_id"] + "`\n"
+        + "Failure codes: `" + (", ".join(report["codes"]) or "none") + "`\n\n"
         + "No secrets, screenshots or raw browser content uploaded.")
 
 def run_once(db, gh, worker, minimum=0):
