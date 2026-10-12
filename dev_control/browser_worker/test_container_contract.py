@@ -69,6 +69,21 @@ class BrowserWorkerContainerContractTest(unittest.TestCase):
         self.assertNotIn('--ignore-certificate-errors ', script)
         self.assertNotIn('chrome_args=(--ignore-certificate-errors "', script)
 
+    def test_qa_ca_nss_trust_is_scoped_and_fail_closed(self):
+        dockerfile = Path("dev_control/Dockerfile").read_text(encoding="utf-8")
+        script = Path("dev_control/browser_worker/start.sh").read_text(encoding="utf-8")
+        self.assertIn("libnss3-tools", dockerfile)
+        self.assertIn('readonly qa_ca_path="/etc/stroyka-qa/caddy-root.crt"', script)
+        self.assertIn('QA_CHROME_CA_TRUST:-0', script)
+        self.assertIn('QA Chrome CA trust requires dedicated QA scope without SPKI override', script)
+        self.assertIn('QA root CA must be a root-owned regular file', script)
+        self.assertIn('certutil -N', script)
+        self.assertIn('certutil -A', script)
+        self.assertIn('certutil -L', script)
+        self.assertIn('-t "C,," -i "$qa_ca_path"', script)
+        self.assertIn('QA_CHROME_NSS_CA_READY', script)
+        self.assertNotIn('chrome_args=(--ignore-certificate-errors "', script)
+
     def test_chrome_env_options_precede_assignments(self):
         # GNU env stops processing -u flags after its first NAME=VALUE operand.
         # The former 'env HOME=/home/chrome -u TOKEN ...' failed to start Chrome.
