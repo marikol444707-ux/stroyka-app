@@ -25,6 +25,8 @@ class CompanyDirectoryPostgresTests(unittest.TestCase):
         conn = cls.main.get_db()
         try:
             with conn.cursor() as cur:
+                from backend.features.api_error_ownership.migration import _ensure_schema as error_schema
+                error_schema(cur)
                 cur.execute('DELETE FROM company_supplier_links')
                 cur.execute("INSERT INTO suppliers(name,inn) VALUES('Legacy catalog','7709990000') RETURNING id")
                 cls.legacy_supplier = cur.fetchone()[0]
@@ -35,6 +37,11 @@ class CompanyDirectoryPostgresTests(unittest.TestCase):
                     migration = importlib.import_module('migrations.versions.0022_supplier_company_catalog')
                     with patch.object(migration, 'op', adapter.op):
                         migration.upgrade()
+                # The archive routes now persist explicit document ownership.
+                cur.execute("ALTER TABLE supplier_documents ADD COLUMN owner_scope VARCHAR(20)")
+                cur.execute("UPDATE supplier_documents SET owner_scope=CASE WHEN company_id IS NULL THEN 'supplier' ELSE 'company' END")
+                cur.execute("ALTER TABLE supplier_documents ALTER COLUMN owner_scope SET NOT NULL")
+                cur.execute("ALTER TABLE supplier_documents ADD CHECK ((owner_scope='company' AND company_id IS NOT NULL AND supplier_id IS NOT NULL) OR (owner_scope='supplier' AND company_id IS NULL AND supplier_id IS NOT NULL))")
                 cls.migration = migration
         finally:
             conn.close()

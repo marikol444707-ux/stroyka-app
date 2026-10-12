@@ -67,3 +67,11 @@ test('StrictMode aborted first load cannot clear or block the replacement reques
   expect(screen.getByLabelText('Юридический адрес')).toHaveAttribute('maxlength','4000');
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 });
+
+test('merged receipt card never becomes a separate editable company profile',async()=>{
+  global.fetch.mockResolvedValue({ok:true,json:async()=>profile});
+  render(<SupplierProfile {...props} suppliers={[{id:4,name:'Из накладной',canonicalSupplierId:12},{id:12,name:'Основная',canonicalSupplierId:12}]}/>);
+  await screen.findByLabelText('Название компании');
+  expect(global.fetch.mock.calls[0][0]).toBe('/suppliers/12/requisites');
+  expect(screen.queryByLabelText('Компания поставщика')).not.toBeInTheDocument();
+});

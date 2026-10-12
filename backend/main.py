@@ -1489,7 +1489,8 @@ def current_supplier_ids(cur, user: dict):
     # never proof of authority to act for a supplier.
     cur.execute("""SELECT s.id FROM suppliers s JOIN users u ON u.id=s.user_id
                    WHERE s.user_id=%s AND u.role='поставщик' AND COALESCE(u.active,TRUE)
-                   ORDER BY s.id""", (user.get('id'),))
+                   ORDER BY EXISTS(SELECT 1 FROM company_supplier_links l WHERE l.supplier_id=s.id
+                       AND to_jsonb(l)->'profile' ? 'mergedIntoSupplierId'),s.id""", (user.get('id'),))
     return [int(row['id'] if isinstance(row, dict) else row[0]) for row in cur.fetchall()]
 
 
@@ -6645,9 +6646,12 @@ def register(data: dict, response: Response, request: Request):
             requisites = _supplier_extract_requisites(supplier_payload)
             for identity in sorted({requisites.get(key, '') for key in ('inn', 'ogrn')} - {''}):
                 cur.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))', ('supplier-legal:' + identity,))
+            if not supplier_id:
+                from backend.features.invite_codes.supplier_relationship import matching_invited_card
+                supplier_id = matching_invited_card(cur, invite, requisites, _normalize_supplier_name_key)
             if supplier_id:
                 from backend.features.invite_codes.supplier_relationship import claim_invited_supplier
-                supplier_id = claim_invited_supplier(cur, invite, user, requisites)
+                supplier_id = claim_invited_supplier(cur, {**invite, 'supplier_id': supplier_id}, user, requisites)
             else:
                 if _supplier_find_match(cur, supplier_payload):
                     raise HTTPException(409, 'Приглашение не подтверждает право управлять существующей организацией поставщика. Войдите в её кабинет или обратитесь к администратору платформы для проверки привязки')

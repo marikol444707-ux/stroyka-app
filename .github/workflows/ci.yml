@@ -86,7 +86,8 @@ jobs:
             backend.features.supplier_offers.test_offer_mutation_ledger_postgres.OfferMutationLedgerTests \
             backend.features.supplier_offers.test_offer_mutation_preledger_postgres.OfferMutationPreledgerTests \
             backend.features.staff.test_access_postgres.StaffAccessPostgresTests \
-            backend.features.invite_codes.test_supplier_registration_postgres.SupplierRegistrationPostgresTests
+            backend.features.invite_codes.test_supplier_registration_postgres.SupplierRegistrationPostgresTests \
+            backend.features.supplier_access.test_company_merge_postgres.CompanyMergePostgresTests
 
       - name: Run supplier notification delivery and requester boundaries
         run: |

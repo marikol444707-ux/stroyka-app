@@ -175,7 +175,7 @@ export default function SupplierCabinetPage({
       isMySupplierId(row?.supplierId || row?.supplier_id)
       || isMySupplierName(row?.supplierName || row?.supplier_name || row?.supplier || row?.name)
     );
-    const myPrimarySupplierId = mySupplier?._supplierIds?.[0] || mySupplier?.id || supplierOfferFallbackId || 0;
+    const myPrimarySupplierId = mySupplier?.id || mySupplier?._supplierIds?.[0] || supplierOfferFallbackId || 0;
     const catalogMutationLock = React.useRef(false);
     const catalogActions = useSupplierCatalogActions({ API, actorId: currentUserId,
       supplierId: myPrimarySupplierId, supplierName: user?.name, setCatalog: setSupplierCatalog, mutationLock: catalogMutationLock,

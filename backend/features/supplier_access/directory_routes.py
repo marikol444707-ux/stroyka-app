@@ -94,6 +94,23 @@ def register_supplier_directory_module(app, deps):
     row_get = deps["row_get"]
     log_audit = deps["log_audit"]
 
+    @app.post('/suppliers/{id}/merge-preview')
+    def preview_supplier_merge(id: int, data: dict, current_user: dict = Depends(get_current_user),
+                               x_company_id: Optional[str] = Header(None, alias='X-Company-Id'),
+                               x_company_mode: Optional[str] = Header(None, alias='X-Company-Mode')):
+        from .company_merge import preview
+        with company_directory.transaction(current_user, (x_company_id, x_company_mode), claimed_company_id=data.get('companyId')) as (cur, company, actor):
+            if actor.get('role') not in ('директор', 'зам_директора', 'бухгалтер'):
+                raise HTTPException(403, 'Объединять карточки может руководитель или бухгалтер')
+            return preview(cur, company, id, data.get('sourceId'))
+
+    @app.post('/suppliers/{id}/merge')
+    def merge_supplier_cards(id: int, data: dict, current_user: dict = Depends(get_current_user),
+                             x_company_id: Optional[str] = Header(None, alias='X-Company-Id'),
+                             x_company_mode: Optional[str] = Header(None, alias='X-Company-Mode')):
+        from .company_merge import confirm
+        return confirm(company_directory, data, current_user, (x_company_id, x_company_mode), id)
+
     @app.get("/suppliers")
     def get_suppliers(current_user: dict = Depends(get_current_user),
                       x_company_id: Optional[str] = Header(None, alias='X-Company-Id'),
@@ -121,6 +138,9 @@ def register_supplier_directory_module(app, deps):
             return []
         rows = cur.fetchall()
         relation_metadata = supplier_relation_metadata(cur, rows) if role in SUPPLIER_IDENTITY_MANAGE_ROLES else {}
+        if role == 'поставщик':
+            from .company_merge import owned_metadata
+            relation_metadata = owned_metadata(cur, rows)
         payload = []
         for row in rows:
             supplier = {key: row.get(key) for key in (*PUBLIC_FIELDS.values(), 'id', 'user_id', 'phone', 'email', 'specialization')}

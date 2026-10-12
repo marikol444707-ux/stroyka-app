@@ -12,20 +12,21 @@ def directory(deps):
     return CompanySupplierDirectory({**deps, 'finance_roles': deps.get('admin_roles', ())})
 
 
-def unclaimed_supplier(cur, supplier_id, company_id, account_id):
+def unclaimed_supplier(cur, supplier_id, company_id, account_id, canonical_id=None):
     """Only an exclusive buyer catalog card can be handed to its first owner."""
     cur.execute('SELECT id,user_id,inn,ogrn FROM suppliers WHERE id=%s FOR UPDATE', (supplier_id,))
     supplier = cur.fetchone()
-    cur.execute('SELECT company_id,platform_account_id FROM company_supplier_links WHERE supplier_id=%s', (supplier_id,))
+    cur.execute('SELECT company_id,platform_account_id,profile FROM company_supplier_links WHERE supplier_id=%s', (supplier_id,))
     links = cur.fetchall()
     if not supplier or not any(r['company_id'] == company_id and r['platform_account_id'] == account_id for r in links):
         raise HTTPException(404, 'Поставщик не найден в выбранной компании')
     if supplier['user_id'] or any(r['company_id'] != company_id or r['platform_account_id'] != account_id for r in links):
         raise HTTPException(409, 'У поставщика уже есть кабинет или связи с другими компаниями. Для подключения обратитесь к администратору платформы')
-    for table in ('supplier_offers', 'supplier_invoices'):
-        cur.execute(f'SELECT 1 FROM {table} WHERE supplier_id=%s AND company_id IS DISTINCT FROM %s LIMIT 1', (supplier_id, company_id))
-        if cur.fetchone():
-            raise HTTPException(409, 'Документы поставщика относятся к другой компании или требуют сверки владельца')
+    if any((r.get('profile') or {}).get('mergedIntoSupplierId') and
+           (r.get('profile') or {}).get('mergedIntoSupplierId') != canonical_id for r in links):
+        raise HTTPException(409, 'Карточка уже объединена. Пригласите поставщика из основной карточки')
+    from ..supplier_access.company_merge import check_company_documents
+    check_company_documents(cur, supplier_id, company_id)
     cur.execute('SELECT 1 FROM supplier_team_members WHERE supplier_id=%s LIMIT 1', (supplier_id,))
     if cur.fetchone():
         raise HTTPException(409, 'У поставщика уже есть команда. Используйте его кабинет')
@@ -74,10 +75,59 @@ def claim_invited_supplier(cur, invite, user, requisites):
         raise HTTPException(409, 'Приглашение не подтверждает право подключить существующего поставщика')
     supplier = unclaimed_supplier(cur, invite['supplier_id'], binding['company_id'], binding['platform_account_id'])
     for key in ('inn', 'ogrn'):
-        if requisites.get(key) and str(requisites[key]) != str(supplier.get(key) or ''):
+        if requisites.get(key) and supplier.get(key) and str(requisites[key]) != str(supplier[key]):
             raise HTTPException(409, 'Реквизиты не совпадают с приглашённым поставщиком')
-    cur.execute('UPDATE suppliers SET user_id=%s,registered_at=NOW() WHERE id=%s', (user['id'], supplier['id']))
+    for key in ('inn', 'ogrn'):
+        if requisites.get(key) and not supplier.get(key):
+            cur.execute(f"SELECT id FROM suppliers s WHERE {key}=%s AND id<>%s AND NOT EXISTS(SELECT 1 FROM company_supplier_links l WHERE l.supplier_id=s.id AND l.company_id=%s AND l.profile->>'mergedIntoSupplierId'=%s) LIMIT 1",
+                        (requisites[key], supplier['id'], binding['company_id'], str(supplier['id'])))
+            if cur.fetchone():
+                raise HTTPException(409, 'С этими реквизитами уже есть карточка. Сначала объедините карточки в каталоге')
+    cur.execute("SELECT supplier_id FROM company_supplier_links WHERE company_id=%s AND platform_account_id=%s AND profile->>'mergedIntoSupplierId'=%s ORDER BY supplier_id FOR UPDATE",
+                (binding['company_id'], binding['platform_account_id'], str(supplier['id'])))
+    children = [row['supplier_id'] for row in cur.fetchall()]
+    for child in children:
+        child_supplier = unclaimed_supplier(cur, child, binding['company_id'], binding['platform_account_id'], canonical_id=supplier['id'])
+        for key in ('inn', 'ogrn'):
+            legal_key = requisites.get(key) or supplier.get(key)
+            if legal_key and child_supplier.get(key) and str(legal_key) != str(child_supplier[key]):
+                raise HTTPException(409, 'Реквизиты объединённой карточки различаются. Нужна проверка каталога')
+    if children:
+        cur.execute('UPDATE suppliers SET user_id=%s WHERE id=ANY(%s)', (user['id'], children))
+    cur.execute('''UPDATE suppliers SET user_id=%s,registered_at=NOW(),
+        inn=COALESCE(NULLIF(inn,''),NULLIF(%s,'')),
+        ogrn=COALESCE(NULLIF(ogrn,''),NULLIF(%s,'')) WHERE id=%s''',
+        (user['id'], requisites.get('inn', ''), requisites.get('ogrn', ''), supplier['id']))
     return supplier['id']
+
+
+def matching_invited_card(cur, invite, requisites, normalize_name):
+    """Reuse only one exact legal identity in the inviting buyer's catalog."""
+    inn, ogrn = requisites.get('inn', ''), requisites.get('ogrn', '')
+    cur.execute('SELECT company_id,platform_account_id FROM supplier_invite_companies WHERE invite_id=%s', (invite['id'],))
+    binding = cur.fetchone()
+    if not binding:
+        return None
+    cur.execute('''SELECT s.id FROM suppliers s JOIN company_supplier_links l ON l.supplier_id=s.id
+        WHERE l.company_id=%s AND l.platform_account_id=%s
+            AND NOT (l.profile ? 'mergedIntoSupplierId')
+            AND ((%s<>'' AND s.inn=%s) OR (%s<>'' AND s.ogrn=%s))
+        ORDER BY s.id LIMIT 2''', (binding['company_id'], binding['platform_account_id'], inn, inn, ogrn, ogrn))
+    matches = cur.fetchall()
+    if len(matches) > 1:
+        raise HTTPException(409, 'Найдено несколько карточек с этими реквизитами. Объедините их в каталоге компании')
+    if matches:
+        return matches[0]['id']
+    cur.execute('''SELECT s.name,s.inn,s.ogrn FROM suppliers s
+        JOIN company_supplier_links l ON l.supplier_id=s.id
+        WHERE l.company_id=%s AND l.platform_account_id=%s
+            AND NOT (l.profile ? 'mergedIntoSupplierId')''',
+        (binding['company_id'], binding['platform_account_id']))
+    name_key = normalize_name(requisites.get('name', ''))
+    if name_key and any(normalize_name(r['name']) == name_key and
+                        (not (inn or ogrn) or not (r.get('inn') or r.get('ogrn'))) for r in cur.fetchall()):
+        raise HTTPException(409, 'В каталоге уже есть похожая карточка. Попросите ссылку из этой карточки, чтобы сохранить историю')
+    return None
 
 
 def link_registered_supplier(cur, invite, supplier_id, user, payload):
