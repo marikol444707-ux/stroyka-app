@@ -17,8 +17,40 @@ from dev_control.browser_worker.network_guard import (
 from dev_control.jev_timeweb import JevError
 from dev_control.browser_worker.run import (
     _assert_allowed_url, _redact_url, _sanitize_history,
-    _refresh_live_observation, execute_task,
+    _refresh_live_observation, _capture_final_frame, execute_task,
 )
+
+
+class BrowserWorkerFinalScreenshotTest(unittest.TestCase):
+    def test_final_capture_converts_png_to_valid_jpeg(self):
+        from pathlib import Path
+        from PIL import Image
+
+        def fake_capture(path=None, **_kwargs):
+            Image.new("RGB", (24, 16), (12, 34, 56)).save(path, format="PNG")
+            return path
+
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "browser_harness.helpers.capture_screenshot", side_effect=fake_capture
+        ):
+            root = Path(directory)
+            _capture_final_frame(root)
+            self.assertFalse((root / "final.png").exists())
+            with Image.open(root / "final.jpg") as image:
+                self.assertEqual(image.format, "JPEG")
+                self.assertEqual(image.size, (24, 16))
+
+    def test_final_capture_failure_does_not_leave_misleading_jpeg(self):
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "browser_harness.helpers.capture_screenshot",
+            side_effect=RuntimeError("screenshot timeout")
+        ):
+            root = Path(directory)
+            with self.assertRaisesRegex(RuntimeError, "screenshot timeout"):
+                _capture_final_frame(root)
+            self.assertFalse((root / "final.jpg").exists())
 
 
 class BrowserWorkerUrlSafetyTest(unittest.TestCase):
@@ -456,6 +488,8 @@ class BrowserWorkerUrlSafetyTest(unittest.TestCase):
             {"jev_ultrafast": fake_jev},
         ), patch(
             "dev_control.browser_worker.run.install_safe_browser",
+        ), patch(
+            "dev_control.browser_worker.run._capture_final_frame",
         ):
             report = execute_task(
                 url="https://qa.example.test/app",
