@@ -10,7 +10,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     CHROME_USER_DATA_DIR=/var/lib/stroyka-jev-qa/chrome
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates curl gnupg fonts-liberation git util-linux \
+      ca-certificates curl gnupg fonts-liberation git util-linux libnss3-tools \
     && curl -fsSL https://dl.google.com/linux/linux_signing_key.pub \
       | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg \
     && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] https://dl.google.com/linux/chrome/deb/ stable main" \
