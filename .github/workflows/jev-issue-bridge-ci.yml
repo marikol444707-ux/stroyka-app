@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - 'scripts/jev_issue_bridge.py'
+      - 'dev_control/jev_mcp_gateway.py'
+      - 'dev_control/test_jev_mcp_gateway.py'
       - 'scripts/test_jev_issue_bridge.py'
       - 'scripts/jev_qa_watch.py'
       - 'scripts/install_jev_issue_bridge.sh'
@@ -21,5 +23,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: python -m unittest scripts.test_jev_issue_bridge -v
+      - run: python -m pip install -r requirements.txt
+      - run: python -m unittest scripts.test_jev_issue_bridge dev_control.test_jev_mcp_gateway -v
       - run: bash -n scripts/install_jev_issue_bridge.sh scripts/bootstrap_jev_issue_bridge.sh
