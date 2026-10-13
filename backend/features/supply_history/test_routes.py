@@ -52,12 +52,14 @@ class FakeConnection:
     def __init__(self, cursor):
         self._cursor = cursor
         self.committed = False
+        self.rolled_back = False
+        self.autocommit = True
 
     def cursor(self, **_kwargs):
         return self._cursor
 
     def rollback(self):
-        pass
+        self.rolled_back = True
 
     def commit(self):
         self.committed = True
@@ -154,9 +156,12 @@ class ContractsAndSupplyHistoryTest(unittest.TestCase):
         )
         self.assertEqual(result, [{"id": 9, "companyId": 3}])
         self.assertFalse(connection.committed, "GET must never commit")
+        self.assertFalse(connection.autocommit, "GET requires a transaction")
+        self.assertTrue(connection.rolled_back, "GET must roll back on exit")
         self.assertTrue(connection.closed)
-        self.assertEqual(len(cursor.calls), 1)
-        sql, params = cursor.calls[0]
+        self.assertEqual(len(cursor.calls), 2)
+        self.assertEqual(cursor.calls[0], ("SET TRANSACTION READ ONLY", ()))
+        sql, params = cursor.calls[1]
         self.assertTrue(sql.startswith("SELECT "), sql)
         self.assertIn("company_id=%s", sql)
         self.assertEqual(params, (3,))
@@ -172,7 +177,29 @@ class ContractsAndSupplyHistoryTest(unittest.TestCase):
         )
         self.assertEqual(result, [])
         self.assertFalse(connection.committed)
-        self.assertEqual(cursor.calls, [])
+        self.assertFalse(connection.autocommit)
+        self.assertTrue(connection.rolled_back)
+        self.assertEqual(cursor.calls, [("SET TRANSACTION READ ONLY", ())])
+        self.assertTrue(connection.closed)
+
+    def test_history_get_rolls_back_after_failed_select(self):
+        class FailingCursor(FakeCursor):
+            def execute(self, sql, params=()):
+                super().execute(sql, params)
+                if sql.lstrip().startswith("SELECT "):
+                    raise RuntimeError("simulated database read failure")
+
+        cursor = FailingCursor()
+        app, connection = history_build(cursor, all_data=True)
+        with self.assertRaisesRegex(RuntimeError, "simulated database read failure"):
+            app.routes[("GET", "/supply-history")](
+                limit=None, offset=0,
+                current_user={"id": 7, "role": "директор", "companyId": 3},
+                x_company_id="3", x_company_mode="company",
+            )
+        self.assertEqual(cursor.calls[0], ("SET TRANSACTION READ ONLY", ()))
+        self.assertFalse(connection.committed)
+        self.assertTrue(connection.rolled_back)
         self.assertTrue(connection.closed)
 
     def test_history_create_blocks_foreign_package(self):
