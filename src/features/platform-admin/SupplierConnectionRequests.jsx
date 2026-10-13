@@ -1,11 +1,13 @@
 import {useRef,useState} from 'react';
 import useConnectionRequests from '../participant-support/useConnectionRequests';
 import ConnectionRequestList,{connectionDate,connectionStates} from '../participant-support/ConnectionRequestList';
+import SupplierCorrectionPreview from './SupplierCorrectionPreview';
 
 export default function SupplierConnectionRequests({prefix,supplierId,cabinet,sourceVersion,canRequest}) {
   const path=prefix+'/participants/'+supplierId+'/connection-requests';
   const state=useConnectionRequests(path);
   const [confirmed,setConfirmed]=useState(false);
+  const [correctionId,setCorrectionId]=useState(null);
   const operation=useRef(null);
   const pending=state.items.some(item=>item.status==='pending');
   const create=async()=>{
@@ -24,6 +26,11 @@ export default function SupplierConnectionRequests({prefix,supplierId,cabinet,so
         <p>{item.supplierName} · срок до {connectionDate(item.expiresAt)}</p>
         {item.status==='pending'&&<button type="button" disabled={state.busy} onClick={()=>state.send(path+'/'+item.id+'/revoke',
           {expectedVersion:item.version,confirmed:true},'Запрос отозван. Связь с покупателем не добавлена.')}>Отозвать запрос</button>}
+        {process.env.REACT_APP_PARTICIPANT_CORRECTION_PREVIEW_ENABLED==='1'&&item.status==='accepted'&&<>
+          <button type="button" disabled={state.busy} onClick={()=>setCorrectionId(item.id)}>Проверить ошибочное подключение</button>
+          {correctionId===item.id&&<SupplierCorrectionPreview key={path+'/'+item.id} prefix={prefix} supplierId={supplierId}
+            requestId={item.id} onClose={()=>setCorrectionId(null)}/>}
+        </>}
       </li>)}</ul>}
       {canRequest&&!pending&&<>
         <label><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/><span>Отправить запрос владельцу кабинета «{cabinet.name}» для этой компании</span></label>

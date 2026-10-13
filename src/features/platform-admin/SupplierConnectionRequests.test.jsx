@@ -8,6 +8,37 @@ const props={prefix:'/system/companies/2',supplierId:7,cabinet:{supplierId:8,nam
 beforeEach(()=>{Object.defineProperty(window,'crypto',{configurable:true,value:{randomUUID:jest.fn(()=> 'synthetic-operation')}});});
 afterEach(()=>jest.restoreAllMocks());
 
+test('correction review is available only for accepted requests when enabled',async()=>{
+  const previous=process.env.REACT_APP_PARTICIPANT_CORRECTION_PREVIEW_ENABLED;
+  process.env.REACT_APP_PARTICIPANT_CORRECTION_PREVIEW_ENABLED='1';
+  try {
+    global.fetch=jest.fn().mockResolvedValue(response({items:[item,{...item,id:'accepted-request',status:'accepted'}],hasMore:false}));
+    render(<SupplierConnectionRequests {...props}/>);
+    const buttons=await screen.findAllByRole('button',{name:'Проверить ошибочное подключение'});
+    expect(buttons).toHaveLength(1);
+    global.fetch.mockResolvedValueOnce({ok:false,json:async()=>({detail:'Проверка недоступна'})});
+    fireEvent.click(buttons[0]);
+    expect(await screen.findByText('Проверка недоступна')).toBeInTheDocument();
+    expect(fetch.mock.calls.at(-1)[0]).toContain('/participants/7/connection-requests/accepted-request/correction-preview');
+  } finally {
+    if(previous===undefined)delete process.env.REACT_APP_PARTICIPANT_CORRECTION_PREVIEW_ENABLED;
+    else process.env.REACT_APP_PARTICIPANT_CORRECTION_PREVIEW_ENABLED=previous;
+  }
+});
+
+test('correction review is hidden by default',async()=>{
+  const previous=process.env.REACT_APP_PARTICIPANT_CORRECTION_PREVIEW_ENABLED;
+  delete process.env.REACT_APP_PARTICIPANT_CORRECTION_PREVIEW_ENABLED;
+  try {
+    global.fetch=jest.fn().mockResolvedValue(response({items:[{...item,status:'accepted'}],hasMore:false}));
+    render(<SupplierConnectionRequests {...props}/>);
+    await screen.findByText('Подключено');
+    expect(screen.queryByRole('button',{name:'Проверить ошибочное подключение'})).not.toBeInTheDocument();
+  } finally {
+    if(previous!==undefined)process.env.REACT_APP_PARTICIPANT_CORRECTION_PREVIEW_ENABLED=previous;
+  }
+});
+
 test('admin confirms exact buyer request, double click cannot send it twice, and can revoke',async()=>{
   let finish;
   let created=false;

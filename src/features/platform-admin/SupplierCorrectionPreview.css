@@ -1,0 +1,7 @@
+.supplier-correction-dialog { position:fixed; inset:0; z-index:950; background:rgba(15,23,42,.65); display:flex; align-items:center; justify-content:center; padding:12px; }
+.supplier-correction-dialog__panel { box-sizing:border-box; width:600px; max-width:100%; max-height:88dvh; overflow-y:auto; margin:0; background:var(--c-card,#fff); color:var(--c-text,#172033); }
+.supplier-correction-dialog__toolbar { position:sticky; top:-14px; padding:12px 0; margin:0; background:inherit; justify-content:space-between; }
+.supplier-correction-dialog__toolbar h3 { font-size:18px; margin:0; flex:1 1 180px; }
+.supplier-correction-dialog__panel p { line-height:1.5; }
+.supplier-correction-dialog__panel summary { cursor:pointer; min-height:44px; display:list-item; align-content:center; }
+@media(max-width:599px) { .supplier-correction-dialog__toolbar button { padding:8px 10px; } }
