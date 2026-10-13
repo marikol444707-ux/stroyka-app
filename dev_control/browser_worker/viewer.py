@@ -18,7 +18,7 @@ VIEWER_HTML = r"""<!doctype html>
   </div>
   <div id="authNotice" class="notice">Ключ хранится только в этой вкладке браузера и не добавляется в адрес страницы.</div>
   <div class="grid">
-    <section class="panel"><div class="panel-head"><strong>Запуски</strong><button class="btn" id="refresh">↻</button></div><div id="jobs" class="jobs"><div class="screen-empty">Подключитесь, чтобы увидеть запуски.</div></div></section>
+    <section class="panel"><div class="panel-head"><strong>Запуски</strong><button class="btn" id="refresh">↻</button></div><div style="padding:12px 16px;border-bottom:1px solid #242c36"><button id="demo" class="btn" disabled>Запустить демо Jev</button><div id="demoNotice" class="muted" style="font-size:12px;margin-top:7px">Проверка доступности демо...</div></div><div id="jobs" class="jobs"><div class="screen-empty">Подключитесь, чтобы увидеть запуски.</div></div></section>
     <section class="panel main">
       <div class="summary"><span id="status" class="status"><span class="dot"></span><span>не выбран</span></span><span id="runName" class="muted">Выберите запуск</span><span class="spacer"></span><span id="fresh" class="fresh"></span><button id="stop" class="btn danger" disabled>Остановить</button></div>
       <div class="screen-wrap"><div id="frameLabel" class="screen-label hidden"></div><img id="frame" class="hidden" alt="Кадр браузера Jev"><div id="empty" class="screen-empty">Здесь появится реальный кадр серверного браузера.</div></div>
@@ -32,6 +32,7 @@ VIEWER_HTML = r"""<!doctype html>
   const q=(s)=>document.querySelector(s); const tokenInput=q('#token'), jobsEl=q('#jobs'), statusEl=q('#status'), runName=q('#runName'), freshEl=q('#fresh'), frame=q('#frame'), empty=q('#empty'), frameLabel=q('#frameLabel'), timeline=q('#timeline'), stop=q('#stop'), meta=q('#meta');
   let token=sessionStorage.getItem('jevViewerToken')||'', selected=null, rendered=null, framePath=null, frameObject=null, detailSeq=0, detailLoading=false;
   const terminal=new Set(['passed','failed','cancelled']);
+  const demo=q('#demo'), demoNotice=q('#demoNotice'); let demoPending=false;
   const headers=()=>({'Authorization':'Bearer '+token});
   async function api(path, options={}){ if(!token) throw new Error('Нужен ключ доступа'); const h={...(options.headers||{}),...headers()}; const r=await fetch(path,{...options,headers:h,cache:'no-store'}); if(!r.ok){let msg='HTTP '+r.status; try{const x=await r.json(); if(x.detail) msg=x.detail;}catch(_){ } throw new Error(msg);} return r; }
   function text(el,value){el.textContent=value==null?'':String(value)}
@@ -49,8 +50,32 @@ VIEWER_HTML = r"""<!doctype html>
   async function loadFrame(job,force=false,requested=selected,seq=detailSeq){const pics=(job.evidence_files||[]).filter(x=>x.endsWith('.jpg')).sort();const latest=pics[pics.length-1];if(!latest){if(selected===requested&&seq===detailSeq)clearFrame();return;}const signature=requested+'|'+String(job.created_at_ms||'unknown')+'|'+latest;if(signature===framePath&&!force)return;const r=await api(latest);const blob=await r.blob();if(selected!==requested||seq!==detailSeq)return;if(frameObject)URL.revokeObjectURL(frameObject);frameObject=URL.createObjectURL(blob);frame.src=frameObject;frame.classList.remove('hidden');empty.classList.add('hidden');frameLabel.textContent='Кадр '+pics.length+' · '+latest.split('/').pop();frameLabel.classList.remove('hidden');framePath=signature;}
   async function loadSelected(force=false){const requested=selected;if(!requested||detailLoading)return;detailLoading=true;const seq=++detailSeq;stop.disabled=true;try{const r=await api('/jobs/'+encodeURIComponent(requested));const job=await r.json();if(selected!==requested||seq!==detailSeq)return;rendered=requested;setStatus(job.status);runName.textContent=jobTitle(job);renderFresh(job);renderMeta(job);renderTimeline(job);await loadFrame(job,force,requested,seq);if(selected===requested&&seq===detailSeq)setStatus(job.status);}catch(e){if(selected===requested&&seq===detailSeq){clearRenderedDetail();freshEl.textContent='Ошибка: '+e.message;freshEl.className='fresh stale';}}finally{detailLoading=false;}}
   async function cancelSelected(){if(!selected||rendered!==selected||!confirm('Остановить именно этот запуск Jev?'))return;const requested=rendered;stop.disabled=true;try{const r=await api('/jobs/'+encodeURIComponent(requested)+'/cancel',{method:'POST'});const x=await r.json();if(selected===requested){freshEl.textContent='Команда остановки: '+x.status;await loadSelected(true);}}catch(e){if(selected===requested){freshEl.textContent='Не удалось остановить: '+e.message;freshEl.className='fresh stale';}}}
-  q('#connect').onclick=async()=>{const supplied=tokenInput.value.trim();if(!supplied)return;token=supplied;tokenInput.value='';sessionStorage.setItem('jevViewerToken',token);selected=null;detailSeq++;clearRenderedDetail();await loadJobs();};q('#refresh').onclick=()=>loadJobs();stop.onclick=cancelSelected;
-  setInterval(()=>{if(token){loadJobs();if(selected)loadSelected(false);}},1500); if(token)loadJobs();
+  async function refreshDemo(){
+    demo.disabled=true;
+    if(!token){demoNotice.textContent='Сначала подключитесь.';return;}
+    try{
+      const response=await api('/viewer/demo-capabilities');
+      const capability=await response.json();
+      demo.disabled=!capability.enabled||demoPending;
+      demoNotice.textContent=capability.enabled?'Только локальная тестовая страница, без данных Стройки.':'Демо отключено: сервер не настроен на локальную тестовую страницу.';
+    }catch(_){demoNotice.textContent='Не удалось проверить доступность демо.';}
+  }
+  async function startDemo(){
+    if(demo.disabled||demoPending||!confirm('Запустить Jev только на локальной тестовой странице?'))return;
+    demoPending=true;demo.disabled=true;demoNotice.textContent='Создание тестового запуска...';
+    try{
+      const response=await api('/viewer/demo',{method:'POST'});
+      const job=await response.json();
+      if(!/^[0-9a-f]{32}$/.test(job.job_id))throw new Error('Неверный номер запуска');
+      selected=job.job_id;detailSeq++;clearRenderedDetail();
+      demoNotice.textContent='Демо запущено. Следите за кадрами и журналом.';
+      await loadJobs();await loadSelected(true);
+    }catch(e){demoNotice.textContent='Не удалось запустить демо: '+e.message;}
+    finally{demoPending=false;await refreshDemo();}
+  }
+  demo.onclick=startDemo;
+  q('#connect').onclick=async()=>{const supplied=tokenInput.value.trim();if(!supplied)return;token=supplied;tokenInput.value='';sessionStorage.setItem('jevViewerToken',token);selected=null;detailSeq++;clearRenderedDetail();await loadJobs();await refreshDemo();};q('#refresh').onclick=()=>loadJobs();stop.onclick=cancelSelected;
+  setInterval(()=>{if(token){loadJobs();if(selected)loadSelected(false);}},1500); if(token){loadJobs();refreshDemo();}
 })();
 </script>
 </body></html>"""

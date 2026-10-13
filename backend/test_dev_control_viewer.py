@@ -50,6 +50,13 @@ class ViewerContractTest(unittest.TestCase):
         self.assertIn("clearRenderedDetail();freshEl.textContent='Ошибка:", VIEWER_HTML)
         self.assertIn("String(job.created_at_ms||'unknown')", VIEWER_HTML)
 
+    def test_viewer_demo_controls_are_real_and_no_freeform_job(self):
+        self.assertIn('id="demo"', VIEWER_HTML)
+        self.assertIn("'/viewer/demo-capabilities'", VIEWER_HTML)
+        self.assertIn("'/viewer/demo',{method:'POST'}", VIEWER_HTML)
+        self.assertIn("demo.disabled=true", VIEWER_HTML)
+        self.assertNotIn("'/jobs',{method:'POST'}", VIEWER_HTML)
+
     def test_viewer_security_headers_deny_embedding_and_caching(self):
         headers = viewer_headers()
         self.assertEqual(headers["X-Frame-Options"], "DENY")
@@ -105,6 +112,39 @@ class ViewerJobAccessTest(unittest.TestCase):
             data = service.get_job(job_id, self.auth())
             self.assertEqual(data["progress"]["phase"], "action_complete")
             self.assertEqual(data["evidence_files"], [f"/jobs/{job_id}/evidence/000000.jpg"])
+
+    def test_viewer_demo_requires_token_and_local_fixture_without_cookie(self):
+        fixture = {
+            "DEV_CONTROL_API_TOKEN": VIEWER_TOKEN,
+            "TIMEWEB_AI_API_KEY": "ci-dummy",
+            "QA_ENVIRONMENT": "qa",
+            "QA_BASE_URL": "http://127.0.0.1:8080",
+        }
+        with patch.dict(os.environ, fixture, clear=True):
+            with self.assertRaises(HTTPException) as err:
+                service.viewer_demo_capabilities(None)
+            self.assertEqual(err.exception.status_code, 401)
+            self.assertTrue(service.viewer_demo_capabilities(self.auth())["enabled"])
+            with patch("dev_control.browser_worker.service.create_job", return_value={"job_id": "a"*32, "status": "queued"}) as create:
+                result = service.viewer_start_demo(self.auth())
+                self.assertEqual(result["status"], "queued")
+                request = create.call_args.args[0]
+                self.assertEqual(request.url, "http://127.0.0.1:8080/selftest-page")
+                self.assertEqual(request.expect_text, ["JEV_BROWSER_OK"])
+                self.assertFalse(request.read_only)
+                self.assertNotIn("password", request.goal.lower())
+        for overrides in (
+            {"QA_BASE_URL": "https://qa.example.test/app", "QA_ALLOWED_ORIGIN": "https://qa.example.test"},
+            {"QA_SESSION_COOKIE_VALUE": "opaque-test-session"},
+            {"QA_SESSION_COOKIE_NAME": "stroyka_session"},
+            {"QA_ENVIRONMENT": "production"},
+        ):
+            with self.subTest(overrides=overrides), patch.dict(os.environ, {**fixture, **overrides}, clear=True), patch("dev_control.browser_worker.service.create_job") as create:
+                self.assertFalse(service.viewer_demo_capabilities(self.auth())["enabled"])
+                with self.assertRaises(HTTPException) as err:
+                    service.viewer_start_demo(self.auth())
+                self.assertEqual(err.exception.status_code, 403)
+                create.assert_not_called()
 
     def test_queued_cancel_is_idempotent_and_does_not_touch_other_job(self):
         first, second = "b" * 32, "c" * 32

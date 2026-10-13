@@ -990,6 +990,43 @@ def cancel_job(job_id: str, authorization: str | None = Header(default=None)):
     return {"job_id": job_id, "status": response_status, "stopped": response_status == "cancelled"}
 
 
+def _viewer_demo_allowed() -> bool:
+    """Only the local, credential-free fixture may be started from Jev Live."""
+    return (
+        _configured()
+        and (os.environ.get("QA_BASE_URL") or "").strip().rstrip("/") == _selftest_base_url()
+        and (os.environ.get("QA_ENVIRONMENT") or "").strip().lower() in {"qa", "test", "staging"}
+        and not (os.environ.get("QA_SESSION_COOKIE_VALUE") or "").strip()
+        and not (os.environ.get("QA_SESSION_COOKIE_NAME") or "").strip()
+    )
+
+
+@app.get("/viewer/demo-capabilities")
+def viewer_demo_capabilities(authorization: str | None = Header(default=None)):
+    _authorize(authorization)
+    allowed = _viewer_demo_allowed()
+    return {"enabled": allowed, "scenario": "local-browser-selftest",
+            "reason": "READY" if allowed else "QA_FIXTURE_ONLY_NOT_CONFIGURED"}
+
+
+@app.post("/viewer/demo", status_code=202)
+def viewer_start_demo(authorization: str | None = Header(default=None)):
+    _authorize(authorization)
+    if not _viewer_demo_allowed():
+        raise HTTPException(status_code=403, detail="QA_FIXTURE_ONLY_NOT_CONFIGURED")
+    # No user-supplied URL, prompts, roles, cookies or database access.
+    request = JobRequest(
+        url=_selftest_base_url() + "/selftest-page",
+        goal="Click the Run browser self-test button. Finish only when JEV_BROWSER_OK is visible.",
+        expect_text=["JEV_BROWSER_OK"],
+        expect_url_contains=["/selftest-page"],
+        max_seconds=60.0,
+        display_name="Jev Live: безопасная демонстрация",
+        read_only=False,
+    )
+    return create_job(request, authorization=authorization)
+
+
 @app.get("/viewer", response_class=HTMLResponse)
 def viewer():
     return HTMLResponse(VIEWER_HTML, headers=viewer_headers())
