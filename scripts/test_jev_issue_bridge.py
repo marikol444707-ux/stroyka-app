@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock
-from scripts.jev_issue_bridge import AUTHOR, BODY, TITLE, BridgeError, eligible, connect, run_once, require_issue_floor
+from scripts.jev_issue_bridge import AUTHOR, BODY, TITLE, BridgeError, eligible, connect, run_once, require_issue_floor, safe_report, format_comment
 
 class BridgeTest(unittest.TestCase):
     def setUp(self):
@@ -76,6 +76,22 @@ class BridgeTest(unittest.TestCase):
         self.worker.assert_not_called()
         self.assertEqual(self.db.execute("SELECT state FROM tasks").fetchone()[0], "reported")
         self.assertIn("BRIDGE_INTERRUPTED", str(self.calls))
+
+    def test_owner_report_has_safe_error_descriptions(self):
+        report = safe_report("failed", "a" * 32,
+            ["READ_ONLY_VIOLATION", "AGENT_BLOCKED", "SECRET_RAW", "AGENT_BLOCKED"])
+        self.assertEqual(report["codes"], ["AGENT_BLOCKED", "READ_ONLY_VIOLATION"])
+        comment = format_comment(report)
+        self.assertIn("попытка записи", comment)
+        self.assertIn("Скриншоты", comment)
+        self.assertNotIn("SECRET_RAW", comment)
+        self.assertNotIn("https://", comment)
+
+    def test_contradictory_pass_with_errors_is_failed(self):
+        report = safe_report("passed", "a" * 32, ["READ_ONLY_VIOLATION"])
+        self.assertEqual(report["outcome"], "failed")
+        self.assertEqual(report["codes"], ["READ_ONLY_VIOLATION"])
+        self.assertEqual(safe_report("failed", codes="SECRET_RAW")["codes"], ["UNVERIFIED_RESULT"])
 
     def test_failed_worker_is_sanitized(self):
         self.worker.side_effect = RuntimeError("secret-raw-error")

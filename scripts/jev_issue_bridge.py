@@ -21,6 +21,29 @@ BODY = "JEV_QA_SMOKE_V1"
 API = "https://api.github.com/repos/" + REPO
 CODES = {"QA_WORKER_NOT_READY", "INVALID_JOB_ID", "UNKNOWN_JOB_STATUS", "POLL_TIMEOUT", "POLL_TIMEOUT_CANCEL_FAILED", "WORKER_API_UNAVAILABLE", "WORKER_RESPONSE_TOO_LARGE", "WORKER_RESPONSE_UNAUTHENTICATED", "INVALID_WORKER_RESPONSE", "TEXT_NOT_FOUND", "URL_NOT_VERIFIED", "TIMEOUT", "OTHER_FAILURE", "UNVERIFIED_RESULT", "AGENT_NOT_DONE", "AGENT_BLOCKED", "QA_ALERT_STOP", "READ_ONLY_VIOLATION", "UNEXPECTED_WATCH_ERROR", "BRIDGE_INTERRUPTED"}
 
+ERROR_DESCRIPTIONS = {
+    "QA_WORKER_NOT_READY": "QA worker не подтвердил готовность.",
+    "INVALID_JOB_ID": "Номер запуска не подтверждён.",
+    "UNKNOWN_JOB_STATUS": "Неизвестное состояние запуска.",
+    "POLL_TIMEOUT": "Время ожидания истекло, отмена запрошена.",
+    "POLL_TIMEOUT_CANCEL_FAILED": "Время истекло, отмена не подтверждена.",
+    "WORKER_API_UNAVAILABLE": "Защищённый API недоступен.",
+    "WORKER_RESPONSE_TOO_LARGE": "Ответ worker слишком велик.",
+    "WORKER_RESPONSE_UNAUTHENTICATED": "Подпись ответа не подтверждена.",
+    "INVALID_WORKER_RESPONSE": "Некорректный формат ответа worker.",
+    "TEXT_NOT_FOUND": "Ожидаемый текст не найден.",
+    "URL_NOT_VERIFIED": "Ожидаемая страница не подтверждена.",
+    "TIMEOUT": "Превышено время браузерного шага.",
+    "OTHER_FAILURE": "Неизвестная ошибка сценария.",
+    "UNVERIFIED_RESULT": "Недостаточно доказательств результата.",
+    "AGENT_NOT_DONE": "Агент не завершил сценарий.",
+    "AGENT_BLOCKED": "Агент остановлен.",
+    "QA_ALERT_STOP": "Остановка из-за браузерного диалога.",
+    "READ_ONLY_VIOLATION": "Обнаружена попытка записи при проверке чтения.",
+    "UNEXPECTED_WATCH_ERROR": "Внутренняя ошибка без раскрытия деталей.",
+    "BRIDGE_INTERRUPTED": "Запуск прерван; повтор запрещён.",
+}
+
 class BridgeError(Exception):
     pass
 
@@ -74,16 +97,26 @@ def connect(path):
     return db
 
 def safe_report(outcome, job_id=None, codes=()):
-    return {"outcome": "passed" if outcome == "passed" else "failed",
-            "job_id": job_id if isinstance(job_id, str) and re.fullmatch(r"[0-9a-f]{32}", job_id) else "none",
-            "codes": sorted(set(codes) & CODES) or ([] if outcome == "passed" else ["UNEXPECTED_WATCH_ERROR"])}
+    # Never include upstream error strings or claim PASS alongside failures.
+    allowed = sorted({c for c in codes if type(c) is str and c in CODES}) if type(codes) in (list, tuple) else []
+    passed = outcome == "passed" and not allowed
+    return {"outcome": "passed" if passed else "failed",
+            "job_id": job_id if type(job_id) is str and re.fullmatch(r"[0-9a-f]{32}", job_id) else "none",
+            "codes": [] if passed else (allowed or ["UNVERIFIED_RESULT"])}
+
 
 def format_comment(report):
+    details = "\n".join("- `" + code + "`: " + ERROR_DESCRIPTIONS[code] for code in report["codes"])
     return ("**Jev QA: " + report["outcome"].upper() + "**\n\n"
-        + "Scenario: `authenticated-qa-menu-smoke` (read-only)\n"
-        + "Job: `" + report["job_id"] + "`\n"
-        + "Failure codes: `" + (", ".join(report["codes"]) or "none") + "`\n\n"
-        + "No secrets, screenshots or raw browser content uploaded.")
+        + "Сценарий: `authenticated-qa-menu-smoke` (только чтение)\n"
+        + "Номер запуска: `" + report["job_id"] + "`\n"
+        + "Ошибок: " + str(len(report["codes"])) + "\n"
+        + (details + "\n" if details else "Ошибки не зарегистрированы.\n")
+        + "\nСкриншоты: не прикреплены к GitHub; проверяйте в защищённом "
+          "Jev Live по номеру запуска, если кадры сохранены. Наличие кадров "
+          "и отсутствие записей в БД этим отчётом не подтверждаются.\n"
+        + "Секреты, сырые ошибки, DOM и изображения не публикуются.")
+
 
 def run_once(db, gh, worker, minimum):
     if type(minimum) is not int or minimum <= 0:
