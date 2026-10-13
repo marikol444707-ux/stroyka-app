@@ -24,6 +24,13 @@ CODES = {"QA_WORKER_NOT_READY", "INVALID_JOB_ID", "UNKNOWN_JOB_STATUS", "POLL_TI
 class BridgeError(Exception):
     pass
 
+
+def require_issue_floor(raw):
+    """An explicit pre-activation issue boundary is mandatory; never replay old issues."""
+    if type(raw) is not str or re.fullmatch(r"[1-9][0-9]{0,15}", raw) is None:
+        raise BridgeError("ISSUE_FLOOR_REQUIRED")
+    return int(raw)
+
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
@@ -78,7 +85,9 @@ def format_comment(report):
         + "Failure codes: `" + (", ".join(report["codes"]) or "none") + "`\n\n"
         + "No secrets, screenshots or raw browser content uploaded.")
 
-def run_once(db, gh, worker, minimum=0):
+def run_once(db, gh, worker, minimum):
+    if type(minimum) is not int or minimum <= 0:
+        raise BridgeError("ISSUE_FLOOR_REQUIRED")
     issues = gh("GET", "/issues?state=open&per_page=100&sort=created&direction=desc")
     if not isinstance(issues, list):
         raise BridgeError("GITHUB_ISSUES_INVALID")
@@ -124,7 +133,7 @@ def main():
     scoped = os.environ.get("JEV_WATCHER_TOKEN", "").strip()
     if not re.fullmatch(r"[0-9a-f]{64}", scoped):
         raise BridgeError("MISSING_SCOPED_WATCHER_TOKEN")
-    minimum = int(os.environ.get("JEV_CONTROL_MIN_ISSUE_NUMBER", "0"))
+    minimum = require_issue_floor(os.environ.get("JEV_CONTROL_MIN_ISSUE_NUMBER"))
     port = os.environ.get("JEV_WATCH_PORT", "18084")
     dbpath = Path(os.environ.get("JEV_CONTROL_STATE_DB", "/var/lib/stroyka-jev-issue-bridge/tasks.db"))
     with connect(dbpath) as db:

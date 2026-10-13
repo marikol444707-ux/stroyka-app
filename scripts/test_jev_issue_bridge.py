@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock
-from scripts.jev_issue_bridge import AUTHOR, BODY, TITLE, eligible, connect, run_once
+from scripts.jev_issue_bridge import AUTHOR, BODY, TITLE, BridgeError, eligible, connect, run_once, require_issue_floor
 
 class BridgeTest(unittest.TestCase):
     def setUp(self):
@@ -36,9 +36,33 @@ class BridgeTest(unittest.TestCase):
         self.assertFalse(eligible(issue))
         self.assertFalse(eligible(self.issue, minimum=55555))
 
+    def test_issue_floor_is_mandatory_before_github_or_worker(self):
+        for raw in (None, "", "0", "01", " 55554", "-1", "1.0", "9" * 50):
+            with self.subTest(raw=raw), self.assertRaises(BridgeError):
+                require_issue_floor(raw)
+        self.assertEqual(require_issue_floor("55554"), 55554)
+        for value in (None, 0, -1, "55554", True):
+            with self.subTest(value=value), self.assertRaises(BridgeError):
+                run_once(self.db, self.gh, self.worker, minimum=value)
+        self.assertEqual(self.calls, [])
+        self.worker.assert_not_called()
+
+    def test_pre_activation_issue_is_ignored(self):
+        run_once(self.db, self.gh, self.worker, minimum=55555)
+        self.worker.assert_not_called()
+        self.assertEqual(self.db.execute("SELECT count(*) FROM tasks").fetchone()[0], 0)
+
+    def test_installer_and_bootstrap_refuse_unconfigured_floor(self):
+        scripts = Path(__file__).resolve().parent
+        bootstrap = (scripts / "bootstrap_jev_issue_bridge.sh").read_text()
+        installer = (scripts / "install_jev_issue_bridge.sh").read_text()
+        self.assertIn("JEV_CONTROL_MIN_ISSUE_NUMBER=REQUIRED", bootstrap)
+        self.assertNotIn("JEV_CONTROL_MIN_ISSUE_NUMBER=0", bootstrap)
+        self.assertIn("ISSUE_FLOOR_NOT_CONFIGURED", installer)
+
     def test_success_once_and_redacted_comment(self):
-        run_once(self.db, self.gh, self.worker)
-        run_once(self.db, self.gh, self.worker)
+        run_once(self.db, self.gh, self.worker, minimum=55554)
+        run_once(self.db, self.gh, self.worker, minimum=55554)
         self.worker.assert_called_once()
         self.assertEqual(self.db.execute("SELECT state FROM tasks").fetchone()[0], "reported")
         posts = [x for x in self.calls if x[0] == "POST"]
@@ -48,14 +72,14 @@ class BridgeTest(unittest.TestCase):
     def test_crashed_claim_never_replays(self):
         self.db.execute("INSERT INTO tasks VALUES (55555, 'claimed', NULL)")
         self.db.commit()
-        run_once(self.db, self.gh, self.worker)
+        run_once(self.db, self.gh, self.worker, minimum=55554)
         self.worker.assert_not_called()
         self.assertEqual(self.db.execute("SELECT state FROM tasks").fetchone()[0], "reported")
         self.assertIn("BRIDGE_INTERRUPTED", str(self.calls))
 
     def test_failed_worker_is_sanitized(self):
         self.worker.side_effect = RuntimeError("secret-raw-error")
-        run_once(self.db, self.gh, self.worker)
+        run_once(self.db, self.gh, self.worker, minimum=55554)
         text = str(self.calls)
         self.assertIn("UNEXPECTED_WATCH_ERROR", text)
         self.assertNotIn("secret-raw-error", text)
@@ -66,7 +90,7 @@ class BridgeTest(unittest.TestCase):
             if method == "GET":
                 return issues
             return {}
-        run_once(self.db, gh, self.worker)
+        run_once(self.db, gh, self.worker, minimum=55554)
         self.worker.assert_called_once()
         self.assertEqual(self.db.execute("SELECT count(*) FROM tasks").fetchone()[0], 1)
 
@@ -80,9 +104,9 @@ class BridgeTest(unittest.TestCase):
                 raise RuntimeError("simulated github outage")
             return {}
         with self.assertRaises(RuntimeError):
-            run_once(self.db, gh, self.worker)
+            run_once(self.db, gh, self.worker, minimum=55554)
         self.assertEqual(self.db.execute("SELECT state FROM tasks").fetchone()[0], "done")
-        run_once(self.db, gh, self.worker)
+        run_once(self.db, gh, self.worker, minimum=55554)
         self.worker.assert_called_once()
 
 if __name__ == "__main__":
