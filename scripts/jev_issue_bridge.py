@@ -157,6 +157,10 @@ def run_once(db, gh, worker, minimum):
             print("JEV_ISSUE_REPORTED", n, report["outcome"], flush=True)
             row = ("reported", row[1])
         if row[0] == "reported":
+            # Keep failed QA issues open for owner triage, without replaying
+            # the browser job or reposting the same error report.
+            if json.loads(row[1]).get("outcome") != "passed":
+                return
             # A failed close is retried; the browser job is never replayed.
             gh("PATCH", f"/issues/{n}", {"state": "closed"})
             return  # One browser job per invocation; bounded systemd runtime.

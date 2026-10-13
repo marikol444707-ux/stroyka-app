@@ -100,6 +100,16 @@ class BridgeTest(unittest.TestCase):
         self.assertIn("UNEXPECTED_WATCH_ERROR", text)
         self.assertNotIn("secret-raw-error", text)
 
+    def test_failed_qa_issue_stays_open_without_replay_or_duplicate_comment(self):
+        self.worker.return_value = {"outcome": "failed", "job_id": "a" * 32,
+                                    "failure_codes": ["TEXT_NOT_FOUND"]}
+        run_once(self.db, self.gh, self.worker, minimum=55554)
+        run_once(self.db, self.gh, self.worker, minimum=55554)
+        self.worker.assert_called_once()
+        self.assertEqual(len([x for x in self.calls if x[0] == "POST"]), 1)
+        self.assertEqual(len([x for x in self.calls if x[0] == "PATCH"]), 0)
+        self.assertEqual(self.db.execute("SELECT state FROM tasks").fetchone()[0], "reported")
+
     def test_only_one_browser_job_per_poll(self):
         issues = [self.issue, {**self.issue, "number": 55556}]
         def gh(method, path, payload=None):
