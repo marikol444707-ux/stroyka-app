@@ -2,9 +2,7 @@
 from .history_lock import PACKAGING_HISTORY_NAMESPACE
 
 
-GUARD_SQL = f'''
-CREATE OR REPLACE FUNCTION public.material_packaging_history_writer_guard()
-RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+GUARD_BODY = f'''
 DECLARE
     supplier_keys integer[];
     selected_supplier integer;
@@ -27,7 +25,12 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$$;
+'''
+
+
+GUARD_SQL = f'''
+CREATE OR REPLACE FUNCTION public.material_packaging_history_writer_guard()
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $${GUARD_BODY}$$;
 DROP TRIGGER IF EXISTS material_packaging_history_writer_guard ON public.material_packaging_rules;
 CREATE TRIGGER material_packaging_history_writer_guard
     BEFORE INSERT OR UPDATE OR DELETE ON public.material_packaging_rules

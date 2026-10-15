@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from io import StringIO
 from types import SimpleNamespace
 from unittest.mock import patch
+from psycopg2.extras import RealDictCursor
 
 from . import test_history_lock_postgres as writer_tests
 from .schema import ensure_packaging_schema, packaging_schema_ready
@@ -295,3 +296,83 @@ class PackagingDatabaseGuardTests(unittest.TestCase):
         saved = self.save(body)
         self.assertEqual(saved['id'], row['id'])
         self.assertEqual(saved['contentQuantity'], 30)
+
+    def test_guard_readiness_accepts_only_the_installed_contract(self):
+        from .history_guard_readiness import packaging_guard_ready
+        from .history_lock_schema import GUARD_SQL
+
+        before = self.sql('SELECT to_jsonb(r) FROM material_packaging_rules r ORDER BY id')
+        statements = (
+            'ALTER TABLE material_packaging_rules DISABLE TRIGGER material_packaging_history_writer_guard',
+            'ALTER TABLE material_packaging_rules ENABLE TRIGGER material_packaging_history_writer_guard',
+            'ALTER TABLE material_packaging_rules ENABLE REPLICA TRIGGER material_packaging_history_writer_guard',
+            'DROP TRIGGER material_packaging_history_writer_guard ON material_packaging_rules',
+            'ALTER FUNCTION public.material_packaging_history_writer_guard() SECURITY DEFINER',
+            'ALTER FUNCTION public.material_packaging_history_writer_guard() SET search_path TO public',
+            'ALTER FUNCTION public.material_packaging_history_writer_guard() IMMUTABLE',
+            'ALTER FUNCTION public.material_packaging_history_writer_guard() PARALLEL SAFE',
+            'ALTER FUNCTION public.material_packaging_history_writer_guard() STRICT',
+            GUARD_SQL.replace(f'pg_advisory_xact_lock_shared({PACKAGING_HISTORY_NAMESPACE},selected_supplier)',
+                              f'pg_advisory_xact_lock_shared({PACKAGING_HISTORY_NAMESPACE+1},selected_supplier)'),
+            GUARD_SQL.replace('FOR EACH ROW EXECUTE FUNCTION',
+                              'FOR EACH ROW WHEN (false) EXECUTE FUNCTION'),
+            GUARD_SQL.replace('BEFORE INSERT OR UPDATE OR DELETE', 'BEFORE UPDATE'),
+            GUARD_SQL.replace('BEFORE INSERT OR UPDATE OR DELETE', 'AFTER INSERT OR UPDATE OR DELETE'),
+            GUARD_SQL.replace('FOR EACH ROW', 'FOR EACH STATEMENT'),
+            GUARD_SQL.replace('EXECUTE FUNCTION public.material_packaging_history_writer_guard();',
+                              "EXECUTE FUNCTION public.material_packaging_history_writer_guard('unexpected');"),
+            'ALTER TABLE material_packaging_rules RENAME COLUMN supplier_id TO supplier_old',
+            '''CREATE TRIGGER extra_packaging_guard BEFORE INSERT ON material_packaging_rules
+               FOR EACH ROW EXECUTE FUNCTION public.material_packaging_history_writer_guard()''',
+            'CREATE TEMP TABLE packaging_child () INHERITS (public.material_packaging_rules)',
+            'DROP TABLE material_packaging_rules',
+        )
+        for statement in statements:
+            with self.subTest(statement=statement):
+                conn = self.main.get_db()
+                try:
+                    conn.autocommit = False
+                    with conn.cursor() as cur:
+                        self.assertTrue(packaging_guard_ready(cur))
+                        cur.execute(statement)
+                        self.assertFalse(packaging_guard_ready(cur))
+                finally:
+                    conn.rollback()
+                    conn.close()
+        conn = self.main.get_db()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                self.assertTrue(packaging_guard_ready(cur))
+        finally:
+            conn.close()
+        self.assertEqual(before, self.sql('SELECT to_jsonb(r) FROM material_packaging_rules r ORDER BY id'))
+
+    def test_weak_table_lock_does_not_pin_function_body(self):
+        from .history_guard_readiness import packaging_guard_ready
+        from .history_lock_schema import GUARD_SQL
+
+        # Diagnostic evidence only: a future weak-lock mode must also control
+        # function DDL. A table lock alone cannot make a positive check durable.
+        function_sql = GUARD_SQL.split('DROP TRIGGER', 1)[0]
+        changed_sql = function_sql.replace(f'pg_advisory_xact_lock_shared({PACKAGING_HISTORY_NAMESPACE},selected_supplier)',
+                                          f'pg_advisory_xact_lock_shared({PACKAGING_HISTORY_NAMESPACE+1},selected_supplier)')
+        holder, ddl = self.main.get_db(), self.main.get_db()
+        try:
+            holder.autocommit = ddl.autocommit = False
+            with holder.cursor() as cur:
+                cur.execute('LOCK TABLE material_packaging_rules IN ROW EXCLUSIVE MODE')
+                self.assertTrue(packaging_guard_ready(cur))
+            with ddl.cursor() as cur:
+                cur.execute("SET LOCAL statement_timeout='2s'")
+                cur.execute(changed_sql)
+            ddl.commit()
+            with holder.cursor() as cur:
+                self.assertFalse(packaging_guard_ready(cur))
+        finally:
+            holder.rollback()
+            holder.close()
+            ddl.rollback()
+            with ddl.cursor() as cur:
+                cur.execute(function_sql)
+            ddl.commit()
+            ddl.close()
