@@ -14,6 +14,8 @@ from .connections import company_lock, authorities, is_admin, source_link
 from .service import ready
 from .merge_inventory import inventory
 from ..supplier_access.company_merge import pair, apply_pair
+from ..material_packaging.history_guard_pin import try_pin_packaging_guard
+from ..material_packaging.history_lock import PACKAGING_HISTORY_NAMESPACE
 
 PLAN_TTL_SECONDS=900
 Id=conint(strict=True,ge=1,le=2147483647)
@@ -104,6 +106,13 @@ def confirm(deps,user,company_id,source,plan_id,data,contracts=False):
         # Pin all inspected predicates, including new attachments/recipients,
         # through the mutation. Contended writers time out safely before apply.
         for table in plan['manifest']['tables']:
+            if (table=='material_packaging_rules'
+                    and os.getenv('PARTICIPANT_PACKAGING_HISTORY_LOCKS_ENABLED','0')=='1'
+                    and try_pin_packaging_guard(cur)):
+                # This exact manifest predicate is supplier_id=source across all
+                # companies. Other tables retain their existing SHARE locks.
+                cur.execute('SELECT pg_advisory_xact_lock(%s,%s)',(PACKAGING_HISTORY_NAMESPACE,source))
+                continue
             cur.execute(sql.SQL('LOCK TABLE {} IN SHARE MODE').format(sql.Identifier(table)))
         company=company_lock(cur,company_id)
         suppliers,users=authorities(cur,source,plan['target_supplier_id'],[user['id'],plan['owner_id']])
