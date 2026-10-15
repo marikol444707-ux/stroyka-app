@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 from . import test_history_lock_postgres as writer_tests
 from .schema import ensure_packaging_schema, packaging_schema_ready
+from .history_lock import PACKAGING_HISTORY_NAMESPACE
 
 
 @unittest.skipUnless(os.getenv('SUPPLY_CHAIN_RUN_POSTGRES') == '1', 'isolated PostgreSQL opt-in')
@@ -258,3 +259,39 @@ class PackagingDatabaseGuardTests(unittest.TestCase):
                 finally:
                     conn.rollback()
                     conn.close()
+
+    def test_http_deadlock_rolls_back_and_the_same_save_can_be_retried(self):
+        body = self.body()
+        row = self.save(body)
+        before = self.sql('SELECT to_jsonb(r) FROM material_packaging_rules r WHERE id=%s', (row['id'],))
+        holder = self.main.get_db()
+        try:
+            holder.autocommit = False
+            with holder.cursor() as cur:
+                # Let the HTTP connection detect the real cycle first. All
+                # settings affect only this disposable database transaction.
+                cur.execute("SET LOCAL deadlock_timeout='5s'; SET LOCAL statement_timeout='8s'")
+                cur.execute('UPDATE material_packaging_rules SET content_quantity=29 WHERE id=%s', (row['id'],))
+                cur.execute('SELECT pg_backend_pid()')
+                blocker = cur.fetchone()[0]
+            body['contentQuantity'] = 30
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(self.save, body, expected=409)
+                try:
+                    self.wait_for_blocker(blocker)
+                    with holder.cursor() as cur:
+                        # HTTP holds a shared supplier key and waits for our row;
+                        # upgrading our key now completes the deadlock cycle.
+                        cur.execute('SELECT pg_advisory_xact_lock(%s,%s)',
+                                    (PACKAGING_HISTORY_NAMESPACE, body['supplierId']))
+                    self.assertIn('Повторите сохранение', future.result(timeout=10)['detail'])
+                finally:
+                    holder.rollback()
+        finally:
+            holder.rollback()
+            holder.close()
+        self.assertEqual(before, self.sql('SELECT to_jsonb(r) FROM material_packaging_rules r WHERE id=%s', (row['id'],)))
+        self.assertTrue(self.try_exclusive(body['supplierId']))
+        saved = self.save(body)
+        self.assertEqual(saved['id'], row['id'])
+        self.assertEqual(saved['contentQuantity'], 30)

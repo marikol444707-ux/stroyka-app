@@ -273,6 +273,39 @@ class ServerSchemaMergeTests(unittest.TestCase):
         self.assert_not_applied(state, plan)
         self.assertEqual(self.sql('SELECT content_quantity FROM material_packaging_rules WHERE id=%s', (row_id,)), [(30,)])
 
+    def test_reverse_writer_order_deadlock_rolls_back_and_merge_can_be_retried(self):
+        state = self.prepare('material_packaging_rules')
+        plan = self.review(state['source'], state['target'])
+        before = self.sql('SELECT to_jsonb(i) FROM supplier_invoices i WHERE id=%s', (state['invoice'],))
+        writer = self.main.get_db()
+        try:
+            writer.autocommit = False
+            with writer.cursor() as cur:
+                cur.execute("SET LOCAL deadlock_timeout='5s'; SET LOCAL statement_timeout='8s'")
+                cur.execute('UPDATE supplier_invoices SET paid_amount=51 WHERE id=%s', (state['invoice'],))
+                cur.execute('SELECT pg_backend_pid()')
+                blocker = cur.fetchone()[0]
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(self.confirm, state['source'], plan, expected=409)
+                try:
+                    self.wait_for_blocker(blocker, 'supplier_invoices')
+                    # Merge already holds SHARE on packaging and waits for our
+                    # invoice DML. This reverse-order insert completes the cycle.
+                    with writer.cursor() as cur:
+                        row_id = self.insert(cur, 'material_packaging_rules', state)
+                    self.assertIn('Повторите проверку и объединение', future.result(timeout=10)['detail'])
+                    self.assert_not_applied(state, plan)
+                finally:
+                    writer.rollback()
+        finally:
+            writer.rollback()
+            writer.close()
+        self.assertEqual(before, self.sql('SELECT to_jsonb(i) FROM supplier_invoices i WHERE id=%s', (state['invoice'],)))
+        self.assertEqual(self.sql('SELECT id FROM material_packaging_rules WHERE id=%s', (row_id,)), [])
+        self.assertTrue(self.confirm(state['source'], plan)['ok'])
+        self.assertEqual(self.sql("SELECT count(*) FROM audit_log WHERE action='supplier_history_merged' AND entity_id=%s",
+                                  (state['source'],)), [(1,)])
+
     def test_foreign_history_without_catalog_link_never_grants_ownership(self):
         for table in EXTRA_TABLES:
             with self.subTest(table=table):
