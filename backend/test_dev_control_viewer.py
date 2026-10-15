@@ -40,10 +40,12 @@ class ViewerContractTest(unittest.TestCase):
         self.assertIn("if(!requested||detailLoading)return", VIEWER_HTML)
         self.assertIn("finally{detailLoading=false;}", VIEWER_HTML)
 
-    def test_viewer_clears_old_frame_when_switching_or_no_image_exists(self):
+    def test_viewer_has_frame_cleanup_for_run_switches(self):
+        # DOM behavior (missing evidence, run switches and stale responses) is
+        # exercised against this actual inline script in devControlViewer.test.js.
+        # Do not couple it to the wording appended to the no-image branch.
         self.assertIn("function clearFrame()", VIEWER_HTML)
         self.assertIn("function clearRenderedDetail()", VIEWER_HTML)
-        self.assertIn("if(!latest){if(selected===requested&&seq===detailSeq)clearFrame();return;}", VIEWER_HTML)
         self.assertIn("detailSeq++;clearRenderedDetail()", VIEWER_HTML)
 
     def test_viewer_clears_rendered_detail_on_fetch_error_and_keys_frames_by_invocation(self):
