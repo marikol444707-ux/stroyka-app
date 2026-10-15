@@ -45,6 +45,7 @@ class ConnectionItem(ConnectionResult):
     supplierName: Optional[str]
     inn: Optional[str]
     expired: bool
+    correctionStatus: Optional[Literal['disconnected']] = None
 
 
 class ConnectionPage(BaseModel):
@@ -73,7 +74,19 @@ def register_connections(app,deps,admin):
                 JOIN suppliers s ON s.id=r.target_supplier_id
                 WHERE r.company_id=%s AND r.platform_account_id=%s AND r.source_supplier_id=%s
                 ORDER BY r.created_at DESC,r.id LIMIT %s OFFSET %s''',(company_id,company['platform_account_id'],supplier_id,limit+1,offset))
-            return page(cur.fetchall(),limit)
+            result=page(cur.fetchall(),limit)
+            if result['items']:
+                cur.execute("SELECT to_regclass('public.supplier_connection_correction_plans') AS relation")
+                if cur.fetchone()['relation']:
+                    cur.execute('''SELECT p.connection_request_id FROM supplier_connection_correction_plans p
+                        JOIN company_supplier_links l ON l.id=p.target_link_id AND l.company_id=p.company_id AND l.platform_account_id=p.platform_account_id
+                        WHERE p.company_id=%s AND p.platform_account_id=%s AND p.connection_request_id=ANY(%s::uuid[])
+                          AND p.applied_at IS NOT NULL AND l.status='Неактивный' ''',
+                        (company_id,company['platform_account_id'],[r['id'] for r in result['items']]))
+                    corrected={str(r['connection_request_id']) for r in cur.fetchall()}
+                    for item in result['items']:
+                        if item['id'] in corrected:item['correctionStatus']='disconnected'
+            return result
 
     @app.post('/system/companies/{company_id}/participants/{supplier_id}/connection-requests/{request_id}/revoke',response_model=ConnectionResult)
     def revoke(request_id: UUID,data: Decision,company_id: int=Path(...,ge=1,le=2147483647),

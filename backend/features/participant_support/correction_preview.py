@@ -60,8 +60,9 @@ def creation_time(cur, table):
     if row and row['data_type'] == 'timestamp with time zone':
         return sql.SQL('t.created_at')
     if row and row['data_type'] == 'timestamp without time zone':
-        # Legacy application timestamps are UTC, including on a non-UTC DB.
-        return sql.SQL("t.created_at AT TIME ZONE 'UTC'")
+        # Legacy NOW() defaults store wall time in the database's timezone.
+        # If that historical setting changed, dates require a separate review.
+        return sql.SQL("t.created_at AT TIME ZONE current_setting('TimeZone')")
     return sql.SQL('NULL::timestamptz')
 
 

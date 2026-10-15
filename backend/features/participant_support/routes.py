@@ -7,6 +7,7 @@ from .connection_preview import register_connection_preview
 from .connection_routes import register_connections
 from .history_preview import register_history_preview
 from .correction_preview import register_correction_preview
+from .corrections import register_corrections
 from .history_merge import register_history_merge
 from .capabilities import register_capabilities
 
@@ -24,6 +25,7 @@ def register_participant_support(app, deps):
     register_connections(app, deps, admin)
     register_history_preview(app, deps, admin)
     register_correction_preview(app, deps, admin)
+    register_corrections(app, deps, admin)
     register_history_merge(app, deps, admin)
     register_capabilities(app, deps, admin)
 

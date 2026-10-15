@@ -169,3 +169,18 @@ class SupplierCorrectionPreviewPostgresTests(unittest.TestCase):
         self.assertEqual([r['id'] for r in contracts['items']],[version])
         self.assertEqual(contracts['items'][0]['currentSupplierAccess'],'needs_check')
         self.assertNotIn('snapshot_json',str(contracts))
+
+    def test_database_local_legacy_timestamp_is_not_misclassified_as_after_connection(self):
+        from psycopg2 import sql
+        database=self.sql('SELECT current_database()')[0][0]
+        self.assertTrue(database.startswith('supply_chain_test_'))
+        self.sql(sql.SQL("ALTER DATABASE {} SET timezone TO 'Asia/Tokyo'").format(sql.Identifier(database)))
+        try:
+            source,target,request=self.connection()
+            self.sql('''INSERT INTO supplier_invoices(company_id,supplier_id,created_at)
+                SELECT 2,%s,(decided_at-INTERVAL '1 minute')::timestamp FROM supplier_buyer_connection_requests WHERE id=%s''',(source,request))
+            result=self.review(source,request)
+            self.assertEqual(result['summary']['invoices']['afterConnection'],0)
+            self.assertFalse(result['items'][0]['createdAfterConnection'])
+        finally:
+            self.sql(sql.SQL('ALTER DATABASE {} RESET timezone').format(sql.Identifier(database)))
