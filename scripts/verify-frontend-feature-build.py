@@ -27,6 +27,8 @@ def verify(build_dir: Path, build_environment: str) -> None:
     for key, metadata_name, label in (
         ("REACT_APP_WORK_MATERIAL_ACCOUNTING_ENABLED", "stroyka-work-material-accounting", "учёта материалов"),
         ("REACT_APP_WORK_ACCEPTANCE_ENABLED", "stroyka-work-acceptance", "приёмки работ"),
+        ("REACT_APP_PARTICIPANT_SUPPORT_ENABLED", "stroyka-participant-support", "участников организаций"),
+        ("REACT_APP_PARTICIPANT_SUPPORT_ACCESS_ENABLED", "stroyka-participant-support-access", "служебного доступа"),
     ):
         mode = flags.get(key)
         if mode is None:
@@ -37,6 +39,8 @@ def verify(build_dir: Path, build_environment: str) -> None:
         metadata.feed((build_dir / "index.html").read_text(encoding="utf-8"))
         if metadata.values != [mode]:
             raise ValueError(f"Frontend собран с другим режимом {label}")
+    participant_enabled = flags.get("REACT_APP_PARTICIPANT_SUPPORT_ENABLED") == "1"
+    support_access_enabled = flags.get("REACT_APP_PARTICIPANT_SUPPORT_ACCESS_ENABLED") == "1"
     work_enabled = flags.get("REACT_APP_WORK_MATERIAL_ACCOUNTING_ENABLED") == "1"
     acceptance_enabled = flags.get("REACT_APP_WORK_ACCEPTANCE_ENABLED") == "1"
     warehouse_enabled = (
@@ -50,7 +54,7 @@ def verify(build_dir: Path, build_environment: str) -> None:
         flags.get("REACT_APP_INTERCOMPANY_WAREHOUSE_TRANSFERS_ENABLED")
         == "true"
     )
-    if not warehouse_enabled and not capability_enabled and not intercompany_enabled and not work_enabled and not acceptance_enabled:
+    if not warehouse_enabled and not capability_enabled and not intercompany_enabled and not work_enabled and not acceptance_enabled and not participant_enabled and not support_access_enabled:
         return
 
     manifest = json.loads(
@@ -63,6 +67,11 @@ def verify(build_dir: Path, build_environment: str) -> None:
             if path.is_file():
                 javascript.append(path.read_text(encoding="utf-8"))
     bundle = "\n".join(javascript)
+
+    if participant_enabled and any(marker not in bundle for marker in ("Участники и доступ", "participant-tickets")):
+        raise ValueError("Frontend собран без раздела участников организаций")
+    if support_access_enabled and "/support-access" not in bundle:
+        raise ValueError("Frontend собран без служебного доступа")
 
     if work_enabled:
         missing = [marker for marker in ("materialAccountingVersion", "stroyka:work-material-batch:v2:")
