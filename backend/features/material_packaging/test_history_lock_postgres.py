@@ -1,11 +1,13 @@
 """Real packaging HTTP writer: transaction scope and supplier lock preparation."""
 import os
+import importlib
 import time
 import unittest
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from threading import Barrier, Event
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from ..supplier_access import test_postgres_chain as chain
@@ -27,6 +29,9 @@ class PackagingWriterLockTests(unittest.TestCase):
             with conn.cursor() as cur:
                 error_schema(cur)
                 ensure_packaging_schema(cur)
+                migration = importlib.import_module('migrations.versions.0100_packaging_history_guard')
+                with patch.object(migration, 'op', SimpleNamespace(execute=cur.execute)):
+                    migration.upgrade()
             conn.commit()
         finally:
             conn.close()

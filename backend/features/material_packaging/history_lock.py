@@ -1,4 +1,4 @@
-"""First writer slice; merge retains its table locks until DB enforcement exists."""
+"""Supplier keys; merge retains table locks until the full protocol is verified."""
 
 PACKAGING_HISTORY_NAMESPACE = 94101
 
