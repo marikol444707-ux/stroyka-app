@@ -13,6 +13,7 @@ from psycopg2 import sql
 from .merge_inventory import POLICY_TABLES, POLICY_FLAGS, tables
 from ..supplier_team.policy import access_ids, enabled as team_enabled
 from ..supply_claim_cases.access import CHAIN
+from . import correction_rfqs
 
 IGNORED = {'supplier_connection_correction_plans', 'supplier_history_merge_plans',
            'supplier_buyer_connection_requests', 'supplier_team_operations',
@@ -54,7 +55,7 @@ def used_by_target(row, refs, source, target, owner):
     return False
 
 
-def inventory(cur, company, source, target, owner):
+def inventory(cur, company, source, target, owner, *, allow_rfq=False):
     schema=tables(cur)
     if not REQUIRED <= schema.keys():
         raise HTTPException(503,'Для исправления требуется полный реестр документов и назначений')
@@ -64,6 +65,7 @@ def inventory(cur, company, source, target, owner):
     else:
         cur.execute('SELECT id FROM suppliers WHERE user_id=%s ORDER BY id',(owner['id'],))
         owner_ids=[r['id'] for r in cur.fetchall()]
+    rfq=correction_rfqs.unanswered(cur,company,target,owner,owner_ids,schema) if allow_rfq else None
     fingerprints={};locked=[]
     retained={kind:0 for kind in ('invoices','receipts','offers')}
     names={'supplier_invoices':'invoices','warehouse_invoices':'receipts','supplier_offers':'offers'}
@@ -118,7 +120,7 @@ def inventory(cur, company, source, target, owner):
         for row in values:
             related=used_by_target(row,refs.get(name,set()),source,target,owner['id'])
             if name=='supplier_contract_versions' and str((row.get('snapshot_json') or {}).get('supplier',{}).get('supplierId'))==str(target):related=True
-            if related:
+            if related and not (rfq and correction_rfqs.allowed(rfq,name,row)):
                 raise HTTPException(409,'Кабинет уже получил документы, заявки или назначения. Требуется отдельное исправление адресатов')
             if (name not in POLICY_TABLES and 'company_id' not in columns and values) or (
                     'company_id' in columns and row.get('company_id') is None):
@@ -127,11 +129,13 @@ def inventory(cur, company, source, target, owner):
     # A legacy array can address the connected card without a recipient or quote.
     # Work addressed to another owned card is independent of this new link.
     for row in fingerprints['supply_requests']:
-        if target in (row.get('selected_suppliers') or []):
+        if target in (row.get('selected_suppliers') or []) and not (rfq and correction_rfqs.allowed(rfq,'supply_requests',row)):
             raise HTTPException(409,'Кабинету уже адресована заявка этой компании. Сначала проверьте её получателей')
     cur.execute('SELECT to_jsonb(s) AS row FROM suppliers s WHERE id=ANY(%s) ORDER BY id',([source,target],))
     fingerprints['suppliers']=[r['row'] for r in cur.fetchall()]
     flags={key:os.getenv(key,'0') for key in POLICY_FLAGS}
     payload=dict(rows=fingerprints,schema={n:sorted(schema[n]) for n in inspected},refs={n:sorted(refs.get(n,set())) for n in inspected},flags=flags,ownerIds=sorted(owner_ids))
     digest=hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(',',':')).encode()).hexdigest()
-    return dict(digest=digest,tables=sorted(locked),retainedDocuments=retained,flags=flags)
+    result=dict(digest=digest,tables=sorted(set(locked)|(correction_rfqs.EXTRA_TABLES|set(rfq['referenceTables']) if allow_rfq else set())),retainedDocuments=retained,flags=flags)
+    if rfq:result['rfq']=rfq
+    return result
