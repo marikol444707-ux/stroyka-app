@@ -53,7 +53,7 @@ class AffectedOffer(BaseModel):
 
 
 class PreservedIssuedDocument(BaseModel):
-    kind: Literal['offer','invoice','delivery','receipt','contract']
+    kind: Literal['offer','invoice','delivery','receipt','contract','claim']
     id: int
 
 

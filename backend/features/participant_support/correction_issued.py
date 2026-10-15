@@ -8,12 +8,13 @@ from psycopg2 import sql
 
 from .merge_inventory import bounded, visible_documents, visible_files
 from ..document_access.supplier_files import supplier_ids
-from ..supplier_access.service import supplier_history_visibility_filter
+from ..supplier_access.service import supplier_history_visibility_filter, supplier_delivery_visibility_filter
 from . import correction_invoice_access, correction_contract_access
+from ..supply_claim_cases.access import CHAIN as CLAIM_CHAIN
 
 MODE='revoke_issued_access'
 TABLE_KINDS={'supplier_offers':'offer','supplier_invoices':'invoice','supply_deliveries':'delivery','warehouse_invoices':'receipt',
-    'supplier_contract_versions':'contract'}
+    'supplier_contract_versions':'contract','supply_claims':'claim'}
 REQUIRED={
     'supplier_invoices':{'id','company_id','supplier_id','offer_id','request_id','warehouse_invoice_id','file_url','photo_url'},
     'supply_deliveries':{'id','company_id','supplier_id','offer_id','request_id','project','work_package','document_url','photo_url'},
@@ -21,6 +22,9 @@ REQUIRED={
     'file_ownership':{'id','company_id','file_url','context','deletion_status'},
     'supplier_contract_versions':{'id','source_file_id','snapshot_json'},
     'supplier_shipment_batches':{'id','company_id','offer_id','delivery_ids'},
+    'supply_claims':{'id','delivery_id','request_id','offer_id','supplier_id','project','work_package','photo_url',
+        'material_name','claim_type','description','expected_quantity','received_quantity','shortage_quantity',
+        'status','resolution','resolved_at','version','created_at','updated_at'},
     'supply_history':{'id','company_id','supplier_id','request_id','delivery_id','project','work_package'},
     'supplier_customer_assignments':{'supplier_id','company_id','member_id','version'},
     'supplier_offer_assignments':{'supplier_id','offer_id','member_id','version'},
@@ -78,6 +82,21 @@ def history(cur,company,target,offers,schema,*,standalone=False):
                 or row['request_id']!=delivery['request_id'] or row['project']!=delivery['project']
                 or (row['work_package'] or '')!=(delivery.get('work_package') or '')):
             blocked('История поставки не имеет точной цепочки этой компании. Нужен отдельный разбор')
+    # Claims are buyer records attached to exact deliveries. Include them in
+    # the immutable plan so an issued-access correction cannot leave the
+    # supplier-facing claim list or its photo as an unreviewed side door.
+    cur.execute('SELECT c.id'+CLAIM_CHAIN+' WHERE d.company_id=%s AND c.supplier_id=%s', (company,target))
+    expected_claim_ids={r['id'] for r in cur.fetchall()}
+    claim_rows=records(cur,'supply_claims','t.id=ANY(%s) OR t.delivery_id=ANY(%s)',
+        (sorted(expected_claim_ids),list(deliveries)))
+    for claim in claim_rows:
+        delivery=deliveries.get(claim.get('delivery_id'))
+        if (claim['id'] not in expected_claim_ids or not delivery or claim['supplier_id']!=target
+                or delivery['company_id']!=company or claim['request_id']!=delivery['request_id']
+                or claim['offer_id']!=delivery['offer_id'] or claim['project']!=delivery['project']
+                or (claim.get('work_package') or '')!=(delivery.get('work_package') or '')):
+            blocked('Претензия не имеет точной связи с поставкой этой компании. Нужен отдельный разбор')
+    result['supply_claims']=claim_rows
     result['supplier_shipment_batches']=records(cur,'supplier_shipment_batches','t.offer_id=ANY(%s)',(offer_ids,))
     for batch in result['supplier_shipment_batches']:
         if (batch['company_id']!=company or not batch['delivery_ids'] or any(
@@ -154,7 +173,8 @@ def originals(cur,company,documents):
     if any(type(fid) is not int or fid<1 for fid in contract_ids):blocked('Оригинал договора не подтверждён')
     urls.update(f'/tenant-files/{fid}/content' for fid in contract_ids)
     fields={'supplier_offers':('pdf_url',),'supplier_invoices':('file_url','photo_url'),
-        'supply_deliveries':('document_url','photo_url'),'warehouse_invoices':('photo_url',)}
+        'supply_deliveries':('document_url','photo_url'),'warehouse_invoices':('photo_url',),
+        'supply_claims':('photo_url',)}
     for table,rows in documents.items():
         if table not in fields:continue
         for row in rows:
@@ -212,6 +232,16 @@ def proof(cur,company,target,owner,offers,recipients,schema,*,standalone=False,c
     after_files=visible_files(projected,owner,files,True,lambda _:None)
     if set(before_files)!={f['id'] for f in files} or after_files:
         blocked('Оригиналы имеют независимый или неподтверждённый доступ. Нужен отдельный разбор')
+    supplier_claim_ids=sorted({r['id'] for r in documents['supply_claims']})
+    if supplier_claim_ids:
+        claim_scope,claim_params=supplier_delivery_visibility_filter(supplier_ids(cur,owner),owner['id'])
+        claim_query='SELECT c.id'+CLAIM_CHAIN+' WHERE c.id=ANY(%s) AND '+claim_scope
+        cur.execute(claim_query,[supplier_claim_ids]+claim_params)
+        claim_before={r['id'] for r in cur.fetchall()}
+        projected.execute(claim_query,[supplier_claim_ids]+claim_params)
+        claim_after={r['id'] for r in projected.fetchall()}
+        if claim_before!=set(supplier_claim_ids) or claim_after:
+            blocked('Доступ к претензиям не закрывается вместе с точной поставкой')
     scope,params=supplier_history_visibility_filter(supplier_ids(cur,owner),owner['id'])
     query='SELECT h.id FROM supply_history h WHERE h.company_id=%s AND '+scope
     cur.execute(query,[company]+params);history_before={r['id'] for r in cur.fetchall()}
@@ -234,4 +264,5 @@ def counts(plan):
     result=dict(offers=len(docs['supplier_offers']),invoices=len(docs['supplier_invoices']),
         deliveries=len(docs['supply_deliveries']),receipts=len(docs['warehouse_invoices']))
     if 'supplier_contract_versions' in docs:result['contracts']=len(docs['supplier_contract_versions'])
+    if docs.get('supply_claims'):result['claims']=len(docs['supply_claims'])
     return result

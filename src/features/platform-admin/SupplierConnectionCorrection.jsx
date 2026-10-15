@@ -20,11 +20,12 @@ function validQuotes(body) {
     body.preservedQuoteFileCount<=body.affectedOffers.filter(row=>row.statusBefore==='Получено').length;
 }
 
-const issuedKinds={offer:'КП',invoice:'Счёт',delivery:'Поставка',receipt:'Накладная',contract:'Договор'};
+const issuedKinds={offer:'КП',invoice:'Счёт',delivery:'Поставка',receipt:'Накладная',contract:'Договор',claim:'Претензия'};
 function issuedCounts(documents,includeContracts=false) {
   const counts={offers:documents.filter(d=>d.kind==='offer').length,invoices:documents.filter(d=>d.kind==='invoice').length,
     deliveries:documents.filter(d=>d.kind==='delivery').length,receipts:documents.filter(d=>d.kind==='receipt').length};
   if(includeContracts)counts.contracts=documents.filter(d=>d.kind==='contract').length;
+  if(documents.some(d=>d.kind==='claim'))counts.claims=documents.filter(d=>d.kind==='claim').length;
   return counts;
 }
 function validIssued(body,mode) {
@@ -103,11 +104,11 @@ function CorrectionForm({path,mode,companyId,supplierId,targetId,onApplied,onPen
         <p>Эта связь станет неактивной. Кабинет поставщика и его связи с другими компаниями сохранятся.</p>
         {issued&&<>
           <p><strong>Доступ к этим документам будет закрыт:</strong></p>
-          <p>КП — {issuedCounts(plan.preservedIssuedDocuments,includesContracts).offers} · Счета — {issuedCounts(plan.preservedIssuedDocuments,includesContracts).invoices} · Поставки — {issuedCounts(plan.preservedIssuedDocuments,includesContracts).deliveries} · Накладные — {issuedCounts(plan.preservedIssuedDocuments,includesContracts).receipts}{includesContracts&&<> · Договоры — {issuedCounts(plan.preservedIssuedDocuments,true).contracts}</>}</p>
+          <p>КП — {issuedCounts(plan.preservedIssuedDocuments,includesContracts).offers} · Счета — {issuedCounts(plan.preservedIssuedDocuments,includesContracts).invoices} · Поставки — {issuedCounts(plan.preservedIssuedDocuments,includesContracts).deliveries} · Накладные — {issuedCounts(plan.preservedIssuedDocuments,includesContracts).receipts}{issuedCounts(plan.preservedIssuedDocuments,includesContracts).claims>0&&<> · Претензии — {issuedCounts(plan.preservedIssuedDocuments,includesContracts).claims}</>}{includesContracts&&<> · Договоры — {issuedCounts(plan.preservedIssuedDocuments,true).contracts}</>}</p>
           <details><summary>Показать документы ({plan.preservedIssuedDocuments.length})</summary>
             <ul>{plan.preservedIssuedDocuments.map(row=><li key={row.kind+':'+row.id}>{issuedKinds[row.kind]} №{row.id}</li>)}</ul>
           </details>
-          <p>Статусы документов, оплаты и складские записи сохранятся.</p>
+          <p>Статусы документов, претензии, оплаты и складские записи сохранятся в компании. У поставщика пропадёт доступ к ним и к их файлам.</p>
           <p>Оригиналов в архиве компании: {plan.preservedIssuedFileCount}.</p>
         </>}
         {rejectsQuotes&&<>

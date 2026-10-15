@@ -4,6 +4,10 @@ import json
 import unittest
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+import importlib.util
+from pathlib import Path
+import sys
+from types import ModuleType, SimpleNamespace
 from unittest.mock import patch
 
 from .test_quote_corrections_postgres import SupplierQuoteCorrectionsPostgresTests as Fixture
@@ -17,6 +21,22 @@ class SupplierIssuedAccessCorrectionsPostgresTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         Fixture.setUpClass.__func__(cls)
+        # The shared supplier-chain fixture intentionally uses the older
+        # baseline. Apply the real claims migration to this disposable DB.
+        root=Path(__file__).resolve().parents[3]
+        conn=cls.main.get_db()
+        try:
+            with conn,conn.cursor() as cur:
+                for name,relation in (('0027_work_material_accounting','work_material_operations'),
+                                      ('0033_supply_claim_cases','supply_claim_events')):
+                    cur.execute('SELECT to_regclass(%s)',(relation,))
+                    if cur.fetchone()[0]:continue
+                    spec=importlib.util.spec_from_file_location(name,root/'migrations/versions'/(name+'.py'))
+                    migration=importlib.util.module_from_spec(spec)
+                    alembic=ModuleType('alembic');alembic.op=None
+                    with patch.dict(sys.modules,{'alembic':alembic}):spec.loader.exec_module(migration)
+                    with patch.object(migration,'op',SimpleNamespace(execute=cur.execute)):migration.upgrade()
+        finally:conn.close()
         patch.dict(os.environ,PARTICIPANT_ISSUED_ACCESS_CORRECTIONS_ENABLED='1').start()
 
     def path(self,source,connection,company=2):
@@ -54,7 +74,26 @@ class SupplierIssuedAccessCorrectionsPostgresTests(unittest.TestCase):
         return {table:self.sql('SELECT to_jsonb(t) FROM '+table+' t ORDER BY id') for table in
             ('suppliers','users','supply_requests','supplier_offers','supplier_invoices','supply_deliveries',
              'warehouse_invoices','warehouse_history','warehouse_main','project_payments','supplier_shipment_batches','supply_history',
-             'file_ownership','supplier_buyer_connection_requests')}
+             'supply_claims','file_ownership','supplier_buyer_connection_requests')}
+
+    def test_exact_delivery_claim_and_its_photo_are_closed_with_the_issued_chain(self):
+        source,target,connection,request,recipient,offer,invoice,delivery,url=self.chain(ship=True,file=True)
+        claim=self.sql('''INSERT INTO supply_claims(delivery_id,request_id,offer_id,supplier_id,project,material_name,
+            work_package,claim_type,description,expected_quantity,received_quantity,shortage_quantity,status,photo_url)
+            VALUES(%s,%s,%s,%s,%s,%s,%s,'Недостача','Synthetic claim',2,1,1,'Открыта',%s) RETURNING id''',
+            (delivery,request,offer,target,self.fixture['project'],self.fixture['materialName'],self.fixture['workPackage'],url))[0][0]
+        before=self.business_snapshot()
+        self.assertIn(claim,{row['id'] for row in self.api('supplier','GET','/supply-claims')})
+        plan=self.plan(source,connection)
+        self.assertIn(dict(kind='claim',id=claim),plan['preservedIssuedDocuments'])
+        self.assertEqual(plan['preservedIssuedFileCount'],1)
+        result=self.confirm(source,connection,plan)
+        self.assertEqual(result['preservedIssuedCounts']['claims'],1)
+        self.assertEqual(before,self.business_snapshot())
+        self.assertNotIn(claim,{row['id'] for row in self.api('supplier','GET','/supply-claims')})
+        self.api('supplier','GET',f'/supply-claims/{claim}/case',expected=404)
+        self.assertEqual(self.raw('supplier','GET',url).status_code,403)
+        self.assertEqual(self.raw('director','GET',url).status_code,200)
 
     def test_issued_paid_invoice_original_and_credit_shipment_preserve_business_rows(self):
         source,target,connection,request,recipient,offer,invoice,delivery,url=self.chain(ship=True,file=True,stock=True)

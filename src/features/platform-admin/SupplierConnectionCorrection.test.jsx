@@ -216,12 +216,26 @@ test('issued access closure explicitly preserves invoice and order status before
   fireEvent.click(screen.getByText('Показать документы (3)'));
   expect(screen.getByText('Счёт №47')).toBeVisible();
   expect(screen.getByText('Поставка №58')).toBeInTheDocument();
-  expect(screen.getByText('Статусы документов, оплаты и складские записи сохранятся.')).toBeInTheDocument();
+  expect(screen.getByText(/Статусы документов, претензии, оплаты и складские записи сохранятся/)).toBeInTheDocument();
   expect(screen.queryByText(/Будут отклонены/)).not.toBeInTheDocument();
   expect(fetch.mock.calls[0][0]).toContain('/issued-access-plans');
   fireEvent.change(screen.getByRole('textbox',{name:'Причина отключения'}),{target:{value:'Ошибочно подключён кабинет поставщика'}});
   fireEvent.click(screen.getByRole('checkbox',{name:'Закрыть доступ к указанным документам и отключить эту связь'}));
   fireEvent.click(screen.getByRole('button',{name:'Закрыть доступ и отключить связь'}));
+  await screen.findByText('Подключение отключено.');expect(onApplied).toHaveBeenCalledWith(completed);
+}));
+
+test('issued access plan lists claims separately and verifies their preserved count',async()=>withIssuedMode(async()=>{
+  const onApplied=jest.fn(),plan={...issuedPlan,preservedIssuedDocuments:[...issuedPlan.preservedIssuedDocuments,{kind:'claim',id:59}]};
+  const completed={...result,revokedRequestCount:1,preservedIssuedCounts:{offers:1,invoices:1,deliveries:1,receipts:0,claims:1}};
+  global.fetch=jest.fn().mockResolvedValueOnce(response(plan)).mockResolvedValueOnce(response(completed));
+  render(<SupplierConnectionCorrection {...props} onApplied={onApplied}/>);
+  fireEvent.click(screen.getByRole('button',{name:'Проверить подключение'}));
+  expect(await screen.findByText(/Претензии — 1/)).toBeInTheDocument();
+  fireEvent.click(screen.getByText('Показать документы (4)'));
+  expect(screen.getByText('Претензия №59')).toBeVisible();
+  expect(screen.getByText(/претензии, оплаты и складские записи сохранятся/)).toBeInTheDocument();
+  confirmFields();fireEvent.click(screen.getByRole('button',{name:'Закрыть доступ и отключить связь'}));
   await screen.findByText('Подключение отключено.');expect(onApplied).toHaveBeenCalledWith(completed);
 }));
 
