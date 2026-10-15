@@ -68,7 +68,7 @@ def verify(build_dir: Path, build_environment: str) -> None:
                 javascript.append(path.read_text(encoding="utf-8"))
     bundle = "\n".join(javascript)
 
-    if participant_enabled and any(marker not in bundle for marker in ("Участники и доступ", "participant-tickets")):
+    if participant_enabled and any(marker not in bundle for marker in ("organization-participants", "participant-tickets")):
         raise ValueError("Frontend собран без раздела участников организаций")
     if support_access_enabled and "/support-access" not in bundle:
         raise ValueError("Frontend собран без служебного доступа")
