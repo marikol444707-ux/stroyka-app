@@ -4,7 +4,19 @@ import shlex
 import sys
 from pathlib import Path
 
-NAMES = ("PARTICIPANT_SUPPORT_ENABLED", "PARTICIPANT_SUPPORT_ACCESS_ENABLED")
+NAMES = (
+    "PARTICIPANT_SUPPORT_ENABLED", "PARTICIPANT_SUPPORT_ACCESS_ENABLED",
+    "PARTICIPANT_CONNECTIONS_ENABLED",
+    "PARTICIPANT_HISTORY_PREVIEW_ENABLED",
+    "PARTICIPANT_HISTORY_MERGE_ENABLED",
+    "PARTICIPANT_CORRECTION_PREVIEW_ENABLED",
+    "PARTICIPANT_CORRECTIONS_ENABLED",
+    "PARTICIPANT_RFQ_CORRECTIONS_ENABLED",
+    "PARTICIPANT_QUOTE_CORRECTIONS_ENABLED",
+    "PARTICIPANT_ISSUED_ACCESS_CORRECTIONS_ENABLED",
+    "PARTICIPANT_INVOICE_ACCESS_CORRECTIONS_ENABLED",
+    "PARTICIPANT_CONTRACT_ACCESS_CORRECTIONS_ENABLED",
+)
 
 
 def resolve(service_environment, backend_env_path):
@@ -22,8 +34,8 @@ def resolve(service_environment, backend_env_path):
     for name in NAMES:
         if values.get(name, "0") not in {"0", "1"}:
             raise ValueError(f"{name}: ожидается 0 или 1")
-    if values.get(NAMES[1], "0") == "1" and values.get(NAMES[0], "0") != "1":
-        raise ValueError("PARTICIPANT_SUPPORT_ACCESS_ENABLED требует PARTICIPANT_SUPPORT_ENABLED=1")
+    if any(values.get(name, "0") == "1" for name in NAMES[1:]) and values.get(NAMES[0], "0") != "1":
+        raise ValueError("Режимы участников требуют PARTICIPANT_SUPPORT_ENABLED=1")
     return "\n".join(f"REACT_APP_{name}={values.get(name, '0')}" for name in NAMES)
 
 
