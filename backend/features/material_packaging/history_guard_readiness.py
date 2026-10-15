@@ -33,6 +33,7 @@ def packaging_guard_ready(cur):
               AND p.prorettype='pg_catalog.trigger'::regtype AND NOT p.proretset
               AND l.lanname='plpgsql' AND NOT p.prosecdef AND NOT p.proisstrict
               AND NOT p.proleakproof AND p.provolatile='v' AND p.proparallel='u'
+              AND p.procost=100
               AND p.proconfig=ARRAY['search_path=pg_catalog']::text[]
               AND p.prosrc=%s
         ) AS ready""", (GUARD_BODY,),

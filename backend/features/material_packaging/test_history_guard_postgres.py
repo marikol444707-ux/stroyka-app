@@ -9,10 +9,12 @@ from io import StringIO
 from types import SimpleNamespace
 from unittest.mock import patch
 from psycopg2.extras import RealDictCursor
+from psycopg2 import sql, errors
 
 from . import test_history_lock_postgres as writer_tests
 from .schema import ensure_packaging_schema, packaging_schema_ready
 from .history_lock import PACKAGING_HISTORY_NAMESPACE
+from .history_guard_pin import try_pin_packaging_guard
 
 
 @unittest.skipUnless(os.getenv('SUPPLY_CHAIN_RUN_POSTGRES') == '1', 'isolated PostgreSQL opt-in')
@@ -312,6 +314,7 @@ class PackagingDatabaseGuardTests(unittest.TestCase):
             'ALTER FUNCTION public.material_packaging_history_writer_guard() IMMUTABLE',
             'ALTER FUNCTION public.material_packaging_history_writer_guard() PARALLEL SAFE',
             'ALTER FUNCTION public.material_packaging_history_writer_guard() STRICT',
+            'ALTER FUNCTION public.material_packaging_history_writer_guard() COST 101',
             GUARD_SQL.replace(f'pg_advisory_xact_lock_shared({PACKAGING_HISTORY_NAMESPACE},selected_supplier)',
                               f'pg_advisory_xact_lock_shared({PACKAGING_HISTORY_NAMESPACE+1},selected_supplier)'),
             GUARD_SQL.replace('FOR EACH ROW EXECUTE FUNCTION',
@@ -375,4 +378,176 @@ class PackagingDatabaseGuardTests(unittest.TestCase):
             with ddl.cursor() as cur:
                 cur.execute(function_sql)
             ddl.commit()
+            ddl.close()
+
+    def test_function_metadata_lock_pins_body_without_blocking_rule_writers(self):
+        from .history_lock_schema import GUARD_SQL
+
+        function_sql = GUARD_SQL.split('DROP TRIGGER', 1)[0]
+        changed_sql = function_sql.replace(f'pg_advisory_xact_lock_shared({PACKAGING_HISTORY_NAMESPACE},selected_supplier)',
+                                          f'pg_advisory_xact_lock_shared({PACKAGING_HISTORY_NAMESPACE+1},selected_supplier)')
+        for statement in (
+            changed_sql,
+            'ALTER FUNCTION public.material_packaging_history_writer_guard() SECURITY DEFINER',
+            'ALTER FUNCTION public.material_packaging_history_writer_guard() SET search_path TO public',
+            'ALTER FUNCTION public.material_packaging_history_writer_guard() RENAME TO packaging_guard_renamed',
+        ):
+            with self.subTest(statement=statement):
+                holder = self.main.get_db()
+                try:
+                    holder.autocommit = False
+                    with holder.cursor() as cur:
+                        cur.execute("SELECT pg_get_functiondef('public.material_packaging_history_writer_guard()'::regprocedure)")
+                        definition = cur.fetchone()[0]
+                        self.assertTrue(try_pin_packaging_guard(cur))
+                        cur.execute("SELECT pg_get_functiondef('public.material_packaging_history_writer_guard()'::regprocedure)")
+                        self.assertEqual(cur.fetchone()[0], definition)
+                        cur.execute('SELECT pg_backend_pid()')
+                        blocker = cur.fetchone()[0]
+                    def replace():
+                        conn = self.main.get_db()
+                        try:
+                            conn.autocommit = False
+                            with conn.cursor() as cur:
+                                cur.execute("SET LOCAL statement_timeout='8s'")
+                                cur.execute(statement)
+                        finally:
+                            conn.rollback()
+                            conn.close()
+                    with ThreadPoolExecutor(max_workers=1) as pool:
+                        future = pool.submit(replace)
+                        try:
+                            self.wait_for_blocker(blocker)
+                            self.save(self.body())
+                            self.assertFalse(future.done())
+                        finally:
+                            holder.rollback()
+                        future.result(timeout=10)
+                finally:
+                    holder.rollback()
+                    holder.close()
+
+    def test_guard_pin_without_function_ownership_falls_back_without_aborting_write(self):
+        role = 'packaging_writer_' + uuid.uuid4().hex
+        conn = self.main.get_db()
+        try:
+            conn.autocommit = False
+            with conn.cursor() as cur:
+                cur.execute(sql.SQL('CREATE ROLE {} NOLOGIN NOSUPERUSER NOCREATEROLE').format(sql.Identifier(role)))
+                cur.execute(sql.SQL('GRANT USAGE,CREATE ON SCHEMA public TO {}').format(sql.Identifier(role)))
+                cur.execute(sql.SQL('GRANT SELECT,INSERT,UPDATE,DELETE ON material_packaging_rules TO {}').format(sql.Identifier(role)))
+                cur.execute(sql.SQL('GRANT USAGE ON SEQUENCE material_packaging_rules_id_seq TO {}').format(sql.Identifier(role)))
+                cur.execute(sql.SQL('SET LOCAL ROLE {}').format(sql.Identifier(role)))
+                self.assertFalse(try_pin_packaging_guard(cur))
+                # A rejected ALTER must not leave the caller transaction aborted.
+                row_id = self.insert(cur, self.fixture['supplierId'])
+                cur.execute('SELECT content_quantity FROM material_packaging_rules WHERE id=%s', (row_id,))
+                self.assertEqual(cur.fetchone()[0], 25)
+                cur.execute('RESET ROLE')
+                cur.execute(sql.SQL('ALTER FUNCTION public.material_packaging_history_writer_guard() OWNER TO {}').format(sql.Identifier(role)))
+                cur.execute(sql.SQL('SET LOCAL ROLE {}').format(sql.Identifier(role)))
+                self.assertTrue(try_pin_packaging_guard(cur))
+        finally:
+            conn.rollback()
+            conn.close()
+        self.assertEqual(self.sql('SELECT 1 FROM pg_roles WHERE rolname=%s', (role,)), [])
+
+    def test_guard_pin_rejects_noncanonical_or_missing_guard_without_repair(self):
+        statements = (
+            'ALTER FUNCTION public.material_packaging_history_writer_guard() COST 101',
+            'ALTER TABLE material_packaging_rules DISABLE TRIGGER material_packaging_history_writer_guard',
+            'DROP TRIGGER material_packaging_history_writer_guard ON material_packaging_rules',
+            'DROP TABLE material_packaging_rules',
+        )
+        for statement in statements:
+            with self.subTest(statement=statement):
+                conn = self.main.get_db()
+                try:
+                    conn.autocommit = False
+                    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                        cur.execute(statement)
+                        cur.execute("SELECT pg_get_functiondef('public.material_packaging_history_writer_guard()'::regprocedure) AS definition")
+                        definition = cur.fetchone()['definition']
+                        self.assertFalse(try_pin_packaging_guard(cur))
+                        cur.execute("SELECT pg_get_functiondef('public.material_packaging_history_writer_guard()'::regprocedure) AS definition")
+                        self.assertEqual(cur.fetchone()['definition'], definition)
+                finally:
+                    conn.rollback()
+                    conn.close()
+
+    def test_guard_pin_requires_explicit_read_committed_transaction(self):
+        conn = self.main.get_db()
+        try:
+            conn.autocommit = True
+            with conn.cursor() as cur:
+                with self.assertRaises(ValueError):
+                    try_pin_packaging_guard(cur)
+            conn.autocommit = False
+            with conn.cursor() as cur:
+                cur.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ')
+                self.assertFalse(try_pin_packaging_guard(cur))
+                cur.execute('SELECT 1')
+                self.assertEqual(cur.fetchone(), (1,))
+        finally:
+            conn.rollback()
+            conn.close()
+
+    def test_guard_pin_handles_an_already_running_function_replacement(self):
+        from .history_lock_schema import GUARD_SQL
+
+        function_sql = GUARD_SQL.split('DROP TRIGGER', 1)[0]
+        changed_sql = function_sql.replace(f'pg_advisory_xact_lock_shared({PACKAGING_HISTORY_NAMESPACE},selected_supplier)',
+                                          f'pg_advisory_xact_lock_shared({PACKAGING_HISTORY_NAMESPACE+1},selected_supplier)')
+        ddl = self.main.get_db()
+        try:
+            ddl.autocommit = False
+            with ddl.cursor() as cur:
+                cur.execute(changed_sql)
+                cur.execute('SELECT pg_backend_pid()')
+                blocker = cur.fetchone()[0]
+            def pin():
+                conn = self.main.get_db()
+                try:
+                    conn.autocommit = False
+                    with conn.cursor() as cur:
+                        cur.execute("SET LOCAL statement_timeout='8s'")
+                        result = try_pin_packaging_guard(cur)
+                        cur.execute('SELECT 1')
+                        self.assertEqual(cur.fetchone(), (1,))
+                        return result
+                finally:
+                    conn.rollback()
+                    conn.close()
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(pin)
+                try:
+                    self.wait_for_blocker(blocker)
+                finally:
+                    ddl.commit()
+                self.assertFalse(future.result(timeout=10))
+            self.assertEqual(self.sql("SELECT prosrc FROM pg_proc WHERE oid='public.material_packaging_history_writer_guard()'::regprocedure"),
+                             [(changed_sql.split('AS $$', 1)[1].split('$$;', 1)[0],)])
+        finally:
+            ddl.rollback()
+            with ddl.cursor() as cur:
+                cur.execute(function_sql)
+            ddl.commit()
+            ddl.close()
+
+    def test_guard_pin_timeout_is_propagated_with_a_usable_transaction(self):
+        ddl, conn = self.main.get_db(), self.main.get_db()
+        try:
+            ddl.autocommit = conn.autocommit = False
+            with ddl.cursor() as cur:
+                cur.execute('ALTER FUNCTION public.material_packaging_history_writer_guard() COST 100')
+            with conn.cursor() as cur:
+                cur.execute("SET LOCAL lock_timeout='100ms'")
+                with self.assertRaises(errors.LockNotAvailable):
+                    try_pin_packaging_guard(cur)
+                cur.execute('SELECT 1')
+                self.assertEqual(cur.fetchone(), (1,))
+        finally:
+            conn.rollback()
+            conn.close()
+            ddl.rollback()
             ddl.close()
