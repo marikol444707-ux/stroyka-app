@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from psycopg2 import sql
 
 from ..supplier_access.email_attempts import EMAIL_QUEUED, EMAIL_UNCONFIRMED
-from . import correction_quotes
+from . import correction_quotes, correction_issued
 
 MODE='withdraw_unanswered_rfq'
 MUTABLE_TABLES={'supplier_offers','supplier_offer_events','supply_request_recipients','messenger_outbox'}
@@ -47,7 +47,8 @@ def offer_references(cur,schema):
 
 
 def request_plan(cur,company,target,owner,owner_ids,schema,*,mode=MODE):
-    received=mode==correction_quotes.MODE
+    issued=mode==correction_issued.MODE
+    received=mode in (correction_quotes.MODE,correction_issued.MODE)
     if any(not columns<=schema.get(table,set()) for table,columns in REQUIRED_COLUMNS.items()):
         raise HTTPException(503,'Отзыв заявок требует полного реестра отправок')
     recipients=rows(cur,'''SELECT to_jsonb(r) AS row FROM supply_request_recipients r
@@ -64,9 +65,11 @@ def request_plan(cur,company,target,owner,owner_ids,schema,*,mode=MODE):
         if (r['supplier_id']!=target or r['target_supplier_id']!=target or r['supplier_user_id']!=owner['id']
                 or set(r.get('supplier_group_ids') or [])-{target}):
             blocked('Заявка адресована группе карточек. Нужна отдельная проверка адресатов')
-        if (not r['visible_to_supplier'] or r['status'] not in (('Ожидает ответа','КП получено') if received else ('Ожидает ответа',)) or (not received and r.get('responded_at'))
+        recipient_states=('Ожидает ответа','КП получено','КП выбрано') if issued else ('Ожидает ответа','КП получено') if received else ('Ожидает ответа',)
+        request_states=('КП запрошены','Утверждена','В пути','Частично поставлено','Поставлено','Проблема поставки') if issued else ('КП запрошены','Утверждена')
+        if (not r['visible_to_supplier'] or r['status'] not in recipient_states or (not received and r.get('responded_at'))
                 or not q.get('prorab_confirmed_at') or not q.get('director_approved_at')
-                or q['status'] not in ('КП запрошены','Утверждена')):
+                or q['status'] not in request_states):
             blocked('Заявка или ответ уже изменились. Автоматический отзыв недоступен')
         if r.get('email_notification_status')==EMAIL_UNCONFIRMED:
             blocked('Отправка письма ещё не подтверждена. Сначала проверьте результат доставки')
@@ -85,8 +88,12 @@ def request_plan(cur,company,target,owner,owner_ids,schema,*,mode=MODE):
     empty_fields=('responded_at','price_per_unit','total_price','delivery_days','pdf_url','valid_until',
                   'supplier_message','notes','delivery_status','approved_at','selected_at','party_snapshot_json')
     for o in offers:
-        if o.get('awarded_items_json') not in (None,'','[]',[]):
+        if o.get('awarded_items_json') not in (None,'','[]',[]) and (not issued or o['status']!='Утверждено'):
             blocked('По КП уже оформлен заказ. Нужна отдельная проверка')
+        if issued and o['status']=='Утверждено':
+            if not o.get('responded_at') or o.get('request_id') not in request_ids:
+                blocked('Не подтверждено получение и адресация выбранного КП')
+            continue
         if received and o['status']=='Получено':
             correction_quotes.validate_offer(o)
             if not any(r['request_id']==o.get('request_id') and r['status']=='КП получено' and r.get('responded_at') for r in recipients):
@@ -103,10 +110,12 @@ def request_plan(cur,company,target,owner,owner_ids,schema,*,mode=MODE):
     if received:
         for r in recipients:
             offer=next(o for o in offers if o['request_id']==r['request_id'])
-            is_received=offer['status']=='Получено'
-            if r['status']!=('КП получено' if is_received else 'Ожидает ответа') or bool(r.get('responded_at'))!=is_received:
+            answered=offer['status'] in ('Получено','Утверждено')
+            expected_status={'Получено':'КП получено','Утверждено':'КП выбрано'}.get(offer['status'],'Ожидает ответа')
+            if r['status']!=expected_status or bool(r.get('responded_at'))!=answered:
                 blocked('Состояния КП и адресата расходятся. Нужна отдельная проверка')
     offer_ids=[o['id'] for o in offers]
+    issued_proof=correction_issued.proof(cur,company,target,owner,offers,recipients,schema) if issued else None
     reference_tables=[]
     for table,refs in sorted(offer_references(cur,schema).items()):
         if not refs or table=='supplier_offer_events':continue
@@ -114,17 +123,23 @@ def request_plan(cur,company,target,owner,owner_ids,schema,*,mode=MODE):
         # An invoice/assignment under another buyer or another supplier is still
         # a business descendant of this exact quote, not independent history.
         clause=sql.SQL(' OR ').join(sql.SQL('{}=ANY(%s)').format(sql.Identifier(column)) for column in sorted(refs))
-        cur.execute(sql.SQL('SELECT 1 FROM {} WHERE ').format(sql.Identifier(table))+clause+sql.SQL(' LIMIT 1'),[offer_ids]*len(refs))
-        if cur.fetchone():blocked('У ожидаемого ответа есть связанные документы или назначения. Нужна отдельная проверка')
+        cur.execute(sql.SQL('SELECT to_jsonb(t) AS row FROM {} t WHERE ').format(sql.Identifier(table))+clause+sql.SQL(' LIMIT 2001'),[offer_ids]*len(refs))
+        children=cur.fetchall()
+        if len(children)>2000:blocked('Слишком много связанных документов для этой проверки')
+        if any(not issued_proof or not correction_issued.allowed(issued_proof,table,r['row']) for r in children) or (children and refs!={'offer_id'}):
+            blocked('У ответа есть связанные документы или назначения вне проверенной цепочки. Нужен отдельный разбор')
     events=rows(cur,'''SELECT to_jsonb(e) AS row FROM supplier_offer_events e
         WHERE e.offer_id=ANY(%s) ORDER BY e.id''',(offer_ids,))
-    if any(e['event_type'] not in (('created','responded') if received else ('created',)) for e in events):
+    allowed_events=('created','responded','selected','invoice_created','invoice_linked','shipped','delivery_status_changed') if issued else ('created','responded') if received else ('created',)
+    if any(e['event_type'] not in allowed_events for e in events):
         blocked('У ожидаемого ответа есть история изменений. Нужна отдельная проверка КП')
-    if received and any(o['status']=='Получено' and not any(e['offer_id']==o['id'] and e['event_type']=='responded' for e in events) for o in offers):
+    if received and any(o['status'] in ('Получено','Утверждено') and not any(e['offer_id']==o['id'] and e['event_type']=='responded' for e in events) for o in offers):
         blocked('История получения КП не подтверждена. Нужна отдельная проверка')
-    if received and any(e['event_type']=='responded' and any(o['id']==e['offer_id'] and o['status']!='Получено' for o in offers) for e in events):
+    if issued and any(o['status']=='Утверждено' and not any(e['offer_id']==o['id'] and e['event_type']=='selected' for e in events) for o in offers):
+        blocked('История выбора КП не подтверждена')
+    if received and any(e['event_type']=='responded' and any(o['id']==e['offer_id'] and o['status'] not in (('Получено','Утверждено') if issued else ('Получено',)) for o in offers) for e in events):
         blocked('История ответа не согласуется с текущим состоянием КП')
-    preserved_files=correction_quotes.originals(cur,company,offers,schema) if received else 0
+    preserved_files=correction_quotes.originals(cur,company,offers,schema) if received and not issued else 0
     # An invoice linked only to a request cannot safely be assigned to one quote.
     cur.execute('''SELECT 1 FROM supplier_invoices WHERE request_id=ANY(%s)
         AND offer_id IS NULL LIMIT 1''',(request_ids,))
@@ -155,13 +170,15 @@ def request_plan(cur,company,target,owner,owner_ids,schema,*,mode=MODE):
         queuedMessageIds=[m['id'] for m in messages if m['status']=='queued'],
         queuedEmailIds=[r['id'] for r in recipients if r.get('email_notification_status')==EMAIL_QUEUED])
     if received:
-        result.update(affectedOffers=[dict(offerId=o['id'],statusBefore=o['status'],statusAfter='Отклонено' if o['status']=='Получено' else 'Отозвано') for o in offers],
-            recipientChanges=[dict(recipientId=r['id'],statusBefore=r['status'],statusAfter='КП отклонено' if r['status']=='КП получено' else 'Отозвано') for r in recipients],
+        result.update(affectedOffers=[dict(offerId=o['id'],statusBefore=o['status'],statusAfter=o['status'] if issued else 'Отклонено' if o['status']=='Получено' else 'Отозвано') for o in offers],
+            recipientChanges=[dict(recipientId=r['id'],statusBefore=r['status'],statusAfter=r['status'] if issued else 'КП отклонено' if r['status']=='КП получено' else 'Отозвано') for r in recipients],
             preservedQuoteFileCount=preserved_files)
+    if issued:result.update(issued_proof)
     return result
 
 
 def allowed(rfq,table,row):
+    if rfq.get('mode')==correction_issued.MODE and correction_issued.allowed(rfq,table,row):return True
     records=rfq['affectedRequests']
     if table=='supply_request_recipients':return row['id'] in {r['recipientId'] for r in records}
     if table=='supply_requests':return row['id'] in {r['requestId'] for r in records}
@@ -173,19 +190,20 @@ def apply(cur,company,rfq,actor,plan_id):
     recipients=[r['recipientId'] for r in rfq['affectedRequests']]
     offers=[oid for r in rfq['affectedRequests'] for oid in r['offerIds']]
     rejected_recipients=[r['recipientId'] for r in rfq.get('recipientChanges',[]) if r['statusAfter']=='КП отклонено']
+    issued=rfq['mode']==correction_issued.MODE
     cur.execute('''UPDATE supply_request_recipients SET visible_to_supplier=FALSE,
-        status=CASE WHEN id=ANY(%s) THEN 'КП отклонено' ELSE 'Отозвано' END,
+        status=CASE WHEN %s THEN status WHEN id=ANY(%s) THEN 'КП отклонено' ELSE 'Отозвано' END,
         email_notification_status=CASE WHEN id=ANY(%s) THEN 'Отменено' ELSE email_notification_status END,
         max_notification_status=CASE WHEN max_outbox_id=ANY(%s) THEN 'Отменено' ELSE max_notification_status END
-        WHERE company_id=%s AND id=ANY(%s)''',(rejected_recipients,rfq['queuedEmailIds'],rfq['queuedMessageIds'],company,recipients))
+        WHERE company_id=%s AND id=ANY(%s)''',(issued,rejected_recipients,rfq['queuedEmailIds'],rfq['queuedMessageIds'],company,recipients))
     changes=rfq.get('affectedOffers') or [dict(offerId=oid,statusBefore='Ожидает ответа',statusAfter='Отозвано') for oid in offers]
     for after in ('Отозвано','Отклонено'):
         ids=[o['offerId'] for o in changes if o['statusAfter']==after]
         if ids:cur.execute('UPDATE supplier_offers SET status=%s WHERE company_id=%s AND id=ANY(%s)',(after,company,ids))
     for offer in changes:
         cur.execute('''INSERT INTO supplier_offer_events(offer_id,event_type,status_from,status_to,actor_name,actor_role,payload_json)
-            VALUES(%s,'connection_corrected',%s,%s,%s,%s,%s)''',
-            (offer['offerId'],offer['statusBefore'],offer['statusAfter'],actor.get('name',''),actor['role'],json.dumps(dict(action='connection_correction',planId=str(plan_id)))))
+            VALUES(%s,%s,%s,%s,%s,%s,%s)''',
+            (offer['offerId'],'connection_access_revoked' if issued else 'connection_corrected',offer['statusBefore'],offer['statusAfter'],actor.get('name',''),actor['role'],json.dumps(dict(action='issued_access_revocation' if issued else 'connection_correction',planId=str(plan_id)))))
     cur.execute('''UPDATE messenger_outbox SET status='cancelled',next_attempt_at=NULL,updated_at=NOW()
         WHERE company_id=%s AND id=ANY(%s) AND status='queued' ''',(company,rfq['queuedMessageIds']))
 

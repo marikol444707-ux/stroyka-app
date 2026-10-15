@@ -154,3 +154,28 @@ def supplier_delivery_visibility_filter(supplier_ids, supplier_user_id=None):
           AND supplier_offers.request_id=d.request_id
           AND supplier_offers.company_id=d.company_id
           AND supplier_offers.supplier_id=d.supplier_id''' + offer_sql + ')', [ids] + params)
+
+
+def supplier_history_visibility_filter(supplier_ids,supplier_user_id=None):
+    """History alias h: linked records follow the same live addressed chain."""
+    ids=_supplier_ids(supplier_ids)
+    if not ids:return 'FALSE',[]
+    delivery_scope,delivery_params=supplier_delivery_visibility_filter(ids,supplier_user_id)
+    offer_scope,offer_params=supplier_offer_visibility_filter(ids,supplier_user_id)
+    legacy_scope,legacy_params='TRUE',[]
+    if team_enabled():
+        leader,legacy_params=leader_policy(supplier_user_id,'s.id')
+        legacy_scope='EXISTS(SELECT 1 FROM suppliers s WHERE s.id=h.supplier_id AND '+leader+')'
+    return ('''h.company_id>0 AND h.supplier_id=ANY(%s::int[])
+        AND EXISTS(SELECT 1 FROM companies c WHERE c.id=h.company_id)
+        AND ((h.delivery_id IS NOT NULL AND EXISTS(SELECT 1 FROM supply_deliveries d
+            WHERE d.id=h.delivery_id AND d.company_id=h.company_id AND d.supplier_id=h.supplier_id
+              AND d.request_id=h.request_id AND d.project=h.project
+              AND COALESCE(d.work_package,'')=COALESCE(h.work_package,'') AND '''+delivery_scope+'''))
+          OR (h.delivery_id IS NULL AND h.request_id IS NOT NULL AND EXISTS(
+            SELECT 1 FROM supplier_offers JOIN supply_requests q ON q.id=supplier_offers.request_id
+                AND q.company_id=supplier_offers.company_id AND q.project=h.project
+            WHERE supplier_offers.request_id=h.request_id AND supplier_offers.company_id=h.company_id
+                AND supplier_offers.supplier_id=h.supplier_id'''+offer_scope+'''))
+          OR (h.delivery_id IS NULL AND h.request_id IS NULL AND '''+legacy_scope+'))',
+        [ids]+delivery_params+offer_params+legacy_params)

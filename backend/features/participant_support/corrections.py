@@ -20,7 +20,7 @@ from typing import Literal
 from .connections import company_lock, authorities, is_admin, evidence
 from .correction_inventory import inventory
 from .service import ready
-from . import correction_rfqs, correction_quotes
+from . import correction_rfqs, correction_quotes, correction_issued
 
 
 class Proposal(BaseModel):
@@ -48,8 +48,13 @@ class AffectedRequest(BaseModel):
 
 class AffectedOffer(BaseModel):
     offerId: int
-    statusBefore: Literal['Ожидает ответа','Получено']
-    statusAfter: Literal['Отозвано','Отклонено']
+    statusBefore: Literal['Ожидает ответа','Получено','Утверждено']
+    statusAfter: Literal['Отозвано','Отклонено','Ожидает ответа','Получено','Утверждено']
+
+
+class PreservedIssuedDocument(BaseModel):
+    kind: Literal['offer','invoice','delivery','receipt']
+    id: int
 
 
 class PlanView(BaseModel):
@@ -61,11 +66,13 @@ class PlanView(BaseModel):
     targetName: str
     expiresAt: datetime
     retainedDocuments: dict[str,int]
-    mode: Literal['disconnect_unused','withdraw_unanswered_rfq','reject_received_quotes'] = 'disconnect_unused'
+    mode: Literal['disconnect_unused','withdraw_unanswered_rfq','reject_received_quotes','revoke_issued_access'] = 'disconnect_unused'
     affectedRequests: list[AffectedRequest] = Field(default_factory=list)
     queuedNotificationCount: int = 0
     affectedOffers: list[AffectedOffer] = Field(default_factory=list)
     preservedQuoteFileCount: int = 0
+    preservedIssuedDocuments: list[PreservedIssuedDocument] = Field(default_factory=list)
+    preservedIssuedFileCount: int = 0
 
 
 class Result(BaseModel):
@@ -78,6 +85,8 @@ class Result(BaseModel):
     relationshipVersion: int
     withdrawnRequestCount: int = 0
     rejectedQuoteCount: int = 0
+    revokedRequestCount: int = 0
+    preservedIssuedCounts: dict[str,int] = Field(default_factory=dict)
 
 
 @contextmanager
@@ -91,7 +100,8 @@ def transaction(deps,*,snapshot=False,mode='disconnect_unused'):
             ready(cur)
             if os.getenv('PARTICIPANT_CORRECTIONS_ENABLED','0')!='1':
                 raise HTTPException(503,'Исправление подключений пока не включено')
-            flag={'disconnect_unused':None,correction_rfqs.MODE:'PARTICIPANT_RFQ_CORRECTIONS_ENABLED',correction_quotes.MODE:'PARTICIPANT_QUOTE_CORRECTIONS_ENABLED'}[mode]
+            flag={'disconnect_unused':None,correction_rfqs.MODE:'PARTICIPANT_RFQ_CORRECTIONS_ENABLED',correction_quotes.MODE:'PARTICIPANT_QUOTE_CORRECTIONS_ENABLED',
+                correction_issued.MODE:'PARTICIPANT_ISSUED_ACCESS_CORRECTIONS_ENABLED'}[mode]
             if flag and os.getenv(flag,'0')!='1':
                 raise HTTPException(503,'Этот способ исправления подключения пока не включён')
             cur.execute("SELECT to_regclass('public.supplier_connection_correction_plans') AS relation")
@@ -164,7 +174,8 @@ def view(row):
                 expiresAt=row['expires_at'],retainedDocuments=row['manifest']['retainedDocuments'],
                 mode=rfq.get('mode','disconnect_unused'),affectedRequests=rfq.get('affectedRequests',[]),
                 queuedNotificationCount=len(rfq.get('queuedMessageIds',[]))+len(rfq.get('queuedEmailIds',[])),
-                affectedOffers=rfq.get('affectedOffers',[]),preservedQuoteFileCount=rfq.get('preservedQuoteFileCount',0))
+                affectedOffers=rfq.get('affectedOffers',[]),preservedQuoteFileCount=rfq.get('preservedQuoteFileCount',0),
+                preservedIssuedDocuments=rfq.get('preservedIssuedDocuments',[]),preservedIssuedFileCount=rfq.get('preservedIssuedFileCount',0))
 
 
 def propose(deps,user,company_id,source,request_id,data,*,mode='disconnect_unused'):
@@ -204,9 +215,11 @@ def audit(cur,actor,company,plan,result,reason):
     rfq_change=dict(before=dict(visible=True,recipientStatus='Ожидает ответа',offerStatus='Ожидает ответа'),
         after=dict(visible=False,recipientStatus='Отозвано',offerStatus='Отозвано'),
         cancelledMessageIds=rfq['queuedMessageIds'],cancelledEmailRecipientIds=rfq['queuedEmailIds']) if rfq else None
-    if rfq and rfq.get('mode')==correction_quotes.MODE:
+    if rfq and rfq.get('mode') in (correction_quotes.MODE,correction_issued.MODE):
         rfq_change.update(before=dict(visible=True),after=dict(visible=False),
             recipientChanges=rfq['recipientChanges'],offerChanges=rfq['affectedOffers'])
+        if rfq['mode']==correction_issued.MODE:
+            rfq_change.update(preservedIssuedDocuments=rfq['preservedIssuedDocuments'],preservedIssuedFileCount=rfq['preservedIssuedFileCount'])
     cur.execute('''INSERT INTO audit_log(user_id,user_name,user_role,action,entity_type,entity_id,description,owner_scope,company_id)
         VALUES(%s,%s,%s,'supplier_connection_corrected','supplier',%s,%s,'company',%s)''',
         (actor['id'],actor.get('name',''),actor['role'],plan['target_supplier_id'],
@@ -252,8 +265,10 @@ def confirm(deps,user,company_id,source,request_id,plan_id,data,*,mode='disconne
         updated=cur.fetchone()
         if not updated:raise HTTPException(409,'Срок плана истёк. Повторите проверку')
         result=dict(ok=True,planId=str(plan_id),companyId=company_id,sourceId=source,targetId=target['id'],relationshipStatus='Неактивный',relationshipVersion=updated['version'])
-        if mode!='disconnect_unused':result['withdrawnRequestCount']=len(current['rfq']['affectedRequests'])
+        if mode not in ('disconnect_unused',correction_issued.MODE):result['withdrawnRequestCount']=len(current['rfq']['affectedRequests'])
         if mode==correction_quotes.MODE:result['rejectedQuoteCount']=sum(o['statusBefore']=='Получено' for o in current['rfq']['affectedOffers'])
+        if mode==correction_issued.MODE:
+            result.update(revokedRequestCount=len(current['rfq']['affectedRequests']),preservedIssuedCounts=correction_issued.counts(current['rfq']))
         cur.execute('UPDATE supplier_connection_correction_plans SET applied_at=NOW(),reason=%s,result=%s WHERE id=%s',
                     (data.reason,Json(result),str(plan_id)))
         audit(cur,actor,company,plan,result,data.reason)
@@ -284,3 +299,11 @@ def register_corrections(app,deps,admin):
     @app.post('/system/companies/{company_id}/participants/{supplier_id}/connection-requests/{request_id}/quote-correction-plans/{plan_id}/confirm',response_model=Result)
     def quote_apply(request_id:uuid.UUID,plan_id:uuid.UUID,data:Confirmation,company_id:int=Path(...,ge=1,le=2147483647),supplier_id:int=Path(...,ge=1,le=2147483647),user:dict=Depends(admin)):
         return confirm(deps,user,company_id,supplier_id,request_id,plan_id,data,mode=correction_quotes.MODE)
+
+    @app.post('/system/companies/{company_id}/participants/{supplier_id}/connection-requests/{request_id}/issued-access-plans',response_model=PlanView)
+    def issued_proposal(request_id:uuid.UUID,data:Proposal,company_id:int=Path(...,ge=1,le=2147483647),supplier_id:int=Path(...,ge=1,le=2147483647),user:dict=Depends(admin)):
+        return propose(deps,user,company_id,supplier_id,request_id,data,mode=correction_issued.MODE)
+
+    @app.post('/system/companies/{company_id}/participants/{supplier_id}/connection-requests/{request_id}/issued-access-plans/{plan_id}/confirm',response_model=Result)
+    def issued_apply(request_id:uuid.UUID,plan_id:uuid.UUID,data:Confirmation,company_id:int=Path(...,ge=1,le=2147483647),supplier_id:int=Path(...,ge=1,le=2147483647),user:dict=Depends(admin)):
+        return confirm(deps,user,company_id,supplier_id,request_id,plan_id,data,mode=correction_issued.MODE)
