@@ -9,6 +9,7 @@ from psycopg2 import sql
 from .merge_inventory import bounded, visible_documents, visible_files
 from ..document_access.supplier_files import supplier_ids
 from ..supplier_access.service import supplier_history_visibility_filter
+from . import correction_invoice_access
 
 MODE='revoke_issued_access'
 TABLE_KINDS={'supplier_offers':'offer','supplier_invoices':'invoice','supply_deliveries':'delivery','warehouse_invoices':'receipt'}
@@ -49,7 +50,7 @@ def records(cur,table,condition,params):
     return [r['row'] for r in bounded(cur,query,params)]
 
 
-def history(cur,company,target,offers,schema):
+def history(cur,company,target,offers,schema,*,standalone=False):
     if any(not columns<=schema.get(table,set()) for table,columns in REQUIRED.items()):
         raise HTTPException(503,'Закрытие доступа требует полного реестра счетов, поставок и оригиналов')
     offer_map={o['id']:o for o in offers};offer_ids=list(offer_map)
@@ -57,6 +58,10 @@ def history(cur,company,target,offers,schema):
     for table in ('supplier_invoices','supply_deliveries'):
         result[table]=records(cur,table,'(t.company_id=%s AND t.supplier_id=%s) OR t.offer_id=ANY(%s)',(company,target,offer_ids))
         for row in result[table]:
+            if standalone and table=='supplier_invoices' and row['offer_id'] is None:
+                if row['company_id']!=company or row['supplier_id']!=target or row['request_id'] is not None:
+                    blocked('Отдельный счёт связан с заявкой без КП. Нужен отдельный разбор')
+                continue
             offer=offer_map.get(row['offer_id'])
             if (not offer or row['company_id']!=company or row['supplier_id']!=target
                     or (row['request_id']!=offer['request_id'] and not (table=='supplier_invoices' and row['request_id'] is None))
@@ -84,12 +89,16 @@ def history(cur,company,target,offers,schema):
         invoice=invoices.get(row['supplier_invoice_id']);delivery=deliveries.get(row['supply_delivery_id'])
         reverse=[r for r in invoices.values() if r['warehouse_invoice_id']==row['id']]
         requests={o['request_id'] for o in offers if o['status']=='Утверждено'}
+        parents=[parent for parent in [invoice,delivery]+reverse if parent]
+        direct=any(parent.get('offer_id') is None for parent in parents)
         if (row['company_id']!=company or row['supplier_id']!=target
                 or (row['supplier_invoice_id'] is not None and not invoice)
                 or (row['supply_delivery_id'] is not None and not delivery)
                 or (row['supply_request_id'] is not None and row['supply_request_id'] not in requests)
                 or (not invoice and not delivery and not reverse and row['supply_request_id'] is None)
                 or (invoice and delivery and invoice['offer_id']!=delivery['offer_id'])
+                or (direct and (row['supply_delivery_id'] is not None or row['supply_request_id'] is not None
+                    or len({parent['id'] for parent in parents})!=1))
                 or len({parent['offer_id'] for parent in [invoice,delivery]+reverse if parent})>1
                 or (row['supply_request_id'] is not None and any(
                     offer_map[parent['offer_id']]['request_id']!=row['supply_request_id'] for parent in (invoice,delivery) if parent))):
@@ -175,11 +184,13 @@ def originals(cur,company,documents):
     return [selected[fid] for fid in sorted(selected)]
 
 
-def proof(cur,company,target,owner,offers,recipients,schema):
-    documents=history(cur,company,target,offers,schema)
+def proof(cur,company,target,owner,offers,recipients,schema,*,standalone=False):
+    documents=history(cur,company,target,offers,schema,standalone=standalone)
+    direct=[r['id'] for r in documents['supplier_invoices'] if r['offer_id'] is None]
     retained_assignments=assignments(cur,company,target,[o['id'] for o in offers])
     files=originals(cur,company,documents)
-    projected=ClosedRecipients(cur,[r['id'] for r in recipients])
+    projected=(correction_invoice_access.ClosedInvoiceAccess(cur,[r['id'] for r in recipients],company,target,direct)
+        if standalone else ClosedRecipients(cur,[r['id'] for r in recipients]))
     before=visible_documents(cur,owner,company);after=visible_documents(projected,owner,company)
     for kind,table in (('offers','supplier_offers'),('invoices','supplier_invoices'),('deliveries','supply_deliveries')):
         expected={r['id'] for r in documents[table]}
@@ -196,12 +207,14 @@ def proof(cur,company,target,owner,offers,recipients,schema):
     expected={r['id'] for r in documents['supply_history']}
     if history_before-history_after!=expected or history_after-history_before:
         blocked('История поставки имеет независимый или неподтверждённый доступ')
-    return dict(allowedDocuments={t:[r['id'] for r in rows] for t,rows in documents.items()},
+    result=dict(allowedDocuments={t:[r['id'] for r in rows] for t,rows in documents.items()},
         retainedAssignments=retained_assignments,
         preservedIssuedDocuments=[dict(kind=TABLE_KINDS[t],id=r['id']) for t,rows in documents.items() if t in TABLE_KINDS for r in rows],
         preservedIssuedFileCount=len(files),
         issuedDigest=hashlib.sha256(json.dumps(dict(documents=documents,files=files,before=before,after=after),
             sort_keys=True,separators=(',',':')).encode()).hexdigest())
+    if standalone:result['closedStandaloneInvoiceIds']=direct
+    return result
 
 
 def counts(plan):

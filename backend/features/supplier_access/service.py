@@ -4,6 +4,17 @@ from .supply_request_workflow import (
     supplier_request_visibility_params,
 )
 
+# Exact ID denials survive later accounting link repairs. Bootstrap-only legacy
+# links have no private profile; the correction command requires the full catalog.
+# This static fragment is shared with original-file authorization (invoice alias si).
+INVOICE_ACCESS_DENIAL_SQL = """ AND NOT EXISTS (
+    SELECT 1 FROM company_supplier_links closed_link
+     WHERE closed_link.company_id=si.company_id
+       AND closed_link.supplier_id=si.supplier_id
+       AND COALESCE(to_jsonb(closed_link)->'profile'->'closedStandaloneInvoiceIds','[]'::jsonb)
+           @> jsonb_build_array(si.id)
+) """
+
 
 def _positive_int(value):
     try:
@@ -122,6 +133,7 @@ def supplier_invoice_visibility_filter(supplier_ids, supplier_user_id=None):
              WHERE invoice_company.id=si.company_id
       )
       AND si.supplier_id = ANY(%s::int[])
+    """ + INVOICE_ACCESS_DENIAL_SQL + """
       AND (
             si.offer_id IS NULL
          OR EXISTS (

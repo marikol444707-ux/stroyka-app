@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from psycopg2 import sql
 
 from ..supplier_access.email_attempts import EMAIL_QUEUED, EMAIL_UNCONFIRMED
-from . import correction_quotes, correction_issued
+from . import correction_quotes, correction_issued, correction_invoice_access
 
 MODE='withdraw_unanswered_rfq'
 MUTABLE_TABLES={'supplier_offers','supplier_offer_events','supply_request_recipients','messenger_outbox'}
@@ -47,8 +47,8 @@ def offer_references(cur,schema):
 
 
 def request_plan(cur,company,target,owner,owner_ids,schema,*,mode=MODE):
-    issued=mode==correction_issued.MODE
-    received=mode in (correction_quotes.MODE,correction_issued.MODE)
+    issued=mode in (correction_issued.MODE,correction_invoice_access.MODE)
+    received=mode in (correction_quotes.MODE,correction_issued.MODE,correction_invoice_access.MODE)
     if any(not columns<=schema.get(table,set()) for table,columns in REQUIRED_COLUMNS.items()):
         raise HTTPException(503,'Отзыв заявок требует полного реестра отправок')
     recipients=rows(cur,'''SELECT to_jsonb(r) AS row FROM supply_request_recipients r
@@ -115,7 +115,7 @@ def request_plan(cur,company,target,owner,owner_ids,schema,*,mode=MODE):
             if r['status']!=expected_status or bool(r.get('responded_at'))!=answered:
                 blocked('Состояния КП и адресата расходятся. Нужна отдельная проверка')
     offer_ids=[o['id'] for o in offers]
-    issued_proof=correction_issued.proof(cur,company,target,owner,offers,recipients,schema) if issued else None
+    issued_proof=correction_issued.proof(cur,company,target,owner,offers,recipients,schema,standalone=mode==correction_invoice_access.MODE) if issued else None
     reference_tables=[]
     for table,refs in sorted(offer_references(cur,schema).items()):
         if not refs or table=='supplier_offer_events':continue
@@ -178,7 +178,7 @@ def request_plan(cur,company,target,owner,owner_ids,schema,*,mode=MODE):
 
 
 def allowed(rfq,table,row):
-    if rfq.get('mode')==correction_issued.MODE and correction_issued.allowed(rfq,table,row):return True
+    if rfq.get('mode') in (correction_issued.MODE,correction_invoice_access.MODE) and correction_issued.allowed(rfq,table,row):return True
     records=rfq['affectedRequests']
     if table=='supply_request_recipients':return row['id'] in {r['recipientId'] for r in records}
     if table=='supply_requests':return row['id'] in {r['requestId'] for r in records}
@@ -190,7 +190,7 @@ def apply(cur,company,rfq,actor,plan_id):
     recipients=[r['recipientId'] for r in rfq['affectedRequests']]
     offers=[oid for r in rfq['affectedRequests'] for oid in r['offerIds']]
     rejected_recipients=[r['recipientId'] for r in rfq.get('recipientChanges',[]) if r['statusAfter']=='КП отклонено']
-    issued=rfq['mode']==correction_issued.MODE
+    issued=rfq['mode'] in (correction_issued.MODE,correction_invoice_access.MODE)
     cur.execute('''UPDATE supply_request_recipients SET visible_to_supplier=FALSE,
         status=CASE WHEN %s THEN status WHEN id=ANY(%s) THEN 'КП отклонено' ELSE 'Отозвано' END,
         email_notification_status=CASE WHEN id=ANY(%s) THEN 'Отменено' ELSE email_notification_status END,

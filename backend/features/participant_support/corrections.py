@@ -20,7 +20,7 @@ from typing import Literal
 from .connections import company_lock, authorities, is_admin, evidence
 from .correction_inventory import inventory
 from .service import ready
-from . import correction_rfqs, correction_quotes, correction_issued
+from . import correction_rfqs, correction_quotes, correction_issued, correction_invoice_access
 
 
 class Proposal(BaseModel):
@@ -66,7 +66,7 @@ class PlanView(BaseModel):
     targetName: str
     expiresAt: datetime
     retainedDocuments: dict[str,int]
-    mode: Literal['disconnect_unused','withdraw_unanswered_rfq','reject_received_quotes','revoke_issued_access'] = 'disconnect_unused'
+    mode: Literal['disconnect_unused','withdraw_unanswered_rfq','reject_received_quotes','revoke_issued_access','revoke_invoice_access'] = 'disconnect_unused'
     affectedRequests: list[AffectedRequest] = Field(default_factory=list)
     queuedNotificationCount: int = 0
     affectedOffers: list[AffectedOffer] = Field(default_factory=list)
@@ -101,7 +101,8 @@ def transaction(deps,*,snapshot=False,mode='disconnect_unused'):
             if os.getenv('PARTICIPANT_CORRECTIONS_ENABLED','0')!='1':
                 raise HTTPException(503,'Исправление подключений пока не включено')
             flag={'disconnect_unused':None,correction_rfqs.MODE:'PARTICIPANT_RFQ_CORRECTIONS_ENABLED',correction_quotes.MODE:'PARTICIPANT_QUOTE_CORRECTIONS_ENABLED',
-                correction_issued.MODE:'PARTICIPANT_ISSUED_ACCESS_CORRECTIONS_ENABLED'}[mode]
+                correction_issued.MODE:'PARTICIPANT_ISSUED_ACCESS_CORRECTIONS_ENABLED',
+                correction_invoice_access.MODE:'PARTICIPANT_INVOICE_ACCESS_CORRECTIONS_ENABLED'}[mode]
             if flag and os.getenv(flag,'0')!='1':
                 raise HTTPException(503,'Этот способ исправления подключения пока не включён')
             cur.execute("SELECT to_regclass('public.supplier_connection_correction_plans') AS relation")
@@ -161,6 +162,8 @@ def checked_manifest(cur,company,request,source,target,owner,links,*,mode='disco
             or links[source['id']]['version']!=request['source_version']
             or any((r['profile'] or {}).get('mergedIntoSupplierId') for r in links.values())):
         raise HTTPException(409,'Связь уже изменялась или карточки объединены. Нужна отдельная проверка')
+    if mode==correction_invoice_access.MODE and correction_invoice_access.PROFILE_KEY in (link['profile'] or {}):
+        raise HTTPException(409,'У связи уже есть закрытые счета. Нужна отдельная проверка доступа')
     # A source was unowned in the accepted request. Never undo a later merge.
     manifest=inventory(cur,company['id'],source['id'],target['id'],owner,mode=mode)
     manifest['relationships']={str(key):dict(id=r['id'],version=r['version'],status=r['status']) for key,r in links.items()}
@@ -215,11 +218,13 @@ def audit(cur,actor,company,plan,result,reason):
     rfq_change=dict(before=dict(visible=True,recipientStatus='Ожидает ответа',offerStatus='Ожидает ответа'),
         after=dict(visible=False,recipientStatus='Отозвано',offerStatus='Отозвано'),
         cancelledMessageIds=rfq['queuedMessageIds'],cancelledEmailRecipientIds=rfq['queuedEmailIds']) if rfq else None
-    if rfq and rfq.get('mode') in (correction_quotes.MODE,correction_issued.MODE):
+    if rfq and rfq.get('mode') in (correction_quotes.MODE,correction_issued.MODE,correction_invoice_access.MODE):
         rfq_change.update(before=dict(visible=True),after=dict(visible=False),
             recipientChanges=rfq['recipientChanges'],offerChanges=rfq['affectedOffers'])
-        if rfq['mode']==correction_issued.MODE:
+        if rfq['mode'] in (correction_issued.MODE,correction_invoice_access.MODE):
             rfq_change.update(preservedIssuedDocuments=rfq['preservedIssuedDocuments'],preservedIssuedFileCount=rfq['preservedIssuedFileCount'])
+        if rfq['mode']==correction_invoice_access.MODE:
+            rfq_change['closedStandaloneInvoiceIds']=correction_invoice_access.direct_ids(rfq)
     cur.execute('''INSERT INTO audit_log(user_id,user_name,user_role,action,entity_type,entity_id,description,owner_scope,company_id)
         VALUES(%s,%s,%s,'supplier_connection_corrected','supplier',%s,%s,'company',%s)''',
         (actor['id'],actor.get('name',''),actor['role'],plan['target_supplier_id'],
@@ -253,21 +258,24 @@ def confirm(deps,user,company_id,source,request_id,plan_id,data,*,mode='disconne
             if data.reason!=plan['reason'] or links[target['id']]['status']!='Неактивный' or links[target['id']]['version']!=plan['result']['relationshipVersion']:
                 raise HTTPException(409,'Повтор не совпадает с выполненным исправлением')
             if mode!='disconnect_unused':correction_rfqs.verify_replay(cur,company_id,plan['manifest']['rfq'])
+            if mode==correction_invoice_access.MODE:correction_invoice_access.verify_replay(cur,company_id,target['id'],plan['manifest']['rfq'])
             return plan['result']
         if not plan['valid']:raise HTTPException(409,'План устарел. Повторите проверку')
         current=checked_manifest(cur,company,request,original,target,owner,links,mode=mode)
         current.update(companyName=company['name'],targetName=target['name'])
         if current!=plan['manifest']:raise HTTPException(409,'Документы, адресаты или назначения изменились. Подготовьте новый план')
         if mode!='disconnect_unused':correction_rfqs.apply(cur,company_id,current['rfq'],actor,plan_id)
-        cur.execute('''UPDATE company_supplier_links SET status='Неактивный',version=version+1
+        profile_patch={correction_invoice_access.PROFILE_KEY:correction_invoice_access.direct_ids(current['rfq'])} if mode==correction_invoice_access.MODE else {}
+        cur.execute('''UPDATE company_supplier_links SET status='Неактивный',version=version+1,
+            profile=COALESCE(profile,'{}'::jsonb) || %s::jsonb
             WHERE id=%s AND EXISTS(SELECT 1 FROM supplier_connection_correction_plans p WHERE p.id=%s AND p.expires_at>clock_timestamp()) RETURNING version''',
-            (plan['target_link_id'],str(plan_id)))
+            (Json(profile_patch),plan['target_link_id'],str(plan_id)))
         updated=cur.fetchone()
         if not updated:raise HTTPException(409,'Срок плана истёк. Повторите проверку')
         result=dict(ok=True,planId=str(plan_id),companyId=company_id,sourceId=source,targetId=target['id'],relationshipStatus='Неактивный',relationshipVersion=updated['version'])
-        if mode not in ('disconnect_unused',correction_issued.MODE):result['withdrawnRequestCount']=len(current['rfq']['affectedRequests'])
+        if mode not in ('disconnect_unused',correction_issued.MODE,correction_invoice_access.MODE):result['withdrawnRequestCount']=len(current['rfq']['affectedRequests'])
         if mode==correction_quotes.MODE:result['rejectedQuoteCount']=sum(o['statusBefore']=='Получено' for o in current['rfq']['affectedOffers'])
-        if mode==correction_issued.MODE:
+        if mode in (correction_issued.MODE,correction_invoice_access.MODE):
             result.update(revokedRequestCount=len(current['rfq']['affectedRequests']),preservedIssuedCounts=correction_issued.counts(current['rfq']))
         cur.execute('UPDATE supplier_connection_correction_plans SET applied_at=NOW(),reason=%s,result=%s WHERE id=%s',
                     (data.reason,Json(result),str(plan_id)))
@@ -307,3 +315,11 @@ def register_corrections(app,deps,admin):
     @app.post('/system/companies/{company_id}/participants/{supplier_id}/connection-requests/{request_id}/issued-access-plans/{plan_id}/confirm',response_model=Result)
     def issued_apply(request_id:uuid.UUID,plan_id:uuid.UUID,data:Confirmation,company_id:int=Path(...,ge=1,le=2147483647),supplier_id:int=Path(...,ge=1,le=2147483647),user:dict=Depends(admin)):
         return confirm(deps,user,company_id,supplier_id,request_id,plan_id,data,mode=correction_issued.MODE)
+
+    @app.post('/system/companies/{company_id}/participants/{supplier_id}/connection-requests/{request_id}/invoice-access-plans',response_model=PlanView)
+    def invoice_proposal(request_id:uuid.UUID,data:Proposal,company_id:int=Path(...,ge=1,le=2147483647),supplier_id:int=Path(...,ge=1,le=2147483647),user:dict=Depends(admin)):
+        return propose(deps,user,company_id,supplier_id,request_id,data,mode=correction_invoice_access.MODE)
+
+    @app.post('/system/companies/{company_id}/participants/{supplier_id}/connection-requests/{request_id}/invoice-access-plans/{plan_id}/confirm',response_model=Result)
+    def invoice_apply(request_id:uuid.UUID,plan_id:uuid.UUID,data:Confirmation,company_id:int=Path(...,ge=1,le=2147483647),supplier_id:int=Path(...,ge=1,le=2147483647),user:dict=Depends(admin)):
+        return confirm(deps,user,company_id,supplier_id,request_id,plan_id,data,mode=correction_invoice_access.MODE)

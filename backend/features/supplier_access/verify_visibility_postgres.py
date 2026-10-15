@@ -29,8 +29,10 @@ WITH supply_requests AS (
            %s::int AS supplier_id
 ), companies AS (
     SELECT %s::int AS id
+), company_supplier_links AS (
+    SELECT NULL::int AS company_id,NULL::int AS supplier_id,'{}'::jsonb AS profile WHERE FALSE
 ), supplier_invoices AS (
-    SELECT 1 AS id, 1 AS offer_id, %s::int AS company_id, %s::int AS supplier_id
+    SELECT 1 AS id, 1 AS offer_id, 1 AS request_id, %s::int AS company_id, %s::int AS supplier_id
 )
 """
 
