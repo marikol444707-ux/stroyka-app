@@ -67,6 +67,7 @@ export default function SupplierCorrectionPreview({prefix,supplierId,requestId,o
     {current.status==='loading'&&<p role="status">Проверяю документы и доступ…</p>}
     {current.status==='error'&&<p role="alert">{current.error}</p>}
     {completed&&<p role="status">Подключение отключено. Исходные документы и кабинет поставщика сохранены.</p>}
+    {completed&&applied.result.withdrawnRequestCount>0&&<p>Отозвано заявок: {applied.result.withdrawnRequestCount}.</p>}
     {!completed&&<button type="button" disabled={current.status==='loading'||commandPending} onClick={()=>setRetry(n=>n+1)}>{current.status==='error'?'Повторить проверку':'Обновить проверку'}</button>}
     {!completed&&current.status==='ready'&&<>
       <p><strong>{data.companyName}</strong><br/>{data.sourceName} → {data.targetName}</p>

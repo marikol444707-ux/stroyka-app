@@ -88,3 +88,65 @@ test('the plan loads under the application StrictMode lifecycle',async()=>{
   render(<StrictMode><SupplierConnectionCorrection {...props}/></StrictMode>);
   await prepare();expect(screen.getByRole('button',{name:'Подтвердить отключение'})).toBeDisabled();
 });
+
+test('RFQ correction shows exact affected requests and requires explicit withdrawal confirmation',async()=>{
+  const previous=process.env.REACT_APP_PARTICIPANT_RFQ_CORRECTIONS_ENABLED;
+  process.env.REACT_APP_PARTICIPANT_RFQ_CORRECTIONS_ENABLED='1';
+  try {
+    const onApplied=jest.fn();
+    global.fetch=jest.fn().mockResolvedValueOnce(response({...plan,mode:'withdraw_unanswered_rfq',
+      affectedRequests:[{requestId:14,recipientId:25,offerIds:[36]}],queuedNotificationCount:2}))
+      .mockResolvedValueOnce(response({...result,withdrawnRequestCount:1}));
+    render(<SupplierConnectionCorrection {...props} onApplied={onApplied}/>);
+    fireEvent.click(screen.getByRole('button',{name:'Проверить подключение'}));
+    expect(await screen.findByText('Заявка №14')).toBeInTheDocument();
+    expect(screen.getByText('Только у этого поставщика. Заявки и ответы других поставщиков сохранятся.')).toBeInTheDocument();
+    expect(screen.getByText(/Уже отправленные письма/)).toBeInTheDocument();
+    expect(screen.getByText('Уведомлений в очереди будет отменено: 2.')).toBeInTheDocument();
+    expect(fetch.mock.calls[0][0]).toContain('/rfq-correction-plans');
+    fireEvent.change(screen.getByRole('textbox',{name:'Причина отключения'}),{target:{value:'Ошибочно выбрали покупателя'}});
+    fireEvent.click(screen.getByRole('checkbox',{name:'Отозвать указанные заявки и отключить эту связь'}));
+    fireEvent.click(screen.getByRole('button',{name:'Отозвать заявки и отключить'}));
+    await screen.findByText('Подключение отключено.');
+    expect(onApplied).toHaveBeenCalledWith({...result,withdrawnRequestCount:1});
+  } finally {
+    if(previous===undefined)delete process.env.REACT_APP_PARTICIPANT_RFQ_CORRECTIONS_ENABLED;
+    else process.env.REACT_APP_PARTICIPANT_RFQ_CORRECTIONS_ENABLED=previous;
+  }
+});
+
+test('RFQ mode rejects an incomplete plan instead of hiding its consequences',async()=>{
+  const previous=process.env.REACT_APP_PARTICIPANT_RFQ_CORRECTIONS_ENABLED;
+  process.env.REACT_APP_PARTICIPANT_RFQ_CORRECTIONS_ENABLED='1';
+  try {
+    global.fetch=jest.fn().mockResolvedValue(response(plan));
+    render(<SupplierConnectionCorrection {...props}/>);
+    fireEvent.click(screen.getByRole('button',{name:'Проверить подключение'}));
+    expect(await screen.findByRole('alert')).toHaveTextContent('не подтвердил план');
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  } finally {
+    if(previous===undefined)delete process.env.REACT_APP_PARTICIPANT_RFQ_CORRECTIONS_ENABLED;
+    else process.env.REACT_APP_PARTICIPANT_RFQ_CORRECTIONS_ENABLED=previous;
+  }
+});
+
+test('RFQ success must confirm the exact number of withdrawn requests',async()=>{
+  const previous=process.env.REACT_APP_PARTICIPANT_RFQ_CORRECTIONS_ENABLED;
+  process.env.REACT_APP_PARTICIPANT_RFQ_CORRECTIONS_ENABLED='1';
+  try {
+    const onApplied=jest.fn();
+    global.fetch=jest.fn().mockResolvedValueOnce(response({...plan,mode:'withdraw_unanswered_rfq',
+      affectedRequests:[{requestId:14,recipientId:25,offerIds:[36]}],queuedNotificationCount:0}))
+      .mockResolvedValueOnce(response({...result,withdrawnRequestCount:0}));
+    render(<SupplierConnectionCorrection {...props} onApplied={onApplied}/>);
+    fireEvent.click(screen.getByRole('button',{name:'Проверить подключение'}));
+    await screen.findByText('Заявка №14');confirmFields();
+    fireEvent.click(screen.getByRole('button',{name:'Отозвать заявки и отключить'}));
+    expect(await screen.findByRole('alert')).toHaveTextContent('не подтвердил результат');
+    expect(onApplied).not.toHaveBeenCalled();
+    expect(screen.getByRole('button',{name:'Повторить подтверждение'})).toBeInTheDocument();
+  } finally {
+    if(previous===undefined)delete process.env.REACT_APP_PARTICIPANT_RFQ_CORRECTIONS_ENABLED;
+    else process.env.REACT_APP_PARTICIPANT_RFQ_CORRECTIONS_ENABLED=previous;
+  }
+});
