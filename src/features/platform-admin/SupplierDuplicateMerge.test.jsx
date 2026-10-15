@@ -51,3 +51,22 @@ test('a registered target always uses the existing historical disclosure plan',a
   expect(await screen.findByRole('alert')).toHaveTextContent('Сначала уточните реквизиты кабинета');
   expect(fetch.mock.calls.at(-1)[0]).toBe('/system/companies/2/participants/7/history-merge-plans');
 });
+
+test('missing INN is completed only after document confirmation and requires another merge review',async()=>{
+  global.fetch=jest.fn().mockResolvedValueOnce(response({items:[{id:8,name:'Кабинет',has_account:true}],hasMore:false}))
+    .mockResolvedValueOnce(response({sourceId:7,targetId:8,sourceInn:'2312254452',targetInn:'',canCompleteInn:true,hasSupplierAccount:true,documents:{},reviewVersion:'d'.repeat(64)}))
+    .mockResolvedValueOnce(response({ok:true,sourceId:7,targetId:8,inn:'2312254452'}));
+  render(<SupplierDuplicateMerge {...props}/>);
+  fireEvent.click(screen.getByRole('button',{name:'Найти основную карточку'}));
+  fireEvent.click(await screen.findByRole('button',{name:/Кабинет ·/}));
+  fireEvent.click(screen.getByRole('button',{name:'Проверить последствия'}));
+  const save=await screen.findByRole('button',{name:'Заполнить пропущенный ИНН'});
+  expect(save).toBeDisabled();
+  expect(screen.queryByRole('button',{name:'Проверить доступ к истории'})).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('checkbox'));
+  fireEvent.change(screen.getByLabelText('Основание объединения'),{target:{value:'ИНН сверили по счёту кабинета'}});
+  fireEvent.click(save);
+  expect(await screen.findByRole('status')).toHaveTextContent('ИНН сохранён');
+  expect(fetch.mock.calls.at(-1)[0]).toContain('/participants/7/duplicate-complete-inn');
+  expect(screen.getByRole('button',{name:'Проверить последствия'})).toBeEnabled();
+});

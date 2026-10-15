@@ -103,3 +103,34 @@ class AdminDuplicateMergePostgresTests(unittest.TestCase):
             with ThreadPoolExecutor(max_workers=2) as pool:
                 self.assertEqual(sorted(pool.map(send,range(2))),[200,409])
             self.assertEqual(self.sql("SELECT count(*) FROM audit_log WHERE action='supplier_cards_merged' AND entity_id=%s AND company_id=2",(source,)),[(1,)])
+
+    def complete_inn(self,source,review,**kwargs):
+        return self.api('admin','POST',f'/system/companies/2/participants/{source}/duplicate-complete-inn',
+                        dict(targetSupplierId=review['targetId'],expectedReview=review['reviewVersion'],confirmed=True,
+                             reason='ИНН подтверждён по счёту зарегистрированного кабинета'),**kwargs)
+
+    def test_missing_cabinet_inn_can_be_confirmed_without_granting_history(self):
+        source,target=self.seed(),self.seed(owned=True)
+        self.sql("UPDATE suppliers SET inn='2312254452' WHERE id=%s",(source,))
+        with patch.dict(os.environ,PARTICIPANT_HISTORY_MERGE_ENABLED='1'):
+            review=self.duplicate_review(source,target)
+            self.assertTrue(review['canCompleteInn'])
+            before=self.sql('SELECT user_id FROM suppliers WHERE id=%s',(source,))
+            self.assertTrue(self.complete_inn(source,review)['ok'])
+            self.assertEqual(self.sql('SELECT user_id FROM suppliers WHERE id=%s',(source,)),before)
+            self.assertEqual(self.sql('SELECT inn FROM suppliers WHERE id=%s',(target,)),[('2312254452',)])
+            self.assertEqual(self.sql("SELECT count(*) FROM audit_log WHERE action='supplier_missing_inn_completed' AND entity_id=%s",(target,)),[(1,)])
+            self.complete_inn(source,review,expected=409)
+
+    def test_missing_inn_completion_rejects_changes_and_shared_target(self):
+        with patch.dict(os.environ,PARTICIPANT_HISTORY_MERGE_ENABLED='1'):
+            source,target=self.seed(),self.seed(owned=True)
+            self.sql("UPDATE suppliers SET inn='2312254452' WHERE id=%s",(source,))
+            review=self.duplicate_review(source,target)
+            self.sql('INSERT INTO company_supplier_links(company_id,supplier_id,platform_account_id) VALUES(3,%s,1)',(target,))
+            self.complete_inn(source,review,expected=409)
+            self.sql('DELETE FROM company_supplier_links WHERE company_id=3 AND supplier_id=%s',(target,))
+            review=self.duplicate_review(source,target)
+            self.sql("UPDATE suppliers SET inn='2635045921' WHERE id=%s",(target,))
+            self.complete_inn(source,review,expected=409)
+            self.assertEqual(self.sql('SELECT inn FROM suppliers WHERE id=%s',(target,)),[('2635045921',)])

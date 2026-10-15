@@ -7,14 +7,16 @@ export default function SupplierDuplicateMerge({prefix,source,btnG,btnO,inp,onCl
   const [query,setQuery]=useState(''),[items,setItems]=useState(null),[hasMore,setHasMore]=useState(false);
   const [offset,setOffset]=useState(0),[target,setTarget]=useState(null),[review,setReview]=useState(null);
   const [checked,setChecked]=useState(false),[reason,setReason]=useState(''),[history,setHistory]=useState(false);
+  const [notice,setNotice]=useState('');
   const active=useRef(true);
   useEffect(()=>{active.current=true;return()=>{active.current=false;};},[]);
   const {submit,pending,error}=useAsyncSubmit(async(action,page=0)=>{
+    setNotice('');
     let path=prefix+'/participants?search='+encodeURIComponent(query.trim())+'&limit=25&offset='+page;
     let options;
     if(action!=='search'){
-      path=prefix+'/participants/'+source.id+'/duplicate-'+(action==='confirm'?'merge':'preview');
-      options={method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(action==='confirm'?
+      path=prefix+'/participants/'+source.id+'/duplicate-'+({confirm:'merge',completeInn:'complete-inn',review:'preview'}[action]);
+      options={method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(action!=='review'?
         {targetSupplierId:target.id,expectedReview:review.reviewVersion,confirmed:true,reason:reason.trim()}:{targetSupplierId:target.id})};
     }
     const response=await fetch(path,options),body=await response.json().catch(()=>({}));
@@ -28,7 +30,11 @@ export default function SupplierDuplicateMerge({prefix,source,btnG,btnO,inp,onCl
       setReview(body);setChecked(false);
     }else{
       if(!body.ok||body.sourceId!==source.id||body.targetId!==target.id)throw new Error('Проверьте результат перед повторной отправкой');
-      onDone();
+      if(action==='completeInn'){
+        if(body.inn!==review.sourceInn)throw new Error('Проверьте результат сохранения ИНН');
+        setReview(null);setChecked(false);setReason('');
+        setNotice('ИНН сохранён. Теперь повторно проверьте последствия объединения и доступ к истории.');
+      }else onDone();
     }
   });
   return <section aria-label="Объединение дубля" className="organization-participants__detail">
@@ -58,13 +64,17 @@ export default function SupplierDuplicateMerge({prefix,source,btnG,btnO,inp,onCl
       <p>Номера документов, сохранённые реквизиты и суммы оплат останутся прежними.</p>
       {review.hasSupplierAccount?<>
         <p>У основной карточки есть кабинет. Перед объединением нужно проверить доступ к старой истории.</p>
-        <button style={btnO} disabled={pending} onClick={()=>setHistory(true)}>Проверить доступ к истории</button>
-      </>:<>
-        <label><input type="checkbox" checked={checked} disabled={pending} onChange={e=>setChecked(e.target.checked)}/> Карточки и документы относятся к одному поставщику</label>
+        {review.canCompleteInn?<p>В основной карточке ИНН не заполнен. В карточке-дубле указан <strong>{review.sourceInn}</strong>. Проверьте этот ИНН по счёту или договору кабинета. Изменение применяется к профилю поставщика для новых операций; старые документы не переписываются.</p>:
+          <button style={btnO} disabled={pending} onClick={()=>setHistory(true)}>Проверить доступ к истории</button>}
+      </>:null}
+      {(!review.hasSupplierAccount||review.canCompleteInn)&&<>
+
+        <label><input type="checkbox" checked={checked} disabled={pending} onChange={e=>setChecked(e.target.checked)}/> {review.canCompleteInn?'Я сверил ИНН по документу кабинета; это тот же поставщик':'Карточки и документы относятся к одному поставщику'}</label>
         <label>Основание объединения<textarea style={inp} rows={3} maxLength={1000} value={reason} disabled={pending} onChange={e=>setReason(e.target.value)}/></label>
-        <button style={btnO} disabled={pending||!checked||reason.trim().length<10} onClick={()=>submit('confirm')}>Объединить карточки</button>
+        <button style={btnO} disabled={pending||!checked||reason.trim().length<10} onClick={()=>submit(review.canCompleteInn?'completeInn':'confirm')}>{review.canCompleteInn?'Заполнить пропущенный ИНН':'Объединить карточки'}</button>
       </>}
     </>}
+    {notice&&<p role="status">{notice}</p>}
     {error&&<p role="alert">{error}</p>}
     <div className="organization-participants__toolbar">
       {target&&!review&&<button style={btnO} disabled={pending} onClick={()=>submit('review')}>Проверить последствия</button>}
