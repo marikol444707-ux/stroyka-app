@@ -6,6 +6,8 @@ from typing import Optional
 import psycopg2.extras
 from fastapi import Depends, Header, HTTPException
 
+from .history_lock import lock_supplier_history_writer
+
 
 def _text(value, limit=500):
     return str(value or "").strip()[:limit]
@@ -586,8 +588,14 @@ def register_material_packaging_module(app, deps):
         supplier_id = _positive_int(data.get("supplierId") or data.get("supplier_id"))
         conn = get_db(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
-            actor, company_id = selected_actor(cur, current_user, "write", x_company_id, x_company_mode)
+            # Bootstrap DDL must not hold table locks through the business write.
+            conn.autocommit = True
+            cur.execute("SET lock_timeout='3s'; SET statement_timeout='15s'")
+            selected_actor(cur, current_user, "write", x_company_id, x_company_mode)
             ensure_packaging_schema(cur)
+            conn.autocommit = False
+            lock_supplier_history_writer(cur, supplier_id)
+            actor, company_id = selected_actor(cur, current_user, "write", x_company_id, x_company_mode)
             key = material_key(material_name)
             cur.execute(
                 """SELECT id FROM material_packaging_rules
@@ -613,6 +621,10 @@ def register_material_packaging_module(app, deps):
                 )
             row = cur.fetchone(); conn.commit()
             return _rule_row(row)
+        except (psycopg2.errors.LockNotAvailable, psycopg2.errors.DeadlockDetected,
+                psycopg2.errors.QueryCanceled, psycopg2.errors.SerializationFailure):
+            conn.rollback()
+            raise HTTPException(status_code=409, detail="Правило сейчас изменяется. Повторите сохранение")
         except Exception:
             conn.rollback(); raise
         finally:

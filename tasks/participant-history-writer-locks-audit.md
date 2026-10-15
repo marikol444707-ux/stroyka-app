@@ -83,7 +83,7 @@ supply_requests, warehouse_invoices
 
 | Таблица | Найденный путь записи в исходниках |
 |---|---|
-| `material_packaging_rules` | `material_packaging/routes.py`: создание и изменение правил упаковки; путь использует блокировку строки существующего правила |
+| `material_packaging_rules` | `material_packaging/routes.py`: создание и изменение правил упаковки; также прямой `DELETE` в `scripts/smoke-material-packaging-review.py` |
 | `supplier_material_capability_assertions` | `supply_recommendation_preview/material_capability_writer.py`: отдельный writer и собственная табличная блокировка |
 | `supplier_payment_documents` | `supplier_payments/engine.py`, `mixed_openings.py`: регистрация финансовых документов |
 | `supplier_payment_operations` | `supplier_payments/engine.py`: запись платёжных операций |
@@ -217,6 +217,12 @@ read-only проверки production: наличие старых строк, �
 порядок их блокировок. Перед пилотом сначала выбирается таблица с меньшим числом
 писателей, для которой можно доказать единый порядок и покрыть все места записи
 PostgreSQL тестом.
+
+Первым writer-срезом выбраны правила упаковки. Реальный HTTP-обработчик
+подготовлен к shared transaction lock по поставщику; устранён autocommit между
+его запросами. Это подготовка писателя, а не снятие `SHARE`: прямые SQL-удаления
+пока защищены только прежним общим протоколом. Подробности и оставшиеся этапы:
+[packaging-history-lock-pilot.md](packaging-history-lock-pilot.md).
 
 ### Следующий безопасный шаг
 
