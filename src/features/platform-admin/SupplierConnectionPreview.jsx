@@ -46,6 +46,7 @@ export default function SupplierConnectionPreview({prefix,supplierId,btnG,onClos
           prefix={prefix} sourceId={supplierId} targetId={data.cabinet.supplierId}/>}
       {process.env.REACT_APP_PARTICIPANT_CONNECTIONS_ENABLED==='1'&&<SupplierConnectionRequests key={prefix+'/'+supplierId+'/'+retry}
         prefix={prefix} supplierId={supplierId} cabinet={data.cabinet} sourceVersion={data.supplier.relationshipVersion}
+        onChanged={onChanged||(()=>setRetry(n=>n+1))}
         canRequest={data.scenario==='connect_existing'&&data.cabinet?.accountState==='active'&&data.blockers.every(b=>
           ['OWNER_VERIFICATION_REQUIRED','HISTORY_REVIEW_REQUIRED','SHARED_SOURCE_CARD','DOCUMENT_OWNER_REVIEW'].includes(b.code))}/>}
       <details><summary>Данные проверки</summary><p>Компания: {data.companyId} · Аккаунт компании: {data.platformAccountId}<br/>Карточка: {data.supplier.supplierId} · Версия связи: {data.supplier.relationshipVersion}</p>

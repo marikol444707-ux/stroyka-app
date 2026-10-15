@@ -4,4 +4,6 @@
 .supplier-correction-dialog__toolbar h3 { font-size:18px; margin:0; flex:1 1 180px; }
 .supplier-correction-dialog__panel p { line-height:1.5; }
 .supplier-correction-dialog__panel summary { cursor:pointer; min-height:44px; display:list-item; align-content:center; }
+.supplier-correction-dialog__panel textarea { box-sizing:border-box; width:100%; min-height:88px; border:1px solid currentColor; border-radius:8px; padding:10px; font:inherit; color:inherit; background:transparent; }
+.supplier-correction-dialog__panel label:has(textarea) { display:block; }
 @media(max-width:599px) { .supplier-correction-dialog__toolbar button { padding:8px 10px; } }

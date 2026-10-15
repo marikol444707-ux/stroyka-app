@@ -1,4 +1,4 @@
-import {act,fireEvent,render,screen} from '@testing-library/react';
+import {act,fireEvent,render,screen,within} from '@testing-library/react';
 import SupplierCorrectionPreview from './SupplierCorrectionPreview';
 
 const data={companyName:'Компания А',sourceName:'Карточка из накладной',targetName:'Кабинет поставщика',
@@ -99,4 +99,38 @@ test('Escape and Tab still work when a loading page drops focus outside the dial
     fireEvent.keyDown(outside,{key:'Tab'});
     expect(screen.getByRole('button',{name:'Скрыть последствия'})).toHaveFocus();
   } finally {outside.remove();}
+});
+
+test('a pending correction cannot be closed or paged away and refreshes the list only after completion is acknowledged',async()=>{
+  const previous=process.env.REACT_APP_PARTICIPANT_CORRECTIONS_ENABLED;
+  process.env.REACT_APP_PARTICIPANT_CORRECTIONS_ENABLED='1';
+  let finish;const onClose=jest.fn(),onCompleted=jest.fn();
+  const plan={id:'plan-a',companyId:2,sourceId:7,targetId:8,companyName:'Компания А',targetName:'Кабинет поставщика',expiresAt:'2030-01-01T12:00:00Z',retainedDocuments:{invoices:2,receipts:1,offers:0}};
+  try {
+    Object.defineProperty(window,'crypto',{configurable:true,value:{randomUUID:jest.fn(()=> 'operation-a')}});
+    global.fetch=jest.fn().mockResolvedValueOnce(response({...data,companyId:2,targetId:8}))
+      .mockResolvedValueOnce(response(plan)).mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
+    render(<SupplierCorrectionPreview {...props} onClose={onClose} onCompleted={onCompleted}/>);
+    fireEvent.click(await screen.findByRole('button',{name:'Подготовить отключение'}));
+    const command=within(screen.getByRole('region',{name:'Отключение неиспользованной связи'}));
+    await command.findByText('Компания А');
+    const closeButton=screen.getByRole('button',{name:'Скрыть последствия'});
+    closeButton.focus();
+    fireEvent.keyDown(closeButton,{key:'Tab',shiftKey:true});
+    expect(command.getByRole('checkbox')).toHaveFocus();
+    fireEvent.change(command.getByRole('textbox',{name:'Причина отключения'}),{target:{value:'Ошибочно выбрали покупателя'}});
+    fireEvent.click(command.getByRole('checkbox'));
+    fireEvent.click(command.getByRole('button',{name:'Подтвердить отключение'}));
+    expect(screen.getByRole('button',{name:'Скрыть последствия'})).toBeDisabled();
+    expect(screen.getByRole('button',{name:'Накладные: 1'})).toBeDisabled();
+    fireEvent.keyDown(document,{key:'Escape'});expect(onClose).not.toHaveBeenCalled();
+    await act(async()=>finish(response({ok:true,planId:'plan-a',companyId:2,sourceId:7,targetId:8,relationshipStatus:'Неактивный',relationshipVersion:2})));
+    expect(await screen.findByRole('status')).toHaveTextContent('Подключение отключено');
+    expect(onCompleted).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button',{name:'Готово'}));
+    expect(onClose).toHaveBeenCalledTimes(1);expect(onCompleted).toHaveBeenCalledTimes(1);
+  } finally {
+    if(previous===undefined)delete process.env.REACT_APP_PARTICIPANT_CORRECTIONS_ENABLED;
+    else process.env.REACT_APP_PARTICIPANT_CORRECTIONS_ENABLED=previous;
+  }
 });

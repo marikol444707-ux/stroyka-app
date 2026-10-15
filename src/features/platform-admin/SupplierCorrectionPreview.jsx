@@ -1,21 +1,25 @@
-import {useEffect,useId,useRef,useState} from 'react';
+import {useCallback,useEffect,useId,useRef,useState} from 'react';
 import {createPortal} from 'react-dom';
 import '../participant-support/ConnectionRequests.css';
 import './SupplierCorrectionPreview.css';
+import SupplierConnectionCorrection from './SupplierConnectionCorrection';
 
 const labels={invoices:'Счета',receipts:'Накладные',offers:'Предложения',contracts:'Договоры',files:'Основные файлы'};
 const access={available:'Доступ сейчас разрешён',unavailable:'Сейчас недоступно поставщику',needs_check:'Доступ проверяется в карточке документа'};
 const pageSize=5;
 
-export default function SupplierCorrectionPreview({prefix,supplierId,requestId,onClose}) {
+export default function SupplierCorrectionPreview({prefix,supplierId,requestId,onClose,onCompleted}) {
   const [category,setCategory]=useState('invoices');
   const [offset,setOffset]=useState(0);
   const [retry,setRetry]=useState(0);
   const [state,setState]=useState({});
+  const [applied,setApplied]=useState(null),[commandPending,setCommandPending]=useState(false);
   const dialog=useRef(null);
   const titleId=useId();
   const path=prefix+'/participants/'+supplierId+'/connection-requests/'+requestId+'/correction-preview';
   const scope=path+':'+category+':'+offset;
+  const completed=applied?.scope===path;
+  const close=useCallback(()=>{if(commandPending)return;onClose();if(completed)onCompleted?.();},[commandPending,completed,onClose,onCompleted]);
   useEffect(()=>{
     const previous=document.activeElement,overflow=document.body.style.overflow;
     document.body.style.overflow='hidden';dialog.current?.focus();
@@ -25,9 +29,9 @@ export default function SupplierCorrectionPreview({prefix,supplierId,requestId,o
     // Paging temporarily removes the focused button. Listen on document so
     // Escape and the focus trap still work while focus has fallen to body.
     const handleKey=event=>{
-      if(event.key==='Escape'){event.preventDefault();onClose();}
+      if(event.key==='Escape'){event.preventDefault();close();}
       if(event.key==='Tab'){
-        const nodes=[...dialog.current.querySelectorAll('button:not(:disabled),summary')];
+        const nodes=[...dialog.current.querySelectorAll('button:not(:disabled),input:not(:disabled):not([type="hidden"]),textarea:not(:disabled),select:not(:disabled),a[href],summary')];
         const first=nodes[0],last=nodes[nodes.length-1];
         const outside=!dialog.current.contains(document.activeElement)||document.activeElement===dialog.current;
         if(event.shiftKey&&(document.activeElement===first||outside)){event.preventDefault();last?.focus();}
@@ -36,7 +40,7 @@ export default function SupplierCorrectionPreview({prefix,supplierId,requestId,o
     };
     document.addEventListener('keydown',handleKey);
     return()=>document.removeEventListener('keydown',handleKey);
-  },[onClose]);
+  },[close]);
   useEffect(()=>{
     const abort=new AbortController();
     setState({scope,status:'loading'});
@@ -58,18 +62,19 @@ export default function SupplierCorrectionPreview({prefix,supplierId,requestId,o
     <section className="connection-requests supplier-correction-dialog__panel" aria-label="Последствия подключения поставщика">
     <div className="connection-requests__actions supplier-correction-dialog__toolbar">
       <h3 id={titleId}>Последствия подключения</h3>
-      <button type="button" onClick={onClose}>Скрыть последствия</button>
+      <button type="button" disabled={commandPending} onClick={close}>{completed?'Готово':'Скрыть последствия'}</button>
     </div>
     {current.status==='loading'&&<p role="status">Проверяю документы и доступ…</p>}
     {current.status==='error'&&<p role="alert">{current.error}</p>}
-    <button type="button" disabled={current.status==='loading'} onClick={()=>setRetry(n=>n+1)}>{current.status==='error'?'Повторить проверку':'Обновить проверку'}</button>
-    {current.status==='ready'&&<>
+    {completed&&<p role="status">Подключение отключено. Исходные документы и кабинет поставщика сохранены.</p>}
+    {!completed&&<button type="button" disabled={current.status==='loading'||commandPending} onClick={()=>setRetry(n=>n+1)}>{current.status==='error'?'Повторить проверку':'Обновить проверку'}</button>}
+    {!completed&&current.status==='ready'&&<>
       <p><strong>{data.companyName}</strong><br/>{data.sourceName} → {data.targetName}</p>
       <p>Подключено: {new Date(data.connectedAt).toLocaleString('ru-RU')}</p>
       <p><strong>Документы и оплаты сохраняются.</strong> Отключение связи само по себе не закрывает доступ к ранее адресованным документам.</p>
       <div className="connection-requests__actions" role="group" aria-label="Документы подключения">
         {Object.entries(labels).map(([kind,label])=><button key={kind} type="button" aria-pressed={category===kind}
-          disabled={data.summary[kind].total===null} onClick={()=>{setCategory(kind);setOffset(0);}}>
+          disabled={commandPending||data.summary[kind].total===null} onClick={()=>{setCategory(kind);setOffset(0);}}>
           {label}: {data.summary[kind].total??'нужна проверка'}
         </button>)}
       </div>
@@ -84,14 +89,17 @@ export default function SupplierCorrectionPreview({prefix,supplierId,requestId,o
         <p><span>{item.createdAfterConnection===null?'Дата создания не подтверждена':item.createdAfterConnection?'Создан после подключения':'Создан до подключения'}</span><br/><span>{access[item.currentSupplierAccess]}</span></p>
       </li>)}</ul>
       {(offset>0||data.hasMore)&&<nav className="connection-requests__actions" aria-label="Страницы документов подключения">
-        <button type="button" disabled={offset===0} onClick={()=>setOffset(n=>Math.max(0,n-pageSize))}>Назад</button>
-        <button type="button" disabled={!data.hasMore} onClick={()=>setOffset(n=>n+pageSize)}>Далее</button>
+        <button type="button" disabled={commandPending||offset===0} onClick={()=>setOffset(n=>Math.max(0,n-pageSize))}>Назад</button>
+        <button type="button" disabled={commandPending||!data.hasMore} onClick={()=>setOffset(n=>n+pageSize)}>Далее</button>
       </nav>}
       <details><summary>Границы проверки</summary>
         <p>Показаны документы обеих карточек только в этой компании. Дата создания записи не доказывает, что документ появился из-за подключения.</p>
         <p>Доступ к оригиналам и их наличие проверяются отдельно. Уже состоявшийся просмотр отменить нельзя.</p>
       </details>
-      <p>Это проверка последствий. Связи и права доступа не меняются.</p>
+      <p>Просмотр последствий не меняет связи и права доступа.</p>
+      {process.env.REACT_APP_PARTICIPANT_CORRECTIONS_ENABLED==='1'&&<SupplierConnectionCorrection
+        prefix={prefix} companyId={data.companyId} supplierId={supplierId} targetId={data.targetId} requestId={requestId}
+        onPendingChange={setCommandPending} onApplied={result=>setApplied({scope:path,result})}/>}
     </>}
   </section></div>,document.body);
 }
