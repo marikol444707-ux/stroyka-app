@@ -186,3 +186,29 @@ test('malformed or inconsistent financial counts do not expose a correction comm
     expect(screen.queryByRole('button',{name:'Подготовить отключение'})).not.toBeInTheDocument();
   }finally{if(previous===undefined)delete process.env.REACT_APP_PARTICIPANT_CORRECTIONS_ENABLED;else process.env.REACT_APP_PARTICIPANT_CORRECTIONS_ENABLED=previous;}
 });
+
+test('the separate issued access flag enables preserving correction and reports closure without cancelling orders',async()=>{
+  const names=['REACT_APP_PARTICIPANT_CORRECTIONS_ENABLED','REACT_APP_PARTICIPANT_ISSUED_ACCESS_CORRECTIONS_ENABLED'];
+  const previous=names.map(name=>process.env[name]);names.forEach(name=>{process.env[name]='1';});
+  try {
+    Object.defineProperty(window,'crypto',{configurable:true,value:{randomUUID:jest.fn(()=> 'operation-issued')}});
+    const plan={id:'issued-plan',companyId:2,sourceId:7,targetId:8,companyName:'Компания А',targetName:'Кабинет поставщика',
+      expiresAt:'2030-01-01T12:00:00Z',mode:'revoke_issued_access',retainedDocuments:{invoices:0,receipts:0,offers:0},
+      affectedRequests:[{requestId:14,recipientId:25,offerIds:[36]}],affectedOffers:[{offerId:36,statusBefore:'Утверждено',statusAfter:'Утверждено'}],
+      queuedNotificationCount:0,preservedIssuedDocuments:[{kind:'offer',id:36},{kind:'invoice',id:101}],preservedIssuedFileCount:1};
+    global.fetch=jest.fn().mockResolvedValueOnce(response({...data,companyId:2,targetId:8,
+      financialReview:{state:'review_required',source:{orders:0,invoices:0,deliveries:0,receipts:0,contracts:0},
+        connected:{orders:1,invoices:1,deliveries:0,receipts:0,contracts:0}}}))
+      .mockResolvedValueOnce(response(plan)).mockResolvedValueOnce(response({ok:true,planId:'issued-plan',companyId:2,sourceId:7,targetId:8,
+        relationshipStatus:'Неактивный',relationshipVersion:2,revokedRequestCount:1,preservedIssuedCounts:{offers:1,invoices:1,deliveries:0,receipts:0}}));
+    render(<SupplierCorrectionPreview {...props}/>);
+    fireEvent.click(await screen.findByRole('button',{name:'Проверить подключение'}));
+    const command=within(screen.getByRole('region',{name:'Исправление подключения'}));
+    await command.findByText('Счёт №101');
+    fireEvent.change(command.getByRole('textbox',{name:'Причина отключения'}),{target:{value:'Подключили ошибочный кабинет поставщика'}});
+    fireEvent.click(command.getByRole('checkbox'));
+    fireEvent.click(command.getByRole('button',{name:'Закрыть доступ и отключить связь'}));
+    expect(await screen.findByText('Доступ к заявкам закрыт: 1. Статусы документов, оплаты и складские записи сохранены.')).toBeInTheDocument();
+    expect(screen.queryByText(/Отклонено КП/)).not.toBeInTheDocument();
+  }finally{names.forEach((name,i)=>{if(previous[i]===undefined)delete process.env[name];else process.env[name]=previous[i];});}
+});

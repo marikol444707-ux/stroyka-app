@@ -194,3 +194,51 @@ test('quote rejection requires an exact confirmed count in the result',async()=>
   confirmFields();fireEvent.click(screen.getByRole('button',{name:'Отклонить КП и отключить'}));
   expect(await screen.findByRole('alert')).toHaveTextContent('не подтвердил результат');expect(onApplied).not.toHaveBeenCalled();
 }));
+
+const issuedPlan={...quotePlan,mode:'revoke_issued_access',
+  affectedOffers:[{offerId:36,statusBefore:'Утверждено',statusAfter:'Утверждено'}],
+  preservedIssuedDocuments:[{kind:'offer',id:36},{kind:'invoice',id:47},{kind:'delivery',id:58}],preservedIssuedFileCount:1};
+async function withIssuedMode(check){
+  const previous=process.env.REACT_APP_PARTICIPANT_ISSUED_ACCESS_CORRECTIONS_ENABLED;
+  process.env.REACT_APP_PARTICIPANT_ISSUED_ACCESS_CORRECTIONS_ENABLED='1';
+  try{await check();}finally{
+    if(previous===undefined)delete process.env.REACT_APP_PARTICIPANT_ISSUED_ACCESS_CORRECTIONS_ENABLED;
+    else process.env.REACT_APP_PARTICIPANT_ISSUED_ACCESS_CORRECTIONS_ENABLED=previous;
+  }
+}
+
+test('issued access closure explicitly preserves invoice and order status before confirmation',async()=>withIssuedMode(async()=>{
+  const onApplied=jest.fn(),completed={...result,revokedRequestCount:1,preservedIssuedCounts:{offers:1,invoices:1,deliveries:1,receipts:0}};
+  global.fetch=jest.fn().mockResolvedValueOnce(response(issuedPlan)).mockResolvedValueOnce(response(completed));
+  render(<SupplierConnectionCorrection {...props} onApplied={onApplied}/>);
+  fireEvent.click(screen.getByRole('button',{name:'Проверить подключение'}));
+  expect(await screen.findByText('Счёт №47')).toBeInTheDocument();
+  fireEvent.click(screen.getByText('Показать документы (3)'));
+  expect(screen.getByText('Счёт №47')).toBeVisible();
+  expect(screen.getByText('Поставка №58')).toBeInTheDocument();
+  expect(screen.getByText('Статусы документов, оплаты и складские записи сохранятся.')).toBeInTheDocument();
+  expect(screen.queryByText(/Будут отклонены/)).not.toBeInTheDocument();
+  expect(fetch.mock.calls[0][0]).toContain('/issued-access-plans');
+  fireEvent.change(screen.getByRole('textbox',{name:'Причина отключения'}),{target:{value:'Ошибочно подключён кабинет поставщика'}});
+  fireEvent.click(screen.getByRole('checkbox',{name:'Закрыть доступ к указанным документам и отключить эту связь'}));
+  fireEvent.click(screen.getByRole('button',{name:'Закрыть доступ и отключить связь'}));
+  await screen.findByText('Подключение отключено.');expect(onApplied).toHaveBeenCalledWith(completed);
+}));
+
+test('issued plan cannot omit preserved offers or repeat a document id in the same kind',async()=>withIssuedMode(async()=>{
+  global.fetch=jest.fn().mockResolvedValue(response({...issuedPlan,preservedIssuedDocuments:[{kind:'invoice',id:47},{kind:'invoice',id:47}]}));
+  render(<SupplierConnectionCorrection {...props}/>);
+  fireEvent.click(screen.getByRole('button',{name:'Проверить подключение'}));
+  expect(await screen.findByRole('alert')).toHaveTextContent('не подтвердил план');
+  expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+}));
+
+test('issued access result with wrong retained invoice count stays uncertain',async()=>withIssuedMode(async()=>{
+  const onApplied=jest.fn();
+  global.fetch=jest.fn().mockResolvedValueOnce(response(issuedPlan)).mockResolvedValueOnce(response({...result,
+    revokedRequestCount:1,preservedIssuedCounts:{offers:1,invoices:0,deliveries:1,receipts:0}}));
+  render(<SupplierConnectionCorrection {...props} onApplied={onApplied}/>);
+  fireEvent.click(screen.getByRole('button',{name:'Проверить подключение'}));await screen.findByText('Счёт №47');
+  confirmFields();fireEvent.click(screen.getByRole('button',{name:'Закрыть доступ и отключить связь'}));
+  expect(await screen.findByRole('alert')).toHaveTextContent('не подтвердил результат');expect(onApplied).not.toHaveBeenCalled();
+}));
