@@ -138,6 +138,7 @@ export const supplierIdentityKeys = supplier => {
 export const SUPPLIER_SOURCE_META = {
   manual: { label: 'Вручную', color: '#64748b' },
   invite_link: { label: 'По ссылке', color: '#2563eb' },
+  owner_confirmed_connection: { label: 'Подтверждено владельцем', color: '#2563eb' },
   linked_account: { label: 'Связан вручную', color: '#7c3aed' },
   warehouse_invoice: { label: 'Из накладной', color: '#0f766e' },
   max_invoice: { label: 'MAX-накладная', color: '#0891b2' },

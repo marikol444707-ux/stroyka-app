@@ -18,3 +18,16 @@ test('all-company mode cannot mutate an implicit default company',async()=>{
  await createUserAccessActions(props).saveUser();
  expect(fetch).not.toHaveBeenCalled();expect(alert).toHaveBeenCalled();
 });
+test('supplier refusal returns safe diagnostic without browser alert or refresh',async()=>{
+ const props=setup({supplierInviteForm:{supplierId:8},setGeneratedInviteLink:jest.fn()});
+ global.fetch=jest.fn(async()=>({ok:false,status:409,json:async()=>({detail:'Кабинет уже существует',reasonCode:'SUPPLIER_ACCOUNT_EXISTS',diagnosticId:'synthetic'})}));
+ const result=await createUserAccessActions(props).createSupplierInvite();
+ expect(result.inviteFailure).toMatchObject({companyId:7,reasonCode:'SUPPLIER_ACCOUNT_EXISTS',diagnosticId:'synthetic'});
+ expect(alert).not.toHaveBeenCalled();expect(props.refreshData).not.toHaveBeenCalled();
+});
+test('late successful invitation cannot populate another company form',async()=>{
+ const props=setup({supplierInviteForm:{},setGeneratedInviteLink:jest.fn()});
+ global.fetch=jest.fn(async()=>({ok:true,json:async()=>({code:'SYNTHETIC'})}));
+ await createUserAccessActions(props).createSupplierInvite(()=>false);
+ expect(props.setGeneratedInviteLink).not.toHaveBeenCalled();expect(props.refreshData).not.toHaveBeenCalled();
+});

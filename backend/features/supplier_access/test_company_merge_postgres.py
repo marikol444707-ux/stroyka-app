@@ -13,10 +13,10 @@ class CompanyMergePostgresTests(unittest.TestCase):
     def setUpClass(cls):
         base.SupplierRegistrationPostgresTests.setUpClass.__func__(cls)
 
-    def seed(self):
+    def seed(self,cabinet=False):
         source = self.sql("INSERT INTO suppliers(name) VALUES('Synthetic receipt card') RETURNING id")[0][0]
         owner = self.fixture['users']['supplier']['id']
-        target = self.sql("INSERT INTO suppliers(name,user_id,inn,registered_at) VALUES('Synthetic registered card',%s,'7799998877',NOW()) RETURNING id", (owner,))[0][0]
+        target = self.sql("INSERT INTO suppliers(name,user_id,inn,registered_at) VALUES('Synthetic registered card',%s,'7799998877',NOW()) RETURNING id", (owner if cabinet else None,))[0][0]
         for sid in (source, target):
             self.sql("INSERT INTO company_supplier_links(company_id,supplier_id,platform_account_id,profile) VALUES(2,%s,1,'{}')", (sid,))
         invoice = self.sql("INSERT INTO supplier_invoices(company_id,supplier_id,project_name,amount,paid_amount,status) VALUES(2,%s,%s,200,50,'На утверждении') RETURNING id", (source, self.fixture['project']))[0][0]
@@ -29,7 +29,7 @@ class CompanyMergePostgresTests(unittest.TestCase):
         body = {key:review[key] for key in ('sourceId','targetVersion','sourceVersion')}
         return self.api('director', 'POST', f"/suppliers/{review['targetId']}/merge", {**body,'companyId':2,'confirmed':True}, **kwargs)
 
-    def test_preview_then_merge_preserves_documents_and_connects_cabinet(self):
+    def test_preview_then_merge_without_cabinet_preserves_original_documents(self):
         source, target, invoice, owner = self.seed()
         before = self.sql('SELECT to_jsonb(i) FROM supplier_invoices i WHERE id=%s', (invoice,))
         review = self.review(source, target)
@@ -37,21 +37,18 @@ class CompanyMergePostgresTests(unittest.TestCase):
         self.assertEqual(self.sql('SELECT user_id FROM suppliers WHERE id=%s', (source,)), [(None,)])
         self.assertTrue(self.merge(review)['ok'])
         self.assertEqual(self.sql('SELECT to_jsonb(i) FROM supplier_invoices i WHERE id=%s', (invoice,)), before)
-        self.assertEqual(self.sql('SELECT user_id,inn FROM suppliers WHERE id=%s', (source,)), [(owner,None)])
+        self.assertEqual(self.sql('SELECT user_id,inn FROM suppliers WHERE id=%s', (source,)), [(None,None)])
         rows = self.api('director', 'GET', '/suppliers', **{'X-Company-Id':'2'})
         for sid in (source, target):
             row = next(r for r in rows if r['id'] == sid)
             self.assertEqual(row['canonicalSupplierId'], target)
             self.assertEqual(row['relatedSupplierIds'], [source,target])
-        conn = self.main.get_db()
-        try:
-            import psycopg2.extras
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                ids = self.main.current_supplier_ids(cur, {'id':owner})
-                self.assertLess(ids.index(target), ids.index(source))
-        finally:
-            conn.close()
         self.merge(review, expected=409)
+
+    def test_legacy_merge_cannot_grant_history_to_an_existing_cabinet(self):
+        source,target,invoice,owner=self.seed(cabinet=True)
+        self.merge(self.review(source,target),expected=409)
+        self.assertEqual(self.sql('SELECT user_id FROM suppliers WHERE id=%s',(source,)),[(None,)])
 
     def test_changed_card_blocks_stale_confirmation(self):
         source, target, invoice, owner = self.seed()
@@ -108,7 +105,7 @@ class CompanyMergePostgresTests(unittest.TestCase):
         self.assertEqual(self.sql('SELECT count(*) FROM suppliers'), count)
 
     def test_explicit_invite_cannot_claim_another_existing_legal_identity(self):
-        source, target, invoice, owner = self.seed()
+        source, target, invoice, owner = self.seed(cabinet=True)
         invite = self.api('director','POST','/invite-codes',
                           {'role':'поставщик','supplierId':source,'expiresInDays':1},
                           **{'X-Company-Id':'2'})

@@ -2,7 +2,7 @@
 import json
 import re
 from fastapi import HTTPException
-from ..supplier_access.service import supplier_offer_visibility_filter, supplier_invoice_visibility_filter
+from ..supplier_access.service import supplier_offer_visibility_filter, supplier_invoice_visibility_filter, INVOICE_ACCESS_DENIAL_SQL
 from ..supplier_team.policy import access_ids, enabled, lock_offer_access
 
 
@@ -78,7 +78,7 @@ def authorize_read(cur, user, row):
                 WHERE si.offer_id=supplier_offers.id AND si.company_id=supplier_offers.company_id
                 AND si.supplier_id=supplier_offers.supplier_id
                 AND (si.request_id IS NULL OR si.request_id=supplier_offers.request_id)
-                AND (si.file_url=ANY(%s) OR si.photo_url=ANY(%s)))
+                AND (si.file_url=ANY(%s) OR si.photo_url=ANY(%s))''' + INVOICE_ACCESS_DENIAL_SQL + ''')
             OR EXISTS(SELECT 1 FROM supply_deliveries d
                 WHERE d.offer_id=supplier_offers.id AND d.company_id=supplier_offers.company_id
                 AND d.supplier_id=supplier_offers.supplier_id AND d.request_id=supplier_offers.request_id

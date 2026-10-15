@@ -42,6 +42,9 @@ class ContractPostgresTest(unittest.TestCase):
             cur.execute("INSERT INTO company_requisites VALUES (12,'7701234567','Компания А'),(99,'7707654321','Компания Б')")
             cur.execute('CREATE TEMP TABLE suppliers (id INTEGER PRIMARY KEY, inn TEXT, name TEXT)')
             cur.execute("INSERT INTO suppliers VALUES (5,'7709876543','Поставщик')")
+            cur.execute('''CREATE TEMP TABLE company_supplier_links (
+                company_id INTEGER NOT NULL, supplier_id INTEGER NOT NULL, profile JSONB NOT NULL DEFAULT '{}'::jsonb,
+                PRIMARY KEY(company_id,supplier_id))''')
             cur.execute('CREATE TEMP TABLE projects (id INTEGER PRIMARY KEY, company_id INTEGER, name TEXT)')
             cur.execute("INSERT INTO projects VALUES (44,12,'Object A'),(45,12,'Other object')")
             cur.execute('''CREATE TEMP TABLE file_ownership (id INTEGER PRIMARY KEY,

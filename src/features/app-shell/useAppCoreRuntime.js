@@ -1,3 +1,4 @@
+import { isSupportWorkspaceUser } from '../participant-support/workspaceMode';
 import { useEffect, useMemo } from 'react';
 import { createAiAssistantActions } from '../ai-assistant/aiAssistantActions';
 import { createAuthActions } from '../auth/authActions';
@@ -208,7 +209,7 @@ export function useAppCoreRuntime({
   });
 
   useEffect(() => {
-    if (!currentUser || activePage !== 'activitylog') return;
+    if (!currentUser || isSupportWorkspaceUser(currentUser) || activePage !== 'activitylog') return;
     loadAuditLog();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser, activePage]);

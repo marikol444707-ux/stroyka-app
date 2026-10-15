@@ -152,15 +152,15 @@ class SupplierDirectoryTest(unittest.TestCase):
         self.assertIn("ИНН", ctx.exception.detail)
         self.assertEqual(cursor.calls, [])
 
-    def test_link_user_rejects_non_supplier_role(self):
+    def test_legacy_link_user_is_retired_without_reading_or_changing_global_owner(self):
         cursor = FakeCursor(fetchone_results=[{"id": 3, "name": "ООО"}, {"id": 42, "name": "Тест", "email": "a@b", "role": "мастер"}])
         app, connection = build(cursor)
         with self.assertRaises(HTTPException) as ctx:
             app.routes[("POST", "/suppliers/{id}/link-user")](
                 id=3, data={"userId": 42}, current_user={}
             )
-        self.assertEqual(ctx.exception.status_code, 400)
-        self.assertTrue(connection.rolled_back)
+        self.assertEqual(ctx.exception.status_code, 409)
+        self.assertEqual(cursor.calls, [])
 
     def test_delete_blocked_when_documents_reference_supplier(self):
         cursor = FakeCursor(fetchone_results=[(3,), (1,), {"count": 2}])

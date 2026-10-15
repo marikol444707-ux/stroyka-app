@@ -3,6 +3,7 @@
 
 import psycopg2.extras
 from fastapi import Depends, Header, HTTPException
+from fastapi.responses import JSONResponse
 
 from .supplier_relationship import create_supplier_invite, directory
 from .company_membership import create_company_invite, request_headers
@@ -10,6 +11,8 @@ from ..company_users.access import ADMIN_ROLES, COMPANY_ROLES, transaction
 
 
 def register_invite_codes_module(app, deps):
+    from ..participant_support.routes import register_participant_support
+    register_participant_support(app, deps)
     get_db = deps["get_db"]
     require_roles = deps["require_roles"]
     admin_roles = tuple(deps.get("admin_roles") or ())
@@ -39,7 +42,23 @@ def register_invite_codes_module(app, deps):
         if not role:
             raise HTTPException(status_code=400, detail="Не указана роль")
         if role == 'поставщик':
-            return create_supplier_invite(deps, _current_user, data, (x_company_id, x_company_mode))
+            from ..participant_support.reasons import InviteDiagnostic
+            from ..participant_support.service import enabled, record_failure
+            try:
+                return create_supplier_invite(deps, _current_user, data, (x_company_id, x_company_mode))
+            except InviteDiagnostic as failure:
+                diagnostic_id = None
+                if enabled():
+                    # create_supplier_invite has already rolled back and closed.
+                    # Help failure must not replace the original business refusal.
+                    try:
+                        diagnostic_id = record_failure(deps, _current_user, (x_company_id,x_company_mode), failure)
+                    except Exception as error:
+                        import logging
+                        logging.getLogger(__name__).warning('Participant diagnostic unavailable: %s', type(error).__name__)
+                return JSONResponse(status_code=409,
+                    content={'detail':failure.detail,'reasonCode':failure.code,'diagnosticId':diagnostic_id},
+                    headers={'X-Access-Reason':failure.code, **({'X-Access-Diagnostic':diagnostic_id} if diagnostic_id else {})})
         return create_company_invite(deps, _current_user, data, (x_company_id, x_company_mode))
 
     @app.delete("/invite-codes/{id}")

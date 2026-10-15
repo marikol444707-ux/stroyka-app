@@ -4,6 +4,17 @@ from .supply_request_workflow import (
     supplier_request_visibility_params,
 )
 
+# Exact ID denials survive later accounting link repairs. Bootstrap-only legacy
+# links have no private profile; the correction command requires the full catalog.
+# This static fragment is shared with original-file authorization (invoice alias si).
+INVOICE_ACCESS_DENIAL_SQL = """ AND NOT EXISTS (
+    SELECT 1 FROM company_supplier_links closed_link
+     WHERE closed_link.company_id=si.company_id
+       AND closed_link.supplier_id=si.supplier_id
+       AND COALESCE(to_jsonb(closed_link)->'profile'->'closedStandaloneInvoiceIds','[]'::jsonb)
+           @> jsonb_build_array(si.id)
+) """
+
 
 def _positive_int(value):
     try:
@@ -122,6 +133,7 @@ def supplier_invoice_visibility_filter(supplier_ids, supplier_user_id=None):
              WHERE invoice_company.id=si.company_id
       )
       AND si.supplier_id = ANY(%s::int[])
+    """ + INVOICE_ACCESS_DENIAL_SQL + """
       AND (
             si.offer_id IS NULL
          OR EXISTS (
@@ -154,3 +166,28 @@ def supplier_delivery_visibility_filter(supplier_ids, supplier_user_id=None):
           AND supplier_offers.request_id=d.request_id
           AND supplier_offers.company_id=d.company_id
           AND supplier_offers.supplier_id=d.supplier_id''' + offer_sql + ')', [ids] + params)
+
+
+def supplier_history_visibility_filter(supplier_ids,supplier_user_id=None):
+    """History alias h: linked records follow the same live addressed chain."""
+    ids=_supplier_ids(supplier_ids)
+    if not ids:return 'FALSE',[]
+    delivery_scope,delivery_params=supplier_delivery_visibility_filter(ids,supplier_user_id)
+    offer_scope,offer_params=supplier_offer_visibility_filter(ids,supplier_user_id)
+    legacy_scope,legacy_params='TRUE',[]
+    if team_enabled():
+        leader,legacy_params=leader_policy(supplier_user_id,'s.id')
+        legacy_scope='EXISTS(SELECT 1 FROM suppliers s WHERE s.id=h.supplier_id AND '+leader+')'
+    return ('''h.company_id>0 AND h.supplier_id=ANY(%s::int[])
+        AND EXISTS(SELECT 1 FROM companies c WHERE c.id=h.company_id)
+        AND ((h.delivery_id IS NOT NULL AND EXISTS(SELECT 1 FROM supply_deliveries d
+            WHERE d.id=h.delivery_id AND d.company_id=h.company_id AND d.supplier_id=h.supplier_id
+              AND d.request_id=h.request_id AND d.project=h.project
+              AND COALESCE(d.work_package,'')=COALESCE(h.work_package,'') AND '''+delivery_scope+'''))
+          OR (h.delivery_id IS NULL AND h.request_id IS NOT NULL AND EXISTS(
+            SELECT 1 FROM supplier_offers JOIN supply_requests q ON q.id=supplier_offers.request_id
+                AND q.company_id=supplier_offers.company_id AND q.project=h.project
+            WHERE supplier_offers.request_id=h.request_id AND supplier_offers.company_id=h.company_id
+                AND supplier_offers.supplier_id=h.supplier_id'''+offer_scope+'''))
+          OR (h.delivery_id IS NULL AND h.request_id IS NULL AND '''+legacy_scope+'))',
+        [ids]+delivery_params+offer_params+legacy_params)

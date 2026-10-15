@@ -1,3 +1,4 @@
+import { isSupportWorkspaceUser } from '../participant-support/workspaceMode';
 import { useCallback, useEffect, useRef } from 'react';
 import useCustomerRecordsLoader from '../customer-cabinet/useCustomerRecordsLoader';
 import { createCompanyRequisitesForm } from '../settings/settingsInitialForms';
@@ -317,7 +318,7 @@ export const useAppDataLoaders = (ctx) => {
   };
 
   useEffect(() => {
-    if (!user || activePage !== 'estimates' || estimatesTab !== 'norms') return undefined;
+    if (!user || isSupportWorkspaceUser(user) || activePage !== 'estimates' || estimatesTab !== 'norms') return undefined;
     const search = materialNormSearch.trim();
     const timer = setTimeout(() => {
       loadMaterialNormsPage({search, offset: 0});
@@ -779,7 +780,7 @@ export const useAppDataLoaders = (ctx) => {
   };
 
   useEffect(() => {
-    if (!user) return undefined;
+    if (!user || isSupportWorkspaceUser(user)) return undefined;
     if (!initialDataLoaded) return undefined;
     const run = () => loadMobilePageData(activePage);
     if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {

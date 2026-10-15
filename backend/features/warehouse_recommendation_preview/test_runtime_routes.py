@@ -257,11 +257,11 @@ class WarehouseAnomalyRuntimeRouteRegistrationTests(unittest.TestCase):
         package_bytes = package_path.read_bytes()
         runtime_source = runtime_path.read_text(encoding="utf-8")
 
-        # Reviewed read-only complete-basket quotation comparison in the composition root;
+        # Reviewed participant route access enforcement, storage validation and invite storage adapter;
         # warehouse preview implementation and registration are unchanged.
         self.assertEqual(
             hashlib.sha256(main_bytes).hexdigest(),
-            "9f7b3f03fe9e1db816d65e854e927235fb7790b61ec08212286a830d194dbde1",
+            "24186dd409857bc543dd4bfbc7fc260221fdced46d9067c32408f8ea13503c65",
         )
         self.assertEqual(
             hashlib.sha256(package_bytes).hexdigest(),

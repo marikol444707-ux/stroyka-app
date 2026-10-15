@@ -59,14 +59,14 @@ export default function SupplierMergeDialog({supplier, suppliers, API, C, onClos
       </label>}
       {review && <div><p><b>{review.sourceName}</b> → <b>{review.targetName}</b></p>
         <p>Счета: {review.documents.supplier_invoices} · Накладные: {review.documents.warehouse_invoices} · Предложения: {review.documents.supplier_offers}</p>
-        <p>{review.hasSupplierAccount ? 'Поставщик получит доступ к этой истории в своём кабинете.' : 'Ссылка из основной карточки подключит поставщика к общей истории.'}</p>
+        <p>{review.hasSupplierAccount ? 'Объединение с кабинетом: Администратор → Организации → Участники и доступ → Поставщики. Там проверяется доступ к старым документам.' : 'Ссылка из основной карточки подключит поставщика к общей истории.'}</p>
       </div>}
       {done && <p role="status">Карточки объединены. Если список не обновился, обновите страницу.</p>}
       {error && <p role="alert" style={{color:C.danger || '#dc2626'}}>{error}</p>}
       <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:18}}>
         <button type="button" disabled={pending} onClick={onClose} style={{minHeight:44}}>Закрыть</button>
         {review && !done && <button type="button" disabled={pending} onClick={()=>setReview(null)} style={{minHeight:44}}>Назад</button>}
-        {!done && <button type="button" disabled={pending || !sourceId} onClick={submit} style={{minHeight:44,background:C.accent || '#f97316',color:'#fff',border:0,borderRadius:8,padding:'8px 16px'}}>{pending ? 'Подождите…' : review ? 'Подтвердить объединение' : 'Проверить карточки'}</button>}
+        {!done && !review?.hasSupplierAccount && <button type="button" disabled={pending || !sourceId} onClick={submit} style={{minHeight:44,background:C.accent || '#f97316',color:'#fff',border:0,borderRadius:8,padding:'8px 16px'}}>{pending ? 'Подождите…' : review ? 'Подтвердить объединение' : 'Проверить карточки'}</button>}
       </div>
     </div>
   </div>, document.body);
