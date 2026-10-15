@@ -54,6 +54,34 @@
 шире списка основных таблиц выше. Таблицы без `company_id` тоже попадают в
 проверку и могут содержать ссылку на исходную карточку в другом контексте.
 
+Фактический вызов `inventory()` прошёл на одноразовой локальной PostgreSQL базе
+с тестовой схемой объединения. В ней манифест содержал 25 таблиц:
+
+```text
+company_supplier_links, file_ownership, invite_codes, supplier_aliases,
+supplier_catalog, supplier_contract_registry, supplier_contract_registry_versions,
+supplier_contract_versions, supplier_customer_assignments, supplier_deal_parties,
+supplier_documents, supplier_invoice_templates, supplier_invoices,
+supplier_offer_assignments, supplier_offers, supplier_subscriptions,
+supplier_team_invites, supplier_team_members, supplier_team_operations,
+supply_claims, supply_deliveries, supply_history, supply_request_recipients,
+supply_requests, warehouse_invoices
+```
+
+Подтверждающий PostgreSQL тест объединения прошёл (`1/1`). Этот список точен
+только для схемы disposable fixture: production-схему мы не читали, поэтому её
+набор может быть шире или уже.
+
+Дополнительный поиск прямых `INSERT`/`UPDATE`/`DELETE` в runtime Python нашёл
+записи для 23 из этих 25 таблиц. Главный legacy-узел — `backend/main.py`: там
+есть записи в адресатов, заявки, КП, счета/накладные, поставки/претензии,
+`file_ownership`, приглашения и команду поставщика. Остальные писатели находятся
+в `supplier_access`, `supplier_offers`, `supplier_payments`, `supplier_team`,
+`supplier_deal_parties`, кабинетах заказчика/подрядчика, файловом реестре,
+бухгалтерских исправлениях и складских операциях. Поиск не нашёл прямых SQL
+записей в `supplier_offer_assignments` и `supplier_subscriptions`; это не доказывает
+отсутствие динамического SQL, триггеров или внешнего writer.
+
 Дополнительные пути записи, которые нельзя пропустить при переходе:
 
 | Семейство | Где обнаружены записи | Что мешает считать его покрытым |
@@ -73,9 +101,9 @@
 
 ### Следующий безопасный шаг
 
-1. На изолированной PostgreSQL базе получить точный список `inventory()['tables']`
-   и сопоставить каждый элемент со схемой, компанией, поставщиком и реальными
-   функциями записи. В отчёт включить также таблицы из миграций и фоновых задач.
+1. Сверить схему production без изменений и получить её точный список
+   `inventory()['tables']`. Для каждого элемента сопоставить схему, компанию,
+   поставщика и реальные функции записи; включить миграции и фоновые задачи.
 2. Отдельно выделить записи, которые меняют доступ к документам, и записи,
    которые лишь сохраняют бизнес-историю. Не все строки требуют одинакового
    замка, но это разделение должно быть подтверждено политиками чтения.
