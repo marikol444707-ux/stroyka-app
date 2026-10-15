@@ -1,0 +1,29 @@
+[Unit]
+Description=Jev GitHub Issue QA command bridge (allowlisted read-only smoke)
+After=network-online.target docker.service
+Wants=network-online.target
+ConditionPathExists=/etc/stroyka-jev-issue-bridge.env
+
+[Service]
+Type=oneshot
+User=stroyka
+Group=stroyka
+WorkingDirectory=/usr/local/libexec/stroyka-jev-issue-bridge
+EnvironmentFile=/etc/stroyka-jev-issue-bridge.env
+ExecStart=/usr/bin/python3 -m scripts.jev_issue_bridge
+StateDirectory=stroyka-jev-issue-bridge
+StateDirectoryMode=0700
+TimeoutStartSec=160
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+MemoryMax=128M
+
+[Install]
+WantedBy=multi-user.target
