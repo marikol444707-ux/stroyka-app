@@ -1,4 +1,4 @@
-"""Bounded proof that the connected cabinet has not started work with this buyer.
+"""Bounded company evidence for an exact supplier connection correction.
 
 Keep only digests/counts in the saved plan. Raw rows, invitation secrets, file
 locators and financial snapshots never leave the transaction or enter the plan.
@@ -55,7 +55,7 @@ def used_by_target(row, refs, source, target, owner):
     return False
 
 
-def inventory(cur, company, source, target, owner, *, allow_rfq=False):
+def inventory(cur, company, source, target, owner, *, mode='disconnect_unused'):
     schema=tables(cur)
     if not REQUIRED <= schema.keys():
         raise HTTPException(503,'Для исправления требуется полный реестр документов и назначений')
@@ -65,7 +65,7 @@ def inventory(cur, company, source, target, owner, *, allow_rfq=False):
     else:
         cur.execute('SELECT id FROM suppliers WHERE user_id=%s ORDER BY id',(owner['id'],))
         owner_ids=[r['id'] for r in cur.fetchall()]
-    rfq=correction_rfqs.unanswered(cur,company,target,owner,owner_ids,schema) if allow_rfq else None
+    rfq=correction_rfqs.request_plan(cur,company,target,owner,owner_ids,schema,mode=mode) if mode!='disconnect_unused' else None
     fingerprints={};locked=[]
     retained={kind:0 for kind in ('invoices','receipts','offers')}
     names={'supplier_invoices':'invoices','warehouse_invoices':'receipts','supplier_offers':'offers'}
@@ -136,6 +136,6 @@ def inventory(cur, company, source, target, owner, *, allow_rfq=False):
     flags={key:os.getenv(key,'0') for key in POLICY_FLAGS}
     payload=dict(rows=fingerprints,schema={n:sorted(schema[n]) for n in inspected},refs={n:sorted(refs.get(n,set())) for n in inspected},flags=flags,ownerIds=sorted(owner_ids))
     digest=hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(',',':')).encode()).hexdigest()
-    result=dict(digest=digest,tables=sorted(set(locked)|(correction_rfqs.EXTRA_TABLES|set(rfq['referenceTables']) if allow_rfq else set())),retainedDocuments=retained,flags=flags)
+    result=dict(digest=digest,tables=sorted(set(locked)|(correction_rfqs.EXTRA_TABLES|set(rfq['referenceTables']) if mode!='disconnect_unused' else set())),retainedDocuments=retained,flags=flags)
     if rfq:result['rfq']=rfq
     return result

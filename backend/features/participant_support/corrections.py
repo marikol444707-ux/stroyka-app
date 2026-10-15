@@ -1,7 +1,7 @@
 """Correct a buyer link with immutable evidence and atomic audit.
 
-The separate RFQ mode can withdraw exact unanswered requests. Neither mode
-reassigns cabinets, undoes merges, or rewrites issued documents.
+Separate modes withdraw unanswered requests or reject unawarded received quotes.
+No mode reassigns cabinets, undoes merges, or rewrites issued documents.
 Confirm takes business predicate locks before buyer/identity locks, matching the
 history-merge order. Issued financial documents remain unchanged.
 """
@@ -20,7 +20,7 @@ from typing import Literal
 from .connections import company_lock, authorities, is_admin, evidence
 from .correction_inventory import inventory
 from .service import ready
-from . import correction_rfqs
+from . import correction_rfqs, correction_quotes
 
 
 class Proposal(BaseModel):
@@ -46,6 +46,12 @@ class AffectedRequest(BaseModel):
     offerIds: list[int]
 
 
+class AffectedOffer(BaseModel):
+    offerId: int
+    statusBefore: Literal['Ожидает ответа','Получено']
+    statusAfter: Literal['Отозвано','Отклонено']
+
+
 class PlanView(BaseModel):
     id: uuid.UUID
     companyId: int
@@ -55,9 +61,11 @@ class PlanView(BaseModel):
     targetName: str
     expiresAt: datetime
     retainedDocuments: dict[str,int]
-    mode: Literal['disconnect_unused','withdraw_unanswered_rfq'] = 'disconnect_unused'
+    mode: Literal['disconnect_unused','withdraw_unanswered_rfq','reject_received_quotes'] = 'disconnect_unused'
     affectedRequests: list[AffectedRequest] = Field(default_factory=list)
     queuedNotificationCount: int = 0
+    affectedOffers: list[AffectedOffer] = Field(default_factory=list)
+    preservedQuoteFileCount: int = 0
 
 
 class Result(BaseModel):
@@ -69,10 +77,11 @@ class Result(BaseModel):
     relationshipStatus: str
     relationshipVersion: int
     withdrawnRequestCount: int = 0
+    rejectedQuoteCount: int = 0
 
 
 @contextmanager
-def transaction(deps,*,snapshot=False,allow_rfq=False):
+def transaction(deps,*,snapshot=False,mode='disconnect_unused'):
     conn=deps['get_db']()
     try:
         conn.autocommit=False
@@ -82,8 +91,9 @@ def transaction(deps,*,snapshot=False,allow_rfq=False):
             ready(cur)
             if os.getenv('PARTICIPANT_CORRECTIONS_ENABLED','0')!='1':
                 raise HTTPException(503,'Исправление подключений пока не включено')
-            if allow_rfq and os.getenv('PARTICIPANT_RFQ_CORRECTIONS_ENABLED','0')!='1':
-                raise HTTPException(503,'Отзыв заявок при ошибочном подключении пока не включён')
+            flag={'disconnect_unused':None,correction_rfqs.MODE:'PARTICIPANT_RFQ_CORRECTIONS_ENABLED',correction_quotes.MODE:'PARTICIPANT_QUOTE_CORRECTIONS_ENABLED'}[mode]
+            if flag and os.getenv(flag,'0')!='1':
+                raise HTTPException(503,'Этот способ исправления подключения пока не включён')
             cur.execute("SELECT to_regclass('public.supplier_connection_correction_plans') AS relation")
             if not cur.fetchone()['relation']:raise HTTPException(503,'Исправление подключений требует обновления схемы')
             yield cur
@@ -134,7 +144,7 @@ def authorize(cur,company,source,request_id,user):
     return request,original,target,actor,owner,links
 
 
-def check_unused(cur,company,request,source,target,owner,links,*,allow_rfq=False):
+def checked_manifest(cur,company,request,source,target,owner,links,*,mode='disconnect_unused'):
     link=links[target['id']]
     if (link['status']!='Активный' or link['source_type']!='owner_confirmed_connection'
             or link['created_instant']!=request['decided_at'] or link['version']!=1
@@ -142,7 +152,7 @@ def check_unused(cur,company,request,source,target,owner,links,*,allow_rfq=False
             or any((r['profile'] or {}).get('mergedIntoSupplierId') for r in links.values())):
         raise HTTPException(409,'Связь уже изменялась или карточки объединены. Нужна отдельная проверка')
     # A source was unowned in the accepted request. Never undo a later merge.
-    manifest=inventory(cur,company['id'],source['id'],target['id'],owner,allow_rfq=allow_rfq)
+    manifest=inventory(cur,company['id'],source['id'],target['id'],owner,mode=mode)
     manifest['relationships']={str(key):dict(id=r['id'],version=r['version'],status=r['status']) for key,r in links.items()}
     return manifest
 
@@ -153,32 +163,33 @@ def view(row):
                 sourceId=row['source_supplier_id'],targetId=row['target_supplier_id'],targetName=row['manifest']['targetName'],
                 expiresAt=row['expires_at'],retainedDocuments=row['manifest']['retainedDocuments'],
                 mode=rfq.get('mode','disconnect_unused'),affectedRequests=rfq.get('affectedRequests',[]),
-                queuedNotificationCount=len(rfq.get('queuedMessageIds',[]))+len(rfq.get('queuedEmailIds',[])))
+                queuedNotificationCount=len(rfq.get('queuedMessageIds',[]))+len(rfq.get('queuedEmailIds',[])),
+                affectedOffers=rfq.get('affectedOffers',[]),preservedQuoteFileCount=rfq.get('preservedQuoteFileCount',0))
 
 
-def propose(deps,user,company_id,source,request_id,data,*,allow_rfq=False):
+def propose(deps,user,company_id,source,request_id,data,*,mode='disconnect_unused'):
     # A repeatable-read snapshot may predate a concurrent identical proposal
     # waiting on the buyer lock. Retry that metadata-only transaction once.
     for attempt in range(2):
-        try:return _propose(deps,user,company_id,source,request_id,data,allow_rfq=allow_rfq)
+        try:return _propose(deps,user,company_id,source,request_id,data,mode=mode)
         except (errors.SerializationFailure,errors.UniqueViolation):
             if attempt:raise HTTPException(409,'Данные сейчас изменяются. Повторите проверку подключения')
 
 
-def _propose(deps,user,company_id,source,request_id,data,*,allow_rfq=False):
-    with transaction(deps,snapshot=True,allow_rfq=allow_rfq) as cur:
+def _propose(deps,user,company_id,source,request_id,data,*,mode='disconnect_unused'):
+    with transaction(deps,snapshot=True,mode=mode) as cur:
         company=company_lock(cur,company_id)
         request,original,target,actor,owner,links=authorize(cur,company,source,request_id,user)
         cur.execute('SELECT * FROM supplier_connection_correction_plans WHERE company_id=%s AND actor_id=%s AND operation_id=%s',
                     (company_id,user['id'],str(data.operationId)))
         previous=cur.fetchone()
         if previous:
-            if previous['connection_request_id']!=request['id'] or previous['source_supplier_id']!=source or previous['actor_epoch']!=actor['supplier_team_epoch'] or bool(previous['manifest'].get('rfq'))!=allow_rfq:
+            if previous['connection_request_id']!=request['id'] or previous['source_supplier_id']!=source or previous['actor_epoch']!=actor['supplier_team_epoch'] or (previous['manifest'].get('rfq') or {}).get('mode','disconnect_unused')!=mode:
                 raise HTTPException(409,'Повтор запроса не совпадает с исходной проверкой')
             cur.execute('SELECT expires_at>clock_timestamp() AS valid FROM supplier_connection_correction_plans WHERE id=%s',(str(previous['id']),))
             if not cur.fetchone()['valid'] or previous['applied_at']:raise HTTPException(409,'План уже завершён или устарел. Обновите список')
             return view(previous)
-        manifest=check_unused(cur,company,request,original,target,owner,links,allow_rfq=allow_rfq)
+        manifest=checked_manifest(cur,company,request,original,target,owner,links,mode=mode)
         manifest.update(companyName=company['name'],targetName=target['name'])
         cur.execute('''INSERT INTO supplier_connection_correction_plans(id,connection_request_id,company_id,platform_account_id,
             source_supplier_id,target_supplier_id,target_link_id,actor_id,actor_epoch,owner_id,owner_epoch,target_owner_epoch,
@@ -193,6 +204,9 @@ def audit(cur,actor,company,plan,result,reason):
     rfq_change=dict(before=dict(visible=True,recipientStatus='Ожидает ответа',offerStatus='Ожидает ответа'),
         after=dict(visible=False,recipientStatus='Отозвано',offerStatus='Отозвано'),
         cancelledMessageIds=rfq['queuedMessageIds'],cancelledEmailRecipientIds=rfq['queuedEmailIds']) if rfq else None
+    if rfq and rfq.get('mode')==correction_quotes.MODE:
+        rfq_change.update(before=dict(visible=True),after=dict(visible=False),
+            recipientChanges=rfq['recipientChanges'],offerChanges=rfq['affectedOffers'])
     cur.execute('''INSERT INTO audit_log(user_id,user_name,user_role,action,entity_type,entity_id,description,owner_scope,company_id)
         VALUES(%s,%s,%s,'supplier_connection_corrected','supplier',%s,%s,'company',%s)''',
         (actor['id'],actor.get('name',''),actor['role'],plan['target_supplier_id'],
@@ -202,18 +216,18 @@ def audit(cur,actor,company,plan,result,reason):
                          affectedRequests=(rfq or {}).get('affectedRequests',[]),rfqChange=rfq_change,reason=reason),ensure_ascii=False),company['id']))
 
 
-def confirm(deps,user,company_id,source,request_id,plan_id,data,*,allow_rfq=False):
-    with transaction(deps,allow_rfq=allow_rfq) as cur:
+def confirm(deps,user,company_id,source,request_id,plan_id,data,*,mode='disconnect_unused'):
+    with transaction(deps,mode=mode) as cur:
         cur.execute('''SELECT * FROM supplier_connection_correction_plans WHERE id=%s AND company_id=%s
             AND source_supplier_id=%s AND connection_request_id=%s AND actor_id=%s''',
             (str(plan_id),company_id,source,str(request_id),user['id']))
         plan=cur.fetchone()
         if not plan:raise HTTPException(404,'План исправления недоступен')
-        if bool(plan['manifest'].get('rfq'))!=allow_rfq:raise HTTPException(409,'Тип плана не совпадает с выбранной операцией')
+        if (plan['manifest'].get('rfq') or {}).get('mode','disconnect_unused')!=mode:raise HTTPException(409,'Тип плана не совпадает с выбранной операцией')
         if not plan['applied_at']:
             for table in plan['manifest']['tables']:
-                mode=sql.SQL('SHARE ROW EXCLUSIVE') if allow_rfq and table in correction_rfqs.MUTABLE_TABLES else sql.SQL('SHARE')
-                cur.execute(sql.SQL('LOCK TABLE {} IN {} MODE').format(sql.Identifier(table),mode))
+                lock_mode=sql.SQL('SHARE ROW EXCLUSIVE') if mode!='disconnect_unused' and table in correction_rfqs.MUTABLE_TABLES else sql.SQL('SHARE')
+                cur.execute(sql.SQL('LOCK TABLE {} IN {} MODE').format(sql.Identifier(table),lock_mode))
         company=company_lock(cur,company_id)
         request,original,target,actor,owner,links=authorize(cur,company,source,request_id,user)
         if (company['platform_account_id']!=plan['platform_account_id'] or actor['supplier_team_epoch']!=plan['actor_epoch']
@@ -225,20 +239,21 @@ def confirm(deps,user,company_id,source,request_id,plan_id,data,*,allow_rfq=Fals
         if plan['applied_at']:
             if data.reason!=plan['reason'] or links[target['id']]['status']!='Неактивный' or links[target['id']]['version']!=plan['result']['relationshipVersion']:
                 raise HTTPException(409,'Повтор не совпадает с выполненным исправлением')
-            if allow_rfq:correction_rfqs.verify_replay(cur,company_id,plan['manifest']['rfq'])
+            if mode!='disconnect_unused':correction_rfqs.verify_replay(cur,company_id,plan['manifest']['rfq'])
             return plan['result']
         if not plan['valid']:raise HTTPException(409,'План устарел. Повторите проверку')
-        current=check_unused(cur,company,request,original,target,owner,links,allow_rfq=allow_rfq)
+        current=checked_manifest(cur,company,request,original,target,owner,links,mode=mode)
         current.update(companyName=company['name'],targetName=target['name'])
         if current!=plan['manifest']:raise HTTPException(409,'Документы, адресаты или назначения изменились. Подготовьте новый план')
-        if allow_rfq:correction_rfqs.apply(cur,company_id,current['rfq'],actor,plan_id)
+        if mode!='disconnect_unused':correction_rfqs.apply(cur,company_id,current['rfq'],actor,plan_id)
         cur.execute('''UPDATE company_supplier_links SET status='Неактивный',version=version+1
             WHERE id=%s AND EXISTS(SELECT 1 FROM supplier_connection_correction_plans p WHERE p.id=%s AND p.expires_at>clock_timestamp()) RETURNING version''',
             (plan['target_link_id'],str(plan_id)))
         updated=cur.fetchone()
         if not updated:raise HTTPException(409,'Срок плана истёк. Повторите проверку')
         result=dict(ok=True,planId=str(plan_id),companyId=company_id,sourceId=source,targetId=target['id'],relationshipStatus='Неактивный',relationshipVersion=updated['version'])
-        if allow_rfq:result['withdrawnRequestCount']=len(current['rfq']['affectedRequests'])
+        if mode!='disconnect_unused':result['withdrawnRequestCount']=len(current['rfq']['affectedRequests'])
+        if mode==correction_quotes.MODE:result['rejectedQuoteCount']=sum(o['statusBefore']=='Получено' for o in current['rfq']['affectedOffers'])
         cur.execute('UPDATE supplier_connection_correction_plans SET applied_at=NOW(),reason=%s,result=%s WHERE id=%s',
                     (data.reason,Json(result),str(plan_id)))
         audit(cur,actor,company,plan,result,data.reason)
@@ -256,8 +271,16 @@ def register_corrections(app,deps,admin):
 
     @app.post('/system/companies/{company_id}/participants/{supplier_id}/connection-requests/{request_id}/rfq-correction-plans',response_model=PlanView)
     def rfq_proposal(request_id:uuid.UUID,data:Proposal,company_id:int=Path(...,ge=1,le=2147483647),supplier_id:int=Path(...,ge=1,le=2147483647),user:dict=Depends(admin)):
-        return propose(deps,user,company_id,supplier_id,request_id,data,allow_rfq=True)
+        return propose(deps,user,company_id,supplier_id,request_id,data,mode=correction_rfqs.MODE)
 
     @app.post('/system/companies/{company_id}/participants/{supplier_id}/connection-requests/{request_id}/rfq-correction-plans/{plan_id}/confirm',response_model=Result)
     def rfq_apply(request_id:uuid.UUID,plan_id:uuid.UUID,data:Confirmation,company_id:int=Path(...,ge=1,le=2147483647),supplier_id:int=Path(...,ge=1,le=2147483647),user:dict=Depends(admin)):
-        return confirm(deps,user,company_id,supplier_id,request_id,plan_id,data,allow_rfq=True)
+        return confirm(deps,user,company_id,supplier_id,request_id,plan_id,data,mode=correction_rfqs.MODE)
+
+    @app.post('/system/companies/{company_id}/participants/{supplier_id}/connection-requests/{request_id}/quote-correction-plans',response_model=PlanView)
+    def quote_proposal(request_id:uuid.UUID,data:Proposal,company_id:int=Path(...,ge=1,le=2147483647),supplier_id:int=Path(...,ge=1,le=2147483647),user:dict=Depends(admin)):
+        return propose(deps,user,company_id,supplier_id,request_id,data,mode=correction_quotes.MODE)
+
+    @app.post('/system/companies/{company_id}/participants/{supplier_id}/connection-requests/{request_id}/quote-correction-plans/{plan_id}/confirm',response_model=Result)
+    def quote_apply(request_id:uuid.UUID,plan_id:uuid.UUID,data:Confirmation,company_id:int=Path(...,ge=1,le=2147483647),supplier_id:int=Path(...,ge=1,le=2147483647),user:dict=Depends(admin)):
+        return confirm(deps,user,company_id,supplier_id,request_id,plan_id,data,mode=correction_quotes.MODE)

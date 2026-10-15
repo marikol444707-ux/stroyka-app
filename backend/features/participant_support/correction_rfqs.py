@@ -1,4 +1,4 @@
-"""Exact unanswered RFQs only; no correction of quotes, invoices or history."""
+"""Exact request correction; received quotes have a separate guarded mode."""
 import hashlib
 import json
 
@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from psycopg2 import sql
 
 from ..supplier_access.email_attempts import EMAIL_QUEUED, EMAIL_UNCONFIRMED
+from . import correction_quotes
 
 MODE='withdraw_unanswered_rfq'
 MUTABLE_TABLES={'supplier_offers','supplier_offer_events','supply_request_recipients','messenger_outbox'}
@@ -45,7 +46,8 @@ def offer_references(cur,schema):
     return refs
 
 
-def unanswered(cur,company,target,owner,owner_ids,schema):
+def request_plan(cur,company,target,owner,owner_ids,schema,*,mode=MODE):
+    received=mode==correction_quotes.MODE
     if any(not columns<=schema.get(table,set()) for table,columns in REQUIRED_COLUMNS.items()):
         raise HTTPException(503,'Отзыв заявок требует полного реестра отправок')
     recipients=rows(cur,'''SELECT to_jsonb(r) AS row FROM supply_request_recipients r
@@ -62,7 +64,7 @@ def unanswered(cur,company,target,owner,owner_ids,schema):
         if (r['supplier_id']!=target or r['target_supplier_id']!=target or r['supplier_user_id']!=owner['id']
                 or set(r.get('supplier_group_ids') or [])-{target}):
             blocked('Заявка адресована группе карточек. Нужна отдельная проверка адресатов')
-        if (not r['visible_to_supplier'] or r['status']!='Ожидает ответа' or r.get('responded_at')
+        if (not r['visible_to_supplier'] or r['status'] not in (('Ожидает ответа','КП получено') if received else ('Ожидает ответа',)) or (not received and r.get('responded_at'))
                 or not q.get('prorab_confirmed_at') or not q.get('director_approved_at')
                 or q['status'] not in ('КП запрошены','Утверждена')):
             blocked('Заявка или ответ уже изменились. Автоматический отзыв недоступен')
@@ -83,12 +85,27 @@ def unanswered(cur,company,target,owner,owner_ids,schema):
     empty_fields=('responded_at','price_per_unit','total_price','delivery_days','pdf_url','valid_until',
                   'supplier_message','notes','delivery_status','approved_at','selected_at','party_snapshot_json')
     for o in offers:
+        if o.get('awarded_items_json') not in (None,'','[]',[]):
+            blocked('По КП уже оформлен заказ. Нужна отдельная проверка')
+        if received and o['status']=='Получено':
+            correction_quotes.validate_offer(o)
+            if not any(r['request_id']==o.get('request_id') and r['status']=='КП получено' and r.get('responded_at') for r in recipients):
+                blocked('Состояние адресата не подтверждает получение КП')
+            continue
         if (o.get('request_id') not in request_ids or o['status']!='Ожидает ответа'
                 or any(o.get(key) is not None and o.get(key)!='' for key in empty_fields)
                 or o.get('items_kp_json') not in (None,'','[]',[])):
             blocked('Поставщик уже начал ответ или прислал КП. Нужна отдельная проверка документов')
     if any(not any(o['request_id']==rid for o in offers) for rid in request_ids):
         blocked('У заявки не подтверждён ожидаемый ответ поставщика')
+    if received and any(sum(o['request_id']==rid for o in offers)!=1 for rid in request_ids):
+        blocked('В заявке есть несколько ответов одной карточки. Нужна отдельная проверка')
+    if received:
+        for r in recipients:
+            offer=next(o for o in offers if o['request_id']==r['request_id'])
+            is_received=offer['status']=='Получено'
+            if r['status']!=('КП получено' if is_received else 'Ожидает ответа') or bool(r.get('responded_at'))!=is_received:
+                blocked('Состояния КП и адресата расходятся. Нужна отдельная проверка')
     offer_ids=[o['id'] for o in offers]
     reference_tables=[]
     for table,refs in sorted(offer_references(cur,schema).items()):
@@ -101,8 +118,13 @@ def unanswered(cur,company,target,owner,owner_ids,schema):
         if cur.fetchone():blocked('У ожидаемого ответа есть связанные документы или назначения. Нужна отдельная проверка')
     events=rows(cur,'''SELECT to_jsonb(e) AS row FROM supplier_offer_events e
         WHERE e.offer_id=ANY(%s) ORDER BY e.id''',(offer_ids,))
-    if any(e['event_type']!='created' for e in events):
+    if any(e['event_type'] not in (('created','responded') if received else ('created',)) for e in events):
         blocked('У ожидаемого ответа есть история изменений. Нужна отдельная проверка КП')
+    if received and any(o['status']=='Получено' and not any(e['offer_id']==o['id'] and e['event_type']=='responded' for e in events) for o in offers):
+        blocked('История получения КП не подтверждена. Нужна отдельная проверка')
+    if received and any(e['event_type']=='responded' and any(o['id']==e['offer_id'] and o['status']!='Получено' for o in offers) for e in events):
+        blocked('История ответа не согласуется с текущим состоянием КП')
+    preserved_files=correction_quotes.originals(cur,company,offers,schema) if received else 0
     # An invoice linked only to a request cannot safely be assigned to one quote.
     cur.execute('''SELECT 1 FROM supplier_invoices WHERE request_id=ANY(%s)
         AND offer_id IS NULL LIMIT 1''',(request_ids,))
@@ -127,11 +149,16 @@ def unanswered(cur,company,target,owner,owner_ids,schema):
             blocked('Уведомление уже отправляется или его принадлежность не подтверждена')
     digest=hashlib.sha256(json.dumps(dict(recipients=all_recipients,offers=offers,events=events,attempts=attempts,messages=messages),
         sort_keys=True,separators=(',',':')).encode()).hexdigest()
-    return dict(mode=MODE,digest=digest,referenceTables=reference_tables,
+    result=dict(mode=mode,digest=digest,referenceTables=reference_tables,
         affectedRequests=[dict(requestId=rid,recipientId=r['id'],offerIds=[o['id'] for o in offers if o['request_id']==rid])
             for rid in request_ids for r in recipients if r['request_id']==rid],
         queuedMessageIds=[m['id'] for m in messages if m['status']=='queued'],
         queuedEmailIds=[r['id'] for r in recipients if r.get('email_notification_status')==EMAIL_QUEUED])
+    if received:
+        result.update(affectedOffers=[dict(offerId=o['id'],statusBefore=o['status'],statusAfter='Отклонено' if o['status']=='Получено' else 'Отозвано') for o in offers],
+            recipientChanges=[dict(recipientId=r['id'],statusBefore=r['status'],statusAfter='КП отклонено' if r['status']=='КП получено' else 'Отозвано') for r in recipients],
+            preservedQuoteFileCount=preserved_files)
+    return result
 
 
 def allowed(rfq,table,row):
@@ -145,15 +172,20 @@ def allowed(rfq,table,row):
 def apply(cur,company,rfq,actor,plan_id):
     recipients=[r['recipientId'] for r in rfq['affectedRequests']]
     offers=[oid for r in rfq['affectedRequests'] for oid in r['offerIds']]
-    cur.execute('''UPDATE supply_request_recipients SET visible_to_supplier=FALSE,status='Отозвано',
+    rejected_recipients=[r['recipientId'] for r in rfq.get('recipientChanges',[]) if r['statusAfter']=='КП отклонено']
+    cur.execute('''UPDATE supply_request_recipients SET visible_to_supplier=FALSE,
+        status=CASE WHEN id=ANY(%s) THEN 'КП отклонено' ELSE 'Отозвано' END,
         email_notification_status=CASE WHEN id=ANY(%s) THEN 'Отменено' ELSE email_notification_status END,
         max_notification_status=CASE WHEN max_outbox_id=ANY(%s) THEN 'Отменено' ELSE max_notification_status END
-        WHERE company_id=%s AND id=ANY(%s)''',(rfq['queuedEmailIds'],rfq['queuedMessageIds'],company,recipients))
-    cur.execute("UPDATE supplier_offers SET status='Отозвано' WHERE company_id=%s AND id=ANY(%s)",(company,offers))
-    for offer in offers:
+        WHERE company_id=%s AND id=ANY(%s)''',(rejected_recipients,rfq['queuedEmailIds'],rfq['queuedMessageIds'],company,recipients))
+    changes=rfq.get('affectedOffers') or [dict(offerId=oid,statusBefore='Ожидает ответа',statusAfter='Отозвано') for oid in offers]
+    for after in ('Отозвано','Отклонено'):
+        ids=[o['offerId'] for o in changes if o['statusAfter']==after]
+        if ids:cur.execute('UPDATE supplier_offers SET status=%s WHERE company_id=%s AND id=ANY(%s)',(after,company,ids))
+    for offer in changes:
         cur.execute('''INSERT INTO supplier_offer_events(offer_id,event_type,status_from,status_to,actor_name,actor_role,payload_json)
-            VALUES(%s,'connection_corrected','Ожидает ответа','Отозвано',%s,%s,%s)''',
-            (offer,actor.get('name',''),actor['role'],json.dumps(dict(action='connection_correction',planId=str(plan_id)))))
+            VALUES(%s,'connection_corrected',%s,%s,%s,%s,%s)''',
+            (offer['offerId'],offer['statusBefore'],offer['statusAfter'],actor.get('name',''),actor['role'],json.dumps(dict(action='connection_correction',planId=str(plan_id)))))
     cur.execute('''UPDATE messenger_outbox SET status='cancelled',next_attempt_at=NULL,updated_at=NOW()
         WHERE company_id=%s AND id=ANY(%s) AND status='queued' ''',(company,rfq['queuedMessageIds']))
 
@@ -164,7 +196,10 @@ def verify_replay(cur,company,rfq):
     cur.execute("SELECT count(*) AS total FROM supply_request_recipients WHERE company_id=%s AND id=ANY(%s) AND email_notification_status='Отменено'",(company,rfq['queuedEmailIds']))
     if cur.fetchone()['total']!=len(rfq['queuedEmailIds']):blocked('После отзыва очередь писем изменилась. Обновите список')
     for row in rfq['affectedRequests']:
-        cur.execute("SELECT 1 FROM supply_request_recipients WHERE company_id=%s AND id=%s AND NOT visible_to_supplier AND status='Отозвано'",(company,row['recipientId']))
+        status=next((r['statusAfter'] for r in rfq.get('recipientChanges',[]) if r['recipientId']==row['recipientId']),'Отозвано')
+        cur.execute('SELECT 1 FROM supply_request_recipients WHERE company_id=%s AND id=%s AND NOT visible_to_supplier AND status=%s',(company,row['recipientId'],status))
         if not cur.fetchone():blocked('После отзыва адресат изменился. Обновите список')
-        cur.execute("SELECT count(*) AS total FROM supplier_offers WHERE company_id=%s AND id=ANY(%s) AND status='Отозвано'",(company,row['offerIds']))
-        if cur.fetchone()['total']!=len(row['offerIds']):blocked('После отзыва ожидаемый ответ изменился. Обновите список')
+        for oid in row['offerIds']:
+            status=next((o['statusAfter'] for o in rfq.get('affectedOffers',[]) if o['offerId']==oid),'Отозвано')
+            cur.execute('SELECT 1 FROM supplier_offers WHERE company_id=%s AND id=%s AND status=%s',(company,oid,status))
+            if not cur.fetchone():blocked('После отзыва ответ изменился. Обновите список')
