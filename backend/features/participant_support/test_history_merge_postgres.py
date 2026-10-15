@@ -95,6 +95,21 @@ class SupplierHistoryMergePostgresTests(unittest.TestCase):
         self.review(source,target,expected=409)
         self.assertEqual(self.sql('SELECT user_id FROM suppliers WHERE id=%s',(source,)),[(None,)])
 
+    def test_unlinked_foreign_company_history_blocks_historical_merge(self):
+        source,target=self.pair()
+        # Legacy business rows can predate company_supplier_links. Reassigning
+        # the card owner must not grant the cabinet access in that other buyer.
+        foreign_invoice=self.sql(
+            'INSERT INTO supplier_invoices(company_id,supplier_id,amount) VALUES(3,%s,700) RETURNING id',
+            (source,))[0][0]
+        self.assertEqual(self.sql(
+            'SELECT count(*) FROM company_supplier_links WHERE supplier_id=%s AND company_id=3',
+            (source,)),[(0,)])
+        response=self.review(source,target,expected=409)
+        self.assertEqual(response['detail'],'История карточки требует проверки компании-владельца')
+        self.assertEqual(self.sql('SELECT user_id FROM suppliers WHERE id=%s',(source,)),[(None,)])
+        self.assertEqual(self.sql('SELECT amount FROM supplier_invoices WHERE id=%s',(foreign_invoice,)),[(700,)])
+
     def test_expiry_flag_forgery_and_fresh_role_fail_closed(self):
         source,target,invoice=self.seed();plan=self.review(source,target)
         self.api('admin','POST',self.path(source)+f"/{uuid.uuid4()}/confirm",dict(confirmed=True,reason='Проверено юрлицо'),expected=404)
