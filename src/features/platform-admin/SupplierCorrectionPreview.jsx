@@ -67,7 +67,8 @@ export default function SupplierCorrectionPreview({prefix,supplierId,requestId,o
     {current.status==='loading'&&<p role="status">Проверяю документы и доступ…</p>}
     {current.status==='error'&&<p role="alert">{current.error}</p>}
     {completed&&<p role="status">Подключение отключено. Исходные документы и кабинет поставщика сохранены.</p>}
-    {completed&&applied.result.withdrawnRequestCount>0&&<p>Отозвано заявок: {applied.result.withdrawnRequestCount}.</p>}
+    {completed&&applied.result.withdrawnRequestCount>0&&<p>{applied.result.rejectedQuoteCount>0?'Доступ к заявкам закрыт':'Отозвано заявок'}: {applied.result.withdrawnRequestCount}.</p>}
+    {completed&&applied.result.rejectedQuoteCount>0&&<p>Отклонено КП: {applied.result.rejectedQuoteCount}.</p>}
     {!completed&&<button type="button" disabled={current.status==='loading'||commandPending} onClick={()=>setRetry(n=>n+1)}>{current.status==='error'?'Повторить проверку':'Обновить проверку'}</button>}
     {!completed&&current.status==='ready'&&<>
       <p><strong>{data.companyName}</strong><br/>{data.sourceName} → {data.targetName}</p>
@@ -81,7 +82,7 @@ export default function SupplierCorrectionPreview({prefix,supplierId,requestId,o
       </div>
       <p>Создано после подключения в этой группе: <strong>{data.summary[category].afterConnection??'не установлено'}</strong>
         {data.summary[category].undated>0&&<> · Без подтверждённой даты: <strong>{data.summary[category].undated}</strong></>}.</p>
-      {data.blockers.length>0&&<details open><summary>Что мешает исправлению</summary>
+      {data.blockers.length>0&&<details open><summary>Что требует внимания</summary>
         <ul>{data.blockers.map(item=><li key={item.code}>{item.message}</li>)}</ul>
       </details>}
       {!data.items.length&&<p>В этой группе документов нет.</p>}

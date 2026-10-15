@@ -150,3 +150,47 @@ test('RFQ success must confirm the exact number of withdrawn requests',async()=>
     else process.env.REACT_APP_PARTICIPANT_RFQ_CORRECTIONS_ENABLED=previous;
   }
 });
+
+const quotePlan={...plan,mode:'reject_received_quotes',affectedRequests:[{requestId:14,recipientId:25,offerIds:[36]}],
+  affectedOffers:[{offerId:36,statusBefore:'Получено',statusAfter:'Отклонено'}],queuedNotificationCount:0,preservedQuoteFileCount:1};
+async function withQuoteMode(check){
+  const previous=process.env.REACT_APP_PARTICIPANT_QUOTE_CORRECTIONS_ENABLED;
+  process.env.REACT_APP_PARTICIPANT_QUOTE_CORRECTIONS_ENABLED='1';
+  try{await check();}finally{
+    if(previous===undefined)delete process.env.REACT_APP_PARTICIPANT_QUOTE_CORRECTIONS_ENABLED;
+    else process.env.REACT_APP_PARTICIPANT_QUOTE_CORRECTIONS_ENABLED=previous;
+  }
+}
+
+test('received quote correction shows rejection and preservation before explicit confirmation',async()=>withQuoteMode(async()=>{
+  const onApplied=jest.fn();
+  const completed={...result,withdrawnRequestCount:1,rejectedQuoteCount:1};
+  global.fetch=jest.fn().mockResolvedValueOnce(response(quotePlan)).mockResolvedValueOnce(response(completed));
+  render(<SupplierConnectionCorrection {...props} onApplied={onApplied}/>);
+  fireEvent.click(screen.getByRole('button',{name:'Проверить подключение'}));
+  expect(await screen.findByText('КП №36 — будет отклонено')).toBeInTheDocument();
+  expect(screen.getByText('Цены, состав, реквизиты и оригиналы КП сохранятся в архиве компании.')).toBeInTheDocument();
+  expect(fetch.mock.calls[0][0]).toContain('/quote-correction-plans');
+  fireEvent.change(screen.getByRole('textbox',{name:'Причина отключения'}),{target:{value:'Ошибочно подключили кабинет поставщика'}});
+  fireEvent.click(screen.getByRole('checkbox',{name:'Отклонить указанные КП и отключить эту связь'}));
+  fireEvent.click(screen.getByRole('button',{name:'Отклонить КП и отключить'}));
+  await screen.findByText('Подключение отключено.');expect(onApplied).toHaveBeenCalledWith(completed);
+}));
+
+test('a quote plan cannot omit the consequences for one of its offers',async()=>withQuoteMode(async()=>{
+  global.fetch=jest.fn().mockResolvedValue(response({...quotePlan,affectedOffers:[]}));
+  render(<SupplierConnectionCorrection {...props}/>);
+  fireEvent.click(screen.getByRole('button',{name:'Проверить подключение'}));
+  expect(await screen.findByRole('alert')).toHaveTextContent('не подтвердил план');
+  expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+}));
+
+test('quote rejection requires an exact confirmed count in the result',async()=>withQuoteMode(async()=>{
+  const onApplied=jest.fn();
+  global.fetch=jest.fn().mockResolvedValueOnce(response(quotePlan))
+    .mockResolvedValueOnce(response({...result,withdrawnRequestCount:1,rejectedQuoteCount:0}));
+  render(<SupplierConnectionCorrection {...props} onApplied={onApplied}/>);
+  fireEvent.click(screen.getByRole('button',{name:'Проверить подключение'}));await screen.findByText('КП №36 — будет отклонено');
+  confirmFields();fireEvent.click(screen.getByRole('button',{name:'Отклонить КП и отключить'}));
+  expect(await screen.findByRole('alert')).toHaveTextContent('не подтвердил результат');expect(onApplied).not.toHaveBeenCalled();
+}));
