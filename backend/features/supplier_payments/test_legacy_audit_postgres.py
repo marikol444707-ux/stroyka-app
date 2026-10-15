@@ -127,6 +127,42 @@ class LegacyAuditTests(unittest.TestCase):
         self.assertEqual(row['financialReview']['reason'],'invalidReceiptPackage')
         self.assertGreater(len(result['invoices']),1)
 
+    def test_annulled_unregistered_invoice_does_not_block_live_pair(self):
+        invoice, warehouse = self.legacy_pair()
+        other = self.sql('''INSERT INTO supplier_invoices
+            (company_id,supplier_id,project_name,amount,paid_amount,status,warehouse_invoice_id)
+            VALUES(2,%s,%s,200,0,'Аннулирован',%s) RETURNING id''',
+            (self.fixture['supplierId'], self.fixture['project'], warehouse))[0][0]
+        before = self.sql('SELECT id,status,warehouse_invoice_id FROM supplier_invoices ORDER BY id')
+        report = self.report()
+        self.assertNotIn(other, [row['invoiceId'] for row in report['invoices']])
+        row = next(row for row in report['invoices'] if row['invoiceId'] == invoice)
+        self.assertEqual(row['financialReview']['scenario'], 'matchedLegacyPair')
+        self.assertEqual(self.sql('SELECT id,status,warehouse_invoice_id FROM supplier_invoices ORDER BY id'), before)
+
+    def test_live_competing_invoice_still_blocks_pair(self):
+        invoice, warehouse = self.legacy_pair()
+        self.sql('''INSERT INTO supplier_invoices
+            (company_id,supplier_id,project_name,amount,paid_amount,status,warehouse_invoice_id)
+            VALUES(2,%s,%s,200,0,'На утверждении',%s)''',
+            (self.fixture['supplierId'], self.fixture['project'], warehouse))
+        row = next(row for row in self.report()['invoices'] if row['invoiceId'] == invoice)
+        self.assertEqual(row['financialReview']['reason'], 'ambiguousReceiptLinks')
+
+    def test_registered_annulled_competitor_still_blocks_pair(self):
+        invoice, warehouse = self.legacy_pair()
+        other = self.sql('''INSERT INTO supplier_invoices
+            (company_id,supplier_id,project_name,amount,paid_amount,status,warehouse_invoice_id)
+            VALUES(2,%s,%s,200,0,'Аннулирован',%s) RETURNING id''',
+            (self.fixture['supplierId'], self.fixture['project'], warehouse))[0][0]
+        self.sql('''INSERT INTO supplier_payment_documents
+            (company_id,document_kind,document_id,payer_company_id,supplier_id,
+             project_name,work_package,amount,opening_paid)
+            VALUES(2,'invoice',%s,2,%s,%s,'',200,0)''',
+            (other, self.fixture['supplierId'], self.fixture['project']))
+        row = next(row for row in self.report()['invoices'] if row['invoiceId'] == invoice)
+        self.assertEqual(row['financialReview']['reason'], 'ambiguousReceiptLinks')
+
     def test_mixed_packages_keep_one_balance_without_registering_or_rewriting(self):
         invoice,warehouse=self.legacy_pair()
         raw=json.dumps([{'workPackage':self.fixture['workPackage']}, {'workPackage':'Электрика'}])

@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import os
 import posixpath
+import re
 import threading
 import time
 from urllib.parse import parse_qsl, unquote, urlencode, urlparse, urlsplit, urlunsplit
 
 from dev_control.jev_timeweb import JevError
-from dev_control.browser_worker.qa_identity import verify_qa_identity_in_browser
+from dev_control.browser_worker.qa_identity import (
+    QAIdentityNotEstablished, bootstrap_qa_user_in_browser, read_qa_user_in_browser,
+)
 
 
 _SENSITIVE_MARKERS = (
@@ -305,6 +308,7 @@ def request_allowed(
     *,
     request_method: str = "GET",
     read_only: bool = False,
+    bootstrap_only: bool = False,
 ) -> bool:
     """Allow only QA-scoped requests; read-only mode blocks mutating HTTP methods."""
 
@@ -318,6 +322,28 @@ def request_allowed(
         return False
     if canonical_origin(url) != canonical_origin(base_url):
         return False
+    if bootstrap_only:
+        # A GET is not necessarily read-only. Only the dedicated identity
+        # route and known frontend files may reach the QA server in this
+        # profile. All business API traffic is denied before transmission.
+        if (not read_only or target.query or target.fragment or target.params
+                or target.username is not None or target.password is not None
+                or "%" in target.path or "\\" in target.path
+                or any(part in {".", ".."} for part in target.path.split("/"))):
+            return False
+        method = str(request_method or "GET").upper()
+        if target.path == "/api/users/qa-readonly-context/identity":
+            return method == "GET" and resource_type in {"XHR", "Fetch"}
+        if method not in {"GET", "HEAD"}:
+            return False
+        if resource_type == "Document":
+            return (base.path.rstrip("/") in {"", "/app"}
+                    and target.path.rstrip("/") == "/app")
+        return bool(
+            re.fullmatch(r"/static/(?:js|css|media)/[A-Za-z0-9_.-]+", target.path)
+            or target.path in {"/favicon.ico", "/favicon.png", "/logo192.png",
+                               "/logo512.png", "/manifest.json"}
+        )
     if resource_type == "Document":
         try:
             assert_allowed_document_url(url, base_url)
@@ -329,7 +355,8 @@ def request_allowed(
 class NetworkBoundary:
     """CDP Fetch guard that fails disallowed requests before Chrome sends them."""
 
-    def __init__(self, session_id: str, base_url: str, *, read_only: bool = False):
+    def __init__(self, session_id: str, base_url: str, *, read_only: bool = False,
+                 bootstrap_only: bool = False):
         from browser_harness.helpers import cdp, drain_events
 
         self._cdp = cdp
@@ -337,7 +364,11 @@ class NetworkBoundary:
         self._session_id = session_id
         self._base_url = base_url
         self._read_only = bool(read_only)
+        self._bootstrap_only = bool(bootstrap_only)
+        if self._bootstrap_only and not self._read_only:
+            raise ValueError("bootstrap-only requires read-only observation")
         self.blocked_presence_pings = 0
+        self.blocked_data_reads = 0
         self._stop = threading.Event()
         self._error: str | None = None
         self._thread = threading.Thread(target=self._loop, name="qa-network-boundary", daemon=True)
@@ -427,6 +458,7 @@ class NetworkBoundary:
                 self._base_url,
                 resource_type,
                 read_only=self._read_only,
+                bootstrap_only=getattr(self, "_bootstrap_only", False),
             ):
                 if target_id:
                     self._cdp("Target.closeTarget", targetId=target_id)
@@ -477,8 +509,17 @@ class NetworkBoundary:
         return (
             self._read_only
             and method.upper() == "POST"
-            and parsed.path == "/api/online"
+            and parsed.path in {"/api/online", "/online"}
             and not parsed.query
+            and canonical_origin(url) == canonical_origin(self._base_url)
+        )
+
+    def _excluded_bootstrap_data_read(self, url: str, method: str, kind: str) -> bool:
+        """Excluded data is NOT_TESTED, never a fabricated successful API call."""
+        return (
+            getattr(self, "_bootstrap_only", False)
+            and method.upper() in {"GET", "HEAD"}
+            and kind in {"XHR", "Fetch"}
             and canonical_origin(url) == canonical_origin(self._base_url)
         )
 
@@ -524,6 +565,7 @@ class NetworkBoundary:
                         resource_type,
                         request_method=request_method,
                         read_only=self._read_only,
+                        bootstrap_only=getattr(self, "_bootstrap_only", False),
                     ):
                         self._cdp(
                             "Fetch.continueRequest",
@@ -543,6 +585,8 @@ class NetworkBoundary:
                         ) else "out-of-scope"
                         if self._expected_blocked_presence_ping(url, request_method):
                             self.blocked_presence_pings += 1
+                        elif self._excluded_bootstrap_data_read(url, request_method, resource_type):
+                            self.blocked_data_reads += 1
                         else:
                             self._error = (
                                 f"blocked {reason} browser request: "
@@ -568,6 +612,11 @@ class NetworkBoundary:
                 self._cdp("Target.closeTarget", targetId=target_id)
             except Exception:
                 pass
+        if getattr(self, "_bootstrap_only", False):
+            # Disabling Fetch can resume a queued GET that we have not yet
+            # classified. Keep interception installed until SafeBrowser
+            # destroys the isolated target/context; paused requests die with it.
+            return
         try:
             self._cdp("Fetch.disable", session_id=self._session_id)
         except Exception:
@@ -593,6 +642,11 @@ def install_safe_browser(base_url: str, *, read_only: bool = False):
             self.session = None
             self._qa_boundary = None
             self._qa_identity_verified = False
+            self._qa_bootstrap_only = bool(read_only and (os.environ.get("QA_SESSION_COOKIE_VALUE") or "").strip())
+            if self._qa_bootstrap_only and not request_allowed(
+                url, base_url, "Document", read_only=True, bootstrap_only=True,
+            ):
+                raise ValueError("authenticated bootstrap-only smoke requires the exact QA /app")
             try:
                 ensure_daemon()
                 self.browser_context_id = cdp(
@@ -628,38 +682,48 @@ def install_safe_browser(base_url: str, *, read_only: bool = False):
                     self.session,
                     base_url,
                     read_only=read_only,
+                    bootstrap_only=self._qa_bootstrap_only,
                 )
                 self._qa_boundary.start()
 
-                nav = self.call("Page.navigate", url=url)
-                expected_loader = nav.get("loaderId")
-                deadline = time.monotonic() + 15
-                committed = False
-                while time.monotonic() < deadline:
+                self._navigate_and_wait(url)
+                if self._qa_bootstrap_only:
+                    user = bootstrap_qa_user_in_browser(self, base_url)
                     self._qa_boundary.raise_if_failed()
-                    current_url = str(self.evaluate("location.href") or "")
-                    if current_url not in {"", "about:blank"}:
-                        try:
-                            assert_allowed_document_url(current_url, base_url)
-                            committed = True
-                        except ValueError:
-                            committed = False
-                    if committed and self.evaluate("document.readyState") == "complete":
-                        break
-                    time.sleep(0.02)
-                else:
-                    raise RuntimeError(
-                        f"QA navigation did not commit within 15s (loader={expected_loader or 'unknown'})"
-                    )
-                self._qa_boundary.raise_if_failed()
-                if read_only and (os.environ.get("QA_SESSION_COOKIE_VALUE") or "").strip():
-                    self._qa_identity_verified = verify_qa_identity_in_browser(self, base_url)
+                    # Reload the actual app in the SAME isolated context. The
+                    # positive allowlist stays active before, during and after.
+                    self._navigate_and_wait(url)
+                    if read_qa_user_in_browser(self, base_url) != user:
+                        raise QAIdentityNotEstablished()
+                    self._qa_identity_verified = True
                     self._qa_boundary.raise_if_failed()
             except Exception:
                 self._cleanup_allocations()
                 raise
 
+        def _navigate_and_wait(self, url):
+            nav = self.call("Page.navigate", url=url)
+            expected_loader = nav.get("loaderId")
+            deadline = time.monotonic() + 15
+            while time.monotonic() < deadline:
+                self._qa_boundary.raise_if_failed()
+                frame = self.call("Page.getFrameTree")["frameTree"]["frame"]
+                current_url = str(frame.get("url") or "")
+                if current_url not in {"", "about:blank"}:
+                    assert_allowed_document_url(current_url, base_url)
+                    if self._qa_bootstrap_only and not request_allowed(
+                        current_url, base_url, "Document", read_only=True, bootstrap_only=True,
+                    ):
+                        raise ValueError("bootstrap-only document changed outside /app")
+                    same_loader = not expected_loader or frame.get("loaderId") == expected_loader
+                    if same_loader and self.evaluate("document.readyState") == "complete":
+                        self._qa_boundary.raise_if_failed()
+                        return
+                time.sleep(0.02)
+            raise RuntimeError("QA navigation did not commit within 15s")
+
         def _cleanup_allocations(self):
+            boundary = self._qa_boundary
             if self._qa_boundary is not None:
                 self._qa_boundary.close()
                 self._qa_boundary = None
@@ -673,7 +737,8 @@ def install_safe_browser(base_url: str, *, read_only: bool = False):
                 try:
                     cdp("Target.disposeBrowserContext", browserContextId=self.browser_context_id)
                 except Exception:
-                    pass
+                    if boundary is not None and self._qa_bootstrap_only:
+                        boundary._error = "QA bootstrap context disposal was not confirmed"
                 self.browser_context_id = None
 
         def observe(self, screenshot=True):

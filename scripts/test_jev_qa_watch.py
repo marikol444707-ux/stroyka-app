@@ -23,6 +23,7 @@ class FakeWorker:
             "ok": True,
             "checks": sorted(REQUIRED_CHECKS),
             "failures": [],
+            "scope": "bootstrap_only", "data_status": "NOT_TESTED", "blocked_data_reads": 8,
         }
         self.calls = []
 
@@ -41,6 +42,17 @@ class FakeWorker:
 
 
 class JevQaWatchTest(unittest.TestCase):
+    def test_bootstrap_scope_and_excluded_data_are_never_reported_as_data_pass(self):
+        result = run_smoke(FakeWorker(), sleep=lambda _: None)
+        self.assertEqual(result["scope"], "bootstrap_only")
+        self.assertEqual(result["data_status"], "NOT_TESTED")
+        self.assertEqual(result["blocked_data_reads"], 8)
+        for field, value in (("scope", None), ("scope", "full_qa"), ("data_status", "PASSED")):
+            worker = FakeWorker()
+            worker.result[field] = value
+            with self.subTest(field=field, value=value):
+                self.assertEqual(run_smoke(worker, sleep=lambda _: None)["outcome"], "failed")
+
     def test_only_loopback_port_is_allowed(self):
         self.assertEqual(worker_base("18088"), "http://127.0.0.1:18088")
         for value in ("80", "0", "65536", "127.0.0.1:18088", "http://evil", "18088/x"):

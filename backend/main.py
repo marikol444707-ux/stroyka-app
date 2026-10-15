@@ -671,8 +671,15 @@ def _current_user_from_session_cookie(request: Optional[Request]) -> dict:
 
 def get_current_user(request: Request, authorization: Optional[str] = Header(default=None)) -> dict:
     if authorization and authorization.lower().startswith("bearer "):
-        return _current_user_from_bearer(authorization)
-    return _current_user_from_session_cookie(request)
+        user = _current_user_from_bearer(authorization)
+    else:
+        user = _current_user_from_session_cookie(request)
+    try:
+        from backend.features.participant_support.capabilities import enforce_support_route
+    except ImportError:
+        from features.participant_support.capabilities import enforce_support_route
+    enforce_support_route(user, request, get_db=get_db)
+    return user
 
 def require_csrf_for_cookie_mutation(
     request: Request,
@@ -1310,8 +1317,8 @@ def _resolve_or_create_document_supplier(cur, data: dict, fallback_name: str = "
     payload["sourceType"] = "accounting_document_recognition"
     payload["sourceDetail"] = source_detail or "Определено по реквизитам бухгалтерского документа"
     requisites = _supplier_extract_requisites(payload)
-    identity_key = "inn:" + requisites["inn"] if requisites["inn"] else "ogrn:" + requisites["ogrn"]
-    cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("supplier:" + identity_key,))
+    for identity in sorted({requisites.get(key, "") for key in ("inn", "ogrn")} - {""}):
+        cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", ("supplier-legal:" + identity,))
 
     matched = _supplier_find_match(
         cur,
@@ -1489,7 +1496,8 @@ def current_supplier_ids(cur, user: dict):
     # never proof of authority to act for a supplier.
     cur.execute("""SELECT s.id FROM suppliers s JOIN users u ON u.id=s.user_id
                    WHERE s.user_id=%s AND u.role='поставщик' AND COALESCE(u.active,TRUE)
-                   ORDER BY s.id""", (user.get('id'),))
+                   ORDER BY EXISTS(SELECT 1 FROM company_supplier_links l WHERE l.supplier_id=s.id
+                       AND to_jsonb(l)->'profile' ? 'mergedIntoSupplierId'),s.id""", (user.get('id'),))
     return [int(row['id'] if isinstance(row, dict) else row[0]) for row in cur.fetchall()]
 
 
@@ -2866,6 +2874,9 @@ def _api_error_logging_enabled_for_path(path):
         "/assignment-daily-draft-previews",
         "/accounting-exception-checks",
         "/accounting-exception-link-repairs",
+        # This QA-only identity probe must remain read-only even on setup,
+        # query, or cleanup failures; error logging uses a separate connection.
+        "/users/qa-readonly-context/identity",
     )
 
 
@@ -2929,6 +2940,9 @@ except ModuleNotFoundError:
     )
 
 PUBLIC_UPLOADS_MOUNT_ENABLED = public_uploads_mount_enabled()
+from backend.features.participant_support.security import validate_storage_configuration
+validate_storage_configuration(PUBLIC_UPLOADS_MOUNT_ENABLED,
+                               os.getenv('STORAGE_BACKEND', 'local').strip().lower(), os.getenv('S3_ACL', 'public-read'))
 if PUBLIC_UPLOADS_MOUNT_ENABLED:
     app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
@@ -6643,11 +6657,16 @@ def register(data: dict, response: Response, request: Request):
                 "sourceDetail": "Регистрация поставщика по ссылке приглашения",
             }
             requisites = _supplier_extract_requisites(supplier_payload)
+            from backend.features.invite_codes.supplier_relationship import lock_inviting_company
+            lock_inviting_company(cur, invite)
             for identity in sorted({requisites.get(key, '') for key in ('inn', 'ogrn')} - {''}):
                 cur.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))', ('supplier-legal:' + identity,))
+            if not supplier_id:
+                from backend.features.invite_codes.supplier_relationship import matching_invited_card
+                supplier_id = matching_invited_card(cur, invite, requisites, _normalize_supplier_name_key)
             if supplier_id:
                 from backend.features.invite_codes.supplier_relationship import claim_invited_supplier
-                supplier_id = claim_invited_supplier(cur, invite, user, requisites)
+                supplier_id = claim_invited_supplier(cur, {**invite, 'supplier_id': supplier_id}, user, requisites)
             else:
                 if _supplier_find_match(cur, supplier_payload):
                     raise HTTPException(409, 'Приглашение не подтверждает право управлять существующей организацией поставщика. Войдите в её кабинет или обратитесь к администратору платформы для проверки привязки')
@@ -7756,6 +7775,8 @@ except ModuleNotFoundError:
 from backend.features.supplier_team.routes import register_supplier_team_module
 register_supplier_team_module(app, {"get_db": get_db, "require_roles": require_roles})
 
+from backend.features.document_access.service import require_document_storage_identity
+
 register_invite_codes_module(app, {
     "get_db": get_db,
     "authenticated": get_current_user,
@@ -7765,6 +7786,9 @@ register_invite_codes_module(app, {
     "prepare_user_access_scope": _prepare_user_access_scope,
     "platform_staff_roles": PLATFORM_STAFF_ROLES,
     "client_account_roles": CLIENT_ACCOUNT_ROLES,
+    "history_file_storage": lambda row: require_document_storage_identity(
+        row['company_id'],row.get('project_id'),row.get('context') or 'general',row.get('file_url'),row.get('storage_key') or '',
+        s3_prefix=(S3_PREFIX,*S3_LEGACY_PREFIXES),expected_s3_urls=_s3_allowed_object_urls(row['storage_key']) if row.get('storage_key') else ()),
 })
 
 @app.get("/companies")
@@ -21189,6 +21213,8 @@ def _sync_supplier_invoice_from_warehouse_in_transaction(cur, warehouse_invoice_
                                                      warehouse_invoice_id, ledger_present)
         if existing_link.get('warehouse_invoice_id') != warehouse_invoice_id:
             raise HTTPException(409, 'Обратная связь счёта и накладной требует сверки')
+        from backend.features.supplier_access.company_merge import document_relationship
+        document_relationship(cur, warehouse_invoice.get("supplier_id"), company_id)
         return {"id": existing_supplier_invoice_id, "ok": True, "alreadyExists": True}
     if not warehouse_invoice_accounting_required(warehouse_invoice):
         raise HTTPException(
@@ -21223,12 +21249,8 @@ def _sync_supplier_invoice_from_warehouse_in_transaction(cur, warehouse_invoice_
     legal_supplier_identity = has_legal_supplier_identity(supplier_payload)
     if legal_supplier_identity and not supplier_id:
         identity_requisites = _supplier_extract_requisites(supplier_payload)
-        identity_key = (
-            "inn:" + identity_requisites["inn"]
-            if identity_requisites["inn"]
-            else "ogrn:" + identity_requisites["ogrn"]
-        )
-        cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", ("supplier:" + identity_key,))
+        for identity in sorted({identity_requisites.get(key, "") for key in ("inn", "ogrn")} - {""}):
+            cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", ("supplier-legal:" + identity,))
     matched_supplier = _supplier_find_match(
         cur,
         supplier_payload,
@@ -21267,6 +21289,9 @@ def _sync_supplier_invoice_from_warehouse_in_transaction(cur, warehouse_invoice_
             supplier_name = supplier_row.get("name") or supplier_name
             created_supplier = True
             _remember_supplier_alias(cur, supplier_id, supplier_payload, source="warehouse_accounting")
+
+    from backend.features.supplier_access.company_merge import document_relationship
+    document_relationship(cur, supplier_id, company_id)
 
     review_state = {"needsReview": False, "reviewReason": "", "accountingStatus": "На проверке", "supplierInvoiceStatus": "На утверждении"}
     if review_uncertain_supplier_match or (supplier_name and not supplier_id):

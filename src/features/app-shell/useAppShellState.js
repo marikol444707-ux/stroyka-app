@@ -5,6 +5,7 @@ import {
   loadStoredUser,
   requestPushPermission,
 } from '../../utils/appRuntimeUtils';
+import { isSupportWorkspaceUser } from '../participant-support/workspaceMode';
 import { quickActionPageFor } from '../quick-actions/quickActionRegistry';
 
 export function useResponsiveLayout() {
@@ -222,6 +223,11 @@ export function useAuthenticatedAppBootstrapEffect({
 
     mobileLoadedScopesRef.current.clear();
     mobileApiRequestsRef.current.clear();
+    if (isSupportWorkspaceUser(user)) {
+      setInitialDataLoaded?.(true);
+      return undefined;
+    }
+    let active = true;
     const initialLoader = typeof loadMobileInitial === 'function' ? loadMobileInitial : refreshData;
     const loadFallbackTimer = typeof setInitialDataLoaded === 'function'
       ? setTimeout(() => setInitialDataLoaded(true), 15000)
@@ -232,6 +238,7 @@ export function useAuthenticatedAppBootstrapEffect({
     if (typeof initialLoader === 'function') {
       Promise.resolve(initialLoader())
         .catch((error) => {
+          if (!active) return;
           console.error('initial app data load failed', error);
           if (typeof setInitialDataLoaded === 'function') setInitialDataLoaded(true);
         })
@@ -267,7 +274,7 @@ export function useAuthenticatedAppBootstrapEffect({
       } catch (_) {}
     });
 
-    requestPushPermission().then(granted => setPushEnabled(granted));
+    requestPushPermission().then(granted => {if (active) setPushEnabled(granted);});
 
     const pingOnline = async () => {
       try {
@@ -288,6 +295,7 @@ export function useAuthenticatedAppBootstrapEffect({
     const pingInterval = user.role === 'поставщик' ? null : setInterval(pingOnline, 30000);
     if (pingInterval !== null) pingOnline();
     return () => {
+      active = false;
       clearLoadFallback();
       clearInterval(pingInterval);
     };

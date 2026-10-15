@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { isSupportWorkspaceUser } from '../participant-support/workspaceMode';
 
 import {
   asCompanyId,
@@ -31,46 +32,55 @@ const normalizeSelection = (context, storedSelection) => {
 };
 
 export function useCompanyContext({ API, user }) {
-  const [context, setContext] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [selection, setSelection] = useState({ mode: 'company', companyId: null });
+  const enabled = Boolean(user) && !isSupportWorkspaceUser(user);
+  const scope = enabled ? `${API}:${user.id || user.email || user.name}:${user.role}` : '';
+  const empty = {context: null, selection: {mode: 'company', companyId: null}, loading: false, error: ''};
+  const [snapshot, setSnapshot] = useState(empty);
+  const requestRef = useRef({scope: '', sequence: 0, controller: null, selection: empty.selection});
+  // Hide previous actor data in the render that precedes effect cleanup.
+  const {context, selection, loading, error} = enabled && snapshot.scope === scope ? snapshot : empty;
 
   const refresh = useCallback(async () => {
-    if (!user) {
-      setContext(null);
-      setSelection({ mode: 'company', companyId: null });
-      setError('');
-      setLoading(false);
-      return null;
-    }
+    const current = requestRef.current;
+    if (!enabled || current.scope !== scope) return null;
+    current.controller?.abort();
     const controller = new AbortController();
-    setLoading(true);
-    setError('');
+    current.controller = controller;
+    const sequence = ++current.sequence;
+    const isCurrent = () => !controller.signal.aborted && current.scope === scope && current.sequence === sequence;
+    setSnapshot(prev => ({...prev, scope, loading: true, error: ''}));
     try {
-      const response = await fetch((API || '') + '/users/company-context', { signal: controller.signal });
+      const response = await fetch((API || '') + '/users/company-context', {signal: controller.signal});
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
-      setContext(data);
-      setSelection((prev) => {
-        const next = normalizeSelection(data, readStoredCompanySelection(user) || prev);
-        writeStoredCompanySelection(user, next);
-        return next;
-      });
+      if (!isCurrent()) return null;
+      const next = normalizeSelection(data, readStoredCompanySelection(user) || current.selection);
+      current.selection = next;
+      writeStoredCompanySelection(user, next);
+      setSnapshot({scope, context: data, selection: next, loading: false, error: ''});
       return data;
     } catch (err) {
-      if (err?.name !== 'AbortError') {
-        setError('Не удалось загрузить компании');
+      if (isCurrent() && err?.name !== 'AbortError') {
+        setSnapshot(prev => ({...prev, loading: false, error: 'Не удалось загрузить компании'}));
       }
       return null;
     } finally {
-      setLoading(false);
+      if (isCurrent()) setSnapshot(prev => ({...prev, loading: false}));
     }
-  }, [API, user]);
+  }, [API, enabled, scope, user]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    const current = requestRef.current;
+    current.scope = scope;
+    current.selection = {mode: 'company', companyId: null};
+    setSnapshot({scope, context: null, selection: {mode: 'company', companyId: null}, loading: false, error: ''});
     refresh();
-  }, [refresh]);
+    return () => {
+      current.sequence++;
+      current.scope = '';
+      current.controller?.abort();
+    };
+  }, [scope, refresh]);
 
   const companies = useMemo(() => (
     Array.isArray(context?.companies) ? context.companies : []
@@ -83,14 +93,15 @@ export function useCompanyContext({ API, user }) {
   }, [companies, selection]);
 
   const setSelectedCompanyId = useCallback((value) => {
-    if (!context) return;
+    if (!context || requestRef.current.scope !== scope) return;
     const next = value === 'all'
       ? { mode: 'all_companies', companyId: null }
       : { mode: 'company', companyId: asCompanyId(value) };
     const normalized = normalizeSelection(context, next);
-    setSelection(normalized);
+    requestRef.current.selection = normalized;
+    setSnapshot(prev => ({...prev, selection: normalized}));
     writeStoredCompanySelection(user, normalized);
-  }, [context, user]);
+  }, [context, scope, user]);
 
   return {
     canUseAllCompanies: Boolean(context?.canUseAllCompanies),

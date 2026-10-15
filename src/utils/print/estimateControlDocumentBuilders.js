@@ -68,7 +68,7 @@ const renderEstimateImpactAnalysis = ({ analysis, classPrefix, fmtMoney, fmtQty,
     if (missing) return '—';
     return `${fmtQty(value)}${row.unit ? ` ${row.unit}` : ''}`;
   };
-  const rowsHtml = analysis.rows.map((row) => '<tr>'
+  const rowsHtml = analysis.rows.map((row) => `<tr data-base-price="${docEsc(row.baseUnitPrice == null ? '—' : fmtMoney(row.baseUnitPrice))}" data-next-price="${docEsc(row.nextUnitPrice == null ? '—' : fmtMoney(row.nextUnitPrice))}">`
     + `<td style="color:${diffColor(row.impact)};font-weight:700">${row.impact > 0 ? 'Плюс' : row.impact < 0 ? 'Минус' : 'Без изменения суммы'}</td>`
     + (showPackage ? `<td>${docEsc(row.workPackage || '')}</td>` : '')
     + `<td>${docEsc(row.section || '')}</td>`

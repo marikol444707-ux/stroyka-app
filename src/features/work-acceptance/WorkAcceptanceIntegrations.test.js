@@ -134,7 +134,7 @@ test('master history resubmits additional mixed consumption and lost-reply recov
   } });
   expect(posts[0].payload).not.toHaveProperty('quantity');
   expect(pendingWorkBatch({ companyId: 2, userId: 9 }).next).toBe(0);
-  fireEvent.click(screen.getByRole('button', { name: 'Повторить сохранённую отправку' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Завершить отправку' }));
   await waitFor(() => expect(posts).toHaveLength(2));
   expect(posts[1]).toEqual(posts[0]);
   await waitFor(() => expect(pendingWorkBatch({ companyId: 2, userId: 9 })).toBeNull());

@@ -87,12 +87,24 @@ def register_supplier_directory_module(app, deps):
     leadership_roles = tuple(deps.get("leadership_roles") or ())
     current_supplier_ids = deps["current_supplier_ids"]
     supplier_relation_metadata = deps["supplier_relation_metadata"]
-    supplier_find_match = deps["supplier_find_match"]
-    remember_supplier_alias = deps["remember_supplier_alias"]
-    remember_supplier_duplicate_alias = deps["remember_supplier_duplicate_alias"]
-    supplier_related_ids = deps["supplier_related_ids"]
     row_get = deps["row_get"]
-    log_audit = deps["log_audit"]
+
+    @app.post('/suppliers/{id}/merge-preview')
+    def preview_supplier_merge(id: int, data: dict, current_user: dict = Depends(get_current_user),
+                               x_company_id: Optional[str] = Header(None, alias='X-Company-Id'),
+                               x_company_mode: Optional[str] = Header(None, alias='X-Company-Mode')):
+        from .company_merge import preview
+        with company_directory.transaction(current_user, (x_company_id, x_company_mode), claimed_company_id=data.get('companyId')) as (cur, company, actor):
+            if actor.get('role') not in ('директор', 'зам_директора', 'бухгалтер'):
+                raise HTTPException(403, 'Объединять карточки может руководитель или бухгалтер')
+            return preview(cur, company, id, data.get('sourceId'))
+
+    @app.post('/suppliers/{id}/merge')
+    def merge_supplier_cards(id: int, data: dict, current_user: dict = Depends(get_current_user),
+                             x_company_id: Optional[str] = Header(None, alias='X-Company-Id'),
+                             x_company_mode: Optional[str] = Header(None, alias='X-Company-Mode')):
+        from .company_merge import confirm
+        return confirm(company_directory, data, current_user, (x_company_id, x_company_mode), id)
 
     @app.get("/suppliers")
     def get_suppliers(current_user: dict = Depends(get_current_user),
@@ -121,6 +133,9 @@ def register_supplier_directory_module(app, deps):
             return []
         rows = cur.fetchall()
         relation_metadata = supplier_relation_metadata(cur, rows) if role in SUPPLIER_IDENTITY_MANAGE_ROLES else {}
+        if role == 'поставщик':
+            from .company_merge import owned_metadata
+            relation_metadata = owned_metadata(cur, rows)
         payload = []
         for row in rows:
             supplier = {key: row.get(key) for key in (*PUBLIC_FIELDS.values(), 'id', 'user_id', 'phone', 'email', 'specialization')}
@@ -148,146 +163,11 @@ def register_supplier_directory_module(app, deps):
 
     @app.post("/suppliers/{id}/link-user")
     def link_supplier_user(id: int, data: dict, current_user: dict = Depends(require_roles(*SUPPLIER_IDENTITY_MANAGE_ROLES))):
-        data = data or {}
-        raw_user_id = data.get("userId") or data.get("user_id")
-        email = (str(data.get("email") or "").strip().lower())
-        conn = get_db()
-        conn.autocommit = False
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        try:
-            cur.execute("SELECT * FROM suppliers WHERE id=%s LIMIT 1", (id,))
-            supplier = cur.fetchone()
-            if not supplier:
-                raise HTTPException(status_code=404, detail="Поставщик не найден")
-
-            if raw_user_id:
-                cur.execute(
-                    "SELECT id,name,email,role FROM users WHERE id=%s LIMIT 1",
-                    (int(raw_user_id),),
-                )
-            elif email:
-                cur.execute(
-                    """
-                    SELECT id,name,email,role
-                      FROM users
-                     WHERE LOWER(email)=LOWER(%s)
-                       AND COALESCE(active, TRUE)=TRUE
-                     ORDER BY id
-                     LIMIT 1
-                    """,
-                    (email,),
-                )
-            else:
-                raise HTTPException(status_code=400, detail="Выберите пользователя или укажите email поставщика")
-
-            supplier_user = cur.fetchone()
-            if not supplier_user:
-                raise HTTPException(status_code=404, detail="Пользователь поставщика не найден")
-            if (supplier_user.get("role") or "") != "поставщик":
-                raise HTTPException(status_code=400, detail="К поставщику можно привязать только пользователя с ролью поставщик")
-
-            supplier_user_id = int(supplier_user.get("id"))
-            supplier_email = supplier_user.get("email") or email
-            supplier_name = supplier_user.get("name") or supplier_email or ""
-
-            # Один пользователь должен иметь один явный вход в свою карточку. Дубли подтягиваются
-            # через ИНН/ОГРН/email/name/aliases, но старый неверный user_id не должен перехватывать кабинет.
-            cur.execute("UPDATE suppliers SET user_id=NULL WHERE user_id=%s AND id<>%s", (supplier_user_id, id))
-            cur.execute(
-                """
-                UPDATE suppliers
-                   SET user_id=%s,
-                       email=CASE WHEN COALESCE(email,'')='' THEN %s ELSE email END,
-                       status=CASE WHEN COALESCE(status,'')='' THEN 'Активный' ELSE status END,
-                       registered_at=COALESCE(registered_at, NOW()),
-                       source_type=CASE WHEN COALESCE(source_type,'')='' THEN 'linked_account' ELSE source_type END,
-                       source_detail=CASE WHEN COALESCE(source_detail,'')='' THEN %s ELSE source_detail END
-                 WHERE id=%s
-                 RETURNING *
-                """,
-                (supplier_user_id, supplier_email, "Пользователь привязан администратором платформы: " + supplier_name, id),
-            )
-            row = cur.fetchone()
-            remember_supplier_alias(cur, id, {
-                "name": supplier.get("name") or "",
-                "email": supplier_email,
-                "companyName": supplier.get("name") or "",
-            }, source="manual_supplier_user_link")
-            remember_supplier_alias(cur, id, {
-                "name": supplier_name,
-                "email": supplier_email,
-            }, source="manual_supplier_user_link")
-            conn.commit()
-            log_audit(
-                user_name=current_user.get("name", ""),
-                user_role=current_user.get("role", ""),
-                action="supplier_link_user",
-                entity_type="supplier",
-                entity_id=id,
-                description=("Привязан пользователь поставщика: " + supplier_name + " <" + supplier_email + ">")[:250],
-            )
-            return dict(row)
-        except HTTPException:
-            conn.rollback()
-            raise
-        except Exception as e:
-            conn.rollback()
-            raise HTTPException(status_code=400, detail=str(e))
-        finally:
-            cur.close()
-            conn.close()
+        raise HTTPException(409, 'Глобальная привязка кабинета отключена. Откройте нужную организацию → Участники и доступ → Поставщики. Смена владельца требует отдельной проверки.')
 
     @app.post("/suppliers/{id}/link-duplicate")
     def link_supplier_duplicate(id: int, data: dict, current_user: dict = Depends(require_roles(*SUPPLIER_IDENTITY_MANAGE_ROLES))):
-        data = data or {}
-        try:
-            duplicate_id = int(data.get("duplicateSupplierId") or data.get("duplicate_supplier_id") or data.get("supplierId") or 0)
-        except (TypeError, ValueError):
-            duplicate_id = 0
-        if duplicate_id <= 0:
-            raise HTTPException(status_code=400, detail="Выберите карточку-дубль поставщика")
-        if int(id) == duplicate_id:
-            raise HTTPException(status_code=400, detail="Нельзя связать карточку саму с собой")
-        conn = get_db()
-        conn.autocommit = False
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        try:
-            cur.execute("SELECT * FROM suppliers WHERE id=%s FOR UPDATE", (id,))
-            canonical = cur.fetchone()
-            cur.execute("SELECT * FROM suppliers WHERE id=%s FOR UPDATE", (duplicate_id,))
-            duplicate = cur.fetchone()
-            if not canonical:
-                raise HTTPException(status_code=404, detail="Основная карточка поставщика не найдена")
-            if not duplicate:
-                raise HTTPException(status_code=404, detail="Карточка-дубль поставщика не найдена")
-
-            remember_supplier_duplicate_alias(cur, id, duplicate_id, duplicate)
-            remember_supplier_duplicate_alias(cur, duplicate_id, id, canonical)
-            conn.commit()
-            related_ids = supplier_related_ids(cur, id)
-            log_audit(
-                current_user.get("name", ""),
-                current_user.get("role", ""),
-                "supplier_link_duplicate",
-                "supplier",
-                id,
-                ("Связан дубль поставщика #" + str(duplicate_id) + " с " + str(canonical.get("name") or ""))[:250],
-            )
-            return {
-                "ok": True,
-                "supplierId": id,
-                "duplicateSupplierId": duplicate_id,
-                "relatedSupplierIds": related_ids,
-            }
-        except HTTPException:
-            conn.rollback()
-            raise
-        except Exception as exc:
-            conn.rollback()
-            raise HTTPException(status_code=400, detail=str(exc))
-        finally:
-            cur.close()
-            conn.close()
+        raise HTTPException(409, 'Глобальная связь дублей отключена. Проверьте карточки внутри выбранной организации; объединение выполняется с подтверждением последствий.')
 
     def _db_column_exists(cur, table_name: str, column_name: str) -> bool:
         cur.execute(

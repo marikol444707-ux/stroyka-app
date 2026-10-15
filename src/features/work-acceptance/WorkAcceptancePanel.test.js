@@ -51,6 +51,32 @@ test('return uses its own decision and requires a reason', async () => {
   expect(requests[0].payload).toMatchObject({ decision: 'return', acceptedQuantity: null, reason: 'Переделать' });
 });
 
+test.each(['0', '-1', '101', ''])('does not send invalid accepted volume %s', async quantity => {
+  render(<WorkAcceptancePanel {...props} />);
+  fireEvent.change(await screen.findByLabelText('Принять (м²)'), {target: {value: quantity}});
+  const button = screen.getByRole('button', {name: 'Принять объём'});
+  expect(button).toBeDisabled();
+  fireEvent.click(button);
+  expect(requests).toHaveLength(0);
+});
+
+test('blocks a repeated acceptance click while the first reply is pending', async () => {
+  const original = global.fetch;
+  let reply;
+  global.fetch = jest.fn((url, options) => options?.method === 'POST'
+    ? new Promise(resolve => { reply = async () => resolve(await original(url, options)); })
+    : original(url, options));
+  render(<WorkAcceptancePanel {...props} />);
+  const button = await screen.findByRole('button', {name: 'Принять объём'});
+  fireEvent.click(button);
+  expect(button).toBeDisabled();
+  fireEvent.click(button);
+  expect(global.fetch.mock.calls.filter(([, options]) => options?.method === 'POST')).toHaveLength(1);
+  await reply();
+  await waitFor(() => expect(requests).toHaveLength(1));
+  await waitFor(() => expect(screen.queryByRole('button', {name: 'Принять объём'})).not.toBeInTheDocument());
+});
+
 test('worker resubmits fixed rework quantity only after new photo and comment', async () => {
   view = { ...initial, canReview: false, canResubmit: true, status: 'На доработке', quantity: 40, parentJournalId: 10 };
   const prepare = jest.fn((_project, groups) => groups);
@@ -80,10 +106,10 @@ test('lost acceptance reply retries exactly the saved command once', async () =>
   render(<WorkAcceptancePanel {...props} />);
   fireEvent.click(await screen.findByRole('button', { name: 'Принять объём' }));
   await screen.findByText(/Связь прервалась/);
-  fireEvent.click(screen.getByRole('button', { name: 'Повторить сохранённую отправку' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Завершить отправку' }));
   await waitFor(() => expect(requests).toHaveLength(2));
   expect(requests[1]).toEqual(requests[0]);
-  await waitFor(() => expect(screen.queryByText('Есть сохранённая отправка')).not.toBeInTheDocument());
+  await waitFor(() => expect(screen.queryByText('Нужно проверить результат отправки')).not.toBeInTheDocument());
   expect(screen.queryByText(/Связь прервалась/)).not.toBeInTheDocument();
 });
 

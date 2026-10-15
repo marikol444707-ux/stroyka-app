@@ -47,6 +47,15 @@ health endpoint alone is insufficient. Missing/failed verification retains backu
 
 # Repository rules
 
+- The ordinary procurement flow is request -> supplier quotes -> comparison ->
+  explicit user choice. A supplier declares its ability to supply by answering
+  with a quote; do not add a separate director capability-confirmation step to
+  request cards. Check the offered goods against the request and show mismatches.
+- Manage supplier contracts and standalone technical document checks in
+  Accounting -> Supplier documents. Procurement offer and supplier cards must
+  not embed contract editors or separate technical-administration panels.
+  Keep commercial comparison, offer originals and explicit supplier choice there.
+
 - GitHub is the source of truth. Inspect and extend the existing architecture;
   keep changes small and scoped.
 - Never modify production data directly, deploy automatically, run destructive
@@ -62,3 +71,11 @@ health endpoint alone is insufficient. Missing/failed verification retains backu
   relevant backend tests and frontend build/tests.
 - Work on a dedicated branch or worktree and never write directly to `main`.
   Report changed files, tests, failures, and remaining risks.
+
+- Supplier invitation registration must reuse one exact legal identity in the
+  inviting company's catalog. A name alone never grants supplier account access.
+  Existing receipt cards can be merged only by explicit company-scoped preview
+  and confirmation. Keep original document IDs, legal/bank snapshots and paid
+  amounts unchanged; use the canonical card for new supplier operations.
+  Provisional cards with another company’s history or an existing account require
+  ownership review, never automatic reassignment.

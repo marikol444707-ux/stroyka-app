@@ -9,6 +9,7 @@ import SupplyCatalogPanel from './SupplyCatalogPanel';
 import SupplySuppliersPanel from './SupplySuppliersPanel';
 import SupplySupplierInvoicesPanel from './SupplySupplierInvoicesPanel';
 import { supplyRequestSourceBucket } from '../utils/supplyUtils';
+import MyParticipantTickets from '../features/participant-support/MyParticipantTickets';
 
 export default function SupplyPage({
   API,
@@ -270,6 +271,8 @@ export default function SupplyPage({
       )}
 
       {curTab === 'suppliers' && (
+        <>
+        {process.env.REACT_APP_PARTICIPANT_SUPPORT_ENABLED==='1' && companyContext?.mode==='company' && ['директор','зам_директора'].includes(user?.role) && <MyParticipantTickets key={companyContext.selectedCompanyId} API={API} companyId={companyContext.selectedCompanyId} C={C} btnG={btnG}/>}
         <SupplySuppliersPanel
           C={C}
           card={card}
@@ -306,6 +309,7 @@ export default function SupplyPage({
           uploadPhoto={uploadPhoto}
           supplierLinkFocus={supplierLinkFocus}
         />
+        </>
       )}
 
       {curTab === 'catalog' && (

@@ -7,6 +7,42 @@ function typeManualBrigade(name) {
   fireEvent.change(screen.getByPlaceholderText('Название бригады'), {target: {value: name}});
 }
 
+it('mobile steps preserve selected work and prices when going back', async () => {
+  const originalFetch = global.fetch;
+  const fetchMock = jest.fn().mockResolvedValue({ok: false, json: async () => ({detail: 'Тестовая ошибка'})});
+  global.fetch = fetchMock;
+  try {
+  render(<WorkAssignmentModal show onClose={jest.fn()}
+    selectedEstimate={{id:25,sections:[{name:'Стены',items:[
+      {name:'Штукатурка',unit:'м2',quantity:2,priceWork:100,estimateItemKey:'work-1'},
+      {name:'Грунтовка',unit:'м2',quantity:1,priceWork:100,estimateItemKey:'work-2'},
+    ]}]}} users={[{id:11,name:'Мастер Иван',role:'мастер'}]} staff={[]}
+    API="/api" loadAll={jest.fn()} C={{}} card={{}} inp={{}} btnO={{}} btnG={{}} btnB={{}} isMobile/>);
+  expect(screen.getByRole('combobox',{name:'Исполнитель'})).toHaveValue('11');
+  expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button',{name:'Выдать в работу'})).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button',{name:'Далее'}));
+  fireEvent.click(screen.getByRole('checkbox',{name:'Выбрать работу: Грунтовка'}));
+  fireEvent.click(screen.getByRole('button',{name:'Далее'}));
+  expect(screen.getByRole('button',{name:'Выдать в работу'})).toBeEnabled();
+  expect(screen.queryByRole('checkbox',{name:'Выбрать работу: Грунтовка'})).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button',{name:'Настроить цену'}));
+  fireEvent.change(screen.getByRole('spinbutton',{name:'Цена исполнителю: Штукатурка'}),{target:{value:'75'}});
+  fireEvent.click(screen.getByRole('button',{name:'Назад'}));
+  expect(screen.getByRole('checkbox',{name:'Выбрать работу: Грунтовка'})).not.toBeChecked();
+  expect(screen.getByRole('checkbox',{name:'Выбрать работу: Штукатурка'})).toBeChecked();
+  fireEvent.click(screen.getByRole('button',{name:'Далее'}));
+  expect(screen.getByRole('spinbutton',{name:'Цена исполнителю: Штукатурка'})).toHaveValue(75);
+  fireEvent.click(screen.getByRole('button', {name: 'Выдать в работу'}));
+  await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Тестовая ошибка'));
+  const payload = JSON.parse(fetchMock.mock.calls[0][1].body);
+  expect(payload.assignee.contractorId).toBe(11);
+  expect(payload.items).toEqual([expect.objectContaining({estimateItemKey: 'work-1', manualPrice: 75})]);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 describe('work assignment performers', () => {
   it('offers a subcontractor as an estimate work assignee', () => {
     const rows = performerRows([], [
@@ -45,13 +81,18 @@ it('finds a work in a long estimate without changing the selected assignments', 
   render(<WorkAssignmentModal show onClose={jest.fn()}
     selectedEstimate={{id:25, sections:[{name:'Электрика',items}]}}
     staff={[]} users={[{id:11,name:'Мастер Иван',role:'мастер'}]}
-    API="/api" loadAll={jest.fn()} C={{}} card={{}} inp={{}} btnO={{}} btnG={{}} btnB={{}} isMobile />);
+    API="/api" loadAll={jest.fn()} C={{}} card={{}} inp={{}} btnO={{}} btnG={{}} btnB={{}} isMobile={false} />);
 
   fireEvent.change(screen.getByRole('searchbox',{name:'Найти работу'}), {target:{value:'кабеля 10'}});
   expect(screen.getByText('Монтаж кабеля 10')).toBeInTheDocument();
   expect(screen.queryByText('Монтаж кабеля 1')).not.toBeInTheDocument();
   expect(screen.getByText(/Показано: 1 из 10/)).toBeInTheDocument();
   expect(screen.getByText('Выбрано: 10 из 10')).toBeInTheDocument();
+  expect(screen.getByText('Ещё 9 выбранных работ скрыты поиском. Они тоже будут выданы исполнителю.')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', {name: 'Оставить только найденные'}));
+  expect(screen.getByText('Выбрано: 1 из 10')).toBeInTheDocument();
+  expect(screen.getByLabelText('Выбрать работу: Монтаж кабеля 10')).toBeChecked();
+  expect(screen.queryByRole('button', {name: 'Оставить только найденные'})).not.toBeInTheDocument();
   fireEvent.change(screen.getByRole('searchbox',{name:'Найти работу'}), {target:{value:'неизвестная'}});
   expect(screen.getByText('Работы не найдены. Очистите поиск.')).toBeInTheDocument();
 });
@@ -64,7 +105,7 @@ it('changes only visible work when selecting or clearing a filtered list', () =>
   render(<WorkAssignmentModal show onClose={jest.fn()}
     selectedEstimate={{id:25, sections:[{name:'Электрика',items}]}}
     staff={[]} users={[{id:11,name:'Мастер Иван',role:'мастер'}]}
-    API="/api" loadAll={jest.fn()} C={{}} card={{}} inp={{}} btnO={{}} btnG={{}} btnB={{}} isMobile />);
+    API="/api" loadAll={jest.fn()} C={{}} card={{}} inp={{}} btnO={{}} btnG={{}} btnB={{}} isMobile={false} />);
 
   fireEvent.change(screen.getByRole('searchbox', {name:'Найти работу'}), {target:{value:'кабеля 10'}});
   fireEvent.click(screen.getByRole('button', {name:'Снять показанные'}));
@@ -99,13 +140,12 @@ describe('work assignment prices', () => {
         ]}]}}
         staff={[]} users={[{id: 11, name: 'Мастер Иван', role: 'мастер'}]}
         API="/api" loadAll={jest.fn()}
-        C={{}} card={{}} inp={{}} btnO={{}} btnG={{}} btnB={{}} isMobile
+        C={{}} card={{}} inp={{}} btnO={{}} btnG={{}} btnB={{}} isMobile={false}
       />
     );
 
     expect(screen.queryByPlaceholderText('Название бригады')).not.toBeInTheDocument();
     expect(screen.getByRole('combobox', {name: 'Исполнитель'})).toHaveValue('11');
-    expect(screen.getByText(/Смета: 2\s?000 ₽\/ед/)).toBeInTheDocument();
 
     typeManualBrigade('Бригада Север');
     expect(screen.getByPlaceholderText('Название бригады')).toHaveValue('Бригада Север');
@@ -381,4 +421,42 @@ describe('work assignment prices', () => {
     expect(screen.queryByRole('button', {name: 'Снять все'})).not.toBeInTheDocument();
     expect(screen.getByRole('button', {name: 'Выдать в работу'})).toBeDisabled();
   });
+});
+
+
+it('filters exact estimate sections without losing selections from another section', () => {
+  render(<WorkAssignmentModal show onClose={jest.fn()}
+    selectedEstimate={{id:25, sections:[
+      {name:'Монтаж', items:[{name:'Монтаж кабеля',unit:'м',quantity:10,priceWork:100,estimateItemKey:'electrical'}]},
+      {name:'Монтаж', items:[{name:'Монтаж трубы',unit:'м',quantity:5,priceWork:200,estimateItemKey:'plumbing'}]},
+    ]}} staff={[]} users={[{id:11,name:'Мастер Иван',role:'мастер'}]}
+    API="/api" loadAll={jest.fn()} C={{}} card={{}} inp={{}} btnO={{}} btnG={{}} btnB={{}} isMobile />);
+  fireEvent.click(screen.getByRole('button', {name:'Далее'}));
+  fireEvent.change(screen.getByRole('combobox', {name:'Раздел сметы'}), {target:{value:'0'}});
+  expect(screen.getByRole('checkbox', {name:'Выбрать работу: Монтаж кабеля'})).toBeChecked();
+  expect(screen.queryByRole('checkbox', {name:'Выбрать работу: Монтаж трубы'})).not.toBeInTheDocument();
+  expect(screen.getByText('Выбрано: 2 из 2')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', {name:'Снять показанные'}));
+  expect(screen.getByText('Выбрано: 1 из 2')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', {name:'Далее'}));
+  expect(screen.getByRole('checkbox', {name:'Выбрать работу: Монтаж трубы'})).toBeChecked();
+  expect(screen.queryByRole('checkbox', {name:'Выбрать работу: Монтаж кабеля'})).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', {name:'Назад'}));
+  expect(screen.getByRole('combobox', {name:'Раздел сметы'})).toHaveValue('0');
+});
+
+it('combines section and text filters when retaining only found work', () => {
+  render(<WorkAssignmentModal show onClose={jest.fn()}
+    selectedEstimate={{id:25, sections:[
+      {name:'Электрика', items:[{name:'Монтаж кабеля',unit:'м',quantity:10,priceWork:100,estimateItemKey:'cable'}]},
+      {name:'Отделка', items:[{name:'Монтаж панели',unit:'м2',quantity:5,priceWork:200,estimateItemKey:'panel'}]},
+    ]}} staff={[]} users={[{id:11,name:'Мастер Иван',role:'мастер'}]}
+    API="/api" loadAll={jest.fn()} C={{}} card={{}} inp={{}} btnO={{}} btnG={{}} btnB={{}} isMobile={false} />);
+  fireEvent.change(screen.getByRole('combobox', {name:'Раздел сметы'}), {target:{value:'1'}});
+  fireEvent.change(screen.getByRole('searchbox', {name:'Найти работу'}), {target:{value:'Монтаж'}});
+  fireEvent.click(screen.getByRole('button', {name:'Оставить только найденные'}));
+  expect(screen.getByText('Выбрано: 1 из 2')).toBeInTheDocument();
+  fireEvent.change(screen.getByRole('combobox', {name:'Раздел сметы'}), {target:{value:''}});
+  expect(screen.getByRole('checkbox', {name:'Выбрать работу: Монтаж кабеля'})).not.toBeChecked();
+  expect(screen.getByRole('checkbox', {name:'Выбрать работу: Монтаж панели'})).toBeChecked();
 });

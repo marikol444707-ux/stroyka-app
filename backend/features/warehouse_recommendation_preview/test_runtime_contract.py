@@ -718,10 +718,10 @@ class WarehouseAnomalyRuntimeDisclosurePolicyTests(unittest.TestCase):
             backend_root / "db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Reviewed read-only complete-basket quotation comparison in the composition root;
+            # Reviewed participant route access enforcement, storage validation and invite storage adapter;
             # warehouse preview implementation and registration are unchanged.
             backend_root / "main.py": (
-                "e608cbf861ee3ab5e828eaf122bd7c0a4e17dc553d455c7f2fd2525cd35bc8f3"
+                "24186dd409857bc543dd4bfbc7fc260221fdced46d9067c32408f8ea13503c65"
             ),
         }
         actual = {

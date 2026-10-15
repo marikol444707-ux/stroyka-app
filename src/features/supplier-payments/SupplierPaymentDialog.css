@@ -140,3 +140,50 @@
 .supplier-payment-dialog .payment-technical-details { margin: 12px 0; color: var(--c-text-sec, #64748b); font-size: 12px; }
 .supplier-payment-dialog .payment-technical-details summary { cursor: pointer; padding: 8px 0; }
 .supplier-payment-dialog .payment-technical-details pre { max-height: 220px; overflow: auto; }
+.supplier-payment-dialog .supplier-payment-review {
+  margin: 16px 0;
+  padding: 12px 16px;
+  border: 1px solid var(--c-border, #e2e8f0);
+  border-radius: 12px;
+}
+.supplier-payment-dialog .supplier-payment-review > summary {
+  cursor: pointer;
+  min-height: 44px;
+  align-content: center;
+  font-weight: 600;
+}
+.supplier-payment-dialog .supplier-payment-review > section {
+  padding: 16px 0;
+}
+
+.supplier-payment-dialog .supplier-payment-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+.supplier-payment-dialog .supplier-payment-extra > summary {
+  min-height: 44px;
+  align-content: center;
+  cursor: pointer;
+  font-weight: 600;
+}
+.supplier-payment-dialog .supplier-payment-fields label { margin: 0; }
+@media (max-width: 520px) {
+  .supplier-payment-dialog.supplier-payment-dialog { padding: 12px; }
+  .supplier-payment-dialog.supplier-payment-dialog > header {
+    position: sticky;
+    top: -12px;
+    z-index: 1;
+    padding: 8px 0;
+    background: var(--c-bg-white, #fff);
+  }
+  .supplier-payment-dialog.supplier-payment-dialog h2 { font-size: 19px; }
+  .supplier-payment-dialog fieldset { gap: 8px; margin: 8px 0; }
+  .supplier-payment-dialog.supplier-payment-dialog label { margin: 6px 0; }
+  .supplier-payment-dialog .supplier-payment-bank-warning { padding: 8px 10px; font-size: 12px; }
+  .supplier-payment-dialog .payment-primary { width: 100%; min-height: 44px; }
+}
+@media (max-width: 360px) {
+  .supplier-payment-dialog .supplier-payment-fields { grid-template-columns: minmax(0, 1fr); }
+}

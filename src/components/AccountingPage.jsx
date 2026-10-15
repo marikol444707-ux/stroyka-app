@@ -11,6 +11,7 @@ import AccountingSalaryPanel from './AccountingSalaryPanel';
 import AccountingActsPanel from './AccountingActsPanel';
 import AccountingContractsPanel from './AccountingContractsPanel';
 import AccountingPerformerClosingPanel from './AccountingPerformerClosingPanel';
+import AccountingSupplierContracts from '../features/supplier-payments/AccountingSupplierContracts';
 import AccountingExceptionChecksPanel from '../features/accounting-exception-checks/AccountingExceptionChecksPanel';
 
 export default function AccountingPage(props) {
@@ -206,6 +207,9 @@ export default function AccountingPage(props) {
       )}
 
       {accountingTab === 'supplierDocs' && (
+        <>
+        <AccountingSupplierContracts API={API} companyContext={companyContext} user={user} C={C}
+          suppliers={suppliers} supplierOffers={props.supplierOffers} supplyRequests={props.supplyRequests} projects={projects}/>
         <AccountingSupplierDocumentsPanel
           C={C}
           card={card}
@@ -223,6 +227,7 @@ export default function AccountingPage(props) {
           listSearch={listSearch}
           setListSearch={setListSearch}
         />
+        </>
       )}
 
       {accountingTab === 'payments' && (

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mirror the exact backend material-capability gate into the React build."""
+"""Keep the retired director capability step disabled in ordinary procurement."""
 
 import shlex
 import sys
@@ -34,7 +34,9 @@ def resolve(service_environment, backend_env_path):
     value = "false" if value is None else value
     if value not in VALID_VALUES:
         raise ValueError(f"{BACKEND_KEY}: ожидается true или false")
-    return f"{FRONTEND_KEY}={value}"
+    # Historical server confirmations can remain enabled independently. Their
+    # existence must not restore the retired step or require its UI bundle.
+    return f"{FRONTEND_KEY}=false"
 
 
 if __name__ == "__main__":

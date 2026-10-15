@@ -73,7 +73,7 @@ function OpeningPanel({ API, userId, companyId, invoiceId, registered, disabled,
   const shown = pending?.preview || preview;
   return <section className="supplier-opening-panel" aria-label="Сверка прежней оплаты">
     <h3>Оплачено раньше</h3>
-    <p>Если часть счёта оплачена раньше, укажите уже оплаченную сумму.</p>
+    <p>Сверьте прежнюю оплату с банковской выпиской. Ниже программа покажет суммы из счёта и связанной накладной.</p>
     {error && <p role="alert">{error}</p>}
     {storageError && <p role="alert">{storageError}</p>}
     {success ? <p role="status">Начальный остаток подтверждён: {money(success.openingPaid)}. Подтверждение остатка не создало нового платежа.</p> : <>

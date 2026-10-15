@@ -180,6 +180,8 @@ export default function AppBackofficePages({ activePage, ui, constants, state, a
           manualExpenses={manualExpenses}
           accountablePayments={accountablePayments}
           supplierInvoices={supplierInvoices}
+          supplierOffers={state.supplierOffers}
+          supplyRequests={state.supplyRequests}
           brigadeContracts={brigadeContracts}
           piecework={piecework}
           isFinanceRole={isFinanceRole}

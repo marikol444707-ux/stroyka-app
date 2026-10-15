@@ -86,7 +86,36 @@ jobs:
             backend.features.supplier_offers.test_offer_mutation_ledger_postgres.OfferMutationLedgerTests \
             backend.features.supplier_offers.test_offer_mutation_preledger_postgres.OfferMutationPreledgerTests \
             backend.features.staff.test_access_postgres.StaffAccessPostgresTests \
-            backend.features.invite_codes.test_supplier_registration_postgres.SupplierRegistrationPostgresTests
+            backend.features.participant_support.test_postgres.ParticipantSupportPostgresTests \
+            backend.features.participant_support.test_capabilities_postgres.SupportCapabilitiesPostgresTests \
+            backend.features.participant_support.test_login_postgres.SupportLoginPostgresTests \
+            backend.features.participant_support.test_security_postgres.SupportSecurityPostgresTests \
+            backend.features.participant_support.test_directory_postgres.OrganizationDirectoryPostgresTests \
+            backend.features.participant_support.test_connection_preview_postgres.SupplierConnectionPreviewPostgresTests \
+            backend.features.participant_support.test_connections_postgres.SupplierConnectionsPostgresTests \
+            backend.features.participant_support.test_correction_preview_postgres.SupplierCorrectionPreviewPostgresTests \
+            backend.features.participant_support.test_correction_financials_postgres.SupplierCorrectionFinancialsPostgresTests \
+            backend.features.participant_support.test_corrections_postgres.SupplierCorrectionsPostgresTests \
+            backend.features.participant_support.test_rfq_corrections_postgres.SupplierRfqCorrectionsPostgresTests \
+            backend.features.participant_support.test_quote_corrections_postgres.SupplierQuoteCorrectionsPostgresTests \
+            backend.features.participant_support.test_issued_access_corrections_postgres.SupplierIssuedAccessCorrectionsPostgresTests \
+            backend.features.participant_support.test_history_preview_postgres.SupplierHistoryPreviewPostgresTests \
+            backend.features.participant_support.test_history_merge_postgres.SupplierHistoryMergePostgresTests \
+            backend.features.participant_support.test_history_contract_merge_postgres.SupplierHistoryContractMergePostgresTests \
+            backend.features.invite_codes.test_supplier_registration_postgres.SupplierRegistrationPostgresTests \
+            backend.features.supplier_access.test_company_merge_postgres.CompanyMergePostgresTests \
+            backend.features.supplier_access.test_company_directory_postgres.CompanyDirectoryPostgresTests
+
+      - name: Run supplier access correction and packaging merge guards
+        run: |
+          export PATH="$(pg_config --bindir):$PATH"
+          python scripts/run_supplier_catalog_postgres_tests.py \
+            backend.features.participant_support.test_invoice_access_corrections_postgres.SupplierInvoiceAccessCorrectionsPostgresTests \
+            backend.features.participant_support.test_contract_access_corrections_postgres.SupplierContractAccessCorrectionsPostgresTests \
+            backend.features.participant_support.test_history_merge_server_schema_postgres.ServerSchemaMergeTests \
+            backend.features.participant_support.test_packaging_merge_locks_postgres.PackagingMergeLockTests \
+            backend.features.material_packaging.test_history_guard_postgres.PackagingDatabaseGuardTests \
+            backend.features.material_packaging.test_history_lock_postgres.PackagingWriterLockTests
 
       - name: Run supplier notification delivery and requester boundaries
         run: |
@@ -120,6 +149,8 @@ jobs:
         env:
           REACT_APP_WORK_MATERIAL_ACCOUNTING_ENABLED: "1"
           REACT_APP_WORK_ACCEPTANCE_ENABLED: "1"
+          REACT_APP_PARTICIPANT_SUPPORT_ENABLED: "1"
+          REACT_APP_PARTICIPANT_SUPPORT_ACCESS_ENABLED: "0"
         run: |
           npm run build
-          printf '%s\n' 'REACT_APP_WORK_MATERIAL_ACCOUNTING_ENABLED=1' 'REACT_APP_WORK_ACCEPTANCE_ENABLED=1' | python3 scripts/verify-frontend-feature-build.py build
+          printf '%s\n' 'REACT_APP_WORK_MATERIAL_ACCOUNTING_ENABLED=1' 'REACT_APP_WORK_ACCEPTANCE_ENABLED=1' 'REACT_APP_PARTICIPANT_SUPPORT_ENABLED=1' 'REACT_APP_PARTICIPANT_SUPPORT_ACCESS_ENABLED=0' | python3 scripts/verify-frontend-feature-build.py build

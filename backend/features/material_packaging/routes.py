@@ -6,6 +6,9 @@ from typing import Optional
 import psycopg2.extras
 from fastapi import Depends, Header, HTTPException
 
+from .history_lock import lock_supplier_history_writer
+from .schema import ensure_packaging_schema, packaging_schema_ready
+
 
 def _text(value, limit=500):
     return str(value or "").strip()[:limit]
@@ -276,54 +279,6 @@ def packaging_review_row(row):
     }
 
 
-def ensure_packaging_schema(cur):
-    cur.execute(
-        """CREATE TABLE IF NOT EXISTS material_packaging_rules (
-            id SERIAL PRIMARY KEY,
-            company_id INT NOT NULL,
-            supplier_id INT,
-            material_key TEXT NOT NULL,
-            material_name TEXT NOT NULL,
-            document_unit VARCHAR(50) NOT NULL,
-            base_unit VARCHAR(50) NOT NULL,
-            content_quantity NUMERIC(14,4) NOT NULL,
-            status VARCHAR(30) NOT NULL DEFAULT 'confirmed',
-            note TEXT,
-            created_by VARCHAR(255),
-            created_at TIMESTAMP DEFAULT NOW(),
-            updated_at TIMESTAMP DEFAULT NOW()
-        )"""
-    )
-    cur.execute(
-        """CREATE UNIQUE INDEX IF NOT EXISTS idx_material_packaging_rule_identity
-            ON material_packaging_rules(company_id, COALESCE(supplier_id, 0), material_key, document_unit)
-        """
-    )
-    cur.execute(
-        """CREATE TABLE IF NOT EXISTS material_packaging_reviews (
-            id SERIAL PRIMARY KEY,
-            company_id INT NOT NULL,
-            warehouse_invoice_id INT NOT NULL,
-            item_index INT NOT NULL,
-            packaging_rule_id INT NOT NULL,
-            status VARCHAR(40) NOT NULL DEFAULT 'reviewed_no_stock_change',
-            review_note TEXT NOT NULL,
-            snapshot JSONB NOT NULL,
-            reviewed_by VARCHAR(255),
-            reviewed_at TIMESTAMP DEFAULT NOW()
-        )"""
-    )
-    cur.execute(
-        """ALTER TABLE material_packaging_reviews
-               ADD COLUMN IF NOT EXISTS review_decision VARCHAR(40) NOT NULL DEFAULT 'legacy_unclassified'"""
-    )
-    cur.execute(
-        """CREATE INDEX IF NOT EXISTS idx_material_packaging_reviews_invoice
-            ON material_packaging_reviews(company_id, warehouse_invoice_id, item_index, reviewed_at DESC)
-        """
-    )
-
-
 def _rule_row(row):
     base_unit = row.get("base_unit") or ""
     return {
@@ -586,8 +541,15 @@ def register_material_packaging_module(app, deps):
         supplier_id = _positive_int(data.get("supplierId") or data.get("supplier_id"))
         conn = get_db(); cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
+            # Bootstrap DDL must not hold table locks through the business write.
+            conn.autocommit = True
+            cur.execute("SET lock_timeout='3s'; SET statement_timeout='15s'")
+            selected_actor(cur, current_user, "write", x_company_id, x_company_mode)
+            if not packaging_schema_ready(cur):
+                ensure_packaging_schema(cur)
+            conn.autocommit = False
+            lock_supplier_history_writer(cur, supplier_id)
             actor, company_id = selected_actor(cur, current_user, "write", x_company_id, x_company_mode)
-            ensure_packaging_schema(cur)
             key = material_key(material_name)
             cur.execute(
                 """SELECT id FROM material_packaging_rules
@@ -613,6 +575,10 @@ def register_material_packaging_module(app, deps):
                 )
             row = cur.fetchone(); conn.commit()
             return _rule_row(row)
+        except (psycopg2.errors.LockNotAvailable, psycopg2.errors.DeadlockDetected,
+                psycopg2.errors.QueryCanceled, psycopg2.errors.SerializationFailure):
+            conn.rollback()
+            raise HTTPException(status_code=409, detail="Правило сейчас изменяется. Повторите сохранение")
         except Exception:
             conn.rollback(); raise
         finally:

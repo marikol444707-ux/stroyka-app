@@ -1,7 +1,7 @@
 import React from 'react';
-import SupplierContracts from '../features/supplier-payments/SupplierContracts';
 import SupplierCardDetails from '../features/supply/SupplierCardDetails';
-import { Check, ChevronDown, ChevronUp, Edit2, Link2, Plus, Search, Trash2, X } from 'lucide-react';
+import SupplierMergeDialog from '../features/supply/SupplierMergeDialog';
+import { Check, ChevronDown, ChevronUp, Edit2, Plus, Search, Trash2, X } from 'lucide-react';
 import { API } from '../api';
 import { createSupplierForm, createSupplierInviteForm } from '../features/supply/supplyInitialForms';
 import DocumentRecognitionPanel from './DocumentRecognitionPanel';
@@ -94,7 +94,6 @@ function SupplySuppliersPanel({
   btnGr,
   btnR,
   user,
-  users = [],
   suppliers,
   supplierCategories,
   showForm,
@@ -122,20 +121,13 @@ function SupplySuppliersPanel({
   supplierLinkFocus = null,
 }) {
   const [openedSupplierId, setOpenedSupplierId] = React.useState(null);
-  const [linkingSupplierId, setLinkingSupplierId] = React.useState(null);
-  const [linkUserId, setLinkUserId] = React.useState('');
-  const [linkUserEmail, setLinkUserEmail] = React.useState('');
-  const [duplicateLinkingSupplierId, setDuplicateLinkingSupplierId] = React.useState(null);
-  const [duplicateSupplierId, setDuplicateSupplierId] = React.useState('');
   const [sourceFilter, setSourceFilter] = React.useState('all');
+  const [mergeSupplier, setMergeSupplier] = React.useState(null);
+  const catalogCompanyId = suppliers[0]?.companyId;
+  React.useEffect(()=>setMergeSupplier(null), [catalogCompanyId]);
   const [collapsedCategories, setCollapsedCategories] = React.useState(() => new Set());
   const canEditSuppliers = ['директор','зам_директора','кладовщик','снабженец','бухгалтер'].includes(user?.role || '');
-  const canLinkSupplierUsers = ['system_owner','platform_admin'].includes(user?.role || '');
   const canSaveNewSupplier = Boolean(newSupplier?.name?.trim()) && hasSupplierLegalIdentity(newSupplier);
-  const supplierUsers = React.useMemo(
-    () => (users || []).filter(item => item?.role === 'поставщик'),
-    [users],
-  );
   const toggleCategory = category => {
     setCollapsedCategories(prev => {
       const next = new Set(prev);
@@ -228,24 +220,17 @@ function SupplySuppliersPanel({
     ? suppliers.flatMap(s => groupSuppliers([s])) : groupSuppliers(suppliers), [suppliers]);
 
   React.useEffect(() => {
-    const focusedSupplierId = Number(supplierLinkFocus?.supplierId || 0);
-    if (!focusedSupplierId) return;
-    const focusedGroup = supplierGroups.find(supplier => (
-      Number(supplier.id || 0) === focusedSupplierId
-      || (supplier._supplierIds || []).some(id => Number(id || 0) === focusedSupplierId)
-    ));
-    if (!focusedGroup) return;
+    const focusedId=Number(supplierLinkFocus?.supplierId || 0);
+    if(!focusedId)return;
+    const group=supplierGroups.find(s => Number(s.id)===focusedId ||
+      (s._supplierIds || []).some(id=>Number(id)===focusedId));
+    if(!group)return;
     setSourceFilter('all');
-    setOpenedSupplierId(focusedGroup.id);
-    setLinkingSupplierId(focusedGroup.id);
-    setLinkUserId('');
-    setLinkUserEmail(supplierLinkFocus.email || '');
+    setOpenedSupplierId(group.id);
     setCollapsedCategories(prev => {
-      const next = new Set(prev);
-      next.delete(focusedGroup.category || 'Прочее');
-      return next;
+      const next=new Set(prev);next.delete(group.category || 'Прочее');return next;
     });
-  }, [supplierLinkFocus, supplierGroups]);
+  },[supplierLinkFocus,supplierGroups]);
 
   const categories = React.useMemo(() => {
     const seen = new Set();
@@ -458,72 +443,12 @@ function SupplySuppliersPanel({
     deleteSupplier(supplier);
   };
 
-  const openLinkSupplier = (supplier, event) => {
-    event?.stopPropagation();
-    setOpenedSupplierId(supplier.id);
-    setLinkingSupplierId(prev => (prev === supplier.id ? null : supplier.id));
-    setLinkUserId('');
-    setLinkUserEmail('');
-  };
-
-  const openDuplicateLinkSupplier = (supplier, event) => {
-    event?.stopPropagation();
-    setOpenedSupplierId(supplier.id);
-    setDuplicateLinkingSupplierId(prev => (prev === supplier.id ? null : supplier.id));
-    setDuplicateSupplierId('');
-  };
-
-  const linkSupplierUser = async (supplier, event) => {
-    event?.stopPropagation();
-    if (!canLinkSupplierUsers) return;
-    const payload = {
-      userId: linkUserId || undefined,
-      email: linkUserEmail.trim() || undefined,
-    };
-    if (!payload.userId && !payload.email) {
-      alert('Выберите пользователя-поставщика или укажите email');
-      return;
-    }
-    const res = await fetch(API + '/suppliers/' + supplier.id + '/link-user', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      alert(data.detail || 'Не удалось связать пользователя с поставщиком');
-      return;
-    }
-    setLinkingSupplierId(null);
-    setLinkUserId('');
-    setLinkUserEmail('');
-    await loadAll();
-  };
-
-  const linkDuplicateSupplier = async (supplier, event) => {
-    event?.stopPropagation();
-    if (!canLinkSupplierUsers) return;
-    if (!duplicateSupplierId) {
-      alert('Выберите карточку-дубль поставщика');
-      return;
-    }
-    const res = await fetch(API + '/suppliers/' + supplier.id + '/link-duplicate', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({duplicateSupplierId}),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || data.detail || data.error) {
-      alert(data.detail || data.error || 'Не удалось связать дубль поставщика');
-      return;
-    }
-    setDuplicateLinkingSupplierId(null);
-    setDuplicateSupplierId('');
-    await loadAll();
-  };
-
   return (
     <div>
+      {['system_owner','platform_admin'].includes(user?.role)&&<p style={{color:C.textSec}}>
+        Подключение кабинета и проверка истории: Администратор → Организации → Участники и доступ → Поставщики.
+      </p>}
+      {mergeSupplier && <SupplierMergeDialog key={String(mergeSupplier.companyId)+'-'+mergeSupplier.id} supplier={mergeSupplier} suppliers={suppliers} API={API} C={C} loadAll={loadAll} onClose={()=>setMergeSupplier(null)}/>}
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px',gap:'8px',flexWrap:'wrap'}}>
         <div>
           <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>🚚 Поставщики</b>
@@ -659,7 +584,7 @@ function SupplySuppliersPanel({
                         <span title={sourceInfo.detail || sourceInfo.types.map(type => sourceMeta(type).label).join(', ')} style={{fontSize:'11px',fontWeight:'700',color:primarySourceMeta.color,padding:'2px 7px',borderRadius:'999px',backgroundColor:C.bg,border:'1px solid '+primarySourceMeta.color}}>{primarySourceMeta.label}</span>
                         {reviewInfo.needsReview && <span title={reviewInfo.reasons.join('; ')} style={{fontSize:'11px',fontWeight:'700',color:C.warning,padding:'2px 7px',borderRadius:'999px',backgroundColor:C.warningLight,border:'1px solid '+C.warningBorder}}>проверить</span>}
                         {supplier._duplicateCount > 1 && <span style={{fontSize:'11px',fontWeight:'700',color:C.warning,padding:'2px 7px',borderRadius:'999px',backgroundColor:C.warningLight,border:'1px solid '+C.warningBorder}}>дублей: {supplier._duplicateCount}</span>}
-                        {possibleDuplicates.length > 0 && <span title="Похожие названия не объединяются автоматически. Проверьте и свяжите вручную, если это один поставщик." style={{fontSize:'11px',fontWeight:'700',color:C.warning,padding:'2px 7px',borderRadius:'999px',backgroundColor:C.warningLight,border:'1px solid '+C.warningBorder}}>возможных дублей: {possibleDuplicates.length}</span>}
+                        {possibleDuplicates.length > 0 && <span title="Похожие названия требуют проверки. Проверка кабинета находится в Администратор → Организации → Участники и доступ → Поставщики." style={{fontSize:'11px',fontWeight:'700',color:C.warning,padding:'2px 7px',borderRadius:'999px',backgroundColor:C.warningLight,border:'1px solid '+C.warningBorder}}>возможных дублей: {possibleDuplicates.length}</span>}
                         {stats.duplicateDocumentsCount > 0 && <span title="Повторные строки документов скрыты из суммы и счетчиков" style={{fontSize:'11px',fontWeight:'700',color:C.warning,padding:'2px 7px',borderRadius:'999px',backgroundColor:C.warningLight,border:'1px solid '+C.warningBorder}}>дублей документов: {stats.duplicateDocumentsCount}</span>}
                         {isOpen ? <ChevronUp size={14} color={C.textSec}/> : <ChevronDown size={14} color={C.textSec}/>}
                       </div>
@@ -677,14 +602,10 @@ function SupplySuppliersPanel({
                       <span style={{color:C.textSec,fontSize:'11px'}}>Накладные: <b style={{color:C.text}}>{stats.warehouseInvoices.length}</b></span>
                       <span style={{color:C.textSec,fontSize:'11px'}}>Каталог: <b style={{color:C.text}}>{stats.catalog.length}</b></span>
                       {stats.total > 0 && <span style={{fontSize:'11px',fontWeight:'700',color:C.success,padding:'3px 8px',borderRadius:'999px',backgroundColor:C.successLight,border:'1px solid '+C.successBorder}}>{formatMoney(stats.total)}</span>}
-                      {(canEditSuppliers || canLinkSupplierUsers)&&(
-                        <div style={{display:'flex',gap:'6px'}}>
-                          {canLinkSupplierUsers&&(
-                            <button title="Связать кабинет поставщика" onClick={event=>openLinkSupplier(supplier, event)} style={{...btnB,padding:'5px 10px'}}><Link2 size={11}/></button>
-                          )}
-                          {canLinkSupplierUsers&&(
-                            <button title="Связать дубль поставщика" onClick={event=>openDuplicateLinkSupplier(supplier, event)} style={{...btnG,padding:'5px 10px',fontSize:'11px'}}><Link2 size={11}/>Дубль</button>
-                          )}
+                      {canEditSuppliers&&(
+                        <div style={{display:'flex',gap:'6px',flexWrap:'wrap'}}>
+                          {['директор','зам_директора','бухгалтер'].includes(user?.role) && <button type="button" onClick={event=>{event.stopPropagation();const ids=supplier._supplierIds || [supplier.id]; const primary=suppliers.find(item=>ids.includes(item.id) && item.hasSupplierAccount && (!item.canonicalSupplierId || item.canonicalSupplierId===item.id)) || suppliers.find(item=>item.id===supplier.id) || supplier; setMergeSupplier(primary);}} style={{...btnG,minHeight:44}}>Объединить</button>}
+                          {['директор','зам_директора'].includes(user?.role) && !suppliers.some(item=>(supplier._supplierIds || [supplier.id]).includes(item.id) && item.hasSupplierAccount) && <button type="button" onClick={event=>{event.stopPropagation();setSupplierInviteForm(createSupplierInviteForm({supplierId:supplier.id,presetName:supplier.name}));setGeneratedInviteLink(null);setShowSupplierInviteModal(true);}} style={{...btnB,minHeight:44}}>Пригласить</button>}
                           {canEditSuppliers && <button aria-label="Редактировать поставщика" onClick={event=>editSupplier(supplier, event)} style={{...btnG,padding:'5px 10px'}}><Edit2 size={11}/></button>}
                           {canEditSuppliers && <button aria-label="Деактивировать поставщика" title="Деактивировать в этой компании" onClick={event=>handleDeleteSupplier(supplier, event)} style={{...btnR,padding:'5px 10px'}}><Trash2 size={11}/></button>}
                         </div>
@@ -702,7 +623,6 @@ function SupplySuppliersPanel({
                   {isOpen && (
                     <div onClick={event=>event.stopPropagation()} style={{marginTop:'12px',paddingTop:'12px',borderTop:'1px solid '+C.border}}>
                       <SupplierCardDetails supplier={supplier} C={C} onEdit={canEditSuppliers ? event=>editSupplier(supplier,event) : undefined}/>
-                      <SupplierContracts API={API} companyId={supplier.companyId} supplierId={supplier.id} userId={user?.id}/>
                       {reviewInfo.needsReview && (
                         <div onClick={event=>event.stopPropagation()} style={{padding:'10px',borderRadius:'8px',backgroundColor:C.warningLight,border:'1px solid '+C.warningBorder,marginBottom:'10px'}}>
                           <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'6px'}}>⚠️ Требует ручной проверки</b>
@@ -710,70 +630,6 @@ function SupplySuppliersPanel({
                             {reviewInfo.reasons.map(reason => (
                               <span key={reason} style={{fontSize:'11px',color:C.warning,padding:'3px 8px',borderRadius:'999px',backgroundColor:C.bg,border:'1px solid '+C.warningBorder}}>{reason}</span>
                             ))}
-                          </div>
-                        </div>
-                      )}
-                      {canLinkSupplierUsers && possibleDuplicates.length > 0 && (
-                        <div onClick={event=>event.stopPropagation()} style={{padding:'10px',borderRadius:'8px',backgroundColor:C.warningLight,border:'1px solid '+C.warningBorder,marginBottom:'10px'}}>
-                          <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'6px'}}>⚠️ Возможные дубли</b>
-                          <p style={{color:C.textSec,fontSize:'11px',margin:'0 0 8px'}}>
-                            Эти карточки похожи по названию, но не объединены автоматически. Если это один поставщик, подставьте карточку и подтвердите ручную связку.
-                          </p>
-                          <div style={{display:'grid',gap:'6px'}}>
-                            {possibleDuplicates.map(({supplier: candidate, reason}) => (
-                              <button
-                                key={candidate.id}
-                                onClick={event=>{
-                                  event.stopPropagation();
-                                  setDuplicateLinkingSupplierId(supplier.id);
-                                  setDuplicateSupplierId(String(candidate.id));
-                                }}
-                                style={{...btnG,justifyContent:'space-between',padding:'8px 10px',fontSize:'11px'}}
-                              >
-                                <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
-                                  {candidate.name || 'Без названия'}{candidate.inn ? ' · ИНН ' + candidate.inn : ''}
-                                </span>
-                                <span style={{color:C.textMuted}}>{reason}</span>
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      {canLinkSupplierUsers && linkingSupplierId === supplier.id && (
-                        <div onClick={event=>event.stopPropagation()} style={{padding:'10px',borderRadius:'8px',backgroundColor:C.infoLight,border:'1px solid '+C.infoBorder,marginBottom:'10px'}}>
-                          <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'6px'}}>🔗 Связать кабинет поставщика</b>
-                          <p style={{color:C.textSec,fontSize:'11px',margin:'0 0 8px'}}>Используйте это, если поставщик уже зарегистрировался, но в кабинете не видит свою компанию, КП или накладные.</p>
-                          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'8px',alignItems:'center'}}>
-                            <select value={linkUserId} onChange={event=>setLinkUserId(event.target.value)} style={{...inp,marginBottom:0}}>
-                              <option value="">Пользователь с ролью поставщик</option>
-                              {supplierUsers.map(item=>(
-                                <option key={item.id} value={item.id}>{(item.name || item.email || 'Поставщик') + (item.email ? ' · ' + item.email : '')}</option>
-                              ))}
-                            </select>
-                            <input placeholder="или email поставщика" value={linkUserEmail} onChange={event=>setLinkUserEmail(event.target.value)} style={{...inp,marginBottom:0}}/>
-                            <button onClick={event=>linkSupplierUser(supplier, event)} style={{...btnB,padding:'9px 12px'}}><Link2 size={13}/>Связать</button>
-                          </div>
-                          {supplierUsers.length===0 && <p style={{color:C.warning,fontSize:'11px',margin:'8px 0 0'}}>Пользователи с ролью поставщик не загружены. Укажите email, под которым поставщик входит в кабинет.</p>}
-                        </div>
-                      )}
-                      {canLinkSupplierUsers && duplicateLinkingSupplierId === supplier.id && (
-                        <div onClick={event=>event.stopPropagation()} style={{padding:'10px',borderRadius:'8px',backgroundColor:C.warningLight,border:'1px solid '+C.warningBorder,marginBottom:'10px'}}>
-                          <b style={{color:C.text,fontSize:'12px',display:'block',marginBottom:'6px'}}>🔗 Связать дубль поставщика</b>
-                          <p style={{color:C.textSec,fontSize:'11px',margin:'0 0 8px'}}>
-                            Используйте, когда поставщик создан из накладной или старой карточки и не схлопнулся автоматически. Документы не переносятся: система добавит двустороннюю связь и будет читать обе карточки одной группой.
-                          </p>
-                          <div style={{display:'grid',gridTemplateColumns:'minmax(220px,1fr) auto',gap:'8px',alignItems:'center'}}>
-                            <select value={duplicateSupplierId} onChange={event=>setDuplicateSupplierId(event.target.value)} style={{...inp,marginBottom:0}}>
-                              <option value="">Карточка-дубль</option>
-                              {supplierRows
-                                .filter(row => !(supplier._supplierIds || [supplier.id]).map(id => String(id)).includes(String(row.supplier.id)))
-                                .map(row => (
-                                  <option key={row.supplier.id} value={row.supplier.id}>
-                                    {row.supplier.name + (row.supplier.inn ? ' · ИНН ' + row.supplier.inn : '') + (row.supplier.email ? ' · ' + row.supplier.email : '')}
-                                  </option>
-                                ))}
-                            </select>
-                            <button onClick={event=>linkDuplicateSupplier(supplier, event)} style={{...btnB,padding:'9px 12px'}}><Link2 size={13}/>Связать дубль</button>
                           </div>
                         </div>
                       )}

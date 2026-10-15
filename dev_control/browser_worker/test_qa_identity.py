@@ -29,6 +29,58 @@ def valid_response():
 
 
 class QAIdentityTest(unittest.TestCase):
+    def test_bootstrap_stores_only_server_projected_user_and_reads_it_back(self):
+        import json
+        from unittest.mock import Mock
+        from dev_control.browser_worker.qa_identity import bootstrap_qa_user_in_browser
+        public = project_qa_user(valid_response())
+        browser = Mock()
+        browser.call.side_effect = [
+            {"frameTree": {"frame": {"id": "qa-frame"}}},
+            {"executionContextId": 77},
+            {"result": {"value": {
+                "url": "https://qa.example.test/api/users/qa-readonly-context/identity",
+                "status": 200, "content_type": "application/json", "payload": valid_response(),
+            }}},
+            {},
+            {"entries": [["user", json.dumps(public, ensure_ascii=False)]]},
+        ]
+        self.assertEqual(bootstrap_qa_user_in_browser(browser, "https://qa.example.test/app"), public)
+        stored = browser.call.call_args_list[3]
+        self.assertEqual(stored.args, ("DOMStorage.setDOMStorageItem",))
+        self.assertEqual(stored.kwargs["storageId"], {
+            "securityOrigin": "https://qa.example.test", "isLocalStorage": True,
+        })
+        self.assertEqual(stored.kwargs["key"], "user")
+        self.assertEqual(json.loads(stored.kwargs["value"]), public)
+        self.assertNotIn("authToken", stored.kwargs["value"])
+
+    def test_bootstrap_rejects_unverified_identity_before_storage(self):
+        from unittest.mock import Mock, patch
+        from dev_control.browser_worker.qa_identity import bootstrap_qa_user_in_browser
+        browser = Mock()
+        with patch("dev_control.browser_worker.qa_identity.read_qa_user_in_browser",
+                   side_effect=QAIdentityNotEstablished()):
+            with self.assertRaises(QAIdentityNotEstablished):
+                bootstrap_qa_user_in_browser(browser, "https://qa.example.test/app")
+        browser.call.assert_not_called()
+
+    def test_bootstrap_rejects_tampered_storage_and_browser_token(self):
+        import json
+        from unittest.mock import Mock, patch
+        from dev_control.browser_worker.qa_identity import bootstrap_qa_user_in_browser
+        public = project_qa_user(valid_response())
+        for entries in (
+            [], [["user", json.dumps(public | {"companyId": 999})]],
+            [["user", json.dumps(public)], ["authToken", "DO-NOT-PERSIST"]],
+        ):
+            browser = Mock()
+            browser.call.side_effect = [{}, {"entries": entries}]
+            with self.subTest(entries=entries), patch(
+                "dev_control.browser_worker.qa_identity.read_qa_user_in_browser", return_value=public,
+            ), self.assertRaisesRegex(QAIdentityNotEstablished, "^AUTH_NOT_ESTABLISHED$"):
+                bootstrap_qa_user_in_browser(browser, "https://qa.example.test/app")
+
     def test_accepts_only_server_public_identity_and_exact_company(self):
         payload = valid_response()
         self.assertEqual(project_qa_user(payload), {

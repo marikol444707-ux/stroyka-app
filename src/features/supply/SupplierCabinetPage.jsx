@@ -12,6 +12,7 @@ import SupplierRequestRegistry from './SupplierRequestRegistry';
 import SupplierOrders from './SupplierOrders';
 import SupplierTeam from './SupplierTeam';
 import SupplierCustomers from './SupplierCustomers';
+import SupplierBuyerConnectionRequests from './SupplierBuyerConnectionRequests';
 import useSupplierRequestSelection from './useSupplierRequestSelection';
 import SupplyClaims from './SupplyClaims';
 import SupplierCatalogImport from './SupplierCatalogImport';
@@ -175,7 +176,7 @@ export default function SupplierCabinetPage({
       isMySupplierId(row?.supplierId || row?.supplier_id)
       || isMySupplierName(row?.supplierName || row?.supplier_name || row?.supplier || row?.name)
     );
-    const myPrimarySupplierId = mySupplier?._supplierIds?.[0] || mySupplier?.id || supplierOfferFallbackId || 0;
+    const myPrimarySupplierId = mySupplier?.id || mySupplier?._supplierIds?.[0] || supplierOfferFallbackId || 0;
     const catalogMutationLock = React.useRef(false);
     const catalogActions = useSupplierCatalogActions({ API, actorId: currentUserId,
       supplierId: myPrimarySupplierId, supplierName: user?.name, setCatalog: setSupplierCatalog, mutationLock: catalogMutationLock,
@@ -356,6 +357,8 @@ export default function SupplierCabinetPage({
           </div>
 
           {supplierTab==='team' && teamLeader && <SupplierTeam API={API} C={C} context={teamContext} onChanged={inboxState?.reload}/>}
+          {supplierTab==='customers' && process.env.REACT_APP_PARTICIPANT_CONNECTIONS_ENABLED==='1'&&<SupplierBuyerConnectionRequests
+            key={currentUserId+':'+user?.role} API={API} user={user} onChanged={refreshData}/>}
           {supplierTab==='customers' && teamLeader && <SupplierTeam API={API} C={C} context={teamContext} mode="customers" onChanged={inboxState?.reload}/>}
           {supplierTab==='customers' && <SupplierCustomers API={API} user={user} teamContext={teamContext} C={C} fileSrc={fileSrc} onOpen={id=>{selectRequest(id);setSupplierTab('requests');inboxState?.reload();}}/>}
           {supplierTab==='orders' && <SupplierOrders API={API} user={user} C={C} fileSrc={fileSrc} onOpen={id=>{selectRequest(id);setSupplierTab('requests');inboxState?.reload();}}/>}

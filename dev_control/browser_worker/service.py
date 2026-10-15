@@ -388,7 +388,7 @@ def _watcher_smoke_request() -> JobRequest:
         expect_text=["Склад"],
         expect_url_contains=["stroyka-qa-gateway/app"],
         max_seconds=60.0,
-        display_name="Daily QA read-only smoke",
+        display_name="QA вход и меню: данные NOT_TESTED",
         issue_number=311,
         read_only=True,
     )

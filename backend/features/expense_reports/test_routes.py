@@ -10,14 +10,17 @@ class FakeApp:
     def __init__(self):
         self.routes = {}
 
-    def get(self, path):
+    def get(self, path, **_options):
         return self._register("GET", path)
 
-    def post(self, path):
+    def post(self, path, **_options):
         return self._register("POST", path)
 
     def put(self, path):
         return self._register("PUT", path)
+
+    def patch(self, path):
+        return self._register("PATCH", path)
 
     def delete(self, path):
         return self._register("DELETE", path)

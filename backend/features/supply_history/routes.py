@@ -12,6 +12,7 @@ from typing import Optional
 import psycopg2.extras
 from fastapi import Depends, Header, HTTPException
 from pydantic import BaseModel
+from ..supplier_access.service import supplier_history_visibility_filter
 
 
 class SupplyHistoryModel(BaseModel):
@@ -69,12 +70,13 @@ def register_supply_history_module(app, deps):
             select_sql = ("SELECT id,company_id as \"companyId\",supplier_id as \"supplierId\",material_name as \"materialName\",quantity,unit,"
                           "price_per_unit as \"pricePerUnit\",total_price as \"totalPrice\",project,date,status,"
                           "confirmed_by as \"confirmedBy\",COALESCE(work_package,'') as \"workPackage\" "
-                          "FROM supply_history")
+                          "FROM supply_history h")
             if role == "поставщик":
                 supplier_ids = current_supplier_ids(cur, current_user)
                 if not supplier_ids:
                     return []
-                cur.execute(select_sql + " WHERE supplier_id = ANY(%s) ORDER BY id DESC" + page_sql, [supplier_ids] + page_params)
+                scope,params=supplier_history_visibility_filter(supplier_ids,current_user.get('id'))
+                cur.execute(select_sql + ' WHERE '+scope+' ORDER BY id DESC'+page_sql,params+page_params)
             else:
                 context = resolve_context(cur, current_user, None, "read",
                                           x_company_id=x_company_id, x_company_mode=x_company_mode)

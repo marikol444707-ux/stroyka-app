@@ -17,6 +17,10 @@ _OFFER_MUTATION_PATH = re.compile(
 def is_owned_supplier_profile_mutation(cur, user, method, path):
     """A supplier's public profile does not consume a customer's subscription."""
     if user.get('role') == 'поставщик' and str(method).upper() == 'POST':
+        from ..participant_support.connections import owned_response_mutation
+        if owned_response_mutation(cur,user,path):
+            # An addressed relationship response does not consume buyer billing.
+            return True
         team_match = re.fullmatch(r'/supplier-team/([1-9][0-9]*)/commands/?', str(path))
         if team_match:
             from ..supplier_team.policy import enabled, customer_assignments_enabled, leader_policy

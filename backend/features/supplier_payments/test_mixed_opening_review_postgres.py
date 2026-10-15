@@ -45,6 +45,7 @@ class MixedOpeningReviewTests(unittest.TestCase):
         self.assertEqual(snapshot(),before)
 
     def test_each_package_is_authorized_before_balance_is_returned(self):
+        self.sql('UPDATE warehouse_invoices SET paid_amount=49 WHERE id=%s',(self.warehouse,))
         seen=[]
         deps=dict(self.main._supplier_payment_access_deps)
         def packages(actor,package):
@@ -70,6 +71,7 @@ class MixedOpeningReviewTests(unittest.TestCase):
 
     def test_changed_balance_or_ambiguous_link_blocks_review(self):
         self.sql('UPDATE warehouse_invoices SET paid_amount=49 WHERE id=%s',(self.warehouse,))
-        self.api('accountant','GET',self.url,expected=409)
+        result=self.api('accountant','GET',self.url,expected=409)
+        self.assertEqual(result['detail'], 'В счёте и накладной указаны разные суммы или разная оплата. Сверьте их с документами и банковской выпиской.')
         self.sql('UPDATE warehouse_invoices SET paid_amount=50,supplier_invoice_id=NULL WHERE id=%s',(self.warehouse,))
         self.api('accountant','GET',self.url,expected=409)

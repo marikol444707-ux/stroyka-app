@@ -3,11 +3,13 @@
 This module NEVER authenticates by itself. Callers must first GET the existing
 /api/users/qa-readonly-context/identity endpoint in the isolated QA BrowserContext using its
 HttpOnly session cookie and validate the response status, origin and TLS.
-Until that flow is wired end-to-end, the worker remains AUTH_NOT_ESTABLISHED.
-Do not persist tokens, session hashes or fabricated user/company identities.
+Only the validated public projection can be placed in the isolated context's
+localStorage for the existing UI bootstrap. Never persist tokens, session hashes
+or fabricated user/company identities; validation failures remain AUTH_NOT_ESTABLISHED.
 """
 from __future__ import annotations
 
+import json
 from urllib.parse import urlsplit
 
 
@@ -88,11 +90,11 @@ def verify_qa_identity_http_response(
             or not base.hostname
             or base.username is not None
             or base.password is not None
-            or base.query or base.fragment
+            or base.query or base.fragment or base.port == 0
             or target.scheme != "https"
             or target.username is not None
             or target.password is not None
-            or target.query or target.fragment
+            or target.query or target.fragment or target.port == 0
             or target.path != "/api/users/qa-readonly-context/identity"
             or (base.scheme, base.hostname.lower().rstrip("."), base.port or 443)
                != (target.scheme, (target.hostname or "").lower().rstrip("."), target.port or 443)
@@ -130,12 +132,12 @@ _QA_IDENTITY_FETCH_JS = r"""(async () => {
 })()"""
 
 
-def verify_qa_identity_in_browser(browser, base_url: str) -> bool:
+def read_qa_user_in_browser(browser, base_url: str) -> dict:
     """Validate session against QA backend using a CDP isolated world.
 
     Must be invoked only after navigation to the exact allowed QA origin,
     with Fetch network guard already active and an injected HttpOnly cookie.
-    Return only a boolean to the caller; never persist the user projection.
+    Return only the validated public projection, never cookie/session fields.
     """
     try:
         tree = browser.call("Page.getFrameTree")
@@ -159,15 +161,50 @@ def verify_qa_identity_in_browser(browser, base_url: str) -> bool:
         value = result["result"]["value"]
         if type(value) is not dict:
             raise QAIdentityNotEstablished()
-        verify_qa_identity_http_response(
+        return verify_qa_identity_http_response(
             base_url=base_url,
             response_url=value.get("url"),
             status=value.get("status"),
             content_type=value.get("content_type"),
             payload=value.get("payload"),
         )
-        return True
     except Exception:
         # Never include exception details: CDP/browser errors may contain
         # URLs, response text, cookies or other secret-bearing values.
+        raise QAIdentityNotEstablished() from None
+
+
+def verify_qa_identity_in_browser(browser, base_url: str) -> bool:
+    read_qa_user_in_browser(browser, base_url)
+    return True
+
+
+def bootstrap_qa_user_in_browser(browser, base_url: str) -> dict:
+    """Seed public UI state only after server authentication, in this context.
+
+    The caller must already enforce the bootstrap-only network allowlist.
+    This is ephemeral BrowserContext storage, never a durable user session,
+    model input, or evidence payload. No role/company may come from a goal.
+    """
+    try:
+        user = read_qa_user_in_browser(browser, base_url)
+        parsed = urlsplit(base_url)
+        host = parsed.hostname.lower().rstrip(".")
+        if ":" in host:
+            host = "[" + host + "]"
+        port = "" if parsed.port in {None, 443} else ":" + str(parsed.port)
+        origin = "https://" + host + port
+        storage_id = {"securityOrigin": origin, "isLocalStorage": True}
+        browser.call(
+            "DOMStorage.setDOMStorageItem", storageId=storage_id,
+            key="user", value=json.dumps(user, ensure_ascii=False, separators=(",", ":")),
+        )
+        entries = browser.call("DOMStorage.getDOMStorageItems", storageId=storage_id)["entries"]
+        if type(entries) is not list:
+            raise QAIdentityNotEstablished()
+        stored = dict(entries)
+        if "authToken" in stored or json.loads(stored.get("user", "null")) != user:
+            raise QAIdentityNotEstablished()
+        return user
+    except Exception:
         raise QAIdentityNotEstablished() from None

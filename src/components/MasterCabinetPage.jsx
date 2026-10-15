@@ -1,4 +1,6 @@
 import { pricelistAssignments } from '../features/work-material-accounting/pricelistAssignments';
+import { matchesAssignedWork } from '../features/work-assignment/matchesAssignedWork';
+import WorkSubmitButton from '../features/work-journal/WorkSubmitButton';
 import { clearSubmittedDrafts } from '../features/work-material-accounting/workDrafts';
 import { workMaterialAccountingEnabled } from '../features/work-material-accounting/materialSources';
 import { sendWorkBatch, clearWorkBatch, pendingWorkBatch, workBatchScope } from '../features/work-material-accounting/workCommands';
@@ -416,15 +418,7 @@ export default function MasterCabinetPage(props) {
       const assignedContractItem = contractCandidates.find(contractItem => {
         if (seenContractCandidates.has(contractItem)) return false;
         seenContractCandidates.add(contractItem);
-        const contractKey = String(contractItem.estimateItemKey || contractItem.estimate_item_key || '').trim();
-        const contractName = String(contractItem.name || contractItem.description || '').trim().toLowerCase();
-        const contractUnit = String(contractItem.unit || '').trim().toLowerCase();
-        const contractSection = String(contractItem.estimateSection || contractItem.estimate_section || '').trim().toLowerCase();
-        const contractProject = String(contractItem.projectName || contractItem.project_name || '').trim();
-        const sameProject = !contractProject || contractProject === projectName;
-        const sameKey = itemKey && contractKey && contractKey === itemKey;
-        const sameName = contractName && contractName === itemName && (!contractSection || !sectionName || contractSection === sectionName) && (!itemUnit || !contractUnit || contractUnit === itemUnit);
-        return sameProject && (sameKey || sameName);
+        return matchesAssignedWork(contractItem, {projectName, itemKey, itemName, sectionName, itemUnit});
       });
       if ((assignedContractItems.length > 0 && assignedContractItem) || (assignedContractItems.length === 0 && (packageAllowed || namedToMe))) {
         myItems.push({
@@ -1606,18 +1600,16 @@ export default function MasterCabinetPage(props) {
                               />
                             )}
                             <span style={{ fontSize: '11px', color: missingExecutionPrice ? C.warning : C.success, fontWeight: '600', whiteSpace: 'nowrap' }}>{missingExecutionPrice ? 'цена не назначена' : deltaEarning.toLocaleString('ru-RU') + ' ₽'}</span>
-                            <button
-                              onClick={() => {
+                            <WorkSubmitButton
+                              onSubmit={() => {
                                 const liveDraft = estimateDraftValueRef.current[workKey] !== undefined ? estimateDraftValueRef.current[workKey] : draft;
                                 commitEstimateDoneDraft(workKey, liveDraft);
                                 const targetDisplay = safeNormalizeMeasure(done + safeDenormalizeMeasure(liveDraft, item.unit), item.unit).qty;
-                                submitEstimateWorkDone(item, targetDisplay, estimateDraftValueRef);
+                                return submitEstimateWorkDone(item, targetDisplay, estimateDraftValueRef);
                               }}
                               disabled={missingExecutionPrice}
                               style={{ ...(!missingExecutionPrice ? btnO : btnG), padding: '5px 9px', fontSize: '11px', opacity: !missingExecutionPrice ? 1 : 0.65 }}
-                            >
-                              Отправить
-                            </button>
+                            />
                           </div>
                           {roomCheck && <div style={{ marginTop: '6px', padding: '7px 9px', borderRadius: '8px', border: '1px solid ' + (roomCheck.over > 0 ? C.dangerBorder : C.successBorder), backgroundColor: roomCheck.over > 0 ? C.dangerLight : C.successLight, color: roomCheck.over > 0 ? C.danger : C.success, fontSize: '11px', fontWeight: '600' }}>{roomMeasurementMessage(roomCheck)}</div>}
                           <div style={{ marginTop: '8px' }}>

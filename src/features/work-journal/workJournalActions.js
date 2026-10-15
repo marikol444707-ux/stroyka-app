@@ -64,8 +64,8 @@ export const createWorkJournalActions = ({
     const qty = toNum(mi.quantity);
     const done = toNum(mi.doneQuantity);
     const raw = denormalizeMeasure(displayQty, mi.unit);
-    if (raw <= done) { alert('Введите объём больше уже отправленного: сейчас '+fmtMeasure(done,mi.unit)); return; }
-    if (qty>0 && raw>qty) { alert('План '+fmtMeasure(qty,mi.unit)+'. Нельзя поставить больше.'); return; }
+    if (!Number.isFinite(raw) || raw <= done) { alert('Введите выполненный объём за сегодня — больше нуля.'); return; }
+    if (qty>0 && raw>qty) { alert('Осталось выполнить '+fmtMeasure(Math.max(0,qty-done),mi.unit)+'. Уменьшите объём за сегодня.'); return; }
     const workKey = estimateWorkKey(mi.estId, mi.sectionIdx, mi.itemIdx);
     const estimateItemKey = mi.estimateItemKey || workKey;
     let params = estimateWorkParams[workKey]||{};

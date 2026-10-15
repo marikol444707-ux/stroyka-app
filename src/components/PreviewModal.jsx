@@ -4,6 +4,8 @@ import {sanitizeDocumentHtml} from '../utils/safeHtml';
 import { journalScopeKey } from '../hooks/useJournalMutation';
 import { PREVIEW_INVALIDATED } from '../hooks/usePreviewInvalidation';
 import { getQualityJournalRevision, QUALITY_JOURNAL_MUTATED } from '../utils/qualityJournalEvents';
+import MobileEstimateSummary from './MobileEstimateSummary';
+import './PreviewModal.css';
 
 export default function PreviewModal({content, title, onClose, onPrint}) {
   const [opened] = useState(() => ({ scope: journalScopeKey(), revision: getQualityJournalRevision() }));
@@ -44,25 +46,26 @@ export default function PreviewModal({content, title, onClose, onPrint}) {
     () => sanitizeDocumentHtml(content),
     [content],
   );
+  const isEstimateSummary = safeContent.includes('class="eps-table"');
 
   return (
     <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.6)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:3000}}>
-      <div style={{backgroundColor:'white',borderRadius:'16px',width:'820px',maxWidth:'95%',maxHeight:'90vh',display:'flex',flexDirection:'column',boxShadow:'0 20px 60px rgba(0,0,0,0.2)'}}>
-        <div style={{padding:'16px 24px',borderBottom:'1px solid #e5e7eb',display:'flex',justifyContent:'space-between',alignItems:'center',backgroundColor:'#f9fafb',borderRadius:'16px 16px 0 0'}}>
-          <b style={{color:'#111827',fontSize:'15px'}}>{'📄 '+title}</b>
+      <div className="document-preview-modal" role="dialog" aria-modal="true" aria-label={title} style={{backgroundColor:'white',borderRadius:'16px',width:'820px',maxWidth:'95%',maxHeight:'90vh',display:'flex',flexDirection:'column',boxShadow:'0 20px 60px rgba(0,0,0,0.2)'}}>
+        <div className="document-preview-header" style={{padding:'16px 24px',borderBottom:'1px solid #e5e7eb',display:'flex',justifyContent:'space-between',alignItems:'center',backgroundColor:'#f9fafb',borderRadius:'16px 16px 0 0'}}>
+          <b style={{color:'#111827',fontSize:'15px'}}>{isEstimateSummary ? 'Изменения сметы' : '📄 '+title}</b>
           <div style={{display:'flex',gap:'10px'}}>
-            <button disabled={blocked || stale} onClick={print} style={{padding:'8px 20px',background:'linear-gradient(135deg,#f97316,#ea580c)',color:'white',border:'none',borderRadius:'8px',cursor:'pointer',fontSize:'14px',fontWeight:'600',display:'flex',alignItems:'center',gap:'6px'}}>
-              <Printer size={14}/>Распечатать
+            <button aria-label="Распечатать" disabled={blocked || stale} onClick={print} style={{padding:'8px 20px',background:'linear-gradient(135deg,#f97316,#ea580c)',color:'white',border:'none',borderRadius:'8px',cursor:'pointer',fontSize:'14px',fontWeight:'600',display:'flex',alignItems:'center',gap:'6px'}}>
+              <Printer size={14}/><span>Распечатать</span>
             </button>
-            <button onClick={onClose} style={{padding:'8px 16px',backgroundColor:'#6b7280',color:'white',border:'none',borderRadius:'8px',cursor:'pointer',display:'flex',alignItems:'center',gap:'6px'}}>
-              <X size={14}/>Закрыть
+            <button aria-label="Закрыть" onClick={onClose} style={{padding:'8px 16px',backgroundColor:'#6b7280',color:'white',border:'none',borderRadius:'8px',cursor:'pointer',display:'flex',alignItems:'center',gap:'6px'}}>
+              <X size={14}/><span>Закрыть</span>
             </button>
           </div>
         </div>
-        <div style={{flex:1,overflowY:'auto',padding:'24px',backgroundColor:'white',borderRadius:'0 0 16px 16px',colorScheme:'light'}}>
+        <div className="document-preview-body" style={{flex:1,overflowY:'auto',padding:'24px',backgroundColor:'white',borderRadius:'0 0 16px 16px',colorScheme:'light'}}>
           {blocked || stale
             ? <div role="alert">Предпросмотр устарел. Обновите данные и сформируйте документ заново.</div>
-            : <div style={{fontFamily:'Arial',fontSize:'12px',lineHeight:'1.6',color:'#111827'}} dangerouslySetInnerHTML={{__html:safeContent}}/>}
+            : <>{isEstimateSummary && <MobileEstimateSummary content={safeContent}/>}<div className={isEstimateSummary ? 'estimate-summary-print-view' : undefined} style={{fontFamily:'Arial',fontSize:'12px',lineHeight:'1.6',color:'#111827'}} dangerouslySetInnerHTML={{__html:safeContent}}/></>}
         </div>
       </div>
     </div>

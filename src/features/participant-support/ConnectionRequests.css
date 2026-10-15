@@ -1,0 +1,9 @@
+.connection-requests { min-width:0; overflow-wrap:anywhere; border:1px solid currentColor; border-radius:12px; padding:14px; margin:12px 0; }
+.connection-requests h3,.connection-requests h4 { margin:0 0 10px; }
+.connection-requests__list { list-style:none; padding:0; display:grid; gap:10px; }
+.connection-requests__list > li { border-top:1px solid currentColor; padding-top:10px; }
+.connection-requests__actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+.connection-requests button { min-height:44px; padding:8px 14px; max-width:100%; white-space:normal; border:1px solid currentColor; border-radius:8px; color:inherit; background:transparent; cursor:pointer; }
+.connection-requests button:disabled { cursor:default; opacity:.6; }
+.connection-requests label { display:flex; align-items:start; gap:8px; margin:12px 0; }
+.connection-requests input[type=checkbox] { min-width:22px; min-height:22px; margin:0; }

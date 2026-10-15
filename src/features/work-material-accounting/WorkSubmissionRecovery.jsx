@@ -9,10 +9,12 @@ export default function WorkSubmissionRecovery({ API, companyContext, user, C, o
   const companyId = companyContext?.selectedCompanyId;
   const userId = user?.id;
   useEffect(() => {
+    setPending(null);
+    setError('');
     if (!workMaterialAccountingEnabled() || !companyId || !userId) return;
     const load = () => {
       try { setPending(pendingWorkBatch({ companyId, userId })); setError(''); }
-      catch (_) { setError('Не удалось прочитать сохранённую отправку. Требуется сверка журнала.'); }
+      catch (_) { setPending(null); setError('Не удалось открыть сохранённую отправку. Проверьте журнал перед новой отправкой.'); }
     };
     load();
     window.addEventListener('work-material-batch-change', load);
@@ -20,9 +22,9 @@ export default function WorkSubmissionRecovery({ API, companyContext, user, C, o
   }, [companyId, userId]);
   if (!pending && !error) return null;
   return <section aria-label="Сохранённая отправка" style={{padding:'12px',marginBottom:'12px',border:'1px solid '+C.warning,borderRadius:'8px',color:C.text,background:C.bg}}>
-    <b>Есть сохранённая отправка</b>
-    <p>Повтор использует исходные данные. Уже сохранённые работы, расход и денежные операции повторно не проводятся.</p>
-    {pending && <p>Подтверждено отправок: {pending.next} из {pending.commands.length}.</p>}
+    <b>Нужно проверить результат отправки</b>
+    <p>Данные сохранены. Нажмите «Завершить отправку», чтобы проверить результат и отправить оставшееся. Уже сохранённое повторно не добавится.</p>
+    {pending && <p>Сохранено: {pending.next} из {pending.commands.length}.</p>}
     {error && <p role="alert" style={{color:C.danger}}>{error}</p>}
     {pending && <button type="button" disabled={busy} onClick={async () => {
       setBusy(true); setError('');
@@ -33,7 +35,8 @@ export default function WorkSubmissionRecovery({ API, companyContext, user, C, o
         clearWorkBatch(scope);
       } catch (e) { setError(e.message || 'Не удалось подтвердить отправку.'); }
       finally { setBusy(false); }
-    }}>{busy ? 'Проверяем отправку…' : 'Повторить сохранённую отправку'}</button>}
+    }} style={{minHeight:44,padding:'10px 14px'}}>{busy ? 'Проверяем отправку…' : 'Завершить отправку'}</button>}
+    {pending?.rejected && <p>Сервер отклонил оставшиеся данные. Можно вернуться к их исправлению. Уже сохранённое останется в журнале.</p>}
     {pending?.rejected && <button type="button" disabled={busy} onClick={async () => {
       setBusy(true); setError('');
       try {
@@ -41,6 +44,6 @@ export default function WorkSubmissionRecovery({ API, companyContext, user, C, o
         abandonRejectedWorkTail(workBatchScope(companyContext, user));
       } catch (e) { setError(e.message); }
       finally { setBusy(false); }
-    }}>Снять отклонённые строки с отправки</button>}
+    }} style={{minHeight:44,padding:'10px 14px',marginLeft:8}}>Вернуться к исправлению</button>}
   </section>;
 }

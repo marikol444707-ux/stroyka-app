@@ -73,7 +73,8 @@ def serialize_relationship(row):
     result.update({key: (row.get('profile') or {}).get(key, '') for key in PRIVATE_FIELDS})
     result.update(id=row['supplier_id'], companyId=row['company_id'],
                   companySupplierLinkId=row['id'], relationshipVersion=row['version'],
-                  identityReadOnly=True)
+                  identityReadOnly=True, hasSupplierAccount=bool(row.get('supplier_user_id')),
+                  mergedIntoSupplierId=(row.get('profile') or {}).get('mergedIntoSupplierId'))
     return result
 
 
@@ -132,7 +133,7 @@ class CompanySupplierDirectory:
             conn.close()
 
     def rows(self, cur, company, supplier_id=None):
-        cur.execute(f'''SELECT link.*, {PUBLIC_SELECT} FROM company_supplier_links link
+        cur.execute(f'''SELECT link.*, s.user_id AS supplier_user_id, {PUBLIC_SELECT} FROM company_supplier_links link
                         JOIN suppliers s ON s.id=link.supplier_id
                         WHERE link.company_id=%s AND link.platform_account_id=%s'''
                     + (' AND link.supplier_id=%s' if supplier_id else '') + ' ORDER BY s.name,s.id LIMIT 1001',
@@ -140,7 +141,8 @@ class CompanySupplierDirectory:
         rows = cur.fetchall()
         if len(rows) > 1000:
             raise HTTPException(409, 'Каталог превышает 1000 поставщиков; требуется постраничный просмотр')
-        return [serialize_relationship(row) for row in rows]
+        from .company_merge import group_rows
+        return group_rows([serialize_relationship(row) for row in rows])
 
     def list(self, user, headers):
         with self.transaction(user, headers) as (cur, company, actor):
@@ -165,8 +167,16 @@ class CompanySupplierDirectory:
             # Exact legal keys only. A contact/name/alias never links identity or access.
             for identity in sorted(filter(None, (inn, ogrn))):
                 cur.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))', ('supplier-legal:' + identity,))
-            cur.execute("SELECT * FROM suppliers WHERE (%s<>'' AND inn=%s) OR (%s<>'' AND ogrn=%s) ORDER BY id FOR SHARE", (inn, inn, ogrn, ogrn))
+            cur.execute("""SELECT s.* FROM suppliers s
+                WHERE ((%s<>'' AND inn=%s) OR (%s<>'' AND ogrn=%s))
+                    AND NOT EXISTS(SELECT 1 FROM company_supplier_links l
+                        WHERE l.supplier_id=s.id AND l.profile ? 'mergedIntoSupplierId')
+                ORDER BY s.id FOR SHARE OF s""", (inn, inn, ogrn, ogrn))
             matches = cur.fetchall()
+            if not matches:
+                cur.execute("SELECT id FROM suppliers WHERE (%s<>'' AND inn=%s) OR (%s<>'' AND ogrn=%s) LIMIT 1", (inn, inn, ogrn, ogrn))
+                if cur.fetchone():
+                    raise HTTPException(409, 'Карточка с этими реквизитами уже объединена. Используйте основную карточку из каталога')
             if len(matches) > 1:
                 raise HTTPException(409, 'Найдено несколько карточек с этими реквизитами. Нужна проверка платформы')
             if matches:

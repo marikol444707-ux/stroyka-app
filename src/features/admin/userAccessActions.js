@@ -28,8 +28,10 @@ export const createUserAccessActions = ({
       },
     });
     if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(typeof error.detail === 'string' ? error.detail : 'Не удалось сохранить изменения');
+      const body = await response.json().catch(() => ({}));
+      const error = new Error(typeof body.detail === 'string' ? body.detail : 'Не удалось сохранить изменения');
+      if (body.reasonCode) error.inviteFailure = {message:error.message,reasonCode:body.reasonCode,diagnosticId:body.diagnosticId,companyId};
+      throw error;
     }
     return response;
   };
@@ -120,7 +122,7 @@ export const createUserAccessActions = ({
     await refreshData();
   };
 
-  const createSupplierInvite = async () => {
+  const createSupplierInvite = async (isCurrent = () => true) => {
     const body = {
       role: 'поставщик',
       presetName: supplierInviteForm.presetName || '',
@@ -131,6 +133,7 @@ export const createUserAccessActions = ({
     };
     const r = await scopedFetch(API + '/invite-codes', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
     const data = await r.json();
+    if (!isCurrent()) return;
     if (data.code) {
       const link = window.location.origin + '/?invite=' + data.code;
       setGeneratedInviteLink({code: data.code, link, presetName: body.presetName, expiresAt: data.expires_at});
@@ -151,7 +154,13 @@ export const createUserAccessActions = ({
     deleteUser: guarded(deleteUser),
     resetUserTwoFactor: guarded(resetUserTwoFactor),
     createInvite: guarded(createInvite),
-    createSupplierInvite: guarded(createSupplierInvite),
+    createSupplierInvite: guarded(async (isCurrent) => {
+      try { return await createSupplierInvite(isCurrent); }
+      catch (error) {
+        if (error.inviteFailure) return {inviteFailure:error.inviteFailure};
+        throw error;
+      }
+    }),
     deleteInvite: guarded(deleteInvite),
   };
 };

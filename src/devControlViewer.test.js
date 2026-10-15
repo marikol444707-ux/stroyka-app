@@ -99,6 +99,17 @@ describe('Jev viewer frame lifecycle', () => {
     },
   );
 
+  test('bootstrap pass explicitly keeps business data untested and blocked reads visible', async () => {
+    jobs[0].status = 'passed';
+    jobs[0].result = { checks: ['authenticated_shell_menu'], scope: 'bootstrap_only',
+      data_status: 'NOT_TESTED', blocked_data_reads: 17 };
+    await connect();
+    expect(q('#timeline').textContent).toContain('Только вход и меню');
+    expect(q('#timeline').textContent).toContain('NOT_TESTED');
+    expect(q('#timeline').textContent).toContain('заблокированы до отправки: 17');
+    expect(q('#status').textContent).toBe('passed');
+  });
+
   test('switching runs clears the previous image and details before the new request finishes', async () => {
     await connect();
     const detail = deferred();

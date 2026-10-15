@@ -54,6 +54,187 @@ class BrowserWorkerFinalScreenshotTest(unittest.TestCase):
 
 
 class BrowserWorkerUrlSafetyTest(unittest.TestCase):
+    def test_bootstrap_lifecycle_uses_one_context_rechecks_identity_and_destroys_guarded_context(self):
+        import json
+        from types import ModuleType
+        from dev_control.browser_worker.network_guard import install_safe_browser
+        from dev_control.browser_worker.qa_identity import QAIdentityNotEstablished
+        from dev_control.browser_worker.test_qa_identity import valid_response
+
+        for changed_identity in (False, True):
+            events, storage = [], {}
+            state = {"url": "about:blank", "loader": 0, "probes": 0}
+            def cdp(method, **kwargs):
+                events.append((method, kwargs))
+                if method == "Target.createBrowserContext": return {"browserContextId": "isolated"}
+                if method == "Target.createTarget":
+                    self.assertEqual(kwargs["browserContextId"], "isolated")
+                    return {"targetId": "page"}
+                if method == "Target.attachToTarget": return {"sessionId": "page-session"}
+                if method == "Network.setCookie": return {"success": True}
+                if method == "Page.navigate":
+                    state["url"] = kwargs["url"]
+                    state["loader"] += 1
+                    return {"loaderId": str(state["loader"])}
+                if method == "Page.getFrameTree":
+                    return {"frameTree": {"frame": {"id": "frame", "url": state["url"],
+                                                      "loaderId": str(state["loader"])}}}
+                if method == "Page.createIsolatedWorld": return {"executionContextId": 77}
+                if method == "Runtime.evaluate":
+                    state["probes"] += 1
+                    payload = valid_response()
+                    if changed_identity and state["probes"] == 2:
+                        payload["user"]["id"] = 999
+                    return {"result": {"value": {"url": "https://qa.example.test/api/users/qa-readonly-context/identity",
+                        "status": 200, "content_type": "application/json", "payload": payload}}}
+                if method == "DOMStorage.setDOMStorageItem": storage[kwargs["key"]] = kwargs["value"]
+                if method == "DOMStorage.getDOMStorageItems": return {"entries": list(storage.items())}
+                return {}
+            class Browser:
+                def call(self, method, **kwargs): return cdp(method, session_id=self.session, **kwargs)
+                def evaluate(self, expression):
+                    self_test.assertEqual(expression, "document.readyState")
+                    return "complete"
+            self_test = self
+            root, agent, browser_module = (ModuleType(name) for name in (
+                "jev_ultrafast", "jev_ultrafast.agent", "jev_ultrafast.browser"))
+            root.agent, root.browser, browser_module.Browser = agent, browser_module, Browser
+            harness, admin, helpers = (ModuleType(name) for name in (
+                "browser_harness", "browser_harness.admin", "browser_harness.helpers"))
+            harness.admin, harness.helpers = admin, helpers
+            admin.ensure_daemon = lambda: None
+            helpers.cdp, helpers.drain_events = cdp, lambda: []
+            modules = {m.__name__: m for m in (root, agent, browser_module, harness, admin, helpers)}
+            def start(boundary):
+                self.assertTrue(boundary._bootstrap_only)
+                events.append(("GUARD_START", {}))
+            with self.subTest(changed_identity=changed_identity), patch.dict(sys.modules, modules), patch.dict(
+                os.environ, {"QA_SESSION_COOKIE_VALUE": "dummy-cookie"}, clear=True,
+            ), patch.object(NetworkBoundary, "start", start):
+                safe = install_safe_browser("https://qa.example.test/app", read_only=True)
+                if changed_identity:
+                    with self.assertRaises(QAIdentityNotEstablished): safe("https://qa.example.test/app")
+                else:
+                    browser = safe("https://qa.example.test/app")
+                    self.assertTrue(browser._qa_identity_verified)
+                    self.assertTrue(browser._qa_bootstrap_only)
+                    browser.close()
+            methods = [method for method, _ in events]
+            self.assertEqual(methods.count("Target.createBrowserContext"), 1)
+            self.assertEqual(methods.count("Page.navigate"), 2)
+            self.assertEqual(state["probes"], 2)
+            self.assertLess(methods.index("GUARD_START"), methods.index("Page.navigate"))
+            self.assertLess(methods.index("Runtime.evaluate"), methods.index("DOMStorage.setDOMStorageItem"))
+            self.assertLess(methods.index("DOMStorage.setDOMStorageItem"),
+                            len(methods) - 1 - methods[::-1].index("Page.navigate"))
+            self.assertNotIn("Fetch.disable", methods)
+            self.assertIn("Target.disposeBrowserContext", methods)
+            self.assertNotIn("authToken", storage)
+            self.assertEqual(json.loads(storage["user"])["id"], 21)
+
+    def test_bootstrap_guard_blocks_all_business_reads_and_reports_exclusion(self):
+        for path, method, resource, excluded in (
+            ("/projects", "GET", "XHR", True),
+            ("/api/supply-history", "GET", "Fetch", True),
+            ("/users/company-context", "GET", "XHR", True),
+            ("/csrf-token", "GET", "Fetch", True),
+            ("/projects", "POST", "XHR", False),
+            ("/api/supply-history", "GET", "Image", False),
+        ):
+            with self.subTest(path=path, method=method, resource=resource):
+                guard = NetworkBoundary.__new__(NetworkBoundary)
+                guard._cdp = Mock()
+                guard._session_id = "root"
+                guard._base_url = "https://qa.example.test/app"
+                guard._read_only = guard._bootstrap_only = True
+                guard._error = None
+                guard.blocked_data_reads = guard.blocked_presence_pings = 0
+                guard._stop = threading.Event()
+                def events():
+                    guard._stop.set()
+                    return [{"method": "Fetch.requestPaused", "session_id": "root", "params": {
+                        "requestId": "r", "resourceType": resource,
+                        "request": {"url": "https://qa.example.test" + path, "method": method}}}]
+                guard._drain_events = events
+                guard._loop()
+                guard._cdp.assert_called_once_with("Fetch.failRequest", session_id="root",
+                                                   requestId="r", errorReason="BlockedByClient")
+                self.assertEqual(guard.blocked_data_reads, int(excluded))
+                self.assertEqual(guard._error is None, excluded)
+
+    def test_bootstrap_body_text_without_real_shell_never_reports_success(self):
+        class Browser:
+            _qa_identity_verified = True
+            _qa_bootstrap_only = True
+            _qa_boundary = SimpleNamespace(_bootstrap_only=True, blocked_data_reads=3,
+                blocked_presence_pings=0, raise_if_failed=lambda: None)
+            def evaluate(self, expression):
+                if expression == "location.href": return "https://qa.example.test/app"
+                if "app-authenticated-shell" in expression: return False
+                return "Public page mentions Склад"
+        class Agent:
+            def __init__(self, *_args, **_kwargs): self.browser = Browser()
+            def __enter__(self): return self
+            def __exit__(self, *_args): return False
+            def snapshot(self): return {"status": "observed", "page": {}, "history": [], "decisions": []}
+            def run(self): raise AssertionError("No model actions")
+        with tempfile.TemporaryDirectory() as evidence, patch.dict(os.environ, {
+            "QA_BASE_URL": "https://qa.example.test/app", "QA_ALLOWED_ORIGIN": "https://qa.example.test",
+            "QA_ENVIRONMENT": "qa", "QA_SESSION_COOKIE_VALUE": "dummy-cookie",
+        }, clear=True), patch.dict(sys.modules, {"jev_ultrafast": SimpleNamespace(Agent=Agent)}), patch(
+            "dev_control.browser_worker.run.install_safe_browser",
+        ), patch("dev_control.browser_worker.run.time.monotonic", side_effect=[0, 10]), patch(
+            "dev_control.browser_worker.run._write_progress",
+        ) as progress, patch("dev_control.browser_worker.run._capture_final_frame") as capture:
+            result = execute_task(url="https://qa.example.test/app", goal="observe menu",
+                record_dir=evidence, read_only=True, expect_text=["Склад"], max_seconds=5)
+        self.assertFalse(result["ok"])
+        self.assertIn("AUTHENTICATED_SHELL_MENU_NOT_VERIFIED", result["failures"])
+        self.assertEqual(result["scope"], "bootstrap_only")
+        self.assertEqual(result["data_status"], "NOT_TESTED")
+        self.assertTrue(all(call.kwargs.get("verified_ok") is not True for call in progress.call_args_list))
+        capture.assert_not_called()
+
+    def test_bootstrap_observation_rejects_same_document_url_escape(self):
+        browser = SimpleNamespace(
+            _qa_bootstrap_only=True,
+            _qa_boundary=SimpleNamespace(raise_if_failed=lambda: None),
+        )
+        for path in ("/application", "/app/other", "/app?other=1", "/app#other"):
+            with self.subTest(path=path):
+                browser.evaluate = lambda expression: (
+                    "https://qa.example.test" + path if expression == "location.href"
+                    else True if "app-authenticated-shell" in expression else "Склад"
+                )
+                with self.assertRaisesRegex(ValueError, "BOOTSTRAP_DOCUMENT_SCOPE_NOT_ENFORCED"):
+                    _refresh_live_observation(SimpleNamespace(browser=browser), {}, "https://qa.example.test")
+
+    def test_bootstrap_profile_allows_only_identity_app_and_static_assets(self):
+        base = "https://qa.example.test/app"
+        self.assertTrue(request_allowed(base, "https://qa.example.test", "Document",
+                                        read_only=True, bootstrap_only=True))
+        self.assertFalse(request_allowed("https://qa.example.test/admin", "https://qa.example.test", "Document",
+                                         read_only=True, bootstrap_only=True))
+        allowed = (
+            (base, "Document"),
+            ("https://qa.example.test/static/js/main.abc123.js", "Script"),
+            ("https://qa.example.test/static/css/main.abc123.css", "Stylesheet"),
+            ("https://qa.example.test/api/users/qa-readonly-context/identity", "Fetch"),
+        )
+        for url, kind in allowed:
+            with self.subTest(url=url):
+                self.assertTrue(request_allowed(url, base, kind, read_only=True, bootstrap_only=True))
+        for path in ("/projects", "/users/company-context", "/api/supply-history", "/csrf-token",
+                     "/app/data", "/static/../projects", "/static/js/%2e%2e/secret",
+                     "/api/users/qa-readonly-context/identity?other=1"):
+            for kind in ("XHR", "Image", "Document"):
+                with self.subTest(path=path, kind=kind):
+                    self.assertFalse(request_allowed("https://qa.example.test" + path, base, kind,
+                                                     read_only=True, bootstrap_only=True))
+        for method in ("POST", "PUT", "DELETE", "OPTIONS"):
+            self.assertFalse(request_allowed(allowed[-1][0], base, "Fetch", request_method=method,
+                                             read_only=True, bootstrap_only=True))
+
     def test_direct_execute_task_rejects_production_before_model_or_browser(self):
         for base in (
             "https://stroyka.pro",
@@ -441,11 +622,15 @@ class BrowserWorkerUrlSafetyTest(unittest.TestCase):
 
         class FakeBrowser:
             def __init__(self):
-                self._qa_boundary = None
+                self._qa_boundary = SimpleNamespace(_bootstrap_only=True, blocked_data_reads=7,
+                    blocked_presence_pings=1, raise_if_failed=lambda: None)
+                self._qa_bootstrap_only = True
 
             def evaluate(self, expression):
                 if expression == "location.href":
                     return "https://qa.example.test/app"
+                if "app-authenticated-shell" in expression:
+                    return True
                 return "СтройКа\nСклад\nСнабжение"
 
         class FakeAgent:
@@ -526,6 +711,10 @@ class BrowserWorkerUrlSafetyTest(unittest.TestCase):
                 )
 
         self.assertTrue(verified_report["ok"])
+        self.assertEqual(verified_report["scope"], "bootstrap_only")
+        self.assertEqual(verified_report["data_status"], "NOT_TESTED")
+        self.assertEqual(verified_report["blocked_data_reads"], 7)
+        self.assertEqual(verified_report["blocked_presence_writes"], 1)
         self.assertFalse(cookie_report["ok"])
         self.assertIn("AUTH_NOT_ESTABLISHED", cookie_report["failures"])
         self.assertNotIn("dummy-qa-cookie", repr(cookie_report))

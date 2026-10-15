@@ -21,7 +21,7 @@ from pathlib import Path
 
 QA_URL = "https://stroyka-qa-gateway/app"
 QA_HOST = "stroyka-qa-gateway"
-SCENARIO = "authenticated-qa-menu-smoke"
+SCENARIO = "authenticated-qa-bootstrap-only"
 GITHUB_REPORT_URL = (
     "https://api.github.com/repos/marikol444707-ux/stroyka-app/issues/311/comments"
 )
@@ -29,6 +29,7 @@ REQUIRED_CHECKS = frozenset({
     "read_only_observation",
     "expect_text[0]:present",
     "expect_url_contains[0]:present",
+    "authenticated_shell_menu",
 })
 ALLOWED_JOB_STATUS = frozenset({"queued", "running", "cancelling", "passed", "failed", "cancelled"})
 ALLOWED_QA_ENVIRONMENTS = frozenset({"qa", "test", "staging"})
@@ -184,6 +185,8 @@ def run_smoke(call, *, sleep=time.sleep, monotonic=time.monotonic):
                 and result.get("ok") is True
                 and REQUIRED_CHECKS.issubset(checks)
                 and not result.get("failures")
+                and result.get("scope") == "bootstrap_only"
+                and result.get("data_status") == "NOT_TESTED"
             )
             return {
                 "job_id": job_id,
@@ -191,6 +194,11 @@ def run_smoke(call, *, sleep=time.sleep, monotonic=time.monotonic):
                 "outcome": "passed" if success else "failed",
                 "checks": checks,
                 "failure_codes": [] if success else classify_failures(result.get("failures")),
+                "scope": "bootstrap_only",
+                "data_status": "NOT_TESTED",
+                "blocked_data_reads": result.get("blocked_data_reads")
+                    if type(result.get("blocked_data_reads")) is int
+                    and 0 <= result["blocked_data_reads"] <= 1_000_000 else None,
             }
         if status not in ALLOWED_JOB_STATUS:
             raise WatchError("UNKNOWN_JOB_STATUS")
@@ -263,6 +271,8 @@ def github_report(report: dict, token: str) -> None:
         f"- Job: `{report.get('job_id') or 'not-created'}`\n"
         f"- Checks: `{checks}`\n"
         f"- Failure codes: `{failures}`\n\n"
+        "- Scope: `bootstrap_only`; business data: `NOT_TESTED`\n"
+        f"- Business API reads blocked before send: `{report.get('blocked_data_reads')}`\n\n"
         "No credentials, screenshots, entered text, or raw model output attached."
     )
     request = urllib.request.Request(

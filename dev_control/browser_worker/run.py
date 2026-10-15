@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from urllib.parse import parse_qsl, unquote, urlencode, urlsplit, urlunsplit
 from dev_control.browser_worker.network_guard import (
-    assert_allowed_document_url, assert_qa_execution_scope, install_safe_browser,
+    assert_allowed_document_url, assert_qa_execution_scope, install_safe_browser, request_allowed,
 )
 from dev_control.browser_worker.provider import install_timeweb_provider
 from dev_control.browser_worker.verifier import verify_final_state
@@ -143,6 +143,7 @@ def _write_progress(
     verified_ok: bool | None = None,
     checks: list[str] | tuple[str, ...] = (),
     failures: list[str] | tuple[str, ...] = (),
+    scope: str | None = None,
 ) -> None:
     """Persist a small redacted live-view snapshot without typed values or prompts."""
 
@@ -156,6 +157,8 @@ def _write_progress(
         "decisions": _sanitize_decisions(state.get("decisions")),
         "updated_at_ms": int(time.time() * 1000),
     }
+    if scope == "bootstrap_only":
+        payload.update(scope=scope, data_status="NOT_TESTED")
     if verified_ok is not None:
         payload.update(
             verified_ok=bool(verified_ok),
@@ -183,12 +186,28 @@ def _refresh_live_observation(agent, state: dict, base_url: str) -> dict:
         boundary.raise_if_failed()
     live_url = str(browser.evaluate("location.href") or "")
     _assert_allowed_url(live_url, base_url)
+    if getattr(browser, "_qa_bootstrap_only", False) is True and not request_allowed(
+        live_url, base_url, "Document", read_only=True, bootstrap_only=True,
+    ):
+        # pushState/replaceState can change a URL without a network event.
+        raise ValueError("BOOTSTRAP_DOCUMENT_SCOPE_NOT_ENFORCED")
     full_text = browser.evaluate("document.body ? document.body.innerText : ''") or ""
     if boundary is not None:
         boundary.raise_if_failed()
     page = state.setdefault("page", {})
     page["url"] = live_url
     page["full_text"] = str(full_text)
+    if getattr(browser, "_qa_bootstrap_only", False) is True:
+        # Body text can appear on a public/login screen too. Require the
+        # real authenticated shell and a visible warehouse navigation control.
+        visible = browser.evaluate("""(() => {
+          const shown = e => Boolean(e && e.getClientRects().length &&
+            getComputedStyle(e).visibility !== 'hidden');
+          const shell = document.querySelector('.app-authenticated-shell');
+          const menu = shell && shell.querySelector('button[aria-label="Склад"]');
+          return shown(shell) && shown(menu);
+        })()""")
+        page["bootstrap_shell_verified"] = visible is True
     return state
 
 
@@ -248,6 +267,8 @@ def execute_task(
 
     evidence = _evidence_dir(record_dir)
     provider_patch = None if read_only else install_timeweb_provider()
+    bootstrap_only = bool(read_only and (os.environ.get("QA_SESSION_COOKIE_VALUE") or "").strip())
+    scope = "bootstrap_only" if bootstrap_only else None
     install_safe_browser(base_url, read_only=read_only)
 
     from jev_ultrafast import Agent
@@ -261,7 +282,7 @@ def execute_task(
         with Agent(url, goal, record_dir=evidence, screenshots=True) as agent:
             boundary_ref = getattr(agent.browser, "_qa_boundary", None)
             qa_identity_verified = getattr(agent.browser, "_qa_identity_verified", False) is True
-            _write_progress(evidence, agent.snapshot(), "observed")
+            _write_progress(evidence, agent.snapshot(), "observed", scope=scope)
             if read_only:
                 # Hard read-only mode: never invoke agent.run(), so the model
                 # cannot click, type, select, submit, or mutate application data.
@@ -280,15 +301,17 @@ def execute_task(
                         expect_url_contains=expect_url_contains or (),
                         require_agent_done=False,
                     )
+                    shell_ready = not bootstrap_only or (final_state.get("page") or {}).get("bootstrap_shell_verified") is True
                     _write_progress(
                         evidence,
                         final_state,
                         "read_only_observation",
-                        verified_ok=probe.ok,
+                        verified_ok=probe.ok and shell_ready,
                         checks=probe.checks,
-                        failures=probe.failures,
+                        failures=probe.failures + (() if shell_ready else ("AUTHENTICATED_SHELL_MENU_NOT_VERIFIED",)),
+                        scope=scope,
                     )
-                    if probe.ok:
+                    if probe.ok and shell_ready:
                         # Verify a second observation after a short stable interval.
                         # The initial Agent screenshot is frequently just the React loader.
                         time.sleep(1.0)
@@ -300,7 +323,7 @@ def execute_task(
                             expect_url_contains=expect_url_contains or (),
                             require_agent_done=False,
                         )
-                        if stable_probe.ok:
+                        if stable_probe.ok and (not bootstrap_only or (final_state.get("page") or {}).get("bootstrap_shell_verified") is True):
                             try:
                                 _capture_final_frame(evidence)
                                 # Recheck the DOM after capture; a transition during
@@ -370,14 +393,23 @@ def execute_task(
             failures=result.failures + (error,),
         )
     # #346: a cookie in BrowserContext is NOT proof that Stroyka has
-    # authenticated a user or resolved their company membership. Until
-    # a server-validated session bootstrap is implemented, never claim an
-    # authenticated read-only smoke passed merely because page text matched.
+    # authenticated a user or resolved their company membership. Never
+    # claim an authenticated read-only smoke passed merely because page
+    # text matched: require the server-validated session bootstrap.
     if read_only and (os.environ.get("QA_SESSION_COOKIE_VALUE") or "").strip() and not qa_identity_verified:
         result = type(result)(
             ok=False,
             checks=result.checks,
             failures=result.failures + ("AUTH_NOT_ESTABLISHED",),
+        )
+    if bootstrap_only:
+        shell_ok = (final_state.get("page") or {}).get("bootstrap_shell_verified") is True
+        guarded = getattr(boundary_ref, "_bootstrap_only", False) is True
+        result = type(result)(
+            ok=result.ok and shell_ok and guarded,
+            checks=result.checks + (("authenticated_shell_menu",) if shell_ok else ()),
+            failures=result.failures + (() if shell_ok else ("AUTHENTICATED_SHELL_MENU_NOT_VERIFIED",))
+                + (() if guarded else ("BOOTSTRAP_NETWORK_SCOPE_NOT_ENFORCED",)),
         )
 
     _write_progress(
@@ -387,6 +419,7 @@ def execute_task(
         verified_ok=result.ok,
         checks=result.checks,
         failures=result.failures,
+        scope=scope,
     )
 
     report = {
@@ -401,6 +434,13 @@ def execute_task(
         "read_only": bool(read_only),
         "evidence": str(evidence),
     }
+    if bootstrap_only:
+        report.update(
+            scope="bootstrap_only",
+            data_status="NOT_TESTED",
+            blocked_data_reads=int(getattr(boundary_ref, "blocked_data_reads", 0)),
+            blocked_presence_writes=int(getattr(boundary_ref, "blocked_presence_pings", 0)),
+        )
     (evidence / "result.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=2),
         encoding="utf-8",

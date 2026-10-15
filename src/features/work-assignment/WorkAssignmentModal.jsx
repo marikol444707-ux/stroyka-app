@@ -86,9 +86,13 @@ export default function WorkAssignmentModal({
   const [manualPrices, setManualPrices] = useState({});
   const [showPriceSettings, setShowPriceSettings] = useState(false);
   const [workSearch, setWorkSearch] = useState('');
+  const [sectionFilter, setSectionFilter] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submissionError, setSubmissionError] = useState('');
   const [showAssigned, setShowAssigned] = useState(false);
+  const [mobileStep, setMobileStep] = useState(1);
+  const bodyRef = useRef(null);
+  useEffect(() => { if (bodyRef.current) bodyRef.current.scrollTop = 0; }, [mobileStep]);
   const initializedSourceRef = useRef(null);
 
   const assignmentRows = useMemo(
@@ -103,10 +107,15 @@ export default function WorkAssignmentModal({
     () => assignmentRows.filter(row => row.assignments.length > 0),
     [assignmentRows],
   );
+  const workSections = useMemo(() => Array.from(new Map(rows.map(row => [
+    String(row.sectionIndex), {id: String(row.sectionIndex), name: row.section, number: row.sectionIndex + 1},
+  ])).values()), [rows]);
+  const hasWorkFilter = Boolean(workSearch.trim() || sectionFilter);
   const visibleRows = useMemo(() => {
     const query = workSearch.trim().toLocaleLowerCase('ru-RU');
-    return query ? rows.filter(row => [row.name, row.section].some(value => String(value || '').toLocaleLowerCase('ru-RU').includes(query))) : rows;
-  }, [rows, workSearch]);
+    return rows.filter(row => (sectionFilter === '' || String(row.sectionIndex) === sectionFilter)
+      && (!query || [row.name, row.section].some(value => String(value || '').toLocaleLowerCase('ru-RU').includes(query))));
+  }, [rows, workSearch, sectionFilter]);
   const assignedCount = assignedRows.length;
   const performers = useMemo(
     () => performerRows(staff || [], users || [], brigadeContracts || []),
@@ -117,6 +126,8 @@ export default function WorkAssignmentModal({
     assignmentRows.map(row => [row.estimateItemKey, row.name, row.quantity, row.priceSmeta, row.assignments.map(item => item.contractId || item.contract_id)]),
   ]), [selectedEstimate?.id, assignmentRows]);
   const selectedRows = rows.filter(row => selectedIds[row.id]);
+  const visibleIds = new Set(visibleRows.map(row => row.id));
+  const hiddenSelectedCount = selectedRows.filter(row => !visibleIds.has(row.id)).length;
   const allVisibleSelected = visibleRows.length > 0 && visibleRows.every(row => selectedIds[row.id]);
   const selectedPerformer = performers.find(item => performerOptionId(item) === String(contractorId));
   const brigadeName = (selectedPerformer?.name || manualName || '').trim();
@@ -147,11 +158,13 @@ export default function WorkAssignmentModal({
     setContractorId(performers.length === 1 ? performerOptionId(performers[0]) : '');
     setManualPerformer(false);
     setManualName('');
+    setMobileStep(1);
     setPercentage('60');
     setPriceMode('coefficient');
     setManualPrices({});
     setShowPriceSettings(false);
     setWorkSearch('');
+    setSectionFilter('');
     setSubmissionError('');
     setShowAssigned(rows.length === 0 && assignedRows.length > 0);
   }, [show, selectedEstimate, rows, assignedRows, performers, sourceKey]);
@@ -246,8 +259,8 @@ export default function WorkAssignmentModal({
 
   return (
     <div onClick={() => !submitting && onClose()} style={{position: 'fixed', inset: 0, backgroundColor: 'rgba(15,23,42,.62)', zIndex: 760, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: isMobile ? '10px' : '22px'}}>
-      <div role="dialog" aria-modal="true" aria-labelledby="work-assignment-title" onClick={event => event.stopPropagation()} style={{...card, width: modalWidth, maxHeight: '92vh', overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: 0}}>
-        <div style={{padding: '18px 20px', borderBottom: '1px solid ' + C.border, display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start'}}>
+      <div role="dialog" aria-modal="true" aria-labelledby="work-assignment-title" onClick={event => event.stopPropagation()} style={{...card, width: modalWidth, maxHeight: 'calc(100dvh - 20px)', minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: 0}}>
+        <div style={{flexShrink: 0, padding: isMobile ? '12px' : '18px 20px', borderBottom: '1px solid ' + C.border, display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start'}}>
           <div>
             <div style={{display: 'flex', gap: '8px', alignItems: 'center'}}>
               <UserCheck size={20} color={C.accent} />
@@ -260,8 +273,9 @@ export default function WorkAssignmentModal({
           <button type="button" aria-label="Закрыть назначение работ" onClick={onClose} disabled={submitting} style={{...btnG, padding: '7px 9px'}}><X size={14} /></button>
         </div>
 
-        <div style={{padding: '16px 20px', overflowY: 'auto'}}>
-          <div style={{marginBottom: '18px'}}>
+        {isMobile && <p role="status" style={{margin:'10px 12px',color:C.textSec,fontSize:13}}>Шаг {mobileStep} из 3 · {['Исполнитель','Работы','Проверка суммы'][mobileStep-1]}</p>}
+        <div ref={bodyRef} style={{padding: isMobile ? '12px' : '16px 20px', overflowY: 'auto', minHeight: 0, flex: '1 1 auto', overscrollBehavior: 'contain'}}>
+          <div style={{display: isMobile && mobileStep !== 1 ? 'none' : undefined, marginBottom: '18px'}}>
             <b style={{display: 'block', color: C.text, fontSize: '15px', marginBottom: '4px'}}>1. Кому выдать работы</b>
             <p style={{color: C.textSec, fontSize: '12px', margin: '0 0 10px'}}>Выберите человека или бригаду. Новую бригаду можно указать в этом же списке.</p>
             <div style={{display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(260px,1fr) minmax(200px,1fr)', gap: '10px'}}>
@@ -279,12 +293,13 @@ export default function WorkAssignmentModal({
             </div>
           </div>
 
+          <div style={{display:isMobile && mobileStep !== 2 ? 'none' : undefined}}>
           <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', marginBottom: '10px'}}>
             <div>
               <b style={{display: 'block', color: C.text, fontSize: '15px'}}>2. Какие работы выдать</b>
               <span style={{color: C.textSec, fontSize: '12px'}}>Показаны только ещё не назначенные работы.</span>
             </div>
-            {rows.length > 0 && <button type="button" onClick={toggleAll} disabled={!visibleRows.length} style={btnB}><CheckSquare size={14} />{workSearch.trim() ? (allVisibleSelected ? 'Снять показанные' : 'Выбрать показанные') : (allVisibleSelected ? 'Снять все' : 'Выбрать все')}</button>}
+            {rows.length > 0 && <button type="button" onClick={toggleAll} disabled={!visibleRows.length} style={btnB}><CheckSquare size={14} />{hasWorkFilter ? (allVisibleSelected ? 'Снять показанные' : 'Выбрать показанные') : (allVisibleSelected ? 'Снять все' : 'Выбрать все')}</button>}
           </div>
           <div style={{display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(220px,1fr) auto', gap: '10px', alignItems: 'center', marginBottom: '14px'}}>
             <div style={{padding: '9px 12px', border: '1px solid ' + C.border, borderRadius: '8px', backgroundColor: C.bg}}>
@@ -299,11 +314,26 @@ export default function WorkAssignmentModal({
             </div>)}
           </div>}
 
-          {rows.length > 8 && <div style={{marginBottom:'10px'}}>
+          {(rows.length > 8 || workSections.length > 1) && <div style={{marginBottom:'10px'}}>
+            {workSections.length > 1 && <label style={{display:'grid',gap:4,color:C.textSec,fontSize:12,marginBottom:8}}>Раздел сметы
+              <select aria-label="Раздел сметы" value={sectionFilter} onChange={event => setSectionFilter(event.target.value)} style={{...inp,width:'100%',boxSizing:'border-box',marginBottom:0}}>
+                <option value="">Все разделы</option>
+                {workSections.map(section => <option key={section.id} value={section.id}>{section.number}. {section.name || 'Без названия'}</option>)}
+              </select>
+            </label>}
             <input type="search" aria-label="Найти работу" value={workSearch} onChange={event => setWorkSearch(event.target.value)} placeholder="Найти работу или раздел" style={{...inp,width:'100%',boxSizing:'border-box',marginBottom:'4px'}} />
             <span style={{color:C.textSec,fontSize:'11px'}}>Показано: {visibleRows.length} из {rows.length}. Кнопка выбора действует только на показанные работы.</span>
+            {hiddenSelectedCount > 0 && <div role="status" style={{marginTop:'8px',padding:'10px',border:'1px solid '+C.border,borderRadius:'8px'}}>
+              <p style={{color:C.text,margin:'0 0 8px',fontSize:'12px'}}>Ещё {hiddenSelectedCount} выбранных работ скрыты {sectionFilter ? 'фильтром' : 'поиском'}. Они тоже будут выданы исполнителю.</p>
+              <button type="button" disabled={submitting} onClick={() => setSelectedIds(previous => Object.fromEntries(
+                Object.entries(previous).filter(([id]) => visibleRows.some(row => String(row.id) === id)),
+              ))} style={{...btnB,minHeight:'44px'}}>Оставить только найденные</button>
+            </div>}
           </div>}
 
+          </div>
+          <div style={{display:isMobile && mobileStep !== 3 ? 'none' : undefined}}>
+          {isMobile && <p style={{color:C.text}}>Исполнитель: <strong>{brigadeName}</strong></p>}
           <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', marginBottom: '10px'}}>
             <div>
               <b style={{display: 'block', color: C.text, fontSize: '15px'}}>3. Сколько получит исполнитель</b>
@@ -325,6 +355,8 @@ export default function WorkAssignmentModal({
             </div>
           )}
 
+          </div>
+          <div style={{display:isMobile && mobileStep === 1 ? 'none' : undefined}}>
           <div style={{border: '1px solid ' + C.border, borderRadius: '10px', overflow: 'hidden'}}>
             {!isMobile && (
               <div style={{display: 'grid', gridTemplateColumns: rowGrid, gap: '8px', padding: '9px 10px', backgroundColor: C.bg, color: C.textMuted, fontSize: '10px', textTransform: 'uppercase', fontWeight: 700}}>
@@ -336,8 +368,8 @@ export default function WorkAssignmentModal({
                 <span>Сумма</span>
               </div>
             )}
-            <div style={{maxHeight: isMobile ? '48vh' : '420px', overflowY: 'auto'}}>
-              {visibleRows.map(row => {
+            <div style={{maxHeight: isMobile ? undefined : '420px', overflowY: isMobile ? 'visible' : 'auto'}}>
+              {(isMobile && mobileStep === 3 ? selectedRows : visibleRows).map(row => {
                 const checked = !!selectedIds[row.id];
                 const rowHasManualPrice = hasManualPrice(row.id);
                 const masterPrice = priceForRow(row);
@@ -352,7 +384,7 @@ export default function WorkAssignmentModal({
                     </div>
                     <span style={{color: C.textSec, fontSize: '12px', display: isMobile ? 'none' : undefined}}>{formatQty(row.quantity, row.unit)}</span>
                     <span style={{color: C.textSec, fontSize: '12px', display: isMobile ? 'none' : undefined}}>{formatMoney(row.priceSmeta)}</span>
-                    {showPriceSettings ? <div style={{display: 'grid', gridTemplateColumns: rowHasManualPrice && priceMode === 'coefficient' ? 'minmax(0,1fr) 26px' : 'minmax(0,1fr)', gap: '4px', alignItems: 'center', gridColumn: isMobile ? '2 / -1' : undefined, gridRow: isMobile ? '2' : undefined}}>
+                    {showPriceSettings && (!isMobile || mobileStep === 3) ? <div style={{display: 'grid', gridTemplateColumns: rowHasManualPrice && priceMode === 'coefficient' ? 'minmax(0,1fr) 26px' : 'minmax(0,1fr)', gap: '4px', alignItems: 'center', gridColumn: isMobile ? '2 / -1' : undefined, gridRow: isMobile ? '2' : undefined}}>
                       {isMobile && <span style={{gridColumn: '1 / -1', color: C.textSec, fontSize: '11px'}}>Цена исполнителю за единицу</span>}
                       <input
                         aria-label={'Цена исполнителю: ' + row.name}
@@ -386,18 +418,20 @@ export default function WorkAssignmentModal({
                   </div>
                 );
               })}
-              {!visibleRows.length && <div style={{padding: '24px', textAlign: 'center', color: C.textMuted}}>{rows.length ? 'Работы не найдены. Очистите поиск.' : assignmentRows.length ? 'Все работы этой сметы уже назначены' : 'В смете нет рабочих строк для назначения'}</div>}
+              {!(isMobile && mobileStep === 3 ? selectedRows : visibleRows).length && <div style={{padding: '24px', textAlign: 'center', color: C.textMuted}}>{rows.length ? (sectionFilter ? 'Работы не найдены. Измените раздел или очистите поиск.' : 'Работы не найдены. Очистите поиск.') : assignmentRows.length ? 'Все работы этой сметы уже назначены' : 'В смете нет рабочих строк для назначения'}</div>}
             </div>
+          </div>
           </div>
         </div>
 
-        <div style={{padding: '14px 20px', borderTop: '1px solid ' + C.border, backgroundColor: C.bgWhite, display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', alignItems: 'center'}}>
+        <div style={{flexShrink: 0, padding: isMobile ? '12px' : '14px 20px', borderTop: '1px solid ' + C.border, backgroundColor: C.bgWhite, display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', alignItems: 'center'}}>
           <div><b style={{display: 'block', color: C.text, fontSize: '14px'}}>Исполнителю: {formatMoney(selectedTotal)}</b><span style={{color: C.textSec, fontSize: '11px'}}>Выбрано работ: {selectedRows.length}</span></div>
           <div style={{display: 'flex', gap: '8px'}}>
+            {isMobile && mobileStep > 1 && <button type="button" disabled={submitting} onClick={()=>setMobileStep(step=>step-1)} style={{...btnG,minHeight:44}}>Назад</button>}
             <button type="button" onClick={onClose} disabled={submitting} style={btnG}>Отмена</button>
-            <button type="button" onClick={submit} disabled={submitting || !selectedRows.length || !brigadeName} style={{...btnO, opacity: submitting || !selectedRows.length || !brigadeName ? 0.65 : 1}}>
+            {isMobile && mobileStep < 3 ? <button type="button" disabled={submitting || (mobileStep===1 ? !brigadeName : !selectedRows.length)} onClick={()=>setMobileStep(step=>step+1)} style={{...btnO,minHeight:44}}>Далее</button> : <button type="button" onClick={submit} disabled={submitting || !selectedRows.length || !brigadeName} style={{...btnO, opacity: submitting || !selectedRows.length || !brigadeName ? 0.65 : 1}}>
               {submitting ? 'Выдаю...' : 'Выдать в работу'}
-            </button>
+            </button>}
           </div>
           {submissionError
             ? <p role="alert" style={{order: 1, flexBasis: '100%', color: C.danger || '#b91c1c', margin: 0, fontSize: '12px'}}>{submissionError}</p>

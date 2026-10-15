@@ -369,10 +369,11 @@ describe('MaterialCapabilityProofPanel', () => {
     expect(global.fetch).toHaveBeenCalledTimes(2);
   });
 
-  it('mounts the exact-item panel before the existing supplier offers block', () => {
+  it.each(['Утверждена', 'КП запрошены'])('shows quotes and allows requesting them without capability confirmation for %s', status => {
+    const requestKp = jest.fn();
     const request = {
       id: 21,
-      status: 'КП запрошены',
+      status,
       materialName: 'Кабель ВВГнг 3×2,5',
       quantity: 20,
       unit: 'м',
@@ -408,7 +409,7 @@ describe('MaterialCapabilityProofPanel', () => {
         canApprove
         confirmSupplyAsProrab={jest.fn()}
         approveSupplyAsDirector={jest.fn()}
-        openRequestKpModal={jest.fn()}
+        openRequestKpModal={requestKp}
         loadSupplyStockCheck={jest.fn()}
         setSupplyRejectId={jest.fn()}
         supplyRejectId={null}
@@ -434,9 +435,11 @@ describe('MaterialCapabilityProofPanel', () => {
       />,
     );
 
-    const panel = screen.getByRole('region', { name: 'Доказуемость поставщика по материалу' });
-    const offersHeading = screen.getByText(/КП от поставщиков/);
-    expect(panel.compareDocumentPosition(offersHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByRole('region', { name: 'Доказуемость поставщика по материалу' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', {name:'Подтвердить поставщика'})).not.toBeInTheDocument();
+    expect(screen.getByText(/КП от поставщиков/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', {name:/Запросить КП/}));
+    expect(requestKp).toHaveBeenCalledWith(21);
     expect(global.fetch).not.toHaveBeenCalled();
   });
 });
