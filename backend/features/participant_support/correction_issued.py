@@ -9,10 +9,11 @@ from psycopg2 import sql
 from .merge_inventory import bounded, visible_documents, visible_files
 from ..document_access.supplier_files import supplier_ids
 from ..supplier_access.service import supplier_history_visibility_filter
-from . import correction_invoice_access
+from . import correction_invoice_access, correction_contract_access
 
 MODE='revoke_issued_access'
-TABLE_KINDS={'supplier_offers':'offer','supplier_invoices':'invoice','supply_deliveries':'delivery','warehouse_invoices':'receipt'}
+TABLE_KINDS={'supplier_offers':'offer','supplier_invoices':'invoice','supply_deliveries':'delivery','warehouse_invoices':'receipt',
+    'supplier_contract_versions':'contract'}
 REQUIRED={
     'supplier_invoices':{'id','company_id','supplier_id','offer_id','request_id','warehouse_invoice_id','file_url','photo_url'},
     'supply_deliveries':{'id','company_id','supplier_id','offer_id','request_id','project','work_package','document_url','photo_url'},
@@ -143,6 +144,15 @@ def assignments(cur,company,target,offer_ids):
 
 def originals(cur,company,documents):
     urls=set()
+    contract_ids=set()
+    for version in documents.get('supplier_contract_versions',[]):
+        contract_ids.add(version['source_file_id'])
+        addenda=version['snapshot_json'].get('addenda',[])
+        if not isinstance(addenda,list) or any(not isinstance(a,dict) or type(a.get('sourceFileId')) is not int or a['sourceFileId']<1 for a in addenda):
+            blocked('Состав приложений договора требует отдельной проверки')
+        contract_ids.update(a['sourceFileId'] for a in addenda)
+    if any(type(fid) is not int or fid<1 for fid in contract_ids):blocked('Оригинал договора не подтверждён')
+    urls.update(f'/tenant-files/{fid}/content' for fid in contract_ids)
     fields={'supplier_offers':('pdf_url',),'supplier_invoices':('file_url','photo_url'),
         'supply_deliveries':('document_url','photo_url'),'warehouse_invoices':('photo_url',)}
     for table,rows in documents.items():
@@ -176,20 +186,22 @@ def originals(cur,company,documents):
         cur.execute(sql.SQL('SELECT 1 FROM {} WHERE NOT(id=ANY(%s)) AND (').format(sql.Identifier(table))+
             condition+sql.SQL(') LIMIT 1'),[[r['id'] for r in documents[table]]]+params)
         if cur.fetchone():blocked('Оригинал используется в другом документе. Нужен отдельный разбор доступа')
-    cur.execute('''SELECT 1 FROM supplier_contract_versions WHERE source_file_id=ANY(%s)
+    cur.execute('''SELECT 1 FROM supplier_contract_versions WHERE NOT(id=ANY(%s)) AND (source_file_id=ANY(%s)
         OR EXISTS(SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(snapshot_json->'addenda')='array'
-            THEN snapshot_json->'addenda' ELSE '[]'::jsonb END) a WHERE a->>'sourceFileId'=ANY(%s)) LIMIT 1''',
-        (list(selected),[str(i) for i in selected]))
+            THEN snapshot_json->'addenda' ELSE '[]'::jsonb END) a WHERE a->>'sourceFileId'=ANY(%s))) LIMIT 1''',
+        ([v['id'] for v in documents.get('supplier_contract_versions',[])],list(selected),[str(i) for i in selected]))
     if cur.fetchone():blocked('Оригинал относится к договору. Доступ к договору исправляется отдельно')
     return [selected[fid] for fid in sorted(selected)]
 
 
-def proof(cur,company,target,owner,offers,recipients,schema,*,standalone=False):
+def proof(cur,company,target,owner,offers,recipients,schema,*,standalone=False,contracts=False):
     documents=history(cur,company,target,offers,schema,standalone=standalone)
+    contract_metadata=correction_contract_access.history(cur,company,target,documents,schema) if contracts else None
     direct=[r['id'] for r in documents['supplier_invoices'] if r['offer_id'] is None]
     retained_assignments=assignments(cur,company,target,[o['id'] for o in offers])
     files=originals(cur,company,documents)
-    projected=(correction_invoice_access.ClosedInvoiceAccess(cur,[r['id'] for r in recipients],company,target,direct)
+    projected=(correction_invoice_access.ClosedInvoiceAccess(cur,[r['id'] for r in recipients],company,target,direct,
+        contracts=[v['id'] for v in documents['supplier_contract_versions']] if contracts else None)
         if standalone else ClosedRecipients(cur,[r['id'] for r in recipients]))
     before=visible_documents(cur,owner,company);after=visible_documents(projected,owner,company)
     for kind,table in (('offers','supplier_offers'),('invoices','supplier_invoices'),('deliveries','supply_deliveries')):
@@ -211,7 +223,7 @@ def proof(cur,company,target,owner,offers,recipients,schema,*,standalone=False):
         retainedAssignments=retained_assignments,
         preservedIssuedDocuments=[dict(kind=TABLE_KINDS[t],id=r['id']) for t,rows in documents.items() if t in TABLE_KINDS for r in rows],
         preservedIssuedFileCount=len(files),
-        issuedDigest=hashlib.sha256(json.dumps(dict(documents=documents,files=files,before=before,after=after),
+        issuedDigest=hashlib.sha256(json.dumps(dict(documents=documents,files=files,before=before,after=after,contractMetadata=contract_metadata),
             sort_keys=True,separators=(',',':')).encode()).hexdigest())
     if standalone:result['closedStandaloneInvoiceIds']=direct
     return result
@@ -219,5 +231,7 @@ def proof(cur,company,target,owner,offers,recipients,schema,*,standalone=False):
 
 def counts(plan):
     docs=plan['allowedDocuments']
-    return dict(offers=len(docs['supplier_offers']),invoices=len(docs['supplier_invoices']),
+    result=dict(offers=len(docs['supplier_offers']),invoices=len(docs['supplier_invoices']),
         deliveries=len(docs['supply_deliveries']),receipts=len(docs['warehouse_invoices']))
+    if 'supplier_contract_versions' in docs:result['contracts']=len(docs['supplier_contract_versions'])
+    return result

@@ -20,20 +20,23 @@ function validQuotes(body) {
     body.preservedQuoteFileCount<=body.affectedOffers.filter(row=>row.statusBefore==='Получено').length;
 }
 
-const issuedKinds={offer:'КП',invoice:'Счёт',delivery:'Поставка',receipt:'Накладная'};
-function issuedCounts(documents) {
-  return {offers:documents.filter(d=>d.kind==='offer').length,invoices:documents.filter(d=>d.kind==='invoice').length,
+const issuedKinds={offer:'КП',invoice:'Счёт',delivery:'Поставка',receipt:'Накладная',contract:'Договор'};
+function issuedCounts(documents,includeContracts=false) {
+  const counts={offers:documents.filter(d=>d.kind==='offer').length,invoices:documents.filter(d=>d.kind==='invoice').length,
     deliveries:documents.filter(d=>d.kind==='delivery').length,receipts:documents.filter(d=>d.kind==='receipt').length};
+  if(includeContracts)counts.contracts=documents.filter(d=>d.kind==='contract').length;
+  return counts;
 }
-function validIssued(body) {
+function validIssued(body,mode) {
   const ids=new Set(body.affectedRequests.flatMap(row=>row.offerIds)),docs=body.preservedIssuedDocuments;
   return Array.isArray(body.affectedOffers)&&body.affectedOffers.length===ids.size&&
     new Set(body.affectedOffers.map(row=>row?.offerId)).size===ids.size&&body.affectedOffers.every(row=>row&&ids.has(row.offerId)&&
       ['Ожидает ответа','Получено','Утверждено'].includes(row.statusBefore)&&row.statusAfter===row.statusBefore)&&
     Array.isArray(docs)&&docs.length<=8000&&docs.every(row=>row&&Object.keys(issuedKinds).includes(row.kind)&&Number.isInteger(row.id)&&row.id>0)&&
-    new Set(docs.map(row=>row.kind+':'+row.id)).size===docs.length&&
-    docs.filter(row=>row.kind==='offer').length===ids.size&&docs.filter(row=>row.kind==='offer').every(row=>ids.has(row.id))&&
-    Number.isInteger(body.preservedIssuedFileCount)&&body.preservedIssuedFileCount>=0&&body.preservedIssuedFileCount<=100;
+      new Set(docs.map(row=>row.kind+':'+row.id)).size===docs.length&&
+      docs.filter(row=>row.kind==='offer').length===ids.size&&docs.filter(row=>row.kind==='offer').every(row=>ids.has(row.id))&&
+      (mode==='revoke_contract_access'||docs.every(row=>row.kind!=='contract'))&&
+      Number.isInteger(body.preservedIssuedFileCount)&&body.preservedIssuedFileCount>=0&&body.preservedIssuedFileCount<=100;
 }
 
 function CorrectionForm({path,mode,companyId,supplierId,targetId,onApplied,onPendingChange}) {
@@ -41,7 +44,8 @@ function CorrectionForm({path,mode,companyId,supplierId,targetId,onApplied,onPen
   const [uncertain,setUncertain]=useState(false),[done,setDone]=useState(false);
   const operation=useRef(null),alive=useRef(true);
   const handlesRequests=mode!=='disconnect_unused';
-  const issued=mode==='revoke_issued_access'||mode==='revoke_invoice_access';
+  const includesContracts=mode==='revoke_contract_access';
+  const issued=mode==='revoke_issued_access'||mode==='revoke_invoice_access'||includesContracts;
   const rejectedQuotes=plan?.affectedOffers?.filter(row=>row.statusAfter==='Отклонено')||[];
   useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
   const {submit,pending,error}=useAsyncSubmit(async()=>{
@@ -66,12 +70,12 @@ function CorrectionForm({path,mode,companyId,supplierId,targetId,onApplied,onPen
       throw new Error(typeof body?.detail==='string'?body.detail:'Не удалось проверить или отключить связь');
     }
     if(!plan){
-      const consequencesValid=validRequests(body,mode)&&(mode!=='reject_received_quotes'||validQuotes(body))&&(!issued||validIssued(body));
+      const consequencesValid=validRequests(body,mode)&&(mode!=='reject_received_quotes'||validQuotes(body))&&(!issued||validIssued(body,mode));
       if(!body?.id||body.companyId!==companyId||body.sourceId!==supplierId||body.targetId!==targetId||!body.retainedDocuments||!consequencesValid)
         throw new Error('Сервер не подтвердил план для выбранной компании. Повторите проверку.');
       setPlan(body);return;
     }
-    const countsMatch=!issued||Object.entries(issuedCounts(plan.preservedIssuedDocuments)).every(([kind,count])=>body?.preservedIssuedCounts?.[kind]===count);
+    const countsMatch=!issued||Object.entries(issuedCounts(plan.preservedIssuedDocuments,includesContracts)).every(([kind,count])=>body?.preservedIssuedCounts?.[kind]===count);
     if(body?.ok!==true||body.planId!==plan.id||body.companyId!==companyId||body.sourceId!==supplierId||body.targetId!==targetId||body.relationshipStatus!=='Неактивный'||!Number.isInteger(body.relationshipVersion)||body.relationshipVersion<2||
       (handlesRequests&&(issued?body.revokedRequestCount:body.withdrawnRequestCount)!==plan.affectedRequests.length)||!countsMatch||(mode==='reject_received_quotes'&&body.rejectedQuoteCount!==rejectedQuotes.length)){
       setUncertain(true);
@@ -82,7 +86,7 @@ function CorrectionForm({path,mode,companyId,supplierId,targetId,onApplied,onPen
   useEffect(()=>{onPendingChange?.(pending);return()=>onPendingChange?.(false);},[pending,onPendingChange]);
   const withdrawsRfq=handlesRequests&&plan?.affectedRequests.length>0;
   const rejectsQuotes=rejectedQuotes.length>0;
-  const prepareText=mode==='revoke_invoice_access'?'Проверим доступ к документам, включая счета без КП, и их файлам. Оплаты и накладные сохранятся в компании. Договоры требуют отдельного разбора.':issued?'Проверим доступ к КП, связанным счетам, поставкам и файлам. Заказы и документы не отменяются. Отдельные счета и договоры требуют другого разбора.':
+  const prepareText=includesContracts?'Проверим доступ к договорам и их приложениям, включая версии по КП, а также к связанным счетам и поставкам. Архив, оплаты и статусы документов сохранятся.':mode==='revoke_invoice_access'?'Проверим доступ к документам, включая счета без КП, и их файлам. Оплаты и накладные сохранятся в компании. Договоры требуют отдельного разбора.':issued?'Проверим доступ к КП, связанным счетам, поставкам и файлам. Заказы и документы не отменяются. Отдельные счета и договоры требуют другого разбора.':
     mode==='reject_received_quotes'?'Проверим полученные КП и заявки. КП без заказов и счетов можно отклонить; цены и оригиналы сохранятся.':
     handlesRequests?'Проверим, можно ли отключить связь и отозвать заявки без ответа. Полученные КП, счета и другие оформленные документы требуют отдельного разбора.':
     'Доступно, если кабинет ещё не получил заявок, документов и назначений этой компании.';
@@ -99,7 +103,7 @@ function CorrectionForm({path,mode,companyId,supplierId,targetId,onApplied,onPen
         <p>Эта связь станет неактивной. Кабинет поставщика и его связи с другими компаниями сохранятся.</p>
         {issued&&<>
           <p><strong>Доступ к этим документам будет закрыт:</strong></p>
-          <p>КП — {issuedCounts(plan.preservedIssuedDocuments).offers} · Счета — {issuedCounts(plan.preservedIssuedDocuments).invoices} · Поставки — {issuedCounts(plan.preservedIssuedDocuments).deliveries} · Накладные — {issuedCounts(plan.preservedIssuedDocuments).receipts}</p>
+          <p>КП — {issuedCounts(plan.preservedIssuedDocuments,includesContracts).offers} · Счета — {issuedCounts(plan.preservedIssuedDocuments,includesContracts).invoices} · Поставки — {issuedCounts(plan.preservedIssuedDocuments,includesContracts).deliveries} · Накладные — {issuedCounts(plan.preservedIssuedDocuments,includesContracts).receipts}{includesContracts&&<> · Договоры — {issuedCounts(plan.preservedIssuedDocuments,true).contracts}</>}</p>
           <details><summary>Показать документы ({plan.preservedIssuedDocuments.length})</summary>
             <ul>{plan.preservedIssuedDocuments.map(row=><li key={row.kind+':'+row.id}>{issuedKinds[row.kind]} №{row.id}</li>)}</ul>
           </details>
@@ -134,11 +138,12 @@ function CorrectionForm({path,mode,companyId,supplierId,targetId,onApplied,onPen
 }
 
 export default function SupplierConnectionCorrection(props) {
-  const mode=process.env.REACT_APP_PARTICIPANT_INVOICE_ACCESS_CORRECTIONS_ENABLED==='1'?'revoke_invoice_access':
+  const mode=process.env.REACT_APP_PARTICIPANT_CONTRACT_ACCESS_CORRECTIONS_ENABLED==='1'?'revoke_contract_access':
+    process.env.REACT_APP_PARTICIPANT_INVOICE_ACCESS_CORRECTIONS_ENABLED==='1'?'revoke_invoice_access':
     process.env.REACT_APP_PARTICIPANT_ISSUED_ACCESS_CORRECTIONS_ENABLED==='1'?'revoke_issued_access':
     process.env.REACT_APP_PARTICIPANT_QUOTE_CORRECTIONS_ENABLED==='1'?'reject_received_quotes':
     process.env.REACT_APP_PARTICIPANT_RFQ_CORRECTIONS_ENABLED==='1'?'withdraw_unanswered_rfq':'disconnect_unused';
-  const suffix={disconnect_unused:'correction-plans',withdraw_unanswered_rfq:'rfq-correction-plans',reject_received_quotes:'quote-correction-plans',revoke_issued_access:'issued-access-plans',revoke_invoice_access:'invoice-access-plans'}[mode];
+  const suffix={disconnect_unused:'correction-plans',withdraw_unanswered_rfq:'rfq-correction-plans',reject_received_quotes:'quote-correction-plans',revoke_issued_access:'issued-access-plans',revoke_invoice_access:'invoice-access-plans',revoke_contract_access:'contract-access-plans'}[mode];
   const path=props.prefix+'/participants/'+props.supplierId+'/connection-requests/'+props.requestId+'/'+suffix;
   return <CorrectionForm key={path} {...props} path={path} mode={mode}/>;
 }

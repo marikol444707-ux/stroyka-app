@@ -5,6 +5,7 @@ from fastapi import Depends, HTTPException, Query, Response
 from ..supplier_access.service import supplier_offer_visibility_filter
 from ..supplier_team import policy
 from .publication import supplier_version_visible
+from ..supplier_access.contract_denials import contract_access_filter
 
 
 def register_cabinet_contracts(app, deps):
@@ -34,7 +35,7 @@ def register_cabinet_contracts(app, deps):
                     AND COALESCE(f.deletion_status,'active')='active'
                 LEFT JOIN supplier_contract_registry_versions m ON m.contract_version_id=v.id AND m.company_id=v.company_id
                 LEFT JOIN supplier_contract_registry r ON r.id=m.registry_id AND r.company_id=m.company_id
-                WHERE (
+                WHERE '''+contract_access_filter('v')+''' AND (
                     EXISTS (SELECT 1 FROM supplier_offers
                         WHERE supplier_offers.id=v.offer_id AND supplier_offers.company_id=v.company_id
                         AND ''' + supplier_version_visible('v') + offer_scope + ''')

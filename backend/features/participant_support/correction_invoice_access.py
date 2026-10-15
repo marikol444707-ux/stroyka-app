@@ -9,8 +9,10 @@ PROFILE_KEY='closedStandaloneInvoiceIds'
 
 class ClosedInvoiceAccess:
     """SELECT-only projection composed with the addressed-recipient projection."""
-    def __init__(self,cur,recipients,company,target,invoices):
+    def __init__(self,cur,recipients,company,target,invoices,*,contracts=None):
         self.cur,self.recipients,self.company,self.target,self.invoices=cur,recipients,company,target,invoices
+        self.profile={PROFILE_KEY:invoices}
+        if contracts is not None:self.profile['closedContractVersionIds']=contracts
 
     def execute(self,query,params=None):
         if not isinstance(query,str) or not query.lstrip().upper().startswith('SELECT '):
@@ -23,7 +25,7 @@ class ClosedInvoiceAccess:
                 CASE WHEN l.company_id=%s AND l.supplier_id=%s THEN jsonb_build_object('profile',
                     COALESCE(l.profile,'{}'::jsonb) || %s::jsonb) ELSE '{}'::jsonb END)).*
             FROM public.company_supplier_links l) '''+query,
-            [self.recipients,self.company,self.target,json.dumps({PROFILE_KEY:self.invoices})]+list(params or []))
+            [self.recipients,self.company,self.target,json.dumps(self.profile)]+list(params or []))
 
     def __getattr__(self,key):return getattr(self.cur,key)
 

@@ -7,6 +7,8 @@ from fastapi import Depends, Header, HTTPException, Path
 from .access import build_deal_access
 from .contracts import serialize_contract
 from .payment_schedule import schedule_projection
+from ..supplier_access.service import supplier_invoice_visibility_filter, supplier_delivery_visibility_filter
+from ..supplier_access.contract_denials import contract_access_filter
 
 
 def register_document_contract_routes(app, deps):
@@ -29,6 +31,15 @@ def register_document_contract_routes(app, deps):
                     raise HTTPException(404, 'Документ не найден')
                 if not document.get('company_id'):
                     raise HTTPException(409, 'Владелец документа не определён')
+                if current_user.get('role')=='поставщик':
+                    ids=deps['current_supplier_ids'](cur,current_user)
+                    if table=='supplier_invoices':
+                        scope,params=supplier_invoice_visibility_filter(ids,current_user['id'])
+                        cur.execute('SELECT si.id FROM supplier_invoices si WHERE si.id=%s'+scope,[id]+params)
+                    else:
+                        scope,params=supplier_delivery_visibility_filter(ids,current_user['id'])
+                        cur.execute('SELECT d.id FROM supply_deliveries d WHERE d.id=%s AND '+scope,[id]+params)
+                    if not cur.fetchone():raise HTTPException(403,'Нет доступа к документу')
                 if document.get('offer_id'):
                     offer, _ = load_offer(cur, document['offer_id'], current_user, 'read', x_company_id, x_company_mode)
                     if any(document.get(field) != offer[field] for field in ('company_id', 'supplier_id', 'request_id')):
@@ -43,8 +54,9 @@ def register_document_contract_routes(app, deps):
                         raise HTTPException(403, 'Нет доступа к пакету документа')
                 contract = None
                 if document['contract_version_id'] is not None:
-                    cur.execute('''SELECT * FROM supplier_contract_versions
-                        WHERE id=%s AND company_id=%s AND offer_id=%s''',
+                    visibility=' AND '+contract_access_filter('v') if current_user.get('role')=='поставщик' else ''
+                    cur.execute('''SELECT v.* FROM supplier_contract_versions v
+                        WHERE v.id=%s AND v.company_id=%s AND v.offer_id=%s'''+visibility,
                         (document['contract_version_id'], document['company_id'], document['offer_id']))
                     row = cur.fetchone()
                     if not row:

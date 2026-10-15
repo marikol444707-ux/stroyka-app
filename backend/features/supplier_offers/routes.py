@@ -1092,7 +1092,8 @@ def register_supplier_offers_module(app, deps):
                     bound_contract = select_invoice_contract(cur, id, requested_contract_id)
                     if bound_contract and _current_user.get('role')=='поставщик':
                         from ..supplier_deal_parties.publication import supplier_version_visible
-                        cur.execute('SELECT v.id FROM supplier_contract_versions v WHERE v.id=%s AND v.company_id=%s AND '+supplier_version_visible('v'),(bound_contract['id'],company_id))
+                        from ..supplier_access.contract_denials import contract_access_filter
+                        cur.execute('SELECT v.id FROM supplier_contract_versions v WHERE v.id=%s AND v.company_id=%s AND '+supplier_version_visible('v')+' AND '+contract_access_filter('v'),(bound_contract['id'],company_id))
                         if not cur.fetchone():
                             raise HTTPException(403,'Договор не относится к этому поставщику')
                 except Exception:

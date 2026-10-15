@@ -271,3 +271,25 @@ test('standalone invoice plan cannot pass as an older mode',async()=>withInvoice
   expect(await screen.findByRole('alert')).toHaveTextContent('не подтвердил план');
   expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
 }));
+
+test('contract access closure lists versions and verifies the preserved contract count',async()=>{
+  const names=['REACT_APP_PARTICIPANT_CONTRACT_ACCESS_CORRECTIONS_ENABLED','REACT_APP_PARTICIPANT_INVOICE_ACCESS_CORRECTIONS_ENABLED'];
+  const previous=names.map(name=>process.env[name]);
+  process.env.REACT_APP_PARTICIPANT_CONTRACT_ACCESS_CORRECTIONS_ENABLED='1';
+  delete process.env.REACT_APP_PARTICIPANT_INVOICE_ACCESS_CORRECTIONS_ENABLED;
+  try {
+    const onApplied=jest.fn();
+    const plan={...invoicePlan,mode:'revoke_contract_access',preservedIssuedDocuments:[...invoicePlan.preservedIssuedDocuments,{kind:'contract',id:63}]};
+    const completed={...result,revokedRequestCount:0,preservedIssuedCounts:{offers:0,invoices:1,deliveries:0,receipts:1,contracts:1}};
+    global.fetch=jest.fn().mockResolvedValueOnce(response(plan)).mockResolvedValueOnce(response(completed));
+    render(<SupplierConnectionCorrection {...props} onApplied={onApplied}/>);
+    expect(screen.getByText(/доступ к договорам и их приложениям/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'Проверить подключение'}));
+    expect(await screen.findByText('Договор №63')).toBeInTheDocument();
+    expect(fetch.mock.calls[0][0]).toContain('/contract-access-plans');
+    expect(screen.getByText(/Договоры — 1/)).toBeInTheDocument();
+    confirmFields();fireEvent.click(screen.getByRole('button',{name:'Закрыть доступ и отключить связь'}));
+    await screen.findByText('Подключение отключено.');
+    expect(onApplied).toHaveBeenCalledWith(completed);
+  }finally{names.forEach((name,i)=>{if(previous[i]===undefined)delete process.env[name];else process.env[name]=previous[i];});}
+});

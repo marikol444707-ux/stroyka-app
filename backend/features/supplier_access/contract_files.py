@@ -1,6 +1,7 @@
 """Explicit read grant for the source of a saved, visible supplier contract."""
 from .service import supplier_offer_visibility_filter
 from ..supplier_deal_parties.publication import supplier_version_visible
+from .contract_denials import contract_access_filter
 
 
 def supplier_contract_file_visible(cur, user, row, supplier_ids):
@@ -12,7 +13,7 @@ def supplier_contract_file_visible(cur, user, row, supplier_ids):
               WHERE v.offer_id=supplier_offers.id
                 AND v.company_id=supplier_offers.company_id
                 AND (v.source_file_id=%s OR EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(v.snapshot_json->'addenda','[]'::jsonb)) a WHERE a->>'sourceFileId'=%s))
-                AND ''' + supplier_version_visible('v') + '''
+                AND ''' + supplier_version_visible('v') + ' AND ' + contract_access_filter('v') + '''
           )
           AND (%s::int IS NULL OR EXISTS (
               SELECT 1 FROM supply_requests r JOIN projects p
@@ -42,5 +43,5 @@ def standalone_contract_file_visible(cur,user,row,supplier_ids):
         WHERE v.offer_id IS NULL AND team_offer.company_id=%s AND s.id=ANY(%s)
           AND v.snapshot_json #>> '{supplier,supplierId}'=s.id::text
           AND (v.source_file_id=%s OR EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(v.snapshot_json->'addenda','[]'::jsonb)) a WHERE a->>'sourceFileId'=%s))
-          AND '''+scope+' LIMIT 1',[row['company_id'],supplier_ids,row['id'],str(row['id'])]+params)
+          AND '''+contract_access_filter('v')+' AND '+scope+' LIMIT 1',[row['company_id'],supplier_ids,row['id'],str(row['id'])]+params)
     return bool(cur.fetchone())
