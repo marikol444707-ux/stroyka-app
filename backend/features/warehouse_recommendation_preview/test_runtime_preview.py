@@ -947,9 +947,10 @@ class WarehouseAnomalyRuntimePreviewCompositionTests(unittest.TestCase):
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
             # Reviewed participant route access enforcement, storage validation and invite storage adapter;
-            # warehouse preview implementation and registration are unchanged.
+            # and the exact QA identity error-logging exemption (read-only even on errors).
+            # Warehouse preview implementation and registration are unchanged.
             root / "backend/main.py": (
-                "24186dd409857bc543dd4bfbc7fc260221fdced46d9067c32408f8ea13503c65"
+                "7b052e8c52c9a01de04b8c64f09c25d15f5f5a260b8e261df7de77100acaaf46"
             ),
         }
         self.assertEqual({
