@@ -41,7 +41,7 @@ function CorrectionForm({path,mode,companyId,supplierId,targetId,onApplied,onPen
   const [uncertain,setUncertain]=useState(false),[done,setDone]=useState(false);
   const operation=useRef(null),alive=useRef(true);
   const handlesRequests=mode!=='disconnect_unused';
-  const issued=mode==='revoke_issued_access';
+  const issued=mode==='revoke_issued_access'||mode==='revoke_invoice_access';
   const rejectedQuotes=plan?.affectedOffers?.filter(row=>row.statusAfter==='Отклонено')||[];
   useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
   const {submit,pending,error}=useAsyncSubmit(async()=>{
@@ -82,7 +82,7 @@ function CorrectionForm({path,mode,companyId,supplierId,targetId,onApplied,onPen
   useEffect(()=>{onPendingChange?.(pending);return()=>onPendingChange?.(false);},[pending,onPendingChange]);
   const withdrawsRfq=handlesRequests&&plan?.affectedRequests.length>0;
   const rejectsQuotes=rejectedQuotes.length>0;
-  const prepareText=issued?'Проверим доступ к КП, связанным счетам, поставкам и файлам. Заказы и документы не отменяются. Отдельные счета и договоры требуют другого разбора.':
+  const prepareText=mode==='revoke_invoice_access'?'Проверим доступ к документам, включая счета без КП, и их файлам. Оплаты и накладные сохранятся в компании. Договоры требуют отдельного разбора.':issued?'Проверим доступ к КП, связанным счетам, поставкам и файлам. Заказы и документы не отменяются. Отдельные счета и договоры требуют другого разбора.':
     mode==='reject_received_quotes'?'Проверим полученные КП и заявки. КП без заказов и счетов можно отклонить; цены и оригиналы сохранятся.':
     handlesRequests?'Проверим, можно ли отключить связь и отозвать заявки без ответа. Полученные КП, счета и другие оформленные документы требуют отдельного разбора.':
     'Доступно, если кабинет ещё не получил заявок, документов и назначений этой компании.';
@@ -134,10 +134,11 @@ function CorrectionForm({path,mode,companyId,supplierId,targetId,onApplied,onPen
 }
 
 export default function SupplierConnectionCorrection(props) {
-  const mode=process.env.REACT_APP_PARTICIPANT_ISSUED_ACCESS_CORRECTIONS_ENABLED==='1'?'revoke_issued_access':
+  const mode=process.env.REACT_APP_PARTICIPANT_INVOICE_ACCESS_CORRECTIONS_ENABLED==='1'?'revoke_invoice_access':
+    process.env.REACT_APP_PARTICIPANT_ISSUED_ACCESS_CORRECTIONS_ENABLED==='1'?'revoke_issued_access':
     process.env.REACT_APP_PARTICIPANT_QUOTE_CORRECTIONS_ENABLED==='1'?'reject_received_quotes':
     process.env.REACT_APP_PARTICIPANT_RFQ_CORRECTIONS_ENABLED==='1'?'withdraw_unanswered_rfq':'disconnect_unused';
-  const suffix={disconnect_unused:'correction-plans',withdraw_unanswered_rfq:'rfq-correction-plans',reject_received_quotes:'quote-correction-plans',revoke_issued_access:'issued-access-plans'}[mode];
+  const suffix={disconnect_unused:'correction-plans',withdraw_unanswered_rfq:'rfq-correction-plans',reject_received_quotes:'quote-correction-plans',revoke_issued_access:'issued-access-plans',revoke_invoice_access:'invoice-access-plans'}[mode];
   const path=props.prefix+'/participants/'+props.supplierId+'/connection-requests/'+props.requestId+'/'+suffix;
   return <CorrectionForm key={path} {...props} path={path} mode={mode}/>;
 }

@@ -242,3 +242,32 @@ test('issued access result with wrong retained invoice count stays uncertain',as
   confirmFields();fireEvent.click(screen.getByRole('button',{name:'Закрыть доступ и отключить связь'}));
   expect(await screen.findByRole('alert')).toHaveTextContent('не подтвердил результат');expect(onApplied).not.toHaveBeenCalled();
 }));
+
+async function withInvoiceMode(check){
+  const previous=process.env.REACT_APP_PARTICIPANT_INVOICE_ACCESS_CORRECTIONS_ENABLED;
+  process.env.REACT_APP_PARTICIPANT_INVOICE_ACCESS_CORRECTIONS_ENABLED='1';
+  try{await check();}finally{
+    if(previous===undefined)delete process.env.REACT_APP_PARTICIPANT_INVOICE_ACCESS_CORRECTIONS_ENABLED;
+    else process.env.REACT_APP_PARTICIPANT_INVOICE_ACCESS_CORRECTIONS_ENABLED=previous;
+  }
+}
+const invoicePlan={...issuedPlan,mode:'revoke_invoice_access',affectedRequests:[],affectedOffers:[],
+  preservedIssuedDocuments:[{kind:'invoice',id:47},{kind:'receipt',id:58}]};
+test('standalone invoice closure needs no artificial RFQ and preserves financial documents',async()=>withInvoiceMode(async()=>{
+  const onApplied=jest.fn(),completed={...result,revokedRequestCount:0,preservedIssuedCounts:{offers:0,invoices:1,deliveries:0,receipts:1}};
+  global.fetch=jest.fn().mockResolvedValueOnce(response(invoicePlan)).mockResolvedValueOnce(response(completed));
+  render(<SupplierConnectionCorrection {...props} onApplied={onApplied}/>);
+  expect(screen.getByText(/включая счета без КП/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button',{name:'Проверить подключение'}));await screen.findByText('Счёт №47');
+  expect(fetch.mock.calls[0][0]).toContain('/invoice-access-plans');
+  expect(screen.queryByText(/Будут отозваны заявки/)).not.toBeInTheDocument();
+  confirmFields();fireEvent.click(screen.getByRole('button',{name:'Закрыть доступ и отключить связь'}));
+  await screen.findByText('Подключение отключено.');expect(onApplied).toHaveBeenCalledWith(completed);
+}));
+test('standalone invoice plan cannot pass as an older mode',async()=>withInvoiceMode(async()=>{
+  global.fetch=jest.fn().mockResolvedValue(response({...invoicePlan,mode:'revoke_issued_access'}));
+  render(<SupplierConnectionCorrection {...props}/>);
+  fireEvent.click(screen.getByRole('button',{name:'Проверить подключение'}));
+  expect(await screen.findByRole('alert')).toHaveTextContent('не подтвердил план');
+  expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+}));

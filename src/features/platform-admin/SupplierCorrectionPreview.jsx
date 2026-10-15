@@ -71,6 +71,7 @@ export default function SupplierCorrectionPreview({prefix,supplierId,requestId,o
     {completed&&<p role="status">Подключение отключено. Исходные документы и кабинет поставщика сохранены.</p>}
     {completed&&applied.result.withdrawnRequestCount>0&&<p>{applied.result.rejectedQuoteCount>0?'Доступ к заявкам закрыт':'Отозвано заявок'}: {applied.result.withdrawnRequestCount}.</p>}
     {completed&&applied.result.rejectedQuoteCount>0&&<p>Отклонено КП: {applied.result.rejectedQuoteCount}.</p>}
+    {completed&&applied.result.preservedIssuedCounts?.invoices>0&&applied.result.revokedRequestCount===0&&<p>Доступ к счетам закрыт: {applied.result.preservedIssuedCounts.invoices}. Статусы документов, оплаты и складские записи сохранены.</p>}
     {completed&&applied.result.revokedRequestCount>0&&<p>Доступ к заявкам закрыт: {applied.result.revokedRequestCount}. Статусы документов, оплаты и складские записи сохранены.</p>}
     {!completed&&<button type="button" disabled={current.status==='loading'||commandPending} onClick={()=>setRetry(n=>n+1)}>{current.status==='error'?'Повторить проверку':'Обновить проверку'}</button>}
     {!completed&&current.status==='ready'&&<>
@@ -110,7 +111,7 @@ export default function SupplierCorrectionPreview({prefix,supplierId,requestId,o
       </details>
       <p>Просмотр последствий не меняет связи и права доступа.</p>
       {process.env.REACT_APP_PARTICIPANT_CORRECTIONS_ENABLED==='1'&&financialReviewState(data.financialReview)!=='needs_check'&&
-        (financialReviewState(data.financialReview)!=='review_required'||process.env.REACT_APP_PARTICIPANT_ISSUED_ACCESS_CORRECTIONS_ENABLED==='1')&&<SupplierConnectionCorrection
+        (financialReviewState(data.financialReview)!=='review_required'||process.env.REACT_APP_PARTICIPANT_ISSUED_ACCESS_CORRECTIONS_ENABLED==='1'||process.env.REACT_APP_PARTICIPANT_INVOICE_ACCESS_CORRECTIONS_ENABLED==='1')&&<SupplierConnectionCorrection
         prefix={prefix} companyId={data.companyId} supplierId={supplierId} targetId={data.targetId} requestId={requestId}
         onPendingChange={setCommandPending} onApplied={result=>setApplied({scope:path,result})}/>}
     </>}
