@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from .history_preview import Category, TABLES, inventory, live_access
 from .service import ADMIN_ROLES, admin_transaction
+from .correction_financials import FinancialReview, DocumentContext, inspect
 
 REGISTRIES = dict(TABLES, contracts='supplier_contract_versions', files='file_ownership')
 
@@ -29,6 +30,7 @@ class CorrectionItem(BaseModel):
     id: int
     createdAfterConnection: Optional[bool]
     currentSupplierAccess: Literal['available', 'unavailable', 'needs_check']
+    context: Optional[DocumentContext] = None
 
 
 class CorrectionPreview(BaseModel):
@@ -51,6 +53,7 @@ class CorrectionPreview(BaseModel):
     blockers: list[dict[str, str]]
     canApply: Literal[False]
     addressedAccessRequiresSeparateCorrection: Literal[True]
+    financialReview: FinancialReview
 
 
 def creation_time(cur, table):
@@ -145,6 +148,8 @@ def review(cur, company, source_id, request_id, category, offset, limit, actor_i
     cur.execute(sql.SQL('SELECT id,created_at >= %s AS after FROM ({query}) docs ORDER BY id LIMIT %s OFFSET %s').format(query=query),
                 [row['decided_at']]+params+[limit+1, offset])
     rows = cur.fetchall()
+    financial, contexts = inspect(cur, company['id'], source_id, row['target_supplier_id'], category,
+                                  [r['id'] for r in rows[:limit]])
     access = {}
     if row['current_owner']:
         for sid in (source_id, row['target_supplier_id']):
@@ -153,8 +158,10 @@ def review(cur, company, source_id, request_id, category, offset, limit, actor_i
         requestId=str(row['id']), connectedAt=row['decided_at'], sourceId=source_id, targetId=row['target_supplier_id'],
         sourceName=row['source_name'], targetName=row['target_name'], sourceVersion=row['source_link_version'],
         targetVersion=row['target_link_version'], requestVersion=row['version'], summary=summary, category=category,
-        items=[dict(id=r['id'], createdAfterConnection=r['after'], currentSupplierAccess=access.get(r['id'], 'unavailable')) for r in rows[:limit]],
-        hasMore=len(rows)>limit, blockers=blockers, canApply=False, addressedAccessRequiresSeparateCorrection=True)
+        items=[dict(id=r['id'], createdAfterConnection=r['after'], currentSupplierAccess=access.get(r['id'], 'unavailable'),
+                    context=contexts.get(r['id'])) for r in rows[:limit]],
+        hasMore=len(rows)>limit, blockers=blockers, canApply=False, addressedAccessRequiresSeparateCorrection=True,
+        financialReview=financial)
 
 
 def register_correction_preview(app, deps, admin):

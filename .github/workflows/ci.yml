@@ -94,6 +94,7 @@ jobs:
             backend.features.participant_support.test_connection_preview_postgres.SupplierConnectionPreviewPostgresTests \
             backend.features.participant_support.test_connections_postgres.SupplierConnectionsPostgresTests \
             backend.features.participant_support.test_correction_preview_postgres.SupplierCorrectionPreviewPostgresTests \
+            backend.features.participant_support.test_correction_financials_postgres.SupplierCorrectionFinancialsPostgresTests \
             backend.features.participant_support.test_corrections_postgres.SupplierCorrectionsPostgresTests \
             backend.features.participant_support.test_rfq_corrections_postgres.SupplierRfqCorrectionsPostgresTests \
             backend.features.participant_support.test_quote_corrections_postgres.SupplierQuoteCorrectionsPostgresTests \
