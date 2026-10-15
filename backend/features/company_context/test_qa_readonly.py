@@ -27,7 +27,8 @@ class Cursor:
 def row():
     return {
         "user_id": 9, "user_name": "QA", "user_email": "qa@example.test",
-        "company_id": 5, "membership_id": 12, "role": "прораб",
+        "company_id": 5, "membership_id": 12, "role": "прораб", "global_role": "прораб",
+        "user_account_id": 3, "company_account_id": 3,
     }
 
 
@@ -57,6 +58,41 @@ class ReadOnlyAuthTest(unittest.TestCase):
                         {"authenticationKind": "cookie_session", "sessionHash": "a" * 64},
                     )
                 self.assertEqual(len(cursor.queries), 2)
+
+    def test_global_platform_or_account_role_cannot_use_company_membership(self):
+        for global_role in ("platform_support", "platform_admin", "system_owner",
+                            "billing_admin", "account_owner", "account_admin", "поставщик", "unknown", None):
+            with self.subTest(global_role=global_role):
+                cursor = Cursor([dict(row(), global_role=global_role)])
+                with self.assertRaises(QAReadOnlyAuthRejected):
+                    resolve_qa_identity_read_only(cursor, {
+                        "authenticationKind": "cookie_session", "sessionHash": "a" * 64,
+                    })
+
+    def test_distinct_valid_company_roles_keep_the_server_membership_role(self):
+        cursor = Cursor([dict(row(), global_role="главный_инженер")])
+        result = resolve_qa_identity_read_only(cursor, {
+            "authenticationKind": "cookie_session", "sessionHash": "a" * 64,
+        })
+        self.assertEqual(result["user"]["role"], "прораб")
+        self.assertNotIn("global_role", repr(result))
+
+    def test_known_user_account_must_match_membership_company_account(self):
+        for user_account_id in (4, 0, -1, True, "3"):
+            with self.subTest(user_account_id=user_account_id):
+                cursor = Cursor([dict(row(), user_account_id=user_account_id, company_account_id=3)])
+                with self.assertRaises(QAReadOnlyAuthRejected):
+                    resolve_qa_identity_read_only(cursor, {
+                        "authenticationKind": "cookie_session", "sessionHash": "a" * 64,
+                    })
+
+    def test_legacy_null_user_account_keeps_exact_server_membership(self):
+        cursor = Cursor([dict(row(), user_account_id=None)])
+        result = resolve_qa_identity_read_only(cursor, {
+            "authenticationKind": "cookie_session", "sessionHash": "a" * 64,
+        })
+        self.assertEqual(result["user"]["companyId"], 5)
+        self.assertNotIn("account_id", repr(result))
 
     def test_invalid_session_claims_do_not_query_database(self):
         for claims in (None, {}, {"authenticationKind": "bearer", "sessionHash": "a" * 64},

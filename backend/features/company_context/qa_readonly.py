@@ -18,6 +18,8 @@ _QA_COMPANY_ROLES = frozenset({
 })
 _SQL = """
 SELECT u.id AS user_id, u.name AS user_name, u.email AS user_email,
+       u.role AS global_role, u.platform_account_id AS user_account_id,
+       c.platform_account_id AS company_account_id,
        m.company_id, m.id AS membership_id, m.role
   FROM public.user_sessions s
   JOIN public.users u ON u.id=s.user_id
@@ -84,6 +86,22 @@ def resolve_qa_identity_read_only(cur, authentication: object) -> dict:
         for field in ("user_id", "company_id", "membership_id"):
             if type(row.get(field)) is not int or row[field] <= 0:
                 raise QAReadOnlyAuthRejected()
+        # A platform/support/account identity must never be recast as a
+        # company user through a leftover membership, even with passed 2FA.
+        global_role = row.get("global_role")
+        if type(global_role) is not str or global_role not in _QA_COMPANY_ROLES:
+            raise QAReadOnlyAuthRejected()
+        # Match the ordinary company-context account boundary. Legacy NULL
+        # user accounts remain valid; a known account cannot cross tenants.
+        company_account_id = row.get("company_account_id")
+        user_account_id = row.get("user_account_id")
+        if type(company_account_id) is not int or company_account_id <= 0:
+            raise QAReadOnlyAuthRejected()
+        if user_account_id is not None and (
+            type(user_account_id) is not int or user_account_id <= 0
+            or user_account_id != company_account_id
+        ):
+            raise QAReadOnlyAuthRejected()
         role = row.get("role")
         name = row.get("user_name")
         email = row.get("user_email")

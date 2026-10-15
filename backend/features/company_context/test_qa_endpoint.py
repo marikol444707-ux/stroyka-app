@@ -72,7 +72,8 @@ class QAEndpointTests(unittest.TestCase):
     def setUp(self):
         self.conn = FakeConnection([{
             "user_id": 9, "user_name": "QA", "user_email": "qa@example.test",
-            "company_id": 5, "membership_id": 12, "role": "прораб",
+            "company_id": 5, "membership_id": 12, "role": "прораб", "global_role": "прораб",
+            "user_account_id": 3, "company_account_id": 3,
         }])
         self.app = FakeApp()
         register_company_context_module(self.app, {
@@ -149,6 +150,18 @@ class QAEndpointTests(unittest.TestCase):
         self.assertTrue(self.conn.rolled_back)
         self.assertTrue(self.conn.closed)
         self.assertTrue(self.conn.cursor_obj.closed)
+
+    def test_support_global_role_is_denied_despite_company_membership(self):
+        self.conn.cursor_obj.rows[0]["global_role"] = "platform_support"
+        with patch.dict("os.environ", QA_ENV, clear=True), patch(
+            "backend.features.company_context.routes.build_cookie_session_authentication",
+            return_value={"authenticationKind": "cookie_session", "sessionHash": "a" * 64},
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                self.endpoint(request())
+        self.assertEqual(raised.exception.status_code, 401)
+        self.assertTrue(self.conn.rolled_back)
+        self.assertTrue(self.conn.closed)
 
     def test_multiple_companies_are_denied_and_connection_closed(self):
         self.conn.cursor_obj.rows = self.conn.cursor_obj.rows * 2

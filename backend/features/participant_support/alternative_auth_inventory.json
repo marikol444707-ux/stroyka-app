@@ -159,6 +159,15 @@
   },
   {
     "methods": [
+      "GET"
+    ],
+    "path": "/users/qa-readonly-context/identity",
+    "dependencies": [
+      "get_qa_readonly_context"
+    ]
+  },
+  {
+    "methods": [
       "POST"
     ],
     "path": "/site/lead-files",
