@@ -7,7 +7,7 @@ import psycopg2.extras
 from fastapi import Depends, Header, HTTPException
 
 from .history_lock import lock_supplier_history_writer
-from .schema import ensure_packaging_schema
+from .schema import ensure_packaging_schema, packaging_schema_ready
 
 
 def _text(value, limit=500):
@@ -545,7 +545,8 @@ def register_material_packaging_module(app, deps):
             conn.autocommit = True
             cur.execute("SET lock_timeout='3s'; SET statement_timeout='15s'")
             selected_actor(cur, current_user, "write", x_company_id, x_company_mode)
-            ensure_packaging_schema(cur)
+            if not packaging_schema_ready(cur):
+                ensure_packaging_schema(cur)
             conn.autocommit = False
             lock_supplier_history_writer(cur, supplier_id)
             actor, company_id = selected_actor(cur, current_user, "write", x_company_id, x_company_mode)

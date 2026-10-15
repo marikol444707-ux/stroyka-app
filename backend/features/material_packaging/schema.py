@@ -1,5 +1,40 @@
 """Canonical packaging table bootstrap shared by runtime and migrations."""
 
+
+def packaging_schema_ready(cur):
+    """Read-only bootstrap check, not proof of the history-lock guard contract."""
+    cur.execute(
+        """WITH expected(table_name, column_names) AS (VALUES
+            ('public.material_packaging_rules', %s::text[]),
+            ('public.material_packaging_reviews', %s::text[]))
+        SELECT NOT EXISTS (
+            SELECT 1 FROM expected e, unnest(e.column_names) AS required(column_name)
+            WHERE NOT EXISTS (
+                SELECT 1 FROM pg_catalog.pg_attribute a
+                WHERE a.attrelid=to_regclass(e.table_name)
+                  AND a.attname=required.column_name AND a.attnum>0 AND NOT a.attisdropped
+            )
+        ) AND EXISTS (
+            SELECT 1 FROM pg_catalog.pg_index
+            WHERE indexrelid=to_regclass('public.idx_material_packaging_rule_identity')
+              AND indrelid=to_regclass('public.material_packaging_rules')
+              AND indisvalid AND indisready AND indisunique
+        ) AND EXISTS (
+            SELECT 1 FROM pg_catalog.pg_index
+            WHERE indexrelid=to_regclass('public.idx_material_packaging_reviews_invoice')
+              AND indrelid=to_regclass('public.material_packaging_reviews')
+              AND indisvalid AND indisready
+        ) AS ready""",
+        (['id', 'company_id', 'supplier_id', 'material_key', 'material_name',
+          'document_unit', 'base_unit', 'content_quantity', 'status', 'note',
+          'created_by', 'created_at', 'updated_at'],
+         ['id', 'company_id', 'warehouse_invoice_id', 'item_index', 'packaging_rule_id',
+          'status', 'review_note', 'snapshot', 'reviewed_by', 'reviewed_at', 'review_decision']),
+    )
+    row = cur.fetchone()
+    return bool(row['ready'] if isinstance(row, dict) else row[0])
+
+
 def ensure_packaging_schema(cur):
     cur.execute(
         """CREATE TABLE IF NOT EXISTS material_packaging_rules (

@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from . import test_history_lock_postgres as writer_tests
+from .schema import ensure_packaging_schema, packaging_schema_ready
 
 
 @unittest.skipUnless(os.getenv('SUPPLY_CHAIN_RUN_POSTGRES') == '1', 'isolated PostgreSQL opt-in')
@@ -224,5 +225,36 @@ class PackagingDatabaseGuardTests(unittest.TestCase):
                 cur.execute('LOCK TABLE material_packaging_rules IN ROW EXCLUSIVE MODE')
             free = self.rule(other)
             general = self.rule(None)
+            # The real HTTP path must also pass: repeated bootstrap DDL used to
+            # request a conflicting table lock before reaching the supplier key.
+            for supplier in (other, None):
+                body = self.body()
+                body['supplierId'] = supplier
+                saved = self.save(body)
+                self.assertEqual(saved['supplierId'], supplier)
         self.assertEqual(self.sql('SELECT supplier_id FROM material_packaging_rules WHERE id=ANY(%s) ORDER BY id',
                                   ([free,general],)), [(other,),(None,)])
+
+    def test_schema_check_preserves_legacy_bootstrap_and_does_not_mutate_rows(self):
+        before = self.sql('SELECT to_jsonb(r) FROM material_packaging_rules r ORDER BY id')
+        for statement in (
+            'ALTER TABLE material_packaging_reviews DROP COLUMN review_decision',
+            'DROP INDEX idx_material_packaging_rule_identity',
+            'DROP INDEX idx_material_packaging_reviews_invoice',
+            'DROP TABLE material_packaging_reviews',
+        ):
+            with self.subTest(statement=statement):
+                conn = self.main.get_db()
+                try:
+                    conn.autocommit = False
+                    with conn.cursor() as cur:
+                        self.assertTrue(packaging_schema_ready(cur))
+                        cur.execute(statement)
+                        self.assertFalse(packaging_schema_ready(cur))
+                        ensure_packaging_schema(cur)
+                        self.assertTrue(packaging_schema_ready(cur))
+                        cur.execute('SELECT to_jsonb(r) FROM material_packaging_rules r ORDER BY id')
+                        self.assertEqual(before, cur.fetchall())
+                finally:
+                    conn.rollback()
+                    conn.close()
