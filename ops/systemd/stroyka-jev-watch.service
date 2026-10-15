@@ -1,0 +1,28 @@
+[Unit]
+Description=Stroyka JEVA isolated QA read-only smoke
+After=network-online.target docker.service
+Wants=network-online.target
+ConditionPathExists=/etc/stroyka-jev-watch.env
+
+[Service]
+Type=oneshot
+User=stroyka
+Group=stroyka
+EnvironmentFile=/etc/stroyka-jev-watch.env
+ExecStart=/usr/bin/python3 /usr/local/libexec/stroyka-jev-watch/runner.py
+StateDirectory=stroyka-jev-watch
+StateDirectoryMode=0700
+TimeoutStartSec=150
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+MemoryMax=128M
+
+[Install]
+WantedBy=multi-user.target

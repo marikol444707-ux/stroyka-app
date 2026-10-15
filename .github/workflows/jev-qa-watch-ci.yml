@@ -1,0 +1,226 @@
+name: JEVA QA watcher tests
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/jev_qa_watch.py'
+      - 'scripts/test_jev_qa_watch.py'
+      - 'scripts/jev_qa_host_preflight.py'
+      - 'scripts/test_jev_qa_host_preflight.py'
+      - 'scripts/build_jev_qa_unshare_probe.py'
+      - 'scripts/test_build_jev_qa_unshare_probe.py'
+      - 'scripts/install_jev_qa_watch.sh'
+      - 'ops/systemd/stroyka-jev-watch.*'
+      - 'dev_control/Dockerfile'
+      - 'dev_control/.dockerignore'
+      - 'dev_control/browser_worker/**'
+      - 'dev_control/jev_timeweb.py'
+      - 'dev_control/test_jev_timeweb.py'
+      - '.github/workflows/jev-qa-watch-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile and test QA watcher (no secrets or server access)
+        run: |
+          python -m py_compile scripts/jev_qa_watch.py scripts/test_jev_qa_watch.py
+          python -m unittest scripts.test_jev_qa_watch -v
+          python -m py_compile scripts/jev_qa_host_preflight.py scripts/test_jev_qa_host_preflight.py
+          python -m unittest scripts.test_jev_qa_host_preflight -v
+          python -m py_compile scripts/build_jev_qa_unshare_probe.py scripts/test_build_jev_qa_unshare_probe.py
+          python -m unittest scripts.test_build_jev_qa_unshare_probe -v
+          python -m unittest dev_control.browser_worker.test_container_contract.BrowserWorkerContainerContractTest.test_docker_context_allowlists_code_and_excludes_untracked_secrets -v
+          bash -n scripts/install_jev_qa_watch.sh
+
+  container-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build isolated QA worker image (no runtime credentials)
+        run: docker build --file dev_control/Dockerfile --tag stroyka-jev-qa-ci dev_control
+      - name: Run worker security regression modules inside built image
+        run: |
+          docker run --rm --entrypoint python stroyka-jev-qa-ci -m unittest -v \
+            dev_control.test_jev_timeweb \
+            dev_control.browser_worker.test_run_safety \
+            dev_control.browser_worker.test_qa_identity \
+            dev_control.browser_worker.test_container_contract
+      - name: Boot Chrome, check worker health and cross-UID secret boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Constant fake values only. Never expose production/QA credentials to CI.
+          # CI-only: permit Chrome's unprivileged sandbox namespace syscalls.
+          # No real credentials or Stroyka app access; QA deployment must be verified separately.
+          docker run -d --security-opt seccomp=unconfined --name stroyka-jev-qa-ci \
+            -p 127.0.0.1:18089:8080 \
+            -e QA_BASE_URL=http://127.0.0.1:8080 \
+            -e QA_ENVIRONMENT=qa \
+            -e DEV_CONTROL_API_TOKEN=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+            -e TIMEWEB_AI_API_KEY=ci-dummy-not-a-real-key \
+            stroyka-jev-qa-ci >/dev/null
+          trap 'docker logs --tail 60 stroyka-jev-qa-ci || true; docker rm -f stroyka-jev-qa-ci || true' EXIT
+
+          ready=0
+          for attempt in $(seq 1 60); do
+            if curl --silent --fail http://127.0.0.1:18089/health > /tmp/jev-qa-health.json; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [[ "$ready" != "1" ]]; then
+            echo "QA worker failed to boot with Chrome in the isolated container" >&2
+            exit 1
+          fi
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          health = json.loads(Path("/tmp/jev-qa-health.json").read_text())
+          assert health.get("ok") is True, health
+          assert health.get("environment") == "qa", health
+          assert health.get("startup_selftest") == "not_requested", health
+          print("QA container health and Chrome CDP startup: PASS (no application session)")
+          PY
+
+          docker exec -i stroyka-jev-qa-ci python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from urllib.request import urlopen
+          with urlopen("http://127.0.0.1:9222/json/version", timeout=3) as response:
+              assert "Browser" in json.load(response)
+          assert os.stat("/proc/1").st_uid == 10001, "worker must run as UID 10001"
+          chrome_pids = []
+          for proc in Path("/proc").iterdir():
+              if not proc.name.isdigit():
+                  continue
+              try:
+                  comm = (proc / "comm").read_text().strip().lower()
+                  if "chrome" not in comm:
+                      continue
+                  chrome_pids.append(proc.name)
+                  assert proc.stat().st_uid == 10002, "Chrome must use a separate UID"
+                  try:
+                      env = (proc / "environ").read_bytes()
+                  except PermissionError:
+                      # Chrome may make its processes non-dumpable. Do not weaken
+                      # ptrace restrictions just to inspect process secrets.
+                      print("Chrome /proc environ is kernel-protected")
+                  else:
+                      for key in (b"TIMEWEB_AI_API_KEY=", b"DEV_CONTROL_API_TOKEN=",
+                                  b"QA_SESSION_COOKIE_VALUE=", b"JEV_WATCHER_TOKEN="):
+                          assert key not in env, "Chrome inherited a protected credential"
+                  try:
+                      argv = (proc / "cmdline").read_bytes()
+                  except PermissionError:
+                      print("Chrome /proc cmdline is kernel-protected")
+                  else:
+                      assert b"--no-sandbox" not in argv, "Chrome sandbox opt-out is forbidden in this CI smoke"
+              except FileNotFoundError:
+                  continue
+          assert chrome_pids, "no Chrome process was found"
+          print("Chrome process UID and inspectable environment/sandbox arguments: PASS")
+          PY
+
+          docker exec -i --user 10001 stroyka-jev-qa-ci python3 - <<'PY'
+          import os
+          from pathlib import Path
+          entry = Path("/app/dev_control/browser_worker/start.sh")
+          code = Path("/app/dev_control/browser_worker/service.py")
+          for target in (entry, code):
+              assert target.stat().st_uid == 0, "container code must be root-owned"
+              assert not os.access(target, os.W_OK), "worker must not edit root-run code"
+          print("Worker cannot modify root-owned entrypoint or application code: PASS")
+          PY
+
+          docker exec --user 10002 stroyka-jev-qa-ci python3 -c '
+          import os
+          assert os.stat("/proc/1").st_uid == 10001
+          try:
+              with open("/proc/1/environ", "rb") as stream:
+                  stream.read()
+          except PermissionError:
+              print("Chrome UID cannot read Uvicorn environment via /proc: PASS")
+          else:
+              raise AssertionError("Chrome UID can read worker secret-bearing environment")
+          '
+
+          # This makes a real Chrome BrowserContext + Fetch-boundary + verifier
+          # observation without model calls, login, Timeweb requests, or writes.
+          python3 - <<'PY'
+          import json
+          import time
+          from urllib.request import Request, urlopen
+
+          base = "http://127.0.0.1:18089"
+          fake_token = "0123456789abcdef" * 4
+          headers = {"Authorization": "Bearer " + fake_token}
+          body = json.dumps({
+              "url": "http://127.0.0.1:8080/selftest-page",
+              "goal": "Observe only the local QA self-test fixture, without interactions",
+              "read_only": True,
+              "max_seconds": 45,
+              "expect_text": ["Run browser self-test"],
+              "expect_url_contains": ["selftest-page"],
+          }).encode()
+          req = Request(base + "/jobs", data=body, method="POST",
+                        headers={**headers, "Content-Type": "application/json"})
+          with urlopen(req, timeout=5) as response:
+              created = json.load(response)
+              assert response.status == 202, created
+          job_id = created["job_id"]
+          assert len(job_id) == 32 and all(c in "0123456789abcdef" for c in job_id)
+
+          deadline = time.monotonic() + 80
+          while time.monotonic() < deadline:
+              req = Request(base + "/jobs/" + job_id, headers=headers)
+              with urlopen(req, timeout=5) as response:
+                  state = json.load(response)
+              if state.get("status") in ("passed", "failed", "cancelled"):
+                  result = state.get("result") or {}
+                  assert state["status"] == "passed" and result.get("ok") is True, {
+                      "status": state["status"],
+                      "failures": result.get("failures"),
+                  }
+                  checks = result.get("checks") or []
+                  assert "read_only_observation" in checks, checks
+                  assert "expect_text[0]:present" in checks, checks
+                  assert "expect_url_contains[0]:present" in checks, checks
+                  print("Real Chrome BrowserContext + read-only verifier fixture: PASS")
+                  break
+              time.sleep(0.5)
+          else:
+              raise AssertionError("local browser read-only fixture exceeded the CI deadline")
+          PY
+
+          # Exercise the real worker HTTP route and the watcher's reply MAC.
+          python3 - <<'PY'
+          import hashlib
+          import hmac
+          from scripts.jev_qa_watch import call_worker
+
+          full = "0123456789abcdef" * 4  # fixed CI-only dummy credential
+          scoped = hmac.new(
+              full.encode("ascii"), b"stroyka-jev-watch-read-only-v2",
+              hashlib.sha256,
+          ).hexdigest()
+          result = call_worker(
+              "http://127.0.0.1:18089", scoped, "GET", "/watcher/health",
+          )
+          assert result.get("ok") is True, result
+          assert result.get("watcher_target") == "https://stroyka-qa-gateway/app", result
+          print("Real signed watcher health response verified over loopback: PASS")
+          PY

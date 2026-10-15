@@ -1,0 +1,28 @@
+# Allowlist-only Docker build context for the isolated QA worker.
+# Dockerfile uses COPY .; never copy arbitrary local files into the image.
+# Files outside the explicit list are excluded, including .env, keys,
+# credentials, evidence, caches, git history, and ad-hoc debug scripts.
+*
+!Dockerfile
+!__init__.py
+!jev_timeweb.py
+!test_jev_timeweb.py
+!browser_worker/
+browser_worker/*
+!browser_worker/__init__.py
+!browser_worker/requirements.txt
+!browser_worker/start.sh
+!browser_worker/patch_harness.py
+!browser_worker/network_guard.py
+!browser_worker/qa_identity.py
+!browser_worker/provider.py
+!browser_worker/run.py
+!browser_worker/service.py
+!browser_worker/verifier.py
+!browser_worker/viewer.py
+!browser_worker/test_run_safety.py
+!browser_worker/test_qa_identity.py
+!browser_worker/test_container_contract.py
+!browser_worker/test_verifier.py
+!browser_worker/README.md
+!browser_worker/CDP_COMPATIBILITY.md

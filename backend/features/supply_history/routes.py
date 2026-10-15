@@ -54,10 +54,17 @@ def register_supply_history_module(app, deps):
                            x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
                            x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode")):
         conn = get_db()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur = None
         try:
-            ensure_supply_runtime_columns(cur)
-            conn.commit()
+            # get_db() defaults to autocommit=True; a READ ONLY transaction
+            # requires disabling it before any query. This protects the GET
+            # handler's SQL even if a future read helper tries to write.
+            # The earlier get_current_user dependency is a separate audit
+            # boundary and is NOT covered by this transaction.
+            conn.autocommit = False
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            cur.execute("SET TRANSACTION READ ONLY")
+            # Missing columns must fail, never trigger schema initialization.
             role = current_user.get("role")
             page_sql, page_params = limit_offset_sql(limit, offset)
             select_sql = ("SELECT id,company_id as \"companyId\",supplier_id as \"supplierId\",material_name as \"materialName\",quantity,unit,"
@@ -95,8 +102,14 @@ def register_supply_history_module(app, deps):
             rows = cur.fetchall()
             return [dict(r) for r in rows]
         finally:
-            cur.close()
-            conn.close()
+            try:
+                if cur is not None:
+                    cur.close()
+            finally:
+                try:
+                    conn.rollback()
+                finally:
+                    conn.close()
 
     @app.post("/supply-history")
     def create_supply_history(d: SupplyHistoryModel, _current_user: dict = Depends(require_roles(*write_roles)),

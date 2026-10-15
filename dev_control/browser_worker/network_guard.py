@@ -1,0 +1,765 @@
+"""Strict URL and network boundary for the isolated QA Chrome."""
+
+from __future__ import annotations
+
+import os
+import posixpath
+import re
+import threading
+import time
+from urllib.parse import parse_qsl, unquote, urlencode, urlparse, urlsplit, urlunsplit
+
+from dev_control.jev_timeweb import JevError
+from dev_control.browser_worker.qa_identity import (
+    QAIdentityNotEstablished, bootstrap_qa_user_in_browser, read_qa_user_in_browser,
+)
+
+
+_SENSITIVE_MARKERS = (
+    "token", "code", "invite", "password", "secret", "key", "auth", "signature", "sig", "session",
+)
+_SENSITIVE_PATH_MARKERS = frozenset({
+    "reset", "password-reset", "magic", "magic-link", "verify", "verification",
+    "invite", "invitation", "callback", "oauth", "token",
+})
+
+DEDICATED_CDP_URL = "http://127.0.0.1:9222"
+_PAGE_LIKE_TARGETS = frozenset({"page", "iframe"})
+_WORKER_TARGETS = frozenset({"worker", "shared_worker", "service_worker"})
+_TRANSPORT_BLOCK_SCRIPT = r"""
+(() => {
+  const root = globalThis;
+  const marker = '__stroykaTransportBlocked';
+  const blocked = function(){ throw new Error('Blocked by Stroyka QA network policy'); };
+  try {
+    Object.defineProperty(blocked, marker, {value: true, configurable: false, writable: false});
+  } catch (_) {
+    throw new Error('STROYKA_TRANSPORT_BLOCK_FAILED:marker');
+  }
+  for (const name of ['WebSocket', 'WebTransport', 'RTCPeerConnection', 'webkitRTCPeerConnection']) {
+    let alreadyBlocked = false;
+    try { alreadyBlocked = Boolean(root[name] && root[name][marker] === true); } catch (_) {}
+    if (alreadyBlocked) continue;
+
+    let installed = false;
+    try {
+      Object.defineProperty(root, name, {
+        value: blocked,
+        configurable: false,
+        writable: false
+      });
+      installed = root[name] === blocked;
+    } catch (_) {}
+    if (!installed) {
+      try {
+        root[name] = blocked;
+        installed = root[name] === blocked;
+      } catch (_) {}
+    }
+    if (!installed) {
+      throw new Error('STROYKA_TRANSPORT_BLOCK_FAILED:' + name);
+    }
+  }
+  return 'STROYKA_TRANSPORT_BLOCKED';
+})();
+"""
+
+_TRANSPORT_VERIFY_SCRIPT = r"""
+(() => {
+  const root = globalThis;
+  const marker = '__stroykaTransportBlocked';
+  for (const name of ['WebSocket', 'WebTransport', 'RTCPeerConnection', 'webkitRTCPeerConnection']) {
+    let blocked = false;
+    try { blocked = Boolean(root[name] && root[name][marker] === true); } catch (_) {}
+    if (!blocked) throw new Error('STROYKA_TRANSPORT_BLOCK_FAILED:' + name);
+  }
+  return 'STROYKA_TRANSPORT_BLOCKED';
+})();
+"""
+
+
+def assert_dedicated_loopback_cdp_url(value: str | None = None) -> str:
+    """Only the worker-owned loopback Chrome may be used for browser QA."""
+
+    websocket_override = (os.environ.get("BU_CDP_WS") or "").strip()
+    if websocket_override:
+        raise ValueError("BU_CDP_WS is forbidden; Jev QA must use the dedicated loopback Chrome")
+
+    configured = (
+        value
+        if value is not None
+        else (os.environ.get("BU_CDP_URL") or DEDICATED_CDP_URL)
+    ).strip()
+    if configured != DEDICATED_CDP_URL:
+        raise ValueError(
+            "BU_CDP_URL must point exactly to the dedicated loopback Chrome "
+            f"({DEDICATED_CDP_URL})"
+        )
+    return configured
+
+
+def bootstrap_session_cookie(base_url: str, browser_session_id: str, cdp_fn) -> bool:
+    """Set the QA HttpOnly cookie via the attached isolated page session.
+
+    Storage.setCookies with browserContextId is rejected by the deployed
+    browser-harness CDP transport. Network.setCookie on the isolated target
+    session scopes the cookie to that target's browser context.
+    """
+
+    cookie_value = (os.environ.get("QA_SESSION_COOKIE_VALUE") or "").strip()
+    if not cookie_value:
+        return False
+
+    parsed = urlparse(base_url)
+    if parsed.scheme != "https" or not parsed.hostname:
+        raise ValueError("QA session cookie bootstrap requires an HTTPS QA_BASE_URL")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("QA_BASE_URL must not contain credentials")
+
+    cookie_name = (os.environ.get("QA_SESSION_COOKIE_NAME") or "stroyka_session").strip()
+    if (
+        not cookie_name
+        or len(cookie_name) > 128
+        or any(ch.isspace() or ch in ";=," for ch in cookie_name)
+    ):
+        raise ValueError("QA session cookie name is invalid")
+
+    if type(browser_session_id) is not str or not browser_session_id:
+        raise ValueError("QA browser session is required for cookie bootstrap")
+    origin = urlunsplit((parsed.scheme, parsed.netloc, "/", "", ""))
+    result = cdp_fn(
+        "Network.setCookie",
+        session_id=browser_session_id,
+        name=cookie_name,
+        value=cookie_value,
+        url=origin,
+        secure=True,
+        httpOnly=True,
+        sameSite="Lax",
+    )
+    if type(result) is not dict or result.get("success") is not True:
+        raise ValueError("QA session cookie bootstrap was not confirmed")
+    return True
+
+
+def redact_boundary_url(url: str) -> str:
+    parts = urlsplit(str(url))
+    try:
+        decoded_path = _fully_unquote(parts.path or "/").replace("\\", "/")
+    except ValueError:
+        decoded_path = "/[REDACTED]"
+    path_segments = decoded_path.split("/")
+    output = []
+    redact_next = False
+    for segment in path_segments:
+        lowered = segment.lower()
+        if redact_next and segment:
+            output.append("[REDACTED]")
+            redact_next = False
+            continue
+        output.append(segment)
+        if lowered in _SENSITIVE_PATH_MARKERS:
+            redact_next = True
+
+    query = []
+    for key, value in parse_qsl(parts.query, keep_blank_values=True):
+        try:
+            decoded_key = _fully_unquote(key)
+        except ValueError:
+            query.append(("[REDACTED_KEY]", "[REDACTED]"))
+            continue
+        lowered = decoded_key.lower()
+        query.append(
+            (decoded_key, "[REDACTED]")
+            if any(marker in lowered for marker in _SENSITIVE_MARKERS)
+            else (decoded_key, value)
+        )
+    host = parts.hostname or ""
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    port = f":{parts.port}" if parts.port is not None else ""
+    authority = f"{host}{port}"
+    return urlunsplit((parts.scheme, authority, "/".join(output), urlencode(query), ""))
+
+
+def _fully_unquote(value: str) -> str:
+    current = value
+    for _ in range(12):
+        decoded = unquote(current)
+        if decoded == current:
+            return decoded
+        current = decoded
+    raise ValueError("URL path is excessively encoded")
+
+
+def canonical_origin(url: str) -> tuple[str, str, int | None]:
+    parsed = urlparse(url)
+    scheme = parsed.scheme.lower()
+    host = (parsed.hostname or "").lower().rstrip(".")
+    port = parsed.port
+    if port is None:
+        port = 443 if scheme == "https" else 80 if scheme == "http" else None
+    return scheme, host, port
+
+
+def normalized_path(url: str) -> str:
+    parsed = urlparse(url)
+    raw = _fully_unquote(parsed.path or "/").replace("\\", "/")
+    parts = raw.split("/")
+    if any(part in {".", ".."} for part in parts):
+        raise ValueError("QA URL contains dot path segments")
+    normalized = posixpath.normpath(raw)
+    if not normalized.startswith("/"):
+        normalized = "/" + normalized
+    if raw.endswith("/") and normalized != "/":
+        normalized += "/"
+    return normalized
+
+
+def assert_allowed_document_url(url: str, base_url: str) -> None:
+    target = urlparse(url)
+    base = urlparse(base_url)
+    if target.scheme not in {"http", "https"}:
+        raise ValueError("QA URL must use http or https")
+    if base.scheme not in {"http", "https"} or not base.netloc:
+        raise ValueError("QA_BASE_URL must be an absolute http(s) URL")
+    if (
+        target.username is not None
+        or target.password is not None
+        or base.username is not None
+        or base.password is not None
+    ):
+        raise ValueError("QA URLs must not contain credentials")
+    if canonical_origin(url) != canonical_origin(base_url):
+        raise ValueError("QA URL is outside QA_BASE_URL origin")
+
+    target_path = normalized_path(url)
+    base_path = normalized_path(base_url).rstrip("/")
+    if base_path and base_path != "/" and not (
+        target_path == base_path or target_path.startswith(base_path + "/")
+    ):
+        raise ValueError("QA URL is outside QA_BASE_URL path")
+
+
+
+def qa_base_is_nonproduction(base_url: str | None = None) -> bool:
+    """Shared fail-closed boundary for both the HTTP worker and direct CLI.
+
+    Local HTTP is accepted only for the worker's own loopback self-test.
+    Every remote origin must be explicit HTTPS and outside production hosts.
+    """
+    base = (base_url if base_url is not None else os.environ.get("QA_BASE_URL") or "").strip()
+    try:
+        parsed = urlparse(base)
+        host = (parsed.hostname or "").lower().rstrip(".")
+        assert_allowed_document_url(base, base)
+    except (ValueError, TypeError):
+        return False
+    if not host or parsed.scheme not in {"http", "https"}:
+        return False
+
+    if host in {"127.0.0.1", "localhost"}:
+        port = (os.environ.get("PORT") or "8080").strip()
+        if not port.isdigit():
+            port = "8080"
+        return base.rstrip("/") == f"http://127.0.0.1:{port}"
+
+    allowed_value = (os.environ.get("QA_ALLOWED_ORIGIN") or "").strip().rstrip("/")
+    if not allowed_value:
+        return False
+    try:
+        allowed = urlparse(allowed_value)
+        if (allowed.username is not None or allowed.password is not None
+                or allowed.path not in {"", "/"} or allowed.query or allowed.fragment):
+            return False
+        # Explicit port 0 is invalid and must not silently become 443.
+        base_port = 443 if parsed.port is None else parsed.port
+        allowed_port = 443 if allowed.port is None else allowed.port
+        if not (1 <= base_port <= 65535 and 1 <= allowed_port <= 65535):
+            return False
+    except (ValueError, TypeError):
+        return False
+    if (parsed.scheme, host, base_port) != (
+            allowed.scheme, (allowed.hostname or "").lower().rstrip("."), allowed_port):
+        return False
+    if allowed.scheme != "https":
+        return False
+    if host in {"stroyka26.pro", "www.stroyka26.pro", "stroyka.pro", "www.stroyka.pro"}:
+        return False
+    if host.endswith(".stroyka26.pro") or host.endswith(".stroyka.pro"):
+        return False
+    if host == "147.45.237.127":
+        return False
+    return True
+
+
+def assert_qa_execution_scope(base_url: str) -> None:
+    """Never permit direct CLI or service jobs to browse production."""
+    if (os.environ.get("QA_ENVIRONMENT") or "").strip().lower() not in {"qa", "test", "staging"}:
+        raise ValueError("QA_ENVIRONMENT must be qa, test, or staging")
+    if not qa_base_is_nonproduction(base_url):
+        raise ValueError("QA_BASE_URL is not an explicitly permitted nonproduction target")
+
+
+def request_allowed(
+    url: str,
+    base_url: str,
+    resource_type: str | None,
+    *,
+    request_method: str = "GET",
+    read_only: bool = False,
+    bootstrap_only: bool = False,
+) -> bool:
+    """Allow only QA-scoped requests; read-only mode blocks mutating HTTP methods."""
+
+    target = urlparse(url)
+    base = urlparse(base_url)
+    if read_only and str(request_method or "GET").upper() not in {"GET", "HEAD", "OPTIONS"}:
+        return False
+    if target.scheme in {"data", "blob"}:
+        return resource_type != "Document"
+    if target.scheme not in {"http", "https"}:
+        return False
+    if canonical_origin(url) != canonical_origin(base_url):
+        return False
+    if bootstrap_only:
+        # A GET is not necessarily read-only. Only the dedicated identity
+        # route and known frontend files may reach the QA server in this
+        # profile. All business API traffic is denied before transmission.
+        if (not read_only or target.query or target.fragment or target.params
+                or target.username is not None or target.password is not None
+                or "%" in target.path or "\\" in target.path
+                or any(part in {".", ".."} for part in target.path.split("/"))):
+            return False
+        method = str(request_method or "GET").upper()
+        if target.path == "/api/users/qa-readonly-context/identity":
+            return method == "GET" and resource_type in {"XHR", "Fetch"}
+        if method not in {"GET", "HEAD"}:
+            return False
+        if resource_type == "Document":
+            return (base.path.rstrip("/") in {"", "/app"}
+                    and target.path.rstrip("/") == "/app")
+        return bool(
+            re.fullmatch(r"/static/(?:js|css|media)/[A-Za-z0-9_.-]+", target.path)
+            or target.path in {"/favicon.ico", "/favicon.png", "/logo192.png",
+                               "/logo512.png", "/manifest.json"}
+        )
+    if resource_type == "Document":
+        try:
+            assert_allowed_document_url(url, base_url)
+        except ValueError:
+            return False
+    return True
+
+
+class NetworkBoundary:
+    """CDP Fetch guard that fails disallowed requests before Chrome sends them."""
+
+    def __init__(self, session_id: str, base_url: str, *, read_only: bool = False,
+                 bootstrap_only: bool = False):
+        from browser_harness.helpers import cdp, drain_events
+
+        self._cdp = cdp
+        self._drain_events = drain_events
+        self._session_id = session_id
+        self._base_url = base_url
+        self._read_only = bool(read_only)
+        self._bootstrap_only = bool(bootstrap_only)
+        if self._bootstrap_only and not self._read_only:
+            raise ValueError("bootstrap-only requires read-only observation")
+        self.blocked_presence_pings = 0
+        self.blocked_data_reads = 0
+        self._stop = threading.Event()
+        self._error: str | None = None
+        self._thread = threading.Thread(target=self._loop, name="qa-network-boundary", daemon=True)
+        self._thread_started = False
+        self._guarded_sessions: set[str] = set()
+        self._child_targets: set[str] = set()
+
+    def start(self) -> None:
+        self._enable_session(self._session_id, "page")
+        self._thread.start()
+        self._thread_started = True
+
+    def _enable_session(self, session_id: str, target_type: str) -> None:
+        self._cdp(
+            "Fetch.enable",
+            session_id=session_id,
+            patterns=[{"urlPattern": "*", "requestStage": "Request"}],
+        )
+        self._cdp(
+            "Target.setAutoAttach",
+            session_id=session_id,
+            autoAttach=True,
+            waitForDebuggerOnStart=True,
+            flatten=True,
+            filter=[
+                {"type": "page", "exclude": False},
+                {"type": "iframe", "exclude": False},
+                {"type": "worker", "exclude": False},
+                {"type": "shared_worker", "exclude": False},
+                {"type": "service_worker", "exclude": False},
+                {"exclude": True},
+            ],
+        )
+
+        if target_type in _PAGE_LIKE_TARGETS:
+            # Page.enable is required for Page.javascriptDialogOpening events.
+            self._cdp("Page.enable", session_id=session_id)
+            self._cdp(
+                "Page.addScriptToEvaluateOnNewDocument",
+                session_id=session_id,
+                source=_TRANSPORT_BLOCK_SCRIPT,
+                runImmediately=True,
+            )
+            result = self._cdp(
+                "Runtime.evaluate",
+                session_id=session_id,
+                expression=_TRANSPORT_VERIFY_SCRIPT,
+                returnByValue=True,
+            )
+            if (result or {}).get("exceptionDetails"):
+                raise RuntimeError("failed to verify non-Fetch transport block in page target")
+        elif target_type in _WORKER_TARGETS:
+            result = self._cdp(
+                "Runtime.evaluate",
+                session_id=session_id,
+                expression=_TRANSPORT_BLOCK_SCRIPT,
+                returnByValue=True,
+            )
+            if (result or {}).get("exceptionDetails"):
+                raise RuntimeError("failed to install non-Fetch transport block in worker")
+        else:
+            raise RuntimeError(f"unsupported attached target type: {target_type!r}")
+
+        # A session is considered guarded only after Fetch + transport blocking
+        # have both been installed successfully.
+        self._guarded_sessions.add(session_id)
+
+    def _handle_attached_target(self, params: dict) -> None:
+        child_session = params.get("sessionId")
+        # Auto-attach can announce the root or an already protected session again.
+        # Do not re-enable Fetch or resume it, or register the root as a child.
+        if child_session and child_session in self._guarded_sessions:
+            return
+        target_info = params.get("targetInfo") or {}
+        target_id = target_info.get("targetId")
+        target_type = target_info.get("type")
+        initial_url = str(target_info.get("url") or "about:blank")
+
+        if target_id:
+            self._child_targets.add(target_id)
+        if not child_session:
+            return
+        if initial_url not in {"", "about:blank"}:
+            resource_type = "Document" if target_type in _PAGE_LIKE_TARGETS else None
+            if not request_allowed(
+                initial_url,
+                self._base_url,
+                resource_type,
+                read_only=self._read_only,
+                bootstrap_only=getattr(self, "_bootstrap_only", False),
+            ):
+                if target_id:
+                    self._cdp("Target.closeTarget", targetId=target_id)
+                self._error = f"blocked out-of-scope attached target: {redact_boundary_url(initial_url)}"
+                return
+
+        self._enable_session(child_session, target_type)
+        self._cdp("Runtime.runIfWaitingForDebugger", session_id=child_session)
+
+    def _handle_javascript_dialog(self, event: dict) -> None:
+        """Unblock native JS dialogs without approving confirm/prompt actions.
+
+        An alert has no user decision to make; acknowledging it is safe.
+        Stop the agent afterwards so it cannot retry a failed write.
+        Dialog text is deliberately not persisted because it may contain secrets.
+        """
+        params = event.get("params") or {}
+        kind = str(params.get("type") or "")
+        session_id = event.get("session_id") or self._session_id
+        if session_id not in self._guarded_sessions:
+            self._error = "QA dialog from unguarded browser session"
+            return
+        if kind not in {"alert", "confirm", "prompt", "beforeunload"}:
+            self._error = "unknown QA JavaScript dialog type"
+            return
+
+        # CDP must handle a modal before Runtime.evaluate can resume.
+        # confirm/prompt/beforeunload must never be automatically accepted.
+        self._cdp(
+            "Page.handleJavaScriptDialog",
+            session_id=session_id,
+            accept=kind == "alert",
+        )
+        if kind == "alert":
+            self._error = "QA JavaScript alert observed and dismissed; verify HTTP response and DB before PASS"
+        else:
+            self._error = f"QA JavaScript {kind} dismissed without approval"
+
+    def _expected_blocked_presence_ping(self, url: str, method: str) -> bool:
+        """An app-shell presence POST is safely denied, not an agent write.
+
+        The QA app automatically calls POST /api/online even if the observer
+        never interacts with the page. Never send it; only suppress the
+        expected *failure signal* for this exact, same-origin request.
+        All other blocked requests remain terminal failures.
+        """
+        parsed = urlparse(url)
+        return (
+            self._read_only
+            and method.upper() == "POST"
+            and parsed.path in {"/api/online", "/online"}
+            and not parsed.query
+            and canonical_origin(url) == canonical_origin(self._base_url)
+        )
+
+    def _excluded_bootstrap_data_read(self, url: str, method: str, kind: str) -> bool:
+        """Excluded data is NOT_TESTED, never a fabricated successful API call."""
+        return (
+            getattr(self, "_bootstrap_only", False)
+            and method.upper() in {"GET", "HEAD"}
+            and kind in {"XHR", "Fetch"}
+            and canonical_origin(url) == canonical_origin(self._base_url)
+        )
+
+    def _loop(self) -> None:
+        while not self._stop.is_set():
+            try:
+                events = self._drain_events()
+            except Exception as exc:
+                self._error = f"network boundary event loop failed: {exc}"
+                return
+            for event in events:
+                method = event.get("method")
+                params = event.get("params") or {}
+                if method == "Target.attachedToTarget":
+                    try:
+                        self._handle_attached_target(params)
+                    except Exception as exc:
+                        self._error = f"popup boundary enforcement failed: {exc}"
+                        return
+                    continue
+                if method == "Page.javascriptDialogOpening":
+                    try:
+                        self._handle_javascript_dialog(event)
+                    except Exception:
+                        self._error = "QA JavaScript dialog handling failed"
+                    # Do not allow further browser actions after a dialog,
+                    # even if the page is still visible and responsive.
+                    return
+                if method != "Fetch.requestPaused":
+                    continue
+                request_id = params.get("requestId")
+                request = params.get("request") or {}
+                url = str(request.get("url") or "")
+                request_method = str(request.get("method") or "GET")
+                resource_type = params.get("resourceType")
+                event_session = event.get("session_id") or self._session_id
+                if not request_id:
+                    continue
+                try:
+                    if request_allowed(
+                        url,
+                        self._base_url,
+                        resource_type,
+                        request_method=request_method,
+                        read_only=self._read_only,
+                        bootstrap_only=getattr(self, "_bootstrap_only", False),
+                    ):
+                        self._cdp(
+                            "Fetch.continueRequest",
+                            session_id=event_session,
+                            requestId=request_id,
+                        )
+                    else:
+                        self._cdp(
+                            "Fetch.failRequest",
+                            session_id=event_session,
+                            requestId=request_id,
+                            errorReason="BlockedByClient",
+                        )
+                        reason = "read-only write" if (
+                            self._read_only
+                            and request_method.upper() not in {"GET", "HEAD", "OPTIONS"}
+                        ) else "out-of-scope"
+                        if self._expected_blocked_presence_ping(url, request_method):
+                            self.blocked_presence_pings += 1
+                        elif self._excluded_bootstrap_data_read(url, request_method, resource_type):
+                            self.blocked_data_reads += 1
+                        else:
+                            self._error = (
+                                f"blocked {reason} browser request: "
+                                f"{redact_boundary_url(url)}"
+                            )
+                except Exception as exc:
+                    self._error = f"network boundary enforcement failed: {exc}"
+                    return
+            time.sleep(0.005)
+
+    def raise_if_failed(self) -> None:
+        if self._error:
+            raise JevError(self._error)
+
+    def close(self) -> None:
+        self._stop.set()
+        if self._thread_started:
+            self._thread.join(timeout=1.0)
+            if self._thread.is_alive():
+                self._error = self._error or "network boundary did not stop cleanly"
+        for target_id in tuple(self._child_targets):
+            try:
+                self._cdp("Target.closeTarget", targetId=target_id)
+            except Exception:
+                pass
+        if getattr(self, "_bootstrap_only", False):
+            # Disabling Fetch can resume a queued GET that we have not yet
+            # classified. Keep interception installed until SafeBrowser
+            # destroys the isolated target/context; paused requests die with it.
+            return
+        try:
+            self._cdp("Fetch.disable", session_id=self._session_id)
+        except Exception:
+            pass
+
+
+def install_safe_browser(base_url: str, *, read_only: bool = False):
+    """Patch Jev Agent to use a Browser with Fetch interception before navigation."""
+
+    import jev_ultrafast.agent as agent_module
+    import jev_ultrafast.browser as browser_module
+    from browser_harness.admin import ensure_daemon
+    from browser_harness.helpers import cdp
+
+    assert_dedicated_loopback_cdp_url()
+    upstream_browser = browser_module.Browser
+
+    class SafeBrowser(upstream_browser):
+        def __init__(self, url):
+            assert_allowed_document_url(url, base_url)
+            self.browser_context_id = None
+            self.target = None
+            self.session = None
+            self._qa_boundary = None
+            self._qa_identity_verified = False
+            self._qa_bootstrap_only = bool(read_only and (os.environ.get("QA_SESSION_COOKIE_VALUE") or "").strip())
+            if self._qa_bootstrap_only and not request_allowed(
+                url, base_url, "Document", read_only=True, bootstrap_only=True,
+            ):
+                raise ValueError("authenticated bootstrap-only smoke requires the exact QA /app")
+            try:
+                ensure_daemon()
+                self.browser_context_id = cdp(
+                    "Target.createBrowserContext",
+                    disposeOnDetach=True,
+                )["browserContextId"]
+                self.target = cdp(
+                    "Target.createTarget",
+                    url="about:blank",
+                    background=True,
+                    browserContextId=self.browser_context_id,
+                )["targetId"]
+                self.session = cdp(
+                    "Target.attachToTarget",
+                    targetId=self.target,
+                    flatten=True,
+                )["sessionId"]
+                bootstrap_session_cookie(base_url, self.session, cdp)
+                self.call(
+                    "Emulation.setDeviceMetricsOverride",
+                    width=1120,
+                    height=780,
+                    deviceScaleFactor=1,
+                    mobile=False,
+                )
+                self.call("Emulation.setFocusEmulationEnabled", enabled=True)
+                cdp(
+                    "Browser.setDownloadBehavior",
+                    behavior="deny",
+                    browserContextId=self.browser_context_id,
+                )
+                self._qa_boundary = NetworkBoundary(
+                    self.session,
+                    base_url,
+                    read_only=read_only,
+                    bootstrap_only=self._qa_bootstrap_only,
+                )
+                self._qa_boundary.start()
+
+                self._navigate_and_wait(url)
+                if self._qa_bootstrap_only:
+                    user = bootstrap_qa_user_in_browser(self, base_url)
+                    self._qa_boundary.raise_if_failed()
+                    # Reload the actual app in the SAME isolated context. The
+                    # positive allowlist stays active before, during and after.
+                    self._navigate_and_wait(url)
+                    if read_qa_user_in_browser(self, base_url) != user:
+                        raise QAIdentityNotEstablished()
+                    self._qa_identity_verified = True
+                    self._qa_boundary.raise_if_failed()
+            except Exception:
+                self._cleanup_allocations()
+                raise
+
+        def _navigate_and_wait(self, url):
+            nav = self.call("Page.navigate", url=url)
+            expected_loader = nav.get("loaderId")
+            deadline = time.monotonic() + 15
+            while time.monotonic() < deadline:
+                self._qa_boundary.raise_if_failed()
+                frame = self.call("Page.getFrameTree")["frameTree"]["frame"]
+                current_url = str(frame.get("url") or "")
+                if current_url not in {"", "about:blank"}:
+                    assert_allowed_document_url(current_url, base_url)
+                    if self._qa_bootstrap_only and not request_allowed(
+                        current_url, base_url, "Document", read_only=True, bootstrap_only=True,
+                    ):
+                        raise ValueError("bootstrap-only document changed outside /app")
+                    same_loader = not expected_loader or frame.get("loaderId") == expected_loader
+                    if same_loader and self.evaluate("document.readyState") == "complete":
+                        self._qa_boundary.raise_if_failed()
+                        return
+                time.sleep(0.02)
+            raise RuntimeError("QA navigation did not commit within 15s")
+
+        def _cleanup_allocations(self):
+            boundary = self._qa_boundary
+            if self._qa_boundary is not None:
+                self._qa_boundary.close()
+                self._qa_boundary = None
+            if self.target:
+                try:
+                    cdp("Target.closeTarget", targetId=self.target)
+                except Exception:
+                    pass
+                self.target = None
+            if self.browser_context_id:
+                try:
+                    cdp("Target.disposeBrowserContext", browserContextId=self.browser_context_id)
+                except Exception:
+                    if boundary is not None and self._qa_bootstrap_only:
+                        boundary._error = "QA bootstrap context disposal was not confirmed"
+                self.browser_context_id = None
+
+        def observe(self, screenshot=True):
+            self._qa_boundary.raise_if_failed()
+            result = super().observe(screenshot=screenshot)
+            self._qa_boundary.raise_if_failed()
+            return result
+
+        def act(self, action, page, text=None):
+            self._qa_boundary.raise_if_failed()
+            result = super().act(action, page, text=text)
+            self._qa_boundary.raise_if_failed()
+            return result
+
+        def close(self):
+            # Keep the boundary reference through shutdown so late alerts or
+            # blocked requests cannot turn a read-only observation into PASS.
+            boundary = self._qa_boundary
+            self._cleanup_allocations()
+            if boundary is not None:
+                boundary.raise_if_failed()
+
+    agent_module.Browser = SafeBrowser
+    return SafeBrowser

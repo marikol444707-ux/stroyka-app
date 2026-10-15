@@ -1,0 +1,46 @@
+FROM python:3.12-slim-bookworm
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONPATH=/app \
+    BU_CDP_URL=http://127.0.0.1:9222 \
+    BH_HOME=/var/lib/stroyka-jev-qa/harness \
+    QA_EVIDENCE_DIR=/var/lib/stroyka-jev-qa/evidence \
+    CHROME_USER_DATA_DIR=/var/lib/stroyka-jev-qa/chrome
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates curl gnupg fonts-liberation git util-linux libnss3-tools \
+    && curl -fsSL https://dl.google.com/linux/linux_signing_key.pub \
+      | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg \
+    && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] https://dl.google.com/linux/chrome/deb/ stable main" \
+      > /etc/apt/sources.list.d/google-chrome.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends google-chrome-stable \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN useradd --create-home --uid 10001 worker \
+    && useradd --create-home --uid 10002 chrome
+WORKDIR /app
+
+COPY browser_worker/requirements.txt /tmp/browser-worker-requirements.txt
+RUN python -m pip install --no-cache-dir -r /tmp/browser-worker-requirements.txt
+
+COPY . /app/dev_control
+RUN python /app/dev_control/browser_worker/patch_harness.py
+# The entrypoint is executed by root on every container restart.
+# Never make application code or its entrypoint writable by the worker UID.
+RUN chmod +x /app/dev_control/browser_worker/start.sh \
+    && chown -R root:root /app /home/worker \
+    && find /app/dev_control -type d -exec chmod 755 {} + \
+    && find /app/dev_control -type f -name '*.py' -exec chmod 644 {} + \
+    && chmod -R go-w /app \
+    && chown -R chrome:chrome /home/chrome
+
+# Root-owned parent cannot be renamed by worker/chrome UIDs. At runtime
+# these accounts only own their leaf dirs, preventing symlink/chown attacks.
+RUN install -d -m 0755 -o root -g root /var/lib/stroyka-jev-qa
+
+USER root
+EXPOSE 8080
+ENTRYPOINT ["/app/dev_control/browser_worker/start.sh"]

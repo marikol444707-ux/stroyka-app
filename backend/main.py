@@ -2874,6 +2874,9 @@ def _api_error_logging_enabled_for_path(path):
         "/assignment-daily-draft-previews",
         "/accounting-exception-checks",
         "/accounting-exception-link-repairs",
+        # This QA-only identity probe must remain read-only even on setup,
+        # query, or cleanup failures; error logging uses a separate connection.
+        "/users/qa-readonly-context/identity",
     )
 
 
