@@ -134,3 +134,55 @@ test('a pending correction cannot be closed or paged away and refreshes the list
     else process.env.REACT_APP_PARTICIPANT_CORRECTIONS_ENABLED=previous;
   }
 });
+
+test('issued history distinguishes original card from cabinet and hides inapplicable correction commands',async()=>{
+  const previous=process.env.REACT_APP_PARTICIPANT_CORRECTIONS_ENABLED;
+  process.env.REACT_APP_PARTICIPANT_CORRECTIONS_ENABLED='1';
+  try {
+    global.fetch=jest.fn().mockResolvedValue(response({...data,financialReview:{state:'review_required',
+      source:{orders:0,invoices:2,deliveries:0,receipts:1,contracts:0},connected:{orders:1,invoices:1,deliveries:1,receipts:0,contracts:0}},
+      items:[{...data.items[0],context:{supplierCard:'connected',requestId:14,offerId:36,linksConfirmed:true}}]}));
+    render(<SupplierCorrectionPreview {...props}/>);
+    expect(await screen.findByText('Нужен разбор оформленных документов')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Документы по карточкам'));
+    const review=within(screen.getByRole('region',{name:'Оформленные документы'}));
+    expect(review.getByText('Исходная карточка')).toBeInTheDocument();
+    expect(review.getByText('Подключённый кабинет')).toBeInTheDocument();
+    expect(screen.getByText('Заявка №14 · КП №36')).toBeInTheDocument();
+    expect(screen.queryByRole('button',{name:'Подготовить отключение'})).not.toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  }finally{if(previous===undefined)delete process.env.REACT_APP_PARTICIPANT_CORRECTIONS_ENABLED;else process.env.REACT_APP_PARTICIPANT_CORRECTIONS_ENABLED=previous;}
+});
+
+test('incomplete financial review and mismatched document links are never shown as a clear archive',async()=>{
+  global.fetch=jest.fn().mockResolvedValue(response({...data,financialReview:{state:'needs_check',
+    source:{orders:0,invoices:0,deliveries:null,receipts:0,contracts:0},connected:{orders:0,invoices:0,deliveries:null,receipts:0,contracts:0}},
+    items:[{...data.items[0],context:{supplierCard:'source',requestId:null,offerId:null,linksConfirmed:false}}]}));
+  render(<SupplierCorrectionPreview {...props}/>);
+  expect(await screen.findByText('Часть документов не удалось проверить')).toBeInTheDocument();
+  expect(screen.getByText('Связи документа требуют проверки')).toBeInTheDocument();
+  expect(screen.queryByText(/Заявка №/)).not.toBeInTheDocument();
+});
+
+test('an original card invoice allows checking an otherwise empty connected cabinet',async()=>{
+  const previous=process.env.REACT_APP_PARTICIPANT_CORRECTIONS_ENABLED;
+  process.env.REACT_APP_PARTICIPANT_CORRECTIONS_ENABLED='1';
+  try {
+    global.fetch=jest.fn().mockResolvedValue(response({...data,financialReview:{state:'clear',
+      source:{orders:0,invoices:2,deliveries:0,receipts:0,contracts:0},connected:{orders:0,invoices:0,deliveries:0,receipts:0,contracts:0}}}));
+    render(<SupplierCorrectionPreview {...props}/>);
+    expect(await screen.findByRole('button',{name:'Подготовить отключение'})).toBeInTheDocument();
+    expect(screen.getByText('Заказов, счетов и поставок у кабинета нет')).toBeInTheDocument();
+  }finally{if(previous===undefined)delete process.env.REACT_APP_PARTICIPANT_CORRECTIONS_ENABLED;else process.env.REACT_APP_PARTICIPANT_CORRECTIONS_ENABLED=previous;}
+});
+
+test('malformed or inconsistent financial counts do not expose a correction command',async()=>{
+  const previous=process.env.REACT_APP_PARTICIPANT_CORRECTIONS_ENABLED;
+  process.env.REACT_APP_PARTICIPANT_CORRECTIONS_ENABLED='1';
+  try {
+    global.fetch=jest.fn().mockResolvedValue(response({...data,financialReview:{state:'clear',source:{},connected:{invoices:1}}}));
+    render(<SupplierCorrectionPreview {...props}/>);
+    expect(await screen.findByText('Часть документов не удалось проверить')).toBeInTheDocument();
+    expect(screen.queryByRole('button',{name:'Подготовить отключение'})).not.toBeInTheDocument();
+  }finally{if(previous===undefined)delete process.env.REACT_APP_PARTICIPANT_CORRECTIONS_ENABLED;else process.env.REACT_APP_PARTICIPANT_CORRECTIONS_ENABLED=previous;}
+});

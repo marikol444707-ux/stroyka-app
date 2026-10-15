@@ -7,3 +7,14 @@
 .supplier-correction-dialog__panel textarea { box-sizing:border-box; width:100%; min-height:88px; border:1px solid currentColor; border-radius:8px; padding:10px; font:inherit; color:inherit; background:transparent; }
 .supplier-correction-dialog__panel label:has(textarea) { display:block; }
 @media(max-width:599px) { .supplier-correction-dialog__toolbar button { padding:8px 10px; } }
+.supplier-correction-financial {
+  border: 1px solid var(--c-border, #334155);
+  border-radius: 12px;
+  padding: 12px 16px;
+  margin-block: 16px;
+}
+.supplier-correction-financial h4 { margin: 0 0 8px; }
+.supplier-correction-financial details > div { margin-top: 12px; }
+.supplier-correction-financial dl { margin: 8px 0; }
+.supplier-correction-financial dl > div { display: flex; justify-content: space-between; gap: 16px; }
+.supplier-correction-financial dd { margin: 0; }

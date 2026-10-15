@@ -3,10 +3,12 @@ import {createPortal} from 'react-dom';
 import '../participant-support/ConnectionRequests.css';
 import './SupplierCorrectionPreview.css';
 import SupplierConnectionCorrection from './SupplierConnectionCorrection';
+import SupplierFinancialReview,{financialReviewState} from './SupplierFinancialReview';
 
 const labels={invoices:'Счета',receipts:'Накладные',offers:'Предложения',contracts:'Договоры',files:'Основные файлы'};
 const access={available:'Доступ сейчас разрешён',unavailable:'Сейчас недоступно поставщику',needs_check:'Доступ проверяется в карточке документа'};
 const pageSize=5;
+const itemLabels={invoices:'Счёт',receipts:'Накладная',offers:'КП',contracts:'Договор',files:'Файл'};
 
 export default function SupplierCorrectionPreview({prefix,supplierId,requestId,onClose,onCompleted}) {
   const [category,setCategory]=useState('invoices');
@@ -74,6 +76,7 @@ export default function SupplierCorrectionPreview({prefix,supplierId,requestId,o
       <p><strong>{data.companyName}</strong><br/>{data.sourceName} → {data.targetName}</p>
       <p>Подключено: {new Date(data.connectedAt).toLocaleString('ru-RU')}</p>
       <p><strong>Документы и оплаты сохраняются.</strong> Отключение связи само по себе не закрывает доступ к ранее адресованным документам.</p>
+      <SupplierFinancialReview review={data.financialReview}/>
       <div className="connection-requests__actions" role="group" aria-label="Документы подключения">
         {Object.entries(labels).map(([kind,label])=><button key={kind} type="button" aria-pressed={category===kind}
           disabled={commandPending||data.summary[kind].total===null} onClick={()=>{setCategory(kind);setOffset(0);}}>
@@ -87,7 +90,13 @@ export default function SupplierCorrectionPreview({prefix,supplierId,requestId,o
       </details>}
       {!data.items.length&&<p>В этой группе документов нет.</p>}
       <ul className="connection-requests__list">{data.items.map(item=><li key={item.id}>
-        <strong>Запись #{item.id}</strong>
+        <strong>{itemLabels[category]} №{item.id}</strong>
+        {item.context&&<>
+          <p>{item.context.supplierCard==='source'?'Исходная карточка':'Подключённый кабинет'}</p>
+          {item.context.linksConfirmed?<p>{[item.context.requestId&&`Заявка №${item.context.requestId}`,
+            item.context.offerId&&category!=='offers'&&`КП №${item.context.offerId}`].filter(Boolean).join(' · ')}</p>:
+            <p>Связи документа требуют проверки</p>}
+        </>}
         <p><span>{item.createdAfterConnection===null?'Дата создания не подтверждена':item.createdAfterConnection?'Создан после подключения':'Создан до подключения'}</span><br/><span>{access[item.currentSupplierAccess]}</span></p>
       </li>)}</ul>
       {(offset>0||data.hasMore)&&<nav className="connection-requests__actions" aria-label="Страницы документов подключения">
@@ -99,7 +108,7 @@ export default function SupplierCorrectionPreview({prefix,supplierId,requestId,o
         <p>Доступ к оригиналам и их наличие проверяются отдельно. Уже состоявшийся просмотр отменить нельзя.</p>
       </details>
       <p>Просмотр последствий не меняет связи и права доступа.</p>
-      {process.env.REACT_APP_PARTICIPANT_CORRECTIONS_ENABLED==='1'&&<SupplierConnectionCorrection
+      {process.env.REACT_APP_PARTICIPANT_CORRECTIONS_ENABLED==='1'&&![ 'review_required','needs_check'].includes(financialReviewState(data.financialReview))&&<SupplierConnectionCorrection
         prefix={prefix} companyId={data.companyId} supplierId={supplierId} targetId={data.targetId} requestId={requestId}
         onPendingChange={setCommandPending} onApplied={result=>setApplied({scope:path,result})}/>}
     </>}
