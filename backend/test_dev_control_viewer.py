@@ -57,6 +57,15 @@ class ViewerContractTest(unittest.TestCase):
         self.assertIn("demo.disabled=true", VIEWER_HTML)
         self.assertNotIn("'/jobs',{method:'POST'}", VIEWER_HTML)
 
+    def test_missing_or_expired_evidence_does_not_erase_job_result(self):
+        self.assertIn("Кадры этого запуска отсутствуют или срок их хранения истёк", VIEWER_HTML)
+        self.assertIn("Ожидаем первый кадр браузера", VIEWER_HTML)
+        self.assertIn("Ошибка загрузки изображения; статус задания не изменён", VIEWER_HTML)
+        self.assertIn("try{await loadFrame(job,force,requested,seq);}catch(_)", VIEWER_HTML)
+        self.assertIn("if(selected===requested&&seq===detailSeq)setStatus(job.status);", VIEWER_HTML)
+        self.assertIn("frame.onerror=()=>", VIEWER_HTML)
+        self.assertNotIn("await loadFrame(job,force,requested,seq);if(selected", VIEWER_HTML)
+
     def test_viewer_security_headers_deny_embedding_and_caching(self):
         headers = viewer_headers()
         self.assertEqual(headers["X-Frame-Options"], "DENY")
