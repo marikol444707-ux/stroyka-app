@@ -10,6 +10,7 @@ from .correction_preview import register_correction_preview
 from .corrections import register_corrections
 from .history_merge import register_history_merge
 from .capabilities import register_capabilities
+from .duplicate_merge import register_duplicate_merge
 
 TRANSITIONS = {
     'new': {'in_progress'}, 'in_progress': {'waiting','resolved'},
@@ -28,6 +29,7 @@ def register_participant_support(app, deps):
     register_corrections(app, deps, admin)
     register_history_merge(app, deps, admin)
     register_capabilities(app, deps, admin)
+    register_duplicate_merge(app, deps, admin)
 
     @app.post('/participant-support/tickets')
     def report(data: dict, user: dict = Depends(authenticated),
