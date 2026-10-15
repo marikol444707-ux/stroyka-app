@@ -2,7 +2,7 @@
 from alembic import op
 from backend.features.participant_support.merge_schema import SCHEMA_SQL
 
-revision='0096_supplier_history_merge_plans'
+revision='0096_supplier_history_merge'
 down_revision='0095_supplier_buyer_connections'
 branch_labels=None
 depends_on=None

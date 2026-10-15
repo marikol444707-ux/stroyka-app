@@ -3,7 +3,7 @@ from alembic import op
 from backend.features.participant_support.capability_schema import SCHEMA_SQL
 
 revision = '0097_participant_support_access'
-down_revision = '0096_supplier_history_merge_plans'
+down_revision = '0096_supplier_history_merge'
 branch_labels = None
 depends_on = None
 
