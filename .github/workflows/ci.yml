@@ -146,11 +146,9 @@ jobs:
         run: npm test -- --watchAll=false
 
       - name: Build frontend
-        env:
-          REACT_APP_WORK_MATERIAL_ACCOUNTING_ENABLED: "1"
-          REACT_APP_WORK_ACCEPTANCE_ENABLED: "1"
-          REACT_APP_PARTICIPANT_SUPPORT_ENABLED: "1"
-          REACT_APP_PARTICIPANT_SUPPORT_ACCESS_ENABLED: "0"
         run: |
-          npm run build
-          printf '%s\n' 'REACT_APP_WORK_MATERIAL_ACCOUNTING_ENABLED=1' 'REACT_APP_WORK_ACCEPTANCE_ENABLED=1' 'REACT_APP_PARTICIPANT_SUPPORT_ENABLED=1' 'REACT_APP_PARTICIPANT_SUPPORT_ACCESS_ENABLED=0' | python3 scripts/verify-frontend-feature-build.py build
+          frontend_settings="$(bash scripts/resolve-frontend-build-env.sh \
+            'WORK_MATERIAL_ACCOUNTING_ENABLED=1 WORK_ACCEPTANCE_ENABLED=1 PARTICIPANT_SUPPORT_ENABLED=1 PARTICIPANT_CONNECTIONS_ENABLED=1 PARTICIPANT_SUPPORT_ACCESS_ENABLED=0' '')"
+          mapfile -t build_environment <<< "$frontend_settings"
+          env "${build_environment[@]}" npm run build
+          printf '%s\n' "$frontend_settings" | python3 scripts/verify-frontend-feature-build.py build
