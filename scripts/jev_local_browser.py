@@ -1,6 +1,6 @@
 """Manual demo: upstream Jev chooses on Timeweb; an isolated local MCP executes.
 
-Only a built-in fixture is supported. No user browser profile or arbitrary URL.
+Supports a built-in fixture and a read-only Avito preflight, never arbitrary URLs.
 """
 import json
 import os
@@ -180,10 +180,14 @@ def demo():
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('operation', choices=['demo'])
-    parser.parse_args()
+    parser.add_argument('operation', choices=['demo', 'avito'])
+    args = parser.parse_args()
     try:
-        result = demo()
+        if args.operation == 'demo':
+            result = demo()
+        else:
+            from jev_avito_search import probe
+            result = probe(LocalBrowser)
     except Exception as exc:
         result = {'ok': False, 'status': 'failed', 'error_type': type(exc).__name__}
     print(json.dumps(result, ensure_ascii=False, indent=2))

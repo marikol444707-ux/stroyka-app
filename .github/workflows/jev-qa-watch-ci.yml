@@ -15,6 +15,8 @@ on:
       - 'scripts/test_jev_control.py'
       - 'scripts/jev_local_browser.py'
       - 'scripts/test_jev_local_browser.py'
+      - 'scripts/jev_avito_search.py'
+      - 'scripts/test_jev_avito_search.py'
       - 'ops/systemd/stroyka-jev-control.*'
       - 'ops/systemd/stroyka-jev-watch.*'
       - 'dev_control/Dockerfile'
@@ -47,6 +49,7 @@ jobs:
           python -m unittest scripts.test_build_jev_qa_unshare_probe -v
           python -m unittest scripts.test_jev_control -v
           python -m unittest scripts.test_jev_local_browser -v
+          python -m unittest scripts.test_jev_avito_search -v
           python -m unittest dev_control.browser_worker.test_container_contract.BrowserWorkerContainerContractTest.test_docker_context_allowlists_code_and_excludes_untracked_secrets -v
           bash -n scripts/install_jev_qa_watch.sh
 
