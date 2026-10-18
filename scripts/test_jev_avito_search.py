@@ -35,6 +35,11 @@ class AvitoPageTest(unittest.TestCase):
     def test_external_redirect_is_rejected(self):
         self.assertEqual(assess_page('https://avito.ru.evil.test/', '', '')['status'], 'unexpected_origin')
 
+    def test_origin_without_path_cannot_bypass_region_check(self):
+        report = assess_page('https://www.avito.ru?q=кирпич+б%2Fу',
+                             'Кирпич в Ставропольском крае', 'Кирпич')
+        self.assertEqual(report['status'], 'search_region_not_verified')
+
     def test_visible_search_alone_is_still_not_five_verified_listings(self):
         report = assess_page('https://www.avito.ru/stavropolskiy_kray?q=кирпич+б%2Fу',
                              'Кирпич б/у в Ставропольском крае', 'Кирпич б/у')

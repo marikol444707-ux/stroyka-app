@@ -29,7 +29,7 @@ def assess_page(url, title, snapshot):
         return dict(report, status='search_query_lost')
     if len(queries) != 1 or ' '.join(queries[0].casefold().split()) not in {'кирпич б/у', 'кирпич бу'}:
         return dict(report, status='search_query_changed')
-    if parts.path.split('/')[1] != 'stavropolskiy_kray':
+    if parts.path.strip('/').split('/')[0] != 'stavropolskiy_kray':
         return dict(report, status='search_region_not_verified')
     if 'ставропольском крае' not in title.casefold():
         return dict(report, status='search_region_not_verified')
