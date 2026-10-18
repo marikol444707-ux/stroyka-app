@@ -16,6 +16,7 @@ import sys
 import tempfile
 import time
 import urllib.request
+import urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -134,7 +135,10 @@ def call_worker(base: str, token: str, method: str, path: str):
             body = response.read(64 * 1024 + 1)
             status_code = response.status
             response_signature = response.headers.get("X-Jev-Watcher-Response-Signature", "")
-    except Exception as exc:
+    except urllib.error.HTTPError as exc:
+        code='WORKER_API_UNAVAILABLE' if exc.code in {429,502,503,504} else 'WORKER_API_REJECTED'
+        raise WatchError(code) from None
+    except (urllib.error.URLError,TimeoutError,OSError) as exc:
         raise WatchError("WORKER_API_UNAVAILABLE") from exc
     if len(body) > 64 * 1024:
         raise WatchError("WORKER_RESPONSE_TOO_LARGE")
@@ -154,8 +158,36 @@ def call_worker(base: str, token: str, method: str, path: str):
     return result
 
 
+def read_worker_with_recovery(call,path,*,sleep,monotonic,deadline):
+    """Retry only transient reads; never repeat a command with an unknown result."""
+    for attempt in range(3):
+        try:
+            return call('GET',path)
+        except WatchError as exc:
+            delay=2**attempt
+            if (str(exc)!='WORKER_API_UNAVAILABLE' or attempt==2
+                    or monotonic()+delay>=deadline):
+                raise
+            sleep(delay)
+
+
+def cancel_existing_job(call,job_id,*,failure_code):
+    try:
+        cancelled=call('POST','/watcher/jobs/'+job_id+'/cancel')
+    except Exception as exc:
+        raise WatchError(failure_code) from exc
+    if not isinstance(cancelled,dict) or cancelled.get('status') not in {
+        'cancelling','cancelled','passed','failed'
+    }:
+        raise WatchError(failure_code)
+
+
 def run_smoke(call, *, sleep=time.sleep, monotonic=time.monotonic):
-    health = call("GET", "/watcher/health")
+    # Shared deadline bounds recovery as well as observation. Leave time for
+    # one cancellation request before the systemd unit's 150 second limit.
+    deadline=monotonic()+120
+    health=read_worker_with_recovery(call,'/watcher/health',sleep=sleep,
+                                   monotonic=monotonic,deadline=deadline)
     if (
         health.get("ok") is not True
         or str(health.get("environment") or "").lower() not in ALLOWED_QA_ENVIRONMENTS
@@ -163,14 +195,25 @@ def run_smoke(call, *, sleep=time.sleep, monotonic=time.monotonic):
     ):
         raise WatchError("QA_WORKER_NOT_READY")
 
-    created = call("POST", "/watcher/smoke")
+    if monotonic()>=deadline:
+        raise WatchError('WORKER_RECOVERY_TIMEOUT')
+    try:
+        created = call("POST", "/watcher/smoke")
+    except WatchError as exc:
+        if str(exc)=='WORKER_API_UNAVAILABLE':
+            raise WatchError('JOB_CREATION_UNCONFIRMED') from None
+        raise
     job_id = created.get("job_id")
     if not isinstance(job_id, str) or not re.fullmatch(r"[0-9a-f]{32}", job_id):
         raise WatchError("INVALID_JOB_ID")
 
-    deadline = monotonic() + 85
     while monotonic() < deadline:
-        state = call("GET", "/watcher/jobs/" + job_id)
+        try:
+            state=read_worker_with_recovery(call,'/watcher/jobs/'+job_id,sleep=sleep,
+                                           monotonic=monotonic,deadline=deadline)
+        except WatchError:
+            cancel_existing_job(call,job_id,failure_code='POLL_RECOVERY_CANCEL_FAILED')
+            raise
         status = state.get("status")
         if status in {"passed", "failed", "cancelled"}:
             result = state.get("result") or {}
@@ -203,14 +246,7 @@ def run_smoke(call, *, sleep=time.sleep, monotonic=time.monotonic):
         if status not in ALLOWED_JOB_STATUS:
             raise WatchError("UNKNOWN_JOB_STATUS")
         sleep(3)
-    try:
-        cancelled = call("POST", "/watcher/jobs/" + job_id + "/cancel")
-    except Exception as exc:
-        raise WatchError("POLL_TIMEOUT_CANCEL_FAILED") from exc
-    if not isinstance(cancelled, dict) or cancelled.get("status") not in {
-        "cancelling", "cancelled", "passed", "failed"
-    }:
-        raise WatchError("POLL_TIMEOUT_CANCEL_FAILED")
+    cancel_existing_job(call,job_id,failure_code='POLL_TIMEOUT_CANCEL_FAILED')
     raise WatchError("POLL_TIMEOUT")
 
 
@@ -315,6 +351,8 @@ def main() -> int:
         report.update(result)
     except WatchError as exc:
         report["failure_codes"] = [str(exc)]
+        if str(exc)=='JOB_CREATION_UNCONFIRMED':
+            report['job_status']='unknown'
     except Exception:
         report["failure_codes"] = ["UNEXPECTED_WATCH_ERROR"]
 
