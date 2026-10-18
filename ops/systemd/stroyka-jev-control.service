@@ -1,0 +1,16 @@
+[Unit]
+Description=Check Jev renderer and recover the standalone controller
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+ExecStart=/usr/bin/python3 /usr/local/libexec/stroyka-jev-control/jev_control.py --server watchdog
+TimeoutStartSec=160
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/stroyka-jev-control

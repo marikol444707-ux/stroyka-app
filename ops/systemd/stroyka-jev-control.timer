@@ -1,0 +1,11 @@
+[Unit]
+Description=Check standalone Jev every thirty seconds without model calls
+
+[Timer]
+OnBootSec=45s
+OnUnitInactiveSec=30s
+AccuracySec=1s
+Unit=stroyka-jev-control.service
+
+[Install]
+WantedBy=timers.target
