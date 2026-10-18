@@ -142,20 +142,28 @@ def register_work_assignment_module(app, deps):
                 raise HTTPException(status_code=409, detail="Смета не привязана к точному объекту выбранной компании")
             project_name = estimate_scope.get("projectName") or estimate[3] or ""
             work_package = estimate_scope.get("workPackage") or estimate[4] or "Основная"
+            selection = ({'contractor_ref': assignee['contractorRef']} if 'contractorRef' in assignee else
+                         {'contractor_ref': data['contractorRef']} if 'contractorRef' in data else {})
+            if selection:
+                selection.update(project_id=project_id, work_package=work_package)
             contractor_user_id = resolve_brigade_contractor_user(
                 cur,
                 company_id,
                 contractor_id,
                 brigade_name,
-                **({'contractor_ref':assignee['contractorRef']} if 'contractorRef' in assignee else
-                   {'contractor_ref':data['contractorRef']} if 'contractorRef' in data else {}),
+                **selection,
             )
-
-            existing_id = find_existing_brigade_contract_id(
+            reference = selection.get('contractor_ref') or {}
+            selected_contract_id = int(reference['id']) if reference.get('type') == 'contract' else None
+            existing_id = selected_contract_id or find_existing_brigade_contract_id(
                 cur, company_id, project_id, work_package, contractor_user_id, brigade_name,
             )
             created_contract = False
-            if existing_id:
+            if selected_contract_id:
+                contract_id = selected_contract_id
+                cur.execute('SELECT brigade_name,contractor_type FROM brigade_contracts WHERE id=%s', (contract_id,))
+                brigade_name, contractor_type = cur.fetchone()
+            elif existing_id:
                 contract_id = existing_id
                 cur.execute(
                     """UPDATE brigade_contracts

@@ -43,3 +43,12 @@ class TypedContractorSelectionTests(unittest.TestCase):
             resolve_brigade_contractor_user(cur,4,41,'Иван',contractor_ref={'type':'staff','id':23})
         self.assertEqual(raised.exception.status_code,400)
         self.assertEqual(cur.calls,[])
+
+    def test_contract_selection_requires_exact_project_and_package_before_reading(self):
+        for scope in ({}, {'project_id': True, 'work_package': 'Основная'},
+                      {'project_id': 17, 'work_package': ''}):
+            cur = SequencedCursor()
+            with self.subTest(scope=scope), self.assertRaises(HTTPException) as raised:
+                resolve_brigade_contractor_user(cur, 4, contractor_ref={'type': 'contract', 'id': 71}, **scope)
+            self.assertEqual(raised.exception.status_code, 400)
+            self.assertEqual(cur.calls, [])

@@ -14,12 +14,10 @@ export function performerRows(staff = [], users = [], brigadeContracts = []) {
   const rows = [];
   const seenKeys = new Set();
   const seenUserIds = new Set();
-  const seenNames = new Set();
   const addRow = (item, key, userId = '') => {
     if (!item || !key || seenKeys.has(key)) return;
     seenKeys.add(key);
     if (userId) seenUserIds.add(String(userId));
-    if (item.name) seenNames.add(normalizePersonKey(item.name));
     rows.push(item);
   };
   (staff || []).filter(isPerformer).forEach(item => {
@@ -49,17 +47,18 @@ export function performerRows(staff = [], users = [], brigadeContracts = []) {
   });
   (brigadeContracts || []).forEach(contract => {
     const name = String(contract.brigadeName || contract.brigade_name || '').trim();
-    const nameKey = normalizePersonKey(name);
-    if (!name || seenNames.has(nameKey)) return;
     const contractId = contract.id;
+    if (!name || !Number.isSafeInteger(Number(contractId)) || Number(contractId) <= 0
+      || ['Аннулирован','Удалён','Удален'].includes(contract.status)) return;
     addRow({
       ...contract,
       id: 'contract:' + contractId,
       optionId: 'contract:' + contractId,
+      contractorRef: {type:'contract',id:Number(contractId)},
       contractorId: contract.contractorId || contract.contractor_id || '',
       name,
       employmentType: contract.contractorType || contract.contractor_type || 'Своя бригада',
-    }, 'contract:' + (contractId || nameKey));
+    }, 'contract:' + contractId);
   });
   return rows.sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'ru'));
 }
@@ -123,8 +122,12 @@ export default function WorkAssignmentModal({
   }, [rows, workSearch, sectionFilter]);
   const assignedCount = assignedRows.length;
   const performers = useMemo(
-    () => performerRows(staff || [], users || [], brigadeContracts || []),
-    [staff, users, brigadeContracts],
+    () => performerRows(staff || [], users || [], (brigadeContracts || []).filter(contract => (
+      Number(selectedEstimate?.projectId || selectedEstimate?.project_id) > 0
+      && Number(contract.projectId || contract.project_id) === Number(selectedEstimate?.projectId || selectedEstimate?.project_id)
+      && (contract.workPackage || contract.work_package || 'Основная') === (selectedEstimate?.workPackage || selectedEstimate?.work_package || 'Основная')
+    ))),
+    [staff, users, brigadeContracts, selectedEstimate],
   );
   const sourceKey = useMemo(() => JSON.stringify([
     selectedEstimate?.id,
@@ -292,7 +295,7 @@ export default function WorkAssignmentModal({
                 if (!isManual) setManualName('');
               }} style={{...inp, marginBottom: 0}}>
                 <option value="">Выберите исполнителя</option>
-                {performers.map(item => <option key={performerOptionId(item) + '-' + item.name} value={performerOptionId(item)}>{item.name}{performers.filter(row=>normalizePersonKey(row.name)===normalizePersonKey(item.name)).length>1 ? (item.contractorRef?.type==='staff'?' · сотрудник':' · учётная запись') : ''}</option>)}
+                {performers.map(item => <option key={performerOptionId(item) + '-' + item.name} value={performerOptionId(item)}>{item.name}{item.contractorRef?.type==='contract' ? ` · договор №${item.contractorRef.id}` : performers.filter(row=>normalizePersonKey(row.name)===normalizePersonKey(item.name)).length>1 ? (item.contractorRef?.type==='staff'?' · сотрудник':' · учётная запись') : ''}</option>)}
                 <option value="__manual__">+ Новая бригада</option>
               </select>
               {manualPerformer && <input aria-label="Название новой бригады" autoFocus value={manualName} onChange={event => setManualName(event.target.value)} placeholder="Название бригады" style={{...inp, marginBottom: 0}} />}

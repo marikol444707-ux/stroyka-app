@@ -45,6 +45,30 @@ it('mobile steps preserve selected work and prices when going back', async () =>
 });
 
 describe('work assignment performers', () => {
+  it('keeps each same-name contract beside the user and submits its exact contract ID',async()=>{
+    const original=global.fetch;
+    global.fetch=jest.fn().mockResolvedValue({ok:false,json:async()=>({detail:'Проверка договора'})});
+    try{
+      render(<WorkAssignmentModal show onClose={jest.fn()}
+        selectedEstimate={{id:25,projectId:17,workPackage:'Основная',sections:[{name:'Отделка',items:[{name:'Грунтовка',unit:'м²',quantity:5,priceWork:100,estimateItemKey:'contract-work'}]}]}}
+        staff={[]} users={[{id:11,name:'Иван',role:'мастер'}]}
+        brigadeContracts={[
+          {id:70,projectId:17,workPackage:'Основная',brigadeName:'Иван',contractorId:11},
+          {id:71,projectId:17,workPackage:'Основная',brigadeName:'Иван',contractorId:11},
+          {id:72,projectId:18,workPackage:'Основная',brigadeName:'Чужой объект',contractorId:11},
+          {id:73,projectId:17,workPackage:'Электрика',brigadeName:'Другой пакет',contractorId:11},
+        ]}
+        API="/api" loadAll={jest.fn()} C={{}} card={{}} inp={{}} btnO={{}} btnG={{}} btnB={{}} isMobile={false}/>);
+      expect(screen.getByRole('option',{name:'Иван · договор №70'})).toBeInTheDocument();
+      expect(screen.getByRole('option',{name:'Иван · договор №71'})).toBeInTheDocument();
+      expect(screen.getByRole('option',{name:'Иван · учётная запись'})).toBeInTheDocument();
+      expect(screen.queryByRole('option',{name:/Чужой объект|Другой пакет/})).not.toBeInTheDocument();
+      fireEvent.change(screen.getByRole('combobox',{name:'Исполнитель'}),{target:{value:'contract:70'}});
+      fireEvent.click(screen.getByRole('button',{name:'Выдать в работу'}));
+      expect(await screen.findByRole('alert')).toHaveTextContent('Проверка договора');
+      expect(JSON.parse(fetch.mock.calls[0][1].body).assignee).toMatchObject({contractorId:11,contractorRef:{type:'contract',id:70}});
+    }finally{global.fetch=original;}
+  });
   it('submits the selected staff card when another user has the same number and name',async()=>{
     const original=global.fetch;
     global.fetch=jest.fn().mockResolvedValue({ok:false,json:async()=>({detail:'Проверка точного выбора'})});

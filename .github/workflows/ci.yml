@@ -142,13 +142,14 @@ jobs:
             backend.features.supplier_team.test_customer_team_postgres.CustomerTeamPostgresTests \
             backend.features.supplier_team.test_manager_revocation_postgres.ManagerRevocationPostgresTests
 
-      - name: Run contractor identity read-only audit
+      - name: Run contractor identity audit and exact selection
         run: |
           export PATH="$(pg_config --bindir):$PATH"
           python scripts/run_supplier_catalog_postgres_tests.py \
             backend.features.contractor_identity.test_postgres.ContractorIdentityPostgresTests \
             backend.features.contractor_identity.test_runtime_postgres.ContractorIdentityRuntimePostgresTests \
-            backend.features.contractor_identity.test_selection_postgres.TypedContractorSelectionPostgresTests
+            backend.features.contractor_identity.test_selection_postgres.TypedContractorSelectionPostgresTests \
+            backend.features.contractor_identity.test_contract_selection_postgres.ExactContractSelectionPostgresTests
 
       - name: Set up Node
         uses: actions/setup-node@v4

@@ -19301,9 +19301,12 @@ def create_brigade_contract(
             company_id,
             data.get("contractorId"),
             data.get("brigadeName", ""),
-            **({'contractor_ref':data['contractorRef']} if 'contractorRef' in data else {}),
+            **({'contractor_ref': data['contractorRef'], 'project_id': project['id'],
+                'work_package': work_package} if 'contractorRef' in data else {}),
         )
-        existing_id = find_existing_brigade_contract_id(
+        reference = data.get('contractorRef') or {}
+        selected_contract_id = int(reference['id']) if reference.get('type') == 'contract' else None
+        existing_id = selected_contract_id or find_existing_brigade_contract_id(
             cur, company_id, project["id"], work_package,
             contractor_user_id, data.get("brigadeName", ""),
         )
@@ -19316,6 +19319,7 @@ def create_brigade_contract(
                 "itemsLoaded": 0,
                 "companyId": company_id,
                 "projectId": project["id"],
+                "contractorId": contractor_user_id,
             }
         cur.execute(
             """INSERT INTO brigade_contracts
