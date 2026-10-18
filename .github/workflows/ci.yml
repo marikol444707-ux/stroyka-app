@@ -134,6 +134,14 @@ jobs:
             backend.features.supplier_access.test_multicompany_chain \
             backend.features.supplier_payments.test_contract_context_postgres
 
+      - name: Run supplier manager assignments and revocation
+        run: |
+          export PATH="$(pg_config --bindir):$PATH"
+          python scripts/run_supplier_catalog_postgres_tests.py \
+            backend.features.supplier_team.test_policy_postgres.TeamPolicyPostgresTests \
+            backend.features.supplier_team.test_customer_team_postgres.CustomerTeamPostgresTests \
+            backend.features.supplier_team.test_manager_revocation_postgres.ManagerRevocationPostgresTests
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:

@@ -153,6 +153,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--build', type=Path, default=ROOT / 'build')
     parser.add_argument('--chromium', default='/usr/bin/chromium')
+    parser.add_argument('--scenario', choices=('merge', 'managers'), default='merge')
     args = parser.parse_args()
     connection_settings(os.environ)
     build = args.build.resolve()
@@ -167,7 +168,7 @@ def main():
     print('Artifacts: '+str(artifacts), flush=True)
     with (artifacts / 'server.log').open('w', encoding='utf-8') as log:
         child = subprocess.Popen([sys.executable, str(ROOT / 'scripts/participant_supplier_browser_fixture.py'),
-            '--build', str(build), '--artifacts', str(artifacts)], cwd=ROOT, stdout=log, stderr=log)
+            '--build', str(build), '--artifacts', str(artifacts), '--scenario', args.scenario], cwd=ROOT, stdout=log, stderr=log)
         try:
             deadline = time.monotonic() + 45
             while True:
@@ -182,7 +183,11 @@ def main():
                         raise RuntimeError('Fixture startup timeout')
                     time.sleep(.2)
             state = json.loads((artifacts / 'state.json').read_text(encoding='utf-8'))
-            browser_check(state, artifacts, args.chromium)
+            if args.scenario == 'managers':
+                from participant_manager_browser import browser_check as manager_check
+                manager_check(state, artifacts, args.chromium)
+            else:
+                browser_check(state, artifacts, args.chromium)
         finally:
             child.terminate()
             try:
@@ -193,7 +198,7 @@ def main():
             (artifacts / 'state.json').unlink(missing_ok=True)
     results = json.loads((artifacts / 'database-results.json').read_text(encoding='utf-8'))
     assert all(all(checks.values()) for checks in results.values()), results
-    print('Database: original invoice rows preserved; exact owner/canonical link and one audit per command', flush=True)
+    print('Database: all '+args.scenario+' preservation and access checks passed', flush=True)
 
 
 if __name__ == '__main__':

@@ -14,17 +14,22 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 
-def serve(build, artifacts):
+def serve(build, artifacts, scenario='merge'):
     from backend.features.supplier_access.test_postgres_chain_support import connection_settings
     import os
     connection_settings(os.environ)  # Explicit opt-in, socket and dedicated DB name.
-    from backend.features.participant_support.test_history_merge_postgres import SupplierHistoryMergePostgresTests as Suite
+    if scenario == 'managers':
+        from backend.features.supplier_team.test_manager_revocation_postgres import ManagerRevocationPostgresTests as Suite
+        method = 'test_two_managers_reassignment_revokes_cached_draft_and_reenable_keeps_assignments_empty'
+    else:
+        from backend.features.participant_support.test_history_merge_postgres import SupplierHistoryMergePostgresTests as Suite
+        method = 'test_complete_missing_inn_then_merge_uses_the_full_history_plan'
     import uvicorn
     from fastapi.responses import HTMLResponse
     from fastapi.staticfiles import StaticFiles
 
     Suite.setUpClass()  # Also verifies the database is empty and blocks outbound TCP.
-    fixture = Suite('test_complete_missing_inn_then_merge_uses_the_full_history_plan')
+    fixture = Suite(method)
     try:
         migration = importlib.import_module('migrations.versions.0005_platform_client_contracts')
         connection = fixture.main.get_db()
@@ -36,16 +41,25 @@ def serve(build, artifacts):
             connection.close()
         password = secrets.token_urlsafe(24)
         state = {'password': password, 'users': {}, 'scenarios': {}}
-        for actor in ('admin', 'supplier', 'stranger'):
+        if scenario == 'managers':
+            state['managerScenario'] = fixture.seed_managers()
+            state['supplierId'] = fixture.fixture['supplierId']
+        actors = ('supplier', 'manager', 'manager_b') if scenario == 'managers' else ('admin', 'supplier', 'stranger')
+        for actor in actors:
             user = fixture.fixture['users'][actor]
             secret = fixture.main._generate_totp_secret()
+            two_factor = actor in ('admin', 'stranger')
             fixture.sql('''UPDATE users SET password=%s,two_factor_secret=%s,
                 two_factor_enabled=%s,two_factor_required=%s WHERE id=%s''',
-                (fixture.main.hash_password(password), secret, actor != 'supplier', actor != 'supplier', user['id']))
+                (fixture.main.hash_password(password), secret, two_factor, two_factor, user['id']))
             email = 'admin@local.invalid' if actor == 'admin' else user['email']
             state['users'][actor] = {'email': email, 'secret': secret}
         originals = {}
-        for size in ('mobile', 'desktop'):
+        if scenario == 'managers':
+            offer_ids = [state['managerScenario'][key] for key in ('offerA', 'offerB')]
+            originals['offers'] = fixture.sql('SELECT to_jsonb(o) FROM supplier_offers o WHERE id=ANY(%s) ORDER BY id', (offer_ids,))
+            originals['events'] = fixture.sql('SELECT to_jsonb(e) FROM supplier_offer_events e WHERE offer_id=ANY(%s) ORDER BY id', (offer_ids,))
+        for size in (() if scenario == 'managers' else ('mobile', 'desktop')):
             source, target, invoice = fixture.seed()
             fixture.sql('UPDATE suppliers SET name=%s WHERE id=%s', ('BROWSER '+size+' receipt', source))
             fixture.sql("UPDATE suppliers SET name=%s,inn='' WHERE id=%s", ('BROWSER '+size+' cabinet', target))
@@ -76,6 +90,18 @@ def serve(build, artifacts):
             server.run()
         finally:
             results = {}
+            if scenario == 'managers':
+                row = state['managerScenario']
+                offer_ids = [row['offerA'], row['offerB']]
+                results['managers'] = {
+                    'offersPreserved': originals['offers'] == fixture.sql('SELECT to_jsonb(o) FROM supplier_offers o WHERE id=ANY(%s) ORDER BY id', (offer_ids,)),
+                    'eventsPreserved': originals['events'] == fixture.sql('SELECT to_jsonb(e) FROM supplier_offer_events e WHERE offer_id=ANY(%s) ORDER BY id', (offer_ids,)),
+                    'managerAClosed': fixture.api('manager', 'GET', '/supplier-offers') == [],
+                    'managerBClosedAfterReenable': fixture.api('manager_b', 'GET', '/supplier-offers') == [],
+                    'memberReenabled': fixture.sql('SELECT active FROM supplier_team_members WHERE id=%s', (row['memberB'],)) == [(True,)],
+                    'assignmentsCleared': fixture.sql('SELECT count(*) FROM supplier_customer_assignments WHERE supplier_id=%s AND member_id IS NOT NULL', (state['supplierId'],)) == [(0,)],
+                    'ownerKeepsAccess': set(offer_ids) <= {r['id'] for r in fixture.api('supplier', 'GET', '/supplier-offers')},
+                }
             for size, row in state['scenarios'].items():
                 source, target, invoice = row['source'], row['target'], row['invoice']
                 results[size] = {
@@ -96,5 +122,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--build', type=Path, required=True)
     parser.add_argument('--artifacts', type=Path, required=True)
+    parser.add_argument('--scenario', choices=('merge', 'managers'), default='merge')
     args = parser.parse_args()
-    serve(args.build.resolve(), args.artifacts.resolve())
+    serve(args.build.resolve(), args.artifacts.resolve(), args.scenario)
