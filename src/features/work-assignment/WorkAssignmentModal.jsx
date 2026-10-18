@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CheckSquare, RotateCcw, Settings2, UserCheck, X } from 'lucide-react';
 import { assignmentsForEstimate, contractName, formatMoney, formatQty, toNumber } from './workAssignmentUtils';
-import { findUserForStaff, normalizePersonKey } from '../../utils/performerUtils';
+import { normalizePersonKey } from '../../utils/performerUtils';
 
 function isPerformer(item = {}) {
     const text = [item.role, item.systemRole, item.category, item.employmentType, item.position, item.name].map(value => String(value || '').toLowerCase()).join(' ');
@@ -23,22 +23,27 @@ export function performerRows(staff = [], users = [], brigadeContracts = []) {
     rows.push(item);
   };
   (staff || []).filter(isPerformer).forEach(item => {
-    const accessUser = findUserForStaff(item, users);
-    const contractorId = accessUser?.id || item.id;
+    if(!Number.isSafeInteger(Number(item.id))||Number(item.id)<=0)return;
+    const accessUser = item.accessUserId ? users.find(user=>Number(user.id)===Number(item.accessUserId)) : null;
+    const contractorId = item.id;
     addRow({
       ...item,
       id: contractorId,
       contractorId,
+      optionId:'staff:'+item.id,
+      contractorRef:{type:'staff',id:Number(item.id)},
       role: item.role || accessUser?.role || '',
       employmentType: item.employmentType || accessUser?.role || 'мастер',
       email: accessUser?.email || item.email || item.emailWork || item.emailPersonal || '',
-    }, accessUser?.id ? 'user:' + accessUser.id : 'staff:' + (item.id || normalizePersonKey(item.name)), accessUser?.id);
+    }, 'staff:'+item.id, item.accessUserId);
   });
   (users || []).filter(isPerformer).forEach(item => {
     if (!item.id || seenUserIds.has(String(item.id))) return;
     addRow({
       ...item,
       contractorId: item.id,
+      optionId:'user:'+item.id,
+      contractorRef:{type:'user',id:Number(item.id)},
       employmentType: item.role || 'мастер',
     }, 'user:' + item.id, item.id);
   });
@@ -204,6 +209,7 @@ export default function WorkAssignmentModal({
       const payload = {
         assignee: {
           contractorId: selectedPerformer?.contractorId || null,
+          ...(selectedPerformer?.contractorRef ? {contractorRef:selectedPerformer.contractorRef} : {}),
           brigadeName,
           contractorType: selectedPerformer?.employmentType || selectedPerformer?.role || 'Своя бригада',
         },
@@ -286,7 +292,7 @@ export default function WorkAssignmentModal({
                 if (!isManual) setManualName('');
               }} style={{...inp, marginBottom: 0}}>
                 <option value="">Выберите исполнителя</option>
-                {performers.map(item => <option key={performerOptionId(item) + '-' + item.name} value={performerOptionId(item)}>{item.name}</option>)}
+                {performers.map(item => <option key={performerOptionId(item) + '-' + item.name} value={performerOptionId(item)}>{item.name}{performers.filter(row=>normalizePersonKey(row.name)===normalizePersonKey(item.name)).length>1 ? (item.contractorRef?.type==='staff'?' · сотрудник':' · учётная запись') : ''}</option>)}
                 <option value="__manual__">+ Новая бригада</option>
               </select>
               {manualPerformer && <input aria-label="Название новой бригады" autoFocus value={manualName} onChange={event => setManualName(event.target.value)} placeholder="Название бригады" style={{...inp, marginBottom: 0}} />}

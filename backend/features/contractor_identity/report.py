@@ -10,14 +10,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 
 from ..contractor_contract_parties.snapshot import snapshot_digest
-
-PERFORMER_ROLES = {'мастер', 'субподрядчик', 'бригадир'}
-
-
-def positive_id(value):
-    if type(value) is not int or not 0 < value <= 2147483647:
-        raise ValueError('INVALID_ID')
-    return value
+from .identity import PERFORMER_ROLES, positive_id
 
 
 def classify_reference(row):

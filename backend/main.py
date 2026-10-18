@@ -19301,6 +19301,7 @@ def create_brigade_contract(
             company_id,
             data.get("contractorId"),
             data.get("brigadeName", ""),
+            **({'contractor_ref':data['contractorRef']} if 'contractorRef' in data else {}),
         )
         existing_id = find_existing_brigade_contract_id(
             cur, company_id, project["id"], work_package,
@@ -19368,6 +19369,7 @@ def create_brigade_contract(
             "itemsLoaded": inserted,
             "companyId": company_id,
             "projectId": project["id"],
+            "contractorId": contractor_user_id,
         }
     except HTTPException:
         conn.rollback()

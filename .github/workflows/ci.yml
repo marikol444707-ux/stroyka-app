@@ -147,7 +147,8 @@ jobs:
           export PATH="$(pg_config --bindir):$PATH"
           python scripts/run_supplier_catalog_postgres_tests.py \
             backend.features.contractor_identity.test_postgres.ContractorIdentityPostgresTests \
-            backend.features.contractor_identity.test_runtime_postgres.ContractorIdentityRuntimePostgresTests
+            backend.features.contractor_identity.test_runtime_postgres.ContractorIdentityRuntimePostgresTests \
+            backend.features.contractor_identity.test_selection_postgres.TypedContractorSelectionPostgresTests
 
       - name: Set up Node
         uses: actions/setup-node@v4

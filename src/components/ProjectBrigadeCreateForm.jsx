@@ -31,19 +31,21 @@ export default function ProjectBrigadeCreateForm({
   btnG,
 }) {
   const [saving, setSaving] = useState(false);
+  const selectedStaff=staff.find(item=>String(item.id)===String(newBrigadeContract.contractorId));
   const normalizedName = String(newBrigadeContract.brigadeName || '').trim().toLocaleLowerCase('ru-RU');
-  const existingContract = normalizedName && brigadeContracts.filter(contract => Number(contract.projectId) === Number(project.id)
+  // A selected staff card always goes through the server: its account link may
+  // have changed since the directory loaded, even if an old contract is visible.
+  const existingContract = !newBrigadeContract.contractorId && normalizedName && brigadeContracts.filter(contract => Number(contract.projectId) === Number(project.id)
     && contract.status !== 'Аннулирован'
     && String(contract.workPackage || 'Основная') === String(newBrigadeContract.workPackage || 'Основная')
-    && (newBrigadeContract.contractorId && contract.contractorId
-      ? String(contract.contractorId) === String(newBrigadeContract.contractorId)
-      : String(contract.brigadeName || '').trim().toLocaleLowerCase('ru-RU') === normalizedName))
+    && String(contract.brigadeName || '').trim().toLocaleLowerCase('ru-RU') === normalizedName)
     .sort((left, right) => Number(Number(right.planAmount || 0) > 0) - Number(Number(left.planAmount || 0) > 0)
       || Number(right.status === 'Подписан') - Number(left.status === 'Подписан')
       || Number(left.id) - Number(right.id))[0];
   const createBrigadeContract = async () => {
     if (saving) return;
     if (!newBrigadeContract.brigadeName) return;
+    if(newBrigadeContract.contractorId&&!selectedStaff){alert('Обновите список и выберите карточку исполнителя заново');return;}
     if (existingContract) {
       if (typeof openBrigadeContract === 'function') openBrigadeContract(existingContract);
       else setSelectedBrigadeContract(existingContract);
@@ -55,6 +57,7 @@ export default function ProjectBrigadeCreateForm({
       ...newBrigadeContract,
       projectId: project.id,
       projectName: project.name,
+      ...(selectedStaff ? {contractorRef:{type:'staff',id:Number(selectedStaff.id)}} : {}),
     };
     setSaving(true);
     try {
@@ -79,6 +82,7 @@ export default function ProjectBrigadeCreateForm({
       } else {
         const newContract = {
           ...data,
+          contractorId:saved.contractorId??null,
           id: saved.id,
           companyId: saved.companyId,
           projectId: saved.projectId || project.id,

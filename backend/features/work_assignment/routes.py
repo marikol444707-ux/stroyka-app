@@ -72,9 +72,13 @@ def register_work_assignment_module(app, deps):
     ):
         data = data or {}
         assignee = data.get("assignee") or {}
+        if not isinstance(assignee, dict):
+            raise HTTPException(status_code=400, detail="Некорректная карточка исполнителя")
+        if 'contractorRef' in assignee and 'contractorRef' in data and assignee['contractorRef'] != data['contractorRef']:
+            raise HTTPException(status_code=400, detail="Указаны разные карточки исполнителя")
         brigade_name = _text(assignee.get("brigadeName") or assignee.get("name") or data.get("brigadeName"), 255)
         contractor_type = _text(assignee.get("contractorType") or data.get("contractorType") or "Своя бригада", 100)
-        contractor_id = assignee.get("contractorId") or data.get("contractorId")
+        contractor_id = assignee.get("contractorId", data.get("contractorId"))
         if not brigade_name:
             raise HTTPException(status_code=400, detail="Выберите мастера или укажите название бригады")
         assignments = data.get("items") or data.get("assignments") or []
@@ -143,6 +147,8 @@ def register_work_assignment_module(app, deps):
                 company_id,
                 contractor_id,
                 brigade_name,
+                **({'contractor_ref':assignee['contractorRef']} if 'contractorRef' in assignee else
+                   {'contractor_ref':data['contractorRef']} if 'contractorRef' in data else {}),
             )
 
             existing_id = find_existing_brigade_contract_id(

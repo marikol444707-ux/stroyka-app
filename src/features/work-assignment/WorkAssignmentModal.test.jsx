@@ -18,7 +18,7 @@ it('mobile steps preserve selected work and prices when going back', async () =>
       {name:'Грунтовка',unit:'м2',quantity:1,priceWork:100,estimateItemKey:'work-2'},
     ]}]}} users={[{id:11,name:'Мастер Иван',role:'мастер'}]} staff={[]}
     API="/api" loadAll={jest.fn()} C={{}} card={{}} inp={{}} btnO={{}} btnG={{}} btnB={{}} isMobile/>);
-  expect(screen.getByRole('combobox',{name:'Исполнитель'})).toHaveValue('11');
+  expect(screen.getByRole('combobox',{name:'Исполнитель'})).toHaveValue('user:11');
   expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
   expect(screen.queryByRole('button',{name:'Выдать в работу'})).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button',{name:'Далее'}));
@@ -37,6 +37,7 @@ it('mobile steps preserve selected work and prices when going back', async () =>
   await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Тестовая ошибка'));
   const payload = JSON.parse(fetchMock.mock.calls[0][1].body);
   expect(payload.assignee.contractorId).toBe(11);
+  expect(payload.assignee.contractorRef).toEqual({type:'user',id:11});
   expect(payload.items).toEqual([expect.objectContaining({estimateItemKey: 'work-1', manualPrice: 75})]);
   } finally {
     global.fetch = originalFetch;
@@ -44,6 +45,39 @@ it('mobile steps preserve selected work and prices when going back', async () =>
 });
 
 describe('work assignment performers', () => {
+  it('submits the selected staff card when another user has the same number and name',async()=>{
+    const original=global.fetch;
+    global.fetch=jest.fn().mockResolvedValue({ok:false,json:async()=>({detail:'Проверка точного выбора'})});
+    try{
+      render(<WorkAssignmentModal show onClose={jest.fn()}
+        selectedEstimate={{id:25,sections:[{name:'Электрика',items:[{name:'Кабель',unit:'м',quantity:5,priceWork:100,estimateItemKey:'typed-1'}]}]}}
+        staff={[{id:23,name:'Иван',role:'мастер'}]} users={[{id:23,name:'Иван',role:'мастер'}]}
+        API="/api" loadAll={jest.fn()} C={{}} card={{}} inp={{}} btnO={{}} btnG={{}} btnB={{}} isMobile={false}/>);
+      fireEvent.change(screen.getByRole('combobox',{name:'Исполнитель'}),{target:{value:'staff:23'}});
+      expect(screen.getByRole('option',{name:'Иван · сотрудник'})).toBeInTheDocument();
+      expect(screen.getByRole('option',{name:'Иван · учётная запись'})).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button',{name:'Выдать в работу'}));
+      expect(await screen.findByRole('alert')).toHaveTextContent('Проверка точного выбора');
+      expect(JSON.parse(fetch.mock.calls[0][1].body).assignee).toMatchObject({contractorId:23,contractorRef:{type:'staff',id:23}});
+    }finally{global.fetch=original;}
+  });
+  it('keeps equal staff/user numbers and names as distinct exact selections', () => {
+    const rows=performerRows([{id:23,name:'Иван',role:'мастер',emailWork:'same@local.invalid'}],
+      [{id:23,name:'Иван',role:'мастер',email:'same@local.invalid'}]);
+    expect(rows).toHaveLength(2);
+    expect(rows.map(row=>row.optionId).sort()).toEqual(['staff:23','user:23']);
+    expect(rows.map(row=>row.contractorRef)).toEqual(expect.arrayContaining([
+      {type:'staff',id:23},{type:'user',id:23},
+    ]));
+  });
+
+  it('only deduplicates a staff account through the persisted accessUserId', () => {
+    const rows=performerRows([{id:23,name:'Иван',role:'мастер',accessUserId:41}],
+      [{id:23,name:'Иван',role:'мастер'},{id:41,name:'Другой профиль',role:'мастер'}]);
+    expect(rows).toHaveLength(2);
+    expect(rows.find(row=>row.optionId==='staff:23').contractorRef).toEqual({type:'staff',id:23});
+    expect(rows.find(row=>row.optionId==='user:23').contractorRef).toEqual({type:'user',id:23});
+  });
   it('offers a subcontractor as an estimate work assignee', () => {
     const rows = performerRows([], [
       { id: 11, name: 'ИП Исполнитель', role: 'субподрядчик' },
@@ -145,11 +179,11 @@ describe('work assignment prices', () => {
     );
 
     expect(screen.queryByPlaceholderText('Название бригады')).not.toBeInTheDocument();
-    expect(screen.getByRole('combobox', {name: 'Исполнитель'})).toHaveValue('11');
+    expect(screen.getByRole('combobox', {name: 'Исполнитель'})).toHaveValue('user:11');
 
     typeManualBrigade('Бригада Север');
     expect(screen.getByPlaceholderText('Название бригады')).toHaveValue('Бригада Север');
-    fireEvent.change(screen.getByRole('combobox', {name: 'Исполнитель'}), {target: {value: '11'}});
+    fireEvent.change(screen.getByRole('combobox', {name: 'Исполнитель'}), {target: {value: 'user:11'}});
     expect(screen.queryByPlaceholderText('Название бригады')).not.toBeInTheDocument();
   });
 

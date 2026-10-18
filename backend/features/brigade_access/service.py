@@ -108,8 +108,14 @@ def find_existing_brigade_contract_id(cur, company_id, project_id, work_package,
     return _row_value(row, "id", 0) if row else None
 
 
-def resolve_brigade_contractor_user(cur, company_id, contractor_id=None, contractor_name=""):
+_LEGACY_REFERENCE = object()
+
+
+def resolve_brigade_contractor_user(cur, company_id, contractor_id=None, contractor_name="", *, contractor_ref=_LEGACY_REFERENCE):
     """Resolve an optional contractor user without crossing the selected-company boundary."""
+    if contractor_ref is not _LEGACY_REFERENCE:
+        from ..contractor_identity.selection import resolve_selected_user
+        return resolve_selected_user(cur, company_id, contractor_ref, contractor_id)
     normalized_company_id = _positive_int(company_id)
     if not normalized_company_id:
         raise HTTPException(status_code=409, detail="Компания договора бригады не определена")

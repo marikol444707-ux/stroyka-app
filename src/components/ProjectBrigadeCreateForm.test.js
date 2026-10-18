@@ -57,6 +57,31 @@ describe('ProjectBrigadeCreateForm', () => {
     expect(props.setSelectedBrigadeContract).not.toHaveBeenCalled();
   });
 
+  it('sends the staff namespace and keeps the canonical user returned by the server', async () => {
+    const props=buildProps({staff:[{id:23,name:'Иван',accessUserId:41}],
+      newBrigadeContract:{...buildProps().newBrigadeContract,contractorId:'23',brigadeName:'Иван'},
+      brigadeContracts:[{id:70,projectId:17,brigadeName:'Иван',contractorId:23}]});
+    window.fetch=jest.fn().mockResolvedValue({ok:true,json:async()=>({ok:true,id:71,companyId:4,projectId:17,contractorId:41})});
+    render(<ProjectBrigadeCreateForm {...props}/>);
+    fireEvent.click(screen.getByRole('button',{name:'Создать договор'}));
+    await waitFor(()=>expect(props.setSelectedBrigadeContract).toHaveBeenCalled());
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({contractorId:'23',contractorRef:{type:'staff',id:23}});
+    expect(props.setSelectedBrigadeContract).toHaveBeenCalledWith(expect.objectContaining({contractorId:41}));
+  });
+
+  it('rechecks the staff link on the server before opening a visible existing contract',async()=>{
+    const props=buildProps({staff:[{id:23,name:'Иван',accessUserId:41}],
+      newBrigadeContract:{...buildProps().newBrigadeContract,contractorId:'23',brigadeName:'Иван'},
+      brigadeContracts:[{id:70,projectId:17,brigadeName:'Иван',contractorId:41}],openBrigadeContract:jest.fn()});
+    window.alert=jest.fn();
+    window.fetch=jest.fn().mockResolvedValue({ok:false,json:async()=>({detail:'Доступ исполнителя изменился'})});
+    render(<ProjectBrigadeCreateForm {...props}/>);
+    fireEvent.click(screen.getByRole('button',{name:'Создать договор'}));
+    await waitFor(()=>expect(window.alert).toHaveBeenCalled());
+    expect(window.fetch).toHaveBeenCalledTimes(1);
+    expect(props.openBrigadeContract).not.toHaveBeenCalled();
+  });
+
   it('uses the company and project confirmed by the server', async () => {
     const props = buildProps();
     window.fetch = jest.fn().mockResolvedValue({
