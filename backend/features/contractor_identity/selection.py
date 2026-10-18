@@ -18,6 +18,10 @@ def _id(value):
 
 def resolve_selected_user(cur, company_id, reference, legacy_id=None, *, project_id=None, work_package=None):
     company_id = _id(company_id)
+    if isinstance(reference, dict) and reference.get('type') == 'manual':
+        from .manual import manual_request_id
+        manual_request_id(reference, legacy_id)
+        return None
     if (not isinstance(reference, dict) or set(reference) != {'type', 'id'}
             or reference.get('type') not in ('user', 'staff', 'contract')):
         raise HTTPException(400, 'Выберите точную карточку исполнителя')
@@ -62,7 +66,13 @@ def _resolve_contract_user(cur, company_id, contract_id, legacy_id, project_id, 
     cur.execute('SELECT bc.contractor_id FROM brigade_contracts bc' + where, scope)
     row = cur.fetchone()
     owner = (row.get('contractor_id') if isinstance(row, dict) else row[0]) if row else None
-    if owner is None:
+    if row and owner is None:
+        from .manual import require_manual_contract
+        require_manual_contract(cur, company_id, project_id, contract_id, work_package)
+        if legacy_id not in (None, ''):
+            raise HTTPException(400, 'У выбранной бригады нет привязанного пользователя')
+        return None
+    if not row:
         raise HTTPException(409, 'Выбранный договор недоступен или его исполнитель не подтверждён. Проверьте договор')
     # Keep the same membership -> advisory scope -> contract locking order as
     # the ordinary creation path. Recheck the evidence after obtaining the lock.

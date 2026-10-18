@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Check, X } from 'lucide-react';
 import { API } from '../api';
+import { commandUuid } from '../utils/commandUuid';
 
 const emptyBrigadeContract = () => ({
   projectId: '',
@@ -31,36 +32,34 @@ export default function ProjectBrigadeCreateForm({
   btnG,
 }) {
   const [saving, setSaving] = useState(false);
+  const [existingContractId, setExistingContractId] = useState('');
+  const manualRequestRef = useRef(null);
   const selectedStaff=staff.find(item=>String(item.id)===String(newBrigadeContract.contractorId));
-  const normalizedName = String(newBrigadeContract.brigadeName || '').trim().toLocaleLowerCase('ru-RU');
-  // A selected staff card always goes through the server: its account link may
-  // have changed since the directory loaded, even if an old contract is visible.
-  const existingContract = !newBrigadeContract.contractorId && normalizedName && brigadeContracts.filter(contract => Number(contract.projectId) === Number(project.id)
-    && contract.status !== 'Аннулирован'
-    && String(contract.workPackage || 'Основная') === String(newBrigadeContract.workPackage || 'Основная')
-    && String(contract.brigadeName || '').trim().toLocaleLowerCase('ru-RU') === normalizedName)
-    .sort((left, right) => Number(Number(right.planAmount || 0) > 0) - Number(Number(left.planAmount || 0) > 0)
-      || Number(right.status === 'Подписан') - Number(left.status === 'Подписан')
-      || Number(left.id) - Number(right.id))[0];
+  const availableContracts = brigadeContracts.filter(contract => Number(contract.projectId) === Number(project.id)
+    && !['Аннулирован','Удалён','Удален'].includes(contract.status)
+    && String(contract.workPackage || 'Основная') === String(newBrigadeContract.workPackage || 'Основная'));
+  const existingContract = availableContracts.find(contract => String(contract.id) === existingContractId);
   const createBrigadeContract = async () => {
     if (saving) return;
-    if (!newBrigadeContract.brigadeName) return;
-    if(newBrigadeContract.contractorId&&!selectedStaff){alert('Обновите список и выберите карточку исполнителя заново');return;}
-    if (existingContract) {
-      if (typeof openBrigadeContract === 'function') openBrigadeContract(existingContract);
-      else setSelectedBrigadeContract(existingContract);
-      setShowBrigadeForm(false);
-      return;
-    }
-
-    const data = {
-      ...newBrigadeContract,
-      projectId: project.id,
-      projectName: project.name,
-      ...(selectedStaff ? {contractorRef:{type:'staff',id:Number(selectedStaff.id)}} : {}),
-    };
+    if (!existingContract && !String(newBrigadeContract.brigadeName || '').trim()) return;
+    if(existingContractId&&!existingContract){alert('Обновите список и выберите договор заново');return;}
+    if(!existingContract&&newBrigadeContract.contractorId&&!selectedStaff){alert('Обновите список и выберите карточку исполнителя заново');return;}
     setSaving(true);
     try {
+      const scope = JSON.stringify([project.companyId,project.id,newBrigadeContract.workPackage || 'Основная']);
+      if (!existingContract && !selectedStaff && manualRequestRef.current?.scope !== scope) {
+        manualRequestRef.current = {scope,requestId:commandUuid()};
+      }
+      const data = {
+        ...newBrigadeContract,
+        projectId: project.id,
+        projectName: project.name,
+        brigadeName: existingContract?.brigadeName || newBrigadeContract.brigadeName,
+        contractorId: existingContract ? existingContract.contractorId ?? null : selectedStaff ? newBrigadeContract.contractorId : null,
+        contractorRef: existingContract ? {type:'contract',id:Number(existingContract.id)}
+          : selectedStaff ? {type:'staff',id:Number(selectedStaff.id)}
+          : {type:'manual',requestId:manualRequestRef.current.requestId},
+      };
       const res = await fetch(API + '/brigade-contracts', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -68,6 +67,7 @@ export default function ProjectBrigadeCreateForm({
       });
       const saved = await res.json().catch(() => ({}));
       if (!res.ok || !saved.ok || !saved.id) {
+        if ([400,422].includes(res.status)) manualRequestRef.current = null;
         throw new Error(saved.detail || 'проверьте компанию, объект и исполнителя');
       }
       if (saved.reused) {
@@ -96,6 +96,7 @@ export default function ProjectBrigadeCreateForm({
         setBrigadePayments([]);
       }
       setShowBrigadeForm(false);
+      manualRequestRef.current = null;
       setNewBrigadeContract(emptyBrigadeContract());
     } catch (error) {
       alert('Не удалось создать договор: ' + (error.message || 'проверьте соединение'));
@@ -106,6 +107,12 @@ export default function ProjectBrigadeCreateForm({
 
   return (
     <div style={{...card, padding: '20px', marginBottom: '16px'}}>
+      {availableContracts.length > 0 && <label>Существующий договор
+        <select aria-label="Существующий договор" value={existingContractId} onChange={event=>setExistingContractId(event.target.value)} style={inp}>
+          <option value="">Создать новый</option>
+          {availableContracts.map(contract=><option key={contract.id} value={contract.id}>{contract.brigadeName} · договор №{contract.id}</option>)}
+        </select>
+      </label>}
       <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px'}}>
         <select value={newBrigadeContract.contractorType} onChange={e => setNewBrigadeContract({...newBrigadeContract, contractorType: e.target.value})} style={{...inp, marginBottom: 0}}>
           {['Своя бригада', 'Субподрядчик', 'Мастер', 'ГПХ', 'Самозанятый', 'ИП', 'ООО', 'Трудовой договор'].map(t => <option key={t}>{t}</option>)}
@@ -121,7 +128,8 @@ export default function ProjectBrigadeCreateForm({
         </select>
         <textarea placeholder="Примечание" value={newBrigadeContract.notes} onChange={e => setNewBrigadeContract({...newBrigadeContract, notes: e.target.value})} style={{...inp, marginBottom: 0, height: '60px'}}/>
       </div>
-      {existingContract && <p role="status" style={{margin:'12px 0 0',fontSize:'13px'}}>У этого исполнителя уже есть договор по объекту. Откройте его и добавьте работы туда.</p>}
+      {!existingContract && !selectedStaff && <p role="status">Бригада без аккаунта. Доступ к программе не выдаётся.</p>}
+      {existingContract && <p role="status">Выбран договор №{existingContract.id}. Доступ будет проверен при открытии.</p>}
       <div style={{display: 'flex', gap: '8px', marginTop: '12px'}}>
         <button onClick={createBrigadeContract} disabled={saving} style={btnO}><Check size={14}/>{saving ? 'Сохраняем…' : existingContract ? 'Открыть договор' : 'Создать договор'}</button>
         <button onClick={() => setShowBrigadeForm(false)} style={btnG}><X size={14}/>Отмена</button>

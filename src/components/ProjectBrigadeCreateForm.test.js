@@ -2,6 +2,8 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import ProjectBrigadeCreateForm from './ProjectBrigadeCreateForm';
 
+jest.mock('../utils/commandUuid',()=>({commandUuid:()=> '619c59a4-88af-4c11-9e58-765f2b232680'}));
+
 
 const buildProps = (overrides = {}) => ({
   project: {id: 17, name: 'Лицей'},
@@ -99,32 +101,45 @@ describe('ProjectBrigadeCreateForm', () => {
     expect(props.setSelectedBrigadeContract).toHaveBeenCalledWith(savedContract);
   });
 
-  it('opens an existing performer contract instead of creating a duplicate', () => {
-    const existing = {id: 70, projectId: 17, projectName: 'Лицей', brigadeName: 'Бригада Север', status: 'Подписан'};
-    const props = buildProps({brigadeContracts: [existing], openBrigadeContract: jest.fn()});
-    window.fetch = jest.fn();
-
-    render(<ProjectBrigadeCreateForm {...props} />);
-    expect(screen.getByText(/у этого исполнителя уже есть договор/i)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', {name: 'Открыть договор'}));
-
-    expect(window.fetch).not.toHaveBeenCalled();
-    expect(props.openBrigadeContract).toHaveBeenCalledWith(existing);
-    expect(props.setSelectedBrigadeContract).not.toHaveBeenCalled();
-    expect(props.setShowBrigadeForm).toHaveBeenCalledWith(false);
+  it('never opens a same-name contract without an explicit selection', async () => {
+    const existing = {id:70,projectId:17,brigadeName:'Бригада Север',contractorId:11};
+    const props = buildProps({brigadeContracts:[existing],openBrigadeContract:jest.fn()});
+    window.fetch=jest.fn().mockResolvedValue({ok:false,json:async()=>({detail:'Проверка ручного создания'})});
+    window.alert=jest.fn();
+    render(<ProjectBrigadeCreateForm {...props}/>);
+    fireEvent.click(screen.getByRole('button',{name:'Создать договор'}));
+    await waitFor(()=>expect(window.alert).toHaveBeenCalled());
+    expect(props.openBrigadeContract).not.toHaveBeenCalled();
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({contractorId:null,contractorRef:{type:'manual',requestId:expect.any(String)}});
   });
 
-  it('opens the contract with work when a newer empty legacy duplicate is visible', () => {
-    const original = {id: 18, projectId: 17, projectName: 'Лицей', brigadeName: 'Бригада Север', status: 'Подписан', planAmount: 2000};
-    const emptyDuplicate = {id: 20, projectId: 17, projectName: 'Лицей', brigadeName: 'Бригада Север', status: 'Подписан', planAmount: 0};
-    const props = buildProps({brigadeContracts: [emptyDuplicate, original], openBrigadeContract: jest.fn()});
-    window.fetch = jest.fn();
+  it('checks the explicitly selected contract on the server instead of ranking same-name duplicates', async () => {
+    const props=buildProps({brigadeContracts:[
+      {id:18,projectId:17,brigadeName:'Бригада Север',contractorId:41,planAmount:2000},
+      {id:20,projectId:17,brigadeName:'Бригада Север',contractorId:41,planAmount:0},
+    ],openBrigadeContract:jest.fn()});
+    window.fetch=jest.fn().mockResolvedValue({ok:false,json:async()=>({detail:'Доступ изменился'})});
+    window.alert=jest.fn();
+    render(<ProjectBrigadeCreateForm {...props}/>);
+    fireEvent.change(screen.getByRole('combobox',{name:'Существующий договор'}),{target:{value:'20'}});
+    fireEvent.click(screen.getByRole('button',{name:'Открыть договор'}));
+    await waitFor(()=>expect(window.alert).toHaveBeenCalled());
+    expect(props.openBrigadeContract).not.toHaveBeenCalled();
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({contractorId:41,contractorRef:{type:'contract',id:20}});
+  });
 
-    render(<ProjectBrigadeCreateForm {...props} />);
-    fireEvent.click(screen.getByRole('button', {name: 'Открыть договор'}));
-
-    expect(props.openBrigadeContract).toHaveBeenCalledWith(original);
-    expect(window.fetch).not.toHaveBeenCalled();
+  it('reuses the manual command key after a network failure',async()=>{
+    const props=buildProps();
+    window.fetch=jest.fn().mockRejectedValue(new Error('network'));
+    window.alert=jest.fn();
+    render(<ProjectBrigadeCreateForm {...props}/>);
+    fireEvent.click(screen.getByRole('button',{name:'Создать договор'}));
+    await waitFor(()=>expect(window.alert).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button',{name:'Создать договор'}));
+    await waitFor(()=>expect(window.alert).toHaveBeenCalledTimes(2));
+    const refs=fetch.mock.calls.map(call=>JSON.parse(call[1].body).contractorRef);
+    expect(refs[0]).toEqual({type:'manual',requestId:expect.stringMatching(/^[0-9a-f-]{36}$/)});
+    expect(refs[1]).toEqual(refs[0]);
   });
 
   it('does not offer a contract from another project with the same name', () => {

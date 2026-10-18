@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CheckSquare, RotateCcw, Settings2, UserCheck, X } from 'lucide-react';
 import { assignmentsForEstimate, contractName, formatMoney, formatQty, toNumber } from './workAssignmentUtils';
 import { normalizePersonKey } from '../../utils/performerUtils';
+import { commandUuid } from '../../utils/commandUuid';
 
 function isPerformer(item = {}) {
     const text = [item.role, item.systemRole, item.category, item.employmentType, item.position, item.name].map(value => String(value || '').toLowerCase()).join(' ');
@@ -98,6 +99,7 @@ export default function WorkAssignmentModal({
   const bodyRef = useRef(null);
   useEffect(() => { if (bodyRef.current) bodyRef.current.scrollTop = 0; }, [mobileStep]);
   const initializedSourceRef = useRef(null);
+  const manualRequestRef = useRef(null);
 
   const assignmentRows = useMemo(
     () => assignmentsForEstimate(selectedEstimate, brigadeContractItems || [], brigadeContracts || []),
@@ -131,8 +133,12 @@ export default function WorkAssignmentModal({
   );
   const sourceKey = useMemo(() => JSON.stringify([
     selectedEstimate?.id,
+    selectedEstimate?.companyId,
+    selectedEstimate?.projectId || selectedEstimate?.project_id,
+    selectedEstimate?.workPackage || selectedEstimate?.work_package || 'Основная',
     assignmentRows.map(row => [row.estimateItemKey, row.name, row.quantity, row.priceSmeta, row.assignments.map(item => item.contractId || item.contract_id)]),
-  ]), [selectedEstimate?.id, assignmentRows]);
+  ]), [selectedEstimate?.id, selectedEstimate?.companyId, selectedEstimate?.projectId, selectedEstimate?.project_id,
+    selectedEstimate?.workPackage, selectedEstimate?.work_package, assignmentRows]);
   const selectedRows = rows.filter(row => selectedIds[row.id]);
   const visibleIds = new Set(visibleRows.map(row => row.id));
   const hiddenSelectedCount = selectedRows.filter(row => !visibleIds.has(row.id)).length;
@@ -158,10 +164,12 @@ export default function WorkAssignmentModal({
   useEffect(() => {
     if (!show || !selectedEstimate) {
       initializedSourceRef.current = null;
+      manualRequestRef.current = null;
       return;
     }
     if (initializedSourceRef.current === sourceKey) return;
     initializedSourceRef.current = sourceKey;
+    manualRequestRef.current = null;
     setSelectedIds(Object.fromEntries(rows.map(row => [row.id, true])));
     setContractorId(performers.length === 1 ? performerOptionId(performers[0]) : '');
     setManualPerformer(false);
@@ -209,10 +217,11 @@ export default function WorkAssignmentModal({
     }
     setSubmitting(true);
     try {
+      if (!selectedPerformer && !manualRequestRef.current) manualRequestRef.current = commandUuid();
       const payload = {
         assignee: {
           contractorId: selectedPerformer?.contractorId || null,
-          ...(selectedPerformer?.contractorRef ? {contractorRef:selectedPerformer.contractorRef} : {}),
+          contractorRef: selectedPerformer?.contractorRef || {type:'manual',requestId:manualRequestRef.current},
           brigadeName,
           contractorType: selectedPerformer?.employmentType || selectedPerformer?.role || 'Своя бригада',
         },
@@ -240,6 +249,7 @@ export default function WorkAssignmentModal({
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.ok) {
+        if ([400,422].includes(response.status)) manualRequestRef.current = null;
         setSubmissionError(typeof data.detail === 'string' ? data.detail : 'Не удалось назначить работы');
         return;
       }
@@ -250,6 +260,7 @@ export default function WorkAssignmentModal({
         refreshFailed = true;
       }
       setSelectedIds({});
+      manualRequestRef.current = null;
       setManualPrices({});
       onClose();
       alert('Работы выданы: ' + (data.brigadeName || brigadeName)

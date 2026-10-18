@@ -154,10 +154,20 @@ def register_work_assignment_module(app, deps):
                 **selection,
             )
             reference = selection.get('contractor_ref') or {}
+            manual_command = None
+            if reference.get('type') == 'manual':
+                from ..contractor_identity.manual import command_evidence, find_manual_retry, record_manual_origin
+                manual_command = command_evidence(reference, company_id=company_id, project_id=project_id,
+                    actor_id=actor['id'], command='estimate_assignment:'+str(estimate_id), payload=data)
+                manual_retry = find_manual_retry(cur, company_id, project_id, work_package, *manual_command)
             selected_contract_id = int(reference['id']) if reference.get('type') == 'contract' else None
-            existing_id = selected_contract_id or find_existing_brigade_contract_id(
-                cur, company_id, project_id, work_package, contractor_user_id, brigade_name,
-            )
+            if manual_command:
+                selected_contract_id = manual_retry
+                existing_id = manual_retry
+            else:
+                existing_id = selected_contract_id or find_existing_brigade_contract_id(
+                    cur, company_id, project_id, work_package, contractor_user_id, brigade_name,
+                )
             created_contract = False
             if selected_contract_id:
                 contract_id = selected_contract_id
@@ -197,6 +207,8 @@ def register_work_assignment_module(app, deps):
                 )
                 contract_id = cur.fetchone()[0]
                 created_contract = True
+                if manual_command:
+                    record_manual_origin(cur, contract_id, company_id, project_id, *manual_command, actor['id'])
 
             inserted = 0
             updated = 0

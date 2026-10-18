@@ -27,10 +27,11 @@ class BrigadeDuplicateGuardTests(unittest.TestCase):
         self.assertIn("company_id=%s", sql)
         self.assertIn("project_id=%s", sql)
         self.assertIn("contractor_id=%s", sql)
-        self.assertIn("contractor_id IS NULL", sql)
+        self.assertNotIn("contractor_id IS NULL", sql)
+        self.assertNotIn("brigade_name", sql)
         self.assertIn("Аннулирован", sql)
         self.assertIn("EXISTS (SELECT 1 FROM brigade_contract_items", sql)
-        self.assertEqual(params, (4, 17, "Основная", 9, "Дугин Паша"))
+        self.assertEqual(params, (4, 17, "Основная", 9))
 
     def test_name_fallback_does_not_match_another_user(self):
         cur = SequencedCursor(one=[None])
@@ -113,7 +114,7 @@ class BrigadeContractVisibilityFilterTests(unittest.TestCase):
         self.assertIn("bc.project_name = ANY(%s)", sql)
         self.assertIn("bc.contractor_id", sql)
         self.assertIn("brigade_contract_items", sql)
-        self.assertEqual(params, [3, ["Лицей"], 42, "Иван Иванов", ["Электрика"]])
+        self.assertEqual(params, [3, ["Лицей"], 42, ["Электрика"]])
         self.assertEqual(sql.count("%s"), len(params))
 
     def test_worker_without_package_fails_closed(self):
@@ -156,7 +157,7 @@ class BrigadeContractVisibilityFilterTests(unittest.TestCase):
 
         self.assertIn("bci.work_package", sql)
         self.assertNotIn("SELECT 1 FROM brigade_contract_items", sql)
-        self.assertEqual(params, [3, ["Лицей"], 42, "Иван Иванов", ["Электрика"]])
+        self.assertEqual(params, [3, ["Лицей"], 42, ["Электрика"]])
 
     def test_disallowed_role_fails_closed(self):
         self.assertEqual(

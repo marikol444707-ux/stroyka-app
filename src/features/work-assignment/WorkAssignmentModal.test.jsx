@@ -2,6 +2,8 @@ import React from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import WorkAssignmentModal, { performerRows } from './WorkAssignmentModal';
 
+jest.mock('../../utils/commandUuid',()=>({commandUuid:()=> '619c59a4-88af-4c11-9e58-765f2b232680'}));
+
 function typeManualBrigade(name) {
   fireEvent.change(screen.getByRole('combobox', {name: 'Исполнитель'}), {target: {value: '__manual__'}});
   fireEvent.change(screen.getByPlaceholderText('Название бригады'), {target: {value: name}});
@@ -45,6 +47,24 @@ it('mobile steps preserve selected work and prices when going back', async () =>
 });
 
 describe('work assignment performers', () => {
+  it('sends manual creation explicitly and retains its key after an uncertain network result',async()=>{
+    const original=global.fetch;
+    global.fetch=jest.fn().mockRejectedValue(new Error('network'));
+    try{
+      render(<WorkAssignmentModal show onClose={jest.fn()}
+        selectedEstimate={{id:25,projectId:17,sections:[{name:'Монтаж',items:[{name:'Кабель',unit:'м',quantity:5,priceWork:100,estimateItemKey:'manual-key'}]}]}}
+        staff={[]} users={[{id:11,name:'Иван',role:'мастер'}]}
+        API="/api" loadAll={jest.fn()} C={{}} card={{}} inp={{}} btnO={{}} btnG={{}} btnB={{}} isMobile={false}/>);
+      typeManualBrigade('Иван');
+      fireEvent.click(screen.getByRole('button',{name:'Выдать в работу'}));
+      expect(await screen.findByRole('alert')).toHaveTextContent('Проверьте соединение');
+      fireEvent.click(screen.getByRole('button',{name:'Выдать в работу'}));
+      await waitFor(()=>expect(fetch).toHaveBeenCalledTimes(2));
+      const first=JSON.parse(fetch.mock.calls[0][1].body).assignee;
+      expect(first).toMatchObject({contractorId:null,contractorRef:{type:'manual',requestId:expect.any(String)}});
+      expect(JSON.parse(fetch.mock.calls[1][1].body).assignee).toEqual(first);
+    }finally{global.fetch=original;}
+  });
   it('keeps each same-name contract beside the user and submits its exact contract ID',async()=>{
     const original=global.fetch;
     global.fetch=jest.fn().mockResolvedValue({ok:false,json:async()=>({detail:'Проверка договора'})});

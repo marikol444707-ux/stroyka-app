@@ -17,6 +17,13 @@ class TypedContractorSelectionPostgresTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         support.WorkAcceptanceIntegrationPostgresTests.setUpClass.__func__(cls)
+        from .manual_schema import SCHEMA_SQL
+        before = cls.sql(cls,'SELECT to_jsonb(c) FROM brigade_contracts c ORDER BY id')
+        cls.sql(cls, SCHEMA_SQL)
+        if cls.sql(cls,'SELECT to_jsonb(c) FROM brigade_contracts c ORDER BY id') != before:
+            raise AssertionError('Manual origin migration modified historical contracts')
+        if cls.sql(cls,'SELECT COUNT(*) FROM manual_brigade_contract_origins') != [(0,)]:
+            raise AssertionError('Manual origin migration backfilled historical identities')
         migration=importlib.import_module('migrations.versions.0006_user_company_staff_links')
         cls.sql(cls,'ALTER TABLE staff ADD COLUMN IF NOT EXISTS company_scope_verified BOOLEAN NOT NULL DEFAULT FALSE')
         for statement in (migration._ADD_STAFF_LINK,migration._ADD_INDEXES,migration._ADD_FOREIGN_KEY):

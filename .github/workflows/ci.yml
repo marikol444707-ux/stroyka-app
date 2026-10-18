@@ -149,7 +149,8 @@ jobs:
             backend.features.contractor_identity.test_postgres.ContractorIdentityPostgresTests \
             backend.features.contractor_identity.test_runtime_postgres.ContractorIdentityRuntimePostgresTests \
             backend.features.contractor_identity.test_selection_postgres.TypedContractorSelectionPostgresTests \
-            backend.features.contractor_identity.test_contract_selection_postgres.ExactContractSelectionPostgresTests
+            backend.features.contractor_identity.test_contract_selection_postgres.ExactContractSelectionPostgresTests \
+            backend.features.contractor_identity.test_manual_postgres.ManualBrigadePostgresTests
 
       - name: Set up Node
         uses: actions/setup-node@v4
