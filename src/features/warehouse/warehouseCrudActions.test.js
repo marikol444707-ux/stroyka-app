@@ -13,6 +13,7 @@ const createActions = overrides => createWarehouseCrudActions({
 
 beforeEach(() => {
   global.alert = jest.fn();
+  global.crypto = require('crypto').webcrypto;
 });
 
 test('saveTool keeps the form open and explains a failed API response', async () => {
@@ -100,7 +101,7 @@ test('applyWarehouseMovement keeps only unprocessed rows after a partial server 
 
   expect(result).toEqual({success:false});
   expect(refreshData).toHaveBeenCalledTimes(1);
-  expect(setNewMovement).toHaveBeenCalledWith({...draft, selectedMaterials:draft.selectedMaterials.slice(1)});
+  expect(setNewMovement).toHaveBeenLastCalledWith(expect.objectContaining({selectedMaterials: draft.selectedMaterials.slice(1).map(item => expect.objectContaining(item))}));
   expect(global.alert).toHaveBeenCalledWith(expect.stringContaining('Перемещено позиций: 1'));
 });
 
@@ -130,7 +131,7 @@ test('applyWarehouseMovement reports a rejected operation and keeps the draft', 
   expect(result).toEqual({success: false});
   expect(global.alert).toHaveBeenCalledWith('Используйте распределение конкретной партии');
   expect(refreshData).not.toHaveBeenCalled();
-  expect(setNewMovement).not.toHaveBeenCalled();
+  expect(setNewMovement).toHaveBeenCalledWith(expect.objectContaining({selectedMaterials: [expect.objectContaining({movementCommandId: expect.any(String)})]}));
 });
 
 test('saveInvoiceNew preserves OCR supplier identity for automatic accounting linkage', async () => {
@@ -370,4 +371,62 @@ test('saveInvoiceNew keeps an explicitly selected supplier card', async () => {
     supplierId: 77,
     supplierName: 'ООО Проверенный',
   }));
+});
+
+const movementDraft = () => ({fromLocation:'Основной склад', toLocation:'Объект', notes:'',
+  selectedMaterials:[{name:'Кабель', quantity:2, unit:'м'}, {name:'Краска', quantity:3, unit:'л'}]});
+
+test('lost committed response retries the same per-line command after rerender', async () => {
+  const stored = new Map();
+  let lost = true;
+  global.fetch = jest.fn(async (_url, options) => {
+    const command = JSON.parse(options.body);
+    if (!stored.has(command.commandId)) stored.set(command.commandId, {id:stored.size + 1});
+    if (lost) { lost = false; throw new Error('response lost after commit'); }
+    return {ok:true, json:async () => stored.get(command.commandId)};
+  });
+  let draft = movementDraft();
+  const props = {setNewMovement:value => { draft = value; }, user:{name:'Директор'}, notify:jest.fn()};
+  expect(await createActions({...props, newMovement:draft}).applyWarehouseMovement()).toEqual({success:false});
+  expect(global.alert).toHaveBeenCalledWith(expect.stringContaining('перемещение могло выполниться'));
+  expect(global.alert).toHaveBeenCalledWith(expect.stringContaining('не закрывая и не обновляя'));
+  const firstBody = JSON.parse(global.fetch.mock.calls[0][1].body);
+  expect(draft.selectedMaterials[0].movementCommandId).toBe(firstBody.commandId);
+  expect((await createActions({...props, newMovement:draft}).applyWarehouseMovement()).success).toBe(true);
+  expect(JSON.parse(global.fetch.mock.calls[1][1].body)).toEqual(firstBody);
+  expect(stored.size).toBe(2);
+});
+
+test('partial failure retains failed line identity and omits acknowledged lines on retry', async () => {
+  let draft = movementDraft();
+  const props = {setNewMovement:value => { draft = value; }, user:{name:'Директор'}, notify:jest.fn()};
+  global.fetch = jest.fn()
+    .mockResolvedValueOnce({ok:true, json:async () => ({id:1})})
+    .mockRejectedValueOnce(new Error('uncertain second line'))
+    .mockResolvedValueOnce({ok:true, json:async () => ({id:2})});
+  await createActions({...props, newMovement:draft}).applyWarehouseMovement();
+  expect(draft.selectedMaterials).toHaveLength(1);
+  const uncertainBody = JSON.parse(global.fetch.mock.calls[1][1].body);
+  await createActions({...props, newMovement:draft}).applyWarehouseMovement();
+  expect(JSON.parse(global.fetch.mock.calls[2][1].body)).toEqual(uncertainBody);
+  expect(global.fetch).toHaveBeenCalledTimes(3);
+});
+
+test('same-render double click does not launch a second batch', async () => {
+  let release;
+  global.fetch = jest.fn(() => new Promise(resolve => { release = resolve; }));
+  const draft = movementDraft();
+  draft.selectedMaterials = draft.selectedMaterials.slice(0, 1);
+  const props = {newMovement:draft, setNewMovement:jest.fn(), user:{name:'Директор'}, notify:jest.fn()};
+  const first = createActions(props).applyWarehouseMovement();
+  expect(await createActions(props).applyWarehouseMovement()).toEqual({success:false});
+  expect(global.fetch).toHaveBeenCalledTimes(1);
+  release({ok:true, json:async () => ({id:1})});
+  expect((await first).success).toBe(true);
+});
+
+test('server failure warns to retain retry form and check history after losing it', async () => {
+  global.fetch = jest.fn(async () => ({ok:false, status:502, json:async () => ({})}));
+  await createActions({newMovement:movementDraft(), setNewMovement:jest.fn(), user:{name:'Директор'}, notify:jest.fn()}).applyWarehouseMovement();
+  expect(global.alert).toHaveBeenCalledWith(expect.stringContaining('если форма потеряна, сначала проверьте журнал'));
 });

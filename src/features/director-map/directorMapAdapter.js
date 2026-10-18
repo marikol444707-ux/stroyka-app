@@ -91,7 +91,8 @@ function buildSummary(contractSummary = {}, items = []) {
   return {
     plannedProgress: contractSummary.plannedProgress ?? planned,
     factProgress: contractSummary.factProgress ?? average,
-    lagPercent: contractSummary.lagPercent ?? Math.max(0, planned - average),
+    progressSource: contractSummary.progressSource,
+    lagPercent: contractSummary.progressSource === 'Прогресс не указан' ? null : contractSummary.lagPercent ?? Math.max(0, planned - average),
     redSignals: contractSummary.redSignals ?? counts.red,
     yellowSignals: contractSummary.yellowSignals ?? counts.yellow,
     reviewItems: contractSummary.reviewItems ?? counts.review,

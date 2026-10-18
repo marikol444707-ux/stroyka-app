@@ -1,4 +1,5 @@
 import React from 'react';
+import { projectProgressSourceLabel } from '../utils/projectEconomyUtils';
 
 const parseDate = (value) => {
   if (!value) return null;
@@ -111,7 +112,8 @@ export default function ProjectScheduleSummaryPanel({
   const plannedProgress = scheduleStart && scheduleEnd && today
     ? Math.max(0, Math.min(100, Math.round((today - scheduleStart) / Math.max(1, scheduleEnd - scheduleStart) * 100)))
     : null;
-  const lag = plannedProgress !== null ? Math.max(0, plannedProgress - Number(progress || 0)) : 0;
+  const progressSource = projectProgressSourceLabel(project, planDone);
+  const lag = progressSource !== 'Прогресс не указан' && plannedProgress !== null ? Math.max(0, plannedProgress - Number(progress || 0)) : 0;
   const stageText = projectStages.length ? `${doneStages}/${projectStages.length} завершено` : 'этапы не заведены';
   const deadlineText = deadlineDelta === null
     ? 'срок не задан'
@@ -206,7 +208,7 @@ export default function ProjectScheduleSummaryPanel({
       </div>
 
       <div style={{display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(5,minmax(0,1fr))', gap: '10px', marginBottom: '10px'}}>
-        {metric('Реальный прогресс', `${progress}%`, lag >= 15 ? C.warning : C.success, plannedProgress !== null ? `календарь: ${plannedProgress}%` : 'нет дат этапов')}
+        {metric('Прогресс', progressSource === 'Прогресс не указан' ? '—' : `${progress}%`, lag >= 15 ? C.warning : C.success, progressSource + (plannedProgress !== null ? ` · календарь: ${plannedProgress}%` : ' · нет дат этапов'))}
         {metric('Срок объекта', fmtDate(project.deadline), deadlineDelta !== null && deadlineDelta < 0 ? C.danger : C.info, deadlineText, {bg: deadlineDelta !== null && deadlineDelta < 0 ? C.dangerLight : C.bg, border: deadlineDelta !== null && deadlineDelta < 0 ? C.dangerBorder : C.border})}
         {metric('Этапы', stageText, overdueStages ? C.warning : C.accent, activeStages ? 'в работе: ' + activeStages : 'активных нет')}
         {metric('Активность ЖПР', recentWorks.length + ' за 7 дней', recentWorks.length ? C.success : C.warning, lastWorkDate ? 'последняя: ' + lastWorkDate.toLocaleDateString('ru-RU') : 'записей нет')}

@@ -1,3 +1,5 @@
+import { projectProgressSourceLabel } from '../../utils/projectEconomyUtils';
+
 const FINISHED_STATUSES = new Set(['Завершен', 'Завершён', 'Закрыт', 'Подписан']);
 const REJECTED_STATUSES = new Set(['Отклонено', 'Аннулировано', 'Удалено', 'Отменено']);
 const PENDING_WORK_STATUSES = new Set(['', 'На проверке', 'Автоматически из сметы']);
@@ -375,7 +377,8 @@ export function buildDirectorMapContract({
     summary: {
       plannedProgress,
       factProgress,
-      lagPercent: Math.max(0, plannedProgress - factProgress),
+      progressSource: projectProgressSourceLabel(project, planDone),
+      lagPercent: projectProgressSourceLabel(project, planDone) === 'Прогресс не указан' ? null : Math.max(0, plannedProgress - factProgress),
       redSignals: allSignals.filter(signal => signal.severity === 'red').length,
       yellowSignals: allSignals.filter(signal => signal.severity !== 'red').length,
       reviewItems: items.filter(item => item.reviewState === 'needs_review').length,

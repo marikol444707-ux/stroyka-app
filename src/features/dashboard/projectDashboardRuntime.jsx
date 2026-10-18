@@ -6,6 +6,7 @@ import {
   projectBudgetSpentSummary,
   projectExpenseCategories,
   projectRealProgressValue,
+  projectProgressSourceLabel,
   workExecutionTotalValue,
 } from '../../utils/projectEconomyUtils';
 import { buildProjectObjectLinks } from '../../utils/projectObjectLinksUtils';
@@ -97,6 +98,8 @@ export function createProjectDashboardRuntime({
     projectPlanDone,
     projectFactSpent,
   });
+
+  const projectProgressSource = project => projectProgressSourceLabel(project, projectPlanDone(project));
 
   const workExecutionTotal = (work) => workExecutionTotalValue(work);
 
@@ -213,6 +216,7 @@ export function createProjectDashboardRuntime({
     projectEconomy,
     projectObjectLinks,
     projectRealProgress,
+    projectProgressSource,
     renderMaterialReconciliationPanel,
     workExecutionTotal,
   };

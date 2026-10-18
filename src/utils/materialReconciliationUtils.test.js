@@ -25,14 +25,157 @@ const buildRows = (items, canonicalMaterialMeta = (_projectName, name, unit) => 
   }] : [],
   canonicalMaterialMeta,
   warehouseInvoiceItems: invoice => ({ items: invoice.items || [] }),
-  isSupplyDeliveryInvoice: () => false,
+  isSupplyDeliveryInvoice: invoice => Boolean(invoice.supplyDeliveryId || invoice.sourceType === 'supply_delivery'),
   estimateWorkNormRequirementRows: options.estimateWorkNormRequirementRows || (() => []),
   supplyDeliveries: options.supplyDeliveries || [],
+  supplyHistory: options.supplyHistory || [],
+  materials: options.materials || [],
   supplyRequests: options.supplyRequests || [],
   materialTransfers: options.materialTransfers || [],
   workJournal: options.workJournal || [],
   history: options.history || [],
   parseSupplyItems: options.parseSupplyItems || (() => []),
+});
+
+describe('accepted supply material cost', () => {
+  const delivery = changes => ({
+    id: 81, companyId: 1, requestId: 61, project: 'Тестовый объект',
+    materialName: 'Кабель', unit: 'м', workPackage: 'Общестрой', status: 'Проблема',
+    plannedQuantity: 20, shippedQuantity: 10, receivedQuantity: 4,
+    pricePerUnit: 100, totalPrice: 1000, ...changes,
+  });
+  const historical = changes => ({
+    id: 91, project: 'Тестовый объект', materialName: 'Кабель', unit: 'м',
+    workPackage: 'Общестрой', status: 'Принято', quantity: 10,
+    pricePerUnit: 100, totalPrice: 1000, ...changes,
+  });
+  const receipt = changes => ({
+    id: 101, companyId: 1, supplyDeliveryId: 81, sourceType: 'supply_delivery', sourceId: 81,
+    project: 'Тестовый объект', status: 'Принята', totalWithVat: 360,
+    items: [{name: 'Кабель', unit: 'м', quantity: 4, price: 100, total: 360, workPackage: 'Общестрой', deliveryId: 81}],
+    ...changes,
+  });
+  const stock = {name: 'Кабель', unit: 'м', project: 'Тестовый объект', workPackage: 'Общестрой', quantity: 10, price: 100};
+  const reconcile = options => buildRows([materialItem('Кабель', 20, 'м')], undefined, options)[0];
+
+  test.each([[4, 400], [0, 0], [10, 1000], ['4', 400]])('costs only actual accepted quantity %s', (receivedQuantity, total) => {
+    const row = reconcile({supplyDeliveries: [delivery({receivedQuantity})]});
+    expect(row).toMatchObject({received: Number(receivedQuantity), receivedSum: total});
+    expect(row.supplyDetails).toHaveLength(1);
+    expect(row.supplyDetails[0].total).toBe(total);
+    expect(buildMaterialControlSummary([row]).suppliedSum).toBe(total);
+  });
+
+  test.each([undefined, null, '', ' ', 'bad', -1, Infinity, false])('never guesses missing/invalid actual quantity %s', receivedQuantity => {
+    const row = reconcile({supplyDeliveries: [delivery({receivedQuantity})]});
+    expect(row).toMatchObject({received: 0, receivedSum: 0, supplyDetails: []});
+  });
+
+  test.each([undefined, null, ''])('keeps actual historical evidence when legacy delivery quantity is missing (%s)', receivedQuantity => {
+    const row = reconcile({
+      supplyDeliveries: [delivery({receivedQuantity})],
+      supplyHistory: [historical({quantity: 3, totalPrice: 270})],
+    });
+    expect(row).toMatchObject({received: 3, receivedSum: 270});
+  });
+
+  test('explicit zero blocks stale history and stock cost fallback', () => {
+    const row = reconcile({supplyDeliveries: [delivery({receivedQuantity: 0})], supplyHistory: [historical()], materials: [stock]});
+    expect(row).toMatchObject({received: 0, receivedSum: 0, stock: 10});
+    expect(row.supplyDetails).toHaveLength(1);
+  });
+
+  test('uses one saved linked receipt amount without counting invoice/history twice', () => {
+    const row = reconcile({supplyDeliveries: [delivery()], invoices: [receipt()], supplyHistory: [historical()], materials: [stock]});
+    expect(row).toMatchObject({received: 4, supplyReceived: 4, invoiceReceived: 0, receivedSum: 360, invoiceDetails: []});
+    expect(row.supplyDetails).toHaveLength(1);
+  });
+
+  test('keeps saved VAT-inclusive gross amount and does not add tax again', () => {
+    const grossReceipt = receipt({totalBase: 333.33, totalVat: 66.67, totalWithVat: 400});
+    grossReceipt.items[0].total = 400;
+    const row = reconcile({supplyDeliveries: [delivery()], invoices: [grossReceipt]});
+    expect(row.receivedSum).toBe(400);
+  });
+
+  test('preserves a saved zero amount instead of restoring its unit-price or stock value', () => {
+    const freeReceipt = receipt();
+    freeReceipt.items[0].total = 0;
+    const row = reconcile({supplyDeliveries: [delivery()], invoices: [freeReceipt], materials: [stock]});
+    expect(row).toMatchObject({received: 4, receivedSum: 0});
+  });
+
+  test('explicit zero accepted quantity wins even over conflicting linked receipt', () => {
+    const row = reconcile({supplyDeliveries: [delivery({receivedQuantity: 0})], invoices: [receipt()], supplyHistory: [historical()], materials: [stock]});
+    expect(row).toMatchObject({received: 0, receivedSum: 0});
+  });
+
+  test('accepts the exact legacy source link without supplyDeliveryId', () => {
+    const row = reconcile({supplyDeliveries: [delivery()], invoices: [receipt({supplyDeliveryId: null})]});
+    expect(row.receivedSum).toBe(360);
+  });
+
+  test.each([
+    ['cancelled', value => ({...value, status: 'Аннулирована'})],
+    ['other delivery', value => ({...value, supplyDeliveryId: 82, sourceId: 82})],
+    ['conflicting delivery links', value => ({...value, sourceId: 82})],
+    ['other project', value => ({...value, project: 'Другой объект'})],
+    ['other company', value => ({...value, companyId: 2})],
+    ['wrong quantity', value => ({...value, items: [{...value.items[0], quantity: 10}]})],
+    ['wrong material', value => ({...value, items: [{...value.items[0], name: 'Другая марка кабеля'}]})],
+    ['wrong unit', value => ({...value, items: [{...value.items[0], unit: 'шт'}]})],
+    ['wrong package', value => ({...value, items: [{...value.items[0], workPackage: 'Отделка'}]})],
+    ['wrong item link', value => ({...value, items: [{...value.items[0], deliveryId: 82}]})],
+    ['missing saved items', value => ({...value, items: []})],
+    ['missing amount', value => ({...value, items: [{...value.items[0], total: null}]})],
+  ])('rejects %s receipt as amount evidence', (_label, alter) => {
+    const row = reconcile({supplyDeliveries: [delivery()], invoices: [alter(receipt())]});
+    expect(row).toMatchObject({received: 4, receivedSum: 400});
+  });
+
+  test('never chooses between two linked receipts', () => {
+    const row = reconcile({supplyDeliveries: [delivery()], invoices: [receipt(), receipt({id: 102})]});
+    expect(row.receivedSum).toBe(400);
+  });
+
+  test('keeps partial and full batches of one material instead of using shipped amounts', () => {
+    const row = reconcile({supplyDeliveries: [delivery(), delivery({id: 82, receivedQuantity: 2, pricePerUnit: 200})], supplyHistory: [historical()]});
+    expect(row).toMatchObject({received: 6, receivedSum: 800});
+    expect(row.supplyDetails).toHaveLength(2);
+  });
+
+  test('unit normalization changes quantity but never the cost basis', () => {
+    const row = reconcile({supplyDeliveries: [delivery({unit: '100 м', receivedQuantity: 0.4, pricePerUnit: 10000, totalPrice: 100000})]});
+    expect(row).toMatchObject({received: 40, receivedSum: 4000});
+  });
+
+  test.each([
+    [1.2345, 12.34, 15.23], [1.5, 0.01, 0.01], [2.5, 0.05, 0.12],
+    [3, 0.125, 0.38], [1, 2.675, 2.67], [1, 1.005, 1],
+  ])('matches receipt writer rounding for %s × %s', (receivedQuantity, pricePerUnit, expected) => {
+    const row = reconcile({supplyDeliveries: [delivery({receivedQuantity, pricePerUnit})]});
+    expect(row.receivedSum).toBe(expected);
+  });
+
+  test('does not substitute shipped total for a missing unit price', () => {
+    expect(reconcile({supplyDeliveries: [delivery({pricePerUnit: undefined})]}).receivedSum).toBe(0);
+  });
+
+  test('unreceived shipments contribute no accepted amount', () => {
+    const row = reconcile({supplyDeliveries: [delivery({status: 'В пути'})]});
+    expect(row).toMatchObject({received: 0, receivedSum: 0});
+  });
+
+  test('legacy history zero quantity or zero amount never revives stock cost', () => {
+    for (const changes of [{quantity: 0}, {totalPrice: 0}]) {
+      const row = reconcile({supplyHistory: [historical(changes)], materials: [stock]});
+      expect(row.receivedSum).toBe(0);
+    }
+  });
+
+  test('retains stock-only legacy fallback when no receipt evidence exists', () => {
+    expect(reconcile({materials: [stock]}).receivedSum).toBe(1000);
+  });
 });
 
 describe('material reconciliation holder identity', () => {

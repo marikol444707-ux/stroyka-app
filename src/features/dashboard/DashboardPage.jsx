@@ -1,3 +1,4 @@
+import { projectProgressSourceLabel } from '../../utils/projectEconomyUtils';
 import React from 'react';
 import { Bot, Calculator, FileText, Package } from 'lucide-react';
 import DashboardTopBar from '../../components/DashboardTopBar';
@@ -78,6 +79,7 @@ export default function DashboardPage({
     openEstimateControlReport,
     projectBudgetSpent,
     projectRealProgress,
+    projectProgressSource,
     setAccountingTab,
     setActivePage,
     setDailyReportDate,
@@ -261,7 +263,9 @@ export default function DashboardPage({
   const criticalAiControl = openAiControl.filter(f=>f.severity==='Критично'||f.severity==='Не хватает данных');
   if (openAiControl.length > 0) risks.push({icon:'🤖',text:'ИИ-контроль: '+openAiControl.length+' замечаний, из них важных '+criticalAiControl.length,severity:criticalAiControl.length?'danger':'warn',page:'projects'});
   const _projProgress = getProjectRealProgress;
-  const avgProg = dashboardProjects.length ? Math.round(dashboardProjects.reduce((s,p)=>s+_projProgress(p),0)/dashboardProjects.length) : 0;
+  const getProgressSource = project => typeof projectProgressSource === 'function' ? projectProgressSource(project) : projectProgressSourceLabel(project);
+  const knownProgressProjects = dashboardProjects.filter(project => getProgressSource(project) !== 'Прогресс не указан');
+  const avgProg = knownProgressProjects.length ? Math.round(knownProgressProjects.reduce((s,p)=>s+_projProgress(p),0)/knownProgressProjects.length) : null;
   const dashboardBudgetSpent = dashboardProjects.map(p=>({projectId:p.id,projectName:p.name,spent:getProjectBudgetSpent(p)}));
   const dashboardBudgetSpentById = new Map(dashboardBudgetSpent.map(x=>[String(x.projectId),x.spent]));
   const dashboardBudgetSpentByName = new Map(dashboardBudgetSpent.map(x=>[x.projectName,x.spent]));
@@ -315,7 +319,7 @@ export default function DashboardPage({
         role={subscriptionRole}
         onOpenChat={()=>safeSetShowChatPanel(true)}
       />
-      <DashboardStatsGrid dashboardProjects={dashboardProjects} avgProg={avgProg} totalDone={totalDone} totalExpenses={dashboardAccountingExpenses} setActivePage={safeSetActivePage} navigateTo={safeNavigateTo} setAccountingTab={safeSetAccountingTab}/>
+      <DashboardStatsGrid dashboardProjects={dashboardProjects} avgProg={avgProg} progressKnownCount={knownProgressProjects.length} totalDone={totalDone} totalExpenses={dashboardAccountingExpenses} setActivePage={safeSetActivePage} navigateTo={safeNavigateTo} setAccountingTab={safeSetAccountingTab}/>
       {showDashboardExtra&&<DashboardDirectorAiPanel isLeadership={isLeadershipUser} latestDailyBriefState={latestDailyBriefState} directorSkillCards={directorSkillCards} dailyReportDate={dailyReportDate} setDailyReportDate={safeSetDailyReportDate} canUseDirectorAgent={canUseDirectorAgent} directorAgentLoading={directorAgentLoading} askDirectorAgent={safeAskDirectorAgent} directorAgentQuestion={directorAgentQuestion} setDirectorAgentQuestion={safeSetDirectorAgentQuestion} isMobile={isMobile} directorAgentAnswer={directorAgentAnswer} directorAgentError={directorAgentError} directorAgentSteps={directorAgentSteps}/>}
       {showDashboardExtra&&<DashboardSupplyPanel showSupplyDashboard={showSupplyDashboard} user={user} openSupplyDashboard={openSupplyDashboard} supplyPendingRequests={supplyPendingRequests} supplyOffersToReview={supplyOffersToReview} supplyInvoicesToPay={supplyInvoicesToPay} supplyInvoiceDebt={supplyInvoiceDebt}/>}
       <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1.3fr 0.7fr',gap:'16px'}}>
@@ -325,11 +329,13 @@ export default function DashboardPage({
             const bs = dashboardBudgetSpentById.get(String(p.id)) || dashboardBudgetSpentByName.get(p.name) || {works:0,materials:0,unexpected:0,total:0};
             const factTotal = bs.total;
             const realProg = _projProgress(p);
+            const progressSource = getProgressSource(p);
+            const progressUnknown = progressSource === 'Прогресс не указан';
             return (
               <div key={p.id} onClick={()=>{safeSetExpandedProject(p.id);safeNavigateTo('projects');}} style={{padding:'16px',borderRadius:'18px',background:'rgba(30,41,59,.62)',border:'1px solid rgba(148,163,184,.18)',marginBottom:'10px',cursor:'pointer'}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'12px'}}>
                   <div><div style={{fontWeight:'800',fontSize:'15px',color:'#f8fafc'}}>{p.name}</div><div style={{color:'#94a3b8',fontSize:'12px',marginTop:'3px'}}>{p.client||'Без заказчика'} · {p.status}</div></div>
-                  <span style={{display:'inline-flex',borderRadius:'999px',padding:'4px 10px',fontSize:'11px',fontWeight:'700',background:'rgba(234,88,12,.14)',color:'#fdba74',border:'1px solid rgba(234,88,12,.32)',whiteSpace:'nowrap'}}>{realProg}%</span>
+                  <span style={{display:'inline-flex',borderRadius:'999px',padding:'4px 10px',fontSize:'11px',fontWeight:'700',background:'rgba(234,88,12,.14)',color:'#fdba74',border:'1px solid rgba(234,88,12,.32)',whiteSpace:'nowrap'}} title={progressSource}>{progressUnknown ? '—' : `${realProg}%`}</span>
                 </div>
                 <div style={{height:'6px',background:'rgba(148,163,184,.16)',borderRadius:'999px',overflow:'hidden',margin:'10px 0'}}>
                   <div style={{height:'100%',borderRadius:'999px',background:'linear-gradient(90deg,#f97316,#22c55e)',width:`${realProg}%`}}/>
@@ -339,7 +345,7 @@ export default function DashboardPage({
                   <div style={{background:'rgba(30,41,59,.6)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',padding:'10px'}} title={'Работы: '+Math.round(bs.works).toLocaleString('ru-RU')+' ₽\nМатериалы: '+Math.round(bs.materials).toLocaleString('ru-RU')+' ₽'+(bs.unexpected>0?'\nДоп.соглашения: '+Math.round(bs.unexpected).toLocaleString('ru-RU')+' ₽':'')}><div style={{color:'#94a3b8',fontSize:'11px'}}>Выполнено</div><div style={{fontWeight:'700',color:'#86efac',fontSize:'13px',marginTop:'3px'}}>{factTotal>0?(factTotal/1000).toFixed(0)+' тыс':'0'}</div></div>
                   <div style={{background:'rgba(30,41,59,.6)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'12px',padding:'10px'}}><div style={{color:'#94a3b8',fontSize:'11px'}}>Срок</div><div style={{fontWeight:'700',color:'#f8fafc',fontSize:'13px',marginTop:'3px'}}>{p.deadline||'—'}</div></div>
                 </div>
-                <div style={{marginTop:'10px',padding:'8px 12px',borderRadius:'12px',background:'rgba(234,88,12,.12)',border:'1px solid rgba(234,88,12,.24)',color:'#fed7aa',fontSize:'12px',fontWeight:'700'}}>{realProg<40?'⚠️ AI: низкий темп':realProg>80?'✅ AI: близко к сдаче':'🔵 AI: темп в норме'}</div>
+                <div style={{marginTop:'10px',padding:'8px 12px',borderRadius:'12px',background:'rgba(234,88,12,.12)',border:'1px solid rgba(234,88,12,.24)',color:'#fed7aa',fontSize:'12px',fontWeight:'700'}}>{progressUnknown ? 'Прогресс не указан' : progressSource === 'Из карточки объекта' ? 'Прогресс из карточки объекта' : realProg<40?'⚠️ AI: низкий темп':realProg>80?'✅ AI: близко к сдаче':'🔵 AI: темп в норме'}</div>
               </div>
             );
           })}

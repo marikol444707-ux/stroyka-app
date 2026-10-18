@@ -9,6 +9,33 @@ import {
   createWarehouseMovementForm,
 } from './warehouseInitialForms';
 
+// Keep a command identity before the first network write, including same-render
+// double clicks. State carries it across rerenders and partial-batch retries.
+const movementDrafts = new WeakMap();
+const movementCommandId = () => {
+  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 15) | 64;
+  bytes[8] = (bytes[8] & 63) | 128;
+  const hex = Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+};
+const prepareMovementDraft = draft => {
+  if (movementDrafts.has(draft)) return movementDrafts.get(draft);
+  const prepared = {
+    ...draft,
+    movementAttempt: draft.movementAttempt || {running: false},
+    selectedMaterials: (draft.selectedMaterials || []).map(item => ({
+      ...item,
+      movementCommandId: item.movementCommandId || movementCommandId(),
+      movementCommandDate: item.movementCommandDate || new Date().toISOString().split('T')[0],
+    })),
+  };
+  movementDrafts.set(draft, prepared);
+  movementDrafts.set(prepared, prepared);
+  return prepared;
+};
+
 export const createWarehouseCrudActions = ({
   API,
   addActivity,
@@ -58,9 +85,15 @@ export const createWarehouseCrudActions = ({
         : null;
       location = projectFromList?.name || assignedProjectNames[0] || '';
     }
+    if (newInvoice?.originalUrls?.length && !newInvoice.receiptCompleted
+        && (!preselectedLocation || newInvoice.location === preselectedLocation)) {
+      setShowScanInvoice(true);
+      return;
+    }
     const warehouseTarget = location && location !== 'Основной склад' ? 'object' : 'main';
     setNewInvoice({
       ...createWarehouseInvoiceForm(),
+      receiptDraftId: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
       date:new Date().toISOString().split('T')[0],
       acceptedBy:user?.name||'',
       location,
@@ -172,7 +205,11 @@ export const createWarehouseCrudActions = ({
       selectedAction,
       sourceType,
       sourceId:newInvoice.sourceId||null,
-      materialMatch
+      materialMatch,
+      receiptDocument: newInvoice.receiptDocument,
+      originalUrls: newInvoice.originalUrls || photoUrls,
+      physicalReceiptConfirmed: newInvoice.physicalReceiptConfirmed === true,
+      newDocumentConfirmed: newInvoice.newDocumentConfirmed === true,
     };
     const savedInv = inv;
     const invoiceRes = await fetch(API+'/warehouse-invoices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(savedInv)});
@@ -201,56 +238,67 @@ export const createWarehouseCrudActions = ({
       try { await refreshData(); } catch (_error) { /* Operation result remains authoritative. */ }
     };
     if (!newMovement.toLocation) { alert('Выберите куда переместить'); return {success: false}; }
-    const selected = newMovement.selectedMaterials||[];
+    let selected = newMovement.selectedMaterials||[];
     if (selected.length===0) { alert('Выберите материалы'); return {success: false}; }
     if (selected.some(item => !Number.isFinite(Number(item.quantity)) || Number(item.quantity) <= 0)) {
       alert('Укажите положительное количество для каждого выбранного материала');
       return {success: false};
     }
-    let reviewRequired = 0;
-    let reviewTasksCreated = 0;
-    const createdMovements = [];
-    for (let index = 0; index < selected.length; index += 1) {
-      const item = selected[index];
-      const itemWorkPackage = item.workPackage || item.work_package || newMovement.workPackage || '';
-      let res;
-      try {
-        res = await fetch(API+'/warehouse-movements',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({materialName:item.name,fromLocation:newMovement.fromLocation,toLocation:newMovement.toLocation,quantity:Number(item.quantity),unit:item.unit,workPackage:itemWorkPackage,date:new Date().toISOString().split('T')[0],createdBy:user.name,notes:newMovement.notes,invoiceId:item.invoiceId ?? null,invoiceLineIndex:item.invoiceLineIndex ?? null})});
-      } catch (_error) {
-        if (index > 0) {
-          setNewMovement({...newMovement, selectedMaterials:selected.slice(index)});
-          await refreshWarehouse();
+    const draft = prepareMovementDraft(newMovement);
+    if (draft.movementAttempt.running) return {success: false};
+    draft.movementAttempt.running = true;
+    selected = draft.selectedMaterials;
+    setNewMovement(draft);
+    try {
+      let reviewRequired = 0;
+      let reviewTasksCreated = 0;
+      const createdMovements = [];
+      for (let index = 0; index < selected.length; index += 1) {
+        const item = selected[index];
+        const itemWorkPackage = item.workPackage || item.work_package || newMovement.workPackage || '';
+        let res;
+        try {
+          res = await fetch(API+'/warehouse-movements',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({commandId:item.movementCommandId,materialName:item.name,fromLocation:newMovement.fromLocation,toLocation:newMovement.toLocation,quantity:Number(item.quantity),unit:item.unit,workPackage:itemWorkPackage,date:item.movementCommandDate,createdBy:user.name,notes:newMovement.notes,invoiceId:item.invoiceId ?? null,invoiceLineIndex:item.invoiceLineIndex ?? null})});
+        } catch (_error) {
+          if (index > 0) {
+            setNewMovement({...draft, selectedMaterials:selected.slice(index)});
+            await refreshWarehouse();
+          }
+          const uncertainMessage = 'Ответ сервера не получен: перемещение могло выполниться. Повторите из этой формы, не закрывая и не обновляя страницу. Если форма потеряна, сначала проверьте журнал перемещений.';
+          alert(index > 0
+            ? `Подтверждено позиций: ${index}. Остальные оставлены в форме. ${uncertainMessage}`
+            : uncertainMessage);
+          return {success: false};
         }
-        alert(index > 0
-          ? `Перемещено позиций: ${index}. Остальные оставлены в форме. Проверьте соединение и повторите.`
-          : 'Не удалось выполнить перемещение. Проверьте соединение и повторите.');
-        return {success: false};
-      }
-      if (!res.ok) {
-        const err = await res.json().catch(()=>({}));
-        if (index > 0) {
-          setNewMovement({...newMovement, selectedMaterials:selected.slice(index)});
-          await refreshWarehouse();
+        if (!res.ok) {
+          const err = await res.json().catch(()=>({}));
+          const retryWarning = res.status >= 500 ? ' Результат может быть неопределённым. Повторите из этой формы без перезагрузки; если форма потеряна, сначала проверьте журнал перемещений.' : '';
+          if (index > 0) {
+            setNewMovement({...draft, selectedMaterials:selected.slice(index)});
+            await refreshWarehouse();
+          }
+          alert(index > 0
+            ? `${err.detail || 'Не удалось выполнить перемещение материала'} Перемещено позиций: ${index}; остальные оставлены в форме.${retryWarning}`
+            : ((err.detail || 'Не удалось выполнить перемещение материала') + retryWarning));
+          return {success: false};
         }
-        alert(index > 0
-          ? `${err.detail || 'Не удалось выполнить перемещение материала'} Перемещено позиций: ${index}; остальные оставлены в форме.`
-          : (err.detail || 'Не удалось выполнить перемещение материала'));
-        return {success: false};
+        const movement = await res.json().catch(()=>({}));
+        createdMovements.push(movement);
+        if (movement?.estimateControl?.needsReview) reviewRequired += 1;
+        if (movement?.estimateReviewTaskId) reviewTasksCreated += 1;
       }
-      const movement = await res.json().catch(()=>({}));
-      createdMovements.push(movement);
-      if (movement?.estimateControl?.needsReview) reviewRequired += 1;
-      if (movement?.estimateReviewTaskId) reviewTasksCreated += 1;
+      notify(
+        reviewRequired
+          ? 'Перемещение выполнено · требуют сметного разбора: ' + reviewRequired + (reviewTasksCreated ? ' · задачи созданы: ' + reviewTasksCreated : '')
+          : 'Перемещение выполнено',
+        reviewRequired ? 'ai' : 'material'
+      );
+      setNewMovement(createWarehouseMovementForm());
+      await refreshWarehouse();
+      return {success: true, moved: selected.length, movements: createdMovements};
+    } finally {
+      draft.movementAttempt.running = false;
     }
-    notify(
-      reviewRequired
-        ? 'Перемещение выполнено · требуют сметного разбора: ' + reviewRequired + (reviewTasksCreated ? ' · задачи созданы: ' + reviewTasksCreated : '')
-        : 'Перемещение выполнено',
-      reviewRequired ? 'ai' : 'material'
-    );
-    setNewMovement(createWarehouseMovementForm());
-    await refreshWarehouse();
-    return {success: true, moved: selected.length, movements: createdMovements};
   };
 
   const deleteMaterial = async () => {

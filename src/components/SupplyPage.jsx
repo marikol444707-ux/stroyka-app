@@ -12,6 +12,8 @@ import { supplyRequestSourceBucket } from '../utils/supplyUtils';
 import MyParticipantTickets from '../features/participant-support/MyParticipantTickets';
 
 export default function SupplyPage({
+  onStandaloneReceipt,
+  onReceiptConfirmed,
   API,
   C,
   card,
@@ -329,6 +331,11 @@ export default function SupplyPage({
       {curTab === 'deliveries' && (<>
         <SupplyClaims API={API} C={C} user={user} companyContext={companyContext} onChanged={loadAll} />
         <SupplyDeliveriesPanel
+          companyId={companyContext?.selectedCompanyId}
+          onStandaloneReceipt={onStandaloneReceipt}
+          onReceiptConfirmed={onReceiptConfirmed}
+          user={user}
+          projects={projects}
           key={`${companyContext?.mode}:${companyContext?.selectedCompanyId}:${user?.id}`}
           C={C}
           card={card}

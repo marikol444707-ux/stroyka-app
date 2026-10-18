@@ -265,7 +265,7 @@ def register_document_access_module(app, deps):
             row = load_file(cur, file_id, for_update=True)
             actor = authorize_file(cur, current_user, row, "delete", x_company_id, x_company_mode)
             if row.get('retained_at'):
-                raise HTTPException(409, 'Файл сохранён в истории договора и не может быть удалён')
+                raise HTTPException(409, 'Файл сохранён в истории документа и не может быть удалён')
             is_owner = _positive_int(row.get("uploaded_by_id")) == _positive_int(current_user.get("id"))
             if actor.get("role") not in leadership_roles and not is_owner:
                 raise HTTPException(

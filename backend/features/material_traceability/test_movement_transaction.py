@@ -51,7 +51,7 @@ class MovementTransactionTest(unittest.TestCase):
             with self.subTest(fail=fail):
                 conn, cur = Mock(), Mock()
                 conn.cursor.return_value = cur
-                cur.fetchone.return_value = {'present': True}
+                cur.fetchone.return_value = None
                 worker = Mock(side_effect=ValueError('reject') if fail else None, return_value={'id': 7})
                 after = Mock(return_value={})
                 namespace = {'get_db': lambda: conn, 'psycopg2': SimpleNamespace(extras=SimpleNamespace(RealDictCursor=object)),
@@ -63,7 +63,7 @@ class MovementTransactionTest(unittest.TestCase):
                     '_apply_warehouse_movement': worker, '_create_warehouse_movement_review_task_safely': after,
                     '_run_project_ai_control_safely': Mock()}
                 route = load_route(namespace)
-                model = SimpleNamespace(materialName='Кабель', fromLocation='Основной склад', toLocation='Школа', workPackage='', quantity=5)
+                model = SimpleNamespace(commandId='a73519ef-b7f9-4c6e-a8da-8741ac744b82', materialName='Кабель', fromLocation='Основной склад', toLocation='Школа', workPackage='', quantity=5)
                 if fail:
                     with self.assertRaises(ValueError):
                         route(model, _current_user={'role': 'директор'})
