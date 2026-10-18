@@ -8,6 +8,20 @@ const recordLabels={supplier_invoices:'Счета старой карточки'
   supplier_contract_registry:'Договоры',supply_deliveries:'Отгрузки',supply_claims:'Претензии',
   company_supplier_links:'Карточка в каталоге',supplier_aliases:'Названия поставщика'};
 
+const isRecord=value=>value!==null&&typeof value==='object'&&!Array.isArray(value);
+const recordIds=value=>Array.isArray(value)&&value.every(id=>Number.isSafeInteger(id)&&id>0);
+const planIdPattern=/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+function completePlan(data,prefix,sourceId,targetId) {
+  // Missing consequences must not appear as zero records or permit consent.
+  const companyId=Number(prefix.match(/\/system\/companies\/([1-9]\d*)$/)?.[1]);
+  return isRecord(data)&&data.companyId===companyId&&data.sourceId===sourceId&&data.targetId===targetId
+    &&typeof data.id==='string'&&planIdPattern.test(data.id)
+    &&typeof data.expiresAt==='string'&&Date.parse(data.expiresAt)>Date.now()
+    &&isRecord(data.newAccess)&&Object.keys(labels).every(key=>recordIds(data.newAccess[key]))
+    &&isRecord(data.stillClosed)&&['invoices','offers'].every(key=>recordIds(data.stillClosed[key]))
+    &&isRecord(data.affected)&&Object.values(data.affected).every(recordIds);
+}
+
 export default function SupplierHistoryMergeDialog({prefix,sourceId,targetId,sourceName,targetName,onClose,onDone}) {
   const [plan,setPlan]=useState(null);
   const [checked,setChecked]=useState(false);
@@ -22,10 +36,11 @@ export default function SupplierHistoryMergeDialog({prefix,sourceId,targetId,sou
     if(!active.current)return;
     if(!response.ok){if(response.status===409){setPlan(null);setChecked(false);}throw new Error(typeof data.detail==='string'?data.detail:'Не удалось выполнить объединение');}
     if(!plan){
-      if(data.sourceId!==sourceId||data.targetId!==targetId||!data.id||!data.newAccess)throw new Error('Результат проверки неполный. Повторите проверку.');
+      if(!completePlan(data,prefix,sourceId,targetId))throw new Error('Результат проверки неполный или устарел. Повторите проверку.');
       setPlan(data);return;
     }
-    if(!data.ok||data.sourceId!==sourceId||data.targetId!==targetId)throw new Error('Проверьте результат объединения перед повторной отправкой.');
+    if(!isRecord(data)||data.ok!==true||data.companyId!==plan.companyId||data.planId!==plan.id
+      ||data.sourceId!==sourceId||data.targetId!==targetId)throw new Error('Проверьте результат объединения перед повторной отправкой.');
     setDone(true);
   });
   useEffect(()=>{
