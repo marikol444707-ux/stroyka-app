@@ -42,6 +42,105 @@ class FakeWorker:
 
 
 class JevQaWatchTest(unittest.TestCase):
+    def test_transient_health_failure_recovers_without_duplicate_job(self):
+        worker=FakeWorker(); failures=[2]; waits=[]
+        def call(method,path):
+            if path=='/watcher/health' and failures[0]:
+                failures[0]-=1
+                raise WatchError('WORKER_API_UNAVAILABLE')
+            return worker(method,path)
+        self.assertEqual(run_smoke(call,sleep=waits.append)['outcome'],'passed')
+        self.assertEqual(waits,[1,2])
+        self.assertEqual(worker.calls.count(('POST','/watcher/smoke')),1)
+
+    def test_transient_poll_failure_recovers_the_same_job(self):
+        worker=FakeWorker(); failures=[2]; waits=[]
+        def call(method,path):
+            if path=='/watcher/jobs/'+JOB_ID and failures[0]:
+                failures[0]-=1
+                raise WatchError('WORKER_API_UNAVAILABLE')
+            return worker(method,path)
+        self.assertEqual(run_smoke(call,sleep=waits.append)['outcome'],'passed')
+        self.assertEqual(waits,[1,2])
+        self.assertEqual(worker.calls.count(('POST','/watcher/smoke')),1)
+
+    def test_permanent_health_failure_stops_after_three_attempts(self):
+        calls=[]; waits=[]
+        def call(method,path):
+            calls.append((method,path));raise WatchError('WORKER_API_UNAVAILABLE')
+        with self.assertRaisesRegex(WatchError,'WORKER_API_UNAVAILABLE'):
+            run_smoke(call,sleep=waits.append)
+        self.assertEqual(calls,[('GET','/watcher/health')]*3)
+        self.assertEqual(waits,[1,2])
+
+    def test_authentication_failure_is_not_retried(self):
+        calls=[]; waits=[]
+        def call(method,path):
+            calls.append((method,path));raise WatchError('WORKER_RESPONSE_UNAUTHENTICATED')
+        with self.assertRaisesRegex(WatchError,'WORKER_RESPONSE_UNAUTHENTICATED'):
+            run_smoke(call,sleep=waits.append)
+        self.assertEqual(len(calls),1);self.assertEqual(waits,[])
+
+    def test_unknown_post_result_is_never_blindly_retried(self):
+        worker=FakeWorker(); posts=[]
+        def call(method,path):
+            if method=='POST':
+                posts.append(path);raise WatchError('WORKER_API_UNAVAILABLE')
+            return worker(method,path)
+        with self.assertRaisesRegex(WatchError,'JOB_CREATION_UNCONFIRMED'):
+            run_smoke(call,sleep=lambda _:None)
+        self.assertEqual(posts,['/watcher/smoke'])
+
+    def test_exhausted_poll_retries_cancel_the_existing_job(self):
+        worker=FakeWorker(); polls=[]
+        def call(method,path):
+            if path=='/watcher/jobs/'+JOB_ID:
+                polls.append(path);raise WatchError('WORKER_API_UNAVAILABLE')
+            return worker(method,path)
+        with self.assertRaisesRegex(WatchError,'WORKER_API_UNAVAILABLE'):
+            run_smoke(call,sleep=lambda _:None)
+        self.assertEqual(len(polls),3)
+        self.assertIn(('POST','/watcher/jobs/'+JOB_ID+'/cancel'),worker.calls)
+        self.assertEqual(worker.calls.count(('POST','/watcher/smoke')),1)
+
+    def test_http_auth_refusal_is_not_a_transient_network_failure(self):
+        from urllib.error import HTTPError
+        for status in (401,403,400,404):
+            with self.subTest(status=status),patch('scripts.jev_qa_watch.urllib.request.urlopen',
+                    side_effect=HTTPError('http://127.0.0.1:18088/watcher/health',status,'private',{},None)):
+                with self.assertRaisesRegex(WatchError,'WORKER_API_REJECTED'):
+                    call_worker('http://127.0.0.1:18088','d'*64,'GET','/watcher/health')
+
+    def test_http_temporary_failure_is_retryable(self):
+        from urllib.error import HTTPError
+        for status in (429,502,503,504):
+            with self.subTest(status=status),patch('scripts.jev_qa_watch.urllib.request.urlopen',
+                    side_effect=HTTPError('http://127.0.0.1:18088/watcher/health',status,'private',{},None)):
+                with self.assertRaisesRegex(WatchError,'WORKER_API_UNAVAILABLE'):
+                    call_worker('http://127.0.0.1:18088','d'*64,'GET','/watcher/health')
+
+    def test_expired_recovery_budget_cancels_without_another_read(self):
+        worker=FakeWorker(); reads=[]; waits=[]
+        def call(method,path):
+            if path=='/watcher/jobs/'+JOB_ID:
+                reads.append(path);raise WatchError('WORKER_API_UNAVAILABLE')
+            return worker(method,path)
+        ticks=iter((0,0,0,119))
+        with self.assertRaisesRegex(WatchError,'WORKER_API_UNAVAILABLE'):
+            run_smoke(call,sleep=waits.append,monotonic=lambda:next(ticks))
+        self.assertEqual(len(reads),1);self.assertEqual(waits,[])
+        self.assertIn(('POST','/watcher/jobs/'+JOB_ID+'/cancel'),worker.calls)
+
+    def test_unconfirmed_creation_is_reported_as_unknown_not_not_started(self):
+        from scripts.jev_qa_watch import main
+        with patch.dict('os.environ',{'JEV_WATCHER_TOKEN':'d'*64},clear=True),patch(
+                'scripts.jev_qa_watch.run_smoke',side_effect=WatchError('JOB_CREATION_UNCONFIRMED')),patch(
+                'scripts.jev_qa_watch.save_report') as save,patch('builtins.print'):
+            self.assertEqual(main(),1)
+        report=save.call_args.args[0]
+        self.assertEqual(report['job_status'],'unknown')
+        self.assertEqual(report['failure_codes'],['JOB_CREATION_UNCONFIRMED'])
+
     def test_bootstrap_scope_and_excluded_data_are_never_reported_as_data_pass(self):
         result = run_smoke(FakeWorker(), sleep=lambda _: None)
         self.assertEqual(result["scope"], "bootstrap_only")
@@ -179,7 +278,7 @@ class JevQaWatchTest(unittest.TestCase):
 
     def test_poll_timeout_cancels_job_before_failing(self):
         worker = FakeWorker(status="queued")
-        ticks = iter((0, 86))
+        ticks = iter((0, 0, 121))
         with self.assertRaisesRegex(WatchError, "POLL_TIMEOUT"):
             run_smoke(worker, sleep=lambda _: None, monotonic=lambda: next(ticks))
         self.assertIn(("POST", "/watcher/jobs/" + JOB_ID + "/cancel"), worker.calls)

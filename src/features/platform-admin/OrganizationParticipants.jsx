@@ -3,6 +3,7 @@ import './OrganizationParticipants.css';
 import { directoryTabs, MembershipItem, InvitationItem } from './ParticipantDirectoryItems';
 import SupplierConnectionPreview from './SupplierConnectionPreview';
 import SupportAccessPanel from './SupportAccessPanel';
+import SupplierDuplicateMerge from './SupplierDuplicateMerge';
 
 export const ticketStatuses = {new:'Новое',in_progress:'В работе',waiting:'Ожидает сведения',resolved:'Исправлено',closed:'Проверено и закрыто'};
 const transitions = {new:['in_progress'],in_progress:['waiting','resolved'],waiting:['in_progress'],resolved:['closed','in_progress'],closed:['in_progress']};
@@ -22,6 +23,7 @@ export default function OrganizationParticipants({company,API,C,btnG,btnO,inp}) 
   const [verified,setVerified] = useState(false);
   const [busy,setBusy] = useState(false);
   const [previewId,setPreviewId] = useState(null);
+  const [mergeId,setMergeId] = useState(null);
   const alive = useRef(true);
   const command = useRef(0);
   const prefix = API+'/system/companies/'+company.id;
@@ -30,7 +32,7 @@ export default function OrganizationParticipants({company,API,C,btnG,btnO,inp}) 
   useEffect(()=>{alive.current=true;return ()=>{alive.current=false;command.current+=1;};},[company.id]);
   useEffect(()=>{
     const abort = new AbortController();
-    setData(null);setError('');setDetail(null);setPreviewId(null);setBusy(false);command.current+=1;
+    setData(null);setError('');setDetail(null);setPreviewId(null);setMergeId(null);setBusy(false);command.current+=1;
     const config = directoryTabs[tab];
     const filters = new URLSearchParams();
     if(config.searchLabel) filters.set('search',search);
@@ -98,6 +100,9 @@ export default function OrganizationParticipants({company,API,C,btnG,btnO,inp}) 
         <span>Отношение: {item.status||'не указано'}{item.merged_into_supplier_id?' · Карточка объединена':''}</span>
         {Number(item.open_tickets)>0&&<button style={btnG} onClick={()=>switchTab('tickets')}>Обращения: {item.open_tickets}</button>}
         <button type="button" disabled={busy} style={btnG} onClick={()=>setPreviewId(item.id)}>{item.merged_into_supplier_id?'Открыть основную карточку':'Проверить кабинет'}</button>
+        {process.env.REACT_APP_PARTICIPANT_HISTORY_MERGE_ENABLED==='1'&&!item.has_account&&!item.merged_into_supplier_id&&<button type="button" style={btnG} disabled={busy} onClick={()=>setMergeId(item.id)}>Объединить дубли</button>}
+        {mergeId===item.id&&<SupplierDuplicateMerge key={prefix+'/'+item.id} prefix={prefix} source={item} btnG={btnG} btnO={btnO} inp={inp}
+          onClose={()=>setMergeId(null)} onDone={()=>{setMergeId(null);setRetry(n=>n+1);}}/>}
         {previewId===item.id&&<SupplierConnectionPreview key={prefix+'/'+item.id} prefix={prefix}
           supplierId={Number(item.merged_into_supplier_id)||item.id} btnG={btnG} onClose={()=>setPreviewId(null)} onChanged={()=>setRetry(n=>n+1)}/>}
       </>:tab==='memberships'?<MembershipItem item={item}/>:tab==='invitations'?<InvitationItem item={item}/>:<>

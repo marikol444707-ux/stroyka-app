@@ -280,3 +280,18 @@ class SupplierHistoryMergePostgresTests(unittest.TestCase):
             plan=self.review(card,target,company=company)
             self.assertEqual(plan['newAccess']['invoices'],[invoice]);self.confirm(card,plan,company=company)
         self.assertEqual(self.sql('SELECT user_id FROM suppliers WHERE id=%s',(source,)),[(None,)])
+
+    def test_complete_missing_inn_then_merge_uses_the_full_history_plan(self):
+        source,target,invoice=self.seed()
+        self.sql("UPDATE suppliers SET inn='' WHERE id=%s",(target,))
+        cur_inn=self.sql('SELECT inn FROM suppliers WHERE id=%s',(source,))[0][0]
+        preview=self.api('admin','POST',f'/system/companies/2/participants/{source}/duplicate-preview',{'targetSupplierId':target})
+        self.assertTrue(preview['canCompleteInn'])
+        original=self.sql('SELECT to_jsonb(i) FROM supplier_invoices i WHERE id=%s',(invoice,))
+        self.api('admin','POST',f'/system/companies/2/participants/{source}/duplicate-complete-inn',
+            dict(targetSupplierId=target,expectedReview=preview['reviewVersion'],confirmed=True,reason='ИНН сверили по документу кабинета'))
+        self.assertEqual(self.sql('SELECT inn FROM suppliers WHERE id=%s',(target,)),[(cur_inn,)])
+        self.assertEqual(self.sql('SELECT user_id FROM suppliers WHERE id=%s',(source,)),[(None,)])
+        plan=self.review(source,target)
+        self.assertTrue(self.confirm(source,plan)['ok'])
+        self.assertEqual(self.sql('SELECT to_jsonb(i) FROM supplier_invoices i WHERE id=%s',(invoice,)),original)

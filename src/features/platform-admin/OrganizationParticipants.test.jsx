@@ -70,3 +70,21 @@ test('switching tabs aborts late membership response and resets previous search'
   await act(async()=>late(response({items:[{membershipId:3,name:'LATE PRIVATE EMPLOYEE'}],hasMore:false})));
   expect(screen.queryByText('LATE PRIVATE EMPLOYEE')).not.toBeInTheDocument();
 });
+
+test('duplicate correction is offered only for unowned unmerged company cards',async()=>{
+  const previous=process.env.REACT_APP_PARTICIPANT_HISTORY_MERGE_ENABLED;
+  process.env.REACT_APP_PARTICIPANT_HISTORY_MERGE_ENABLED='1';
+  try {
+    global.fetch=jest.fn(async()=>response({items:[{id:7,name:'Из накладной',has_account:false},
+      {id:8,name:'С кабинетом',has_account:true},{id:9,name:'Архивная',has_account:false,merged_into_supplier_id:'8'}],hasMore:false}));
+    render(<OrganizationParticipants {...props}/>);
+    expect(await screen.findAllByRole('button',{name:'Объединить дубли'})).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button',{name:'Объединить дубли'}));
+    expect(screen.getByRole('region',{name:'Объединение дубля'})).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'Закрыть объединение'}));
+    expect(screen.queryByRole('region',{name:'Объединение дубля'})).not.toBeInTheDocument();
+  } finally {
+    if(previous===undefined)delete process.env.REACT_APP_PARTICIPANT_HISTORY_MERGE_ENABLED;
+    else process.env.REACT_APP_PARTICIPANT_HISTORY_MERGE_ENABLED=previous;
+  }
+});
