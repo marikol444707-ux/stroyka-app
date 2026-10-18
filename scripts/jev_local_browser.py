@@ -1,4 +1,4 @@
-"""Manual demo: upstream Jev chooses on Timeweb; an isolated local MCP executes.
+"""Local browser controller with upstream Jev decisions on Timeweb.
 
 Supports a built-in fixture and a read-only Avito preflight, never arbitrary URLs.
 """
@@ -11,6 +11,9 @@ import signal
 import subprocess
 import tempfile
 import time
+import fcntl
+from contextlib import contextmanager, ExitStack
+from pathlib import Path
 from urllib.parse import quote
 
 
@@ -68,20 +71,47 @@ def remote_choose(page, history):
     return decision
 
 
+@contextmanager
+def profile_lock():
+    """Use only the dedicated Jev profile, with one active owner."""
+    base = Path.home() / '.local/share/stroyka-jev'
+    base.mkdir(parents=True, exist_ok=True)
+    base.chmod(0o700)
+    profile = base / 'browser-profile'
+    profile.mkdir(exist_ok=True)
+    profile.chmod(0o700)
+    fd = os.open(str(base / 'profile.lock'), os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise RuntimeError('profile_busy') from None
+        yield profile
+    finally:
+        os.close(fd)
+
+
 class LocalBrowser:
-    """A bounded stdio MCP connection owning just its temporary browser."""
+    """Own a temporary browser, or exclusively lock the dedicated Jev profile."""
+
+    def __init__(self, persistent=False):
+        self.persistent = persistent
 
     def __enter__(self):
         self.buffer, self.sequence = b'', 0
-        self.directory = tempfile.TemporaryDirectory(prefix='jev-local-browser-')
-        self.process = subprocess.Popen(
-            ['/usr/local/bin/npx', '-y', '@playwright/mcp@0.0.83', '--browser', 'chrome',
-             '--isolated', '--timeout-navigation', '15000', '--output-dir', self.directory.name],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-            start_new_session=True,
-            env={k: v for k, v in os.environ.items()
-                 if k in {'PATH', 'HOME', 'TMPDIR', 'LANG', 'DISPLAY', 'SHELL'}})
+        self.process = None
+        self.resources = ExitStack()
         try:
+            profile = self.resources.enter_context(profile_lock()) if self.persistent else None
+            directory = self.resources.enter_context(tempfile.TemporaryDirectory(prefix='jev-local-browser-'))
+            profile_args = ['--user-data-dir', str(profile)] if profile else ['--isolated']
+            self.process = subprocess.Popen(
+                ['/usr/local/bin/npx', '-y', '@playwright/mcp@0.0.83', '--browser', 'chrome',
+                 *profile_args, '--timeout-navigation', '15000', '--output-dir', directory],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                start_new_session=True,
+                env={k: v for k, v in os.environ.items()
+                     if k in {'PATH', 'HOME', 'TMPDIR', 'LANG', 'DISPLAY', 'SHELL'}})
             self.rpc('initialize', {'protocolVersion': '2024-11-05', 'capabilities': {},
                                    'clientInfo': {'name': 'jev-local-demo', 'version': '1'}})
             self.send({'jsonrpc': '2.0', 'method': 'notifications/initialized'})
@@ -122,6 +152,10 @@ class LocalBrowser:
     def call(self, name, arguments):
         result = self.rpc('tools/call', {'name': name, 'arguments': arguments})
         if result.get('isError'):
+            error_text = '\n'.join(x.get('text', '') for x in result.get('content', [])
+                                   if x.get('type') == 'text')
+            if 'TimeoutError:' in error_text:
+                raise TimeoutError('Browser tool timed out: ' + name)
             raise RuntimeError('Browser tool failed: ' + name)
         return '\n'.join(x.get('text', '') for x in result.get('content', [])
                          if x.get('type') == 'text')
@@ -135,21 +169,24 @@ class LocalBrowser:
 
     def __exit__(self, *_):
         try:
-            if self.process.poll() is None:
+            if self.process is not None and self.process.poll() is None:
                 self.call('browser_close', {})
         finally:
             try:
-                os.killpg(self.process.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-            try:
-                self.process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                os.killpg(self.process.pid, signal.SIGKILL)
-                self.process.wait(timeout=5)
-            self.process.stdin.close()
-            self.process.stdout.close()
-            self.directory.cleanup()
+                if self.process is not None:
+                    try:
+                        os.killpg(self.process.pid, signal.SIGTERM)
+                    except ProcessLookupError:
+                        pass
+                    try:
+                        self.process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        os.killpg(self.process.pid, signal.SIGKILL)
+                        self.process.wait(timeout=5)
+                    self.process.stdin.close()
+                    self.process.stdout.close()
+            finally:
+                self.resources.close()
 
 
 def demo():
@@ -187,8 +224,11 @@ if __name__ == '__main__':
             result = demo()
         else:
             from jev_avito_search import probe
-            result = probe(LocalBrowser)
+            result = probe(lambda: LocalBrowser(persistent=True))
     except Exception as exc:
-        result = {'ok': False, 'status': 'failed', 'error_type': type(exc).__name__}
+        status = 'browser_timeout' if isinstance(exc, TimeoutError) else 'failed'
+        if str(exc) == 'profile_busy':
+            status = 'profile_busy'
+        result = {'ok': False, 'status': status, 'error_type': type(exc).__name__}
     print(json.dumps(result, ensure_ascii=False, indent=2))
     raise SystemExit(0 if result['ok'] else 1)

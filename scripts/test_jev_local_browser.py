@@ -1,11 +1,42 @@
 import unittest
+import tempfile
+from pathlib import Path
 from unittest.mock import patch
 from types import SimpleNamespace
 
-from scripts.jev_local_browser import demo, observed_page, remote_choose, verified_done, validate_choice
+from scripts.jev_local_browser import demo, observed_page, remote_choose, verified_done, validate_choice, profile_lock, LocalBrowser
 
 
 class LocalJevTest(unittest.TestCase):
+    def test_profile_is_private_and_cannot_be_opened_twice(self):
+        with tempfile.TemporaryDirectory() as home, patch('pathlib.Path.home', return_value=Path(home)):
+            with profile_lock() as profile:
+                self.assertTrue(profile.is_dir())
+                self.assertEqual(profile.stat().st_mode & 0o777, 0o700)
+                with self.assertRaisesRegex(RuntimeError, 'profile_busy'):
+                    with profile_lock():
+                        self.fail('Concurrent profile use must be rejected')
+            with profile_lock() as profile_again:
+                self.assertEqual(profile_again, profile)
+
+    def test_profile_lock_is_released_after_failure_without_deleting_profile(self):
+        with tempfile.TemporaryDirectory() as home, patch('pathlib.Path.home', return_value=Path(home)):
+            with self.assertRaisesRegex(ValueError, 'test failure'):
+                with profile_lock() as profile:
+                    raise ValueError('test failure')
+            self.assertTrue(profile.exists())
+            with profile_lock():
+                pass
+
+    def test_browser_start_failure_releases_the_profile(self):
+        with tempfile.TemporaryDirectory() as home, patch('pathlib.Path.home', return_value=Path(home)), \
+                patch('scripts.jev_local_browser.subprocess.Popen', side_effect=OSError('cannot start')):
+            with self.assertRaises(OSError):
+                with LocalBrowser(persistent=True):
+                    self.fail('Browser cannot have started')
+            with profile_lock():
+                pass
+
     def test_only_observed_test_button_is_executable(self):
         page = observed_page('- button "Проверить связь" [ref=e7]\n- button "Delete" [ref=e8]')
         self.assertEqual([a['id'] for a in page['actions']], ['e7'])
