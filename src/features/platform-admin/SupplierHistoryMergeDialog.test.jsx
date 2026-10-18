@@ -43,6 +43,43 @@ test('a stale plan requires a new review instead of repeating the grant',async()
   expect(screen.getByRole('button',{name:'Проверить последствия'})).toBeEnabled();
 });
 
+test.each([401,403,404])('clears disclosed history and consent after access is rejected with %s',async status=>{
+  global.fetch=jest.fn().mockResolvedValueOnce(response(plan))
+    .mockResolvedValueOnce({ok:false,status,json:async()=>({detail:'План недоступен'})})
+    .mockResolvedValueOnce(response({...plan,id:'00000000-0000-4000-8000-000000000002'}));
+  render(<SupplierHistoryMergeDialog {...props}/>);
+  fireEvent.click(screen.getByRole('button',{name:'Проверить последствия'}));
+  fireEvent.click(await screen.findByRole('checkbox'));
+  fireEvent.change(screen.getByRole('textbox'),{target:{value:'Проверено по исходным документам'}});
+  fireEvent.click(screen.getByRole('button',{name:'Подтвердить объединение'}));
+  expect(await screen.findByRole('alert')).toHaveTextContent('План недоступен');
+  expect(screen.queryByText('Накладные: #102')).not.toBeInTheDocument();
+  expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  expect(screen.queryByRole('button',{name:'Подтвердить объединение'})).not.toBeInTheDocument();
+  expect(props.onDone).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button',{name:'Проверить последствия'}));
+  expect(await screen.findByRole('checkbox')).not.toBeChecked();
+  expect(screen.getByRole('button',{name:'Подтвердить объединение'})).toBeDisabled();
+  expect(fetch.mock.calls[2][0]).toBe('/system/companies/2/participants/7/history-merge-plans');
+});
+
+test.each(['network','server'])('keeps the exact plan for a retry after an uncertain %s result',async failure=>{
+  global.fetch=jest.fn().mockResolvedValueOnce(response(plan));
+  if(failure==='network')fetch.mockRejectedValueOnce(new Error('Связь прервана'));
+  else fetch.mockResolvedValueOnce({ok:false,status:503,json:async()=>({detail:'Сервис временно недоступен'})});
+  fetch.mockResolvedValueOnce(response(result));
+  render(<SupplierHistoryMergeDialog {...props}/>);
+  fireEvent.click(screen.getByRole('button',{name:'Проверить последствия'}));
+  fireEvent.click(await screen.findByRole('checkbox'));
+  fireEvent.change(screen.getByRole('textbox'),{target:{value:'Проверено по исходным документам'}});
+  fireEvent.click(screen.getByRole('button',{name:'Подтвердить объединение'}));
+  await screen.findByRole('alert');
+  expect(screen.getByRole('checkbox')).toBeChecked();
+  fireEvent.click(screen.getByRole('button',{name:'Подтвердить объединение'}));
+  expect(await screen.findByRole('status')).toHaveTextContent('Карточки объединены');
+  expect(fetch.mock.calls[2]).toEqual(fetch.mock.calls[1]);
+});
+
 test('closing a company panel ignores a late review response',async()=>{
   let finish;global.fetch=jest.fn(()=>new Promise(resolve=>{finish=resolve;}));
   const view=render(<SupplierHistoryMergeDialog {...props}/>);

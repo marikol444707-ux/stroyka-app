@@ -32,25 +32,28 @@ def totp(secret):
     return str((int.from_bytes(digest[offset:offset+4], 'big') & 0x7fffffff) % 1000000).zfill(6)
 
 
-def browser_check(state, artifacts, chromium):
+def browser_check(state, artifacts, chromium, denials=False):
     from playwright.sync_api import sync_playwright, expect
+
+    def api_login(page, actor):
+        status = page.evaluate("""async x => {
+            const options=body=>({method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+            const first=await fetch('/login',options({email:x.email,password:x.password}));
+            if(!first.ok) return first.status;
+            const data=await first.json();
+            if(!data.twoFactorRequired) throw Error('Expected buyer/admin 2FA');
+            const verified=await fetch('/login/2fa/verify',options({challengeToken:data.challengeToken,code:x.code}));
+            return verified.status;
+        }""", {'email': state['users'][actor]['email'], 'password': state['password'],
+                'code': totp(state['users'][actor]['secret'])})
+        assert status == 200, 'Authentication failed for '+actor
 
     def login(page, actor):
         page.goto('http://localhost:8001/app')
         if actor == 'stranger':
             # Authenticate the other buyer for exact API probes without starting
             # unrelated business screens outside this supplier fixture's schema.
-            status = page.evaluate("""async x => {
-                const options=body=>({method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-                const first=await fetch('/login',options({email:x.email,password:x.password}));
-                if(!first.ok) return first.status;
-                const data=await first.json();
-                if(!data.twoFactorRequired) throw Error('Expected buyer 2FA');
-                const verified=await fetch('/login/2fa/verify',options({challengeToken:data.challengeToken,code:x.code}));
-                return verified.status;
-            }""", {'email': state['users'][actor]['email'], 'password': state['password'],
-                    'code': totp(state['users'][actor]['secret'])})
-            assert status == 200, 'Other buyer authentication failed'
+            api_login(page, actor)
             return
         page.locator('input[type=email]').fill(state['users'][actor]['email'])
         page.locator('input[type=password]').fill(state['password'])
@@ -113,6 +116,42 @@ def browser_check(state, artifacts, chromium):
                     assert plan['newAccess']['invoices'] == [row['invoice']]
                     dialog.get_by_role('checkbox').check()
                     dialog.get_by_role('textbox', name='Основание объединения').fill(REASON)
+                    if denials:
+                        old_plan = plan['id']
+                        # A second login replaces the real cookie while an old
+                        # admin form remains open, as with a login in another tab.
+                        api_login(admin, 'stranger')
+                        selection = admin.evaluate("""() => {
+                            const user=JSON.parse(localStorage.getItem('user'));
+                            const key='stroyka.companyContext.v1.'+(user.id||user.email);
+                            const previous=localStorage.getItem(key);
+                            // Select the new actor's own company, so the denial
+                            // tests admin authority rather than an absent scope.
+                            localStorage.setItem(key,JSON.stringify({mode:'company',companyId:3}));
+                            return {key,previous};
+                        }""")
+                        with admin.expect_response(lambda response: response.url.endswith('/confirm')) as denied:
+                            dialog.get_by_role('button', name='Подтвердить объединение').click()
+                        assert denied.value.status == 403, 'Expected authority denial, got '+str(denied.value.status)
+                        assert denied.value.json().get('detail') == 'Недостаточно прав'
+                        expect(dialog.get_by_role('alert')).to_be_visible()
+                        expect(dialog.get_by_role('checkbox')).to_have_count(0)
+                        expect(dialog.get_by_role('button', name='Подтвердить объединение')).to_have_count(0)
+                        assert row['invoice'] not in [item['id'] for item in read_invoices(supplier)]
+                        dialog.screenshot(path=str(artifacts / (size+'-denied-plan.png')))
+                        admin.evaluate("""x => {
+                            if(x.previous===null)localStorage.removeItem(x.key);
+                            else localStorage.setItem(x.key,x.previous);
+                        }""", selection)
+                        api_login(admin, 'admin')
+                        with admin.expect_response(lambda response: response.url.endswith('/history-merge-plans')) as fresh:
+                            dialog.get_by_role('button', name='Проверить последствия').click()
+                        plan = fresh.value.json()
+                        assert plan['id'] != old_plan and plan['newAccess']['invoices'] == [row['invoice']]
+                        expect(dialog.get_by_role('checkbox')).not_to_be_checked()
+                        expect(dialog.get_by_role('button', name='Подтвердить объединение')).to_be_disabled()
+                        dialog.get_by_role('checkbox').check()
+                        dialog.get_by_role('textbox', name='Основание объединения').fill(REASON)
                     dialog.screenshot(path=str(artifacts / (size+'-plan.png')))
                     dialog.get_by_role('button', name='Подтвердить объединение').click()
                     expect(dialog.get_by_role('status')).to_contain_text('Карточки объединены')
@@ -140,6 +179,8 @@ def browser_check(state, artifacts, chromium):
                     assert not errors, errors
                     assert not server_errors, server_errors
                     print(size+': real login/2FA, INN without history, explicit merge, replay and other-company isolation passed', flush=True)
+                    if denials:
+                        print(size+': changed cookie identity denies open plan; history stays closed; fresh review requires new consent', flush=True)
                 finally:
                     for context in contexts:
                         context.close()
@@ -153,7 +194,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--build', type=Path, default=ROOT / 'build')
     parser.add_argument('--chromium', default='/usr/bin/chromium')
-    parser.add_argument('--scenario', choices=('merge', 'managers'), default='merge')
+    parser.add_argument('--scenario', choices=('merge', 'merge-denials', 'managers'), default='merge')
     args = parser.parse_args()
     connection_settings(os.environ)
     build = args.build.resolve()
@@ -187,7 +228,7 @@ def main():
                 from participant_manager_browser import browser_check as manager_check
                 manager_check(state, artifacts, args.chromium)
             else:
-                browser_check(state, artifacts, args.chromium)
+                browser_check(state, artifacts, args.chromium, denials=args.scenario == 'merge-denials')
         finally:
             child.terminate()
             try:

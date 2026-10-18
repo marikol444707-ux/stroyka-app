@@ -122,6 +122,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--build', type=Path, required=True)
     parser.add_argument('--artifacts', type=Path, required=True)
-    parser.add_argument('--scenario', choices=('merge', 'managers'), default='merge')
+    parser.add_argument('--scenario', choices=('merge', 'merge-denials', 'managers'), default='merge')
     args = parser.parse_args()
     serve(args.build.resolve(), args.artifacts.resolve(), args.scenario)

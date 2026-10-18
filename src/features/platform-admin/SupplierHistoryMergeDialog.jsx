@@ -34,7 +34,7 @@ export default function SupplierHistoryMergeDialog({prefix,sourceId,targetId,sou
       body:JSON.stringify(plan?{confirmed:true,reason:reason.trim()}:{targetSupplierId:targetId})});
     const data=await response.json().catch(()=>({}));
     if(!active.current)return;
-    if(!response.ok){if(response.status===409){setPlan(null);setChecked(false);}throw new Error(typeof data.detail==='string'?data.detail:'Не удалось выполнить объединение');}
+    if(!response.ok){if([401,403,404,409].includes(response.status)){setPlan(null);setChecked(false);}throw new Error(typeof data.detail==='string'?data.detail:'Не удалось выполнить объединение');}
     if(!plan){
       if(!completePlan(data,prefix,sourceId,targetId))throw new Error('Результат проверки неполный или устарел. Повторите проверку.');
       setPlan(data);return;
