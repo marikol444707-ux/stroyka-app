@@ -15,6 +15,17 @@ from dev_control.browser_worker.control_task import task_spec, demo_passed, _pro
 
 
 class JevControlTest(unittest.TestCase):
+    def test_systemd_watchdog_needs_no_shell_or_standard_input(self):
+        output = io.StringIO()
+        with patch('sys.argv', ['jev_control.py', '--server', 'watchdog']), \
+             patch('scripts.jev_control.server', return_value={'status': 'healthy'}) as dispatch, \
+             redirect_stdout(output):
+            self.assertEqual(main(), 0)
+        dispatch.assert_called_once_with({'operation': 'watchdog'})
+        unit = Path('ops/systemd/stroyka-jev-control.service').read_text()
+        self.assertNotIn('/bin/sh', unit)
+        self.assertIn('--server watchdog', unit)
+
     def test_client_preserves_a_valid_busy_result_on_nonzero_remote_exit(self):
         response = subprocess.CompletedProcess([], 1, '{"ok":false,"status":"busy"}', '')
         output = io.StringIO()

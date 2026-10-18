@@ -94,7 +94,8 @@ def main():
     args = parser.parse_args()
     try:
         if args.server:
-            request = json.loads(sys.stdin.buffer.read(8193))
+            request = ({'operation': 'watchdog'} if args.operation == 'watchdog'
+                       else json.loads(sys.stdin.buffer.read(8193)))
             result = server(request)
         else:
             operation = args.operation or 'status'
