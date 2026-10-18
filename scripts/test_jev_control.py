@@ -4,16 +4,25 @@ import fcntl
 import subprocess
 import io
 import json
+from contextlib import redirect_stdout
 from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import patch
 
-from scripts.jev_control import recovery_decision, ssh_command, browser_task, server
+from scripts.jev_control import recovery_decision, ssh_command, browser_task, server, main
 from scripts.install_jev_control import control_environment
 from dev_control.browser_worker.control_task import task_spec, demo_passed, _probe_browser
 
 
 class JevControlTest(unittest.TestCase):
+    def test_client_preserves_a_valid_busy_result_on_nonzero_remote_exit(self):
+        response = subprocess.CompletedProcess([], 1, '{"ok":false,"status":"busy"}', '')
+        output = io.StringIO()
+        with patch('sys.argv', ['jev_control.py', 'status']), \
+             patch('scripts.jev_control.subprocess.run', return_value=response), redirect_stdout(output):
+            self.assertEqual(main(), 1)
+        self.assertEqual(json.loads(output.getvalue())['status'], 'busy')
+
     def test_install_does_not_copy_qa_cookie_database_or_general_worker_credentials(self):
         source = {'TIMEWEB_AI_API_KEY': 'test-key', 'QA_SESSION_COOKIE_VALUE': 'private',
                   'DATABASE_URL': 'private', 'DEV_CONTROL_API_TOKEN': 'old-token',

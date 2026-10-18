@@ -103,7 +103,7 @@ def main():
                 request['query'] = args.query
             response = subprocess.run(ssh_command(), input=json.dumps(request),
                 capture_output=True, text=True, timeout=125)
-            if response.returncode:
+            if response.returncode == 255 or not response.stdout.strip():
                 result = {'ok': False, 'status': 'ssh_unavailable', 'exit_code': response.returncode}
             else:
                 result = json.loads(response.stdout)
