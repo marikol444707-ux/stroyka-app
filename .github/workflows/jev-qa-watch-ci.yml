@@ -86,7 +86,7 @@ jobs:
           docs_test_stage=$(mktemp -d)
           trap 'rm -rf "$docs_test_stage"' EXIT
           mkdir -p "$docs_test_stage/scripts"
-          cp scripts/jev_eis_document*.py scripts/jev_eis_probe.py scripts/test_jev_eis_documents.py "$docs_test_stage/scripts/"
+          cp scripts/jev_eis_document*.py scripts/jev_eis_probe.py scripts/jev_eis_review_runner.py scripts/test_jev_eis_documents.py "$docs_test_stage/scripts/"
           chmod -R a+rX "$docs_test_stage"
           docker run --rm --network none --read-only --user 10001:10001 \
             --cap-drop ALL --security-opt no-new-privileges --memory 1g \
