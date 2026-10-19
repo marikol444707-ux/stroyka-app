@@ -163,7 +163,8 @@ def render(snapshot,report):
         blocks.append('<h2>Изображения для сверки</h2><p>OCR не подтверждает правильность формулы, цифр и расчётов. Сверьте изображение с оригиналом.</p>')
         md+=['','## Изображения для сверки','','OCR не подтверждает правильность формул и цифр.']
         for visual in visuals:
-            path=visual.get('path');source=visual['source']+' · '+visual['locator']
+            path=visual.get('path');parts=visual['source'].split(' / ')
+            source=docs.get(parts[0],{'name':parts[0]})['name']+(' / '+' / '.join(parts[1:]) if len(parts)>1 else '')+' · '+visual['locator']
             if path and re.fullmatch(r'previews/[a-f0-9]{64}\.png',path):
                 blocks.append('<details><summary>'+escape(source)+'</summary><a href="'+path+'"><img loading="lazy" src="'+path+'" alt="Изображение из документа"></a><p>'+escape(visual.get('text','') or 'Текст не распознан. Сверьте изображение.')+'</p></details>')
                 md+=['','['+source+']('+path+') — требует сверки']

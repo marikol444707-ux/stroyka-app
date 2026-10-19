@@ -306,6 +306,7 @@ class ReportReliabilityTests(unittest.TestCase):
             render(root,r);s=(root/'report.html').read_text()
             self.assertIn('Оплата: условие не установлено',s)
             self.assertIn('Изображения для сверки',s)
+            self.assertIn('Contract · image1.png',s)
             self.assertIn('<img ',s)
             self.assertIn('не подтверждает',s)
             self.assertIn('Проверка сметы',s)
