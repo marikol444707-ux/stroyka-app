@@ -42,3 +42,7 @@ __pycache__
 /output/
 /graphify-out/
 /.playwright-cli/
+
+# Telegram login credentials must remain outside the repository.
+*.session
+*.session-journal
