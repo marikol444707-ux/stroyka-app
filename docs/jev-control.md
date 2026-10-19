@@ -61,3 +61,21 @@ python3 scripts/jev_control.py avito --query 'кирпич б/у'
 Откат: отключить таймер и остановить `stroyka-jev-control`; старые контейнеры
 не удаляются установщиком и могут быть запущены явно. Секретные inspect-данные
 не сохраняются в Git и не печатаются в отчёт.
+
+## Server tools, 19 October 2026
+
+`sudo stroyka-jev status|demo|avito|eis` is the fixed standalone entry point.
+The first three use the already-installed bounded controller. `eis` launches a
+separate temporary browser without model keys, production connections or personal
+sessions, verifies the pinned public CA and reads only the public search registry.
+It does not execute a keyword/region search or select procurements. The result
+explicitly keeps `search_execution_verified=false`. A valid registry, search field
+and observed notice links are required; an HTTP error/homepage is not success.
+
+Install a reviewed release's scripts, public CA and documentation under
+`/opt/stroyka-jev-tools/releases/<commit>`, with a SHA-256 manifest. The root-owned
+`current` symlink selects the release; `/usr/local/bin/stroyka-jev` invokes its
+`scripts/jev_server_tools.py`. Existing Jev service and recovery timer stay intact.
+Only this tools directory and launcher need reverting/removing for rollback;
+there are no database or application migrations. Local Mac browser/profile code
+remains Mac-specific and is retained as source, not enabled as a Linux service.
