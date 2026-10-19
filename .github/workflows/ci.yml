@@ -64,6 +64,9 @@ jobs:
             exit "$backend_test_status"
           fi
 
+      - name: Verify unified release transport and frontend backup
+        run: python -m unittest -v scripts.test_unified_release
+
       - name: Run company-context PostgreSQL isolation tests
         env:
           COMPANY_CONTEXT_RUN_POSTGRES_INTEGRATION: "1"
@@ -151,7 +154,8 @@ jobs:
             backend.features.contractor_identity.test_selection_postgres.TypedContractorSelectionPostgresTests \
             backend.features.contractor_identity.test_contract_selection_postgres.ExactContractSelectionPostgresTests \
             backend.features.contractor_identity.test_manual_postgres.ManualBrigadePostgresTests \
-            backend.features.contractor_identity.test_recovery_postgres.ManualRecoveryPostgresTests
+            backend.features.contractor_identity.test_recovery_postgres.ManualRecoveryPostgresTests \
+            backend.features.contractor_identity.test_release_postgres.UnifiedReleasePostgresTests
 
       - name: Set up Node
         uses: actions/setup-node@v4
