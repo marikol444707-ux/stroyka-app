@@ -9,9 +9,16 @@ import tempfile
 import unicodedata
 from pathlib import Path
 
-TOPIC = re.compile(r'отдел|ремонт|маляр|штукатур|шпакл|плиточ|покле|обои|стяжк|гипсокартон', re.I)
+TOPIC_LABEL = 'Отделка, ремонт и строительство домов'
+TOPIC = re.compile(
+    r'отдел|ремонт|маляр|штукатур|шпакл|плиточ|покле|обои|стяжк|гипсокартон|'
+    r'(?:строительств|постро|строим|строить).{0,40}(?:\bдом|коттедж)|'
+    r'фундамент|кладк|каменщик|кров(?:л|ель)|каркасн|газобетон|\bижс\b', re.I)
 DEMAND = re.compile(r'нуж(?:ен|на|ны|но)|требу(?:ется|ются)|ищ(?:у|ем)|кто\s+(?:может|сможет)', re.I)
-SERVICES = re.compile(r'выполня[ею]|оказыва|предлага[ею]|ищ[уе]м?\s+(?:заказ|работ)|требуется\s+работа|ищу\s+работу', re.I)
+SERVICES = re.compile(
+    r'выполня[ею]|оказыва|предлага[ею]|ищ[уе]м?\s+(?:заказ|работ)|'
+    r'требуется\s+работа|ищу\s+работу|'
+    r'\b(?:строим|построим)\s+(?:дома\b|коттеджи\b|ваш\s+дом)', re.I)
 MATERIALS = re.compile(r'прод(?:ам|аем|аю)|в\s+продаже', re.I)
 
 
@@ -67,7 +74,7 @@ def digest(messages):
         item = groups.setdefault(key, {'text': row['text'], 'category': category, 'originals': []})
         original = {k: row.get(k, '') for k in ('source', 'id', 'date', 'url')}
         if original not in item['originals']: item['originals'].append(original)
-    return {'topic': 'Отделка и ремонт', 'orders': [x for x in groups.values() if x['category'] == 'order'],
+    return {'topic': TOPIC_LABEL, 'orders': [x for x in groups.values() if x['category'] == 'order'],
             'review': [x for x in groups.values() if x['category'] == 'review'], 'excluded': counts}
 
 
@@ -76,11 +83,11 @@ def render_html(report):
     parts = ['<!doctype html><html lang="ru"><meta charset="utf-8">',
              '<meta name="viewport" content="width=device-width,initial-scale=1">',
              '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'">',
-             '<title>Отделка и ремонт — подборка</title><style>',
+             '<title>{} — подборка</title><style>'.format(esc(TOPIC_LABEL)),
              'body{font:16px system-ui;margin:24px auto;padding:0 16px;max-width:850px;color:#202936;background:#f5f7fa}',
              'article{padding:18px;background:white;border:1px solid #dce2e9;border-radius:12px;margin:12px 0}',
              'p{white-space:pre-wrap;overflow-wrap:anywhere}a{display:block;margin:8px 0;color:#155cc2}',
-             '</style><h1>Отделка и ремонт</h1>',
+             '</style><h1>{}</h1>'.format(esc(TOPIC_LABEL)),
              '<p>Подборка по ключевым словам. Актуальность, условия и заказчика проверяйте по оригиналу.</p>']
     for source in report.get('sources', []):
         if source['status'] != 'ok':

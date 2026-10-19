@@ -11,6 +11,25 @@ from scripts.jev_telegram_collect import collect
 
 
 class TelegramTest(unittest.TestCase):
+    def test_house_construction_requests_and_advertising(self):
+        for text in (
+            'Ищу бригаду для строительства дома',
+            'Нужно построить коттедж 140 м²',
+            'Нужны каменщики на кладку стен',
+            'Требуется бригада на фундамент',
+            'Ищу кровельщиков для частного дома',
+            'Нужны мастера на каркасный дом',
+        ):
+            with self.subTest(text=text): self.assertEqual(classify(text), 'order')
+        for text in ('Строим дома под ключ. Ищем клиентов',
+                     'Построим ваш дом, предлагаем строительство коттеджей'):
+            with self.subTest(text=text): self.assertEqual(classify(text), 'services')
+        self.assertEqual(classify('Продам дом с ремонтом'), 'materials')
+        self.assertEqual(classify('Строительство дома 140 м²'), 'review')
+        report = digest([])
+        self.assertIn('строительство домов', report['topic'])
+        self.assertIn('строительство домов', render_html(report))
+
     def test_customer_request_and_advert(self):
         self.assertEqual(classify('Нужна бригада на отделку квартиры'), 'order')
         self.assertEqual(classify('Ищу мастера: ремонт ванной'), 'order')
