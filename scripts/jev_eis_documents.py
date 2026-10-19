@@ -147,6 +147,12 @@ class Browser:
         state=await self.read('({url:location.href,ready:document.readyState,html:document.documentElement.outerHTML,text:document.body.innerText,visible_links:[...document.querySelectorAll("a[href]")].filter(e=>typeof e.href==="string"&&e.getClientRects().length&&getComputedStyle(e).visibility!=="hidden").map(e=>e.href)})')
         if not state or state['url']!=url or state['ready']!='complete' or number not in state['text']:
             raise ValueError('Expanded document page not verified')
+        parsed=Page();parsed.feed(state['html'])
+        for anchor in parsed.links:
+            href=urljoin(url,anchor.get('href',''))
+            try:validate_download(href)
+            except ValueError:continue
+            if href not in state['visible_links']:raise ValueError('Hidden attachment remains after expansion')
         return state
 
     async def download(self,url,directory,limit=MAX_FILE):

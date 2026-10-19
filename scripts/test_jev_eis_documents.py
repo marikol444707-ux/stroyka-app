@@ -174,6 +174,16 @@ class DocumentCollectionRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(inventory(state['html'],number,state['visible_links'],state['text'])['files']),2)
         self.assertEqual(browser.page.await_count,1)  # Never reload away the expanded list.
 
+    async def test_unexpanded_download_is_not_silently_ignored(self):
+        from scripts.jev_eis_documents import Browser
+        from unittest.mock import AsyncMock
+        number='0121200004726001290';url='https://zakupki.gov.ru/epz/order/notice/ok20/view/documents.html?regNumber='+number
+        download='https://zakupki.gov.ru/44fz/filestore/public/1.0/download/priz/file.html?uid='+'A'*32
+        state={'url':url,'ready':'complete','html':'№ '+number+'<a href="'+download+'">Hidden.docx</a>','text':number,'visible_links':[]}
+        browser=Browser({},'/unused');browser.page=AsyncMock(return_value=state)
+        browser.read=AsyncMock(side_effect=[False,state])
+        with self.assertRaisesRegex(ValueError,'Hidden attachment'):await browser.documents_page(url,number)
+
     async def test_stuck_attachment_expansion_is_not_reported_complete(self):
         from scripts.jev_eis_documents import Browser
         from unittest.mock import AsyncMock
