@@ -104,12 +104,14 @@ def render(snapshot,report):
     md+=['','**Работы:** '+card.get('object','не извлечено'),'','**Начальная цена:** '+card.get('price','не извлечено'),'','**Подача заявки до:** '+card.get('application_deadline','не извлечено'),'']
     blocks=['<h1>'+escape(title)+'</h1><p>Снимок: '+escape(report['retrieved_at'])+'</p>',
             '<p class="notice">Предварительный разбор. Допуск компании к участию и полная проверка сметы не выполнены.</p>',
-            '<p><a href="'+escape(report['notice_url'],quote=True)+'">Карточка ЕИС</a></p>','<h2>Оригиналы</h2>']
+            '<p><a href="'+escape(report['notice_url'],quote=True)+'">Карточка ЕИС</a></p>']
     blocks.append('<article><h2>'+escape(card.get('object','Описание работ не извлечено'))+'</h2><p>Начальная цена: '+escape(card.get('price','не извлечено'))+'<br>Подача заявки до: '+escape(card.get('application_deadline','не извлечено'))+'</p></article>')
+    blocks.append('<details><summary>Документы · '+str(len(report['documents']))+'</summary>')
     for doc in report['documents']:
         state={'read':'Прочитан','partial':'Прочитан частично','read_failed':'Не удалось прочитать','download_failed':'Не удалось скачать'}.get(doc.get('status'),doc.get('status','не прочитан'));original=doc.get('path')
         md.append('- '+doc['name']+' — '+state+'; SHA-256: `'+doc.get('sha256','нет')+'`. [ЕИС]('+doc['url']+')')
         blocks.append('<article><strong>'+escape(doc['name'])+'</strong><p>'+escape(state)+' · '+str(doc.get('bytes',0))+' байт</p><a href="'+escape(doc['url'],quote=True)+'">Открыть в ЕИС</a>'+((' · <a href="'+escape(original,quote=True)+'">Сохранённый оригинал</a>') if original else '')+'</article>')
+    blocks.append('</details>')
     md+=['','## Краткий разбор','']
     blocks.append('<h2>Краткий разбор</h2>')
     if report.get('ai_status')!='grounded':
@@ -125,7 +127,9 @@ def render(snapshot,report):
             refs.append('<blockquote>'+escape(ref['quote'])+'<footer>'+escape(doc['name']+' · '+unit['locator'])+'</footer></blockquote>')
         blocks.append('<article><h3>'+escape(label)+'</h3><p>'+escape(finding['summary'])+'</p>'+''.join(refs)+'</article>')
     blocks.append('<h2>Что требует проверки</h2>')
-    notes=[report['company_eligibility'],'Полная проверка сметы не выполнена. Простые формулы: '+json.dumps(report['formula_counts'],ensure_ascii=False)]
+    counts=report['formula_counts']
+    formula_note=('Проверены простые формулы: '+str(counts.get('matched',0))+'. Остались без проверки: '+str(counts.get('not_checked',0))+'. Расхождения: '+str(counts.get('mismatch',0))+'.') if counts else 'Формулы для пересчёта не найдены.'
+    notes=[report['company_eligibility'],'Полная проверка сметы не выполнена. '+formula_note]
     notes+=report['issues']
     if not report['snapshot_consistent']:notes.append('Редакция изменилась во время чтения — повторите сбор документов.')
     md+=['','## Что требует проверки','']+['- '+x for x in notes]
@@ -143,7 +147,7 @@ def render(snapshot,report):
             inner.append('<article><strong>'+escape(doc['name']+' · '+unit['locator']+tag)+'</strong><p>'+escape(unit['text']).replace('\n','<br>')+'</p></article>')
         blocks.append('<details><summary>'+escape(label)+' · '+str(len(matching))+' фрагментов</summary>'+''.join(inner)+'</details>')
     (snapshot/'report.md').write_text('\n'.join(md))
-    style='body{margin:0;background:#f4f5f7;color:#202830;font:16px/1.6 system-ui,sans-serif}main{max-width:900px;margin:auto;padding:24px}h1{font-size:clamp(23px,5vw,34px)}h2{margin-top:32px}article,details{background:white;border:1px solid #e0e4e8;border-radius:14px;padding:18px;margin:12px 0;overflow-wrap:anywhere}a{color:#b74b00}blockquote{border-left:3px solid #ed8a35;padding-left:14px;margin:12px 0}footer{color:#66727d;font-size:13px}.notice{background:#fff3dd;padding:14px;border-radius:12px}summary{cursor:pointer;font-weight:650}p{white-space:pre-wrap} @media(max-width:600px){main{padding:14px}article{padding:14px}}'
+    style='body{margin:0;background:#f4f5f7;color:#202830;font:16px/1.6 system-ui,sans-serif}main{max-width:900px;margin:auto;padding:24px}h1{font-size:clamp(23px,5vw,34px)}h2{margin-top:32px}article>h2{font-size:20px;line-height:1.4;margin:0 0 12px}article,details{background:white;border:1px solid #e0e4e8;border-radius:14px;padding:18px;margin:12px 0;overflow-wrap:anywhere}a{color:#b74b00}blockquote{border-left:3px solid #ed8a35;padding-left:14px;margin:12px 0}footer{color:#66727d;font-size:13px}.notice{background:#fff3dd;padding:14px;border-radius:12px}summary{cursor:pointer;font-weight:650}p{white-space:pre-wrap} @media(max-width:600px){main{padding:14px}article{padding:14px}}'
     (snapshot/'report.html').write_text('<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; img-src \'self\' data:"><title>'+escape(title)+'</title><style>'+style+'</style><main>'+''.join(blocks)+'</main></html>')
 
 
