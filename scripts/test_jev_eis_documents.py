@@ -291,6 +291,11 @@ class ReportReliabilityTests(unittest.TestCase):
         result=select_evidence(units,'d')
         self.assertEqual([x['id'] for x in result if x['category']=='payment'],['d:3:payment'])
 
+    def test_sro_membership_clause_is_selected_as_participant_requirement(self):
+        from scripts.jev_eis_document_report import select_evidence
+        unit={'id':'d4:32','source':'d4','locator':'абзац 32','text':'Участник закупки должен быть членом саморегулируемой организации в области строительства.','ocr':False}
+        self.assertTrue(any(e['category']=='qualification' for e in select_evidence([unit],'d4')))
+
     def test_report_shows_unknown_payment_and_separates_visual_review(self):
         from scripts.jev_eis_document_report import render
         import json
