@@ -4375,6 +4375,7 @@ def init_db():
         ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS invoice_number VARCHAR(100);
         ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS company_id INT;
         ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS project_id INT;
+        ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS source_stock_id INT;
         ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS issue_party_snapshot_json JSONB;
         ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS issue_party_snapshot_hash CHAR(64);
         ALTER TABLE material_transfers ADD COLUMN IF NOT EXISTS issue_party_snapshot_frozen_at TIMESTAMPTZ;
@@ -5949,6 +5950,8 @@ class WarehouseHistoryModel(BaseModel):
     dateTime: str = ""
 
 class WarehouseMovementModel(BaseModel):
+    draftId: Optional[str] = None
+    expectedActorUserId: Optional[int] = None
     commandId: Optional[str] = None
     materialName: str
     fromLocation: str
@@ -5961,6 +5964,14 @@ class WarehouseMovementModel(BaseModel):
     notes: str = ""
     invoiceId: Optional[int] = None
     invoiceLineIndex: Optional[int] = None
+
+class WarehouseMovementDraftModel(BaseModel):
+    draftId: str
+    expectedActorUserId: int
+    commands: list[WarehouseMovementModel]
+
+class WarehouseMovementDraftCancelModel(BaseModel):
+    expectedActorUserId: int
 
 class PieceworkModel(BaseModel):
     staffId: str
@@ -7212,12 +7223,177 @@ def _apply_warehouse_movement(cur, m, company_id, _current_user):
                  "warehouse_movement", row["id"], source_invoice_id, source_invoice_line_index))
     return dict(row)
 
+def _movement_draft_company(cur, user, x_company_id, x_company_mode):
+    if not _positive_int_or_none(x_company_id) or x_company_mode != "company":
+        raise HTTPException(409, "Выберите конкретную компанию для перемещения")
+    context = _resolve_work_company_context(cur, user, None, "write",
+        x_company_id=x_company_id, x_company_mode=x_company_mode)
+    company = int(context.get("companyId") or 0)
+    if company <= 0 or company != int(x_company_id):
+        raise HTTPException(409, "Компания перемещения не определена")
+    try:
+        from backend.features.company_context.service import effective_company_actors
+    except ModuleNotFoundError:
+        from features.company_context.service import effective_company_actors
+    actors = effective_company_actors(user, context)
+    if len(actors) != 1 or int(actors[0].get("companyId") or 0) != company:
+        raise HTTPException(403, "Нет действующей роли в выбранной компании")
+    selected_actor = actors[0]
+    if selected_actor.get("role") not in WAREHOUSE_ROLES:
+        raise HTTPException(403, "Нет складских прав в выбранной компании")
+    return company, selected_actor
+
+
+def _authorize_movement_draft_command(cur, m, company, user):
+    if os.getenv('OWNED_DISTRIBUTION_QUALITY_ENABLED') == '1':
+        raise HTTPException(409, "Старое перемещение отключено; используйте распределение конкретной партии")
+    material = (m.materialName or "").strip()
+    source, target = (m.fromLocation or "").strip(), (m.toLocation or "").strip()
+    package = (m.workPackage or "Основная").strip() or "Основная"
+    if not material or not source or not target or source == target or m.quantity <= 0:
+        raise HTTPException(400, "Проверьте материал, источник, получателя и количество")
+    for location in (source, target):
+        if location == "Основной склад":
+            continue
+        require_project_or_warehouse_access(user, location)
+        cur.execute("SELECT id FROM projects WHERE company_id=%s AND name=%s", (company, location))
+        if len(cur.fetchall()) != 1:
+            raise HTTPException(409, "Объект не определён однозначно в выбранной компании")
+    if user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(user, package):
+        raise HTTPException(403, "Нет доступа к пакету материалов")
+    if source == "Основной склад" and user.get("role") not in MAIN_WAREHOUSE_WRITE_ROLES:
+        raise HTTPException(403, "Нет права перемещения с основного склада")
+
+
+def _movement_draft_restricted(cur, draft, company, user):
+    for command in draft['commands']:
+        try:
+            _authorize_movement_draft_command(cur, WarehouseMovementModel(**command), company, user)
+        except HTTPException as error:
+            if error.status_code not in (403, 409):
+                raise
+            return True
+    return False
+
+
+def _movement_draft_recovery_response(result, restricted):
+    if not restricted:
+        return result
+    return {key: result[key] for key in ('draftId', 'companyId', 'actorUserId', 'complete')} | {
+        'restricted': True, 'commands': []}
+
+
+@app.post("/warehouse-movement-drafts")
+def prepare_warehouse_movement_draft(
+    m: WarehouseMovementDraftModel,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
+    try:
+        from backend.features.warehouse_movements import drafts
+    except ModuleNotFoundError:
+        from features.warehouse_movements import drafts
+    actor = drafts.actor_identity(_current_user, m.expectedActorUserId)
+    draft_id = drafts.uuid_value(m.draftId, "draftId")
+    if not 1 <= len(m.commands) <= 100:
+        raise HTTPException(422, "Черновик должен содержать от 1 до 100 команд")
+    conn = get_db()
+    conn.autocommit = False
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        company, selected_actor = _movement_draft_company(cur, _current_user, x_company_id, x_company_mode)
+        drafts.lock_actor(cur, company, actor)
+        for command in m.commands:
+            _authorize_movement_draft_command(cur, command, company, selected_actor)
+        draft = drafts.prepare(cur, company, actor, draft_id, m.commands)
+        result = drafts.reconcile(cur, company, actor, draft)
+        conn.commit()
+        return result
+    except psycopg2.IntegrityError:
+        conn.rollback()
+        raise HTTPException(409, "Черновик или команда уже сохранены; восстановите незавершённое перемещение")
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close(); conn.close()
+
+
+@app.get("/warehouse-movement-drafts")
+def get_warehouse_movement_drafts(
+    expectedActorUserId: int,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
+    try:
+        from backend.features.warehouse_movements import drafts
+    except ModuleNotFoundError:
+        from features.warehouse_movements import drafts
+    actor = drafts.actor_identity(_current_user, expectedActorUserId)
+    conn = get_db()
+    conn.autocommit = False
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        company, selected_actor = _movement_draft_company(cur, _current_user, x_company_id, x_company_mode)
+        drafts.lock_actor(cur, company, actor)
+        recovered = []
+        for draft in drafts.pending_drafts(cur, company, actor):
+            restricted = _movement_draft_restricted(cur, draft, company, selected_actor)
+            recovered.append(_movement_draft_recovery_response(
+                drafts.reconcile(cur, company, actor, draft), restricted))
+        result = {'companyId': company, 'actorUserId': actor, 'drafts': recovered}
+        conn.commit()
+        return result
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close(); conn.close()
+
+
+@app.post("/warehouse-movement-drafts/{draft_id}/cancel")
+def cancel_warehouse_movement_draft(
+    draft_id: str,
+    m: WarehouseMovementDraftCancelModel,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
+    try:
+        from backend.features.warehouse_movements import drafts
+    except ModuleNotFoundError:
+        from features.warehouse_movements import drafts
+    actor = drafts.actor_identity(_current_user, m.expectedActorUserId)
+    draft_id = drafts.uuid_value(draft_id, "draftId")
+    conn = get_db()
+    conn.autocommit = False
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    try:
+        company, selected_actor = _movement_draft_company(cur, _current_user, x_company_id, x_company_mode)
+        drafts.lock_actor(cur, company, actor)
+        draft = drafts.get_draft(cur, company, actor, draft_id)
+        if draft is None:
+            raise HTTPException(404, "Черновик перемещения не найден")
+        restricted = _movement_draft_restricted(cur, draft, company, selected_actor)
+        result = _movement_draft_recovery_response(
+            drafts.cancel_pending(cur, company, actor, draft), restricted)
+        conn.commit()
+        return result
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close(); conn.close()
+
+
 @app.post("/warehouse-movements")
 def create_warehouse_movement(
     m: WarehouseMovementModel,
     x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
     x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
-    _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES)),
+    _current_user: dict = Depends(get_current_user),
 ):
     if os.getenv('OWNED_DISTRIBUTION_QUALITY_ENABLED') == '1':
         raise HTTPException(status_code=409, detail="Для перемещения с журналом качества используйте распределение конкретной партии или возврат по распределению. Старое перемещение отключено.")
@@ -7239,40 +7415,19 @@ def create_warehouse_movement(
         raise HTTPException(status_code=400, detail="Источник и получатель перемещения совпадают")
     if qty <= 0:
         raise HTTPException(status_code=400, detail="Количество должно быть больше нуля")
-    if from_location != "Основной склад":
-        require_project_or_warehouse_access(_current_user, from_location)
-    if to_location != "Основной склад":
-        require_project_or_warehouse_access(_current_user, to_location)
-    if _current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(_current_user, work_package or "Основная"):
-        raise HTTPException(status_code=403, detail="Нет доступа к пакету материалов")
-    if from_location == "Основной склад" and _current_user.get("role") not in MAIN_WAREHOUSE_WRITE_ROLES:
-        raise HTTPException(status_code=403, detail="Перемещать материал с основного склада на объект может директор, замдиректора, снабженец или кладовщик")
-
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    requested_company_ids = {
-        company_id for company_id in (
-            _project_company_id(cur, from_location),
-            _project_company_id(cur, to_location),
-        ) if _positive_int_or_none(company_id)
-    }
-    if len(requested_company_ids) > 1:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=409, detail="Источник и получатель относятся к разным компаниям")
-    company_context = _resolve_work_company_context(
-        cur,
-        _current_user,
-        next(iter(requested_company_ids), None),
-        "write",
-        x_company_id=x_company_id,
-        x_company_mode=x_company_mode,
-    )
-    company_id = int(company_context.get("companyId") or 0)
-    if company_id <= 0:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=409, detail="Компания перемещения не определена")
     conn.autocommit = False
     try:
+        try:
+            from backend.features.warehouse_movements import drafts
+        except ModuleNotFoundError:
+            from features.warehouse_movements import drafts
+        actor = drafts.actor_identity(_current_user, getattr(m, 'expectedActorUserId', None))
+        company_id, selected_actor = _movement_draft_company(cur, _current_user, x_company_id, x_company_mode)
+        _authorize_movement_draft_command(cur, m, company_id, selected_actor)
+        drafts.lock_actor(cur, company_id, actor)
+        drafts.verify_prepared(cur, company_id, actor, m)
         try:
             from backend.features.material_traceability.guards import lock_distribution_compatible_stock
         except ModuleNotFoundError:
@@ -7283,7 +7438,7 @@ def create_warehouse_movement(
             conn.commit()
             return previous
         lock_distribution_compatible_stock(cur)
-        row = _apply_warehouse_movement(cur, m, company_id, _current_user)
+        row = _apply_warehouse_movement(cur, m, company_id, selected_actor)
         row = save_command(cur, company_id, command_id, payload_hash, row)
 
         conn.commit()
@@ -7297,7 +7452,7 @@ def create_warehouse_movement(
         movement_result,
         to_location,
         company_id,
-        _current_user,
+        selected_actor,
     )
     _run_project_ai_control_safely(to_location if to_location != "Основной склад" else from_location, "warehouse_movement:create")
     return movement_result
@@ -12749,61 +12904,87 @@ def _row_value(row, index: int, key: str, default=None):
     except Exception:
         return default
 
-def _stock_row_by_material_key(
-    cur,
-    *,
-    project: str,
-    material_name: str,
-    unit: str = "",
-    work_package: str = "",
-    main_warehouse: bool = False,
-    company_id=None,
-):
-    target_key = _material_control_key_resolved(cur, project, material_name, unit, company_id=company_id)
+def _stock_row_by_material_key(cur, *, project: str, material_name: str,
+                               unit: str = "", work_package: str = "",
+                               main_warehouse: bool = False, company_id=None,
+                               source_stock_id=None):
+    """Lock exactly one original stock identity, never a fuzzy/package fallback."""
+    company = _positive_int_or_none(company_id)
     unit_key = _norm_base_unit(unit or "").strip().lower()
-    unit_filter = f" AND {_sql_norm_unit('unit')}=%s" if unit_key else ""
-    normalized_company_id = _positive_int_or_none(company_id)
-    company_filter = " AND company_id=%s" if normalized_company_id else ""
-    def _row_matches(row):
-        row_name = _row_value(row, 1, "name", "")
-        row_unit = _row_value(row, 3, "unit", unit)
-        if _material_control_key_resolved(cur, project, row_name, row_unit, company_id=company_id) == target_key:
-            return True
-        return _material_units_compatible(unit, row_unit) and _material_name_match_score(material_name, row_name) >= 0.55
+    name_key = str(material_name or "").strip().casefold()
+    if not company or not unit_key or not name_key:
+        raise HTTPException(409, "Не определена компания, единица или материал склада. Требуется сверка.")
+    extra, ids = "", []
+    if source_stock_id is not None:
+        stock_id = _positive_int_or_none(source_stock_id)
+        if (isinstance(source_stock_id, bool) or not stock_id
+                or not isinstance(source_stock_id, (int, str))
+                or str(source_stock_id).strip() != str(stock_id)):
+            raise HTTPException(409, "Некорректный исходный складской материал. Требуется сверка.")
+        extra, ids = " AND id=%s", [stock_id]
     if main_warehouse:
-        cur.execute(f"""SELECT id, name, quantity, unit
-                        FROM warehouse_main
-                        WHERE TRUE {company_filter} {unit_filter}
-                        ORDER BY id DESC
-                        FOR UPDATE""", tuple(([normalized_company_id] if normalized_company_id else []) + ([unit_key] if unit_key else [])))
-        for row in cur.fetchall() or []:
-            if _row_matches(row):
-                return row
+        cur.execute(f"""SELECT id,name,quantity,unit FROM warehouse_main
+                        WHERE company_id=%s AND {_sql_norm_unit('unit')}=%s {extra}
+                        ORDER BY id FOR UPDATE""", tuple([company, unit_key] + ids))
     else:
-        package_name = (work_package or "Основная").strip() or "Основная"
-        cur.execute(f"""SELECT id, name, quantity, unit
-                        FROM materials
-                        WHERE project=%s
+        package = (work_package or "Основная").strip() or "Основная"
+        cur.execute(f"""SELECT id,name,quantity,unit FROM materials
+                        WHERE company_id=%s AND project=%s
                           AND COALESCE(NULLIF(work_package,''),'Основная')=%s
-                          {company_filter}
-                          {unit_filter}
-                        ORDER BY id DESC
-                        FOR UPDATE""", tuple([project, package_name] + ([normalized_company_id] if normalized_company_id else []) + ([unit_key] if unit_key else [])))
-        for row in cur.fetchall() or []:
-            if _row_matches(row):
-                return row
-        if package_name != "Основная":
-            cur.execute(f"""SELECT id, name, quantity, unit
-                            FROM materials
-                            WHERE project=%s
-                              {company_filter}
-                              {unit_filter}
-                            ORDER BY CASE WHEN COALESCE(NULLIF(work_package,''),'Основная')='Основная' THEN 0 ELSE 1 END, id DESC
-                            FOR UPDATE""", tuple([project] + ([normalized_company_id] if normalized_company_id else []) + ([unit_key] if unit_key else [])))
-            for row in cur.fetchall() or []:
-                if _row_matches(row):
-                    return row
-    return None
+                          AND {_sql_norm_unit('unit')}=%s {extra}
+                        ORDER BY id FOR UPDATE""", tuple([company, project, package, unit_key] + ids))
+    matches = [row for row in cur.fetchall() or []
+               if str(_row_value(row, 1, "name", "") or "").strip().casefold() == name_key
+               and _norm_base_unit(_row_value(row, 3, "unit", "") or "").strip().lower() == unit_key]
+    if len(matches) > 1:
+        raise HTTPException(409, "Несколько одинаковых складских строк. Выберите точный источник или выполните сверку; остаток не изменён.")
+    if source_stock_id is not None and not matches:
+        raise HTTPException(409, "Исходный материал изменён или не найден в компании, объекте и пакете. Требуется сверка.")
+    return matches[0] if matches else None
+
+
+def _material_return_stock(cur, *, company_id, project, person_id, person_name,
+                           material_name, unit, work_package):
+    """Lock signed issues before balance; preserve their original source identity."""
+    cur.execute(f"""SELECT material_name,unit,source_stock_id,from_location,to_user_id,to_person
+                    FROM material_transfers
+                    WHERE company_id=%s AND project_name=%s
+                      AND (to_user_id=%s OR (to_user_id IS NULL AND LOWER(TRIM(to_person))=LOWER(TRIM(%s))))
+                      AND signed=TRUE AND COALESCE(status,'Активна')<>'Аннулирована'
+                      AND COALESCE(NULLIF(work_package,''),'Основная')=%s
+                      AND {_sql_norm_unit('unit')}=%s
+                    ORDER BY id FOR UPDATE""",
+                (company_id, project, person_id, person_name, work_package,
+                 _norm_base_unit(unit).strip().lower()))
+    issued = [row for row in cur.fetchall() or []
+              if str(row.get('material_name') or '').strip().casefold() == str(material_name).strip().casefold()]
+    if not issued:
+        raise HTTPException(409, "Не найдена подтверждённая выдача именно этого материала. Выберите исходное название из выдачи.")
+    for row in issued:
+        if not row.get('to_user_id'):
+            _require_unambiguous_legacy_material_person(cur, company_id, person_id, row.get('to_person') or person_name)
+        if row.get('from_location') != project:
+            raise HTTPException(409, "Источник исторической выдачи не совпадает со складом объекта. Требуется сверка.")
+    identities = {(row['material_name'], _norm_base_unit(row['unit'])) for row in issued}
+    if len(identities) != 1:
+        raise HTTPException(409, "В выдачах разные исходные названия материала. Требуется сверка.")
+    original_name, original_unit = next(iter(identities))
+    sources = {row['source_stock_id'] for row in issued if row.get('source_stock_id') is not None}
+    if len(sources) > 1:
+        raise HTTPException(409, "Материал выдан из нескольких складских строк. Требуется сверка источника возврата.")
+    source_id = next(iter(sources), None)
+    if any(row.get('source_stock_id') is None for row in issued):
+        # A newer precise issue cannot silently assign an ambiguous older one.
+        legacy = _stock_row_by_material_key(cur, company_id=company_id, project=project,
+            material_name=original_name, unit=original_unit, work_package=work_package)
+        if not legacy or (source_id is not None and _row_value(legacy, 0, 'id') != source_id):
+            raise HTTPException(409, "Не определён единственный источник исторической выдачи. Требуется сверка.")
+        source_id = _row_value(legacy, 0, 'id')
+    stock = _stock_row_by_material_key(cur, company_id=company_id, project=project,
+        material_name=original_name, unit=original_unit, work_package=work_package, source_stock_id=source_id)
+    if not stock:
+        raise HTTPException(409, "Исходный складской материал не найден. Требуется сверка.")
+    return stock, original_name, original_unit
 
 def _require_unambiguous_legacy_material_person(cur, company_id, person_id, person_name):
     """Do not assign name-only historic material events to a namesake."""
@@ -19924,7 +20105,7 @@ def create_material_transfer(
             if not receiver_packages or (work_package or "Основная") not in receiver_packages:
                 raise HTTPException(status_code=403, detail="Получатель материала не имеет доступа к пакету «" + (work_package or "Основная") + "»")
         if from_location == "Основной склад":
-            row = _stock_row_by_material_key(cur, project=project_name, material_name=material_name, unit=unit, main_warehouse=True, company_id=company_id)
+            row = _stock_row_by_material_key(cur, project=project_name, material_name=material_name, unit=unit, main_warehouse=True, company_id=company_id, source_stock_id=data.get("sourceStockId"))
             if not row:
                 raise HTTPException(status_code=400, detail="Материал «"+material_name+"» не найден на основном складе")
             stock_id = _row_value(row, 0, "id")
@@ -19932,10 +20113,10 @@ def create_material_transfer(
             stock_name = _row_value(row, 1, "name", material_name)
             if stock_qty < qty:
                 raise HTTPException(status_code=400, detail="На основном складе только "+str(stock_qty)+", запрошено "+str(qty))
-            cur.execute("UPDATE warehouse_main SET quantity=quantity-%s WHERE id=%s", (qty, stock_id))
+            cur.execute("UPDATE warehouse_main SET quantity=quantity-%s WHERE id=%s AND company_id=%s", (qty, stock_id, company_id))
             material_name = stock_name or material_name
         else:
-            row = _stock_row_by_material_key(cur, project=from_location, material_name=material_name, unit=unit, work_package=work_package, company_id=company_id)
+            row = _stock_row_by_material_key(cur, project=from_location, material_name=material_name, unit=unit, work_package=work_package, company_id=company_id, source_stock_id=data.get("sourceStockId"))
             if not row:
                 raise HTTPException(status_code=400, detail="Материал «"+material_name+"» не найден на складе объекта «"+from_location+"»" + (" по пакету «" + work_package + "»" if work_package else ""))
             stock_id = _row_value(row, 0, "id")
@@ -19959,19 +20140,21 @@ def create_material_transfer(
                 project_id=project_id,
             )
             _enforce_supply_estimate_control(transfer_control_items, source="выдача исполнителю")
-            work_package = _supply_work_package(transfer_control_items[0].get("workPackage") or work_package)
-            cur.execute("UPDATE materials SET quantity=quantity-%s WHERE id=%s", (qty, stock_id))
+            checked_package = _supply_work_package(transfer_control_items[0].get("workPackage") or work_package)
+            if checked_package != work_package:
+                raise HTTPException(409, "Пакет выдачи изменился после выбора склада. Выберите материал в правильном пакете.")
+            cur.execute("UPDATE materials SET quantity=quantity-%s WHERE id=%s AND company_id=%s", (qty, stock_id, company_id))
             material_name = stock_name or material_name
 
         created_by = actor.get("name", "") or data.get("createdBy", "")
         cur.execute("""INSERT INTO material_transfers
                        (company_id,project_id,project_name,from_location,to_user_id,to_person,to_person_role,
                         work_package,material_name,quantity,unit,transfer_date,notes,created_by,
-                        invoice_id,invoice_line_key,invoice_line_index,invoice_number)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                        invoice_id,invoice_line_key,invoice_line_index,invoice_number,source_stock_id)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
             (company_id, project_id, project_name, from_location, to_user_id, to_person, to_person_role,
              work_package, material_name, qty, unit, data.get("transferDate") or None, data.get("notes",""),
-             created_by, invoice_id, invoice_line_key, invoice_line_index, invoice_number))
+             created_by, invoice_id, invoice_line_key, invoice_line_index, invoice_number, stock_id))
         new_id = cur.fetchone().get("id")
 
         try:
@@ -20136,26 +20319,21 @@ def return_material_from_master(
         if len(people) != 1:
             raise HTTPException(status_code=409, detail="Для возврата выберите точного исполнителя. По имени владелец материала не определён однозначно.")
         person_id, person_name = people[0]["id"], people[0]["name"]
+        stock_row, material_name, unit = _material_return_stock(
+            cur, company_id=company_id, project=project_name, person_id=person_id,
+            person_name=person_name, material_name=material_name, unit=unit, work_package=work_package)
         balance = _personal_material_balance(
-            cur, project_name, person_id, person_name, material_name, work_package, unit, company_id=company_id
+            cur, project_name, person_id, person_name, material_name, work_package, unit, company_id=company_id, include_identity=True
         )
+        if any(source["name"] != material_name or _norm_base_unit(source["unit"]) != unit
+               for source in balance.get("identitySources", [])):
+            raise HTTPException(409, "Личный остаток объединяет разные исходные названия материалов. Требуется сверка возврата.")
         if balance["available"] < qty:
             raise HTTPException(status_code=400, detail="У мастера «"+person_name+"» доступно к возврату "+str(round(balance["available"], 3))+" "+unit+" «"+material_name+"», запрошено "+str(qty))
 
-        stock_row = _stock_row_by_material_key(
-            cur, project=project_name, material_name=material_name, unit=unit,
-            work_package=work_package, company_id=company_id
-        )
-        if stock_row:
-            stock_id = _row_value(stock_row, 0, "id")
-            stock_name = _row_value(stock_row, 1, "name", material_name)
-            cur.execute("UPDATE materials SET quantity=quantity+%s WHERE id=%s", (qty, stock_id))
-            material_name = stock_name or material_name
-        else:
-            cur.execute("""INSERT INTO materials
-                           (company_id,name,unit,quantity,price,min_quantity,project,category,work_package)
-                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                (company_id, material_name, unit or "шт", qty, 0, 0, project_name, "Возврат от мастера", work_package))
+        stock_id = _row_value(stock_row, 0, "id")
+        cur.execute("UPDATE materials SET quantity=quantity+%s WHERE id=%s AND company_id=%s", (qty, stock_id, company_id))
+        # The history keeps the issued identity, never a substitute stock label.
 
         return_date = data.get("date") or None
         cur.execute("""INSERT INTO warehouse_history
@@ -20205,7 +20383,7 @@ def delete_material_transfer(
         lock_distribution_compatible_stock(cur)
         transfer = resolve_material_transfer_parent(cur, actor, id, for_update=True)
         cur.execute("""SELECT project_name,from_location,to_person,material_name,quantity,unit,signed,
-                              COALESCE(status,'Активна') AS status,work_package
+                              COALESCE(status,'Активна') AS status,work_package,source_stock_id
                        FROM material_transfers WHERE id=%s AND company_id=%s FOR UPDATE""", (id, transfer["companyId"]))
         row = cur.fetchone()
         if not row:
@@ -20217,35 +20395,27 @@ def delete_material_transfer(
         work_package = (work_package or "Основная").strip() or "Основная"
         if not has_package_access(actor, work_package):
             raise HTTPException(status_code=403, detail="Нет доступа к пакету передачи материала")
-        qty = float(qty or 0)
         if status == "Аннулирована":
             conn.rollback()
             return {"ok": True}
         if signed:
             raise HTTPException(status_code=400, detail="Подписанную передачу нельзя удалить. Оформите возврат материала отдельной операцией.")
 
-        if (from_location or "") == "Основной склад":
-            cur.execute(f"""UPDATE warehouse_main SET quantity=quantity+%s
-                            WHERE company_id=%s AND name=%s AND {_sql_norm_unit('unit')}=%s""",
-                        (qty, transfer["companyId"], material_name, _norm_base_unit(unit or "шт") or "шт"))
-            if cur.rowcount == 0:
-                cur.execute("""INSERT INTO warehouse_main
-                               (company_id,name,unit,quantity,price,min_quantity,category)
-                               VALUES (%s,%s,%s,%s,%s,%s,%s)""",
-                    (transfer["companyId"], material_name, unit or "шт", qty, 0, 0, "Возврат передачи"))
-        else:
-            cur.execute(f"""UPDATE materials SET quantity=quantity+%s
-                            WHERE company_id=%s AND name=%s AND project=%s
-                              AND COALESCE(NULLIF(work_package,''),'Основная')=%s
-                              AND {_sql_norm_unit('unit')}=%s""",
-                        (qty, transfer["companyId"], material_name, from_location, work_package,
-                         _norm_base_unit(unit or "шт") or "шт"))
-            if cur.rowcount == 0:
-                cur.execute("""INSERT INTO materials
-                               (company_id,name,unit,quantity,price,min_quantity,project,category,work_package)
-                               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                    (transfer["companyId"], material_name, unit or "шт", qty, 0, 0,
-                     from_location or project_name or "", "Возврат передачи", work_package))
+        qty = _personal_material_quantity(qty)
+        if qty <= 0:
+            raise HTTPException(409, "В передаче некорректное количество. Требуется сверка.")
+        main_warehouse = (from_location or "") == "Основной склад"
+        if not main_warehouse and (not from_location or from_location != project_name):
+            raise HTTPException(409, "Источник передачи не совпадает с объектом. Требуется сверка.")
+        stock = _stock_row_by_material_key(cur, company_id=transfer["companyId"], project=from_location,
+            material_name=material_name, unit=unit, work_package=work_package,
+            main_warehouse=main_warehouse, source_stock_id=row.get("source_stock_id"))
+        if not stock:
+            raise HTTPException(409, "Исходный складской материал не найден. Требуется сверка; отмена не проведена.")
+        stock_id = _row_value(stock, 0, "id")
+        table = "warehouse_main" if main_warehouse else "materials"
+        cur.execute(f"UPDATE {table} SET quantity=quantity+%s WHERE id=%s AND company_id=%s",
+                    (qty, stock_id, transfer["companyId"]))
 
         cur.execute(
             """UPDATE material_transfers SET status=%s,cancelled_at=NOW(),cancelled_by=%s,cancel_reason=%s

@@ -415,6 +415,8 @@ export function buildAppActionGroups({
 
   const warehouseActions = createWarehouseCrudActions({
     API,
+    movementScope: appMainState.movementScope,
+    isMovementScopeCurrent: appMainState.isMovementScopeCurrent,
     addActivity,
     calcVat,
     createInvoiceControlReviewTasksForInvoice,

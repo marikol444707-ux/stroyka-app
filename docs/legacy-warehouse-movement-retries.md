@@ -49,3 +49,10 @@ Optional real PostgreSQL tests require explicit `SUPPLY_CHAIN_RUN_POSTGRES=1` an
 validated disposable Unix-socket `SUPPLY_CHAIN_TEST_DB_*` configuration. They execute
 real transaction/ledger SQL with synthetic stock mutations, not the whole business
 worker. An absent fixture is an explicit skip, not proof of concurrency correctness.
+
+## Durable follow-up
+
+The form-only reload limitation above is superseded by the server-owned draft
+protocol in [durable-movement-recovery.md](durable-movement-recovery.md). Coordinated
+frontend/backend rollout and prepared migration 0103 are required; do not enable
+new client code against an older server.

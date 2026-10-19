@@ -718,10 +718,10 @@ class WarehouseAnomalyRuntimeDisclosurePolicyTests(unittest.TestCase):
             backend_root / "db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Reviewed unified physical receipt and idempotent warehouse movement integration;
+            # Reviewed durable movement recovery and exact return-source integration;
             # warehouse preview implementation and registration are unchanged.
             backend_root / "main.py": (
-                "48285d1627101b3d629af132c2d43fde0a7a65dc5e17655f56133dff3b06259b"
+                "ec1abdd25b0aeb11d87ec44381fbd024e62586db199d85d6c7ec59eb9f66b1e2"
             ),
         }
         actual = {

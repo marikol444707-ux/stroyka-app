@@ -2,7 +2,7 @@
 import copy
 from types import SimpleNamespace
 from unittest import TestCase
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 from uuid import uuid4
 
 import psycopg2
@@ -10,6 +10,7 @@ from fastapi import HTTPException
 
 from backend.features.material_traceability.test_movement_transaction import load_route
 from backend.features.warehouse_movements.idempotency import command_identity
+from backend.features.company_context.service import effective_company_actors
 
 
 class Cursor:
@@ -56,19 +57,25 @@ class Connection:
 
 class MovementRetryTests(TestCase):
     def setUp(self):
+        # Dedicated test_drafts runs the real prepare/ownership path.
+        patcher = patch("backend.features.warehouse_movements.drafts.verify_prepared")
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.ledger = {}
         self.connections = []
         self.company = 2
         self.worker = Mock(return_value={'id': 7, 'estimateControl': {'needsReview': True}})
         self.review = Mock(return_value={'taskId': 8, 'created': True})
         self.access = Mock()
-        self.context = Mock(side_effect=lambda *a, **k: {'companyId': self.company})
+        self.context = Mock(side_effect=lambda *a, **k: {'mode':'company', 'companyId':self.company, 'companyIds':[self.company], 'effectiveRole':'директор', 'assignedProjects':[], 'assignedPackages':[]})
         self.ai = Mock()
         def get_db():
             conn = Connection(self.ledger)
             self.connections.append(conn)
             return conn
         self.namespace = dict(get_db=get_db, psycopg2=psycopg2,
+            _movement_draft_company=lambda cur, user, cid, mode: (self.company,effective_company_actors(user,self.context(cur,user))[0]),
+            _authorize_movement_draft_command=lambda cur, model, company, user:self.access(user,model.toLocation),
             os=SimpleNamespace(getenv=lambda *args: None), HTTPException=HTTPException,
             PACKAGE_LIMIT_ROLES=(), MAIN_WAREHOUSE_WRITE_ROLES=('директор',),
             require_project_or_warehouse_access=self.access, _project_company_id=lambda *_: self.company,
@@ -76,12 +83,12 @@ class MovementRetryTests(TestCase):
             _apply_warehouse_movement=self.worker,
             _create_warehouse_movement_review_task_safely=self.review, _run_project_ai_control_safely=self.ai)
         self.route = load_route(self.namespace)
-        self.model = SimpleNamespace(commandId=str(uuid4()), materialName='Кабель', fromLocation='Основной склад',
+        self.model = SimpleNamespace(expectedActorUserId=12, commandId=str(uuid4()), materialName='Кабель', fromLocation='Основной склад',
             toLocation='Школа', workPackage='', quantity=5, unit='м', date='2026-10-18', createdBy='Директор',
             notes='', invoiceId=3, invoiceLineIndex=0)
 
     def call(self):
-        return self.route(self.model, _current_user={'role': 'директор'})
+        return self.route(self.model, _current_user={'id':12, 'role': 'директор'})
 
     def test_lost_response_replays_exact_result_without_stock_or_side_effects(self):
         first = self.call()  # commit succeeds, client never sees this response

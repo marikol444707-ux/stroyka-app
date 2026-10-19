@@ -2,8 +2,9 @@ import ast
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 from fastapi import HTTPException
+from backend.features.company_context.service import effective_company_actors
 
 
 def load_route(namespace):
@@ -46,7 +47,8 @@ class MovementTransactionTest(unittest.TestCase):
             if isinstance(call.func, ast.Name):
                 self.assertNotIn(call.func.id, ('get_db', '_run_project_ai_control_safely', '_sync_supplier_invoice_from_warehouse'))
 
-    def test_route_commits_worker_and_rolls_back_failures(self):
+    @patch("backend.features.warehouse_movements.drafts.verify_prepared")
+    def test_route_commits_worker_and_rolls_back_failures(self, _prepared):
         for fail in (False, True):
             with self.subTest(fail=fail):
                 conn, cur = Mock(), Mock()
@@ -54,7 +56,7 @@ class MovementTransactionTest(unittest.TestCase):
                 cur.fetchone.return_value = None
                 worker = Mock(side_effect=ValueError('reject') if fail else None, return_value={'id': 7})
                 after = Mock(return_value={})
-                namespace = {'get_db': lambda: conn, 'psycopg2': SimpleNamespace(extras=SimpleNamespace(RealDictCursor=object)),
+                namespace = {'_movement_draft_company': lambda cur,user,*a: (2,effective_company_actors(user,{'mode':'company','companyId':2,'companyIds':[2],'effectiveRole':'директор','assignedProjects':[],'assignedPackages':[]})[0]), '_authorize_movement_draft_command': Mock(), 'get_db': lambda: conn, 'psycopg2': SimpleNamespace(extras=SimpleNamespace(RealDictCursor=object)),
                     # This test exercises the legacy transaction path, independent of host flags.
                     'os': SimpleNamespace(getenv=lambda *args: None),
                     'HTTPException': HTTPException, 'PACKAGE_LIMIT_ROLES': (), 'MAIN_WAREHOUSE_WRITE_ROLES': ('директор',),
@@ -63,15 +65,15 @@ class MovementTransactionTest(unittest.TestCase):
                     '_apply_warehouse_movement': worker, '_create_warehouse_movement_review_task_safely': after,
                     '_run_project_ai_control_safely': Mock()}
                 route = load_route(namespace)
-                model = SimpleNamespace(commandId='a73519ef-b7f9-4c6e-a8da-8741ac744b82', materialName='Кабель', fromLocation='Основной склад', toLocation='Школа', workPackage='', quantity=5)
+                model = SimpleNamespace(expectedActorUserId=12, commandId='a73519ef-b7f9-4c6e-a8da-8741ac744b82', materialName='Кабель', fromLocation='Основной склад', toLocation='Школа', workPackage='', quantity=5)
                 if fail:
                     with self.assertRaises(ValueError):
-                        route(model, _current_user={'role': 'директор'})
+                        route(model, _current_user={'id':12, 'role': 'директор'})
                     conn.rollback.assert_called_once()
                     conn.commit.assert_not_called()
                     after.assert_not_called()
                 else:
-                    self.assertEqual(route(model, _current_user={'role': 'директор'}), {'id': 7})
+                    self.assertEqual(route(model, _current_user={'id':12, 'role': 'директор'}), {'id': 7})
                     conn.commit.assert_called_once()
                     conn.rollback.assert_not_called()
                 cur.close.assert_called_once()

@@ -38,6 +38,10 @@ class CompanyDirectoryPostgresTests(unittest.TestCase):
                     migration = importlib.import_module('migrations.versions.0022_supplier_company_catalog')
                     with patch.object(migration, 'op', adapter.op):
                         migration.upgrade()
+                    for name in ('0027_work_material_accounting', '0033_supply_claim_cases'):
+                        claims_migration = importlib.import_module('migrations.versions.'+name)
+                        with patch.object(claims_migration, 'op', adapter.op):
+                            claims_migration.upgrade()
                 # The archive routes now persist explicit document ownership.
                 cur.execute("ALTER TABLE supplier_documents ADD COLUMN owner_scope VARCHAR(20)")
                 cur.execute("UPDATE supplier_documents SET owner_scope=CASE WHEN company_id IS NULL THEN 'supplier' ELSE 'company' END")
@@ -286,11 +290,16 @@ class CompanyDirectoryPostgresTests(unittest.TestCase):
         self.api('supplier', 'PUT', f'/supply-claims/{claim_id}', {'resolution': 'Reply'}, expected=409)
         self.api('supplier', 'PUT', f'/supply-claims/{claim_id}', {'status': 'Закрыта'}, expected=409)
         self.api('stranger', 'PUT', f'/supply-claims/{claim_id}', {'resolution': 'Foreign'}, expected=409)
-        self.api('stranger', 'PUT', f'/supply-deliveries/{delivery_id}/receive', {'receivedQuantity': 1}, expected=403)
+        self.api('stranger', 'POST', '/warehouse-receipts/confirm',
+                 dict(companyId=2, physicalReceiptConfirmed=True, document={},
+                      actualLines=[dict(deliveryId=delivery_id, receivedQuantity=1, qualityStatus='Принято')]), expected=403)
+        self.assertEqual(self.sql('SELECT received_at FROM supply_deliveries WHERE id=%s', (delivery_id,)), [(None,)])
         self.sql('UPDATE supply_request_recipients SET visible_to_supplier=FALSE WHERE id=%s', (recipient_id,))
         self.assertNotIn(delivery_id, [r['id'] for r in self.api('supplier', 'GET', '/supply-deliveries')])
         self.assertNotIn(claim_id, [r['id'] for r in self.api('supplier', 'GET', '/supply-claims')])
-        self.api('supplier', 'PUT', f'/supply-claims/{claim_id}', {'resolution': 'Hidden'}, expected=403)
+        self.api('supplier', 'GET', f'/supply-claims/{claim_id}/case', expected=404)
+        self.api('supplier', 'POST', f'/supply-claims/{claim_id}/case', {'resolution': 'Hidden'}, expected=404)
+        self.api('supplier', 'PUT', f'/supply-claims/{claim_id}', {'resolution': 'Hidden'}, expected=409)
         self.assertEqual(self.sql('SELECT resolution FROM supply_claims WHERE id=%s', (claim_id,)), [(None,)])
         self.sql('UPDATE supply_request_recipients SET visible_to_supplier=TRUE WHERE id=%s', (recipient_id,))
         self.sql('UPDATE supply_deliveries SET company_id=3 WHERE id=%s', (delivery_id,))

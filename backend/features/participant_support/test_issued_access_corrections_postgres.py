@@ -10,6 +10,8 @@ import sys
 from types import ModuleType, SimpleNamespace
 from unittest.mock import patch
 
+from ..warehouse_receipts.test_http_support import physical_receipt_payload
+
 from .test_quote_corrections_postgres import SupplierQuoteCorrectionsPostgresTests as Fixture
 
 
@@ -45,7 +47,7 @@ class SupplierIssuedAccessCorrectionsPostgresTests(unittest.TestCase):
     def plan(self,source,connection,**kwargs):
         return self.api('admin','POST',self.path(source,connection),dict(operationId=str(uuid.uuid4())),**kwargs)
 
-    def chain(self,*,ship=False,file=False,stock=False):
+    def chain(self,*,ship=False,file=False,stock=False,physical_document=False):
         source,target,connection=self.connection();request,recipient,offer=self.rfq(target);url=None
         material=self.fixture['materialName']
         if stock:
@@ -57,9 +59,26 @@ class SupplierIssuedAccessCorrectionsPostgresTests(unittest.TestCase):
                 (json.dumps([line]),self.fixture['estimateId']))
         self.sql('UPDATE supply_requests SET project=%s,work_package=%s,material_name=%s WHERE id=%s',
             (self.fixture['project'],self.fixture['workPackage'],material,request))
+        if physical_document:
+            from psycopg2.extras import RealDictCursor
+            from ..supplier_access.rfq_requester_snapshot import freeze_rfq_requester_snapshot
+            self.sql("INSERT INTO company_requisites(company_id,full_name,inn) VALUES(2,'Synthetic buyer','7702222222') ON CONFLICT(company_id) DO NOTHING")
+            conn=self.main.get_db()
+            try:
+                with conn,conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute('SELECT * FROM supply_requests WHERE id=%s',(request,))
+                    freeze_rfq_requester_snapshot(cur,dict(cur.fetchone()),self.fixture['users']['director'])
+            finally:conn.close()
         if file:
+            original=('synthetic-issued.pdf',b'%PDF-1.4\nSynthetic issued original\n','application/pdf')
+            if physical_document:
+                document=dict(documentType='waybill',waybillNumber='Synthetic issued '+str(offer),
+                    waybillDate='2026-10-15',supplierInn=self.sql('SELECT inn FROM suppliers WHERE id=%s',(target,))[0][0],
+                    buyerInn=self.sql('SELECT inn FROM company_requisites WHERE company_id=2')[0][0],
+                    lines=[dict(materialName=material,unit='шт',quantity=1)])
+                original=('synthetic-issued-waybill.txt',json.dumps(document,ensure_ascii=False).encode('utf-8'),'text/plain')
             upload=self.raw('supplier','POST',f'/supplier-offers/{offer}/files',
-                files={'file':('synthetic-issued.pdf',b'%PDF-1.4\nSynthetic issued original\n','application/pdf')})
+                files={'file':original})
             self.assertEqual(upload.status_code,200,upload.text);url=upload.json()['contentUrl']
         self.api('supplier','PUT',f'/supplier-offers/{offer}',dict(action='respond',requestId=str(uuid.uuid4()),
             quantity=1,pricePerUnit=120,totalPrice=120,deliveryDays=2,paymentTerms='Предоплата 100%',pdfUrl=url))
@@ -67,7 +86,8 @@ class SupplierIssuedAccessCorrectionsPostgresTests(unittest.TestCase):
         invoice=self.api('supplier','POST',f'/supplier-offers/{offer}/create-invoice',dict(invoiceNumber='Synthetic issued '+str(offer),amount=120,vatAmount=0))['id']
         delivery=None
         if ship:
-            delivery=self.api('supplier','POST',f'/supplier-offers/{offer}/ship',dict(requestId=str(uuid.uuid4()),shippedQuantity=1))['id']
+            delivery=self.api('supplier','POST',f'/supplier-offers/{offer}/ship',dict(requestId=str(uuid.uuid4()),shippedQuantity=1,
+                waybillNumber='Synthetic issued '+str(offer),waybillDate='2026-10-15'))['id']
         return source,target,connection,request,recipient,offer,invoice,delivery,url
 
     def business_snapshot(self):
@@ -159,9 +179,10 @@ class SupplierIssuedAccessCorrectionsPostgresTests(unittest.TestCase):
         self.api('director','POST',self.path(source,connection),dict(operationId=str(uuid.uuid4())),expected=403)
 
     def test_received_stock_and_one_shared_original_inside_closed_chain_are_preserved(self):
-        source,target,connection,request,recipient,offer,invoice,delivery,url=self.chain(ship=True,file=True,stock=True)
-        receipt=self.api('foreman','PUT',f'/supply-deliveries/{delivery}/receive',
-            dict(receivedQuantity=1,qualityStatus='Принято',receivedBy='Synthetic receiver'))['invoiceId']
+        source,target,connection,request,recipient,offer,invoice,delivery,url=self.chain(ship=True,file=True,stock=True,physical_document=True)
+        body=physical_receipt_payload(self,'foreman',delivery,1,original_url=url)
+        receipt=self.api('foreman','POST','/warehouse-receipts/confirm',body)['warehouseInvoiceIds'][0]
+        self.assertEqual(self.sql('SELECT receipt_original_urls FROM supply_deliveries WHERE id=%s',(delivery,)),[([url],)])
         self.sql('UPDATE supplier_invoices SET file_url=%s WHERE id=%s',(url,invoice))
         self.sql('UPDATE supply_deliveries SET document_url=%s WHERE id=%s',(url,delivery))
         self.sql('UPDATE warehouse_invoices SET photo_url=%s,photo_urls=%s WHERE id=%s',(url,'["'+url+'"]',receipt))
@@ -294,9 +315,9 @@ class SupplierIssuedAccessCorrectionsPostgresTests(unittest.TestCase):
         self.confirm(source,connection,plan,reason='Synthetic different reason',expected=409)
 
     def test_supply_history_follows_recipient_and_keeps_independent_other_buyer_legacy(self):
-        source,target,connection,request,recipient,offer,invoice,delivery,_=self.chain(ship=True,stock=True)
-        self.api('foreman','PUT',f'/supply-deliveries/{delivery}/receive',
-            dict(receivedQuantity=1,qualityStatus='Принято',receivedBy='Synthetic receiver'))
+        source,target,connection,request,recipient,offer,invoice,delivery,_=self.chain(ship=True,stock=True,physical_document=True)
+        self.api('foreman','POST','/warehouse-receipts/confirm',
+            physical_receipt_payload(self,'foreman',delivery,1))
         history=self.sql('SELECT id FROM supply_history WHERE delivery_id=%s',(delivery,))[0][0]
         foreign=self.sql('INSERT INTO supply_history(company_id,supplier_id,material_name) VALUES(3,%s,%s) RETURNING id',
             (target,'Synthetic independent legacy history'))[0][0]

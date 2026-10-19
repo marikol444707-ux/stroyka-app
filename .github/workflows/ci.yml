@@ -134,6 +134,24 @@ jobs:
             backend.features.supplier_access.test_multicompany_chain \
             backend.features.supplier_payments.test_contract_context_postgres
 
+      - name: Run isolated warehouse receipt PostgreSQL checks
+        run: |
+          export PATH="$(pg_config --bindir):$PATH"
+          python scripts/run_warehouse_receipt_postgres_tests.py
+
+      - name: Run movement, return and source-access PostgreSQL checks
+        run: |
+          export PATH="$(pg_config --bindir):$PATH"
+          python scripts/run_supplier_catalog_postgres_tests.py --require-no-skips \
+            backend.features.warehouse_movements.test_idempotency_postgres.MovementCommandPostgresTests \
+            backend.features.material_transfer_stock.test_postgres.TransferIdentityPostgresTests \
+            backend.features.material_traceability.test_stock_chain_postgres.StockChainPostgresTests \
+            backend.features.material_traceability.test_transfer_workflow_postgres.TransferWorkflowPostgresTests \
+            backend.features.material_traceability.test_transfer_lock_postgres.TransferLockPostgresTests \
+            backend.features.material_traceability.test_estimate_consumption_postgres.EstimateConsumptionPostgresTests \
+            backend.features.material_traceability.test_work_consumption_postgres.WorkConsumptionPostgresTests \
+            backend.features.document_access.test_supplier_files_postgres.SupplierFilesPostgresTests
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:

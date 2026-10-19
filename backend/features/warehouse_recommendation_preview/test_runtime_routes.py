@@ -257,11 +257,11 @@ class WarehouseAnomalyRuntimeRouteRegistrationTests(unittest.TestCase):
         package_bytes = package_path.read_bytes()
         runtime_source = runtime_path.read_text(encoding="utf-8")
 
-        # Reviewed unified physical receipt and idempotent warehouse movement integration;
+        # Reviewed durable movement recovery and exact return-source integration;
         # warehouse preview implementation and registration are unchanged.
         self.assertEqual(
             hashlib.sha256(main_bytes).hexdigest(),
-            "48285d1627101b3d629af132c2d43fde0a7a65dc5e17655f56133dff3b06259b",
+            "ec1abdd25b0aeb11d87ec44381fbd024e62586db199d85d6c7ec59eb9f66b1e2",
         )
         self.assertEqual(
             hashlib.sha256(package_bytes).hexdigest(),
