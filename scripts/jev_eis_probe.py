@@ -140,8 +140,14 @@ async def search_browser(tmp, env, query, stavropol_open=False):
 
             start_url = 'https://zakupki.gov.ru/epz/order/extendedsearch/search.html' if stavropol_open else URL
             await call('Page.navigate', {'url': start_url})
-            for _ in range(20):
-                if await evaluate('!!document.querySelector("#quickSearchForm_header input[name=searchString]")'):
+            readiness = '!!document.querySelector("#quickSearchForm_header input[name=searchString]")'
+            if stavropol_open:
+                # The quick-search header can render before the advanced controls.
+                readiness = ('(()=>{const f=document.querySelector("#quickSearchForm_header");'
+                    'return !!f&&!!f.querySelector("[name=deliveryPlaceGAR]")&&'
+                    '["fz44","fz223","af","ca","pc","pa"].every(id=>!!f.querySelector("#"+id))})()')
+            for _ in range(40):
+                if await evaluate(readiness):
                     break
                 await asyncio.sleep(.5)
             if stavropol_open:
