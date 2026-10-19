@@ -88,3 +88,11 @@ search execution, not relevance, deadlines, regional fit or bid suitability.
 `region_verified=false` remains explicit. No model calls, login or bid submission.
 The observed form worked where hand-assembled query URLs returned HTTP 404; the
 precise server-side reason for that difference is not established.
+
+Further live tests found an empty-result handling bug: EIS displays both
+`0 записей` and `Поиск не дал результатов`. These now confirm a successful empty
+keyword search only when the URL and input agree and no notice links exist. The
+runtime checks rendered `innerText`, so hidden templates are not empty-result
+evidence. Worker failures now retain their structured status instead of being
+flattened to `runner_failed`; stdout/exit-code inconsistencies remain failures.
+Successful search output also includes up to ten observed first-party notice URLs.

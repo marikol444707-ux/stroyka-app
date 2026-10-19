@@ -5,6 +5,7 @@ The CA is trusted only inside this short-lived, credential-free browser containe
 import hashlib
 from html.parser import HTMLParser
 import json
+import re
 from pathlib import Path
 import subprocess
 import tempfile
@@ -23,9 +24,12 @@ class Registry(HTMLParser):
         self.search = False
         self.query = None
         self.notices = set()
+        self.text = []
+        self.hidden_depth = 0
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
+        if tag in {'script', 'style'}: self.hidden_depth += 1
         if tag == 'title': self.in_title = True
         if tag == 'input' and attrs.get('name') == 'searchString':
             self.search = True
@@ -39,24 +43,33 @@ class Registry(HTMLParser):
 
     def handle_endtag(self, tag):
         if tag == 'title': self.in_title = False
+        if tag in {'script', 'style'}: self.hidden_depth = max(0, self.hidden_depth - 1)
 
     def handle_data(self, data):
         if self.in_title: self.title += data
+        if not self.hidden_depth: self.text.append(data)
 
 
-def classify(html, *, url=URL, query=None):
+def classify(html, *, url=URL, query=None, visible_text=None):
     page = Registry()
     page.feed(html)
-    ready = page.title.strip() == 'Закупки' and page.search and bool(page.notices)
+    registry = page.title.strip() == 'Закупки' and page.search
     query_ok = (query is not None and page.query == query
                 and urlparse(url).scheme == 'https' and urlparse(url).netloc == 'zakupki.gov.ru'
                 and urlparse(url).path == urlparse(URL).path
                 and parse_qs(urlparse(url).query).get('searchString') == [query])
+    visible_text = ' '.join((' '.join(page.text) if visible_text is None else visible_text).split())
+    empty = (not page.notices and 'Поиск не дал результатов' in visible_text
+             and bool(re.search(r'\b0 записей\b', visible_text)))
+    ready = registry and (bool(page.notices) or (empty and query_ok))
     if query is not None: ready = ready and query_ok
-    status = ('keyword_search_observed' if query_ok else 'search_registry_accessible') if ready else 'registry_not_verified'
+    status = 'registry_not_verified'
+    if ready:
+        status = ('keyword_search_empty' if empty else 'keyword_search_observed') if query_ok else 'search_registry_accessible'
     if 'ERR_CERT_' in html: status, ready = 'tls_failed', False
     return {'ok': ready, 'status': status, 'title': page.title.strip()[:150],
             'url': url, 'notice_links_observed': len(page.notices),
+            'notice_links': sorted(page.notices)[:10],
             'query': query, 'search_execution_verified': bool(ready and query_ok),
             'region_verified': False, 'model_calls': 0}
 
@@ -125,9 +138,9 @@ async def search_browser(tmp, env, query):
                 return {'ok': False, 'status': 'search_form_not_verified'}
             for _ in range(30):
                 await asyncio.sleep(.5)
-                observation = await evaluate('({url:location.href,html:document.documentElement.outerHTML})')
+                observation = await evaluate('({url:location.href,html:document.documentElement.outerHTML,text:document.body.innerText})')
                 if observation:
-                    result = classify(observation['html'], url=observation['url'], query=query)
+                    result = classify(observation['html'], url=observation['url'], query=query, visible_text=observation['text'])
                     if result['ok']: return result
             return {'ok': False, 'status': 'search_result_not_verified',
                     'search_execution_verified': False}
@@ -177,8 +190,15 @@ def probe(query=None):
     if query is not None: args.extend(['--query', query])
     try:
         result = subprocess.run(args, capture_output=True, text=True, timeout=75)
-        if result.returncode: return {'ok': False, 'status': 'runner_failed'}
-        return json.loads(result.stdout)
+        try:
+            outcome = json.loads(result.stdout)
+        except (ValueError, TypeError):
+            return {'ok': False, 'status': 'runner_failed', 'exit_code': result.returncode}
+        if not isinstance(outcome, dict) or not isinstance(outcome.get('ok'), bool):
+            return {'ok': False, 'status': 'invalid_runner_response'}
+        if result.returncode and outcome['ok']:
+            return {'ok': False, 'status': 'runner_failed', 'exit_code': result.returncode}
+        return outcome
     finally:
         subprocess.run(['docker', 'rm', '-f', name], capture_output=True, timeout=10)
 
