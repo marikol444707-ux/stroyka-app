@@ -287,7 +287,8 @@ class ReportReliabilityTests(unittest.TestCase):
         units=[{'id':'d:1','source':'d','locator':'1','text':'Подрядчик оплачивает Субподрядчику в течение 7 рабочих дней.','ocr':False},
                {'id':'d:2','source':'d','locator':'2','text':'Обеспечение уменьшается: приемка и оплата в сроки контракта.','ocr':False},
                {'id':'d:3','source':'d','locator':'3','text':'Заказчик оплачивает работы в течение 10 рабочих дней после приемки.','ocr':False},
-               {'id':'d:4','source':'d','locator':'4','text':'Заказчик оплачивает работы в течение 70 рабочих дней после приемки.','ocr':True}]
+               {'id':'d:4','source':'d','locator':'4','text':'Заказчик оплачивает работы в течение 70 рабочих дней после приемки.','ocr':True},
+               {'id':'d:5','source':'d','locator':'5','text':'единственному поставщику в случае, если оплата осуществляется единовременно после полного исполнения.','ocr':False}]
         result=select_evidence(units,'d')
         self.assertEqual([x['id'] for x in result if x['category']=='payment'],['d:3:payment'])
 
@@ -323,3 +324,14 @@ class EquationPreviewIntegrationTests(unittest.TestCase):
             root=Path(tmp);v=read_document_image(data,'.wmf','d6','equation.wmf',root/'previews',{})
             self.assertTrue((root/v['path']).is_file());self.assertTrue(v['requires_review'])
             self.assertTrue((root/v['path']).read_bytes().startswith(b'\x89PNG'))
+
+
+class ConditionalFindingTests(unittest.TestCase):
+    def test_conditional_quote_cannot_turn_into_unconditional_payment(self):
+        from scripts.jev_eis_document_report import validate_findings
+        text='Единственному поставщику в случае, если оплата осуществляется после полного исполнения контракта.'
+        evidence=[{'id':'e','category':'payment','text':text}]
+        finding={'category':'payment','summary':'Оплата осуществляется после полного исполнения контракта.','evidence':[{'id':'e','quote':text}]}
+        self.assertEqual(validate_findings({'findings':[finding]},evidence)['rejected'],1)
+        finding['summary']='Условие применяется, если оплата осуществляется после полного исполнения контракта.'
+        self.assertEqual(len(validate_findings({'findings':[finding]},evidence)['findings']),1)

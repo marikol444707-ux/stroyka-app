@@ -37,6 +37,7 @@ def validate_findings(payload,evidence):
         if valid:
             quoted=' '.join(ref['quote'] for ref in refs)
             valid=set(re.findall(r'\d+(?:[.,]\d+)*',finding['summary']))<=set(re.findall(r'\d+(?:[.,]\d+)*',quoted))
+        if valid and re.search(r'\bесли\b',quoted,re.I) and not re.search(r'\bесли\b|при условии|в случае',finding['summary'],re.I):valid=False
         if not valid:rejected+=1;continue
         accepted.append({'category':finding['category'],'summary':finding['summary'],'evidence':refs,'status':'ai_requires_review'})
     return {'findings':accepted,'rejected':rejected}
@@ -50,7 +51,7 @@ def select_evidence(units,document_id):
             text=unit['text']
             if unit.get('ocr') or not re.search(pattern,text,re.I):continue
             if category=='qualification' and re.search(r'лиценз.{0,100}банк|банк.{0,100}лиценз|банковск',text,re.I):continue
-            if category=='payment' and re.search(r'субподряд|соисполнител|обеспечени|оплат.{0,20}труда|накладн.{0,20}расход',text,re.I):continue
+            if category=='payment' and re.search(r'субподряд|соисполнител|обеспечени|единственн.{0,30}(поставщик|подрядчик)|оплат.{0,20}труда|накладн.{0,20}расход',text,re.I):continue
             score=bool(re.search(r'составляет|размер|окончание работ|начало работ|лет|процент|саморегулируем',text,re.I))+bool(re.search(r'\d',text))
             matching.append((score,unit))
         for _,unit in sorted(matching,key=lambda x:-x[0])[:4]:
