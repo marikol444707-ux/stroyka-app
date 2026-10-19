@@ -8,6 +8,9 @@ import tarfile
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
+import re
+import shlex
 import sys
 
 
@@ -18,6 +21,119 @@ spec.loader.exec_module(release)
 
 
 class UnifiedReleaseTests(unittest.TestCase):
+    def test_systemd_environment_file_quotes_continuations_and_literal_shell_syntax(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'runtime.env'
+            marker = Path(temporary) / 'must-not-exist'
+            path.write_text('''# comment
+; another comment
+INVALID LINE
+ A =  plain words\x20\x20
+B=' single
+quoted $HOME '
+C="double\\\" \\$literal \\q \\
+continued"
+D=one\\
+two\\ three\\\x20
+E=interior"quotes" # literal
+EMPTY=
+DUPLICATE=first
+DUPLICATE=last
+BAD-NAME=ignored
+''' + f'LITERAL=$(touch {marker})`touch {marker}`${{HOME}}\n' + 'EOF="no trailing newline"')
+            values = release.systemd_environment_file(path)
+            self.assertEqual(values['A'], 'plain words')
+            self.assertEqual(values['B'], ' single\nquoted $HOME ')
+            self.assertEqual(values['C'], 'double" $literal \\q continued')
+            self.assertEqual(values['D'], 'onetwo three ')
+            self.assertEqual(values['E'], 'interior"quotes" # literal')
+            self.assertEqual(values['EMPTY'], '')
+            self.assertEqual(values['DUPLICATE'], 'last')
+            self.assertNotIn('BAD-NAME', values)
+            self.assertEqual(values['EOF'], 'no trailing newline')
+            self.assertIn('$(touch ', values['LITERAL'])
+            self.assertIn('${HOME}', values['LITERAL'])
+            self.assertFalse(marker.exists())
+
+    def runtime_fixture(self, root, properties, ambient=None):
+        unit_path = '/org/freedesktop/systemd1/unit/stroyka_2eservice'
+
+        def bus(args, **kwargs):
+            self.assertTrue(kwargs.get('capture'))
+            self.assertEqual(args[:3], ['busctl', '--system', '--json=short'])
+            if 'GetUnit' in args:
+                self.assertEqual(args[-1], 'stroyka.service')
+                return json.dumps({'type': 'o', 'data': [unit_path]})
+            self.assertEqual(args[3], 'get-property')
+            self.assertEqual(args[5], unit_path if args[-1] != 'Environment' or
+                             args[6] != 'org.freedesktop.systemd1.Manager' else '/org/freedesktop/systemd1')
+            key = 'ManagerEnvironment' if args[6] == 'org.freedesktop.systemd1.Manager' else args[-1]
+            return json.dumps({'type': 'a(sb)' if key == 'EnvironmentFiles' else 'as',
+                               'data': properties.get(key, [])})
+
+        with patch.object(release, 'run', side_effect=bus), patch.object(release.shutil, 'which', return_value='/usr/bin/busctl'), \
+                patch.dict(os.environ, ambient or {}, clear=True):
+            return release.runtime_environment(root, 'stroyka')
+
+    def test_runtime_environment_preserves_systemd_order_and_backend_fallback(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'backend').mkdir()
+            (root / 'backend/.env').write_text('DB_NAME=fallback\nDB_USER=fallback_user\nWORK_ACCEPTANCE_ENABLED=0\nFALLBACK=yes\n')
+            first = root / 'settings with spaces and \\ backslash.env'
+            first.write_text('DB_NAME=first\nDB_HOST=/actual/socket\nDB_PASSWORD="literal$`;pass"\nWORK_ACCEPTANCE_ENABLED=0\n')
+            second = root / 'last.env'
+            second.write_text('DB_NAME=last\nWORK_ACCEPTANCE_ENABLED=1\n')
+            env = self.runtime_fixture(root, {
+                'PassEnvironment': ['DB_NAME', 'PASSED'],
+                'ManagerEnvironment': ['DB_NAME=manager', 'PASSED=yes', 'NOT_PASSED=no'],
+                'Environment': ['DB_NAME=unit', 'REMOVE=unit', 'MATCH=matching', 'KEEP=value'],
+                'EnvironmentFiles': [[str(first), False], [str(root / 'optional.env'), True], [str(second), False]],
+                'UnsetEnvironment': ['REMOVE', 'MATCH=matching', 'KEEP=different'],
+            }, {'PATH': '/execution/path', 'DB_NAME': 'wrong_shell_db', 'DB_USER': 'wrong_shell_user',
+                'PARTICIPANT_HISTORY_MERGE_ENABLED': '1', 'AUTH_SECRET': 'wrong_shell_secret'})
+            self.assertEqual(env['DB_NAME'], 'last')
+            self.assertEqual(env['DB_USER'], 'fallback_user')
+            self.assertEqual(env['DB_HOST'], '/actual/socket')
+            self.assertEqual(env['DB_PASSWORD'], 'literal$`;pass')
+            self.assertEqual(env['WORK_ACCEPTANCE_ENABLED'], '1')
+            self.assertEqual(env['PATH'], '/execution/path')
+            self.assertEqual(env['PASSED'], 'yes')
+            self.assertEqual(env['KEEP'], 'value')
+            self.assertEqual(env['FALLBACK'], 'yes')
+            for key in ('REMOVE', 'MATCH', 'NOT_PASSED', 'AUTH_SECRET', 'PARTICIPANT_HISTORY_MERGE_ENABLED'):
+                self.assertNotIn(key, env)
+            frontend = release.run(['bash', str(SCRIPTS / 'resolve-frontend-build-env.sh'),
+                                    release.frontend_service_environment(env), ''], capture=True)
+            self.assertIn('REACT_APP_WORK_ACCEPTANCE_ENABLED=1', frontend.splitlines())
+            self.assertIn('REACT_APP_PARTICIPANT_HISTORY_MERGE_ENABLED=0', frontend.splitlines())
+            self.assertNotIn('literal', release.frontend_service_environment(env))
+
+    def test_runtime_environment_accepts_explicit_service_configuration_without_backend_env(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            env = self.runtime_fixture(Path(temporary), {'Environment': ['DB_NAME=service', 'DB_USER=user', 'DB_HOST=/socket']})
+            self.assertEqual(env['DB_NAME'], 'service')
+            self.assertEqual(env['DB_HOST'], '/socket')
+
+    def test_runtime_environment_required_and_optional_globs(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / '10.env').write_text('DB_NAME=first\n')
+            (root / '20.env').write_text('DB_NAME=last\n')
+            env = self.runtime_fixture(root, {'EnvironmentFiles': [[str(root / '*.env'), False],
+                                                                  [str(root / 'absent*.env'), True]]})
+            self.assertEqual(env['DB_NAME'], 'last')
+            for pattern in ('absent.env', 'absent*.env'):
+                with self.subTest(pattern=pattern), self.assertRaisesRegex(ValueError, 'required|Required'):
+                    self.runtime_fixture(root, {'EnvironmentFiles': [[str(root / pattern), False]]})
+
+    def test_frontend_environment_does_not_forward_secrets_or_root_shell_flags(self):
+        env = {'DB_PASSWORD': 'do-not-forward', 'AUTH_SECRET': 'do-not-forward',
+               'AUTH_SECRET_ENABLED': 'do-not-forward', 'PARTICIPANT_SUPPORT_ENABLED': '1',
+               'ASSIGNMENT_DAILY_DRAFT_COMPANY_IDS': '4,5'}
+        self.assertEqual(set(shlex.split(release.frontend_service_environment(env))),
+                         {'PARTICIPANT_SUPPORT_ENABLED=1', 'ASSIGNMENT_DAILY_DRAFT_COMPANY_IDS=4,5'})
+
     def test_git_delivery_fetches_release_and_cleans_its_worktree_on_success_and_failure(self):
         with tempfile.TemporaryDirectory() as temporary:
             work = Path(temporary)
@@ -51,8 +167,8 @@ with tarfile.open(output, 'w:gz') as archive:
             self.git(work, 'clone', '--branch', 'installed', str(source), str(server))
             self.git(server, 'branch', '-m', 'main')
             helper = work / 'delivery.sh'
-            helper.write_text((SCRIPTS / 'install-unified-from-git.sh').read_text()
-                              .replace('242463c5e08e1fb1b306bf476f26761e293b62dd', target)
+            helper.write_text(re.sub(r'^TARGET="[0-9a-f]{40}"$', f'TARGET="{target}"',
+                                     (SCRIPTS / 'install-unified-from-git.sh').read_text(), flags=re.MULTILINE)
                               .replace('c30b5c7a6b641bc59860ea5eed6e743f67f1318d', base))
             parent = work / 'temporary-transfer'
             parent.mkdir()

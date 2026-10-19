@@ -79,8 +79,32 @@ warehouse-модулей без сетевых разрешений завис �
 этот отчёт, инструкцию и правило хранения материалов выпуска. Команды db-check,
 check и apply описаны в README.ru.md. SHA256 архива передаётся отдельным файлом.
 
-На сервер ничего не отправлялось; GitHub push/merge, production migration,
+На момент первоначальной сборки `242463c5e08e` на сервер ничего не отправлялось;
+GitHub push/merge, production migration,
 изменения флагов/данных и deployment markers не выполнялись. В текущей cloud
 среде отсутствуют настроенные credentials/outbound identities и SSH endpoint.
 Для следующего шага нужен адрес/настроенный доступ к рабочему серверу либо
 вывод серверных db-check/check без секретов.
+
+## Исправление EnvironmentFiles после серверного preflight
+
+Пользователь запустил доставку из опубликованной отдельной ветки
+`codex/unified-production-release`. Сервер успешно получил исходные 12 коммитов
+и проверил bundle, но старый установщик отказал при наличии EnvironmentFiles.
+Отказ произошёл до проверки production БД, создания release stage, остановки
+сервисов, переключения Git и миграций. Успешная установка пока не подтверждена.
+
+Исправлен только установщик: конфигурация systemd читается через busctl JSON,
+поддерживаются упорядоченные/необязательные/glob EnvironmentFiles, quoting и
+continuation без выполнения shell, PassEnvironment/UnsetEnvironment и штатный
+backend/.env fallback. Итоговые feature-значения используются также frontend
+resolver; DB/auth/feature-переменные установочного shell не выбирают runtime.
+Изменений прикладного кода или SQL в этой правке нет.
+
+Все 20 узких проверок пакета/доставки, окружения, deployment runner и retention
+прошли (`environment-files-tests.log`). Проверены py_compile, bash -n, diff --check.
+Отдельно настоящий busctl прочитал синтетический systemd D-Bus интерфейс через
+одноразовый dbus-daemon: подтверждены точные строки/array-of-struct, пути с
+пробелами и backslash, приоритет файла, optional и UnsetEnvironment
+(`systemd-dbus-report.json`). Это проверка транспорта с искусственным сервисом,
+не подключение к рабочему серверу и не подтверждение его БД.

@@ -4,6 +4,7 @@ import argparse
 import ast
 from contextlib import contextmanager
 import fcntl
+import glob
 import hashlib
 import importlib.util
 import json
@@ -118,24 +119,152 @@ def load_package(path):
     return manifest
 
 
+def systemd_environment_file(path):
+    """Read systemd.exec EnvironmentFile syntax, never shell-source its contents.
+
+    States follow systemd's parse_env_file_internal: quotes only start in
+    pre-value state, quoted values may span lines, and $/backticks stay literal.
+    """
+    text = path.read_bytes().decode('utf-8')
+    require('\0' not in text, 'NUL byte in service EnvironmentFile')
+    state, key, value, trailing = 'key_start', [], [], None
+    values = {}
+    whitespace = ' \t\r\n'
+
+    def save():
+        name = ''.join(key).rstrip(whitespace)
+        if re.fullmatch('[A-Za-z_][A-Za-z0-9_]*', name):
+            values[name] = ''.join(value[:trailing] if state == 'value' and trailing is not None else value)
+
+    for char in text:
+        if state == 'key_start':
+            if char in '#;':
+                state = 'comment'
+            elif char not in whitespace:
+                key, value, trailing = [char], [], None
+                state = 'key'
+        elif state == 'comment':
+            if char == '\n':
+                state = 'key_start'
+        elif state == 'key':
+            if char == '\n':
+                state = 'key_start'
+            elif char == '=':
+                state = 'value_start'
+            else:
+                key.append(char)
+        elif state in ('value_start', 'value'):
+            if char == '\n':
+                save()
+                state = 'key_start'
+            elif char == '\\':
+                state, trailing = 'escape', None
+            elif state == 'value_start' and char in "'\"":
+                state = 'single' if char == "'" else 'double'
+            elif state == 'value_start' and char in whitespace:
+                continue
+            else:
+                if char not in whitespace:
+                    trailing = None
+                elif trailing is None:
+                    trailing = len(value)
+                value.append(char)
+                state = 'value'
+        elif state == 'escape':
+            if char != '\n':
+                value.append(char)
+            state = 'value'
+        elif state == 'single':
+            if char == "'":
+                state = 'value_start'
+            else:
+                value.append(char)
+        elif state == 'double':
+            if char == '"':
+                state = 'value_start'
+            elif char == '\\':
+                state = 'double_escape'
+            else:
+                value.append(char)
+        elif state == 'double_escape':
+            if char in '\\`"$':
+                value.append(char)
+            elif char != '\n':
+                value.extend(('\\', char))
+            state = 'double'
+    if state not in ('key_start', 'key', 'comment'):
+        save()
+    return values
+
+
+def systemd_property(unit, interface, name, signature):
+    # D-Bus JSON preserves exact strings and array order, unlike systemctl's
+    # human-readable/C-escaped rendering of Environment and EnvironmentFiles.
+    payload = json.loads(run(['busctl', '--system', '--json=short', 'get-property',
+                             'org.freedesktop.systemd1', unit, interface, name], capture=True))
+    require(payload.get('type') == signature and isinstance(payload.get('data'), list),
+            'Unexpected systemd property format: ' + name)
+    return payload['data']
+
+
 def runtime_environment(root, service):
-    env = dict(os.environ)
-    service_env = run(['systemctl', 'show', service, '-p', 'Environment', '--value'], capture=True)
-    for item in shlex.split(service_env):
-        name, separator, value = item.partition('=')
+    require(shutil.which('busctl'), 'busctl is required to read exact systemd service configuration')
+    if '.' not in service:
+        service += '.service'
+    unit = json.loads(run(['busctl', '--system', '--json=short', 'call', 'org.freedesktop.systemd1',
+                          '/org/freedesktop/systemd1', 'org.freedesktop.systemd1.Manager',
+                          'GetUnit', 's', service], capture=True))
+    require(unit.get('type') == 'o' and len(unit.get('data', [])) == 1,
+            'Cannot resolve systemd service')
+    unit_path = unit['data'][0]
+    interface = 'org.freedesktop.systemd1.Service'
+    # Keep process execution settings; root's DB/feature/auth variables must
+    # never select a different database or enable a feature for the release.
+    env = {key: value for key, value in os.environ.items()
+           if key in {'PATH', 'HOME', 'LANG', 'LANGUAGE', 'TZ', 'TMPDIR'} or key.startswith('LC_')}
+    passed = systemd_property(unit_path, interface, 'PassEnvironment', 'as')
+    if passed:
+        manager = systemd_property('/org/freedesktop/systemd1', 'org.freedesktop.systemd1.Manager',
+                                   'Environment', 'as')
+        for entry in manager:
+            name, separator, value = entry.partition('=')
+            if separator and name in passed:
+                env[name] = value
+    for entry in systemd_property(unit_path, interface, 'Environment', 'as'):
+        name, separator, value = entry.partition('=')
         if separator:
             env[name] = value
-    files = run(['systemctl', 'show', service, '-p', 'EnvironmentFiles', '--value'], capture=True)
-    # Unknown systemd EnvironmentFiles cannot safely be guessed from shell settings.
-    require(not files.strip(), 'Service has EnvironmentFiles; resolve its exact runtime environment before installation')
+    for pattern, optional in systemd_property(unit_path, interface, 'EnvironmentFiles', 'a(sb)'):
+        require(isinstance(pattern, str) and pattern.startswith('/') and isinstance(optional, bool),
+                'Invalid systemd EnvironmentFile definition')
+        paths = sorted(glob.glob(pattern), key=os.fsencode) if glob.has_magic(pattern) else [pattern]
+        require(paths or optional, 'Required service EnvironmentFile pattern has no matches')
+        for path in paths:
+            try:
+                env.update(systemd_environment_file(Path(path)))
+            except (OSError, UnicodeError):
+                require(optional, 'Cannot read required service EnvironmentFile')
+    for entry in systemd_property(unit_path, interface, 'UnsetEnvironment', 'as'):
+        name, separator, value = entry.partition('=')
+        if not separator or env.get(name) == value:
+            env.pop(name, None)
+    # Match backend.config.load_env_file: existing runtime values win; this
+    # fallback is optional when the service already supplies explicit settings.
     env_file = root / 'backend/.env'
-    require(env_file.is_file(), 'backend/.env is required; no development DB defaults are permitted')
-    for raw in env_file.read_text().splitlines():
+    for raw in env_file.read_text().splitlines() if env_file.is_file() else []:
         line = raw.strip()
         if line and not line.startswith('#') and '=' in line:
             name, value = line.split('=', 1)
             env.setdefault(name.strip(), value.strip().strip('"').strip("'"))
     return env
+
+
+def frontend_service_environment(env):
+    # Only feature settings enter resolver argv; credentials stay in memory.
+    return shlex.join(f'{name}={value}' for name, value in sorted(env.items())
+                      if name.startswith(('WAREHOUSE_', 'OWNED_DISTRIBUTION_', 'INTERCOMPANY_WAREHOUSE_',
+                                          'SUPPLIER_', 'WORK_', 'PARTICIPANT_', 'ASSIGNMENT_DAILY_DRAFT_'))
+                      and name.endswith(('_ENABLED', '_COMPANY_IDS')))
 
 
 def database_module(package):
@@ -284,11 +413,8 @@ def install(args):
             with tarfile.open(archive) as tree:
                 tree.extractall(source, filter='data')
             archive.unlink()
-            service_env = run(['systemctl', 'show', args.service, '-p', 'Environment', '--value'], capture=True)
-            # Pass only non-secret feature values to the resolver's argv.
-            service_env = shlex.join(item for item in shlex.split(service_env)
-                                     if item.partition('=')[0].endswith(('_ENABLED', '_COMPANY_IDS')))
-            build_env = run(['bash', source / 'scripts/resolve-frontend-build-env.sh', service_env, root / 'backend/.env'],
+            service_env = frontend_service_environment(env)
+            build_env = run(['bash', source / 'scripts/resolve-frontend-build-env.sh', service_env, ''],
                             cwd=source, env=env, capture=True)
             frontend_env = dict(env, BUILD_PATH=str(stage / 'frontend'))
             frontend_env.update(item.split('=', 1) for item in build_env.splitlines() if item)
