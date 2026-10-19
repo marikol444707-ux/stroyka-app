@@ -243,3 +243,27 @@ class StockIdentityTests(Harness,unittest.TestCase):
         self.assertEqual(self.balances(),[(1,0)])
         self.assertEqual(self.query('SELECT quantity FROM warehouse_main'),[(5,)])
         self.assertEqual(self.query('SELECT count(*) FROM warehouse_history'),[(0,)])
+
+    def assert_no_signed_issue_denial_unchanged(self):
+        tables=('materials','material_transfers','warehouse_history')
+        before=tuple(self.query('SELECT * FROM '+table+' ORDER BY id') for table in tables)
+        balance_before=self.ns['_personal_material_balance'](self.conn.cursor(),'Объект',7,'Петр',
+            'Цемент портланд','Основная','кг',company_id=1)
+        with self.assertRaises(HTTPException) as error:self.returned()
+        self.assertEqual(error.exception.status_code,409)
+        self.assertEqual(error.exception.detail,
+            'Не найдена подтверждённая выдача именно этого материала. Выберите исходное название из выдачи.')
+        self.assertEqual(tuple(self.query('SELECT * FROM '+table+' ORDER BY id') for table in tables),before)
+        self.assertEqual(self.ns['_personal_material_balance'](self.conn.cursor(),'Объект',7,'Петр',
+            'Цемент портланд','Основная','кг',company_id=1),balance_before)
+
+    def test_unsigned_issue_return_is_identity_conflict_without_mutation(self):
+        self.stock(quantity=0);self.transfer(signed=False)
+        self.assert_no_signed_issue_denial_unchanged()
+
+    def test_other_worker_cannot_return_someone_elses_signed_issue(self):
+        self.stock(quantity=0);self.transfer(signed=True)
+        self.query("INSERT INTO users VALUES(8,1,'Иван',TRUE)")
+        self.actor={'id':8,'companyId':1,'role':'мастер','name':'Иван'}
+        # returned() deliberately supplies fromPersonId=7; worker identity wins.
+        self.assert_no_signed_issue_denial_unchanged()
