@@ -136,11 +136,13 @@ class TransferWorkflowPostgresTests(unittest.TestCase):
         self.assertEqual(self.balance(), {"issued": issued, "used": 0,
                                          "returned": returned, "available": issued - returned})
 
-    def denied_unchanged(self, actor, method, path, payload=None, expected=403, **headers):
+    def denied_unchanged(self, actor, method, path, payload=None, expected=403, expected_detail=None, **headers):
         before, balance = self.snapshot(), self.balance()
-        self.api(actor, method, path, payload, expected, **headers)
+        response = self.api(actor, method, path, payload, expected, **headers)
         self.assertEqual(self.snapshot(), before)
         self.assertEqual(self.balance(), balance)
+        if expected_detail is not None:
+            self.assertEqual(response.get("detail"), expected_detail)
 
     def test_full_cycle_sign_partial_return_and_overreturn_denied(self):
         self.assert_state(2, 0, 0)
@@ -161,7 +163,8 @@ class TransferWorkflowPostgresTests(unittest.TestCase):
         self.assertIsNone(issue_snapshot[1])
         self.assertEqual(self.sql("SELECT type,quantity,source_type,source_id FROM warehouse_history"),
                          [("расход", 2, "material_transfer", tid)])
-        self.denied_unchanged("worker", "POST", "/material-transfers/return", self.payload(1), 400)
+        self.denied_unchanged("worker", "POST", "/material-transfers/return", self.payload(1), 409,
+                              expected_detail="Не найдена подтверждённая выдача именно этого материала. Выберите исходное название из выдачи.")
         self.api("worker", "PUT", f"/material-transfers/{tid}/sign")
         receipt_snapshot = self.sql("""SELECT receipt_party_snapshot_json FROM material_transfers
                                         WHERE id=%s""", (tid,))[0][0]
@@ -304,7 +307,8 @@ class TransferWorkflowPostgresTests(unittest.TestCase):
         self.denied_unchanged("wrong_package", "POST", "/material-transfers/return", self.payload(1))
         self.denied_unchanged("other_worker", "POST", "/material-transfers/return",
                               self.payload(1, fromPersonId=self.f["users"]["worker"]["id"],
-                                           fromPerson=self.f["users"]["worker"]["name"]), 400)
+                                           fromPerson=self.f["users"]["worker"]["name"]), 409,
+                              expected_detail="Не найдена подтверждённая выдача именно этого материала. Выберите исходное название из выдачи.")
 
     def test_history_failure_rolls_back_create_return_and_cancel(self):
         self.sql("""CREATE FUNCTION transfer_test_fail_history() RETURNS trigger LANGUAGE plpgsql

@@ -17,7 +17,8 @@ COLUMNS = '''c.id,c.delivery_id AS "deliveryId",c.request_id AS "requestId",c.of
     c.project,c.material_name AS "materialName",c.claim_type AS "claimType",c.description,
     c.expected_quantity AS "expectedQuantity",c.received_quantity AS "receivedQuantity",
     c.shortage_quantity AS "shortageQuantity",COALESCE(c.work_package,'') AS "workPackage",
-    c.photo_url AS "photoUrl",c.status,c.created_by AS "createdBy",c.created_at AS "createdAt",
+    c.photo_url AS "photoUrl",to_jsonb(d)->'receipt_original_urls' AS "receiptOriginalUrls",
+    c.status,c.created_by AS "createdBy",c.created_at AS "createdAt",
     c.resolved_at AS "resolvedAt",c.resolution'''
 
 

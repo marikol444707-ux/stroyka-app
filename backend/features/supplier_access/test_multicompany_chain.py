@@ -5,6 +5,7 @@ import unittest
 from unittest.mock import patch
 
 from . import test_postgres_chain as baseline
+from ..warehouse_receipts.test_http_support import physical_receipt_payload
 
 
 @unittest.skipUnless(os.environ.get('SUPPLY_CHAIN_RUN_POSTGRES') == '1', 'isolated PostgreSQL opt-in')
@@ -192,16 +193,17 @@ class MultiCompanyChainTest(unittest.TestCase):
             self.api(actor, 'PUT', f'/supplier-invoices/{invoice}', {'status': 'Оплачен', 'paidAmount': 200, 'paidAt': today})
         delivery = self.api('supplier', 'POST', path + '/ship', {
             'shippedQuantity': 2, 'waybillNumber': 'SAME-NUMBER', 'waybillDate': today})['id']
-        receive = f'/supply-deliveries/{delivery}/receive'
+        self.api(actor, 'PUT', f'/supply-deliveries/{delivery}/receive', {'receivedQuantity': 2}, expected=409)
+        receive = '/warehouse-receipts/confirm'
         received_qty = 2 if company == 2 else 1
-        body = {'receivedQuantity': received_qty, 'qualityStatus': 'Принято', 'receivedBy': 'CHAIN reviewer'}
-        self.api(other, 'PUT', receive, body, expected=403)
-        self.api(actor, 'PUT', receive, {**body, 'receivedQuantity': 3}, expected=400)
+        body = physical_receipt_payload(self, actor, delivery, received_qty)
+        self.api(other, 'POST', receive, body, expected=403)
+        self.api(actor, 'POST', receive, {**body, 'actualLines': [{**body['actualLines'][0], 'receivedQuantity': 3}]}, expected=400)
         # A global director role must not override a lower local membership.
         user_id = self.fixture['users'][actor]['id']
         self.sql("UPDATE user_company_roles SET role='бухгалтер' WHERE user_id=%s AND company_id=%s", (user_id, company))
         try:
-            self.api(actor, 'PUT', receive, body, expected=403)
+            self.api(actor, 'POST', receive, body, expected=403)
         finally:
             self.sql("UPDATE user_company_roles SET role='директор' WHERE user_id=%s AND company_id=%s", (user_id, company))
         # Corrupt parent linkage must not write to another company's request.
@@ -209,18 +211,21 @@ class MultiCompanyChainTest(unittest.TestCase):
         self.sql('UPDATE supply_deliveries SET request_id=%s WHERE id=%s', (other_request, delivery))
         try:
             with self.subTest(corrupt_delivery=delivery):
-                self.api(actor, 'PUT', receive, body, expected=409)
+                self.api(actor, 'POST', receive, body, expected=409)
         finally:
             self.sql('UPDATE supply_deliveries SET request_id=%s WHERE id=%s', (request_id, delivery))
         with patch.object(self.main, '_create_supply_delivery_history', side_effect=RuntimeError('synthetic receipt failure')):
             with self.assertRaisesRegex(RuntimeError, 'synthetic receipt failure'):
-                self.api(actor, 'PUT', receive, body)
+                self.api(actor, 'POST', receive, body)
         self.assertEqual(self.sql('SELECT received_at FROM supply_deliveries WHERE id=%s', (delivery,)), [(None,)])
         self.assertEqual(self.sql('SELECT COUNT(*) FROM warehouse_invoices WHERE supply_delivery_id=%s', (delivery,)), [(0,)])
-        self.api(actor, 'PUT', receive, body)
-        self.assertTrue(self.api(actor, 'PUT', receive, body)['alreadyReceived'])
-        self.api(other, 'PUT', receive, body, expected=403)
-        self.api(other, 'PUT', receive, body, expected=403, **{'X-Company-Id': str(company)})
+        accepted = self.api(actor, 'POST', receive, body)
+        replay = self.api(actor, 'POST', receive, body)
+        self.assertTrue(replay['alreadyReceived'])
+        self.assertEqual(replay['warehouseInvoiceIds'], accepted['warehouseInvoiceIds'])
+        self.assertEqual(self.sql('SELECT receipt_original_urls FROM supply_deliveries WHERE id=%s', (delivery,)), [(body['originalUrls'],)])
+        self.api(other, 'POST', receive, body, expected=403)
+        self.api(other, 'POST', receive, body, expected=403, **{'X-Company-Id': str(company)})
         self.assertEqual(self.sql('SELECT company_id,quantity FROM materials WHERE project=%s AND name=%s',
                                  (project, self.fixture['materialName'])), [(company, received_qty)])
         self.assertEqual(self.sql('SELECT company_id,status FROM supply_requests WHERE id=%s', (request_id,)),

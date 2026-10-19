@@ -30,6 +30,8 @@ function ClaimCard({ claim, ...scope }) {
   const available = actions.filter(([, capability]) => data?.[capability]);
   const action = available.some(([value]) => value === draft.action) ? draft.action : available[0]?.[0] || '';
   const change = next => setDraft({ ...draft, action, version: data.claim.version, ...next });
+  const receiptOriginals = Array.isArray(data?.claim?.receiptOriginalUrls)
+    ? data.claim.receiptOriginalUrls : [];
   return <section aria-label={`Претензия ${claim.id}`} className="supply-claim-card">
     <h3>Претензия №{claim.id}</h3>
     <WorkSubmissionRecovery {...scope} onRecovered={recovered} />
@@ -41,7 +43,13 @@ function ClaimCard({ claim, ...scope }) {
       <p>{data.claim.supplierName || 'Поставщик'} · {data.claim.project || 'Объект не указан'}</p>
       <p>{data.claim.status}</p>
       <p>{data.claim.description}</p>
-      <SupplyFileLink url={data.claim.photoUrl} fileSrc={url=>scope.API+url}>Скачать фото претензии</SupplyFileLink>
+      {receiptOriginals.length > 0 && <div aria-label="Оригиналы приёмки">
+        {receiptOriginals.map((url, index) => <SupplyFileLink key={url} url={url} fileSrc={value=>scope.API+value}>
+          Оригинал приёмки · страница {index + 1}
+        </SupplyFileLink>)}
+      </div>}
+      {!receiptOriginals.includes(data.claim.photoUrl) &&
+        <SupplyFileLink url={data.claim.photoUrl} fileSrc={url=>scope.API+url}>Скачать фото претензии</SupplyFileLink>}
       <p>Ожидалось: {data.claim.expectedQuantity ?? '—'} · Фактически получено: {data.claim.receivedQuantity ?? '—'} · Недостача: {data.claim.shortageQuantity ?? '—'}</p>
       {data.returnRemaining !== undefined && <p>Осталось вернуть непринятого: {data.returnRemaining} {data.unit}.
         Осталось отгрузить по претензии: {data.replacementRemaining} {data.unit}.</p>}

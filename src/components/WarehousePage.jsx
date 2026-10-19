@@ -321,6 +321,7 @@ export default function WarehousePage(props) {
 
       {((warehouseTab === 'tools' && !toolCustodyEnabled()) || (warehouseTab === 'inventory' && !inventoryReconciliationEnabled()) || (warehouseTab === 'move' && !useTwoStageMovements)) && (
         <WarehouseOperationsPanel
+          companyContext={companyContext}
           isMobile={isMobile}
           warehouseTab={warehouseTab}
           C={C}

@@ -3,6 +3,25 @@ import { materialLookupText, materialNameMatchScore } from './materialMatchUtils
 import { normalizeMeasure, toNum, _normalizeUnit } from './measureUtils';
 import { packageMatches } from './materialDocumentUtils';
 
+const nonNegativeNumber = value => {
+  if ((typeof value !== 'number' && typeof value !== 'string') || String(value).trim() === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : null;
+};
+
+const roundReceiptAmount = amount => {
+  if (!Number.isFinite(amount)) return 0;
+  // Match the legacy writer's Python round(float, 2). toFixed preserves the
+  // binary side of near-ties (.015 rounds down); exact half-cent ties use even.
+  // A half-cent is binary-exact only at odd multiples of 1/8 (e.g. .125).
+  const cents = amount * 100;
+  if (Number.isSafeInteger(amount * 8) && cents % 1 === 0.5) {
+    const lower = Math.floor(cents);
+    return (lower + lower % 2) / 100;
+  }
+  return Number(amount.toFixed(2));
+};
+
 const materialControlEstimatesForProject = (project, activeEstimatesForProject) => {
   if (typeof activeEstimatesForProject !== 'function') return [];
   const seen = new Set();
@@ -364,17 +383,60 @@ export const buildMaterialReconciliationRows = ({
 
   const acceptedDeliveryKeys = new Set();
   const deliveryKey = (row, pkg = '') => (row?.key || '') + '|' + String(pkg || '').trim();
+  const receiptDeliveryId = invoice => {
+    const sourceId = invoice.sourceType === 'supply_delivery' ? invoice.sourceId : null;
+    if (invoice.supplyDeliveryId && sourceId && String(invoice.supplyDeliveryId) !== String(sourceId)) return null;
+    return invoice.supplyDeliveryId || sourceId;
+  };
+  const linkedReceipts = (invoices || []).filter(invoice => (
+    receiptDeliveryId(invoice)
+    && ((invoice.project || invoice.location) === projectName || invoice.location === projectName)
+    && !['аннулирована', 'аннулирован'].includes(String(invoice.status || '').trim().toLowerCase())
+  ));
+  const acceptedDeliveryTotal = (delivery, qty) => {
+    if (qty === 0) return 0;
+    const receipts = linkedReceipts.filter(invoice => (
+      String(receiptDeliveryId(invoice)) === String(delivery.id)
+      && (invoice.companyId == null || delivery.companyId == null || String(invoice.companyId) === String(delivery.companyId))
+      && (invoice.companyId == null || project?.companyId == null || String(invoice.companyId) === String(project.companyId))
+    ));
+    if (receipts.length === 1) {
+      const invoice = receipts[0];
+      // Only the saved receipt line is amount evidence. Reconstructing an empty
+      // invoice from today's stock or name/date history would invent a receipt.
+      const items = Array.isArray(invoice.items) ? invoice.items : [];
+      if (items.length === 1) {
+        const item = items[0];
+        const itemQty = nonNegativeNumber(item.quantity);
+        const savedQty = materialQty(itemQty, item.unit);
+        const receivedQty = materialQty(qty, delivery.unit);
+        const sameLine = itemQty !== null
+          && String(item.name || '').trim() === String(delivery.materialName || '').trim()
+          && savedQty.unit === receivedQty.unit
+          && Math.abs(savedQty.qty - receivedQty.qty) < 0.000001
+          && sourcePackageOf(item, invoice) === sourcePackageOf({}, delivery)
+          && (item.deliveryId == null || String(item.deliveryId) === String(delivery.id));
+        const amount = nonNegativeNumber(item.total);
+        if (sameLine && amount !== null) return amount;
+      }
+    }
+    // totalPrice is the SHIPPED line total, not the accepted amount. The receipt
+    // writer uses accepted quantity * saved unit price (gross, no extra VAT).
+    const price = nonNegativeNumber(delivery.pricePerUnit);
+    const amount = qty * (price ?? 0);
+    return roundReceiptAmount(amount);
+  };
   (supplyDeliveries || [])
-    .filter(d => d.project === projectName && sourcePackageMatches(sourcePackageOf({}, d)) && ['Принято', 'Проблема'].includes(d.status || '') && Number(d.receivedQuantity || 0) > 0)
+    .filter(d => d.project === projectName && sourcePackageMatches(sourcePackageOf({}, d)) && ['Принято', 'Проблема'].includes(d.status || '') && nonNegativeNumber(d.receivedQuantity) !== null)
     .forEach(d => {
       const deliveryPackage = sourcePackageOf({}, d);
       const r = ensure(d.materialName, d.unit, deliveryPackage);
       if (!r) return;
-      const qty = Number(d.receivedQuantity || 0);
+      const qty = nonNegativeNumber(d.receivedQuantity);
       const converted = materialQty(qty, d.unit || r.unit);
       addQty(r, 'supplyReceived', qty, d.unit);
       addQty(r, 'received', qty, d.unit);
-      const total = Number(d.totalPrice || 0) || qty * Number(d.pricePerUnit || 0);
+      const total = acceptedDeliveryTotal(d, qty);
       r.receivedSum += total;
       r.supplyDetails.push({
         id: d.id,
@@ -392,14 +454,15 @@ export const buildMaterialReconciliationRows = ({
   (supplyHistory || [])
     .filter(h => h.project === projectName && sourcePackageMatches(sourcePackageOf({}, h)) && ['Доставлено', 'Поставлено', 'Принято'].includes(h.status || ''))
     .forEach(h => {
+      const qty = nonNegativeNumber(h.quantity);
+      if (qty === null) return;
       const historyPackage = sourcePackageOf({}, h);
       const r = ensure(h.materialName, h.unit, historyPackage);
       if (!r || acceptedDeliveryKeys.has(deliveryKey(r, historyPackage))) return;
-      const qty = Number(h.quantity || 0);
       const converted = materialQty(qty, h.unit || r.unit);
       addQty(r, 'supplyReceived', qty, h.unit);
       addQty(r, 'received', qty, h.unit);
-      const total = Number(h.totalPrice || 0) || qty * Number(h.pricePerUnit || 0);
+      const total = qty === 0 ? 0 : (nonNegativeNumber(h.totalPrice) ?? qty * (nonNegativeNumber(h.pricePerUnit) ?? 0));
       r.receivedSum += total;
       r.supplyDetails.push({
         id: h.id,
@@ -465,7 +528,8 @@ export const buildMaterialReconciliationRows = ({
     const r = ensure(m.name, m.unit, stockPackage);
     if (r) {
       addQty(r, 'stock', m.quantity, m.unit);
-      if (!r.receivedSum && Number(m.price || 0) > 0) r.receivedSum += Number(m.quantity || 0) * Number(m.price || 0);
+      // A recorded zero receipt/amount is evidence, not a missing value.
+      if (!r.receivedSum && !r.invoiceDetails.length && !r.supplyDetails.length && Number(m.price || 0) > 0) r.receivedSum += Number(m.quantity || 0) * Number(m.price || 0);
     }
   });
 

@@ -21,6 +21,7 @@ const iconByMetric = {
 };
 
 function formatMetricValue(metric, summary) {
+  if (metric.id === 'factProgress' && summary?.progressSource === 'Прогресс не указан') return '—';
   const value = summary?.[metric.id] ?? 0;
   if (metric.id === 'moneyFact' || metric.id === 'moneyObligations') return formatMoneyShort(value);
   return `${value}${metric.suffix}`;
@@ -34,11 +35,11 @@ export default function DirectorMapSummary({ summary }) {
         return (
           <div key={metric.id} className={`dm-metric dm-tone-${metric.tone}`}>
             <div className="dm-metric-top">
-              <p>{metric.label}</p>
+              <p>{metric.id === 'factProgress' && summary?.progressSource ? 'Прогресс' : metric.label}</p>
               <Icon size={17} strokeWidth={2.2} aria-hidden="true" />
             </div>
             <strong>{formatMetricValue(metric, summary)}</strong>
-            <span>{metric.sub}</span>
+            <span>{metric.id === 'factProgress' && summary?.progressSource ? summary.progressSource : metric.sub}</span>
           </div>
         );
       })}

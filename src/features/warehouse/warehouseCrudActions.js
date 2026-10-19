@@ -9,6 +9,23 @@ import {
   createWarehouseMovementForm,
 } from './warehouseInitialForms';
 
+import {matchesMovementScope, movementRequest, newMovementId} from './movementRecovery';
+
+const movementDrafts = new WeakMap();
+const activeMovementScopes = new Set();
+const prepareMovementDraft = (draft, user) => {
+  if (movementDrafts.has(draft)) return movementDrafts.get(draft);
+  const prepared = {draftId: newMovementId(), commands: (draft.selectedMaterials || []).map(item => ({
+    commandId: newMovementId(), materialName: item.name, fromLocation: draft.fromLocation,
+    toLocation: draft.toLocation, quantity: Number(item.quantity), unit: item.unit,
+    workPackage: item.workPackage || item.work_package || draft.workPackage || '',
+    date: new Date().toISOString().split('T')[0], createdBy: user.name, notes: draft.notes,
+    invoiceId: item.invoiceId ?? null, invoiceLineIndex: item.invoiceLineIndex ?? null,
+  }))};
+  movementDrafts.set(draft, prepared);
+  return prepared;
+};
+
 export const createWarehouseCrudActions = ({
   API,
   addActivity,
@@ -19,6 +36,8 @@ export const createWarehouseCrudActions = ({
   issueToolData,
   newInvoice,
   newMovement,
+  movementScope,
+  isMovementScopeCurrent = () => false,
   newTool,
   notify,
   projects,
@@ -58,9 +77,15 @@ export const createWarehouseCrudActions = ({
         : null;
       location = projectFromList?.name || assignedProjectNames[0] || '';
     }
+    if (newInvoice?.originalUrls?.length && !newInvoice.receiptCompleted
+        && (!preselectedLocation || newInvoice.location === preselectedLocation)) {
+      setShowScanInvoice(true);
+      return;
+    }
     const warehouseTarget = location && location !== 'Основной склад' ? 'object' : 'main';
     setNewInvoice({
       ...createWarehouseInvoiceForm(),
+      receiptDraftId: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
       date:new Date().toISOString().split('T')[0],
       acceptedBy:user?.name||'',
       location,
@@ -172,7 +197,11 @@ export const createWarehouseCrudActions = ({
       selectedAction,
       sourceType,
       sourceId:newInvoice.sourceId||null,
-      materialMatch
+      materialMatch,
+      receiptDocument: newInvoice.receiptDocument,
+      originalUrls: newInvoice.originalUrls || photoUrls,
+      physicalReceiptConfirmed: newInvoice.physicalReceiptConfirmed === true,
+      newDocumentConfirmed: newInvoice.newDocumentConfirmed === true,
     };
     const savedInv = inv;
     const invoiceRes = await fetch(API+'/warehouse-invoices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(savedInv)});
@@ -196,61 +225,61 @@ export const createWarehouseCrudActions = ({
     return true;
   };
 
-  const applyWarehouseMovement = async () => {
-    const refreshWarehouse = async () => {
-      try { await refreshData(); } catch (_error) { /* Operation result remains authoritative. */ }
-    };
-    if (!newMovement.toLocation) { alert('Выберите куда переместить'); return {success: false}; }
-    const selected = newMovement.selectedMaterials||[];
-    if (selected.length===0) { alert('Выберите материалы'); return {success: false}; }
-    if (selected.some(item => !Number.isFinite(Number(item.quantity)) || Number(item.quantity) <= 0)) {
-      alert('Укажите положительное количество для каждого выбранного материала');
+  const applyWarehouseMovement = async (recoveredDraft = null) => {
+    const scope = movementScope;
+    if (!scope || !isMovementScopeCurrent() || activeMovementScopes.has(scope.key)) return {success: false};
+    activeMovementScopes.add(scope.key);
+    try {
+      // Reconcile before preparing/retrying. No new command is allowed to hide
+      // an unresolved server-owned draft after reload or a lost response.
+      const recovery = await movementRequest(API, `/warehouse-movement-drafts?expectedActorUserId=${scope.actorUserId}`, scope);
+      if (!isMovementScopeCurrent()) return {success: false};
+      if (!matchesMovementScope(recovery, scope) || !Array.isArray(recovery.drafts)
+        || recovery.drafts.some(draft => !matchesMovementScope(draft, scope))) throw new Error('Не удалось подтвердить компанию перемещения');
+      const pending = recovery.drafts.find(draft => !draft.complete);
+      let intent;
+      if (recoveredDraft) {
+        if (!matchesMovementScope(recoveredDraft, scope) || recoveredDraft.restricted) throw new Error('Нет доступа к данным перемещения');
+        if (pending && pending.draftId !== recoveredDraft.draftId) throw new Error('Сначала завершите сохранённое перемещение');
+        intent = {draftId: recoveredDraft.draftId, commands: recoveredDraft.commands.map(row => row.command)};
+      } else {
+        if (pending) throw new Error('Есть сохранённое перемещение. Используйте «Продолжить перемещение» или отмените неисполненные позиции.');
+        if (!newMovement.toLocation) throw new Error('Выберите куда переместить');
+        const selected = newMovement.selectedMaterials || [];
+        if (!selected.length) throw new Error('Выберите материалы');
+        if (selected.some(item => !Number.isFinite(Number(item.quantity)) || Number(item.quantity) <= 0)) throw new Error('Укажите положительное количество для каждого выбранного материала');
+        intent = prepareMovementDraft(newMovement, user);
+      }
+      const prepared = await movementRequest(API, '/warehouse-movement-drafts', scope, {...intent, expectedActorUserId: scope.actorUserId});
+      if (!isMovementScopeCurrent()) return {success: false};
+      if (!matchesMovementScope(prepared, scope) || prepared.draftId !== intent.draftId
+        || prepared.restricted || !Array.isArray(prepared.commands)) throw new Error('Не удалось подтвердить сохранённое перемещение');
+      const createdMovements = [];
+      for (const row of prepared.commands) {
+        if (!isMovementScopeCurrent()) return {success: false};
+        if (row.status === 'cancelled') throw new Error('Неисполненные позиции этого перемещения отменены');
+        if (row.status === 'committed') { createdMovements.push(row.response); continue; }
+        if (row.status !== 'pending') throw new Error('Неизвестный статус перемещения');
+        const movement = await movementRequest(API, '/warehouse-movements', scope, {
+          ...row.command, draftId: prepared.draftId, expectedActorUserId: scope.actorUserId,
+        });
+        if (!isMovementScopeCurrent()) return {success: false};
+        createdMovements.push(movement);
+      }
+      if (!isMovementScopeCurrent()) return {success: false};
+      setNewMovement(createWarehouseMovementForm());
+      try { await refreshData(); } catch (_error) { /* Durable operation remains authoritative. */ }
+      // Refresh may await a company/account switch. Never return old snapshots.
+      if (!isMovementScopeCurrent()) return {success: false};
+      const reviewRequired = createdMovements.filter(row => row?.estimateControl?.needsReview).length;
+      notify(reviewRequired ? 'Перемещение выполнено · требуют сметного разбора: ' + reviewRequired : 'Перемещение выполнено', reviewRequired ? 'ai' : 'material');
+      return {success: true, moved: createdMovements.length, movements: createdMovements};
+    } catch (error) {
+      if (isMovementScopeCurrent()) alert((error?.message || 'Ответ сервера не получен') + '. Проверьте результат в блоке восстановления. Сохранённые позиции не нужно вводить заново.');
       return {success: false};
+    } finally {
+      activeMovementScopes.delete(scope.key);
     }
-    let reviewRequired = 0;
-    let reviewTasksCreated = 0;
-    const createdMovements = [];
-    for (let index = 0; index < selected.length; index += 1) {
-      const item = selected[index];
-      const itemWorkPackage = item.workPackage || item.work_package || newMovement.workPackage || '';
-      let res;
-      try {
-        res = await fetch(API+'/warehouse-movements',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({materialName:item.name,fromLocation:newMovement.fromLocation,toLocation:newMovement.toLocation,quantity:Number(item.quantity),unit:item.unit,workPackage:itemWorkPackage,date:new Date().toISOString().split('T')[0],createdBy:user.name,notes:newMovement.notes,invoiceId:item.invoiceId ?? null,invoiceLineIndex:item.invoiceLineIndex ?? null})});
-      } catch (_error) {
-        if (index > 0) {
-          setNewMovement({...newMovement, selectedMaterials:selected.slice(index)});
-          await refreshWarehouse();
-        }
-        alert(index > 0
-          ? `Перемещено позиций: ${index}. Остальные оставлены в форме. Проверьте соединение и повторите.`
-          : 'Не удалось выполнить перемещение. Проверьте соединение и повторите.');
-        return {success: false};
-      }
-      if (!res.ok) {
-        const err = await res.json().catch(()=>({}));
-        if (index > 0) {
-          setNewMovement({...newMovement, selectedMaterials:selected.slice(index)});
-          await refreshWarehouse();
-        }
-        alert(index > 0
-          ? `${err.detail || 'Не удалось выполнить перемещение материала'} Перемещено позиций: ${index}; остальные оставлены в форме.`
-          : (err.detail || 'Не удалось выполнить перемещение материала'));
-        return {success: false};
-      }
-      const movement = await res.json().catch(()=>({}));
-      createdMovements.push(movement);
-      if (movement?.estimateControl?.needsReview) reviewRequired += 1;
-      if (movement?.estimateReviewTaskId) reviewTasksCreated += 1;
-    }
-    notify(
-      reviewRequired
-        ? 'Перемещение выполнено · требуют сметного разбора: ' + reviewRequired + (reviewTasksCreated ? ' · задачи созданы: ' + reviewTasksCreated : '')
-        : 'Перемещение выполнено',
-      reviewRequired ? 'ai' : 'material'
-    );
-    setNewMovement(createWarehouseMovementForm());
-    await refreshWarehouse();
-    return {success: true, moved: selected.length, movements: createdMovements};
   };
 
   const deleteMaterial = async () => {

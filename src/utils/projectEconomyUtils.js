@@ -1,3 +1,12 @@
+import { ks2ItemsFromActiveEstimates } from './projectEstimateItemsUtils';
+
+export const projectAccountableSummary = (projectName, payments = []) => (payments || [])
+  .filter(payment => payment.projectName === projectName)
+  .reduce((summary, payment) => ({
+    issued: summary.issued + Number(payment.amount || 0),
+    spent: summary.spent + Number(payment.spentAmount || 0),
+  }), { issued: 0, spent: 0 });
+
 export const projectMaterialCost = (project, materialControlSummaryForProject) => (
   Number(materialControlSummaryForProject?.(project)?.suppliedSum || 0)
 );
@@ -52,9 +61,7 @@ export const projectExpenseCategories = ({
       result.unexpected = (result.unexpected || 0) + Number(item.total || 0);
     });
 
-  (accountablePayments || []).filter(item => item.projectName === projectName).forEach(item => {
-    result.accountable = (result.accountable || 0) + Number(item.spentAmount || 0);
-  });
+  result.accountable = (result.accountable || 0) + projectAccountableSummary(projectName, accountablePayments).spent;
 
   return result;
 };
@@ -121,7 +128,11 @@ export const buildProjectEconomy = ({
   const executionConfirmed = confirmedWorks.reduce((sum, work) => sum + workExecutionTotalValue(work), 0);
   const executionPending = pendingWorks.reduce((sum, work) => sum + workExecutionTotalValue(work), 0);
   const confirmedCustomerFromJournal = confirmedWorks.reduce((sum, work) => sum + workCustomerTotalValue(work), 0);
-  const customerClosed = Math.max(Number(planDone.done || 0), confirmedCustomerFromJournal);
+  // Match the printable KS-2, including its explicit legacy fallback when no linked journal exists.
+  const customerClosed = activeEstimates.length
+    ? ks2ItemsFromActiveEstimates({ project, activeEstimates, workJournal })
+      .reduce((sum, row) => sum + Number(row.total || 0), 0)
+    : confirmedCustomerFromJournal;
   const legacyWorkCost = Math.max(0, Number(spent.works || 0) - executionConfirmed);
   const otherCost = Number(spent.other || 0) + Number(spent.unexpected || 0);
   const currentCost = executionConfirmed + legacyWorkCost + Number(spent.materials || 0) + otherCost;
@@ -152,7 +163,6 @@ export const buildProjectEconomy = ({
 export const projectRealProgressValue = ({
   project,
   projectPlanDone = () => ({ plan: 0, done: 0 }),
-  projectFactSpent = () => ({ total: 0 }),
 } = {}) => {
   if (!project) return 0;
   const { plan, done } = projectPlanDone(project);
@@ -160,10 +170,15 @@ export const projectRealProgressValue = ({
     const pct = (done / plan) * 100;
     return done > 0 && pct < 1 ? 1 : Math.round(pct);
   }
-  const budget = Number(project.budget || 0);
-  if (budget > 0) {
-    const fact = projectFactSpent(project).total;
-    return Math.min(100, Math.round((fact / budget) * 100));
-  }
-  return Number(project.progress || 0);
+  // Money spent and stock purchased do not establish physical completion.
+  // Preserve the numeric API; missing stored progress is represented by zero.
+  const storedProgress = Number(project.progress ?? 0);
+  return Number.isFinite(storedProgress) ? Math.max(0, Math.min(100, storedProgress)) : 0;
+};
+
+export const projectProgressSourceLabel = (project, planDone = {}) => {
+  if (Number(planDone.plan || 0) > 0) return 'По смете';
+  const value = project?.progress;
+  return value !== undefined && value !== null && value !== '' && Number.isFinite(Number(value))
+    ? 'Из карточки объекта' : 'Прогресс не указан';
 };

@@ -1,5 +1,7 @@
 import React from 'react';
 import { Check, Edit2, Eye, Plus, Trash2, X } from 'lucide-react';
+import useMovementRecovery from '../features/warehouse/useMovementRecovery';
+import MovementRecoveryNotice from '../features/warehouse/MovementRecoveryNotice';
 import { API } from '../api';
 import { createToolForm } from '../features/warehouse/warehouseInitialForms';
 import WarehouseMovementSource from './WarehouseMovementSource';
@@ -7,6 +9,7 @@ import { identifiedInvoiceLines } from '../utils/warehouseInvoiceSource';
 
 export default function WarehouseOperationsPanel({
   warehouseTab,
+  companyContext,
   C,
   card,
   inp,
@@ -56,10 +59,15 @@ export default function WarehouseOperationsPanel({
   user,
   isMobile = false,
 }) {
+  const recovery = useMovementRecovery({API, user, companyContext, enabled: warehouseTab === 'move'});
+  const scopeGeneration = React.useRef({key: recovery.key, generation: 0, mounted: true});
+  if (scopeGeneration.current.key !== recovery.key) scopeGeneration.current = {key: recovery.key, generation: scopeGeneration.current.generation + 1, mounted: true};
+  React.useEffect(() => { scopeGeneration.current.mounted = true; return () => { scopeGeneration.current.mounted = false; scopeGeneration.current.generation += 1; }; }, []);
   const [movementSearch, setMovementSearch] = React.useState('');
   const [selectedOnly, setSelectedOnly] = React.useState(false);
   const [movementBusy, setMovementBusy] = React.useState(false);
   const [movementPrintError, setMovementPrintError] = React.useState('');
+  React.useEffect(() => { setMovementBusy(false); setMovementPrintError(''); }, [recovery.key]);
   const movementReviewRef = React.useRef(null);
   const touchCompact = typeof window !== 'undefined'
     && (window.visualViewport?.width || window.innerWidth || 0) < 1100
@@ -89,14 +97,16 @@ export default function WarehouseOperationsPanel({
       ? 'позицию'
       : ([2, 3, 4].includes(selectedMaterials.length % 10) && ![12, 13, 14].includes(selectedMaterials.length % 100) ? 'позиции' : 'позиций');
     const invalidQuantityCount = selectedMaterials.filter(item => !Number.isFinite(Number(item.quantity)) || Number(item.quantity) <= 0).length;
-    const canSubmitMovement = Boolean(newMovement.toLocation && selectedMaterials.length && !invalidQuantityCount && !movementBusy);
+    const canSubmitMovement = Boolean(newMovement.toLocation && selectedMaterials.length && !invalidQuantityCount && !movementBusy && !recovery.blocked);
     const submitMovement = async (print = false) => {
       if (!canSubmitMovement) return;
+      const captured = {...scopeGeneration.current};
+      const stillCurrent = () => scopeGeneration.current.mounted && captured.key === scopeGeneration.current.key && captured.generation === scopeGeneration.current.generation;
       setMovementPrintError('');
       setMovementBusy(true);
       try {
         const result = await applyWarehouseMovement();
-        if (!print || !result?.success) return;
+        if (!stillCurrent() || !print || !result?.success) return;
         const printedRows = result.movements;
         if (!Array.isArray(printedRows) || printedRows.length !== selectedMaterials.length
           || printedRows.some(row => !row?.id || !row.documentSnapshot)) {
@@ -105,7 +115,8 @@ export default function WarehouseOperationsPanel({
         }
         showPreview(buildMovementDoc(printedRows[0], printedRows), 'Накладная М-11');
       } finally {
-        setMovementBusy(false);
+        if (stillCurrent()) setMovementBusy(false);
+        await recovery.refresh();
       }
     };
     const searchText = movementSearch.trim().toLocaleLowerCase('ru-RU');
@@ -136,6 +147,8 @@ export default function WarehouseOperationsPanel({
           <h2 style={{color:C.text,margin:'0 0 4px',fontSize:compactRows?'19px':'22px'}}>Перемещение материалов</h2>
           <p style={{color:C.textSec,margin:0,fontSize:'13px'}}>Выберите склад и материалы. Перед отправкой проверьте количество и источник прихода.</p>
         </div>
+        <MovementRecoveryNotice key={recovery.key} recovery={recovery} onResume={async draft => { try { await applyWarehouseMovement(draft); } finally { await recovery.refresh(); } }} />
+        <fieldset disabled={recovery.blocked || movementBusy} style={{border:0,padding:0,margin:0,minWidth:0}}>
         <div style={{display:'grid',gridTemplateColumns:compactRows?'minmax(0,1fr)':'minmax(0,1fr) minmax(270px,320px)',
           gridTemplateAreas:compactRows?'"route" "materials" "review"':'"route review" "materials review"',gap:'14px',marginBottom:'18px',alignItems:'start'}}>
           <section style={{...card,gridArea:'route',padding:compactRows?'16px':'20px',minWidth:0,margin:0}}>
@@ -351,6 +364,7 @@ export default function WarehouseOperationsPanel({
           </section>
         </div>
 
+        </fieldset>
         <h3 style={{ color: C.text, marginBottom: '10px', fontSize: '14px', fontWeight: '700' }}>
           История перемещений
         </h3>

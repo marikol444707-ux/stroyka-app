@@ -1,5 +1,6 @@
 import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+jest.mock('../features/warehouse/useMovementRecovery', () => ({__esModule: true, default: ({companyContext}) => ({key: String(companyContext?.selectedCompanyId || 1), blocked: false, loading: false, drafts: [], refresh: jest.fn()})}));
 import WarehouseOperationsPanel from './WarehouseOperationsPanel';
 
 test('mobile search finds a material beyond the first forty positions', () => {
@@ -154,4 +155,17 @@ test('shows the missing quantity before submit and prevents a repeated movement 
   expect(screen.getByRole('button',{name:'Перемещаем…'})).toBeDisabled();
   expect(screen.getByRole('button',{name:'Переместить и распечатать'})).toBeDisabled();
   expect(applyWarehouseMovement).toHaveBeenCalledTimes(1);
+});
+
+test('late move-and-print result cannot reopen old company snapshot after switch', async () => {
+  let finish;
+  const applyWarehouseMovement=jest.fn(()=>new Promise(resolve=>{finish=resolve;}));
+  const showPreview=jest.fn();
+  const props={warehouseTab:'move',C:{},card:{},inp:{},projects:[],visibleActiveProjects:v=>v,warehouseMain:[],materials:[],newMovement:{fromLocation:'Основной склад',toLocation:'Объект',notes:'',selectedMaterials:[{name:'Кабель',quantity:1,unit:'м'}]},warehouseMovements:[],warehouseInvoices:[],applyWarehouseMovement,showPreview,buildMovementDoc:jest.fn()};
+  const {rerender}=render(<WarehouseOperationsPanel {...props} companyContext={{selectedCompanyId:2}} />);
+  fireEvent.click(screen.getByRole('button',{name:'Переместить и распечатать'}));
+  rerender(<WarehouseOperationsPanel {...props} companyContext={{selectedCompanyId:3}} />);
+  finish({success:true,movements:[{id:1,documentSnapshot:{}}]});
+  await waitFor(()=>expect(screen.getByRole('button',{name:'Переместить и распечатать'})).not.toBeDisabled());
+  expect(showPreview).not.toHaveBeenCalled();
 });

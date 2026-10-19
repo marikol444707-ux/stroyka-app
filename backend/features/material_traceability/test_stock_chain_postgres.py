@@ -14,6 +14,7 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from backend.features.material_traceability import test_transfer_workflow_postgres as support
+from backend.features.warehouse_receipts.test_http_support import physical_receipt_payload, upload_receipt_document
 
 
 @unittest.skipUnless(os.environ.get('SUPPLY_CHAIN_RUN_POSTGRES') == '1',
@@ -27,6 +28,11 @@ class StockChainPostgresTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         support.TransferWorkflowPostgresTests.setUpClass.__func__(cls)
+        from backend.features.warehouse_movements.idempotency import SCHEMA_SQL as command_schema
+        from backend.features.warehouse_movements.drafts import SCHEMA_SQL as draft_schema
+        cls.sql(cls, command_schema)
+        cls.sql(cls, draft_schema)
+        cls.sql(cls, "INSERT INTO company_requisites(company_id,full_name,inn) VALUES(2,'Synthetic buyer','7702222222') ON CONFLICT(company_id) DO NOTHING")
         flag = patch.dict(os.environ, {'WAREHOUSE_DISTRIBUTION_ENABLED': '1'})
         flag.start()
         cls.addClassCleanup(flag.stop)
@@ -85,13 +91,28 @@ class StockChainPostgresTests(unittest.TestCase):
         return [invoices, self.sql('SELECT * FROM project_payments ORDER BY id')]
 
     def receipt_payload(self, quantity=2):
-        return dict(companyId=2, location='Основной склад', warehouseTarget='main',
+        payload = dict(companyId=2, location='Основной склад', warehouseTarget='main',
             inventoryOnly=True, number='CHAIN-'+uuid4().hex, date='2026-09-16',
             items=[dict(name=self.f['materialName'], materialName=self.f['materialName'],
                         unit='шт', quantity=quantity, price=100, workPackage='Основная')])
+        # Inventory-only is still a physical receipt: use the existing synthetic
+        # legal parties on the uploaded original, without adding an accounting link.
+        document = dict(documentType='waybill', waybillNumber=payload['number'], waybillDate=payload['date'],
+            supplierInn=self.sql('SELECT inn FROM suppliers WHERE id=%s', (self.f['supplierId'],))[0][0],
+            buyerInn=self.sql('SELECT inn FROM company_requisites WHERE company_id=2')[0][0],
+            lines=[dict(materialName=self.f['materialName'], unit='шт', quantity=quantity)])
+        url = upload_receipt_document(self, 'director', 2, '', document)
+        preview = self.api('director', 'POST', '/warehouse-receipts/resolve',
+            dict(companyId=2, document=document, originalUrls=[url]))
+        self.assertEqual(preview['status'], 'no_match', preview)
+        return dict(payload, receiptDocument=document, originalUrls=[url],
+                    physicalReceiptConfirmed=True, newDocumentConfirmed=True)
 
     def prepare_lot(self):
-        self.api('director', 'POST', '/warehouse-invoices', self.receipt_payload())
+        payload = self.receipt_payload()
+        receipt = self.api('director', 'POST', '/warehouse-invoices', payload)
+        self.assertEqual(self.sql('SELECT photo_urls::jsonb FROM warehouse_invoices WHERE id=%s',
+                                  (receipt['id'],)), [(payload['originalUrls'],)])
         sources = self.api('director', 'GET', '/warehouse-distributions/sources?companyId=2')['items']
         return next(row['lotId'] for row in sources if row['materialName'] == self.f['materialName'])
 
@@ -312,14 +333,14 @@ class StockChainPostgresTests(unittest.TestCase):
         links = dict(self.sql('SELECT id,warehouse_invoice_id FROM supplier_invoices ORDER BY id'))
         self.assertIsNone(links[supplier_invoice_id])
         command = self.distribution(lot)
-        path = '/supply-deliveries/'+str(delivery_id)+'/receive'
-        payload = dict(companyId=2, receivedQuantity=2, qualityStatus='Принято', receivedBy='Synthetic director')
-        responses = self.overlap_distribution(command, 'PUT', path, payload)
+        path = '/warehouse-receipts/confirm'
+        payload = physical_receipt_payload(self, 'director', delivery_id, 2)
+        responses = self.overlap_distribution(command, 'POST', path, payload)
         self.assertEqual([r.status_code for r in responses], [200,200],
                          [(r.status_code,r.text) for r in responses])
         self.assertEqual(self.stocks(), (0,4))
         self.assertEqual(self.finances(allow_receipt_link=True), finances)
-        invoice_id = responses[1].json()['invoiceId']
+        invoice_id = responses[1].json()['warehouseInvoiceIds'][0]
         self.assertTrue(invoice_id)
         links[supplier_invoice_id] = invoice_id
         self.assertEqual(dict(self.sql('SELECT id,warehouse_invoice_id FROM supplier_invoices ORDER BY id')), links)
@@ -327,9 +348,9 @@ class StockChainPostgresTests(unittest.TestCase):
                                   (delivery_id,)), [(invoice_id,supplier_invoice_id)])
         before = [self.sql('SELECT * FROM '+table+' ORDER BY id') for table in
                   ('materials', 'warehouse_main', 'warehouse_history', 'warehouse_invoices', 'supply_deliveries')]
-        replay = self.api('director', 'PUT', path, payload)
+        replay = self.api('director', 'POST', path, payload)
         self.assertTrue(replay['alreadyReceived'])
-        self.assertEqual(replay['invoiceId'], invoice_id)
+        self.assertEqual(replay['warehouseInvoiceIds'][0], invoice_id)
         self.assertEqual([self.sql('SELECT * FROM '+table+' ORDER BY id') for table in
                   ('materials', 'warehouse_main', 'warehouse_history', 'warehouse_invoices', 'supply_deliveries')], before)
         self.assertEqual(self.finances(allow_receipt_link=True), finances)
@@ -360,12 +381,17 @@ class StockChainPostgresTests(unittest.TestCase):
         movement = dict(materialName='Visible second', unit='шт', quantity=1, workPackage='Основная',
                         fromLocation=self.f['project'], toLocation='Основной склад', invoiceId=rid,
                         invoiceLineIndex=0, date='2026-09-16', createdBy='Synthetic foreman')
-        rejection = self.api('foreman', 'POST', '/warehouse-movements', movement, expected=400)
+        headers = {'X-Company-Id': '2', 'X-Company-Mode': 'company'}
+        movement = self.prepare_movement(movement)
+        rejection = self.api('foreman', 'POST', '/warehouse-movements', movement, expected=400, **headers)
         self.assertIn('не совпадает', rejection['detail'])
         self.assertEqual([self.sql('SELECT * FROM '+table+' ORDER BY id') for table in
                     ('materials', 'warehouse_main', 'warehouse_movements', 'warehouse_history')], snapshot)
+        self.api('foreman', 'POST', '/warehouse-movement-drafts/'+movement['draftId']+'/cancel',
+                 dict(expectedActorUserId=movement['expectedActorUserId']), **headers)
         movement.update(materialName='Visible second', workPackage='Основная', invoiceLineIndex=2)
-        result = self.api('foreman', 'POST', '/warehouse-movements', movement)
+        movement = self.prepare_movement(movement)
+        result = self.api('foreman', 'POST', '/warehouse-movements', movement, **headers)
         self.assertEqual((result['sourceInvoiceId'], result['sourceInvoiceLineIndex']), (rid,2))
         self.assertEqual(self.sql('SELECT source_invoice_id,source_invoice_line_index FROM warehouse_movements WHERE id=%s',
                                   (result['id'],)), [(rid,2)])
@@ -374,6 +400,14 @@ class StockChainPostgresTests(unittest.TestCase):
         self.assertEqual(self.sql('SELECT * FROM warehouse_invoices WHERE id=%s', (rid,)), before)
         self.assertEqual(self.finances(), finances)
 
+    def prepare_movement(self, movement):
+        movement = dict(movement, commandId=str(uuid4()), draftId=str(uuid4()),
+                        expectedActorUserId=self.f['users']['foreman']['id'])
+        self.api('foreman', 'POST', '/warehouse-movement-drafts',
+            dict(draftId=movement['draftId'], expectedActorUserId=movement['expectedActorUserId'], commands=[movement]),
+            **{'X-Company-Id': '2', 'X-Company-Mode': 'company'})
+        return movement
+
     def chain_snapshot(self):
         return [self.sql('SELECT * FROM '+table+' ORDER BY id') for table in
                 ('materials', 'warehouse_main', 'warehouse_invoices', 'warehouse_history',
@@ -381,7 +415,7 @@ class StockChainPostgresTests(unittest.TestCase):
                  'warehouse_distribution_allocations', 'warehouse_distribution_returns',
                  'warehouse_receipt_lots', 'warehouse_lot_movements', 'supply_deliveries',
                  'supply_requests', 'supplier_offers', 'supply_history', 'supplier_invoices',
-                 'project_payments', 'material_inspection_journal', 'cable_journal')]
+                 'project_payments', 'material_inspection_journal', 'cable_journal', 'file_ownership')]
 
     def inject_failure(self, table, method, path, payload):
         # Table names are test-owned constants, never API input. AFTER INSERT
@@ -406,7 +440,9 @@ class StockChainPostgresTests(unittest.TestCase):
         finances = self.finances()
         self.inject_failure('warehouse_receipt_lots', 'POST', '/warehouse-invoices', payload)
         self.assertEqual(self.stocks(), (0,0))
-        self.api('director', 'POST', '/warehouse-invoices', payload)
+        receipt = self.api('director', 'POST', '/warehouse-invoices', payload)
+        self.assertEqual(self.sql('SELECT photo_urls::jsonb FROM warehouse_invoices WHERE id=%s',
+                                  (receipt['id'],)), [(payload['originalUrls'],)])
         self.assertEqual(self.stocks(), (2,0))
         self.assertEqual(self.sql('SELECT count(*) FROM warehouse_invoices WHERE company_id=2 AND number=%s',
                                   (payload['number'],)), [(1,)])
@@ -419,24 +455,24 @@ class StockChainPostgresTests(unittest.TestCase):
 
     def test_supplier_acceptance_late_stock_failure_rolls_back_and_retry_is_single(self):
         delivery_id, supplier_invoice_id = self.prepare_supplier_delivery()
-        path = '/supply-deliveries/'+str(delivery_id)+'/receive'
-        payload = dict(companyId=2, receivedQuantity=2, qualityStatus='Принято', receivedBy='Synthetic director')
+        path = '/warehouse-receipts/confirm'
+        payload = physical_receipt_payload(self, 'director', delivery_id, 2)
         finances = self.finances(allow_receipt_link=True)
-        self.inject_failure('materials', 'PUT', path, payload)
+        self.inject_failure('materials', 'POST', path, payload)
         self.assertEqual(self.stocks(), (0,0))
         self.assertEqual(self.sql('SELECT received_at FROM supply_deliveries WHERE id=%s', (delivery_id,)), [(None,)])
-        accepted = self.api('director', 'PUT', path, payload)
+        accepted = self.api('director', 'POST', path, payload)
         self.assertEqual(self.stocks(), (0,2))
         self.assertEqual(self.sql('SELECT id,supplier_invoice_id FROM warehouse_invoices WHERE supply_delivery_id=%s',
-                                  (delivery_id,)), [(accepted['invoiceId'],supplier_invoice_id)])
+                                  (delivery_id,)), [(accepted['warehouseInvoiceIds'][0],supplier_invoice_id)])
         after = self.chain_snapshot()
-        replay = self.api('director', 'PUT', path, payload)
+        replay = self.api('director', 'POST', path, payload)
         self.assertTrue(replay['alreadyReceived'])
-        self.assertEqual(replay['invoiceId'], accepted['invoiceId'])
+        self.assertEqual(replay['warehouseInvoiceIds'][0], accepted['warehouseInvoiceIds'][0])
         self.assertEqual(self.chain_snapshot(), after)
         self.assertEqual(self.finances(allow_receipt_link=True), finances)
         self.assertEqual(self.sql('SELECT warehouse_invoice_id FROM supplier_invoices WHERE id=%s',
-                                  (supplier_invoice_id,)), [(accepted['invoiceId'],)])
+                                  (supplier_invoice_id,)), [(accepted['warehouseInvoiceIds'][0],)])
 
 
 if __name__ == '__main__':

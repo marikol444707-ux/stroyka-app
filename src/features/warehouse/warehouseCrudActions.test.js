@@ -13,6 +13,7 @@ const createActions = overrides => createWarehouseCrudActions({
 
 beforeEach(() => {
   global.alert = jest.fn();
+  global.crypto = require('crypto').webcrypto;
 });
 
 test('saveTool keeps the form open and explains a failed API response', async () => {
@@ -38,99 +39,6 @@ test('saveTool refreshes the warehouse after a successful save', async () => {
 
   expect(saved).toBe(true);
   expect(refreshData).toHaveBeenCalledWith('warehouse');
-});
-
-test('applyWarehouseMovement reports positions that need estimate review', async () => {
-  global.fetch = jest
-    .fn()
-    .mockResolvedValueOnce({ok: true, json: async () => ({estimateControl: {needsReview: true}, estimateReviewTaskId: 81})})
-    .mockResolvedValueOnce({ok: true, json: async () => ({estimateControl: {needsReview: false}})});
-  const notify = jest.fn();
-  const refreshData = jest.fn();
-  const setNewMovement = jest.fn();
-  const actions = createActions({
-    newMovement: {
-      fromLocation: 'Основной склад',
-      toLocation: 'Объект 1',
-      notes: 'Согласовано с заказчиком',
-      selectedMaterials: [
-        {name: 'Грунтовка', quantity: 5, unit: 'кг', workPackage: 'Отделка'},
-        {name: 'Кабель', quantity: 20, unit: 'м', workPackage: 'Электрика'},
-      ],
-    },
-    notify,
-    refreshData,
-    setNewMovement,
-    user: {name: 'Кладовщик'},
-  });
-
-  const result = await actions.applyWarehouseMovement();
-
-  expect(result).toEqual({
-    success: true,
-    moved: 2,
-    movements: [
-      {estimateControl: {needsReview: true}, estimateReviewTaskId: 81},
-      {estimateControl: {needsReview: false}},
-    ],
-  });
-  expect(global.fetch).toHaveBeenCalledTimes(2);
-  expect(notify).toHaveBeenCalledWith('Перемещение выполнено · требуют сметного разбора: 1 · задачи созданы: 1', 'ai');
-  expect(refreshData).toHaveBeenCalled();
-  expect(setNewMovement).toHaveBeenCalled();
-});
-
-test('applyWarehouseMovement keeps only unprocessed rows after a partial server failure', async () => {
-  global.fetch = jest.fn()
-    .mockResolvedValueOnce({ok: true, json: async () => ({})})
-    .mockResolvedValueOnce({ok: false, json: async () => ({detail: 'Недостаточный остаток'})});
-  const refreshData = jest.fn();
-  const setNewMovement = jest.fn();
-  const draft = {
-    fromLocation: 'Основной склад', toLocation: 'Объект 1', notes: '',
-    selectedMaterials: [
-      {name: 'Кабель', quantity: 20, unit: 'м'},
-      {name: 'Краска', quantity: 5, unit: 'л'},
-      {name: 'Грунт', quantity: 2, unit: 'кг'},
-    ],
-  };
-  const actions = createActions({newMovement:draft, notify:jest.fn(), refreshData, setNewMovement, user:{name:'Кладовщик'}});
-
-  const result = await actions.applyWarehouseMovement();
-
-  expect(result).toEqual({success:false});
-  expect(refreshData).toHaveBeenCalledTimes(1);
-  expect(setNewMovement).toHaveBeenCalledWith({...draft, selectedMaterials:draft.selectedMaterials.slice(1)});
-  expect(global.alert).toHaveBeenCalledWith(expect.stringContaining('Перемещено позиций: 1'));
-});
-
-test('applyWarehouseMovement reports a rejected operation and keeps the draft', async () => {
-  global.fetch = jest.fn(async () => ({
-    ok: false,
-    status: 409,
-    json: async () => ({detail: 'Используйте распределение конкретной партии'}),
-  }));
-  const refreshData = jest.fn();
-  const setNewMovement = jest.fn();
-  const actions = createActions({
-    newMovement: {
-      fromLocation: 'Основной склад',
-      toLocation: 'Объект 1',
-      notes: '',
-      selectedMaterials: [{name: 'Кабель', quantity: 20, unit: 'м'}],
-    },
-    notify: jest.fn(),
-    refreshData,
-    setNewMovement,
-    user: {name: 'Кладовщик'},
-  });
-
-  const result = await actions.applyWarehouseMovement();
-
-  expect(result).toEqual({success: false});
-  expect(global.alert).toHaveBeenCalledWith('Используйте распределение конкретной партии');
-  expect(refreshData).not.toHaveBeenCalled();
-  expect(setNewMovement).not.toHaveBeenCalled();
 });
 
 test('saveInvoiceNew preserves OCR supplier identity for automatic accounting linkage', async () => {

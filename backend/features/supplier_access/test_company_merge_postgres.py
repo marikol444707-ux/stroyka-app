@@ -2,6 +2,7 @@
 import os
 import unittest
 from ..invite_codes import test_supplier_registration_postgres as base
+from ..warehouse_receipts.test_http_support import upload_receipt_document
 
 
 @unittest.skipUnless(os.getenv('SUPPLY_CHAIN_RUN_POSTGRES') == '1', 'isolated PostgreSQL opt-in')
@@ -12,6 +13,23 @@ class CompanyMergePostgresTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         base.SupplierRegistrationPostgresTests.setUpClass.__func__(cls)
+        cls.sql(cls, "INSERT INTO company_requisites(company_id,full_name,inn) VALUES(2,'Synthetic buyer','7702222222') ON CONFLICT(company_id) DO NOTHING")
+
+    def receipt_payload(self, name, inn):
+        payload = dict(companyId=2,location='Основной склад',warehouseTarget='main',
+            supplierName=name,supplierInn=inn,number=name,date='2026-10-12',vat='Без НДС',
+            items=[dict(name=name+' material',unit='шт',quantity=2,price=100)],syncSupplierInvoice=True)
+        document = dict(documentType='waybill',waybillNumber=payload['number'],waybillDate=payload['date'],
+            supplierInn=inn,buyerInn=self.sql('SELECT inn FROM company_requisites WHERE company_id=2')[0][0],
+            lines=[dict(materialName=item['name'],unit=item['unit'],quantity=item['quantity']) for item in payload['items']])
+        before = self.sql('SELECT id FROM suppliers ORDER BY id')
+        url = upload_receipt_document(self,'director',2,'',document)
+        preview = self.api('director','POST','/warehouse-receipts/resolve',
+            dict(companyId=2,document=document,originalUrls=[url]),**{'X-Company-Id':'2'})
+        self.assertEqual(preview['status'],'no_match',preview)
+        self.assertEqual(self.sql('SELECT id FROM suppliers ORDER BY id'),before)
+        return dict(payload,receiptDocument=document,originalUrls=[url],
+                    physicalReceiptConfirmed=True,newDocumentConfirmed=True)
 
     def seed(self,cabinet=False):
         source = self.sql("INSERT INTO suppliers(name) VALUES('Synthetic receipt card') RETURNING id")[0][0]
@@ -120,11 +138,9 @@ class CompanyMergePostgresTests(unittest.TestCase):
         import secrets
         name = 'Synthetic receipt to registration ' + secrets.token_hex(6)
         inn = '7799110000'
-        result = self.api('director','POST','/warehouse-invoices',
-                          dict(companyId=2,location='Основной склад',warehouseTarget='main',
-                               supplierName=name,supplierInn=inn,number=name,date='2026-10-12',vat='Без НДС',
-                               items=[dict(name=name+' material',unit='шт',quantity=2,price=100)],syncSupplierInvoice=True),
-                          **{'X-Company-Id':'2'})
+        receipt = self.receipt_payload(name,inn)
+        result = self.api('director','POST','/warehouse-invoices',receipt,**{'X-Company-Id':'2'})
+        self.assertEqual(self.sql('SELECT photo_urls::jsonb FROM warehouse_invoices WHERE id=%s',(result['id'],)),[(receipt['originalUrls'],)])
         self.assertNotIn('accountingWarning',result)
         supplier_id = self.sql('SELECT supplier_id FROM warehouse_invoices WHERE id=%s',(result['id'],))[0][0]
         self.assertIsNotNone(supplier_id)
@@ -155,9 +171,9 @@ class CompanyMergePostgresTests(unittest.TestCase):
             with TestClient(self.main.app) as client:
                 barrier.wait(timeout=10)
                 return client.post(path,json=body,headers=headers or {})
-        receipt = dict(companyId=2,location='Основной склад',warehouseTarget='main',supplierName=name,supplierInn=inn,
-                       number=name,date='2026-10-12',vat='Без НДС',syncSupplierInvoice=True,
-                       items=[dict(name=name+' material',unit='шт',quantity=2,price=100)])
+        # Upload and review before the barrier; only the actual receipt/signup
+        # writers race to create the one supplier identity.
+        receipt = self.receipt_payload(name,inn)
         with ThreadPoolExecutor(max_workers=2) as pool:
             signup = pool.submit(request,'/register',payload)
             delivery = pool.submit(request,'/warehouse-invoices',receipt,{'Authorization':'Bearer '+token,'X-Company-Id':'2'})
@@ -165,6 +181,7 @@ class CompanyMergePostgresTests(unittest.TestCase):
         self.assertEqual(signup_result.status_code,200,signup_result.text)
         self.assertEqual(delivery_result.status_code,200,delivery_result.text)
         self.assertNotIn('accountingWarning',delivery_result.json())
+        self.assertEqual(self.sql('SELECT photo_urls::jsonb FROM warehouse_invoices WHERE id=%s',(delivery_result.json()['id'],)),[(receipt['originalUrls'],)])
         rows = self.sql('SELECT id,user_id FROM suppliers WHERE inn=%s',(inn,))
         self.assertEqual(len(rows),1)
         self.assertIsNotNone(rows[0][1])

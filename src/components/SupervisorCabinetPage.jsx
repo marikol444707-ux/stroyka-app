@@ -1,4 +1,5 @@
 import React from 'react';
+import { projectProgressSourceLabel } from '../utils/projectEconomyUtils';
 import { API } from '../api';
 import ProjectHiddenWorksActSignatureModal from './ProjectHiddenWorksActSignatureModal';
 import PreviewModal from './PreviewModal';
@@ -104,7 +105,7 @@ export default function SupervisorCabinetPage(props) {
                   <b style={{ color: C.text, fontSize: '16px' }}>{myProject.name}</b>
                   <p style={{ color: C.textSec, margin: '4px 0 0', fontSize: '13px' }}>
                     {'Статус: ' + myProject.status}
-                    {' · Прогресс: ' + projectRealProgress(myProject) + '%'}
+                    {' · ' + (projectProgressSourceLabel(myProject, projectPlanDone(myProject)) === 'Прогресс не указан' ? 'Прогресс не указан' : 'Прогресс: ' + projectRealProgress(myProject) + '% (' + projectProgressSourceLabel(myProject, projectPlanDone(myProject)) + ')')}
                     {' · Выполнено: ' + Math.round(projectPlanDone(myProject).done).toLocaleString('ru-RU') + ' ₽'}
                   </p>
                 </div>

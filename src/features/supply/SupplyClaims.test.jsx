@@ -60,6 +60,67 @@ async function openClaim(id = 7) {
   return card;
 }
 
+test('zero-receipt claim opens every saved original in order through authenticated file downloads', async () => {
+  const pages = ['/tenant-files/78/content', '/tenant-files/77/content'];
+  const createObjectURL = URL.createObjectURL;
+  const revokeObjectURL = URL.revokeObjectURL;
+  URL.createObjectURL = jest.fn(() => 'blob:receipt-page');
+  URL.revokeObjectURL = jest.fn();
+  const click = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+  try {
+    global.fetch = jest.fn(async url => {
+      if (url.includes('/tenant-files/')) return { ok: true,
+        blob: async () => new Blob(['receipt']), headers: new Headers() };
+      return response(url.endsWith('/cases') ? list() : detail({ claim: {
+        ...claim, claimType: 'Недостача', expectedQuantity: 10, receivedQuantity: 0,
+        shortageQuantity: 10, photoUrl: pages[0], receiptOriginalUrls: pages,
+      } }));
+    });
+    render(<SupplyClaims {...props} />);
+    const card = await openClaim();
+    const originals = within(card).getByLabelText('Оригиналы приёмки');
+    const buttons = within(originals).getAllByRole('button');
+    expect(buttons.map(button => button.textContent)).toEqual([
+      'Оригинал приёмки · страница 1', 'Оригинал приёмки · страница 2',
+    ]);
+    expect(within(card).queryByRole('button', { name: 'Скачать фото претензии' })).not.toBeInTheDocument();
+    for (const [index, button] of buttons.entries()) {
+      fireEvent.click(button);
+      await waitFor(() => expect(click).toHaveBeenCalledTimes(index + 1));
+      expect(global.fetch).toHaveBeenCalledWith('/api' + pages[index], expect.objectContaining({
+        credentials: 'include', cache: 'no-store', signal: expect.any(AbortSignal),
+      }));
+    }
+  } finally {
+    click.mockRestore();
+    URL.createObjectURL = createObjectURL;
+    // A download schedules revocation; leave a harmless callable for the timer.
+    URL.revokeObjectURL = revokeObjectURL || (() => {});
+  }
+});
+
+test('legacy claims with unknown originals keep the existing photo link', async () => {
+  global.fetch = jest.fn(async url => response(url.endsWith('/cases') ? list()
+    : detail({ claim: { ...claim, photoUrl: '/tenant-files/77/content', receiptOriginalUrls: null } })));
+  render(<SupplyClaims {...props} />);
+  const card = await openClaim();
+  expect(within(card).getByRole('button', { name: 'Скачать фото претензии' })).toBeInTheDocument();
+  expect(within(card).queryByLabelText('Оригиналы приёмки')).not.toBeInTheDocument();
+});
+
+test('an extra receipt page rechecks access and reports revoked permission', async () => {
+  global.fetch = jest.fn(async url => url.includes('/tenant-files/') ? response({}, 403)
+    : response(url.endsWith('/cases') ? list() : detail({ claim: { ...claim,
+      receiptOriginalUrls: ['/tenant-files/77/content', '/tenant-files/78/content'],
+    } })));
+  render(<SupplyClaims {...props} />);
+  await openClaim();
+  fireEvent.click(screen.getByRole('button', { name: 'Оригинал приёмки · страница 2' }));
+  expect(await screen.findByText('Доступ к файлу отозван или не предоставлен.')).toBeInTheDocument();
+  expect(global.fetch).toHaveBeenCalledWith('/api/tenant-files/78/content',
+    expect.objectContaining({ credentials: 'include', cache: 'no-store' }));
+});
+
 test('loads only the selected company, opens a case and renders server capabilities and immutable history', async () => {
   const requests = [];
   global.fetch = jest.fn(async (url, options = {}) => {

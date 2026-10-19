@@ -103,6 +103,7 @@ def _initialize_schema(runtime, source):
                     cur.execute(import_module('migrations.versions.0036_supplier_invite_company').SCHEMA_SQL)
                     cur.execute(import_module('migrations.versions.0037_supplier_shipment_batches').SCHEMA_SQL)
                     cur.execute(import_module('migrations.versions.0039_supplier_email_history').SCHEMA_SQL)
+                    cur.execute(import_module('migrations.versions.0101_receipt_originals').SCHEMA_SQL)
                     # Quote and delivery writers require the migrated party snapshots,
                     # including requests seeded directly rather than through the API.
                     for migration in ('0073_rfq_requester_snapshots.py',

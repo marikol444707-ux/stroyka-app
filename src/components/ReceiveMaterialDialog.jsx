@@ -18,7 +18,7 @@ export default function ReceiveMaterialDialog({
         <b style={{color:C.text,fontSize:'15px',display:'block',marginBottom:'4px'}}>📥 Принять материал</b>
         <p style={{color:C.textSec,fontSize:'12px',marginBottom:'18px'}}>Выберите как заполнить накладную</p>
         <button onClick={()=>{setShowReceiveDialog(false);setShowScanInvoice(true);}} style={{...btnB,width:'100%',padding:'14px',justifyContent:'center',marginBottom:'10px',fontSize:'14px'}}><Scan size={16}/>📷 Сканировать накладную</button>
-        <button onClick={()=>{setShowReceiveDialog(false);setShowScannedInvoiceForm(true);}} style={{...btnG,width:'100%',padding:'14px',justifyContent:'center',fontSize:'14px'}}><Edit2 size={14}/>✍️ Ввести вручную</button>
+        <button onClick={()=>{setShowReceiveDialog(false);setShowScanInvoice(true);}} style={{...btnG,width:'100%',padding:'14px',justifyContent:'center',fontSize:'14px'}}><Edit2 size={14}/>✍️ Загрузить документ и проверить данные</button>
         <button onClick={()=>setShowReceiveDialog(false)} style={{width:'100%',marginTop:'10px',padding:'8px',backgroundColor:'transparent',border:'none',color:C.textSec,cursor:'pointer',fontSize:'13px'}}>Отмена</button>
       </div>
     </div>

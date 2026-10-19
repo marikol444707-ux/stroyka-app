@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Eye, FileText } from 'lucide-react';
 import { uniqueStoredProjectForName } from '../features/estimates/projectEstimateOwnership';
+import { projectAccountableSummary } from '../utils/projectEconomyUtils';
 import { projectPaymentOutgoingAmount } from '../utils/projectPaymentUtils';
 
 const DOC_BUTTONS = ['Паспорт', 'КС-2', 'КС-3', 'ЖПР', 'М-29', 'АОСК', 'КС-11', 'КС-14', 'ИГД', '📦 Пакет', '📋 НДС', 'М-2', 'М-8', '📦 Потребность', '🔥 Свар', '🧱 Бет', '⚙️ Монт', '🛡 АКЗ', '❄️ Изол', '⛓ Свай'];
@@ -109,7 +110,8 @@ export default function AccountingDocumentsPanel({
       .filter(expense => expense.project === accountingDocProject)
       .filter(expense => !expense.ownExpenseId && expense.source !== 'own_expense')
       .reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
-    const accExp = (accountablePayments || []).filter(payment => payment.projectName === accountingDocProject).reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+    const accountable = projectAccountableSummary(accountingDocProject, accountablePayments);
+    const accExp = accountable.spent;
     const supExp = (supplierInvoices || []).filter(invoice => invoice.projectName === accountingDocProject).reduce((sum, invoice) => sum + Number(invoice.paidAmount || 0), 0);
     const brigExp = (brigadeContracts || []).filter(contract => contract.projectName === accountingDocProject).reduce((sum, contract) => sum + Number(contract.paidAmount || 0), 0);
     const paymentJournalOut = (projectPayments || [])
@@ -183,7 +185,10 @@ export default function AccountingDocumentsPanel({
             <div><p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 4px' }}>Маржа</p><b style={{ color: margin >= 0 ? C.success : C.danger, fontSize: '14px' }}>{Math.round(margin).toLocaleString('ru-RU') + ' ₽'}</b></div>
           </div>
           <p style={{ color: C.textMuted, fontSize: '10px', margin: '8px 0 0', lineHeight: 1.4 }}>
-            Факт = платежный журнал ({Math.round(paymentJournalOut).toLocaleString('ru-RU') + ' ₽'}) + прямые расходы ({Math.round(directExp).toLocaleString('ru-RU') + ' ₽'}) + подотчётные ({Math.round(accExp).toLocaleString('ru-RU') + ' ₽'}). Расшифровка: возмещения ({Math.round(ownExp).toLocaleString('ru-RU') + ' ₽'}), поставщики ({Math.round(supExp).toLocaleString('ru-RU') + ' ₽'}), бригады ({Math.round(brigExp).toLocaleString('ru-RU') + ' ₽'}).
+            Факт = платежный журнал ({Math.round(paymentJournalOut).toLocaleString('ru-RU') + ' ₽'}) + прямые расходы ({Math.round(directExp).toLocaleString('ru-RU') + ' ₽'}) + расходы по подотчёту ({Math.round(accExp).toLocaleString('ru-RU') + ' ₽'}). Расшифровка: возмещения ({Math.round(ownExp).toLocaleString('ru-RU') + ' ₽'}), поставщики ({Math.round(supExp).toLocaleString('ru-RU') + ' ₽'}), бригады ({Math.round(brigExp).toLocaleString('ru-RU') + ' ₽'}).
+          </p>
+          <p style={{ color: C.textMuted, fontSize: '10px', margin: '8px 0 0' }}>
+            Выдано под отчёт: {Math.round(accountable.issued).toLocaleString('ru-RU') + ' ₽'}. Выдача денег сама по себе не включается в расходы.
           </p>
         </div>
 

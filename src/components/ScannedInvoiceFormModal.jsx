@@ -88,6 +88,8 @@ export default function ScannedInvoiceFormModal({
   };
 
   const save = async () => {
+    if(newInvoice.physicalReceiptConfirmed !== true) return alert('Подтвердите фактическое прибытие и количество');
+    if(!(newInvoice.originalUrls || newInvoice.photos || []).length) return alert('Сначала загрузите оригинал документа');
     if(!newInvoice.number && !inventoryOnly) return alert('Укажите номер накладной');
     if(!newInvoice.location) return alert('Выберите склад');
     const validItems=(newInvoice.items||[]).filter(i=>i.name&&Number(i.quantity)>0);
@@ -277,13 +279,14 @@ export default function ScannedInvoiceFormModal({
             {displayVat > 0 && <div>НДС: {displayVat.toLocaleString()} ₽</div>}
           </div>
         )}
-        <div className='mobile-actions' style={{display:'flex',gap:'8px',marginTop:'12px',flexWrap:isMobile?'wrap':'nowrap'}}>
+        <label style={{display:'block', marginTop:'12px'}}><input type="checkbox" checked={newInvoice.physicalReceiptConfirmed === true} onChange={e => patchInvoice({physicalReceiptConfirmed:e.target.checked}, false)}/>Подтверждаю фактическое прибытие, проверенные количество и состояние по прикреплённому оригиналу.</label>
+        <div className='mobile-actions'  style={{display:'flex',gap:'8px',marginTop:'12px',flexWrap:isMobile?'wrap':'nowrap'}}>
           {canRememberTemplate && (
             <button onClick={rememberInvoiceTemplate} disabled={rememberingTemplate} style={{...btnG,flex:isMobile?'1 1 100%':undefined,justifyContent:'center',borderColor:C.accent,color:C.accent,opacity:rememberingTemplate?0.7:1}}>
               {rememberingTemplate ? 'Сохраняю...' : '🧠 Запомнить исправления'}
             </button>
           )}
-          <button onClick={save} style={{...btnO,flex:isMobile?'1 1 100%':undefined,justifyContent:'center'}}><Check size={14}/>Сохранить</button>
+          <button disabled={newInvoice.physicalReceiptConfirmed !== true || !(newInvoice.originalUrls || newInvoice.photos || []).length} onClick={save} style={{...btnO,flex:isMobile?'1 1 100%':undefined,justifyContent:'center'}}><Check size={14}/>Сохранить</button>
           <button onClick={()=>setShowScannedInvoiceForm(false)} style={{...btnG,flex:isMobile?'1 1 100%':undefined,justifyContent:'center'}}><X size={14}/>Отмена</button>
         </div>
       </div>

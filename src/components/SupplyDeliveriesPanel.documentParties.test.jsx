@@ -12,7 +12,7 @@ const props = {
   receiveSupplyDelivery: jest.fn(), invoices: [], showPreview: jest.fn(), buildInvoiceContent: jest.fn(), uploadPhoto: jest.fn(),
 };
 
-test('shows frozen destination and requires receiver to confirm it', () => {
+test('shows frozen destination and opens document scanner before receipt', () => {
   render(<SupplyDeliveriesPanel {...props} supplyDeliveries={[{
     id:1, status:'В пути', materialName:'Кабель', shippedQuantity:2, unit:'м', project:'Лицей', supplierName:'Текущее имя',
     documentParties:{reviewRequired:false, buyer:{fullName:'ООО Покупатель'}, supplier:{fullName:'ООО Поставщик'},
@@ -22,7 +22,9 @@ test('shows frozen destination and requires receiver to confirm it', () => {
   expect(screen.getByText(/Кисловодск, ул. Школьная, 4/)).toBeInTheDocument();
   expect(screen.getByText(/ООО Поставщик → ООО Покупатель/)).toBeInTheDocument();
   expect(screen.getByText(/Договор № Д-7/)).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('checkbox'));
+  fireEvent.click(screen.getByRole('button', {name:'Принять'}));
+  expect(screen.getByText('📷 Сканировать накладную / счёт')).toBeInTheDocument();
+  expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
   expect(props.setReceiveForm).not.toHaveBeenCalled();
 });
 

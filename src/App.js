@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import './App.css';
 import { API, installAuthFetch } from './api';
 import { AUDIT_LOG_PAGE_LIMIT, MATERIAL_NORMS_PAGE_LIMIT, MATERIALS_PAGE_LIMIT, WORK_JOURNAL_PAGE_LIMIT } from './constants/appConfig';
@@ -14,6 +14,7 @@ import { buildAppRenderContext } from './features/app-shell/buildAppRenderContex
 import { useAppBusinessRuntime } from './features/app-shell/useAppBusinessRuntime';
 import { useAppCoreRuntime } from './features/app-shell/useAppCoreRuntime';
 import { useAppMainState } from './features/app-shell/useAppMainState';
+import useScopedMovementDraft from './features/warehouse/useScopedMovementDraft';
 import usePreviewInvalidation from './hooks/usePreviewInvalidation';
 import { useAuthEntryState, useDarkModeState, useResponsiveLayout, useShellOverlayState } from './features/app-shell/useAppShellState';
 import { useAiAssistantState } from './features/ai-assistant/useAiAssistantState';
@@ -59,7 +60,9 @@ function App() {
     API,
     user
   });
-  const appMainState = useAppMainState();
+  const baseAppMainState = useAppMainState();
+  const movementState = useScopedMovementDraft(user, companyContext);
+  const appMainState = useMemo(() => ({...baseAppMainState, ...movementState}), [baseAppMainState, movementState]);
   usePreviewInvalidation({
     user,
     companyContext,

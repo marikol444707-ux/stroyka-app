@@ -16,7 +16,7 @@ class SupplierFilesPostgresTests(unittest.TestCase):
         conn=cls.main.get_db()
         try:
             with conn.cursor() as cur:
-                for name in ('0027_work_material_accounting','0033_supply_claim_cases'):
+                for name in ('0027_work_material_accounting','0033_supply_claim_cases','0101_receipt_originals'):
                     module=importlib.import_module('migrations.versions.'+name)
                     with patch.object(module, 'op', SimpleNamespace(execute=cur.execute)):
                         module.upgrade()
@@ -145,6 +145,30 @@ class SupplierFilesPostgresTests(unittest.TestCase):
         self.sql('UPDATE supplier_invoices SET warehouse_invoice_id=%s WHERE id=%s',(wi,inv['id']))
         self.sql('UPDATE warehouse_invoices SET company_id=3 WHERE id=%s',(wi,))
         self.assertEqual(self.raw('manager','GET',url).status_code,403)
+
+    def test_zero_receipt_extra_page_requires_exact_supplier_company_and_project_chain(self):
+        import json
+        offer,path,body=self.assigned()
+        self.api('manager','PUT',path,body)
+        self.api('director','PUT',path,{'action':'select'})
+        delivery=self.api('manager','POST',path+'/ship',{'requestId':str(uuid4()),'shippedQuantity':1})
+        first=self.buyer_upload();second=self.buyer_upload();unrelated=self.buyer_upload()
+        self.assertEqual(self.raw('manager','GET',second['contentUrl']).status_code,403)
+        self.sql('''UPDATE supply_deliveries SET received_quantity=0,received_at=NOW(),
+            status='Проблема',photo_url=%s,receipt_original_urls=%s::jsonb WHERE id=%s''',
+            (first['contentUrl'],json.dumps([first['contentUrl'],second['contentUrl']]),delivery['id']))
+        self.assertEqual(self.sql('SELECT count(*) FROM warehouse_invoices WHERE supply_delivery_id=%s',
+                                 (delivery['id'],)),[(0,)])
+        for actor in ('manager','supplier','director'):
+            self.assertEqual(self.raw(actor,'GET',second['contentUrl']).status_code,200)
+        self.assertEqual(self.raw('stranger_supplier','GET',second['contentUrl']).status_code,403)
+        self.assertEqual(self.raw('manager','GET',unrelated['contentUrl']).status_code,403)
+        self.sql('UPDATE file_ownership SET company_id=3 WHERE id=%s',(second['fileId'],))
+        self.assertEqual(self.raw('manager','GET',second['contentUrl']).status_code,403)
+        self.sql('UPDATE file_ownership SET company_id=%s WHERE id=%s',
+                 (self.fixture['companyId'],second['fileId']))
+        self.command('assign_customer',companyId=self.fixture['companyId'],memberId=None,version=1)
+        self.assertEqual(self.raw('manager','GET',second['contentUrl']).status_code,403)
 
     def test_direct_invoice_leader_only_legacy_reuse_and_delete_pending(self):
         offer,path,body=self.assigned()

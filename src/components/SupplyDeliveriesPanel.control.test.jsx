@@ -45,12 +45,13 @@ test('pending filter reaches an older delivery immediately and paginates within 
   expect(screen.getByText('По этому фильтру поставок нет.')).toBeInTheDocument();
 });
 
-test('receipt form remains available for a pending delivery to an authorized role', () => {
+test('pending delivery opens shared scanner only for an authorized role', () => {
   const p = props({ supplyDeliveries: [delivery(1)] });
   const view = render(<SupplyDeliveriesPanel {...p} />);
   fireEvent.click(screen.getByRole('button', { name: 'Принять' }));
-  expect(p.setReceivingDeliveryId).toHaveBeenCalledWith(1);
-  expect(p.setReceiveForm).toHaveBeenCalledWith(expect.objectContaining({ receivedQuantity: '2' }));
+  expect(screen.getByText('📷 Сканировать накладную / счёт')).toBeInTheDocument();
+  expect(p.setReceivingDeliveryId).not.toHaveBeenCalled();
+  expect(p.setReceiveForm).not.toHaveBeenCalled();
   view.rerender(<SupplyDeliveriesPanel {...p} role="бухгалтер" receivingDeliveryId={1} />);
   expect(screen.queryByRole('button', { name: 'Принять' })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Подтвердить фактическую приёмку' })).not.toBeInTheDocument();
@@ -64,11 +65,9 @@ test('records a receipt only after confirming the material physically arrived', 
     receiveForm: { receivedQuantity: '2', qualityStatus: 'Принято', qualityNotes: '', photoUrl: '', claimDescription: '' },
     receiveSupplyDelivery,
   })} />);
-  expect(screen.getByText(/Программа запишет материал на склад/)).toBeInTheDocument();
-  const submit = screen.getByRole('button', { name: 'Подтвердить фактическую приёмку' });
-  expect(submit).toBeDisabled();
-  fireEvent.click(screen.getByLabelText(/Подтверждаю: поставка физически прибыла/));
-  expect(submit).toBeEnabled();
-  fireEvent.click(submit);
-  expect(receiveSupplyDelivery).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }));
+  expect(screen.queryByRole('button', { name: 'Подтвердить фактическую приёмку' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Принять' }));
+  expect(screen.getByText('📷 Сканировать накладную / счёт')).toBeInTheDocument();
+  expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  expect(receiveSupplyDelivery).not.toHaveBeenCalled();
 });

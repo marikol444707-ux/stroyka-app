@@ -216,6 +216,7 @@ export function buildAppShellProps({
     projectBudgetSpent,
     projectPaymentSignedAmount,
     projectRealProgress,
+    projectProgressSource,
     roleColor,
     supplyControlIssues
   } = businessRuntime;
@@ -306,7 +307,7 @@ export function buildAppShellProps({
     appWorkflowModalsProps: {
       ui: { API, C, badge, btnB, btnG, btnO, btnR, card, darkMode, inp, isMobile },
       constants: { estimatePackages: selectors.ESTIMATE_PACKAGES, expenseCategories: EXPENSE_CATEGORIES, roleLabels: ROLE_LABELS, supplierCategories: SUPPLIER_CATEGORIES, units: UNITS },
-      state: sharedState,
+      state: { ...sharedState, companyContext },
       actions: sharedActions
     },
     C,
@@ -339,6 +340,7 @@ export function buildAppShellProps({
         projectBudgetSpent,
         projectPaymentSignedAmount,
         projectRealProgress,
+        projectProgressSource,
         setDailyReportDate,
         setDarkMode: safeSetDarkMode,
         setDirectorAgentQuestion,
