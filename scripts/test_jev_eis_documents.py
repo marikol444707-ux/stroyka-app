@@ -146,3 +146,13 @@ class ArchiveAndModelTests(unittest.TestCase):
         from scripts.jev_eis_document_model import ask
         with self.assertRaises(ValueError):ask({'notice_number':'x','evidence':[],'command':'execute'})
         with patch.dict('os.environ',{},clear=True):self.assertEqual(ask({'notice_number':'x','evidence':[]})['status'],'text_model_not_configured')
+
+class HostBoundaryTests(unittest.TestCase):
+    def test_container_output_cannot_redirect_owner_reads_or_writes(self):
+        from scripts.jev_eis_review_runner import read_output, write_output
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);secret=root/'owner.json';secret.write_text('{"untouched":true}')
+            output=root/'model-response.json';output.symlink_to(secret)
+            with self.assertRaises(OSError):write_output(output,{'overwrite':True})
+            with self.assertRaises(OSError):read_output(output)
+            self.assertEqual(secret.read_text(),'{"untouched":true}')
