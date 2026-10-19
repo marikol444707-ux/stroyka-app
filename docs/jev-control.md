@@ -104,3 +104,18 @@ one-shot container exits; Docker's `--rm` and the host's unconditional named
 container removal own teardown. No shared/persistent browser profile is involved.
 A regression simulates the late cleanup error and requires keeping the verified
 result. This is not an automatic retry of a search or a suppression of worker errors.
+
+## Stavropol open applications (44-FZ)
+
+`sudo stroyka-jev eis-search --query 'капитальный ремонт' --stavropol-open`
+uses the observed advanced search form. It selects only 44-FZ and `Подача заявок`
+and fills `Местоположение поставки (ГАР)` with `Ставропольский край`. It does not
+filter by the customer's address. URL parameters and the rendered input/checked
+controls must independently retain these settings. A dropped filter fails closed.
+
+`delivery_region_filter_verified` and `active_only_filter_verified` describe the
+search filters, not independently verified notice contents. `region_verified`
+remains false at the generic search-result level. Returned first-page notice URLs
+still need individual checks for delivery place, stage and exact deadline.
+The flag does not cover 223-FZ or procurement under government decree 615.
+It does not assess bidder eligibility or automatically submit applications.

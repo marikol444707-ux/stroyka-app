@@ -1,5 +1,5 @@
 import unittest
-from scripts.jev_eis_probe import classify, verify_ca, probe, worker
+from scripts.jev_eis_probe import classify, verify_ca, probe, worker, stavropol_filters_verified
 from unittest.mock import patch
 from types import SimpleNamespace
 from pathlib import Path
@@ -68,6 +68,17 @@ class EisProbeTests(unittest.TestCase):
             process=SimpleNamespace(returncode=0, stdout=html, stderr='')
             with patch('scripts.jev_eis_probe.verify_ca'), patch('scripts.jev_eis_probe.tempfile.TemporaryDirectory', return_value=RacingProfile()), patch('scripts.jev_eis_probe.tempfile.mkdtemp', return_value=scratch), patch('scripts.jev_eis_probe.subprocess.run', return_value=process):
                 self.assertTrue(worker()['ok'])
+
+    def test_stavropol_filters_require_url_and_actual_form_state(self):
+        from urllib.parse import urlencode
+        url='https://zakupki.gov.ru/epz/order/extendedsearch/results.html?'+urlencode({'deliveryPlaceGAR':'Ставропольский край','fz44':'on','af':'on'})
+        observed={'delivery':'Ставропольский край','checked':['morphology','fz44','af']}
+        self.assertTrue(stavropol_filters_verified(url, observed))
+        self.assertFalse(stavropol_filters_verified(url+'&pc=on', observed))
+        self.assertFalse(stavropol_filters_verified(url+'&fz223=on', observed))
+        self.assertFalse(stavropol_filters_verified(url, {'delivery':'Москва','checked':['fz44','af']}))
+        self.assertFalse(stavropol_filters_verified(url, {'delivery':'Ставропольский край','checked':['fz44','af','ca']}))
+        self.assertFalse(stavropol_filters_verified('https://evil.test/?'+url.split('?',1)[1], observed))
 
     def test_official_ca_matches_pin(self):
         verify_ca(Path(__file__).resolve().parent.parent / 'dev_control/certificates/russian-trusted-root.pem')

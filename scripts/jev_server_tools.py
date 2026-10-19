@@ -10,7 +10,10 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('operation', choices=['status', 'demo', 'avito', 'eis', 'eis-search'])
     parser.add_argument('--query', default='электромонтаж')
+    parser.add_argument('--stavropol-open', action='store_true', help='44-ФЗ: Ставропольский край, только подача заявок')
     args=parser.parse_args()
+    if args.stavropol_open and args.operation != 'eis-search':
+        parser.error('--stavropol-open requires eis-search')
     if os.geteuid() != 0:
         raise PermissionError('Run through sudo on the dedicated Jev server')
     if args.operation in {'eis', 'eis-search'}:
@@ -20,7 +23,7 @@ def main():
         with open('/run/lock/stroyka-eis-probe.lock','a') as lock:
             try: fcntl.flock(lock,fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError: return {'ok':False,'status':'busy'}
-            return probe(args.query if args.operation == 'eis-search' else None)
+            return probe(args.query if args.operation == 'eis-search' else None, args.stavropol_open)
     operation='health' if args.operation=='status' else args.operation
     request={'operation':operation}
     if operation=='avito': request['query']='кирпич б/у'

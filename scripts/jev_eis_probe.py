@@ -15,6 +15,21 @@ from uuid import uuid4
 URL = 'https://zakupki.gov.ru/epz/order/extendedsearch/results.html'
 IMAGE = 'sha256:8c231608d909734fee19e3ce851ca1725fd6e4e84f20fb5f8a4288a06823ef0d'
 CA_SHA256 = 'd26d2d0231b7c39f92cc738512ba54103519e4405d68b5bd703e9788ca8ecf31'
+REGION = 'Ставропольский край'
+
+
+def stavropol_filters_verified(url, observed):
+    parsed = urlparse(url)
+    params = parse_qs(parsed.query)
+    checked = set((observed or {}).get('checked', []))
+    excluded = {'fz223', 'ppRf615', 'ca', 'pc', 'pa'}
+    return (parsed.scheme == 'https' and parsed.netloc == 'zakupki.gov.ru'
+            and parsed.path == urlparse(URL).path
+            and params.get('deliveryPlaceGAR') == [REGION]
+            and params.get('fz44') == ['on'] and params.get('af') == ['on']
+            and not any(key in params for key in excluded)
+            and (observed or {}).get('delivery') == REGION
+            and {'fz44', 'af'} <= checked and not checked.intersection(excluded))
 
 class Registry(HTMLParser):
     def __init__(self):
@@ -81,7 +96,7 @@ def verify_ca(path):
         raise ValueError('Unexpected EIS CA fingerprint')
 
 
-async def search_browser(tmp, env, query):
+async def search_browser(tmp, env, query, stavropol_open=False):
     """Submit the observed GET form; never synthesize undocumented query filters."""
     import asyncio
     import urllib.request
@@ -123,11 +138,24 @@ async def search_browser(tmp, env, query):
                 if 'exceptionDetails' in reply: raise RuntimeError('Page evaluation failed')
                 return reply.get('result', {}).get('value')
 
-            await call('Page.navigate', {'url': URL})
+            start_url = 'https://zakupki.gov.ru/epz/order/extendedsearch/search.html' if stavropol_open else URL
+            await call('Page.navigate', {'url': start_url})
             for _ in range(20):
                 if await evaluate('!!document.querySelector("#quickSearchForm_header input[name=searchString]")'):
                     break
                 await asyncio.sleep(.5)
+            if stavropol_open:
+                # These fields and their labels were observed in the native advanced form.
+                filters = ('(()=>{const f=document.querySelector("#quickSearchForm_header");if(!f)return false;'
+                    'for(const id of ["fz44","fz223","ppRf615","af","ca","pc","pa"]){'
+                    'const e=f.querySelector("#"+id);'
+                    'if(e&&e.checked!==["fz44","af"].includes(id))e.click()}'
+                    'const d=f.querySelector("[name=deliveryPlaceGAR]");if(!d)return false;'
+                    'd.value='+json.dumps(REGION)+';'
+                    'd.dispatchEvent(new Event("input",{bubbles:true}));'
+                    'd.dispatchEvent(new Event("change",{bubbles:true}));return true})()')
+                if await evaluate(filters) is not True:
+                    return {'ok': False, 'status': 'scope_form_not_verified'}
             # Both form action and method must be observed and agree with the public registry.
             script = ('(()=>{const f=document.querySelector("#quickSearchForm_header");'
                 'const i=f?.querySelector("input[name=searchString]");'
@@ -138,10 +166,16 @@ async def search_browser(tmp, env, query):
                 return {'ok': False, 'status': 'search_form_not_verified'}
             for _ in range(30):
                 await asyncio.sleep(.5)
-                observation = await evaluate('({url:location.href,html:document.documentElement.outerHTML,text:document.body.innerText})')
+                observation = await evaluate('({url:location.href,html:document.documentElement.outerHTML,text:document.body.innerText,filters:{delivery:document.querySelector("[name=deliveryPlaceGAR]")?.value,checked:[...document.querySelectorAll("#quickSearchForm_header input[type=checkbox]:checked")].map(e=>e.name)}})')
                 if observation:
                     result = classify(observation['html'], url=observation['url'], query=query, visible_text=observation['text'])
-                    if result['ok']: return result
+                    if result['ok']:
+                        if stavropol_open:
+                            verified = stavropol_filters_verified(observation['url'], observation['filters'])
+                            result.update(ok=verified, delivery_region_filter_verified=verified,
+                                          active_only_filter_verified=verified, law='44-ФЗ', delivery_region=REGION)
+                            if not verified: result['status'] = 'scope_filter_not_verified'
+                        return result
             return {'ok': False, 'status': 'search_result_not_verified',
                     'search_execution_verified': False}
     finally:
@@ -152,7 +186,7 @@ async def search_browser(tmp, env, query):
             chrome.wait(timeout=5)
 
 
-def worker(query=None):
+def worker(query=None, stavropol_open=False):
     ca = Path('/cert/root.pem')
     verify_ca(ca)
     # The outer disposable container owns its tmpfs. Do not race Chrome's
@@ -168,7 +202,7 @@ def worker(query=None):
         subprocess.run(args, env=env, check=True, capture_output=True, timeout=5)
     if query is not None:
         import asyncio
-        return asyncio.run(search_browser(tmp, env, query))
+        return asyncio.run(search_browser(tmp, env, query, stavropol_open))
     result = subprocess.run(['/usr/bin/google-chrome', '--headless=new', '--no-sandbox',
         '--disable-dev-shm-usage', '--user-data-dir='+tmp+'/chrome', '--dump-dom', URL],
         env=env, timeout=40, capture_output=True, text=True)
@@ -176,7 +210,9 @@ def worker(query=None):
     return classify(result.stdout)
 
 
-def probe(query=None):
+def probe(query=None, stavropol_open=False):
+    if stavropol_open and query is None:
+        raise ValueError('Regional search needs a query')
     if query is not None and (not isinstance(query, str) or not 1 <= len(query.strip()) <= 200):
         raise ValueError('Invalid search query')
     repo = Path(__file__).resolve().parent.parent
@@ -191,6 +227,7 @@ def probe(query=None):
             '--mount', 'type=bind,src='+str(Path(__file__).resolve())+',dst=/probe.py,readonly',
             '--entrypoint', 'python3', IMAGE, '/probe.py', '--worker']
     if query is not None: args.extend(['--query', query])
+    if stavropol_open: args.append('--stavropol-open')
     try:
         result = subprocess.run(args, capture_output=True, text=True, timeout=75)
         try:
@@ -211,9 +248,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--worker', action='store_true')
     parser.add_argument('--query')
+    parser.add_argument('--stavropol-open', action='store_true')
     options = parser.parse_args()
     try:
-        result = worker(options.query) if options.worker else probe(options.query)
+        result = worker(options.query, options.stavropol_open) if options.worker else probe(options.query, options.stavropol_open)
     except subprocess.TimeoutExpired:
         result = {'ok': False, 'status': 'browser_timeout'}
     except Exception as exc:
