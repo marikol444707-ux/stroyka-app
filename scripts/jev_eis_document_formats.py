@@ -1,0 +1,258 @@
+"""Bounded document text extraction. Never executes document code or macros."""
+import ast
+from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
+import io
+import hashlib
+import os
+from pathlib import Path, PurePosixPath
+import re
+import subprocess
+import tempfile
+from defusedxml import ElementTree as ET
+import zipfile
+
+MAX_BYTES=32*1024*1024
+MAX_EXPANDED=96*1024*1024
+MAX_UNITS=25000
+MAX_ARCHIVE_UNITS=60000
+MAX_ARCHIVE_CHARS=5000000
+
+
+def formula_value(formula, cells, seen=frozenset()):
+    if not isinstance(formula,str) or not formula.startswith('=') or len(formula)>2000:raise ValueError('Unsupported formula')
+    from openpyxl.utils.cell import range_boundaries, get_column_letter
+    def expand(match):
+        x1,y1,x2,y2=range_boundaries(match[1])
+        if (x2-x1+1)*(y2-y1+1)>2000:raise ValueError('Range limit')
+        return 'SUM('+','.join(get_column_letter(x)+str(y) for y in range(y1,y2+1) for x in range(x1,x2+1))+')'
+    expression=re.sub(r'SUM\(([A-Z]+\d+:[A-Z]+\d+)\)',expand,formula[1:].replace('$',''))
+    try: tree=ast.parse(expression,mode='eval')
+    except (SyntaxError,RecursionError):raise ValueError('Unsupported formula') from None
+    def visit(node,depth=0):
+        if depth>30:raise ValueError('Formula depth')
+        if isinstance(node,ast.Constant) and isinstance(node.value,(float,int)) and not isinstance(node.value,bool):return Decimal(ast.get_source_segment(expression,node))
+        if isinstance(node,ast.Name) and re.fullmatch(r'[A-Z]+[1-9]\d*',node.id):
+            if node.id in seen or len(seen)>20:raise ValueError('Formula cycle')
+            value=cells.get(node.id)
+            if isinstance(value,str) and value.startswith('='):return formula_value(value,cells,seen|{node.id})
+            if isinstance(value,(int,float,Decimal)) and not isinstance(value,bool):return Decimal(str(value))
+            raise ValueError('Non-numeric cell')
+        if isinstance(node,ast.UnaryOp) and isinstance(node.op,(ast.UAdd,ast.USub)):
+            value=visit(node.operand,depth+1);return -value if isinstance(node.op,ast.USub) else value
+        if isinstance(node,ast.BinOp) and isinstance(node.op,(ast.Add,ast.Sub,ast.Mult,ast.Div)):
+            a,b=visit(node.left,depth+1),visit(node.right,depth+1)
+            if isinstance(node.op,ast.Add):return a+b
+            if isinstance(node.op,ast.Sub):return a-b
+            if isinstance(node.op,ast.Mult):return a*b
+            if not b:raise ValueError('Zero divisor')
+            return a/b
+        if isinstance(node,ast.Call) and isinstance(node.func,ast.Name) and not node.keywords:
+            values=[visit(x,depth+1) for x in node.args]
+            if node.func.id=='SUM':return sum(values,Decimal(0))
+            if node.func.id=='ROUND' and len(values)==2 and values[1]==int(values[1]) and -10<=int(values[1])<=10:return values[0].quantize(Decimal(1).scaleb(-int(values[1])),rounding=ROUND_HALF_UP)
+        raise ValueError('Unsupported formula')
+    try:return visit(tree.body)
+    except (InvalidOperation,OverflowError):raise ValueError('Invalid numeric operation') from None
+
+
+def checked_zip(data, budget=None):
+    z=zipfile.ZipFile(io.BytesIO(data));total=0
+    if len(z.infolist())>400:raise ValueError('Archive member limit')
+    for member in z.infolist():
+        name=PurePosixPath(member.filename)
+        if len(member.filename)>500 or name.is_absolute() or '..' in name.parts or '\\' in member.filename or (member.external_attr>>16)&0o170000==0o120000:raise ValueError('Unsafe archive path')
+        total+=member.file_size
+        if member.flag_bits&1 or total>MAX_EXPANDED or member.file_size>MAX_BYTES or member.file_size>max(member.compress_size,1)*200:raise ValueError('Archive size/encryption limit')
+    if budget is not None:
+        budget['expanded']+=total
+        if budget['expanded']>MAX_EXPANDED:raise ValueError('Total archive expansion limit')
+    return z
+
+
+def read_document_image(data,suffix,source,name,assets,budget):
+    from PIL import Image
+    with tempfile.TemporaryDirectory(prefix='eis-image-') as tmp:
+        path=Path(tmp)/('original'+suffix);path.write_bytes(data)
+        if suffix=='.wmf':
+            converted=Path(tmp)/'converted.png'
+            subprocess.run(['wmf2gd','--maxwidth=1600','--maxheight=1000','--maxpect','-o',str(converted),str(path)],capture_output=True,check=True,timeout=20)
+            if converted.stat().st_size>8*1024*1024:raise ValueError('Converted image size limit')
+            path=converted
+        with Image.open(path) as image:
+            if image.format not in {'PNG','JPEG','TIFF','BMP'}:raise ValueError('Unsupported raster image')
+            if image.width*image.height>10000000 or image.width<1 or image.height<1:raise ValueError('Image dimensions limit')
+            rgba=image.convert('RGBA');rgba.thumbnail((2000,2000))
+            canvas=Image.new('RGB',rgba.size,'white');canvas.paste(rgba,mask=rgba.getchannel('A'))
+            output=io.BytesIO();canvas.save(output,'PNG');png=output.getvalue()
+            if budget.get('image_bytes',0)+len(png)>16*1024*1024:raise ValueError('Image preview budget')
+            budget['image_bytes']=budget.get('image_bytes',0)+len(png)
+            relative=None
+            if assets is not None:
+                assets=Path(assets);assets.mkdir(parents=True,exist_ok=True)
+                filename=hashlib.sha256(source.encode()+name.encode()+png).hexdigest()+'.png'
+                descriptor=os.open(assets/filename,os.O_WRONLY|os.O_CREAT|os.O_TRUNC|os.O_NOFOLLOW,0o644)
+                with os.fdopen(descriptor,'wb') as stream:stream.write(png)
+                relative='previews/'+filename
+            # Enlarging small equation previews helps OCR; it does not verify maths.
+            if canvas.height<80:
+                scale=min(4,80/canvas.height,2000/canvas.width)
+                if scale>1:canvas=canvas.resize((max(1,int(canvas.width*scale)),max(1,int(canvas.height*scale))))
+            ocr_path=Path(tmp)/'ocr.png';canvas.save(ocr_path)
+            try:
+                text=subprocess.run(['tesseract',str(ocr_path),'stdout','-l','rus+eng','--psm','6'],capture_output=True,timeout=30,check=True).stdout.decode('utf-8',errors='replace').strip()[:5000]
+            except Exception:text=''
+    return {'source':source,'locator':name,'path':relative,'text':text,'requires_review':True}
+
+
+def extract(path, source, depth=0, budget=None, assets=None):
+    if budget is None:budget={'expanded':0,'units':0,'chars':0}
+    path=Path(path);data=path.read_bytes()
+    if len(data)>MAX_BYTES:raise ValueError('File size limit')
+    suffix=path.suffix.lower();units=[];issues=[];audit=[];notices=[];members=[];visuals=[]
+    file_units=0;file_chars=0
+    if suffix=='.bin' and data.startswith(b'Rar!\x1a\x07'):suffix='.rar'
+    def add(locator,text,ocr=False):
+        nonlocal file_units,file_chars
+        text=str(text).strip()
+        if text:
+            file_units+=1;file_chars+=len(text)
+            if file_units>MAX_UNITS or file_chars>2000000:raise ValueError('Per-file text limit')
+            if budget['units']+1>MAX_ARCHIVE_UNITS or budget['chars']+len(text)>MAX_ARCHIVE_CHARS:raise ValueError('Archive total text limit')
+            budget['units']+=1;budget['chars']+=len(text)
+            units.append({'id':source+':'+str(len(units)+1),'source':source,'locator':locator,'text':text[:20000],'ocr':ocr})
+            if len(text)>20000:issues.append('Фрагмент обрезан: '+locator)
+    if suffix=='.gsfx':
+        with checked_zip(data,budget) as z:
+            if len(z.namelist())!=len(set(z.namelist())):raise ValueError('Duplicate GSFX members')
+            if 'Data.xml' not in z.namelist() or 'Properties.txt' not in z.namelist():raise ValueError('Unknown GSFX structure')
+            properties=z.read('Properties.txt').decode('cp1251')
+            if not re.search(r'(?im)^Crypted=False\s*$',properties):raise ValueError('Encrypted or unknown GSFX')
+            xml=z.read('Data.xml')
+            if b'<!DOCTYPE' in xml.upper() or b'<!ENTITY' in xml.upper():raise ValueError('XML entities refused')
+            root=ET.fromstring(xml)
+            if root.tag!='Document' or root.get('Generator')!='GrandSmeta':raise ValueError('Unknown GSFX generator')
+            count=0
+            def walk(element,location,level=0):
+                nonlocal count
+                count+=1
+                if level>40 or count>25000:raise ValueError('GSFX XML structure limit')
+                if element.tag=='DocLink':return  # External/local references stay inert.
+                values=[k+'='+v for k,v in element.attrib.items() if not re.search(r'sign|crypt|link|href|path|license',k,re.I)]
+                if element.text and element.text.strip():values.append(element.text.strip())
+                if values:add(location,'; '.join(values))
+                siblings={}
+                for child in element:
+                    siblings[child.tag]=siblings.get(child.tag,0)+1
+                    walk(child,location+'/'+child.tag+'['+str(siblings[child.tag])+']',level+1)
+            walk(root,'Data.xml/Document[1]')
+            notices.append('GSFX: извлечены сохранённые поля; расчёты, нормативы и подпись ГРАНД-Сметы не проверены')
+    elif suffix=='.docx':
+        with checked_zip(data,budget) as z:
+            xml=z.read('word/document.xml')
+            if b'<!DOCTYPE' in xml or b'<!ENTITY' in xml:raise ValueError('XML entities refused')
+            ns={'w':'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
+            sections=['word/document.xml']+[n for n in z.namelist() if re.fullmatch(r'word/(?:header\d+|footer\d+|footnotes|endnotes)\.xml',n)]
+            for section in sections:
+                root=ET.fromstring(z.read(section))
+                for i,p in enumerate(root.findall('.//w:p',ns),1):
+                    locator=('' if section=='word/document.xml' else section+' · ')+'абзац '+str(i)
+                    add(locator,''.join(t.text or '' for t in p.findall('.//w:t',ns)))
+            media=[n for n in z.namelist() if n.startswith('word/media/')]
+            if len(media)>20:issues.append('Встроенных изображений больше лимита OCR');media=media[:20]
+            for name in media:
+                suffix=PurePosixPath(name).suffix.lower()
+                if suffix not in {'.png','.jpg','.jpeg','.tif','.tiff','.bmp','.wmf'}:
+                    issues.append('Не прочитано встроенное изображение: '+name);continue
+                try:
+                    visual=read_document_image(z.read(name),suffix,source,name,assets,budget);visuals.append(visual)
+                    if visual['text']:add(name+' · OCR',visual['text'],True)
+                    issues.append('Изображение требует сверки: '+name+' — OCR не подтверждает формулу и цифры')
+                except Exception as exc:issues.append('Не удалось прочитать изображение: '+name+' ('+type(exc).__name__+')')
+    elif suffix in {'.xlsx','.xlsm'}:
+        from openpyxl import load_workbook
+        with checked_zip(data,budget):pass
+        book=load_workbook(path,read_only=True,data_only=False,keep_links=False)
+        cached=load_workbook(path,read_only=True,data_only=True,keep_links=False)
+        try:
+            for sheet in book:
+                if sheet.max_row>10000 or sheet.max_column>1000 or sheet.max_row*sheet.max_column>1000000:raise ValueError('Worksheet dimensions limit')
+                values={};cache={}
+                for row in cached[sheet.title]:
+                    for cell in row:
+                        if cell.value is not None:cache[cell.coordinate]=cell.value
+                for row in sheet:
+                    for cell in row:
+                        if cell.value is None:continue
+                        values[cell.coordinate]=cell.value
+                        shown=cache.get(cell.coordinate,cell.value)
+                        add(sheet.title+'!'+cell.coordinate,shown)
+                for address,value in values.items():
+                    if not isinstance(value,str) or not value.startswith('='):continue
+                    item={'locator':sheet.title+'!'+address,'formula':value,'status':'not_checked'}
+                    try:
+                        calculated=formula_value(value,values)
+                        prior=cache.get(address)
+                        if isinstance(prior,(int,float)) and not isinstance(prior,bool):
+                            item.update(status='matched' if abs(calculated-Decimal(str(prior)))<=Decimal('.01') else 'mismatch',calculated=str(calculated),cached=str(prior))
+                        else:item['status']='cached_value_missing'
+                    except ValueError:pass
+                    audit.append(item)
+        finally:book.close();cached.close()
+    elif suffix=='.pdf':
+        # Poppler preserves page boundaries; OCR is used only for pages without text.
+        with tempfile.TemporaryDirectory(prefix='eis-pdf-') as tmp:
+            text=subprocess.run(['pdftotext','-layout',str(path),'-'],capture_output=True,timeout=45,check=True).stdout.decode('utf-8',errors='replace')
+            pages=text.split('\f')
+            if len(pages)>101:raise ValueError('PDF page limit')
+            for number,page in enumerate(pages,1):
+                if number==len(pages) and not page.strip():continue
+                ocr=False
+                if len(page.strip())<25:
+                    prefix=str(Path(tmp)/('page-'+str(number)))
+                    subprocess.run(['pdftoppm','-f',str(number),'-l',str(number),'-scale-to','2200','-singlefile','-png',str(path),prefix],capture_output=True,timeout=30,check=True)
+                    page=subprocess.run(['tesseract',prefix+'.png','stdout','-l','rus+eng'],capture_output=True,timeout=45,check=True).stdout.decode('utf-8',errors='replace');ocr=True
+                    issues.append('OCR: страница '+str(number)+' — цифры требуют сверки с изображением')
+                add('страница '+str(number),page,ocr)
+    elif suffix in {'.doc','.rtf'}:
+        tool=['antiword',str(path)] if suffix=='.doc' else ['unrtf','--text',str(path)]
+        text=subprocess.run(tool,capture_output=True,check=True,timeout=30).stdout
+        text=text.decode('utf-8',errors='replace')
+        for i,line in enumerate(text.splitlines(),1):add('строка '+str(i),line)
+    elif suffix in {'.txt','.csv'}:
+        try:text=data.decode('utf-8-sig')
+        except UnicodeDecodeError:text=data.decode('cp1251')
+        for i,line in enumerate(text.splitlines(),1):add('строка '+str(i),line)
+    elif suffix in {'.rar','.7z'}:
+        if depth>=2:raise ValueError('Nested archive limit')
+        import libarchive
+        with libarchive.file_reader(str(path)) as archive, tempfile.TemporaryDirectory(prefix='eis-rar-') as tmp:
+            for number,entry in enumerate(archive,1):
+                if number>100:raise ValueError('Archive member limit')
+                name=PurePosixPath(entry.pathname)
+                if len(entry.pathname)>500 or name.is_absolute() or '..' in name.parts or '\\' in entry.pathname or entry.issym or entry.islnk:raise ValueError('Unsafe archive entry')
+                if entry.isdir:continue
+                if not entry.isfile:raise ValueError('Non-file archive entry')
+                parts=[];size=0
+                for block in entry.get_blocks():
+                    size+=len(block);budget['expanded']+=len(block)
+                    if size>MAX_BYTES or budget['expanded']>MAX_EXPANDED:raise ValueError('Archive expansion limit')
+                    parts.append(block)
+                child=Path(tmp)/(str(number)+name.suffix.lower());child.write_bytes(b''.join(parts))
+                try:
+                    result=extract(child,source+' / '+str(name),depth+1,budget,assets);visuals.extend(result['visuals']);units.extend(result['units']);issues.extend(result['issues']);audit.extend(result['formula_audit']);notices.extend(result['notices']);members.append({'source':source+' / '+str(name),'status':result['status'],'text_units':len(result['units'])})
+                except Exception as exc:
+                    issues.append(str(name)+': '+type(exc).__name__+': '+str(exc)[:200]);members.append({'source':source+' / '+str(name),'status':'read_failed','text_units':0})
+    elif suffix=='.zip':
+        if depth>=2:raise ValueError('Nested archive limit')
+        with checked_zip(data,budget) as z, tempfile.TemporaryDirectory(prefix='eis-archive-') as tmp:
+            for number,member in enumerate(z.infolist(),1):
+                if member.is_dir():continue
+                child=Path(tmp)/(str(number)+PurePosixPath(member.filename).suffix.lower());child.write_bytes(z.read(member))
+                try:
+                    result=extract(child,source+' / '+member.filename,depth+1,budget,assets);visuals.extend(result['visuals']);units.extend(result['units']);issues.extend(result['issues']);audit.extend(result['formula_audit']);notices.extend(result['notices']);members.append({'source':source+' / '+member.filename,'status':result['status'],'text_units':len(result['units'])})
+                except Exception as exc:
+                    issues.append(member.filename+': '+type(exc).__name__+': '+str(exc)[:200]);members.append({'source':source+' / '+member.filename,'status':'read_failed','text_units':0})
+
+    else:issues.append('Формат не поддержан: '+suffix)
+    if not units:issues.append('Текст не извлечён')
+    return {'units':units,'issues':issues,'formula_audit':audit,'status':'partial' if issues else 'read','notices':list(dict.fromkeys(notices)),'members':members,'visuals':visuals}
