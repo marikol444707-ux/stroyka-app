@@ -298,8 +298,14 @@ class CompanyDirectoryPostgresTests(unittest.TestCase):
         self.assertNotIn(delivery_id, [r['id'] for r in self.api('supplier', 'GET', '/supply-deliveries')])
         self.assertNotIn(claim_id, [r['id'] for r in self.api('supplier', 'GET', '/supply-claims')])
         self.api('supplier', 'GET', f'/supply-claims/{claim_id}/case', expected=404)
-        self.api('supplier', 'POST', f'/supply-claims/{claim_id}/case', {'resolution': 'Hidden'}, expected=404)
-        self.api('supplier', 'PUT', f'/supply-claims/{claim_id}', {'resolution': 'Hidden'}, expected=409)
+        before_hidden = self.sql('SELECT to_jsonb(c) FROM supply_claims c WHERE id=%s', (claim_id,))
+        # Mutation subscription checks authorize the addressed offer before the
+        # claim route. Hidden recipients fail here; GET still returns the 404 above.
+        for method, path in (('POST', f'/supply-claims/{claim_id}/case'),
+                             ('PUT', f'/supply-claims/{claim_id}')):
+            denial = self.api('supplier', method, path, {'resolution': 'Hidden'}, expected=403)
+            self.assertEqual(denial, {'ok': False, 'code': 'company_context_invalid', 'detail': 'Нет доступа к КП'})
+        self.assertEqual(self.sql('SELECT to_jsonb(c) FROM supply_claims c WHERE id=%s', (claim_id,)), before_hidden)
         self.assertEqual(self.sql('SELECT resolution FROM supply_claims WHERE id=%s', (claim_id,)), [(None,)])
         self.sql('UPDATE supply_request_recipients SET visible_to_supplier=TRUE WHERE id=%s', (recipient_id,))
         self.sql('UPDATE supply_deliveries SET company_id=3 WHERE id=%s', (delivery_id,))
