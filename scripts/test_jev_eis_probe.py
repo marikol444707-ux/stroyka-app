@@ -25,6 +25,12 @@ class EisProbeTests(unittest.TestCase):
                         '<a href="https://evil.test/common-info.html?regNumber=123">№123</a>')
         self.assertFalse(result['ok'])
 
+    def test_query_requires_both_url_and_form_confirmation(self):
+        html='<title>Закупки</title><input name="searchString" value="кабель"><a href="/epz/order/notice/ea20/view/common-info.html?regNumber=123">123</a>'
+        self.assertTrue(classify(html, url='https://zakupki.gov.ru/epz/order/extendedsearch/results.html?searchString=кабель', query='кабель')['search_execution_verified'])
+        self.assertFalse(classify(html, url='https://zakupki.gov.ru/epz/order/extendedsearch/results.html?searchString=кирпич', query='кабель')['ok'])
+        self.assertFalse(classify(html, query='кабель')['ok'])
+
     def test_official_ca_matches_pin(self):
         verify_ca(Path(__file__).resolve().parent.parent / 'dev_control/certificates/russian-trusted-root.pem')
 

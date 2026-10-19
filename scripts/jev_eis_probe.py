@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 import subprocess
 import tempfile
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, parse_qs
 from uuid import uuid4
 
 URL = 'https://zakupki.gov.ru/epz/order/extendedsearch/results.html'
@@ -21,12 +21,15 @@ class Registry(HTMLParser):
         self.in_title = False
         self.title = ''
         self.search = False
+        self.query = None
         self.notices = set()
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
         if tag == 'title': self.in_title = True
-        if tag == 'input' and attrs.get('name') == 'searchString': self.search = True
+        if tag == 'input' and attrs.get('name') == 'searchString':
+            self.search = True
+            self.query = attrs.get('value', '')
         if tag == 'a':
             link = urljoin(URL, attrs.get('href', ''))
             parsed = urlparse(link)
@@ -41,15 +44,21 @@ class Registry(HTMLParser):
         if self.in_title: self.title += data
 
 
-def classify(html):
+def classify(html, *, url=URL, query=None):
     page = Registry()
     page.feed(html)
     ready = page.title.strip() == 'Закупки' and page.search and bool(page.notices)
-    status = 'search_registry_accessible' if ready else 'registry_not_verified'
+    query_ok = (query is not None and page.query == query
+                and urlparse(url).scheme == 'https' and urlparse(url).netloc == 'zakupki.gov.ru'
+                and urlparse(url).path == urlparse(URL).path
+                and parse_qs(urlparse(url).query).get('searchString') == [query])
+    if query is not None: ready = ready and query_ok
+    status = ('keyword_search_observed' if query_ok else 'search_registry_accessible') if ready else 'registry_not_verified'
     if 'ERR_CERT_' in html: status, ready = 'tls_failed', False
     return {'ok': ready, 'status': status, 'title': page.title.strip()[:150],
-            'url': URL, 'notice_links_observed': len(page.notices),
-            'search_execution_verified': False, 'model_calls': 0}
+            'url': url, 'notice_links_observed': len(page.notices),
+            'query': query, 'search_execution_verified': bool(ready and query_ok),
+            'region_verified': False, 'model_calls': 0}
 
 
 def verify_ca(path):
@@ -59,7 +68,78 @@ def verify_ca(path):
         raise ValueError('Unexpected EIS CA fingerprint')
 
 
-def worker():
+async def search_browser(tmp, env, query):
+    """Submit the observed GET form; never synthesize undocumented query filters."""
+    import asyncio
+    import urllib.request
+    import websockets
+    chrome = subprocess.Popen(['/usr/bin/google-chrome', '--headless=new', '--no-sandbox',
+        '--disable-dev-shm-usage', '--remote-debugging-port=9229',
+        '--user-data-dir='+tmp+'/chrome', 'about:blank'], env=env,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        targets = []
+        for _ in range(30):
+            try:
+                with urllib.request.urlopen('http://127.0.0.1:9229/json/list', timeout=1) as response:
+                    targets = [x for x in json.load(response) if x.get('type') == 'page']
+                if targets: break
+            except OSError:
+                pass
+            await asyncio.sleep(.2)
+        if not targets: return {'ok': False, 'status': 'browser_not_ready'}
+        endpoint = targets[0]['webSocketDebuggerUrl']
+        if not endpoint.startswith('ws://127.0.0.1:9229/devtools/page/'):
+            raise ValueError('Unexpected browser endpoint')
+        async with websockets.connect(endpoint, max_size=3*1024*1024) as ws:
+            sequence = 0
+
+            async def call(method, params):
+                nonlocal sequence
+                sequence += 1
+                request_id = sequence
+                await ws.send(json.dumps({'id': request_id, 'method': method, 'params': params}))
+                while True:
+                    reply = json.loads(await asyncio.wait_for(ws.recv(), 12))
+                    if reply.get('id') == request_id:
+                        if 'error' in reply: raise RuntimeError('Browser command rejected')
+                        return reply.get('result', {})
+
+            async def evaluate(expression):
+                reply = await call('Runtime.evaluate', {'expression': expression, 'returnByValue': True})
+                if 'exceptionDetails' in reply: raise RuntimeError('Page evaluation failed')
+                return reply.get('result', {}).get('value')
+
+            await call('Page.navigate', {'url': URL})
+            for _ in range(20):
+                if await evaluate('!!document.querySelector("#quickSearchForm_header input[name=searchString]")'):
+                    break
+                await asyncio.sleep(.5)
+            # Both form action and method must be observed and agree with the public registry.
+            script = ('(()=>{const f=document.querySelector("#quickSearchForm_header");'
+                'const i=f?.querySelector("input[name=searchString]");'
+                'if(!i||f.method.toLowerCase()!=="get"||f.action!=='+json.dumps(URL)+')return false;'
+                'i.value='+json.dumps(query)+';i.dispatchEvent(new Event("input",{bubbles:true}));'
+                'i.dispatchEvent(new Event("change",{bubbles:true}));f.requestSubmit();return true})()')
+            if await evaluate(script) is not True:
+                return {'ok': False, 'status': 'search_form_not_verified'}
+            for _ in range(30):
+                await asyncio.sleep(.5)
+                observation = await evaluate('({url:location.href,html:document.documentElement.outerHTML})')
+                if observation:
+                    result = classify(observation['html'], url=observation['url'], query=query)
+                    if result['ok']: return result
+            return {'ok': False, 'status': 'search_result_not_verified',
+                    'search_execution_verified': False}
+    finally:
+        chrome.terminate()
+        try: chrome.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            chrome.kill()
+            chrome.wait(timeout=5)
+
+
+def worker(query=None):
     ca = Path('/cert/root.pem')
     verify_ca(ca)
     with tempfile.TemporaryDirectory(prefix='eis-browser-') as tmp:
@@ -70,6 +150,9 @@ def worker():
                      ['certutil', '-A', '-d', 'sql:'+str(db), '-n', 'EIS Russian Trusted Root',
                       '-t', 'C,,', '-i', str(ca)]):
             subprocess.run(args, env=env, check=True, capture_output=True, timeout=5)
+        if query is not None:
+            import asyncio
+            return asyncio.run(search_browser(tmp, env, query))
         result = subprocess.run(['/usr/bin/google-chrome', '--headless=new', '--no-sandbox',
             '--disable-dev-shm-usage', '--user-data-dir='+tmp+'/chrome', '--dump-dom', URL],
             env=env, timeout=40, capture_output=True, text=True)
@@ -77,7 +160,9 @@ def worker():
         return classify(result.stdout)
 
 
-def probe():
+def probe(query=None):
+    if query is not None and (not isinstance(query, str) or not 1 <= len(query.strip()) <= 200):
+        raise ValueError('Invalid search query')
     repo = Path(__file__).resolve().parent.parent
     ca = repo / 'dev_control/certificates/russian-trusted-root.pem'
     verify_ca(ca)
@@ -89,8 +174,9 @@ def probe():
             '--mount', 'type=bind,src='+str(ca)+',dst=/cert/root.pem,readonly',
             '--mount', 'type=bind,src='+str(Path(__file__).resolve())+',dst=/probe.py,readonly',
             '--entrypoint', 'python3', IMAGE, '/probe.py', '--worker']
+    if query is not None: args.extend(['--query', query])
     try:
-        result = subprocess.run(args, capture_output=True, text=True, timeout=60)
+        result = subprocess.run(args, capture_output=True, text=True, timeout=75)
         if result.returncode: return {'ok': False, 'status': 'runner_failed'}
         return json.loads(result.stdout)
     finally:
@@ -98,9 +184,13 @@ def probe():
 
 
 if __name__ == '__main__':
-    import sys
+    import argparse
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--worker', action='store_true')
+    parser.add_argument('--query')
+    options = parser.parse_args()
     try:
-        result = worker() if sys.argv[1:] == ['--worker'] else probe()
+        result = worker(options.query) if options.worker else probe(options.query)
     except subprocess.TimeoutExpired:
         result = {'ok': False, 'status': 'browser_timeout'}
     except Exception as exc:

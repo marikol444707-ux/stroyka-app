@@ -79,3 +79,12 @@ Install a reviewed release's scripts, public CA and documentation under
 Only this tools directory and launcher need reverting/removing for rollback;
 there are no database or application migrations. Local Mac browser/profile code
 remains Mac-specific and is retained as source, not enabled as a Linux service.
+
+`sudo stroyka-jev eis-search --query 'электромонтаж'` submits the observed public
+GET form in the temporary browser. It retains the site's own form parameters.
+The returned URL and rendered search input must independently preserve the query,
+and the registry must contain first-party notice links. This verifies keyword
+search execution, not relevance, deadlines, regional fit or bid suitability.
+`region_verified=false` remains explicit. No model calls, login or bid submission.
+The observed form worked where hand-assembled query URLs returned HTTP 404; the
+precise server-side reason for that difference is not established.
