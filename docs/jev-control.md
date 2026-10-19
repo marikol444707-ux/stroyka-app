@@ -119,3 +119,9 @@ remains false at the generic search-result level. Returned first-page notice URL
 still need individual checks for delivery place, stage and exact deadline.
 The flag does not cover 223-FZ or procurement under government decree 615.
 It does not assess bidder eligibility or automatically submit applications.
+
+## Следующий этап: документы закупки
+
+Проверка оригиналов, OCR, смет, требований и подготовка короткого отчёта
+зафиксированы в [плане](../tasks/jev-procurement-documents-plan.md).
+Это запланированная работа, а не уже включённая возможность серверного поиска.
