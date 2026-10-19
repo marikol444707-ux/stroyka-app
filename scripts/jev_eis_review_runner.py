@@ -17,7 +17,7 @@ def read_output(path):
     descriptor=os.open(path,os.O_RDONLY|os.O_NOFOLLOW)
     with os.fdopen(descriptor,'r') as stream:
         info=os.fstat(stream.fileno())
-        if not stat.S_ISREG(info.st_mode) or info.st_size>20*1024*1024:raise ValueError('Output JSON limit/type')
+        if not stat.S_ISREG(info.st_mode) or info.st_size>32*1024*1024:raise ValueError('Output JSON limit/type')
         return json.load(stream)
 
 
@@ -54,7 +54,11 @@ def run(notice):
         container('jev_eis_document_report.py',['/review'],'none',360)
         review=read_output(target/'review.json')
         selected=[]
-        for unit in review['evidence']:
+        from itertools import zip_longest
+        groups={}
+        for unit in review['evidence']:groups.setdefault(unit['source'],[]).append(unit)
+        ordered=[u for row in zip_longest(*groups.values()) for u in row if u is not None]
+        for unit in ordered:
             candidate={k:unit[k] for k in ['id','category','source','locator','text']};candidate['text']=candidate['text'][:1600]
             if len(selected)>=65 or len(json.dumps(selected+[candidate],ensure_ascii=False).encode('utf-8'))>65000:break
             selected.append(candidate)

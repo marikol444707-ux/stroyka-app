@@ -254,3 +254,52 @@ class GrandSmetaTests(unittest.TestCase):
             with zipfile.ZipFile(bundle,'w') as z:z.writestr('e.gsfx',p.read_bytes())
             r=extract(bundle,'bundle');self.assertTrue(any('Отопление' in x['text'] for x in r['units']))
             self.assertEqual(r['members'][0]['status'],'read')
+
+class DocumentImageTests(unittest.TestCase):
+    def test_docx_image_is_saved_as_safe_preview_and_stays_unverified(self):
+        from PIL import Image
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);buffer=io.BytesIO();Image.new('RGB',(120,35),'white').save(buffer,'PNG')
+            p=root/'formula.docx'
+            with zipfile.ZipFile(p,'w') as z:
+                z.writestr('word/document.xml','<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Порядок оценки</w:t></w:r></w:p></w:body></w:document>')
+                z.writestr('word/media/image1.png',buffer.getvalue())
+            with patch('scripts.jev_eis_document_formats.subprocess.run') as run:
+                run.return_value.stdout=b'X = 12345';r=extract(p,'d1',assets=root/'previews')
+            self.assertEqual(len(r['visuals']),1)
+            v=r['visuals'][0];self.assertTrue(v['requires_review']);self.assertTrue((root/v['path']).is_file())
+            self.assertTrue(any(u['ocr'] for u in r['units']));self.assertEqual(r['status'],'partial')
+            self.assertNotIn('12345',str(r['formula_audit']))
+
+    def test_silent_ocr_does_not_make_image_look_checked(self):
+        from PIL import Image
+        from scripts.jev_eis_document_formats import read_document_image
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);buffer=io.BytesIO();Image.new('RGB',(20,20),'white').save(buffer,'PNG')
+            with patch('scripts.jev_eis_document_formats.subprocess.run') as run:
+                run.return_value.stdout=b'';v=read_document_image(buffer.getvalue(),'.png','d1','image.png',root/'previews',{})
+            self.assertTrue(v['requires_review']);self.assertEqual(v['text'],'')
+            self.assertTrue(v['path'].startswith('previews/'));self.assertTrue((root/v['path']).is_file())
+
+class ReportReliabilityTests(unittest.TestCase):
+    def test_payment_evidence_does_not_mix_subcontractors_or_security_release(self):
+        from scripts.jev_eis_document_report import select_evidence
+        units=[{'id':'d:1','source':'d','locator':'1','text':'Подрядчик оплачивает Субподрядчику в течение 7 рабочих дней.','ocr':False},
+               {'id':'d:2','source':'d','locator':'2','text':'Обеспечение уменьшается: приемка и оплата в сроки контракта.','ocr':False},
+               {'id':'d:3','source':'d','locator':'3','text':'Заказчик оплачивает работы в течение 10 рабочих дней после приемки.','ocr':False},
+               {'id':'d:4','source':'d','locator':'4','text':'Заказчик оплачивает работы в течение 70 рабочих дней после приемки.','ocr':True}]
+        result=select_evidence(units,'d')
+        self.assertEqual([x['id'] for x in result if x['category']=='payment'],['d:3:payment'])
+
+    def test_report_shows_unknown_payment_and_separates_visual_review(self):
+        from scripts.jev_eis_document_report import render
+        import json
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            r={'notice_number':'0121200004726001290','notice_url':'https://zakupki.gov.ru','retrieved_at':'2026-10-19','card':{},'documents':[{'id':'d1','name':'Contract','url':'https://zakupki.gov.ru','status':'partial','visuals':[{'source':'d1','locator':'image1.png','path':'previews/'+'a'*64+'.png','text':'X = 123','requires_review':True}]}], 'evidence':[],'findings':[],'ai_status':'grounded','formula_counts':{},'issues':['Изображение требует сверки: image1.png'],'company_eligibility':'не проверено','snapshot_consistent':True}
+            render(root,r);s=(root/'report.html').read_text()
+            self.assertIn('Оплата: условие не установлено',s)
+            self.assertIn('Изображения для сверки',s)
+            self.assertIn('<img ',s)
+            self.assertIn('не подтверждает',s)
+            self.assertIn('Проверка сметы',s)

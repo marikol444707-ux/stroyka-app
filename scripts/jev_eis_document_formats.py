@@ -2,6 +2,8 @@
 import ast
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 import io
+import hashlib
+import os
 from pathlib import Path, PurePosixPath
 import re
 import subprocess
@@ -67,11 +69,46 @@ def checked_zip(data, budget=None):
     return z
 
 
-def extract(path, source, depth=0, budget=None):
+def read_document_image(data,suffix,source,name,assets,budget):
+    from PIL import Image
+    with tempfile.TemporaryDirectory(prefix='eis-image-') as tmp:
+        path=Path(tmp)/('original'+suffix);path.write_bytes(data)
+        if suffix=='.wmf':
+            converted=Path(tmp)/'converted.png'
+            subprocess.run(['wmf2gd','--maxwidth=1600','--maxheight=1000','--maxpect','-o',str(converted),str(path)],capture_output=True,check=True,timeout=20)
+            if converted.stat().st_size>8*1024*1024:raise ValueError('Converted image size limit')
+            path=converted
+        with Image.open(path) as image:
+            if image.format not in {'PNG','JPEG','TIFF','BMP'}:raise ValueError('Unsupported raster image')
+            if image.width*image.height>10000000 or image.width<1 or image.height<1:raise ValueError('Image dimensions limit')
+            rgba=image.convert('RGBA');rgba.thumbnail((2000,2000))
+            canvas=Image.new('RGB',rgba.size,'white');canvas.paste(rgba,mask=rgba.getchannel('A'))
+            output=io.BytesIO();canvas.save(output,'PNG');png=output.getvalue()
+            if budget.get('image_bytes',0)+len(png)>16*1024*1024:raise ValueError('Image preview budget')
+            budget['image_bytes']=budget.get('image_bytes',0)+len(png)
+            relative=None
+            if assets is not None:
+                assets=Path(assets);assets.mkdir(parents=True,exist_ok=True)
+                filename=hashlib.sha256(source.encode()+name.encode()+png).hexdigest()+'.png'
+                descriptor=os.open(assets/filename,os.O_WRONLY|os.O_CREAT|os.O_TRUNC|os.O_NOFOLLOW,0o644)
+                with os.fdopen(descriptor,'wb') as stream:stream.write(png)
+                relative='previews/'+filename
+            # Enlarging small equation previews helps OCR; it does not verify maths.
+            if canvas.height<80:
+                scale=min(4,80/canvas.height,2000/canvas.width)
+                if scale>1:canvas=canvas.resize((max(1,int(canvas.width*scale)),max(1,int(canvas.height*scale))))
+            ocr_path=Path(tmp)/'ocr.png';canvas.save(ocr_path)
+            try:
+                text=subprocess.run(['tesseract',str(ocr_path),'stdout','-l','rus+eng','--psm','6'],capture_output=True,timeout=30,check=True).stdout.decode('utf-8',errors='replace').strip()[:5000]
+            except Exception:text=''
+    return {'source':source,'locator':name,'path':relative,'text':text,'requires_review':True}
+
+
+def extract(path, source, depth=0, budget=None, assets=None):
     if budget is None:budget={'expanded':0,'units':0,'chars':0}
     path=Path(path);data=path.read_bytes()
     if len(data)>MAX_BYTES:raise ValueError('File size limit')
-    suffix=path.suffix.lower();units=[];issues=[];audit=[];notices=[];members=[]
+    suffix=path.suffix.lower();units=[];issues=[];audit=[];notices=[];members=[];visuals=[]
     file_units=0;file_chars=0
     if suffix=='.bin' and data.startswith(b'Rar!\x1a\x07'):suffix='.rar'
     def add(locator,text,ocr=False):
@@ -122,16 +159,15 @@ def extract(path, source, depth=0, budget=None):
                     add(locator,''.join(t.text or '' for t in p.findall('.//w:t',ns)))
             media=[n for n in z.namelist() if n.startswith('word/media/')]
             if len(media)>20:issues.append('Встроенных изображений больше лимита OCR');media=media[:20]
-            with tempfile.TemporaryDirectory(prefix='eis-docx-images-') as tmp:
-                for index,name in enumerate(media):
-                    suffix=PurePosixPath(name).suffix.lower()
-                    if suffix not in {'.png','.jpg','.jpeg','.tif','.tiff','.bmp'}:
-                        issues.append('Не прочитано встроенное изображение: '+name);continue
-                    image=Path(tmp)/(str(index)+suffix);image.write_bytes(z.read(name))
-                    try:
-                        text=subprocess.run(['tesseract',str(image),'stdout','-l','rus+eng'],capture_output=True,timeout=45,check=True).stdout.decode('utf-8',errors='replace')
-                        if len(text.strip())>=10:add(name+' · OCR',text,True);issues.append('OCR: '+name+' — цифры требуют сверки с изображением')
-                    except Exception:issues.append('Не удалось распознать изображение: '+name)
+            for name in media:
+                suffix=PurePosixPath(name).suffix.lower()
+                if suffix not in {'.png','.jpg','.jpeg','.tif','.tiff','.bmp','.wmf'}:
+                    issues.append('Не прочитано встроенное изображение: '+name);continue
+                try:
+                    visual=read_document_image(z.read(name),suffix,source,name,assets,budget);visuals.append(visual)
+                    if visual['text']:add(name+' · OCR',visual['text'],True)
+                    issues.append('Изображение требует сверки: '+name+' — OCR не подтверждает формулу и цифры')
+                except Exception as exc:issues.append('Не удалось прочитать изображение: '+name+' ('+type(exc).__name__+')')
     elif suffix in {'.xlsx','.xlsm'}:
         from openpyxl import load_workbook
         with checked_zip(data,budget):pass
@@ -203,7 +239,7 @@ def extract(path, source, depth=0, budget=None):
                     parts.append(block)
                 child=Path(tmp)/(str(number)+name.suffix.lower());child.write_bytes(b''.join(parts))
                 try:
-                    result=extract(child,source+' / '+str(name),depth+1,budget);units.extend(result['units']);issues.extend(result['issues']);audit.extend(result['formula_audit']);notices.extend(result['notices']);members.append({'source':source+' / '+str(name),'status':result['status'],'text_units':len(result['units'])})
+                    result=extract(child,source+' / '+str(name),depth+1,budget,assets);visuals.extend(result['visuals']);units.extend(result['units']);issues.extend(result['issues']);audit.extend(result['formula_audit']);notices.extend(result['notices']);members.append({'source':source+' / '+str(name),'status':result['status'],'text_units':len(result['units'])})
                 except Exception as exc:
                     issues.append(str(name)+': '+type(exc).__name__+': '+str(exc)[:200]);members.append({'source':source+' / '+str(name),'status':'read_failed','text_units':0})
     elif suffix=='.zip':
@@ -213,10 +249,10 @@ def extract(path, source, depth=0, budget=None):
                 if member.is_dir():continue
                 child=Path(tmp)/(str(number)+PurePosixPath(member.filename).suffix.lower());child.write_bytes(z.read(member))
                 try:
-                    result=extract(child,source+' / '+member.filename,depth+1,budget);units.extend(result['units']);issues.extend(result['issues']);audit.extend(result['formula_audit']);notices.extend(result['notices']);members.append({'source':source+' / '+member.filename,'status':result['status'],'text_units':len(result['units'])})
+                    result=extract(child,source+' / '+member.filename,depth+1,budget,assets);visuals.extend(result['visuals']);units.extend(result['units']);issues.extend(result['issues']);audit.extend(result['formula_audit']);notices.extend(result['notices']);members.append({'source':source+' / '+member.filename,'status':result['status'],'text_units':len(result['units'])})
                 except Exception as exc:
                     issues.append(member.filename+': '+type(exc).__name__+': '+str(exc)[:200]);members.append({'source':source+' / '+member.filename,'status':'read_failed','text_units':0})
 
     else:issues.append('Формат не поддержан: '+suffix)
     if not units:issues.append('Текст не извлечён')
-    return {'units':units,'issues':issues,'formula_audit':audit,'status':'partial' if issues else 'read','notices':list(dict.fromkeys(notices)),'members':members}
+    return {'units':units,'issues':issues,'formula_audit':audit,'status':'partial' if issues else 'read','notices':list(dict.fromkeys(notices)),'members':members,'visuals':visuals}
