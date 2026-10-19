@@ -12,6 +12,8 @@ import zipfile
 MAX_BYTES=32*1024*1024
 MAX_EXPANDED=96*1024*1024
 MAX_UNITS=25000
+MAX_ARCHIVE_UNITS=60000
+MAX_ARCHIVE_CHARS=5000000
 
 
 def formula_value(formula, cells, seen=frozenset()):
@@ -70,13 +72,16 @@ def extract(path, source, depth=0, budget=None):
     path=Path(path);data=path.read_bytes()
     if len(data)>MAX_BYTES:raise ValueError('File size limit')
     suffix=path.suffix.lower();units=[];issues=[];audit=[]
+    file_units=0;file_chars=0
     if suffix=='.bin' and data.startswith(b'Rar!\x1a\x07'):suffix='.rar'
     def add(locator,text,ocr=False):
+        nonlocal file_units,file_chars
         text=str(text).strip()
         if text:
+            file_units+=1;file_chars+=len(text)
+            if file_units>MAX_UNITS or file_chars>2000000:raise ValueError('Per-file text limit')
+            if budget['units']+1>MAX_ARCHIVE_UNITS or budget['chars']+len(text)>MAX_ARCHIVE_CHARS:raise ValueError('Archive total text limit')
             budget['units']+=1;budget['chars']+=len(text)
-            if budget['chars']>2000000:raise ValueError('Total text limit')
-            if budget['units']>MAX_UNITS:raise ValueError('Text unit limit')
             units.append({'id':source+':'+str(len(units)+1),'source':source,'locator':locator,'text':text[:20000],'ocr':ocr})
             if len(text)>20000:issues.append('Фрагмент обрезан: '+locator)
     if suffix=='.docx':
@@ -174,7 +179,7 @@ def extract(path, source, depth=0, budget=None):
                 child=Path(tmp)/(str(number)+name.suffix.lower());child.write_bytes(b''.join(parts))
                 try:
                     result=extract(child,source+' / '+str(name),depth+1,budget);units.extend(result['units']);issues.extend(result['issues']);audit.extend(result['formula_audit'])
-                except Exception as exc:issues.append(str(name)+': '+type(exc).__name__)
+                except Exception as exc:issues.append(str(name)+': '+type(exc).__name__+': '+str(exc)[:200])
     elif suffix=='.zip':
         if depth>=2:raise ValueError('Nested archive limit')
         with checked_zip(data,budget) as z, tempfile.TemporaryDirectory(prefix='eis-archive-') as tmp:
@@ -183,8 +188,8 @@ def extract(path, source, depth=0, budget=None):
                 child=Path(tmp)/(str(number)+PurePosixPath(member.filename).suffix.lower());child.write_bytes(z.read(member))
                 try:
                     result=extract(child,source+' / '+member.filename,depth+1,budget);units.extend(result['units']);issues.extend(result['issues']);audit.extend(result['formula_audit'])
-                except Exception as exc:issues.append(member.filename+': '+type(exc).__name__)
-                if len(units)>MAX_UNITS:raise ValueError('Archive text unit limit')
+                except Exception as exc:issues.append(member.filename+': '+type(exc).__name__+': '+str(exc)[:200])
+
     else:issues.append('Формат не поддержан: '+suffix)
     if not units:issues.append('Текст не извлечён')
     return {'units':units,'issues':issues,'formula_audit':audit,'status':'partial' if issues else 'read'}

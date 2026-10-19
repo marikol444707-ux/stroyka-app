@@ -156,3 +156,59 @@ class HostBoundaryTests(unittest.TestCase):
             with self.assertRaises(OSError):write_output(output,{'overwrite':True})
             with self.assertRaises(OSError):read_output(output)
             self.assertEqual(secret.read_text(),'{"untouched":true}')
+
+class DocumentCollectionRegressionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_collapsed_current_attachments_are_expanded_before_inventory(self):
+        from scripts.jev_eis_documents import Browser
+        number='0121200004726001290';url='https://zakupki.gov.ru/epz/order/notice/ok20/view/documents.html?regNumber='+number
+        first='https://zakupki.gov.ru/44fz/filestore/public/1.0/download/priz/file.html?uid='+'A'*32
+        extra='https://zakupki.gov.ru/44fz/filestore/public/1.0/download/priz/file.html?uid='+'B'*32
+        html='№ '+number+' Редакция Действующая <a href="'+first+'">Контракт</a><a href="'+extra+'">Порядок оценки</a>'
+        collapsed={'url':url,'ready':'complete','html':html,'text':'№ '+number+' Редакция Действующая','visible_links':[first]}
+        expanded={**collapsed,'visible_links':[first,extra]}
+        browser=Browser({},'/unused')
+        from unittest.mock import AsyncMock
+        browser.page=AsyncMock(return_value=collapsed)
+        browser.read=AsyncMock(side_effect=[True,False,expanded])
+        state=await browser.documents_page(url,number)
+        self.assertEqual(len(inventory(state['html'],number,state['visible_links'],state['text'])['files']),2)
+        self.assertEqual(browser.page.await_count,1)  # Never reload away the expanded list.
+
+    async def test_stuck_attachment_expansion_is_not_reported_complete(self):
+        from scripts.jev_eis_documents import Browser
+        from unittest.mock import AsyncMock
+        browser=Browser({},'/unused');browser.page=AsyncMock(return_value={})
+        browser.read=AsyncMock(return_value=True)
+        with self.assertRaisesRegex(ValueError,'expansion'):await browser.documents_page('unused','0121200004726001290')
+
+class ArchiveBudgetRegressionTests(unittest.TestCase):
+    def test_many_small_documents_do_not_share_a_single_file_text_limit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/'estimates.zip'
+            with zipfile.ZipFile(p,'w') as z:
+                for i in range(3):z.writestr(str(i)+'.txt','\n'.join('Строка '+str(j) for j in range(4)))
+            with patch('scripts.jev_eis_document_formats.MAX_UNITS',5):result=extract(p,'archive')
+            self.assertEqual(len(result['units']),12)
+            self.assertFalse(result['issues'])
+            self.assertTrue(any('2.txt' in u['source'] for u in result['units']))
+
+    def test_archive_still_has_a_total_text_budget(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/'estimates.zip'
+            with zipfile.ZipFile(p,'w') as z:
+                for i in range(3):z.writestr(str(i)+'.txt','\n'.join('Строка '+str(j) for j in range(4)))
+            with patch('scripts.jev_eis_document_formats.MAX_ARCHIVE_UNITS',6):
+                result=extract(p,'archive')
+            self.assertEqual(result['status'],'partial')
+            self.assertLessEqual(len(result['units']),6)
+            self.assertTrue(any('лимит' in x.lower() or 'limit' in x.lower() for x in result['issues']))
+
+    def test_one_oversize_member_does_not_poison_later_members(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/'estimates.zip'
+            with zipfile.ZipFile(p,'w') as z:
+                z.writestr('large.txt','\n'.join(str(j) for j in range(8)))
+                z.writestr('last.txt','Оплата после приёмки')
+            with patch('scripts.jev_eis_document_formats.MAX_UNITS',5):result=extract(p,'archive')
+            self.assertTrue(any(u['text']=='Оплата после приёмки' for u in result['units']))
+            self.assertEqual(result['status'],'partial')

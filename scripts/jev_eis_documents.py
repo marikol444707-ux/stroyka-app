@@ -129,6 +129,26 @@ class Browser:
                 return state
             await asyncio.sleep(.3)
         raise TimeoutError('Notice page not ready')
+    async def documents_page(self,url,number):
+        # EIS collapses current attachments after the first five. Expand only
+        # its observed attachment control; never include every hidden anchor.
+        await self.page(url,number)
+        expression=('(()=>{const e=[...document.querySelectorAll("a[onclick]")]'
+            '.find(e=>e.getClientRects().length&&getComputedStyle(e).visibility!=="hidden"&&'
+            '(e.innerText||"").trim()==="Показать больше"&&'
+            '/^openClosedFilesDocs\\(this\\);?$/.test(e.getAttribute("onclick").trim()));'
+            'if(!e)return false;e.click();return true})()')
+        for _ in range(10):
+            expanded=await self.read(expression)
+            if expanded is False:break
+            if expanded is not True:raise ValueError('Attachment expansion not verified')
+            await asyncio.sleep(.1)
+        else:raise ValueError('Attachment expansion limit')
+        state=await self.read('({url:location.href,ready:document.readyState,html:document.documentElement.outerHTML,text:document.body.innerText,visible_links:[...document.querySelectorAll("a[href]")].filter(e=>typeof e.href==="string"&&e.getClientRects().length&&getComputedStyle(e).visibility!=="hidden").map(e=>e.href)})')
+        if not state or state['url']!=url or state['ready']!='complete' or number not in state['text']:
+            raise ValueError('Expanded document page not verified')
+        return state
+
     async def download(self,url,directory,limit=MAX_FILE):
         validate_download(url);self.events=[]
         if limit<=0:raise ValueError('Total download limit')
@@ -164,7 +184,7 @@ async def collect(notice, destination, env, tmp):
         card=await browser.page(notice,number);p=Page();p.feed(card['html'])
         docs=next((urljoin(notice,a.get('href','')) for a in p.links if urlparse(urljoin(notice,a.get('href',''))).path==urlparse(notice).path.replace('common-info.html','documents.html') and parse_qs(urlparse(urljoin(notice,a.get('href',''))).query).get('regNumber')==[number]),None)
         if not docs:raise ValueError('Document tab not found')
-        state=await browser.page(docs,number);listing=inventory(state['html'],number,state['visible_links'],state['text'])
+        state=await browser.documents_page(docs,number);listing=inventory(state['html'],number,state['visible_links'],state['text'])
         (destination/'card.txt').write_text(card['text']);(destination/'listing.txt').write_text(state['text'])
         result={**listing,'notice_url':notice,'documents_url':docs,'retrieved_at':datetime.now(timezone.utc).isoformat(),'card_text':card['text'],'documents':[],'issues':[]}
         total=0
@@ -179,7 +199,7 @@ async def collect(notice, destination, env, tmp):
                 document.update(status='downloaded',path=str(saved.relative_to(destination)),bytes=saved.stat().st_size,sha256=hashlib.sha256(saved.read_bytes()).hexdigest())
             except Exception as exc:document['error_type']=type(exc).__name__;result['issues'].append(item['name']+': '+type(exc).__name__)
             result['documents'].append(document)
-        state=await browser.page(docs,number)
+        state=await browser.documents_page(docs,number)
         refreshed=inventory(state['html'],number,state['visible_links'],state['text'])
         result['snapshot_consistent']=listing['files']==refreshed['files'] and listing['listing_sha256']==refreshed['listing_sha256']
         if not result['snapshot_consistent']:result['issues'].append('Набор или редакция документов изменились во время проверки')
