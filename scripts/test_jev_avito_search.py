@@ -1,8 +1,27 @@
 import unittest
-from scripts.jev_avito_search import assess_page
+from scripts.jev_avito_search import assess_page, probe
 
 
 class AvitoPageTest(unittest.TestCase):
+    def test_preflight_waits_for_visible_search_heading_before_assessing_region(self):
+        class LoadingBrowser:
+            ready = False
+            def __enter__(self):
+                return self
+            def __exit__(self, *_):
+                pass
+            def call(self, name, args):
+                if name == 'browser_wait_for' and args.get('text') == '«Кирпич б/у»':
+                    self.ready = True
+                if name == 'browser_snapshot':
+                    title = 'Кирпич б/у в Ставропольском крае' if self.ready else 'Авито — Объявления на сайте Авито'
+                    return ('- Page URL: https://www.avito.ru/stavropolskiy_kray?q=кирпич+б%2Fу\n'
+                            '- Page Title: ' + title + '\nКирпич б/у')
+                return ''
+        report = probe(LoadingBrowser)
+        self.assertEqual(report['status'], 'search_page_observed')
+        self.assertFalse(report['ok'])
+
     def test_homepage_after_submit_is_not_a_completed_search(self):
         report = assess_page('https://www.avito.ru/', 'Авито', 'Ставропольский край')
         self.assertEqual(report['status'], 'search_query_lost')

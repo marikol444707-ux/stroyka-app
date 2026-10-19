@@ -41,9 +41,14 @@ def assess_page(url, title, snapshot):
 def probe(browser_factory):
     with browser_factory() as browser:
         browser.call('browser_navigate', {'url': SEARCH_URL})
-        # Let the site's ordinary automatic page bootstrap settle once. No
-        # challenge clicks, captcha solver, proxy rotation or task retries.
-        browser.call('browser_wait_for', {'time': 5})
+        # A fixed pause may leave the SPA's generic loading title visible.
+        # Wait for the requested heading, then independently assess the result.
+        # No challenge clicks, captcha solver, proxy rotation or task retries.
+        try:
+            browser.call('browser_wait_for', {'text': '«Кирпич б/у»'})
+        except TimeoutError:
+            # Preserve the actual site error, lost query or incomplete page.
+            pass
         text = browser.call('browser_snapshot', {})
         url = re.search(r'^- Page URL: (.+)$', text, re.M)
         title = re.search(r'^- Page Title: (.+)$', text, re.M)
