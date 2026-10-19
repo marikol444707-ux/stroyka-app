@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -7,6 +8,7 @@ import tarfile
 import tempfile
 from types import SimpleNamespace
 import unittest
+import sys
 
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -16,6 +18,62 @@ spec.loader.exec_module(release)
 
 
 class UnifiedReleaseTests(unittest.TestCase):
+    def test_git_delivery_fetches_release_and_cleans_its_worktree_on_success_and_failure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary)
+            source = work / 'source'
+            source.mkdir()
+            self.git(source, 'init', '-b', 'main')
+            self.git(source, 'config', 'user.email', 'test@local.invalid')
+            self.git(source, 'config', 'user.name', 'Release test')
+            (source / 'app.txt').write_text('installed baseline')
+            self.commit(source, 'baseline')
+            base = self.git(source, 'rev-parse', 'HEAD')
+            self.git(source, 'branch', 'installed', base)
+            (source / 'scripts').mkdir()
+            (source / 'scripts/unified_release.py').write_text('''
+import io, os, pathlib, subprocess, sys, tarfile
+arguments = sys.argv
+output = pathlib.Path(arguments[arguments.index('--output') + 1])
+root = arguments[arguments.index('--app-root') + 1]
+target = subprocess.check_output(['git','-C',root,'rev-parse','HEAD'], text=True).strip()
+installer = b"import json,os,pathlib,sys\\npathlib.Path(os.environ['DELIVERY_TEST_EVIDENCE']).write_text(json.dumps(sys.argv[1:]))\\nsys.exit(int(os.environ['DELIVERY_TEST_EXIT']))\\n"
+with tarfile.open(output, 'w:gz') as archive:
+    entry = tarfile.TarInfo('stroyka-unified-' + target[:12] + '/install.py')
+    entry.size = len(installer)
+    archive.addfile(entry, io.BytesIO(installer))
+''')
+            (source / 'app.txt').write_text('candidate')
+            self.commit(source, 'candidate')
+            target = self.git(source, 'rev-parse', 'HEAD')
+            self.git(source, 'branch', 'codex/unified-production-release', target)
+            server = work / 'server'
+            self.git(work, 'clone', '--branch', 'installed', str(source), str(server))
+            self.git(server, 'branch', '-m', 'main')
+            helper = work / 'delivery.sh'
+            helper.write_text((SCRIPTS / 'install-unified-from-git.sh').read_text()
+                              .replace('242463c5e08e1fb1b306bf476f26761e293b62dd', target)
+                              .replace('c30b5c7a6b641bc59860ea5eed6e743f67f1318d', base))
+            parent = work / 'temporary-transfer'
+            parent.mkdir()
+            evidence = work / 'evidence.json'
+            for exit_code in (0, 42):
+                with self.subTest(exit_code=exit_code):
+                    env = dict(os.environ, STROYKA_APP_ROOT=str(server),
+                               STROYKA_RELEASE_PYTHON=sys.executable, STROYKA_DELIVERY_WORK_PARENT=str(parent),
+                               DELIVERY_TEST_EVIDENCE=str(evidence), DELIVERY_TEST_EXIT=str(exit_code))
+                    result = subprocess.run(['bash', str(helper)], env=env, capture_output=True, text=True)
+                    self.assertEqual(result.returncode, exit_code, result.stderr)
+                    arguments = json.loads(evidence.read_text())
+                    self.assertEqual(arguments[0], 'apply')
+                    self.assertEqual(arguments[arguments.index('--expect-current') + 1], base)
+                    self.assertEqual(arguments[arguments.index('--app-root') + 1], str(server))
+                    self.assertEqual(arguments[arguments.index('--public-url') + 1], 'https://stroyka26.pro')
+                    self.assertEqual(self.git(server, 'rev-parse', 'HEAD'), base)
+                    self.assertEqual((server / 'app.txt').read_text(), 'installed baseline')
+                    self.assertEqual(list(parent.iterdir()), [])
+                    self.assertEqual(self.git(server, 'worktree', 'list', '--porcelain').count('worktree '), 1)
+
     def test_bundle_transports_all_commits_without_a_remote_and_rejects_tampering(self):
         with tempfile.TemporaryDirectory() as temporary:
             work = Path(temporary)
