@@ -106,6 +106,30 @@ def register_work_assignment_module(app, deps):
             project_id = estimate_scope.get("projectId")
             if not project_id:
                 raise HTTPException(status_code=409, detail="Смета не привязана к точному объекту выбранной компании")
+            reference = assignee.get('contractorRef', data.get('contractorRef'))
+            manual_command = None
+            if isinstance(reference, dict) and reference.get('type') == 'manual':
+                from ..contractor_identity.manual import command_evidence, find_manual_retry, record_manual_origin
+                resolve_brigade_contractor_user(cur, company_id, contractor_id, brigade_name, contractor_ref=reference)
+                manual_command = command_evidence(reference, company_id=company_id, project_id=project_id,
+                    actor_id=actor['id'], command='estimate_assignment:'+str(estimate_id), payload=data)
+                manual_retry = find_manual_retry(cur, company_id, project_id,
+                    estimate_scope.get('workPackage') or 'Основная', *manual_command)
+                if manual_retry:
+                    # A committed command is only acknowledged. Do not resolve
+                    # today's estimate snapshot or issue any additional rows.
+                    cur.execute('SELECT brigade_name FROM brigade_contracts WHERE id=%s', (manual_retry,))
+                    saved_name = cur.fetchone()[0]
+                    cur.execute('''SELECT COUNT(*) FROM brigade_contract_items i
+                        JOIN estimate_versions v ON v.id=i.source_estimate_version_id
+                        WHERE i.contract_id=%s AND v.estimate_id=%s''', (manual_retry, estimate_id))
+                    count = cur.fetchone()[0]
+                    conn.rollback()
+                    return {'ok': True, 'contractId': manual_retry, 'createdContract': False,
+                        'inserted': 0, 'updated': 0, 'reused': count, 'brigadeName': saved_name,
+                        'contractorId': None, 'companyId': company_id, 'projectId': project_id,
+                        'workPackage': estimate_scope.get('workPackage') or 'Основная',
+                        'manualRequestId': manual_command[0]}
             coordinates = []
             for assignment in assignments:
                 if not isinstance(assignment, dict):
@@ -154,12 +178,6 @@ def register_work_assignment_module(app, deps):
                 **selection,
             )
             reference = selection.get('contractor_ref') or {}
-            manual_command = None
-            if reference.get('type') == 'manual':
-                from ..contractor_identity.manual import command_evidence, find_manual_retry, record_manual_origin
-                manual_command = command_evidence(reference, company_id=company_id, project_id=project_id,
-                    actor_id=actor['id'], command='estimate_assignment:'+str(estimate_id), payload=data)
-                manual_retry = find_manual_retry(cur, company_id, project_id, work_package, *manual_command)
             selected_contract_id = int(reference['id']) if reference.get('type') == 'contract' else None
             if manual_command:
                 selected_contract_id = manual_retry
@@ -232,6 +250,14 @@ def register_work_assignment_module(app, deps):
                 if qty <= 0:
                     raise HTTPException(status_code=400, detail="В работе нулевой объем: " + _text(item.get("name"), 120))
                 price_smeta = estimate_item_unit_price(item)
+                if manual_command and 'expectedSource' in assignment:
+                    expected = assignment['expectedSource']
+                    actual = {'name': _text(item.get('name') or item.get('description'), 500),
+                        'unit': _text(item.get('unit') or 'шт', 80), 'quantity': qty, 'priceSmeta': price_smeta}
+                    if (not isinstance(expected, dict) or set(expected) != set(actual)
+                            or any(type(expected.get(field)) not in (int,float) for field in ('quantity','priceSmeta'))
+                            or expected != actual):
+                        raise HTTPException(409, 'Смета изменилась после подготовки отправки. Проверьте исходные работы')
                 if price_smeta <= 0:
                     raise HTTPException(status_code=400, detail="В работе нет цены сметы: " + _text(item.get("name"), 120))
                 row_mode = _text(assignment.get("priceMode") or price_mode, 40)
@@ -343,4 +369,5 @@ def register_work_assignment_module(app, deps):
             "companyId": company_id,
             "projectId": project_id,
             "items": result_items,
+            "manualRequestId": manual_command[0] if manual_command else None,
         }

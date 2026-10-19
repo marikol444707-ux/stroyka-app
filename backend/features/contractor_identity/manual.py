@@ -23,6 +23,10 @@ def manual_request_id(reference, legacy_id=None):
 
 def command_evidence(reference, *, company_id, project_id, actor_id, command, payload):
     request_id = manual_request_id(reference)
+    if 'expectedCompanyId' in payload or 'expectedActorId' in payload:
+        if (type(payload.get('expectedCompanyId')) is not int or payload['expectedCompanyId'] != company_id
+                or type(payload.get('expectedActorId')) is not int or payload['expectedActorId'] != actor_id):
+            raise HTTPException(403, 'Пользователь или компания изменились. Откройте сохранённую отправку под исходным пользователем')
     try:
         encoded = json.dumps({'command': command, 'companyId': company_id, 'projectId': project_id,
             'actorId': actor_id, 'payload': payload}, ensure_ascii=False, sort_keys=True,

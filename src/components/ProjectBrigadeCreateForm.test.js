@@ -7,6 +7,7 @@ jest.mock('../utils/commandUuid',()=>({commandUuid:()=> '619c59a4-88af-4c11-9e58
 
 const buildProps = (overrides = {}) => ({
   project: {id: 17, name: 'Лицей'},
+  user:{id:9},companyContext:{mode:'company',selectedCompanyId:4},
   newBrigadeContract: {
     projectId: '',
     projectName: '',
@@ -36,6 +37,8 @@ describe('ProjectBrigadeCreateForm', () => {
   const originalFetch = window.fetch;
   const originalAlert = window.alert;
 
+  beforeEach(()=>{sessionStorage.clear();localStorage.clear();});
+
   afterEach(() => {
     window.fetch = originalFetch;
     window.alert = originalAlert;
@@ -52,9 +55,7 @@ describe('ProjectBrigadeCreateForm', () => {
     render(<ProjectBrigadeCreateForm {...props} />);
     fireEvent.click(screen.getByRole('button', {name: 'Создать договор'}));
 
-    await waitFor(() => expect(window.alert).toHaveBeenCalledWith(
-      'Не удалось создать договор: Исполнитель не найден в выбранной компании',
-    ));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Исполнитель не найден в выбранной компании');
     expect(props.setBrigadeContracts).not.toHaveBeenCalled();
     expect(props.setSelectedBrigadeContract).not.toHaveBeenCalled();
   });
@@ -86,10 +87,9 @@ describe('ProjectBrigadeCreateForm', () => {
 
   it('uses the company and project confirmed by the server', async () => {
     const props = buildProps();
-    window.fetch = jest.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ok: true, id: 51, companyId: 4, projectId: 17}),
-    });
+    window.fetch = jest.fn()
+      .mockResolvedValueOnce({ok:true,json:async()=>({ok:true,id:51,companyId:4,projectId:17,manualRequestId:'619c59a4-88af-4c11-9e58-765f2b232680'})})
+      .mockResolvedValueOnce({ok:true,json:async()=>[{id:51,companyId:4,projectId:17,brigadeName:'Бригада Север'}]});
 
     render(<ProjectBrigadeCreateForm {...props} />);
     fireEvent.click(screen.getByRole('button', {name: 'Создать договор'}));
@@ -108,7 +108,7 @@ describe('ProjectBrigadeCreateForm', () => {
     window.alert=jest.fn();
     render(<ProjectBrigadeCreateForm {...props}/>);
     fireEvent.click(screen.getByRole('button',{name:'Создать договор'}));
-    await waitFor(()=>expect(window.alert).toHaveBeenCalled());
+    expect(await screen.findByRole('alert')).toHaveTextContent('Проверка ручного создания');
     expect(props.openBrigadeContract).not.toHaveBeenCalled();
     expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({contractorId:null,contractorRef:{type:'manual',requestId:expect.any(String)}});
   });
@@ -134,9 +134,9 @@ describe('ProjectBrigadeCreateForm', () => {
     window.alert=jest.fn();
     render(<ProjectBrigadeCreateForm {...props}/>);
     fireEvent.click(screen.getByRole('button',{name:'Создать договор'}));
-    await waitFor(()=>expect(window.alert).toHaveBeenCalledTimes(1));
-    fireEvent.click(screen.getByRole('button',{name:'Создать договор'}));
-    await waitFor(()=>expect(window.alert).toHaveBeenCalledTimes(2));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Проверьте соединение');
+    fireEvent.click(screen.getByRole('button',{name:'Повторить сохранённую отправку'}));
+    await waitFor(()=>expect(fetch).toHaveBeenCalledTimes(2));
     const refs=fetch.mock.calls.map(call=>JSON.parse(call[1].body).contractorRef);
     expect(refs[0]).toEqual({type:'manual',requestId:expect.stringMatching(/^[0-9a-f-]{36}$/)});
     expect(refs[1]).toEqual(refs[0]);
@@ -152,9 +152,9 @@ describe('ProjectBrigadeCreateForm', () => {
   it('opens the existing contract when the server detects a duplicate after the page loaded', async () => {
     const props = buildProps({openBrigadeContract: jest.fn()});
     window.fetch = jest.fn()
-      .mockResolvedValueOnce({ok: true, json: async () => ({ok: true, id: 70, reused: true})})
+      .mockResolvedValueOnce({ok: true, json: async () => ({ok:true,id:70,reused:true,companyId:4,projectId:17,manualRequestId:'619c59a4-88af-4c11-9e58-765f2b232680'})})
       .mockResolvedValueOnce({ok: true, json: async () => ([
-        {id: 70, projectName: 'Лицей', brigadeName: 'Бригада Север', status: 'Подписан'},
+        {id:70,companyId:4,projectId:17,projectName:'Лицей',brigadeName:'Бригада Север',status:'Подписан'},
       ])});
 
     render(<ProjectBrigadeCreateForm {...props} />);

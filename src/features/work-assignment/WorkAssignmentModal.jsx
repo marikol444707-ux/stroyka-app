@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CheckSquare, RotateCcw, Settings2, UserCheck, X } from 'lucide-react';
 import { assignmentsForEstimate, contractName, formatMoney, formatQty, toNumber } from './workAssignmentUtils';
 import { normalizePersonKey } from '../../utils/performerUtils';
-import { commandUuid } from '../../utils/commandUuid';
+import { useManualCommandRecovery } from './manualCommandRecovery';
+import ManualCommandRecoveryNotice from './ManualCommandRecoveryNotice';
 
 function isPerformer(item = {}) {
     const text = [item.role, item.systemRole, item.category, item.employmentType, item.position, item.name].map(value => String(value || '').toLowerCase()).join(' ');
@@ -65,6 +66,8 @@ export function performerRows(staff = [], users = [], brigadeContracts = []) {
 }
 
 export default function WorkAssignmentModal({
+  companyContext,
+  user,
   show,
   onClose,
   selectedEstimate,
@@ -99,7 +102,19 @@ export default function WorkAssignmentModal({
   const bodyRef = useRef(null);
   useEffect(() => { if (bodyRef.current) bodyRef.current.scrollTop = 0; }, [mobileStep]);
   const initializedSourceRef = useRef(null);
-  const manualRequestRef = useRef(null);
+  const recovery=useManualCommandRecovery({API,user,companyContext,kind:'assignment',enabled:show,
+    source:{id:selectedEstimate?.id,companyId:selectedEstimate?.companyId,
+      projectId:selectedEstimate?.projectId || selectedEstimate?.project_id,
+      workPackage:selectedEstimate?.workPackage || selectedEstimate?.work_package}});
+  const applyManual=async(_saved,_payload,current)=>{
+    try{await loadAll();}catch(_){throw new Error('Работы сохранены, но список не обновился. Повторите обновление списка.');}
+    if(!current()) return;
+  };
+  const completeManual=(saved,payload)=>{
+    setSelectedIds({});setManualPrices({});onClose();
+    alert('Работы выданы: '+(saved.brigadeName || payload.assignee.brigadeName)
+      +'\nПозиции: '+payload.items.length+'\nНаряд #'+saved.contractId);
+  };
 
   const assignmentRows = useMemo(
     () => assignmentsForEstimate(selectedEstimate, brigadeContractItems || [], brigadeContracts || []),
@@ -164,12 +179,10 @@ export default function WorkAssignmentModal({
   useEffect(() => {
     if (!show || !selectedEstimate) {
       initializedSourceRef.current = null;
-      manualRequestRef.current = null;
       return;
     }
     if (initializedSourceRef.current === sourceKey) return;
     initializedSourceRef.current = sourceKey;
-    manualRequestRef.current = null;
     setSelectedIds(Object.fromEntries(rows.map(row => [row.id, true])));
     setContractorId(performers.length === 1 ? performerOptionId(performers[0]) : '');
     setManualPerformer(false);
@@ -196,6 +209,7 @@ export default function WorkAssignmentModal({
   };
 
   const submit = async () => {
+    if(recovery.pending || recovery.busy || recovery.blocked) return;
     setSubmissionError('');
     if (!brigadeName) {
       setSubmissionError('Выберите исполнителя или укажите название бригады');
@@ -217,11 +231,10 @@ export default function WorkAssignmentModal({
     }
     setSubmitting(true);
     try {
-      if (!selectedPerformer && !manualRequestRef.current) manualRequestRef.current = commandUuid();
       const payload = {
         assignee: {
           contractorId: selectedPerformer?.contractorId || null,
-          contractorRef: selectedPerformer?.contractorRef || {type:'manual',requestId:manualRequestRef.current},
+          contractorRef: selectedPerformer?.contractorRef || {type:'manual'},
           brigadeName,
           contractorType: selectedPerformer?.employmentType || selectedPerformer?.role || 'Своя бригада',
         },
@@ -239,9 +252,14 @@ export default function WorkAssignmentModal({
             coefficient: coef,
             priceMode: rowUsesManualPrice ? 'manual' : 'coefficient',
             manualPrice: rowUsesManualPrice ? toNumber(manualPrices[row.id]) : undefined,
+            ...(!selectedPerformer ? {expectedSource:{name:row.name,unit:row.unit,quantity:row.quantity,priceSmeta:row.priceSmeta}} : {}),
           };
         }),
       };
+      if(!selectedPerformer){
+        await recovery.run({payload,apply:applyManual,done:completeManual});
+        return;
+      }
       const response = await fetch(API + '/estimates/' + selectedEstimate.id + '/work-assignment', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -249,7 +267,6 @@ export default function WorkAssignmentModal({
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.ok) {
-        if ([400,422].includes(response.status)) manualRequestRef.current = null;
         setSubmissionError(typeof data.detail === 'string' ? data.detail : 'Не удалось назначить работы');
         return;
       }
@@ -260,7 +277,6 @@ export default function WorkAssignmentModal({
         refreshFailed = true;
       }
       setSelectedIds({});
-      manualRequestRef.current = null;
       setManualPrices({});
       onClose();
       alert('Работы выданы: ' + (data.brigadeName || brigadeName)
@@ -290,11 +306,15 @@ export default function WorkAssignmentModal({
               {selectedEstimate.projectName || 'Объект'} · {selectedEstimate.workPackage || selectedEstimate.work_package || 'Основная'}
             </p>
           </div>
-          <button type="button" aria-label="Закрыть назначение работ" onClick={onClose} disabled={submitting} style={{...btnG, padding: '7px 9px'}}><X size={14} /></button>
+          <button type="button" aria-label="Закрыть назначение работ" onClick={onClose} disabled={submitting || recovery.busy} style={{...btnG, padding: '7px 9px'}}><X size={14} /></button>
         </div>
 
         {isMobile && <p role="status" style={{margin:'10px 12px',color:C.textSec,fontSize:13}}>Шаг {mobileStep} из 3 · {['Исполнитель','Работы','Проверка суммы'][mobileStep-1]}</p>}
         <div ref={bodyRef} style={{padding: isMobile ? '12px' : '16px 20px', overflowY: 'auto', minHeight: 0, flex: '1 1 auto', overscrollBehavior: 'contain'}}>
+          <ManualCommandRecoveryNotice pending={recovery.pending} busy={recovery.busy}
+            onResume={()=>recovery.run({apply:applyManual,done:completeManual})}/>
+          <fieldset disabled={submitting || recovery.busy || Boolean(recovery.pending) || recovery.blocked}
+            style={{border:0,padding:0,margin:0,minWidth:0}}>
           <div style={{display: isMobile && mobileStep !== 1 ? 'none' : undefined, marginBottom: '18px'}}>
             <b style={{display: 'block', color: C.text, fontSize: '15px', marginBottom: '4px'}}>1. Кому выдать работы</b>
             <p style={{color: C.textSec, fontSize: '12px', margin: '0 0 10px'}}>Выберите человека или бригаду. Новую бригаду можно указать в этом же списке.</p>
@@ -345,7 +365,7 @@ export default function WorkAssignmentModal({
             <span style={{color:C.textSec,fontSize:'11px'}}>Показано: {visibleRows.length} из {rows.length}. Кнопка выбора действует только на показанные работы.</span>
             {hiddenSelectedCount > 0 && <div role="status" style={{marginTop:'8px',padding:'10px',border:'1px solid '+C.border,borderRadius:'8px'}}>
               <p style={{color:C.text,margin:'0 0 8px',fontSize:'12px'}}>Ещё {hiddenSelectedCount} выбранных работ скрыты {sectionFilter ? 'фильтром' : 'поиском'}. Они тоже будут выданы исполнителю.</p>
-              <button type="button" disabled={submitting} onClick={() => setSelectedIds(previous => Object.fromEntries(
+              <button type="button" disabled={submitting || recovery.busy} onClick={() => setSelectedIds(previous => Object.fromEntries(
                 Object.entries(previous).filter(([id]) => visibleRows.some(row => String(row.id) === id)),
               ))} style={{...btnB,minHeight:'44px'}}>Оставить только найденные</button>
             </div>}
@@ -442,20 +462,21 @@ export default function WorkAssignmentModal({
             </div>
           </div>
           </div>
+          </fieldset>
         </div>
 
         <div style={{flexShrink: 0, padding: isMobile ? '12px' : '14px 20px', borderTop: '1px solid ' + C.border, backgroundColor: C.bgWhite, display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', alignItems: 'center'}}>
           <div><b style={{display: 'block', color: C.text, fontSize: '14px'}}>Исполнителю: {formatMoney(selectedTotal)}</b><span style={{color: C.textSec, fontSize: '11px'}}>Выбрано работ: {selectedRows.length}</span></div>
           <div style={{display: 'flex', gap: '8px'}}>
-            {isMobile && mobileStep > 1 && <button type="button" disabled={submitting} onClick={()=>setMobileStep(step=>step-1)} style={{...btnG,minHeight:44}}>Назад</button>}
-            <button type="button" onClick={onClose} disabled={submitting} style={btnG}>Отмена</button>
-            {isMobile && mobileStep < 3 ? <button type="button" disabled={submitting || (mobileStep===1 ? !brigadeName : !selectedRows.length)} onClick={()=>setMobileStep(step=>step+1)} style={{...btnO,minHeight:44}}>Далее</button> : <button type="button" onClick={submit} disabled={submitting || !selectedRows.length || !brigadeName} style={{...btnO, opacity: submitting || !selectedRows.length || !brigadeName ? 0.65 : 1}}>
+            {isMobile && mobileStep > 1 && <button type="button" disabled={submitting || recovery.busy} onClick={()=>setMobileStep(step=>step-1)} style={{...btnG,minHeight:44}}>Назад</button>}
+            <button type="button" onClick={onClose} disabled={submitting || recovery.busy} style={btnG}>Отмена</button>
+            {isMobile && mobileStep < 3 ? <button type="button" disabled={submitting || recovery.busy || Boolean(recovery.pending) || recovery.blocked || (mobileStep===1 ? !brigadeName : !selectedRows.length)} onClick={()=>setMobileStep(step=>step+1)} style={{...btnO,minHeight:44}}>Далее</button> : <button type="button" onClick={submit} disabled={submitting || recovery.busy || Boolean(recovery.pending) || recovery.blocked || !selectedRows.length || !brigadeName} style={{...btnO, opacity: submitting || !selectedRows.length || !brigadeName ? 0.65 : 1}}>
               {submitting ? 'Выдаю...' : 'Выдать в работу'}
             </button>}
           </div>
-          {submissionError
-            ? <p role="alert" style={{order: 1, flexBasis: '100%', color: C.danger || '#b91c1c', margin: 0, fontSize: '12px'}}>{submissionError}</p>
-            : missingStep && <p role="status" style={{order: 1, flexBasis: '100%', color: C.textSec, margin: 0, fontSize: '12px'}}>{missingStep}</p>}
+          {(submissionError || recovery.error)
+            ? <p role="alert" style={{order: 1, flexBasis: '100%', color: C.danger || '#b91c1c', margin: 0, fontSize: '12px'}}>{submissionError || recovery.error}</p>
+            : !recovery.pending && missingStep && <p role="status" style={{order: 1, flexBasis: '100%', color: C.textSec, margin: 0, fontSize: '12px'}}>{missingStep}</p>}
         </div>
       </div>
     </div>

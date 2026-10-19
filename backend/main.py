@@ -19326,6 +19326,7 @@ def create_brigade_contract(
                 "companyId": company_id,
                 "projectId": project["id"],
                 "contractorId": contractor_user_id,
+                "manualRequestId": manual_command[0] if manual_command else None,
             }
         cur.execute(
             """INSERT INTO brigade_contracts
@@ -19382,6 +19383,7 @@ def create_brigade_contract(
             "companyId": company_id,
             "projectId": project["id"],
             "contractorId": contractor_user_id,
+            "manualRequestId": manual_command[0] if manual_command else None,
         }
     except HTTPException:
         conn.rollback()
