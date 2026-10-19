@@ -303,3 +303,18 @@ class ReportReliabilityTests(unittest.TestCase):
             self.assertIn('<img ',s)
             self.assertIn('не подтверждает',s)
             self.assertIn('Проверка сметы',s)
+
+class EquationPreviewIntegrationTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which('wmf2gd'),'WMF conversion runs in the isolated server image')
+    def test_wmf_equation_preview_is_rendered_without_claiming_verification(self):
+        import struct
+        from scripts.jev_eis_document_formats import read_document_image
+        words=[0xcdd7,0x9ac6,0,0,0,1000,200,1440,0,0];checksum=0
+        for x in words:checksum^=x
+        placeable=struct.pack('<10H',*words)+struct.pack('<H',checksum)
+        records=b''.join(struct.pack('<IHhh',5,f,y,x) for f,y,x in [(0x020b,0,0),(0x020c,200,1000),(0x0214,20,20),(0x0213,180,980)])+struct.pack('<IH',3,0)
+        data=placeable+struct.pack('<HHHIHIH',1,9,0x300,9+len(records)//2,0,5,0)+records
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);v=read_document_image(data,'.wmf','d6','equation.wmf',root/'previews',{})
+            self.assertTrue((root/v['path']).is_file());self.assertTrue(v['requires_review'])
+            self.assertTrue((root/v['path']).read_bytes().startswith(b'\x89PNG'))
