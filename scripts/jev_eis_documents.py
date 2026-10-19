@@ -53,12 +53,13 @@ class Page(HTMLParser):
         if self.anchor is not None:self.label.append(data)
 
 
-def inventory(html, number):
-    page=Page();page.feed(html);text='\n'.join(page.text)
+def inventory(html, number, visible_links=None, visible_text=None):
+    page=Page();page.feed(html);text='\n'.join(page.text) if visible_text is None else visible_text
     if not re.search(r'(?<!\d)'+re.escape(number)+r'(?!\d)',text):raise ValueError('Wrong notice in document page')
     files={}
     for anchor in page.links:
         url=urljoin('https://zakupki.gov.ru',anchor.get('href',''))
+        if visible_links is not None and url not in visible_links:continue
         try:validate_download(url)
         except ValueError:continue
         files[url]={'url':url,'name':anchor.get('title') or anchor['text']}
@@ -121,15 +122,16 @@ class Browser:
     async def page(self,url,number):
         await self.call('Page.navigate',{'url':url})
         for _ in range(60):
-            state=await self.read('({url:location.href,ready:document.readyState,html:document.documentElement?.outerHTML||"",text:document.body?.innerText||""})')
+            state=await self.read('({url:location.href,ready:document.readyState,html:document.documentElement?.outerHTML||"",text:document.body?.innerText||"",visible_links:[...document.querySelectorAll("a[href]")].filter(e=>e.getClientRects().length&&getComputedStyle(e).visibility!=="hidden").map(e=>e.href)})')
             if state and state['ready']=='complete' and number in state['text']:
                 p=urlparse(state['url'])
                 if p.scheme!='https' or p.netloc!='zakupki.gov.ru':raise ValueError('Foreign page redirect')
                 return state
             await asyncio.sleep(.3)
         raise TimeoutError('Notice page not ready')
-    async def download(self,url,directory):
+    async def download(self,url,directory,limit=MAX_FILE):
         validate_download(url);self.events=[]
+        if limit<=0:raise ValueError('Total download limit')
         await self.call('Browser.setDownloadBehavior',{'behavior':'allowAndName','downloadPath':str(directory),'eventsEnabled':True})
         await self.call('Page.navigate',{'url':url})
         guid=None;finished=False;deadline=time.monotonic()+55
@@ -142,15 +144,16 @@ class Browser:
                     guid=p['guid']
                     if not re.fullmatch(r'[a-zA-Z0-9-]{1,80}',guid):raise ValueError('Unexpected download ID')
                 if method=='Browser.downloadProgress' and guid and p.get('guid')==guid:
-                    if max(p.get('totalBytes',0),p.get('receivedBytes',0))>MAX_FILE:
+                    if max(p.get('totalBytes',0),p.get('receivedBytes',0))>limit:
                         await self.call('Browser.cancelDownload',{'guid':guid});raise ValueError('File size limit')
                     if p.get('state')=='canceled':raise RuntimeError('Download canceled')
                     finished=p.get('state')=='completed'
             if finished:
                 path=directory/guid
-                if path.exists() and path.stat().st_size<=MAX_FILE:return path
+                if path.exists() and path.stat().st_size<=limit:return path
             try:await asyncio.wait_for(self.receive(),2)
             except asyncio.TimeoutError:pass
+        if guid:await self.call('Browser.cancelDownload',{'guid':guid})
         raise TimeoutError('Original download budget')
 
 
@@ -161,22 +164,23 @@ async def collect(notice, destination, env, tmp):
         card=await browser.page(notice,number);p=Page();p.feed(card['html'])
         docs=next((urljoin(notice,a.get('href','')) for a in p.links if urlparse(urljoin(notice,a.get('href',''))).path==urlparse(notice).path.replace('common-info.html','documents.html') and parse_qs(urlparse(urljoin(notice,a.get('href',''))).query).get('regNumber')==[number]),None)
         if not docs:raise ValueError('Document tab not found')
-        state=await browser.page(docs,number);listing=inventory(state['html'],number)
+        state=await browser.page(docs,number);listing=inventory(state['html'],number,state['visible_links'],state['text'])
         (destination/'card.txt').write_text(card['text']);(destination/'listing.txt').write_text(state['text'])
         result={**listing,'notice_url':notice,'documents_url':docs,'retrieved_at':datetime.now(timezone.utc).isoformat(),'card_text':card['text'],'documents':[],'issues':[]}
         total=0
         for index,item in enumerate(listing['files'],1):
             document={'id':'d'+str(index),**item,'status':'download_failed'}
             try:
-                path=await browser.download(item['url'],originals);total+=path.stat().st_size
+                path=await browser.download(item['url'],originals,min(MAX_FILE,MAX_TOTAL-total));total+=path.stat().st_size
                 if total>MAX_TOTAL:raise ValueError('Total download limit')
                 suffix=Path(item['name']).suffix.lower()
-                if suffix not in {'.docx','.xlsx','.pdf','.xls','.doc','.rtf','.zip','.txt','.csv','.xlsm'}:suffix='.bin'
+                if suffix not in {'.docx','.xlsx','.pdf','.xls','.doc','.rtf','.zip','.rar','.7z','.txt','.csv','.xlsm'}:suffix='.bin'
                 saved=originals/('d'+str(index)+suffix);path.rename(saved)
                 document.update(status='downloaded',path=str(saved.relative_to(destination)),bytes=saved.stat().st_size,sha256=hashlib.sha256(saved.read_bytes()).hexdigest())
             except Exception as exc:document['error_type']=type(exc).__name__;result['issues'].append(item['name']+': '+type(exc).__name__)
             result['documents'].append(document)
-        refreshed=inventory((await browser.page(docs,number))['html'],number)
+        state=await browser.page(docs,number)
+        refreshed=inventory(state['html'],number,state['visible_links'],state['text'])
         result['snapshot_consistent']=listing['files']==refreshed['files'] and listing['listing_sha256']==refreshed['listing_sha256']
         if not result['snapshot_consistent']:result['issues'].append('Набор или редакция документов изменились во время проверки')
         if not result['documents']:result['issues'].append('Оригиналы не найдены')

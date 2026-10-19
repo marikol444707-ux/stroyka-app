@@ -1,6 +1,7 @@
 import io
 import tempfile
 import unittest
+from unittest.mock import patch
 import zipfile
 from decimal import Decimal
 from pathlib import Path
@@ -39,6 +40,13 @@ class DocumentTests(unittest.TestCase):
             with zipfile.ZipFile(p,'w',compression=zipfile.ZIP_DEFLATED) as z:z.writestr('bomb.txt','x'*1000000)
             with self.assertRaises(ValueError):extract(p,'bad')
 
+    def test_wide_estimate_retains_populated_cells(self):
+        from openpyxl import Workbook
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/'estimate.xlsx';book=Workbook();book.active.cell(1,280,'Смета');book.save(p);book.close()
+            result=extract(p,'d1')
+            self.assertTrue(any(x['text']=='Смета' for x in result['units']))
+
     def test_decimal_formulas_and_unsupported_code(self):
         cells={'A1':Decimal('0.1'),'A2':Decimal('0.2'),'B1':Decimal('5')}
         self.assertEqual(formula_value('=SUM(A1:A2)*B1',cells),Decimal('1.5'))
@@ -47,3 +55,94 @@ class DocumentTests(unittest.TestCase):
             with self.assertRaises(ValueError):formula_value(formula,{'A1':'=A1'})
 
 if __name__=='__main__':unittest.main()
+
+class EvidenceTests(unittest.TestCase):
+    def test_model_cannot_invent_sources_or_quotes(self):
+        from scripts.jev_eis_document_report import validate_findings
+        evidence=[{'id':'d1:1:advance','category':'advance','text':'Аванс по контракту не предусмотрен.'}]
+        good={'category':'advance','summary':'Аванса нет.','evidence':[{'id':'d1:1:advance','quote':'Аванс по контракту не предусмотрен.'}]}
+        self.assertEqual(len(validate_findings({'findings':[good]},evidence)['findings']),1)
+        bad={**good,'evidence':[{'id':'d1:1:advance','quote':'Аванс составляет 50 процентов.'}]}
+        self.assertEqual(validate_findings({'findings':[bad]},evidence)['rejected'],1)
+        bad={**good,'evidence':[{'id':'invented','quote':'Аванс по контракту не предусмотрен.'}]}
+        self.assertEqual(validate_findings({'findings':[bad]},evidence)['rejected'],1)
+
+    def test_model_cannot_change_category_or_invent_numeric_conditions(self):
+        from scripts.jev_eis_document_report import validate_findings
+        evidence=[{'id':'e','category':'payment','text':'Оплата в течение 7 рабочих дней.'}]
+        finding={'category':'payment','summary':'Оплата в течение 70 рабочих дней.','evidence':[{'id':'e','quote':'Оплата в течение 7 рабочих дней.'}]}
+        self.assertEqual(validate_findings({'findings':[finding]},evidence)['rejected'],1)
+        finding.update(category='qualification',summary='Оплата в течение 7 рабочих дней.')
+        self.assertEqual(validate_findings({'findings':[finding]},evidence)['rejected'],1)
+
+    def test_changed_original_not_reported_as_read(self):
+        import hashlib,json
+        from scripts.jev_eis_document_report import review
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);(root/'originals').mkdir();p=root/'originals/d1.txt';p.write_text('tampered')
+            manifest={'notice_number':'0121300045726000245','notice_url':'https://zakupki.gov.ru/epz/order/notice/zk20/view/common-info.html?regNumber=0121300045726000245','retrieved_at':'2026-10-19','snapshot_consistent':True,'revision_label':'Действующая','issues':[],'documents':[{'id':'d1','status':'downloaded','name':'<script>alert(1)</script>.txt','path':'originals/d1.txt','sha256':hashlib.sha256(b'original').hexdigest(),'url':'https://zakupki.gov.ru/44fz/filestore/public/1.0/download/priz/file.html?uid='+'A'*32}]}
+            (root/'manifest.json').write_text(json.dumps(manifest))
+            result=review(root)
+            self.assertEqual(result['documents'][0]['status'],'read_failed')
+            self.assertFalse(result['complete_text_extraction'])
+            self.assertNotIn('<script>alert(1)</script>',(root/'report.html').read_text())
+
+import shutil
+
+class FormatIntegrationTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which('pdftotext'),'Poppler runs in the isolated server runtime')
+    def test_text_pdf_keeps_page_locator(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'text.pdf'
+            stream=b'BT /F1 16 Tf 50 700 Td (Payment within 7 working days) Tj ET'
+            objects=[b'<< /Type /Catalog /Pages 2 0 R >>',b'<< /Type /Pages /Kids [3 0 R] /Count 1 >>',b'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 800] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',b'<< /Length '+str(len(stream)).encode()+b' >>\nstream\n'+stream+b'\nendstream']
+            pdf=b'%PDF-1.4\n';offsets=[0]
+            for i,obj in enumerate(objects,1):offsets.append(len(pdf));pdf+=str(i).encode()+b' 0 obj\n'+obj+b'\nendobj\n'
+            start=len(pdf);pdf+=b'xref\n0 6\n0000000000 65535 f \n'+b''.join(f'{x:010d} 00000 n \n'.encode() for x in offsets[1:])+b'trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n'+str(start).encode()+b'\n%%EOF'
+            path.write_bytes(pdf);result=extract(path,'pdf')
+            self.assertIn('7 working days',result['units'][0]['text']);self.assertEqual(result['units'][0]['locator'],'страница 1');self.assertFalse(result['units'][0]['ocr'])
+
+    @unittest.skipUnless(shutil.which('tesseract') and shutil.which('pdftoppm'),'OCR runs in the isolated server runtime')
+    def test_scanned_pdf_uses_ocr_and_flags_numeric_review(self):
+        from PIL import Image, ImageDraw, ImageFont
+        with tempfile.TemporaryDirectory() as tmp:
+            image=Image.new('RGB',(1400,650),'white');draw=ImageDraw.Draw(image)
+            fontpath=next(Path('/usr/share/fonts').rglob('LiberationSans-Regular.ttf'));font=ImageFont.truetype(str(fontpath),60)
+            draw.text((80,100),'PAYMENT 12345',font=font,fill='black')
+            path=Path(tmp)/'scan.pdf';image.save(path,'PDF',resolution=150)
+            result=extract(path,'scan')
+            self.assertTrue(result['units'][0]['ocr']);self.assertIn('12345',result['units'][0]['text']);self.assertTrue(result['issues'])
+
+    def test_xlsx_formula_without_cached_result_not_claimed_verified(self):
+        from openpyxl import Workbook
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/'formula.xlsx';b=Workbook();b.active['A1']=2;b.active['B1']=3;b.active['C1']='=A1*B1';b.save(p);b.close()
+            result=extract(p,'sheet')
+            self.assertEqual(result['formula_audit'][0]['status'],'cached_value_missing')
+
+    def test_xml_entities_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/'entity.docx'
+            with zipfile.ZipFile(p,'w') as z:z.writestr('word/document.xml','<!DOCTYPE foo [<!ENTITY x "boom">]><foo>&x;</foo>')
+            with self.assertRaises(ValueError):extract(p,'bad')
+
+class ArchiveAndModelTests(unittest.TestCase):
+    def test_archive_reader_does_not_write_member_paths(self):
+        import tarfile
+        try:import libarchive
+        except (ImportError,OSError):self.skipTest('libarchive is verified in the server image')
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/'bundle.rar'
+            with tarfile.open(p,'w') as tar:
+                data=b'Payment after acceptance';entry=tarfile.TarInfo('terms.txt');entry.size=len(data);tar.addfile(entry,io.BytesIO(data))
+            result=extract(p,'archive')
+            self.assertIn('Payment after acceptance',result['units'][0]['text'])
+            self.assertFalse((Path(tmp)/'terms.txt').exists())
+            with tarfile.open(p,'w') as tar:
+                entry=tarfile.TarInfo('../escape.txt');entry.size=1;tar.addfile(entry,io.BytesIO(b'x'))
+            with self.assertRaises(ValueError):extract(p,'bad')
+
+    def test_model_input_has_no_command_or_tool_channel(self):
+        from scripts.jev_eis_document_model import ask
+        with self.assertRaises(ValueError):ask({'notice_number':'x','evidence':[],'command':'execute'})
+        with patch.dict('os.environ',{},clear=True):self.assertEqual(ask({'notice_number':'x','evidence':[]})['status'],'text_model_not_configured')

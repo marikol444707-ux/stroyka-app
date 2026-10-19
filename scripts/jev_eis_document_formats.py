@@ -6,7 +6,7 @@ from pathlib import Path, PurePosixPath
 import re
 import subprocess
 import tempfile
-import xml.etree.ElementTree as ET
+from defusedxml import ElementTree as ET
 import zipfile
 
 MAX_BYTES=32*1024*1024
@@ -51,41 +51,65 @@ def formula_value(formula, cells, seen=frozenset()):
     except (InvalidOperation,OverflowError):raise ValueError('Invalid numeric operation') from None
 
 
-def checked_zip(data):
+def checked_zip(data, budget=None):
     z=zipfile.ZipFile(io.BytesIO(data));total=0
     if len(z.infolist())>400:raise ValueError('Archive member limit')
     for member in z.infolist():
         name=PurePosixPath(member.filename)
-        if name.is_absolute() or '..' in name.parts or '\\' in member.filename or (member.external_attr>>16)&0o170000==0o120000:raise ValueError('Unsafe archive path')
+        if len(member.filename)>500 or name.is_absolute() or '..' in name.parts or '\\' in member.filename or (member.external_attr>>16)&0o170000==0o120000:raise ValueError('Unsafe archive path')
         total+=member.file_size
         if member.flag_bits&1 or total>MAX_EXPANDED or member.file_size>MAX_BYTES or member.file_size>max(member.compress_size,1)*200:raise ValueError('Archive size/encryption limit')
+    if budget is not None:
+        budget['expanded']+=total
+        if budget['expanded']>MAX_EXPANDED:raise ValueError('Total archive expansion limit')
     return z
 
 
-def extract(path, source, depth=0):
+def extract(path, source, depth=0, budget=None):
+    if budget is None:budget={'expanded':0,'units':0,'chars':0}
     path=Path(path);data=path.read_bytes()
     if len(data)>MAX_BYTES:raise ValueError('File size limit')
     suffix=path.suffix.lower();units=[];issues=[];audit=[]
+    if suffix=='.bin' and data.startswith(b'Rar!\x1a\x07'):suffix='.rar'
     def add(locator,text,ocr=False):
         text=str(text).strip()
         if text:
-            if len(units)>=MAX_UNITS:raise ValueError('Text unit limit')
+            budget['units']+=1;budget['chars']+=len(text)
+            if budget['chars']>2000000:raise ValueError('Total text limit')
+            if budget['units']>MAX_UNITS:raise ValueError('Text unit limit')
             units.append({'id':source+':'+str(len(units)+1),'source':source,'locator':locator,'text':text[:20000],'ocr':ocr})
             if len(text)>20000:issues.append('Фрагмент обрезан: '+locator)
     if suffix=='.docx':
-        with checked_zip(data) as z:
+        with checked_zip(data,budget) as z:
             xml=z.read('word/document.xml')
             if b'<!DOCTYPE' in xml or b'<!ENTITY' in xml:raise ValueError('XML entities refused')
-            root=ET.fromstring(xml);ns={'w':'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
-            for i,p in enumerate(root.findall('.//w:p',ns),1):add('абзац '+str(i),''.join(p.itertext()) if not p.findall('.//w:t',ns) else ''.join(t.text or '' for t in p.findall('.//w:t',ns)))
+            ns={'w':'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
+            sections=['word/document.xml']+[n for n in z.namelist() if re.fullmatch(r'word/(?:header\d+|footer\d+|footnotes|endnotes)\.xml',n)]
+            for section in sections:
+                root=ET.fromstring(z.read(section))
+                for i,p in enumerate(root.findall('.//w:p',ns),1):
+                    locator=('' if section=='word/document.xml' else section+' · ')+'абзац '+str(i)
+                    add(locator,''.join(t.text or '' for t in p.findall('.//w:t',ns)))
+            media=[n for n in z.namelist() if n.startswith('word/media/')]
+            if len(media)>20:issues.append('Встроенных изображений больше лимита OCR');media=media[:20]
+            with tempfile.TemporaryDirectory(prefix='eis-docx-images-') as tmp:
+                for index,name in enumerate(media):
+                    suffix=PurePosixPath(name).suffix.lower()
+                    if suffix not in {'.png','.jpg','.jpeg','.tif','.tiff','.bmp'}:
+                        issues.append('Не прочитано встроенное изображение: '+name);continue
+                    image=Path(tmp)/(str(index)+suffix);image.write_bytes(z.read(name))
+                    try:
+                        text=subprocess.run(['tesseract',str(image),'stdout','-l','rus+eng'],capture_output=True,timeout=45,check=True).stdout.decode('utf-8',errors='replace')
+                        if len(text.strip())>=10:add(name+' · OCR',text,True);issues.append('OCR: '+name+' — цифры требуют сверки с изображением')
+                    except Exception:issues.append('Не удалось распознать изображение: '+name)
     elif suffix in {'.xlsx','.xlsm'}:
         from openpyxl import load_workbook
-        with checked_zip(data):pass
+        with checked_zip(data,budget):pass
         book=load_workbook(path,read_only=True,data_only=False,keep_links=False)
         cached=load_workbook(path,read_only=True,data_only=True,keep_links=False)
         try:
             for sheet in book:
-                if sheet.max_row>10000 or sheet.max_column>200:raise ValueError('Worksheet dimensions limit')
+                if sheet.max_row>10000 or sheet.max_column>1000 or sheet.max_row*sheet.max_column>1000000:raise ValueError('Worksheet dimensions limit')
                 values={};cache={}
                 for row in cached[sheet.title]:
                     for cell in row:
@@ -132,14 +156,33 @@ def extract(path, source, depth=0):
         try:text=data.decode('utf-8-sig')
         except UnicodeDecodeError:text=data.decode('cp1251')
         for i,line in enumerate(text.splitlines(),1):add('строка '+str(i),line)
+    elif suffix in {'.rar','.7z'}:
+        if depth>=2:raise ValueError('Nested archive limit')
+        import libarchive
+        with libarchive.file_reader(str(path)) as archive, tempfile.TemporaryDirectory(prefix='eis-rar-') as tmp:
+            for number,entry in enumerate(archive,1):
+                if number>100:raise ValueError('Archive member limit')
+                name=PurePosixPath(entry.pathname)
+                if len(entry.pathname)>500 or name.is_absolute() or '..' in name.parts or '\\' in entry.pathname or entry.issym or entry.islnk:raise ValueError('Unsafe archive entry')
+                if entry.isdir:continue
+                if not entry.isfile:raise ValueError('Non-file archive entry')
+                parts=[];size=0
+                for block in entry.get_blocks():
+                    size+=len(block);budget['expanded']+=len(block)
+                    if size>MAX_BYTES or budget['expanded']>MAX_EXPANDED:raise ValueError('Archive expansion limit')
+                    parts.append(block)
+                child=Path(tmp)/(str(number)+name.suffix.lower());child.write_bytes(b''.join(parts))
+                try:
+                    result=extract(child,source+' / '+str(name),depth+1,budget);units.extend(result['units']);issues.extend(result['issues']);audit.extend(result['formula_audit'])
+                except Exception as exc:issues.append(str(name)+': '+type(exc).__name__)
     elif suffix=='.zip':
         if depth>=2:raise ValueError('Nested archive limit')
-        with checked_zip(data) as z, tempfile.TemporaryDirectory(prefix='eis-archive-') as tmp:
+        with checked_zip(data,budget) as z, tempfile.TemporaryDirectory(prefix='eis-archive-') as tmp:
             for number,member in enumerate(z.infolist(),1):
                 if member.is_dir():continue
                 child=Path(tmp)/(str(number)+PurePosixPath(member.filename).suffix.lower());child.write_bytes(z.read(member))
                 try:
-                    result=extract(child,source+' / '+member.filename,depth+1);units.extend(result['units']);issues.extend(result['issues']);audit.extend(result['formula_audit'])
+                    result=extract(child,source+' / '+member.filename,depth+1,budget);units.extend(result['units']);issues.extend(result['issues']);audit.extend(result['formula_audit'])
                 except Exception as exc:issues.append(member.filename+': '+type(exc).__name__)
                 if len(units)>MAX_UNITS:raise ValueError('Archive text unit limit')
     else:issues.append('Формат не поддержан: '+suffix)

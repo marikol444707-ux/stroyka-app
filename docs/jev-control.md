@@ -124,4 +124,5 @@ It does not assess bidder eligibility or automatically submit applications.
 
 Проверка оригиналов, OCR, смет, требований и подготовка короткого отчёта
 зафиксированы в [плане](../tasks/jev-procurement-documents-plan.md).
-Это запланированная работа, а не уже включённая возможность серверного поиска.
+Первая версия обработчика описана в [руководстве](jev-procurement-documents.md);
+полная проверка смет и профиля участника остаются в плане.

@@ -18,6 +18,11 @@ on:
       - 'scripts/jev_eis_probe.py'
       - 'scripts/test_jev_eis_probe.py'
       - 'scripts/jev_server_tools.py'
+      - 'scripts/jev_eis_document*.py'
+      - 'scripts/jev_eis_review_runner.py'
+      - 'scripts/install_jev_document_runtime.py'
+      - 'scripts/test_jev_eis_documents.py'
+      - 'dev_control/eis_documents/**'
       - 'dev_control/certificates/**'
       - 'scripts/jev_avito_search.py'
       - 'scripts/test_jev_avito_search.py'
@@ -72,6 +77,22 @@ jobs:
             dev_control.browser_worker.test_run_safety \
             dev_control.browser_worker.test_qa_identity \
             dev_control.browser_worker.test_container_contract
+      - name: Verify document parsers, archive limits and OCR without network
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker tag stroyka-jev-qa-ci stroyka-eis-documents:reviewed-browser-base
+          docker build --pull=false -t stroyka-eis-documents-ci dev_control/eis_documents
+          docs_test_stage=$(mktemp -d)
+          trap 'rm -rf "$docs_test_stage"' EXIT
+          mkdir -p "$docs_test_stage/scripts"
+          cp scripts/jev_eis_document*.py scripts/jev_eis_probe.py scripts/test_jev_eis_documents.py "$docs_test_stage/scripts/"
+          chmod -R a+rX "$docs_test_stage"
+          docker run --rm --network none --read-only --user 10001:10001 \
+            --cap-drop ALL --security-opt no-new-privileges --memory 1g \
+            --tmpfs /tmp:rw,nosuid,nodev,size=512m --env PYTHONPATH=/tools \
+            --mount type=bind,src="$docs_test_stage",dst=/tools,readonly \
+            stroyka-eis-documents-ci -m unittest scripts.test_jev_eis_documents -v
       - name: Boot Chrome, check worker health and cross-UID secret boundary
         shell: bash
         run: |
