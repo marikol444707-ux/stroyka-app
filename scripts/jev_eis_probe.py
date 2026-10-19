@@ -155,22 +155,25 @@ async def search_browser(tmp, env, query):
 def worker(query=None):
     ca = Path('/cert/root.pem')
     verify_ca(ca)
-    with tempfile.TemporaryDirectory(prefix='eis-browser-') as tmp:
-        env = {'HOME': tmp, 'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8'}
-        db = Path(tmp) / '.pki/nssdb'
-        db.mkdir(parents=True)
-        for args in (['certutil', '-N', '-d', 'sql:'+str(db), '--empty-password'],
-                     ['certutil', '-A', '-d', 'sql:'+str(db), '-n', 'EIS Russian Trusted Root',
-                      '-t', 'C,,', '-i', str(ca)]):
-            subprocess.run(args, env=env, check=True, capture_output=True, timeout=5)
-        if query is not None:
-            import asyncio
-            return asyncio.run(search_browser(tmp, env, query))
-        result = subprocess.run(['/usr/bin/google-chrome', '--headless=new', '--no-sandbox',
-            '--disable-dev-shm-usage', '--user-data-dir='+tmp+'/chrome', '--dump-dom', URL],
-            env=env, timeout=40, capture_output=True, text=True)
-        if result.returncode: return {'ok': False, 'status': 'browser_failed'}
-        return classify(result.stdout)
+    # The outer disposable container owns its tmpfs. Do not race Chrome's
+    # descendants by deleting its profile while returning a verified result.
+    # Docker --rm / the host's finally block remove all scratch after PID 1 exits.
+    tmp = tempfile.mkdtemp(prefix='eis-browser-')
+    env = {'HOME': tmp, 'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8'}
+    db = Path(tmp) / '.pki/nssdb'
+    db.mkdir(parents=True)
+    for args in (['certutil', '-N', '-d', 'sql:'+str(db), '--empty-password'],
+                 ['certutil', '-A', '-d', 'sql:'+str(db), '-n', 'EIS Russian Trusted Root',
+                  '-t', 'C,,', '-i', str(ca)]):
+        subprocess.run(args, env=env, check=True, capture_output=True, timeout=5)
+    if query is not None:
+        import asyncio
+        return asyncio.run(search_browser(tmp, env, query))
+    result = subprocess.run(['/usr/bin/google-chrome', '--headless=new', '--no-sandbox',
+        '--disable-dev-shm-usage', '--user-data-dir='+tmp+'/chrome', '--dump-dom', URL],
+        env=env, timeout=40, capture_output=True, text=True)
+    if result.returncode: return {'ok': False, 'status': 'browser_failed'}
+    return classify(result.stdout)
 
 
 def probe(query=None):

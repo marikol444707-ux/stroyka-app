@@ -1,5 +1,5 @@
 import unittest
-from scripts.jev_eis_probe import classify, verify_ca, probe
+from scripts.jev_eis_probe import classify, verify_ca, probe, worker
 from unittest.mock import patch
 from types import SimpleNamespace
 from pathlib import Path
@@ -57,6 +57,17 @@ class EisProbeTests(unittest.TestCase):
         html='<title>Закупки</title><input name="searchString" value="кабель"><div hidden>0 записей Поиск не дал результатов</div>'
         result=classify(html, url='https://zakupki.gov.ru/epz/order/extendedsearch/results.html?searchString=кабель', query='кабель', visible_text='Результаты поиска')
         self.assertFalse(result['ok'])
+
+    def test_profile_cleanup_race_cannot_discard_verified_result(self):
+        # Chrome descendants can still write after the browser parent has exited.
+        class RacingProfile:
+            def __enter__(self): return scratch
+            def __exit__(self, *args): raise OSError(39, 'Directory not empty')
+        with tempfile.TemporaryDirectory() as scratch:
+            html='<title>Закупки</title><input name="searchString"><a href="/epz/order/notice/ea20/view/common-info.html?regNumber=123">123</a>'
+            process=SimpleNamespace(returncode=0, stdout=html, stderr='')
+            with patch('scripts.jev_eis_probe.verify_ca'), patch('scripts.jev_eis_probe.tempfile.TemporaryDirectory', return_value=RacingProfile()), patch('scripts.jev_eis_probe.tempfile.mkdtemp', return_value=scratch), patch('scripts.jev_eis_probe.subprocess.run', return_value=process):
+                self.assertTrue(worker()['ok'])
 
     def test_official_ca_matches_pin(self):
         verify_ca(Path(__file__).resolve().parent.parent / 'dev_control/certificates/russian-trusted-root.pem')

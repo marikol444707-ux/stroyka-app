@@ -96,3 +96,11 @@ runtime checks rendered `innerText`, so hidden templates are not empty-result
 evidence. Worker failures now retain their structured status instead of being
 flattened to `runner_failed`; stdout/exit-code inconsistencies remain failures.
 Successful search output also includes up to ten observed first-party notice URLs.
+
+A captured live traceback located intermittent OSError 39 failures in profile
+cleanup after a successful search: Chrome descendants were still writing while
+Python's TemporaryDirectory removed `chrome/Default`. Scratch now lives until the
+one-shot container exits; Docker's `--rm` and the host's unconditional named
+container removal own teardown. No shared/persistent browser profile is involved.
+A regression simulates the late cleanup error and requires keeping the verified
+result. This is not an automatic retry of a search or a suppression of worker errors.
