@@ -71,7 +71,7 @@ def extract(path, source, depth=0, budget=None):
     if budget is None:budget={'expanded':0,'units':0,'chars':0}
     path=Path(path);data=path.read_bytes()
     if len(data)>MAX_BYTES:raise ValueError('File size limit')
-    suffix=path.suffix.lower();units=[];issues=[];audit=[]
+    suffix=path.suffix.lower();units=[];issues=[];audit=[];notices=[];members=[]
     file_units=0;file_chars=0
     if suffix=='.bin' and data.startswith(b'Rar!\x1a\x07'):suffix='.rar'
     def add(locator,text,ocr=False):
@@ -84,7 +84,32 @@ def extract(path, source, depth=0, budget=None):
             budget['units']+=1;budget['chars']+=len(text)
             units.append({'id':source+':'+str(len(units)+1),'source':source,'locator':locator,'text':text[:20000],'ocr':ocr})
             if len(text)>20000:issues.append('Фрагмент обрезан: '+locator)
-    if suffix=='.docx':
+    if suffix=='.gsfx':
+        with checked_zip(data,budget) as z:
+            if len(z.namelist())!=len(set(z.namelist())):raise ValueError('Duplicate GSFX members')
+            if 'Data.xml' not in z.namelist() or 'Properties.txt' not in z.namelist():raise ValueError('Unknown GSFX structure')
+            properties=z.read('Properties.txt').decode('cp1251')
+            if not re.search(r'(?im)^Crypted=False\s*$',properties):raise ValueError('Encrypted or unknown GSFX')
+            xml=z.read('Data.xml')
+            if b'<!DOCTYPE' in xml.upper() or b'<!ENTITY' in xml.upper():raise ValueError('XML entities refused')
+            root=ET.fromstring(xml)
+            if root.tag!='Document' or root.get('Generator')!='GrandSmeta':raise ValueError('Unknown GSFX generator')
+            count=0
+            def walk(element,location,level=0):
+                nonlocal count
+                count+=1
+                if level>40 or count>25000:raise ValueError('GSFX XML structure limit')
+                if element.tag=='DocLink':return  # External/local references stay inert.
+                values=[k+'='+v for k,v in element.attrib.items() if not re.search(r'sign|crypt|link|href|path|license',k,re.I)]
+                if element.text and element.text.strip():values.append(element.text.strip())
+                if values:add(location,'; '.join(values))
+                siblings={}
+                for child in element:
+                    siblings[child.tag]=siblings.get(child.tag,0)+1
+                    walk(child,location+'/'+child.tag+'['+str(siblings[child.tag])+']',level+1)
+            walk(root,'Data.xml/Document[1]')
+            notices.append('GSFX: извлечены сохранённые поля; расчёты, нормативы и подпись ГРАНД-Сметы не проверены')
+    elif suffix=='.docx':
         with checked_zip(data,budget) as z:
             xml=z.read('word/document.xml')
             if b'<!DOCTYPE' in xml or b'<!ENTITY' in xml:raise ValueError('XML entities refused')
@@ -178,8 +203,9 @@ def extract(path, source, depth=0, budget=None):
                     parts.append(block)
                 child=Path(tmp)/(str(number)+name.suffix.lower());child.write_bytes(b''.join(parts))
                 try:
-                    result=extract(child,source+' / '+str(name),depth+1,budget);units.extend(result['units']);issues.extend(result['issues']);audit.extend(result['formula_audit'])
-                except Exception as exc:issues.append(str(name)+': '+type(exc).__name__+': '+str(exc)[:200])
+                    result=extract(child,source+' / '+str(name),depth+1,budget);units.extend(result['units']);issues.extend(result['issues']);audit.extend(result['formula_audit']);notices.extend(result['notices']);members.append({'source':source+' / '+str(name),'status':result['status'],'text_units':len(result['units'])})
+                except Exception as exc:
+                    issues.append(str(name)+': '+type(exc).__name__+': '+str(exc)[:200]);members.append({'source':source+' / '+str(name),'status':'read_failed','text_units':0})
     elif suffix=='.zip':
         if depth>=2:raise ValueError('Nested archive limit')
         with checked_zip(data,budget) as z, tempfile.TemporaryDirectory(prefix='eis-archive-') as tmp:
@@ -187,9 +213,10 @@ def extract(path, source, depth=0, budget=None):
                 if member.is_dir():continue
                 child=Path(tmp)/(str(number)+PurePosixPath(member.filename).suffix.lower());child.write_bytes(z.read(member))
                 try:
-                    result=extract(child,source+' / '+member.filename,depth+1,budget);units.extend(result['units']);issues.extend(result['issues']);audit.extend(result['formula_audit'])
-                except Exception as exc:issues.append(member.filename+': '+type(exc).__name__+': '+str(exc)[:200])
+                    result=extract(child,source+' / '+member.filename,depth+1,budget);units.extend(result['units']);issues.extend(result['issues']);audit.extend(result['formula_audit']);notices.extend(result['notices']);members.append({'source':source+' / '+member.filename,'status':result['status'],'text_units':len(result['units'])})
+                except Exception as exc:
+                    issues.append(member.filename+': '+type(exc).__name__+': '+str(exc)[:200]);members.append({'source':source+' / '+member.filename,'status':'read_failed','text_units':0})
 
     else:issues.append('Формат не поддержан: '+suffix)
     if not units:issues.append('Текст не извлечён')
-    return {'units':units,'issues':issues,'formula_audit':audit,'status':'partial' if issues else 'read'}
+    return {'units':units,'issues':issues,'formula_audit':audit,'status':'partial' if issues else 'read','notices':list(dict.fromkeys(notices)),'members':members}

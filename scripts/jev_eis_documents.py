@@ -200,7 +200,7 @@ async def collect(notice, destination, env, tmp):
                 path=await browser.download(item['url'],originals,min(MAX_FILE,MAX_TOTAL-total));total+=path.stat().st_size
                 if total>MAX_TOTAL:raise ValueError('Total download limit')
                 suffix=Path(item['name']).suffix.lower()
-                if suffix not in {'.docx','.xlsx','.pdf','.xls','.doc','.rtf','.zip','.rar','.7z','.txt','.csv','.xlsm'}:suffix='.bin'
+                if suffix not in {'.docx','.xlsx','.pdf','.xls','.doc','.rtf','.zip','.rar','.7z','.txt','.csv','.xlsm','.gsfx'}:suffix='.bin'
                 saved=originals/('d'+str(index)+suffix);path.rename(saved)
                 document.update(status='downloaded',path=str(saved.relative_to(destination)),bytes=saved.stat().st_size,sha256=hashlib.sha256(saved.read_bytes()).hexdigest())
             except Exception as exc:document['error_type']=type(exc).__name__;result['issues'].append(item['name']+': '+type(exc).__name__)

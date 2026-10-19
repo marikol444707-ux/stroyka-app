@@ -222,3 +222,35 @@ class ArchiveBudgetRegressionTests(unittest.TestCase):
             with patch('scripts.jev_eis_document_formats.MAX_UNITS',5):result=extract(p,'archive')
             self.assertTrue(any(u['text']=='Оплата после приёмки' for u in result['units']))
             self.assertEqual(result['status'],'partial')
+
+class GrandSmetaTests(unittest.TestCase):
+    def gsfx(self,path,xml,properties='Crypted=False'):
+        with zipfile.ZipFile(path,'w') as z:
+            z.writestr('Properties.txt',properties.encode('cp1251'));z.writestr('Data.xml',xml)
+
+    def test_gsfx_reads_values_with_locations_without_following_links(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/'estimate.gsfx'
+            xml='<Document Generator="GrandSmeta"><Chapters><Chapter Caption="Электрика"><Position Number="1" Caption="Прокладка кабеля" Units="м"><Quantity Value="100"/><DocLink Link="https://never-follow.invalid"/><Total Total="12000"/></Position></Chapter></Chapters></Document>'
+            self.gsfx(p,xml)
+            r=extract(p,'d1');text=' '.join(x['text'] for x in r['units'])
+            self.assertIn('Прокладка кабеля',text);self.assertIn('12000',text)
+            self.assertNotIn('never-follow',text)
+            self.assertTrue(any('Data.xml/Document[1]/Chapters[1]' in u['locator'] for u in r['units']))
+            self.assertFalse(r['formula_audit']);self.assertTrue(r['notices'])
+
+    def test_gsfx_refuses_entities_encryption_and_unknown_generators(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/'bad.gsfx'
+            for xml,props in [('<!DOCTYPE x [<!ENTITY a "boom">]><Document Generator="GrandSmeta">&a;</Document>','Crypted=False'),('<Document Generator="Other"/>','Crypted=False'),('<Document Generator="GrandSmeta"/>','Crypted=True')]:
+                self.gsfx(p,xml,props)
+                with self.assertRaises(ValueError):extract(p,'d1')
+
+    def test_gsfx_nested_in_estimate_archive_is_read(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);p=root/'e.gsfx'
+            self.gsfx(p,'<Document Generator="GrandSmeta"><Position Caption="Отопление"/></Document>')
+            bundle=root/'bundle.zip'
+            with zipfile.ZipFile(bundle,'w') as z:z.writestr('e.gsfx',p.read_bytes())
+            r=extract(bundle,'bundle');self.assertTrue(any('Отопление' in x['text'] for x in r['units']))
+            self.assertEqual(r['members'][0]['status'],'read')
