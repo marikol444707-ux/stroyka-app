@@ -9,7 +9,10 @@ import sys
 import tempfile
 
 
-STRICT_TEST_RUNNER = """import sys, unittest
+STRICT_TEST_RUNNER = """import os, sys, unittest
+# The parent selects the repository cwd; fixtures may then chdir to a sandbox.
+# Pin that root before loading tests, just as python -m unittest does.
+sys.path.insert(0, os.getcwd())
 suite = unittest.defaultTestLoader.loadTestsFromName(sys.argv[1])
 expected = suite.countTestCases()
 result = unittest.TextTestRunner(verbosity=2).run(suite)

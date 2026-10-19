@@ -173,6 +173,33 @@ class SupplierCatalogStrictModeTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('Ran 5 tests', result.stderr)
 
+    def test_strict_command_retains_repository_imports_after_fixture_chdir(self):
+        # Reproduce guarded supply-chain setup without a DB or application import:
+        # setup changes cwd before its first root-level migration-module import.
+        fixture = """import importlib, os, tempfile, unittest
+class ChangedDirectoryFixture(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.directory = tempfile.TemporaryDirectory(prefix='strict-import-test-')
+        cls.addClassCleanup(cls.directory.cleanup)
+        cls.original_directory = os.getcwd()
+        cls.addClassCleanup(os.chdir, cls.original_directory)
+        os.chdir(cls.directory.name)
+    def test_import(self):
+        migration = importlib.import_module('migrations.versions.0036_supplier_invite_company')
+        self.assertEqual(migration.revision, '0036_supplier_invite_company')
+        self.assertEqual(os.path.realpath(migration.__file__), os.path.join(
+            self.original_directory, 'migrations', 'versions', '0036_supplier_invite_company.py'))
+"""
+        command = supplier_runner.test_command('__main__.ChangedDirectoryFixture', require_no_skips=True)
+        command[2] = fixture + command[2]
+        environment = runner.clean_environment(runner.os.environ)
+        environment.pop('PYTHONPATH', None)  # No ambient import path may mask the regression.
+        result = subprocess.run(command, cwd=ROOT, env=environment,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('Ran 1 test', result.stderr)
+
     def test_supplier_utilities_and_children_never_inherit_database_targets(self):
         calls, workdirs = [], []
         def execute(command, **kwargs):
