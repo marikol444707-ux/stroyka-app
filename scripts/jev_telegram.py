@@ -9,11 +9,18 @@ import tempfile
 import unicodedata
 from pathlib import Path
 
+try:
+    from .jev_telegram_details import describe, is_vacancy
+except ImportError:
+    from jev_telegram_details import describe, is_vacancy
+
 TOPIC_LABEL = 'Отделка, ремонт и строительство домов'
 TOPIC = re.compile(
     r'отдел|ремонт|маляр|штукатур|шпакл|плиточ|покле|обои|стяжк|гипсокартон|'
     r'(?:строительств|постро|строим|строить).{0,40}(?:\bдом|коттедж)|'
-    r'фундамент|кладк|каменщик|кров(?:л|ель)|каркасн|газобетон|\bижс\b', re.I)
+    r'фундамент|кладк|каменщик|кров(?:л|ель)|крыш|каркасн|газобетон|\bижс\b|'
+    r'перекрыт|электри|электромонтаж|проводк|сантех|отоплен|водоснабж|канализац|'
+    r'строител(?!ьств)|бригад.{0,20}объект', re.I)
 DEMAND = re.compile(r'нуж(?:ен|на|ны|но)|требу(?:ется|ются)|ищ(?:у|ем)|кто\s+(?:может|сможет)', re.I)
 SERVICES = re.compile(
     r'выполня[ею]|оказыва|предлага[ею]|ищ[уе]м?\s+(?:заказ|работ)|'
@@ -25,8 +32,12 @@ MATERIALS = re.compile(r'прод(?:ам|аем|аю)|в\s+продаже', re.I
 def classify(text):
     text = unicodedata.normalize('NFKC', text).casefold().replace('ё', 'е')
     if not TOPIC.search(text): return 'irrelevant'
-    if SERVICES.search(text): return 'services'
+    if SERVICES.search(text):
+        if is_vacancy(text) and not re.search(r'ищу\s+работу|ищем\s+работу|требуется\s+работа', text):
+            return 'review'
+        return 'services'
     if MATERIALS.search(text): return 'materials'
+    if is_vacancy(text): return 'vacancy'
     if DEMAND.search(text): return 'order'
     return 'review'
 
@@ -75,11 +86,12 @@ def digest(messages):
             counts[category] += 1
             continue
         key = fingerprint(row['text'])
-        item = groups.setdefault(key, {'text': row['text'], 'category': category, 'originals': []})
+        item = groups.setdefault(key, {'text': row['text'], 'category': category, 'originals': [], **describe(row['text'])})
         original = {k: row.get(k, '') for k in ('source', 'id', 'date', 'url')}
         if original not in item['originals']: item['originals'].append(original)
     return {'topic': TOPIC_LABEL, 'orders': [x for x in groups.values() if x['category'] == 'order'],
-            'review': [x for x in groups.values() if x['category'] == 'review'], 'excluded': counts}
+            'review': [x for x in groups.values() if x['category'] == 'review'],
+            'vacancies': [x for x in groups.values() if x['category'] == 'vacancy'], 'excluded': counts}
 
 
 def render_html(report):
@@ -91,24 +103,36 @@ def render_html(report):
              'body{font:16px system-ui;margin:24px auto;padding:0 16px;max-width:850px;color:#202936;background:#f5f7fa}',
              'article{padding:18px;background:white;border:1px solid #dce2e9;border-radius:12px;margin:12px 0}',
              'p{white-space:pre-wrap;overflow-wrap:anywhere}a{display:block;margin:8px 0;color:#155cc2}',
+             '.tag{display:inline-block;background:#eaf1fc;color:#264d80;border-radius:16px;padding:4px 10px;margin:6px 5px 6px 0}',
+             'dl{display:grid;grid-template-columns:120px minmax(0,1fr);gap:8px;font-size:15px}dt{color:#586778}dd{margin:0;overflow-wrap:anywhere}',
+             '@media(max-width:480px){dl{grid-template-columns:1fr;gap:4px}dd{margin-bottom:10px}}',
              '</style><h1>{}</h1>'.format(esc(TOPIC_LABEL)),
              '<p>Подборка по ключевым словам. Актуальность, условия и заказчика проверяйте по оригиналу.</p>']
     if 'retention_days' in report:
         parts.append('<p>Новых заказов: {}. Новых на просмотр: {}. История — {} дней после последнего появления; это не подтверждение актуальности заказа.</p>'.format(
             report['new_orders'], report['new_review'], report['retention_days']))
+        parts.append('<p>Новых вакансий: {}.</p>'.format(report.get('new_vacancies', 0)))
     for source in report.get('sources', []):
         if source['status'] != 'ok':
             parts.append('<p>Источник {}: {}</p>'.format(esc(source['label']), esc(source['status'])))
         elif source.get('may_have_more'):
             parts.append('<p>Источник {}: обработана порция, остались сообщения для следующего запуска.</p>'.format(esc(source['label'])))
-    for key, title in (('orders', 'Вероятные заказы'), ('review', 'Нужно посмотреть')):
-        parts.append('<h2>{} · {}</h2>'.format(title, len(report[key])))
-        if not report[key]: parts.append('<p>В обработанной порции подходящих сообщений нет.</p>')
-        for item in report[key]:
+    for key, title in (('orders', 'Вероятные заказы'), ('vacancies', 'Вакансии'), ('review', 'Нужно посмотреть')):
+        items = report.get(key, [])
+        parts.append('<h2>{} · {}</h2>'.format(title, len(items)))
+        if not items: parts.append('<p>Подходящих сообщений нет.</p>')
+        for item in items:
             parts.append('<article>')
             if 'is_new' in item:
                 parts.append('<strong>{}</strong>'.format('Новое объявление' if item['is_new'] else 'Уже встречалось'))
-            parts.append('<p>{}</p>'.format(esc(item['text'])))
+            details = describe(item['text'])
+            parts.append('<h3>{}</h3>'.format(esc(details['headline'])))
+            parts.append('<div>{}</div>'.format(''.join('<span class="tag">{}</span>'.format(esc(tag)) for tag in details['tags'])))
+            parts.append('<dl>')
+            for field, label in (('place', 'Место в тексте'), ('volume', 'Объём'), ('budget', 'Бюджет / оплата'), ('deadline', 'Срок')):
+                value = '; '.join(details['fields'][field]) or 'Не указано явно'
+                parts.append('<dt>{}</dt><dd>{}</dd>'.format(label, esc(value)))
+            parts.append('</dl><details><summary>Текст объявления</summary><p>{}</p></details>'.format(esc(item['text'])))
             for original in item['originals']:
                 label = '{} · {}'.format(original['source'], original['date'])
                 url = str(original['url'])

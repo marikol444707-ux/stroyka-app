@@ -9,9 +9,9 @@ import stat
 import tempfile
 
 try:
-    from .jev_telegram import fingerprint, load_json, private_directory, render_html, write_private
+    from .jev_telegram import classify, describe, fingerprint, load_json, private_directory, render_html, write_private
 except ImportError:
-    from jev_telegram import fingerprint, load_json, private_directory, render_html, write_private
+    from jev_telegram import classify, describe, fingerprint, load_json, private_directory, render_html, write_private
 
 MAX_CARDS = 5000
 MAX_ORIGINALS = 50000
@@ -68,8 +68,8 @@ def save_batch(state, batch, cursors, now=None):
         conn.execute('BEGIN IMMEDIATE')
         conn.execute('DELETE FROM cards WHERE last_seen < ?', (cutoff,))
         new_keys = set()
-        for category, key in (('order', 'orders'), ('review', 'review')):
-            for item in batch[key]:
+        for category, key in (('order', 'orders'), ('review', 'review'), ('vacancy', 'vacancies')):
+            for item in batch.get(key, []):
                 identity = fingerprint(item['text'])
                 exists = conn.execute('SELECT 1 FROM cards WHERE fingerprint=?', (identity,)).fetchone()
                 if not exists:
@@ -85,19 +85,23 @@ def save_batch(state, batch, cursors, now=None):
             raise ValueError('History card limit reached; checkpoint unchanged')
         if conn.execute('SELECT count(*) FROM originals').fetchone()[0] > MAX_ORIGINALS:
             raise ValueError('History original limit reached; checkpoint unchanged')
-        report = dict(batch, orders=[], review=[], retention_days=RETENTION_DAYS,
-                      generated_at=stamp, new_orders=0, new_review=0)
+        report = dict(batch, orders=[], review=[], vacancies=[], retention_days=RETENTION_DAYS,
+                      generated_at=stamp, new_orders=0, new_review=0, new_vacancies=0)
         originals = {}
         for identity, url, source, message_id, date in conn.execute(
                 'SELECT fingerprint,url,source,message_id,date FROM originals ORDER BY date,url'):
             originals.setdefault(identity, []).append({'url': url, 'source': source, 'id': message_id, 'date': date})
         for identity, text, category, first, last in conn.execute(
                 'SELECT * FROM cards ORDER BY last_seen DESC,first_seen DESC,fingerprint'):
-            key = 'orders' if category == 'order' else 'review'
+            # Rules may have improved since this card was saved; do not mark it
+            # new or move its timestamps merely because its labels changed.
+            category = classify(text)
+            key = {'order': 'orders', 'review': 'review', 'vacancy': 'vacancies'}.get(category)
+            if key is None: continue
             is_new = identity in new_keys
             report[key].append({'text': text, 'category': category, 'is_new': is_new,
-                                'first_seen': first, 'last_seen': last, 'originals': originals.get(identity, [])})
-            if is_new: report['new_orders' if category == 'order' else 'new_review'] += 1
+                                'first_seen': first, 'last_seen': last, 'originals': originals.get(identity, []), **describe(text)})
+            if is_new: report['new_' + key] += 1
         cursor_batches = []
         if not conn.execute("SELECT 1 FROM metadata WHERE key='checkpoint_initialized'").fetchone():
             legacy = state / 'cursor.json'
@@ -120,6 +124,7 @@ def save_batch(state, batch, cursors, now=None):
                 'report': str(output / 'report.html'), 'json': str(output / 'report.json'),
                 'orders': len(report['orders']), 'review': len(report['review']),
                 'new_orders': report['new_orders'], 'new_review': report['new_review'],
+                'vacancies': len(report['vacancies']), 'new_vacancies': report['new_vacancies'],
                 'sources': report.get('sources', [])}
     except BaseException:
         conn.rollback()
