@@ -120,25 +120,29 @@ still need individual checks for delivery place, stage and exact deadline.
 The flag does not cover 223-FZ or procurement under government decree 615.
 It does not assess bidder eligibility or automatically submit applications.
 
-## Commercial construction leads on B2B-Center
+## Commercial construction leads across public platforms
 
 `python3 scripts/jev_control.py commercial-search` runs a one-time, public,
 read-only search for current construction, repair and finishing procedure
-candidates in the Stavropol region. It checks twelve configured city/region names
-against the rendered B2B-Center search form and current-results tab, then
-deduplicates procedure IDs and filters unrelated work, other regions and expired
-deadlines. It reports the first page of each query only.
+candidates in the Stavropol region across B2B-Center, Fabrikant and Roseltorg.
+B2B-Center checks twelve configured city/region names against the rendered
+search form and current-results tab. Fabrikant uses its public commercial section
+and its Stavropol customer-region filter. Roseltorg uses its public search
+endpoint, the Stavropol region, and commercial/223-FZ section; it checks the
+region and construction-related keywords. Results are deduplicated by source and
+procedure ID. Only the first page per query is read.
 
-B2B-Center exposes keyword search without sign-in, but the public form says its
-additional filters and saved templates require registration. The regional
-search therefore has incomplete coverage. The public card may not disclose
-whether a notice belongs to the site's commercial or 223-FZ section; such
-records remain in “Нужно проверить” and are never presented as confirmed
-commercial tenders. The report contains the organizer, subject, displayed
-region, deadline and price when public, plus the original procedure link.
-Details and participation may require a B2B-Center account or tariff. Jev does
-not register, pay, download restricted files, contact organizers, or submit an
-offer. No LLM is called for this search.
+B2B-Center exposes keyword search without sign-in, but its public form says
+additional filters and saved templates require registration. Fabrikant's
+public filter is by customer region, not the worksite, so the actual place and
+deadline remain for review. Roseltorg's public source combines commercial and
+223-FZ records; the procedure regime must be verified in the original, and its
+region filter describes the customer region. These cases remain in “Нужно
+проверить”. Results show the source and original procedure link. Search coverage
+is partial and does not replace paid aggregators, private buyer portals, or
+second and later pages. Details and participation may require a separate
+account or tariff. Jev does not register, pay, download restricted files,
+contact organizers, or submit an offer. No LLM is called for this search.
 
 ## Следующий этап: документы закупки
 

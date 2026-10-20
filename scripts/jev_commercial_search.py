@@ -10,20 +10,24 @@ import subprocess
 import tempfile
 import time
 from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
+from urllib.request import Request, urlopen
 from uuid import uuid4
 
 HOST = 'www.b2b-center.ru'
 BASE = 'https://' + HOST + '/app/next/market-search'
+ROSELTORG_HOST = 'www.roseltorg.ru'
+FABRIKANT_HOST = 'fabrikant.ru'
 IMAGE = 'sha256:8c231608d909734fee19e3ce851ca1725fd6e4e84f20fb5f8a4288a06823ef0d'
 MSK = timezone(timedelta(hours=3))
 TERMS = ('Ставрополь', 'Ставропольский край', 'Невинномысск', 'Пятигорск', 'Кисловодск',
          'Ессентуки', 'Минеральные Воды', 'Михайловск', 'Будённовск', 'Георгиевск',
          'Железноводск', 'Лермонтов')
-WORK = re.compile(r'строительн|строительств|отделоч|электромонтаж|фундамент|благоустрой|'
+WORK = re.compile(r'строительн|строительств|отделоч|электромонтаж|фундамент|благоустрой|озелен|'
+                  r'(?:капитальн\w*|текущ\w*)\s+ремонт|'
                   r'ремонт\w*\s+(?:помещен|здан|офис|кровл|фасад|магаз|объект)|'
                   r'монтаж\w*\s+.{0,35}(?:сет|систем|кабель|вентиляц)', re.I)
 GOODS_ONLY = re.compile(r'\b(?:поставк\w*|приобретен\w*|закупк\w*)\b', re.I)
-WORK_ACTION = re.compile(r'\b(?:выполнени\w*\s+работ|строительств\w*|ремонт\w*\s+(?:помещен|здан|офис|кровл|фасад|магаз|объект)|отделоч\w*\s+работ|монтаж\w*\s+(?:работ|сет|систем|кабель|вентиляц)|благоустройств\w*)', re.I)
+WORK_ACTION = re.compile(r'\b(?:выполнени\w*\s+работ|строительств\w*|(?:капитальн\w*|текущ\w*)\s+ремонт|ремонт\w*\s+(?:помещен|здан|офис|кровл|фасад|магаз|объект)|отделоч\w*\s+работ|монтаж\w*\s+(?:работ|сет|систем|кабель|вентиляц)|благоустройств\w*|озелен\w*)', re.I)
 EQUIPMENT_REPAIR = re.compile(r'ремонт\w*\s+(?:оборудован|двигател|транспорт|станк|насос|датчик|преобразоват|тс\b|котельного\s+оборудован)', re.I)
 REGION = re.compile(r'Ставропольск\w*\s+кра|Ставропол|Невинномысск|Пятигорск|Кисловодск|Ессентук|Минеральные\s+Воды|Михайловск|Буд[её]нновск', re.I)
 EXCLUDED_LAW = re.compile(r'\b(?:44|223)\s*[-‑–]?\s*ФЗ\b|615\s*[-‑–]?\s*ПП', re.I)
@@ -42,6 +46,23 @@ def tender_url(url):
         not re.fullmatch(r'/(?:app/market-next|market)/[a-zA-Z0-9_-]+/tender-[0-9]+/', parsed.path)):
         raise ValueError('Unexpected procedure URL')
     return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, '', ''))
+
+
+def procedure_url(row):
+    """Validate and canonicalize links from each explicitly supported source."""
+    parsed = urlsplit(row.get('url', ''))
+    if parsed.scheme != 'https' or parsed.query or parsed.fragment:
+        raise ValueError('Unexpected procedure URL')
+    provider = row.get('source')
+    if provider == 'B2B-Center':
+        return tender_url(row['url'])
+    if provider == 'Фабрикант' and parsed.netloc in ('www.fabrikant.ru', 'fabrikant.ru') and re.fullmatch(
+            r'/v2/trades/procedure/view/[A-Za-z0-9_-]+', parsed.path):
+        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, '', ''))
+    if provider == 'Росэлторг' and parsed.netloc == ROSELTORG_HOST and re.fullmatch(
+            r'/procedure/[A-Za-z0-9_-]+/[0-9]+', parsed.path):
+        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, '', ''))
+    raise ValueError('Unexpected procedure URL')
 
 
 def search_checks(observed, term):
@@ -71,8 +92,10 @@ def verify_search(observed, term):
 def assess(row, now):
     result = dict(row, decision='review', reasons=[])
     try:
-        result['url'] = tender_url(row['url'])
-        if not result['url'].endswith('/tender-' + str(row['id']) + '/'):
+        result['url'] = procedure_url(row)
+        if row.get('source') == 'B2B-Center' and not result['url'].endswith('/tender-' + str(row['id']) + '/'):
+            raise ValueError('Procedure identity mismatch')
+        if row.get('source') == 'Росэлторг' and urlsplit(result['url']).path.split('/')[2] != str(row['id']):
             raise ValueError('Procedure identity mismatch')
     except (KeyError, ValueError):
         return dict(result, decision='excluded', reasons=['invalid_source'])
@@ -82,7 +105,7 @@ def assess(row, now):
         return dict(result, decision='excluded', reasons=['goods_purchase_not_work'])
     if EQUIPMENT_REPAIR.search(row.get('title', '')):
         return dict(result, decision='excluded', reasons=['equipment_repair_not_building_work'])
-    place = row.get('place', row.get('region', ''))
+    place = '' if row.get('region_scope') == 'customer_region_filter' else row.get('place', row.get('region', ''))
     if not REGION.search(place):
         if REGION.search(row.get('title', '')):
             result['reasons'].append('place_conflict_needs_review')
@@ -107,7 +130,7 @@ def build_report(rows, sources, now=None):
     now = now or datetime.now(timezone.utc)
     unique = {}
     for row in rows:
-        key = str(row.get('id', ''))
+        key = str(row.get('source', '')) + ':' + str(row.get('id', ''))
         if key: unique.setdefault(key, row)
     assessed = [assess(row, now) for row in unique.values()]
     excluded = {}
@@ -115,12 +138,113 @@ def build_report(rows, sources, now=None):
         if row['decision'] == 'excluded':
             reason = row['reasons'][0] if row['reasons'] else 'other'
             excluded[reason] = excluded.get(reason, 0) + 1
-    return {'generated_at': now.isoformat(), 'region': 'Ставропольский край', 'source': 'B2B-Center',
-            'coverage': 'Первые страницы поиска по 12 городам и региону; неполный охват населённых пунктов, площадок и страниц',
+    return {'generated_at': now.isoformat(), 'region': 'Ставропольский край',
+            'coverage': 'Первые страницы B2B-Center по 12 городам, региональные открытые выдачи Росэлторга и Фабриканта; охват неполный',
             'sources': sources, 'confirmed': [x for x in assessed if x['decision'] == 'confirmed'],
             'review': [x for x in assessed if x['decision'] == 'review'],
             'excluded': excluded,
             'ok': bool(sources) and all(x.get('ok') for x in sources), 'model_calls': 0}
+
+
+class RoseltorgCards:
+    """Read the public search_ajax fragments and retain only first-party cards."""
+    def parse(self, body):
+        import html as html_lib
+        markers=list(re.finditer(r'<div\b[^>]*class="[^"]*\bsearch-results__item\b',body))
+        rows=[]
+        for index,marker in enumerate(markers):
+            fragment=body[marker.start():markers[index+1].start() if index+1<len(markers) else len(body)]
+            links=re.findall(r'<a\b[^>]*href="(/procedure/[A-Za-z0-9_-]+/[0-9]+)"[^>]*>(.*?)</a>',fragment,re.S|re.I)
+            if not links: continue
+            path,anchor=links[0]
+            procedure_id=path.split('/')[2]
+            text=' '.join(html_lib.unescape(re.sub(r'<[^>]*>',' ',fragment)).split())
+            if 'Ставропольский край' not in text: continue
+            # The selected public section combines commercial and 223-FZ lots.
+            # Keep the regime unconfirmed until the original record distinguishes it.
+            regime=''
+            deadline_match=re.search(r'Окончание приема заявок\s*(\d{2}\.\d{2}\.\d{4})\s*в\s*(\d{2}:\d{2})',text)
+            status_match=re.search(r'\b(Прием заявок|Ожидание приема заявок)\b',text,re.I)
+            title=' '.join(html_lib.unescape(re.sub(r'<[^>]*>',' ',anchor)).split())
+            rows.append({'source':'Росэлторг','id':procedure_id,'url':'https://'+ROSELTORG_HOST+path,
+                         'title':title[:1500], 'region':'Ставропольский край',
+                         'region_scope':'customer_region_filter', 'regime':regime,
+                         'status':status_match.group(1) if status_match else '',
+                         'deadline':deadline_match.group(1)+' '+deadline_match.group(2) if deadline_match else ''})
+        return rows
+
+
+def public_get(url):
+    request=Request(url,headers={'User-Agent':'Mozilla/5.0 (compatible; StroykaJev/1.0)',
+                                 'Accept':'text/html,application/xhtml+xml'})
+    with urlopen(request,timeout=15) as response:
+        if response.status != 200 or 'text/html' not in response.headers.get('Content-Type',''):
+            raise RuntimeError('Public source did not return HTML')
+        return response.geturl(), response.read().decode('utf-8','replace')
+
+
+def rosel_source():
+    """Open commercial+223 section search, restricted to Stavropol and open stages."""
+    base='https://'+ROSELTORG_HOST+'/procedures/search_ajax'
+    parser=RoseltorgCards()
+    terms=('Ставрополь','строительство','капитальный ремонт','ремонт','благоустройство','отделочные работы','монтаж')
+    rows=[]; sources=[]
+    for term in terms:
+        params=[('sale','1'),('source[]','2'),('region[]','26'),('status[]','0'),('status[]','5'),('query_field',term)]
+        url=base+'?'+urlencode(params)
+        try:
+            landed,body=public_get(url)
+            found=parser.parse(body)
+            landed_parts=urlsplit(landed); landed_params=parse_qs(landed_parts.query)
+            valid=(landed_parts.netloc==ROSELTORG_HOST and landed_parts.path=='/procedures/search_ajax' and
+                   landed_params.get('sale')==['1'] and landed_params.get('source[]')==['2'] and
+                   landed_params.get('region[]')==['26'] and set(landed_params.get('status[]',[]))=={'0','5'} and
+                   landed_params.get('query_field')==[term] and
+                   ('search-results__item' in body or 'search-autocomplete__no-result' in body))
+            sources.append({'provider':'Росэлторг','query':term,'ok':valid,
+                            'status':'observed_first_page' if valid else 'unexpected_redirect',
+                            'rows':len(found),'url':url})
+            if valid: rows.extend(found)
+        except Exception as exc:
+            sources.append({'provider':'Росэлторг','query':term,'ok':False,
+                            'status':'source_unavailable','error_type':type(exc).__name__,'rows':0})
+            break
+    return rows,sources
+
+
+def fabrikant_source():
+    """Public commercial section, filtered to active/awaiting lots and customer region."""
+    params=[('section_ids[]','2'),('customer_region_ids[]','pKk-kBtsG0FOOt1jqZ-LRQ'),
+            ('statuses[]','1'),('statuses[]','5')]
+    url='https://www.fabrikant.ru/procedure/search/purchases?'+urlencode(params)
+    try:
+        landed,body=public_get(url)
+        landed_parts=urlsplit(landed); landed_params=parse_qs(landed_parts.query)
+        valid=(landed_parts.netloc in ('www.fabrikant.ru',FABRIKANT_HOST) and
+               landed_parts.path=='/procedure/search/purchases' and
+               landed_params.get('section_ids[]')==['2'] and
+               landed_params.get('customer_region_ids[]')==['pKk-kBtsG0FOOt1jqZ-LRQ'] and
+               set(landed_params.get('statuses[]',[]))=={'1','5'} and
+               'Коммерческие закупки' in body and 'customer_region_ids' in body)
+        normalized=body.replace('\\"','"')
+        pattern=(r'"url":"https://(?:www\.)?fabrikant\.ru/v2/trades/procedure/view/([A-Za-z0-9_-]+)"'
+                 r',"name":"(.*?)","lotId":\d+.*?'
+                 r'"sectionEnum":"commercial","procedureNumber":(\d+)')
+        rows=[]
+        for match in re.finditer(pattern,normalized,re.S):
+            slug,title,number=match.groups()
+            title=title.replace('\\"','"').replace('\\\\','\\')
+            rows.append({'source':'Фабрикант','id':number,'url':'https://'+FABRIKANT_HOST+
+                         '/v2/trades/procedure/view/'+slug,'title':title,
+                         'region':'','region_scope':'customer_region_filter',
+                         'regime':'Коммерческая закупка'})
+        source={'provider':'Фабрикант','query':'Ставропольский край · активные и ожидаемые',
+                'ok':valid,'status':'observed_first_page' if valid else 'search_not_verified',
+                'rows':len(rows),'url':url}
+        return rows,[source]
+    except Exception as exc:
+        return [],[{'provider':'Фабрикант','query':'Ставропольский край · активные и ожидаемые',
+                    'ok':False,'status':'source_unavailable','error_type':type(exc).__name__,'rows':0}]
 
 
 OBSERVE = r'''(()=>{const main=document.querySelector('main');const tabs=[...new Set([...document.querySelectorAll('[role="tab"],.cds-tab-v2')])];return {
@@ -190,7 +314,7 @@ async def worker():
                     previous = signature
                     if stable >= 2: break
                 verified = stable >= 2
-                source = {'query': term, 'ok': verified, 'url': observed.get('url', search_url(term)),
+                source = {'provider':'B2B-Center','query': term, 'ok': verified, 'url': observed.get('url', search_url(term)),
                           'status': 'observed_first_page' if verified else 'search_not_verified',
                           'rows': len(observed.get('rows', [])) if verified else 0}
                 if not verified:
@@ -209,7 +333,12 @@ async def worker():
                     for row in observed.get('rows', []):
                         try: row['url'] = tender_url(row['url'])
                         except (KeyError, ValueError): continue
+                        row['source']='B2B-Center'
                         rows.append(row)
+        rosel_rows,rosel_sources=rosel_source()
+        fabrikant_rows,fabrikant_sources=fabrikant_source()
+        rows.extend(rosel_rows);rows.extend(fabrikant_rows)
+        sources.extend(rosel_sources);sources.extend(fabrikant_sources)
         return build_report(rows, sources)
     finally:
         chrome.terminate()
@@ -244,10 +373,13 @@ def render(report):
         parts.append('<h2>{}: {}</h2>'.format(label, len(report[key])))
         for row in report[key]:
             parts.append('<article><h3>'+esc(row.get('title', ''))+'</h3>')
+            parts.append('<p><b>Площадка:</b> '+esc(row.get('source','Не указана'))+'</p>')
             for field, title in (('organizer','Заказчик'),('region','Регион в выдаче'),('deadline','Подача до (МСК)'),('price','Цена')):
                 parts.append('<p><b>{}:</b> {}</p>'.format(title, esc(row.get(field) or 'Не указано')))
+            if row.get('region_scope') == 'customer_region_filter':
+                parts.append('<p>Регион задан по заказчику; место выполнения работ нужно сверить в оригинале.</p>')
             parts.append('<p>Причины проверки: '+esc(', '.join(row['reasons']))+'</p>')
-            parts.append('<a rel="noreferrer" href="'+esc(tender_url(row['url']))+'">Открыть оригинал</a></article>')
+            parts.append('<a rel="noreferrer" href="'+esc(procedure_url(row))+'">Открыть оригинал</a></article>')
     for source in report['sources']:
         parts.append('<p>{}: {} · строк {}</p>'.format(esc(source['query']),esc(source['status']), source['rows']))
     return ''.join(parts)+'</html>'
