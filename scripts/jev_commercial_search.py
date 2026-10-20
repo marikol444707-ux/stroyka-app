@@ -123,11 +123,11 @@ def build_report(rows, sources, now=None):
             'ok': bool(sources) and all(x.get('ok') for x in sources), 'model_calls': 0}
 
 
-OBSERVE = r'''(()=>{const main=document.querySelector('main');return {
+OBSERVE = r'''(()=>{const main=document.querySelector('main');const tabs=[...new Set([...document.querySelectorAll('[role="tab"],.cds-tab-v2')])];return {
 url:location.href,title:document.title,query:main?.querySelector('input[name="q"]')?.value,
 page_state:main?.innerText.slice(0,700)??document.body?.innerText.slice(0,700)??'',
-all_tabs:[...document.querySelectorAll('[role="tab"]')].slice(0,8).map(e=>e.innerText.trim()),
-selected:[...document.querySelectorAll('[role="tab"][aria-selected="true"]')].map(e=>e.innerText.trim()),
+all_tabs:tabs.slice(0,8).map(e=>e.innerText.trim()),
+selected:tabs.filter(e=>e.getAttribute('aria-selected')==='true'||e.classList.contains('cds-tab-v2--selected')).map(e=>e.innerText.trim()),
 highlights:[...main?.querySelectorAll('mark')??[]].map(e=>e.innerText),
 rows:[...main?.querySelectorAll('.panel-procedure__card')??[]].slice(0,20).map(e=>({
 id:e.querySelector('.panel-procedure__number-link')?.innerText.replace(/\D/g,''),
