@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from psycopg2.extras import Json
 
 from ..supplier_access.company_directory import CompanySupplierDirectory
+from ..supplier_access.legal_identity import canonical_legal, legal_sql, lock_legal_keys
 from ..participant_support.reasons import InviteDiagnostic
 
 
@@ -63,6 +64,8 @@ def create_supplier_invite(deps, user, data, headers):
         if claimed_account is not None and str(claimed_account) != str(company['platform_account_id']):
             raise HTTPException(403, 'Аккаунт приглашения не совпадает с выбранной компанией')
         if supplier_id:
+            binding = dict(company_id=company['id'], platform_account_id=company['platform_account_id'])
+            supplier_id = canonical_invited_card(company_catalog(cur, binding), supplier_id)
             unclaimed_supplier(cur, supplier_id, company['id'], company['platform_account_id'])
         cur.execute('''INSERT INTO invite_codes
             (code,role,preset_name,preset_category,created_by,expires_at,company_id,platform_account_id,supplier_id)
@@ -85,21 +88,96 @@ def lock_inviting_company(cur, invite):
     cur.fetchall()
 
 
+def company_catalog(cur, binding):
+    """Resolve aliases only inside the server-bound inviting company."""
+    cur.execute('''SELECT s.id,s.name,s.inn,s.ogrn,l.profile FROM suppliers s
+        JOIN company_supplier_links l ON l.supplier_id=s.id
+        WHERE l.company_id=%s AND l.platform_account_id=%s ORDER BY s.id''',
+        (binding['company_id'], binding['platform_account_id']))
+    return {row['id']: row for row in cur.fetchall()}
+
+
+def canonical_invited_card(rows, supplier_id):
+    row = rows.get(supplier_id)
+    if not row:
+        raise HTTPException(409, 'Карточка приглашения недоступна в выбранной компании')
+    profile = row.get('profile') or {}
+    if not isinstance(profile, dict):
+        raise HTTPException(409, 'Связь объединённых карточек требует проверки')
+    value = profile.get('mergedIntoSupplierId')
+    if value is None:
+        return supplier_id
+    # The merge writer permits only a direct source -> canonical target. Legacy
+    # chains, dangling links and cycles need explicit ownership review, not guesses.
+    if type(value) is not int or value <= 0 or value == supplier_id:
+        raise HTTPException(409, 'Связь объединённых карточек требует проверки')
+    target = rows.get(value)
+    target_profile = (target.get('profile') or {}) if target else {}
+    if not target or not isinstance(target_profile, dict) or 'mergedIntoSupplierId' in target_profile:
+        raise HTTPException(409, 'Основная карточка приглашения требует проверки')
+    return value
+
+
+def same_legal(left, right, key):
+    lengths = (10, 12) if key == 'inn' else (13, 15)
+    a, b = canonical_legal(left, lengths), canonical_legal(right, lengths)
+    return a is not None and b is not None and a == b
+
+
+def lock_invited_identity(cur, invite, requisites):
+    """Pin old and new legal keys together, before taking any supplier row lock."""
+    cur.execute('SELECT company_id,platform_account_id FROM supplier_invite_companies WHERE invite_id=%s', (invite['id'],))
+    binding = cur.fetchone()
+    rows = company_catalog(cur, binding) if binding else {}
+    roots = set()
+    if invite.get('supplier_id') and binding:
+        roots.add(canonical_invited_card(rows, invite['supplier_id']))
+    else:
+        for row in rows.values():
+            if any(requisites.get(key) and same_legal(requisites[key], row.get(key), key)
+                   for key in ('inn', 'ogrn')):
+                roots.add(canonical_invited_card(rows, row['id']))
+    selected = {}
+    for sid, row in rows.items():
+        profile = row.get('profile') or {}
+        alias = profile.get('mergedIntoSupplierId') if isinstance(profile, dict) else None
+        if sid in roots or (type(alias) is int and alias in roots):
+            selected[sid] = row
+    before = {sid: (row.get('inn'), row.get('ogrn')) for sid, row in selected.items()}
+    keys = [(key, requisites.get(key, '')) for key in ('inn', 'ogrn')]
+    keys += [(key, row.get(key)) for row in selected.values() for key in ('inn', 'ogrn')]
+    lock_legal_keys(cur, keys)
+    if selected:
+        cur.execute('SELECT id,inn,ogrn FROM suppliers WHERE id=ANY(%s) ORDER BY id FOR UPDATE', (sorted(selected),))
+        after = {row['id']: (row.get('inn'), row.get('ogrn')) for row in cur.fetchall()}
+        if before != after:
+            raise HTTPException(409, 'Реквизиты приглашённого поставщика изменились. Повторите регистрацию')
+
+
 def claim_invited_supplier(cur, invite, user, requisites):
     cur.execute('SELECT company_id,platform_account_id FROM supplier_invite_companies WHERE invite_id=%s', (invite['id'],))
     binding = cur.fetchone()
     if not binding:
         raise HTTPException(409, 'Приглашение не подтверждает право подключить существующего поставщика')
-    supplier = unclaimed_supplier(cur, invite['supplier_id'], binding['company_id'], binding['platform_account_id'])
+    rows = company_catalog(cur, binding)
+    supplier_id = canonical_invited_card(rows, invite['supplier_id'])
+    supplier = unclaimed_supplier(cur, supplier_id, binding['company_id'], binding['platform_account_id'])
     for key in ('inn', 'ogrn'):
-        if requisites.get(key) and supplier.get(key) and str(requisites[key]) != str(supplier[key]):
+        if requisites.get(key) and supplier.get(key) and not same_legal(requisites[key], supplier[key], key):
             raise HTTPException(409, 'Реквизиты не совпадают с приглашённым поставщиком')
     for key in ('inn', 'ogrn'):
         if requisites.get(key) and not supplier.get(key):
-            cur.execute(f"SELECT id FROM suppliers s WHERE {key}=%s AND id<>%s AND NOT EXISTS(SELECT 1 FROM company_supplier_links l WHERE l.supplier_id=s.id AND l.company_id=%s AND l.profile->>'mergedIntoSupplierId'=%s) LIMIT 1",
+            cur.execute(f"SELECT id FROM suppliers s WHERE {legal_sql('s.' + key, (10, 12) if key == 'inn' else (13, 15))}=%s AND id<>%s AND NOT EXISTS(SELECT 1 FROM company_supplier_links l WHERE l.supplier_id=s.id AND l.company_id=%s AND l.profile->>'mergedIntoSupplierId'=%s) LIMIT 1",
                         (requisites[key], supplier['id'], binding['company_id'], str(supplier['id'])))
             if cur.fetchone():
                 raise HTTPException(409, 'С этими реквизитами уже есть карточка. Сначала объедините карточки в каталоге')
+    for key, lengths in (('inn', (10, 12)), ('ogrn', (13, 15))):
+        identity = canonical_legal(requisites.get(key) or supplier.get(key), lengths)
+        if identity:
+            cur.execute('SELECT 1 FROM suppliers WHERE ' + legal_sql(key, lengths) +
+                        '=%s AND user_id IS NOT NULL AND id<>%s LIMIT 1', (identity, supplier['id']))
+            if cur.fetchone():
+                raise HTTPException(409, 'С этими реквизитами уже есть кабинет. Нужна проверка владельца')
     cur.execute("SELECT supplier_id FROM company_supplier_links WHERE company_id=%s AND platform_account_id=%s AND profile->>'mergedIntoSupplierId'=%s ORDER BY supplier_id FOR UPDATE",
                 (binding['company_id'], binding['platform_account_id'], str(supplier['id'])))
     children = [row['supplier_id'] for row in cur.fetchall()]
@@ -107,7 +185,7 @@ def claim_invited_supplier(cur, invite, user, requisites):
         child_supplier = unclaimed_supplier(cur, child, binding['company_id'], binding['platform_account_id'], canonical_id=supplier['id'])
         for key in ('inn', 'ogrn'):
             legal_key = requisites.get(key) or supplier.get(key)
-            if legal_key and child_supplier.get(key) and str(legal_key) != str(child_supplier[key]):
+            if legal_key and child_supplier.get(key) and not same_legal(legal_key, child_supplier[key], key):
                 raise HTTPException(409, 'Реквизиты объединённой карточки различаются. Нужна проверка каталога')
     if children:
         cur.execute('UPDATE suppliers SET user_id=%s WHERE id=ANY(%s)', (user['id'], children))
@@ -125,24 +203,19 @@ def matching_invited_card(cur, invite, requisites, normalize_name):
     binding = cur.fetchone()
     if not binding:
         return None
-    cur.execute('''SELECT s.id FROM suppliers s JOIN company_supplier_links l ON l.supplier_id=s.id
-        WHERE l.company_id=%s AND l.platform_account_id=%s
-            AND NOT (l.profile ? 'mergedIntoSupplierId')
-            AND ((%s<>'' AND s.inn=%s) OR (%s<>'' AND s.ogrn=%s))
-        ORDER BY s.id LIMIT 2''', (binding['company_id'], binding['platform_account_id'], inn, inn, ogrn, ogrn))
-    matches = cur.fetchall()
+    rows = company_catalog(cur, binding)
+    matches = set()
+    for row in rows.values():
+        if ((inn and same_legal(inn, row.get('inn'), 'inn')) or
+                (ogrn and same_legal(ogrn, row.get('ogrn'), 'ogrn'))):
+            matches.add(canonical_invited_card(rows, row['id']))
     if len(matches) > 1:
         raise HTTPException(409, 'Найдено несколько карточек с этими реквизитами. Объедините их в каталоге компании')
     if matches:
-        return matches[0]['id']
-    cur.execute('''SELECT s.name,s.inn,s.ogrn FROM suppliers s
-        JOIN company_supplier_links l ON l.supplier_id=s.id
-        WHERE l.company_id=%s AND l.platform_account_id=%s
-            AND NOT (l.profile ? 'mergedIntoSupplierId')''',
-        (binding['company_id'], binding['platform_account_id']))
+        return next(iter(matches))
     name_key = normalize_name(requisites.get('name', ''))
     if name_key and any(normalize_name(r['name']) == name_key and
-                        (not (inn or ogrn) or not (r.get('inn') or r.get('ogrn'))) for r in cur.fetchall()):
+                        (not (inn or ogrn) or not (r.get('inn') or r.get('ogrn'))) for r in rows.values()):
         raise HTTPException(409, 'В каталоге уже есть похожая карточка. Попросите ссылку из этой карточки, чтобы сохранить историю')
     return None
 

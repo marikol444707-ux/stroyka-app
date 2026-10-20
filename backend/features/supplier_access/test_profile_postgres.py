@@ -66,3 +66,34 @@ class SupplierProfilePostgresTests(unittest.TestCase):
         self.assertEqual(self.api('supplier','GET',self.path),before)
         saved=self.api('supplier','PUT',self.path,{'legalAddress':'x'*4000})
         self.assertEqual(len(saved['fields']['legalAddress']),4000)
+
+    def test_profile_normalizes_valid_legal_keys_and_rejects_conflicting_cabinet(self):
+        from secrets import randbelow
+        supplier = self.fixture['supplierId']
+        old = self.sql('SELECT inn,ogrn FROM suppliers WHERE id=%s', (supplier,))[0]
+        competitor = None
+        try:
+            inn = '74' + str(randbelow(10**8)).zfill(8)
+            saved = self.api('supplier', 'PUT', self.path, {'inn': inn[:3] + ' - ' + inn[3:]})
+            self.assertEqual(saved['fields']['inn'], inn)
+            for malformed in ('ИНН ' + inn, inn + '7', '23/12254452'):
+                self.api('supplier', 'PUT', self.path, {'inn': malformed}, expected=422)
+            conflict = '75' + str(randbelow(10**8)).zfill(8)
+            competitor = self.sql('INSERT INTO suppliers(name,user_id,inn) VALUES(%s,%s,%s) RETURNING id',
+                ('Canonical identity conflict', self.fixture['users']['stranger_supplier']['id'],
+                 conflict[:2] + '\u00a0-' + conflict[2:]))[0][0]
+            self.api('supplier', 'PUT', self.path, {'inn': conflict}, expected=409)
+            self.assertEqual(self.sql('SELECT inn FROM suppliers WHERE id=%s', (supplier,)), [(inn,)])
+        finally:
+            self.sql('UPDATE suppliers SET inn=%s,ogrn=%s WHERE id=%s', (*old, supplier))
+            if competitor:
+                self.sql('DELETE FROM suppliers WHERE id=%s', (competitor,))
+
+    def test_python_and_database_legal_formatting_agree(self):
+        from .legal_identity import canonical_legal, legal_sql, SEPARATORS
+        samples = ['2312254452', '123456789012', '23/12254452', 'INN2312254452',
+                   '２３１２２５４４５２', '231225445', '23\u200b12254452', None, '']
+        samples += [separator.join('2312254452') for separator in SEPARATORS]
+        for value in samples:
+            result = self.sql('SELECT '+legal_sql('value', (10, 12))+' FROM (SELECT %s::text AS value) sample', (value,))[0][0]
+            self.assertEqual(result, canonical_legal(value, (10, 12)) or None, repr(value))
