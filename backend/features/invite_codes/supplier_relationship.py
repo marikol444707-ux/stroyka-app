@@ -65,7 +65,10 @@ def create_supplier_invite(deps, user, data, headers):
             raise HTTPException(403, 'Аккаунт приглашения не совпадает с выбранной компанией')
         if supplier_id:
             binding = dict(company_id=company['id'], platform_account_id=company['platform_account_id'])
-            supplier_id = canonical_invited_card(company_catalog(cur, binding), supplier_id)
+            rows = company_catalog(cur, binding)
+            if supplier_id not in rows:
+                raise HTTPException(404, 'Поставщик не найден в выбранной компании')
+            supplier_id = canonical_invited_card(rows, supplier_id)
             unclaimed_supplier(cur, supplier_id, company['id'], company['platform_account_id'])
         cur.execute('''INSERT INTO invite_codes
             (code,role,preset_name,preset_category,created_by,expires_at,company_id,platform_account_id,supplier_id)

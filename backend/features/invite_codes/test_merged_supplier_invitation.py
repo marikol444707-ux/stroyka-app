@@ -1,6 +1,6 @@
 """Canonical invitation resolution cannot cross buyer boundaries or guess identities."""
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from fastapi import HTTPException
 from .supplier_relationship import canonical_invited_card, matching_invited_card, same_legal
@@ -92,3 +92,21 @@ class RegistrationIdentityLockTests(unittest.TestCase):
             lock_invited_identity(cur, dict(id=8, supplier_id=1), {'inn': '7799112233'})
         self.assertEqual(caught.exception.status_code, 409)
         self.assertFalse(any('UPDATE suppliers' in c.args[0] for c in cur.execute.call_args_list))
+
+
+class InvitationCreationBoundaryTests(unittest.TestCase):
+    def test_missing_or_foreign_source_keeps_non_enumerating_404(self):
+        from . import supplier_relationship as service
+        cur = MagicMock()
+        directory = MagicMock()
+        directory.transaction.return_value.__enter__.return_value = (
+            cur, dict(id=2, platform_account_id=4), dict(role='director'))
+        with patch.object(service, 'directory', return_value=directory), \
+                patch.object(service, 'company_catalog', return_value={}), \
+                patch.object(service, 'unclaimed_supplier') as claim:
+            with self.assertRaises(HTTPException) as caught:
+                service.create_supplier_invite({'admin_roles': ('director',)},
+                                               {'id': 8}, {'supplierId': 30}, {})
+        self.assertEqual(caught.exception.status_code, 404)
+        claim.assert_not_called()
+        self.assertFalse(any('INSERT' in c.args[0] for c in cur.execute.call_args_list))
