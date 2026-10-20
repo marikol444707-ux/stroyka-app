@@ -31,6 +31,11 @@ def classify(text):
     return 'review'
 
 
+def fingerprint(text):
+    normalized = ' '.join(unicodedata.normalize('NFKC', text).casefold().split())
+    return hashlib.sha256(normalized.encode('utf-8')).hexdigest()
+
+
 def source_url(source, message_id):
     if not isinstance(message_id, int) or isinstance(message_id, bool) or message_id <= 0:
         raise ValueError('Invalid message id')
@@ -69,8 +74,7 @@ def digest(messages):
         if category in counts:
             counts[category] += 1
             continue
-        normalized = ' '.join(unicodedata.normalize('NFKC', row['text']).casefold().split())
-        key = hashlib.sha256(normalized.encode('utf-8')).hexdigest()
+        key = fingerprint(row['text'])
         item = groups.setdefault(key, {'text': row['text'], 'category': category, 'originals': []})
         original = {k: row.get(k, '') for k in ('source', 'id', 'date', 'url')}
         if original not in item['originals']: item['originals'].append(original)
@@ -89,6 +93,9 @@ def render_html(report):
              'p{white-space:pre-wrap;overflow-wrap:anywhere}a{display:block;margin:8px 0;color:#155cc2}',
              '</style><h1>{}</h1>'.format(esc(TOPIC_LABEL)),
              '<p>Подборка по ключевым словам. Актуальность, условия и заказчика проверяйте по оригиналу.</p>']
+    if 'retention_days' in report:
+        parts.append('<p>Новых заказов: {}. Новых на просмотр: {}. История — {} дней после последнего появления; это не подтверждение актуальности заказа.</p>'.format(
+            report['new_orders'], report['new_review'], report['retention_days']))
     for source in report.get('sources', []):
         if source['status'] != 'ok':
             parts.append('<p>Источник {}: {}</p>'.format(esc(source['label']), esc(source['status'])))
@@ -98,7 +105,10 @@ def render_html(report):
         parts.append('<h2>{} · {}</h2>'.format(title, len(report[key])))
         if not report[key]: parts.append('<p>В обработанной порции подходящих сообщений нет.</p>')
         for item in report[key]:
-            parts.append('<article><p>{}</p>'.format(esc(item['text'])))
+            parts.append('<article>')
+            if 'is_new' in item:
+                parts.append('<strong>{}</strong>'.format('Новое объявление' if item['is_new'] else 'Уже встречалось'))
+            parts.append('<p>{}</p>'.format(esc(item['text'])))
             for original in item['originals']:
                 label = '{} · {}'.format(original['source'], original['date'])
                 url = str(original['url'])
@@ -156,9 +166,11 @@ def main():
     args = parser.parse_args()
     report = digest(export_messages(load_json(args.export), args.source))
     output = private_directory(args.output)
-    write_private(output / 'report.json', json.dumps(report, ensure_ascii=False, indent=2))
-    write_private(output / 'report.html', render_html(report))
-    print(json.dumps({'ok': True, 'orders': len(report['orders']), 'review': len(report['review'])}))
+    try:
+        from .jev_telegram_history import save_batch
+    except ImportError:
+        from jev_telegram_history import save_batch
+    print(json.dumps(save_batch(output, report, {}), ensure_ascii=False))
 
 
 if __name__ == '__main__': main()

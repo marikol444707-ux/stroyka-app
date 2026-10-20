@@ -8,9 +8,9 @@ import os
 from pathlib import Path
 
 try:
-    from .jev_telegram import digest, load_json, private_directory, render_html, source_url, write_private
+    from .jev_telegram import digest, load_json, private_directory, source_url
 except ImportError:
-    from jev_telegram import digest, load_json, private_directory, render_html, source_url, write_private
+    from jev_telegram import digest, load_json, private_directory, source_url
 
 
 async def collect(client, sources, cursors, limit=100):
@@ -75,6 +75,10 @@ async def collect(client, sources, cursors, limit=100):
 
 
 async def run(config_path, state_path):
+    try:
+        from .jev_telegram_history import read_cursors, save_batch
+    except ImportError:
+        from jev_telegram_history import read_cursors, save_batch
     config = load_json(config_path, limit=65536, private=True)
     state = private_directory(state_path)
     session = state / 'account.session'
@@ -89,19 +93,10 @@ async def run(config_path, state_path):
     client.session.save_entities = False
     await client.connect()
     try:
-        checkpoint = state / 'cursor.json'
-        cursors = load_json(checkpoint, private=True) if checkpoint.exists() else {}
+        cursors = read_cursors(state)
         report, updated = await asyncio.wait_for(collect(client, config['sources'], cursors), timeout=50)
         if report.get('status') == 'not_authorized': return report
-        # Immutable run directories preserve previous unviewed batches and make
-        # replay safe if writing the checkpoint fails. No duplicate notifications.
-        import tempfile
-        output = Path(tempfile.mkdtemp(prefix='digest-', dir=str(state)))
-        write_private(output / 'report.json', json.dumps(report, ensure_ascii=False, indent=2))
-        write_private(output / 'report.html', render_html(report))
-        write_private(checkpoint, json.dumps(updated))
-        return {'ok': report['ok'], 'status': report['status'], 'report': str(output / 'report.html'),
-                'orders': len(report['orders']), 'review': len(report['review']), 'sources': report['sources']}
+        return save_batch(state, report, updated)
     finally:
         await client.disconnect()
 
