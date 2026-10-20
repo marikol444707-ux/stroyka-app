@@ -48,7 +48,10 @@ def search_checks(observed, term):
     parsed = urlsplit(observed.get('url', ''))
     params = parse_qs(parsed.query)
     tabs = observed.get('selected', [])
+    visible_state = observed.get('page_state', '')
     actual = next((re.search(r'^Актуально\s*•\s*([\d\s]+)$', x) for x in tabs if x.startswith('Актуально')), None)
+    if actual is None:
+        actual = re.search(r'Актуально\s*•\s*([\d\s]+)', visible_state)
     count = int(re.sub(r'\s', '', actual.group(1))) if actual else None
     highlights = observed.get('highlights', [])
     return {
@@ -56,7 +59,7 @@ def search_checks(observed, term):
         'query_in_url': params.get('q') == [term],
         'buy_mode_in_url': params.get('trade') == ['buy'] and params.get('show') == ['actual'],
         'rendered_query': observed.get('query') == term,
-        'procurement_tab': 'Объявления о закупках' in tabs,
+        'procurement_tab': 'Объявления о закупках' in tabs or 'Объявления о закупках' in visible_state,
         'active_results_tab': count is not None,
         'rows_match_count': (bool(observed.get('rows')) if count else not observed.get('rows')) if count is not None else False,
         'query_highlighted': all(any(word.casefold() in value.casefold() for value in highlights)
