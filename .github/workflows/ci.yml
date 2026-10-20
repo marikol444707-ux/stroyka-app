@@ -64,6 +64,11 @@ jobs:
             exit "$backend_test_status"
           fi
 
+      - name: Run supplier installer safety tests
+        run: |
+          bash -n scripts/install-participant-duplicate-merge.sh
+          python scripts/test_participant_merge_release.py
+
       - name: Run company-context PostgreSQL isolation tests
         env:
           COMPANY_CONTEXT_RUN_POSTGRES_INTEGRATION: "1"
@@ -105,6 +110,7 @@ jobs:
             backend.features.participant_support.test_history_contract_merge_postgres.SupplierHistoryContractMergePostgresTests \
             backend.features.invite_codes.test_supplier_registration_postgres.SupplierRegistrationPostgresTests \
             backend.features.supplier_access.test_company_merge_postgres.CompanyMergePostgresTests \
+            backend.features.supplier_access.test_profile_postgres.SupplierProfilePostgresTests \
             backend.features.supplier_access.test_company_directory_postgres.CompanyDirectoryPostgresTests
 
       - name: Run supplier access correction and packaging merge guards
