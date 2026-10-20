@@ -44,16 +44,28 @@ def tender_url(url):
     return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, '', ''))
 
 
-def verify_search(observed, term):
+def search_checks(observed, term):
     parsed = urlsplit(observed.get('url', ''))
     params = parse_qs(parsed.query)
     tabs = observed.get('selected', [])
     actual = next((re.search(r'^Актуально\s*•\s*([\d\s]+)$', x) for x in tabs if x.startswith('Актуально')), None)
-    if not (parsed.scheme == 'https' and parsed.netloc == HOST and parsed.path.rstrip('/') == '/app/next/market-search'
-            and params.get('q') == [term] and params.get('trade') == ['buy'] and params.get('show') == ['actual']
-            and observed.get('query') == term and 'Объявления о закупках' in tabs and actual): return False
-    count = int(re.sub(r'\s', '', actual.group(1)))
-    return bool(observed.get('rows')) if count else not observed.get('rows')
+    count = int(re.sub(r'\s', '', actual.group(1))) if actual else None
+    highlights = observed.get('highlights', [])
+    return {
+        'public_search_url': parsed.scheme == 'https' and parsed.netloc == HOST and parsed.path.rstrip('/') == '/app/next/market-search',
+        'query_in_url': params.get('q') == [term],
+        'buy_mode_in_url': params.get('trade') == ['buy'] and params.get('show') == ['actual'],
+        'rendered_query': observed.get('query') == term,
+        'procurement_tab': 'Объявления о закупках' in tabs,
+        'active_results_tab': count is not None,
+        'rows_match_count': (bool(observed.get('rows')) if count else not observed.get('rows')) if count is not None else False,
+        'query_highlighted': all(any(word.casefold() in value.casefold() for value in highlights)
+                                 for word in term.split()) if observed.get('rows') else True,
+    }
+
+
+def verify_search(observed, term):
+    return all(search_checks(observed, term).values())
 
 
 def assess(row, now):
@@ -165,21 +177,29 @@ async def worker():
                 while time.monotonic() < end:
                     await asyncio.sleep(.6)
                     response = await call('Runtime.evaluate', {'expression': OBSERVE, 'returnByValue': True})
+                    if 'exceptionDetails' in response:
+                        observed = {'url': search_url(term), 'query': None, 'selected': [],
+                                    'highlights': [], 'rows': [], 'evaluation_failed': True}
+                        break
                     observed = response.get('result', {}).get('value') or {}
                     ready = verify_search(observed, term)
-                    # Do not accept the unfiltered SSR list while hydration is pending.
-                    if observed.get('rows'):
-                        ready = ready and all(any(word.casefold() in x.casefold()
-                                                  for x in observed.get('highlights', []))
-                                              for word in term.split())
                     signature = json.dumps(observed, sort_keys=True)
                     stable = stable + 1 if ready and signature == previous else 0
                     previous = signature
                     if stable >= 2: break
                 verified = stable >= 2
-                sources.append({'query': term, 'ok': verified, 'url': observed.get('url', search_url(term)),
-                                'status': 'observed_first_page' if verified else 'search_not_verified',
-                                'rows': len(observed.get('rows', [])) if verified else 0})
+                source = {'query': term, 'ok': verified, 'url': observed.get('url', search_url(term)),
+                          'status': 'observed_first_page' if verified else 'search_not_verified',
+                          'rows': len(observed.get('rows', [])) if verified else 0}
+                if not verified:
+                    checks = search_checks(observed, term)
+                    source.update({'observed_query': observed.get('query'),
+                                   'active_tabs': observed.get('selected', [])[:3],
+                                   'failed_checks': [name for name, passed in checks.items() if not passed],
+                                   'evaluation_failed': observed.get('evaluation_failed', False)})
+                sources.append(source)
+                if not verified:
+                    break
                 if verified:
                     for row in observed.get('rows', []):
                         try: row['url'] = tender_url(row['url'])
