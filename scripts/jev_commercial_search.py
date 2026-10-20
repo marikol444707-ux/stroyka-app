@@ -124,7 +124,9 @@ def build_report(rows, sources, now=None):
 
 
 OBSERVE = r'''(()=>{const main=document.querySelector('main');return {
-url:location.href,query:main?.querySelector('input[name="q"]')?.value,
+url:location.href,title:document.title,query:main?.querySelector('input[name="q"]')?.value,
+page_state:main?.innerText.slice(0,700)??document.body?.innerText.slice(0,700)??'',
+all_tabs:[...document.querySelectorAll('[role="tab"]')].slice(0,8).map(e=>e.innerText.trim()),
 selected:[...document.querySelectorAll('[role="tab"][aria-selected="true"]')].map(e=>e.innerText.trim()),
 highlights:[...main?.querySelectorAll('mark')??[]].map(e=>e.innerText),
 rows:[...main?.querySelectorAll('.panel-procedure__card')??[]].slice(0,20).map(e=>({
@@ -194,6 +196,9 @@ async def worker():
                 if not verified:
                     checks = search_checks(observed, term)
                     source.update({'observed_query': observed.get('query'),
+                                   'page_title': observed.get('title', '')[:160],
+                                   'page_state': observed.get('page_state', ''),
+                                   'visible_tabs': observed.get('all_tabs', []),
                                    'active_tabs': observed.get('selected', [])[:3],
                                    'failed_checks': [name for name, passed in checks.items() if not passed],
                                    'evaluation_failed': observed.get('evaluation_failed', False)})
