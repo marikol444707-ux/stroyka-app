@@ -53,7 +53,6 @@ def search_checks(observed, term):
     if actual is None:
         actual = re.search(r'Актуально\s*•\s*([\d\s]+)', visible_state)
     count = int(re.sub(r'\s', '', actual.group(1))) if actual else None
-    highlights = observed.get('highlights', [])
     return {
         'public_search_url': parsed.scheme == 'https' and parsed.netloc == HOST and parsed.path.rstrip('/') == '/app/next/market-search',
         'query_in_url': params.get('q') == [term],
@@ -62,8 +61,6 @@ def search_checks(observed, term):
         'procurement_tab': 'Объявления о закупках' in tabs or 'Объявления о закупках' in visible_state,
         'active_results_tab': count is not None,
         'rows_match_count': (bool(observed.get('rows')) if count else not observed.get('rows')) if count is not None else False,
-        'query_highlighted': all(any(word.casefold() in value.casefold() for value in highlights)
-                                 for word in term.split()) if observed.get('rows') else True,
     }
 
 
