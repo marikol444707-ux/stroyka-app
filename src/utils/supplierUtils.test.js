@@ -1,6 +1,7 @@
 import {
   hasSupplierLegalIdentity,
   groupSuppliers,
+  groupCompanySuppliers,
   supplierNameDuplicateReason,
   supplierMatchesRecord,
   supplierReviewInfo,
@@ -282,5 +283,47 @@ describe('warehouseInvoiceDocumentKey', () => {
     });
 
     expect(second).not.toBe(first);
+  });
+});
+
+
+describe('company-confirmed supplier groups', () => {
+  const primary = {id:12,companyId:2,companySupplierLinkId:21,name:'Основной',inn:'1234567890',
+    canonicalSupplierId:12,relatedSupplierIds:[4,12],rating:1,phone:'',relationshipVersion:7};
+  const source = {id:4,companyId:2,companySupplierLinkId:20,name:'Из накладной',inn:'1234567890',
+    canonicalSupplierId:12,relatedSupplierIds:[4,12],rating:5,phone:'старый контакт',relationshipVersion:3};
+  it('collapses only confirmed same-company relations and retains original IDs without changing canonical fields', () => {
+    const original = JSON.stringify([source,primary]);
+    const [group] = groupCompanySuppliers([source,primary]);
+    expect(group.id).toBe(12);
+    expect(group._supplierIds).toEqual([4,12]);
+    expect(supplierReviewInfo(group).needsReview).toBe(false);
+    expect(group._supplierNames).toEqual(expect.arrayContaining(['Основной','Из накладной']));
+    expect(group).toMatchObject({phone:'',rating:1,relationshipVersion:7,companySupplierLinkId:21});
+    expect(JSON.stringify([source,primary])).toBe(original);
+  });
+  it('does not implicitly merge by INN, contact or name, including singleton server metadata', () => {
+    const rows = [4,12].map(id=>({...primary,id,canonicalSupplierId:id,relatedSupplierIds:[id]}));
+    expect(groupCompanySuppliers(rows)).toHaveLength(2);
+  });
+  it('does not use foreign-company or missing canonical targets for history matching', () => {
+    const groups = groupCompanySuppliers([source,{...primary,companyId:3}]);
+    expect(groups).toHaveLength(2);
+    expect(groups.find(group=>group.id===4)._supplierIds).toEqual([4]);
+    const [missing] = groupCompanySuppliers([source]);
+    expect(missing._supplierIds).toEqual([4]);
+  });
+  it('does not fold conflicting/cyclic metadata', () => {
+    const groups = groupCompanySuppliers([{...source,canonicalSupplierId:12}, {...primary,canonicalSupplierId:4}]);
+    expect(groups).toHaveLength(2);
+    expect(groups.map(group=>group._supplierIds)).toEqual(expect.arrayContaining([[4],[12]]));
+  });
+  it('uses IDs, not same names, and rejects explicitly foreign-company records', () => {
+    const [group] = groupCompanySuppliers([source,primary]);
+    expect(supplierMatchesRecord(group,{supplierId:4,companyId:2})).toBe(true);
+    expect(supplierMatchesRecord(group,{supplierId:12})).toBe(true);
+    expect(supplierMatchesRecord(group,{supplierId:4,companyId:3})).toBe(false);
+    expect(supplierMatchesRecord(group,{supplierId:99,supplierName:'Основной'})).toBe(false);
+    expect(supplierMatchesRecord(group,{supplierName:'Основной'})).toBe(false);
   });
 });

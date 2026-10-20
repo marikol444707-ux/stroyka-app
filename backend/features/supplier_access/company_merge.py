@@ -1,5 +1,9 @@
 """Company-confirmed grouping, preserving original documents and bank snapshots."""
+import hashlib
+import json
+
 from fastapi import HTTPException
+from .legal_identity import canonical_legal
 from psycopg2.extras import Json
 from psycopg2 import sql
 
@@ -60,8 +64,9 @@ def pair(cur, company, target_id, source_id):
     if cur.fetchone():
         raise HTTPException(409, 'Вторая карточка уже содержит объединённую историю. Выберите её основной')
     for key in ('inn', 'ogrn'):
-        left, right = str(target.get(key) or '').strip(), str(source.get(key) or '').strip()
-        if left and right and left != right:
+        lengths = (10, 12) if key == 'inn' else (13, 15)
+        left, right = canonical_legal(target.get(key), lengths), canonical_legal(source.get(key), lengths)
+        if left is None or right is None or (left and right and left != right):
             raise HTTPException(409, 'Реквизиты карточек различаются. Объединение недоступно')
     # Attaching a provisional identity to an account must never share another
     # buyer's legacy records. Check every persisted company-scoped supplier FK.
@@ -75,16 +80,29 @@ def pair(cur, company, target_id, source_id):
     return target, source
 
 
+def preview_for_pair(cur, company, target, source):
+    counts, documents = {}, {}
+    for table in ('supplier_invoices', 'warehouse_invoices', 'supplier_offers'):
+        # Include exact current rows, not just counts: replacing/changing a
+        # document between preview and confirm must invalidate the review.
+        cur.execute(sql.SQL('SELECT id,md5(to_jsonb(d)::text) AS fingerprint FROM {} d WHERE supplier_id=%s AND company_id=%s ORDER BY id')
+                    .format(sql.Identifier(table)), (source['id'], company['id']))
+        documents[table] = [dict(row) for row in cur.fetchall()]
+        counts[table] = len(documents[table])
+    review = dict(targetId=target['id'], sourceId=source['id'], targetName=target['name'], sourceName=source['name'],
+                  targetVersion=target['link_version'], sourceVersion=source['link_version'],
+                  hasSupplierAccount=bool(target.get('user_id')), documents=counts)
+    evidence = dict(companyId=company['id'], platformAccountId=company['platform_account_id'],
+                    review=review, documents=documents,
+                    identities=[{key: row.get(key) for key in ('id', 'inn', 'ogrn', 'user_id', 'profile')}
+                                for row in (target, source)])
+    review['reviewVersion'] = hashlib.sha256(json.dumps(evidence, sort_keys=True, default=str).encode()).hexdigest()
+    return review
+
+
 def preview(cur, company, target_id, source_id):
     target, source = pair(cur, company, target_id, source_id)
-    counts = {}
-    for table in ('supplier_invoices', 'warehouse_invoices', 'supplier_offers'):
-        cur.execute(sql.SQL('SELECT count(*) AS count FROM {} WHERE supplier_id=%s AND company_id=%s')
-                    .format(sql.Identifier(table)), (source_id, company['id']))
-        counts[table] = cur.fetchone()['count']
-    return dict(targetId=target_id, sourceId=source_id, targetName=target['name'], sourceName=source['name'],
-                targetVersion=target['link_version'], sourceVersion=source['link_version'],
-                hasSupplierAccount=bool(target.get('user_id')), documents=counts)
+    return preview_for_pair(cur, company, target, source)
 
 
 def confirm(directory, data, user, headers, target_id):
@@ -99,6 +117,9 @@ def confirm(directory, data, user, headers, target_id):
         if any(type(data.get(key)) is not int or data[key] != row['link_version']
                for key, row in (('targetVersion', target), ('sourceVersion', source))):
             raise HTTPException(409, 'Карточки изменились. Проверьте объединение ещё раз')
+        review = preview_for_pair(cur, company, target, source)
+        if data.get('expectedReview') != review['reviewVersion']:
+            raise HTTPException(409, 'Карточки или документы изменились. Проверьте последствия объединения ещё раз')
         apply_pair(cur,target,source)
         directory.audit(cur, actor, company, source['link_id'], 'supplier_cards_merged')
         return dict(ok=True, targetId=target_id, sourceId=source['id'])

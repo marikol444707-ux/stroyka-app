@@ -23,10 +23,14 @@ export RELEASE_BACKUP="$(mktemp -d /root/stroyka-participant-merge-XXXXXXXX)"
 export RELEASE_TARGET="$TARGET"
 export RELEASE_BEFORE="$BEFORE"
 printf '%s\n' "$BEFORE" > "$RELEASE_BACKUP/commit-before.txt"
+# The current checkout may predate this helper. Read it from the pinned target.
+git show "$TARGET:scripts/participant_merge_release.py" > "$RELEASE_BACKUP/participant_merge_release.py"
 python3 - <<'PY'
 import json,os,shutil,subprocess,urllib.request
 from pathlib import Path
-from urllib.parse import urlsplit
+import sys
+sys.path.insert(0,os.environ['RELEASE_BACKUP'])
+from participant_merge_release import manifest_paths, regular_asset
 from backend.db import get_db
 pid=subprocess.check_output(['systemctl','show','stroyka','-p','MainPID','--value'],text=True).strip()
 runtime=dict(item.split('=',1) for item in Path('/proc',pid,'environ').read_text().split('\0') if '=' in item)
@@ -47,30 +51,59 @@ try:
 finally: conn.close()
 root=Path('build'); dest=Path(os.environ['RELEASE_BACKUP'])/'frontend-before'
 manifest=json.loads((root/'asset-manifest.json').read_text())
-files={Path(urlsplit(value).path.lstrip('/')) for value in manifest['files'].values()}
+files=manifest_paths(manifest)
 for folder,dirs,names in os.walk(root):
     if Path(folder)==root: dirs[:]=[name for name in dirs if name!='static']
     files.update(Path(folder,name).relative_to(root) for name in names)
 for rel in files:
     assert not rel.is_absolute() and '..' not in rel.parts
-    source=root/rel
-    assert source.is_file() and not source.is_symlink()
+    source=regular_asset(root,rel)
     target=dest/rel; target.parent.mkdir(parents=True,exist_ok=True)
     shutil.copy2(source,target)
 print('Резерв текущего интерфейса:',dest)
 PY
+# Preserve the publisher before changing checkout; never depend on a deleted stage.
+cp scripts/publish-frontend.sh "$RELEASE_BACKUP/publish-before.sh"
 UNIT_CREATED=0
+DEPLOY_STARTED=0
 rollback() {
   local status=$?
   trap - ERR
   set +e
+  local recovery_failed=0
   if [[ "$UNIT_CREATED" = 1 ]]; then
-    rm -- "$DROPIN"
-    systemctl daemon-reload
-    systemctl restart stroyka
+    rm -- "$DROPIN" || recovery_failed=1
+    systemctl daemon-reload || recovery_failed=1
   fi
-  bash scripts/publish-frontend.sh "$RELEASE_BACKUP/frontend-before" build
-  echo "Включение остановлено. Резерв: $RELEASE_BACKUP. Пришлите ошибку выше."
+  if [[ "$DEPLOY_STARTED" = 0 ]]; then
+    # No target runtime has been started: restoring BEFORE cannot undo new access guards.
+    # --keep refuses conflicting local edits, unlike --hard. Never erase unknown files.
+    git reset --keep "$BEFORE" || recovery_failed=1
+    if [[ "$(git rev-parse HEAD)" != "$BEFORE" ]]; then recovery_failed=1; fi
+    if [[ "$recovery_failed" = 0 ]]; then
+      bash "$RELEASE_BACKUP/publish-before.sh" "$RELEASE_BACKUP/frontend-before" build || recovery_failed=1
+    fi
+    if [[ "$recovery_failed" = 0 ]]; then
+      printf '%s\n' 'rollback-before-runtime-complete' > "$RELEASE_BACKUP/recovery-status.txt"
+    else
+      printf '%s\n' 'manual-recovery-required: pre-runtime checkout/frontend restoration incomplete' > "$RELEASE_BACKUP/recovery-status.txt"
+    fi
+  else
+    # New access history could already exist. An older backend can reopen revoked access.
+    # Keep the target checkout and turn off the new mutation mode, never roll back blindly.
+    if [[ "$recovery_failed" = 0 && "$(git rev-parse HEAD)" = "$TARGET" ]]; then
+      systemctl restart stroyka || recovery_failed=1
+      systemctl is-active --quiet stroyka || recovery_failed=1
+    else
+      recovery_failed=1
+    fi
+    printf '%s\n' 'manual-recovery-required: target code retained; verify runtime and frontend before recovery' > "$RELEASE_BACKUP/recovery-status.txt"
+    recovery_failed=1
+  fi
+  if [[ "$recovery_failed" != 0 ]]; then
+    echo "АВТОМАТИЧЕСКИЙ ОТКАТ НЕ ПОДТВЕРЖДЁН. Требуется проверка runtime, прав доступа и интерфейса."
+  fi
+  echo "Включение остановлено. Резерв сохранён: $RELEASE_BACKUP."
   exit "$status"
 }
 trap rollback ERR
@@ -90,10 +123,14 @@ printf '%s\n' '[Service]' 'Environment=PARTICIPANT_HISTORY_MERGE_ENABLED=1' > "$
 systemctl daemon-reload
 export DEPLOY_LOCK_FILE="$RELEASE_BACKUP/deploy-inner.lock"
 export SMOKE_BUSINESS_READ_ONLY=1
+DEPLOY_STARTED=1
 bash "$RELEASE_BACKUP/deploy-reviewed.sh"
 python3 - <<'PY'
-import hashlib,json,os,subprocess,urllib.request
+import json,os,subprocess,urllib.request
 from html.parser import HTMLParser
+import sys
+sys.path.insert(0,os.environ['RELEASE_BACKUP'])
+from participant_merge_release import verify_assets, write_pending
 from pathlib import Path
 from backend.db import get_db
 head=os.environ['RELEASE_TARGET']; base='https://stroyka26.pro'
@@ -120,8 +157,7 @@ try:
 finally: conn.close()
 manifest=json.loads(Path('build/asset-manifest.json').read_text())
 assert json.loads(fetch(base+'/asset-manifest.json'))==manifest
-for rel in manifest['entrypoints']:
-    assert hashlib.sha256(fetch(base+'/'+rel)).digest()==hashlib.sha256(Path('build',rel).read_bytes()).digest()
+asset_count=verify_assets(Path('build'),manifest,fetch,base)
 published=fetch(base+'/app').decode()
 assert published==Path('build/index.html').read_text()
 class Modes(HTMLParser):
@@ -138,8 +174,8 @@ wanted={'stroyka-participant-support','stroyka-participant-connections','stroyka
 assert all(modes.values.get(name)=='1' for name in wanted)
 assert all(value==('1' if name in wanted else '0') for name,value in modes.values.items())
 backup=Path(os.environ['RELEASE_BACKUP'])
-(backup/'deployed.json').write_text(json.dumps({'head':head,'participantSupportEnabled':True,'participantConnectionsEnabled':True,'participantHistoryMergeEnabled':True,'checks':{'backend':True,'database':True,'frontend':True,'browser':False}})+'\n')
-print('ВКЛЮЧЕНО: объединение дублей поставщиков. Версия:',head[:12])
+write_pending(backup,head,asset_count)
+print('УСТАНОВЛЕНО, НО НЕ ПРИНЯТО В БРАУЗЕРЕ. Версия:',head[:12])
 print('Карточки поставщиков пока не объединены: выполните проверку в кабинете администратора.')
 print('РЕЗЕРВ:',backup)
 PY

@@ -9,6 +9,7 @@ import {
   SOURCE_FILTERS,
   SUPPLIER_SOURCE_META,
   groupSuppliers,
+  groupCompanySuppliers,
   hasSupplierLegalIdentity,
   normalizeSupplierNameKey,
   sourceMeta,
@@ -94,7 +95,8 @@ function SupplySuppliersPanel({
   btnGr,
   btnR,
   user,
-  suppliers,
+  suppliers: suppliedSuppliers,
+  companyId,
   supplierCategories,
   showForm,
   setShowForm,
@@ -120,11 +122,18 @@ function SupplySuppliersPanel({
   uploadPhoto,
   supplierLinkFocus = null,
 }) {
+  const suppliers = React.useMemo(() => suppliedSuppliers.filter(supplier =>
+    !supplier.companySupplierLinkId || companyId == null || Number(supplier.companyId) === Number(companyId)
+  ), [suppliedSuppliers, companyId]);
   const [openedSupplierId, setOpenedSupplierId] = React.useState(null);
   const [sourceFilter, setSourceFilter] = React.useState('all');
   const [mergeSupplier, setMergeSupplier] = React.useState(null);
-  const catalogCompanyId = suppliers[0]?.companyId;
-  React.useEffect(()=>setMergeSupplier(null), [catalogCompanyId]);
+  const catalogCompanyId = companyId ?? suppliers[0]?.companyId;
+  React.useEffect(() => {
+    setMergeSupplier(null);
+    setOpenedSupplierId(null);
+    setSourceFilter('all');
+  }, [catalogCompanyId]);
   const [collapsedCategories, setCollapsedCategories] = React.useState(() => new Set());
   const canEditSuppliers = ['директор','зам_директора','кладовщик','снабженец','бухгалтер'].includes(user?.role || '');
   const canSaveNewSupplier = Boolean(newSupplier?.name?.trim()) && hasSupplierLegalIdentity(newSupplier);
@@ -217,9 +226,18 @@ function SupplySuppliersPanel({
   };
 
   const supplierGroups = React.useMemo(() => suppliers.some(s => s.companySupplierLinkId)
-    ? suppliers.flatMap(s => groupSuppliers([s])) : groupSuppliers(suppliers), [suppliers]);
+    ? groupCompanySuppliers(suppliers) : groupSuppliers(suppliers), [suppliers]);
 
   React.useEffect(() => {
+    setOpenedSupplierId(previous => {
+      if (previous == null) return null;
+      const group = supplierGroups.find(supplier => (supplier._supplierIds || [supplier.id]).map(Number).includes(Number(previous)));
+      return group?.id ?? null;
+    });
+  }, [supplierGroups]);
+
+  React.useEffect(() => {
+    if (supplierLinkFocus?.companyId != null && Number(supplierLinkFocus.companyId) !== Number(catalogCompanyId)) return;
     const focusedId=Number(supplierLinkFocus?.supplierId || 0);
     if(!focusedId)return;
     const group=supplierGroups.find(s => Number(s.id)===focusedId ||
@@ -230,7 +248,7 @@ function SupplySuppliersPanel({
     setCollapsedCategories(prev => {
       const next=new Set(prev);next.delete(group.category || 'Прочее');return next;
     });
-  },[supplierLinkFocus,supplierGroups]);
+  },[supplierLinkFocus,supplierGroups,catalogCompanyId]);
 
   const categories = React.useMemo(() => {
     const seen = new Set();
@@ -253,7 +271,9 @@ function SupplySuppliersPanel({
     const linkedInvoices = invoiceDedupe.rows;
     const linkedSupplierInvoices = supplierInvoiceDedupe.rows;
     const linkedDeliveries = deliveryDedupe.rows;
-    const linkedOffers = (supplierOffers || []).filter(offer => (supplier._supplierIds || []).map(String).includes(String(offer.supplierId || offer.supplier_id || '')));
+    const linkedOffers = (supplierOffers || []).filter(offer => supplier._companyScoped
+      ? supplierMatchesRecord(supplier, offer)
+      : (supplier._supplierIds || []).map(String).includes(String(offer.supplierId || offer.supplier_id || '')));
     const linkedCatalog = (supplierCatalog || []).filter(item => supplierMatchesRecord(supplier, item));
     const materialNames = new Set();
 
@@ -583,7 +603,7 @@ function SupplySuppliersPanel({
                         <b style={{color:C.text,fontSize:'13px',overflowWrap:'anywhere'}}>{supplier.name}</b>
                         <span title={sourceInfo.detail || sourceInfo.types.map(type => sourceMeta(type).label).join(', ')} style={{fontSize:'11px',fontWeight:'700',color:primarySourceMeta.color,padding:'2px 7px',borderRadius:'999px',backgroundColor:C.bg,border:'1px solid '+primarySourceMeta.color}}>{primarySourceMeta.label}</span>
                         {reviewInfo.needsReview && <span title={reviewInfo.reasons.join('; ')} style={{fontSize:'11px',fontWeight:'700',color:C.warning,padding:'2px 7px',borderRadius:'999px',backgroundColor:C.warningLight,border:'1px solid '+C.warningBorder}}>проверить</span>}
-                        {supplier._duplicateCount > 1 && <span style={{fontSize:'11px',fontWeight:'700',color:C.warning,padding:'2px 7px',borderRadius:'999px',backgroundColor:C.warningLight,border:'1px solid '+C.warningBorder}}>дублей: {supplier._duplicateCount}</span>}
+                        {supplier._duplicateCount > 1 && <span style={{fontSize:'11px',fontWeight:'700',color:C.warning,padding:'2px 7px',borderRadius:'999px',backgroundColor:C.warningLight,border:'1px solid '+C.warningBorder}}>{supplier._companyScoped ? 'объединено карточек: ' : 'дублей: '}{supplier._duplicateCount}</span>}
                         {possibleDuplicates.length > 0 && <span title="Похожие названия требуют проверки. Проверка кабинета находится в Администратор → Организации → Участники и доступ → Поставщики." style={{fontSize:'11px',fontWeight:'700',color:C.warning,padding:'2px 7px',borderRadius:'999px',backgroundColor:C.warningLight,border:'1px solid '+C.warningBorder}}>возможных дублей: {possibleDuplicates.length}</span>}
                         {stats.duplicateDocumentsCount > 0 && <span title="Повторные строки документов скрыты из суммы и счетчиков" style={{fontSize:'11px',fontWeight:'700',color:C.warning,padding:'2px 7px',borderRadius:'999px',backgroundColor:C.warningLight,border:'1px solid '+C.warningBorder}}>дублей документов: {stats.duplicateDocumentsCount}</span>}
                         {isOpen ? <ChevronUp size={14} color={C.textSec}/> : <ChevronDown size={14} color={C.textSec}/>}
