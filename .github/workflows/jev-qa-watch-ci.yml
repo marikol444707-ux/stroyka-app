@@ -24,6 +24,7 @@ on:
       - 'scripts/test_jev_eis_documents.py'
       - 'scripts/jev_telegram*.py'
       - 'scripts/test_jev_telegram*.py'
+      - 'scripts/jev_commercial_search.py'
       - 'dev_control/eis_documents/**'
       - 'dev_control/certificates/**'
       - 'scripts/jev_avito_search.py'
@@ -65,6 +66,7 @@ jobs:
           python -m unittest scripts.test_jev_telegram -v
           python -m unittest scripts.test_jev_telegram_history -v
           python -m unittest scripts.test_jev_telegram_details -v
+          python -m py_compile scripts/jev_commercial_search.py scripts/jev_server_tools.py scripts/jev_control.py
           python -m unittest dev_control.browser_worker.test_container_contract.BrowserWorkerContainerContractTest.test_docker_context_allowlists_code_and_excludes_untracked_secrets -v
           bash -n scripts/install_jev_qa_watch.sh
 

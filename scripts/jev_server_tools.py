@@ -8,12 +8,14 @@ import subprocess
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('operation', choices=['status', 'demo', 'avito', 'eis', 'eis-search', 'eis-review'])
-    parser.add_argument('--query', default='электромонтаж')
+    parser.add_argument('operation', choices=['status', 'demo', 'avito', 'eis', 'eis-search', 'eis-review', 'commercial-search'])
+    parser.add_argument('--query')
     parser.add_argument('--stavropol-open', action='store_true', help='44-ФЗ: Ставропольский край, только подача заявок')
     parser.add_argument('--notice', help='Наблюдавшаяся ссылка на карточку закупки 44-ФЗ')
     args=parser.parse_args()
     if args.operation=='eis-review' and not args.notice:parser.error('--notice is required for eis-review')
+    if args.operation == 'commercial-search' and args.query is not None:
+        parser.error('--query is not configurable for commercial-search')
     if args.notice and args.operation!='eis-review':parser.error('--notice requires eis-review')
     if args.stavropol_open and args.operation != 'eis-search':
         parser.error('--stavropol-open requires eis-search')
@@ -26,6 +28,15 @@ def main():
             try:fcntl.flock(lock,fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:return {'ok':False,'status':'busy'}
             return run(args.notice)
+    if args.operation == 'commercial-search':
+        from jev_commercial_search import probe
+        import fcntl
+        # Share the browser lock with public EIS runs; both use a disposable
+        # Chrome container and the same bounded host resources.
+        with open('/run/lock/stroyka-eis-probe.lock', 'a') as lock:
+            try: fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError: return {'ok': False, 'status': 'busy'}
+            return probe()
     if args.operation in {'eis', 'eis-search'}:
         from jev_eis_probe import probe
         # Serialise these resource-heavy browser probes separately from Jev's worker.
@@ -33,7 +44,8 @@ def main():
         with open('/run/lock/stroyka-eis-probe.lock','a') as lock:
             try: fcntl.flock(lock,fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError: return {'ok':False,'status':'busy'}
-            return probe(args.query if args.operation == 'eis-search' else None, args.stavropol_open)
+            query = args.query or 'электромонтаж'
+            return probe(query if args.operation == 'eis-search' else None, args.stavropol_open)
     operation='health' if args.operation=='status' else args.operation
     request={'operation':operation}
     if operation=='avito': request['query']='кирпич б/у'

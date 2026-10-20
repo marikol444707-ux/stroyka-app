@@ -15,10 +15,13 @@ STATE_DIR = Path('/var/lib/stroyka-jev-control')
 LOCK = str(STATE_DIR / 'operation.lock')
 
 
-def ssh_command():
+def ssh_command(operation=None):
+    remote = ('sudo -n stroyka-jev commercial-search'
+              if operation == 'commercial-search'
+              else 'sudo -n python3 /usr/local/libexec/stroyka-jev-control/jev_control.py --server')
     return ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8', '-o',
             'StrictHostKeyChecking=yes', 'stroyka-dev-agent',
-            'sudo -n python3 /usr/local/libexec/stroyka-jev-control/jev_control.py --server']
+            remote]
 
 
 def recovery_decision(state: dict, *, healthy: bool, now: float):
@@ -88,8 +91,8 @@ def server(request: dict):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('operation', nargs='?', choices=['status', 'demo', 'avito', 'watchdog'])
-    parser.add_argument('--query', default='кирпич б/у')
+    parser.add_argument('operation', nargs='?', choices=['status', 'demo', 'avito', 'commercial-search', 'watchdog'])
+    parser.add_argument('--query')
     parser.add_argument('--server', action='store_true')
     args = parser.parse_args()
     try:
@@ -99,11 +102,13 @@ def main():
             result = server(request)
         else:
             operation = args.operation or 'status'
+            if operation == 'commercial-search' and args.query is not None:
+                parser.error('--query is not configurable for commercial-search')
             request = {'operation': 'health' if operation == 'status' else operation}
             if operation == 'avito':
-                request['query'] = args.query
-            response = subprocess.run(ssh_command(), input=json.dumps(request),
-                capture_output=True, text=True, timeout=125)
+                request['query'] = args.query or 'кирпич б/у'
+            response = subprocess.run(ssh_command(operation), input=json.dumps(request),
+                capture_output=True, text=True, timeout=240 if operation == 'commercial-search' else 125)
             if response.returncode == 255 or not response.stdout.strip():
                 result = {'ok': False, 'status': 'ssh_unavailable', 'exit_code': response.returncode}
             else:

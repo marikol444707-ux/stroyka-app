@@ -120,6 +120,26 @@ still need individual checks for delivery place, stage and exact deadline.
 The flag does not cover 223-FZ or procurement under government decree 615.
 It does not assess bidder eligibility or automatically submit applications.
 
+## Commercial construction leads on B2B-Center
+
+`python3 scripts/jev_control.py commercial-search` runs a one-time, public,
+read-only search for current construction, repair and finishing procedure
+candidates in the Stavropol region. It checks twelve configured city/region names
+against the rendered B2B-Center search form and current-results tab, then
+deduplicates procedure IDs and filters unrelated work, other regions and expired
+deadlines. It reports the first page of each query only.
+
+B2B-Center exposes keyword search without sign-in, but the public form says its
+additional filters and saved templates require registration. The regional
+search therefore has incomplete coverage. The public card may not disclose
+whether a notice belongs to the site's commercial or 223-FZ section; such
+records remain in “Нужно проверить” and are never presented as confirmed
+commercial tenders. The report contains the organizer, subject, displayed
+region, deadline and price when public, plus the original procedure link.
+Details and participation may require a B2B-Center account or tariff. Jev does
+not register, pay, download restricted files, contact organizers, or submit an
+offer. No LLM is called for this search.
+
 ## Следующий этап: документы закупки
 
 Проверка оригиналов, OCR, смет, требований и подготовка короткого отчёта
