@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 import time
 from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from uuid import uuid4
 
@@ -20,6 +21,7 @@ FABRIKANT_HOST = 'fabrikant.ru'
 ETPGPB_HOST = 'etpgpb.ru'
 SBER_HOST = 'www.sberbank-ast.ru'
 SBER_PROCEDURE_HOST = 'utp.sberbank-ast.ru'
+TEKTORG_HOST = 'www.tektorg.ru'
 IMAGE = 'sha256:8c231608d909734fee19e3ce851ca1725fd6e4e84f20fb5f8a4288a06823ef0d'
 MSK = timezone(timedelta(hours=3))
 TERMS = ('Ставрополь', 'Ставропольский край', 'Невинномысск', 'Пятигорск', 'Кисловодск',
@@ -41,6 +43,12 @@ def search_url(term):
     # Parameters observed after submitting the public form, not protected filters.
     return BASE + '?' + urlencode(dict(q=term, company_type='2', include_firm_tree='false',
                                        sort='date_desc', trade='buy', show='actual'))
+
+
+def tektorg_search_url(term):
+    if not isinstance(term, str) or not 1 <= len(term) <= 80:
+        raise ValueError('Invalid search term')
+    return 'https://' + TEKTORG_HOST + '/223-fz/procedures?' + urlencode({'name': term})
 
 
 def sber_search_url(term, now=None):
@@ -139,6 +147,9 @@ def procedure_url(row):
     if provider == 'Сбер А' and parsed.netloc == SBER_PROCEDURE_HOST and re.fullmatch(
             r'/VIP/NBT/PurchaseView/[0-9]+/[0-9]+/[0-9]+/[0-9]+', parsed.path):
         return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, '', ''))
+    if provider == 'ТЭК-Торг' and parsed.netloc == TEKTORG_HOST and re.fullmatch(
+            r'/223-fz/procedures/[0-9]+', parsed.path):
+        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, '', ''))
     raise ValueError('Unexpected procedure URL')
 
 
@@ -173,6 +184,8 @@ def assess(row, now):
         if row.get('source') == 'B2B-Center' and not result['url'].endswith('/tender-' + str(row['id']) + '/'):
             raise ValueError('Procedure identity mismatch')
         if row.get('source') == 'Росэлторг' and urlsplit(result['url']).path.split('/')[2] != str(row['id']):
+            raise ValueError('Procedure identity mismatch')
+        if row.get('source') == 'ТЭК-Торг' and urlsplit(result['url']).path.rsplit('/', 1)[-1] != str(row['procedure_record_id']):
             raise ValueError('Procedure identity mismatch')
     except (KeyError, ValueError):
         return dict(result, decision='excluded', reasons=['invalid_source'])
@@ -222,7 +235,7 @@ def build_report(rows, sources, now=None):
             reason = row['reasons'][0] if row['reasons'] else 'other'
             excluded[reason] = excluded.get(reason, 0) + 1
     return {'generated_at': now.isoformat(), 'region': 'Ставропольский край',
-            'coverage': 'Первые страницы B2B-Center по 12 городам, Росэлторга, Фабриканта, публичный поиск ЭТП ГПБ и Сбер А по региону и сроку; охват неполный',
+            'coverage': 'Первые страницы B2B-Center по 12 городам, Росэлторга, Фабриканта, публичный поиск ЭТП ГПБ, Сбер А и ТЭК-Торг; охват неполный',
             'sources': sources, 'confirmed': [x for x in assessed if x['decision'] == 'confirmed'],
             'review': [x for x in assessed if x['decision'] == 'review'],
             'excluded': excluded,
@@ -264,6 +277,159 @@ def public_get(url):
         if response.status != 200 or 'text/html' not in response.headers.get('Content-Type',''):
             raise RuntimeError('Public source did not return HTML')
         return response.geturl(), response.read().decode('utf-8','replace')
+
+
+def tektorg_public_get(url):
+    """Retry one idempotent public read after a temporary gateway/rate error."""
+    try:
+        return public_get(url)
+    except HTTPError as exc:
+        if exc.code not in (429, 502, 503, 504):
+            raise
+        try:
+            delay = min(5.0, max(0.5, float(exc.headers.get('Retry-After', '1.5'))))
+        except (AttributeError, TypeError, ValueError):
+            delay = 1.5
+        time.sleep(delay)
+    return public_get(url)
+
+
+def tektorg_page_data(body):
+    """Extract the public page's server-rendered procedure list."""
+    match = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', body, re.S)
+    if not match:
+        raise RuntimeError('TЭК-Торг page has no server-rendered data')
+    try:
+        props = json.loads(match.group(1)).get('props', {}).get('pageProps', {})
+        listing = props.get('initialReduxState', {}).get('listingProcedures', {})
+    except (AttributeError, TypeError, ValueError):
+        raise RuntimeError('Invalid TЭК-Торг server-rendered data')
+    if not isinstance(props, dict) or not isinstance(listing, dict):
+        raise RuntimeError('Invalid TЭК-Торг result structure')
+    rows = listing.get('data')
+    if not isinstance(rows, list) or not isinstance(listing.get('total'), int):
+        raise RuntimeError('TЭК-Торг result list is incomplete')
+    return props, listing, rows
+
+
+def tektorg_search_checks(landed, props, listing, rows, term):
+    parsed = urlsplit(landed)
+    params = parse_qs(parsed.query)
+    page_title = str((props.get('meta') or {}).get('title') or '')
+    section_filter = listing.get('sectionsCodes') or {}
+    total, total_pages, status = listing.get('total'), listing.get('totalPages'), listing.get('status')
+    counts_consistent = (isinstance(total, int) and total >= 0 and
+                         isinstance(total_pages, int) and total_pages >= 0 and
+                         len(rows) <= total and
+                         ((total == 0 and not rows and total_pages >= 1) or
+                          (total > 0 and bool(rows) and total_pages >= 1)))
+    return {
+        'official_search_page': parsed.scheme == 'https' and parsed.netloc == TEKTORG_HOST and parsed.path == '/223-fz/procedures',
+        'term_preserved': params.get('name') == [term],
+        'mixed_section_identified': '223-ФЗ' in page_title and section_filter.get('sectionsCodes[0]') == 'zakupki',
+        'result_shape': len(rows) <= 15 and counts_consistent and status in ('success', 'loading'),
+        'empty_result_consistent': (total == 0 and not rows and total_pages >= 1 and status == 'loading') or
+                                   (total > 0 and bool(rows) and status == 'success'),
+    }
+
+
+def tektorg_row(item):
+    if not isinstance(item, dict) or not item.get('id') or not item.get('registryNumber'):
+        raise ValueError('Invalid TЭК-Торг procedure row')
+    title = str(item.get('title') or '').strip()
+    if not title:
+        raise ValueError('Missing TЭК-Торг procedure title')
+    record_id = str(item['id'])
+    url = 'https://' + TEKTORG_HOST + '/223-fz/procedures/' + record_id
+    procedure_url({'source': 'ТЭК-Торг', 'url': url})
+    dates = item.get('dates') if isinstance(item.get('dates'), dict) else {}
+    deadline = dates.get('dateEndRegistration') or ''
+    if deadline:
+        parsed_deadline = datetime.fromisoformat(deadline.replace('Z', '+00:00'))
+        if parsed_deadline.tzinfo is None:
+            parsed_deadline = parsed_deadline.replace(tzinfo=MSK)
+        deadline = parsed_deadline.astimezone(MSK).strftime('%d.%m.%Y %H:%M')
+    points = item.get('geoPoints') or []
+    places = []
+    for point in points:
+        if not isinstance(point, dict):
+            continue
+        name = str(point.get('okato_name') or '').strip()
+        if name and str(point.get('okato') or '') != '-1':
+            places.append(name)
+    place = ', '.join(dict.fromkeys(places))
+    region_match = REGION.search(place or title)
+    region = region_match.group(0) if region_match else ''
+    region_scope = 'worksite' if place else ('title_text' if region else 'unknown')
+    return {
+        'source': 'ТЭК-Торг', 'id': str(item['registryNumber']),
+        'procedure_record_id': record_id, 'url': url, 'title': title[:1800],
+        'organizer': str(item.get('organizerName') or '')[:300],
+        'procedure_type': str(item.get('typeCustomName') or item.get('typeName') or '')[:200],
+        # This public section combines 223-FЗ and commercial procedures.
+        # Regime stays unknown until the individual procedure distinguishes it.
+        'region': region, 'place': place, 'region_scope': region_scope,
+        'regime': '', 'status': str(item.get('statusName') or '')[:120],
+        'deadline': deadline,
+        'price': str(item.get('sumPrice') or 'Цена не указана')[:120],
+    }
+
+
+def tektorg_source(now=None):
+    """Read a small, public set of current construction searches from SSR pages."""
+    now = now or datetime.now(MSK)
+    terms = ('Ставрополь ремонт', 'Ставрополь строительство',
+             'Ставрополь капитальный ремонт', 'Невинномысск ремонт')
+    rows, sources = [], []
+    for term in terms:
+        url = tektorg_search_url(term)
+        try:
+            landed, body = tektorg_public_get(url)
+            props, listing, page_rows = tektorg_page_data(body)
+            checks = tektorg_search_checks(landed, props, listing, page_rows, term)
+            valid = all(checks.values())
+            found = []
+            if valid:
+                for item in page_rows:
+                    if not isinstance(item, dict):
+                        continue
+                    if item.get('statusName') != 'Приём заявок':
+                        continue
+                    title = str(item.get('title') or '')
+                    if not WORK.search(title) or not REGION.search(title):
+                        continue
+                    date_value = (item.get('dates') or {}).get('dateEndRegistration')
+                    if not date_value:
+                        continue
+                    try:
+                        deadline = datetime.fromisoformat(str(date_value).replace('Z', '+00:00'))
+                        if deadline.tzinfo is None:
+                            deadline = deadline.replace(tzinfo=MSK)
+                        if deadline.astimezone(MSK) <= now.astimezone(MSK):
+                            continue
+                    except ValueError:
+                        continue
+                    try:
+                        found.append(tektorg_row(item))
+                    except (KeyError, TypeError, ValueError):
+                        continue
+                rows.extend(found)
+            source = {'provider': 'ТЭК-Торг · 223-ФЗ и коммерческие', 'query': term,
+                      'ok': valid,
+                      'status': ('observed_first_page' if found else 'no_active_results') if valid else 'search_not_verified',
+                      'rows': len(found), 'url': landed,
+                      'mixed_regime': True, 'first_page_only': True}
+            if not valid:
+                source['failed_checks'] = [name for name, passed in checks.items() if not passed]
+            sources.append(source)
+            if not valid:
+                break
+        except Exception as exc:
+            sources.append({'provider': 'ТЭК-Торг · 223-ФЗ и коммерческие', 'query': term,
+                            'ok': False, 'status': 'source_unavailable',
+                            'error_type': type(exc).__name__, 'rows': 0})
+            break
+    return rows, sources
 
 
 def public_get_json(url):
@@ -605,8 +771,9 @@ async def worker():
         rosel_rows,rosel_sources=rosel_source()
         fabrikant_rows,fabrikant_sources=fabrikant_source()
         gpb_rows, gpb_sources = etpgpb_source()
-        rows.extend(rosel_rows);rows.extend(fabrikant_rows);rows.extend(gpb_rows)
-        sources.extend(rosel_sources);sources.extend(fabrikant_sources);sources.extend(gpb_sources)
+        tektorg_rows, tektorg_sources = tektorg_source()
+        rows.extend(rosel_rows);rows.extend(fabrikant_rows);rows.extend(gpb_rows);rows.extend(tektorg_rows)
+        sources.extend(rosel_sources);sources.extend(fabrikant_sources);sources.extend(gpb_sources);sources.extend(tektorg_sources)
         return build_report(rows, sources)
     finally:
         chrome.terminate()
@@ -646,6 +813,8 @@ def render(report):
                 parts.append('<p><b>{}:</b> {}</p>'.format(title, esc(row.get(field) or 'Не указано')))
             if row.get('region_scope') == 'customer_region_filter':
                 parts.append('<p>Регион задан по заказчику; место выполнения работ нужно сверить в оригинале.</p>')
+            if row.get('region_scope') == 'title_text':
+                parts.append('<p>Регион найден только в названии; фактическое место работ нужно проверить в оригинале.</p>')
             parts.append('<p>Причины проверки: '+esc(', '.join(row['reasons']))+'</p>')
             parts.append('<a rel="noreferrer" href="'+esc(procedure_url(row))+'">Открыть оригинал</a></article>')
     for source in report['sources']:
