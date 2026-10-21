@@ -19246,6 +19246,19 @@ register_crm_leads_module(app, {
 })
 
 try:
+    from backend.features.job_candidates.routes import register_job_candidates_module
+except ModuleNotFoundError:
+    from features.job_candidates.routes import register_job_candidates_module
+
+register_job_candidates_module(app, {
+    "get_db": get_db,
+    "get_current_user": get_current_user,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
+    "allowed_roles": (*LEADERSHIP_ROLES, "менеджер_crm"),
+})
+
+try:
     from backend.features.brigade_lineage.writer_service import (
         insert_pricelist_contract_item,
         write_estimate_contract_item,

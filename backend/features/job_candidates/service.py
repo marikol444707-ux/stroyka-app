@@ -1,0 +1,91 @@
+from datetime import datetime
+from decimal import Decimal, InvalidOperation
+from hashlib import sha256
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+
+_TRACKING_KEYS = {"fbclid", "gclid", "yclid", "ref", "source", "utm_campaign", "utm_medium", "utm_source", "utm_term"}
+_ALLOWED_SOURCES = {"eis", "public_web", "browser_agent", "manual"}
+
+
+def canonicalize_url(value):
+    raw = str(value or "").strip()
+    parts = urlsplit(raw)
+    if parts.scheme.lower() not in {"http", "https"} or not parts.hostname:
+        raise ValueError("Укажите публичную ссылку http или https")
+    if parts.username or parts.password:
+        raise ValueError("Ссылка не должна содержать логин или пароль")
+    host = parts.hostname.lower().rstrip(".")
+    if any(character.isspace() or ord(character) < 32 for character in host):
+        raise ValueError("Некорректный адрес источника")
+    try:
+        port = parts.port
+    except ValueError as error:
+        raise ValueError("Некорректный адрес источника") from error
+    netloc = host
+    if port and not ((parts.scheme.lower() == "http" and port == 80) or (parts.scheme.lower() == "https" and port == 443)):
+        netloc = f"{host}:{port}"
+    query = [(key, item) for key, item in parse_qsl(parts.query, keep_blank_values=True)
+             if key.lower() not in _TRACKING_KEYS and not key.lower().startswith("utm_")]
+    normalized = urlunsplit((parts.scheme.lower(), netloc, parts.path.rstrip("/"), urlencode(query, doseq=True), ""))
+    if len(normalized) > 4000:
+        raise ValueError("Ссылка источника слишком длинная")
+    return normalized
+
+
+def _optional_date(value, label):
+    if value in (None, ""):
+        return None
+    text = str(value).strip()
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise ValueError(f"Поле «{label}» должно содержать дату ISO 8601") from error
+
+
+def _optional_price(value):
+    if value in (None, ""):
+        return None
+    try:
+        price = Decimal(str(value).replace(" ", "").replace(",", "."))
+    except (InvalidOperation, ValueError) as error:
+        raise ValueError("Цена должна быть числом") from error
+    if not price.is_finite() or price < 0:
+        raise ValueError("Цена должна быть конечным неотрицательным числом")
+    return str(price)
+
+
+def build_candidate_record(payload):
+    data = payload if isinstance(payload, dict) else {}
+    source = str(data.get("source") or "").strip().lower()
+    if source not in _ALLOWED_SOURCES:
+        raise ValueError("Неизвестный источник находки")
+    url = canonicalize_url(data.get("url"))
+    title = str(data.get("title") or "").strip()
+    if not title:
+        raise ValueError("Укажите название закупки или заказа")
+    if len(title) > 500:
+        raise ValueError("Название не должно превышать 500 символов")
+    item_id = str(data.get("sourceItemId") or data.get("source_item_id") or "").strip()
+    if len(item_id) > 255:
+        raise ValueError("Идентификатор источника не должен превышать 255 символов")
+    work_types = data.get("workTypes", data.get("work_types", []))
+    if not isinstance(work_types, list):
+        raise ValueError("Виды работ должны быть списком")
+    work_types = list(dict.fromkeys(str(value).strip()[:120] for value in work_types if str(value or "").strip()))[:30]
+    return {
+        "source": source,
+        "source_name": str(data.get("sourceName") or data.get("source_name") or "").strip()[:100],
+        "source_item_id": item_id or None,
+        "identity_key": f"id:{item_id}" if item_id else f"url:{sha256(url.encode('utf-8')).hexdigest()}",
+        "url": url,
+        "title": title,
+        "description": str(data.get("description") or "").strip()[:10000],
+        "published_at": _optional_date(data.get("publishedAt", data.get("published_at")), "Дата публикации"),
+        "region": str(data.get("region") or "").strip()[:255],
+        "work_types": work_types,
+        "price": _optional_price(data.get("price")),
+        "deadline": _optional_date(data.get("deadline"), "Срок подачи"),
+        "evidence": str(data.get("evidence") or "").strip()[:4000],
+        "status": "Нужно проверить",
+    }

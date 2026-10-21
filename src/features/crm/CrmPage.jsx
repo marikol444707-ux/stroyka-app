@@ -3,6 +3,7 @@ import { AlertTriangle, Building2, Check, ClipboardList, Edit2, ExternalLink, Fi
 import DocumentRecognitionPanel from '../../components/DocumentRecognitionPanel';
 import PhotoAttachmentField from '../../components/PhotoAttachmentField';
 import { publicComparisonUrlFromLeadNotes } from './leadUtils';
+import OpportunityCandidatesPanel from './OpportunityCandidatesPanel';
 
 const EMPTY_LEAD = {
   name: '',
@@ -423,6 +424,7 @@ export default function CrmPage({
 
   return (
     <div style={{ width: '100%', maxWidth: '100%', minWidth: 0, overflowX: 'hidden' }}>
+      <OpportunityCandidatesPanel API={API} C={C} compact={compact} />
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '18px' }}>
         <div>
           <h3 style={{ color: C.text, margin: 0, fontSize: compact ? '15px' : '16px', fontWeight: 800 }}>CRM — входящие заявки</h3>
