@@ -24,6 +24,8 @@ SBER_PROCEDURE_HOST = 'utp.sberbank-ast.ru'
 TEKTORG_HOST = 'www.tektorg.ru'
 FEDTORGI_HOST = 'lk.fedtorgi.ru'
 FEDTORGI_API = 'https://' + FEDTORGI_HOST + '/api/v1/procedures/search'
+RTENDER_HOST = 'etp.r-tender.ru'
+RTENDER_SEARCH = 'https://' + RTENDER_HOST + '/searchServlet'
 IMAGE = 'sha256:8c231608d909734fee19e3ce851ca1725fd6e4e84f20fb5f8a4288a06823ef0d'
 MSK = timezone(timedelta(hours=3))
 TERMS = ('Ставрополь', 'Ставропольский край', 'Невинномысск', 'Пятигорск', 'Кисловодск',
@@ -128,9 +130,11 @@ def tender_url(url):
 def procedure_url(row):
     """Validate and canonicalize links from each explicitly supported source."""
     parsed = urlsplit(row.get('url', ''))
-    if parsed.scheme != 'https' or parsed.query or parsed.fragment:
+    if parsed.scheme != 'https' or parsed.fragment:
         raise ValueError('Unexpected procedure URL')
     provider = row.get('source')
+    if parsed.query and provider != 'Р-ТЕНДЕР':
+        raise ValueError('Unexpected procedure URL')
     # Older in-process callers may supply a B2B URL without the display label;
     # infer only this one provider from its exact HTTPS host.
     if provider is None and parsed.netloc == HOST:
@@ -155,6 +159,14 @@ def procedure_url(row):
     if provider == 'Торги Федерации' and parsed.netloc == 'etpp.ru' and re.fullmatch(
             r'/tenders/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}', parsed.path, re.I):
         return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, '', ''))
+    if provider == 'Р-ТЕНДЕР':
+        params = parse_qs(parsed.query, strict_parsing=True)
+        entity = params.get('LotCard.lotEntity', [])
+        if (parsed.netloc == RTENDER_HOST and parsed.path == '/app/LotCard/page' and
+                set(params) == {'LotCard.lotEntity'} and len(entity) == 1 and
+                re.fullmatch(r'LT:[A-Za-z0-9]+', entity[0])):
+            return urlunsplit((parsed.scheme, parsed.netloc, parsed.path,
+                               urlencode({'LotCard.lotEntity': entity[0]}), ''))
     raise ValueError('Unexpected procedure URL')
 
 
@@ -192,6 +204,10 @@ def assess(row, now):
             raise ValueError('Procedure identity mismatch')
         if row.get('source') == 'ТЭК-Торг' and urlsplit(result['url']).path.rsplit('/', 1)[-1] != str(row['procedure_record_id']):
             raise ValueError('Procedure identity mismatch')
+        if row.get('source') == 'Р-ТЕНДЕР':
+            entity = parse_qs(urlsplit(result['url']).query).get('LotCard.lotEntity', [''])[0]
+            if entity != 'LT:' + str(row['procedure_record_id']):
+                raise ValueError('Procedure identity mismatch')
     except (KeyError, ValueError):
         return dict(result, decision='excluded', reasons=['invalid_source'])
     if not WORK.search(row.get('title', '')):
@@ -206,6 +222,8 @@ def assess(row, now):
             return dict(result, decision='excluded', reasons=['sale_not_procurement'])
         if not re.search(r'закуп|поставк|подряд|запрос предложений', procedure_type, re.I):
             result['reasons'].append('procedure_type_unknown')
+    if row.get('source') == 'Р-ТЕНДЕР' and row.get('region_scope') == 'title_text':
+        result['reasons'].append('work_location_needs_verification')
     place = '' if row.get('region_scope') == 'customer_region_filter' else row.get('place', row.get('region', ''))
     if not REGION.search(place):
         if REGION.search(row.get('title', '')):
@@ -240,7 +258,7 @@ def build_report(rows, sources, now=None):
             reason = row['reasons'][0] if row['reasons'] else 'other'
             excluded[reason] = excluded.get(reason, 0) + 1
     return {'generated_at': now.isoformat(), 'region': 'Ставропольский край',
-            'coverage': 'Первые страницы B2B-Center по 12 городам, Росэлторга, Фабриканта, публичный поиск ЭТП ГПБ, Сбер А, ТЭК-Торг и коммерческой секции Торгов Федерации; охват неполный',
+            'coverage': 'Первые страницы B2B-Center по 12 городам, Росэлторга, Фабриканта, публичный поиск ЭТП ГПБ, Сбер А, ТЭК-Торг, коммерческих секций Торгов Федерации и Р-ТЕНДЕР; охват неполный',
             'sources': sources, 'confirmed': [x for x in assessed if x['decision'] == 'confirmed'],
             'review': [x for x in assessed if x['decision'] == 'review'],
             'excluded': excluded,
@@ -481,6 +499,122 @@ def fedtorgi_source(now=None):
                             'ok': False, 'status': 'source_unavailable',
                             'error_type': type(exc).__name__, 'rows': 0,
                             'url': 'https://etpp.ru/tenders?section=SECTION_COMMERCIAL_PROCEDURES'})
+            break
+    return rows, sources
+
+
+def rtender_payload(term):
+    if not isinstance(term, str) or not 1 <= len(term) <= 64:
+        raise ValueError('Invalid search term')
+    return {'query': {'title': term, 'types': ['BUYING_COMMERCIAL']},
+            'filter': {'state': ['GD']}, 'sort': {'placementDate': False},
+            'limit': {'min': 0, 'max': 20, 'updateTotalCount': True}}
+
+
+def rtender_search_url(term):
+    payload = rtender_payload(term)
+    return RTENDER_SEARCH + '?' + urlencode({key: json.dumps(payload[key], ensure_ascii=False,
+                                                               separators=(',', ':'))
+                                                for key in ('query', 'filter', 'sort', 'limit')})
+
+
+def rtender_row(item):
+    if not isinstance(item, dict) or item.get('type') != 'BUYING_COMMERCIAL':
+        raise ValueError('Not a commercial R-Tender procedure')
+    state = item.get('state') or {}
+    if not isinstance(state, dict) or state.get('code') != 'PurchaseLot_St_Dmnds_Started':
+        raise ValueError('Not an open R-Tender procedure')
+    identifier = str(item.get('identifier') or '').strip()
+    entity = str(item.get('uuid') or '').strip()
+    if not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', identifier) or not re.fullmatch(r'[A-Za-z0-9]+', entity):
+        raise ValueError('Invalid R-Tender procedure identity')
+    url = str(item.get('lotLink') or '')
+    organizer = item.get('organizer') or {}
+    if not isinstance(organizer, dict):
+        raise ValueError('Invalid R-Tender organizer')
+    row = {'source': 'Р-ТЕНДЕР', 'id': identifier, 'procedure_record_id': entity,
+           'url': url, 'title': str(item.get('title') or '').strip()[:1500],
+           'organizer': str(organizer.get('title') or '')[:300],
+           'procedure_type': str(item.get('placementType') or '')[:200],
+           'region': '', 'place': str(item.get('title') or '').strip()[:1500],
+           'region_scope': 'title_text', 'regime': 'Коммерческая закупка',
+           'status': str(state.get('title') or ''),
+           'deadline': html.unescape(re.sub(r'<[^>]*>', '', str(item.get('gdEndDate') or ''))).replace('\xa0', ' ').replace('&nbsp;', ' ').replace(' МСК', '').strip(),
+           'price': html.unescape(re.sub(r'<[^>]*>', '', str(item.get('price') or 'Цена не указана'))).replace('\xa0', ' ').strip()}
+    if not row['title'] or not row['status']:
+        raise ValueError('Incomplete R-Tender procedure')
+    procedure_url(row)
+    return row
+
+
+def rtender_page_data(landed, payload, term):
+    parsed = urlsplit(landed)
+    query = parse_qs(parsed.query)
+    expected = rtender_search_url(term)
+    expected_params = parse_qs(urlsplit(expected).query)
+    checks = {
+        'official_endpoint': parsed.scheme == 'https' and parsed.netloc == RTENDER_HOST and parsed.path == '/searchServlet',
+        'commercial_type': query.get('query') == expected_params.get('query'),
+        'active_status': query.get('filter') == expected_params.get('filter'),
+        'sort': query.get('sort') == expected_params.get('sort'),
+        'first_page': query.get('limit') == expected_params.get('limit'),
+        'response_shape': isinstance(payload, dict) and isinstance(payload.get('list'), list) and
+                          isinstance(payload.get('totalCount'), int) and isinstance(payload.get('count'), int) and
+                          0 <= payload.get('count', -1) <= 20 and
+                          payload.get('count') == len(payload.get('list', [])) and
+                          payload.get('totalCount', -1) >= payload.get('count', 0),
+    }
+    if not all(checks.values()):
+        raise RuntimeError('R-Tender search filters or response were not verified')
+    return payload
+
+
+async def rtender_source(call, now=None):
+    """Read public active commercial procedures in the existing headless browser."""
+    terms = ('Ставрополь', 'Ставропольский край', 'Невинномысск', 'Пятигорск',
+             'Кисловодск', 'Ессентуки', 'Минеральные Воды', 'Михайловск',
+             'Будённовск', 'Георгиевск', 'Железноводск', 'Лермонтов')
+    rows, sources = [], []
+    for term in terms:
+        url = rtender_search_url(term)
+        try:
+            await call('Page.navigate', {'url': url})
+            landed, payload = '', None
+            end = time.monotonic() + 8
+            while time.monotonic() < end:
+                await asyncio.sleep(.25)
+                response = await call('Runtime.evaluate', {
+                    'expression': '(()=>({url:location.href,state:document.readyState,body:document.body?.innerText||""}))()',
+                    'returnByValue': True})
+                observed = response.get('result', {}).get('value') or {}
+                landed = str(observed.get('url') or '')
+                body = str(observed.get('body') or '').strip()
+                if landed == url and observed.get('state') == 'complete' and body.startswith('{'):
+                    payload = json.loads(body)
+                    break
+            if payload is None:
+                raise RuntimeError('R-Tender public JSON response was not rendered')
+            page = rtender_page_data(landed, payload, term)
+            found = []
+            for item in page['list']:
+                try:
+                    row = rtender_row(item)
+                except (KeyError, TypeError, ValueError):
+                    continue
+                # The query matches the title, not the worksite. Keep only local
+                # construction candidates; assess() leaves title-only location for review.
+                if WORK.search(row['title']) and REGION.search(row['title']):
+                    found.append(row)
+            rows.extend(found)
+            sources.append({'provider': 'Р-ТЕНДЕР · коммерческие', 'query': term,
+                            'ok': True, 'status': 'observed_first_page' if found else 'no_active_results',
+                            'rows': len(found), 'total_count': page['totalCount'],
+                            'truncated': page['totalCount'] > 20,
+                            'url': landed})
+        except Exception as exc:
+            sources.append({'provider': 'Р-ТЕНДЕР · коммерческие', 'query': term,
+                            'ok': False, 'status': 'source_unavailable',
+                            'error_type': type(exc).__name__, 'rows': 0, 'url': url})
             break
     return rows, sources
 
@@ -883,8 +1017,9 @@ async def worker():
         gpb_rows, gpb_sources = etpgpb_source()
         tektorg_rows, tektorg_sources = tektorg_source()
         fedtorgi_rows, fedtorgi_sources = fedtorgi_source()
-        rows.extend(rosel_rows);rows.extend(fabrikant_rows);rows.extend(gpb_rows);rows.extend(tektorg_rows);rows.extend(fedtorgi_rows)
-        sources.extend(rosel_sources);sources.extend(fabrikant_sources);sources.extend(gpb_sources);sources.extend(tektorg_sources);sources.extend(fedtorgi_sources)
+        rtender_rows, rtender_sources = await rtender_source(call)
+        rows.extend(rosel_rows);rows.extend(fabrikant_rows);rows.extend(gpb_rows);rows.extend(tektorg_rows);rows.extend(fedtorgi_rows);rows.extend(rtender_rows)
+        sources.extend(rosel_sources);sources.extend(fabrikant_sources);sources.extend(gpb_sources);sources.extend(tektorg_sources);sources.extend(fedtorgi_sources);sources.extend(rtender_sources)
         return build_report(rows, sources)
     finally:
         chrome.terminate()
