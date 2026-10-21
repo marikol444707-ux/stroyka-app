@@ -1,11 +1,70 @@
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from hashlib import sha256
+import re
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 
 _TRACKING_KEYS = {"fbclid", "gclid", "yclid", "ref", "source", "utm_campaign", "utm_medium", "utm_source", "utm_term"}
 _ALLOWED_SOURCES = {"eis", "public_web", "browser_agent", "manual"}
+
+
+def jev_report_items(report):
+    """Convert the public JEV search report into the narrow intake contract."""
+    if not isinstance(report, dict):
+        raise ValueError("Отчёт JEV должен быть объектом JSON")
+    selected = []
+    for decision in ("confirmed", "review"):
+        bucket = report.get(decision, [])
+        if not isinstance(bucket, list):
+            raise ValueError("Списки confirmed/review в отчёте JEV должны быть массивами")
+        for row in bucket:
+            if not isinstance(row, dict):
+                raise ValueError("Строка отчёта JEV должна быть объектом")
+            provider = str(row.get("source") or row.get("provider") or "JEV").strip()[:100]
+            item_id = str(row.get("id") or "").strip()
+            reasons = row.get("reasons") if isinstance(row.get("reasons"), list) else []
+            context = [str(row.get(key) or "").strip() for key in ("organizer", "procedure_type", "status")]
+            context.extend(str(reason).strip() for reason in reasons)
+            evidence = " · ".join(dict.fromkeys(value for value in context if value))[:4000]
+            deadline = row.get("deadline_msk") or row.get("deadline")
+            if deadline:
+                try:
+                    deadline = datetime.fromisoformat(str(deadline).replace("Z", "+00:00")).isoformat()
+                except ValueError:
+                    try:
+                        deadline = datetime.strptime(str(deadline), "%d.%m.%Y %H:%M").replace(
+                            tzinfo=timezone(timedelta(hours=3))
+                        ).isoformat()
+                    except ValueError:
+                        deadline = None
+            price = row.get("price")
+            if price not in (None, ""):
+                price_text = str(price).strip().lower().replace("₽", "").replace("руб.", "").replace("руб", "")
+                price_text = "".join(price_text.split())
+                if re.fullmatch(r"\d{1,3}(?:[.,]\d{3})+", price_text):
+                    price = re.sub(r"[.,]", "", price_text)
+                elif re.fullmatch(r"\d+(?:[.,]\d+)?", price_text):
+                    price = price_text.replace(",", ".")
+                else:
+                    price = None
+            selected.append({
+                "source": "browser_agent",
+                "sourceName": provider,
+                "sourceItemId": f"{provider}:{item_id}" if item_id else "",
+                "url": row.get("url"),
+                "title": row.get("title"),
+                "description": row.get("description") or "",
+                "publishedAt": row.get("published_at") or row.get("publishedAt"),
+                "region": row.get("place") or row.get("region") or report.get("region") or "",
+                "workTypes": row.get("work_types") or row.get("workTypes") or [],
+                "price": price,
+                "deadline": deadline,
+                "evidence": evidence or f"JEV decision: {decision}",
+            })
+    if len(selected) > 200:
+        raise ValueError("Отчёт JEV превышает лимит 200 кандидатов")
+    return selected
 
 
 def canonicalize_url(value):

@@ -65,7 +65,7 @@ class FakeConnection:
 
 
 class JobCandidateRouteTests(unittest.TestCase):
-    def build(self, cursor, *, context=None, roles=None):
+    def build(self, cursor, *, context=None, roles=None, jev_ingest_key="", jev_company_id=0):
         app = FakeApp()
         conn = FakeConnection(cursor)
         resolve_calls = []
@@ -83,6 +83,8 @@ class JobCandidateRouteTests(unittest.TestCase):
                 for role in (roles or ["директор"])
             ],
             "allowed_roles": ("директор", "менеджер_crm"),
+            "jev_ingest_key": jev_ingest_key,
+            "jev_company_id": jev_company_id,
         })
         return app, conn, resolve_calls
 
@@ -135,6 +137,35 @@ class JobCandidateRouteTests(unittest.TestCase):
         self.assertEqual(params[0], 8)
         self.assertEqual(conn.commits, 1)
         self.assertEqual(calls[0][0], "write")
+
+    def test_jev_ingest_requires_configured_key_and_scopes_to_fixed_company(self):
+        cursor = FakeCursor({"id": 8, "inserted": True})
+        app, conn, _ = self.build(cursor, jev_ingest_key="k" * 40, jev_company_id=8)
+        payload = {"region": "Ставропольский край", "confirmed": [{
+            "source": "B2B-Center", "id": "B2B-8", "url": "https://example.org/b2b-8", "title": "Ремонт кровли",
+        }], "review": [], "excluded": []}
+
+        with self.assertRaises(HTTPException) as bad_key:
+            app.routes[("POST", "/internal/jev/job-candidates")](payload, x_jev_ingest_key="wrong")
+        self.assertEqual(bad_key.exception.status_code, 401)
+        self.assertEqual(cursor.calls, [])
+
+        response = app.routes[("POST", "/internal/jev/job-candidates")](payload, x_jev_ingest_key="k" * 40)
+        self.assertEqual(response, {"ok": True, "companyId": 8, "received": 1, "created": 1,
+                                    "updated": 0, "sourcesChecked": 0, "sourcesUnavailable": 0})
+        self.assertEqual(conn.commits, 1)
+        self.assertEqual(cursor.calls[0][1], (8,))
+        self.assertEqual(cursor.calls[1][1][0], 8)
+        self.assertEqual(cursor.calls[1][1][-1], "JEV")
+
+    def test_jev_ingest_is_disabled_without_secret(self):
+        app, _conn, _ = self.build(FakeCursor(), jev_company_id=8)
+        with self.assertRaises(HTTPException) as raised:
+            app.routes[("POST", "/internal/jev/job-candidates")](
+                {"confirmed": [{"url": "https://example.org/x", "title": "Ремонт"}]},
+                x_jev_ingest_key="anything",
+            )
+        self.assertEqual(raised.exception.status_code, 503)
 
 
 if __name__ == "__main__":

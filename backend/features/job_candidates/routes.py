@@ -1,7 +1,40 @@
+import hmac
+import json
+
 import psycopg2.extras
 from fastapi import Depends, Header, HTTPException, Query
 
-from .service import build_candidate_record
+from .service import build_candidate_record, jev_report_items
+
+
+def _save_candidates(cur, *, company_id, candidates, created_by):
+    created = updated = 0
+    for candidate in candidates:
+        cur.execute("""
+            INSERT INTO public.crm_job_candidates (
+                company_id, source, source_name, source_item_id, identity_key, url, title, description,
+                published_at, region, work_types, price, deadline, evidence, status, created_by
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT DO UPDATE SET
+                source_item_id=COALESCE(crm_job_candidates.source_item_id, EXCLUDED.source_item_id),
+                source_name=EXCLUDED.source_name, title=EXCLUDED.title, description=EXCLUDED.description,
+                published_at=COALESCE(EXCLUDED.published_at, crm_job_candidates.published_at),
+                region=EXCLUDED.region, work_types=EXCLUDED.work_types,
+                price=COALESCE(EXCLUDED.price, crm_job_candidates.price),
+                deadline=COALESCE(EXCLUDED.deadline, crm_job_candidates.deadline),
+                evidence=EXCLUDED.evidence, last_seen_at=NOW(), updated_at=NOW()
+            RETURNING (xmax=0) AS inserted
+        """, (
+            company_id, candidate["source"], candidate["source_name"], candidate["source_item_id"], candidate["identity_key"],
+            candidate["url"], candidate["title"], candidate["description"], candidate["published_at"],
+            candidate["region"], psycopg2.extras.Json(candidate["work_types"]), candidate["price"],
+            candidate["deadline"], candidate["evidence"], candidate["status"], created_by,
+        ))
+        if cur.fetchone()["inserted"]:
+            created += 1
+        else:
+            updated += 1
+    return created, updated
 
 
 def register_job_candidates_module(app, deps):
@@ -10,6 +43,12 @@ def register_job_candidates_module(app, deps):
     resolve_work_company_context = deps["resolve_work_company_context"]
     effective_company_actors = deps["effective_company_actors"]
     allowed_roles = {str(role).strip() for role in deps["allowed_roles"]}
+    jev_ingest_key = str(deps.get("jev_ingest_key") or "").strip()
+    jev_company_id = deps.get("jev_company_id")
+    try:
+        jev_company_id = int(jev_company_id)
+    except (TypeError, ValueError):
+        jev_company_id = 0
 
     def selected_company(cur, user, action, company_id, company_mode):
         context = resolve_work_company_context(
@@ -136,33 +175,10 @@ def register_job_candidates_module(app, deps):
         updated = 0
         try:
             company_id = selected_company(cur, current_user, "write", x_company_id, x_company_mode)
-            for candidate in candidates:
-                cur.execute("""
-                    INSERT INTO public.crm_job_candidates (
-                        company_id, source, source_name, source_item_id, identity_key, url, title, description,
-                        published_at, region, work_types, price, deadline, evidence, status, created_by
-                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                    ON CONFLICT DO UPDATE SET
-                        source_item_id=COALESCE(crm_job_candidates.source_item_id, EXCLUDED.source_item_id),
-                        source_name=EXCLUDED.source_name, title=EXCLUDED.title, description=EXCLUDED.description,
-                        published_at=COALESCE(EXCLUDED.published_at, crm_job_candidates.published_at),
-                        region=EXCLUDED.region, work_types=EXCLUDED.work_types,
-                        price=COALESCE(EXCLUDED.price, crm_job_candidates.price),
-                        deadline=COALESCE(EXCLUDED.deadline, crm_job_candidates.deadline),
-                        evidence=EXCLUDED.evidence, last_seen_at=NOW(), updated_at=NOW()
-                    RETURNING id, (xmax=0) AS inserted
-                """, (
-                    company_id, candidate["source"], candidate["source_name"], candidate["source_item_id"], candidate["identity_key"],
-                    candidate["url"], candidate["title"], candidate["description"], candidate["published_at"],
-                    candidate["region"], psycopg2.extras.Json(candidate["work_types"]), candidate["price"],
-                    candidate["deadline"], candidate["evidence"], candidate["status"],
-                    str(current_user.get("name") or current_user.get("email") or ""),
-                ))
-                row = cur.fetchone()
-                if row["inserted"]:
-                    created += 1
-                else:
-                    updated += 1
+            created, updated = _save_candidates(
+                cur, company_id=company_id, candidates=candidates,
+                created_by=str(current_user.get("name") or current_user.get("email") or ""),
+            )
             conn.commit()
             return {"ok": True, "received": len(candidates), "created": created, "updated": updated}
         except HTTPException:
@@ -171,6 +187,49 @@ def register_job_candidates_module(app, deps):
         except Exception as error:
             conn.rollback()
             raise HTTPException(status_code=400, detail="Не удалось импортировать отчёт") from error
+        finally:
+            cur.close()
+            conn.close()
+
+    @app.post("/internal/jev/job-candidates")
+    def ingest_jev_report(data: dict, x_jev_ingest_key: str = Header(default="", alias="X-JEV-Ingest-Key")):
+        if len(jev_ingest_key) < 32 or jev_company_id <= 0:
+            raise HTTPException(status_code=503, detail="Импорт JEV не настроен")
+        if not hmac.compare_digest(x_jev_ingest_key, jev_ingest_key):
+            raise HTTPException(status_code=401, detail="Недействительные данные интеграции")
+        try:
+            body_size = len(json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+            if body_size > 1_000_000:
+                raise ValueError("Отчёт JEV превышает лимит размера")
+            items = jev_report_items(data)
+            if not items:
+                raise ValueError("В отчёте JEV нет подтверждённых находок или записей для проверки")
+            candidates = [build_candidate_record(item) for item in items]
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            cur.execute("SELECT id FROM companies WHERE id=%s", (jev_company_id,))
+            if cur.fetchone() is None:
+                raise HTTPException(status_code=503, detail="Организация JEV не настроена")
+            created, updated = _save_candidates(
+                cur, company_id=jev_company_id, candidates=candidates, created_by="JEV",
+            )
+            conn.commit()
+            return {"ok": True, "companyId": jev_company_id, "received": len(candidates),
+                    "created": created, "updated": updated,
+                    "sourcesChecked": len(data.get("sources", [])) if isinstance(data.get("sources"), list) else 0,
+                    "sourcesUnavailable": sum(
+                        1 for source in data.get("sources", [])
+                        if isinstance(source, dict) and source.get("ok") is not True
+                    ) if isinstance(data.get("sources"), list) else 0}
+        except HTTPException:
+            conn.rollback()
+            raise
+        except Exception as error:
+            conn.rollback()
+            raise HTTPException(status_code=400, detail="Не удалось принять отчёт JEV") from error
         finally:
             cur.close()
             conn.close()

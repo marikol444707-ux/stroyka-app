@@ -36,6 +36,8 @@ try:
         CLIENT_ERROR_LOGGING_ENABLED,
         CLIENT_ERROR_RATE_LIMIT_SECONDS,
         CORS_ORIGINS,
+        JEV_OPPORTUNITY_COMPANY_ID,
+        JEV_OPPORTUNITY_INGEST_KEY,
         PUBLIC_LEAD_LAST_SUBMIT as _PUBLIC_LEAD_LAST_SUBMIT,
         PUBLIC_LEAD_RATE_LIMIT_SECONDS,
         PUBLIC_SITE_COMPANY_ID,
@@ -69,6 +71,8 @@ except ModuleNotFoundError:
         CLIENT_ERROR_LOGGING_ENABLED,
         CLIENT_ERROR_RATE_LIMIT_SECONDS,
         CORS_ORIGINS,
+        JEV_OPPORTUNITY_COMPANY_ID,
+        JEV_OPPORTUNITY_INGEST_KEY,
         PUBLIC_LEAD_LAST_SUBMIT as _PUBLIC_LEAD_LAST_SUBMIT,
         PUBLIC_LEAD_RATE_LIMIT_SECONDS,
         PUBLIC_SITE_COMPANY_ID,
@@ -19256,6 +19260,8 @@ register_job_candidates_module(app, {
     "resolve_work_company_context": _resolve_work_company_context,
     "effective_company_actors": effective_company_actors,
     "allowed_roles": (*LEADERSHIP_ROLES, "менеджер_crm"),
+    "jev_ingest_key": JEV_OPPORTUNITY_INGEST_KEY,
+    "jev_company_id": JEV_OPPORTUNITY_COMPANY_ID,
 })
 
 try:
