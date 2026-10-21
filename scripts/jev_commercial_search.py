@@ -22,6 +22,8 @@ ETPGPB_HOST = 'etpgpb.ru'
 SBER_HOST = 'www.sberbank-ast.ru'
 SBER_PROCEDURE_HOST = 'utp.sberbank-ast.ru'
 TEKTORG_HOST = 'www.tektorg.ru'
+FEDTORGI_HOST = 'lk.fedtorgi.ru'
+FEDTORGI_API = 'https://' + FEDTORGI_HOST + '/api/v1/procedures/search'
 IMAGE = 'sha256:8c231608d909734fee19e3ce851ca1725fd6e4e84f20fb5f8a4288a06823ef0d'
 MSK = timezone(timedelta(hours=3))
 TERMS = ('Ставрополь', 'Ставропольский край', 'Невинномысск', 'Пятигорск', 'Кисловодск',
@@ -150,6 +152,9 @@ def procedure_url(row):
     if provider == 'ТЭК-Торг' and parsed.netloc == TEKTORG_HOST and re.fullmatch(
             r'/223-fz/procedures/[0-9]+', parsed.path):
         return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, '', ''))
+    if provider == 'Торги Федерации' and parsed.netloc == 'etpp.ru' and re.fullmatch(
+            r'/tenders/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}', parsed.path, re.I):
+        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, '', ''))
     raise ValueError('Unexpected procedure URL')
 
 
@@ -235,7 +240,7 @@ def build_report(rows, sources, now=None):
             reason = row['reasons'][0] if row['reasons'] else 'other'
             excluded[reason] = excluded.get(reason, 0) + 1
     return {'generated_at': now.isoformat(), 'region': 'Ставропольский край',
-            'coverage': 'Первые страницы B2B-Center по 12 городам, Росэлторга, Фабриканта, публичный поиск ЭТП ГПБ, Сбер А и ТЭК-Торг; охват неполный',
+            'coverage': 'Первые страницы B2B-Center по 12 городам, Росэлторга, Фабриканта, публичный поиск ЭТП ГПБ, Сбер А, ТЭК-Торг и коммерческой секции Торгов Федерации; охват неполный',
             'sources': sources, 'confirmed': [x for x in assessed if x['decision'] == 'confirmed'],
             'review': [x for x in assessed if x['decision'] == 'review'],
             'excluded': excluded,
@@ -373,6 +378,111 @@ def tektorg_row(item):
         'deadline': deadline,
         'price': str(item.get('sumPrice') or 'Цена не указана')[:120],
     }
+
+
+def fedtorgi_payload(term):
+    if not isinstance(term, str) or not 1 <= len(term) <= 80:
+        raise ValueError('Invalid search term')
+    return {'name': term, 'section_guid': '', 'customer': {'query_name': ''},
+            'sections': ['SECTION_COMMERCIAL_PROCEDURES'], 'method_guid': [],
+            'sort': 'SORT_START_BID_DATE',
+            'statuses': ['STATUS_ACTIVE', 'STATUS_ACCEPTING_APPLICATIONS']}
+
+
+def fedtorgi_page(payload, page):
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except (TypeError, ValueError):
+            raise RuntimeError('Invalid Торги Федерации JSON')
+    if not isinstance(payload, dict) or set(('data', 'page', 'limit', 'total_count')) - payload.keys():
+        raise RuntimeError('Invalid Торги Федерации response')
+    rows = payload['data']
+    if (not isinstance(rows, list) or payload.get('page') != page or
+            payload.get('limit') != 10 or not isinstance(payload.get('total_count'), int) or
+            payload['total_count'] < 0 or len(rows) > 10 or len(rows) > payload['total_count']):
+        raise RuntimeError('Inconsistent Торги Федерации response')
+    return payload
+
+
+def fedtorgi_row(item):
+    if (not isinstance(item, dict) or item.get('platform_type') != 'SECTION_COMMERCIAL_PROCEDURES' or
+            item.get('status') not in ('STATUS_ACTIVE', 'STATUS_ACCEPTING_APPLICATIONS') or
+            not re.fullmatch(r'[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}',
+                             str(item.get('id') or ''))):
+        raise ValueError('Invalid Торги Федерации procedure')
+    title = str(item.get('title') or '').strip()
+    if not title:
+        raise ValueError('Missing procedure title')
+    deadline = ''
+    raw_deadline = item.get('close_bid_date')
+    if raw_deadline:
+        parsed = datetime.fromisoformat(str(raw_deadline).replace('Z', '+00:00'))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=MSK)
+        deadline = parsed.astimezone(MSK).strftime('%d.%m.%Y %H:%M')
+    place = title if REGION.search(title) else ''
+    return {'source': 'Торги Федерации', 'id': str(item['id']),
+            'url': 'https://etpp.ru/tenders/' + str(item['id']),
+            'title': title[:1800], 'organizer': str(item.get('organizer_full_title') or
+                item.get('organizer_short_title') or '')[:300],
+            'procedure_type': str(item.get('type_localized') or '')[:200],
+            'region': REGION.search(place).group(0) if place else '', 'place': place,
+            'region_scope': 'title_text' if place else 'unknown',
+            'regime': 'Коммерческая закупка', 'status': str(item.get('status_localized') or ''),
+            'deadline': deadline, 'price': str(item.get('price_localized') or 'Цена не указана')[:120]}
+
+
+def fedtorgi_public_post(url, payload, page=1, limit=10):
+    parsed = urlsplit(url)
+    if (parsed.scheme != 'https' or parsed.netloc != FEDTORGI_HOST or
+            parsed.path != '/api/v1/procedures/search' or parsed.query or
+            type(page) is not int or not 1 <= page <= 5 or limit != 10):
+        raise ValueError('Unexpected Торги Федерации API request')
+    request = Request(url + '?page={}&limit=10'.format(page),
+                      data=json.dumps(payload, ensure_ascii=False).encode('utf-8'),
+                      headers={'User-Agent': 'Mozilla/5.0 (compatible; StroykaJev/1.0)',
+                               'Accept': 'application/json', 'Content-Type': 'application/json',
+                               'Origin': 'https://etpp.ru', 'Referer': 'https://etpp.ru/tenders'})
+    with urlopen(request, timeout=15) as response:
+        landed = urlsplit(response.geturl())
+        if (response.status != 200 or landed.scheme != 'https' or landed.netloc != FEDTORGI_HOST or
+                landed.path != '/api/v1/procedures/search' or
+                'application/json' not in response.headers.get('Content-Type', '')):
+            raise RuntimeError('Торги Федерации did not return first-party JSON')
+        return json.loads(response.read().decode('utf-8'))
+
+
+def fedtorgi_source(now=None):
+    """Read public active commercial procedures; match only regional wording in titles."""
+    terms = ('Ставрополь', 'Ставропольский край', 'Невинномысск', 'Пятигорск')
+    rows, sources = [], []
+    for term in terms:
+        payload = fedtorgi_payload(term)
+        try:
+            first = fedtorgi_page(fedtorgi_public_post(FEDTORGI_API, payload, 1, 10), 1)
+            page_count = max(1, (first['total_count'] + 9) // 10)
+            found = []
+            pages = min(page_count, 5)
+            for page in range(1, pages + 1):
+                current = first if page == 1 else fedtorgi_page(
+                    fedtorgi_public_post(FEDTORGI_API, payload, page, 10), page)
+                found.extend(fedtorgi_row(item) for item in current['data'])
+                if current['total_count'] != first['total_count']:
+                    raise RuntimeError('Торги Федерации count changed during search')
+            rows.extend(found)
+            sources.append({'provider': 'Торги Федерации · коммерческие', 'query': term,
+                            'ok': True, 'status': 'observed_first_pages' if found else 'no_active_results',
+                            'rows': len(found), 'total_count': first['total_count'],
+                            'truncated': page_count > pages,
+                            'url': 'https://etpp.ru/tenders?section=SECTION_COMMERCIAL_PROCEDURES'})
+        except Exception as exc:
+            sources.append({'provider': 'Торги Федерации · коммерческие', 'query': term,
+                            'ok': False, 'status': 'source_unavailable',
+                            'error_type': type(exc).__name__, 'rows': 0,
+                            'url': 'https://etpp.ru/tenders?section=SECTION_COMMERCIAL_PROCEDURES'})
+            break
+    return rows, sources
 
 
 def tektorg_source(now=None):
@@ -772,8 +882,9 @@ async def worker():
         fabrikant_rows,fabrikant_sources=fabrikant_source()
         gpb_rows, gpb_sources = etpgpb_source()
         tektorg_rows, tektorg_sources = tektorg_source()
-        rows.extend(rosel_rows);rows.extend(fabrikant_rows);rows.extend(gpb_rows);rows.extend(tektorg_rows)
-        sources.extend(rosel_sources);sources.extend(fabrikant_sources);sources.extend(gpb_sources);sources.extend(tektorg_sources)
+        fedtorgi_rows, fedtorgi_sources = fedtorgi_source()
+        rows.extend(rosel_rows);rows.extend(fabrikant_rows);rows.extend(gpb_rows);rows.extend(tektorg_rows);rows.extend(fedtorgi_rows)
+        sources.extend(rosel_sources);sources.extend(fabrikant_sources);sources.extend(gpb_sources);sources.extend(tektorg_sources);sources.extend(fedtorgi_sources)
         return build_report(rows, sources)
     finally:
         chrome.terminate()
