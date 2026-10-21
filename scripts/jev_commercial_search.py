@@ -17,6 +17,7 @@ HOST = 'www.b2b-center.ru'
 BASE = 'https://' + HOST + '/app/next/market-search'
 ROSELTORG_HOST = 'www.roseltorg.ru'
 FABRIKANT_HOST = 'fabrikant.ru'
+ETPGPB_HOST = 'etpgpb.ru'
 IMAGE = 'sha256:8c231608d909734fee19e3ce851ca1725fd6e4e84f20fb5f8a4288a06823ef0d'
 MSK = timezone(timedelta(hours=3))
 TERMS = ('Ставрополь', 'Ставропольский край', 'Невинномысск', 'Пятигорск', 'Кисловодск',
@@ -54,6 +55,10 @@ def procedure_url(row):
     if parsed.scheme != 'https' or parsed.query or parsed.fragment:
         raise ValueError('Unexpected procedure URL')
     provider = row.get('source')
+    # Older in-process callers may supply a B2B URL without the display label;
+    # infer only this one provider from its exact HTTPS host.
+    if provider is None and parsed.netloc == HOST:
+        provider = 'B2B-Center'
     if provider == 'B2B-Center':
         return tender_url(row['url'])
     if provider == 'Фабрикант' and parsed.netloc in ('www.fabrikant.ru', 'fabrikant.ru') and re.fullmatch(
@@ -61,6 +66,9 @@ def procedure_url(row):
         return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, '', ''))
     if provider == 'Росэлторг' and parsed.netloc == ROSELTORG_HOST and re.fullmatch(
             r'/procedure/[A-Za-z0-9_-]+/[0-9]+', parsed.path):
+        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, '', ''))
+    if provider == 'ЭТП ГПБ' and parsed.netloc == ETPGPB_HOST and re.fullmatch(
+            r'/procedures/[A-Za-z0-9_-]+/[A-Za-z0-9._-]+/?', parsed.path):
         return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, '', ''))
     raise ValueError('Unexpected procedure URL')
 
@@ -139,7 +147,7 @@ def build_report(rows, sources, now=None):
             reason = row['reasons'][0] if row['reasons'] else 'other'
             excluded[reason] = excluded.get(reason, 0) + 1
     return {'generated_at': now.isoformat(), 'region': 'Ставропольский край',
-            'coverage': 'Первые страницы B2B-Center по 12 городам, региональные открытые выдачи Росэлторга и Фабриканта; охват неполный',
+            'coverage': 'Первые страницы B2B-Center по 12 городам, открытые выдачи Росэлторга и Фабриканта, публичный активный поиск ЭТП ГПБ по региону; охват неполный',
             'sources': sources, 'confirmed': [x for x in assessed if x['decision'] == 'confirmed'],
             'review': [x for x in assessed if x['decision'] == 'review'],
             'excluded': excluded,
@@ -181,6 +189,20 @@ def public_get(url):
         if response.status != 200 or 'text/html' not in response.headers.get('Content-Type',''):
             raise RuntimeError('Public source did not return HTML')
         return response.geturl(), response.read().decode('utf-8','replace')
+
+
+def public_get_json(url):
+    """Read JSON only from the requested first-party ETP GPB API host."""
+    request = Request(url, headers={'User-Agent':'Mozilla/5.0 (compatible; StroykaJev/1.0)',
+                                    'Accept':'application/json'})
+    with urlopen(request, timeout=15) as response:
+        landed = response.geturl()
+        parsed = urlsplit(landed)
+        if (response.status != 200 or parsed.scheme != 'https' or
+                parsed.netloc != ETPGPB_HOST or not parsed.path.startswith('/api/v2/') or
+                'application/json' not in response.headers.get('Content-Type','')):
+            raise RuntimeError('Public source did not return first-party JSON')
+        return landed, json.loads(response.read().decode('utf-8'))
 
 
 def rosel_source():
@@ -245,6 +267,108 @@ def fabrikant_source():
     except Exception as exc:
         return [],[{'provider':'Фабрикант','query':'Ставропольский край · активные и ожидаемые',
                     'ok':False,'status':'source_unavailable','error_type':type(exc).__name__,'rows':0}]
+
+
+def etpgpb_row(item):
+    """Normalize one record from ETP GPB's public procedures API."""
+    if not isinstance(item, dict) or not isinstance(item.get('attributes'), dict):
+        raise ValueError('Invalid ETP GPB procedure record')
+    attrs = item['attributes']
+    path = attrs.get('rebranding_truncated_path') or attrs.get('truncated_path')
+    if not isinstance(path, str) or not path.startswith('/procedures/'):
+        raise ValueError('Missing ETP GPB public procedure path')
+    public_url = 'https://' + ETPGPB_HOST + path
+    procedure_url({'source': 'ЭТП ГПБ', 'url': public_url})
+    deadline = attrs.get('end_registration')
+    if deadline:
+        parsed_deadline = datetime.fromisoformat(deadline.replace('Z', '+00:00'))
+        if parsed_deadline.tzinfo is None:
+            parsed_deadline = parsed_deadline.replace(tzinfo=MSK)
+        deadline = parsed_deadline.astimezone(MSK).strftime('%d.%m.%Y %H:%M')
+    category = str(attrs.get('section_category_name') or '').strip()
+    # Only the unambiguously commercial section is confirmed. 223-FZ is
+    # deliberately excluded by assess(); broad Торговый портал remains review.
+    regime = {'Закупки.Бизнес': 'Коммерческая закупка',
+              'Закупки.Бизнес223': '223-ФЗ',
+              'Закупки.Гос44': '44-ФЗ'}.get(category, '')
+    regions = attrs.get('lot_regions') or []
+    if not isinstance(regions, list):
+        regions = [str(regions)]
+    return {
+        'source': 'ЭТП ГПБ', 'id': str(item.get('id') or attrs.get('registry_number') or ''),
+        'url': public_url,
+        'title': str(attrs.get('title') or ''),
+        'organizer': str(attrs.get('company_name') or ''),
+        'region': ', '.join(str(region) for region in regions),
+        'place': ', '.join(str(region) for region in regions),
+        'region_scope': 'worksite', 'regime': regime,
+        'section': category, 'status': str(attrs.get('stage') or ''),
+        'deadline': deadline or '',
+        'price': str(attrs.get('amount') or 'Цена не указана'),
+    }
+
+
+def etpgpb_source(max_pages=5):
+    """Read active public ETP GPB procedures for the Stavropol region.
+
+    The endpoint and parameter format are the same as those used by the
+    official page's procedures store (https://etpgpb.ru/procedures/).
+    """
+    api = 'https://' + ETPGPB_HOST + '/api/v2/'
+    try:
+        landed, regions_payload = public_get_json(api + 'regions/')
+        parsed = urlsplit(landed)
+        if parsed.scheme != 'https' or parsed.netloc != ETPGPB_HOST or parsed.path != '/api/v2/regions/':
+            raise RuntimeError('Unexpected ETP GPB region endpoint')
+        region_items = regions_payload.get('data') if isinstance(regions_payload, dict) else None
+        if not isinstance(region_items, list):
+            raise RuntimeError('Invalid ETP GPB region response')
+        region_ids = [str(item.get('id')) for item in region_items
+                      if isinstance(item, dict) and
+                      (item.get('attributes') or {}).get('name') == 'Ставропольский край']
+        if len(region_ids) != 1:
+            raise RuntimeError('Stavropol region identifier is missing or ambiguous')
+
+        rows = []
+        api_params = []
+        for page in range(1, max_pages + 1):
+            params = [('page', str(page)), ('per', '100'),
+                      ('procedure[stage][0]', 'accepting'),
+                      ('procedure[regions][0]', region_ids[0])]
+            url = api + 'procedures/?' + urlencode(params)
+            landed, payload = public_get_json(url)
+            parsed = urlsplit(landed)
+            landed_params = parse_qs(parsed.query)
+            valid_endpoint = (parsed.scheme == 'https' and parsed.netloc == ETPGPB_HOST and
+                              parsed.path == '/api/v2/procedures/' and
+                              landed_params.get('procedure[stage][0]') == ['accepting'] and
+                              landed_params.get('procedure[regions][0]') == [region_ids[0]] and
+                              landed_params.get('page') == [str(page)])
+            if not valid_endpoint:
+                raise RuntimeError('ETP GPB active region filter was not preserved')
+            data = payload.get('data') if isinstance(payload, dict) else None
+            meta = payload.get('meta') if isinstance(payload, dict) else None
+            if not isinstance(data, list) or not isinstance(meta, dict):
+                raise RuntimeError('Invalid ETP GPB procedures response')
+            rows.extend(etpgpb_row(item) for item in data)
+            api_params.append(url)
+            total_pages = int(meta.get('total_pages') or 0)
+            total_count = int(meta.get('total_count') or 0)
+            if not data or page >= total_pages:
+                break
+        else:
+            total_pages = int(meta.get('total_pages') or max_pages)
+            total_count = int(meta.get('total_count') or 0)
+
+        source = {'provider': 'ЭТП ГПБ', 'query': 'Ставропольский край · активные процедуры',
+                  'ok': True, 'status': 'observed_first_pages' if rows else 'no_active_results',
+                  'rows': len(rows), 'total_count': total_count,
+                  'truncated': total_pages > max_pages, 'url': api_params[0] if api_params else api + 'procedures/'}
+        return rows, [source]
+    except Exception as exc:
+        return [], [{'provider': 'ЭТП ГПБ', 'query': 'Ставропольский край · активные процедуры',
+                     'ok': False, 'status': 'source_unavailable',
+                     'error_type': type(exc).__name__, 'rows': 0}]
 
 
 OBSERVE = r'''(()=>{const main=document.querySelector('main');const tabs=[...new Set([...document.querySelectorAll('[role="tab"],.cds-tab-v2')])];return {
@@ -337,8 +461,9 @@ async def worker():
                         rows.append(row)
         rosel_rows,rosel_sources=rosel_source()
         fabrikant_rows,fabrikant_sources=fabrikant_source()
-        rows.extend(rosel_rows);rows.extend(fabrikant_rows)
-        sources.extend(rosel_sources);sources.extend(fabrikant_sources)
+        gpb_rows, gpb_sources = etpgpb_source()
+        rows.extend(rosel_rows);rows.extend(fabrikant_rows);rows.extend(gpb_rows)
+        sources.extend(rosel_sources);sources.extend(fabrikant_sources);sources.extend(gpb_sources)
         return build_report(rows, sources)
     finally:
         chrome.terminate()
