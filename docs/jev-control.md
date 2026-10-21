@@ -124,8 +124,8 @@ It does not assess bidder eligibility or automatically submit applications.
 
 `python3 scripts/jev_control.py commercial-search` runs a one-time, public,
 read-only search for current construction, repair and finishing procedure
-candidates in the Stavropol region across B2B-Center, Fabrikant, Roseltorg and
-ETP GPB.
+candidates in the Stavropol region across B2B-Center, Fabrikant, Roseltorg,
+ETP GPB and Sber AST.
 B2B-Center checks twelve configured city/region names against the rendered
 search form and current-results tab. Fabrikant uses its public commercial section
 and its Stavropol customer-region filter. Roseltorg uses its public search
@@ -150,6 +150,15 @@ commercial; `Бизнес223` and `Гос44` are excluded, while broad or unknow
 categories remain for review. No LLM is called for this search. The platform
 roadmap and remaining checks are in
 [the commercial search plan](../tasks/jev-commercial-search-plan.md).
+
+Sber AST uses the public `Торги коммерческих заказчиков` source and checks that
+the exact source, search phrase, and current-to-one-year application deadline
+range were sent in the request and remain selected in the rendered page (the
+site removes the query from the address bar after loading it). It reads three
+first-page searches only. Sale, resale, and rental procedures are excluded;
+unknown procedure types require review. The Stavropol region is checked in the
+visible work description because this search has no verified worksite-region
+filter.
 
 ## Следующий этап: документы закупки
 

@@ -18,6 +18,8 @@ BASE = 'https://' + HOST + '/app/next/market-search'
 ROSELTORG_HOST = 'www.roseltorg.ru'
 FABRIKANT_HOST = 'fabrikant.ru'
 ETPGPB_HOST = 'etpgpb.ru'
+SBER_HOST = 'www.sberbank-ast.ru'
+SBER_PROCEDURE_HOST = 'utp.sberbank-ast.ru'
 IMAGE = 'sha256:8c231608d909734fee19e3ce851ca1725fd6e4e84f20fb5f8a4288a06823ef0d'
 MSK = timezone(timedelta(hours=3))
 TERMS = ('Ставрополь', 'Ставропольский край', 'Невинномысск', 'Пятигорск', 'Кисловодск',
@@ -39,6 +41,70 @@ def search_url(term):
     # Parameters observed after submitting the public form, not protected filters.
     return BASE + '?' + urlencode(dict(q=term, company_type='2', include_firm_tree='false',
                                        sort='date_desc', trade='buy', show='actual'))
+
+
+def sber_search_url(term, now=None):
+    """Build the public Sber AST commercial-buyer search query."""
+    if not isinstance(term, str) or not 1 <= len(term) <= 64:
+        raise ValueError('Invalid search term')
+    now = now or datetime.now(MSK)
+    start = now.astimezone(MSK).date()
+    end = start + timedelta(days=365)
+    query = {
+        'searchBarType': 'anyWord', 'pagenum': 0, 'mainInput': term,
+        'sourceTerm': ['Торги коммерческих заказчиков'],
+        'publicDate': {'startPublicDate': '', 'endPublicDate': ''},
+        'requestEndDate': {'startRequestDate': start.strftime('%d.%m.%Y'),
+                           'endRequestDate': end.strftime('%d.%m.%Y')},
+    }
+    return 'https://' + SBER_HOST + '/UnitedPurchaseList.html?' + urlencode(
+        {'query': json.dumps(query, ensure_ascii=False, separators=(',', ':'))})
+
+
+def sber_search_checks(observed, term, now=None, requested_url=None):
+    now = now or datetime.now(MSK)
+    parsed = urlsplit(observed.get('url', ''))
+    requested = urlsplit(requested_url or observed.get('url', ''))
+    params = parse_qs(requested.query)
+    try:
+        query = json.loads(params['query'][0])
+    except (KeyError, IndexError, TypeError, ValueError):
+        query = {}
+    start = now.astimezone(MSK).date()
+    end = start + timedelta(days=365)
+    expected_range = '{} - {}'.format(start.strftime('%d.%m.%Y'), end.strftime('%d.%m.%Y'))
+    page_state = observed.get('page_state', '')
+    return {
+        'official_search_page': parsed.scheme == 'https' and parsed.netloc == SBER_HOST and parsed.path == '/UnitedPurchaseList.html' and not parsed.fragment,
+        'commercial_source_filter': query.get('sourceTerm') == ['Торги коммерческих заказчиков'] and 'Торги коммерческих заказчиков' in page_state,
+        'query_filter': query.get('mainInput') == term and ('Строка поиска: ' + term) in page_state,
+        'active_deadline_filter': query.get('requestEndDate') == {
+            'startRequestDate': start.strftime('%d.%m.%Y'),
+            'endRequestDate': end.strftime('%d.%m.%Y')} and expected_range in page_state,
+        'page_zero': query.get('pagenum') == 0 and requested.scheme == 'https' and requested.netloc == SBER_HOST and requested.path == '/UnitedPurchaseList.html',
+    }
+
+
+def sber_row(card):
+    """Normalize only visible cards in Sber's official commercial section."""
+    if not isinstance(card, dict):
+        raise ValueError('Invalid Sber procedure card')
+    url = procedure_url({'source': 'Сбер А', 'url': card.get('url', '')})
+    match = re.search(r'/([0-9]+)$', urlsplit(url).path)
+    title = str(card.get('title') or '').strip()
+    if not match or not title:
+        raise ValueError('Incomplete Sber procedure card')
+    place_match = REGION.search(title)
+    return {
+        'source': 'Сбер А', 'id': match.group(1), 'url': url,
+        'title': title[:1500], 'organizer': str(card.get('organizer') or '')[:300],
+        'procedure_type': str(card.get('procedure_type') or '')[:200],
+        'region': place_match.group(0) if place_match else '',
+        'place': title[:1500], 'region_scope': 'worksite',
+        'regime': 'Коммерческая закупка', 'status': str(card.get('status') or '')[:200],
+        'deadline': str(card.get('deadline') or ''),
+        'price': str(card.get('price') or 'Цена не указана'),
+    }
 
 
 def tender_url(url):
@@ -69,6 +135,9 @@ def procedure_url(row):
         return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, '', ''))
     if provider == 'ЭТП ГПБ' and parsed.netloc == ETPGPB_HOST and re.fullmatch(
             r'/procedures/[A-Za-z0-9_-]+/[A-Za-z0-9._-]+/?', parsed.path):
+        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, '', ''))
+    if provider == 'Сбер А' and parsed.netloc == SBER_PROCEDURE_HOST and re.fullmatch(
+            r'/VIP/NBT/PurchaseView/[0-9]+/[0-9]+/[0-9]+/[0-9]+', parsed.path):
         return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, '', ''))
     raise ValueError('Unexpected procedure URL')
 
@@ -113,6 +182,12 @@ def assess(row, now):
         return dict(result, decision='excluded', reasons=['goods_purchase_not_work'])
     if EQUIPMENT_REPAIR.search(row.get('title', '')):
         return dict(result, decision='excluded', reasons=['equipment_repair_not_building_work'])
+    procedure_type = row.get('procedure_type', '')
+    if row.get('source') == 'Сбер А':
+        if re.search(r'продаж|реализац|аренд', procedure_type, re.I):
+            return dict(result, decision='excluded', reasons=['sale_not_procurement'])
+        if not re.search(r'закуп|поставк|подряд|запрос предложений', procedure_type, re.I):
+            result['reasons'].append('procedure_type_unknown')
     place = '' if row.get('region_scope') == 'customer_region_filter' else row.get('place', row.get('region', ''))
     if not REGION.search(place):
         if REGION.search(row.get('title', '')):
@@ -147,7 +222,7 @@ def build_report(rows, sources, now=None):
             reason = row['reasons'][0] if row['reasons'] else 'other'
             excluded[reason] = excluded.get(reason, 0) + 1
     return {'generated_at': now.isoformat(), 'region': 'Ставропольский край',
-            'coverage': 'Первые страницы B2B-Center по 12 городам, открытые выдачи Росэлторга и Фабриканта, публичный активный поиск ЭТП ГПБ по региону; охват неполный',
+            'coverage': 'Первые страницы B2B-Center по 12 городам, Росэлторга, Фабриканта, публичный поиск ЭТП ГПБ и Сбер А по региону и сроку; охват неполный',
             'sources': sources, 'confirmed': [x for x in assessed if x['decision'] == 'confirmed'],
             'review': [x for x in assessed if x['decision'] == 'review'],
             'excluded': excluded,
@@ -387,6 +462,68 @@ price:e.querySelector('.panel-procedure__details-item-sum')?.innerText.slice(0,3
 region:e.querySelector('.panel-procedure__details-item-region')?.innerText.slice(0,300)})).filter(e=>e.id&&e.title)};})()'''
 
 
+SBER_OBSERVE = r'''(()=>({url:location.href,title:document.title,
+query:document.querySelector('input[name="mainInput"]')?.value||'',
+page_state:document.body?.innerText.slice(0,1800)||'',
+rows:[...document.querySelectorAll('.purchase-card')].slice(0,20).map(e=>({
+url:e.querySelector('.purchase-card__purchcode')?.href||'',
+id:e.querySelector('.purchase-card__purchcode')?.innerText||'',
+title:e.querySelector('.purchase-object__content')?.innerText||'',
+organizer:e.querySelector('.purchase-organizer__content')?.innerText||'',
+procedure_type:e.querySelector('.purchase-card__type__purchaseType')?.innerText||'',
+source:e.querySelector('.purchase-card__type__purchaseSource .accent-link__title')?.innerText||'',
+status:e.querySelector('.purchase-card__stage')?.innerText||'',
+deadline:e.getAttribute('request-date')||'',price:e.querySelector('.amount-item__value')?.innerText||''
+})).filter(e=>e.url&&e.title)}))()'''
+
+
+async def sber_source(call, now=None):
+    """Read a few live, public Sber commercial searches in the browser."""
+    now = now or datetime.now(MSK)
+    terms = ('Ставрополь', 'капитальный ремонт', 'строительство')
+    rows, sources = [], []
+    for term in terms:
+        url = sber_search_url(term, now)
+        try:
+            await call('Page.navigate', {'url': url})
+            observed, previous, stable = {}, None, 0
+            end = time.monotonic() + 8
+            while time.monotonic() < end:
+                await asyncio.sleep(.5)
+                response = await call('Runtime.evaluate', {'expression': SBER_OBSERVE, 'returnByValue': True})
+                if 'exceptionDetails' in response:
+                    break
+                observed = response.get('result', {}).get('value') or {}
+                checks = sber_search_checks(observed, term, now, url)
+                signature = json.dumps(observed, sort_keys=True)
+                stable = stable + 1 if all(checks.values()) and signature == previous else 0
+                previous = signature
+                if stable >= 1:
+                    break
+            verified = stable >= 1
+            found = []
+            if verified:
+                for card in observed.get('rows', []):
+                    if card.get('source', '').strip() != 'Торги коммерческих заказчиков':
+                        continue
+                    try:
+                        found.append(sber_row(card))
+                    except (KeyError, ValueError):
+                        continue
+                rows.extend(found)
+            sources.append({'provider': 'Сбер А', 'query': term, 'ok': verified,
+                            'status': ('observed_first_page' if found else 'no_active_results') if verified else 'search_not_verified',
+                            'rows': len(found), 'url': observed.get('url', url),
+                            **({'failed_checks': [key for key, passed in checks.items() if not passed]} if not verified else {})})
+            if not verified:
+                break
+        except Exception as exc:
+            sources.append({'provider': 'Сбер А', 'query': term, 'ok': False,
+                            'status': 'source_unavailable', 'error_type': type(exc).__name__, 'rows': 0})
+            break
+    return rows, sources
+
+
 async def worker():
     import os
     from urllib.request import urlopen
@@ -400,12 +537,15 @@ async def worker():
         for _ in range(30):
             try:
                 with urlopen('http://127.0.0.1:9229/json/list', timeout=1) as response:
-                    targets = [x for x in json.load(response) if x.get('type') == 'page']
+                    targets = [x for x in json.load(response) if x.get('type') == 'page' and
+                               not str(x.get('url', '')).startswith('chrome-extension://') and
+                               x.get('webSocketDebuggerUrl', '').startswith('ws://127.0.0.1:9229/devtools/page/')]
                 if targets: break
             except OSError: pass
             await asyncio.sleep(.2)
         if not targets: raise RuntimeError('Browser not ready')
-        endpoint = targets[0]['webSocketDebuggerUrl']
+        target = next((x for x in targets if x.get('url') == 'about:blank'), targets[0])
+        endpoint = target['webSocketDebuggerUrl']
         if not endpoint.startswith('ws://127.0.0.1:9229/devtools/page/'): raise ValueError('Unexpected browser endpoint')
         rows, sources = [], []
         async with websockets.connect(endpoint, max_size=2*1024*1024) as socket:
@@ -459,6 +599,9 @@ async def worker():
                         except (KeyError, ValueError): continue
                         row['source']='B2B-Center'
                         rows.append(row)
+            sber_rows, sber_sources = await sber_source(call)
+            rows.extend(sber_rows)
+            sources.extend(sber_sources)
         rosel_rows,rosel_sources=rosel_source()
         fabrikant_rows,fabrikant_sources=fabrikant_source()
         gpb_rows, gpb_sources = etpgpb_source()
