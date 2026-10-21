@@ -41,6 +41,15 @@ class DetailsTest(unittest.TestCase):
 
     def test_vacancies_not_orders_or_service_advertising(self):
         self.assertEqual(classify('Требуется электрик в штат. Зарплата 80000 рублей'), 'vacancy')
+        self.assertEqual(classify(
+            'Требуются люди на монтаж строительных лесов, жильё за счёт работодателя, '
+            'оплата 7000 + КТУ, аванс 10000, объект в Воронеже'), 'vacancy')
+        details = describe(
+            'Требуются люди на монтаж строительных лесов, жильё за счёт работодателя, '
+            'оплата 7000 + КТУ, аванс 10000, объект в Воронеже')
+        self.assertIn('Монтаж строительных конструкций', details['tags'])
+        self.assertEqual(details['fields']['place'], ['объект в Воронеже'])
+        self.assertEqual(details['fields']['budget'], ['оплата 7000 + КТУ', 'аванс 10000'])
         self.assertEqual(classify('Нужен электрик провести проводку в доме'), 'order')
         self.assertEqual(classify('Ищу работу электриком, зарплата от 80000 рублей'), 'services')
         self.assertEqual(classify('Выполняем ремонт. Вакансия: требуется маляр в штат'), 'review')
