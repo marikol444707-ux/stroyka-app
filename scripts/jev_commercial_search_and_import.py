@@ -28,6 +28,8 @@ def integration_key(environ=None, *, runner=None):
     values = os.environ if environ is None else environ
     key = str(values.get("JEV_OPPORTUNITY_INGEST_KEY") or "").strip()
     if key:
+        if len(key) < 32:
+            raise ValueError("invalid_integration_key")
         return key
     if sys.platform != "darwin":
         raise ValueError("missing_integration_key")
@@ -38,7 +40,10 @@ def integration_key(environ=None, *, runner=None):
     )
     if result.returncode != 0 or not result.stdout.strip():
         raise ValueError("missing_keychain_entry")
-    return result.stdout.strip()
+    key = result.stdout.strip()
+    if len(key) < 32:
+        raise ValueError("invalid_integration_key")
+    return key
 
 
 def run_search(*, runner=None):
@@ -83,7 +88,7 @@ def main(*, runner=None, opener=None, environ=None):
     except HTTPError as error:
         print(json.dumps({"ok": False, "http_status": error.code, "error": "api_rejected_report"}))
     except (OSError, TimeoutError, URLError, ValueError, json.JSONDecodeError, subprocess.TimeoutExpired) as error:
-        print(json.dumps({"ok": False, "error": str(error) if str(error).startswith(("missing_", "jev_", "stroyka_")) else type(error).__name__}))
+        print(json.dumps({"ok": False, "error": str(error) if str(error).startswith(("missing_", "invalid_", "jev_", "stroyka_")) else type(error).__name__}))
     return 1
 
 

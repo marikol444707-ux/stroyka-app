@@ -133,6 +133,18 @@ class JevCommercialSearchAndImportTests(unittest.TestCase):
         self.assertEqual(events, [])
         self.assertEqual(json.loads(stdout.getvalue()), {"ok": False, "error": "missing_integration_key"})
 
+    def test_main_rejects_short_key_before_running_search(self):
+        stdout = io.StringIO()
+        events = []
+        with redirect_stdout(stdout):
+            exit_code = workflow.main(
+                runner=lambda *a, **k: events.append("search"),
+                environ={"JEV_OPPORTUNITY_INGEST_KEY": "short"},
+            )
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(events, [])
+        self.assertEqual(json.loads(stdout.getvalue()), {"ok": False, "error": "invalid_integration_key"})
+
 
 if __name__ == "__main__":
     unittest.main()
