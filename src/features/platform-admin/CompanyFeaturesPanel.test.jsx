@@ -31,7 +31,7 @@ test('platform admin can enable JEV for one company and save a monthly price', a
   );
 
   expect(screen.getByText(/Работают сейчас: B2B-Center · Росэлторг · Фабрикант/)).toBeInTheDocument();
-  expect(screen.getByText(/ЕИС: проверяем официальный открытый поиск/)).toBeInTheDocument();
+  expect(screen.getByText(/ЕИС: подключён пилот открытого поиска/)).toBeInTheDocument();
 
   fireEvent.click(screen.getByLabelText('Подключить JEV'));
   fireEvent.change(screen.getByLabelText('Цена в месяц, ₽'), { target: { value: '9900' } });
