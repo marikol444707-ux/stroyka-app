@@ -37,7 +37,8 @@ def build_targets_request(*, api_url, ingest_key):
 def build_request(report, *, api_url, ingest_key, target_company_id=None):
     endpoint = _validate_endpoint(api_url, ingest_key)
     items = jev_report_items(report)
-    if not items:
+    sources = report.get("sources")
+    if not items and not (isinstance(sources, list) and sources):
         raise ValueError("В отчёте нет подтверждённых находок или записей для проверки")
     if target_company_id is not None:
         if type(target_company_id) is not int or target_company_id <= 0:
