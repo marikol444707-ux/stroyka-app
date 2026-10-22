@@ -6,14 +6,15 @@ umask 077
 APP_ROOT="${STROYKA_APP_ROOT:-/var/www/stroyka-app}"
 PYTHON_BIN="${STROYKA_RELEASE_PYTHON:-python3}"
 WORK_PARENT="${STROYKA_DELIVERY_WORK_PARENT:-/root}"
-TARGET="eb67d1323654a087d52af323e9251a0c3801ab29"
+TARGET="d6a4a4cec5dfbfe40b8ec789f97d33d75c4f4bc2"
 BASE="c30b5c7a6b641bc59860ea5eed6e743f67f1318d"
+RELEASE_BRANCH="codex/jev-production-intake"
 
 cd "$APP_ROOT"
 BEFORE="$(git rev-parse HEAD)"
 git diff --quiet
 git diff --cached --quiet
-git fetch --no-tags origin codex/unified-production-release
+git fetch --no-tags origin "$RELEASE_BRANCH"
 git cat-file -e "$TARGET^{commit}"
 
 DELIVERY_DIR="$(mktemp -d "$WORK_PARENT/stroyka-delivery-XXXXXXXX")"
