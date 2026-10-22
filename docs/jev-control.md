@@ -124,14 +124,32 @@ It does not assess bidder eligibility or automatically submit applications.
 
 `python3 scripts/jev_control.py commercial-search` runs a one-time, public,
 read-only search for current construction, repair and finishing procedure
-candidates in the Stavropol region across B2B-Center, Fabrikant, Roseltorg,
-ETP GPB, Sber AST and TЭК-Торг.
-B2B-Center checks twelve configured city/region names against the rendered
-search form and current-results tab. Fabrikant uses its public commercial section
-and its Stavropol customer-region filter. Roseltorg uses its public search
-endpoint, the Stavropol region, and commercial/223-FZ section; it checks the
-region and construction-related keywords. Results are deduplicated by source and
-procedure ID. Only the first page per query is read.
+candidates in the Stavropol region across eight sources: B2B-Center, Roseltorg,
+Fabrikant, ETP GPB, Sber AST, TЭК-Торг, Торги Федерации and Р-ТЕНДЕР.
+It searches construction and repair wording variants such as construction and
+general construction works, capital repair/капремонт, current repair,
+reconstruction, finishing, landscaping, façade and roofing work, engineering
+networks, electrical installation, road work and asphalting. The queries are
+paired with regional/city names where the source supports text search. The
+matching rules recognize abbreviations such as СМР and alternate spellings;
+they still exclude materials-only purchases and equipment repair where the
+title makes that distinction clear.
+
+B2B-Center searches twelve regional city/region names and eight additional
+location-plus-work phrases, verifying the rendered query and current-results
+tab. Roseltorg searches construction phrases in its Stavropol region filter and
+open commercial/223-FZ section. Fabrikant uses its public commercial section
+and Stavropol customer-region filter. ETP GPB uses its public API, resolves
+Stavropol Krai from the public regions list, and reads active applications only.
+Sber AST searches the public `Торги коммерческих заказчиков` source, checking
+the search phrase and active deadline range in the request and rendered page.
+TЭК-Торг searches its combined 223-FZ/commercial section for active procedures
+with future deadlines. Торги Федерации uses its commercial section and active
+statuses, searching regional wording in procedure titles. Р-ТЕНДЕР limits its
+public search to commercial purchases with applications in progress and checks
+regional wording in the title. Results are deduplicated by source and procedure
+ID. Only bounded first pages are read; some sources use a customer-region filter
+or title text rather than a verified worksite filter.
 
 B2B-Center exposes keyword search without sign-in, but its public form says
 additional filters and saved templates require registration. Fabrikant's
@@ -154,15 +172,16 @@ roadmap and remaining checks are in
 Sber AST uses the public `Торги коммерческих заказчиков` source and checks that
 the exact source, search phrase, and current-to-one-year application deadline
 range were sent in the request and remain selected in the rendered page (the
-site removes the query from the address bar after loading it). It reads three
-first-page searches only. Sale, resale, and rental procedures are excluded;
-unknown procedure types require review. The Stavropol region is checked in the
-visible work description because this search has no verified worksite-region
-filter.
+site removes the query from the address bar after loading it). It reads a
+bounded set of first-page searches. Sale, resale, and rental procedures are
+excluded; unknown procedure types require review. The Stavropol region is
+checked in the visible work description because this search has no verified
+worksite-region filter.
 
 TЭК-Торг reads the server-rendered public listing in its combined
-`223-ФЗ и Коммерческие закупки` section. Four first-page searches cover
-Stavropol repair/construction and Nevinnomyssk repair. Only rows marked
+`223-ФЗ и Коммерческие закупки` section. First-page searches cover Stavropol
+construction, capital repair/капремонт, finishing and landscaping, plus
+Nevinnomyssk repair and construction. Only rows marked
 `Приём заявок` with a future submission deadline and construction-related
 title are considered. A region found only in the title remains for manual
 verification; the combined section does not prove a commercial legal regime,
