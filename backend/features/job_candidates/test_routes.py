@@ -108,7 +108,7 @@ class JobCandidateRouteTests(unittest.TestCase):
 
         self.assertEqual(response, {"ok": True, "id": 41, "inserted": False, "status": "Подходит"})
         sql, params = cursor.calls[0]
-        self.assertIn("ON CONFLICT DO UPDATE", sql)
+        self.assertIn("ON CONFLICT (company_id, source, identity_key) DO UPDATE", sql)
         self.assertEqual(params[0], 8)
         self.assertEqual(sql.count("%s"), len(params))
         self.assertEqual(conn.commits, 1)
@@ -143,6 +143,7 @@ class JobCandidateRouteTests(unittest.TestCase):
         self.assertEqual(response, {"ok": True, "received": 1, "created": 1, "updated": 0})
         sql, params = cursor.calls[0]
         self.assertIn("source_name", sql)
+        self.assertIn("ON CONFLICT (company_id, source, identity_key) DO UPDATE", sql)
         self.assertEqual(sql.count("%s"), len(params))
         self.assertEqual(params[0], 8)
         self.assertEqual(conn.commits, 1)
@@ -167,6 +168,7 @@ class JobCandidateRouteTests(unittest.TestCase):
         self.assertEqual(cursor.calls[0][1], (8,))
         self.assertEqual(cursor.calls[1][1][0], 8)
         self.assertEqual(cursor.calls[1][1][-1], "JEV")
+        self.assertIn("ON CONFLICT (company_id, source, identity_key) DO UPDATE", cursor.calls[1][0])
 
     def test_jev_ingest_is_disabled_without_secret(self):
         app, _conn, _ = self.build(FakeCursor(), jev_company_id=8)
