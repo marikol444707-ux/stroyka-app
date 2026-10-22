@@ -121,15 +121,6 @@
     "methods": [
       "POST"
     ],
-    "path": "/internal/jev/job-candidates",
-    "dependencies": [
-      "ingest_jev_report"
-    ]
-  },
-  {
-    "methods": [
-      "POST"
-    ],
     "path": "/workflow/invoice/preview",
     "dependencies": [
       "require_workflow_token",
