@@ -1,6 +1,8 @@
 import React from 'react';
 
-const JEV_PROVIDERS = ['B2B-Center', 'Росэлторг', 'Фабрикант', 'ЕИС'];
+const JEV_PROVIDERS = [
+  'B2B-Center', 'Росэлторг', 'Фабрикант', 'ЭТП ГПБ', 'Сбер А', 'ТЭК-Торг', 'Торги Федерации', 'Р-ТЕНДЕР',
+];
 
 export default function CompanyFeaturesPanel({ data, API = '', C = {}, sendJson, onReload }) {
   const [search, setSearch] = React.useState('');
@@ -86,10 +88,10 @@ export default function CompanyFeaturesPanel({ data, API = '', C = {}, sendJson,
         <div style={{ marginTop: 12, borderTop: '1px solid ' + (C.border || '#d0d5dd'), paddingTop: 10 }}>
           <b style={{ color: C.text || '#101828', fontSize: 13 }}>Источники поиска</b>
           <p style={{ color: C.textSec || '#667085', margin: '5px 0 0', lineHeight: 1.5 }}>
-            Работают сейчас: B2B-Center · Росэлторг · Фабрикант.
+            Серверный сбор JEV настроен на: B2B-Center · Росэлторг · Фабрикант · ЭТП ГПБ · Сбер А · ТЭК-Торг · Торги Федерации · Р-ТЕНДЕР.
           </p>
           <p style={{ color: C.textSec || '#667085', margin: '5px 0 0', lineHeight: 1.5 }}>
-            ЕИС: подключён пилот открытого поиска по 44-ФЗ, 223-ФЗ и 615-ПП. Проверяется первая страница выдачи; госзакупки попадают в отдельную очередь и требуют ручной проверки. Остальные площадки не считаются работающими, пока их адаптер не проверен.
+            ЕИС пока не входит в текущую серверную команду JEV; госзакупки не будут показаны в этой выдаче, пока ЕИС не подключена к этому запуску.
           </p>
         </div>
       </div>

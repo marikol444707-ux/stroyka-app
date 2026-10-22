@@ -2,7 +2,7 @@ import unittest
 
 from fastapi import HTTPException
 
-from .routes import register_job_candidates_module
+from .routes import _matches_search_terms, register_job_candidates_module
 
 
 class FakeApp:
@@ -207,13 +207,13 @@ class JobCandidateRouteTests(unittest.TestCase):
 
     def test_jev_ingest_filters_sources_independently_per_company(self):
         cursor = FakeCursor({"inserted": True}, rows=[
-            {"company_id": 8, "settings": {"sourceProviders": ["ЕИС"], "searchTerms": []}},
+            {"company_id": 8, "settings": {"sourceProviders": ["Торги Федерации"], "searchTerms": []}},
             {"company_id": 12, "settings": {"sourceProviders": ["B2B-Center"], "searchTerms": []}},
         ])
         app, conn, _ = self.build(cursor, jev_ingest_key="k" * 40)
         payload = {"confirmed": [
             {"source": "B2B-Center", "id": "1", "url": "https://example.org/1", "title": "Ремонт школы"},
-            {"source": "ЕИС · 44-ФЗ", "id": "2", "url": "https://example.org/2", "title": "Строительство школы"},
+            {"source": "Торги Федерации · коммерческие", "id": "2", "url": "https://example.org/2", "title": "Строительство школы"},
         ]}
 
         response = app.routes[("POST", "/internal/jev/job-candidates")](
@@ -229,6 +229,26 @@ class JobCandidateRouteTests(unittest.TestCase):
         self.assertEqual(cursor.calls[2][1][0], 12)
         self.assertEqual(cursor.calls[2][1][6], "Ремонт школы")
         self.assertEqual(conn.commits, 1)
+
+    def test_provider_aliases_match_all_active_server_adapters(self):
+        sources = {
+            "B2B-Center": "B2B-Center",
+            "Росэлторг": "Росэлторг",
+            "Фабрикант": "Фабрикант",
+            "ЭТП ГПБ": "ЭТП ГПБ",
+            "Сбер А": "Сбер А",
+            "ТЭК-Торг": "ТЭК-Торг · 223-ФЗ и коммерческие",
+            "Торги Федерации": "Торги Федерации · коммерческие",
+            "Р-ТЕНДЕР": "Р-ТЕНДЕР · коммерческие",
+        }
+        for selected, source_name in sources.items():
+            with self.subTest(provider=selected):
+                self.assertTrue(_matches_search_terms(
+                    {"source_name": source_name}, {"sourceProviders": [selected], "searchTerms": []},
+                ))
+                self.assertFalse(_matches_search_terms(
+                    {"source_name": source_name}, {"sourceProviders": ["B2B-Center" if selected != "B2B-Center" else "Росэлторг"], "searchTerms": []},
+                ))
 
     def test_jev_ingest_rejects_reports_when_no_company_has_enabled_the_feature(self):
         cursor = FakeCursor(rows=[])

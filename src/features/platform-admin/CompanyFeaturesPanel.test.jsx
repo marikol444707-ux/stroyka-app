@@ -30,8 +30,8 @@ test('platform admin can enable JEV for one company and save a monthly price', a
     />
   );
 
-  expect(screen.getByText(/Работают сейчас: B2B-Center · Росэлторг · Фабрикант/)).toBeInTheDocument();
-  expect(screen.getByText(/ЕИС: подключён пилот открытого поиска/)).toBeInTheDocument();
+  expect(screen.getByText(/Серверный сбор JEV настроен на: B2B-Center · Росэлторг · Фабрикант · ЭТП ГПБ/)).toBeInTheDocument();
+  expect(screen.getByText(/ЕИС пока не входит в текущую серверную команду JEV/)).toBeInTheDocument();
 
   fireEvent.click(screen.getByLabelText('Подключить JEV'));
   fireEvent.change(screen.getByLabelText('Цена в месяц, ₽'), { target: { value: '9900' } });
@@ -45,7 +45,7 @@ test('platform admin can enable JEV for one company and save a monthly price', a
       method: 'PUT',
       body: JSON.stringify({
         enabled: true, monthlyFee: '9900', searchTerms: ['школа', 'кровля'],
-        sourceProviders: ['B2B-Center', 'Фабрикант', 'ЕИС'],
+        sourceProviders: ['B2B-Center', 'Фабрикант', 'ЭТП ГПБ', 'Сбер А', 'ТЭК-Торг', 'Торги Федерации', 'Р-ТЕНДЕР'],
       }),
     })
   ));

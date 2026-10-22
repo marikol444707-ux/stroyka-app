@@ -8,7 +8,10 @@ from fastapi import Depends, HTTPException
 JEV_FEATURE_CODE = "jev_procurement"
 MAX_MONTHLY_FEE = Decimal("10000000.00")
 MAX_SEARCH_TERMS = 20
-JEV_PROVIDERS = ("B2B-Center", "Росэлторг", "Фабрикант", "ЕИС")
+JEV_PROVIDERS = (
+    "B2B-Center", "Росэлторг", "Фабрикант", "ЭТП ГПБ", "Сбер А",
+    "ТЭК-Торг", "Торги Федерации", "Р-ТЕНДЕР",
+)
 
 
 def _source_providers(value):
