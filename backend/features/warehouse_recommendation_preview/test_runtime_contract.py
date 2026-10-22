@@ -721,7 +721,7 @@ class WarehouseAnomalyRuntimeDisclosurePolicyTests(unittest.TestCase):
             # Reviewed participant route access enforcement, storage validation and invite storage adapter;
             # warehouse preview implementation and registration are unchanged.
             backend_root / "main.py": (
-                "24186dd409857bc543dd4bfbc7fc260221fdced46d9067c32408f8ea13503c65"
+                "560ec7614351d3be6ce2926be5ad67d00e1deb171540af9918700dd35bc76f2e"
             ),
         }
         actual = {

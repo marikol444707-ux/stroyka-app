@@ -105,6 +105,10 @@ class SupportSecurityPostgresTests(unittest.TestCase):
             else:
                 # MAX has no service key configured in the network-blocked fixture.
                 self.api('support','POST',path,{},expected=503 if path.startswith('/max/') else 403, **{header:grant['id']})
+        # JEV is disabled without its dedicated deployment key; a support grant
+        # or other service token must not activate the internal import route.
+        self.api('support','POST','/internal/jev/job-candidates',{},expected=503,
+                 **{'X-JEV-Ingest-Key':grant['id']})
 
     def test_audit_failure_does_not_open_access(self):
         self.sql('ALTER TABLE participant_support_denials RENAME TO participant_support_denials_hidden')
