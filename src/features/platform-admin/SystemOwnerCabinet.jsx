@@ -5,6 +5,7 @@ import {
   describeClientCardSource,
 } from './companyOnboarding';
 import ClientContractsPanel from './ClientContractsPanel';
+import CompanyFeaturesPanel from './CompanyFeaturesPanel';
 import OrganizationParticipants from './OrganizationParticipants';
 import './SystemOwnerCabinet.css';
 import { pendingPayment, preparePayment, finishPayment } from './paymentCommands';
@@ -13,6 +14,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
   const [tab, setTab] = useState('dashboard');
   const [dashboard, setDashboard] = useState(null);
   const [companies, setCompanies] = useState([]);
+  const [jevFeatureData, setJevFeatureData] = useState({ companies: [], enabledCompanies: 0, potentialMonthlyRevenue: '0.00' });
   const [payments, setPayments] = useState([]);
   const [billingDocuments, setBillingDocuments] = useState([]);
   const [billingContractOptions, setBillingContractOptions] = useState([]);
@@ -197,7 +199,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
       if (clientUserFilters.role) clientUserParams.set('role', clientUserFilters.role);
       if (clientUserFilters.active) clientUserParams.set('active', clientUserFilters.active);
       if (clientUserFilters.search.trim()) clientUserParams.set('search', clientUserFilters.search.trim());
-      const [d, c, p, bd, bc, pp, pf, dr, t, a, cu, u, s] = await Promise.all([
+      const [d, c, p, bd, bc, pp, pf, dr, t, a, cu, u, s, jf] = await Promise.all([
         fetchJson('/system/dashboard', null),
         fetchJson('/system/companies', []),
         canManageBilling ? fetchJson('/system/payments', []) : Promise.resolve([]),
@@ -211,6 +213,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
         canViewClientUsers ? fetchJson('/system/client-users?'+clientUserParams.toString(), []) : Promise.resolve([]),
         canManageTeam ? fetchJson('/system/platform-users', []) : Promise.resolve([]),
         canUseSupport ? fetchJson('/system/support-sessions', []) : Promise.resolve([]),
+        canManagePlatform ? fetchJson('/system/company-features/jev', { companies: [], enabledCompanies: 0, potentialMonthlyRevenue: '0.00' }) : Promise.resolve({ companies: [], enabledCompanies: 0, potentialMonthlyRevenue: '0.00' }),
       ]);
       setDashboard(d);
       setCompanies(Array.isArray(c)?c:[]);
@@ -225,6 +228,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
       setClientUsers(Array.isArray(cu)?cu:[]);
       setPlatformUsers(Array.isArray(u)?u:[]);
       setSupportSessions(Array.isArray(s)?s:[]);
+      setJevFeatureData(jf && Array.isArray(jf.companies) ? jf : { companies: [], enabledCompanies: 0, potentialMonthlyRevenue: '0.00' });
     } catch(_){}
 	  }, [auditFilters, canManageBilling, canManagePlatform, canManageTeam, canUseFollowups, canUseSupport, canViewClientUsers, clientUserFilters, fetchJson]);
 	  useEffect(()=>{ loadAll(); }, [loadAll]);
@@ -788,6 +792,7 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
 	  const TABS = [
     {id:'dashboard', label:'📊 Дашборд'},
 	    {id:'companies', label:'🏢 Аккаунты/компании'},
+	    canManagePlatform && {id:'features', label:'🧩 Функции'},
     canViewClientUsers && {id:'clientUsers', label:'👤 Пользователи клиентов'},
     {id:'tariffs', label:'💼 Тарифы'},
     canManageBilling && {id:'payments', label:'💰 Платежи'},
@@ -822,6 +827,15 @@ function SystemOwnerCabinet({user, setUser, C, card, btnO, btnG, btnGr, btnR, in
         </div>
 
         {/* Дашборд */}
+        {tab==='features' && canManagePlatform && (
+          <CompanyFeaturesPanel
+            API={API}
+            C={C}
+            data={jevFeatureData}
+            sendJson={sendJson}
+            onReload={loadAll}
+          />
+        )}
         {tab==='dashboard' && dashboard && (<div>
           <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'12px',marginBottom:'18px'}}>
 	            <div style={{...card,padding:'16px'}}><p style={{color:C.textSec,fontSize:'12px',margin:'0 0 6px'}}>🧭 Клиентские аккаунты</p><b style={{color:C.success,fontSize:'24px'}}>{dashboard.activeAccounts ?? groupsWithLimitStatus.length}</b></div>

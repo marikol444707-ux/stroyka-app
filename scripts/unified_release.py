@@ -23,7 +23,8 @@ from urllib.request import Request, urlopen
 ROOT = Path(__file__).resolve().parents[1]
 BASE_REVISION = '0100_packaging_history_guard'
 INTERMEDIATE_REVISION = '0101_manual_brigade_origins'
-TARGET_REVISION = '0102_job_candidates'
+CANDIDATE_REVISION = '0102_job_candidates'
+TARGET_REVISION = '0103_platform_company_features'
 
 
 def run(args, *, cwd=None, env=None, capture=False):
@@ -75,7 +76,8 @@ def pack(args):
     heads = set(revisions) - set(revisions.values())
     require(heads == {TARGET_REVISION}
             and revisions.get(INTERMEDIATE_REVISION) == BASE_REVISION
-            and revisions[TARGET_REVISION] == INTERMEDIATE_REVISION,
+            and revisions[CANDIDATE_REVISION] == INTERMEDIATE_REVISION
+            and revisions[TARGET_REVISION] == CANDIDATE_REVISION,
             'Unexpected migration graph; review this release tooling before packaging')
     tracked = git(root, 'ls-files', '-z').split('\0')
     require(not any(Path(name).name == '.env' or name.endswith(('.key', '.pem'))

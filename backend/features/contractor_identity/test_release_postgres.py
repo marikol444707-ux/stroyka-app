@@ -84,7 +84,8 @@ class UnifiedReleasePostgresTests(unittest.TestCase):
         try:
             self.assertEqual(self.baseline_report['status'], 'ready', self.baseline_report)
             self.assertEqual(self.baseline_report['pendingMigrations'], [
-                self.checker.MANUAL_REVISION, self.checker.TARGET_REVISION,
+                self.checker.MANUAL_REVISION, self.checker.CANDIDATE_REVISION,
+                self.checker.TARGET_REVISION,
             ])
             self.assertEqual(self.before, self.history(conn))
             conn.rollback()
