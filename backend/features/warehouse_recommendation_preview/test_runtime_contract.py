@@ -718,9 +718,9 @@ class WarehouseAnomalyRuntimeDisclosurePolicyTests(unittest.TestCase):
             backend_root / "db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Reviewed JEV opportunity intake registration; warehouse preview implementation and registration are unchanged.
+            # Reviewed production contractor/manual-brigade behavior and JEV registrations; warehouse preview is unchanged.
             backend_root / "main.py": (
-                "b9053387fd398ad5919e6411dcd22160c6e5a04f004deb111af7e5133a88bbcd"
+                "d5158de3d404cb884141f2c6b0bcbf706a1b7cf09986fc8e00b33d8d7dd29618"
             ),
         }
         actual = {
