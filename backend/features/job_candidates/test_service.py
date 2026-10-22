@@ -43,7 +43,7 @@ class JobCandidateNormalizationTests(unittest.TestCase):
             with self.subTest(payload=payload), self.assertRaises(ValueError):
                 build_candidate_record(payload)
 
-    def test_maps_only_confirmed_and_review_rows_from_jev_report(self):
+    def test_maps_confirmed_review_and_separate_government_rows_from_jev_report(self):
         items = jev_report_items({
             "region": "Ставропольский край",
             "confirmed": [{"source": "B2B-Center", "id": "42", "url": "https://example.org/42",
@@ -51,10 +51,14 @@ class JobCandidateNormalizationTests(unittest.TestCase):
                            "deadline_msk": "2026-11-01T12:00:00+03:00"}],
             "review": [{"source": "Росэлторг", "url": "https://example.org/43", "title": "Строительство",
                         "reasons": ["work_location_unknown"]}],
+            "government_review": [{"source": "ЕИС", "provider": "ЕИС · 44-ФЗ", "id": "0123456789012345678",
+                                   "url": "https://zakupki.gov.ru/epz/order/notice/ea20/view/common-info.html?regNumber=0123456789012345678",
+                                   "title": "Капремонт школы", "regime": "44-ФЗ",
+                                   "region_scope": "not_filtered", "reasons": ["manual_check"]}],
             "excluded": [{"source": "Сбер А", "id": "44", "url": "https://example.org/44", "title": "Поставка кирпича"}],
         })
 
-        self.assertEqual(len(items), 2)
+        self.assertEqual(len(items), 3)
         self.assertEqual(items[0]["source"], "browser_agent")
         self.assertEqual(items[0]["sourceName"], "B2B-Center")
         self.assertEqual(items[0]["sourceItemId"], "B2B-Center:42")
@@ -62,6 +66,10 @@ class JobCandidateNormalizationTests(unittest.TestCase):
         self.assertEqual(items[0]["price"], "1250000")
         self.assertEqual(items[0]["deadline"], "2026-11-01T12:00:00+03:00")
         self.assertEqual(items[1]["evidence"], "work_location_unknown")
+        self.assertEqual(items[2]["sourceName"], "ЕИС · 44-ФЗ")
+        self.assertEqual(items[2]["sourceItemId"], "ЕИС · 44-ФЗ:0123456789012345678")
+        self.assertEqual(items[2]["region"], "")
+        self.assertIn("44-ФЗ", items[2]["evidence"])
         dotted_amount = jev_report_items({"confirmed": [{"url": "https://example.org/2",
                                                           "title": "Ремонт", "price": "1.250.000"}]})
         self.assertEqual(dotted_amount[0]["price"], "1250000")

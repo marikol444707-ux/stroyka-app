@@ -53,7 +53,7 @@ test('manually adds a candidate with its source URL', async () => {
   });
 });
 
-test('imports JEV confirmed and review rows while excluding its excluded bucket', async () => {
+test('imports JEV commercial and separate government-review rows while excluding its excluded bucket', async () => {
   const alert = jest.spyOn(window, 'alert').mockImplementation(() => {});
   const fetchMock = jest.spyOn(global, 'fetch').mockImplementation(async (_url, options = {}) => ({
     ok: true,
@@ -63,6 +63,7 @@ test('imports JEV confirmed and review rows while excluding its excluded bucket'
     region: 'Ставропольский край',
     confirmed: [{ source: 'B2B-Center', id: '77', url: 'https://b2b-center.ru/tender/77', title: 'Ремонт школы', price: '1.234.567,89 ₽', deadline_msk: '2026-11-01T12:00:00+03:00', reasons: [] }],
     review: [],
+    government_review: [{ source: 'ЕИС', provider: 'ЕИС · 44-ФЗ', id: '0123456789012345678', regime: '44-ФЗ', region_scope: 'not_filtered', url: 'https://zakupki.gov.ru/epz/order/notice/ea20/view/common-info.html?regNumber=0123456789012345678', title: 'Капитальный ремонт школы', region: '', price: '40538924.61', reasons: ['government_procurement_manual_verification'] }],
     excluded: { other_region: 4 },
   };
   const file = new File([JSON.stringify(report)], 'report.json', { type: 'application/json' });
@@ -74,11 +75,16 @@ test('imports JEV confirmed and review rows while excluding its excluded bucket'
   await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/crm/job-candidates/import-report', expect.objectContaining({ method: 'POST' })));
   const request = fetchMock.mock.calls.find(([, options]) => options?.method === 'POST');
   const body = JSON.parse(request[1].body);
-  expect(body.items).toHaveLength(1);
+  expect(body.items).toHaveLength(2);
   expect(body.items[0]).toMatchObject({
     source: 'browser_agent', sourceName: 'B2B-Center', sourceItemId: 'B2B-Center:77',
     title: 'Ремонт школы', region: 'Ставропольский край', price: '1234567.89',
   });
+  expect(body.items[1]).toMatchObject({
+    source: 'browser_agent', sourceName: 'ЕИС · 44-ФЗ', sourceItemId: 'ЕИС · 44-ФЗ:0123456789012345678',
+    title: 'Капитальный ремонт школы', region: '', price: '40538924.61',
+  });
+  expect(body.items[1].evidence).toContain('Режим закупки: 44-ФЗ');
   expect(alert).toHaveBeenCalledWith('Импорт завершён: новых 1, обновлено 0.');
 });
 

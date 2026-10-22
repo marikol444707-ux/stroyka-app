@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Send one JEV commercial-search JSON report to the scoped Stroyka intake endpoint."""
+"""Send one JEV report to the scoped Stroyka intake endpoint."""
 
 import json
 import os

@@ -14,17 +14,17 @@ def jev_report_items(report):
     if not isinstance(report, dict):
         raise ValueError("Отчёт JEV должен быть объектом JSON")
     selected = []
-    for decision in ("confirmed", "review"):
+    for decision in ("confirmed", "review", "government_review"):
         bucket = report.get(decision, [])
         if not isinstance(bucket, list):
-            raise ValueError("Списки confirmed/review в отчёте JEV должны быть массивами")
+            raise ValueError("Списки confirmed/review/government_review в отчёте JEV должны быть массивами")
         for row in bucket:
             if not isinstance(row, dict):
                 raise ValueError("Строка отчёта JEV должна быть объектом")
-            provider = str(row.get("source") or row.get("provider") or "JEV").strip()[:100]
+            provider = str(row.get("provider") or row.get("source") or "JEV").strip()[:100]
             item_id = str(row.get("id") or "").strip()
             reasons = row.get("reasons") if isinstance(row.get("reasons"), list) else []
-            context = [str(row.get(key) or "").strip() for key in ("organizer", "procedure_type", "status")]
+            context = [str(row.get(key) or "").strip() for key in ("organizer", "procedure_type", "status", "regime")]
             context.extend(str(reason).strip() for reason in reasons)
             evidence = " · ".join(dict.fromkeys(value for value in context if value))[:4000]
             deadline = row.get("deadline_msk") or row.get("deadline")
@@ -56,7 +56,9 @@ def jev_report_items(report):
                 "title": row.get("title"),
                 "description": row.get("description") or "",
                 "publishedAt": row.get("published_at") or row.get("publishedAt"),
-                "region": row.get("place") or row.get("region") or report.get("region") or "",
+                "region": row.get("place") or row.get("region") or (
+                    "" if row.get("region_scope") in {"not_filtered", "unknown"} else report.get("region") or ""
+                ),
                 "workTypes": row.get("work_types") or row.get("workTypes") or [],
                 "price": price,
                 "deadline": deadline,

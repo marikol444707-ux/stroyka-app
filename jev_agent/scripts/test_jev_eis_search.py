@@ -62,6 +62,17 @@ class EISSearchTests(unittest.TestCase):
         self.assertEqual(rows[0]['search_queries'], ['ремонт', 'строительство'])
         self.assertEqual(len(sources), 2)
 
+    def test_government_rows_keep_stavropol_construction_and_exclude_vehicle_repair(self):
+        rows = [
+            {'id': '1', 'title': 'Капитальный ремонт школы в Ставропольском крае', 'regime': '44-ФЗ'},
+            {'id': '2', 'title': 'Ремонт автотранспортных средств', 'regime': '44-ФЗ'},
+            {'id': '3', 'title': 'Капитальный ремонт здания в Чеченской Республике', 'regime': '44-ФЗ'},
+        ]
+        candidates = eis.government_review_rows(rows)
+        self.assertEqual([row['id'] for row in candidates], ['1'])
+        self.assertEqual(candidates[0]['region_scope'], 'object_name_only')
+        self.assertEqual(candidates[0]['decision'], 'review')
+
 
 if __name__ == '__main__':
     unittest.main()

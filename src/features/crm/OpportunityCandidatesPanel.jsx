@@ -122,9 +122,9 @@ export default function OpportunityCandidatesPanel({ API = '', C = {}, compact =
     setError('');
     try {
       const report = JSON.parse(await file.text());
-      const rows = [...(Array.isArray(report.confirmed) ? report.confirmed : []), ...(Array.isArray(report.review) ? report.review : [])];
+      const rows = [...(Array.isArray(report.confirmed) ? report.confirmed : []), ...(Array.isArray(report.review) ? report.review : []), ...(Array.isArray(report.government_review) ? report.government_review : [])];
       const items = rows.slice(0, 200).map(row => {
-        const provider = String(row.source || '').trim();
+        const provider = String(row.provider || row.source || '').trim();
         const sourceId = String(row.id || row.procedure_record_id || '').trim();
         const amount = normalizeReportPrice(row.price);
         const deadline = String(row.deadline_msk || '').trim();
@@ -137,14 +137,14 @@ export default function OpportunityCandidatesPanel({ API = '', C = {}, compact =
           url: row.url,
           title: row.title,
           description: details,
-          region: row.region || report.region || '',
+          region: row.region || (['not_filtered', 'unknown'].includes(row.region_scope) ? '' : report.region || ''),
           workTypes: ['Строительство / ремонт'],
           price: amount,
           deadline: deadlineIso || null,
-          evidence: `JEV: предварительная проверка; сверить карточку источника. ${Array.isArray(row.reasons) ? row.reasons.join(', ') : ''}`.trim(),
+          evidence: `${row.regime ? `Режим закупки: ${row.regime}. ` : ''}JEV: предварительная проверка; сверить карточку источника. ${Array.isArray(row.reasons) ? row.reasons.join(', ') : ''}`.trim(),
         };
       }).filter(item => item.title && item.url && item.sourceName);
-      if (!items.length) throw new Error('В отчёте нет пригодных находок в разделах confirmed и review');
+      if (!items.length) throw new Error('В отчёте нет пригодных находок в разделах confirmed, review и government_review');
       if (rows.length > 200) throw new Error('В отчёте больше 200 находок. Импортируйте меньшую часть отчёта');
       const response = await fetch(`${API}/crm/job-candidates/import-report`, {
         method: 'POST',

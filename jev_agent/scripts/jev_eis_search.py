@@ -190,6 +190,32 @@ def search_eis(terms=TERMS, laws=tuple(LAWS)):
     return list(unique.values()), sources
 
 
+def government_review_rows(rows):
+    """Keep only construction opportunities; all require human confirmation."""
+    candidates = []
+    for row in rows:
+        title = row.get('title', '')
+        if NON_BUILDING.search(title) or OTHER_REGION.search(title) or not CONSTRUCTION.search(title):
+            continue
+        in_region = bool(STAVROPOL_REGION.search(title))
+        candidates.append(dict(
+            row,
+            provider='ЕИС · ' + str(row.get('regime') or ''),
+            region='Ставропольский край' if in_region else '',
+            region_scope='object_name_only' if in_region else 'unknown',
+            work_types=['Строительство / капитальный ремонт'],
+            description='\n'.join(value for value in (
+                'Заказчик: ' + str(row.get('organizer') or '') if row.get('organizer') else '',
+                'Правовой режим: ' + str(row.get('regime') or ''),
+                'Статус в ЕИС: ' + str(row.get('status') or '') if row.get('status') else '',
+            ) if value),
+            decision='review',
+            reasons=(['government_procurement_manual_verification', 'deadline_and_documents_need_check']
+                     if in_region else ['work_location_unknown', 'deadline_and_documents_need_check']),
+        ))
+    return candidates
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', help='Write JSON report to this path; default is stdout')
@@ -202,12 +228,7 @@ def main():
         'region': 'Ставропольский край · регион проверяется вручную',
         'scope': 'Первые 10 открытых результатов по 3 запросам и 3 правовым режимам. ЕИС не подтвердил региональный фильтр; адрес работ и актуальность сверяются в оригинале.',
         'sources': sources,
-        'candidates': [dict(row, region='Ставропольский край' if STAVROPOL_REGION.search(row.get('title', '')) else '',
-                            region_scope='object_name_only' if STAVROPOL_REGION.search(row.get('title', '')) else 'unknown',
-                            decision='review', reasons=(
-            ['government_procurement_manual_verification'] if STAVROPOL_REGION.search(row.get('title', '')) else
-            ['work_location_unknown'])) for row in rows
-            if not NON_BUILDING.search(row.get('title', '')) and not OTHER_REGION.search(row.get('title', '')) and CONSTRUCTION.search(row.get('title', ''))],
+        'candidates': government_review_rows(rows),
         'screened_out_non_construction': sum(1 for row in rows if NON_BUILDING.search(row.get('title', '')) or not CONSTRUCTION.search(row.get('title', ''))),
         'screened_out_other_region': sum(1 for row in rows if OTHER_REGION.search(row.get('title', ''))),
         'ok': bool(sources) and all(source.get('ok') for source in sources),

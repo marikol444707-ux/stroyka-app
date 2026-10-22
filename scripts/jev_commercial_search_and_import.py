@@ -57,7 +57,7 @@ def run_search(*, runner=None):
         raise ValueError("jev_search_returned_invalid_report")
     # A remote nonzero exit may still contain a useful partial report if one
     # source failed; import remains safe because all rows enter review status.
-    if result.returncode and not (report.get("confirmed") or report.get("review")):
+    if result.returncode and not (report.get("confirmed") or report.get("review") or report.get("government_review")):
         raise ValueError("jev_search_failed_without_candidates")
     return report
 
