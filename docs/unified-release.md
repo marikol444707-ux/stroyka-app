@@ -1,7 +1,7 @@
 # Единый пакет для рабочего сервера
 
 Пакет содержит все коммиты после production baseline, закреплённого в
-`scripts/install-unified-from-git.sh` (`0833c2dba316cc5972311c92f79a3c6a138fabb1` для выпуска JEV intake)
+`scripts/install-unified-from-git.sh` (`fd728d2524e2175cddd0f9297d9863d98e910ed4` для диагностики импорта JEV)
 одной цепочкой, точный Git bundle, манифест SHA256, установщик и проверку БД.
 Точный целевой SHA и список коммитов находятся в `release.json` внутри пакета.
 Файлы `.env`, uploads, дампы и токены в пакет не входят. Ничего не публикуется в
