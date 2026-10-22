@@ -211,7 +211,7 @@ class JobCandidateRouteTests(unittest.TestCase):
             {"company_id": 8, "settings": {"searchTerms": []}},
         ])
         app, conn, _ = self.build(cursor, jev_ingest_key="k" * 40)
-        payload = {"targetCompanyId": 8, "confirmed": [{
+        payload = {"companyId": 8, "targetCompanyId": 8, "confirmed": [{
             "source": "B2B-Center", "id": "B2B-8", "url": "https://example.org/b2b-8", "title": "Ремонт кровли",
         }]}
 
@@ -231,6 +231,18 @@ class JobCandidateRouteTests(unittest.TestCase):
         with self.assertRaises(HTTPException) as raised:
             app.routes[("POST", "/internal/jev/job-candidates")](
                 {"targetCompanyId": "8", "confirmed": []}, x_jev_ingest_key="k" * 40,
+            )
+        self.assertEqual(raised.exception.status_code, 422)
+        self.assertEqual(cursor.calls, [])
+        self.assertEqual(conn.commits, 0)
+
+    def test_internal_report_rejects_company_identity_mismatch(self):
+        cursor = FakeCursor()
+        app, conn, _ = self.build(cursor, jev_ingest_key="k" * 40)
+        with self.assertRaises(HTTPException) as raised:
+            app.routes[("POST", "/internal/jev/job-candidates")](
+                {"companyId": 8, "targetCompanyId": 12, "confirmed": []},
+                x_jev_ingest_key="k" * 40,
             )
         self.assertEqual(raised.exception.status_code, 422)
         self.assertEqual(cursor.calls, [])

@@ -17,20 +17,37 @@ except ModuleNotFoundError:
 MAX_REPORT_BYTES = 1_000_000
 
 
-def build_request(report, *, api_url, ingest_key):
+def _validate_endpoint(api_url, ingest_key):
     parsed = urlsplit(str(api_url or "").strip())
     if parsed.scheme != "https" or not parsed.netloc or parsed.path not in ("", "/") or parsed.query or parsed.fragment:
         raise ValueError("JEV_OPPORTUNITY_API_URL должен быть HTTPS-адресом сайта Стройки без пути")
     if len(str(ingest_key or "")) < 32:
         raise ValueError("Ключ импорта JEV не настроен или слишком короткий")
+    return parsed.scheme + "://" + parsed.netloc + "/api/internal/jev/job-candidates"
+
+
+def build_targets_request(*, api_url, ingest_key):
+    endpoint = _validate_endpoint(api_url, ingest_key)
+    return Request(endpoint, headers={
+        "Accept": "application/json",
+        "X-JEV-Ingest-Key": str(ingest_key),
+    }, method="GET")
+
+
+def build_request(report, *, api_url, ingest_key, target_company_id=None):
+    endpoint = _validate_endpoint(api_url, ingest_key)
     items = jev_report_items(report)
     if not items:
         raise ValueError("В отчёте нет подтверждённых находок или записей для проверки")
+    if target_company_id is not None:
+        if type(target_company_id) is not int or target_company_id <= 0:
+            raise ValueError("targetCompanyId должен быть положительным целым числом")
+        report = {**report, "targetCompanyId": target_company_id}
     body = json.dumps(report, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     if len(body) > MAX_REPORT_BYTES:
         raise ValueError("Отчёт JEV превышает лимит 1 МБ")
     request = Request(
-        parsed.scheme + "://" + parsed.netloc + "/api/internal/jev/job-candidates",
+        endpoint,
         data=body,
         headers={"Content-Type": "application/json", "X-JEV-Ingest-Key": str(ingest_key)},
         method="POST",

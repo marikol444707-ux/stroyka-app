@@ -310,16 +310,22 @@ def register_job_candidates_module(app, deps):
                         settings = {}
                 if not isinstance(settings, dict):
                     settings = {}
+                search_terms = settings.get("searchTerms", [])
+                if not isinstance(search_terms, list):
+                    search_terms = []
+                search_terms = [" ".join(term.split()) for term in search_terms
+                                if isinstance(term, str) and 2 <= len(term.strip()) <= 80][:20]
+                providers = settings.get("sourceProviders", list(_JEV_ACTIVE_PROVIDERS))
+                if not isinstance(providers, list):
+                    providers = []
+                providers = [provider for provider in providers if provider in _JEV_ACTIVE_PROVIDERS]
+                if not providers:
+                    providers = list(_JEV_ACTIVE_PROVIDERS)
                 targets.append({
                     "companyId": int(row["company_id"]),
                     "region": str(settings.get("region") or "Ставропольский край"),
-                    "searchTerms": [term for term in settings.get("searchTerms", [])
-                                    if isinstance(term, str)][:20]
-                    if isinstance(settings.get("searchTerms", []), list) else [],
-                    "sourceProviders": [provider for provider in settings.get("sourceProviders", _JEV_ACTIVE_PROVIDERS)
-                                        if provider in _JEV_ACTIVE_PROVIDERS]
-                    if isinstance(settings.get("sourceProviders", _JEV_ACTIVE_PROVIDERS), list)
-                    else list(_JEV_ACTIVE_PROVIDERS),
+                    "searchTerms": search_terms,
+                    "sourceProviders": providers,
                 })
             return {"targets": targets}
         finally:
@@ -332,6 +338,8 @@ def register_job_candidates_module(app, deps):
         target_company_id = data.get("targetCompanyId") if isinstance(data, dict) else None
         if target_company_id is not None and (type(target_company_id) is not int or target_company_id <= 0):
             raise HTTPException(status_code=422, detail="targetCompanyId должен быть положительным целым числом")
+        if target_company_id is not None and data.get("companyId") != target_company_id:
+            raise HTTPException(status_code=422, detail="Организация отчёта не совпадает с targetCompanyId")
         try:
             body_size = len(json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
             if body_size > 1_000_000:
