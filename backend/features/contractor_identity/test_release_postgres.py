@@ -83,7 +83,9 @@ class UnifiedReleasePostgresTests(unittest.TestCase):
         conn = self.connect()
         try:
             self.assertEqual(self.baseline_report['status'], 'ready', self.baseline_report)
-            self.assertEqual(self.baseline_report['pendingMigrations'], [self.checker.TARGET_REVISION])
+            self.assertEqual(self.baseline_report['pendingMigrations'], [
+                self.checker.MANUAL_REVISION, self.checker.TARGET_REVISION,
+            ])
             self.assertEqual(self.before, self.history(conn))
             conn.rollback()
             report = self.checker.inspect_connection(conn, require_target=True)

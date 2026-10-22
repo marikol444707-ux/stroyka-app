@@ -134,7 +134,7 @@ BAD-NAME=ignored
         self.assertEqual(set(shlex.split(release.frontend_service_environment(env))),
                          {'PARTICIPANT_SUPPORT_ENABLED=1', 'ASSIGNMENT_DAILY_DRAFT_COMPANY_IDS=4,5'})
 
-    def test_git_delivery_fetches_release_and_cleans_its_worktree_on_success_and_failure(self):
+    def test_git_delivery_fetches_pinned_release_and_cleans_its_worktree_on_success_and_failure(self):
         with tempfile.TemporaryDirectory() as temporary:
             work = Path(temporary)
             source = work / 'source'
@@ -162,7 +162,7 @@ with tarfile.open(output, 'w:gz') as archive:
             (source / 'app.txt').write_text('candidate')
             self.commit(source, 'candidate')
             target = self.git(source, 'rev-parse', 'HEAD')
-            self.git(source, 'branch', 'codex/unified-production-release', target)
+            self.git(source, 'branch', 'codex/jev-production-intake', target)
             server = work / 'server'
             self.git(work, 'clone', '--branch', 'installed', str(source), str(server))
             self.git(server, 'branch', '-m', 'main')
@@ -211,6 +211,7 @@ with tarfile.open(output, 'w:gz') as archive:
             migrations.mkdir(parents=True)
             (migrations / '0100.py').write_text("revision='0100_packaging_history_guard'\ndown_revision=None\n")
             (migrations / '0101.py').write_text("revision='0101_manual_brigade_origins'\ndown_revision='0100_packaging_history_guard'\n")
+            (migrations / '0102.py').write_text("revision='0102_job_candidates'\ndown_revision='0101_manual_brigade_origins'\n")
             for name in ('unified_release.py', 'release_database_check.py'):
                 shutil.copyfile(SCRIPTS / name, source / 'scripts' / name)
             (source / 'docs/unified-release.md').write_text('Runbook')
@@ -225,7 +226,15 @@ with tarfile.open(output, 'w:gz') as archive:
             extracted = work / 'extracted'
             with tarfile.open(artifact) as archive:
                 self.assertFalse(any('.env' == Path(member.name).name for member in archive.getmembers()))
-                archive.extractall(extracted, filter='data')
+                members = archive.getmembers()
+                for member in members:
+                    destination = (extracted / member.name).resolve()
+                    self.assertTrue(destination == extracted.resolve() or extracted.resolve() in destination.parents)
+                    self.assertFalse(member.issym() or member.islnk())
+                if 'filter' in __import__('inspect').signature(archive.extractall).parameters:
+                    archive.extractall(extracted, members=members, filter='data')
+                else:
+                    archive.extractall(extracted, members=members)
             package = next(extracted.iterdir())
             manifest = release.load_package(package)
             self.assertEqual(len(manifest['commits']), 2)
