@@ -1,10 +1,26 @@
 import hmac
 import json
+import logging
 
 import psycopg2.extras
 from fastapi import Depends, Header, HTTPException, Query
 
 from .service import build_candidate_record, jev_report_items
+
+
+logger = logging.getLogger(__name__)
+
+
+def _log_database_failure(operation, error):
+    """Log non-sensitive database diagnostics without request values or SQL text."""
+    diagnostic = getattr(error, "diag", None)
+    logger.error(
+        "%s failed: error_type=%s sqlstate=%s constraint=%s",
+        operation,
+        type(error).__name__,
+        getattr(error, "pgcode", None),
+        getattr(diagnostic, "constraint_name", None),
+    )
 
 
 def _save_candidates(cur, *, company_id, candidates, created_by):
@@ -229,6 +245,7 @@ def register_job_candidates_module(app, deps):
             raise
         except Exception as error:
             conn.rollback()
+            _log_database_failure("JEV candidate import", error)
             raise HTTPException(status_code=400, detail="Не удалось принять отчёт JEV") from error
         finally:
             cur.close()

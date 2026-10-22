@@ -64,6 +64,16 @@ class FakeConnection:
         pass
 
 
+class FailingInsertCursor(FakeCursor):
+    def execute(self, sql, params=()):
+        if self.calls:
+            error = RuntimeError("synthetic database failure with private query data")
+            error.pgcode = "23514"
+            error.diag = type("Diagnostic", (), {"constraint_name": "synthetic_constraint"})()
+            raise error
+        super().execute(sql, params)
+
+
 class JobCandidateRouteTests(unittest.TestCase):
     def build(self, cursor, *, context=None, roles=None, jev_ingest_key="", jev_company_id=0):
         app = FakeApp()
@@ -166,6 +176,29 @@ class JobCandidateRouteTests(unittest.TestCase):
                 x_jev_ingest_key="anything",
             )
         self.assertEqual(raised.exception.status_code, 503)
+
+    def test_jev_database_failure_logs_only_safe_diagnostic_metadata(self):
+        app, conn, _ = self.build(
+            FailingInsertCursor({"id": 8}), jev_ingest_key="k" * 40, jev_company_id=8,
+        )
+        payload = {"confirmed": [{
+            "source": "B2B-Center", "id": "B2B-8", "url": "https://example.org/b2b-8",
+            "title": "Private candidate title",
+        }]}
+        with self.assertLogs("backend.features.job_candidates.routes", level="ERROR") as logs:
+            with self.assertRaises(HTTPException) as raised:
+                app.routes[("POST", "/internal/jev/job-candidates")](
+                    payload, x_jev_ingest_key="k" * 40,
+                )
+
+        self.assertEqual(raised.exception.status_code, 400)
+        self.assertEqual(conn.rollbacks, 1)
+        log_text = "\n".join(logs.output)
+        self.assertIn("error_type=RuntimeError", log_text)
+        self.assertIn("sqlstate=23514", log_text)
+        self.assertIn("constraint=synthetic_constraint", log_text)
+        self.assertNotIn("Private candidate title", log_text)
+        self.assertNotIn("private query data", log_text)
 
 
 if __name__ == "__main__":
