@@ -111,6 +111,9 @@ check_not_spa "marketing publications route" "/marketing-publications" "401 403"
 check_post_not_spa "marketing publications post route" "/marketing-publications" "401 403 422"
 check_post_not_spa "client errors route" "/client-errors" "200 422 429"
 check_not_spa "job candidates CRM route" "/crm/job-candidates" "401 403 429"
+check_not_spa "job candidates entitlement route" "/crm/job-candidates/access" "401 403 429"
+check_not_spa "platform company feature route" "/system/company-features/jev" "401 403 429"
+check_not_spa "JEV company profiles route" "/internal/jev/job-candidates" "401 429 503"
 check_post_not_spa "JEV opportunity intake route" "/internal/jev/job-candidates" "401 422 429 503"
 
 if (( ${#FAILURES[@]} > 0 )); then

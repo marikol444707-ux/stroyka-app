@@ -858,8 +858,8 @@ def _worker_contract_scope_pairs(cur, user: dict) -> list[tuple[str, str]]:
         user_id = int(user.get("id") or 0)
     except Exception:
         user_id = 0
-    company_id = _positive_int_or_none(user.get("companyId") or user.get("company_id"))
-    if user_id <= 0 or not company_id:
+    user_name = (user.get("name") or "").strip()
+    if user_id <= 0 and not user_name:
         return []
     cur.execute("""SELECT DISTINCT
                           bc.project_name,
@@ -867,7 +867,13 @@ def _worker_contract_scope_pairs(cur, user: dict) -> list[tuple[str, str]]:
                    FROM brigade_contract_items bci
                    JOIN brigade_contracts bc ON bc.id=bci.contract_id
                    WHERE COALESCE(bc.status,'') NOT IN ('Аннулирован','Удалён','Удален')
-                     AND bc.company_id=%s AND bc.contractor_id=%s""", (company_id, user_id))
+                     AND (
+                       COALESCE(bc.contractor_id,0)=%s
+                       OR (
+                         COALESCE(bc.contractor_id,0)=0
+                         AND LOWER(TRIM(COALESCE(bc.brigade_name,'')))=LOWER(TRIM(%s))
+                       )
+                     )""", (user_id, user_name))
     scopes = []
     for row in cur.fetchall() or []:
         project = (row.get("project_name") if isinstance(row, dict) else row[0]) or ""
@@ -2747,8 +2753,10 @@ def require_worker_brigade_contract_access(cur, contract_id: int, user: dict):
     if not row:
         raise HTTPException(status_code=404, detail="Запись не найдена")
     contractor_id = row[0] if not isinstance(row, dict) else row.get("contractor_id")
+    brigade_name = row[1] if not isinstance(row, dict) else row.get("brigade_name")
     user_id = user.get("id")
-    if not contractor_id or str(contractor_id) != str(user_id or ""):
+    user_name = user.get("name") or ""
+    if str(contractor_id or "") != str(user_id or "") and (brigade_name or "").strip().lower() != user_name.strip().lower():
         raise HTTPException(status_code=403, detail="Нет доступа к наряду")
 
 def recalc_brigade_contract_total(cur, contract_id: int):
@@ -13183,6 +13191,7 @@ def _worker_contract_item_for_work(
     description = (description or "").strip()
     work_package = (work_package or "").strip() or "Основная"
     user_id = user.get("id")
+    user_name = (user.get("name") or "").strip().lower()
     company_id = _positive_int_or_none(user.get("companyId") or user.get("company_id"))
     if not project or not description:
         raise HTTPException(status_code=400, detail="Для закрытия сметной работы нужен объект и наименование работы")
@@ -13203,8 +13212,8 @@ def _worker_contract_item_for_work(
                     AND bc.project_name=%s
                     AND COALESCE(NULLIF(bci.work_package,''),'Основная')=%s
                     AND COALESCE(bc.status,'') NOT IN ('Аннулирован','Удалён','Удален')
-                    AND bc.contractor_id=%s"""
-    params = [company_id, project, work_package, user_id]
+                    AND (COALESCE(bc.contractor_id,0)=%s OR (COALESCE(bc.contractor_id,0)=0 AND LOWER(TRIM(COALESCE(bc.brigade_name,'')))=%s))"""
+    params = [company_id, project, work_package, user_id, user_name]
     if contract_item_id:
         base_sql += " AND bci.id=%s"
         params.append(contract_item_id)
@@ -16956,10 +16965,7 @@ def _worker_allowed_estimate_items_for_scopes(cur, user: dict, scopes: list[tupl
     if not unique_scopes:
         return {}
     conditions = []
-    company_id = _positive_int_or_none(user.get("companyId") or user.get("company_id"))
-    if not company_id or not _positive_int_or_none(user.get("id")):
-        return {}
-    params = [company_id, user['id']]
+    params = [user.get("id"), user.get("name") or ""]
     for project_scope, package_scope in unique_scopes:
         conditions.append("(bc.project_name=%s AND COALESCE(NULLIF(bci.work_package,''),'Основная')=%s)")
         params.extend([project_scope, package_scope])
@@ -16971,7 +16977,7 @@ def _worker_allowed_estimate_items_for_scopes(cur, user: dict, scopes: list[tupl
                     FROM brigade_contract_items bci
                     JOIN brigade_contracts bc ON bc.id=bci.contract_id
                     WHERE COALESCE(bc.status,'') <> 'Аннулирован'
-                      AND bc.company_id=%s AND bc.contractor_id=%s
+                      AND (COALESCE(bc.contractor_id,0)=%s OR (COALESCE(bc.contractor_id,0)=0 AND LOWER(COALESCE(bc.brigade_name,''))=LOWER(%s)))
                       AND ({" OR ".join(conditions)})""", tuple(params))
     allowed = {}
     for row in cur.fetchall() or []:
@@ -19255,7 +19261,6 @@ register_job_candidates_module(app, {
     "effective_company_actors": effective_company_actors,
     "allowed_roles": (*LEADERSHIP_ROLES, "менеджер_crm"),
     "jev_ingest_key": JEV_OPPORTUNITY_INGEST_KEY,
-    "jev_company_id": JEV_OPPORTUNITY_COMPANY_ID,
 })
 
 try:
@@ -19314,27 +19319,11 @@ def create_brigade_contract(
             company_id,
             data.get("contractorId"),
             data.get("brigadeName", ""),
-            **({'contractor_ref': data['contractorRef'], 'project_id': project['id'],
-                'work_package': work_package} if 'contractorRef' in data else {}),
         )
-        reference = data.get('contractorRef') or {}
-        manual_command = None
-        if reference.get('type') == 'manual':
-            if not str(data.get('brigadeName') or '').strip():
-                raise HTTPException(400, 'Укажите название бригады без аккаунта')
-            try:
-                from backend.features.contractor_identity.manual import command_evidence, find_manual_retry, record_manual_origin
-            except ModuleNotFoundError:
-                from features.contractor_identity.manual import command_evidence, find_manual_retry, record_manual_origin
-            manual_command = command_evidence(reference, company_id=company_id, project_id=project['id'],
-                actor_id=actor['id'], command='create_contract', payload=data)
-            existing_id = find_manual_retry(cur, company_id, project['id'], work_package, *manual_command)
-        else:
-            selected_contract_id = int(reference['id']) if reference.get('type') == 'contract' else None
-            existing_id = selected_contract_id or find_existing_brigade_contract_id(
-                cur, company_id, project["id"], work_package,
-                contractor_user_id, data.get("brigadeName", ""),
-            )
+        existing_id = find_existing_brigade_contract_id(
+            cur, company_id, project["id"], work_package,
+            contractor_user_id, data.get("brigadeName", ""),
+        )
         if existing_id:
             conn.rollback()
             return {
@@ -19344,8 +19333,6 @@ def create_brigade_contract(
                 "itemsLoaded": 0,
                 "companyId": company_id,
                 "projectId": project["id"],
-                "contractorId": contractor_user_id,
-                "manualRequestId": manual_command[0] if manual_command else None,
             }
         cur.execute(
             """INSERT INTO brigade_contracts
@@ -19362,8 +19349,6 @@ def create_brigade_contract(
         )
         row = cur.fetchone()
         new_id = _row_get(row, "id", 0)
-        if manual_command:
-            record_manual_origin(cur, new_id, company_id, project['id'], *manual_command, actor['id'])
         grant_brigade_contractor_scope(
             cur,
             company_id,
@@ -19401,8 +19386,6 @@ def create_brigade_contract(
             "itemsLoaded": inserted,
             "companyId": company_id,
             "projectId": project["id"],
-            "contractorId": contractor_user_id,
-            "manualRequestId": manual_command[0] if manual_command else None,
         }
     except HTTPException:
         conn.rollback()
@@ -28005,6 +27988,7 @@ try:
         PLATFORM_VIEW_ROLES,
         get_platform_tariff,
         register_client_contract_routes,
+        register_company_feature_routes,
         register_licensor_profile_routes,
         register_platform_admin_routes,
         write_platform_audit,
@@ -28015,6 +27999,7 @@ except ModuleNotFoundError:
         PLATFORM_VIEW_ROLES,
         get_platform_tariff,
         register_client_contract_routes,
+        register_company_feature_routes,
         register_licensor_profile_routes,
         register_platform_admin_routes,
         write_platform_audit,
@@ -28027,6 +28012,13 @@ register_platform_admin_routes(app, {
     "save_upload_bytes": save_upload_bytes,
     "yandex_api_key": YANDEX_API_KEY,
     "yandex_folder_id": YANDEX_FOLDER_ID,
+})
+
+register_company_feature_routes(app, {
+    "get_db": get_db,
+    "require_roles": require_roles,
+    "manage_roles": PLATFORM_MANAGE_ROLES,
+    "write_audit": write_platform_audit,
 })
 
 register_licensor_profile_routes(app, {

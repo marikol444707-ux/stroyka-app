@@ -179,7 +179,7 @@ def build_report(rows, sources, now=None):
             reason = row['reasons'][0] if row['reasons'] else 'other'
             excluded[reason] = excluded.get(reason, 0) + 1
     return {'generated_at': now.isoformat(), 'region': 'Ставропольский край',
-            'coverage': 'Первые страницы B2B-Center по 11 видам строительных работ с последующей проверкой региона, открытые выдачи Росэлторга и Фабриканта; охват неполный',
+            'coverage': 'Коммерческий поиск на открытых страницах B2B-Center, Росэлторга и Фабриканта; отдельно — первые страницы ЕИС по 44-ФЗ, 223-ФЗ и 615-ПП. Охват частичный, адрес и условия сверяются вручную.',
             'sources': sources, 'confirmed': [x for x in assessed if x['decision'] == 'confirmed'],
             'review': [x for x in assessed if x['decision'] == 'review'],
             'excluded': excluded,
@@ -382,7 +382,14 @@ async def worker():
         fabrikant_rows,fabrikant_sources=fabrikant_source()
         rows.extend(rosel_rows);rows.extend(fabrikant_rows)
         sources.extend(rosel_sources);sources.extend(fabrikant_sources)
-        return build_report(rows, sources)
+        report = build_report(rows, sources)
+        # Keep regulated public procurement separate from commercial leads.
+        from jev_eis_search import government_review_rows, search_eis
+        government_rows, government_sources = search_eis()
+        report['government_review'] = government_review_rows(government_rows)
+        report['sources'].extend(government_sources)
+        report['ok'] = report['ok'] and all(source.get('ok') for source in government_sources)
+        return report
     finally:
         chrome.terminate()
         try: chrome.wait(timeout=5)
@@ -395,6 +402,7 @@ def probe():
                '--security-opt', 'no-new-privileges', '--memory', '1g', '--pids-limit', '256', '--read-only',
                '--tmpfs', '/tmp:rw,nosuid,nodev,size=384m', '--network', 'bridge',
                '--mount', 'type=bind,src='+str(Path(__file__).resolve())+',dst=/commercial.py,readonly',
+               '--mount', 'type=bind,src='+str(Path(__file__).with_name('jev_eis_search.py').resolve())+',dst=/jev_eis_search.py,readonly',
                '--entrypoint', 'python3', IMAGE, '/commercial.py', '--worker']
     try:
         result = subprocess.run(command, capture_output=True, text=True, timeout=180)
@@ -409,20 +417,26 @@ def probe():
 def render(report):
     esc = lambda value: html.escape(str(value), quote=True)
     parts = ['<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">',
-             '<title>Строительные закупки — коммерческий поиск</title><style>body{font:16px system-ui;max-width:850px;margin:24px auto;padding:0 16px;background:#f4f6fa;color:#253047}article{background:white;padding:18px;margin:12px 0;border-radius:12px}p,a{overflow-wrap:anywhere}</style>',
-             '<h1>Коммерческие закупки: поиск кандидатов</h1><p>'+esc(report['coverage'])+'</p>',
+             '<title>Строительные закупки — поиск JEV</title><style>body{font:16px system-ui;max-width:850px;margin:24px auto;padding:0 16px;background:#f4f6fa;color:#253047}article{background:white;padding:18px;margin:12px 0;border-radius:12px}p,a{overflow-wrap:anywhere}</style>',
+             '<h1>Поиск строительных закупок: коммерческие и государственные</h1><p>'+esc(report['coverage'])+'</p>',
              '<p>Непроверенный правовой режим не означает коммерческую закупку. Место и условия требуют сверки в оригинале.</p>']
-    for key, label in (('confirmed', 'Подтверждённые по полям источника'), ('review', 'Нужно проверить')):
-        parts.append('<h2>{}: {}</h2>'.format(label, len(report[key])))
-        for row in report[key]:
+    for key, label in (('confirmed', 'Подтверждённые по полям источника'), ('review', 'Нужно проверить'),
+                       ('government_review', 'Госзакупки · проверить по извещению')):
+        parts.append('<h2>{}: {}</h2>'.format(label, len(report.get(key, []))))
+        for row in report.get(key, []):
             parts.append('<article><h3>'+esc(row.get('title', ''))+'</h3>')
             parts.append('<p><b>Площадка:</b> '+esc(row.get('source','Не указана'))+'</p>')
+            if row.get('regime'):
+                parts.append('<p><b>Правовой режим:</b> '+esc(row['regime'])+' · решение принимает ваша организация.</p>')
             for field, title in (('organizer','Заказчик'),('region','Регион в выдаче'),('deadline','Подача до (МСК)'),('price','Цена')):
                 parts.append('<p><b>{}:</b> {}</p>'.format(title, esc(row.get(field) or 'Не указано')))
             if row.get('region_scope') == 'customer_region_filter':
                 parts.append('<p>Регион задан по заказчику; место выполнения работ нужно сверить в оригинале.</p>')
+            if row.get('region_scope') in ('not_filtered', 'unknown'):
+                parts.append('<p>Региональный фильтр источника не подтверждён; проверьте адрес объекта в извещении.</p>')
             parts.append('<p>Причины проверки: '+esc(', '.join(row['reasons']))+'</p>')
-            parts.append('<a rel="noreferrer" href="'+esc(procedure_url(row))+'">Открыть оригинал</a></article>')
+            link = row.get('url') if key == 'government_review' else procedure_url(row)
+            parts.append('<a rel="noreferrer" href="'+esc(link)+'">Открыть оригинал</a></article>')
     for source in report['sources']:
         parts.append('<p>{}: {} · строк {}</p>'.format(esc(source['query']),esc(source['status']), source['rows']))
     return ''.join(parts)+'</html>'

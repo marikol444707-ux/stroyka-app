@@ -14,7 +14,7 @@ class JevReportPushTests(unittest.TestCase):
             "review": [], "excluded": {"goods_purchase_not_work": 4},
         }
         request, count = build_request(report, api_url="https://stroyka26.pro", ingest_key="s" * 40)
-        self.assertEqual(request.full_url, "https://stroyka26.pro/internal/jev/job-candidates")
+        self.assertEqual(request.full_url, "https://stroyka26.pro/api/internal/jev/job-candidates")
         self.assertEqual(urlsplit(request.full_url).scheme, "https")
         self.assertEqual(request.get_header("X-jev-ingest-key"), "s" * 40)
         self.assertEqual(count, 1)

@@ -261,7 +261,7 @@ class WarehouseAnomalyRuntimeRouteRegistrationTests(unittest.TestCase):
         # JEV opportunity intake registration is reviewed; warehouse preview remains unchanged.
         self.assertEqual(
             hashlib.sha256(main_bytes).hexdigest(),
-            "b785d7ba97e5d2374ca2502671ed6b949042481a0e4094add3bf5eb7d6bf3b83",
+            "b9053387fd398ad5919e6411dcd22160c6e5a04f004deb111af7e5133a88bbcd",
         )
         self.assertEqual(
             hashlib.sha256(package_bytes).hexdigest(),
