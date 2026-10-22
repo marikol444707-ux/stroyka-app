@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only readiness check for the unified 0100 -> 0103 release.
+"""Read-only readiness check for the unified 0100 -> 0104 release.
 
 Never imports backend.main or initializes application tables. Connection values
 come from the caller's runtime environment; reports contain no DSN or row data.
@@ -9,7 +9,8 @@ import os
 BASE_REVISION = '0100_packaging_history_guard'
 MANUAL_REVISION = '0101_manual_brigade_origins'
 CANDIDATE_REVISION = '0102_job_candidates'
-TARGET_REVISION = '0103_platform_company_features'
+FEATURE_REVISION = '0103_platform_company_features'
+TARGET_REVISION = '0104_jev_search_run_history'
 REQUIRED_COLUMNS = {
     'companies': {'id'}, 'users': {'id'},
     'projects': {'id', 'company_id'},
@@ -64,7 +65,7 @@ def inspect_connection(conn, *, require_target=False):
                 revisions = [row[0] for row in cur.fetchall()]
             checks['revisions'] = revisions
             accepted = [TARGET_REVISION] if require_target else [
-                BASE_REVISION, MANUAL_REVISION, CANDIDATE_REVISION, TARGET_REVISION,
+                BASE_REVISION, MANUAL_REVISION, CANDIDATE_REVISION, FEATURE_REVISION, TARGET_REVISION,
             ]
             if len(revisions) != 1 or revisions[0] not in accepted:
                 blockers.append('UNEXPECTED_DATABASE_REVISION')
@@ -90,7 +91,7 @@ def inspect_connection(conn, *, require_target=False):
                 if 'manual_brigade_contract_origins' in columns or cur.fetchone()[0] or any(
                         name.startswith('manual_brigade_') for name in triggers):
                     blockers.append('UNVERSIONED_MANUAL_SCHEMA_PRESENT')
-            elif revisions in ([MANUAL_REVISION], [CANDIDATE_REVISION], [TARGET_REVISION]):
+            elif revisions in ([MANUAL_REVISION], [CANDIDATE_REVISION], [FEATURE_REVISION], [TARGET_REVISION]):
                 if ORIGIN_COLUMNS - columns.get('manual_brigade_contract_origins', set()):
                     blockers.append('MANUAL_ORIGIN_SCHEMA_MISSING')
                 for name, table in [('manual_brigade_origin_guard', 'manual_brigade_contract_origins'),
@@ -118,7 +119,7 @@ def inspect_connection(conn, *, require_target=False):
                             or sum(kind == 'u' for kind, _valid in constraints) != 1
                             or sum(kind == 'c' for kind, _valid in constraints) != 1):
                         blockers.append('MANUAL_CONSTRAINTS_INCOMPLETE')
-            if revisions in ([CANDIDATE_REVISION], [TARGET_REVISION]):
+            if revisions in ([CANDIDATE_REVISION], [FEATURE_REVISION], [TARGET_REVISION]):
                 candidate_columns = {'id','company_id','source','identity_key','url','title','description','status','created_at','updated_at'}
                 if candidate_columns - columns.get('crm_job_candidates', set()):
                     blockers.append('JOB_CANDIDATE_SCHEMA_MISSING')
@@ -127,7 +128,7 @@ def inspect_connection(conn, *, require_target=False):
                         WHERE conrelid='public.crm_job_candidates'::regclass AND contype='u'""")
                     if cur.fetchone()[0] < 2:
                         blockers.append('JOB_CANDIDATE_DEDUPE_CONSTRAINTS_MISSING')
-            if revisions == [TARGET_REVISION]:
+            if revisions in ([FEATURE_REVISION], [TARGET_REVISION]):
                 feature_columns = {'id', 'company_id', 'feature_code', 'enabled', 'monthly_fee', 'settings'}
                 if feature_columns - columns.get('platform_company_features', set()):
                     blockers.append('PLATFORM_COMPANY_FEATURE_SCHEMA_MISSING')
@@ -136,6 +137,11 @@ def inspect_connection(conn, *, require_target=False):
                         WHERE company_id=1 AND feature_code='jev_procurement' AND enabled=TRUE""")
                     if cur.fetchone()[0] != 1:
                         blockers.append('JEV_COMPANY_FEATURE_SEED_MISSING')
+            if revisions == [TARGET_REVISION]:
+                run_columns = {'id', 'company_id', 'run_id', 'region', 'received_count', 'created_count',
+                               'updated_count', 'sources_checked', 'sources_unavailable', 'sources', 'finished_at'}
+                if run_columns - columns.get('crm_job_candidate_search_runs', set()):
+                    blockers.append('JEV_SEARCH_RUN_HISTORY_SCHEMA_MISSING')
             if not missing:
                 cur.execute('SELECT count(*) FROM public.brigade_contracts WHERE contractor_id IS NULL')
                 checks['unlinkedContractsForSeparateReview'] = cur.fetchone()[0]
@@ -147,12 +153,13 @@ def inspect_connection(conn, *, require_target=False):
                     blockers.append('MIGRATION_OWNERSHIP_REQUIRED')
         return {'status': 'blocked' if blockers else 'ready', 'readOnly': True,
                 'blockers': sorted(set(blockers)), 'checks': checks,
-                'pendingMigrations': ([MANUAL_REVISION, CANDIDATE_REVISION, TARGET_REVISION]
+                'pendingMigrations': ([MANUAL_REVISION, CANDIDATE_REVISION, FEATURE_REVISION, TARGET_REVISION]
                                       if revisions == [BASE_REVISION]
-                                      else [CANDIDATE_REVISION, TARGET_REVISION]
+                                      else [CANDIDATE_REVISION, FEATURE_REVISION, TARGET_REVISION]
                                       if revisions == [MANUAL_REVISION]
-                                      else [TARGET_REVISION]
-                                      if revisions == [CANDIDATE_REVISION] else [])}
+                                      else [FEATURE_REVISION, TARGET_REVISION]
+                                      if revisions == [CANDIDATE_REVISION]
+                                      else [TARGET_REVISION] if revisions == [FEATURE_REVISION] else [])}
     finally:
         conn.rollback()
 

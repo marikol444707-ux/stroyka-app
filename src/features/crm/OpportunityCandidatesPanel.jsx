@@ -23,6 +23,7 @@ const normalizeReportPrice = (value) => {
 
 export default function OpportunityCandidatesPanel({ API = '', C = {}, compact = false }) {
   const [items, setItems] = React.useState([]);
+  const [searchRuns, setSearchRuns] = React.useState([]);
   const [status, setStatus] = React.useState('Нужно проверить');
   const [searchText, setSearchText] = React.useState('');
   const [sourceFilter, setSourceFilter] = React.useState('');
@@ -84,6 +85,9 @@ export default function OpportunityCandidatesPanel({ API = '', C = {}, compact =
       const data = await response.json().catch(() => []);
       if (!response.ok) throw new Error(data.detail || 'Не удалось загрузить находки');
       setItems(Array.isArray(data) ? data : []);
+      const runsResponse = await fetch(`${API}/crm/job-candidates/search-runs?limit=10`);
+      const runsData = await runsResponse.json().catch(() => []);
+      if (runsResponse.ok) setSearchRuns(Array.isArray(runsData) ? runsData : []);
     } catch (loadError) {
       setError(loadError.message || 'Не удалось загрузить находки');
     } finally {
@@ -175,7 +179,7 @@ export default function OpportunityCandidatesPanel({ API = '', C = {}, compact =
       const response = await fetch(`${API}/crm/job-candidates/import-report`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items }),
+        body: JSON.stringify({ items, runId: report.run_id, region: report.region, sources: report.sources }),
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.detail || 'Не удалось импортировать отчёт');
@@ -311,6 +315,28 @@ export default function OpportunityCandidatesPanel({ API = '', C = {}, compact =
           </button>
         ))}
       </div>
+
+      <section aria-label="История поиска JEV" style={{ marginTop: 14, padding: 12, borderRadius: 10, background: C.bg || '#f9fafb', border: `1px solid ${C.border || '#d0d5dd'}` }}>
+        <h4 style={{ margin: 0, color: C.text || '#101828' }}>Последние запуски поиска</h4>
+        {searchRuns.length === 0 ? (
+          <p style={{ color: C.textSec || '#667085', margin: '6px 0 0', fontSize: 12 }}>Запусков пока нет. После поиска здесь появятся результаты по площадкам.</p>
+        ) : searchRuns.map(run => (
+          <details key={run.runId || run.id} style={{ marginTop: 8 }}>
+            <summary style={{ cursor: 'pointer', color: C.text || '#101828' }}>
+              {run.finishedAt ? new Date(run.finishedAt).toLocaleString('ru-RU') : 'Запуск поиска'} · {run.region || 'Регион не указан'} · найдено {run.receivedCount || 0}, новых {run.createdCount || 0}, обновлено {run.updatedCount || 0} · площадок с ошибкой {run.sourcesUnavailable || 0}/{run.sourcesChecked || 0}
+            </summary>
+            {Array.isArray(run.sources) && run.sources.length > 0 && (
+              <ul style={{ margin: '7px 0 0', paddingLeft: 20, color: C.textSec || '#667085', fontSize: 12 }}>
+                {run.sources.map((source, index) => (
+                  <li key={`${source.provider}-${source.query}-${index}`}>
+                    {source.provider}{source.query ? ` · «${source.query}»` : ''}: {source.ok ? 'проверено' : 'ошибка'}, строк {source.rows || 0}{source.ok && source.rows === 0 ? ' (пустая выдача)' : ''}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </details>
+        ))}
+      </section>
 
       {error && <p role="alert" style={{ color: C.danger || '#b42318', margin: '12px 0 0' }}>{error}</p>}
       {loading ? <p style={{ color: C.textSec || '#667085' }}>Загружаю…</p> : items.length === 0 ? <p style={{ color: C.textSec || '#667085', margin: '14px 0 0' }}>В этой подборке пока нет находок.</p> : visibleItems.length === 0 ? <p role="status" style={{ color: C.textSec || '#667085', margin: '14px 0 0' }}>По этим фильтрам находок нет.</p> : (
