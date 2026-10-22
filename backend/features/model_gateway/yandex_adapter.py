@@ -151,7 +151,7 @@ def _provider_input(request):
         if part.kind == "text":
             content.append({"type": "input_text", "text": part.value})
         elif part.kind == "image_data_url":
-            content.append({"type": "input_image", "image_url": part.value})
+            content.append({"type": "input_image", "image_url": part.value, "detail": "auto"})
         elif part.kind == "file_id":
             content.append({"type": "input_file", "file_id": part.value})
         elif part.kind == "file_data_url":
@@ -270,6 +270,7 @@ class YandexModelAdapter:
                         input=provider_input,
                         max_output_tokens=request.max_output_tokens,
                         timeout=float(remaining),
+                        **({"reasoning": {"effort": "none"}} if request.capability == "invoice_scan" and model_id == "qwen3.6-35b-a3b/latest" else {}),
                     )
                 except asyncio.CancelledError:
                     _error(MODEL_GATEWAY_CANCELLED)
@@ -391,3 +392,4 @@ def build_yandex_model_adapter(
         telemetry_sink=telemetry_sink,
         correlation_id_factory=correlation_id_factory,
     )
+

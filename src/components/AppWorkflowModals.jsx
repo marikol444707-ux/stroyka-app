@@ -106,6 +106,7 @@ export default function AppWorkflowModals({ ui, constants, state, actions }) {
   } = state;
   const {
     appendPhotos,
+    uploadPhoto,
     applyEstimateActivationState,
     autoReconcileEstimateChanges,
     buildEstimateDiffContent,
@@ -484,6 +485,8 @@ export default function AppWorkflowModals({ ui, constants, state, actions }) {
           getProjectEstimateWorkOptions={getProjectEstimateWorkOptions}
           units={units}
           saveInvoiceNew={saveInvoiceNew}
+          uploadPhoto={uploadPhoto}
+          fileSrc={fileSrc}
         />
       )}
 

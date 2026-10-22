@@ -1,4 +1,4 @@
-import React from 'react';
+import React, {useState} from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import ScannedInvoiceFormModal from './ScannedInvoiceFormModal';
 
@@ -55,4 +55,34 @@ test('editing the OCR supplier name clears a stale matched supplier id', () => {
       supplierName: 'ООО Новое',
     }),
   }));
+});
+
+test('wrong OCR quantity blocks receipt and template learning until the draft is corrected', () => {
+  const saveInvoiceNew=jest.fn();
+  global.fetch=jest.fn();
+  function Harness() {
+    const [newInvoice,setNewInvoice]=useState({number:'SYNTHETIC',date:'2026-10-22',supplier:'Synthetic supplier',
+      sourceType:'scan_main_invoice',location:'Основной склад',vat:'С НДС 22%',totalWithVat:2400,
+      scanValidation:{valid:true},items:[{name:'Synthetic plaster',article:'SYN-1',quantity:'796',price:'400',lineTotal:'2400',unit:'шт'}]});
+    return <ScannedInvoiceFormModal showScannedInvoiceForm setShowScannedInvoiceForm={jest.fn()} newInvoice={newInvoice}
+      setNewInvoice={setNewInvoice} projects={[]} units={['шт']} C={{}} card={{}} inp={{}} btnO={{}} btnG={{}} btnR={{}}
+      saveInvoiceNew={saveInvoiceNew} user={{role:'кладовщик'}} />;
+  }
+  render(<Harness />);
+  expect(screen.getByRole('alert')).toHaveTextContent('Строка 1');
+  expect(screen.getByRole('button',{name:'Сохранить'})).toBeDisabled();
+  expect(screen.getByRole('button',{name:/Запомнить исправления/})).toBeDisabled();
+  expect(screen.getByText('Артикул: SYN-1')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button',{name:'Сохранить'}));
+  expect(saveInvoiceNew).not.toHaveBeenCalled();
+  expect(fetch).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByPlaceholderText('Кол.'),{target:{value:'6'}});
+  expect(screen.getByPlaceholderText('Сумма строки')).toHaveValue(2400);
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  expect(screen.getByRole('button',{name:'Сохранить'})).toBeEnabled();
+  expect(screen.getByRole('button',{name:/Запомнить исправления/})).toBeEnabled();
+  fireEvent.change(screen.getByPlaceholderText('Цена с НДС'),{target:{value:'500'}});
+  expect(screen.getByPlaceholderText('Сумма строки')).toHaveValue(3000);
+  expect(screen.getByRole('alert')).toHaveTextContent('Сумма строк не совпадает');
+  expect(screen.getByRole('button',{name:'Сохранить'})).toBeDisabled();
 });
