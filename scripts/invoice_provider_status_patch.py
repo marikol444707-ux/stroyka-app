@@ -190,6 +190,64 @@ def apply(root, expected_head, backup_root, service='stroyka', operate=service_o
     require(re.fullmatch(r'[0-9a-f]{8,40}', expected_head or '') is not None, 'expected_head_required')
     meta, before, after = plan(root)
     require(meta['head'].startswith(expected_head), 'installed_head_mismatch')
+    return install_change(root, meta, before, after, backup_root, service, operate,
+                          'diagnostic_installed_awaiting_scan')
+
+
+def add_image_detail(source):
+    tree = ast.parse(source)
+    methods = [node for node in tree.body if isinstance(node, ast.FunctionDef)
+               and node.name == '_provider_input']
+    require(len(methods) == 1, 'unsupported_image_builder')
+    images = [node for node in ast.walk(methods[0]) if isinstance(node, ast.Dict)
+              and any(isinstance(key, ast.Constant) and key.value == 'type'
+                      and isinstance(value, ast.Constant) and value.value == 'input_image'
+                      for key, value in zip(node.keys, node.values))]
+    require(len(images) == 1, 'unsupported_image_builder')
+    node = images[0]
+    require([key.value if isinstance(key, ast.Constant) else None for key in node.keys]
+            == ['type', 'image_url'], 'image_detail_already_present_or_unknown')
+    require(ast.unparse(node.values[1]) == 'part.value' and node.lineno == node.end_lineno,
+            'unsupported_image_builder')
+    segment = ast.get_source_segment(source, node)
+    require(source.count(segment) == 1 and segment.endswith('}'), 'unsupported_image_builder')
+    patched = source.replace(segment, segment[:-1] + ', "detail": "auto"}', 1)
+    compile(patched, '<invoice-image-detail-repair>', 'exec')
+    return patched
+
+
+def repair_plan(root, expected_head, diagnostic_backup, service='stroyka'):
+    root = root.resolve()
+    require(diagnostic_backup is not None, 'diagnostic_backup_required')
+    require(re.fullmatch(r'[0-9a-f]{8,40}', expected_head or '') is not None, 'expected_head_required')
+    prior = json.loads((diagnostic_backup.resolve() / 'manifest.json').read_text())
+    require(prior['appRoot'] == str(root) and prior['service'] == service, 'backup_target_mismatch')
+    head = git(root, 'rev-parse', 'HEAD')
+    require(head.startswith(expected_head) and head == prior['head'], 'installed_head_mismatch')
+    path = root / TARGET
+    require(not path.is_symlink(), 'symlink_target_refused')
+    git(root, 'ls-files', '--error-unmatch', str(TARGET))
+    original = (diagnostic_backup.resolve() / 'source.py').read_bytes()
+    require(digest(original) == prior['beforeHash'], 'backup_hash_mismatch')
+    tracked = subprocess.run(['git', '-C', str(root), 'show', 'HEAD:' + TARGET.as_posix()],
+                             capture_output=True, check=True).stdout
+    require(digest(tracked) == prior['beforeHash'], 'backup_not_installed_original')
+    before = path.read_bytes()
+    require(digest(before) == prior['afterHash'] and MARKER in before.decode('utf-8'),
+            'adapter_changed_repair_refused')
+    after = add_image_detail(before.decode('utf-8')).encode('utf-8')
+    return {'head': head, 'beforeHash': digest(before), 'afterHash': digest(after)}, before, after
+
+
+def repair_image_detail(root, expected_head, diagnostic_backup, backup_root, service='stroyka',
+                        operate=service_operation):
+    root = root.resolve()
+    meta, before, after = repair_plan(root, expected_head, diagnostic_backup, service)
+    return install_change(root, meta, before, after, backup_root, service, operate,
+                          'image_detail_repaired_awaiting_scan')
+
+
+def install_change(root, meta, before, after, backup_root, service, operate, state):
     operate(service, 'check')
     backup = Path(tempfile.mkdtemp(prefix='stroyka-invoice-provider-', dir=backup_root))
     shutil.copy2(root / TARGET, backup / 'source.py')
@@ -209,7 +267,7 @@ def apply(root, expected_head, backup_root, service='stroyka', operate=service_o
         except Exception:
             raise Stop('restart_failed_restore_needs_review_backup_' + str(backup)) from None
         raise Stop('restart_failed_original_restored_backup_' + str(backup)) from None
-    return {'state': 'diagnostic_installed_awaiting_scan', 'backup': str(backup), 'head': meta['head'],
+    return {'state': state, 'backup': str(backup), 'head': meta['head'],
             'restoreCommand': shlex.join(['python3', str(backup / 'invoice_status_tool.py'), '--restore', str(backup),
                                          '--app-root', str(root), '--service', service])}
 
@@ -221,6 +279,8 @@ def main():
     modes.add_argument('--apply', action='store_true')
     modes.add_argument('--restore', type=Path)
     modes.add_argument('--print-command', action='store_true')
+    modes.add_argument('--repair-image-detail', action='store_true')
+    parser.add_argument('--diagnostic-backup', type=Path)
     parser.add_argument('--expect-head')
     parser.add_argument('--backup-root', type=Path, default=Path('/root'))
     parser.add_argument('--service', default='stroyka')
@@ -231,8 +291,14 @@ def main():
             return 0
         if args.apply:
             result = apply(args.app_root, args.expect_head, args.backup_root, args.service)
+        elif args.repair_image_detail:
+            result = repair_image_detail(args.app_root, args.expect_head, args.diagnostic_backup,
+                                         args.backup_root, args.service)
         elif args.restore:
             result = restore(args.app_root, args.restore, args.service)
+        elif args.diagnostic_backup:
+            meta, _, _ = repair_plan(args.app_root, args.expect_head, args.diagnostic_backup, args.service)
+            result = dict(meta, state='repair_plan_only')
         else:
             meta, _, _ = plan(args.app_root)
             result = dict(meta, state='plan_only')
