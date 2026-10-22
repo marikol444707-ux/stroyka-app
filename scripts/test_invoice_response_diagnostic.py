@@ -1,6 +1,7 @@
 import ast
 import contextlib
 import io
+import json
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
@@ -137,6 +138,61 @@ class ResponseDiagnosticFilesystemTest(DiagnosticFilesystemTest):
             operator.observe_responses(self.root,self.head,self.known,self.backups,operate=operate)
         self.assertEqual(self.target.read_bytes(),self.before)
         self.assertEqual(len(attempts),2)
+
+    def advance_unrelated_release(self):
+        (self.root/'unrelated-release.txt').write_text('Unrelated production release')
+        self.git('add','unrelated-release.txt')
+        self.git('-c','user.name=Tests','-c','user.email=tests@example.invalid',
+                 'commit','-qm','Unrelated release keeps adapter unchanged')
+        self.head = self.git('rev-parse','HEAD')
+        return self.git('rev-parse','HEAD:'+operator.TARGET.as_posix())
+
+    def test_new_release_requires_explicit_reviewed_blob_and_retains_old_manifest(self):
+        self.prepare()
+        prior_manifest = (self.known/'manifest.json').read_bytes()
+        expected_blob = self.advance_unrelated_release()
+        with self.assertRaisesRegex(operator.Stop,'backup_head_changed_requires_review'):
+            operator.observe_responses(self.root,self.head,self.known,self.backups,operate=self.operate)
+        self.assertEqual(self.operations,[])
+        result = operator.observe_responses(self.root,self.head,self.known,self.backups,
+            operate=self.operate,expected_blob=expected_blob)
+        self.assertEqual(self.git('rev-parse','HEAD'),self.head)
+        self.assertEqual((self.known/'manifest.json').read_bytes(),prior_manifest)
+        manifest = json.loads((Path(result['backup'])/'manifest.json').read_text())
+        self.assertEqual(manifest['head'],self.head)
+        self.assertEqual(manifest['reviewedAdapterBlob'],expected_blob)
+        self.assertNotEqual(manifest['sourceBackupHead'],self.head)
+        operator.restore(self.root,Path(result['backup']),operate=self.operate)
+        self.assertEqual(self.target.read_bytes(),self.before)
+
+    def test_wrong_blob_and_unreviewed_local_edits_are_refused(self):
+        self.prepare()
+        expected_blob = self.advance_unrelated_release()
+        with self.assertRaisesRegex(operator.Stop,'adapter_code_changed_since_backup'):
+            operator.observe_responses(self.root,self.head,self.known,self.backups,
+                operate=self.operate,expected_blob='0'*40)
+        self.target.write_bytes(self.before+b'\n# later edit\n')
+        with self.assertRaisesRegex(operator.Stop,'adapter_changed_response_diagnostic_refused'):
+            operator.observe_responses(self.root,self.head,self.known,self.backups,
+                operate=self.operate,expected_blob=expected_blob)
+        self.assertEqual(self.operations,[])
+        self.assertEqual(len(list(self.backups.iterdir())),1)
+
+    def test_changed_tracked_adapter_is_refused_even_if_working_file_matches_backup(self):
+        self.prepare()
+        old_blob = self.git('rev-parse','HEAD:'+operator.TARGET.as_posix())
+        self.target.write_text(SOURCE+'\n# Different adapter implementation\n')
+        self.git('add',operator.TARGET.as_posix())
+        self.git('-c','user.name=Tests','-c','user.email=tests@example.invalid','commit','-qm','Changed adapter')
+        self.head = self.git('rev-parse','HEAD')
+        new_blob = self.git('rev-parse','HEAD:'+operator.TARGET.as_posix())
+        self.target.write_bytes(self.before)
+        for blob in (old_blob,new_blob):
+            with self.assertRaisesRegex(operator.Stop,'adapter_code_changed_since_backup'):
+                operator.observe_responses(self.root,self.head,self.known,self.backups,
+                    operate=self.operate,expected_blob=blob)
+        self.assertEqual(self.operations,[])
+        self.assertEqual(self.target.read_bytes(),self.before)
 
 
 if __name__=='__main__':
