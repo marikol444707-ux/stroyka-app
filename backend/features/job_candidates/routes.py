@@ -8,6 +8,14 @@ from fastapi import Depends, Header, HTTPException, Query
 from .service import build_candidate_record, jev_report_items
 
 
+_JEV_PROVIDER_PREFIXES = {
+    "b2b-center": "B2B-Center",
+    "росэлторг": "Росэлторг",
+    "фабрикант": "Фабрикант",
+    "еис": "ЕИС",
+}
+
+
 def _save_candidates(cur, *, company_id, candidates, created_by):
     created = updated = 0
     for candidate in candidates:
@@ -45,6 +53,13 @@ def _matches_search_terms(candidate, settings):
         except ValueError:
             settings = {}
     terms = settings.get("searchTerms", []) if isinstance(settings, dict) else []
+    providers = settings.get("sourceProviders") if isinstance(settings, dict) else None
+    if isinstance(providers, list) and providers:
+        source_name = str(candidate.get("source_name") or "").strip().casefold()
+        provider = next((canonical for prefix, canonical in _JEV_PROVIDER_PREFIXES.items()
+                         if source_name.startswith(prefix)), None)
+        if provider not in providers:
+            return False
     if not isinstance(terms, list) or not terms:
         return True
     text = " ".join(str(candidate.get(field) or "") for field in ("title", "description", "evidence")).casefold()

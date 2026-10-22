@@ -8,6 +8,21 @@ from fastapi import Depends, HTTPException
 JEV_FEATURE_CODE = "jev_procurement"
 MAX_MONTHLY_FEE = Decimal("10000000.00")
 MAX_SEARCH_TERMS = 20
+JEV_PROVIDERS = ("B2B-Center", "Росэлторг", "Фабрикант", "ЕИС")
+
+
+def _source_providers(value):
+    if not isinstance(value, list) or len(value) > len(JEV_PROVIDERS):
+        raise HTTPException(status_code=422, detail="Выберите источники JEV из доступного списка")
+    result = []
+    for item in value:
+        if item not in JEV_PROVIDERS:
+            raise HTTPException(status_code=422, detail="Выбран неизвестный источник JEV")
+        if item not in result:
+            result.append(item)
+    if not result:
+        raise HTTPException(status_code=422, detail="Выберите хотя бы один источник поиска")
+    return result
 
 
 def _search_terms(value):
@@ -60,6 +75,7 @@ def _feature_company(row):
         "enabled": bool(row.get("enabled")),
         "monthlyFee": format(Decimal(str(row.get("monthly_fee") or 0)), ".2f"),
         "searchTerms": _search_terms(settings.get("searchTerms", [])),
+        "sourceProviders": _source_providers(settings.get("sourceProviders", list(JEV_PROVIDERS))),
         "changedBy": row.get("changed_by") or "",
         "updatedAt": row.get("updated_at"),
     }
@@ -119,6 +135,7 @@ def register_company_feature_routes(app, deps):
             raise HTTPException(status_code=422, detail="Поле enabled должно быть true или false")
         monthly_fee = _monthly_fee(data.get("monthlyFee", 0))
         requested_terms = _search_terms(data["searchTerms"]) if "searchTerms" in data else None
+        requested_providers = _source_providers(data["sourceProviders"]) if "sourceProviders" in data else None
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
@@ -144,6 +161,8 @@ def register_company_feature_routes(app, deps):
                 "region": "Ставропольский край",
                 "searchTerms": requested_terms if requested_terms is not None
                 else _search_terms(previous_settings.get("searchTerms", [])),
+                "sourceProviders": requested_providers if requested_providers is not None
+                else _source_providers(previous_settings.get("sourceProviders", list(JEV_PROVIDERS))),
             }
             changed_by = str(current_user.get("name") or current_user.get("email") or current_user.get("id") or "")
             cur.execute("""
@@ -174,11 +193,13 @@ def register_company_feature_routes(app, deps):
                             "enabled": bool(previous.get("enabled")),
                             "monthlyFee": str(previous.get("monthly_fee") or 0),
                             "searchTerms": _search_terms(previous_settings.get("searchTerms", [])),
+                            "sourceProviders": _source_providers(previous_settings.get("sourceProviders", list(JEV_PROVIDERS))),
                         },
                         "after": {
                             "enabled": bool(saved.get("enabled")),
                             "monthlyFee": str(saved.get("monthly_fee") or 0),
                             "searchTerms": settings["searchTerms"],
+                            "sourceProviders": settings["sourceProviders"],
                         },
                     },
                 )
@@ -189,6 +210,7 @@ def register_company_feature_routes(app, deps):
                 "enabled": bool(saved["enabled"]),
                 "monthlyFee": format(Decimal(str(saved["monthly_fee"])), ".2f"),
                 "searchTerms": settings["searchTerms"],
+                "sourceProviders": settings["sourceProviders"],
                 "updatedAt": saved.get("updated_at"),
                 "message": "Цена сохранена как условие подключения; счёт выставляется отдельно по договору.",
             }

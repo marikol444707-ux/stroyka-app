@@ -205,6 +205,31 @@ class JobCandidateRouteTests(unittest.TestCase):
         self.assertEqual(cursor.calls[2][1][0], 12)
         self.assertEqual(cursor.calls[2][1][6], "Ремонт кровли")
 
+    def test_jev_ingest_filters_sources_independently_per_company(self):
+        cursor = FakeCursor({"inserted": True}, rows=[
+            {"company_id": 8, "settings": {"sourceProviders": ["ЕИС"], "searchTerms": []}},
+            {"company_id": 12, "settings": {"sourceProviders": ["B2B-Center"], "searchTerms": []}},
+        ])
+        app, conn, _ = self.build(cursor, jev_ingest_key="k" * 40)
+        payload = {"confirmed": [
+            {"source": "B2B-Center", "id": "1", "url": "https://example.org/1", "title": "Ремонт школы"},
+            {"source": "ЕИС · 44-ФЗ", "id": "2", "url": "https://example.org/2", "title": "Строительство школы"},
+        ]}
+
+        response = app.routes[("POST", "/internal/jev/job-candidates")](
+            payload, x_jev_ingest_key="k" * 40,
+        )
+
+        self.assertEqual(response["targetCompanies"], [
+            {"companyId": 8, "created": 1, "updated": 0, "skippedByProfile": 1},
+            {"companyId": 12, "created": 1, "updated": 0, "skippedByProfile": 1},
+        ])
+        self.assertEqual(cursor.calls[1][1][0], 8)
+        self.assertEqual(cursor.calls[1][1][6], "Строительство школы")
+        self.assertEqual(cursor.calls[2][1][0], 12)
+        self.assertEqual(cursor.calls[2][1][6], "Ремонт школы")
+        self.assertEqual(conn.commits, 1)
+
     def test_jev_ingest_rejects_reports_when_no_company_has_enabled_the_feature(self):
         cursor = FakeCursor(rows=[])
         app, conn, _ = self.build(cursor, jev_ingest_key="k" * 40)

@@ -102,18 +102,24 @@ class CompanyFeatureRouteTests(unittest.TestCase):
         app, conn, audits = self.build(cursor)
 
         response = app.routes[("PUT", "/system/companies/{company_id}/features/jev")](
-            8, {"enabled": True, "monthlyFee": "12500.50", "searchTerms": ["школа", "кровля"]},
+            8, {"enabled": True, "monthlyFee": "12500.50", "searchTerms": ["школа", "кровля"],
+                "sourceProviders": ["ЕИС", "Фабрикант"]},
             current_user={"id": 1, "role": "platform_admin"},
         )
 
         self.assertEqual(response["monthlyFee"], "12500.50")
         self.assertEqual(response["searchTerms"], ["школа", "кровля"])
+        self.assertEqual(response["sourceProviders"], ["ЕИС", "Фабрикант"])
         self.assertEqual(conn.committed, 1)
         self.assertEqual(len(audits), 1)
         self.assertEqual(audits[0][1]["details"]["after"]["searchTerms"], ["школа", "кровля"])
+        self.assertEqual(audits[0][1]["details"]["after"]["sourceProviders"], ["ЕИС", "Фабрикант"])
         update = next(call for call in cursor.calls if call[0].startswith("INSERT INTO public.platform_company_features"))
         self.assertEqual(update[1][:4], (8, "jev_procurement", True, Decimal("12500.50")))
-        self.assertEqual(update[1][4].adapted, {"region": "Ставропольский край", "searchTerms": ["школа", "кровля"]})
+        self.assertEqual(update[1][4].adapted, {
+            "region": "Ставропольский край", "searchTerms": ["школа", "кровля"],
+            "sourceProviders": ["ЕИС", "Фабрикант"],
+        })
 
     def test_feature_list_returns_company_search_terms(self):
         cursor = FakeCursor(rows=[{
@@ -127,6 +133,7 @@ class CompanyFeatureRouteTests(unittest.TestCase):
         )
 
         self.assertEqual(response["companies"][0]["searchTerms"], ["школа"])
+        self.assertEqual(response["companies"][0]["sourceProviders"], ["B2B-Center", "Росэлторг", "Фабрикант", "ЕИС"])
 
     def test_update_without_search_terms_preserves_existing_company_profile(self):
         cursor = FakeCursor(one_rows=[
@@ -146,7 +153,21 @@ class CompanyFeatureRouteTests(unittest.TestCase):
         update = next(call for call in cursor.calls if call[0].startswith("INSERT INTO public.platform_company_features"))
         self.assertEqual(update[1][4].adapted, {
             "region": "Ставропольский край", "searchTerms": ["кровля"],
+            "sourceProviders": ["B2B-Center", "Росэлторг", "Фабрикант", "ЕИС"],
         })
+
+    def test_update_rejects_unknown_or_empty_source_selection_without_write(self):
+        for providers in ([], ["Непроверенная площадка"]):
+            cursor = FakeCursor()
+            app, conn, _audits = self.build(cursor)
+            with self.subTest(providers=providers), self.assertRaises(HTTPException) as raised:
+                app.routes[("PUT", "/system/companies/{company_id}/features/jev")](
+                    8, {"enabled": True, "monthlyFee": "0", "sourceProviders": providers},
+                    current_user={"id": 1, "role": "platform_admin"},
+                )
+            self.assertEqual(raised.exception.status_code, 422)
+            self.assertEqual(cursor.calls, [])
+            self.assertEqual(conn.committed, 0)
 
     def test_update_rejects_invalid_monthly_fee_without_database_write(self):
         cursor = FakeCursor()

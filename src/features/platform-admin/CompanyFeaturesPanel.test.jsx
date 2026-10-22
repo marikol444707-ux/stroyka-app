@@ -36,13 +36,17 @@ test('platform admin can enable JEV for one company and save a monthly price', a
   fireEvent.click(screen.getByLabelText('Подключить JEV'));
   fireEvent.change(screen.getByLabelText('Цена в месяц, ₽'), { target: { value: '9900' } });
   fireEvent.change(screen.getByPlaceholderText('Например: школа, кровля, благоустройство'), { target: { value: 'школа, кровля' } });
+  fireEvent.click(screen.getByLabelText('Росэлторг'));
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }));
 
   await waitFor(() => expect(sendJson).toHaveBeenCalledWith(
     '/api/system/companies/18/features/jev',
     expect.objectContaining({
       method: 'PUT',
-      body: JSON.stringify({ enabled: true, monthlyFee: '9900', searchTerms: ['школа', 'кровля'] }),
+      body: JSON.stringify({
+        enabled: true, monthlyFee: '9900', searchTerms: ['школа', 'кровля'],
+        sourceProviders: ['B2B-Center', 'Фабрикант', 'ЕИС'],
+      }),
     })
   ));
   await waitFor(() => expect(onReload).toHaveBeenCalled());

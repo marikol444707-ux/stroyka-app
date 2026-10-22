@@ -1,5 +1,7 @@
 import React from 'react';
 
+const JEV_PROVIDERS = ['B2B-Center', 'Росэлторг', 'Фабрикант', 'ЕИС'];
+
 export default function CompanyFeaturesPanel({ data, API = '', C = {}, sendJson, onReload }) {
   const [search, setSearch] = React.useState('');
   const [drafts, setDrafts] = React.useState({});
@@ -28,6 +30,8 @@ export default function CompanyFeaturesPanel({ data, API = '', C = {}, sendJson,
     enabled: company.enabled,
     monthlyFee: company.monthlyFee || '0.00',
     searchTerms: Array.isArray(company.searchTerms) ? company.searchTerms.join(', ') : '',
+    sourceProviders: Array.isArray(company.sourceProviders) && company.sourceProviders.length
+      ? company.sourceProviders : JEV_PROVIDERS,
   };
   const updateDraft = (company, patch) => setDrafts(current => ({
     ...current,
@@ -45,6 +49,7 @@ export default function CompanyFeaturesPanel({ data, API = '', C = {}, sendJson,
           enabled: draft.enabled,
           monthlyFee: draft.monthlyFee,
           searchTerms: String(draft.searchTerms || '').split(/[,;\n]+/).map(term => term.trim()).filter(Boolean),
+          sourceProviders: draft.sourceProviders,
         }),
       });
       const result = await response.json().catch(() => ({}));
@@ -68,8 +73,8 @@ export default function CompanyFeaturesPanel({ data, API = '', C = {}, sendJson,
         <h2 style={{ color: C.text || '#101828', fontSize: 18, margin: '0 0 6px' }}>Поиск коммерческих заказов JEV</h2>
         <p style={{ color: C.textSec || '#667085', margin: '0 0 10px', lineHeight: 1.5 }}>
           Подключайте функцию нужным организациям по отдельности. Каждая получает свой список находок;
-          повторный импорт обновляет карточки и не сбрасывает решения. Поиск пока общий по Ставропольскому краю,
-          а фразы ниже отбирают результаты отдельно для каждой компании.
+          повторный импорт обновляет карточки и не сбрасывает решения. Каждый запуск распределяет находки отдельно
+          по выбранным площадкам и фразам организации. Региональный поиск пока общий по Ставропольскому краю.
         </p>
         <p style={{ color: C.textSec || '#667085', margin: 0, fontSize: 13 }}>
           Включённых организаций: <b>{data?.enabledCompanies ?? 0}</b>
@@ -145,6 +150,27 @@ export default function CompanyFeaturesPanel({ data, API = '', C = {}, sendJson,
                 />
                 <span>Разделяйте запятыми. Пустое поле — показывать все находки по региону.</span>
               </label>
+              <fieldset style={{ ...card, display: 'flex', flexWrap: 'wrap', gap: '6px 12px', margin: 0, padding: 9, flex: '1 1 260px' }}>
+                <legend style={{ color: C.textSec || '#667085', fontSize: 12 }}>Площадки для этой организации</legend>
+                {JEV_PROVIDERS.map(provider => (
+                  <label key={provider} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: C.text || '#101828', fontSize: 13 }}>
+                    <input
+                      type="checkbox"
+                      checked={draft.sourceProviders.includes(provider)}
+                      disabled={savingId === company.companyId || (draft.sourceProviders.length === 1 && draft.sourceProviders.includes(provider))}
+                      onChange={event => updateDraft(company, {
+                        sourceProviders: event.target.checked
+                          ? [...draft.sourceProviders, provider]
+                          : draft.sourceProviders.filter(item => item !== provider),
+                      })}
+                    />
+                    {provider}
+                  </label>
+                ))}
+                <span style={{ flexBasis: '100%', color: C.textSec || '#667085', fontSize: 11 }}>
+                  Выбор ограничивает карточки этой организации. Сам сбор пока выполняется общим запуском.
+                </span>
+              </fieldset>
               <button
                 type="button"
                 disabled={savingId === company.companyId}
