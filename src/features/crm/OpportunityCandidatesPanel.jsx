@@ -24,6 +24,9 @@ const normalizeReportPrice = (value) => {
 export default function OpportunityCandidatesPanel({ API = '', C = {}, compact = false }) {
   const [items, setItems] = React.useState([]);
   const [status, setStatus] = React.useState('Нужно проверить');
+  const [searchText, setSearchText] = React.useState('');
+  const [sourceFilter, setSourceFilter] = React.useState('');
+  const [deadlineFilter, setDeadlineFilter] = React.useState('');
   const [loading, setLoading] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [importing, setImporting] = React.useState(false);
@@ -32,6 +35,29 @@ export default function OpportunityCandidatesPanel({ API = '', C = {}, compact =
   const [accessLoading, setAccessLoading] = React.useState(true);
   const [formOpen, setFormOpen] = React.useState(false);
   const fileInput = React.useRef(null);
+  const sources = React.useMemo(() => [...new Set(items.map(item => item.sourceName || item.source).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ru')), [items]);
+  const visibleItems = React.useMemo(() => {
+    const query = searchText.trim().toLocaleLowerCase('ru').replace(/ё/g, 'е');
+    const queryWords = query.split(/\s+/).filter(Boolean);
+    return items.filter(item => {
+      const searchable = [item.title, item.description, item.region, item.sourceName, item.source, ...(item.workTypes || [])]
+        .filter(Boolean).join(' ').toLocaleLowerCase('ru').replace(/ё/g, 'е');
+      const searchableWords = searchable.match(/[а-яa-z0-9-]+/gi) || [];
+      if (queryWords.length && !queryWords.every(word => {
+        const prefix = word.slice(0, Math.max(4, word.length - 2));
+        return searchableWords.some(value => value.startsWith(prefix));
+      })) return false;
+      if (sourceFilter && (item.sourceName || item.source) !== sourceFilter) return false;
+      if (deadlineFilter) {
+        const deadline = item.deadline ? Date.parse(item.deadline) : NaN;
+        const expired = Number.isFinite(deadline) && deadline < Date.now();
+        if (deadlineFilter === 'expired' && !expired) return false;
+        if (deadlineFilter === 'active' && (!Number.isFinite(deadline) || expired)) return false;
+        if (deadlineFilter === 'unknown' && Number.isFinite(deadline)) return false;
+      }
+      return true;
+    });
+  }, [items, searchText, sourceFilter, deadlineFilter]);
   const [draft, setDraft] = React.useState({ title: '', url: '', region: 'Ставропольский край', workType: '', description: '', evidence: '', price: '', deadline: '' });
 
   React.useEffect(() => {
@@ -257,7 +283,28 @@ export default function OpportunityCandidatesPanel({ API = '', C = {}, compact =
         </form>
       )}
 
-      <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginTop: 14 }}>
+      <div aria-label="Фильтры находок" style={{ display: 'grid', gridTemplateColumns: compact ? '1fr' : 'minmax(0, 2fr) repeat(2, minmax(0, 1fr))', gap: 8, marginTop: 14 }}>
+        <input
+          type="search"
+          aria-label="Поиск по находкам"
+          placeholder="Поиск по названию, заказчику, региону"
+          value={searchText}
+          onChange={event => setSearchText(event.target.value)}
+          style={inputStyle}
+        />
+        <select aria-label="Площадка" value={sourceFilter} onChange={event => setSourceFilter(event.target.value)} style={inputStyle}>
+          <option value="">Все площадки</option>
+          {sources.map(source => <option key={source} value={source}>{source}</option>)}
+        </select>
+        <select aria-label="Срок подачи" value={deadlineFilter} onChange={event => setDeadlineFilter(event.target.value)} style={inputStyle}>
+          <option value="">Любой срок</option>
+          <option value="active">Срок не истёк</option>
+          <option value="expired">Срок истёк</option>
+          <option value="unknown">Срок не указан</option>
+        </select>
+      </div>
+
+      <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginTop: 10 }}>
         {STATUSES.map(value => (
           <button key={value || 'all'} type="button" onClick={() => setStatus(value)} aria-pressed={status === value} style={{ ...buttonStyle, minHeight: 34, fontSize: 12, background: status === value ? (C.accentLight || '#fff7ed') : buttonStyle.background, borderColor: status === value ? (C.accent || '#f97316') : buttonStyle.border }}>
             {value || 'Все'}
@@ -266,9 +313,9 @@ export default function OpportunityCandidatesPanel({ API = '', C = {}, compact =
       </div>
 
       {error && <p role="alert" style={{ color: C.danger || '#b42318', margin: '12px 0 0' }}>{error}</p>}
-      {loading ? <p style={{ color: C.textSec || '#667085' }}>Загружаю…</p> : items.length === 0 ? <p style={{ color: C.textSec || '#667085', margin: '14px 0 0' }}>В этой подборке пока нет находок.</p> : (
+      {loading ? <p style={{ color: C.textSec || '#667085' }}>Загружаю…</p> : items.length === 0 ? <p style={{ color: C.textSec || '#667085', margin: '14px 0 0' }}>В этой подборке пока нет находок.</p> : visibleItems.length === 0 ? <p role="status" style={{ color: C.textSec || '#667085', margin: '14px 0 0' }}>По этим фильтрам находок нет.</p> : (
         <div style={{ display: 'grid', gap: 9, marginTop: 12 }}>
-          {items.map(item => (
+          {visibleItems.map(item => (
             <article key={item.id} style={{ border: `1px solid ${C.border || '#d0d5dd'}`, borderRadius: 9, padding: compact ? 10 : 12, minWidth: 0 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
                 <b style={{ color: C.text || '#101828', overflowWrap: 'anywhere' }}>{item.title}</b>

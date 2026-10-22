@@ -99,3 +99,42 @@ test('hides candidate actions for an organization without a JEV subscription', a
   expect(await screen.findByText(/функция пока не подключена вашей организации/i)).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Добавить находку' })).not.toBeInTheDocument();
 });
+
+test('filters the company queue by text, source and deadline without another API request', async () => {
+  const candidates = [
+    {
+      id: 31, title: 'Ремонт школы', description: 'Заказчик: администрация', region: 'Ставропольский край',
+      sourceName: 'B2B-Center', url: 'https://example.org/31', status: 'Нужно проверить',
+      deadline: '2999-12-31T12:00:00+03:00',
+    },
+    {
+      id: 32, title: 'Ремонт кровли', description: 'Заказчик: лицей', region: 'Ставропольский край',
+      sourceName: 'Росэлторг', url: 'https://example.org/32', status: 'Нужно проверить',
+      deadline: '2000-01-01T12:00:00+03:00',
+    },
+  ];
+  const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue({
+    ok: true,
+    json: async () => String(fetchMock.mock.calls.at(-1)?.[0]).endsWith('/access')
+      ? { enabled: true }
+      : candidates,
+  });
+
+  render(<OpportunityCandidatesPanel API="/api" C={{ text: '#111', textSec: '#555', border: '#ddd' }} />);
+
+  expect(await screen.findByText('Ремонт школы')).toBeInTheDocument();
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Поиск по находкам' }), { target: { value: 'кровля' } });
+  expect(screen.queryByText('Ремонт школы')).not.toBeInTheDocument();
+  expect(screen.getByText('Ремонт кровли')).toBeInTheDocument();
+
+  fireEvent.change(screen.getByLabelText('Площадка'), { target: { value: 'B2B-Center' } });
+  expect(screen.queryByText('Ремонт кровли')).not.toBeInTheDocument();
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Поиск по находкам' }), { target: { value: '' } });
+  expect(screen.getByText('Ремонт школы')).toBeInTheDocument();
+
+  fireEvent.change(screen.getByLabelText('Срок подачи'), { target: { value: 'expired' } });
+  expect(screen.queryByText('Ремонт школы')).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Площадка'), { target: { value: '' } });
+  expect(screen.getByText('Ремонт кровли')).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+});
