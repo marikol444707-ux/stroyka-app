@@ -31,7 +31,7 @@ def _save_candidates(cur, *, company_id, candidates, created_by):
                 company_id, source, source_name, source_item_id, identity_key, url, title, description,
                 published_at, region, work_types, price, deadline, evidence, status, created_by
             ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            ON CONFLICT DO UPDATE SET
+            ON CONFLICT (company_id, source, identity_key) DO UPDATE SET
                 source_item_id=COALESCE(crm_job_candidates.source_item_id, EXCLUDED.source_item_id),
                 source_name=EXCLUDED.source_name, title=EXCLUDED.title, description=EXCLUDED.description,
                 published_at=COALESCE(EXCLUDED.published_at, crm_job_candidates.published_at),
@@ -142,7 +142,7 @@ def register_job_candidates_module(app, deps):
                     company_id, source, source_name, source_item_id, identity_key, url, title, description,
                     published_at, region, work_types, price, deadline, evidence, status, created_by
                 ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                ON CONFLICT DO UPDATE SET
+                ON CONFLICT (company_id, source, identity_key) DO UPDATE SET
                     source_item_id=COALESCE(crm_job_candidates.source_item_id, EXCLUDED.source_item_id),
                     title=EXCLUDED.title, description=EXCLUDED.description,
                     published_at=COALESCE(EXCLUDED.published_at, crm_job_candidates.published_at),
