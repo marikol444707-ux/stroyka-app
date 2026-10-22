@@ -27622,12 +27622,12 @@ def _invoice_scan_ai_content(entry: dict, index: int, total: int) -> list:
     if mime_type == "application/pdf":
         pdf_bytes = _invoice_scan_pdf_bytes(entry)
         pdf_text = _extract_invoice_scan_pdf_text(pdf_bytes)
-        rendered_pages = _render_invoice_scan_pdf_pages(pdf_bytes)
-        content.append(ModelInputPart(
-            kind="file_data_url",
-            value="data:application/pdf;base64," + str(entry.get("data") or ""),
-            filename="invoice-" + str(index) + ".pdf",
-        ))
+        # Request one extra page to detect overflow instead of silently dropping it.
+        rendered_pages = _render_invoice_scan_pdf_pages(pdf_bytes, max_pages=7)
+        if not rendered_pages:
+            raise HTTPException(status_code=422, detail="Не удалось преобразовать PDF в изображения. Загрузите фотографии страниц или другой PDF.")
+        if len(rendered_pages) > 6:
+            raise HTTPException(status_code=422, detail="В PDF больше 6 страниц. Разделите документ на файлы до 6 страниц и проверьте позиции перед приёмкой.")
         if pdf_text:
             content.append(ModelInputPart(
                 kind="text",
