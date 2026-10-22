@@ -96,21 +96,57 @@ class CompanyFeatureRouteTests(unittest.TestCase):
     def test_update_validates_price_and_writes_company_scoped_audit(self):
         cursor = FakeCursor(one_rows=[
             {"id": 8, "platform_account_id": 3, "name": "ООО Тест", "active": True},
-            {"enabled": False, "monthly_fee": "0.00"},
+            {"enabled": False, "monthly_fee": "0.00", "settings": {"region": "Ставропольский край"}},
             {"enabled": True, "monthly_fee": "12500.50", "updated_at": None},
         ])
         app, conn, audits = self.build(cursor)
 
         response = app.routes[("PUT", "/system/companies/{company_id}/features/jev")](
-            8, {"enabled": True, "monthlyFee": "12500.50"},
+            8, {"enabled": True, "monthlyFee": "12500.50", "searchTerms": ["школа", "кровля"]},
             current_user={"id": 1, "role": "platform_admin"},
         )
 
         self.assertEqual(response["monthlyFee"], "12500.50")
+        self.assertEqual(response["searchTerms"], ["школа", "кровля"])
         self.assertEqual(conn.committed, 1)
         self.assertEqual(len(audits), 1)
+        self.assertEqual(audits[0][1]["details"]["after"]["searchTerms"], ["школа", "кровля"])
         update = next(call for call in cursor.calls if call[0].startswith("INSERT INTO public.platform_company_features"))
         self.assertEqual(update[1][:4], (8, "jev_procurement", True, Decimal("12500.50")))
+        self.assertEqual(update[1][4].adapted, {"region": "Ставропольский край", "searchTerms": ["школа", "кровля"]})
+
+    def test_feature_list_returns_company_search_terms(self):
+        cursor = FakeCursor(rows=[{
+            "company_id": 8, "company_name": "ООО Тест", "company_active": True,
+            "settings": {"region": "Ставропольский край", "searchTerms": ["школа"]},
+        }])
+        app, _conn, _audits = self.build(cursor)
+
+        response = app.routes[("GET", "/system/company-features/jev")](
+            current_user={"id": 1, "role": "platform_admin"}
+        )
+
+        self.assertEqual(response["companies"][0]["searchTerms"], ["школа"])
+
+    def test_update_without_search_terms_preserves_existing_company_profile(self):
+        cursor = FakeCursor(one_rows=[
+            {"id": 8, "platform_account_id": 3, "name": "ООО Тест", "active": True},
+            {"enabled": False, "monthly_fee": "0.00", "settings": {
+                "region": "Ставропольский край", "searchTerms": ["кровля"],
+            }},
+            {"enabled": True, "monthly_fee": "0.00", "updated_at": None},
+        ])
+        app, _conn, _audits = self.build(cursor)
+
+        app.routes[("PUT", "/system/companies/{company_id}/features/jev")](
+            8, {"enabled": True, "monthlyFee": "0"},
+            current_user={"id": 1, "role": "platform_admin"},
+        )
+
+        update = next(call for call in cursor.calls if call[0].startswith("INSERT INTO public.platform_company_features"))
+        self.assertEqual(update[1][4].adapted, {
+            "region": "Ставропольский край", "searchTerms": ["кровля"],
+        })
 
     def test_update_rejects_invalid_monthly_fee_without_database_write(self):
         cursor = FakeCursor()
@@ -119,6 +155,20 @@ class CompanyFeatureRouteTests(unittest.TestCase):
         with self.assertRaises(HTTPException) as raised:
             app.routes[("PUT", "/system/companies/{company_id}/features/jev")](
                 8, {"enabled": True, "monthlyFee": "-1"},
+                current_user={"id": 1, "role": "platform_admin"},
+            )
+
+        self.assertEqual(raised.exception.status_code, 422)
+        self.assertEqual(cursor.calls, [])
+        self.assertEqual(conn.committed, 0)
+
+    def test_update_rejects_invalid_search_terms_without_database_write(self):
+        cursor = FakeCursor()
+        app, conn, _audits = self.build(cursor)
+
+        with self.assertRaises(HTTPException) as raised:
+            app.routes[("PUT", "/system/companies/{company_id}/features/jev")](
+                8, {"enabled": True, "monthlyFee": "0", "searchTerms": ["x"]},
                 current_user={"id": 1, "role": "platform_admin"},
             )
 

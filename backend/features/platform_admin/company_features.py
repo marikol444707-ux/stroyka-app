@@ -1,4 +1,5 @@
 from decimal import Decimal, InvalidOperation
+import json
 
 import psycopg2.extras
 from fastapi import Depends, HTTPException
@@ -6,6 +7,34 @@ from fastapi import Depends, HTTPException
 
 JEV_FEATURE_CODE = "jev_procurement"
 MAX_MONTHLY_FEE = Decimal("10000000.00")
+MAX_SEARCH_TERMS = 20
+
+
+def _search_terms(value):
+    if not isinstance(value, list) or len(value) > MAX_SEARCH_TERMS:
+        raise HTTPException(status_code=422, detail="Укажите не более 20 поисковых фраз списком")
+    result = []
+    seen = set()
+    for item in value:
+        if not isinstance(item, str):
+            raise HTTPException(status_code=422, detail="Поисковые фразы должны быть текстом")
+        term = " ".join(item.split())
+        if len(term) < 2 or len(term) > 80:
+            raise HTTPException(status_code=422, detail="Каждая поисковая фраза должна быть длиной от 2 до 80 символов")
+        key = term.casefold()
+        if key not in seen:
+            result.append(term)
+            seen.add(key)
+    return result
+
+
+def _settings(value):
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except (TypeError, ValueError):
+            value = {}
+    return value if isinstance(value, dict) else {}
 
 
 def _monthly_fee(value):
@@ -19,6 +48,7 @@ def _monthly_fee(value):
 
 
 def _feature_company(row):
+    settings = _settings(row.get("settings"))
     return {
         "companyId": int(row["company_id"]),
         "companyName": row.get("company_name") or "",
@@ -29,6 +59,7 @@ def _feature_company(row):
         "isPlatformOwner": int(row["company_id"]) == 1,
         "enabled": bool(row.get("enabled")),
         "monthlyFee": format(Decimal(str(row.get("monthly_fee") or 0)), ".2f"),
+        "searchTerms": _search_terms(settings.get("searchTerms", [])),
         "changedBy": row.get("changed_by") or "",
         "updatedAt": row.get("updated_at"),
     }
@@ -51,6 +82,7 @@ def register_company_feature_routes(app, deps):
                        pa.name AS platform_account_name,
                        COALESCE(f.enabled, FALSE) AS enabled,
                        COALESCE(f.monthly_fee, 0) AS monthly_fee,
+                       COALESCE(f.settings, '{}'::jsonb) AS settings,
                        COALESCE(f.changed_by, '') AS changed_by,
                        f.updated_at
                 FROM public.companies c
@@ -86,6 +118,7 @@ def register_company_feature_routes(app, deps):
         if type(enabled) is not bool:
             raise HTTPException(status_code=422, detail="Поле enabled должно быть true или false")
         monthly_fee = _monthly_fee(data.get("monthlyFee", 0))
+        requested_terms = _search_terms(data["searchTerms"]) if "searchTerms" in data else None
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
@@ -101,10 +134,17 @@ def register_company_feature_routes(app, deps):
             if company_id == 1 and monthly_fee:
                 raise HTTPException(status_code=422, detail="Для внутренней организации нельзя задавать плату")
             cur.execute("""
-                SELECT enabled, monthly_fee FROM public.platform_company_features
+                SELECT enabled, monthly_fee, settings FROM public.platform_company_features
                 WHERE company_id=%s AND feature_code=%s FOR UPDATE
             """, (company_id, JEV_FEATURE_CODE))
             previous = cur.fetchone() or {"enabled": False, "monthly_fee": 0}
+            previous_settings = _settings(previous.get("settings"))
+            settings = {
+                **previous_settings,
+                "region": "Ставропольский край",
+                "searchTerms": requested_terms if requested_terms is not None
+                else _search_terms(previous_settings.get("searchTerms", [])),
+            }
             changed_by = str(current_user.get("name") or current_user.get("email") or current_user.get("id") or "")
             cur.execute("""
                 INSERT INTO public.platform_company_features
@@ -113,12 +153,13 @@ def register_company_feature_routes(app, deps):
                 ON CONFLICT (company_id, feature_code) DO UPDATE SET
                     enabled=EXCLUDED.enabled,
                     monthly_fee=EXCLUDED.monthly_fee,
+                    settings=EXCLUDED.settings,
                     changed_by=EXCLUDED.changed_by,
                     updated_at=NOW()
                 RETURNING enabled, monthly_fee, updated_at
             """, (
                 company_id, JEV_FEATURE_CODE, enabled, monthly_fee,
-                psycopg2.extras.Json({"region": "Ставропольский край"}), changed_by,
+                psycopg2.extras.Json(settings), changed_by,
             ))
             saved = cur.fetchone()
             if write_audit:
@@ -132,10 +173,12 @@ def register_company_feature_routes(app, deps):
                         "before": {
                             "enabled": bool(previous.get("enabled")),
                             "monthlyFee": str(previous.get("monthly_fee") or 0),
+                            "searchTerms": _search_terms(previous_settings.get("searchTerms", [])),
                         },
                         "after": {
                             "enabled": bool(saved.get("enabled")),
                             "monthlyFee": str(saved.get("monthly_fee") or 0),
+                            "searchTerms": settings["searchTerms"],
                         },
                     },
                 )
@@ -145,6 +188,7 @@ def register_company_feature_routes(app, deps):
                 "companyId": company_id,
                 "enabled": bool(saved["enabled"]),
                 "monthlyFee": format(Decimal(str(saved["monthly_fee"])), ".2f"),
+                "searchTerms": settings["searchTerms"],
                 "updatedAt": saved.get("updated_at"),
                 "message": "Цена сохранена как условие подключения; счёт выставляется отдельно по договору.",
             }

@@ -54,7 +54,9 @@ class JobCandidateNormalizationTests(unittest.TestCase):
             "government_review": [{"source": "ЕИС", "provider": "ЕИС · 44-ФЗ", "id": "0123456789012345678",
                                    "url": "https://zakupki.gov.ru/epz/order/notice/ea20/view/common-info.html?regNumber=0123456789012345678",
                                    "title": "Капремонт школы", "regime": "44-ФЗ",
-                                   "region_scope": "not_filtered", "reasons": ["manual_check"]}],
+                                   "region_scope": "not_filtered", "search_query": "капитальный ремонт Ставрополь",
+                                   "search_queries": ["капитальный ремонт Ставрополь", "ремонт школы"],
+                                   "reasons": ["manual_check"]}],
             "excluded": [{"source": "Сбер А", "id": "44", "url": "https://example.org/44", "title": "Поставка кирпича"}],
         })
 
@@ -70,6 +72,7 @@ class JobCandidateNormalizationTests(unittest.TestCase):
         self.assertEqual(items[2]["sourceItemId"], "ЕИС · 44-ФЗ:0123456789012345678")
         self.assertEqual(items[2]["region"], "")
         self.assertIn("44-ФЗ", items[2]["evidence"])
+        self.assertIn("ремонт школы", items[2]["evidence"])
         dotted_amount = jev_report_items({"confirmed": [{"url": "https://example.org/2",
                                                           "title": "Ремонт", "price": "1.250.000"}]})
         self.assertEqual(dotted_amount[0]["price"], "1250000")

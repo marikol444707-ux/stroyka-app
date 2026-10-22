@@ -1,5 +1,6 @@
 import hmac
 import json
+import re
 
 import psycopg2.extras
 from fastapi import Depends, Header, HTTPException, Query
@@ -35,6 +36,33 @@ def _save_candidates(cur, *, company_id, candidates, created_by):
         else:
             updated += 1
     return created, updated
+
+
+def _matches_search_terms(candidate, settings):
+    if isinstance(settings, str):
+        try:
+            settings = json.loads(settings)
+        except ValueError:
+            settings = {}
+    terms = settings.get("searchTerms", []) if isinstance(settings, dict) else []
+    if not isinstance(terms, list) or not terms:
+        return True
+    text = " ".join(str(candidate.get(field) or "") for field in ("title", "description", "evidence")).casefold()
+    text = " ".join(text.replace("ё", "е").split())
+    text_words = re.findall(r"[\w-]+", text)
+    for term in terms:
+        if not isinstance(term, str):
+            continue
+        normalized_term = " ".join(term.casefold().replace("ё", "е").split())
+        if normalized_term in text:
+            return True
+        term_words = re.findall(r"[\w-]+", normalized_term)
+        if term_words and all(
+            any(word.startswith(token[:max(4, len(token) - 2)]) for word in text_words)
+            for token in term_words
+        ):
+            return True
+    return False
 
 
 def register_job_candidates_module(app, deps):
@@ -248,7 +276,7 @@ def register_job_candidates_module(app, deps):
         updated = 0
         try:
             cur.execute("""
-                SELECT f.company_id
+                SELECT f.company_id, f.settings
                 FROM public.platform_company_features f
                 JOIN public.companies c ON c.id=f.company_id
                 WHERE f.feature_code='jev_procurement'
@@ -257,13 +285,18 @@ def register_job_candidates_module(app, deps):
                 ORDER BY f.company_id
                 FOR SHARE OF f
             """)
-            target_company_ids = [int(row["company_id"]) for row in cur.fetchall()]
-            if not target_company_ids:
+            target_rows = cur.fetchall()
+            if not target_rows:
                 raise HTTPException(status_code=409, detail="JEV не подключён ни одной активной организации")
             target_results = []
-            for target_company_id in target_company_ids:
+            for target in target_rows:
+                target_company_id = int(target["company_id"])
+                company_candidates = [
+                    candidate for candidate in candidates
+                    if _matches_search_terms(candidate, target.get("settings"))
+                ]
                 target_created, target_updated = _save_candidates(
-                    cur, company_id=target_company_id, candidates=candidates, created_by="JEV",
+                    cur, company_id=target_company_id, candidates=company_candidates, created_by="JEV",
                 )
                 created += target_created
                 updated += target_updated
@@ -271,6 +304,7 @@ def register_job_candidates_module(app, deps):
                     "companyId": target_company_id,
                     "created": target_created,
                     "updated": target_updated,
+                    "skippedByProfile": len(candidates) - len(company_candidates),
                 })
             conn.commit()
             return {"ok": True, "targetCompanies": target_results, "received": len(candidates),

@@ -24,7 +24,12 @@ def jev_report_items(report):
             provider = str(row.get("provider") or row.get("source") or "JEV").strip()[:100]
             item_id = str(row.get("id") or "").strip()
             reasons = row.get("reasons") if isinstance(row.get("reasons"), list) else []
-            context = [str(row.get(key) or "").strip() for key in ("organizer", "procedure_type", "status", "regime")]
+            context = [str(row.get(key) or "").strip() for key in (
+                "organizer", "procedure_type", "status", "regime", "search_query",
+            )]
+            search_queries = row.get("search_queries")
+            if isinstance(search_queries, list):
+                context.extend(str(query).strip() for query in search_queries)
             context.extend(str(reason).strip() for reason in reasons)
             evidence = " · ".join(dict.fromkeys(value for value in context if value))[:4000]
             deadline = row.get("deadline_msk") or row.get("deadline")

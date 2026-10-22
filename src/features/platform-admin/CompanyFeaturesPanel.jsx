@@ -27,6 +27,7 @@ export default function CompanyFeaturesPanel({ data, API = '', C = {}, sendJson,
   const getDraft = company => drafts[company.companyId] || {
     enabled: company.enabled,
     monthlyFee: company.monthlyFee || '0.00',
+    searchTerms: Array.isArray(company.searchTerms) ? company.searchTerms.join(', ') : '',
   };
   const updateDraft = (company, patch) => setDrafts(current => ({
     ...current,
@@ -40,7 +41,11 @@ export default function CompanyFeaturesPanel({ data, API = '', C = {}, sendJson,
     try {
       const response = await sendJson(API + '/system/companies/' + company.companyId + '/features/jev', {
         method: 'PUT',
-        body: JSON.stringify({ enabled: draft.enabled, monthlyFee: draft.monthlyFee }),
+        body: JSON.stringify({
+          enabled: draft.enabled,
+          monthlyFee: draft.monthlyFee,
+          searchTerms: String(draft.searchTerms || '').split(/[,;\n]+/).map(term => term.trim()).filter(Boolean),
+        }),
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.detail || 'Не удалось сохранить подключение');
@@ -62,8 +67,9 @@ export default function CompanyFeaturesPanel({ data, API = '', C = {}, sendJson,
       <div style={card}>
         <h2 style={{ color: C.text || '#101828', fontSize: 18, margin: '0 0 6px' }}>Поиск коммерческих заказов JEV</h2>
         <p style={{ color: C.textSec || '#667085', margin: '0 0 10px', lineHeight: 1.5 }}>
-          Подключайте функцию нужным организациям по отдельности. У каждой компании своя CRM и свой список находок;
-          повторные импорты обновляют существующие карточки. Сейчас поиск охватывает Ставропольский край.
+          Подключайте функцию нужным организациям по отдельности. Каждая получает свой список находок;
+          повторный импорт обновляет карточки и не сбрасывает решения. Поиск пока общий по Ставропольскому краю,
+          а фразы ниже отбирают результаты отдельно для каждой компании.
         </p>
         <p style={{ color: C.textSec || '#667085', margin: 0, fontSize: 13 }}>
           Включённых организаций: <b>{data?.enabledCompanies ?? 0}</b>
@@ -126,6 +132,18 @@ export default function CompanyFeaturesPanel({ data, API = '', C = {}, sendJson,
                   onChange={event => updateDraft(company, { monthlyFee: event.target.value })}
                   style={{ ...input, width: 180, boxSizing: 'border-box' }}
                 />
+              </label>
+              <label style={{ display: 'grid', gap: 4, flex: '1 1 260px', color: C.textSec || '#667085', fontSize: 12 }}>
+                Фразы для отбора находок этой компании
+                <input
+                  type="text"
+                  value={draft.searchTerms}
+                  placeholder="Например: школа, кровля, благоустройство"
+                  disabled={savingId === company.companyId}
+                  onChange={event => updateDraft(company, { searchTerms: event.target.value })}
+                  style={{ ...input, width: '100%', boxSizing: 'border-box' }}
+                />
+                <span>Разделяйте запятыми. Пустое поле — показывать все находки по региону.</span>
               </label>
               <button
                 type="button"
