@@ -72,6 +72,13 @@ export default function CompanyFeaturesPanel({ data, API = '', C = {}, sendJson,
         <p style={{ color: C.textSec || '#667085', margin: '8px 0 0', fontSize: 12 }}>
           Цена здесь сохраняется как условие подключения. Автоматического списания нет: стоимость нужно закрепить в договоре и выставить счётом.
         </p>
+        <div style={{ marginTop: 12, borderTop: '1px solid ' + (C.border || '#d0d5dd'), paddingTop: 10 }}>
+          <b style={{ color: C.text || '#101828', fontSize: 13 }}>Источники сейчас</b>
+          <p style={{ color: C.textSec || '#667085', margin: '5px 0 0', lineHeight: 1.5 }}>
+            B2B-Center · Росэлторг · Фабрикант · ЭТП ГПБ · Сбер А · ТЭК-Торг · Торги Федерации · Р-ТЕНДЕР.
+            Следующий кандидат на проверку — УЭТП. OTC пока не включаем: публичный автоматизированный поиск упирался в CAPTCHA.
+          </p>
+        </div>
       </div>
       <div style={card}>
         <label style={{ display: 'grid', gap: 5, maxWidth: 500, color: C.textSec || '#667085', fontSize: 12 }}>
