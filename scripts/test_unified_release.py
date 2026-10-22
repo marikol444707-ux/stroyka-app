@@ -167,9 +167,14 @@ with tarfile.open(output, 'w:gz') as archive:
             self.git(work, 'clone', '--branch', 'installed', str(source), str(server))
             self.git(server, 'branch', '-m', 'main')
             helper = work / 'delivery.sh'
-            helper.write_text(re.sub(r'^TARGET="[0-9a-f]{40}"$', f'TARGET="{target}"',
-                                     (SCRIPTS / 'install-unified-from-git.sh').read_text(), flags=re.MULTILINE)
-                              .replace('c30b5c7a6b641bc59860ea5eed6e743f67f1318d', base))
+            helper_source = (SCRIPTS / 'install-unified-from-git.sh').read_text()
+            helper_source = re.sub(r'^TARGET="[0-9a-f]{40}"$', f'TARGET="{target}"',
+                                   helper_source, flags=re.MULTILINE)
+            helper_source = re.sub(r'^BASE="[0-9a-f]{40}"$', f'BASE="{base}"',
+                                   helper_source, flags=re.MULTILINE)
+            helper_source = helper_source.replace(
+                'codex/unified-production-release', 'codex/jev-production-intake')
+            helper.write_text(helper_source)
             parent = work / 'temporary-transfer'
             parent.mkdir()
             evidence = work / 'evidence.json'
