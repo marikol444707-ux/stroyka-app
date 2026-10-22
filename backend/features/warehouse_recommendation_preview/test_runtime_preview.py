@@ -946,10 +946,9 @@ class WarehouseAnomalyRuntimePreviewCompositionTests(unittest.TestCase):
             root / "backend/db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Reviewed participant route access enforcement, storage validation and invite storage adapter;
-            # warehouse preview implementation and registration are unchanged.
+            # Reviewed participant access and JEV route registration; the warehouse preview package is unchanged.
             root / "backend/main.py": (
-                "560ec7614351d3be6ce2926be5ad67d00e1deb171540af9918700dd35bc76f2e"
+                "b9053387fd398ad5919e6411dcd22160c6e5a04f004deb111af7e5133a88bbcd"
             ),
         }
         self.assertEqual({
