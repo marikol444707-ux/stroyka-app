@@ -30,7 +30,7 @@ def build_request(report, *, api_url, ingest_key):
     if len(body) > MAX_REPORT_BYTES:
         raise ValueError("Отчёт JEV превышает лимит 1 МБ")
     request = Request(
-        parsed.scheme + "://" + parsed.netloc + "/api/internal/jev/job-candidates",
+        parsed.scheme + "://" + parsed.netloc + "/internal/jev/job-candidates",
         data=body,
         headers={"Content-Type": "application/json", "X-JEV-Ingest-Key": str(ingest_key)},
         method="POST",

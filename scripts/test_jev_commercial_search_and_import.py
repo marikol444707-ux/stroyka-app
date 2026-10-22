@@ -82,7 +82,7 @@ class JevCommercialSearchAndImportTests(unittest.TestCase):
         result = workflow.push_report(report_with_candidate(), api_url="https://stroyka26.pro",
                                       ingest_key="x" * 40, opener=opener)
         self.assertEqual(result, {"sent": 1, "result": {"ok": True, "created": 1}})
-        self.assertEqual(observed["url"], "https://stroyka26.pro/api/internal/jev/job-candidates")
+        self.assertEqual(observed["url"], "https://stroyka26.pro/internal/jev/job-candidates")
         self.assertEqual(observed["timeout"], 20)
         self.assertEqual(observed["key"], "x" * 40)
         self.assertEqual(observed["read_limit"], 64 * 1024)

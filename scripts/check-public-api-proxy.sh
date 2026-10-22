@@ -110,6 +110,8 @@ check_post_not_spa "MAX outbox dispatch route" "/max/outbox/dispatch?dry_run=tru
 check_not_spa "marketing publications route" "/marketing-publications" "401 403"
 check_post_not_spa "marketing publications post route" "/marketing-publications" "401 403 422"
 check_post_not_spa "client errors route" "/client-errors" "200 422 429"
+check_not_spa "job candidates CRM route" "/crm/job-candidates" "401 403 429"
+check_post_not_spa "JEV opportunity intake route" "/internal/jev/job-candidates" "401 422 429 503"
 
 if (( ${#FAILURES[@]} > 0 )); then
   echo "Public API proxy check failed:"
