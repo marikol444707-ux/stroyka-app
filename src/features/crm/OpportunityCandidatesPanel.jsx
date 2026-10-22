@@ -28,11 +28,28 @@ export default function OpportunityCandidatesPanel({ API = '', C = {}, compact =
   const [saving, setSaving] = React.useState(false);
   const [importing, setImporting] = React.useState(false);
   const [error, setError] = React.useState('');
+  const [access, setAccess] = React.useState(null);
+  const [accessLoading, setAccessLoading] = React.useState(true);
   const [formOpen, setFormOpen] = React.useState(false);
   const fileInput = React.useRef(null);
   const [draft, setDraft] = React.useState({ title: '', url: '', region: 'Ставропольский край', workType: '', description: '', evidence: '', price: '', deadline: '' });
 
+  React.useEffect(() => {
+    let active = true;
+    fetch(`${API}/crm/job-candidates/access`)
+      .then(async response => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.detail || 'Не удалось проверить подключение JEV');
+        return data;
+      })
+      .then(data => { if (active) setAccess(data); })
+      .catch(loadError => { if (active) setError(loadError.message || 'Не удалось проверить подключение JEV'); })
+      .finally(() => { if (active) setAccessLoading(false); });
+    return () => { active = false; };
+  }, [API]);
+
   const load = React.useCallback(async () => {
+    if (access?.enabled !== true) return;
     setLoading(true);
     setError('');
     try {
@@ -46,9 +63,9 @@ export default function OpportunityCandidatesPanel({ API = '', C = {}, compact =
     } finally {
       setLoading(false);
     }
-  }, [API, status]);
+  }, [API, access?.enabled, status]);
 
-  React.useEffect(() => { load(); }, [load]);
+  React.useEffect(() => { if (access?.enabled) load(); }, [access?.enabled, load]);
 
   const addCandidate = async (event) => {
     event.preventDefault();
@@ -183,6 +200,30 @@ export default function OpportunityCandidatesPanel({ API = '', C = {}, compact =
     background: C.bg || '#fff',
     font: 'inherit',
   };
+
+  if (accessLoading) {
+    return <section aria-label="Кандидаты заказов" aria-busy="true" style={panelStyle}>Проверяю доступ к поиску заказов…</section>;
+  }
+  if (access && !access.enabled) {
+    return (
+      <section aria-label="Кандидаты заказов" style={panelStyle}>
+        <h3 style={{ margin: 0, color: C.text || '#101828', fontSize: compact ? 15 : 17 }}>Поиск коммерческих заказов JEV</h3>
+        <p style={{ margin: '6px 0 0', color: C.textSec || '#667085' }}>
+          Эта функция пока не подключена вашей организации. Запросите подключение у администратора платформы.
+        </p>
+      </section>
+    );
+  }
+  if (!access) {
+    return (
+      <section aria-label="Кандидаты заказов" style={panelStyle}>
+        <h3 style={{ margin: 0, color: C.text || '#101828', fontSize: compact ? 15 : 17 }}>Поиск коммерческих заказов JEV</h3>
+        <p role="alert" style={{ color: C.danger || '#b42318', margin: '6px 0 0' }}>
+          {error || 'Не удалось проверить подключение. Обновите страницу или обратитесь к администратору платформы.'}
+        </p>
+      </section>
+    );
+  }
 
   return (
     <section aria-label="Кандидаты заказов" style={panelStyle}>

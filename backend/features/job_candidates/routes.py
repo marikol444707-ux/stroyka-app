@@ -44,11 +44,23 @@ def register_job_candidates_module(app, deps):
     effective_company_actors = deps["effective_company_actors"]
     allowed_roles = {str(role).strip() for role in deps["allowed_roles"]}
     jev_ingest_key = str(deps.get("jev_ingest_key") or "").strip()
-    jev_company_id = deps.get("jev_company_id")
-    try:
-        jev_company_id = int(jev_company_id)
-    except (TypeError, ValueError):
-        jev_company_id = 0
+    feature_enabled = deps.get("is_jev_enabled")
+
+    def require_feature(cur, company_id):
+        if feature_enabled:
+            enabled = feature_enabled(cur, company_id)
+        else:
+            cur.execute("""
+                SELECT enabled FROM public.platform_company_features
+                WHERE company_id=%s AND feature_code='jev_procurement'
+            """, (company_id,))
+            row = cur.fetchone()
+            enabled = bool(row and row.get("enabled"))
+        if not enabled:
+            raise HTTPException(
+                status_code=403,
+                detail="Поиск заказов JEV не подключён для выбранной организации",
+            )
 
     def selected_company(cur, user, action, company_id, company_mode):
         context = resolve_work_company_context(
@@ -73,6 +85,26 @@ def register_job_candidates_module(app, deps):
             raise HTTPException(status_code=409, detail="Организация не определена")
         return resolved_id
 
+    @app.get("/crm/job-candidates/access")
+    def job_candidates_access(
+        x_company_id: str = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: str = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(get_current_user),
+    ):
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            company_id = selected_company(cur, current_user, "read", x_company_id, x_company_mode)
+            cur.execute("""
+                SELECT enabled, monthly_fee FROM public.platform_company_features
+                WHERE company_id=%s AND feature_code='jev_procurement'
+            """, (company_id,))
+            row = cur.fetchone() or {}
+            return {"enabled": bool(row.get("enabled")), "monthlyFee": str(row.get("monthly_fee") or "0")}
+        finally:
+            cur.close()
+            conn.close()
+
     @app.get("/crm/job-candidates")
     def list_job_candidates(
         status: str = Query(default=""),
@@ -84,6 +116,7 @@ def register_job_candidates_module(app, deps):
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             company_id = selected_company(cur, current_user, "read", x_company_id, x_company_mode)
+            require_feature(cur, company_id)
             params = [company_id]
             status_sql = ""
             if status:
@@ -121,6 +154,7 @@ def register_job_candidates_module(app, deps):
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             company_id = selected_company(cur, current_user, "write", x_company_id, x_company_mode)
+            require_feature(cur, company_id)
             cur.execute("""
                 INSERT INTO public.crm_job_candidates (
                     company_id, source, source_name, source_item_id, identity_key, url, title, description,
@@ -175,6 +209,7 @@ def register_job_candidates_module(app, deps):
         updated = 0
         try:
             company_id = selected_company(cur, current_user, "write", x_company_id, x_company_mode)
+            require_feature(cur, company_id)
             created, updated = _save_candidates(
                 cur, company_id=company_id, candidates=candidates,
                 created_by=str(current_user.get("name") or current_user.get("email") or ""),
@@ -193,7 +228,7 @@ def register_job_candidates_module(app, deps):
 
     @app.post("/internal/jev/job-candidates")
     def ingest_jev_report(data: dict, x_jev_ingest_key: str = Header(default="", alias="X-JEV-Ingest-Key")):
-        if len(jev_ingest_key) < 32 or jev_company_id <= 0:
+        if len(jev_ingest_key) < 32:
             raise HTTPException(status_code=503, detail="Импорт JEV не настроен")
         if not hmac.compare_digest(x_jev_ingest_key, jev_ingest_key):
             raise HTTPException(status_code=401, detail="Недействительные данные интеграции")
@@ -209,15 +244,36 @@ def register_job_candidates_module(app, deps):
             raise HTTPException(status_code=422, detail=str(error)) from error
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        created = 0
+        updated = 0
         try:
-            cur.execute("SELECT id FROM companies WHERE id=%s", (jev_company_id,))
-            if cur.fetchone() is None:
-                raise HTTPException(status_code=503, detail="Организация JEV не настроена")
-            created, updated = _save_candidates(
-                cur, company_id=jev_company_id, candidates=candidates, created_by="JEV",
-            )
+            cur.execute("""
+                SELECT f.company_id
+                FROM public.platform_company_features f
+                JOIN public.companies c ON c.id=f.company_id
+                WHERE f.feature_code='jev_procurement'
+                  AND f.enabled=TRUE
+                  AND COALESCE(c.active, TRUE)=TRUE
+                ORDER BY f.company_id
+                FOR SHARE OF f
+            """)
+            target_company_ids = [int(row["company_id"]) for row in cur.fetchall()]
+            if not target_company_ids:
+                raise HTTPException(status_code=409, detail="JEV не подключён ни одной активной организации")
+            target_results = []
+            for target_company_id in target_company_ids:
+                target_created, target_updated = _save_candidates(
+                    cur, company_id=target_company_id, candidates=candidates, created_by="JEV",
+                )
+                created += target_created
+                updated += target_updated
+                target_results.append({
+                    "companyId": target_company_id,
+                    "created": target_created,
+                    "updated": target_updated,
+                })
             conn.commit()
-            return {"ok": True, "companyId": jev_company_id, "received": len(candidates),
+            return {"ok": True, "targetCompanies": target_results, "received": len(candidates),
                     "created": created, "updated": updated,
                     "sourcesChecked": len(data.get("sources", [])) if isinstance(data.get("sources"), list) else 0,
                     "sourcesUnavailable": sum(
@@ -250,6 +306,7 @@ def register_job_candidates_module(app, deps):
         cur = conn.cursor()
         try:
             company_id = selected_company(cur, current_user, "write", x_company_id, x_company_mode)
+            require_feature(cur, company_id)
             cur.execute("""
                 UPDATE public.crm_job_candidates
                 SET status=%s, reviewed_by=%s, reviewed_at=NOW(), review_note=%s, updated_at=NOW()

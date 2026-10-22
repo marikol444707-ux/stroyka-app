@@ -19261,7 +19261,6 @@ register_job_candidates_module(app, {
     "effective_company_actors": effective_company_actors,
     "allowed_roles": (*LEADERSHIP_ROLES, "менеджер_crm"),
     "jev_ingest_key": JEV_OPPORTUNITY_INGEST_KEY,
-    "jev_company_id": JEV_OPPORTUNITY_COMPANY_ID,
 })
 
 try:
@@ -27989,6 +27988,7 @@ try:
         PLATFORM_VIEW_ROLES,
         get_platform_tariff,
         register_client_contract_routes,
+        register_company_feature_routes,
         register_licensor_profile_routes,
         register_platform_admin_routes,
         write_platform_audit,
@@ -27999,6 +27999,7 @@ except ModuleNotFoundError:
         PLATFORM_VIEW_ROLES,
         get_platform_tariff,
         register_client_contract_routes,
+        register_company_feature_routes,
         register_licensor_profile_routes,
         register_platform_admin_routes,
         write_platform_audit,
@@ -28011,6 +28012,13 @@ register_platform_admin_routes(app, {
     "save_upload_bytes": save_upload_bytes,
     "yandex_api_key": YANDEX_API_KEY,
     "yandex_folder_id": YANDEX_FOLDER_ID,
+})
+
+register_company_feature_routes(app, {
+    "get_db": get_db,
+    "require_roles": require_roles,
+    "manage_roles": PLATFORM_MANAGE_ROLES,
+    "write_audit": write_platform_audit,
 })
 
 register_licensor_profile_routes(app, {

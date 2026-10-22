@@ -65,7 +65,8 @@ class FakeConnection:
 
 
 class JobCandidateRouteTests(unittest.TestCase):
-    def build(self, cursor, *, context=None, roles=None, jev_ingest_key="", jev_company_id=0):
+    def build(self, cursor, *, context=None, roles=None, jev_ingest_key="", jev_company_id=0,
+              is_jev_enabled=None):
         app = FakeApp()
         conn = FakeConnection(cursor)
         resolve_calls = []
@@ -85,6 +86,7 @@ class JobCandidateRouteTests(unittest.TestCase):
             "allowed_roles": ("директор", "менеджер_crm"),
             "jev_ingest_key": jev_ingest_key,
             "jev_company_id": jev_company_id,
+            "is_jev_enabled": is_jev_enabled or (lambda _cur, _company_id: True),
         })
         return app, conn, resolve_calls
 
@@ -119,6 +121,17 @@ class JobCandidateRouteTests(unittest.TestCase):
             app.routes[("GET", "/crm/job-candidates")](current_user={"id": 9})
         self.assertEqual(raised.exception.status_code, 403)
 
+    def test_candidate_listing_is_blocked_when_company_has_not_enabled_jev(self):
+        cursor = FakeCursor()
+        app, conn, _ = self.build(cursor, is_jev_enabled=lambda _cur, _company_id: False)
+
+        with self.assertRaises(HTTPException) as raised:
+            app.routes[("GET", "/crm/job-candidates")](current_user={"id": 9})
+
+        self.assertEqual(raised.exception.status_code, 403)
+        self.assertEqual(conn.commits, 0)
+        self.assertEqual(cursor.calls, [])
+
     def test_import_report_is_one_company_scoped_transaction(self):
         cursor = FakeCursor({"id": 41, "inserted": True})
         app, conn, calls = self.build(cursor)
@@ -138,8 +151,8 @@ class JobCandidateRouteTests(unittest.TestCase):
         self.assertEqual(conn.commits, 1)
         self.assertEqual(calls[0][0], "write")
 
-    def test_jev_ingest_requires_configured_key_and_scopes_to_fixed_company(self):
-        cursor = FakeCursor({"id": 8, "inserted": True})
+    def test_jev_ingest_requires_key_and_fans_out_only_to_enabled_company_targets(self):
+        cursor = FakeCursor({"inserted": True}, rows=[{"company_id": 8}, {"company_id": 12}])
         app, conn, _ = self.build(cursor, jev_ingest_key="k" * 40, jev_company_id=8)
         payload = {"region": "Ставропольский край", "confirmed": [{
             "source": "B2B-Center", "id": "B2B-8", "url": "https://example.org/b2b-8", "title": "Ремонт кровли",
@@ -151,12 +164,29 @@ class JobCandidateRouteTests(unittest.TestCase):
         self.assertEqual(cursor.calls, [])
 
         response = app.routes[("POST", "/internal/jev/job-candidates")](payload, x_jev_ingest_key="k" * 40)
-        self.assertEqual(response, {"ok": True, "companyId": 8, "received": 1, "created": 1,
-                                    "updated": 0, "sourcesChecked": 0, "sourcesUnavailable": 0})
+        self.assertEqual(response, {
+            "ok": True, "targetCompanies": [
+                {"companyId": 8, "created": 1, "updated": 0},
+                {"companyId": 12, "created": 1, "updated": 0},
+            ], "received": 1, "created": 2, "updated": 0,
+            "sourcesChecked": 0, "sourcesUnavailable": 0,
+        })
         self.assertEqual(conn.commits, 1)
-        self.assertEqual(cursor.calls[0][1], (8,))
+        self.assertIn("platform_company_features", cursor.calls[0][0])
         self.assertEqual(cursor.calls[1][1][0], 8)
+        self.assertEqual(cursor.calls[2][1][0], 12)
         self.assertEqual(cursor.calls[1][1][-1], "JEV")
+
+    def test_jev_ingest_rejects_reports_when_no_company_has_enabled_the_feature(self):
+        cursor = FakeCursor(rows=[])
+        app, conn, _ = self.build(cursor, jev_ingest_key="k" * 40)
+        with self.assertRaises(HTTPException) as raised:
+            app.routes[("POST", "/internal/jev/job-candidates")](
+                {"confirmed": [{"url": "https://example.org/x", "title": "Ремонт"}]},
+                x_jev_ingest_key="k" * 40,
+            )
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertEqual(conn.commits, 0)
 
     def test_jev_ingest_is_disabled_without_secret(self):
         app, _conn, _ = self.build(FakeCursor(), jev_company_id=8)
