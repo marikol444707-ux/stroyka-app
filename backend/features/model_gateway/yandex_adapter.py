@@ -270,6 +270,7 @@ class YandexModelAdapter:
                         input=provider_input,
                         max_output_tokens=request.max_output_tokens,
                         timeout=float(remaining),
+                        **({"reasoning": {"effort": "none"}} if request.capability == "invoice_scan" and model_id == "qwen3.6-35b-a3b/latest" else {}),
                     )
                 except asyncio.CancelledError:
                     _error(MODEL_GATEWAY_CANCELLED)
