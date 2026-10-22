@@ -152,6 +152,7 @@ export default function CompanyFeaturesPanel({ data, API = '', C = {}, sendJson,
               </label>
               <fieldset style={{ ...card, display: 'flex', flexWrap: 'wrap', gap: '6px 12px', margin: 0, padding: 9, flex: '1 1 260px' }}>
                 <legend style={{ color: C.textSec || '#667085', fontSize: 12 }}>Площадки для этой организации</legend>
+                {/* Controlled checkbox inputs update from event.target.checked: https://react.dev/reference/react-dom/components/input#controlling-an-input-with-a-state-variable */}
                 {JEV_PROVIDERS.map(provider => (
                   <label key={provider} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: C.text || '#101828', fontSize: 13 }}>
                     <input
