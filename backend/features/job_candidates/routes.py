@@ -19,6 +19,10 @@ _JEV_PROVIDER_PREFIXES = {
     "р-тендер": "Р-ТЕНДЕР",
     "еис": "ЕИС",
 }
+_JEV_ACTIVE_PROVIDERS = (
+    "B2B-Center", "Росэлторг", "Фабрикант", "ЭТП ГПБ", "Сбер А",
+    "ТЭК-Торг", "Торги Федерации", "Р-ТЕНДЕР",
+)
 
 
 def _save_candidates(cur, *, company_id, candidates, created_by):
@@ -109,6 +113,12 @@ def register_job_candidates_module(app, deps):
                 status_code=403,
                 detail="Поиск заказов JEV не подключён для выбранной организации",
             )
+
+    def require_jev_ingest_key(provided_key):
+        if len(jev_ingest_key) < 32:
+            raise HTTPException(status_code=503, detail="Импорт JEV не настроен")
+        if not hmac.compare_digest(provided_key, jev_ingest_key):
+            raise HTTPException(status_code=401, detail="Недействительные данные интеграции")
 
     def selected_company(cur, user, action, company_id, company_mode):
         context = resolve_work_company_context(
@@ -274,12 +284,54 @@ def register_job_candidates_module(app, deps):
             cur.close()
             conn.close()
 
+    @app.get("/internal/jev/job-candidates")
+    def list_jev_search_targets(x_jev_ingest_key: str = Header(default="", alias="X-JEV-Ingest-Key")):
+        require_jev_ingest_key(x_jev_ingest_key)
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            cur.execute("""
+                SELECT f.company_id, f.settings
+                FROM public.platform_company_features f
+                JOIN public.companies c ON c.id=f.company_id
+                WHERE f.feature_code='jev_procurement'
+                  AND f.enabled=TRUE
+                  AND COALESCE(c.active, TRUE)=TRUE
+                ORDER BY f.company_id
+                FOR SHARE OF f
+            """)
+            targets = []
+            for row in cur.fetchall():
+                settings = row.get("settings")
+                if isinstance(settings, str):
+                    try:
+                        settings = json.loads(settings)
+                    except ValueError:
+                        settings = {}
+                if not isinstance(settings, dict):
+                    settings = {}
+                targets.append({
+                    "companyId": int(row["company_id"]),
+                    "region": str(settings.get("region") or "Ставропольский край"),
+                    "searchTerms": [term for term in settings.get("searchTerms", [])
+                                    if isinstance(term, str)][:20]
+                    if isinstance(settings.get("searchTerms", []), list) else [],
+                    "sourceProviders": [provider for provider in settings.get("sourceProviders", _JEV_ACTIVE_PROVIDERS)
+                                        if provider in _JEV_ACTIVE_PROVIDERS]
+                    if isinstance(settings.get("sourceProviders", _JEV_ACTIVE_PROVIDERS), list)
+                    else list(_JEV_ACTIVE_PROVIDERS),
+                })
+            return {"targets": targets}
+        finally:
+            cur.close()
+            conn.close()
+
     @app.post("/internal/jev/job-candidates")
     def ingest_jev_report(data: dict, x_jev_ingest_key: str = Header(default="", alias="X-JEV-Ingest-Key")):
-        if len(jev_ingest_key) < 32:
-            raise HTTPException(status_code=503, detail="Импорт JEV не настроен")
-        if not hmac.compare_digest(x_jev_ingest_key, jev_ingest_key):
-            raise HTTPException(status_code=401, detail="Недействительные данные интеграции")
+        require_jev_ingest_key(x_jev_ingest_key)
+        target_company_id = data.get("targetCompanyId") if isinstance(data, dict) else None
+        if target_company_id is not None and (type(target_company_id) is not int or target_company_id <= 0):
+            raise HTTPException(status_code=422, detail="targetCompanyId должен быть положительным целым числом")
         try:
             body_size = len(json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
             if body_size > 1_000_000:
@@ -295,6 +347,8 @@ def register_job_candidates_module(app, deps):
         created = 0
         updated = 0
         try:
+            target_sql = " AND f.company_id=%s" if target_company_id is not None else ""
+            params = (target_company_id,) if target_company_id is not None else ()
             cur.execute("""
                 SELECT f.company_id, f.settings
                 FROM public.platform_company_features f
@@ -302,9 +356,10 @@ def register_job_candidates_module(app, deps):
                 WHERE f.feature_code='jev_procurement'
                   AND f.enabled=TRUE
                   AND COALESCE(c.active, TRUE)=TRUE
+            """ + target_sql + """
                 ORDER BY f.company_id
                 FOR SHARE OF f
-            """)
+            """, params)
             target_rows = cur.fetchall()
             if not target_rows:
                 raise HTTPException(status_code=409, detail="JEV не подключён ни одной активной организации")

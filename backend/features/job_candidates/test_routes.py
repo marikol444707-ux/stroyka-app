@@ -180,6 +180,62 @@ class JobCandidateRouteTests(unittest.TestCase):
         self.assertEqual(cursor.calls[2][1][0], 12)
         self.assertEqual(cursor.calls[1][1][-1], "JEV")
 
+    def test_internal_search_targets_exposes_only_enabled_company_profiles(self):
+        cursor = FakeCursor(rows=[
+            {"company_id": 8, "settings": {"region": "Ставропольский край",
+                                             "searchTerms": ["школа"],
+                                             "sourceProviders": ["B2B-Center"]}},
+            {"company_id": 12, "settings": {"searchTerms": ["кровля"],
+                                              "sourceProviders": ["Росэлторг", "not-a-provider"]}},
+        ])
+        app, conn, _ = self.build(cursor, jev_ingest_key="k" * 40)
+        route = app.routes[("GET", "/internal/jev/job-candidates")]
+
+        with self.assertRaises(HTTPException) as bad_key:
+            route(x_jev_ingest_key="wrong")
+        self.assertEqual(bad_key.exception.status_code, 401)
+
+        response = route(x_jev_ingest_key="k" * 40)
+        self.assertEqual(response, {"targets": [
+            {"companyId": 8, "region": "Ставропольский край", "searchTerms": ["школа"],
+             "sourceProviders": ["B2B-Center"]},
+            {"companyId": 12, "region": "Ставропольский край", "searchTerms": ["кровля"],
+             "sourceProviders": ["Росэлторг"]},
+        ]})
+        self.assertIn("enabled=TRUE", cursor.calls[0][0])
+        self.assertIn("COALESCE(c.active, TRUE)=TRUE", cursor.calls[0][0])
+        self.assertEqual(conn.commits, 0)
+
+    def test_internal_report_can_target_only_one_enabled_company(self):
+        cursor = FakeCursor({"inserted": True}, rows=[
+            {"company_id": 8, "settings": {"searchTerms": []}},
+        ])
+        app, conn, _ = self.build(cursor, jev_ingest_key="k" * 40)
+        payload = {"targetCompanyId": 8, "confirmed": [{
+            "source": "B2B-Center", "id": "B2B-8", "url": "https://example.org/b2b-8", "title": "Ремонт кровли",
+        }]}
+
+        response = app.routes[("POST", "/internal/jev/job-candidates")](payload, x_jev_ingest_key="k" * 40)
+
+        self.assertEqual(response["targetCompanies"], [
+            {"companyId": 8, "created": 1, "updated": 0, "skippedByProfile": 0},
+        ])
+        self.assertIn("AND f.company_id=%s", cursor.calls[0][0])
+        self.assertEqual(cursor.calls[0][1], (8,))
+        self.assertEqual(cursor.calls[1][1][0], 8)
+        self.assertEqual(conn.commits, 1)
+
+    def test_internal_report_rejects_invalid_target_company_id(self):
+        cursor = FakeCursor()
+        app, conn, _ = self.build(cursor, jev_ingest_key="k" * 40)
+        with self.assertRaises(HTTPException) as raised:
+            app.routes[("POST", "/internal/jev/job-candidates")](
+                {"targetCompanyId": "8", "confirmed": []}, x_jev_ingest_key="k" * 40,
+            )
+        self.assertEqual(raised.exception.status_code, 422)
+        self.assertEqual(cursor.calls, [])
+        self.assertEqual(conn.commits, 0)
+
     def test_jev_ingest_filters_candidates_by_each_company_search_profile(self):
         cursor = FakeCursor({"inserted": True}, rows=[
             {"company_id": 8, "settings": {"searchTerms": ["школа"]}},
