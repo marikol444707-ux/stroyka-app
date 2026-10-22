@@ -32,6 +32,7 @@ test('platform admin can enable JEV for one company and save a monthly price', a
 
   expect(screen.getByText(/Серверный сбор JEV настроен на: B2B-Center · Росэлторг · Фабрикант · ЭТП ГПБ/)).toBeInTheDocument();
   expect(screen.getByText(/ЕИС пока не входит в текущую серверную команду JEV/)).toBeInTheDocument();
+  expect(screen.getByText(/Сумма заданных тарифов в месяц/)).toBeInTheDocument();
 
   fireEvent.click(screen.getByLabelText('Подключить JEV'));
   fireEvent.change(screen.getByLabelText('Цена в месяц, ₽'), { target: { value: '9900' } });

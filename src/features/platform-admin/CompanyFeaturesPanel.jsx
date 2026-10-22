@@ -80,7 +80,7 @@ export default function CompanyFeaturesPanel({ data, API = '', C = {}, sendJson,
         </p>
         <p style={{ color: C.textSec || '#667085', margin: 0, fontSize: 13 }}>
           Включённых организаций: <b>{data?.enabledCompanies ?? 0}</b>
-          {' · '}Потенциально в месяц: <b>{Number(data?.potentialMonthlyRevenue || 0).toLocaleString('ru-RU')} ₽</b>
+          {' · '}Сумма заданных тарифов в месяц: <b>{Number(data?.potentialMonthlyRevenue || 0).toLocaleString('ru-RU')} ₽</b>
         </p>
         <p style={{ color: C.textSec || '#667085', margin: '8px 0 0', fontSize: 12 }}>
           Цена здесь сохраняется как условие подключения. Автоматического списания нет: стоимость нужно закрепить в договоре и выставить счётом.
