@@ -4,6 +4,7 @@ import argparse
 import ast
 import base64
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -413,6 +414,105 @@ def observe_responses(root, expected_head, known_backup, backup_root, service='s
                           'response_diagnostic_installed_awaiting_scan')
 
 
+def disable_invoice_reasoning(source):
+    tree = ast.parse(source)
+    calls = [node for cls in tree.body if isinstance(cls, ast.ClassDef) and cls.name == 'YandexModelAdapter'
+             for method in cls.body if isinstance(method, ast.FunctionDef) and method.name == 'generate'
+             for node in ast.walk(method) if isinstance(node, ast.Call)
+             and ast.unparse(node.func) == 'self._client.responses.create']
+    require(len(calls) == 1, 'unsupported_provider_call')
+    call = calls[0]
+    require([arg.arg for arg in call.keywords] ==
+            ['model', 'temperature', 'instructions', 'input', 'max_output_tokens', 'timeout'],
+            'reasoning_already_configured_or_unknown_call')
+    lines = source.splitlines(keepends=True)
+    closing = lines[call.end_lineno - 1]
+    require(closing.strip() == ')', 'unsupported_provider_call_layout')
+    indent = closing[:len(closing) - len(closing.lstrip())] + '    '
+    option = '**({"reasoning": {"effort": "none"}} if request.capability == "invoice_scan" and model_id == "qwen3.6-35b-a3b/latest" else {}),\n'
+    lines.insert(call.end_lineno - 1, indent + option)
+    patched = ''.join(lines)
+    compile(patched, '<invoice-reasoning-control>', 'exec')
+    return patched
+
+
+REASONING_PROBE = r'''
+import base64, io, json, logging, os
+logging.disable(logging.CRITICAL)
+report = {"ok": False, "syntheticOnly": True, "warehouseWrites": False}
+try:
+    from PIL import Image, ImageDraw
+    from openai import OpenAI
+    from backend.features.model_gateway.yandex_adapter import YANDEX_CAPABILITY_MODELS
+    image = Image.new("RGB", (640, 240), "white")
+    ImageDraw.Draw(image).text((24, 24), "SYNTHETIC INVOICE\nCEMENT\nQuantity: 2", fill="black")
+    data = io.BytesIO()
+    image.save(data, format="PNG")
+    client = OpenAI(api_key=os.environ.get("YANDEX_API_KEY", ""), project=os.environ.get("YANDEX_FOLDER_ID", ""),
+                    base_url="https://ai.api.cloud.yandex.net/v1", max_retries=0)
+    model = YANDEX_CAPABILITY_MODELS["invoice_scan"][0]
+    response = client.responses.create(model="gpt://" + os.environ.get("YANDEX_FOLDER_ID", "") + "/" + model,
+        instructions="Read the synthetic invoice. Return JSON only.",
+        input=[{"role": "user", "content": [
+            {"type": "input_text", "text": "Return JSON with the quantity of CEMENT."},
+            {"type": "input_image", "image_url": "data:image/png;base64," + base64.b64encode(data.getvalue()).decode(), "detail": "auto"}]}],
+        reasoning={"effort": "none"}, temperature=.1, max_output_tokens=12000, timeout=25.0)
+    text = getattr(response, "output_text", None)
+    status = getattr(response, "status", None)
+    report["complete"] = status == "completed"
+    report["hasOutputText"] = type(text) is str and bool(text.strip())
+    report["ok"] = report["complete"] and report["hasOutputText"]
+except Exception as error:
+    status = getattr(error, "status_code", None)
+    report["providerHttpStatus"] = status if type(status) is int and 400 <= status <= 599 else None
+print(json.dumps(report))
+'''
+
+
+def probe_invoice_reasoning(root, service):
+    spec = importlib.util.spec_from_file_location('invoice_runtime_environment', root / 'scripts/unified_release.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    env = module.runtime_environment(root, service)
+    header = Path('/usr/local/bin/uvicorn').read_text().splitlines()[0]
+    require(header.startswith('#!'), 'runtime_interpreter_unavailable')
+    interpreter = shlex.split(header[2:])
+    result = subprocess.run([*interpreter, '-B', '-c', REASONING_PROBE], cwd=root, env=env,
+                            capture_output=True, text=True, timeout=35)
+    try:
+        report = json.loads(result.stdout)
+    except (ValueError, TypeError):
+        raise Stop('reasoning_probe_unavailable') from None
+    require(result.returncode == 0 and type(report) is dict and report.get('ok') is True,
+            'reasoning_probe_rejected_no_changes')
+    return {'ok': True, 'syntheticOnly': True, 'warehouseWrites': False}
+
+
+def repair_invoice_reasoning(root, expected_head, known_backup, backup_root, service='stroyka',
+                             operate=service_operation, prober=None):
+    root = root.resolve()
+    require(known_backup is not None, 'diagnostic_backup_required')
+    require(re.fullmatch(r'[0-9a-f]{8,40}', expected_head or '') is not None, 'expected_head_required')
+    prior = json.loads((known_backup.resolve() / 'manifest.json').read_text())
+    require(prior['appRoot'] == str(root) and prior['service'] == service
+            and prior.get('target', str(TARGET)) == str(TARGET), 'backup_target_mismatch')
+    head = git(root, 'rev-parse', 'HEAD')
+    require(head.startswith(expected_head) and head == prior['head'], 'installed_head_mismatch')
+    path = root / TARGET
+    require(not path.is_symlink(), 'symlink_target_refused')
+    before = path.read_bytes()
+    require(digest(before) == prior['afterHash'] and RESPONSE_MARKER in before.decode('utf-8'),
+            'adapter_changed_reasoning_repair_refused')
+    after = disable_invoice_reasoning(before.decode('utf-8')).encode('utf-8')
+    report = (prober or probe_invoice_reasoning)(root, service)
+    require(type(report) is dict and report.get('ok') is True, 'reasoning_probe_rejected_no_changes')
+    meta = {'head': head, 'beforeHash': digest(before), 'afterHash': digest(after)}
+    result = install_change(root, meta, before, after, backup_root, service, operate,
+                            'invoice_reasoning_repaired_awaiting_scan')
+    result['syntheticProbe'] = 'passed'
+    return result
+
+
 def install_change(root, meta, before, after, backup_root, service, operate, state, target=TARGET):
     operate(service, 'check')
     backup = Path(tempfile.mkdtemp(prefix='stroyka-invoice-provider-', dir=backup_root))
@@ -450,6 +550,7 @@ def main():
     modes.add_argument('--repair-pdf-images', action='store_true')
     modes.add_argument('--plan-pdf-images', action='store_true')
     modes.add_argument('--observe-responses', action='store_true')
+    modes.add_argument('--repair-invoice-reasoning', action='store_true')
     parser.add_argument('--diagnostic-backup', type=Path)
     parser.add_argument('--expect-adapter-blob')
     parser.add_argument('--expect-head')
@@ -473,6 +574,9 @@ def main():
         elif args.observe_responses:
             result = observe_responses(args.app_root, args.expect_head, args.diagnostic_backup,
                                        args.backup_root, args.service, expected_blob=args.expect_adapter_blob)
+        elif args.repair_invoice_reasoning:
+            result = repair_invoice_reasoning(args.app_root, args.expect_head, args.diagnostic_backup,
+                                              args.backup_root, args.service)
         elif args.restore:
             result = restore(args.app_root, args.restore, args.service)
         elif args.diagnostic_backup:
