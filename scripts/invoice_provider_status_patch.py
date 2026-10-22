@@ -16,6 +16,7 @@ import time
 import zlib
 
 TARGET = Path('backend/features/model_gateway/yandex_adapter.py')
+MAIN_TARGET = Path('backend/main.py')
 MARKER = 'STROYKA_INVOICE_PROVIDER_DIAG'
 
 
@@ -176,7 +177,9 @@ def restore(root, backup, service='stroyka', operate=service_operation):
     require(meta['appRoot'] == str(root), 'backup_root_mismatch')
     require(meta['service'] == service, 'backup_service_mismatch')
     require(git(root, 'rev-parse', 'HEAD') == meta['head'], 'head_changed_restore_refused')
-    path = root / TARGET
+    target = Path(meta.get('target', str(TARGET)))
+    require(target in (TARGET, MAIN_TARGET), 'unknown_backup_target')
+    path = root / target
     require(not path.is_symlink() and digest(path.read_bytes()) == meta['afterHash'], 'adapter_changed_restore_refused')
     original = (backup / 'source.py').read_bytes()
     require(digest(original) == meta['beforeHash'], 'backup_hash_mismatch')
@@ -247,18 +250,74 @@ def repair_image_detail(root, expected_head, diagnostic_backup, backup_root, ser
                           'image_detail_repaired_awaiting_scan')
 
 
-def install_change(root, meta, before, after, backup_root, service, operate, state):
+def repair_pdf_source(source):
+    tree = ast.parse(source)
+    functions = [node for node in tree.body if isinstance(node, ast.FunctionDef)
+                 and node.name == '_invoice_scan_ai_content']
+    require(len(functions) == 1, 'unsupported_pdf_builder')
+    node = functions[0]
+    shape = digest(ast.dump(node, include_attributes=False).encode('utf-8'))
+    require(shape == 'ab474a8d8e6066d554a0597cbcbfadec470aef25838717c9c393d4558200a39b',
+            'pdf_builder_changed_or_already_repaired')
+    segment = ast.get_source_segment(source, node)
+    inline_files = [item for item in ast.walk(node) if isinstance(item, ast.Expr)
+                    and isinstance(item.value, ast.Call)
+                    and ast.unparse(item.value.func) == 'content.append'
+                    and any(isinstance(child, ast.keyword) and child.arg == 'kind'
+                            and isinstance(child.value, ast.Constant) and child.value.value == 'file_data_url'
+                            for child in ast.walk(item))]
+    require(len(inline_files) == 1, 'unsupported_pdf_builder')
+    removal = ast.get_source_segment(source, inline_files[0])
+    segment = segment.replace(removal, '', 1)
+    old = 'rendered_pages = _render_invoice_scan_pdf_pages(pdf_bytes)'
+    require(segment.count(old) == 1, 'unsupported_pdf_renderer_call')
+    new = '''rendered_pages = _render_invoice_scan_pdf_pages(pdf_bytes, max_pages=7)
+        if not rendered_pages:
+            raise HTTPException(status_code=422, detail="Не удалось преобразовать PDF в изображения. Загрузите фотографии страниц или другой PDF.")
+        if len(rendered_pages) > 6:
+            raise HTTPException(status_code=422, detail="В PDF больше 6 страниц. Разделите документ на файлы до 6 страниц и проверьте позиции перед приёмкой.")'''
+    segment = segment.replace(old, new, 1)
+    lines = source.splitlines(keepends=True)
+    lines[node.lineno - 1:node.end_lineno] = [segment + '\n']
+    patched = ''.join(lines)
+    compile(patched, '<invoice-pdf-image-repair>', 'exec')
+    return patched
+
+
+def pdf_repair_plan(root, expected_head):
+    root = root.resolve()
+    require(re.fullmatch(r'[0-9a-f]{8,40}', expected_head or '') is not None, 'expected_head_required')
+    head = git(root, 'rev-parse', 'HEAD')
+    require(head.startswith(expected_head), 'installed_head_mismatch')
+    path = root / MAIN_TARGET
+    require(not path.is_symlink(), 'symlink_target_refused')
+    git(root, 'ls-files', '--error-unmatch', str(MAIN_TARGET))
+    require(not git(root, 'status', '--porcelain', '--', str(MAIN_TARGET)), 'main_has_local_changes')
+    before = path.read_bytes()
+    after = repair_pdf_source(before.decode('utf-8')).encode('utf-8')
+    return {'head': head, 'beforeHash': digest(before), 'afterHash': digest(after)}, before, after
+
+
+def repair_pdf(root, expected_head, backup_root, service='stroyka', operate=service_operation):
+    root = root.resolve()
+    meta, before, after = pdf_repair_plan(root, expected_head)
+    return install_change(root, meta, before, after, backup_root, service, operate,
+                          'pdf_images_repaired_awaiting_scan', target=MAIN_TARGET)
+
+
+def install_change(root, meta, before, after, backup_root, service, operate, state, target=TARGET):
     operate(service, 'check')
     backup = Path(tempfile.mkdtemp(prefix='stroyka-invoice-provider-', dir=backup_root))
-    shutil.copy2(root / TARGET, backup / 'source.py')
+    shutil.copy2(root / target, backup / 'source.py')
     require(digest((backup / 'source.py').read_bytes()) == meta['beforeHash'], 'backup_source_changed')
     meta['appRoot'] = str(root)
     meta['service'] = service
+    meta['target'] = str(target)
     (backup / 'manifest.json').write_text(json.dumps(meta, indent=2))
     (backup / 'invoice_status_tool.py').write_text(tool_source())
     require(git(root, 'rev-parse', 'HEAD') == meta['head']
-            and (root / TARGET).read_bytes() == before, 'source_changed_before_apply')
-    atomic_write(root / TARGET, after)
+            and (root / target).read_bytes() == before, 'source_changed_before_apply')
+    atomic_write(root / target, after)
     try:
         operate(service, 'restart')
     except Exception:
@@ -280,6 +339,8 @@ def main():
     modes.add_argument('--restore', type=Path)
     modes.add_argument('--print-command', action='store_true')
     modes.add_argument('--repair-image-detail', action='store_true')
+    modes.add_argument('--repair-pdf-images', action='store_true')
+    modes.add_argument('--plan-pdf-images', action='store_true')
     parser.add_argument('--diagnostic-backup', type=Path)
     parser.add_argument('--expect-head')
     parser.add_argument('--backup-root', type=Path, default=Path('/root'))
@@ -294,6 +355,11 @@ def main():
         elif args.repair_image_detail:
             result = repair_image_detail(args.app_root, args.expect_head, args.diagnostic_backup,
                                          args.backup_root, args.service)
+        elif args.repair_pdf_images:
+            result = repair_pdf(args.app_root, args.expect_head, args.backup_root, args.service)
+        elif args.plan_pdf_images:
+            meta, _, _ = pdf_repair_plan(args.app_root, args.expect_head)
+            result = dict(meta, state='pdf_repair_plan_only')
         elif args.restore:
             result = restore(args.app_root, args.restore, args.service)
         elif args.diagnostic_backup:
