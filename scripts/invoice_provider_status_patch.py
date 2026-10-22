@@ -18,6 +18,7 @@ import zlib
 TARGET = Path('backend/features/model_gateway/yandex_adapter.py')
 MAIN_TARGET = Path('backend/main.py')
 MARKER = 'STROYKA_INVOICE_PROVIDER_DIAG'
+RESPONSE_MARKER = 'STROYKA_INVOICE_RESPONSE_DIAG'
 
 
 class Stop(ValueError):
@@ -305,6 +306,100 @@ def repair_pdf(root, expected_head, backup_root, service='stroyka', operate=serv
                           'pdf_images_repaired_awaiting_scan', target=MAIN_TARGET)
 
 
+def instrument_responses(source):
+    require(RESPONSE_MARKER not in source and '_stroyka_response_' not in source,
+            'response_diagnostic_already_present')
+    tree = ast.parse(source)
+    methods = [node for cls in tree.body if isinstance(cls, ast.ClassDef) and cls.name == 'YandexModelAdapter'
+               for node in cls.body if isinstance(node, ast.FunctionDef) and node.name == 'generate']
+    require(len(methods) == 1, 'unsupported_adapter')
+    assignments = [node for node in ast.walk(methods[0]) if isinstance(node, ast.Assign)
+                   and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)
+                   and node.targets[0].id == 'output_text'
+                   and ast.unparse(node.value) == "getattr(response, 'output_text', None)"]
+    require(len(assignments) == 1, 'unsupported_response_reader')
+    node = assignments[0]
+    require(node.lineno == node.end_lineno, 'unsupported_response_reader')
+    block = '''if request.capability == "invoice_scan":
+    try:
+        def _stroyka_response_get(value, name):
+            return value.get(name) if type(value) is dict else getattr(value, name, None)
+        def _stroyka_response_number(value):
+            return value if type(value) is int and 0 <= value <= 10000000 else None
+        _stroyka_response_status = _stroyka_response_get(response, "status")
+        _stroyka_response_reason = _stroyka_response_get(_stroyka_response_get(response, "incomplete_details"), "reason")
+        _stroyka_response_output = _stroyka_response_get(response, "output")
+        _stroyka_response_output = _stroyka_response_output if type(_stroyka_response_output) in (list, tuple) else ()
+        _stroyka_response_types = {}
+        _stroyka_response_content_types = {}
+        _stroyka_response_text_chars = 0
+        for _stroyka_response_item in _stroyka_response_output[:64]:
+            _stroyka_response_kind = _stroyka_response_get(_stroyka_response_item, "type")
+            if type(_stroyka_response_kind) is not str or _stroyka_response_kind not in ("message", "reasoning", "function_call", "web_search_call", "file_search_call", "image_generation_call"):
+                _stroyka_response_kind = "other"
+            _stroyka_response_types[_stroyka_response_kind] = _stroyka_response_types.get(_stroyka_response_kind, 0) + 1
+            if _stroyka_response_kind != "message":
+                continue
+            _stroyka_response_content = _stroyka_response_get(_stroyka_response_item, "content")
+            if type(_stroyka_response_content) not in (list, tuple):
+                continue
+            for _stroyka_response_part in _stroyka_response_content[:64]:
+                _stroyka_response_part_kind = _stroyka_response_get(_stroyka_response_part, "type")
+                if type(_stroyka_response_part_kind) is not str or _stroyka_response_part_kind not in ("output_text", "text", "refusal"):
+                    _stroyka_response_part_kind = "other"
+                _stroyka_response_content_types[_stroyka_response_part_kind] = _stroyka_response_content_types.get(_stroyka_response_part_kind, 0) + 1
+                if _stroyka_response_part_kind in ("output_text", "text"):
+                    _stroyka_response_text = _stroyka_response_get(_stroyka_response_part, "text")
+                    if type(_stroyka_response_text) is str:
+                        _stroyka_response_text_chars += len(_stroyka_response_text)
+        _stroyka_response_usage = _stroyka_response_get(response, "usage")
+        _stroyka_response_token_details = _stroyka_response_get(_stroyka_response_usage, "output_tokens_details")
+        print("STROYKA_INVOICE_RESPONSE_DIAG", {
+            "status": _stroyka_response_status if type(_stroyka_response_status) is str and _stroyka_response_status in ("completed", "incomplete", "failed", "in_progress", "queued", "cancelled") else "other",
+            "incompleteReason": _stroyka_response_reason if type(_stroyka_response_reason) is str and _stroyka_response_reason in ("max_output_tokens", "content_filter", "max_tokens", "length") else None,
+            "outputTypes": _stroyka_response_types,
+            "contentTypes": _stroyka_response_content_types,
+            "outputTextChars": min(len(output_text), 10000000) if type(output_text) is str else 0,
+            "messageTextChars": min(_stroyka_response_text_chars, 10000000),
+            "inputTokens": _stroyka_response_number(_stroyka_response_get(_stroyka_response_usage, "input_tokens")),
+            "outputTokens": _stroyka_response_number(_stroyka_response_get(_stroyka_response_usage, "output_tokens")),
+            "reasoningTokens": _stroyka_response_number(_stroyka_response_get(_stroyka_response_token_details, "reasoning_tokens")),
+            "requestedOutputTokens": request.max_output_tokens,
+            "images": sum(part.kind == "image_data_url" for part in request.input_parts),
+            "files": sum(part.kind in ("file_data_url", "file_id") for part in request.input_parts),
+        }, flush=True)
+    except Exception:
+        pass
+'''
+    indent = ' ' * node.col_offset
+    lines = source.splitlines(keepends=True)
+    lines.insert(node.end_lineno, ''.join(indent + line + '\n' for line in block.splitlines()))
+    patched = ''.join(lines)
+    compile(patched, '<invoice-response-diagnostic>', 'exec')
+    return patched
+
+
+def observe_responses(root, expected_head, known_backup, backup_root, service='stroyka', operate=service_operation):
+    root = root.resolve()
+    require(known_backup is not None, 'diagnostic_backup_required')
+    require(re.fullmatch(r'[0-9a-f]{8,40}', expected_head or '') is not None, 'expected_head_required')
+    prior = json.loads((known_backup.resolve() / 'manifest.json').read_text())
+    require(prior['appRoot'] == str(root) and prior['service'] == service, 'backup_target_mismatch')
+    require(prior.get('target', str(TARGET)) == str(TARGET), 'unknown_backup_target')
+    head = git(root, 'rev-parse', 'HEAD')
+    require(head.startswith(expected_head) and head == prior['head'], 'installed_head_mismatch')
+    path = root / TARGET
+    require(not path.is_symlink(), 'symlink_target_refused')
+    git(root, 'ls-files', '--error-unmatch', str(TARGET))
+    before = path.read_bytes()
+    require(digest(before) == prior['afterHash'] and MARKER in before.decode('utf-8'),
+            'adapter_changed_response_diagnostic_refused')
+    after = instrument_responses(before.decode('utf-8')).encode('utf-8')
+    meta = {'head': head, 'beforeHash': digest(before), 'afterHash': digest(after)}
+    return install_change(root, meta, before, after, backup_root, service, operate,
+                          'response_diagnostic_installed_awaiting_scan')
+
+
 def install_change(root, meta, before, after, backup_root, service, operate, state, target=TARGET):
     operate(service, 'check')
     backup = Path(tempfile.mkdtemp(prefix='stroyka-invoice-provider-', dir=backup_root))
@@ -341,6 +436,7 @@ def main():
     modes.add_argument('--repair-image-detail', action='store_true')
     modes.add_argument('--repair-pdf-images', action='store_true')
     modes.add_argument('--plan-pdf-images', action='store_true')
+    modes.add_argument('--observe-responses', action='store_true')
     parser.add_argument('--diagnostic-backup', type=Path)
     parser.add_argument('--expect-head')
     parser.add_argument('--backup-root', type=Path, default=Path('/root'))
@@ -360,6 +456,9 @@ def main():
         elif args.plan_pdf_images:
             meta, _, _ = pdf_repair_plan(args.app_root, args.expect_head)
             result = dict(meta, state='pdf_repair_plan_only')
+        elif args.observe_responses:
+            result = observe_responses(args.app_root, args.expect_head, args.diagnostic_backup,
+                                       args.backup_root, args.service)
         elif args.restore:
             result = restore(args.app_root, args.restore, args.service)
         elif args.diagnostic_backup:
