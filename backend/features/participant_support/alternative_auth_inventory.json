@@ -101,6 +101,15 @@
   },
   {
     "methods": [
+      "GET"
+    ],
+    "path": "/internal/jev/job-candidates",
+    "dependencies": [
+      "list_jev_search_targets"
+    ]
+  },
+  {
+    "methods": [
       "POST"
     ],
     "path": "/internal/jev/job-candidates",
