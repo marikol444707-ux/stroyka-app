@@ -379,7 +379,8 @@ def instrument_responses(source):
     return patched
 
 
-def observe_responses(root, expected_head, known_backup, backup_root, service='stroyka', operate=service_operation):
+def observe_responses(root, expected_head, known_backup, backup_root, service='stroyka',
+                      operate=service_operation, expected_blob=None):
     root = root.resolve()
     require(known_backup is not None, 'diagnostic_backup_required')
     require(re.fullmatch(r'[0-9a-f]{8,40}', expected_head or '') is not None, 'expected_head_required')
@@ -387,7 +388,16 @@ def observe_responses(root, expected_head, known_backup, backup_root, service='s
     require(prior['appRoot'] == str(root) and prior['service'] == service, 'backup_target_mismatch')
     require(prior.get('target', str(TARGET)) == str(TARGET), 'unknown_backup_target')
     head = git(root, 'rev-parse', 'HEAD')
-    require(head.startswith(expected_head) and head == prior['head'], 'installed_head_mismatch')
+    require(head.startswith(expected_head), 'installed_head_mismatch')
+    if expected_blob is not None:
+        require(re.fullmatch(r'[0-9a-f]{40}', expected_blob) is not None, 'expected_adapter_blob_required')
+        for commit in (head, prior['head']):
+            require(git(root, 'rev-parse', commit + ':' + TARGET.as_posix()) == expected_blob,
+                    'adapter_code_changed_since_backup')
+    else:
+        require(head == prior['head'], 'backup_head_changed_requires_review')
+    if head != prior['head']:
+        git(root, 'merge-base', '--is-ancestor', prior['head'], head)
     path = root / TARGET
     require(not path.is_symlink(), 'symlink_target_refused')
     git(root, 'ls-files', '--error-unmatch', str(TARGET))
@@ -395,7 +405,10 @@ def observe_responses(root, expected_head, known_backup, backup_root, service='s
     require(digest(before) == prior['afterHash'] and MARKER in before.decode('utf-8'),
             'adapter_changed_response_diagnostic_refused')
     after = instrument_responses(before.decode('utf-8')).encode('utf-8')
-    meta = {'head': head, 'beforeHash': digest(before), 'afterHash': digest(after)}
+    meta = {'head': head, 'beforeHash': digest(before), 'afterHash': digest(after),
+            'sourceBackupHead': prior['head']}
+    if expected_blob is not None:
+        meta['reviewedAdapterBlob'] = expected_blob
     return install_change(root, meta, before, after, backup_root, service, operate,
                           'response_diagnostic_installed_awaiting_scan')
 
@@ -438,6 +451,7 @@ def main():
     modes.add_argument('--plan-pdf-images', action='store_true')
     modes.add_argument('--observe-responses', action='store_true')
     parser.add_argument('--diagnostic-backup', type=Path)
+    parser.add_argument('--expect-adapter-blob')
     parser.add_argument('--expect-head')
     parser.add_argument('--backup-root', type=Path, default=Path('/root'))
     parser.add_argument('--service', default='stroyka')
@@ -458,7 +472,7 @@ def main():
             result = dict(meta, state='pdf_repair_plan_only')
         elif args.observe_responses:
             result = observe_responses(args.app_root, args.expect_head, args.diagnostic_backup,
-                                       args.backup_root, args.service)
+                                       args.backup_root, args.service, expected_blob=args.expect_adapter_blob)
         elif args.restore:
             result = restore(args.app_root, args.restore, args.service)
         elif args.diagnostic_backup:
