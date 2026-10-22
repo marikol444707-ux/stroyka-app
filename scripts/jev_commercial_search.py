@@ -42,17 +42,14 @@ CONSTRUCTION_QUERY_TERMS = (
     'фундамент', 'строительство жилого дома', 'реставрация',
 )
 B2B_SEARCH_PHRASES = (
-    'строительство', 'капитальный ремонт', 'капремонт', 'реконструкция',
-    'отделочные работы', 'благоустройство', 'ремонт инженерных сетей',
-    'фасадные работы',
+    'строительство', 'капитальный ремонт', 'текущий ремонт', 'ремонт',
+    'отделочные работы', 'монтаж', 'благоустройство', 'реконструкция',
+    'электромонтаж', 'кровельные работы', 'фундамент', 'капремонт',
+    'ремонт инженерных сетей', 'фасадные работы',
 )
-B2B_TERMS = tuple(dict.fromkeys(TERMS + tuple(
-    'Ставрополь ' + phrase for phrase in B2B_SEARCH_PHRASES
-) + (
-    'Ставропольский край реконструкция', 'Ставропольский край отделочные работы',
-    'Ставропольский край благоустройство', 'Ставропольский край инженерные сети',
-    'Невинномысск ремонт зданий',
-)))
+# Search construction phrases directly: the site matches procedure titles, while
+# the regional check is applied to the returned procedure itself.
+B2B_TERMS = tuple(dict.fromkeys(TERMS + B2B_SEARCH_PHRASES))
 WORK = re.compile(r'строительн\w*|строительств\w*|строительно-монтажн\w*|общестроительн\w*|'
                   r'\bсмр\b|отделоч\w*|электромонтаж|фундамент|благоустрой|озелен|'
                   r'(?:капитальн\w*|текущ\w*)\s+ремонт|капремонт\w*|'
@@ -724,7 +721,11 @@ def rosel_source():
     """Open commercial+223 section search, restricted to Stavropol and open stages."""
     base='https://'+ROSELTORG_HOST+'/procedures/search_ajax'
     parser=RoseltorgCards()
-    terms=tuple(dict.fromkeys(('Ставрополь','ремонт','монтаж') + CONSTRUCTION_QUERY_TERMS))
+    terms=('Ставрополь','строительство','капитальный ремонт','капремонт',
+           'текущий ремонт','ремонт зданий','ремонт помещений','реконструкция',
+           'отделочные работы','благоустройство','фасадные работы',
+           'кровельные работы','монтаж инженерных сетей',
+           'электромонтажные работы','дорожные работы')
     rows=[]; sources=[]
     for term in terms:
         params=[('sale','1'),('source[]','2'),('region[]','26'),('status[]','0'),('status[]','5'),('query_field',term)]
@@ -916,14 +917,14 @@ status:e.querySelector('.purchase-card__stage')?.innerText||'',
 deadline:e.getAttribute('request-date')||'',price:e.querySelector('.amount-item__value')?.innerText||''
 })).filter(e=>e.url&&e.title)}))()'''
 
+SBER_TERMS = ('Ставрополь', 'Ставрополь капитальный ремонт', 'Ставрополь капремонт',
+              'Ставрополь строительство', 'Ставропольский край реконструкция')
+
 
 async def sber_source(call, now=None):
     """Read a few live, public Sber commercial searches in the browser."""
     now = now or datetime.now(MSK)
-    terms = ('Ставрополь', 'Ставрополь капитальный ремонт', 'Ставрополь капремонт',
-             'Ставрополь строительство', 'Ставропольский край реконструкция',
-             'Ставропольский край отделочные работы',
-             'Ставропольский край инженерные сети', 'Ставрополь благоустройство')
+    terms = SBER_TERMS
     rows, sources = [], []
     for term in terms:
         url = sber_search_url(term, now)
@@ -1045,14 +1046,16 @@ async def worker():
             sber_rows, sber_sources = await sber_source(call)
             rows.extend(sber_rows)
             sources.extend(sber_sources)
+            rtender_rows, rtender_sources = await rtender_source(call)
+            rows.extend(rtender_rows)
+            sources.extend(rtender_sources)
         rosel_rows,rosel_sources=rosel_source()
         fabrikant_rows,fabrikant_sources=fabrikant_source()
         gpb_rows, gpb_sources = etpgpb_source()
         tektorg_rows, tektorg_sources = tektorg_source()
         fedtorgi_rows, fedtorgi_sources = fedtorgi_source()
-        rtender_rows, rtender_sources = await rtender_source(call)
-        rows.extend(rosel_rows);rows.extend(fabrikant_rows);rows.extend(gpb_rows);rows.extend(tektorg_rows);rows.extend(fedtorgi_rows);rows.extend(rtender_rows)
-        sources.extend(rosel_sources);sources.extend(fabrikant_sources);sources.extend(gpb_sources);sources.extend(tektorg_sources);sources.extend(fedtorgi_sources);sources.extend(rtender_sources)
+        rows.extend(rosel_rows);rows.extend(fabrikant_rows);rows.extend(gpb_rows);rows.extend(tektorg_rows);rows.extend(fedtorgi_rows)
+        sources.extend(rosel_sources);sources.extend(fabrikant_sources);sources.extend(gpb_sources);sources.extend(tektorg_sources);sources.extend(fedtorgi_sources)
         return build_report(rows, sources)
     finally:
         chrome.terminate()

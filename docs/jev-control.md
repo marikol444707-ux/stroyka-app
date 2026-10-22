@@ -135,13 +135,18 @@ matching rules recognize abbreviations such as СМР and alternate spellings;
 they still exclude materials-only purchases and equipment repair where the
 title makes that distinction clear.
 
-B2B-Center searches twelve regional city/region names and eight additional
-location-plus-work phrases, verifying the rendered query and current-results
-tab. Roseltorg searches construction phrases in its Stavropol region filter and
-open commercial/223-FZ section. Fabrikant uses its public commercial section
+B2B-Center searches twelve regional city/region names plus fourteen work-title
+phrases: construction, capital/current repair, repair, finishing, installation,
+landscaping, reconstruction, electrical installation, roofing, foundations,
+капремонт, engineering networks and façade work. It verifies the rendered query
+and current-results tab, then checks the returned procedure's region and work
+description. Roseltorg searches Stavropol and fourteen construction phrases in
+its Stavropol-region filter and open commercial/223-FZ section. Fabrikant uses its public commercial section
 and Stavropol customer-region filter. ETP GPB uses its public API, resolves
 Stavropol Krai from the public regions list, and reads active applications only.
-Sber AST searches the public `Торги коммерческих заказчиков` source, checking
+Sber AST runs five bounded searches (`Ставрополь`, capital repair, капремонт,
+construction and Stavropol Krai reconstruction) in the public
+`Торги коммерческих заказчиков` source, checking
 the search phrase and active deadline range in the request and rendered page.
 TЭК-Торг searches its combined 223-FZ/commercial section for active procedures
 with future deadlines. Торги Федерации uses its commercial section and active
@@ -177,6 +182,10 @@ bounded set of first-page searches. Sale, resale, and rental procedures are
 excluded; unknown procedure types require review. The Stavropol region is
 checked in the visible work description because this search has no verified
 worksite-region filter.
+
+Р-ТЕНДЕР runs twelve regional/city title queries in its public commercial
+applications-in-progress filter. The browser stays connected for the complete
+search; a disconnected browser invalidates that source's results.
 
 TЭК-Торг reads the server-rendered public listing in its combined
 `223-ФЗ и Коммерческие закупки` section. First-page searches cover Stavropol

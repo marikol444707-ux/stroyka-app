@@ -2,7 +2,7 @@ import unittest
 from datetime import datetime, timezone
 
 from scripts.jev_commercial_search import (
-    B2B_TERMS, CONSTRUCTION_QUERY_TERMS, search_url, verify_search,
+    B2B_TERMS, B2B_SEARCH_PHRASES, CONSTRUCTION_QUERY_TERMS, SBER_TERMS, search_url, verify_search,
     assess, build_report, tender_url,
 )
 
@@ -43,10 +43,14 @@ class CommercialTest(unittest.TestCase):
 
     def test_search_terms_include_region_and_construction_synonyms_without_duplicates(self):
         self.assertEqual(len(B2B_TERMS), len(set(B2B_TERMS)))
-        self.assertGreater(len(B2B_TERMS), 12)
-        self.assertIn('Ставрополь капремонт', B2B_TERMS)
-        self.assertIn('Ставропольский край инженерные сети', B2B_TERMS)
-        self.assertIn('Ставрополь фасадные работы', B2B_TERMS)
+        self.assertGreater(len(B2B_TERMS), 20)
+        self.assertIn('Ставрополь', B2B_TERMS)
+        self.assertIn('Невинномысск', B2B_TERMS)
+        self.assertIn('капремонт', B2B_TERMS)
+        self.assertIn('ремонт инженерных сетей', B2B_TERMS)
+        self.assertIn('фасадные работы', B2B_SEARCH_PHRASES)
+        self.assertEqual(len(SBER_TERMS), 5)
+        self.assertIn('Ставрополь капремонт', SBER_TERMS)
         self.assertIn('капремонт', CONSTRUCTION_QUERY_TERMS)
         self.assertIn('строительно-монтажные работы', CONSTRUCTION_QUERY_TERMS)
         self.assertIn('устройство кровли', CONSTRUCTION_QUERY_TERMS)
