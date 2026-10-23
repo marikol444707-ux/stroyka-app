@@ -34,6 +34,8 @@ class FakeProduction:
         self.events.append('preflight')
         return {'untouched':self.inventory(),'security':self.security,'service':{'python':'fixture'}}
     def verify_installer_ci(self):return {'fixture':'safety_ci'}
+    def prepare_recovery(self, baseline):pass
+    def verify_live_after_open(self, baseline):self.assert_preserved(baseline)
     def prepare_maintenance(self, baseline):self.events.append('prepare_maintenance')
     def begin_maintenance(self, save):
         self.events.append('freeze');save('FIXTURE_WRITERS_DRAINED',{})
@@ -169,6 +171,15 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(self.installer.stage,'OWN_FILES_RESTORED_APP_STOPPED_MANUAL_START_REQUIRED')
         self.assertIn('stopped_for_recovery',self.ops.events)
         self.assertEqual(self.ops.restarts,1);self.assertEqual((self.root/'a.py').read_bytes(),b'OLD=1\n')
+    def test_journal_failure_after_startup_closes_writers_without_retry(self):
+        save=self.installer.save
+        def fail(phase):
+            if phase in ('BACKEND_AND_SECURITY_VERIFIED','INSTALL_STOP'):raise OSError('fixture disk full')
+            save(phase)
+        self.installer.save=fail
+        with self.assertRaises(OSError):self.apply()
+        self.assertIn('stopped_for_recovery',self.ops.events)
+        self.assertEqual(self.ops.restarts,1)
     def test_concurrent_foreign_change_prevents_rollback(self):
         self.ops.foreign=True
         with self.assertRaisesRegex(production.Stop,'FIXTURE_CONCURRENT_CHANGE'):self.apply()

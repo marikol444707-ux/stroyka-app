@@ -141,12 +141,16 @@ class Installer:
             self.ops.verify_frontend(local_only=True);self.ops.assert_preserved(baseline)
             self.save('RESTORE_PREVIOUS_SERVICE_STATES')
             self.ops.finish_maintenance()
-            self.ops.verify_frontend();self.ops.assert_preserved(baseline)
+            self.ops.verify_frontend();self.ops.verify_live_after_open(baseline)
             self.save('INSTALLED_HTTP_VERIFIED_BUSINESS_ACCEPTANCE_PENDING')
             return self.evidence
         except BaseException:
             failure=self.stage
             self.state['failure_stage']=failure
+            # Closing writers must precede a journal write which could fail on a
+            # full disk. Never leave ingress open because diagnostics cannot save.
+            if self.state['restart_attempted']:
+                self.ops.stop_for_code_recovery()
             self.save('INSTALL_STOP')
             if self.state['source_started']:
                 try:
@@ -183,6 +187,7 @@ class Installer:
         need(state.get('package_manifest_sha256')==sha(self.package/'manifest.json'),'RECOVERY_PACKAGE_CHANGED')
         self.evidence=b;self.state=state
         self.ops.load_helpers()
+        self.ops.prepare_recovery(state['baseline'])
         self.rollback_loaded(None,None)
         return b
 

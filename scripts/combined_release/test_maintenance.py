@@ -18,6 +18,7 @@ class Ops:
         self.actions=[];self.jobs=[];self.fail_health=False;self.inventory_ok=True
     def state(self,u):return copy.deepcopy(self.units[u])
     def verify_inventory(self,state):m.require(self.inventory_ok,'INVENTORY_CHANGED')
+    def verify_configuration(self):m.require(self.inventory_ok,'CONFIGURATION_CHANGED')
     def stop(self,u):
         self.actions.append(('stop',u));self.units[u].update(active='inactive',cgroup_empty=True)
     def start(self,u):
@@ -133,6 +134,10 @@ class MaintenanceTests(unittest.TestCase):
         self.ops.inventory_ok=False
         with self.assertRaisesRegex(m.BoundaryError,'INVENTORY'):self.boundary.capture()
         self.assertEqual(self.ops.actions,[])
+    def test_configuration_change_after_drain_prevents_start(self):
+        self.freeze();self.ops.inventory_ok=False
+        with self.assertRaisesRegex(m.BoundaryError,'CONFIGURATION'):self.boundary.start_once(clean_report())
+        self.assertNotIn(('start',m.MAIN),self.ops.actions)
     def test_cgroup_is_checked_after_stop(self):
         self.freeze();self.ops.units[m.WORKER]['cgroup_empty']=False
         with self.assertRaisesRegex(m.BoundaryError,'CGROUP'):self.boundary.assert_frozen()

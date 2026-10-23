@@ -35,10 +35,18 @@ class Operations:
             empty=empty and not any(p.read_text().split() for p in directory.rglob('cgroup.procs'))
         return {'active':data.get('ActiveState'),'enabled':data.get('UnitFileState'),
                 'cgroup_empty':empty,'result':data.get('Result','success')}
-    def verify_inventory(self,state):
+    def verify_configuration(self):
         for unit,expected in APPROVED_UNIT_FILES.items():
             actual=self.probe.unit_report(unit)
+            expected=dict(expected)
+            if unit==m.MAIN and self.retry_owned:
+                need(RETRY_DROPIN.read_bytes()==RETRY_BYTES,'OWN_RETRY_POLICY_CHANGED')
+                expected[str(RETRY_DROPIN)]=hashlib.sha256(RETRY_BYTES).hexdigest()
             need(actual.get('UnitFileSHA256')==expected,'SERVICE_CONFIGURATION_CHANGED')
+        for path,expected in APPROVED_CRON.items():
+            need(not Path(path).is_symlink() and sha(path)==expected,'CRON_OR_SCRIPT_CHANGED')
+    def verify_inventory(self,state):
+        self.verify_configuration()
         cron=self.probe.unit_report(m.CRON)
         need(cron.get('KillMode')=='process','CRON_SHUTDOWN_POLICY_CHANGED')
         for path,expected in APPROVED_CRON.items():

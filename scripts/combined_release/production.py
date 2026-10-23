@@ -280,7 +280,8 @@ class Production:
         required={'install.py','production.py','maintenance.py','maintenance_runtime.py',
                   'ci_gate.py','durable_files.py','server-readonly-check.py','nginx_readonly.py',
                   'test_install.py','test_maintenance.py','test_maintenance_runtime.py',
-                  'test_ci_gate.py','test_durable_files.py','test_readonly_probe.py','test_startup_postgres.py'}
+                  'test_ci_gate.py','test_durable_files.py','test_readonly_probe.py','test_startup_postgres.py',
+                  'bootstrap.py','test_bootstrap.py'}
         need(set(files)==required,'INCOMPLETE_INSTALLER_CI_FILE_BINDING')
         result=ci_gate.verify_ci(evidence['run_id'],expected_tree=evidence['tree_sha'])
         need(result['head_sha']==evidence['head_sha'],'INSTALLER_CI_COMMIT_CHANGED')
@@ -317,6 +318,19 @@ class Production:
     def deployment_lock(self):
         from install import deployment_lock
         return deployment_lock()
+
+    def prepare_recovery(self, baseline):
+        from maintenance_runtime import Session
+        self.maintenance=Session(self,baseline,lambda phase,state:None)
+
+    def verify_live_after_open(self, baseline):
+        # Legitimate writers are live again. Do not compare their current rows
+        # with the frozen snapshot, or roll back in response to a real new user.
+        need(self.git('rev-parse','HEAD')==BASE,'HEAD_CHANGED_AFTER_REOPEN')
+        need(self.filesystem_guard()==baseline['files'],'UNTOUCHED_FILES_CHANGED_AFTER_REOPEN')
+        env=self.u.runtime_environment(ROOT,SERVICE)
+        need(digest(env)==baseline['runtime'],'SERVICE_ENVIRONMENT_CHANGED')
+        need(self.health(self.service())==baseline['version'],'LIVE_HEALTH_FAILED')
 
     def start_in_maintenance(self, baseline):
         self.maintenance.start(self.startup_snapshot())

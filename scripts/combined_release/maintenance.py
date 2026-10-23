@@ -1,7 +1,7 @@
 """Finite service boundary. Never invoked by the read-only evidence collector.
 
-Production binding needs the operator's sanitized inventory before it is enabled
-in install.py. State restoration never enables/disables units and never restores DB.
+The native binding compares the reviewed production inventory before mutations.
+State restoration never enables/disables units and never restores the working DB.
 """
 import time
 
@@ -96,6 +96,7 @@ class Boundary:
         self.save('WRITERS_DRAINED_BEFORE_DEPLOY_LOCK',self.original)
     def assert_frozen(self, *, main_started=False):
         require(self.original is not None,'ORIGINAL_STATES_NOT_CAPTURED')
+        self.ops.verify_configuration()
         for unit in UNITS:
             current=self.ops.state(unit)
             require(current['enabled']==self.original[unit]['enabled'],'UNIT_ENABLEMENT_CHANGED')
