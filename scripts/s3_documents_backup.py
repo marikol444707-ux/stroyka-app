@@ -164,27 +164,46 @@ class Reader:
             fd=os.open(directory,os.O_DIRECTORY|os.O_RDONLY)
             try:os.fsync(fd)
             finally:os.close(fd)
-        return verify(root)
+        return verify(root,expected_identity=self.identity,expected_prefixes=prefixes)
 
-def verify(destination):
+def verify(destination,*,expected_identity=None,expected_prefixes=None):
     root=private(destination);regular(root/'manifest.json')
     need((root/'manifest.json').stat().st_size<=128*1024**2,'BACKUP_MANIFEST_INVALID')
     try:manifest=json.loads((root/'manifest.json').read_text())
     except (ValueError,UnicodeError):raise BackupError('BACKUP_MANIFEST_INVALID') from None
+    need(isinstance(manifest,dict),'BACKUP_MANIFEST_INVALID')
+    need(isinstance(manifest.get('source_identity'),str)
+         and re.fullmatch(r'[0-9a-f]{64}',manifest['source_identity'])
+         and isinstance(manifest.get('prefixes'),list) and 0<len(manifest['prefixes'])<=20
+         and all(isinstance(p,str) and '\x00' not in p for p in manifest['prefixes'])
+         and manifest.get('coverage')=='current_object_bodies_only_no_acl_policy_or_version_history',
+         'BACKUP_MANIFEST_INVALID')
+    if expected_identity is not None:
+        need(manifest['source_identity']==expected_identity,'BACKUP_SOURCE_MISMATCH')
+    if expected_prefixes is not None:
+        need(manifest['prefixes']==list(expected_prefixes),'BACKUP_PREFIX_MISMATCH')
     need(manifest.get('format')==1 and isinstance(manifest.get('objects'),list)
          and len(manifest['objects'])<=MAX_OBJECTS,'BACKUP_MANIFEST_INVALID')
     objects=private(root/'objects');names=set();total=0;rows=[]
     for row in manifest['objects']:
         need(isinstance(row,dict) and isinstance(row.get('key'),str) and type(row.get('size')) is int
-             and row['size']>=0 and isinstance(row.get('sha256'),str)
+             and 0<=row['size']<=MAX_BYTES and row['key'] and len(row['key'].encode())<=1024
+             and any(row['key'].startswith(p) for p in manifest['prefixes'])
+             and isinstance(row.get('sha256'),str)
              and re.fullmatch(r'[0-9a-f]{64}',row['sha256'])
              and isinstance(row.get('etag'),str) and isinstance(row.get('modified'),str),'BACKUP_MANIFEST_INVALID')
         filename=hashlib.sha256(row['key'].encode()).hexdigest()+'.blob'
         need(row.get('filename')==filename and filename not in names,'BACKUP_MANIFEST_INVALID');names.add(filename)
-        target=objects/filename;info=regular(target);checksum=hashlib.sha256()
+        target=objects/filename;info=regular(target)
+        need(info.st_size==row['size'] and total+info.st_size<=MAX_BYTES,'BACKUP_CONTENT_MISMATCH')
+        checksum=hashlib.sha256();amount=0
         with target.open('rb') as source:
-            for chunk in iter(lambda:source.read(1024**2),b''):checksum.update(chunk)
-        need(info.st_size==row['size'] and checksum.hexdigest()==row['sha256'],'BACKUP_CONTENT_MISMATCH')
+            while True:
+                chunk=source.read(min(1024**2,row['size']-amount+1))
+                if not chunk:break
+                amount+=len(chunk);need(amount<=row['size'],'BACKUP_CONTENT_MISMATCH')
+                checksum.update(chunk)
+        need(amount==row['size'] and checksum.hexdigest()==row['sha256'],'BACKUP_CONTENT_MISMATCH')
         total+=info.st_size;need(total<=MAX_BYTES,'BACKUP_MANIFEST_INVALID')
         rows.append({k:row[k] for k in ('key','size','etag','modified')})
     need({p.name for p in objects.iterdir()}==names and {p.name for p in root.iterdir()}=={'objects','manifest.json'},'BACKUP_FILE_SET_MISMATCH')

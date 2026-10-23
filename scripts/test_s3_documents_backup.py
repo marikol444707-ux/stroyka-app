@@ -169,7 +169,47 @@ class S3ReadOnlyBackupTests(unittest.TestCase):
         with self.assertRaisesRegex(s3.BackupError,'NOT_EMPTY'):self.reader().backup(self.root,('uploads/',))
         self.assertEqual((self.root/'existing').read_bytes(),b'keep')
 
-if __name__=='__main__':unittest.main(verbosity=2)
+
+
+    def test_verification_binds_backup_to_expected_storage_and_prefixes(self):
+        reader=self.reader();reader.backup(self.root,('uploads/',))
+        self.assertTrue(s3.verify(self.root,expected_identity=reader.identity,expected_prefixes=('uploads/',))['verified'])
+        with self.assertRaisesRegex(s3.BackupError,'SOURCE_MISMATCH'):
+            s3.verify(self.root,expected_identity='0'*64)
+        with self.assertRaisesRegex(s3.BackupError,'PREFIX_MISMATCH'):
+            s3.verify(self.root,expected_prefixes=('other/',))
+
+    def test_disk_full_during_body_copy_never_publishes_manifest(self):
+        import errno
+        original=s3.os.fdopen
+        @contextlib.contextmanager
+        def disk_full(fd,*args,**kwargs):
+            with original(fd,*args,**kwargs) as target:
+                with patch.object(target,'write',side_effect=OSError(errno.ENOSPC,'synthetic disk full')):
+                    yield target
+        with patch.object(s3.os,'fdopen',side_effect=disk_full):
+            with self.assertRaises(OSError):self.reader().backup(self.root,('uploads/',))
+        self.assertFalse((self.root/'manifest.json').exists())
+        with self.assertRaises((s3.BackupError,FileNotFoundError)):s3.verify(self.root)
+
+    def test_body_fsync_failure_never_publishes_manifest(self):
+        with patch.object(s3.os,'fsync',side_effect=OSError('synthetic flush failure')):
+            with self.assertRaises(OSError):self.reader().backup(self.root,('uploads/',))
+        self.assertFalse((self.root/'manifest.json').exists())
+
+    def test_truncated_completed_local_backup_is_rejected(self):
+        self.reader().backup(self.root,('uploads/',))
+        target=next(p for p in (self.root/'objects').iterdir() if p.stat().st_size>0)
+        target.write_bytes(target.read_bytes()[:-1])
+        with self.assertRaisesRegex(s3.BackupError,'CONTENT_MISMATCH'):s3.verify(self.root)
+
+    def test_manifest_requires_identity_prefix_and_coverage(self):
+        self.reader().backup(self.root,('uploads/',))
+        path=self.root/'manifest.json';original=json.loads(path.read_text())
+        for field,value in [('source_identity','invalid'),('prefixes',[]),('prefixes',['other/']),('coverage','full_restore_verified')]:
+            with self.subTest(field=field,value=value):
+                path.write_text(json.dumps(dict(original,**{field:value})))
+                with self.assertRaises(s3.BackupError):s3.verify(self.root)
 
 class StandaloneStorageAuditTests(unittest.TestCase):
     setUpClass=classmethod(S3ReadOnlyBackupTests.setUpClass.__func__)
@@ -233,3 +273,5 @@ class StandaloneStorageAuditTests(unittest.TestCase):
             self.assertEqual(report['backend'],'OTHER')
             self.assertNotIn('PRIVATE',json.dumps(report))
         module.assert_not_called()
+
+if __name__=='__main__':unittest.main(verbosity=2)
