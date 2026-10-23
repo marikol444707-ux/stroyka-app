@@ -36,7 +36,17 @@ def main():
             if capability:
                 env[capability + '_RUN_POSTGRES_INTEGRATION'] = '1'
                 env[capability + '_TEST_DATABASE_URL'] = f'host={work} port=6546 user=chain_test dbname={name}'
-            result = subprocess.run([sys.executable, '-m', 'unittest', '-v', suite], cwd=root, env=env, timeout=240)
+            # Opt-in database acceptance must execute real tests, not pass by skip.
+            check = (
+                'import os, sys, unittest; sys.path.insert(0, os.getcwd()); '
+                'suite=unittest.defaultTestLoader.loadTestsFromName(sys.argv[1]); '
+                'result=unittest.TextTestRunner(verbosity=2).run(suite); '
+                'print("POSTGRES_ACCEPTANCE tests=%s skipped=%s" % '
+                '(result.testsRun, len(result.skipped)), flush=True); '
+                'sys.exit(0 if result.wasSuccessful() and result.testsRun > 0 '
+                'and not result.skipped else 1)'
+            )
+            result = subprocess.run([sys.executable, '-c', check, suite], cwd=root, env=env, timeout=240)
             if result.returncode:
                 return result.returncode
         return 0

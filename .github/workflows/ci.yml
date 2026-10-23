@@ -147,7 +147,8 @@ jobs:
           export PATH="$(pg_config --bindir):$PATH"
           python scripts/run_supplier_catalog_postgres_tests.py \
             backend.features.supplier_access.test_multicompany_chain \
-            backend.features.supplier_payments.test_contract_context_postgres
+            backend.features.supplier_payments.test_contract_context_postgres \
+            backend.features.project_events.test_ledger_readers.LegacyLedgerReadersPostgresTests
 
       - name: Run supplier manager assignments and revocation
         run: |

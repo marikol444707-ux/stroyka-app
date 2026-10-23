@@ -19,11 +19,11 @@ NOTE = 'Платежи поставщикам и их сторно не вклю
 
 
 def chat_payment_block():
-    tree = ast.parse((Path(__file__).resolve().parents[2] / 'main.py').read_text())
+    tree = ast.parse((Path(__file__).resolve().parents[1] / 'ai_assistant' / 'context.py').read_text())
     matches = [node for node in ast.walk(tree) if isinstance(node, ast.If)
-               and ast.unparse(node.test) == "payment_visibility_sql != 'FALSE'"]
+               and ast.unparse(node.test) == "payment_sql != 'FALSE'"]
     if len(matches) != 1:
-        raise AssertionError('Expected exactly one legacy chat payment block')
+        raise AssertionError('Expected exactly one scoped assistant payment block')
     return tree, matches[0]
 
 
@@ -35,9 +35,12 @@ class ReaderScopeNoteTests(unittest.TestCase):
         self.assertIn('NOT EXISTS', source)
         self.assertIn('project_payment_id=pp.id', source)
         self.assertNotIn('ledger.company_id', source)
-        self.assertTrue(any(isinstance(node, ast.AugAssign)
-            and isinstance(node.target, ast.Name) and node.target.id == 'context'
-            and NOTE in ast.unparse(node.value) for node in ast.walk(tree)))
+        limitations = [node for node in ast.walk(tree) if isinstance(node, ast.Assign)
+            and any(isinstance(target, ast.Subscript)
+                and ast.unparse(target) == "rows['limitations']" for target in node.targets)]
+        self.assertEqual(len(limitations), 1)
+        self.assertIn('не полная сводка', ast.unparse(limitations[0].value))
+        self.assertIn('Платежи поставщикам и их сторно исключены', ast.unparse(limitations[0].value))
 
     def test_sanitized_finances_carries_server_scope_note(self):
         row = valid_facts()['finances'][0]
@@ -109,10 +112,10 @@ class LegacyLedgerReadersPostgresTests(unittest.TestCase):
         try:
             conn.set_session(readonly=True, autocommit=True)
             with conn.cursor() as cur:
-                namespace = dict(cur2=cur, payment_visibility_sql='pp.company_id=%s AND pp.project_name=%s',
-                                 payment_visibility_params=[2, self.fixture['project']])
+                namespace = dict(cur=cur, rows={}, payment_sql='pp.company_id=%s AND pp.project_name=%s',
+                                 payment_params=[2, self.fixture['project']])
                 exec(compile(ast.Module(body=[block], type_ignores=[]), '<chat payment query>', 'exec'), namespace)
-                return namespace['payments']
+                return [row[:3] for row in namespace['rows']['payments_project_amount_note_company']]
         finally:
             conn.close()
 
