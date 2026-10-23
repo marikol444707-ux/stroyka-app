@@ -946,9 +946,9 @@ class WarehouseAnomalyRuntimePreviewCompositionTests(unittest.TestCase):
             root / "backend/db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Reviewed production contractor/manual-brigade behavior and JEV registrations; warehouse preview is unchanged.
+            # Also reviewed the invoice-scan change; warehouse preview behavior is unchanged.
             root / "backend/main.py": (
-                "d5158de3d404cb884141f2c6b0bcbf706a1b7cf09986fc8e00b33d8d7dd29618"
+                "2b71e5c5eb6c312a7f54e0fe8f8a6cdc49a8c3d55bbc2dcc6ab433029c86cfcf"
             ),
         }
         self.assertEqual({
