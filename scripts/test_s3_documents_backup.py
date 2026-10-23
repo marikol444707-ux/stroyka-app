@@ -35,7 +35,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             credential=fields['Credential'].split('/');names=fields['SignedHeaders'].split(';')
             assert credential[0]==ACCESS and credential[2:]==['ru-central1','s3','aws4_request']
             parsed=urllib.parse.urlsplit(self.path)
-            query=urllib.parse.urlencode(sorted(urllib.parse.parse_qsl(parsed.query)),quote_via=urllib.parse.quote,safe='-_.~')
+            query=urllib.parse.urlencode(sorted(urllib.parse.parse_qsl(parsed.query,keep_blank_values=True)),quote_via=urllib.parse.quote,safe='-_.~')
             canonical='\n'.join(['GET',parsed.path,query,''.join(n+':'+self.headers[n]+'\n' for n in names),';'.join(names),hashlib.sha256(b'').hexdigest()])
             scope='/'.join(credential[1:]);message='AWS4-HMAC-SHA256\n'+self.headers['X-Amz-Date']+'\n'+scope+'\n'+hashlib.sha256(canonical.encode()).hexdigest()
             key=('AWS4'+SECRET).encode()
@@ -170,3 +170,66 @@ class S3ReadOnlyBackupTests(unittest.TestCase):
         self.assertEqual((self.root/'existing').read_bytes(),b'keep')
 
 if __name__=='__main__':unittest.main(verbosity=2)
+
+class StandaloneStorageAuditTests(unittest.TestCase):
+    setUpClass=classmethod(S3ReadOnlyBackupTests.setUpClass.__func__)
+    tearDownClass=classmethod(S3ReadOnlyBackupTests.tearDownClass.__func__)
+    setUp=S3ReadOnlyBackupTests.setUp
+
+    def audit(self,env=None):
+        from scripts.test_server_readonly_check import probe
+        module=probe.storage_module()
+        reader=module['Reader']
+        def trusted_reader(settings):return reader(settings,context=self.context)
+        module['Reader']=trusted_reader
+        with patch.object(probe,'storage_module',return_value=module):
+            return probe.storage_report(dict(self.env,STORAGE_BACKEND='s3') if env is None else env)
+
+    def test_signed_https_inventory_is_aggregate_only_without_local_writes(self):
+        before=list(self.root.iterdir())
+        report=self.audit()
+        self.assertEqual(report['objects'],len(DATA))
+        self.assertEqual(report['bytes'],sum(map(len,DATA.values())))
+        self.assertEqual(report['status'],'INVENTORY_ONLY')
+        self.assertFalse(report['backup_verified']);self.assertFalse(report['all_object_bodies_read'])
+        self.assertFalse(report['installation_ready']);self.assertFalse(report['writer_boundary_proven'])
+        self.assertEqual(before,list(self.root.iterdir()))
+        self.assertEqual(set(self.server.methods),{'GET'})
+        for private in [ACCESS,SECRET,'test-bucket',*DATA]:self.assertNotIn(private,json.dumps(report))
+
+    def test_provider_failure_is_incomplete_and_never_leaks_response(self):
+        self.server.mode='bad_xml'
+        report=self.audit()
+        self.assertEqual(report['status'],'INCOMPLETE')
+        self.assertEqual(report['code'],'S3_LIST_RESPONSE_INVALID')
+        self.assertFalse(report['backup_verified'])
+
+    def test_explicit_prefixes_include_legacy_and_root_scope_is_disclosed(self):
+        report=self.audit(dict(self.env,STORAGE_BACKEND='s3',S3_PREFIX='',S3_LEGACY_PREFIXES='uploads, old'))
+        self.assertTrue(report['includes_bucket_root'])
+        self.assertEqual(report['prefix_count'],3)
+        self.assertEqual(report['objects'],3)
+
+    def test_embedded_reader_has_no_backup_or_filesystem_access(self):
+        import ast
+        from scripts.test_server_readonly_check import probe
+        module=probe.storage_module()
+        self.assertFalse(hasattr(module['Reader'],'backup'))
+        tree=ast.parse(probe.STORAGE_READ_SOURCE)
+        names={n.id for n in ast.walk(tree) if isinstance(n,ast.Name)}
+        self.assertTrue(names.isdisjoint({'Path','open','os','stat','private','regular','verify'}))
+        original=ast.parse(Path(s3.__file__).read_text())
+        embedded=next(n for n in tree.body if isinstance(n,ast.ClassDef) and n.name=='Reader')
+        reviewed=next(n for n in original.body if isinstance(n,ast.ClassDef) and n.name=='Reader')
+        reviewed.body=[n for n in reviewed.body if not isinstance(n,ast.FunctionDef) or n.name!='backup']
+        self.assertEqual(ast.dump(embedded),ast.dump(reviewed))
+        self.assertEqual(module['TOTAL_SECONDS'],60)
+
+    def test_local_and_unknown_backend_do_not_make_network_calls(self):
+        from scripts.test_server_readonly_check import probe
+        with patch.object(probe,'storage_module') as module:
+            self.assertEqual(probe.storage_report({})['backend'],'local')
+            report=probe.storage_report({'STORAGE_BACKEND':'PRIVATE_VALUE'})
+            self.assertEqual(report['backend'],'OTHER')
+            self.assertNotIn('PRIVATE',json.dumps(report))
+        module.assert_not_called()
