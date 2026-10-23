@@ -229,10 +229,16 @@ def collect():
     report['operator_confirmation_still_required']='No other deployments, manual SQL, cron or app writers during the proposed maintenance window.'
     return report
 
+def safe_error_counts(error):
+    counts=getattr(error,'counts',None)
+    if type(counts) is not dict:return {}
+    return {key:counts[key] for key in ('json_rows','json_total_bytes','json_max_value_bytes')
+            if type(counts.get(key)) is int and 0<=counts[key]<=9223372036854775807}
+
 def main():
     try:
         report=collect();print(json.dumps(report,ensure_ascii=False,sort_keys=True,indent=2));return 0
     except Exception as error:
         code=str(error) if isinstance(error,Stop) or (type(error).__name__=='CheckError' and re.fullmatch(r'[A-Z][A-Z0-9_]+',str(error))) else type(error).__name__
-        print(json.dumps({'read_only':True,'report_complete':False,'stage':STAGE,'code':code,'installation_ready':False}));return 1
+        print(json.dumps({'read_only':True,'report_complete':False,'stage':STAGE,'code':code,'counts':safe_error_counts(error),'installation_ready':False}));return 1
 if __name__=='__main__':raise SystemExit(main())

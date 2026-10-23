@@ -80,4 +80,30 @@ class SystemdTextInventoryTests(unittest.TestCase):
             self.assertEqual(probe.main(),1)
         self.assertIn('QUEUED_JOBS',out.getvalue());self.assertNotIn('PRIVATE',out.getvalue())
 
+class ErrorCountTests(unittest.TestCase):
+    def test_budget_error_exposes_only_aggregate_sizes_and_remains_failed(self):
+        runner=probe.startup_module()
+        error=runner.CheckError('JSON_SCAN_BUDGET_EXCEEDED',{
+            'json_rows':40,'json_total_bytes':50000000,'json_max_value_bytes':2000000,
+            'business_row':'PRIVATE_DATA','password':'PRIVATE_SECRET'})
+        with patch.object(probe,'collect',side_effect=error),contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(probe.main(),1)
+        import json
+        result=json.loads(out.getvalue())
+        self.assertFalse(result['report_complete']);self.assertFalse(result['installation_ready'])
+        self.assertEqual(result['code'],'JSON_SCAN_BUDGET_EXCEEDED')
+        self.assertEqual(result['counts'],dict(json_rows=40,json_total_bytes=50000000,json_max_value_bytes=2000000))
+        self.assertNotIn('PRIVATE',out.getvalue())
+    def test_invalid_count_values_are_never_printed(self):
+        error=ValueError('PRIVATE')
+        error.counts={'json_rows':True,'json_total_bytes':'PRIVATE','json_max_value_bytes':-1,'unexpected':42}
+        self.assertEqual(probe.safe_error_counts(error),{})
+        error.counts=['PRIVATE'];self.assertEqual(probe.safe_error_counts(error),{})
+    def test_missing_counts_are_safe(self):
+        self.assertEqual(probe.safe_error_counts(ValueError('PRIVATE')),{})
+    def test_production_budget_limits_are_preserved(self):
+        runner=probe.startup_module()
+        self.assertEqual((runner.MAX_JSON_ROWS,runner.MAX_JSON_VALUE_BYTES,runner.MAX_JSON_TOTAL_BYTES),
+                         (50000,1024*1024,32*1024*1024))
+
 if __name__=='__main__':unittest.main(verbosity=2)
