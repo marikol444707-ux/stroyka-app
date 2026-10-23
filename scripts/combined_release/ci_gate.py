@@ -62,7 +62,7 @@ _SHA = re.compile(r"[0-9a-f]{40}\Z")
 _API_PATH = re.compile(
     re.escape(API_ROOT) + r"(?:/actions/runs/[1-9][0-9]{0,18}"
     r"(?:/attempts/[1-9][0-9]{0,18}/jobs\?per_page=100&page=[1-9][0-9]{0,2})?"
-    r"|/git/commits/[0-9a-f]{40})\Z"
+    r"|/git/(?:commits|trees)/[0-9a-f]{40})\Z"
 )
 
 

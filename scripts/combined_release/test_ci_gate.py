@@ -276,6 +276,21 @@ class SafeTransportTests(unittest.TestCase):
         self.assertEqual(opener.open.call_args.kwargs["timeout"], gate.TIMEOUT_SECONDS)
         response.read.assert_called_once_with(gate.MAX_RESPONSE_BYTES + 1)
 
+    def test_exact_read_only_git_tree_endpoint_is_allowed_for_installer_binding(self):
+        path=gate.API_ROOT+'/git/trees/'+'a'*40
+        response=self.response();response.geturl.return_value=gate.API_ORIGIN+path
+        with patch.object(gate.urllib.request,'build_opener') as factory:
+            factory.return_value.open.return_value=response
+            self.assertEqual(gate.defaultsafeGET(path),{})
+        request=factory.return_value.open.call_args.args[0]
+        self.assertEqual(request.get_method(),'GET')
+        self.assertEqual(request.full_url,gate.API_ORIGIN+path)
+        self.assertIsNone(request.get_header('Authorization'))
+        for suffix in ('?recursive=1','/../../secret','?token=secret','/extra'):
+            with patch.object(gate.urllib.request,'build_opener') as opener:
+                with self.assertRaisesRegex(gate.CIGateError,'ci_api_path_refused'):
+                    gate.defaultsafeGET(path+suffix)
+                opener.assert_not_called()
     def test_no_arbitrary_hosts_paths_redirects_or_queries(self):
         for path in ("https://api.github.com" + RUN_PATH, "//internal", "/repos/other/repo/actions/runs/1",
                      RUN_PATH + "?token=secret", RUN_PATH + "/../../secrets", RUN_PATH + "\nAuthorization: bad"):
