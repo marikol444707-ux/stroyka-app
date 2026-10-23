@@ -17,13 +17,13 @@ export function parseInvoiceNumber(value) {
     const last = separators[separators.length - 1];
     const hasBothKinds = normalized.includes(',') && normalized.includes('.');
     const decimalPosition = last.index;
-    const decimalDigits = normalized.length - decimalPosition - 1;
+    const groups = normalized.split(AMOUNT_SEPARATOR);
     const isThousandsOnly = !hasBothKinds
-      && separators.length === 1
-      && decimalDigits === 3;
+      && separators.length > 1
+      && groups.slice(1).every(group => group.length === 3);
 
     if (isThousandsOnly) {
-      normalized = normalized.replace(AMOUNT_SEPARATOR, '');
+      normalized = normalized.replace(/[,.]/g, '');
     } else {
       const integer = normalized.slice(0, decimalPosition).replace(/[,.]/g, '');
       const fraction = normalized.slice(decimalPosition + 1).replace(/[,.]/g, '');

@@ -10750,7 +10750,14 @@ def _invoice_number_value(value) -> float:
         else:
             raw = raw.replace(",", "")
     else:
-        raw = raw.replace(",", ".")
+        separator = "," if "," in raw else "."
+        groups = raw.split(separator)
+        if len(groups) > 2 and all(len(group) == 3 for group in groups[1:]):
+            raw = "".join(groups)
+        elif separator == ",":
+            raw = raw.replace(",", ".")
+        elif len(groups) > 2:
+            raw = "".join(groups[:-1]) + "." + groups[-1]
     try:
         return float(raw)
     except Exception:
