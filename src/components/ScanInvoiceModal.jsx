@@ -1,6 +1,7 @@
 import React from 'react';
 import { X } from 'lucide-react';
 import { invoiceImageAccept, normalizeInvoiceImageFiles } from '../utils/invoiceImages';
+import { parseInvoiceNumber } from '../utils/invoiceScanNumbers';
 
 export default function ScanInvoiceModal({
   showScanInvoice,
@@ -22,17 +23,7 @@ export default function ScanInvoiceModal({
   if (!showScanInvoice) return null;
   const isMobile = typeof window !== 'undefined' && window.innerWidth <= 640;
 
-  const toNumber = (value) => {
-    if (value === null || value === undefined || value === '') return 0;
-    if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
-    const normalized = String(value)
-      .replace(/\s+/g, '')
-      .replace(/[₽руб.]/gi, '')
-      .replace(',', '.')
-      .replace(/[^\d.-]/g, '');
-    const parsed = Number(normalized);
-    return Number.isFinite(parsed) ? parsed : 0;
-  };
+  const toNumber = parseInvoiceNumber;
 
   const normalizeDate = (value) => {
     const text = String(value || '').trim();
