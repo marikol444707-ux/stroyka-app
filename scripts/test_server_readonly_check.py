@@ -101,9 +101,10 @@ class ErrorCountTests(unittest.TestCase):
         error.counts=['PRIVATE'];self.assertEqual(probe.safe_error_counts(error),{})
     def test_missing_counts_are_safe(self):
         self.assertEqual(probe.safe_error_counts(ValueError('PRIVATE')),{})
-    def test_production_budget_limits_are_preserved(self):
+    def test_only_single_document_budget_is_adjusted_with_other_limits_preserved(self):
         runner=probe.startup_module()
         self.assertEqual((runner.MAX_JSON_ROWS,runner.MAX_JSON_VALUE_BYTES,runner.MAX_JSON_TOTAL_BYTES),
-                         (50000,1024*1024,32*1024*1024))
+                         (50000,2*1024*1024,32*1024*1024))
+        self.assertEqual(runner.TOTAL_SECONDS,120)
 
 if __name__=='__main__':unittest.main(verbosity=2)
