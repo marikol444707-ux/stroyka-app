@@ -46,7 +46,7 @@ jobs:
       - name: Install document sandbox dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bubblewrap fonts-dejavu-core
+          sudo apt-get install -y bubblewrap fonts-dejavu-core postgresql-16
           if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
@@ -78,6 +78,7 @@ jobs:
           bash -n scripts/install-participant-duplicate-merge.sh
           python scripts/test_participant_merge_release.py
           python -B -m unittest scripts.test_server_readonly_check -v
+          STROYKA_TEST_PG_BIN=/usr/lib/postgresql/16/bin python -B -m unittest discover -s scripts/combined_release -p "test_*.py" -v
 
       - name: Run company-context PostgreSQL isolation tests
         env:
