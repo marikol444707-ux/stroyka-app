@@ -45,4 +45,39 @@ class ReadOnlyProbeTests(unittest.TestCase):
                 values=[n.value for n in node.elts if isinstance(n,ast.Constant)]
                 self.assertTrue(set(values).isdisjoint({'start','stop','restart','reload','enable','disable','mask','unmask'}))
 
+class SystemdTextInventoryTests(unittest.TestCase):
+    def test_no_jobs_human_message_is_explicitly_recognized(self):
+        with patch.object(probe,'output',return_value='No jobs running.\n') as output:
+            self.assertEqual(probe.systemd_rows('jobs'),[])
+        self.assertEqual(output.call_args.args[0],['systemctl','list-jobs','--no-pager','--plain','--no-legend'])
+    def test_empty_jobs_output_is_recognized(self):
+        with patch.object(probe,'output',return_value='   \n'):
+            self.assertEqual(probe.systemd_rows('jobs'),[])
+    def test_actual_queued_job_is_never_hidden(self):
+        with patch.object(probe,'output',return_value='42 stroyka.service start waiting\n43 nginx.service stop running\n'):
+            self.assertEqual(probe.systemd_rows('jobs'),[
+                {'unit':'stroyka.service','type':'start','state':'waiting'},
+                {'unit':'nginx.service','type':'stop','state':'running'}])
+    def test_unrecognized_response_is_not_treated_as_empty(self):
+        for raw in ('not JSON', 'Error connecting to bus', 'not-a-job stroyka.service start waiting'):
+            with self.subTest(raw=raw),patch.object(probe,'output',return_value=raw):
+                with self.assertRaises(probe.Stop):probe.systemd_rows('jobs')
+    def test_unit_metadata_drops_all_description_values(self):
+        with patch.object(probe,'output',return_value='stroyka.service loaded active running PRIVATE_DESCRIPTION\nstroyka-backup.timer loaded inactive dead PRIVATE_EXTRA\n'):
+            rows=probe.systemd_rows('units')
+        self.assertEqual(len(rows),2);self.assertEqual(rows[1]['active'],'inactive')
+        self.assertNotIn('PRIVATE',str(rows))
+    def test_no_units_message_and_unknown_response_are_distinct(self):
+        with patch.object(probe,'output',return_value='No units found.\n'):
+            self.assertEqual(probe.systemd_rows('units'),[])
+        with patch.object(probe,'output',return_value='unsupported output'):
+            with self.assertRaises(probe.Stop):probe.systemd_rows('units')
+    def test_error_stage_is_reported_without_raw_response_or_traceback(self):
+        def fail():
+            probe.STAGE='QUEUED_JOBS'
+            raise ValueError('PRIVATE_RESPONSE')
+        with patch.object(probe,'collect',side_effect=fail),contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(probe.main(),1)
+        self.assertIn('QUEUED_JOBS',out.getvalue());self.assertNotIn('PRIVATE',out.getvalue())
+
 if __name__=='__main__':unittest.main(verbosity=2)

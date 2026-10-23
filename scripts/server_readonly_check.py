@@ -28,7 +28,7 @@ def startup_module():
     exec(compile(STARTUP_SOURCE,'<pinned-readonly-startup>','exec'),module.__dict__)
     return module
 def output(args):
-    result=subprocess.run(args,capture_output=True,text=True,timeout=20,check=False)
+    result=subprocess.run(args,capture_output=True,text=True,timeout=20,check=False,env=dict(os.environ,LC_ALL='C'))
     need(result.returncode==0 or (args[:2]==['systemctl','show'] and 'LoadState=not-found' in result.stdout),'READONLY_INVENTORY_COMMAND_FAILED')
     return result.stdout
 
@@ -144,7 +144,36 @@ def routing_facts(text):
     return result
 
 
+STAGE='START'
+
+def systemd_rows(kind):
+    need(kind in ('jobs','units'),'UNEXPECTED_SYSTEMD_INVENTORY')
+    args=['systemctl','list-'+kind,'--no-pager','--plain','--no-legend']
+    if kind=='units':args.extend(['--all','stroyka*'])
+    raw=output(args).strip()
+    empty='No jobs running.' if kind=='jobs' else 'No units found.'
+    if not raw or raw==empty:return []
+    rows=[]
+    for line in raw.splitlines():
+        fields=line.split()
+        if kind=='jobs':
+            need(len(fields)==4 and fields[0].isdigit() and int(fields[0])>0,
+                 'UNRECOGNIZED_SYSTEMD_JOB_ROW')
+            unit,action,state=fields[1:]
+            need(re.fullmatch(r'[A-Za-z0-9_.@:\\-]+',unit)
+                 and re.fullmatch(r'[a-z-]+',action) and state in ('running','waiting'),
+                 'UNRECOGNIZED_SYSTEMD_JOB_ROW')
+            rows.append({'unit':unit,'type':action,'state':state})
+        else:
+            need(len(fields)>=4 and re.fullmatch(r'[A-Za-z0-9_.@:\\-]+',fields[0])
+                 and all(re.fullmatch(r'[a-z-]+',value) for value in fields[1:4]),
+                 'UNRECOGNIZED_SYSTEMD_UNIT_ROW')
+            rows.append(dict(zip(('unit','load','active','sub'),fields[:4])))
+    return rows
+
 def collect():
+    global STAGE
+    STAGE='SERVICE_BASELINE'
     need(len(sys.argv)==1,'NO_OVERRIDE_FLAGS')
     need(os.geteuid()==0 and socket.gethostname().split('.')[0]==HOST,'WRONG_PRODUCTION_HOST_OR_USER')
     need(ROOT.resolve()==ROOT and ROOT.is_dir(),'WRONG_ROOT')
@@ -161,12 +190,19 @@ def collect():
     if Path(sys.executable).absolute()!=python.absolute():
         os.execv(python,[str(python),'-E','-B',str(Path(__file__).absolute())])
     report={'format':1,'read_only':True,'maintenance_boundary_proven':False,'installation_ready':False,'captured_at_unix':int(time.time())}
+    STAGE='UNIT_INVENTORY'
     report['units']={unit:unit_report(unit) for unit in UNITS}
-    report['jobs']=[{k:job[k] for k in ('unit','type','state') if k in job} for job in json.loads(output(['systemctl','list-jobs','--output=json','--no-pager']))]
-    report['stroyka_units']=[{k:unit[k] for k in ('unit','load','active','sub') if k in unit} for unit in json.loads(output(['systemctl','list-units','--all','--output=json','--no-pager','stroyka*']))]
+    STAGE='QUEUED_JOBS'
+    report['jobs']=systemd_rows('jobs')
+    STAGE='STROYKA_UNITS'
+    report['stroyka_units']=systemd_rows('units')
+    STAGE='BACKEND_LISTENERS'
     report['backend_listeners']=listeners(pid)
+    STAGE='NGINX_ROUTING'
     report['nginx_routing']=routing_facts(output(['nginx','-T']))
+    STAGE='LAUNCH_INVENTORY'
     report['launch_inventory']=launch_inventory(report['units'])
+    STAGE='STARTUP_BASELINE'
     runner=startup_module();plan=runner.load_plan()
     report['baseline']=runner.check_baseline(ROOT,plan)
     git_env=dict(os.environ,GIT_OPTIONAL_LOCKS='0')
@@ -177,12 +213,15 @@ def collect():
     report['staged_paths']=git('diff','--no-ext-diff','--no-textconv','--cached','--name-only').splitlines()
     need(set(report['tracked_dirty_paths'])=={'backend/main.py','backend/features/model_gateway/yandex_adapter.py'} and not report['staged_paths'],'UNEXPECTED_TRACKED_STATE')
     need(sha(ROOT/'backend/features/model_gateway/yandex_adapter.py')==runner.Y_HASH,'YANDEX_PATCH_CHANGED')
+    STAGE='REVIEWED_HELPERS'
     for name,expected in HELPERS.items():
         path=ROOT/'scripts'/name
         need(not path.is_symlink() and sha(path)==expected,'REVIEWED_HELPER_CHANGED')
     spec=importlib.util.spec_from_file_location('_reviewed_unified_release',ROOT/'scripts/unified_release.py')
     helper=importlib.util.module_from_spec(spec);spec.loader.exec_module(helper)
+    STAGE='SERVICE_RUNTIME_ENVIRONMENT'
     env=helper.runtime_environment(ROOT,'stroyka.service')
+    STAGE='POSTGRES_SNAPSHOT'
     import psycopg2
     conn=psycopg2.connect(**runner.connection_settings(env))
     try:report['startup']=runner.inspect_connection(conn,plan)
@@ -194,6 +233,6 @@ def main():
     try:
         report=collect();print(json.dumps(report,ensure_ascii=False,sort_keys=True,indent=2));return 0
     except Exception as error:
-        code=str(error) if isinstance(error,Stop) else type(error).__name__
-        print(json.dumps({'read_only':True,'report_complete':False,'code':code,'installation_ready':False}));return 1
+        code=str(error) if isinstance(error,Stop) or (type(error).__name__=='CheckError' and re.fullmatch(r'[A-Z][A-Z0-9_]+',str(error))) else type(error).__name__
+        print(json.dumps({'read_only':True,'report_complete':False,'stage':STAGE,'code':code,'installation_ready':False}));return 1
 if __name__=='__main__':raise SystemExit(main())
