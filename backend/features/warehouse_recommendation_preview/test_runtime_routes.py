@@ -257,11 +257,11 @@ class WarehouseAnomalyRuntimeRouteRegistrationTests(unittest.TestCase):
         package_bytes = package_path.read_bytes()
         runtime_source = runtime_path.read_text(encoding="utf-8")
 
-        # Reviewed exact contractor selection, company-scoped worker access and manual command receipts;
-        # Production contractor/manual-brigade behavior and JEV registrations are reviewed; warehouse preview is unchanged.
+        # Reviewed contractor/manual-brigade behavior, JEV registrations and
+        # invoice scanning; warehouse preview behavior is unchanged.
         self.assertEqual(
             hashlib.sha256(main_bytes).hexdigest(),
-            "d5158de3d404cb884141f2c6b0bcbf706a1b7cf09986fc8e00b33d8d7dd29618",
+            "2b71e5c5eb6c312a7f54e0fe8f8a6cdc49a8c3d55bbc2dcc6ab433029c86cfcf",
         )
         self.assertEqual(
             hashlib.sha256(package_bytes).hexdigest(),
