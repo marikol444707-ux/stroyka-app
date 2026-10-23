@@ -1,7 +1,10 @@
+import { buildAiConversationMessages } from './aiConversation';
+
 export const createAiAssistantActions = ({
   API,
   aiChat,
   aiMessage,
+  aiRequestSession,
   chatEndRef,
   directorAgentLoading,
   directorAgentQuestion,
@@ -14,39 +17,49 @@ export const createAiAssistantActions = ({
   setDirectorAgentQuestion,
   setDirectorAgentSteps,
 }) => {
-  const callAI = async (prompt, conversational) => {
+  const sendAiMessage = async () => {
+    if (!aiMessage.trim() || !aiRequestSession?.active || aiRequestSession.pending) return;
+    let messages;
+    try {
+      messages = buildAiConversationMessages(aiChat, aiMessage);
+    } catch (error) {
+      setAiChat(previous => [...previous, {role: 'assistant', content: error.message, error: true}]);
+      return;
+    }
+    // The session object survives rerenders, closing the repeated-click window.
+    const controller = new AbortController();
+    aiRequestSession.controller = controller;
+    aiRequestSession.pending = true;
+    const isCurrent = () => aiRequestSession.active && !controller.signal.aborted;
+    setAiChat(previous => [...previous, {role: 'user', content: aiMessage, time: new Date().toLocaleTimeString('ru-RU')}]);
+    setAiMessage('');
     setAiLoading(true);
     try {
-      let messages;
-      if (conversational) {
-        messages = [...aiChat.map((m) => ({ role: m.role, content: m.content })), { role: 'user', content: prompt }];
-      } else {
-        messages = [{ role: 'user', content: prompt }];
-      }
       const res = await fetch(API + '/ai-chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages }),
+        headers: {'Content-Type': 'application/json'},
+        signal: controller.signal,
+        body: JSON.stringify({mode: 'construction', messages}),
       });
       const data = await res.json();
-      const text = data.response || data.text || 'Нет ответа';
-      setAiLoading(false);
-      return text;
-    } catch (e) {
-      setAiLoading(false);
-      return '';
+      if (!res.ok || data?.ok === false) throw new Error('Не удалось получить ответ. Попробуйте ещё раз.');
+      const response = data.response || data.text;
+      if (typeof response !== 'string' || !response.trim()) throw new Error('Получен пустой ответ. Попробуйте ещё раз.');
+      if (!isCurrent()) return;
+      setAiChat(previous => [...previous, {role: 'assistant', content: response, time: new Date().toLocaleTimeString('ru-RU')}]);
+    } catch (error) {
+      if (!isCurrent() || error?.name === 'AbortError') return;
+      setAiChat(previous => [...previous, {role: 'assistant', content: 'Не удалось получить ответ. Попробуйте ещё раз.', error: true}]);
+    } finally {
+      aiRequestSession.pending = false;
+      if (aiRequestSession.controller === controller) aiRequestSession.controller = null;
+      if (isCurrent()) {
+        setAiLoading(false);
+        setTimeout(() => {
+          if (isCurrent()) chatEndRef.current?.scrollIntoView?.({behavior: 'smooth', block: 'end'});
+        }, 100);
+      }
     }
-  };
-
-  const sendAiMessage = async () => {
-    if (!aiMessage.trim()) return;
-    const userMsg = { role: 'user', content: aiMessage, time: new Date().toLocaleTimeString('ru-RU') };
-    setAiChat((prev) => [...prev, userMsg]);
-    setAiMessage('');
-    const response = await callAI(aiMessage, true);
-    const assistantMsg = { role: 'assistant', content: response, time: new Date().toLocaleTimeString('ru-RU') };
-    setAiChat((prev) => [...prev, assistantMsg]);
-    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
   };
 
   const askDirectorAgent = async (questionOverride = '') => {

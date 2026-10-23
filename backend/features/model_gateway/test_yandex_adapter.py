@@ -303,6 +303,7 @@ class YandexModelAdapterTest(unittest.TestCase):
                     {
                         "type": "input_image",
                         "image_url": "data:image/jpeg;base64,YWJj",
+                        "detail": "auto",
                     },
                     {"type": "input_file", "file_id": "file-123"},
                     {

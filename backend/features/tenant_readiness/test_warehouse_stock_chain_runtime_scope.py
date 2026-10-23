@@ -34,8 +34,11 @@ class WarehouseStockChainRuntimeScopeTests(unittest.TestCase):
 
     def test_ai_context_scopes_main_warehouse_to_accessible_companies(self):
         source = self.function_source("ai_chat")
-        self.assertIn("warehouse_visibility_sql", source)
-        self.assertIn('FROM warehouse_main WHERE TRUE" + warehouse_visibility_sql', source)
+        self.assertIn("load_company_data", source)
+        context_source = (MAIN.parent / "features" / "ai_assistant" / "context.py").read_text(encoding="utf-8")
+        self.assertIn("warehouse_visibility_sql", context_source)
+        self.assertIn("FROM warehouse_main WHERE TRUE", context_source)
+        self.assertIn("company_id_scope_filter(warehouse_context)", context_source)
 
 
 if __name__ == "__main__":

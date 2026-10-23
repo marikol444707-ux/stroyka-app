@@ -87,6 +87,7 @@ export function useAppCoreRuntime({
   const {
     aiChat,
     aiMessage,
+    aiRequestSession,
     directorAgentLoading,
     directorAgentQuestion,
     setAiChat,
@@ -148,6 +149,7 @@ export function useAppCoreRuntime({
     API,
     aiChat,
     aiMessage,
+    aiRequestSession,
     chatEndRef,
     directorAgentLoading,
     directorAgentQuestion,

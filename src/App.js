@@ -86,7 +86,7 @@ function App() {
   });
   const shellOverlayState = useShellOverlayState();
   const paymentUiState = usePaymentUiState();
-  const aiAssistantState = useAiAssistantState();
+  const aiAssistantState = useAiAssistantState({user, companyContext});
   const estimateNormReviewQueuedRef = useRef(new Set());
   const estimateQualityReviewQueuedRef = useRef(new Set());
   const estimateDiffReviewQueuedRef = useRef(new Set());

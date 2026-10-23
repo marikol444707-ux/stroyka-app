@@ -16,7 +16,10 @@ class CompanyMergePostgresTests(unittest.TestCase):
     def seed(self,cabinet=False):
         source = self.sql("INSERT INTO suppliers(name) VALUES('Synthetic receipt card') RETURNING id")[0][0]
         owner = self.fixture['users']['supplier']['id']
-        target = self.sql("INSERT INTO suppliers(name,user_id,inn,registered_at) VALUES('Synthetic registered card',%s,'7799998877',NOW()) RETURNING id", (owner if cabinet else None,))[0][0]
+        # This class shares its disposable DB across methods. Give unrelated
+        # fixtures distinct identities; only collision tests deliberately reuse one.
+        inn = f'79{source:08d}'
+        target = self.sql("INSERT INTO suppliers(name,user_id,inn,registered_at) VALUES('Synthetic registered card',%s,%s,NOW()) RETURNING id", (owner if cabinet else None, inn))[0][0]
         for sid in (source, target):
             self.sql("INSERT INTO company_supplier_links(company_id,supplier_id,platform_account_id,profile) VALUES(2,%s,1,'{}')", (sid,))
         invoice = self.sql("INSERT INTO supplier_invoices(company_id,supplier_id,project_name,amount,paid_amount,status) VALUES(2,%s,%s,200,50,'На утверждении') RETURNING id", (source, self.fixture['project']))[0][0]
@@ -27,7 +30,7 @@ class CompanyMergePostgresTests(unittest.TestCase):
 
     def merge(self, review, **kwargs):
         body = {key:review[key] for key in ('sourceId','targetVersion','sourceVersion')}
-        return self.api('director', 'POST', f"/suppliers/{review['targetId']}/merge", {**body,'companyId':2,'confirmed':True}, **kwargs)
+        return self.api('director', 'POST', f"/suppliers/{review['targetId']}/merge", {**body,'companyId':2,'confirmed':True,'expectedReview':review['reviewVersion']}, **kwargs)
 
     def test_preview_then_merge_without_cabinet_preserves_original_documents(self):
         source, target, invoice, owner = self.seed()
@@ -86,7 +89,8 @@ class CompanyMergePostgresTests(unittest.TestCase):
         invite = self.api('director', 'POST', '/invite-codes',
                           {'role':'поставщик','supplierId':target,'expiresInDays':1},
                           **{'X-Company-Id':'2'})
-        payload = base.SupplierRegistrationPostgresTests.registration(self, invite, inn='7799998877')
+        inn = self.sql('SELECT inn FROM suppliers WHERE id=%s', (target,))[0][0]
+        payload = base.SupplierRegistrationPostgresTests.registration(self, invite, inn=inn)
         response = self.client.post('/register', json=payload)
         self.assertEqual(response.status_code, 200, response.text)
         new_owner = self.sql('SELECT id FROM users WHERE email=%s', (payload['email'],))[0][0]
@@ -109,7 +113,8 @@ class CompanyMergePostgresTests(unittest.TestCase):
         invite = self.api('director','POST','/invite-codes',
                           {'role':'поставщик','supplierId':source,'expiresInDays':1},
                           **{'X-Company-Id':'2'})
-        payload = base.SupplierRegistrationPostgresTests.registration(self, invite, inn='7799998877')
+        inn = self.sql('SELECT inn FROM suppliers WHERE id=%s', (target,))[0][0]
+        payload = base.SupplierRegistrationPostgresTests.registration(self, invite, inn=inn)
         response = self.client.post('/register', json=payload)
         self.assertEqual(response.status_code,409,response.text)
         self.assertEqual(self.sql('SELECT user_id FROM suppliers WHERE id=%s',(source,)),[(None,)])
@@ -169,3 +174,83 @@ class CompanyMergePostgresTests(unittest.TestCase):
         self.assertEqual(len(rows),1)
         self.assertIsNotNone(rows[0][1])
         self.assertEqual(self.sql('SELECT supplier_id FROM warehouse_invoices WHERE id=%s',(delivery_result.json()['id'],)),[(rows[0][0],)])
+
+    def test_preview_fingerprint_required_and_same_count_document_edit_rejected(self):
+        source, target, invoice, owner = self.seed()
+        review = self.review(source, target)
+        body = {key: review[key] for key in ('sourceId', 'targetVersion', 'sourceVersion')}
+        self.api('director', 'POST', f'/suppliers/{target}/merge',
+                 {**body, 'companyId': 2, 'confirmed': True}, expected=409)
+        self.sql('UPDATE supplier_invoices SET amount=201 WHERE id=%s', (invoice,))
+        self.merge(review, expected=409)
+        self.assertEqual(self.sql("SELECT profile->>'mergedIntoSupplierId' FROM company_supplier_links WHERE company_id=2 AND supplier_id=%s", (source,)), [(None,)])
+        self.assertTrue(self.merge(self.review(source, target))['ok'])
+
+    def test_invite_created_before_merge_follows_canonical_without_rewriting_invoice(self):
+        source, target, invoice, owner = self.seed()
+        self.sql("UPDATE suppliers SET inn='7799400001' WHERE id=%s", (source,))
+        self.sql('UPDATE suppliers SET inn=NULL WHERE id=%s', (target,))
+        invite = self.api('director', 'POST', '/invite-codes',
+                          {'role': 'поставщик', 'supplierId': source}, **{'X-Company-Id': '2'})
+        before = self.sql('SELECT to_jsonb(i) FROM supplier_invoices i WHERE id=%s', (invoice,))
+        self.merge(self.review(source, target))
+        payload = base.SupplierRegistrationPostgresTests.registration(self, invite, inn='7799400001')
+        response = self.client.post('/register', json=payload)
+        self.assertEqual(response.status_code, 200, response.text)
+        new_owner = self.sql('SELECT id FROM users WHERE email=%s', (payload['email'],))[0][0]
+        self.assertEqual(self.sql('SELECT user_id FROM suppliers WHERE id=ANY(%s) ORDER BY id', ([source, target],)), [(new_owner,), (new_owner,)])
+        self.assertEqual(self.sql('SELECT to_jsonb(i) FROM supplier_invoices i WHERE id=%s', (invoice,)), before)
+        self.assertEqual(self.sql('SELECT count(*) FROM suppliers WHERE inn=%s', ('7799400001',)), [(2,)])
+        again = self.client.post('/register', json=base.SupplierRegistrationPostgresTests.registration(self, invite, inn='7799400001'))
+        self.assertEqual(again.status_code, 400, again.text)
+        self.client.cookies.clear()
+
+    def test_generic_invite_follows_legal_key_on_merged_source(self):
+        source, target, invoice, owner = self.seed()
+        self.sql("UPDATE suppliers SET inn='77 9940-0002' WHERE id=%s", (source,))
+        self.sql('UPDATE suppliers SET inn=NULL WHERE id=%s', (target,))
+        self.merge(self.review(source, target))
+        count = self.sql('SELECT count(*) FROM suppliers')
+        invite = self.api('director', 'POST', '/invite-codes', {'role': 'поставщик'}, **{'X-Company-Id': '2'})
+        payload = base.SupplierRegistrationPostgresTests.registration(self, invite, inn='7799400002')
+        response = self.client.post('/register', json=payload)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.sql('SELECT count(*) FROM suppliers'), count)
+        self.assertEqual(self.sql('SELECT inn FROM suppliers WHERE id=%s', (source,)), [('77 9940-0002',)])
+        self.assertEqual(self.sql('SELECT inn FROM suppliers WHERE id=%s', (target,)), [('7799400002',)])
+        self.client.cookies.clear()
+
+    def test_merged_invite_never_crosses_company_or_claims_existing_account(self):
+        for registered in (False, True):
+            source, target, invoice, owner = self.seed()
+            invite = self.api('director', 'POST', '/invite-codes',
+                              {'role': 'поставщик', 'supplierId': source}, **{'X-Company-Id': '2'})
+            self.merge(self.review(source, target))
+            if registered:
+                self.sql('UPDATE suppliers SET user_id=%s WHERE id=%s', (owner, target))
+            else:
+                self.sql('DELETE FROM company_supplier_links WHERE company_id=2 AND supplier_id=%s', (target,))
+                self.sql('INSERT INTO company_supplier_links(company_id,supplier_id,platform_account_id) VALUES(3,%s,1)', (target,))
+            payload = base.SupplierRegistrationPostgresTests.registration(self, invite)
+            response = self.client.post('/register', json=payload)
+            self.assertEqual(response.status_code, 409, response.text)
+            self.assertEqual(self.sql('SELECT id FROM users WHERE email=%s', (payload['email'],)), [])
+            self.assertEqual(self.sql('SELECT used FROM invite_codes WHERE id=%s', (invite['id'],)), [(False,)])
+            self.assertEqual(self.sql('SELECT user_id FROM suppliers WHERE id=%s', (source,)), [(None,)])
+
+    def test_existing_cabinet_collision_blocks_populated_merged_target(self):
+        source, target, invoice, owner = self.seed()
+        inn = self.sql('SELECT inn FROM suppliers WHERE id=%s', (target,))[0][0]
+        self.sql("INSERT INTO suppliers(name,user_id,inn) VALUES('Synthetic independent cabinet',%s,%s)",
+                 (owner, inn))
+        self.merge(self.review(source, target))
+        invite = self.api('director', 'POST', '/invite-codes',
+                          {'role': 'поставщик', 'supplierId': target}, **{'X-Company-Id': '2'})
+        payload = base.SupplierRegistrationPostgresTests.registration(self, invite, inn=inn)
+        before = self.sql('SELECT to_jsonb(i) FROM supplier_invoices i WHERE id=%s', (invoice,))
+        response = self.client.post('/register', json=payload)
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertEqual(self.sql('SELECT id FROM users WHERE email=%s', (payload['email'],)), [])
+        self.assertEqual(self.sql('SELECT user_id FROM suppliers WHERE id=ANY(%s)', ([source, target],)), [(None,), (None,)])
+        self.assertEqual(self.sql('SELECT used FROM invite_codes WHERE id=%s', (invite['id'],)), [(False,)])
+        self.assertEqual(self.sql('SELECT to_jsonb(i) FROM supplier_invoices i WHERE id=%s', (invoice,)), before)

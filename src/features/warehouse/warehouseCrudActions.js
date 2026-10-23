@@ -2,6 +2,7 @@ import {
   buildInternalWarehouseReceiptNumber,
   buildScanDraftInvoiceNumber,
 } from '../../utils/accountingInvoices';
+import { isScannedInvoiceDraft, validateInvoiceScan } from '../../utils/invoiceScanValidation';
 import {
   createIssueToolForm,
   createToolForm,
@@ -78,7 +79,11 @@ export const createWarehouseCrudActions = ({
   };
 
   const saveInvoiceNew = async () => {
-    const isScannedInvoice = String(newInvoice.sourceType || '').startsWith('scan_') || Boolean(newInvoice.scanDocumentType || newInvoice.scanWarnings);
+    const isScannedInvoice = isScannedInvoiceDraft(newInvoice);
+    if (isScannedInvoice && !validateInvoiceScan(newInvoice).valid) {
+      alert('Исправьте расхождения в количестве, цене и суммах перед сохранением.');
+      return false;
+    }
     if (!newInvoice.location) { alert('Выберите куда оприходовать (основной склад или объект)'); return false; }
     const inventoryOnlyMainReceipt = newInvoice.location === 'Основной склад' && newInvoice.inventoryOnly === true;
     const invoiceNumber = String(newInvoice.number || '').trim()

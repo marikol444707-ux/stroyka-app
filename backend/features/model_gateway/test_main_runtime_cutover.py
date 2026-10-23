@@ -40,7 +40,7 @@ class MainRuntimeGatewayCutoverTest(unittest.TestCase):
             self.assertNotIn("responses.create", source)
             self.assertNotIn("gpt://", source)
 
-    def test_invoice_pdf_and_images_are_carried_as_provider_neutral_parts(self):
+    def test_invoice_pdf_is_rendered_to_bounded_provider_neutral_images(self):
         tree = ast.parse(MAIN_PATH.read_text(encoding="utf-8"))
         source = ast.unparse(next(
             node for node in tree.body
@@ -48,7 +48,10 @@ class MainRuntimeGatewayCutoverTest(unittest.TestCase):
             and node.name == "_invoice_scan_ai_content"
         ))
 
-        self.assertIn("kind='file_data_url'", source)
+        self.assertNotIn("kind='file_data_url'", source)
+        self.assertIn("max_pages=7", source)
+        self.assertIn("len(rendered_pages) > 6", source)
+        self.assertIn("status_code=422", source)
         self.assertIn("kind='image_data_url'", source)
         self.assertNotIn("files.create", source)
         self.assertNotIn("files.delete", source)

@@ -183,6 +183,9 @@ test('saveInvoiceNew preserves OCR supplier identity for automatic accounting li
         price: '336',
         lineTotal: '90720',
         workPackage: 'Отделка',
+      }, {
+        name: 'Synthetic extra material', quantity: '10', unit: 'шт',
+        price: '366', lineTotal: '3660', workPackage: 'Отделка',
       }],
     },
     notify: jest.fn(),
@@ -370,4 +373,14 @@ test('saveInvoiceNew keeps an explicitly selected supplier card', async () => {
     supplierId: 77,
     supplierName: 'ООО Проверенный',
   }));
+});
+
+
+test('saveInvoiceNew refuses a scanned total that exceeds the parsed rows without any API call', async () => {
+  global.fetch = jest.fn();
+  const actions = createActions({newInvoice:{number:'SYNTHETIC', sourceType:'scan_project_invoice',
+    totalWithVat:94380, items:[{name:'Synthetic material',quantity:270,price:336,lineTotal:90720}]}});
+  expect(await actions.saveInvoiceNew()).toBe(false);
+  expect(global.fetch).not.toHaveBeenCalled();
+  expect(global.alert).toHaveBeenCalledWith(expect.stringContaining('Исправьте расхождения'));
 });

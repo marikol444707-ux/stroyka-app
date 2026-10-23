@@ -1,0 +1,68 @@
+.ai-assistant-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 100vh;
+  height: 100dvh;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: flex-end;
+  z-index: 1500;
+}
+
+.ai-assistant-drawer {
+  width: 420px;
+  max-width: 100vw;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-sizing: border-box;
+  box-shadow: -4px 0 30px rgba(0, 0, 0, 0.15);
+}
+
+.ai-assistant-header {
+  flex-shrink: 0;
+  padding: 16px 20px;
+  padding-top: calc(16px + env(safe-area-inset-top, 0px));
+  padding-left: calc(20px + env(safe-area-inset-left, 0px));
+  padding-right: calc(20px + env(safe-area-inset-right, 0px));
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.ai-assistant-messages {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 16px;
+  padding-left: calc(16px + env(safe-area-inset-left, 0px));
+  padding-right: calc(16px + env(safe-area-inset-right, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ai-assistant-messages > * { flex-shrink: 0; }
+.ai-assistant-bubble { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.ai-assistant-composer {
+  flex-shrink: 0;
+  padding: 12px;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  padding-left: calc(12px + env(safe-area-inset-left, 0px));
+  padding-right: calc(12px + env(safe-area-inset-right, 0px));
+}
+
+.ai-assistant-close { min-width: 44px; min-height: 44px; flex-shrink: 0; }
+.ai-assistant-input { font-size: 13px; }
+@media (max-width: 640px) {
+  .ai-assistant-drawer { width: 100%; }
+  /* Prevent iOS focus zoom, which otherwise hides part of the composer. */
+  .ai-assistant-input { font-size: 16px; }
+}

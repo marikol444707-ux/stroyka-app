@@ -191,3 +191,56 @@ class AdminDuplicateMergePostgresTests(unittest.TestCase):
         self.assertEqual(self.sql('SELECT inn FROM suppliers WHERE id=%s',(target,)),[('7711223377',)])
         self.assertEqual(self.sql('SELECT user_id FROM suppliers WHERE id=%s',(source,)),[(None,)])
         self.assertEqual(self.sql("SELECT count(*) FROM audit_log WHERE action='supplier_missing_inn_completed' AND entity_id=%s",(target,)),[(1,)])
+
+    def test_formatted_inn_completion_checks_all_existing_cabinets(self):
+        from secrets import randbelow
+        inn = '71' + str(randbelow(10**8)).zfill(8)
+        source, target, competitor = self.seed(), self.seed(owned=True), self.seed(owned=True)
+        self.sql('UPDATE suppliers SET inn=%s WHERE id=%s', (inn, source))
+        formatted = inn[:2] + '- ' + inn[2:]
+        self.sql('UPDATE suppliers SET inn=%s WHERE id=%s', (formatted, competitor))
+        with patch.dict(os.environ, PARTICIPANT_HISTORY_MERGE_ENABLED='1'):
+            review = self.duplicate_review(source, target)
+            self.complete_inn(source, review, expected=409)
+        self.assertEqual(self.sql("SELECT COALESCE(inn,'') FROM suppliers WHERE id=%s", (target,)), [('',)])
+        self.assertEqual(self.sql('SELECT inn FROM suppliers WHERE id=%s', (competitor,)), [(formatted,)])
+
+    def test_formatted_source_can_complete_without_rewriting_source_or_documents(self):
+        from secrets import randbelow
+        inn = '72' + str(randbelow(10**8)).zfill(8)
+        source, target = self.seed(), self.seed(owned=True)
+        formatted = inn[:3] + '\u00a0-' + inn[3:]
+        self.sql('UPDATE suppliers SET inn=%s WHERE id=%s', (formatted, source))
+        invoice = self.sql('INSERT INTO supplier_invoices(company_id,supplier_id,amount,paid_amount) VALUES(2,%s,500,123) RETURNING id', (source,))[0][0]
+        before = self.sql('SELECT to_jsonb(i) FROM supplier_invoices i WHERE id=%s', (invoice,))
+        with patch.dict(os.environ, PARTICIPANT_HISTORY_MERGE_ENABLED='1'):
+            review = self.duplicate_review(source, target)
+            self.assertTrue(review['canCompleteInn'])
+            self.complete_inn(source, review)
+        self.assertEqual(self.sql('SELECT inn FROM suppliers WHERE id=%s', (target,)), [(inn,)])
+        self.assertEqual(self.sql('SELECT inn,user_id FROM suppliers WHERE id=%s', (source,)), [(formatted, None)])
+        self.assertEqual(self.sql('SELECT to_jsonb(i) FROM supplier_invoices i WHERE id=%s', (invoice,)), before)
+
+    def test_concurrent_profile_write_and_completion_create_only_one_cabinet_identity(self):
+        from secrets import randbelow
+        from concurrent.futures import ThreadPoolExecutor
+        from fastapi.testclient import TestClient
+        inn = '73' + str(randbelow(10**8)).zfill(8)
+        source, target, competitor = self.seed(), self.seed(owned=True), self.seed(owned=True)
+        self.sql('UPDATE suppliers SET inn=%s WHERE id=%s', (inn, source))
+        with patch.dict(os.environ, PARTICIPANT_HISTORY_MERGE_ENABLED='1'):
+            review = self.duplicate_review(source, target)
+            token = self.main.create_auth_token(self.fixture['users']['admin'], two_factor_passed=True)
+            def send(operation):
+                with TestClient(self.main.app) as client:
+                    headers = {'Authorization': 'Bearer ' + token}
+                    if operation == 'complete':
+                        return client.post(f'/system/companies/2/participants/{source}/duplicate-complete-inn',
+                            json=dict(targetSupplierId=target, expectedReview=review['reviewVersion'], confirmed=True,
+                                      reason='ИНН проверен по исходному документу'), headers=headers).status_code
+                    return client.put(f'/suppliers/{competitor}/requisites',
+                                      json={'inn': inn[:2] + '-' + inn[2:]}, headers=headers).status_code
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                self.assertEqual(sorted(pool.map(send, ('complete', 'profile'))), [200, 409])
+        self.assertEqual(self.sql('SELECT count(*) FROM suppliers WHERE id=ANY(%s) AND inn=%s',
+                                 ([target, competitor], inn)), [(1,)])

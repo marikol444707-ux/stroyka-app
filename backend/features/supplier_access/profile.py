@@ -4,6 +4,7 @@ import json
 from fastapi import HTTPException
 from .company_directory import PUBLIC_FIELDS, PUBLIC_LIMITS
 from ..supplier_team import policy
+from .legal_identity import canonical_legal, legal_sql, lock_legal_keys, LENGTHS
 
 FIELDS = {**PUBLIC_FIELDS, 'phone':'phone', 'email':'email', 'specialization':'specialization'}
 
@@ -43,8 +44,31 @@ def load(cur, supplier_id, lock=False):
                     'managerLimit':None,'customersPerManagerLimit':None}}
 
 
-def update(cur, supplier_id, data):
+def update(cur, supplier_id, data, authorize_write=None):
+    # Read authorization is checked by the route before reading a legal key. Take
+    # identity locks before supplier/leader locks, matching merge/registration.
+    data = dict(data)
+    for key, lengths in LENGTHS.items():
+        if key in data:
+            normalized = canonical_legal(data[key], lengths)
+            if normalized is None:
+                raise HTTPException(422, 'Укажите ИНН (10 или 12 цифр) либо ОГРН/ОГРНИП (13 или 15 цифр)')
+            data[key] = normalized
+    before = load(cur, supplier_id)
+    lock_legal_keys(cur, [(key, before['fields'][key]) for key in LENGTHS] +
+                        [(key, data[key]) for key in LENGTHS if key in data])
     current=load(cur,supplier_id,lock=True)
+    if any(current['fields'][key] != before['fields'][key] for key in LENGTHS):
+        raise HTTPException(409, 'Реквизиты изменились. Обновите профиль перед сохранением.')
+    if authorize_write is not None:
+        authorize_write()
+    for key, lengths in LENGTHS.items():
+        if key in data and data[key] and data[key] != canonical_legal(current['fields'][key], lengths):
+            cur.execute('SELECT 1 FROM suppliers WHERE '+legal_sql(key, lengths)+
+                        '=%s AND user_id IS NOT NULL AND id<>%s LIMIT 1',
+                        (data[key], supplier_id))
+            if cur.fetchone():
+                raise HTTPException(409, 'С этими реквизитами уже есть кабинет. Нужна проверка реквизитов')
     if 'expectedProfileVersion' in data and data['expectedProfileVersion']!=current['version']:
         raise HTTPException(409,'Реквизиты изменены другим пользователем. Обновите профиль перед сохранением.')
     if 'address' in data and 'legalAddress' not in data:

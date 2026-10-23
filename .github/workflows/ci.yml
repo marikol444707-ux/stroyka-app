@@ -4,7 +4,11 @@ on:
   push:
     branches:
       - main
+      - review/combined-supplier-invoice-assistant-20261022
   pull_request:
+
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -27,6 +31,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -66,6 +72,11 @@ jobs:
 
       - name: Verify unified release transport and frontend backup
         run: python -m unittest -v scripts.test_unified_release
+
+      - name: Run supplier installer safety tests
+        run: |
+          bash -n scripts/install-participant-duplicate-merge.sh
+          python scripts/test_participant_merge_release.py
 
       - name: Run company-context PostgreSQL isolation tests
         env:
@@ -108,6 +119,7 @@ jobs:
             backend.features.participant_support.test_history_contract_merge_postgres.SupplierHistoryContractMergePostgresTests \
             backend.features.invite_codes.test_supplier_registration_postgres.SupplierRegistrationPostgresTests \
             backend.features.supplier_access.test_company_merge_postgres.CompanyMergePostgresTests \
+            backend.features.supplier_access.test_profile_postgres.SupplierProfilePostgresTests \
             backend.features.supplier_access.test_company_directory_postgres.CompanyDirectoryPostgresTests
 
       - name: Run supplier access correction and packaging merge guards

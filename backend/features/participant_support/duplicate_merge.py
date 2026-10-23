@@ -1,7 +1,6 @@
 """Admin entry for company-local grouping; never grants historical cabinet access."""
 import hashlib
 import json
-import re
 
 from fastapi import Depends, HTTPException, Path
 from pydantic import BaseModel, ConfigDict, StrictBool, constr
@@ -9,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, StrictBool, constr
 from .connections import authorities, company_lock, is_admin, source_link
 from .history_merge import Id, transaction
 from ..supplier_access import company_merge
+from ..supplier_access.legal_identity import canonical_legal, legal_sql
 
 
 class Review(BaseModel):
@@ -27,8 +27,9 @@ def inn_completion_blocker(cur,company_id,target_id,source_inn):
                 (target_id,company_id))
     if cur.fetchone():
         return 'Кабинет используется другими организациями. Уточните общий профиль отдельно'
-    cur.execute('SELECT 1 FROM suppliers WHERE inn=%s AND user_id IS NOT NULL AND id<>%s LIMIT 1',
-                (source_inn,target_id))
+    cur.execute('SELECT 1 FROM suppliers WHERE '+legal_sql('inn', (10, 12))+
+                '=%s AND user_id IS NOT NULL AND id<>%s LIMIT 1',
+                (canonical_legal(source_inn, (10, 12)),target_id))
     if cur.fetchone():
         return 'С этим ИНН уже есть другой кабинет. Нужна проверка реквизитов'
     return None
@@ -48,7 +49,7 @@ def checked_preview(cur,user,company_id,source_id,target_id):
     review=company_merge.preview(cur,company,target_id,source_id)
     review.update(sourceInn=suppliers[source_id]['inn'] or '',targetInn=suppliers[target_id]['inn'] or '')
     review['canCompleteInn']=bool(review['hasSupplierAccount'] and not review['targetInn'].strip()
-        and re.fullmatch(r'(?:[0-9]{10}|[0-9]{12})',review['sourceInn']))
+        and canonical_legal(review['sourceInn'], (10, 12)))
     review['innCompletionBlocker']=(inn_completion_blocker(cur,company_id,target_id,review['sourceInn'])
                                     if review['canCompleteInn'] else None)
     review['canCompleteInn']=review['canCompleteInn'] and review['innCompletionBlocker'] is None
@@ -76,14 +77,15 @@ def register_duplicate_merge(app,deps,admin):
                 raise HTTPException(409,review['innCompletionBlocker'])
             if not review['canCompleteInn'] or review['reviewVersion']!=data.expectedReview:
                 raise HTTPException(409,'Реквизиты изменились или ИНН уже заполнен. Повторите проверку')
+            normalized_inn = canonical_legal(review['sourceInn'], (10, 12))
             # Identity advisory and supplier locks are held by checked_preview.
             # Never change an existing INN, account owner or issued document.
-            cur.execute('UPDATE suppliers SET inn=%s WHERE id=%s',(review['sourceInn'],data.targetSupplierId))
+            cur.execute('UPDATE suppliers SET inn=%s WHERE id=%s',(normalized_inn,data.targetSupplierId))
             cur.execute('''INSERT INTO audit_log(user_id,user_name,user_role,action,entity_type,entity_id,
                 description,owner_scope,company_id) VALUES(%s,%s,%s,'supplier_missing_inn_completed','supplier',%s,%s,'company',%s)''',
                 (user['id'],user.get('name',''),user['role'],data.targetSupplierId,
-                 json.dumps(dict(sourceSupplierId=source_id,inn=review['sourceInn'],reason=data.reason),ensure_ascii=False),company_id))
-            return dict(ok=True,sourceId=source_id,targetId=data.targetSupplierId,inn=review['sourceInn'])
+                 json.dumps(dict(sourceSupplierId=source_id,inn=normalized_inn,reason=data.reason),ensure_ascii=False),company_id))
+            return dict(ok=True,sourceId=source_id,targetId=data.targetSupplierId,inn=normalized_inn)
 
     @app.post('/system/companies/{company_id}/participants/{source_id}/duplicate-merge')
     def merge(data:Confirmation,company_id:int=Path(...,ge=1),source_id:int=Path(...,ge=1),user:dict=Depends(admin)):
