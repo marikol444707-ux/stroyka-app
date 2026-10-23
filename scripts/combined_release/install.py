@@ -70,7 +70,11 @@ class Installer:
 
     def preflight(self):
         self.stage='READ_ONLY_PREFLIGHT'
-        return self.ops.preflight()
+        self.ops.verify_installer_ci()
+        baseline=self.ops.preflight()
+        self.ops.prepare_maintenance(baseline)
+        self.ops.require_startup_ready(baseline)
+        return baseline
 
     def payload(self, manifest, frontend=False):
         result={}
@@ -223,7 +227,7 @@ def main(argv=None):
         installer=Installer(package,manifest,ops)
         if not args.apply and not args.rollback:
             installer.preflight()
-            print('BASELINE_PREFLIGHT_OK; NO_BACKUP_OR_LOCK_CREATED; NO_FILES_OR_DATABASE_WRITTEN; APPLY_BLOCKED_REAL_CI_AND_STARTUP_REPAIR_NOOP_REQUIRED')
+            print('BASELINE_PREFLIGHT_OK; NO_BACKUP_OR_LOCK_CREATED; NO_APPLICATION_OR_DATABASE_WRITES; APPLY_BLOCKED_UNTIL_APPROVED_MAINTENANCE')
             return 0
         os.umask(0o077)
         # Missing run ID is denied before even creating the coordination lock.
@@ -231,7 +235,7 @@ def main(argv=None):
         if args.rollback:
             with deployment_lock():evidence=installer.recover(args.rollback)
         else:evidence=installer.apply(args.ci_run_id)
-        print(('ROLLBACK_OK' if args.rollback else 'INSTALL_OK_BUSINESS_ACCEPTANCE_PENDING')+'; EVIDENCE='+str(evidence))
+        print(('OWN_FILES_RESTORED_APP_STOPPED_DATABASE_NOT_RESTORED' if args.rollback else 'INSTALL_OK_BUSINESS_ACCEPTANCE_PENDING')+'; EVIDENCE='+str(evidence))
         return 0
     except BaseException as error:
         stage=(installer.state or {}).get('failure_stage',installer.stage) if installer else stage

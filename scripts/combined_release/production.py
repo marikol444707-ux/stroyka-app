@@ -272,7 +272,6 @@ class Production:
         return baseline
 
     def verify_installer_ci(self):
-        import base64
         import ci_gate
         evidence=self.manifest.get('installer_ci',{})
         need(set(evidence)=={'run_id','head_sha','tree_sha','files'},'INSTALLER_CI_BINDING_REQUIRED')
@@ -285,13 +284,26 @@ class Production:
         need(set(files)==required,'INCOMPLETE_INSTALLER_CI_FILE_BINDING')
         result=ci_gate.verify_ci(evidence['run_id'],expected_tree=evidence['tree_sha'])
         need(result['head_sha']==evidence['head_sha'],'INSTALLER_CI_COMMIT_CHANGED')
+        def tree(identity):
+            payload=ci_gate._get(ci_gate.defaultsafeGET,ci_gate.API_ROOT+'/git/trees/'+identity)
+            need(payload.get('sha')==identity and payload.get('truncated') is False,'INCOMPLETE_INSTALLER_GIT_TREE')
+            return payload['tree']
+        identity=evidence['tree_sha']
+        # Three bounded tree GETs replace seventeen per-file content requests.
+        # This leaves room within GitHub's unauthenticated API rate allowance.
+        for component in ('scripts','combined_release'):
+            rows=tree(identity)
+            candidates=[r for r in rows if r.get('path')==component and r.get('type')=='tree' and r.get('mode')=='040000']
+            need(len(candidates)==1,'INSTALLER_CI_DIRECTORY_MISSING')
+            identity=candidates[0]['sha']
+        rows={r['path']:r for r in tree(identity)}
+        need(set(rows)==set(files),'INSTALLER_CI_FILE_SET_CHANGED')
         for name,expected in files.items():
-            need(sha(relative_path(self.package,name))==expected,'INSTALLER_SOURCE_CHANGED')
-            remote=ci_gate._get(ci_gate.defaultsafeGET,ci_gate.API_ROOT+
-                '/contents/scripts/combined_release/'+name+'?ref='+evidence['head_sha'])
-            need(remote.get('type')=='file' and remote.get('encoding')=='base64','INSTALLER_CI_FILE_MISSING')
-            content=base64.b64decode(remote.get('content',''),validate=False)
-            need(hashlib.sha256(content).hexdigest()==expected,'INSTALLER_NOT_EXACT_CI_SOURCE')
+            local=relative_path(self.package,name).read_bytes()
+            need(hashlib.sha256(local).hexdigest()==expected,'INSTALLER_SOURCE_CHANGED')
+            blob=hashlib.sha1(b'blob '+str(len(local)).encode()+b'\0'+local).hexdigest()
+            need(rows[name].get('type')=='blob' and rows[name].get('mode')=='100644' and rows[name].get('sha')==blob,
+                 'INSTALLER_NOT_EXACT_CI_SOURCE')
         return result
 
     def startup_snapshot(self):

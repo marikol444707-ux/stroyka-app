@@ -128,6 +128,36 @@ class InstallTests(unittest.TestCase):
             with self.subTest(family=family,address=address):
                 with self.assertRaisesRegex(production.Stop,'BACKEND_LISTENER'):
                     production.loopback_listener_host(family,address)
+    def installer_tree_fixture(self):
+        import shutil
+        files={}
+        for source in Path(__file__).parent.glob('*.py'):
+            shutil.copy2(source,self.pkg/source.name);files[source.name]=production.sha(source)
+        evidence={'run_id':99,'head_sha':'a'*40,'tree_sha':'b'*40,'files':files}
+        self.manifest['installer_ci']=evidence
+        rows=[{'path':n,'type':'blob','mode':'100644','sha':hashlib.sha1(b'blob '+str(len((self.pkg/n).read_bytes())).encode()+b'\0'+(self.pkg/n).read_bytes()).hexdigest()} for n in files]
+        trees={'b'*40:{'sha':'b'*40,'truncated':False,'tree':[{'path':'scripts','type':'tree','mode':'040000','sha':'c'*40}]},
+               'c'*40:{'sha':'c'*40,'truncated':False,'tree':[{'path':'combined_release','type':'tree','mode':'040000','sha':'d'*40}]},
+               'd'*40:{'sha':'d'*40,'truncated':False,'tree':rows}}
+        def get(fetch,path):return trees[path.rsplit('/',1)[-1]]
+        return production.Production(self.pkg,self.manifest),trees,get
+    def test_installer_tree_proof_checks_every_file_with_three_bounded_gets(self):
+        real,trees,get=self.installer_tree_fixture()
+        with patch('ci_gate.verify_ci',return_value={'head_sha':'a'*40}),patch('ci_gate._get',side_effect=get) as fetch:
+            self.assertEqual(real.verify_installer_ci()['head_sha'],'a'*40)
+        self.assertEqual(fetch.call_count,3)
+    def test_installer_ci_file_mismatch_is_not_accepted(self):
+        real,trees,get=self.installer_tree_fixture();trees['d'*40]['tree'][0]['sha']='0'*40
+        with patch('ci_gate.verify_ci',return_value={'head_sha':'a'*40}),patch('ci_gate._get',side_effect=get):
+            with self.assertRaisesRegex(production.Stop,'NOT_EXACT_CI_SOURCE'):real.verify_installer_ci()
+    def test_truncated_installer_tree_cannot_prove_file_membership(self):
+        real,trees,get=self.installer_tree_fixture();trees['d'*40]['truncated']=True
+        with patch('ci_gate.verify_ci',return_value={'head_sha':'a'*40}),patch('ci_gate._get',side_effect=get):
+            with self.assertRaisesRegex(production.Stop,'INCOMPLETE_INSTALLER_GIT_TREE'):real.verify_installer_ci()
+    def test_local_installer_change_is_not_accepted_after_successful_ci(self):
+        real,trees,get=self.installer_tree_fixture();(self.pkg/'install.py').write_bytes(b'# local modification')
+        with patch('ci_gate.verify_ci',return_value={'head_sha':'a'*40}),patch('ci_gate._get',side_effect=get):
+            with self.assertRaisesRegex(production.Stop,'INSTALLER_SOURCE_CHANGED'):real.verify_installer_ci()
     def test_installer_ci_binding_cannot_be_replaced_by_application_ci(self):
         real=production.Production(self.pkg,self.manifest)
         with self.assertRaisesRegex(production.Stop,'INSTALLER_CI_BINDING_REQUIRED'):
