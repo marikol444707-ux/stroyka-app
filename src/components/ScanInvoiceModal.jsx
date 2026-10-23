@@ -2,6 +2,7 @@ import React from 'react';
 import { X } from 'lucide-react';
 import { invoiceImageAccept, normalizeInvoiceImageFiles } from '../utils/invoiceImages';
 import { parseInvoiceNumber } from '../utils/invoiceScanNumbers';
+import { resolveInvoiceScanSupplier } from '../utils/invoiceScanSupplier';
 
 export default function ScanInvoiceModal({
   showScanInvoice,
@@ -146,6 +147,7 @@ export default function ScanInvoiceModal({
         parsed.sender,
         scanRecognition?.supplierName
       );
+      const supplierSelection = resolveInvoiceScanSupplier(parsedSupplier, scanRecognition);
       const uploadedPhotos = (await Promise.all(normalizedPages.map(page => uploadInvoicePhoto(page.uploadFile, location)))).filter(Boolean);
       const today = new Date().toISOString().split('T')[0];
       const totalWithVatRaw = toNumber(parsed.totalWithVat ?? parsed.total_with_vat ?? parsed.grandTotal ?? parsed.grand_total ?? parsed.total ?? parsed.amount);
@@ -216,7 +218,8 @@ export default function ScanInvoiceModal({
           supplierInn:firstText(parsed.supplierInn, parsed.supplier_inn, parsed.inn),
           supplierKpp:firstText(parsed.supplierKpp, parsed.supplier_kpp, parsed.kpp),
           supplierOgrn:firstText(parsed.supplierOgrn, parsed.supplier_ogrn, parsed.ogrn),
-          isNewSupplier:Boolean(parsedSupplier) || prev.isNewSupplier,
+          supplierId:supplierSelection.supplierId,
+          isNewSupplier:supplierSelection.isNewSupplier,
           date:normalizedDate || today,
           acceptedBy:user?.name || '',
           vat:detectedVat,
