@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import ssl
 import subprocess
+import sys
 import tempfile
 import threading
 import unittest
@@ -210,6 +211,67 @@ class S3ReadOnlyBackupTests(unittest.TestCase):
             with self.subTest(field=field,value=value):
                 path.write_text(json.dumps(dict(original,**{field:value})))
                 with self.assertRaises(s3.BackupError):s3.verify(self.root)
+
+    def crash_backup_process(self,hook):
+        # Synthetic credentials only. An actual child exits without cleanup.
+        code="""
+import json,os,ssl,sys
+from pathlib import Path
+from scripts import s3_documents_backup as s3
+env=json.loads(sys.argv[1]);destination=Path(sys.argv[2])
+context=ssl.create_default_context(cafile=sys.argv[3])
+"""+hook+"\ns3.Reader(env,context=context).backup(destination,('uploads/',))\n"
+        return subprocess.run([sys.executable,'-B','-c',code,json.dumps(self.env),str(self.root),
+                               str(Path(self.temp.name)/'cert.pem')],cwd=Path(s3.__file__).parents[1],
+                              capture_output=True,timeout=15)
+
+    def test_abrupt_process_exit_during_object_flush_leaves_no_verified_backup(self):
+        result=self.crash_backup_process('s3.os.fsync=lambda fd:os._exit(73)')
+        self.assertEqual(result.returncode,73,result.stderr.decode())
+        self.assertFalse((self.root/'manifest.json').exists())
+        self.assertTrue(any((self.root/'objects').iterdir()))
+        with self.assertRaises(FileNotFoundError):s3.verify(self.root)
+
+    def test_abrupt_exit_halfway_through_manifest_is_rejected(self):
+        result=self.crash_backup_process("""
+def interrupted_dump(value,target,**kwargs):
+    target.write('{"format":');target.flush();os._exit(74)
+s3.json.dump=interrupted_dump
+""")
+        self.assertEqual(result.returncode,74,result.stderr.decode())
+        self.assertTrue((self.root/'manifest.json').exists())
+        with self.assertRaisesRegex(s3.BackupError,'MANIFEST_INVALID'):s3.verify(self.root)
+
+    def test_documents_can_be_recovered_offline_in_a_separate_process(self):
+        reader=self.reader();reader.backup(self.root,('uploads/',))
+        calls=len(self.server.methods)
+        with tempfile.TemporaryDirectory() as directory:
+            # Restore only into a disposable flat namespace. Object keys never
+            # become filesystem paths, including the hostile ../../ fixture.
+            code="""
+import hashlib,json,os,sys
+from pathlib import Path
+from scripts import s3_documents_backup as s3
+backup=Path(sys.argv[1]);destination=Path(sys.argv[2])
+s3.verify(backup,expected_identity=sys.argv[3],expected_prefixes=('uploads/',))
+manifest=json.loads((backup/'manifest.json').read_text());recovered={}
+for row in manifest['objects']:
+    name=hashlib.sha256(row['key'].encode()).hexdigest()+'.blob'
+    fd=os.open(destination/name,os.O_CREAT|os.O_EXCL|os.O_WRONLY|os.O_NOFOLLOW,0o600)
+    with os.fdopen(fd,'wb') as target,(backup/'objects'/name).open('rb') as source:
+        while chunk:=source.read(65536):target.write(chunk)
+        target.flush();os.fsync(target.fileno())
+    recovered[name]=hashlib.sha256((destination/name).read_bytes()).hexdigest()
+print(json.dumps(recovered,sort_keys=True))
+"""
+            result=subprocess.run([sys.executable,'-B','-c',code,str(self.root),directory,reader.identity],
+                cwd=Path(s3.__file__).parents[1],capture_output=True,timeout=15,check=True)
+            expected={hashlib.sha256(key.encode()).hexdigest()+'.blob':hashlib.sha256(body).hexdigest()
+                      for key,body in DATA.items()}
+            self.assertEqual(json.loads(result.stdout),expected)
+            self.assertEqual({p.name for p in Path(directory).iterdir()},set(expected))
+        self.assertEqual(len(self.server.methods),calls)
+        self.assertTrue(s3.verify(self.root)['verified'])
 
 class StandaloneStorageAuditTests(unittest.TestCase):
     setUpClass=classmethod(S3ReadOnlyBackupTests.setUpClass.__func__)
