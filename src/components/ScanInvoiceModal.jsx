@@ -1,6 +1,9 @@
 import React from 'react';
 import { X } from 'lucide-react';
 import { invoiceImageAccept, normalizeInvoiceImageFiles } from '../utils/invoiceImages';
+import { invoiceScanNumber, validateInvoiceScan } from '../utils/invoiceScanValidation';
+import { invoiceSpreadsheetAccept, isInvoiceSpreadsheet, readInvoiceSpreadsheet } from '../utils/invoiceSpreadsheet';
+import {readStoredCompanyRequestContext} from '../features/company-context/companyContextStorage';
 
 export default function ScanInvoiceModal({
   showScanInvoice,
@@ -19,20 +22,24 @@ export default function ScanInvoiceModal({
 }) {
   const galleryInputRef = React.useRef(null);
   const cameraInputRef = React.useRef(null);
+  const pendingFilesRef = React.useRef([]);
+  const invoiceRef = React.useRef(newInvoice);
+  const activeRef = React.useRef(true);
+  const visibleRef = React.useRef(showScanInvoice);
+  invoiceRef.current = newInvoice;
+  visibleRef.current = showScanInvoice;
+  React.useEffect(()=>{activeRef.current=true;return ()=>{activeRef.current=false;};},[]);
+  const [scanFailure, setScanFailure] = React.useState('');
+  React.useEffect(() => {
+    if (!showScanInvoice) {
+      pendingFilesRef.current = [];
+      setScanFailure('');
+    }
+  }, [showScanInvoice]);
   if (!showScanInvoice) return null;
   const isMobile = typeof window !== 'undefined' && window.innerWidth <= 640;
 
-  const toNumber = (value) => {
-    if (value === null || value === undefined || value === '') return 0;
-    if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
-    const normalized = String(value)
-      .replace(/\s+/g, '')
-      .replace(/[₽руб.]/gi, '')
-      .replace(',', '.')
-      .replace(/[^\d.-]/g, '');
-    const parsed = Number(normalized);
-    return Number.isFinite(parsed) ? parsed : 0;
-  };
+  const toNumber = value => invoiceScanNumber(value) ?? 0;
 
   const normalizeDate = (value) => {
     const text = String(value || '').trim();
@@ -95,16 +102,16 @@ export default function ScanInvoiceModal({
     }));
   };
 
-  const uploadInvoicePhoto = async (file, location) => {
+  const uploadInvoicePhoto = async (file, location, headers) => {
     const fd = new FormData();
     fd.append('file', file);
     const projectName = location && location !== 'Основной склад' ? location : 'Основной склад';
     fd.append('projectName', projectName);
     fd.append('context', 'warehouse-invoices');
     try {
-      const resp = await fetch(API + '/upload-photo', {method:'POST', body:fd});
+      const resp = await fetch(API + '/upload-photo', {method:'POST', body:fd, headers});
       const data = await resp.json().catch(() => ({}));
-      return data.url || '';
+      return resp.ok ? (data.contentUrl || data.url || '') : '';
     } catch (_e) {
       return '';
     }
@@ -112,6 +119,12 @@ export default function ScanInvoiceModal({
 
   const scanErrorMessage = (message) => {
     const text = String(message || '').trim();
+    if (/model_gateway_deadline_exceeded/i.test(text)) {
+      return 'Сервис распознавания не успел обработать документ. Повторите попытку или выберите меньше страниц.';
+    }
+    if (/model_gateway_/i.test(text)) {
+      return 'Сервис распознавания не смог обработать документ. Выбранные файлы можно отправить повторно, пока окно открыто. Можно отменить распознавание и заполнить накладную вручную.';
+    }
     if (/unterminated|string starting|json|line \d+|column \d+|char \d+/i.test(text)) {
       return 'ИИ не смог корректно разобрать документ. Проверьте, что видна таблица товаров, номер, дата и поставщик.';
     }
@@ -119,29 +132,47 @@ export default function ScanInvoiceModal({
   };
 
   const scan = async (fileList) => {
-    const files = Array.from(fileList || []).filter(Boolean).slice(0, 8);
+    const files = Array.from(fileList || []).filter(Boolean);
     if(!files.length) return;
     if (!targetLocation) {
       alert('Сначала выберите, куда принять документ: основной склад или объект.');
       return;
     }
     setScanningInvoice(true);
+    setScanFailure('');
+    pendingFilesRef.current = files;
     const location = targetLocation;
+    const selection=readStoredCompanyRequestContext();
+    const contextKey=JSON.stringify(selection);
+    const contextHeaders=selection?.mode==='company' ? {'X-Company-Mode':'company','X-Company-Id':String(selection.companyId)} : {};
+    const checkScope=()=>{
+      if (!activeRef.current || !visibleRef.current || invoiceRef.current?.location!==location || JSON.stringify(readStoredCompanyRequestContext())!==contextKey) {
+        throw new Error('Компания или склад изменились. Откройте загрузку накладной заново.');
+      }
+    };
     const warehouseTarget = getWarehouseTarget(location);
     const project = warehouseTarget === 'object' ? location : '';
     const selectedAction = 'receive_to_warehouse';
     const sourceType = warehouseTarget === 'object' ? 'scan_project_invoice' : 'scan_main_invoice';
     try {
-      const normalizedPages = await normalizeInvoiceImageFiles(files, { maxSide: 2400, quality: 0.9 });
-      const images = normalizedPages.map(page => ({
-        data: page.base64,
-        mimeType: page.mimeType,
-        name: page.originalName,
-      }));
-      const resp = await fetch(API+'/scan-invoice',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({images, target:'warehouse', location, project, warehouseTarget, selectedAction, sourceType})});
-      const data = await resp.json();
-      if(!data.ok) throw new Error(scanErrorMessage(data.error||'Ошибка'));
-      const parsed = data.data;
+      if (selection?.mode==='all_companies') throw new Error('Выберите одну компанию перед загрузкой накладной.');
+      if (files.length>8) throw new Error('Выбрано больше 8 файлов. Загрузите не более 8 страниц одного документа — лишние страницы не будут отброшены.');
+      let normalizedPages, parsed;
+      if (files.some(isInvoiceSpreadsheet)) {
+        if (files.length !== 1) throw new Error('Выберите одну накладную Excel отдельно от фото и PDF.');
+        parsed = await readInvoiceSpreadsheet(files[0]);
+        normalizedPages = [{uploadFile:files[0]}];
+      } else {
+        normalizedPages = await normalizeInvoiceImageFiles(files, { maxSide: 2400, quality: 0.9 });
+        checkScope();
+        const images = normalizedPages.map(page => ({data:page.base64,mimeType:page.mimeType,name:page.originalName}));
+        const resp = await fetch(API+'/scan-invoice',{method:'POST',headers:{'Content-Type':'application/json',...contextHeaders},body:JSON.stringify({images, target:'warehouse', location, project, warehouseTarget, selectedAction, sourceType})});
+        const data = await resp.json();
+        if(!resp.ok || !data.ok) throw new Error(scanErrorMessage(data.error ||
+          (typeof data.detail === 'string' ? data.detail : '') || 'Не удалось распознать документ.'));
+        parsed = data.data;
+      }
+      checkScope();
       const scanRecognition = parsed.recognition || parsed.scanRecognition || null;
       const parsedNumber = firstText(parsed.number, parsed.invoiceNumber, parsed.invoice_number, parsed.documentNumber, parsed.document_number, parsed.no);
       const parsedDate = firstText(parsed.date, parsed.invoiceDate, parsed.invoice_date, parsed.documentDate, parsed.document_date);
@@ -155,7 +186,8 @@ export default function ScanInvoiceModal({
         parsed.sender,
         scanRecognition?.supplierName
       );
-      const uploadedPhotos = (await Promise.all(normalizedPages.map(page => uploadInvoicePhoto(page.uploadFile, location)))).filter(Boolean);
+      const uploadedPhotos = (await Promise.all(normalizedPages.map(page => uploadInvoicePhoto(page.uploadFile, location, contextHeaders)))).filter(Boolean);
+      checkScope();
       const today = new Date().toISOString().split('T')[0];
       const totalWithVatRaw = toNumber(parsed.totalWithVat ?? parsed.total_with_vat ?? parsed.grandTotal ?? parsed.grand_total ?? parsed.total ?? parsed.amount);
       const totalBaseRaw = toNumber(parsed.totalBase ?? parsed.total_base ?? parsed.totalWithoutVat ?? parsed.total_without_vat);
@@ -167,6 +199,8 @@ export default function ScanInvoiceModal({
         const price = rawPrice > 0 ? rawPrice : (quantity > 0 && lineTotal > 0 ? lineTotal / quantity : 0);
         return {
           name:item.name||'',
+          article:item.article||'',
+          page:item.page||'',
           quantity:String(quantity),
           unit:item.unit||'шт',
           price:String(price),
@@ -199,7 +233,7 @@ export default function ScanInvoiceModal({
       totalVat = Math.round((totalVat || 0) * 100) / 100;
       const numberFromScan = parsedNumber || buildScanDraftNumber();
       const normalizedDate = normalizeDate(parsedDate);
-      const warnings = [];
+      const warnings = [...(scanRecognition?.warnings || [])];
       if (!parsedNumber) warnings.push('Номер документа не распознан: поставлен черновой номер, проверьте перед оплатой.');
       if (!parsedDate) warnings.push('Дата документа не распознана: поставлена сегодняшняя дата, проверьте перед сохранением.');
       if (!parsedSupplier) warnings.push('Поставщик не распознан: укажите его вручную, чтобы бухгалтерия связала первичку.');
@@ -207,9 +241,7 @@ export default function ScanInvoiceModal({
       if (uploadedPhotos.length < normalizedPages.length) warnings.push('Не все фото документа прикрепились: загружено ' + uploadedPhotos.length + ' из ' + normalizedPages.length + '. Повторите загрузку фото в карточке накладной перед оплатой.');
       if (!totalWithVat && !totalBase && itemsTotal > 0) warnings.push('Итог документа не распознан: сумма рассчитана по строкам, проверьте НДС и итог перед сохранением.');
       if (!totalWithVat && !totalBase && !itemsTotal) warnings.push('Сумма документа не распознана: заполните цены и итог вручную перед сохранением.');
-      if (totalWithVat > 0 && itemsTotal > 0 && Math.abs(totalWithVat - itemsTotal) > Math.max(1, totalWithVat * 0.015)) {
-        warnings.push('Сумма строк отличается от итога документа: проверьте количество, цену и НДС.');
-      }
+      const scanValidation = validateInvoiceScan({items:normalizedItems, totalWithVat});
       setNewInvoice(prev=>{
         const photos = uploadedPhotos.length ? [...(prev.photos || []), ...uploadedPhotos] : (prev.photos || []);
         return {
@@ -237,6 +269,7 @@ export default function ScanInvoiceModal({
           photoUrls: photos,
           items:normalizedItems.length ? normalizedItems : prev.items,
           scanWarnings:warnings,
+          scanValidation,
           scanDocumentType:parsed.documentType || parsed.document_type || '',
           scanDocumentTitle:parsed.documentTitle || parsed.document_title || '',
           scanConfidence:parsed.confidence ?? scanRecognition?.confidence ?? '',
@@ -249,7 +282,7 @@ export default function ScanInvoiceModal({
 	      const hasPdf = normalizedPages.some(page => page.isPdf);
 	      alert(hasPdf ? 'PDF распознан! Проверьте данные.' : (files.length > 1 ? `Документ распознан: ${files.length} стр. Проверьте данные.` : 'Документ распознан! Проверьте данные.'));
     } catch(e){
-      alert(scanErrorMessage(e?.message));
+      if(activeRef.current) setScanFailure(scanErrorMessage(e?.message));
     }
     setScanningInvoice(false);
   };
@@ -275,16 +308,21 @@ export default function ScanInvoiceModal({
           {projects.map(p=><option key={p.id || p.name} value={p.name}>🏗️ {p.name}</option>)}
         </select>
         <div style={{display:'block',marginBottom:'12px'}}>
-          <input ref={galleryInputRef} type='file' accept={invoiceImageAccept} multiple style={{display:'none'}} onChange={onFilesPicked}/>
-          <input ref={cameraInputRef} type='file' accept='image/*' multiple capture='environment' style={{display:'none'}} onChange={onFilesPicked}/>
+          <input ref={galleryInputRef} aria-label='Файлы накладной' type='file' accept={invoiceImageAccept+','+invoiceSpreadsheetAccept} multiple style={{display:'none'}} onChange={onFilesPicked}/>
+          <input ref={cameraInputRef} aria-label='Фото накладной с камеры' type='file' accept='image/*' multiple capture='environment' style={{display:'none'}} onChange={onFilesPicked}/>
           <div onClick={()=>openPicker(galleryInputRef)} role='button' tabIndex={0} onKeyDown={event=>{ if(event.key==='Enter' || event.key===' ') openPicker(galleryInputRef); }} style={{border:'2px dashed '+C.border,borderRadius:'12px',padding:isMobile?'22px':'30px',textAlign:'center',cursor:'pointer'}}>
-	            {scanningInvoice?<div><div style={{fontSize:'32px',marginBottom:'8px'}}>⏳</div><p style={{color:C.textSec,fontSize:'13px'}}>ИИ распознаёт документ...</p></div>:<div><div style={{fontSize:'48px',marginBottom:'8px'}}>📄</div><p style={{color:C.text,fontSize:'14px',fontWeight:'600'}}>Выберите PDF или фото накладной/счёта</p><p style={{color:C.textSec,fontSize:'12px',marginTop:'4px'}}>Можно выбрать PDF или 1-8 фото страниц, ИИ соберёт их в один документ</p></div>}
+	            {scanningInvoice?<div><div style={{fontSize:'32px',marginBottom:'8px'}}>⏳</div><p style={{color:C.textSec,fontSize:'13px'}}>Обрабатываем документ...</p></div>:<div><div style={{fontSize:'48px',marginBottom:'8px'}}>📄</div><p style={{color:C.text,fontSize:'14px',fontWeight:'600'}}>Выберите Excel, PDF или фото накладной/счёта</p><p style={{color:C.textSec,fontSize:'12px',marginTop:'4px'}}>Один файл XLS/XLSX, PDF или 1–8 фото страниц одного документа</p></div>}
           </div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginTop:'8px'}}>
             <button type='button' disabled={scanningInvoice} onClick={()=>openPicker(galleryInputRef)} style={{...btnG,justifyContent:'center',opacity:scanningInvoice?0.6:1}}>🖼️ Галерея</button>
             <button type='button' disabled={scanningInvoice} onClick={()=>openPicker(cameraInputRef)} style={{...btnG,justifyContent:'center',opacity:scanningInvoice?0.6:1}}>📷 Камера</button>
           </div>
         </div>
+        {scanFailure && <div role='alert' style={{padding:'12px',border:'1px solid '+C.border,borderRadius:'10px',marginBottom:'12px',color:C.text,fontSize:'13px'}}>
+          <p style={{margin:'0 0 10px'}}>{scanFailure}</p>
+          <button type='button' disabled={scanningInvoice} onClick={()=>scan(pendingFilesRef.current)}
+            style={{...btnG,width:'100%',justifyContent:'center'}}>Повторить распознавание</button>
+        </div>}
         <button onClick={()=>setShowScanInvoice(false)} style={{...btnG,width:'100%',justifyContent:'center'}}><X size={14}/>Отмена</button>
       </div>
     </div>

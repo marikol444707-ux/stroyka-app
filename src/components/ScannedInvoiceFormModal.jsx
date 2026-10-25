@@ -2,6 +2,8 @@ import React from 'react';
 import { Check, Plus, X } from 'lucide-react';
 import { API } from '../api';
 import { createWarehouseInvoiceItemForm } from '../features/warehouse/warehouseInitialForms';
+import WarehouseInvoiceAttachments from './warehouse/WarehouseInvoiceAttachments';
+import { isScannedInvoiceDraft, validateInvoiceScan } from '../utils/invoiceScanValidation';
 
 export default function ScannedInvoiceFormModal({
   user,
@@ -20,8 +22,11 @@ export default function ScannedInvoiceFormModal({
   getProjectEstimateWorkOptions,
   units,
   saveInvoiceNew,
+  uploadPhoto,
+  fileSrc,
 }) {
   const [rememberingTemplate, setRememberingTemplate] = React.useState(false);
+  const [attachmentsUploading,setAttachmentsUploading]=React.useState(false);
   if (!showScannedInvoiceForm) return null;
   const isMobile = typeof window !== 'undefined' && window.innerWidth <= 640;
   const invoiceProject = newInvoice.location && newInvoice.location !== 'Основной склад' ? newInvoice.location : '';
@@ -29,7 +34,9 @@ export default function ScannedInvoiceFormModal({
     ? getProjectWorkPackageOptions(invoiceProject)
     : [];
   const defaultWorkPackage = packageOptions.length === 1 ? packageOptions[0] : '';
-  const isScannedInvoice = String(newInvoice.sourceType || '').startsWith('scan_') || Boolean(newInvoice.scanDocumentType || newInvoice.scanWarnings || newInvoice.scanRecognition);
+  const isScannedInvoice = isScannedInvoiceDraft(newInvoice);
+  const scanValidation = isScannedInvoice ? validateInvoiceScan(newInvoice) : null;
+  const arithmeticBlocked = scanValidation && !scanValidation.valid;
   const scanRecognition = newInvoice.scanRecognition || {};
   const isMainWarehouse = newInvoice.location === 'Основной склад';
   const canReceiveWithoutSupplier = ['директор', 'зам_директора'].includes(String(user?.role || ''));
@@ -37,7 +44,11 @@ export default function ScannedInvoiceFormModal({
 
   const updateItem = (idx, patch) => {
     const items=[...newInvoice.items];
-    items[idx]={...items[idx],...patch};
+    const next = {...items[idx],...patch};
+    if ('quantity' in patch || 'price' in patch) {
+      next.lineTotal = String(Math.round(Number(next.quantity || 0) * Number(next.price || 0) * 100) / 100);
+    }
+    items[idx]=next;
     setNewInvoice({...newInvoice,items,...(isScannedInvoice?{scanHasManualCorrections:true}:{})});
   };
   const workOptionsForItem = (item = {}) => invoiceProject && typeof getProjectEstimateWorkOptions === 'function'
@@ -88,6 +99,7 @@ export default function ScannedInvoiceFormModal({
   };
 
   const save = async () => {
+    if (arithmeticBlocked) return alert('Исправьте расхождения в количестве, цене и суммах перед сохранением.');
     if(!newInvoice.number && !inventoryOnly) return alert('Укажите номер накладной');
     if(!newInvoice.location) return alert('Выберите склад');
     const validItems=(newInvoice.items||[]).filter(i=>i.name&&Number(i.quantity)>0);
@@ -123,6 +135,7 @@ export default function ScannedInvoiceFormModal({
   };
 
   const rememberInvoiceTemplate = async () => {
+    if (arithmeticBlocked) return alert('Исправьте расхождения перед запоминанием исправлений.');
     const supplierName = String(newInvoice.supplier || newInvoice.newSupplierName || scanRecognition.supplierName || '').trim();
     if (!supplierName) return alert('Сначала укажите поставщика.');
     const items = (newInvoice.items || []).filter(item => item.name && Number(item.quantity) > 0);
@@ -216,6 +229,7 @@ export default function ScannedInvoiceFormModal({
             {scanWarnings.map((warning, index) => <div key={index}>{warning}</div>)}
           </div>
         )}
+        <WarehouseInvoiceAttachments {...{newInvoice,setNewInvoice,uploadPhoto,fileSrc,C}} onBusy={setAttachmentsUploading} />
         <input placeholder={inventoryOnly ? 'Номер документа (необязательно)' : 'Номер документа *'} value={newInvoice.number||''} onChange={e=>patchInvoice({number:e.target.value})} style={inputStyle}/>
         {!inventoryOnly && <input placeholder='Поставщик' value={newInvoice.supplier||newInvoice.newSupplierName||''} onChange={e=>patchInvoice({supplierId:'',supplier:e.target.value,newSupplierName:e.target.value,isNewSupplier:true,scanRecognition:{...scanRecognition,supplierId:0,supplierName:e.target.value}})} style={inputStyle}/>}
         <select value={newInvoice.location||''} onChange={e=>updateLocation(e.target.value)} style={inputStyle}>
@@ -236,7 +250,13 @@ export default function ScannedInvoiceFormModal({
         )}
         <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr',gap:'8px'}}>
           <input type='date' value={newInvoice.date||new Date().toISOString().split('T')[0]} onChange={e=>patchInvoice({date:e.target.value})} style={inputStyle}/>
-          <select value={newInvoice.vat||'Без НДС'} disabled={inventoryOnly} onChange={e=>patchInvoice({vat:e.target.value})} style={{...inputStyle,opacity:inventoryOnly?0.65:1}}>
+          <select aria-label='НДС накладной' value={newInvoice.vat||'Без НДС'} disabled={inventoryOnly} onChange={e=>{
+            const vat=e.target.value;
+            const rate=vat.includes('22')?22:vat.includes('20')?20:0;
+            const total=Number(newInvoice.totalWithVat || 0);
+            const base=Math.round(total/(1+rate/100)*100)/100;
+            patchInvoice({vat,...(isScannedInvoice && total>0 ? {totalBase:base,totalVat:Math.round((total-base)*100)/100}: {})});
+          }} style={{...inputStyle,opacity:inventoryOnly?0.65:1}}>
             <option value='Без НДС'>Без НДС</option>
             <option value='С НДС 20%'>С НДС 20%</option>
             <option value='С НДС 22%'>С НДС 22%</option>
@@ -245,7 +265,10 @@ export default function ScannedInvoiceFormModal({
         <b style={{color:C.text,fontSize:isMobile?'17px':'13px',display:'block',marginBottom:'8px'}}>Позиции:</b>
         {(newInvoice.items||[]).map((item,idx)=>(
           <div key={idx} style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'2fr 1.2fr 0.7fr 0.7fr 1fr 36px',gap:isMobile?'8px':'4px',marginBottom:isMobile?'12px':'6px',padding:isMobile?'10px':0,border:isMobile?'1px solid '+C.border:'none',borderRadius:isMobile?'12px':0}}>
-            <input placeholder='Название' value={item.name} onChange={e=>updateItem(idx,{name:e.target.value})} style={itemInputStyle}/>
+            <div style={{minWidth:0}}>
+              <input placeholder='Название' title={item.name} value={item.name} onChange={e=>updateItem(idx,{name:e.target.value})} style={itemInputStyle}/>
+              {item.article && <div style={{fontSize:'11px',color:C.textSec,marginTop:'3px'}}>Артикул: {item.article}</div>}
+            </div>
             <select value={item.workPackage || ''} onChange={e=>updateItem(idx,{workPackage:e.target.value, estimateWorkValue:'', estimateId:'', estimateItemKey:'', parentWorkKey:'', parentWorkName:'', parentWorkSourceCode:'', sectionName:''})} disabled={!invoiceProject} style={{...itemSelectStyle,opacity:invoiceProject?1:0.65}}>
               <option value=''>{invoiceProject ? 'Раздел' : 'Склад'}</option>
               {packageOptions.map(pkg=><option key={pkg} value={pkg}>{pkg}</option>)}
@@ -269,8 +292,13 @@ export default function ScannedInvoiceFormModal({
         ))}
         <button onClick={()=>setNewInvoice({...newInvoice,items:[...(newInvoice.items||[]),createWarehouseInvoiceItemForm({workPackage:defaultWorkPackage})],...(isScannedInvoice?{scanHasManualCorrections:true}:{})})} style={{...btnG,fontSize:isMobile?'15px':'12px',padding:isMobile?'10px 14px':'6px 12px',marginBottom:'10px'}}><Plus size={12}/>Ещё позиция</button>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',margin:'8px 0'}}>
-          <b style={{color:C.text,fontSize:isMobile?'18px':'13px'}}>Итого: {displayTotal.toLocaleString()} ₽</b>
+          <b style={{color:C.text,fontSize:isMobile?'18px':'13px'}}>{isScannedInvoice ? 'Итог документа' : 'Итого'}: {displayTotal.toLocaleString('ru-RU')} ₽</b>
         </div>
+        {isScannedInvoice && <div style={{color:C.textSec,marginBottom:'8px'}}>Сумма строк: {scanValidation.itemsTotal.toLocaleString('ru-RU')} ₽</div>}
+        {arithmeticBlocked && <div role='alert' style={{color:C.warning,border:'1px solid '+C.warningBorder,padding:'10px',borderRadius:'8px',marginBottom:'10px'}}>
+          <b>Есть ошибки в распознавании. Сверьте строки с оригиналом.</b>
+          {scanValidation.errors.map((error,index)=><div key={index}>{error.message}</div>)}
+        </div>}
         {(displayVat > 0 || Number(newInvoice.totalBase||0) > 0) && (
           <div style={{color:C.textSec,fontSize:isMobile?'13px':'11px',lineHeight:1.45,margin:'-4px 0 8px'}}>
             {Number(newInvoice.totalBase||0) > 0 && <div>Без НДС: {Number(newInvoice.totalBase||0).toLocaleString()} ₽</div>}
@@ -279,11 +307,11 @@ export default function ScannedInvoiceFormModal({
         )}
         <div className='mobile-actions' style={{display:'flex',gap:'8px',marginTop:'12px',flexWrap:isMobile?'wrap':'nowrap'}}>
           {canRememberTemplate && (
-            <button onClick={rememberInvoiceTemplate} disabled={rememberingTemplate} style={{...btnG,flex:isMobile?'1 1 100%':undefined,justifyContent:'center',borderColor:C.accent,color:C.accent,opacity:rememberingTemplate?0.7:1}}>
+            <button onClick={rememberInvoiceTemplate} disabled={rememberingTemplate || arithmeticBlocked} style={{...btnG,flex:isMobile?'1 1 100%':undefined,justifyContent:'center',borderColor:C.accent,color:C.accent,opacity:rememberingTemplate?0.7:1}}>
               {rememberingTemplate ? 'Сохраняю...' : '🧠 Запомнить исправления'}
             </button>
           )}
-          <button onClick={save} style={{...btnO,flex:isMobile?'1 1 100%':undefined,justifyContent:'center'}}><Check size={14}/>Сохранить</button>
+          <button disabled={attachmentsUploading || arithmeticBlocked} onClick={save} style={{...btnO,flex:isMobile?'1 1 100%':undefined,justifyContent:'center'}}><Check size={14}/>Сохранить</button>
           <button onClick={()=>setShowScannedInvoiceForm(false)} style={{...btnG,flex:isMobile?'1 1 100%':undefined,justifyContent:'center'}}><X size={14}/>Отмена</button>
         </div>
       </div>

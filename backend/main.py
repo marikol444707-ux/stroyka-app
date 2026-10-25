@@ -20663,6 +20663,14 @@ def get_warehouse_invoices(
 
 def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_company_id=None, x_company_mode=None):
     import json as j
+    if str(data.get("sourceType") or "").startswith("scan_") or data.get("scanDocumentType") or data.get("scanRecognition"):
+        try:
+            from backend.features.invoice_scan.validation import validate_invoice_scan
+        except ModuleNotFoundError:
+            from features.invoice_scan.validation import validate_invoice_scan
+        scan_validation = validate_invoice_scan(data)
+        if not scan_validation["valid"]:
+            raise HTTPException(status_code=422, detail=" ".join(error["message"] for error in scan_validation["errors"][:5]))
     try:
         from backend.features.quality_journals.invoice_receipt import invoice_quality_enabled, create_invoice_quality
     except ModuleNotFoundError:
@@ -27543,7 +27551,14 @@ def _extract_invoice_scan_pdf_text(pdf_bytes: bytes) -> str:
         reader = reader_cls(io.BytesIO(pdf_bytes))
         texts = []
         for page_idx, page in enumerate(reader.pages[:8], start=1):
-            text = page.extract_text() or ""
+            try:
+                text = page.extract_text(extraction_mode="layout") or ""
+            except TypeError:  # Older PyPDF2 does not support layout mode.
+                text = page.extract_text() or ""
+            if not text.strip():
+                text = page.extract_text() or ""
+            # Keep column boundaries while bounding whitespace in wide UPD tables.
+            text = "\n".join(re.sub(r"[ \t]{2,}", "  ", line).strip() for line in text.splitlines())
             if text.strip():
                 texts.append(f"--- Страница {page_idx} ---\n{text.strip()}")
         return "\n\n".join(texts).strip()
@@ -27766,6 +27781,10 @@ def _parse_ai_json_object(text: str):
     return None, last_error or "invalid json"
 
 def _invoice_scan_json_format() -> str:
+    try:
+        from backend.features.invoice_scan.validation import TABLE_INSTRUCTIONS
+    except ModuleNotFoundError:
+        from features.invoice_scan.validation import TABLE_INSTRUCTIONS
     return (
         "{"
         "\"documentType\":\"warehouse_invoice|supplier_invoice|payment_invoice|universal_transfer_document|waybill|receipt|other\","
@@ -27798,6 +27817,7 @@ def _invoice_scan_json_format() -> str:
         "\"lineTotalWithVat\":сумма_строки_с_НДС"
         "}]"
         "}"
+        "\nПравила чтения таблицы: " + TABLE_INSTRUCTIONS
     )
 
 def _repair_invoice_scan_json(answer: str, parse_error: str):
@@ -27857,7 +27877,8 @@ def _retry_invoice_scan_compact_json(images: list):
             "Подходят счет на оплату, счет поставщика, УПД, товарная накладная, приходная накладная и фрагмент товарной таблицы. "
             "Если видна таблица товаров, documentType не должен быть other. Не пиши переносы строк внутри строк JSON. "
             "Если строк много, верни первые 80 полностью читаемых строк и итог документа. "
-            "Формат: {"
+            "Правила чтения таблицы и полная схема: " + _invoice_scan_json_format() + "\n"
+            "Короткий формат: {"
             "\"documentType\":\"supplier_invoice|payment_invoice|warehouse_invoice|universal_transfer_document|waybill|receipt|other\","
             "\"confidence\":0..1,"
             "\"pagesCount\":число,"
@@ -27988,7 +28009,12 @@ def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHO
         parsed = _normalize_invoice_totals_payload(parsed)
         parsed["pagesCount"] = int(parsed.get("pagesCount") or len(images))
         parsed = _apply_supplier_invoice_template_metadata(parsed, _current_user)
-        print("SCAN OK:", parsed)
+        try:
+            from backend.features.invoice_scan.validation import validate_invoice_scan
+        except ModuleNotFoundError:
+            from features.invoice_scan.validation import validate_invoice_scan
+        parsed["scanValidation"] = validate_invoice_scan(parsed)
+        print("SCAN OK:", {"items": len(parsed.get("items") or []), "arithmeticValid": parsed["scanValidation"]["valid"]})
         return {"ok": True, "data": parsed}
     except HTTPException as e:
         return {"ok": False, "error": str(e.detail or "Ошибка распознавания PDF/фото")}

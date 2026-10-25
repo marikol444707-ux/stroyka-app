@@ -1,6 +1,6 @@
 import React from 'react';
-import { Check, Eye, Plus, QrCode, Truck, Upload, X } from 'lucide-react';
-import { invoiceImageAccept, normalizeInvoiceImageFiles } from '../../utils/invoiceImages';
+import { Check, Eye, Plus, QrCode, Truck, X } from 'lucide-react';
+import WarehouseInvoiceAttachments from './WarehouseInvoiceAttachments';
 import { createWarehouseInvoiceItemForm } from '../../features/warehouse/warehouseInitialForms';
 import { groupSuppliers } from '../../utils/supplierUtils';
 import { identifiedInvoiceLines, isInvoiceLineIndex } from '../../utils/warehouseInvoiceSource';
@@ -38,8 +38,7 @@ export function WarehouseInvoiceForm({
   MATERIAL_CATEGORIES,
   isMobile = false,
 }) {
-  const invoiceGalleryInputRef = React.useRef(null);
-  const invoiceCameraInputRef = React.useRef(null);
+  const [attachmentsUploading,setAttachmentsUploading]=React.useState(false);
   const invoiceProject = newInvoice.location && newInvoice.location !== 'Основной склад' ? newInvoice.location : '';
   const packageOptions = invoiceProject && typeof getProjectWorkPackageOptions === 'function'
     ? getProjectWorkPackageOptions(invoiceProject)
@@ -56,7 +55,6 @@ export function WarehouseInvoiceForm({
   const compactInput = {...inp,marginBottom:0,fontSize:isMobile?'16px':'12px',width:'100%',minWidth:0,boxSizing:'border-box'};
   const formGridStyle = {display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr',gap:isMobile?'8px':'10px'};
   const spanAll = isMobile ? undefined : 'span 2';
-  const isPdfUrl = (url) => /\.pdf(?:$|[?#])/i.test(String(url || ''));
   const itemGridStyle = isMobile
     ? {display:'grid',gridTemplateColumns:'1fr',gap:'8px',marginBottom:'10px',padding:'10px',borderRadius:'12px',border:'1.5px solid '+C.border,backgroundColor:C.bg,minWidth:0}
     : {display:'grid',gridTemplateColumns:'minmax(180px,2.5fr) 0.8fr 0.8fr 0.9fr minmax(120px,1.2fr) minmax(130px,1.4fr) minmax(180px,1.8fr) auto',gap:'6px',marginBottom:'8px',alignItems:'center'};
@@ -155,20 +153,6 @@ export function WarehouseInvoiceForm({
       workPackage: nextDefault,
       items: invoiceItems.map(item => ({...item, workPackage: item.workPackage || nextDefault})),
     });
-  };
-
-  const addPhotos = async (event) => {
-    const files = Array.from(event.target.files || []);
-    if (!files.length) return;
-    const invoiceProject = newInvoice.location && newInvoice.location !== 'Основной склад' ? newInvoice.location : 'Основной склад';
-    try {
-      const normalizedPages = await normalizeInvoiceImageFiles(files);
-      const urls = await Promise.all(normalizedPages.map(page => uploadPhoto(page.uploadFile, {projectName: invoiceProject, context: 'warehouse-invoices'})));
-      setNewInvoice(prev => ({...prev, photos: [...(prev.photos || []), ...urls.filter(Boolean)]}));
-    } catch (error) {
-      alert(error?.message || 'Не удалось подготовить фото накладной');
-    }
-    event.target.value = '';
   };
 
   return (
@@ -319,21 +303,7 @@ export function WarehouseInvoiceForm({
         </div>
       )}
 
-      <div style={{display:'flex',gap:'8px',alignItems:'center',marginBottom:'15px',flexWrap:'wrap'}}>
-        <input ref={invoiceGalleryInputRef} type="file" accept={invoiceImageAccept} multiple style={{display:'none'}} onChange={addPhotos}/>
-        <input ref={invoiceCameraInputRef} type="file" accept="image/*" multiple capture="environment" style={{display:'none'}} onChange={addPhotos}/>
-        <button type="button" onClick={() => invoiceGalleryInputRef.current?.click()} style={{cursor:'pointer',backgroundColor:C.infoLight,padding:'8px 14px',borderRadius:'8px',fontSize:'13px',color:C.info,border:'1.5px solid '+C.infoBorder,display:'inline-flex',alignItems:'center',gap:'6px'}}>
-          <Upload size={13}/>PDF/фото из галереи
-        </button>
-        <button type="button" onClick={() => invoiceCameraInputRef.current?.click()} style={{cursor:'pointer',backgroundColor:C.infoLight,padding:'8px 14px',borderRadius:'8px',fontSize:'13px',color:C.info,border:'1.5px solid '+C.infoBorder,display:'inline-flex',alignItems:'center',gap:'6px'}}>
-          📷 Камера
-        </button>
-        {(newInvoice.photos || []).map((url, index) => (
-          isPdfUrl(url)
-            ? <a key={index} href={fileSrc(url)} target="_blank" rel="noreferrer" style={{width:'48px',height:'48px',borderRadius:'8px',display:'inline-flex',alignItems:'center',justifyContent:'center',textDecoration:'none',fontSize:'11px',fontWeight:800,color:C.info,border:'1.5px solid '+C.border,backgroundColor:C.infoLight}}>PDF</a>
-            : <img key={index} src={fileSrc(url)} alt="" onClick={() => setShowPhotoModal(fileSrc(url))} style={{width:'48px',height:'48px',borderRadius:'8px',objectFit:'cover',cursor:'pointer',border:'1.5px solid '+C.border}}/>
-        ))}
-      </div>
+      <WarehouseInvoiceAttachments {...{newInvoice,setNewInvoice,uploadPhoto,fileSrc,setShowPhotoModal,C}} onBusy={setAttachmentsUploading} />
 
       <div style={{backgroundColor:C.bg,borderRadius:'10px',padding:'12px',marginBottom:'15px',border:'1.5px solid '+C.border}}>
         <div style={{display:'flex',justifyContent:'space-between',marginBottom:'4px'}}>
@@ -355,7 +325,7 @@ export function WarehouseInvoiceForm({
       </div>
 
       <div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>
-        <button onClick={saveInvoiceNew} style={{...btnO, ...(isMobile ? {flex:'1 1 100%',justifyContent:'center'} : {})}}><Check size={14}/>Сохранить и оприходовать</button>
+        <button disabled={attachmentsUploading} onClick={saveInvoiceNew} style={{...btnO, ...(isMobile ? {flex:'1 1 100%',justifyContent:'center'} : {})}}><Check size={14}/>Сохранить и оприходовать</button>
         <button onClick={() => setShowForm(false)} style={{...btnG, ...(isMobile ? {flex:'1 1 100%',justifyContent:'center'} : {})}}><X size={14}/>Отмена</button>
       </div>
     </div>
