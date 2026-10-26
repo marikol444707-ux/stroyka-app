@@ -1,5 +1,12 @@
 {
   "passed": true,
+  "cushionCheck": {
+    "parts": 2,
+    "vertices": 8149,
+    "maximumMovement": 0.009019219404294737,
+    "scope": "scatter cushions only",
+    "runtimeGeometryChanged": true
+  },
   "meshes": 51,
   "vertices": 178811,
   "opaque": 39,

@@ -21,7 +21,7 @@
   ],
   "mainPrototypeCodeChanged": false,
   "productionChanged": false,
-  "qualityStudy": "living-quality-v30",
+  "qualityStudy": "living-quality-v31",
   "note": "Building point preservation is checked separately; legacy terrace furnishings are retained as geometry but hidden in this study.",
   "identicalV28Assets": [
     {

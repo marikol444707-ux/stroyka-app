@@ -9,6 +9,7 @@ OK only small scatter cushions use real-time lighting
 OK real sunlight map and contact pipeline rendered with valid shaders
 OK glazing excluded from contact depth
 OK refined wool wood stone and licensed sofa loaded
+OK cloth deformations applied within safe movement bound
 VIEW living-mobile-final.png actual visible viewport
 VIEW living-desktop-final.png actual visible viewport
 OK real mouse input changes 3D perspective
