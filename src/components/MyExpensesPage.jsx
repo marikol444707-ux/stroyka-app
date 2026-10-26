@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, FileText, Plus } from 'lucide-react';
+import { isOwnExpense } from '../features/payments/ownExpenseIdentity';
 
 export default function MyExpensesPage({
   C,
@@ -21,7 +22,7 @@ export default function MyExpensesPage({
   const [openEmployeeGroups, setOpenEmployeeGroups] = useState({});
   const reviewerRoles = ['директор','зам_директора','бухгалтер'];
   const canReviewAll = reviewerRoles.includes(currentUser.role);
-  const baseExp = canReviewAll ? (ownExpenses||[]) : (ownExpenses||[]).filter(e=>e.employeeName===currentUser.name||e.employeeId===currentUser.id);
+  const baseExp = canReviewAll ? (ownExpenses||[]) : (ownExpenses||[]).filter(e=>isOwnExpense(e, currentUser));
   const projectNames = useMemo(() => {
     const names = new Set((projectOptions||[]).map(p=>p.name).filter(Boolean));
     (ownExpenses||[]).forEach(e=>{ if(e.projectName) names.add(e.projectName); });

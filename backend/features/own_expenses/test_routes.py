@@ -152,6 +152,21 @@ class OwnExpensesRoutesTest(unittest.TestCase):
         self.assertNotIn("employee_name=%s", sql)
         self.assertTrue(connection.closed)
 
+    def test_worker_expense_response_links_staff_record_to_authenticated_user(self):
+        cursor = FakeCursor(result_sets=[
+            [{"id": 23, "name": "Новое имя"}],
+            [{"id": 100, "employee_id": 23, "employee_name": "Старое имя",
+              "description": "Кабель", "amount": 1500, "status": "Возмещено"}],
+        ])
+        app, _ = build(cursor)
+        rows = app.routes[("GET", "/own-expenses")](
+            project_id=None, employee_id=None, x_company_id="7", x_company_mode="company",
+            current_user={"id": 42, "email": "master@example.test"},
+        )
+        self.assertEqual(rows[0]["employeeId"], 23)
+        self.assertEqual(rows[0]["employeeUserId"], 42)
+        self.assertEqual(rows[0]["status"], "Возмещено")
+
     def test_worker_list_prefers_explicit_membership_staff_link_over_email(self):
         cursor = FakeCursor(result_sets=[
             [{"id": 23, "name": "Мастер"}],

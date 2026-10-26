@@ -1,5 +1,6 @@
 import { pricelistAssignments } from '../features/work-material-accounting/pricelistAssignments';
 import { matchesAssignedWork } from '../features/work-assignment/matchesAssignedWork';
+import { isOwnExpense } from '../features/payments/ownExpenseIdentity';
 import WorkSubmitButton from '../features/work-journal/WorkSubmitButton';
 import { clearSubmittedDrafts } from '../features/work-material-accounting/workDrafts';
 import { workMaterialAccountingEnabled } from '../features/work-material-accounting/materialSources';
@@ -48,6 +49,7 @@ const estimatePackageName = (estimate) => estimate?.workPackage || estimate?.wor
 const estimateItemKeyForRow = (estimate, sectionIndex, itemIndex, item) => (
   item?.estimateItemKey ||
   item?.estimate_item_key ||
+  item?.itemKey ||
   item?.workKey ||
   item?.work_key ||
   item?.key ||
@@ -95,6 +97,8 @@ export const resolveMasterContractDocument = ({
 
 export default function MasterCabinetPage(props) {
   const [showProjectPicker, setShowProjectPicker] = React.useState(false);
+  const [pricelistError, setPricelistError] = React.useState('');
+  const projectSelectionRequest = React.useRef(0);
   const [acceptanceJournal, setAcceptanceJournal] = React.useState(null);
   const [materialJournal, setMaterialJournal] = React.useState(null);
   const [settlementContract, setSettlementContract] = React.useState(null);
@@ -393,8 +397,7 @@ export default function MasterCabinetPage(props) {
       map.set(key, list);
     };
     assignedContractItems.forEach(contractItem => {
-      const contractPackage = String(contractItem.workPackage || contractItem.work_package || '').trim();
-      if (!contractPackage) return;
+      const contractPackage = String(contractItem.workPackage || contractItem.work_package || 'Основная').trim() || 'Основная';
       const contractKey = String(contractItem.estimateItemKey || contractItem.estimate_item_key || '').trim();
       const contractName = String(contractItem.name || contractItem.description || '').trim().toLowerCase();
       addContractIndex(contractItemsByPackageAndKey, contractPackage + '\n' + contractKey, contractItem);
@@ -441,6 +444,10 @@ export default function MasterCabinetPage(props) {
       projectName,
       myItems,
       hasActiveEstimate: projectEstimates.some(estimate => estimateIsActive(estimate)),
+      hasContractItems: assignedContractItems.some(item =>
+        (item.projectName || item.project_name) === projectName &&
+        (item.workPackage || item.work_package || 'Основная') !== 'Прайс'
+      ),
     };
   }, [
     brigadeContractItems,
@@ -623,12 +630,20 @@ export default function MasterCabinetPage(props) {
     String(estimate.smetaType || estimate.smeta_type || 'Заказчик') === 'Заказчик'
   );
   const selectMasterProject = async (projectId) => {
+    const request = ++projectSelectionRequest.current;
     setShowProjectPicker(false);
+    setPricelistError('');
     setMasterProjectId(projectId);
     setSelectedWorks({});
     const project = masterProjectOptions.find(item => item.id === Number(projectId)) || projects.find(item => item.id === Number(projectId));
-    if (project?.pricelistId && typeof loadPricelistItems === 'function') await loadPricelistItems(project.pricelistId);
-    else if (typeof loadPricelistItems === 'function') loadPricelistItems(null);
+    const hasCustomerEstimate = visibleEstimatesList.some(estimate =>
+      (estimate.projectName || estimate.project_name) === project?.name && estimateIsActive(estimate) &&
+      String(estimate.smetaType || estimate.smeta_type || 'Заказчик') === 'Заказчик'
+    );
+    if (typeof loadPricelistItems === 'function') {
+      const result = await loadPricelistItems(hasCustomerEstimate ? null : project?.pricelistId);
+      if (request === projectSelectionRequest.current) setPricelistError(result?.error || '');
+    }
   };
   const estimateChangePackage = estimateChangeDraft.workPackage || (userAssignedPackages.length === 1 ? userAssignedPackages[0] : 'Основная');
   const authJsonHeaders = () => {
@@ -1215,7 +1230,7 @@ export default function MasterCabinetPage(props) {
             </div>
 
             {(() => {
-              const myExp = (ownExpenses || []).filter(expense => expense.employeeName === user.name || expense.employeeId === user.id);
+              const myExp = (ownExpenses || []).filter(expense => isOwnExpense(expense, user));
               const pending = myExp.filter(expense => expense.status === 'Ожидает');
               const sumPendingExpenses = pending.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
               if (myExp.length === 0) {
@@ -1225,6 +1240,7 @@ export default function MasterCabinetPage(props) {
                       <b style={{ color: C.info, fontSize: '13px' }}>💸 Свои траты на стройке?</b>
                       <p style={{ color: C.textSec, fontSize: '11px', margin: '2px 0 0' }}>Фиксируйте здесь чтобы бухгалтерия возместила</p>
                     </div>
+                    <button onClick={() => { setActivePage('myexpenses'); refreshData('myexpenses'); }} style={btnG}>Все траты</button>
                     <button onClick={() => setShowOwnExpenseForm(true)} style={btnO}>
                       <Plus size={14} />
                       Новая трата
@@ -1468,19 +1484,20 @@ export default function MasterCabinetPage(props) {
               </div>
               {masterProjectId && (
                 <>
-                  {pricelistItems.length === 0 && !selectedProjectHasActiveCustomerEstimate && <p style={{ color: C.textMuted, textAlign: 'center', padding: '20px' }}>Прайс-лист не привязан к проекту</p>}
+                  {pricelistError && <p role="alert" style={{ color: C.danger }}>{pricelistError}</p>}
+                  {!pricelistError && pricelistItems.length === 0 && !selectedProjectHasActiveCustomerEstimate && <p style={{ color: C.textMuted, textAlign: 'center', padding: '20px' }}>Прайс-лист не привязан к проекту</p>}
                   {activePage === 'works' && null}
                   {/* Содержимое списка работ оставлено в компоненте, но в отдельном файле — это и есть текущий шаг рефакторинга. */}
                 </>
               )}
               {masterProjectId && (() => {
-                const { projectName, myItems, hasActiveEstimate } = masterEstimateWorkState;
+                const { projectName, myItems, hasActiveEstimate, hasContractItems } = masterEstimateWorkState;
                 if (myItems.length === 0) {
-                  if (!hasActiveEstimate) return null;
+                  if (!hasActiveEstimate && !hasContractItems) return null;
                   return (
                     <div style={{ ...card, padding: '14px', marginBottom: '15px', backgroundColor: C.warningLight, border: '1.5px solid ' + C.warningBorder }}>
-                      <b style={{ color: C.warning, fontSize: '13px' }}>Работы по смете еще не назначены</b>
-                      <p style={{ color: C.textSec, margin: '5px 0 0', fontSize: '12px' }}>После выдачи работ мастеру здесь появятся объемы, цены исполнителя и кнопка отправки в ЖПР.</p>
+                      <b style={{ color: C.warning, fontSize: '13px' }}>{hasContractItems ? 'Работы есть в договоре, но не сопоставлены со сметой' : 'Работы по смете еще не назначены'}</b>
+                      <p style={{ color: C.textSec, margin: '5px 0 0', fontSize: '12px' }}>{hasContractItems ? 'Попросите прораба или директора проверить привязку позиций договора к действующей смете объекта.' : 'После выдачи работ мастеру здесь появятся объемы, цены исполнителя и кнопка отправки в ЖПР.'}</p>
                     </div>
                   );
 	                }

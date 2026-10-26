@@ -506,7 +506,7 @@ export const useAppDataLoaders = (ctx) => {
     if (['projects','site','works','documents','cable'].includes(page)) return loadMobileScopeOnce('mobile:projects-docs', async () => {
       if (canSeeProjectDocs) markEstimatesLoading(true);
       const loadWorkMaterials = isWorkerRole && workMaterialAccountingEnabled();
-      const [p,wj,mt,ro,rw,rwin,rdoor,ps,pcl,pres,uw,est,er,bc,abi,hwa,mij,cbj,sva,inspO,warD,pdocs,plet,pmeas,mdrafts,s,u,ct,ia,pw,mp,m,mn,mno,h,tb] = await Promise.all([
+      const [p,wj,mt,ro,rw,rwin,rdoor,ps,pcl,pres,uw,est,er,bc,abi,hwa,mij,cbj,sva,inspO,warD,pdocs,plet,pmeas,mdrafts,s,u,ct,ia,pw,mp,m,mn,mno,h,tb,oe] = await Promise.all([
         role === 'поставщик' ? Promise.resolve([]) : getApi('/projects'),
         role === 'поставщик' ? Promise.resolve([]) : getApi(pagedPath('/work-journal', {limit: WORK_JOURNAL_PAGE_LIMIT})),
         (isWarehouseRole || ['мастер','субподрядчик','бригадир'].includes(role)) ? getApi('/material-transfers') : Promise.resolve([]),
@@ -543,7 +543,9 @@ export const useAppDataLoaders = (ctx) => {
         loadWorkMaterials ? getApi('/material-norms/overrides') : Promise.resolve([]),
         loadWorkMaterials ? getApi('/warehouse-history') : Promise.resolve([]),
         isInternalRole ? getApi('/tb-journal') : Promise.resolve([]),
+        isWorkerRole ? getApi('/own-expenses') : Promise.resolve(null),
       ]);
+      if (oe !== null) setOwnExpenses(Array.isArray(oe) ? oe : []);
       const safeWorkJournal = Array.isArray(wj) ? wj : [];
       setProjects(Array.isArray(p)?p:[]);
       setWorkJournal(safeWorkJournal);
