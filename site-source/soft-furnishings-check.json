@@ -1,0 +1,11 @@
+{
+  "passed": true,
+  "cushions": 2,
+  "verticesInCushionIslands": 458,
+  "changedNativeMeshes": 1,
+  "existingBoundsPreserved": true,
+  "placementsPreserved": true,
+  "threeTextileStyles": true,
+  "originalGeometryRestored": true,
+  "navigationChanged": false
+}

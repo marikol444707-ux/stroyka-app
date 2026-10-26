@@ -1,0 +1,22 @@
+{
+  "meshes_before": 503,
+  "meshes_after": 55,
+  "preserved_semantic_layers": [
+    "01_foundation",
+    "02_structure",
+    "03_walls",
+    "04_ceiling",
+    "05_roof",
+    "06_facade",
+    "07_interior",
+    "09_wall_core",
+    "10_insulation",
+    "11_vent_gap",
+    "12_cladding",
+    "13_inner_finish",
+    "14_rafters",
+    "15_roof_underlay",
+    "16_roof_battens",
+    "17_site"
+  ]
+}

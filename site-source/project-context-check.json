@@ -1,0 +1,13 @@
+{
+  "passed": true,
+  "checks": [
+    "no implicit family or contact choice",
+    "explicit zero children retained",
+    "bounded Unicode note and control characters",
+    "unknown options and prototype names ignored",
+    "independent mutable snapshots and isolated stores",
+    "one brief includes family/materials/style/contact and unapproved-plan scope",
+    "reset and unsubscribe",
+    "no persistence or network dependency"
+  ]
+}

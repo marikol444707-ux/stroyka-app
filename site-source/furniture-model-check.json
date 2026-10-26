@@ -1,0 +1,17 @@
+{
+  "passed": true,
+  "buildingGroupsCompared": 15,
+  "colliders": 264,
+  "visualSofaTableGap": 0.33099999999999996,
+  "modelSha256": "89e8b5943e083a9a33ad4efb2dc290011088c3cdf04047c15a62cfcaf65ede03",
+  "checks": [
+    "source building/window/door/roof/site geometry unchanged at 1e-5 resolution",
+    "interior geometry changed",
+    "navigation hash matches actual exported model",
+    "sofa faces table and pedestal follows tabletop",
+    "four curved chair backs stay inside building",
+    "three actual soft duvets and foot throws",
+    "new viewpoints clear of furniture"
+  ],
+  "ergonomicsApproved": false
+}

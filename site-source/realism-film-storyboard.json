@@ -1,0 +1,79 @@
+{
+  "chapters": [
+    {
+      "title": "Дом в окружении\nзелени",
+      "caption": "Шесть деревьев и посадки вокруг дома.\nОзеленение показано как идея.",
+      "frames": [
+        [
+          "realism-exterior-large.png",
+          3
+        ]
+      ],
+      "crop": false
+    },
+    {
+      "title": "Больше комнаты\nв кадре",
+      "caption": "Расширили интерьерный ракурс.\nПоложение мебели сохранено.",
+      "frames": [
+        [
+          "realism-living-large.png",
+          3
+        ]
+      ],
+      "crop": false
+    },
+    {
+      "title": "Ткань и форма\nмягких деталей",
+      "caption": "Две подушки того же дивана\nполучили более мягкую форму и ткань.",
+      "frames": [
+        [
+          "realism-living-large.png",
+          3
+        ]
+      ],
+      "crop": false
+    },
+    {
+      "title": "Днём и вечером",
+      "caption": "Та же кухня и обеденная зона.\nСвет можно переключать отдельно.",
+      "frames": [
+        [
+          "realism-kitchen-large.png",
+          2
+        ],
+        [
+          "realism-evening-large.png",
+          2
+        ]
+      ],
+      "crop": false
+    },
+    {
+      "title": "Вид из окна:\nбыло и стало",
+      "caption": "Та же модель и тот же ракурс.\nДвор появляется в реальной 3D-сцене.",
+      "frames": [
+        [
+          "realism-window-before.png",
+          2
+        ],
+        [
+          "realism-window-large.png",
+          2
+        ]
+      ],
+      "crop": false
+    },
+    {
+      "title": "Прогулка\nс телефона",
+      "caption": "Повороты сглажены; при уменьшении\nдвижения сглаживание отключается.",
+      "frames": [
+        [
+          "realism-window-mobile.png",
+          3
+        ]
+      ],
+      "crop": false
+    }
+  ],
+  "source": "Actual v25/v26 browser UI and native model captures; editorial walkthrough, not measured device FPS."
+}

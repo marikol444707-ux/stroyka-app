@@ -1,0 +1,11 @@
+{
+  "passed": true,
+  "checks": [
+    "bounded finite timelines",
+    "house before material study",
+    "scene switch covered by veil",
+    "monotonic unfolding and assembly",
+    "return to original camera",
+    "cancel during approach avoids flashing a study"
+  ]
+}

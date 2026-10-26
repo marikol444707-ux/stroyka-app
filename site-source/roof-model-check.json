@@ -1,0 +1,29 @@
+{
+  "passed": true,
+  "shapes": [
+    [
+      "standing-seam",
+      6,
+      360
+    ],
+    [
+      "metal-tile",
+      1,
+      5529
+    ],
+    [
+      "bitumen-shingle",
+      52,
+      16848
+    ]
+  ],
+  "checks": [
+    "three actual cover geometries",
+    "finite geometry",
+    "ordered disassembly and exact reassembly",
+    "empty base and underlay placeholders",
+    "no invented pitch/thickness/thermal values/price",
+    "category-safe preferences",
+    "all attached resources released"
+  ]
+}

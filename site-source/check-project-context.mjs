@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {createProjectContext,normalizeProjectContext,projectContextLines} from './project-context.js';
+import {makeProjectBrief} from './materials-data.js';
+const a=createProjectContext(),b=createProjectContext();let calls=0;const unsubscribe=a.subscribe(()=>calls++);
+assert.deepEqual(projectContextLines(null),[]);assert(!projectContextLines({channel:'toString'}).length);assert(!normalizeProjectContext({adults:'99',children:'undefined',priorities:['fake']}).adults);
+a.update({adults:'2',children:'0',priorities:['office','office','access','fake'],note:' <img src=x onerror=alert(1)>\nТерраса\u0000 ',channel:'telegram'});
+assert.equal(a.snapshot().children,'0','Zero children is an explicit preference');assert.deepEqual(a.snapshot().priorities,['office','access']);assert(!a.snapshot().note.includes('\u0000'));const snapshot=a.snapshot();snapshot.priorities.push('pantry');assert.equal(a.snapshot().priorities.length,2,'Snapshot cannot mutate the store');assert.equal(b.snapshot().adults,'','Contexts are isolated');
+const brief=makeProjectBrief({wall:'brick',roof:'metal-tile'},'Современная классика',a.snapshot());for(const text of ['взрослых — 2, детей — 0','Кабинет','Удобство без ступеней','Telegram','<img src=x','Современная классика','Кирпич','Металлочерепица','не меняют планировку автоматически','не рассчитана'])assert(brief.includes(text),text);
+a.update({note:'😀'.repeat(1000)});assert.equal(Array.from(a.snapshot().note).length,600);assert(!a.snapshot().note.includes('\ufffd'));unsubscribe();const n=calls;a.reset();assert.equal(calls,n);assert.deepEqual(a.snapshot(),b.snapshot());assert(!makeProjectBrief({},'Светлый минимализм',a.snapshot()).includes('Предпочтительный способ связи'));
+const report={passed:true,checks:['no implicit family or contact choice','explicit zero children retained','bounded Unicode note and control characters','unknown options and prototype names ignored','independent mutable snapshots and isolated stores','one brief includes family/materials/style/contact and unapproved-plan scope','reset and unsubscribe','no persistence or network dependency']};fs.writeFileSync('project-context-check.json',JSON.stringify(report,null,2));console.log(JSON.stringify(report));

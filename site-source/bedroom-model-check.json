@@ -1,0 +1,69 @@
+{
+  "passed": true,
+  "rooms": [
+    {
+      "id": "bedroom1",
+      "headboardGap": 0.05499999999999994,
+      "foot": [
+        -5.5,
+        4.125
+      ],
+      "left": [
+        -6.58,
+        2.75
+      ],
+      "right": [
+        -4.35,
+        2.75
+      ],
+      "pillowCount": 2
+    },
+    {
+      "id": "bedroom2",
+      "headboardGap": 0.05500000000000016,
+      "foot": [
+        -5.5,
+        -1.025
+      ],
+      "left": [
+        -6.58,
+        0.35
+      ],
+      "right": [
+        -4.35,
+        0.35
+      ],
+      "pillowCount": 1
+    },
+    {
+      "id": "bedroom3",
+      "headboardGap": 0.05499999999999994,
+      "foot": [
+        -5.5,
+        -4.125
+      ],
+      "left": [
+        -6.58,
+        -2.75
+      ],
+      "right": [
+        -4.35,
+        -2.75
+      ],
+      "pillowCount": 2
+    }
+  ],
+  "unrelatedCollidersUnchanged": 214,
+  "colliders": 264,
+  "reachableCells": 3717,
+  "checks": [
+    "solid partition headboards with real bounds",
+    "full bed assemblies and bedside tables move together",
+    "single-bed pillow corrected",
+    "unrelated obstacles preserved",
+    "actual eye-height views face beds",
+    "nine bed approaches connected from living room",
+    "collision export hash matches current GLB"
+  ],
+  "ergonomicsApproved": false
+}

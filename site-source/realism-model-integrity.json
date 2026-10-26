@@ -1,0 +1,21 @@
+{
+  "passed": true,
+  "files": [
+    {
+      "file": "stroyka-polished.glb",
+      "sha256": "89e8b5943e083a9a33ad4efb2dc290011088c3cdf04047c15a62cfcaf65ede03"
+    },
+    {
+      "file": "navigation.json",
+      "sha256": "6c85a52fc32ef265910e9306c780d4c66fd4d126d83363801cec181a8df09702"
+    },
+    {
+      "file": "furniture-layout.json",
+      "sha256": "b89e7e235e6ec7d2a28da6e4cee84c721e3ce5144740be37741e136209cbb7e3"
+    },
+    {
+      "file": "walk-navigation.js",
+      "sha256": "5ade1226d04edcfee8f7bc443737665c69c5c21ef6a0513158aa6997ca2559ce"
+    }
+  ]
+}

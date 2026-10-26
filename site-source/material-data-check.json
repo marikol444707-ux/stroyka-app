@@ -1,0 +1,14 @@
+{
+  "passed": true,
+  "materials": 10,
+  "wallAlternatives": 5,
+  "checks": [
+    "unique material identifiers",
+    "draft-only review status",
+    "no invented prices or numerical technical values",
+    "complete content fields",
+    "unselected preferences remain unselected",
+    "category-safe project summary",
+    "style and draft limits in summary"
+  ]
+}

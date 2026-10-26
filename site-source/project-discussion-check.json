@@ -1,0 +1,13 @@
+{
+  "passed": true,
+  "checks": [
+    "no implicit site, family, contact or materials",
+    "explicit zero children retained",
+    "site/town/topics normalized with Unicode and unknown keys rejected",
+    "independent topic snapshots and family edits retain discussion data",
+    "three material wishes do not approve project or remove four substantive open questions",
+    "same canonical brief includes site and prioritized topics",
+    "price remains null and sent/approved false",
+    "complete reset without persistence or network"
+  ]
+}

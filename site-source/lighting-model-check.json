@@ -1,0 +1,16 @@
+{
+  "passed": true,
+  "checks": [
+    "two presets, intermediate fade and continuous reversal",
+    "fresh reduced-motion snap",
+    "two area sources and three bedsides plus original three fixtures",
+    "camera-centered gradient sky without background texture cache",
+    "neutral study lighting and paused fade",
+    "style changes preserve lighting progress",
+    "original glass/material identities and geometry preserved",
+    "owned lights/sky cleanup and original parameters restored",
+    "invalid choices rejected"
+  ],
+  "photometricStudy": false,
+  "physicalIphoneTested": false
+}

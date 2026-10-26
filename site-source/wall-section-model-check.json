@@ -1,0 +1,43 @@
+{
+  "passed": true,
+  "stats": [
+    {
+      "id": "aerated",
+      "meshes": 1,
+      "vertices": 13608
+    },
+    {
+      "id": "brick",
+      "meshes": 1,
+      "vertices": 75816
+    },
+    {
+      "id": "ceramic",
+      "meshes": 1,
+      "vertices": 51264
+    },
+    {
+      "id": "frame",
+      "meshes": 2,
+      "vertices": 2916
+    },
+    {
+      "id": "concrete",
+      "meshes": 2,
+      "vertices": 2244
+    }
+  ],
+  "checks": [
+    "five genuinely different cores fitted to original bay",
+    "adjacent window bounds unchanged",
+    "no guessed core before selection",
+    "old fixed core/insulation/membrane/cladding hidden",
+    "unapproved study roles stay hidden",
+    "bounded intermediate reveal and exact close",
+    "reduced-motion interruption",
+    "mode cancellation",
+    "invalid category rejected",
+    "no runtime mesh accumulation after disposal"
+  ],
+  "assemblyApproved": false
+}

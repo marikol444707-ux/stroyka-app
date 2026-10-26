@@ -1,0 +1,27 @@
+{
+  "passed": true,
+  "area": 96.27989905724499,
+  "sourceRecords": 4,
+  "stats": [
+    {
+      "id": "plaster-facade",
+      "meshes": 4,
+      "triangles": 80
+    },
+    {
+      "id": "timber-facade",
+      "meshes": 8,
+      "triangles": 7378
+    }
+  ],
+  "checks": [
+    "actual outer faces on four sides and gables",
+    "two different finish geometries",
+    "rays through four original window/door openings",
+    "actual finish on solid wall",
+    "unchanged glass geometry/material",
+    "replacement while roof/gable already exploded",
+    "no accumulation and owned resources disposed"
+  ],
+  "assemblyApproved": false
+}

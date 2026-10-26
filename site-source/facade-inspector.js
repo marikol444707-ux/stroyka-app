@@ -1,0 +1,18 @@
+import {materials} from './materials-data.js';
+export function createFacadeInspector({store,onOpen,onLayout,onShow,onBrief,onCompare}){
+ const $=s=>document.querySelector(s),dialog=$('#facade-inspector'),mobile=matchMedia('(max-width:700px)'),items=materials.filter(m=>m.category==='facade');let preview=store.snapshot().facade||'plaster-facade',returnFocus=null,returnScroll=0;
+ const el=(tag,text)=>{const n=document.createElement(tag);if(text)n.textContent=text;return n;};
+ for(const m of items){const label=el('label'),input=el('input');label.className='wall-option';input.type='radio';input.name='facade-material';input.value=m.id;input.addEventListener('change',()=>{preview=m.id;store.selectPreference('facade',m.id);$('#facade-feedback').textContent='В пожеланиях: '+m.title+'.';});label.append(input,el('span',m.id==='timber-facade'?'Деревянные рейки':'Штукатурка'));$('#facade-options').append(label);}
+ function render(){const choice=store.snapshot().facade,item=items.find(m=>m.id===preview);for(const input of dialog.querySelectorAll('input'))input.checked=input.value===choice;$('#facade-material-title').textContent=item.title;$('#facade-swatch').className='material-swatch '+item.texture;
+  const facts=$('#facade-key-facts');facts.replaceChildren();for(const [title,text] of [['Преимущества',item.benefit],['Что учитывать и как ухаживать',item.limitation]]){const div=el('div');div.className='wall-fact';div.append(el('dt',title),el('dd',text));facts.append(div);}
+  $('#facade-heat').textContent=item.heat;$('#facade-budget').textContent=item.budget;$('#facade-questions').replaceChildren(...item.questions.map(q=>el('li',q)));$('#facade-remove').hidden=!choice;$('#facade-selection').textContent=choice?'В пожеланиях: '+items.find(m=>m.id===choice).title:'Отделка пока не выбрана. На доме сохранён исходный вид.';
+  window.__FACADE_INSPECTOR_STATUS__={open:dialog.open,preview,choice:choice||null,mobile:mobile.matches,assemblyApproved:false};
+ }
+ function present(){if(mobile.matches){dialog.showModal();document.body.classList.add('wall-sheet-open');}else dialog.show();}
+ function open(){if(dialog.open){$('#facade-heading').focus({preventScroll:true});return;}returnFocus=document.activeElement;returnScroll=scrollY;preview=store.snapshot().facade||preview;onOpen();present();render();$('#facade-details').open=false;$('#facade-heading').focus({preventScroll:true});onLayout();}
+ function close({restoreFocus=true}={}){if(!dialog.open)return;dialog.close();document.body.classList.remove('wall-sheet-open');render();onLayout();if(restoreFocus){returnFocus?.focus({preventScroll:true});if(mobile.matches)scrollTo({top:returnScroll,behavior:'instant'});}}
+ $('#facade-close').addEventListener('click',()=>close());dialog.addEventListener('cancel',e=>{e.preventDefault();close();});dialog.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();close();}});
+ $('#facade-remove').addEventListener('click',()=>{store.selectPreference('facade',null);$('#facade-feedback').textContent='Пожелание убрано. На доме восстановлен исходный вид.';dialog.querySelector('input[value="'+preview+'"]').focus({preventScroll:true});});
+ for(const [id,fn] of [['#facade-show-house',onShow],['#facade-brief',onBrief],['#facade-compare',onCompare]])$(id).addEventListener('click',()=>{close({restoreFocus:false});fn();});
+ store.subscribe(state=>{if(state.facade)preview=state.facade;$('#facade-feedback').textContent='';render();});mobile.addEventListener('change',()=>{if(!dialog.open)return;dialog.close();document.body.classList.remove('wall-sheet-open');present();render();$('#facade-heading').focus({preventScroll:true});onLayout();});render();return{open,close,isOpen:()=>dialog.open};
+}

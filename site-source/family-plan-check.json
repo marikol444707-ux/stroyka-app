@@ -1,0 +1,13 @@
+{
+  "passed": true,
+  "roomCount": 8,
+  "wallPolygons": 100,
+  "furniturePolygons": 147,
+  "exactNavigationProjection": true,
+  "modelSha256": "89e8b5943e083a9a33ad4efb2dc290011088c3cdf04047c15a62cfcaf65ede03",
+  "noAutomaticRoomAllocation": true,
+  "noCapacityApproval": true,
+  "shownOffice": true,
+  "threeUnresolvedPriorities": true,
+  "zeroChildrenExplicit": true
+}

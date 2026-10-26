@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {createLookMotion} from './walk-look-motion.js';
+const near=(a,b)=>assert(Math.abs(a-b)<1e-8,`${a} != ${b}`);
+const motion=createLookMotion(1,.2);motion.aim(100,-50);assert.equal(motion.sample().yaw,1);motion.update(.016);assert(motion.sample().yaw<1&&motion.sample().yaw>.6);assert(motion.sample().pitch>.2&&motion.sample().pitch<.35);
+const one=createLookMotion(),many=createLookMotion();one.aim(100,80);many.aim(100,80);one.update(.192);for(let i=0;i<12;i++)many.update(.016);near(one.sample().yaw,many.sample().yaw);near(one.sample().pitch,many.sample().pitch);
+const current=motion.sample();motion.aim(-70,0);assert.equal(motion.sample().yaw,current.yaw,'reverse target without snapping current pose');motion.update(3);assert(!motion.sample().moving,'slow frame reaches target without long backlog');
+motion.aim(5,100000);motion.update(.1,{reduced:true});assert.equal(motion.sample().pitch,-1.05);assert(!motion.sample().moving);motion.aim(-10,-100000,{reduced:true});assert.equal(motion.sample().pitch,1.05);assert.equal(motion.sample().yaw,motion.sample().targetYaw);
+motion.aim(60,20);const before=motion.sample();motion.reset(before.yaw,before.pitch);motion.update(1);assert.equal(motion.sample().yaw,before.yaw);assert(!motion.sample().moving,'pause/leave reset cancels pending turn');motion.reset(2,-.4);assert.deepEqual(motion.sample(),{yaw:2,pitch:-.4,targetYaw:2,targetPitch:-.4,moving:false});motion.aim(NaN,0);motion.aim(0,Infinity);assert.equal(motion.sample().targetYaw,2);assert(!motion.update(NaN));assert(!motion.update(-1));assert(!motion.update(0));
+const report={passed:true,checks:['intermediate turn without jump','frame partition invariance','continuous reversal','long frame without backlog','pitch bounds and reduced motion','reset cancels remaining motion','invalid deltas/time ignored'],positionInterpolation:false,collisionSolverChanged:false,physicalIphoneTested:false};fs.writeFileSync('walk-look-check.json',JSON.stringify(report,null,2));console.log('PASS '+JSON.stringify(report));

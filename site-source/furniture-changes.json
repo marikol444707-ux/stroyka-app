@@ -1,0 +1,67 @@
+{
+  "changed": [
+    "sofa arm",
+    "sofa arm.001",
+    "sofa back",
+    "sofa base",
+    "sofa cushion",
+    "sofa cushion.001",
+    "sofa cushion.002",
+    "sofa scatter cushion",
+    "sofa scatter cushion.001",
+    "coffee cup",
+    "coffee table",
+    "coffee table book",
+    "table foot",
+    "chair leg",
+    "chair leg.001",
+    "chair leg.002",
+    "chair leg.003",
+    "chair leg.004",
+    "chair leg.005",
+    "chair leg.006",
+    "chair leg.007",
+    "chair leg.008",
+    "chair leg.009",
+    "chair leg.010",
+    "chair leg.011",
+    "chair leg.012",
+    "chair leg.013",
+    "chair leg.014",
+    "chair leg.015",
+    "chair seat",
+    "chair seat.001",
+    "chair seat.002",
+    "chair seat.003",
+    "dining pedestal",
+    "dining top",
+    "pendant cable",
+    "pendant glow",
+    "pendant shade",
+    "headboard",
+    "headboard.001",
+    "headboard.002"
+  ],
+  "scope": "Furniture only; source building surfaces are checked against v17 after export.",
+  "layout": {
+    "version": 1,
+    "sofa": {
+      "x": 4.8,
+      "z": 3.5,
+      "faces": "negative-z"
+    },
+    "coffee": {
+      "x": 4.8,
+      "z": 2.15,
+      "radius": 0.504
+    },
+    "dining": {
+      "x": 5.25,
+      "z": 0.4,
+      "radius": 0.65,
+      "chairOffset": 0.95,
+      "chairAngle": 45
+    },
+    "approved": false
+  }
+}

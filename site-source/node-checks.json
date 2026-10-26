@@ -1,0 +1,26 @@
+{
+  "passed": true,
+  "checks": [
+    "check-assembly-motion.mjs",
+    "check-bedrooms.mjs",
+    "check-facade.mjs",
+    "check-family-plan.mjs",
+    "check-furniture.mjs",
+    "check-house-garden.mjs",
+    "check-house-roof.mjs",
+    "check-house-wall-section.mjs",
+    "check-interior.mjs",
+    "check-journey.mjs",
+    "check-lighting.mjs",
+    "check-material-context.mjs",
+    "check-material-data.mjs",
+    "check-navigation.mjs",
+    "check-project-context.mjs",
+    "check-project-discussion.mjs",
+    "check-roof-model.mjs",
+    "check-room-navigation.mjs",
+    "check-soft-furnishings.mjs",
+    "check-walk-look.mjs",
+    "check-wall-study.mjs"
+  ]
+}

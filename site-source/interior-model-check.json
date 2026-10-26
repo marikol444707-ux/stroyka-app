@@ -1,0 +1,92 @@
+{
+  "passed": true,
+  "snapshots": [
+    {
+      "style": "warm",
+      "groups": {
+        "warm": {
+          "visible": true,
+          "meshes": 7,
+          "vertices": 3840
+        },
+        "minimal": {
+          "visible": false,
+          "meshes": 7,
+          "vertices": 2256
+        },
+        "classic": {
+          "visible": false,
+          "meshes": 7,
+          "vertices": 2496
+        }
+      },
+      "textures": 3,
+      "layoutChanged": false,
+      "productsApproved": false,
+      "materialCount": 15,
+      "styleLights": 3
+    },
+    {
+      "style": "minimal",
+      "groups": {
+        "warm": {
+          "visible": false,
+          "meshes": 7,
+          "vertices": 3840
+        },
+        "minimal": {
+          "visible": true,
+          "meshes": 7,
+          "vertices": 2256
+        },
+        "classic": {
+          "visible": false,
+          "meshes": 7,
+          "vertices": 2496
+        }
+      },
+      "textures": 3,
+      "layoutChanged": false,
+      "productsApproved": false,
+      "materialCount": 30,
+      "styleLights": 3
+    },
+    {
+      "style": "classic",
+      "groups": {
+        "warm": {
+          "visible": false,
+          "meshes": 7,
+          "vertices": 3840
+        },
+        "minimal": {
+          "visible": false,
+          "meshes": 7,
+          "vertices": 2256
+        },
+        "classic": {
+          "visible": true,
+          "meshes": 7,
+          "vertices": 2496
+        }
+      },
+      "textures": 3,
+      "layoutChanged": false,
+      "productsApproved": false,
+      "materialCount": 45,
+      "styleLights": 3
+    }
+  ],
+  "checks": [
+    "three distinct bounded geometry treatments",
+    "decorations stay over existing obstacles or at walkable floor level",
+    "four clear existing-house viewpoints",
+    "source geometry and original material restoration",
+    "bounded material cache",
+    "single style group visible",
+    "three light and full decoration cleanup",
+    "unknown style rejected"
+  ],
+  "physicalIphoneTested": false,
+  "productsApproved": false
+}

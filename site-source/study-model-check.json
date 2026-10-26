@@ -1,0 +1,38 @@
+{
+  "passed": true,
+  "shapes": [
+    [
+      "aerated",
+      14,
+      4536
+    ],
+    [
+      "brick",
+      82,
+      26568
+    ],
+    [
+      "ceramic",
+      16,
+      17088
+    ],
+    [
+      "frame",
+      13,
+      4212
+    ],
+    [
+      "concrete",
+      21,
+      1364
+    ]
+  ],
+  "checks": [
+    "five distinct core geometries",
+    "actual ceramic voids and reinforcement",
+    "unfilled exterior placeholder",
+    "draft with no dimensions/prices/thermal values",
+    "disassembly and reassembly positions",
+    "all geometry/material resources released"
+  ]
+}

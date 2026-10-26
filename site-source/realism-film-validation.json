@@ -1,0 +1,22 @@
+{
+  "passed": true,
+  "file": "realism.mp4",
+  "seconds": 20.0,
+  "bytes": 446149,
+  "sha256": "fde1512d929caeb3e414de7f277950ad99537bc46524876fed740728abe76595",
+  "codec": "h264 baseline yuv420p",
+  "width": 720,
+  "height": 1000,
+  "fps": "24/1",
+  "chapters": 6,
+  "source": "Actual v25/v26 browser captures; editorial walkthrough, not a continuous recording or device FPS benchmark.",
+  "gif": {
+    "seconds": 20.01,
+    "bytes": 399492,
+    "sha256": "6e51ec0d4e52407d87aff0ee21902fae16ba5843025947ea43a832bd6106e6c0",
+    "frames": 160,
+    "width": 360,
+    "height": 500,
+    "decoded": true
+  }
+}

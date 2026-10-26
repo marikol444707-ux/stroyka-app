@@ -1,0 +1,15 @@
+{
+  "passed": true,
+  "checks": [
+    "intermediate turn without jump",
+    "frame partition invariance",
+    "continuous reversal",
+    "long frame without backlog",
+    "pitch bounds and reduced motion",
+    "reset cancels remaining motion",
+    "invalid deltas/time ignored"
+  ],
+  "positionInterpolation": false,
+  "collisionSolverChanged": false,
+  "physicalIphoneTested": false
+}

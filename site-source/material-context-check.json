@@ -1,0 +1,16 @@
+{
+  "passed": true,
+  "materials": 10,
+  "checks": [
+    "all ten cards reuse canonical advantages, limitations, heat, cost drivers and questions",
+    "sample roof does not imply a preference",
+    "unset wall and mixed original facade do not invent material choices",
+    "unresolved structural layers never inherit cover or wall properties",
+    "role context follows actual assembly phase or explicitly selected layer",
+    "wrong category and inherited object keys rejected",
+    "inputs and source questions preserved",
+    "hidden modes and separate studies excluded",
+    "no approved values, prices or geometry changes"
+  ],
+  "technicalReviewComplete": false
+}

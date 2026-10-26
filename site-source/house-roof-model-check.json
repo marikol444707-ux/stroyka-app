@@ -1,0 +1,29 @@
+{
+  "passed": true,
+  "stats": [
+    {
+      "id": "standing-seam",
+      "triangles": 1216
+    },
+    {
+      "id": "metal-tile",
+      "triangles": 99856
+    },
+    {
+      "id": "bitumen-shingle",
+      "triangles": 15016
+    }
+  ],
+  "checks": [
+    "three genuinely different covers on both existing slopes",
+    "finite positions/normals and matching envelope",
+    "upward surface orientation",
+    "genuine GLB gutter extraction",
+    "source cover hidden after mode resets",
+    "default versus explicit preference",
+    "no variant/texture accumulation",
+    "cover follows existing roof explosion",
+    "owned geometry/material/texture disposal"
+  ],
+  "assemblyApproved": false
+}

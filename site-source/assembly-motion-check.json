@@ -1,0 +1,16 @@
+{
+  "passed": true,
+  "stages": 6,
+  "checks": [
+    "sequential actual layer poses and original end offsets",
+    "monotonic finite positions",
+    "zero layer velocity at exact stops",
+    "guided slow frame cannot skip explanations",
+    "continuous 12-second transport and bounded reverse",
+    "fresh reduced-motion endpoints",
+    "no-jump camera from actual frame",
+    "camera continuity at stops",
+    "other modes reset geometry offsets"
+  ],
+  "modelChanged": false
+}

@@ -1,0 +1,25 @@
+{
+  "name": "stroyka-public-site-development-v32",
+  "version": "0.26.0",
+  "private": true,
+  "scripts": {
+    "bundle": "esbuild viewer.js --bundle --minify --format=iife --outfile=viewer.bundle.js",
+    "build": "python3 export-family-plan.py && npm run bundle && python3 build_viewer.py",
+    "test:navigation": "node check-navigation.mjs",
+    "test:materials": "node check-material-data.mjs",
+    "test:roof": "node check-roof-model.mjs",
+    "test:journey": "node check-journey.mjs",
+    "test:context": "node check-material-context.mjs",
+    "test:discussion": "node check-project-discussion.mjs",
+    "test:plan": "node check-family-plan.mjs",
+    "test:draft": "node check-project-draft.mjs"
+  },
+  "dependencies": {
+    "three": "0.170.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.0",
+    "ws": "8.18.0"
+  },
+  "type": "module"
+}

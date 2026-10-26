@@ -1,0 +1,78 @@
+{
+  "scope": "Existing bedroom furniture only; building/window/door geometry preserved.",
+  "rooms": [
+    {
+      "id": "bedroom1",
+      "oldZ": 3.15,
+      "z": 2.75,
+      "angle": 0,
+      "table": [
+        -4.3,
+        2.05
+      ],
+      "oldTable": [
+        -4.3,
+        2.45
+      ],
+      "rugZ": 2.95,
+      "rugDepth": 2.45,
+      "center": [
+        -5.5,
+        2.75
+      ],
+      "rotatedDegrees": 0,
+      "movedBedParts": 12,
+      "movedTableParts": 5,
+      "solidPartition": 1.55
+    },
+    {
+      "id": "bedroom2",
+      "oldZ": 0,
+      "z": 0.35,
+      "angle": 3.141592653589793,
+      "table": [
+        -4.5,
+        1.05
+      ],
+      "oldTable": [
+        -4.3,
+        -0.7
+      ],
+      "rugZ": 0.05,
+      "rugDepth": 2.7,
+      "center": [
+        -5.5,
+        0.35
+      ],
+      "rotatedDegrees": 180,
+      "movedBedParts": 12,
+      "movedTableParts": 5,
+      "solidPartition": 1.55
+    },
+    {
+      "id": "bedroom3",
+      "oldZ": -3.1,
+      "z": -2.75,
+      "angle": 3.141592653589793,
+      "table": [
+        -4.3,
+        -2.05
+      ],
+      "oldTable": [
+        -4.3,
+        -3.8
+      ],
+      "rugZ": -2.95,
+      "rugDepth": 2.45,
+      "center": [
+        -5.5,
+        -2.75
+      ],
+      "rotatedDegrees": 180,
+      "movedBedParts": 12,
+      "movedTableParts": 5,
+      "solidPartition": -1.55
+    }
+  ],
+  "ergonomicsApproved": false
+}
