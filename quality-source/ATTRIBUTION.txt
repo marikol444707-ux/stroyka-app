@@ -1,0 +1,6 @@
+Three.js 0.170.0 — MIT, see THREE-LICENSE.txt.
+Open Image Denoise 2.3.3 — Apache 2.0, see OIDN-LICENSE.txt; build-time only, not shipped as a browser library.
+Spruit Sunrise environment — Poly Haven, CC0: https://polyhaven.com/a/spruit_sunrise
+Downloaded from Three.js r170 example assets: https://raw.githubusercontent.com/mrdoob/three.js/r170/examples/textures/equirectangular/spruit_sunrise_1k.hdr
+This is a generic environment for viewing, not a photograph or survey of the customer's actual site.
+House source: existing authorised stroyka model. Furniture refinement, textures and lighting pipeline: this workspace's build-living.py.

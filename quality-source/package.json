@@ -1,0 +1,15 @@
+{
+  "name": "stroyka-living-quality-study",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild studio.js --bundle --minify --format=iife --outfile=studio.bundle.js"
+  },
+  "dependencies": {
+    "three": "0.170.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.0",
+    "ws": "8.18.0"
+  }
+}
