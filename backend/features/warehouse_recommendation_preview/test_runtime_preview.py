@@ -946,9 +946,9 @@ class WarehouseAnomalyRuntimePreviewCompositionTests(unittest.TestCase):
             root / "backend/db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Reviewed participant access and JEV route registration; the warehouse preview package is unchanged.
+            # Reviewed contractor estimate-row identity preservation; warehouse preview code and route registration are unchanged.
             root / "backend/main.py": (
-                "b9053387fd398ad5919e6411dcd22160c6e5a04f004deb111af7e5133a88bbcd"
+                "e10715cb3cf1b9d76d6d4461cae860f1c71510ea2795b24972f95d16f1068017"
             ),
         }
         self.assertEqual({

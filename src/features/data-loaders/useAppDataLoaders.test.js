@@ -564,3 +564,16 @@ test('supplier initial load populates its linked card and catalog', async () => 
   expect(setSuppliers).toHaveBeenCalledWith([card]);
   expect(setSupplierCatalog).toHaveBeenCalledWith([item]);
 });
+
+test('refreshing contractor works also refreshes reimbursed purchases', async () => {
+  const expense = { id: 100, employeeUserId: 42, status: 'Возмещено', amount: 1500 };
+  const setOwnExpenses = jest.fn();
+  global.fetch = jest.fn(async url => ({ ok: true, headers: snapshotHeaders,
+    json: async () => url.endsWith('/own-expenses') ? [expense] : [] }));
+  const { result } = renderHook(() => useJournalHarness(company(2), {
+    activePage: 'works', user: { id: 42, role: 'субподрядчик' }, setOwnExpenses,
+    roleFlagsForUser: () => ({ role: 'субподрядчик', isInternalRole: true, canSeeProjectDocs: true }),
+  }));
+  await act(async () => { await result.current.refreshData('works'); });
+  expect(setOwnExpenses).toHaveBeenCalledWith([expense]);
+});

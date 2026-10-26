@@ -629,6 +629,11 @@ def register_own_expenses_module(app, deps):
                     "approvedBy": _row_value(row, "approved_by", 8) or "",
                     "category": _row_value(row, "category", 9) or "other",
                     "employeeId": _row_value(row, "employee_id", 10),
+                    # Non-reviewers received only their exact staff subset above.
+                    # Expose its user identity so the UI never compares staff.id
+                    # with users.id or loses rows after a display-name change.
+                    "employeeUserId": _positive_int(current_user.get("id"))
+                    if role not in own_expense_review_roles else None,
                 }
                 for row in (cur.fetchall() or [])
             ]
