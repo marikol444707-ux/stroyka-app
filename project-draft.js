@@ -14,7 +14,7 @@ export function draftRepository(storage){return{
 };}
 export function createProjectDraft({context,store,getStyle,setStyle}){
  const host=document.querySelector('#project-draft'),status=host.querySelector('[role=status]');
- const report=t=>status.textContent=t;
+ const report=t=>{if(status.textContent!==t)status.textContent=t;};
  function repository(){return draftRepository(window.localStorage);}
  host.querySelector('[data-draft=save]').addEventListener('click',()=>{try{repository().save({version:1,project:'house-01',context:context.snapshot(),choices:store.snapshot(),style:getStyle()});report('Выбор сохранён на этом устройстве. После изменений сохраните его ещё раз.');}catch{report('Не удалось сохранить выбор. Можно скачать описание или скопировать его ниже.');}});
  host.querySelector('[data-draft=restore]').addEventListener('click',()=>{try{const saved=repository().load();if(!saved){report('Сохранённого выбора на этом устройстве нет.');return;}setStyle(saved.style);for(const category of ['wall','roof','facade'])store.selectPreference(category,saved.choices[category]||null);context.update(saved.context);report('Сохранённый выбор восстановлен. Проверьте пожелания ниже.');}catch{report('Черновик недоступен или несовместим. Текущий выбор не изменён.');}});
