@@ -1,0 +1,9 @@
+{
+  "source": "https://raw.githubusercontent.com/mrdoob/three.js/ff9313bff96ad8063d813bd34f930950fd4198e4/examples/textures/equirectangular/spruit_sunrise_4k.hdr.jpg",
+  "repoCommit": "ff9313bff96ad8063d813bd34f930950fd4198e4",
+  "sha256": "49372dff4f9db4aab995f0a22462df4c25d31d5ac16ce9620b7e69d2dac69ddd",
+  "asset": "Spruit Sunrise",
+  "license": "CC0-1.0",
+  "use": "standard SDR base JPEG of UltraHDR image as a 4k background; original 1k HDR is still used for lighting",
+  "actualSite": false
+}

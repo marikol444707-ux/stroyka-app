@@ -1,0 +1,12 @@
+{
+  "oidn": {
+    "version": "2.3.3",
+    "url": "https://github.com/RenderKit/oidn/releases/download/v2.3.3/oidn-2.3.3.x86_64.linux.tar.gz",
+    "tarSha256": "3c385230d9e6f63527ba72f2229594dbac5051674219d72e0044b5d0b841796f",
+    "filter": "RTLightmap",
+    "shippedBrowserDependency": false
+  },
+  "three": "0.170.0",
+  "blender": "4.3.2",
+  "environmentSha256": "38199a31e945906f6778431e989256a92d9d78b0cfc0f902accad9f5244bf50f"
+}

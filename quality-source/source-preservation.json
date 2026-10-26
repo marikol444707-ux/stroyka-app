@@ -1,0 +1,26 @@
+{
+  "passed": true,
+  "sourcePrototype": "house-lab-v26",
+  "unchangedFiles": [
+    {
+      "file": "source-reference.glb",
+      "sha256": "89e8b5943e083a9a33ad4efb2dc290011088c3cdf04047c15a62cfcaf65ede03"
+    },
+    {
+      "file": "navigation.json",
+      "sha256": "6c85a52fc32ef265910e9306c780d4c66fd4d126d83363801cec181a8df09702"
+    },
+    {
+      "file": "walk-navigation.js",
+      "sha256": "5ade1226d04edcfee8f7bc443737665c69c5c21ef6a0513158aa6997ca2559ce"
+    },
+    {
+      "file": "source-unbatched.blend",
+      "sha256": "447b45dfd91ea9f5e9057fe3025e5df2d103d65def7ff56333d193c42f9a4e3f"
+    }
+  ],
+  "mainPrototypeCodeChanged": false,
+  "productionChanged": false,
+  "qualityStudy": "living-quality-v28",
+  "note": "Building point preservation is checked separately; legacy terrace furnishings are retained as geometry but hidden in this study."
+}

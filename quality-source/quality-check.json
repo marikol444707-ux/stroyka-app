@@ -1,0 +1,24 @@
+{
+  "passed": true,
+  "meshes": 51,
+  "vertices": 178811,
+  "opaque": 39,
+  "newFurnitureVertices": 18765,
+  "buildingGroupsVerified": 15,
+  "originalBuildingVertexSamples": 92528,
+  "missingBuildingSamples": 0,
+  "comparisonToleranceMetres": 0.0004,
+  "clearCameraEnvelope": true,
+  "lightmap": {
+    "width": 2048,
+    "height": 2048,
+    "litPixels": 593378,
+    "maxRedRadiance": 12.9453125
+  },
+  "licensedSofaSamples": 3118,
+  "licensedSofaMissing": 0,
+  "licensedMaterialPreserved": true,
+  "attributionPresent": true,
+  "fixedDaylight": true,
+  "physicalIphoneTested": false
+}

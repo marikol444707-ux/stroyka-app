@@ -1,0 +1,13 @@
+{
+  "model": "GlamVelvetSofa",
+  "author": "Eric Chadwick",
+  "owner": "Wayfair LLC",
+  "year": 2021,
+  "license": "CC-BY-4.0",
+  "sourceCommit": "8f492390ddc7a2ae221a1369ef560589cf8c70fb",
+  "sourceGitBlob": "8deb5ebeb28e4c04a3ed3cd9b59a8679d541beeb",
+  "sourceSha256": "67202c74a1a33377771f162dc7fad612a6c9bd51ee15124c488e9851d9ac5266",
+  "uniformResize": true,
+  "colourAdapted": true,
+  "attributionLinkedInUI": true
+}

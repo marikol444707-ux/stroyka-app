@@ -1,0 +1,18 @@
+{
+  "passed": true,
+  "atlas": 2048,
+  "samples": 96,
+  "files": [
+    {
+      "file": "assets/living-studio.glb",
+      "sha256": "2b27b71c158c9a7ab0648a3ed25de66ed98dcf0838196fbb40d7fac18ed56bb1",
+      "bytes": 12602248
+    },
+    {
+      "file": "assets/living-daylight.exr",
+      "sha256": "7a7d94cc4dabfa0e64bbe99b21720809f5d62fcb46a2347422cec514c4040705",
+      "bytes": 3699849
+    }
+  ],
+  "fixedDaylight": true
+}

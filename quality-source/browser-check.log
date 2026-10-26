@@ -1,0 +1,27 @@
+OK quality page ready
+OK no WebGL before visitor opt-in
+OK no scene assets requested before opt-in
+OK real mobile touch loads GLB and calculated lightmap
+OK actual geometry counts and lightmap UV1 maps
+OK legacy terrace props hidden only in quality view
+OK licensed sofa physical texture maps and real 4K background loaded
+OK only small scatter cushions use real-time lighting
+VIEW living-mobile-final.png actual visible viewport
+VIEW living-desktop-final.png actual visible viewport
+OK real mouse input changes 3D perspective
+VIEW living-orbit-final.png actual visible viewport
+OK reset flushes damping and restores exact pose
+OK layout fits 320
+OK layout fits 390
+OK layout fits 700
+OK layout fits 701
+OK layout fits 1280
+OK real touch changes perspective
+OK close releases canvas and study
+OK missing calculated lightmap fails honestly
+OK failed load releases renderer and allows retry
+OK real retry after missing lightmap succeeds
+OK retry has one complete scene
+VIEW living-mobile-reopened.png actual visible viewport
+OK no runtime exceptions
+PASS: explicit real touch load, geometry/UV1 checks, real mouse and touch perspective change, exact reset, five widths, close cleanup, actual blocked lightmap failure and successful retry. Physical iPhone/FPS not measured.

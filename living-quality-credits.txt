@@ -1,0 +1,13 @@
+Three.js 0.170.0 — MIT, see THREE-LICENSE.txt.
+Open Image Denoise 2.3.3 — Apache 2.0, see OIDN-LICENSE.txt; build-time only, not shipped as a browser library.
+Spruit Sunrise environment — Poly Haven, CC0: https://polyhaven.com/a/spruit_sunrise
+Downloaded from Three.js r170 example assets: https://raw.githubusercontent.com/mrdoob/three.js/r170/examples/textures/equirectangular/spruit_sunrise_1k.hdr
+This is a generic environment for viewing, not a photograph or survey of the customer's actual site.
+House source: existing authorised stroyka model. Furniture refinement, textures and lighting pipeline: this workspace's build-living.py.
+
+GlamVelvetSofa — Eric Chadwick, 2021, Wayfair LLC, Creative Commons Attribution 4.0 International (CC BY 4.0): https://creativecommons.org/licenses/by/4.0/
+Source: https://github.com/KhronosGroup/glTF-Sample-Assets/tree/8f492390ddc7a2ae221a1369ef560589cf8c70fb/Models/GlamVelvetSofa
+Adaptations for this study: uniform resizing, placement/orientation, warm grey fabric colour adaptation, integration into the existing house and calculated daylight. This is an example furnishing, not a product offer or endorsement. License metadata and source retained under references/.
+
+Sharp background: SDR base image of spruit_sunrise_4k.hdr.jpg, Poly Haven Spruit Sunrise, CC0. Distributed through the official Three.js examples, pinned revision ff9313bff96ad8063d813bd34f930950fd4198e4. https://github.com/mrdoob/three.js/blob/ff9313bff96ad8063d813bd34f930950fd4198e4/examples/textures/equirectangular/spruit_sunrise_4k.hdr.jpg
+Lighting still uses the 1K HDR above; the 4K JPEG is only the background. The ordinary SDR base is displayed, not a decoded UltraHDR gain map.
