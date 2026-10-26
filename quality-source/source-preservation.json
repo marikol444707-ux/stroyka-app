@@ -21,6 +21,20 @@
   ],
   "mainPrototypeCodeChanged": false,
   "productionChanged": false,
-  "qualityStudy": "living-quality-v28",
-  "note": "Building point preservation is checked separately; legacy terrace furnishings are retained as geometry but hidden in this study."
+  "qualityStudy": "living-quality-v29",
+  "note": "Building point preservation is checked separately; legacy terrace furnishings are retained as geometry but hidden in this study.",
+  "identicalV28Assets": [
+    {
+      "file": "assets/living-studio.glb",
+      "sha256": "2b27b71c158c9a7ab0648a3ed25de66ed98dcf0838196fbb40d7fac18ed56bb1"
+    },
+    {
+      "file": "assets/living-daylight.exr",
+      "sha256": "7a7d94cc4dabfa0e64bbe99b21720809f5d62fcb46a2347422cec514c4040705"
+    },
+    {
+      "file": "assets/garden-background-4k.jpg",
+      "sha256": "49372dff4f9db4aab995f0a22462df4c25d31d5ac16ce9620b7e69d2dac69ddd"
+    }
+  ]
 }
