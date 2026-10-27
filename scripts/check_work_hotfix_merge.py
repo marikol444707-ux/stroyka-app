@@ -13,6 +13,8 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import io
+import tokenize
 import urllib.request
 
 BASE = 'adc5f812407080c18e797b3c91d99b24340b46da'
@@ -55,13 +57,7 @@ def fetch_source(revision, relative, expected):
     return data
 
 
-def merge_source(current, base, incoming):
-    if current == incoming:
-        return 'already_present', current
-    if current == base:
-        return 'applicable', incoming
-    if current is None or base is None:
-        return 'conflict', None
+def run_merge(current, base, incoming, details=False):
     with tempfile.TemporaryDirectory(prefix='stroyka-merge-check-') as folder:
         directory = Path(folder)
         files = [directory / name for name in ('current', 'base', 'incoming')]
@@ -70,13 +66,87 @@ def merge_source(current, base, incoming):
             with os.fdopen(descriptor, 'wb') as output:
                 output.write(data)
         result = subprocess.run(
-            ['/usr/bin/git', 'merge-file', '-p', '--', *map(str, files)],
+            ['/usr/bin/git', 'merge-file', '-p',
+             *(['--diff3', '-L', 'SERVER', '-L', 'BASE', '-L', 'UPDATE'] if details else []),
+             '--', *map(str, files)],
             cwd=directory, capture_output=True, timeout=10,
             env={'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8'},
         )
+    return result
+
+
+def merge_source(current, base, incoming):
+    if current == incoming:
+        return 'already_present', current
+    if current == base:
+        return 'applicable', incoming
+    if current is None or base is None:
+        return 'conflict', None
+    result = run_merge(current, base, incoming)
     if result.returncode != 0:
         return ('conflict' if 0 < result.returncode < 128 else 'merge_error'), None
     return 'applicable_preserving_local_changes', result.stdout
+
+
+def sanitized_source(current, base, incoming):
+    """Reveal code structure, but only literal tokens already in pinned public code."""
+    fstring_middle = getattr(tokenize, 'FSTRING_MIDDLE', -1)
+    literal_types = (tokenize.STRING, tokenize.NUMBER, fstring_middle)
+    public = set()
+    for source in (base, incoming):
+        public.update(token.string for token in tokenize.tokenize(io.BytesIO(source).readline)
+                      if token.type in literal_types)
+    source = current.decode('utf-8')
+    lines = source.splitlines(keepends=True)
+    offsets = [0]
+    for line in lines:
+        offsets.append(offsets[-1] + len(line))
+    replacements = []
+    for token in tokenize.generate_tokens(io.StringIO(source).readline):
+        if token.type == tokenize.COMMENT:
+            replacement = ''
+        elif token.type == fstring_middle and token.string not in public:
+            replacement = '<PRIVATE_LITERAL>' + '\n' * token.string.count('\n')
+        elif token.type in literal_types and token.string not in public:
+            replacement = "'''<PRIVATE_LITERAL>" + '\n' * token.string.count('\n') + "'''"
+        else:
+            continue
+        start = offsets[token.start[0] - 1] + token.start[1]
+        end = offsets[token.end[0] - 1] + token.end[1]
+        replacements.append((start, end, replacement))
+    for start, end, replacement in reversed(replacements):
+        source = source[:start] + replacement + source[end:]
+    return source.splitlines(keepends=True)
+
+
+def describe_conflict(current, base, incoming):
+    if current is None or base is None:
+        return {'details_complete': False, 'code': 'SOURCE_ADDITION_OR_DELETION'}
+    result = run_merge(current, base, incoming, details=True)
+    if not 0 < result.returncode < 128:
+        return {'details_complete': False, 'code': 'NO_TEXT_CONFLICT'}
+    raw = current.decode('utf-8')
+    safe = sanitized_source(current, base, incoming)
+    merged = result.stdout.decode('utf-8')
+    blocks = []
+    remaining = merged
+    while '\n<<<<<<< SERVER\n' in '\n' + remaining:
+        _, _, remaining = ('\n' + remaining).partition('\n<<<<<<< SERVER\n')
+        ours, marker, remaining = remaining.partition('||||||| BASE\n')
+        if not marker or not ours:
+            return {'details_complete': False, 'code': 'CONFLICT_MARKERS_INVALID'}
+        _, marker, remaining = remaining.partition('>>>>>>> UPDATE\n')
+        position = raw.find(ours)
+        if not marker or position < 0 or raw.find(ours, position + 1) >= 0:
+            return {'details_complete': False, 'code': 'CONFLICT_LOCATION_AMBIGUOUS'}
+        first_line = raw[:position].count('\n')
+        count = len(ours.splitlines())
+        blocks.append({'line': first_line + 1, 'lines': count,
+                       'server_code': ''.join(safe[first_line:first_line + count])})
+    if not blocks or sum(block['lines'] for block in blocks) > 250:
+        return {'details_complete': False, 'code': 'CONFLICT_DETAILS_LIMIT'}
+    return {'details_complete': True, 'private_literals_and_comments_redacted': True,
+            'blocks': blocks}
 
 
 def function_ast(source, name):
@@ -86,7 +156,7 @@ def function_ast(source, name):
     return None
 
 
-def inspect(root, fetch=fetch_source):
+def inspect(root, fetch=fetch_source, details=False):
     before = {path: read_current(root, path) for path in SOURCES}
     report = []
     init_unchanged = None
@@ -104,9 +174,12 @@ def inspect(root, fetch=fetch_source):
             init_unchanged = original is not None and original == function_ast(merged, 'init_db')
             if not init_unchanged:
                 status = 'startup_code_requires_review'
-        report.append({'path': path, 'status': status,
-                       'current_sha256': digest(before[path]),
-                       'candidate_sha256': digest(merged)})
+        row = {'path': path, 'status': status,
+               'current_sha256': digest(before[path]),
+               'candidate_sha256': digest(merged)}
+        if details and status == 'conflict' and path == 'backend/main.py':
+            row['conflict_details'] = describe_conflict(before[path], base, incoming)
+        report.append(row)
     stable = all(read_current(root, path) == value for path, value in before.items())
     applicable = stable and all(row['status'] in (
         'already_present', 'applicable', 'applicable_preserving_local_changes') for row in report)
@@ -122,9 +195,10 @@ def inspect(root, fetch=fetch_source):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--app', type=Path, default=Path('/var/www/stroyka-app'))
+    parser.add_argument('--conflict-details', action='store_true')
     args = parser.parse_args()
     try:
-        print(json.dumps(inspect(args.app.resolve()), ensure_ascii=False))
+        print(json.dumps(inspect(args.app.resolve(), details=args.conflict_details), ensure_ascii=False))
     except Exception as error:
         allowed = {'SOURCE_SYMLINK_REQUIRES_REVIEW', 'INVALID_SOURCE_FILE',
                    'PINNED_SOURCE_HASH_MISMATCH'}

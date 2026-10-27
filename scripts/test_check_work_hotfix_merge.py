@@ -92,6 +92,41 @@ class WorkHotfixMergeTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'PINNED_SOURCE_HASH_MISMATCH'):
                     check.inspect(Path(directory), lambda *args: b'altered')
 
+    def test_conflict_details_show_only_redacted_server_code(self):
+        base = b'def scan():\n    return "old"\n'
+        local = b'def scan():\n    return "private-key-739812"  # private comment\n'
+        incoming = b'def scan():\n    return "supplier-fixed"\n'
+        report = check.describe_conflict(local, base, incoming)
+        self.assertTrue(report['details_complete'])
+        self.assertEqual(report['blocks'][0]['line'], 2)
+        value = json.dumps(report)
+        self.assertIn('PRIVATE_LITERAL', value)
+        self.assertNotIn('private-key-739812', value)
+        self.assertNotIn('private comment', value)
+
+    def test_multiline_numeric_and_fstring_private_literals_are_redacted(self):
+        base = b'def scan():\n    return 1\n'
+        current = b'def scan():\n    text = """private line one\nprivate line two"""\n    return f"private-text-{value}", 918273645\n'
+        lines = check.sanitized_source(current, base, base)
+        result = ''.join(lines)
+        self.assertEqual(len(lines), len(current.splitlines()))
+        self.assertNotIn('private line', result)
+        self.assertNotIn('private-text-', result)
+        self.assertNotIn('918273645', result)
+
+    def test_published_literals_are_retained_in_conflict_details(self):
+        base = b'def scan():\n    return "old"\n'
+        incoming = b'def scan():\n    return "supplier-fixed"\n'
+        local = b'def scan():\n    return "supplier-fixed", "private"\n'
+        report = check.describe_conflict(local, base, incoming)
+        self.assertTrue(report['details_complete'])
+        value = json.dumps(report)
+        self.assertIn('supplier-fixed', value)
+        self.assertNotIn('"private"', value)
+
+    def test_conflict_details_are_not_emitted_without_an_actual_conflict(self):
+        self.assertFalse(check.describe_conflict(b'x=1\n', b'x=1\n', b'x=2\n')['details_complete'])
+
 
 if __name__ == '__main__':
     unittest.main()
