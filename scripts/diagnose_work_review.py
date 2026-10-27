@@ -2,6 +2,7 @@
 """Read-only local PostgreSQL diagnostic; never imports or initializes the app."""
 import argparse
 import json
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -46,6 +47,10 @@ def database_name(app):
 def runtime_state(app):
     environment={'PATH':'/usr/bin:/usr/sbin:/bin','LANG':'C.UTF-8'}
     state={'server_head':'unknown','backend_flags':{}}
+    for key,relative in [('backend_main_sha256','backend/main.py'),('yandex_adapter_sha256','backend/features/model_gateway/yandex_adapter.py')]:
+        file=app/relative
+        if file.is_file():
+            state[key]=hashlib.sha256(file.read_bytes()).hexdigest()
     try:
         result=subprocess.run(['/usr/bin/git','-C',str(app),'rev-parse','HEAD'],text=True,capture_output=True,timeout=5,env=environment)
         head=result.stdout.strip()
@@ -88,7 +93,7 @@ def main():
                                'PGOPTIONS':'-c default_transaction_read_only=on'})
     if result.returncode:
         raise ValueError('READ_ONLY_QUERY_FAILED_OR_SCHEMA_INCOMPATIBLE')
-    print(json.dumps({'read_only':True,**state,**json.loads(result.stdout)},ensure_ascii=False,default=str))
+    print(json.dumps({'read_only':True,'report_complete':True,**state,**json.loads(result.stdout)},ensure_ascii=False,default=str))
 
 
 if __name__=='__main__':

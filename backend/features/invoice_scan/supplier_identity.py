@@ -8,8 +8,8 @@ def native_pdf_seller(parts):
         if getattr(part, 'kind', '') != 'text':
             continue
         text = str(getattr(part, 'value', '') or '')
-        name = re.search(r'^\s*Продавец\s*:?\s+([^\n]+)', text, re.M | re.I)
-        tax = re.search(r'^\s*ИНН\s*/\s*КПП\s+продавца\s*:?\s*(\d{10}|\d{12})\s*/\s*(\d{9})', text, re.M | re.I)
+        name = re.search(r'(?:^|[ \t]{2,})Продавец[ \t]*:?[ \t]+([^\n]+)', text, re.M | re.I)
+        tax = re.search(r'(?:^|[ \t]{2,})ИНН[ \t]*/[ \t]*КПП[ \t]+продавца[ \t]*:?[ \t]*(\d{10}|\d{12})[ \t]*/[ \t]*(\d{9})', text, re.M | re.I)
         if name and tax and 0 < tax.start() - name.start() < 1500:
             title = re.sub(r'\s+\(2\)\s*$', '', name[1]).strip()
             found.add((title, tax[1], tax[2]))

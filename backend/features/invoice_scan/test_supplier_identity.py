@@ -9,6 +9,7 @@ class SupplierIdentityTest(TestCase):
     def test_explicit_pdf_seller_not_shipper_or_buyer(self):
         text='Продавец    АО Тестовый продавец (2)\nАдрес адрес\nИНН/КПП продавца 1234567890/123456789 (2б)\nГрузоотправитель подразделение\nПокупатель ООО Другой'
         result=native_pdf_seller([SimpleNamespace(kind='text',value=text)])
+        self.assertEqual(native_pdf_seller([SimpleNamespace(kind='text',value=text.replace('Продавец    ', 'документ  Продавец  '))]),result)
         self.assertEqual(result,{'supplier':'АО Тестовый продавец','supplierInn':'1234567890','supplierKpp':'123456789'})
         self.assertEqual(native_pdf_seller([SimpleNamespace(kind='text',value=text),SimpleNamespace(kind='text',value=text.replace('1234567890','1234567891'))]),{})
     def test_template_requires_legal_identity_and_same_card(self):

@@ -259,9 +259,10 @@ class WarehouseAnomalyRuntimeRouteRegistrationTests(unittest.TestCase):
 
         # Reviewed exact contractor selection, company-scoped worker access and manual command receipts;
         # JEV opportunity intake registration is reviewed; warehouse preview remains unchanged.
+        # Reviewed supplier identity and pending-work filter; warehouse preview AST is unchanged.
         self.assertEqual(
             hashlib.sha256(main_bytes).hexdigest(),
-            "197164ec7afe3cae418c7520c938fa7fcb0c61a5eac53cdd832161033b4a0011",
+            "a63a1acfdbebe009f89744eab6f8b7a5642f090bb262ba34bc92ebfe824e0a62",
         )
         self.assertEqual(
             hashlib.sha256(package_bytes).hexdigest(),

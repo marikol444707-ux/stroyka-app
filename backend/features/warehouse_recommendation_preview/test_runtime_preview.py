@@ -947,8 +947,9 @@ class WarehouseAnomalyRuntimePreviewCompositionTests(unittest.TestCase):
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
             # Reviewed JEV intake plus canonical supplier invitation registration; warehouse preview implementation and registration are unchanged.
+            # Reviewed supplier identity and pending-work filter; preview AST is unchanged.
             root / "backend/main.py": (
-                "197164ec7afe3cae418c7520c938fa7fcb0c61a5eac53cdd832161033b4a0011"
+                "a63a1acfdbebe009f89744eab6f8b7a5642f090bb262ba34bc92ebfe824e0a62"
             ),
         }
         self.assertEqual({
