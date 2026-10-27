@@ -8,6 +8,7 @@ inputs are private and removed before the report is printed.
 import argparse
 import ast
 import copy
+from collections import Counter
 import difflib
 import hashlib
 import json
@@ -77,7 +78,7 @@ def run_merge(current, base, incoming, details=False):
     return result
 
 
-def merge_source(current, base, incoming):
+def merge_source(current, base, incoming, python_functions=False):
     if current == incoming:
         return 'already_present', current
     if current == base:
@@ -86,8 +87,77 @@ def merge_source(current, base, incoming):
         return 'conflict', None
     result = run_merge(current, base, incoming)
     if result.returncode != 0:
+        if python_functions and 0 < result.returncode < 128:
+            return merge_reviewed_python_functions(current, base, incoming)
         return ('conflict' if 0 < result.returncode < 128 else 'merge_error'), None
     return 'applicable_preserving_local_changes', result.stdout
+
+
+def merge_reviewed_python_functions(current, base, incoming):
+    """Replace reviewed functions only when local ASTs match the pinned base.
+
+    This does not resolve competing logic: every edited function must already
+    equal either the pinned base or update. Unrelated bytes and all server
+    comments must survive. Any failed proof keeps the original conflict closed.
+    """
+    allowed = {'get_work_journal', '_apply_supplier_invoice_template_metadata', 'scan_invoice'}
+    function_types = (ast.FunctionDef, ast.AsyncFunctionDef)
+    def signature(node):
+        return ast.dump(node, include_attributes=False)
+    def split(source):
+        tree = ast.parse(source)
+        nodes = [node for node in tree.body if isinstance(node, function_types)]
+        globals_ = [signature(node) for node in tree.body if not isinstance(node, function_types)]
+        counts = Counter(node.name for node in nodes)
+        return {node.name: node for node in nodes}, globals_, counts
+    old, old_globals, old_counts = split(base)
+    update, update_globals, update_counts = split(incoming)
+    local, _, local_counts = split(current)
+    if old.keys() != update.keys() or old_globals != update_globals:
+        return 'conflict', None
+    changed = {name for name in old if signature(old[name]) != signature(update[name])}
+    if not changed or not changed <= allowed:
+        return 'conflict', None
+    if any(old_counts[name] != 1 or update_counts[name] != 1 or local_counts[name] != 1 for name in changed):
+        return 'conflict', None
+    old_lines = current.splitlines(keepends=True)
+    update_lines = incoming.splitlines(keepends=True)
+    def bounds(node):
+        return min([node.lineno] + [item.lineno for item in node.decorator_list]) - 1, node.end_lineno
+    def fragment(lines, node):
+        start, end = bounds(node)
+        return b''.join(lines[start:end])
+    def comments(source):
+        return Counter(token.string for token in tokenize.tokenize(io.BytesIO(source).readline)
+                       if token.type == tokenize.COMMENT)
+    replacements = []
+    for name in changed:
+        if signature(local[name]) == signature(update[name]):
+            continue
+        if signature(local[name]) != signature(old[name]):
+            return 'conflict', None
+        source = fragment(old_lines, local[name])
+        replacement = fragment(update_lines, update[name])
+        if comments(source) - comments(replacement):
+            return 'conflict', None
+        start, end = bounds(local[name])
+        replacements.append((start, end, replacement))
+    merged_lines = old_lines[:]
+    for start, end, replacement in sorted(replacements, reverse=True):
+        merged_lines[start:end] = [replacement]
+    merged = b''.join(merged_lines)
+    compile(merged, 'merged-main.py', 'exec')  # No execution.
+    merged_nodes, _, merged_counts = split(merged)
+    if any(merged_counts[name] != 1 or signature(merged_nodes[name]) != signature(update[name]) for name in changed):
+        return 'conflict', None
+    def outside(source, nodes):
+        lines = source.splitlines(keepends=True)
+        for start, end, name in sorted((*bounds(nodes[name]), name) for name in changed)[::-1]:
+            lines[start:end] = [b'# reviewed-function:' + name.encode('ascii') + b'\n']
+        return b''.join(lines)
+    if outside(current, local) != outside(merged, merged_nodes):
+        return 'conflict', None
+    return 'applicable_verified_function_merge', merged
 
 
 def sanitized_source(current, base, incoming):
@@ -215,17 +285,37 @@ def function_ast(source, name):
     return None
 
 
+def startup_fingerprints(source):
+    names = {'init_db', '_startup_num', '_startup_repair_saved_estimate_adjustments',
+             'DEFAULT_MATERIAL_NORMS', 'SITE_PRICE_RULE_DEFAULTS', 'OWN_EXPENSE_NO_PROJECT_CATEGORY'}
+    found = {}
+    for node in ast.parse(source).body:
+        targets = [node.name] if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) else (
+            [target.id for target in node.targets if isinstance(target, ast.Name)] if isinstance(node, ast.Assign) else [])
+        for name in targets:
+            if name in names:
+                found[name] = digest(ast.dump(node, include_attributes=False).encode())
+    return found
+
+
 def inspect(root, fetch=fetch_source, details=False):
     before = {path: read_current(root, path) for path in SOURCES}
     report = []
     init_unchanged = None
+    startup = {'evaluated': False}
     for path, pins in SOURCES.items():
         base = fetch(BASE, path, pins['base'])
         incoming = fetch(TARGET, path, pins['target'])
         # Keep verification at this boundary too, including injected test fetchers.
         if digest(base) != pins['base'] or digest(incoming) != pins['target']:
             raise ValueError('PINNED_SOURCE_HASH_MISMATCH')
-        status, merged = merge_source(before[path], base, incoming)
+        status, merged = merge_source(before[path], base, incoming, python_functions=path == 'backend/main.py')
+        if path == 'backend/main.py' and before[path] is not None:
+            current_startup = startup_fingerprints(before[path])
+            expected_startup = startup_fingerprints(incoming)
+            startup = {'evaluated': True, 'current_ast_sha256': current_startup,
+                       'matches_reviewed_target': len(current_startup) == 6 and current_startup == expected_startup,
+                       'data_effects_checked': False}
         if merged is not None and path.endswith('.py'):
             compile(merged, path, 'exec')  # Syntax only: no execution or imports.
         if path == 'backend/main.py' and merged is not None:
@@ -236,16 +326,23 @@ def inspect(root, fetch=fetch_source, details=False):
         row = {'path': path, 'status': status,
                'current_sha256': digest(before[path]),
                'candidate_sha256': digest(merged)}
+        if status == 'applicable_verified_function_merge':
+            row['merge_proof'] = {'edited_functions_match_pinned_base_or_update': True,
+                                  'unrelated_source_bytes_preserved': True,
+                                  'server_comments_preserved': True}
         if details and status == 'conflict' and path == 'backend/main.py':
             row['conflict_details'] = describe_conflict(before[path], base, incoming)
         report.append(row)
     stable = all(read_current(root, path) == value for path, value in before.items())
     applicable = stable and all(row['status'] in (
-        'already_present', 'applicable', 'applicable_preserving_local_changes') for row in report)
+        'already_present', 'applicable', 'applicable_preserving_local_changes',
+        'applicable_verified_function_merge') for row in report)
     return {'read_only_app': True, 'report_complete': True,
             'application_files_changed': False, 'services_changed': False,
             'database_accessed': False, 'source_stable_during_check': stable,
-            'text_merge_applicable': applicable, 'init_db_code_unchanged': init_unchanged,
+            'text_merge_applicable': applicable and all(row['status'] != 'applicable_verified_function_merge' for row in report),
+            'source_merge_applicable': applicable, 'init_db_code_unchanged': init_unchanged,
+            'startup_source_compatibility': startup,
             'startup_data_gate': 'NOT_EVALUATED', 'maintenance_quiescence': 'NOT_ESTABLISHED',
             'merged_application_tests': 'NOT_RUN', 'installation_ready': False,
             'files': report}

@@ -160,6 +160,76 @@ class WorkHotfixMergeTests(unittest.TestCase):
         self.assertFalse(report['details_complete'])
         self.assertEqual(report['code'], 'UPSTREAM_GLOBAL_CHANGES_REQUIRE_REVIEW')
 
+    def function_merge_fixture(self):
+        base = (b'def init_db():\n    return "legacy startup"\n\n'
+                b'def get_work_journal():\n    return {"scope": "company", "status": "old"}\n\n'
+                b'def unrelated():\n    return "original"\n')
+        incoming = base.replace(b'"status": "old"', b'"status": "new"')
+        current = base.replace(b'"status": "old"', b"'status' : 'old'")
+        current = current.replace(b'return "original"', b'return "SERVER FIX MUST SURVIVE"')
+        self.assertEqual(check.merge_source(current, base, incoming), ('conflict', None))
+        return current, base, incoming
+
+    def test_verified_function_merge_preserves_every_unrelated_source_byte(self):
+        current, base, incoming = self.function_merge_fixture()
+        status, merged = check.merge_source(current, base, incoming, python_functions=True)
+        self.assertEqual(status, 'applicable_verified_function_merge')
+        self.assertIn(b'SERVER FIX MUST SURVIVE', merged)
+        self.assertEqual(merged, current.replace(b"'status' : 'old'", b'"status": "new"'))
+        self.assertEqual(check.function_ast(merged, 'init_db'), check.function_ast(current, 'init_db'))
+
+    def test_different_server_logic_is_not_resolved_by_function_replacement(self):
+        current, base, incoming = self.function_merge_fixture()
+        changed = current.replace(b"'status' : 'old'", b"'status' : 'production-change'")
+        self.assertEqual(check.merge_reviewed_python_functions(changed, base, incoming), ('conflict', None))
+
+    def test_server_comments_cannot_be_discarded_even_when_asts_match(self):
+        current, base, incoming = self.function_merge_fixture()
+        changed = current.replace(b'def get_work_journal():\n', b'def get_work_journal():\n    # Preserve operator note\n')
+        self.assertEqual(check.function_ast(changed, 'get_work_journal'), check.function_ast(base, 'get_work_journal'))
+        self.assertEqual(check.merge_reviewed_python_functions(changed, base, incoming), ('conflict', None))
+
+    def test_duplicate_function_names_block_replacement(self):
+        current, base, incoming = self.function_merge_fixture()
+        current += b'\ndef get_work_journal():\n    return {}\n'
+        self.assertEqual(check.merge_reviewed_python_functions(current, base, incoming), ('conflict', None))
+
+    def test_unreviewed_functions_or_globals_cannot_be_changed(self):
+        current, base, incoming = self.function_merge_fixture()
+        self.assertEqual(check.merge_reviewed_python_functions(current, base, incoming + b'\nflag = 1\n'), ('conflict', None))
+        self.assertEqual(check.merge_reviewed_python_functions(current, base, incoming.replace(b'"original"', b'"unreviewed"')), ('conflict', None))
+
+    def test_already_updated_semantics_keep_local_formatting(self):
+        current, base, incoming = self.function_merge_fixture()
+        current = current.replace(b"'status' : 'old'", b"'status' : 'new'")
+        status, merged = check.merge_reviewed_python_functions(current, base, incoming)
+        self.assertEqual(status, 'applicable_verified_function_merge')
+        self.assertEqual(merged, current)
+
+    def test_structural_merge_is_not_reported_as_a_text_merge_or_ready_installation(self):
+        current, base, incoming = self.function_merge_fixture()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'backend').mkdir()
+            (root / 'backend/main.py').write_bytes(current)
+            pins = {'backend/main.py': {'base': check.digest(base), 'target': check.digest(incoming)}}
+            with patch.object(check, 'SOURCES', pins):
+                report = check.inspect(root, lambda revision, *_: base if revision == check.BASE else incoming)
+            self.assertTrue(report['source_merge_applicable'])
+            self.assertFalse(report['text_merge_applicable'])
+            self.assertTrue(report['init_db_code_unchanged'])
+            self.assertFalse(report['installation_ready'])
+            self.assertEqual(report['startup_data_gate'], 'NOT_EVALUATED')
+            self.assertEqual((root / 'backend/main.py').read_bytes(), current)
+
+    def test_startup_fingerprints_cover_constants_without_exposing_their_values(self):
+        source = b'OWN_EXPENSE_NO_PROJECT_CATEGORY = "PRIVATE_CATEGORY"\ndef init_db():\n    return 1\n'
+        hashes = check.startup_fingerprints(source)
+        self.assertEqual(set(hashes), {'init_db', 'OWN_EXPENSE_NO_PROJECT_CATEGORY'})
+        self.assertNotIn('PRIVATE_CATEGORY', json.dumps(hashes))
+        self.assertNotEqual(hashes['OWN_EXPENSE_NO_PROJECT_CATEGORY'], check.startup_fingerprints(
+            source.replace(b'PRIVATE_CATEGORY', b'OTHER_CATEGORY'))['OWN_EXPENSE_NO_PROJECT_CATEGORY'])
+
 
 if __name__ == '__main__':
     unittest.main()
