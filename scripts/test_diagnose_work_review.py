@@ -17,7 +17,7 @@ class WorkDiagnosticTest(unittest.TestCase):
             with self.assertRaises(ValueError):database_name(app)
     def test_command_is_socket_only_passwordless_and_read_only(self):
         with tempfile.TemporaryDirectory() as root:
-            app=Path(root);(app/'backend').mkdir();(app/'backend/.env').write_text('DB_NAME=test_db')
+            app=Path(root);(app/'backend').mkdir();(app/'backend/.env').write_text('DB_NAME=test_db\nWORK_ACCEPTANCE_ENABLED=1\nUNRELATED_SECRET=synthetic-do-not-output')
             with patch('os.geteuid',return_value=0),patch('sys.argv',['diagnostic','--app',root,'--project','Synthetic','--worker','Synthetic']),patch('subprocess.run') as run,contextlib.redirect_stdout(io.StringIO()) as output:
                 run.return_value.returncode=0;run.return_value.stdout='{"works": []}'
                 main()
@@ -25,4 +25,8 @@ class WorkDiagnosticTest(unittest.TestCase):
             self.assertIn('--host=/var/run/postgresql',args);self.assertIn('--no-password',args)
             self.assertIn('BEGIN READ ONLY;',kwargs['input']);self.assertIn('ROLLBACK;',kwargs['input'])
             self.assertEqual(kwargs['env']['PGOPTIONS'],'-c default_transaction_read_only=on')
-            self.assertTrue(json.loads(output.getvalue())['read_only'])
+            report=json.loads(output.getvalue())
+            self.assertTrue(report['read_only'])
+            self.assertEqual(report['env_file_flags']['WORK_ACCEPTANCE_ENABLED'],'1')
+            self.assertNotIn('UNRELATED_SECRET',output.getvalue())
+            self.assertNotIn('synthetic-do-not-output',output.getvalue())

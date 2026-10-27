@@ -2,6 +2,8 @@ import ast
 import unittest
 from pathlib import Path
 
+from backend.features.model_gateway.contract import ModelInputPart
+
 
 MAIN_PATH = Path(__file__).parents[2] / "main.py"
 
@@ -17,6 +19,18 @@ EXPECTED = {
 
 
 class MainRuntimeGatewayCutoverTest(unittest.TestCase):
+    def _load_invoice_ai_content(self, **overrides):
+        tree = ast.parse(MAIN_PATH.read_text(encoding="utf-8"))
+        function = next(
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "_invoice_scan_ai_content"
+        )
+        namespace = {"ModelInputPart": ModelInputPart, **overrides}
+        module = ast.Module(body=[function], type_ignores=[])
+        exec(compile(module, str(MAIN_PATH), "exec"), namespace)
+        return namespace[function.name]
+
     def test_invoice_scan_and_its_retries_use_gateway_only(self):
         tree = ast.parse(MAIN_PATH.read_text(encoding="utf-8"))
         functions = {
@@ -53,8 +67,57 @@ class MainRuntimeGatewayCutoverTest(unittest.TestCase):
         self.assertIn("len(rendered_pages) > 6", source)
         self.assertIn("status_code=422", source)
         self.assertIn("kind='image_data_url'", source)
+        self.assertIn("max_pages=7", source)
+        self.assertIn("len(rendered_pages) > 6", source)
+        self.assertIn("if not rendered_pages", source)
         self.assertNotIn("files.create", source)
         self.assertNotIn("files.delete", source)
+
+    def test_invoice_pdf_uses_extracted_text_and_at_most_six_rendered_pages(self):
+        render_calls = []
+
+        def render(pdf_bytes, *, max_pages):
+            render_calls.append((pdf_bytes, max_pages))
+            return [f"page-{number}" for number in range(1, 7)]
+
+        build_content = self._load_invoice_ai_content(
+            _invoice_scan_pdf_bytes=lambda _entry: b"pdf bytes",
+            _extract_invoice_scan_pdf_text=lambda _pdf: "INVOICE TOTAL 123",
+            _render_invoice_scan_pdf_pages=render,
+        )
+
+        parts = build_content(
+            {"mimeType": "application/pdf", "data": "encoded"}, 1, 1
+        )
+
+        self.assertEqual(render_calls, [(b"pdf bytes", 7)])
+        self.assertEqual(sum(part.kind == "image_data_url" for part in parts), 6)
+        self.assertTrue(any("INVOICE TOTAL 123" in part.value for part in parts))
+        self.assertFalse(any(part.kind == "file_data_url" for part in parts))
+
+    def test_invoice_pdf_rejects_unrenderable_or_over_six_page_documents(self):
+        class FakeHTTPException(Exception):
+            def __init__(self, *, status_code, detail):
+                super().__init__(detail)
+                self.status_code = status_code
+
+        for rendered_pages in ([], [f"page-{number}" for number in range(7)]):
+            with self.subTest(rendered_page_count=len(rendered_pages)):
+                build_content = self._load_invoice_ai_content(
+                    HTTPException=FakeHTTPException,
+                    _invoice_scan_pdf_bytes=lambda _entry: b"pdf bytes",
+                    _extract_invoice_scan_pdf_text=lambda _pdf: "",
+                    _render_invoice_scan_pdf_pages=lambda _pdf, *, max_pages: rendered_pages,
+                )
+
+                with self.assertRaises(FakeHTTPException) as raised:
+                    build_content(
+                        {"mimeType": "application/pdf", "data": "encoded"},
+                        1,
+                        1,
+                    )
+
+                self.assertEqual(raised.exception.status_code, 422)
 
     def test_director_agent_serializes_its_read_only_conversation_for_gateway(self):
         tree = ast.parse(MAIN_PATH.read_text(encoding="utf-8"))

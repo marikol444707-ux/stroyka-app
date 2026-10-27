@@ -360,6 +360,12 @@ class WorkAcceptancePostgresTests(unittest.TestCase):
         self.assertEqual(report['worker_matches'],1)
         self.assertEqual(report['company_id'],2)
         self.assertEqual([row['id'] for row in report['works']],[self.journal_id])
+        legacy_id=self.sql("INSERT INTO work_journal(company_id,project,master_name,description,status,quantity,unit,date) VALUES(2,%s,'Synthetic legacy sender','Synthetic legacy work','На проверке',1,'шт','2026-10-27') RETURNING id",(self.f['project'],))[0][0]
+        legacy=self.sql(query,(self.f['project'],'No match|legacy sender'))[0][0]
+        self.assertEqual(legacy['worker_matches'],0)
+        self.assertEqual([row['id'] for row in legacy['works']],[legacy_id])
+        self.assertFalse(legacy['unassigned_company_rows_inspected'])
+
         report=self.sql(query,('Missing project',self.f['users']['worker']['name']))[0][0]
         self.assertEqual(report['works'],[])
         self.sql('INSERT INTO projects(name,company_id) VALUES(%s,3)',(self.f['project'],))

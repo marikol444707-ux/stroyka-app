@@ -1,6 +1,7 @@
 """OpenAI-compatible Yandex transport with no runtime registration."""
 
 import asyncio
+import json
 import math
 import re
 import time
@@ -151,7 +152,11 @@ def _provider_input(request):
         if part.kind == "text":
             content.append({"type": "input_text", "text": part.value})
         elif part.kind == "image_data_url":
-            content.append({"type": "input_image", "image_url": part.value, "detail": "auto"})
+            content.append({
+                "type": "input_image",
+                "image_url": part.value,
+                "detail": "auto",
+            })
         elif part.kind == "file_id":
             content.append({"type": "input_file", "file_id": part.value})
         elif part.kind == "file_data_url":
@@ -163,6 +168,157 @@ def _provider_input(request):
         else:
             _error(MODEL_GATEWAY_CONTRACT_INVALID)
     return [{"role": "user", "content": content}]
+
+
+_INVOICE_DIAGNOSTIC_EXCEPTION_TYPES = frozenset({
+    "BadRequestError",
+    "AuthenticationError",
+    "PermissionDeniedError",
+    "NotFoundError",
+    "ConflictError",
+    "UnprocessableEntityError",
+    "RateLimitError",
+    "InternalServerError",
+    "APIConnectionError",
+    "APITimeoutError",
+    "APIStatusError",
+    "APIError",
+    "TypeError",
+    "ValueError",
+})
+_INVOICE_DIAGNOSTIC_ERROR_MENTIONS = (
+    "temperature",
+    "max_output_tokens",
+    "image_url",
+    "detail",
+    "model",
+    "input_file",
+    "file_data",
+    "mime",
+    "format",
+    "size",
+    "context_length",
+)
+_INVOICE_DIAGNOSTIC_OUTPUT_TYPES = frozenset({
+    "message",
+    "reasoning",
+    "function_call",
+    "web_search_call",
+    "file_search_call",
+    "image_generation_call",
+})
+_INVOICE_DIAGNOSTIC_CONTENT_TYPES = frozenset({
+    "output_text",
+    "text",
+    "refusal",
+})
+
+
+def _invoice_input_counts(request):
+    parts = getattr(request, "input_parts", ())
+    return {
+        "images": sum(getattr(part, "kind", None) == "image_data_url" for part in parts),
+        "files": sum(
+            getattr(part, "kind", None) in ("file_id", "file_data_url")
+            for part in parts
+        ),
+    }
+
+
+def _invoice_provider_error_diagnostic(error, request, stage):
+    status_code = getattr(error, "status_code", None)
+    error_name = type(error).__name__
+    body = str(getattr(error, "body", ""))[:65536].lower()
+    return {
+        "stage": stage,
+        "httpStatus": (
+            status_code
+            if type(status_code) is int and 400 <= status_code <= 599
+            else None
+        ),
+        "exceptionType": (
+            error_name
+            if error_name in _INVOICE_DIAGNOSTIC_EXCEPTION_TYPES
+            else "other"
+        ),
+        "mentions": [
+            field for field in _INVOICE_DIAGNOSTIC_ERROR_MENTIONS if field in body
+        ],
+        **_invoice_input_counts(request),
+    }
+
+
+def _invoice_response_diagnostic(response, request):
+    def response_value(value, name):
+        return value.get(name) if type(value) is dict else getattr(value, name, None)
+
+    def safe_number(value):
+        return value if type(value) is int and 0 <= value <= 10_000_000 else None
+
+    status = response_value(response, "status")
+    if type(status) is not str or status not in {
+        "completed", "incomplete", "failed", "in_progress", "queued", "cancelled"
+    }:
+        status = "other"
+
+    incomplete_details = response_value(response, "incomplete_details")
+    incomplete_reason = response_value(incomplete_details, "reason")
+    if type(incomplete_reason) is not str or incomplete_reason not in {
+        "max_output_tokens", "content_filter", "max_tokens", "length"
+    }:
+        incomplete_reason = None
+
+    output = response_value(response, "output")
+    output = output[:64] if type(output) in (list, tuple) else ()
+    output_types = {}
+    content_types = {}
+    message_text_chars = 0
+    for item in output:
+        item_type = response_value(item, "type")
+        if type(item_type) is not str or item_type not in _INVOICE_DIAGNOSTIC_OUTPUT_TYPES:
+            item_type = "other"
+        output_types[item_type] = output_types.get(item_type, 0) + 1
+        if item_type != "message":
+            continue
+        content = response_value(item, "content")
+        content = content[:64] if type(content) in (list, tuple) else ()
+        for part in content:
+            part_type = response_value(part, "type")
+            if type(part_type) is not str or part_type not in _INVOICE_DIAGNOSTIC_CONTENT_TYPES:
+                part_type = "other"
+            content_types[part_type] = content_types.get(part_type, 0) + 1
+            if part_type in ("output_text", "text"):
+                text = response_value(part, "text")
+                if type(text) is str:
+                    message_text_chars += len(text)
+
+    usage = response_value(response, "usage")
+    token_details = response_value(usage, "output_tokens_details")
+    output_text = response_value(response, "output_text")
+    return {
+        "status": status,
+        "incompleteReason": incomplete_reason,
+        "outputTypes": output_types,
+        "contentTypes": content_types,
+        "outputTextChars": (
+            min(len(output_text), 10_000_000)
+            if type(output_text) is str
+            else 0
+        ),
+        "messageTextChars": min(message_text_chars, 10_000_000),
+        "inputTokens": safe_number(response_value(usage, "input_tokens")),
+        "outputTokens": safe_number(response_value(usage, "output_tokens")),
+        "reasoningTokens": safe_number(response_value(token_details, "reasoning_tokens")),
+        **_invoice_input_counts(request),
+    }
+
+
+def _log_invoice_diagnostic(event, details):
+    print(
+        event,
+        json.dumps(details, ensure_ascii=False, separators=(",", ":")),
+        flush=True,
+    )
 
 
 def _usage_value(usage, name):
@@ -250,169 +406,115 @@ class YandexModelAdapter:
             return
 
     def generate(self, request):
+        request = _validated_request(request)
+        provider_input = _provider_input(request)
+        started_at = self._clock()
+        correlation_id = self._correlation_id()
+        saw_empty = False
+        saw_timeout = False
         try:
-            request = _validated_request(request)
-            provider_input = _provider_input(request)
-            started_at = self._clock()
-            correlation_id = self._correlation_id()
-            saw_empty = False
-            saw_timeout = False
-            try:
-                for model_id in YANDEX_CAPABILITY_MODELS[request.capability]:
-                    elapsed = self._clock() - started_at
-                    remaining = request.deadline_seconds - elapsed
-                    if not math.isfinite(remaining) or remaining <= 0:
-                        _error(MODEL_GATEWAY_DEADLINE_EXCEEDED)
-                    try:
-                        response = self._client.responses.create(
-                            model="gpt://" + self._folder_id + "/" + model_id,
-                            temperature=request.temperature,
-                            instructions=request.instructions,
-                            input=provider_input,
-                            max_output_tokens=request.max_output_tokens,
-                            timeout=float(remaining),
-                            **({"reasoning": {"effort": "none"}} if request.capability == "invoice_scan" and model_id == "qwen3.6-35b-a3b/latest" else {}),
-                        )
-                    except asyncio.CancelledError:
-                        _error(MODEL_GATEWAY_CANCELLED)
-                    except self._timeout_error_types:
-                        saw_timeout = True
-                        continue
-                    except Exception as _stroyka_diag_error:
-                        if request.capability == "invoice_scan":
-                            try:
-                                _stroyka_diag_status = getattr(_stroyka_diag_error, "status_code", None)
-                                _stroyka_diag_kind = type(_stroyka_diag_error).__name__
-                                _stroyka_diag_body = str(getattr(_stroyka_diag_error, "body", "")).lower()
-                                print("STROYKA_INVOICE_PROVIDER_DIAG", {
-                                    "stage": "provider",
-                                    "httpStatus": _stroyka_diag_status if type(_stroyka_diag_status) is int and 400 <= _stroyka_diag_status <= 599 else None,
-                                    "exceptionType": _stroyka_diag_kind if _stroyka_diag_kind in ("BadRequestError", "AuthenticationError", "PermissionDeniedError", "NotFoundError", "ConflictError", "UnprocessableEntityError", "RateLimitError", "InternalServerError", "APIConnectionError", "APITimeoutError", "APIStatusError", "APIError", "TypeError", "ValueError") else "other",
-                                    "mentions": [field for field in ("temperature", "max_output_tokens", "image_url", "detail", "model", "input_file", "file_data", "mime", "format", "size", "context_length") if field in _stroyka_diag_body],
-                                    "images": sum(getattr(part, "kind", None) == "image_data_url" for part in getattr(request, "input_parts", ())),
-                                    "files": sum(getattr(part, "kind", None) in ("file_id", "file_data_url") for part in getattr(request, "input_parts", ())),
-                                }, flush=True)
-                            except Exception:
-                                pass
-                        continue
-    
-                    output_text = getattr(response, "output_text", None)
+            for model_id in YANDEX_CAPABILITY_MODELS[request.capability]:
+                elapsed = self._clock() - started_at
+                remaining = request.deadline_seconds - elapsed
+                if not math.isfinite(remaining) or remaining <= 0:
+                    _error(MODEL_GATEWAY_DEADLINE_EXCEEDED)
+                try:
+                    response = self._client.responses.create(
+                        model="gpt://" + self._folder_id + "/" + model_id,
+                        temperature=request.temperature,
+                        instructions=request.instructions,
+                        input=provider_input,
+                        max_output_tokens=request.max_output_tokens,
+                        timeout=float(remaining),
+                        **(
+                            {"reasoning": {"effort": "none"}}
+                            if request.capability == "invoice_scan"
+                            and model_id == "qwen3.6-35b-a3b/latest"
+                            else {}
+                        ),
+                    )
+                except asyncio.CancelledError:
+                    _error(MODEL_GATEWAY_CANCELLED)
+                except self._timeout_error_types:
+                    saw_timeout = True
+                    continue
+                except Exception as error:
                     if request.capability == "invoice_scan":
                         try:
-                            def _stroyka_response_get(value, name):
-                                return value.get(name) if type(value) is dict else getattr(value, name, None)
-                            def _stroyka_response_number(value):
-                                return value if type(value) is int and 0 <= value <= 10000000 else None
-                            _stroyka_response_status = _stroyka_response_get(response, "status")
-                            _stroyka_response_reason = _stroyka_response_get(_stroyka_response_get(response, "incomplete_details"), "reason")
-                            _stroyka_response_output = _stroyka_response_get(response, "output")
-                            _stroyka_response_output = _stroyka_response_output if type(_stroyka_response_output) in (list, tuple) else ()
-                            _stroyka_response_types = {}
-                            _stroyka_response_content_types = {}
-                            _stroyka_response_text_chars = 0
-                            for _stroyka_response_item in _stroyka_response_output[:64]:
-                                _stroyka_response_kind = _stroyka_response_get(_stroyka_response_item, "type")
-                                if type(_stroyka_response_kind) is not str or _stroyka_response_kind not in ("message", "reasoning", "function_call", "web_search_call", "file_search_call", "image_generation_call"):
-                                    _stroyka_response_kind = "other"
-                                _stroyka_response_types[_stroyka_response_kind] = _stroyka_response_types.get(_stroyka_response_kind, 0) + 1
-                                if _stroyka_response_kind != "message":
-                                    continue
-                                _stroyka_response_content = _stroyka_response_get(_stroyka_response_item, "content")
-                                if type(_stroyka_response_content) not in (list, tuple):
-                                    continue
-                                for _stroyka_response_part in _stroyka_response_content[:64]:
-                                    _stroyka_response_part_kind = _stroyka_response_get(_stroyka_response_part, "type")
-                                    if type(_stroyka_response_part_kind) is not str or _stroyka_response_part_kind not in ("output_text", "text", "refusal"):
-                                        _stroyka_response_part_kind = "other"
-                                    _stroyka_response_content_types[_stroyka_response_part_kind] = _stroyka_response_content_types.get(_stroyka_response_part_kind, 0) + 1
-                                    if _stroyka_response_part_kind in ("output_text", "text"):
-                                        _stroyka_response_text = _stroyka_response_get(_stroyka_response_part, "text")
-                                        if type(_stroyka_response_text) is str:
-                                            _stroyka_response_text_chars += len(_stroyka_response_text)
-                            _stroyka_response_usage = _stroyka_response_get(response, "usage")
-                            _stroyka_response_token_details = _stroyka_response_get(_stroyka_response_usage, "output_tokens_details")
-                            print("STROYKA_INVOICE_RESPONSE_DIAG", {
-                                "status": _stroyka_response_status if type(_stroyka_response_status) is str and _stroyka_response_status in ("completed", "incomplete", "failed", "in_progress", "queued", "cancelled") else "other",
-                                "incompleteReason": _stroyka_response_reason if type(_stroyka_response_reason) is str and _stroyka_response_reason in ("max_output_tokens", "content_filter", "max_tokens", "length") else None,
-                                "outputTypes": _stroyka_response_types,
-                                "contentTypes": _stroyka_response_content_types,
-                                "outputTextChars": min(len(output_text), 10000000) if type(output_text) is str else 0,
-                                "messageTextChars": min(_stroyka_response_text_chars, 10000000),
-                                "inputTokens": _stroyka_response_number(_stroyka_response_get(_stroyka_response_usage, "input_tokens")),
-                                "outputTokens": _stroyka_response_number(_stroyka_response_get(_stroyka_response_usage, "output_tokens")),
-                                "reasoningTokens": _stroyka_response_number(_stroyka_response_get(_stroyka_response_token_details, "reasoning_tokens")),
-                                "requestedOutputTokens": request.max_output_tokens,
-                                "images": sum(part.kind == "image_data_url" for part in request.input_parts),
-                                "files": sum(part.kind in ("file_data_url", "file_id") for part in request.input_parts),
-                            }, flush=True)
+                            _log_invoice_diagnostic(
+                                "STROYKA_INVOICE_PROVIDER_DIAG",
+                                _invoice_provider_error_diagnostic(error, request, "provider"),
+                            )
                         except Exception:
                             pass
-                    if type(output_text) is not str or not output_text.strip():
-                        saw_empty = True
-                        continue
-                    duration_ms = self._duration_ms(started_at)
+                    continue
+
+                output_text = getattr(response, "output_text", None)
+                if request.capability == "invoice_scan":
                     try:
-                        result = build_model_result(
-                            provider="yandex_cloud",
-                            model=model_id,
-                            output_text=output_text,
-                            duration_ms=duration_ms,
-                        )
-                    except ModelGatewayError as error:
-                        if error.code == MODEL_GATEWAY_EMPTY_OUTPUT:
-                            saw_empty = True
-                            continue
-                        raise
-                    input_tokens, output_tokens, total_tokens = _response_usage(
-                        response,
-                    )
-                    self._emit(
-                        capability=request.capability,
+                        details = _invoice_response_diagnostic(response, request)
+                        details["requestedOutputTokens"] = request.max_output_tokens
+                        _log_invoice_diagnostic("STROYKA_INVOICE_RESPONSE_DIAG", details)
+                    except Exception:
+                        pass
+                if type(output_text) is not str or not output_text.strip():
+                    saw_empty = True
+                    continue
+                duration_ms = self._duration_ms(started_at)
+                try:
+                    result = build_model_result(
                         provider="yandex_cloud",
                         model=model_id,
-                        outcome="success",
+                        output_text=output_text,
                         duration_ms=duration_ms,
-                        input_tokens=input_tokens,
-                        output_tokens=output_tokens,
-                        total_tokens=total_tokens,
-                        correlation_id=correlation_id,
                     )
-                    return result
-    
-                if saw_empty:
-                    _error(MODEL_GATEWAY_EMPTY_OUTPUT)
-                if saw_timeout:
-                    _error(MODEL_GATEWAY_DEADLINE_EXCEEDED)
-                _error(MODEL_GATEWAY_PROVIDER_FAILED)
-            except ModelGatewayError as error:
+                except ModelGatewayError as error:
+                    if error.code == MODEL_GATEWAY_EMPTY_OUTPUT:
+                        saw_empty = True
+                        continue
+                    raise
+                input_tokens, output_tokens, total_tokens = _response_usage(
+                    response,
+                )
                 self._emit(
                     capability=request.capability,
                     provider="yandex_cloud",
-                    outcome=_TELEMETRY_OUTCOMES.get(
-                        error.code,
-                        "provider_error",
-                    ),
-                    duration_ms=self._duration_ms(started_at),
+                    model=model_id,
+                    outcome="success",
+                    duration_ms=duration_ms,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    total_tokens=total_tokens,
                     correlation_id=correlation_id,
                 )
-                raise
-        except Exception as _stroyka_diag_outer_error:
-            if not isinstance(_stroyka_diag_outer_error, ModelGatewayError):
-                if request.capability == "invoice_scan":
-                    try:
-                        _stroyka_diag_status = getattr(_stroyka_diag_outer_error, "status_code", None)
-                        _stroyka_diag_kind = type(_stroyka_diag_outer_error).__name__
-                        _stroyka_diag_body = str(getattr(_stroyka_diag_outer_error, "body", "")).lower()
-                        print("STROYKA_INVOICE_PROVIDER_DIAG", {
-                            "stage": "adapter",
-                            "httpStatus": _stroyka_diag_status if type(_stroyka_diag_status) is int and 400 <= _stroyka_diag_status <= 599 else None,
-                            "exceptionType": _stroyka_diag_kind if _stroyka_diag_kind in ("BadRequestError", "AuthenticationError", "PermissionDeniedError", "NotFoundError", "ConflictError", "UnprocessableEntityError", "RateLimitError", "InternalServerError", "APIConnectionError", "APITimeoutError", "APIStatusError", "APIError", "TypeError", "ValueError") else "other",
-                            "mentions": [field for field in ("temperature", "max_output_tokens", "image_url", "detail", "model", "input_file", "file_data", "mime", "format", "size", "context_length") if field in _stroyka_diag_body],
-                            "images": sum(getattr(part, "kind", None) == "image_data_url" for part in getattr(request, "input_parts", ())),
-                            "files": sum(getattr(part, "kind", None) in ("file_id", "file_data_url") for part in getattr(request, "input_parts", ())),
-                        }, flush=True)
-                    except Exception:
-                        pass
+                return result
+
+            if saw_empty:
+                _error(MODEL_GATEWAY_EMPTY_OUTPUT)
+            if saw_timeout:
+                _error(MODEL_GATEWAY_DEADLINE_EXCEEDED)
+            _error(MODEL_GATEWAY_PROVIDER_FAILED)
+        except ModelGatewayError as error:
+            self._emit(
+                capability=request.capability,
+                provider="yandex_cloud",
+                outcome=_TELEMETRY_OUTCOMES.get(
+                    error.code,
+                    "provider_error",
+                ),
+                duration_ms=self._duration_ms(started_at),
+                correlation_id=correlation_id,
+            )
+            raise
+        except Exception as error:
+            if request.capability == "invoice_scan":
+                try:
+                    _log_invoice_diagnostic(
+                        "STROYKA_INVOICE_PROVIDER_DIAG",
+                        _invoice_provider_error_diagnostic(error, request, "adapter"),
+                    )
+                except Exception:
+                    pass
             raise
 
 

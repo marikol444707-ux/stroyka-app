@@ -1,4 +1,7 @@
 import asyncio
+import contextlib
+import io
+import json
 import unittest
 from types import SimpleNamespace
 
@@ -343,6 +346,120 @@ class YandexModelAdapterTest(unittest.TestCase):
             ],
         )
         self.assertEqual(result.model, "qwen3.6-35b-a3b/latest")
+
+    def test_invoice_scan_disables_qwen_reasoning_only_for_invoice_requests(self):
+        invoice_client = FakeClient(["{}"])
+        invoice_adapter = build_yandex_model_adapter(
+            api_key="key",
+            folder_id="folder-1",
+            client_factory=lambda **_values: invoice_client,
+        )
+        invoice_request = build_model_request(
+            capability="invoice_scan",
+            instructions="json only",
+            input_text="invoice",
+            temperature=0.1,
+            max_output_tokens=2500,
+            deadline_seconds=60,
+        )
+        invoice_adapter.generate(invoice_request)
+        self.assertEqual(
+            invoice_client.responses.calls[0]["reasoning"],
+            {"effort": "none"},
+        )
+
+        other_client = FakeClient(["answer"])
+        other_adapter = build_yandex_model_adapter(
+            api_key="key",
+            folder_id="folder-1",
+            client_factory=lambda **_values: other_client,
+        )
+        other_request = build_model_request(
+            capability="estimate_chat",
+            instructions="respond",
+            input_text="question",
+            temperature=0.1,
+            max_output_tokens=500,
+            deadline_seconds=30,
+        )
+        other_adapter.generate(other_request)
+        self.assertNotIn("reasoning", other_client.responses.calls[0])
+
+    def test_invoice_provider_diagnostics_are_bounded_and_do_not_log_raw_body(self):
+        class ProviderError(Exception):
+            status_code = 400
+            body = "max_output_tokens PRIVATE INVOICE CONTENT"
+
+        adapter = build_yandex_model_adapter(
+            api_key="key",
+            folder_id="folder-1",
+            client_factory=lambda **_values: FakeClient([ProviderError("private")]),
+        )
+        request = build_model_request(
+            capability="invoice_scan",
+            instructions="private instructions",
+            input_parts=(ModelInputPart("image_data_url", "data:image/png;base64,YWJj"),),
+            temperature=0.1,
+            max_output_tokens=2500,
+            deadline_seconds=60,
+        )
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            with self.assertRaises(ModelGatewayError) as raised:
+                adapter.generate(request)
+
+        self.assertEqual(raised.exception.code, MODEL_GATEWAY_PROVIDER_FAILED)
+        log_lines = [line for line in output.getvalue().splitlines() if line.startswith("STROYKA_INVOICE_PROVIDER_DIAG ")]
+        self.assertEqual(len(log_lines), 1)
+        diagnostic = json.loads(log_lines[0].split(" ", 1)[1])
+        self.assertEqual(diagnostic["stage"], "provider")
+        self.assertEqual(diagnostic["httpStatus"], 400)
+        self.assertEqual(diagnostic["mentions"], ["max_output_tokens"])
+        self.assertEqual(diagnostic["images"], 1)
+        self.assertNotIn("PRIVATE", output.getvalue())
+
+    def test_invoice_response_diagnostics_record_shape_without_response_text(self):
+        response = SimpleNamespace(
+            output_text="",
+            status="incomplete",
+            incomplete_details=SimpleNamespace(reason="max_output_tokens"),
+            output=[SimpleNamespace(
+                type="message",
+                content=[SimpleNamespace(type="output_text", text="PRIVATE MODEL OUTPUT")],
+            )],
+            usage=SimpleNamespace(
+                input_tokens=200,
+                output_tokens=2500,
+                output_tokens_details=SimpleNamespace(reasoning_tokens=100),
+            ),
+        )
+        adapter = build_yandex_model_adapter(
+            api_key="key",
+            folder_id="folder-1",
+            client_factory=lambda **_values: FakeClient([response]),
+        )
+        request = build_model_request(
+            capability="invoice_scan",
+            instructions="private instructions",
+            input_text="private invoice",
+            temperature=0.1,
+            max_output_tokens=2500,
+            deadline_seconds=60,
+        )
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            with self.assertRaises(ModelGatewayError) as raised:
+                adapter.generate(request)
+
+        self.assertEqual(raised.exception.code, MODEL_GATEWAY_EMPTY_OUTPUT)
+        log_lines = [line for line in output.getvalue().splitlines() if line.startswith("STROYKA_INVOICE_RESPONSE_DIAG ")]
+        self.assertEqual(len(log_lines), 1)
+        diagnostic = json.loads(log_lines[0].split(" ", 1)[1])
+        self.assertEqual(diagnostic["status"], "incomplete")
+        self.assertEqual(diagnostic["incompleteReason"], "max_output_tokens")
+        self.assertEqual(diagnostic["messageTextChars"], len("PRIVATE MODEL OUTPUT"))
+        self.assertEqual(diagnostic["outputTokens"], 2500)
+        self.assertNotIn("PRIVATE MODEL OUTPUT", output.getvalue())
 
     def test_empty_primary_uses_the_existing_fallback_order(self):
         client = FakeClient(["", "valid json"])
