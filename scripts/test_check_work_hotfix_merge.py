@@ -127,6 +127,39 @@ class WorkHotfixMergeTests(unittest.TestCase):
     def test_conflict_details_are_not_emitted_without_an_actual_conflict(self):
         self.assertFalse(check.describe_conflict(b'x=1\n', b'x=1\n', b'x=2\n')['details_complete'])
 
+    def test_oversized_merge_block_uses_small_function_diff_without_unblocking(self):
+        base = ('def scan():\n' + ''.join('    x%d = %d + 1\n' % (i, i) for i in range(350))).encode()
+        incoming = base.replace(b' + 1\n', b' + 2\n')
+        current = base.replace(b'    x175 = 175 + 1\n', b'    x175 = "private-value-773219"\n')
+        status, candidate = check.merge_source(current, base, incoming)
+        self.assertEqual(status, 'conflict')
+        self.assertIsNone(candidate)
+        report = check.describe_conflict(current, base, incoming)
+        self.assertTrue(report['details_complete'])
+        self.assertEqual(report['details_kind'], 'function_local_diffs')
+        self.assertTrue(report['original_merge_remains_blocked'])
+        self.assertLess(len(report['functions'][0]['local_change_diff'].splitlines()), 20)
+        self.assertNotIn('private-value-773219', json.dumps(report))
+        self.assertIn('PRIVATE_LITERAL', json.dumps(report))
+
+    def test_function_diff_excludes_untouched_function_and_private_fstring_text(self):
+        base = b'def scan():\n    return 1\n\ndef unrelated():\n    return 10\n'
+        incoming = base.replace(b'return 1\n', b'return 2\n')
+        current = base.replace(b'return 1\n', b'return f"private-prefix-{1}", 918273645\n')
+        report = check.describe_function_differences(current, base, incoming)
+        self.assertTrue(report['details_complete'])
+        self.assertEqual([row['function'] for row in report['functions']], ['scan'])
+        value = json.dumps(report)
+        self.assertNotIn('private-prefix-', value)
+        self.assertNotIn('918273645', value)
+        self.assertNotIn('unrelated', value)
+
+    def test_global_changes_are_not_hidden_by_function_only_diagnostics(self):
+        base = b'flag = 1\ndef scan():\n    return 1\n'
+        report = check.describe_function_differences(base, base, base.replace(b'flag = 1', b'flag = 2'))
+        self.assertFalse(report['details_complete'])
+        self.assertEqual(report['code'], 'UPSTREAM_GLOBAL_CHANGES_REQUIRE_REVIEW')
+
 
 if __name__ == '__main__':
     unittest.main()

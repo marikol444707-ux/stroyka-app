@@ -7,6 +7,8 @@ inputs are private and removed before the report is printed.
 """
 import argparse
 import ast
+import copy
+import difflib
 import hashlib
 import json
 import os
@@ -143,10 +145,67 @@ def describe_conflict(current, base, incoming):
         count = len(ours.splitlines())
         blocks.append({'line': first_line + 1, 'lines': count,
                        'server_code': ''.join(safe[first_line:first_line + count])})
-    if not blocks or sum(block['lines'] for block in blocks) > 250:
-        return {'details_complete': False, 'code': 'CONFLICT_DETAILS_LIMIT'}
+    if not blocks:
+        return {'details_complete': False, 'code': 'CONFLICT_MARKERS_NOT_FOUND'}
+    if sum(block['lines'] for block in blocks) > 250:
+        return describe_function_differences(current, base, incoming)
     return {'details_complete': True, 'private_literals_and_comments_redacted': True,
             'blocks': blocks}
+
+
+def describe_function_differences(current, base, incoming):
+    """Summarize oversized conflict blocks using only functions changed upstream.
+
+    This is diagnostic output, never a fallback merge or an application gate.
+    Large unchanged function bodies do not need to be printed to inspect a small
+    local change. The original merge still returns conflict.
+    """
+    sources = {'server': current, 'base': base, 'update': incoming}
+    trees = {key: ast.parse(value) for key, value in sources.items()}
+    function_types = (ast.FunctionDef, ast.AsyncFunctionDef)
+    functions = {key: {node.name: node for node in tree.body if isinstance(node, function_types)}
+                 for key, tree in trees.items()}
+    def signature(node):
+        return ast.dump(node, include_attributes=False) if node is not None else None
+    globals_base = [signature(node) for node in trees['base'].body if not isinstance(node, function_types)]
+    globals_update = [signature(node) for node in trees['update'].body if not isinstance(node, function_types)]
+    if globals_base != globals_update:
+        return {'details_complete': False, 'code': 'UPSTREAM_GLOBAL_CHANGES_REQUIRE_REVIEW'}
+    changed = sorted(name for name in functions['base'].keys() | functions['update'].keys()
+                     if signature(functions['base'].get(name)) != signature(functions['update'].get(name)))
+    if not changed or len(changed) > 12:
+        return {'details_complete': False, 'code': 'FUNCTION_SCOPE_REQUIRES_REVIEW'}
+    public_constants = {(type(node.value), node.value)
+                        for key in ('base', 'update') for node in ast.walk(trees[key])
+                        if isinstance(node, ast.Constant)}
+    class RedactConstants(ast.NodeTransformer):
+        def visit_Constant(self, node):
+            if (type(node.value), node.value) not in public_constants:
+                return ast.copy_location(ast.Constant(value='<PRIVATE_LITERAL>'), node)
+            return node
+    def normalized(node):
+        return (ast.unparse(RedactConstants().visit(copy.deepcopy(node))) + '\n').splitlines(keepends=True)
+    reports = []
+    total_lines = 0
+    for name in changed:
+        old, server, update = (functions[key].get(name) for key in ('base', 'server', 'update'))
+        if old is None or server is None or update is None:
+            return {'details_complete': False, 'code': 'FUNCTION_ADDITION_OR_DELETION', 'function': name}
+        diff = [] if signature(server) == signature(old) else list(difflib.unified_diff(
+                    normalized(old), normalized(server),
+                    fromfile='published-base/' + name, tofile='server/' + name, n=3))
+        total_lines += len(diff)
+        reports.append({'function': name, 'server_line': server.lineno,
+                        'server_ast_matches_base': signature(server) == signature(old),
+                        'server_ast_matches_update': signature(server) == signature(update),
+                        'local_change_diff': ''.join(diff)})
+    if total_lines > 250:
+        return {'details_complete': False, 'code': 'FUNCTION_DIFF_DETAILS_LIMIT',
+                'diff_lines': total_lines, 'functions': changed}
+    return {'details_complete': True, 'details_kind': 'function_local_diffs',
+            'code_format': 'normalized_python_ast',
+            'private_literals_and_comments_redacted': True,
+            'original_merge_remains_blocked': True, 'functions': reports}
 
 
 def function_ast(source, name):
