@@ -1,3 +1,4 @@
+import WorkReviewQueue from '../features/work-acceptance/WorkReviewQueue';
 import React from 'react';
 import AccountingTabsNav from './AccountingTabsNav';
 import AccountingSummaryPanel from './AccountingSummaryPanel';
@@ -141,6 +142,8 @@ export default function AccountingPage(props) {
         btnO={btnO}
         btnG={btnG}
       />
+
+      {['summary','acts','performerClosing'].includes(accountingTab) && <WorkReviewQueue {...{API,companyContext,user,C}}/>}
 
       {accountingTab === 'summary' && (
         <>

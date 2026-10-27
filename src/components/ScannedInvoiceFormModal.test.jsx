@@ -119,3 +119,10 @@ test('a user can correct a wrong OCR document total without changing rows or ret
   fireEvent.click(save);
   expect(saveInvoiceNew).toHaveBeenCalledTimes(1);
 });
+
+test('choosing a directory supplier clears OCR template and replaces legal identity',()=>{
+ let latest;
+ function Harness(){const [draft,setDraft]=useState({number:'N',location:'Основной склад',supplier:'Wrong',supplierId:1,supplierInn:'old',scanRecognition:{method:'template',templateId:5,supplierId:1},items:[]});latest=draft;return <ScannedInvoiceFormModal showScannedInvoiceForm newInvoice={draft} setNewInvoice={setDraft} suppliers={[{id:2,name:'Correct',inn:'1234567890',kpp:'123456789'}]} units={['шт']} projects={[]} C={{}} card={{}} inp={{}} btnO={{}} btnG={{}} btnR={{}} user={{role:'прораб'}}/>;}
+ render(<Harness/>);expect(screen.getByRole('option',{name:/Correct · ИНН 1234567890/})).toBeInTheDocument();fireEvent.change(screen.getByLabelText('Поставщик из справочника'),{target:{value:'2'}});expect(screen.getByPlaceholderText('Поставщик')).toHaveValue('Correct');expect(latest).toMatchObject({supplierId:2,supplierInn:'1234567890',supplierKpp:'123456789',scanRecognition:{templateId:null,supplierId:2,method:'manual'}});
+ fireEvent.change(screen.getByPlaceholderText('Поставщик'),{target:{value:'New'}});expect(latest).toMatchObject({supplierId:'',supplierInn:'',supplierKpp:'',scanRecognition:{supplierId:0,templateId:null}});
+});

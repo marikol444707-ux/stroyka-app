@@ -1,3 +1,4 @@
+import WorkReviewQueue from '../work-acceptance/WorkReviewQueue';
 import React from 'react';
 import { Bot, Calculator, FileText, Package } from 'lucide-react';
 import DashboardTopBar from '../../components/DashboardTopBar';
@@ -195,6 +196,7 @@ export default function DashboardPage({
     return (
       <div style={{minHeight:'100%',padding:isMobile?'calc(env(safe-area-inset-top, 0px) + 12px) 16px 16px':'28px',background:'radial-gradient(circle at 15% 0%,rgba(249,115,22,.15),transparent 32%),linear-gradient(135deg,#0b1120 0%,#111827 100%)',color:'#f8fafc'}}>
         <DashboardTopBar {...topBarProps}/>
+      <WorkReviewQueue {...{API,companyContext,user,C}} onOpenProject={row=>{safeSetExpandedProject(row.projectId);safeSetActivePage('projects');}}/>
         <div style={{marginTop:'24px',background:'rgba(17,24,39,.88)',border:'1px solid rgba(148,163,184,.18)',borderRadius:'22px',padding:'24px',boxShadow:'0 18px 60px rgba(0,0,0,.25)'}}>
           <div style={{fontSize:'18px',fontWeight:800,marginBottom:'8px'}}>Загружаю данные объекта</div>
           <div style={{color:'#94a3b8',fontSize:'14px'}}>Сейчас подтягиваются сметы, задачи, склад и журналы. Нули на дашборде не показываются до окончания загрузки.</div>
@@ -310,6 +312,7 @@ export default function DashboardPage({
   return (
     <div style={{minHeight:'100%',padding:isMobile?'calc(env(safe-area-inset-top, 0px) + 12px) 16px 16px':'28px',background:'radial-gradient(circle at 15% 0%,rgba(249,115,22,.15),transparent 32%),linear-gradient(135deg,#0b1120 0%,#111827 100%)',color:'#f8fafc'}}>
       <DashboardTopBar {...topBarProps}/>
+      <WorkReviewQueue {...{API,companyContext,user,C}} onOpenProject={row=>{safeSetExpandedProject(row.projectId);safeSetActivePage('projects');}}/>
       <SubscriptionExpiryNotice
         company={subscriptionCompany}
         role={subscriptionRole}

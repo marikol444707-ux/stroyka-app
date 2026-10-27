@@ -1,4 +1,5 @@
 import React from 'react';
+import {scannedSupplierSelection} from '../utils/scannedSupplierSelection';
 import { Check, Plus, X } from 'lucide-react';
 import { API } from '../api';
 import { createWarehouseInvoiceItemForm } from '../features/warehouse/warehouseInitialForms';
@@ -7,6 +8,7 @@ import { invoiceScanNumber, isScannedInvoiceDraft, validateInvoiceScan } from '.
 
 export default function ScannedInvoiceFormModal({
   user,
+  suppliers = [],
   showScannedInvoiceForm,
   setShowScannedInvoiceForm,
   C,
@@ -234,7 +236,8 @@ export default function ScannedInvoiceFormModal({
         )}
         <WarehouseInvoiceAttachments {...{newInvoice,setNewInvoice,uploadPhoto,fileSrc,C}} onBusy={setAttachmentsUploading} />
         <input placeholder={inventoryOnly ? 'Номер документа (необязательно)' : 'Номер документа *'} value={newInvoice.number||''} onChange={e=>patchInvoice({number:e.target.value})} style={inputStyle}/>
-        {!inventoryOnly && <input placeholder='Поставщик' value={newInvoice.supplier||newInvoice.newSupplierName||''} onChange={e=>patchInvoice({supplierId:'',supplier:e.target.value,newSupplierName:e.target.value,isNewSupplier:true,scanRecognition:{...scanRecognition,supplierId:0,supplierName:e.target.value}})} style={inputStyle}/>}
+        {!inventoryOnly && <><label>Поставщик из справочника<select aria-label='Поставщик из справочника' value={newInvoice.supplierId || ''} onChange={event=>{const selected=suppliers.find(row=>String(row.id)===event.target.value);patchInvoice(scannedSupplierSelection(newInvoice,selected));}} style={inputStyle}><option value=''>Новый поставщик / ручной ввод</option>{suppliers.map(row=><option key={row.id} value={row.id}>{row.name+' · ИНН '+(row.inn || 'не указан')}</option>)}</select></label><input placeholder='Поставщик' value={newInvoice.supplier||newInvoice.newSupplierName||''} onChange={e=>patchInvoice(scannedSupplierSelection(newInvoice,null,e.target.value))} style={inputStyle}/>{newInvoice.supplierId ? <div>ИНН: {newInvoice.supplierInn || 'не указан'}{newInvoice.supplierKpp ? ' · КПП: '+newInvoice.supplierKpp : ''}</div> : <div>{[['supplierInn','ИНН поставщика',12],['supplierKpp','КПП поставщика',9],['supplierOgrn','ОГРН поставщика',15]].map(([field,label,length])=><input key={field} aria-label={label} placeholder={label} inputMode='numeric' maxLength={length} value={newInvoice[field] || ''} onChange={event=>patchInvoice({[field]:event.target.value.replace(/\D/g,''),scanRecognition:{...scanRecognition,supplierId:0,templateId:null,templateName:'',method:'manual',label:'Реквизиты указаны вручную'}})} style={inputStyle}/>)}</div>}</>}
+
         <select value={newInvoice.location||''} onChange={e=>updateLocation(e.target.value)} style={inputStyle}>
           <option value=''>Выберите склад *</option>
           <option value='Основной склад'>📦 Основной склад</option>

@@ -12608,6 +12608,7 @@ def get_work_journal(
     offset: int = 0,
     project_name: str = "",
     search: str = "",
+    status: str = "",
     date_from: str = "",
     date_to: str = "",
     x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
@@ -12671,6 +12672,10 @@ def get_work_journal(
         params = list(visibility_params)
         project_filter = str(project_name or "").strip()
         search_filter = str(search or "").strip()
+        status_filter = str(status or '').strip()
+        if status_filter:
+            conditions.append('wj.status=%s')
+            params.append(status_filter)
         if project_filter:
             conditions.append("wj.project=%s")
             params.append(project_filter)
@@ -20452,7 +20457,13 @@ def _invoice_scan_template_hint(limit: int = 12) -> str:
     return "\n".join(lines)
 
 def _apply_supplier_invoice_template_metadata(payload: dict, current_user: dict = None) -> dict:
+    try:
+        from backend.features.invoice_scan.supplier_identity import template_matches_supplier
+    except ModuleNotFoundError:
+        from features.invoice_scan.supplier_identity import template_matches_supplier
     payload = dict(payload or {})
+    payload.pop('supplierId', None)
+    payload.pop('supplier_id', None)
     recognition = {
         "method": "ai_ocr",
         "label": "Распознано через AI/OCR",
@@ -20463,8 +20474,11 @@ def _apply_supplier_invoice_template_metadata(payload: dict, current_user: dict 
         "supplierName": _scan_invoice_supplier_name(payload),
         "warnings": [],
     }
+    conn = None
+    cur = None
     try:
         conn = get_db()
+        conn.set_session(readonly=True)
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         supplier_lookup_payload = {
             **payload,
@@ -20472,12 +20486,18 @@ def _apply_supplier_invoice_template_metadata(payload: dict, current_user: dict 
             "supplier": recognition["supplierName"] or payload.get("supplier") or "",
         }
         supplier = _supplier_find_match(cur, supplier_lookup_payload, allow_contact_match=False)
+        extracted_inn = _supplier_digits(payload.get('supplierInn') or payload.get('supplier_inn'))
+        if supplier and extracted_inn and _supplier_digits(supplier.get('inn')) != extracted_inn:
+            supplier = None
+            recognition['warnings'].append('Реквизиты найденной карточки не совпадают с документом. Выберите поставщика вручную.')
         if supplier:
             recognition["supplierId"] = supplier["id"]
-            recognition["supplierName"] = supplier["name"] or recognition["supplierName"]
-            _update_supplier_missing_fields(cur, supplier["id"], supplier_lookup_payload)
-            _remember_supplier_alias(cur, supplier["id"], supplier_lookup_payload, source="invoice_scan")
+            recognition["supplierName"] = recognition["supplierName"] or supplier["name"]
+
         match, _supplier_name = _find_supplier_invoice_template(cur, payload)
+        if match and not template_matches_supplier(payload, supplier, _supplier_invoice_template_row(match['row'])):
+            recognition['warnings'].append('Шаблон не применён: поставщик не подтверждён по ИНН. Проверьте продавца документа.')
+            match = None
         if match:
             row = match["row"]
             template = _supplier_invoice_template_row(row)
@@ -20487,25 +20507,22 @@ def _apply_supplier_invoice_template_metadata(payload: dict, current_user: dict 
                 "templateId": template["id"],
                 "templateName": template["templateName"] or template["supplierName"],
                 "supplierId": template["supplierId"] or recognition["supplierId"],
-                "supplierName": template["supplierName"] or recognition["supplierName"],
+                "supplierName": recognition["supplierName"],
                 "confidence": max(float(payload.get("confidence") or 0), min(1.0, float(match["score"]))),
             })
             payload["supplier"] = recognition["supplierName"] or payload.get("supplier") or ""
-            if recognition["supplierId"]:
-                _remember_supplier_alias(cur, recognition["supplierId"], supplier_lookup_payload, source="invoice_template")
-            cur.execute("""UPDATE supplier_invoice_templates
-                           SET usage_count=COALESCE(usage_count,0)+1, last_used_at=NOW()
-                           WHERE id=%s""", (template["id"],))
-            conn.commit()
         else:
             if recognition["supplierId"]:
                 recognition["warnings"].append("Поставщик найден в справочнике, но шаблон еще не сохранен.")
-                conn.commit()
-            else:
-                conn.rollback()
-        cur.close(); conn.close()
+
     except Exception as exc:
         print("INVOICE TEMPLATE APPLY ERROR:", str(exc))
+    finally:
+        if cur is not None:
+            cur.close()
+        if conn is not None:
+            conn.rollback()
+            conn.close()
     payload["recognition"] = recognition
     payload["scanRecognition"] = recognition
     return payload
@@ -27969,6 +27986,16 @@ def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHO
         parsed["pagesCount"] = int(parsed.get("pagesCount") or len(images))
         parsed = _normalize_invoice_totals_payload(parsed)
         parsed["pagesCount"] = int(parsed.get("pagesCount") or len(images))
+        try:
+            from backend.features.invoice_scan.supplier_identity import native_pdf_seller
+        except ModuleNotFoundError:
+            from features.invoice_scan.supplier_identity import native_pdf_seller
+        native_seller = native_pdf_seller(content)
+        if native_seller:
+            parsed.update(native_seller)
+            parsed['supplierName'] = native_seller['supplier']
+            parsed['supplierOgrn'] = ''
+            parsed.pop('supplier_ogrn', None)
         parsed = _apply_supplier_invoice_template_metadata(parsed, _current_user)
         try:
             from backend.features.invoice_scan.validation import validate_invoice_scan

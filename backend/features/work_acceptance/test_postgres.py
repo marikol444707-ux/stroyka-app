@@ -303,6 +303,74 @@ class WorkAcceptancePostgresTests(unittest.TestCase):
         self.assert_rejected_unchanged("director", "POST", self.contract_path + "/acts",
                                        self.act_payload(self.journal_id), 409)
 
+    def test_pending_queue_filter_survives_newer_confirmed_history_and_remains_company_scoped(self):
+        self.sql("""INSERT INTO work_journal(company_id,project,description,master_id,master_name,status,date,quantity,unit)
+                    SELECT 2,%s,'Synthetic confirmed history',%s,'Synthetic worker','Подтверждено','2026-10-27',1,'шт'
+                    FROM generate_series(1,55)""", (self.f['project'],self.f['users']['worker']['id']))
+        recent = self.api('director','GET','/work-journal?limit=50')
+        self.assertNotIn(self.journal_id,[row['id'] for row in recent])
+        for role in ('director','foreman','accountant','worker'):
+            rows=self.api(role,'GET','/work-journal?status=На%20проверке&limit=50')
+            self.assertIn(self.journal_id,[row['id'] for row in rows])
+            self.assertTrue(all(row['status']=='На проверке' and row['companyId']==2 for row in rows))
+        self.assertEqual(self.api('stranger','GET','/work-journal?status=На%20проверке&limit=50'),[])
+        worker_id = self.f['users']['worker']['id']
+        self.sql("UPDATE users SET role='субподрядчик' WHERE id=%s", (worker_id,))
+        self.sql("UPDATE user_company_roles SET role='субподрядчик' WHERE user_id=%s AND company_id=2", (worker_id,))
+        try:
+            submitted = self.api('worker', 'POST', '/work-journal', self.consumption_payload(personal=0, warehouse=1))
+            self.assertEqual(self.stock_quantity(), 0)
+            self.assertEqual(self.balance(), dict(issued=2, used=1, returned=0, available=1))
+            for role in ('director','accountant'):
+                self.assertIn(submitted['id'],[row['id'] for row in self.api(role,'GET','/work-journal?status=На%20проверке&limit=50')])
+        finally:
+            self.sql("UPDATE users SET role='мастер' WHERE id=%s", (worker_id,))
+            self.sql("UPDATE user_company_roles SET role='мастер' WHERE user_id=%s AND company_id=2", (worker_id,))
+
+        self.api('accountant','POST',self.path+'/acceptance',self.review_payload(),expected=403)
+
+
+    def test_supplier_recognition_template_does_not_override_seller_or_write_catalog(self):
+        seller='Synthetic document seller'
+        correct=self.sql("INSERT INTO suppliers(name,inn) VALUES(%s,'1234567890') RETURNING id",(seller,))[0][0]
+        wrong=self.sql("INSERT INTO suppliers(name,inn) VALUES('Synthetic wrong seller','1234567891') RETURNING id")[0][0]
+        template=self.sql("""INSERT INTO supplier_invoice_templates(supplier_id,supplier_key,supplier_name,template_name,active)
+            VALUES(%s,%s,'Synthetic wrong display','Synthetic test',TRUE) RETURNING id""",(wrong,self.main._supplier_invoice_template_key(seller)))[0][0]
+        def snapshot():
+            return tuple(self.sql('SELECT row_to_json(t)::text FROM '+table+' t ORDER BY id') for table in ('suppliers','supplier_aliases','supplier_invoice_templates'))
+        original=snapshot()
+        result=self.main._apply_supplier_invoice_template_metadata({'supplier':seller,'supplierInn':'1234567890','supplierId':wrong},self.f['users']['director'])
+        self.assertEqual(result['supplier'],seller)
+        self.assertEqual(result['recognition']['supplierId'],correct)
+        self.assertEqual(result['recognition']['method'],'ai_ocr')
+        self.assertEqual(snapshot(),original)
+        self.sql('UPDATE supplier_invoice_templates SET supplier_id=%s WHERE id=%s',(correct,template))
+        original=snapshot()
+        result=self.main._apply_supplier_invoice_template_metadata({'supplier':seller,'supplierInn':'1234567890'},self.f['users']['director'])
+        self.assertEqual(result['supplier'],seller)
+        self.assertEqual(result['recognition']['method'],'template')
+        self.assertEqual(snapshot(),original)
+
+
+    def test_readonly_diagnostic_returns_only_exact_project_owner_and_worker(self):
+        from scripts.diagnose_work_review import QUERY
+        query=QUERY.replace(":'project'",'%s').replace(":'worker'",'%s')
+        report=self.sql(query,(self.f['project'],self.f['users']['worker']['name']))[0][0]
+        self.assertEqual(report['project_matches'],1)
+        self.assertEqual(report['worker_matches'],1)
+        self.assertEqual(report['company_id'],2)
+        self.assertEqual([row['id'] for row in report['works']],[self.journal_id])
+        report=self.sql(query,('Missing project',self.f['users']['worker']['name']))[0][0]
+        self.assertEqual(report['works'],[])
+        self.sql('INSERT INTO projects(name,company_id) VALUES(%s,3)',(self.f['project'],))
+        try:
+            report=self.sql(query,(self.f['project'],self.f['users']['worker']['name']))[0][0]
+            self.assertEqual(report['project_matches'],2)
+            self.assertIsNone(report['company_id'])
+            self.assertEqual(report['works'],[])
+        finally:
+            self.sql('DELETE FROM projects WHERE name=%s AND company_id=3',(self.f['project'],))
+
 
 if __name__ == "__main__":
     unittest.main()

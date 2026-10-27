@@ -469,6 +469,7 @@ export default function AppWorkflowModals({ ui, constants, state, actions }) {
 
       {showScannedInvoiceForm && (
         <ScannedInvoiceFormModal
+          suppliers={suppliers}
           user={user}
           showScannedInvoiceForm={showScannedInvoiceForm}
           setShowScannedInvoiceForm={setShowScannedInvoiceForm}
