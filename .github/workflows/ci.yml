@@ -71,7 +71,7 @@ jobs:
           fi
 
       - name: Verify unified release transport and frontend backup
-        run: python -m unittest -v scripts.test_unified_release scripts.test_check_work_hotfix_merge
+        run: python -m unittest -v scripts.test_unified_release scripts.test_check_work_hotfix_merge scripts.test_prepare_work_hotfix
 
       - name: Run supplier installer safety tests
         run: |
