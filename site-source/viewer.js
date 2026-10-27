@@ -1,3 +1,5 @@
+import {createCompanyContact} from './company-contact.js';
+import {createProjectTransfer} from './project-transfer.js';
 import {createProjectDraft} from './project-draft.js';
 import {createSoftFurnishings} from './soft-furnishings.js';
 import {createHouseGarden} from './house-garden.js';
@@ -183,4 +185,6 @@ function enterRoom(id){if(!house||!walkUI||!['plan','cutaway'].includes(active)|
 function returnToRooms(){if(!house||active!=='walk')return;const saved=roomReturn;choose(saved?.mode||'plan',{keepRoomReturn:true});if(saved){cameraGoal=targetGoal=null;camera.position.copy(saved.position);controls.target.copy(saved.target);camera.fov=saved.fov;controls.minDistance=saved.min;controls.maxDistance=saved.max;if(Math.abs(camera.aspect-saved.aspect)<1e-6)camera.zoom=saved.zoom;const damping=controls.enableDamping;controls.enableDamping=false;controls.update();controls.enableDamping=damping;camera.updateProjectionMatrix();}roomReturn=null;roomExplorer?.invalidate();dirty=true;$('#canvas').scrollIntoView({block:'start',behavior:'instant'});roomExplorer?.update();const id=window.__HOUSE_STATUS__.walk?.room||'living',marker=document.querySelector('[data-room-marker="'+id+'"]:not([hidden])'),fallback=document.querySelector('[data-room-select="'+id+'"]');(marker||fallback).focus({preventScroll:true});if(!marker)fallback.scrollIntoView({block:'nearest',behavior:'instant'});}
 $('#walk-plan').addEventListener('click',returnToRooms);
 createProjectDraft({context:projectContext,store:materialsUI,getStyle:()=>currentStyle,setStyle:id=>{if(styles)setInteriorStyle(id);else currentStyle=id;}});
+createProjectTransfer({context:projectContext,store:materialsUI,getStyle:()=>currentStyle,setStyle:id=>{if(styles)setInteriorStyle(id);else currentStyle=id;}});
+createCompanyContact({store:materialsUI,context:projectContext});
 if(innerWidth>900)start();

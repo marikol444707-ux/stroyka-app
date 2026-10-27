@@ -1,5 +1,5 @@
 {
-  "name": "stroyka-public-site-development-v32",
+  "name": "stroyka-public-site-development-v33",
   "version": "0.26.0",
   "private": true,
   "scripts": {
@@ -12,7 +12,8 @@
     "test:context": "node check-material-context.mjs",
     "test:discussion": "node check-project-discussion.mjs",
     "test:plan": "node check-family-plan.mjs",
-    "test:draft": "node check-project-draft.mjs"
+    "test:draft": "node check-project-draft.mjs",
+    "test:transfer": "node check-project-transfer.mjs"
   },
   "dependencies": {
     "three": "0.170.0"

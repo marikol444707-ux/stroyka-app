@@ -1,0 +1,13 @@
+import {normalizeDraft} from './project-draft.js';
+import {makeProjectBrief} from './materials-data.js';
+export function parseProjectFile(text){if(typeof text!=='string'||text.length>32000)throw Error('FILE_SIZE');return normalizeDraft(JSON.parse(text.replace(/^\uFEFF/,'')));}
+export function exportProjectFile(value){return JSON.stringify(normalizeDraft(value),null,2);}
+export function createProjectTransfer({context,store,getStyle,setStyle}){
+ const root=document.querySelector('#project-transfer'),input=root.querySelector('input'),preview=root.querySelector('[data-transfer-preview]'),text=root.querySelector('textarea'),status=root.querySelector('[role=status]');let pending=null,sequence=0;
+ const report=t=>{if(status.textContent!==t)status.textContent=t;};
+ function clear(){pending=null;preview.hidden=true;input.value='';}
+ root.querySelector('[data-transfer=export]').addEventListener('click',()=>{const content=exportProjectFile({version:1,project:'house-01',context:context.snapshot(),choices:store.snapshot(),style:getStyle()}),url=URL.createObjectURL(new Blob([content],{type:'application/json;charset=utf-8'})),a=document.createElement('a');a.href=url;a.download='СтройКа-Дом-01-проект.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),30000);report('Файл проекта подготовлен. Его можно открыть на другом устройстве. В нём есть ваши пожелания — передавайте файл только нужным людям.');});
+ input.addEventListener('change',async()=>{const request=++sequence,file=input.files?.[0];pending=null;preview.hidden=true;if(!file)return;report('Проверяем файл…');try{if(file.size>64000)throw Error('FILE_SIZE');const value=parseProjectFile(await file.text());if(request!==sequence)return;pending=value;text.value=makeProjectBrief(value.choices,({warm:'Тёплый современный',minimal:'Светлый минимализм',classic:'Современная классика'})[value.style],value.context);preview.hidden=false;report('Проверьте загруженные пожелания. Текущий выбор ещё не изменён.');}catch{if(request===sequence){clear();report('Не удалось прочитать проект. Нужен совместимый файл Дома 01 до 64 КБ. Текущий выбор не изменён.');}}});
+ root.querySelector('[data-transfer=cancel]').addEventListener('click',()=>{sequence++;clear();report('Загрузка отменена. Текущий выбор оставлен.');});
+ root.querySelector('[data-transfer=apply]').addEventListener('click',()=>{if(!pending)return;const value=normalizeDraft(pending);setStyle(value.style);for(const category of ['wall','roof','facade'])store.selectPreference(category,value.choices[category]||null);context.update(value.context);sequence++;clear();report('Выбор из файла применён. При необходимости сохраните черновик на этом устройстве. Обращение не отправлено.');});
+}
