@@ -8,7 +8,8 @@ from unittest.mock import patch
 from .audit_bridge import (collect, collect_integration_requirements, inspect_worker, validation_contract,
                            result_permissions, runtime_source, public_image_metadata, REVIEWED_RUNTIME,
                            _read_relative_source, hermes_source_inventory, collect_hermes_interface,
-                           startup_environment,startup_source_metadata,collect_startup,process_startup_sources)
+                           startup_environment,startup_source_metadata,collect_startup,process_startup_sources,
+                           public_install_metadata,process_runtime_metadata,PUBLIC_DOCKER_LAUNCHERS)
 
 
 class BridgeAuditTests(unittest.TestCase):
@@ -18,7 +19,7 @@ class BridgeAuditTests(unittest.TestCase):
             def source(fd,path,maximum,*,with_metadata=False):
                 raw=None
                 if path=='opt/venv/bin/hermes':raw=b'#!/opt/venv/bin/python3\nPRIVATE_TOKEN="not emitted"\n'
-                if path=='etc/s6-overlay/s6-rc.d/hermes/run':raw=b'exec /opt/venv/bin/hermes gateway\n'
+                if path=='etc/s6-overlay/s6-rc.d/main-hermes/run':raw=b'exec /opt/venv/bin/hermes gateway\n'
                 if path=='opt/hermes/gateway/authz_mixin.py':raw=b'TOKEN="PRIVATE_TOKEN"\n'
                 if raw is not None:return (raw,{'uid':0,'gid':0,'mode':'0o644'}) if with_metadata else raw
             with patch('jev_agent.tender_finder.audit_bridge.os.readlink',return_value='/usr/local/bin/python3.12'),patch('jev_agent.tender_finder.audit_bridge.os.open',return_value=root),patch('jev_agent.tender_finder.audit_bridge._read_relative_source',side_effect=source) as read,patch('subprocess.run') as run:
@@ -30,8 +31,9 @@ class BridgeAuditTests(unittest.TestCase):
             self.assertTrue(all(not call.args[1].endswith(('.env','environ','cmdline')) for call in read.call_args_list))
 
     def test_startup_environment_only_emits_paths_and_hashed_owner(self):
-        value=startup_environment('HOME=/opt/data\nVIRTUAL_ENV=/opt/venv\nTELEGRAM_ALLOWED_USERS=123456789\nTELEGRAM_TOKEN=PRIVATE_TOKEN\nHERMES_PROFILE=PRIVATE_PROFILE')
+        value=startup_environment('HOME=/opt/data\nVIRTUAL_ENV=/opt/venv\nTELEGRAM_ALLOWED_USERS=123456789\nTELEGRAM_TOKEN=PRIVATE_TOKEN\nHERMES_PROFILE=PRIVATE_PROFILE\nHERMES_PYTHON=/opt/hermes/.venv/bin/python')
         self.assertEqual(value['paths']['HOME'],'/opt/data')
+        self.assertEqual(value['paths']['HERMES_PYTHON'],'/opt/hermes/.venv/bin/python')
         self.assertEqual(value['numeric_allowed_owner_count'],1)
         self.assertFalse(value['owner_selection_required'])
         self.assertNotIn('123456789',json.dumps(value))
@@ -69,6 +71,53 @@ class BridgeAuditTests(unittest.TestCase):
         self.assertNotIn('PRIVATE_TOKEN',json.dumps(value));self.assertNotIn('123456789',json.dumps(value))
         self.assertFalse(value['services_changed']);self.assertFalse(value['notifications_sent'])
         self.assertFalse(value['startup'][0]['container_rootfs_readonly'])
+    def test_install_markers_project_revision_without_tokens_or_private_fields(self):
+        value=public_install_metadata(json.dumps({'revision':'a'*40,'commit':'0'*40,
+            'version':'1.2.3','manager':'docker','deployment_kind':'image','token':'PRIVATE_TOKEN',
+            'pmRuntime':'/opt/hermes/pm-runtime','private':{'owner':123456789}}).encode())
+        self.assertEqual(value['revision'],'a'*40)
+        self.assertNotIn('commit',value)
+        self.assertEqual(value['pmRuntime'],'/opt/hermes/pm-runtime')
+        self.assertFalse(value['active_runtime_verified'])
+        self.assertNotIn('PRIVATE',json.dumps(value));self.assertNotIn('123456789',json.dumps(value))
+        self.assertNotIn('version',public_install_metadata(b'{"version":"PRIVATE_TOKEN"}'))
+        self.assertEqual(public_install_metadata(b'[]')['code'],'PUBLIC_INSTALL_METADATA_INVALID')
+
+    def test_python_process_metadata_reads_only_exe_and_cwd(self):
+        paths=[]
+        def link(path):
+            paths.append(path)
+            return '/usr/local/bin/python3.12' if path.endswith('/exe') else '/opt/data/installs/release/code'
+        with patch('jev_agent.tender_finder.audit_bridge.os.readlink',side_effect=link),patch('subprocess.run') as run:
+            value=process_runtime_metadata(456)
+        run.assert_not_called()
+        self.assertEqual(paths,['/proc/456/exe','/proc/456/cwd'])
+        self.assertEqual(value['observed_source_directory'],'/opt/data/installs/release/code')
+        self.assertFalse(value['process_env_read']);self.assertFalse(value['process_cmdline_read'])
+
+    def test_startup_probe_includes_python_metadata_without_reading_python_sources(self):
+        from types import SimpleNamespace
+        containers={'containers':[{'name':'hermes-telegram','process_credentials':[
+            {'executable_name':'python3.12','host_pid':456}]}]}
+        observed=SimpleNamespace(returncode=0,stdout='{"entrypoint":["/opt/hermes/docker/entrypoint-dispatch.sh"],"readonly_rootfs":false}\n')
+        with patch('jev_agent.tender_finder.audit_bridge.container_inventory',return_value=containers),patch('jev_agent.tender_finder.audit_bridge.shutil.which',return_value='/usr/bin/docker'),patch('subprocess.run',return_value=observed),patch('jev_agent.tender_finder.audit_bridge.process_runtime_metadata',return_value={'process_id':456}) as metadata,patch('jev_agent.tender_finder.audit_bridge.process_startup_sources') as sources:
+            value=collect_startup()
+        metadata.assert_called_once_with(456);sources.assert_not_called()
+        self.assertEqual(value['startup'][0]['container_entrypoint_program'],'entrypoint-dispatch.sh')
+        self.assertEqual(value['startup'][0]['python_process_metadata'],[{'process_id':456}])
+
+    def test_fixed_docker_sources_include_launcher_and_do_not_follow_runtime_links(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);(root/'opt/hermes').mkdir(parents=True)
+            (root/'private').mkdir();(root/'private/install-stamp.json').write_text('{"token":"PRIVATE"}')
+            (root/'opt/hermes/install-stamp.json').symlink_to(root/'private/install-stamp.json')
+            fd=os.open(root,os.O_RDONLY|os.O_DIRECTORY)
+            try:self.assertIsNone(_read_relative_source(fd,'opt/hermes/install-stamp.json',16384))
+            finally:os.close(fd)
+        self.assertIn('opt/hermes/docker/entrypoint-dispatch.sh',PUBLIC_DOCKER_LAUNCHERS)
+        self.assertIn('opt/hermes/docker/main-wrapper.sh',PUBLIC_DOCKER_LAUNCHERS)
+        self.assertIn('etc/s6-overlay/s6-rc.d/main-hermes/run',PUBLIC_DOCKER_LAUNCHERS)
+
     def test_relative_source_reader_cannot_escape_or_follow_links(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder);(root/'public').mkdir();(root/'public/source.py').write_bytes(b'public source')

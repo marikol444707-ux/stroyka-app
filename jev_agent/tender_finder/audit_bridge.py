@@ -162,7 +162,7 @@ def collect_hermes_interface():
             'hermes_sources':readers,'notification_binding_verified':False,'installation_ready':False}
 
 
-STARTUP_ENV=('HOME','HERMES_HOME','VIRTUAL_ENV','HERMES_PROFILE','PATH',
+STARTUP_ENV=('HOME','HERMES_HOME','HERMES_PYTHON','VIRTUAL_ENV','HERMES_PROFILE','PATH',
              'TELEGRAM_ALLOWED_USERS')
 
 
@@ -180,7 +180,7 @@ def startup_environment(lines):
             if key in selected:duplicates.add(key)
             selected[key]=value
     result={'paths':{key:value for key,value in selected.items()
-                     if key in ('HOME','HERMES_HOME','VIRTUAL_ENV') and _public_path(value)}}
+                     if key in ('HOME','HERMES_HOME','HERMES_PYTHON','VIRTUAL_ENV') and _public_path(value)}}
     if selected.get('PATH'):
         result['executable_search_directories']=[value for value in selected['PATH'].split(':') if _public_path(value)][:24]
     profile=selected.get('HERMES_PROFILE','')
@@ -232,9 +232,58 @@ def startup_source_metadata(raw):
     return value
 
 
+# Fixed paths from the public Dockerfile/launcher, never from user configuration.
+PUBLIC_DOCKER_LAUNCHERS = (
+    'opt/hermes/bin/hermes',
+    'opt/hermes/docker/entrypoint-dispatch.sh',
+    'opt/hermes/docker/main-wrapper.sh',
+    'etc/s6-overlay/s6-rc.d/main-hermes/run',
+    'etc/cont-init.d/02-reconcile-profiles',
+)
+PUBLIC_INSTALL_MARKERS = (
+    'etc/hermes/image-provenance.json', 'opt/hermes/install-stamp.json',
+)
+
+
+def public_install_metadata(raw):
+    """Project only public revision/runtime fields; never return arbitrary JSON."""
+    result={'sha256':hashlib.sha256(raw).hexdigest(), 'active_runtime_verified':False}
+    try:
+        data=json.loads(raw)
+        if type(data) is not dict:raise ValueError()
+    except (ValueError, UnicodeError):
+        return {**result,'code':'PUBLIC_INSTALL_METADATA_INVALID'}
+    for key in ('revision','commit'):
+        value=data.get(key)
+        if isinstance(value,str) and re.fullmatch('[a-f0-9]{40}|[a-f0-9]{64}',value) and set(value)!={'0'}:
+            result[key]=value
+    value=data.get('version')
+    if isinstance(value,str) and re.fullmatch(r'v?[0-9][A-Za-z0-9._+-]{0,39}',value):result['version']=value
+    for key, choices in (('deployment_kind',('image',)),('manager',('docker',)),
+                         ('distribution',('docker',)),('updateMechanism',('external',))):
+        if data.get(key) in choices:result[key]=data[key]
+    if data.get('pmRuntime')=='/opt/hermes/pm-runtime':result['pmRuntime']=data['pmRuntime']
+    return result
+
+
+def process_runtime_metadata(pid):
+    """Observe exe/cwd only, never argv, environment, maps, sessions or config."""
+    value={'process_id':pid,'process_env_read':False,'process_cmdline_read':False}
+    if type(pid) is not int or pid<=0:return value
+    for name in ('exe','cwd'):
+        try:observed=os.readlink(f'/proc/{pid}/{name}')
+        except OSError:continue
+        if not _public_path(observed):continue
+        if name=='exe' and re.fullmatch(r'(?:python[0-9.]*|hermes)',Path(observed).name):
+            value['observed_executable']=observed
+        if name=='cwd' and (observed=='/opt/hermes' or observed.startswith(('/opt/hermes/','/opt/data/installs/'))):
+            value['observed_source_directory']=observed
+    return value
+
+
 def process_startup_sources(pid):
-    value={'process_id':pid,'entrypoint_candidates':[],'startup_sources':[],
-           'gateway_modules':[],'process_env_read':False,'process_cmdline_read':False}
+    value={**process_runtime_metadata(pid),'entrypoint_candidates':[],'startup_sources':[],
+           'gateway_modules':[],'public_install_markers':[]}
     if type(pid) is not int or pid<=0:return {**value,'code':'HERMES_PROCESS_NOT_IDENTIFIED'}
     try:
         executable=os.readlink(f'/proc/{pid}/exe')
@@ -254,12 +303,16 @@ def process_startup_sources(pid):
             if _public_path(interpreter) and re.fullmatch(r'python[0-9.]*',Path(interpreter).name):
                 item['python_shebang']=interpreter
             value['entrypoint_candidates'].append(item)
-        for path in ('etc/s6-overlay/s6-rc.d/hermes/run','etc/s6-overlay/s6-rc.d/hermes-gateway/run',
-                     'etc/services.d/hermes/run','etc/services.d/hermes-gateway/run'):
+        for path in PUBLIC_DOCKER_LAUNCHERS:
             observed=_read_relative_source(root,path,64*1024,with_metadata=True)
             if observed is not None:
                 raw,permissions=observed
                 value['startup_sources'].append({'path':'/'+path,**permissions,**startup_source_metadata(raw)})
+        for path in PUBLIC_INSTALL_MARKERS:
+            observed=_read_relative_source(root,path,16*1024,with_metadata=True)
+            if observed is not None:
+                raw,permissions=observed
+                value['public_install_markers'].append({'path':'/'+path,**permissions,**public_install_metadata(raw)})
         for module in ('gateway/run.py','gateway/authz_mixin.py','gateway/session.py',
                        'gateway/session_context.py','tools/registry.py'):
             observed=_read_relative_source(root,'opt/hermes/'+module,1536*1024,with_metadata=True)
@@ -286,7 +339,7 @@ def collect_startup():
         observed=subprocess.run([docker,'inspect','--format',template,'hermes-telegram'],capture_output=True,text=True,
             timeout=10,env={'PATH':'/usr/local/bin:/usr/bin:/bin','LANG':'C.UTF-8'})
         row={'container':'hermes-telegram','image_metadata':container.get('image_metadata',{}),
-             'processes':[],'bridge_mounts':container.get('bridge_mounts',[])}
+             'processes':[],'python_process_metadata':[],'bridge_mounts':container.get('bridge_mounts',[])}
         if observed.returncode==0 and len(observed.stdout)<=16384:
             first,_,rest=observed.stdout.partition('\n')
             row['startup_descriptor_sha256']=hashlib.sha256(first.encode()).hexdigest()
@@ -297,12 +350,14 @@ def collect_startup():
                     flag=entrypoint.get('readonly_rootfs')
                     row['container_rootfs_readonly']=flag if type(flag) is bool else None
                     entrypoint=entrypoint.get('entrypoint')
-                if type(entrypoint) is list and entrypoint and Path(entrypoint[0]).name in ('init','tini','sh','bash','hermes','python','python3'):
+                if type(entrypoint) is list and entrypoint and Path(entrypoint[0]).name in ('init','tini','sh','bash','hermes','python','python3','entrypoint-dispatch.sh'):
                     row['container_entrypoint_program']=Path(entrypoint[0]).name
             except (ValueError,TypeError):pass
         else:row['code']='CONTAINER_STARTUP_METADATA_UNAVAILABLE'
         for process in container.get('process_credentials',[]):
             if process.get('executable_name')=='hermes':row['processes'].append(process_startup_sources(process.get('host_pid')))
+            elif re.fullmatch(r'python[0-9.]*',str(process.get('executable_name',''))) and len(row['python_process_metadata'])<16:
+                row['python_process_metadata'].append(process_runtime_metadata(process.get('host_pid')))
         result['startup'].append(row)
     return result
 
