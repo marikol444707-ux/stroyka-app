@@ -22,6 +22,12 @@ DIRECTORIES = ('/root/hermes-data/jev-bridge', '/root/hermes-data/jev-bridge/req
                '/root/hermes-data/jev-bridge/results', '/opt/data/jev-bridge')
 UNITS = ('hermes-jev-search.service', 'hermes-jev-search.timer', 'hermes-jev-search.path')
 PROPERTIES = ('LoadState', 'ActiveState', 'SubState', 'UnitFileState', 'User', 'Group', 'FragmentPath')
+# Reviewed source revisions, not a claim about the installed files until hashes match.
+REVIEWED_RUNTIME = {
+    'jev_server_tools.py': ('757799e129c108b5407674590f1c4cb572defc208c03c7b0fbc6c89a7ad966f5', 'acb1a3838a13cb650440340a774be46f1a3830a8'),
+    'jev_commercial_search.py': ('c73b7a1111f948c083eda7967e4b301ac8175cd45a2b08c01af81f6867e753cc', 'acb1a3838a13cb650440340a774be46f1a3830a8'),
+    'jev_eis_probe.py': ('a9175836648e1064c9b255fdc9d2b3b9bdeff8c246f11173760a761f12348fc4', 'e3d08744f07522040dcbd8580ef7f29906daa562'),
+}
 
 
 def validation_contract(tree):
@@ -166,12 +172,18 @@ def inspect_worker(path):
     report['literal_cli_shapes'] = []
     safe_tokens = {'stroyka-jev', 'sudo', '-n', 'commercial-search', 'eis-search',
                    '--query', '--profile-stdin', '--stavropol-open', 'status'}
-    for call in ast.walk(tree):
-        if not isinstance(call, ast.Call) or not call.args or not isinstance(call.args[0], (ast.List, ast.Tuple)):
+    executable_names = set()
+    for node in tree.body:
+        if (isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant)
+                and isinstance(node.value.value, str) and node.value.value.endswith('/stroyka-jev')):
+            executable_names.update(target.id for target in node.targets if isinstance(target, ast.Name))
+    for sequence in ast.walk(tree):
+        if not isinstance(sequence, (ast.List, ast.Tuple)):
             continue
-        elements = call.args[0].elts
+        elements = sequence.elts
         if not any(isinstance(item, ast.Constant) and isinstance(item.value, str)
-                   and (item.value == 'stroyka-jev' or item.value.endswith('/stroyka-jev')) for item in elements):
+                   and (item.value == 'stroyka-jev' or item.value.endswith('/stroyka-jev'))
+                   or isinstance(item, ast.Name) and item.id in executable_names for item in elements):
             continue
         shape=[]
         for item in elements:
@@ -181,8 +193,10 @@ def inspect_worker(path):
                 shape.append({'variable':item.id})
             else:
                 shape.append('<REDACTED_ARGUMENT>')
+        call = next((node for node in ast.walk(tree) if isinstance(node, ast.Call)
+                     and node.args and node.args[0] is sequence), None)
         report['literal_cli_shapes'].append({'arguments':shape,
-            'stdin_keyword_present':any(item.arg == 'input' for item in call.keywords)})
+            'stdin_keyword_present':any(item.arg == 'input' for item in call.keywords) if call else None})
     class Redact(ast.NodeTransformer):
         def visit_Constant(self, node):
             if node.value is None or type(node.value) is bool:
@@ -326,6 +340,61 @@ def result_permissions(path):
             'real_hermes_result_read_access':'NOT_TESTED'}
 
 
+def runtime_source(path, allowed_roots=(Path('/opt/stroyka-jev-tools'), Path('/usr/local/libexec')), *, trusted_uid=0):
+    """Inspect known source modules through root-owned release symlinks only.
+
+    This is source inventory, not approval to execute a runtime. Never import it.
+    """
+    value = metadata(path)
+    try:
+        resolved = path.resolve(strict=True)
+        logical_root = next((root for root in allowed_roots if path.is_relative_to(root)), None)
+        target_root = next((root for root in allowed_roots if resolved.is_relative_to(root)), None)
+        if logical_root is None or target_root is None:
+            value['code'] = 'UNTRUSTED_SOURCE_PATH'
+            return value
+        # Check both sides of a release link. Symlink mode 0777 is normal; its
+        # owner and its containing directories must still be protected.
+        for candidate, boundary in ((path, logical_root), (resolved, target_root)):
+            for node in (candidate, *candidate.parents):
+                info = node.lstat()
+                if info.st_uid != trusted_uid or (not stat.S_ISLNK(info.st_mode) and info.st_mode & 0o022):
+                    value['code'] = 'UNTRUSTED_SOURCE_PERMISSIONS'
+                    return value
+                if node == boundary:
+                    break
+        fd = os.open(resolved, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        try:
+            before = os.fstat(fd)
+            if not stat.S_ISREG(before.st_mode) or before.st_size > 256 * 1024:
+                value['code'] = 'SOURCE_SIZE_OR_TYPE'
+                return value
+            with os.fdopen(fd, 'rb', closefd=False) as stream:
+                raw = stream.read(256 * 1024 + 1)
+            after = os.fstat(fd)
+        finally:
+            os.close(fd)
+        if (len(raw) > 256 * 1024 or path.resolve(strict=True) != resolved
+                or (before.st_ino, before.st_size, before.st_mtime_ns) != (after.st_ino, after.st_size, after.st_mtime_ns)):
+            value['code'] = 'SOURCE_CHANGED_DURING_AUDIT'
+            return value
+        value['resolved_path'] = str(resolved)
+        value['sha256'] = hashlib.sha256(raw).hexdigest()
+        if path.name in REVIEWED_RUNTIME:
+            expected, revision = REVIEWED_RUNTIME[path.name]
+            value['matches_reviewed_source'] = value['sha256'] == expected
+            value['reviewed_revision'] = revision
+        tree = ast.parse(raw)
+        value['parser_flags'] = sorted({node.args[0].value for node in ast.walk(tree)
+             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == 'add_argument'
+             and node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str)
+             and re.fullmatch('--[a-z][a-z0-9-]{0,63}', node.args[0].value)})
+        value['observed_only_not_execution_proof'] = True
+    except (OSError, RuntimeError, SyntaxError) as exc:
+        value['code'] = type(exc).__name__
+    return value
+
+
 def runtime_cli_inventory():
     result = {}
     root = Path('/usr/local/libexec/stroyka-jev-control')
@@ -349,22 +418,7 @@ def runtime_cli_inventory():
         if tools.name == 'jev_server_tools.py':
             paths.update(tools.parent/name for name in ('jev_commercial_search.py','jev_eis_probe.py'))
     for path in sorted(paths):
-        value=metadata(path)
-        result[str(path)]=value
-        if not value.get('exists') or any(node.is_symlink() for node in (path,*path.parents)) or not path.is_file() or value['size']>256*1024:
-            continue
-        raw=path.read_bytes()
-        value['sha256']=hashlib.sha256(raw).hexdigest()
-        try:
-            tree=ast.parse(raw)
-        except SyntaxError:
-            value['code']='SOURCE_NOT_PYTHON'
-            continue
-        value['parser_flags']=sorted({node.args[0].value for node in ast.walk(tree)
-             if isinstance(node,ast.Call) and isinstance(node.func,ast.Attribute) and node.func.attr=='add_argument'
-             and node.args and isinstance(node.args[0],ast.Constant) and isinstance(node.args[0].value,str)
-             and re.fullmatch('--[a-z][a-z0-9-]{0,63}',node.args[0].value)})
-        value['observed_only_not_execution_proof']=True
+        result[str(path)] = runtime_source(path)
     return result
 
 

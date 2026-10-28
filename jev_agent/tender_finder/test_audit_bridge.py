@@ -1,13 +1,49 @@
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
 
-from .audit_bridge import collect, inspect_worker, validation_contract, result_permissions
+from .audit_bridge import collect, inspect_worker, validation_contract, result_permissions, runtime_source
 
 
 class BridgeAuditTests(unittest.TestCase):
+    def test_release_symlink_inventory_reads_only_protected_source_without_executing_it(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)
+            release=root/'release';release.mkdir()
+            source=release/'jev_server_tools.py'
+            source.write_text('raise RuntimeError("MUST_NOT_EXECUTE")\nparser.add_argument("--profile-stdin")\n')
+            (root/'current').symlink_to(release, target_is_directory=True)
+            with patch('subprocess.run') as run:
+                result=runtime_source(root/'current'/'jev_server_tools.py',(root,),trusted_uid=os.geteuid())
+            run.assert_not_called()
+            self.assertEqual(result['parser_flags'],['--profile-stdin'])
+            self.assertEqual(result['resolved_path'],str(source))
+            source.chmod(0o666)
+            denied=runtime_source(root/'current'/'jev_server_tools.py',(root,),trusted_uid=os.geteuid())
+            self.assertEqual(denied['code'],'UNTRUSTED_SOURCE_PERMISSIONS')
+            self.assertNotIn('sha256',denied)
+
+    def test_release_symlink_cannot_escape_allowed_tree(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);allowed=root/'allowed';allowed.mkdir()
+            source=root/'outside.py';source.write_text('secret="PRIVATE"')
+            (allowed/'jev_server_tools.py').symlink_to(source)
+            value=runtime_source(allowed/'jev_server_tools.py',(allowed,),trusted_uid=os.geteuid())
+            self.assertEqual(value['code'],'UNTRUSTED_SOURCE_PATH')
+            self.assertNotIn('sha256',value)
+
+    def test_command_assigned_before_runner_reveals_only_allowlisted_arguments(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source=Path(folder)/'worker.py'
+            source.write_text('EXECUTABLE="/usr/local/bin/stroyka-jev"\ndef execute(req):\n command=[EXECUTABLE,"eis-search","--query","PRIVATE"]\n return runner(command, 100)\n')
+            value=inspect_worker(source)
+        self.assertEqual(value['literal_cli_shapes'][0]['arguments'],
+                         [{'variable':'EXECUTABLE'},'eis-search','--query','<REDACTED_ARGUMENT>'])
+        self.assertNotIn('PRIVATE',json.dumps(value))
+
     def test_operational_source_and_cli_shape_never_disclose_query_or_token_values(self):
         with tempfile.TemporaryDirectory() as folder:
             path=Path(folder)/'worker.py'
