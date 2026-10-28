@@ -13,7 +13,7 @@ import stat
 from .contract import validate_v2_request
 from .discovery import verify_installed_runtime
 from .jobs import process_request
-from .publication import CHANNEL, CHANNEL_LOCK, _channel, publish_committed_result
+from .publication import _channel, publish_committed_result
 from .state import (RequestLedger, Scope, StorageError, RequestBusy, RequestConflict,
                     _atomic, _directory, _json, _read)
 
@@ -58,6 +58,17 @@ def _bind_private(config):
         os.close(fd)
 
 
+def prepare_pipeline(config):
+    """Bind only explicitly new namespaces; never migrate installed legacy data."""
+    if type(config) is not PipelineConfig or type(config.scope) is not Scope:
+        raise StorageError('protected_pipeline_config_required')
+    config.scope.key()
+    if type(config.result_gid) is not int or not 0<=config.result_gid<2**31:
+        raise StorageError('protected_result_gid_required')
+    with _channel(config.result_directory,config.scope,config.result_gid):
+        _bind_private(config)
+
+
 def run_request(payload, config, *, invoke, verify_runtime=verify_installed_runtime,
                 clock=lambda:datetime.now(timezone.utc)):
     """No second search when replaying after a result/event publication failure.
@@ -65,12 +76,8 @@ def run_request(payload, config, *, invoke, verify_runtime=verify_installed_runt
     config and callbacks must be protected worker bindings, not model JSON.
     v1 must remain with its reviewed existing handler until migration is agreed.
     """
-    if type(config) is not PipelineConfig or type(config.scope) is not Scope:
-        raise StorageError('protected_pipeline_config_required')
-    config.scope.key()
-    if type(config.result_gid) is not int or not 0<=config.result_gid<2**31:
-        raise StorageError('protected_result_gid_required')
     request=validate_v2_request(payload)
+    prepare_pipeline(config)
     fingerprint=request.fingerprint(config.scope.company_id)
     # Validate public channel before any search, including a lost private receipt.
     # A foreign or legacy result must never cause a new paid search first.
