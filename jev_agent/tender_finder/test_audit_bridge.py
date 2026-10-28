@@ -24,6 +24,14 @@ def run_job(request):
         self.assertNotIn('PRIVATE_TOKEN',json.dumps(value))
         self.assertNotIn('PRIVATE_QUERY',json.dumps(value))
 
+    def test_actual_execute_and_file_helpers_are_included_for_audit(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'worker.py'
+            path.write_text('def execute(req):\n    return "PRIVATE"\ndef put_json(fd, name, data):\n    return None\ndef read_req(fd, name):\n    return None\n')
+            value=inspect_worker(path)
+        self.assertEqual({item['name'] for item in value['operational_functions']}, {'execute','put_json','read_req'})
+        self.assertNotIn('PRIVATE',json.dumps(value))
+
     def test_inline_raw_validator_reveals_public_schema_without_private_values(self):
         import ast
         source = r'''

@@ -232,7 +232,7 @@ def inspect_worker(path):
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) or node.lineno in seen:
             continue
-        if not re.search('main|process|dispatch|run|atomic|write|save|result|queue|claim|lock|notify', node.name, re.I):
+        if not re.search('main|process|dispatch|execute|run|atomic|put_json|read_req|safe_dir|write|save|result|queue|claim|lock|notify', node.name, re.I):
             continue
         view = ast.unparse(Redact().visit(copy.deepcopy(node)))
         report['operational_functions'].append({'name':node.name, 'line':node.lineno,
@@ -329,15 +329,37 @@ def result_permissions(path):
 def runtime_cli_inventory():
     result = {}
     root = Path('/usr/local/libexec/stroyka-jev-control')
-    for name in ('jev_server_tools.py','jev_commercial_search.py','jev_eis_probe.py'):
-        path=root/name
+    paths = {root/name for name in ('jev_server_tools.py','jev_commercial_search.py','jev_eis_probe.py')}
+    entrypoint = shutil.which('stroyka-jev')
+    if entrypoint:
+        entry = Path(entrypoint)
+        result['entrypoint'] = {'path': str(entry), **metadata(entry), 'executed': False}
+        resolved = entry.resolve()
+        if resolved.is_file() and resolved.stat().st_size <= 64 * 1024:
+            wrapper = resolved.read_bytes()
+            result['entrypoint']['sha256'] = hashlib.sha256(wrapper).hexdigest()
+            if resolved.name == 'jev_server_tools.py':
+                paths.add(resolved)
+            # Inspect only literal paths to the known runtime module, not arbitrary files.
+            for match in re.findall(rb'(/(?:[A-Za-z0-9_.-]+/)+jev_server_tools\.py)', wrapper):
+                candidate = Path(match.decode('ascii'))
+                if str(candidate).startswith(('/usr/local/libexec/', '/opt/')):
+                    paths.add(candidate)
+    for tools in tuple(paths):
+        if tools.name == 'jev_server_tools.py':
+            paths.update(tools.parent/name for name in ('jev_commercial_search.py','jev_eis_probe.py'))
+    for path in sorted(paths):
         value=metadata(path)
-        result[name]=value
-        if not value.get('exists') or value.get('is_symlink') or not path.is_file() or value['size']>256*1024:
+        result[str(path)]=value
+        if not value.get('exists') or any(node.is_symlink() for node in (path,*path.parents)) or not path.is_file() or value['size']>256*1024:
             continue
         raw=path.read_bytes()
         value['sha256']=hashlib.sha256(raw).hexdigest()
-        tree=ast.parse(raw)
+        try:
+            tree=ast.parse(raw)
+        except SyntaxError:
+            value['code']='SOURCE_NOT_PYTHON'
+            continue
         value['parser_flags']=sorted({node.args[0].value for node in ast.walk(tree)
              if isinstance(node,ast.Call) and isinstance(node.func,ast.Attribute) and node.func.attr=='add_argument'
              and node.args and isinstance(node.args[0],ast.Constant) and isinstance(node.args[0].value,str)

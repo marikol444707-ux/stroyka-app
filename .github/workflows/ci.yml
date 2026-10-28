@@ -56,6 +56,9 @@ jobs:
           jev_agent.tender_finder.test_reporting
           jev_agent.tender_finder.test_cli
           jev_agent.tender_finder.test_audit_bridge
+          jev_agent.tender_finder.test_compat
+          jev_agent.tender_finder.test_cli_result
+          jev_agent.tender_finder.test_state
           jev_agent.server_runtime.scripts.test_jev_commercial_search_profile
           jev_agent.scripts.test_jev_eis_search
           scripts.test_jev_commercial_search_and_import
