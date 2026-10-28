@@ -18,6 +18,16 @@ from .state import Scope
 
 
 class StartupToolTests(unittest.TestCase):
+    def test_host_launcher_requires_privileged_isolated_bootstrap(self):
+        entry=Path(__file__).parent/'integration/host_entry.py'
+        result=subprocess.run([sys.executable,'-I','-B',str(entry),'worker'],capture_output=True,timeout=5)
+        self.assertNotEqual(result.returncode,0)
+        self.assertIn(b'_',result.stderr)
+        tree=ast.parse(entry.read_bytes())
+        writes=[node for node in tree.body if isinstance(node,ast.Assign)
+                and any(isinstance(target,ast.Attribute) and target.attr=='dont_write_bytecode' for target in node.targets)]
+        self.assertEqual(len(writes),1);self.assertIs(writes[0].value.value,True)
+
     def test_regular_package_does_not_merge_foreign_namespace_on_python_path(self):
         with tempfile.TemporaryDirectory() as folder:
             foreign=Path(folder)/'jev_agent';foreign.mkdir()
