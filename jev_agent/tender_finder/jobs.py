@@ -5,11 +5,14 @@ module does not consume queue files, adopt legacy .seen files, publish results,
 notify Hermes, or install services. A returned receipt is not delivery evidence.
 """
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import hashlib
 import json
 
 from .compat import LegacyRequest, normalize_request
 from .discovery import discover, RuntimeMismatch, verify_installed_runtime
+from .evidence import evidence_report
+from .presentation import render_report
 from .state import MAX_RESULT_BYTES, RequestLedger, Scope, StorageError
 
 
@@ -40,7 +43,8 @@ def _result(value, request_id, scope):
 
 
 def process_request(payload, scope, private_directory, *, legacy_validator=None,
-                    legacy_executor=None, invoke=None, verify_runtime=verify_installed_runtime):
+                    legacy_executor=None, invoke=None, verify_runtime=verify_installed_runtime,
+                    clock=lambda:datetime.now(timezone.utc)):
     """Validate -> durable claim -> v1 callback or v2 discovery -> durable result.
 
     Same scoped ID/fingerprint replays a saved result. Changed contents conflict;
@@ -60,8 +64,13 @@ def process_request(payload, scope, private_directory, *, legacy_validator=None,
             disposition = reservation.action
             if disposition == 'execute':
                 try:
-                    value = (legacy_executor(request.legacy_payload()) if legacy else
-                             discover(request,scope,invoke=invoke,verify_runtime=verify_runtime))
+                    if legacy:
+                        value=legacy_executor(request.legacy_payload())
+                    else:
+                        started_at=clock()
+                        found=discover(request,scope,invoke=invoke,verify_runtime=verify_runtime)
+                        value=evidence_report(request,scope,found,started_at=started_at,completed_at=clock())
+                        value['completion_preview']=render_report(value,scope)
                     result = _result(value,request.request_id,scope)
                 except Exception as exc:
                     # No stdout/stderr/exception text in a failure receipt. Disk

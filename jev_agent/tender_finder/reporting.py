@@ -15,9 +15,9 @@ from .catalog import BY_ID, normalized_text
 from .contract import REGION, REGIMES, SearchRequest
 
 HOSTS = {'B2B-Center': ('www.b2b-center.ru',), 'Росэлторг': ('www.roseltorg.ru',),
-         'Фабрикант': ('fabrikant.ru',), 'ЭТП ГПБ': ('etpgpb.ru',),
+         'Фабрикант': ('fabrikant.ru', 'www.fabrikant.ru'), 'ЭТП ГПБ': ('etpgpb.ru',),
          'Сбер А': ('www.sberbank-ast.ru', 'utp.sberbank-ast.ru'),
-         'ТЭК-Торг': ('www.tektorg.ru',), 'Торги Федерации': ('lk.fedtorgi.ru',),
+         'ТЭК-Торг': ('www.tektorg.ru',), 'Торги Федерации': ('lk.fedtorgi.ru', 'etpp.ru'),
          'Р-ТЕНДЕР': ('etp.r-tender.ru',),
          **{'eis:' + regime: ('zakupki.gov.ru',) for regime in ('44-ФЗ', '223-ФЗ', '615-ПП')}}
 STATUSES = frozenset(('not_tested', 'ok_with_results', 'ok_empty', 'partial', 'unavailable',
@@ -73,10 +73,11 @@ class SourceOutcome:
             if self.checked_at is not None or self.queries_checked or self.pages_checked or self.matched_count or self.applied_filters:
                 raise ValueError('unexecuted_source_cannot_claim_evidence')
         else:
-            if not aware(self.checked_at) or not official_url(self.source, self.url) or not self.queries_checked:
+            if not aware(self.checked_at) or not self.queries_checked:
                 raise ValueError('source_check_evidence_required')
         if self.status in ('ok_empty', 'ok_with_results'):
-            if not self.pages_checked or self.error_code or (self.status == 'ok_empty') != (self.matched_count == 0):
+            if (not official_url(self.source, self.url) or not self.pages_checked or self.error_code
+                    or (self.status == 'ok_empty') != (self.matched_count == 0)):
                 raise ValueError('contradictory_source_status')
         elif self.status != 'not_tested' and self.error_code is None:
             raise ValueError('source_failure_reason_required')
@@ -105,6 +106,7 @@ class TenderEvidence:
     status: str = 'unknown'
     legal_regime: str | None = None
     matched_topics: tuple[str, ...] = ()
+    organizer: str | None = None
 
     def __post_init__(self):
         if not official_url(self.source, self.url) or not aware(self.checked_at):
@@ -127,7 +129,7 @@ class TenderEvidence:
             raise ValueError('invalid_tender_price')
         if self.price_rub is not None and self.currency != 'RUB':
             raise ValueError('ruble_price_requires_confirmed_ruble_currency')
-        for value, limit in ((self.customer, 1000), (self.work_location, 2000),
+        for value, limit in ((self.customer, 1000), (self.organizer, 1000), (self.work_location, 2000),
                              (self.work_region, 80), (self.raw_price, 160), (self.currency, 3)):
             if value is not None and (not isinstance(value, str) or not 1 <= len(value) <= limit):
                 raise ValueError('invalid_tender_text_field')
