@@ -1,4 +1,5 @@
 import json
+import errno
 import subprocess
 import unittest
 from unittest.mock import Mock, patch
@@ -74,6 +75,12 @@ class EISDecoderTests(unittest.TestCase):
 
 
 class DiscoveryTests(unittest.TestCase):
+    def test_output_limit_is_reported_distinctly_and_other_source_continues(self):
+        result=discover(request(),SCOPE,invoke=Mock(side_effect=[OSError(errno.EFBIG,'PRIVATE'),(commercial(),0)]),verify_runtime=Mock())
+        self.assertEqual(result['outputs'][0]['code'],'cli_output_limit')
+        self.assertEqual(result['status'],'partial')
+        self.assertNotIn('PRIVATE',json.dumps(result))
+
     def test_missing_requested_commercial_provider_cannot_look_completed(self):
         result=discover(request(sources=['commercial'],commercial_sources=['B2B-Center','Росэлторг'],legal_regimes=['commercial']),
                         SCOPE,invoke=Mock(return_value=(commercial(),0)),verify_runtime=Mock())

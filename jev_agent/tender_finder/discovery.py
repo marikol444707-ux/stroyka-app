@@ -4,6 +4,7 @@ No CLI entry point, service, timer or subprocess default is installed here. The
 existing worker must bind a protected invoker; tests use synthetic responses.
 """
 from pathlib import Path
+import errno
 import subprocess
 
 from .audit_bridge import REVIEWED_RUNTIME, runtime_source
@@ -58,8 +59,9 @@ def discover(request, scope, *, invoke, verify_runtime=verify_installed_runtime)
         except subprocess.TimeoutExpired:
             outputs.append({'source':call.source,'query':call.query,'status':'failed','code':'cli_timeout','report':None})
             continue
-        except OSError:
-            outputs.append({'source':call.source,'query':call.query,'status':'failed','code':'cli_launch_failed','report':None})
+        except OSError as exc:
+            outputs.append({'source':call.source,'query':call.query,'status':'failed',
+                            'code':'cli_output_limit' if exc.errno == errno.EFBIG else 'cli_launch_failed','report':None})
             continue
         result = (decode_commercial_result(stdout, returncode) if call.source == 'commercial'
                   else decode_eis_result(stdout, returncode, query=call.query))
