@@ -52,6 +52,109 @@ def public_image_metadata(value):
     return result
 
 
+def _read_relative_source(root, relative, maximum):
+    """Fixed public source paths only, anchored to the container root descriptor."""
+    parts=Path(relative).parts
+    if not parts or any(part in ('/','..','.') for part in parts):
+        return None
+    descriptors=[]
+    try:
+        parent=root
+        for part in parts[:-1]:
+            parent=os.open(part,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=parent)
+            descriptors.append(parent)
+        file=os.open(parts[-1],os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK,dir_fd=parent)
+        descriptors.append(file)
+        info=os.fstat(file)
+        if not stat.S_ISREG(info.st_mode) or info.st_size>maximum:return None
+        with os.fdopen(file,'rb',closefd=False) as stream:
+            data=stream.read(maximum+1)
+        return data if len(data)<=maximum else None
+    except OSError:
+        return None
+    finally:
+        for descriptor in reversed(descriptors):os.close(descriptor)
+
+
+def hermes_source_inventory(pid):
+    """No exec, env, cmdline, history, sessions, .env, git config or tokens.
+
+    Read only pyproject/git revision and named public source modules. All source
+    literal/default values are omitted; signatures alone do not prove a send API.
+    """
+    report={'process_id':pid,'source_modules':[], 'notification_binding_verified':False,
+            'application_secrets_read':False,'public_project_metadata_only':True,
+            'cmdline_read':False,'commands_executed':False}
+    if type(pid) is not int or pid<=0:
+        report['code']='HERMES_PROCESS_NOT_IDENTIFIED';return report
+    paths=['/opt/hermes','/opt/hermes-agent','/app','/app/hermes-agent']
+    try:
+        cwd=os.readlink(f'/proc/{pid}/cwd')
+        if (re.fullmatch(r'/(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+',cwd)
+                and cwd.startswith(('/opt/','/app/','/usr/src/')) and '..' not in Path(cwd).parts):
+            paths.insert(0,cwd)
+        root=os.open(f'/proc/{pid}/root',os.O_RDONLY|os.O_DIRECTORY)
+    except OSError:
+        report['code']='CONTAINER_SOURCE_UNAVAILABLE';return report
+    try:
+        for source in dict.fromkeys(paths):
+            relative=source.lstrip('/')
+            head=_read_relative_source(root,relative+'/.git/HEAD',256)
+            if head:
+                value=head.decode('ascii',errors='replace').strip()
+                if value.startswith('ref: '):
+                    ref=value[5:]
+                    if re.fullmatch(r'refs/heads/[A-Za-z0-9_./-]{1,120}',ref) and '..' not in Path(ref).parts:
+                        raw=_read_relative_source(root,relative+'/.git/'+ref,128)
+                        value=raw.decode('ascii',errors='replace').strip() if raw else ''
+                if re.fullmatch('[a-f0-9]{40}|[a-f0-9]{64}',value):
+                    report.setdefault('repository_revisions',[]).append({'source_root':source,'revision':value})
+            project=_read_relative_source(root,relative+'/pyproject.toml',128*1024)
+            if project:
+                # Parse only project metadata; do not emit dependency URLs/config.
+                try:
+                    import tomllib
+                    metadata=tomllib.loads(project.decode('utf-8')).get('project',{})
+                    observed={}
+                    for key,pattern in (('name',r'[A-Za-z0-9_.-]{1,80}'),('version',r'[0-9][A-Za-z0-9_.+-]{0,39}')):
+                        if isinstance(metadata.get(key),str) and re.fullmatch(pattern,metadata[key]):observed[key]=metadata[key]
+                    report.setdefault('projects',[]).append({'source_root':source,**observed})
+                except (ImportError,ValueError,UnicodeError,AttributeError):
+                    pass
+            for module in ('tools/send_message_tool.py','gateway/run.py','gateway/platforms/telegram.py','hermes_cli/main.py'):
+                raw=_read_relative_source(root,relative+'/'+module,256*1024)
+                if raw is None:continue
+                value={'source_root':source,'module':module,'sha256':hashlib.sha256(raw).hexdigest(),
+                       'entrypoints':[]}
+                try:
+                    tree=ast.parse(raw)
+                    for node in ast.walk(tree):
+                        if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)) and re.search('send|deliver|notify|dispatch|main',node.name,re.I):
+                            args=[arg.arg for arg in (*node.args.posonlyargs,*node.args.args,*node.args.kwonlyargs)]
+                            value['entrypoints'].append({'name':node.name,'async':isinstance(node,ast.AsyncFunctionDef),
+                                                         'parameters':args,'defaults':'OMITTED'})
+                            if len(value['entrypoints'])>=32:break
+                except (SyntaxError,ValueError,UnicodeError):
+                    value['code']='SOURCE_NOT_PYTHON'
+                report['source_modules'].append(value)
+    finally:
+        os.close(root)
+    if not report['source_modules']:report['code']='PUBLIC_SOURCE_NOT_FOUND'
+    return report
+
+
+def collect_hermes_interface():
+    containers=container_inventory()
+    readers=[]
+    for container in containers.get('containers',[]):
+        for process in container.get('process_credentials',[]):
+            if process.get('executable_name')=='hermes':
+                readers.append(hermes_source_inventory(process.get('host_pid')))
+    return {'read_only':True,'hostname':socket.gethostname(),'services_changed':False,
+            'search_executed':False,'model_called':False,'notifications_sent':False,
+            'hermes_sources':readers,'notification_binding_verified':False,'installation_ready':False}
+
+
 def validation_contract(tree):
     """Static public grammar only; never emit config, request, or credential values."""
     functions = [node for node in ast.walk(tree) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
@@ -485,9 +588,11 @@ def collect_integration_requirements():
 
 def main():
     try:
-        if sys.argv[1:] not in ([],['--integration']):
+        if sys.argv[1:] not in ([],['--integration'],['--hermes-interface']):
             raise ValueError('unsupported_audit_arguments')
-        print(json.dumps(collect_integration_requirements() if sys.argv[1:] else collect(), ensure_ascii=False))
+        value=(collect_hermes_interface() if sys.argv[1:]==['--hermes-interface'] else
+               collect_integration_requirements() if sys.argv[1:] else collect())
+        print(json.dumps(value,ensure_ascii=False))
         return 0
     except Exception as error:
         print(json.dumps({'read_only':True, 'report_complete':False, 'code':type(error).__name__}))

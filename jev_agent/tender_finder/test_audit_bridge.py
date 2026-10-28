@@ -6,10 +6,49 @@ import unittest
 from unittest.mock import patch
 
 from .audit_bridge import (collect, collect_integration_requirements, inspect_worker, validation_contract,
-                           result_permissions, runtime_source, public_image_metadata, REVIEWED_RUNTIME)
+                           result_permissions, runtime_source, public_image_metadata, REVIEWED_RUNTIME,
+                           _read_relative_source, hermes_source_inventory, collect_hermes_interface)
 
 
 class BridgeAuditTests(unittest.TestCase):
+    def test_relative_source_reader_cannot_escape_or_follow_links(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);(root/'public').mkdir();(root/'public/source.py').write_bytes(b'public source')
+            (root/'private').write_bytes(b'PRIVATE')
+            (root/'public/link.py').symlink_to(root/'private')
+            fd=os.open(root,os.O_RDONLY|os.O_DIRECTORY)
+            try:
+                self.assertEqual(_read_relative_source(fd,'public/source.py',100),b'public source')
+                for path in ('../private','/private','public/link.py'):
+                    self.assertIsNone(_read_relative_source(fd,path,100))
+                self.assertIsNone(_read_relative_source(fd,'public/source.py',2))
+            finally:os.close(fd)
+
+    def test_hermes_source_inventory_emits_signatures_not_private_literals_or_config(self):
+        root_fd=os.open('/tmp',os.O_RDONLY|os.O_DIRECTORY)
+        def source(root,relative,maximum):
+            if relative=='opt/hermes/pyproject.toml':
+                return b'[project]\nname="hermes-agent"\nversion="1.2.3"\n[private]\ntoken="PRIVATE"\n'
+            if relative=='opt/hermes/.git/HEAD':return b'a'*40
+            if relative=='opt/hermes/tools/send_message_tool.py':
+                return b'TOKEN="PRIVATE"\ndef send_message(text, chat_id="PRIVATE"):\n return "PRIVATE"\n'
+        with patch('jev_agent.tender_finder.audit_bridge.os.readlink',return_value='/opt/hermes'),patch('jev_agent.tender_finder.audit_bridge.os.open',return_value=root_fd),patch('jev_agent.tender_finder.audit_bridge._read_relative_source',side_effect=source),patch('subprocess.run') as run:
+            value=hermes_source_inventory(123)
+        run.assert_not_called()
+        self.assertNotIn('PRIVATE',json.dumps(value))
+        self.assertEqual(value['projects'][0]['version'],'1.2.3')
+        self.assertEqual(value['source_modules'][0]['entrypoints'][0]['parameters'],['text','chat_id'])
+        self.assertFalse(value['notification_binding_verified'])
+
+    def test_focused_hermes_probe_targets_hermes_process_not_arbitrary_python(self):
+        containers={'containers':[{'process_credentials':[{'host_pid':123,'executable_name':'hermes'},
+                                                          {'host_pid':456,'executable_name':'python'}]}]}
+        with patch('jev_agent.tender_finder.audit_bridge.container_inventory',return_value=containers),patch('jev_agent.tender_finder.audit_bridge.hermes_source_inventory',return_value={}) as reader:
+            value=collect_hermes_interface()
+        reader.assert_called_once_with(123)
+        self.assertFalse(value['notifications_sent'])
+        self.assertFalse(value['model_called'])
+
     def test_integration_audit_does_not_execute_worker_or_inspect_requests(self):
         with patch('jev_agent.tender_finder.audit_bridge.runtime_cli_inventory',return_value={}),patch('jev_agent.tender_finder.audit_bridge.container_inventory',return_value={}),patch('jev_agent.tender_finder.audit_bridge.inspect_worker') as worker,patch('jev_agent.tender_finder.audit_bridge.result_permissions') as results:
             value=collect_integration_requirements()
