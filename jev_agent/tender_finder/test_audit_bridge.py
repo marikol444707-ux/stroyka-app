@@ -7,10 +7,68 @@ from unittest.mock import patch
 
 from .audit_bridge import (collect, collect_integration_requirements, inspect_worker, validation_contract,
                            result_permissions, runtime_source, public_image_metadata, REVIEWED_RUNTIME,
-                           _read_relative_source, hermes_source_inventory, collect_hermes_interface)
+                           _read_relative_source, hermes_source_inventory, collect_hermes_interface,
+                           startup_environment,startup_source_metadata,collect_startup,process_startup_sources)
 
 
 class BridgeAuditTests(unittest.TestCase):
+    def test_process_startup_probe_reads_public_files_not_env_or_command_arguments(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=os.open(folder,os.O_RDONLY|os.O_DIRECTORY)
+            def source(fd,path,maximum,*,with_metadata=False):
+                raw=None
+                if path=='opt/venv/bin/hermes':raw=b'#!/opt/venv/bin/python3\nPRIVATE_TOKEN="not emitted"\n'
+                if path=='etc/s6-overlay/s6-rc.d/hermes/run':raw=b'exec /opt/venv/bin/hermes gateway\n'
+                if path=='opt/hermes/gateway/authz_mixin.py':raw=b'TOKEN="PRIVATE_TOKEN"\n'
+                if raw is not None:return (raw,{'uid':0,'gid':0,'mode':'0o644'}) if with_metadata else raw
+            with patch('jev_agent.tender_finder.audit_bridge.os.readlink',return_value='/usr/local/bin/python3.12'),patch('jev_agent.tender_finder.audit_bridge.os.open',return_value=root),patch('jev_agent.tender_finder.audit_bridge._read_relative_source',side_effect=source) as read,patch('subprocess.run') as run:
+                value=process_startup_sources(123)
+            run.assert_not_called()
+            self.assertNotIn('PRIVATE_TOKEN',json.dumps(value))
+            self.assertEqual(value['entrypoint_candidates'][0]['python_shebang'],'/opt/venv/bin/python3')
+            self.assertFalse(value['process_env_read']);self.assertFalse(value['process_cmdline_read'])
+            self.assertTrue(all(not call.args[1].endswith(('.env','environ','cmdline')) for call in read.call_args_list))
+
+    def test_startup_environment_only_emits_paths_and_hashed_owner(self):
+        value=startup_environment('HOME=/opt/data\nVIRTUAL_ENV=/opt/venv\nTELEGRAM_ALLOWED_USERS=123456789\nTELEGRAM_TOKEN=PRIVATE_TOKEN\nHERMES_PROFILE=PRIVATE_PROFILE')
+        self.assertEqual(value['paths']['HOME'],'/opt/data')
+        self.assertEqual(value['numeric_allowed_owner_count'],1)
+        self.assertFalse(value['owner_selection_required'])
+        self.assertNotIn('123456789',json.dumps(value))
+        self.assertNotIn('PRIVATE',json.dumps(value))
+        self.assertFalse(value['effective_gateway_policy_verified'])
+        dynamic=startup_source_metadata(b'export HERMES_PROFILE="$HERMES_PROFILE"\n')
+        self.assertEqual(dynamic['dynamic_public_keys'],['HERMES_PROFILE'])
+        self.assertNotIn('profile_sha256',dynamic['declared_runtime'])
+
+    def test_ambiguous_duplicate_or_wildcard_owner_is_not_auto_selected(self):
+        for source in ('TELEGRAM_ALLOWED_USERS=123,456','TELEGRAM_ALLOWED_USERS=*',
+                       'TELEGRAM_ALLOWED_USERS=123\nTELEGRAM_ALLOWED_USERS=456'):
+            value=startup_environment(source)
+            self.assertTrue(value['owner_selection_required'])
+            self.assertNotIn('single_owner_id_sha256',value)
+
+    def test_startup_shell_literals_never_expose_tokens_or_execute_code(self):
+        raw=b'#!/bin/sh\nexport HOME=/opt/data\nexport BOT_TOKEN=PRIVATE_TOKEN\nexec s6-setuidgid hermes /opt/venv/bin/hermes gateway --token PRIVATE_TOKEN\n'
+        with patch('subprocess.run') as run:
+            value=startup_source_metadata(raw)
+        run.assert_not_called()
+        self.assertNotIn('PRIVATE_TOKEN',json.dumps(value))
+        self.assertIn('/opt/venv/bin/hermes',value['exec_shapes'][0])
+        self.assertEqual(value['declared_runtime']['paths']['HOME'],'/opt/data')
+
+    def test_startup_probe_only_inspects_container_and_hermes_process(self):
+        from types import SimpleNamespace
+        containers={'containers':[{'name':'hermes-telegram','image_metadata':{},'process_credentials':[
+            {'executable_name':'hermes','host_pid':123},{'executable_name':'python','host_pid':456}]}]}
+        observed=SimpleNamespace(returncode=0,stdout='{"entrypoint":["/init","PRIVATE_TOKEN"],"readonly_rootfs":false}\nHOME=/opt/data\nTELEGRAM_ALLOWED_USERS=123456789\n')
+        with patch('jev_agent.tender_finder.audit_bridge.container_inventory',return_value=containers),patch('jev_agent.tender_finder.audit_bridge.shutil.which',return_value='/usr/bin/docker'),patch('subprocess.run',return_value=observed) as run,patch('jev_agent.tender_finder.audit_bridge.process_startup_sources',return_value={}) as process:
+            value=collect_startup()
+        process.assert_called_once_with(123)
+        self.assertEqual(run.call_args.args[0][:2],['/usr/bin/docker','inspect'])
+        self.assertNotIn('PRIVATE_TOKEN',json.dumps(value));self.assertNotIn('123456789',json.dumps(value))
+        self.assertFalse(value['services_changed']);self.assertFalse(value['notifications_sent'])
+        self.assertFalse(value['startup'][0]['container_rootfs_readonly'])
     def test_relative_source_reader_cannot_escape_or_follow_links(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder);(root/'public').mkdir();(root/'public/source.py').write_bytes(b'public source')

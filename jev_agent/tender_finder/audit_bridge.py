@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import shlex
 import socket
 import stat
 import subprocess
@@ -52,24 +53,30 @@ def public_image_metadata(value):
     return result
 
 
-def _read_relative_source(root, relative, maximum):
+def _read_relative_source(root, relative, maximum, *, with_metadata=False):
     """Fixed public source paths only, anchored to the container root descriptor."""
     parts=Path(relative).parts
     if not parts or any(part in ('/','..','.') for part in parts):
         return None
-    descriptors=[]
+    descriptors=[];directories=[]
     try:
         parent=root
         for part in parts[:-1]:
             parent=os.open(part,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=parent)
             descriptors.append(parent)
+            info=os.fstat(parent)
+            directories.append({'component':part,'uid':info.st_uid,'gid':info.st_gid,'mode':oct(stat.S_IMODE(info.st_mode))})
         file=os.open(parts[-1],os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK,dir_fd=parent)
         descriptors.append(file)
         info=os.fstat(file)
         if not stat.S_ISREG(info.st_mode) or info.st_size>maximum:return None
         with os.fdopen(file,'rb',closefd=False) as stream:
             data=stream.read(maximum+1)
-        return data if len(data)<=maximum else None
+        if len(data)>maximum:return None
+        if with_metadata:
+            return data,{'uid':info.st_uid,'gid':info.st_gid,'mode':oct(stat.S_IMODE(info.st_mode)),
+                         'directory_permissions':directories}
+        return data
     except OSError:
         return None
     finally:
@@ -153,6 +160,151 @@ def collect_hermes_interface():
     return {'read_only':True,'hostname':socket.gethostname(),'services_changed':False,
             'search_executed':False,'model_called':False,'notifications_sent':False,
             'hermes_sources':readers,'notification_binding_verified':False,'installation_ready':False}
+
+
+STARTUP_ENV=('HOME','HERMES_HOME','VIRTUAL_ENV','HERMES_PROFILE','PATH',
+             'TELEGRAM_ALLOWED_USERS')
+
+
+def _public_path(value):
+    return (isinstance(value,str) and len(value)<=512 and value.startswith(('/opt/','/usr/','/home/','/root/','/var/','/tmp/','/app/'))
+            and re.fullmatch(r'/[A-Za-z0-9_./-]+',value) is not None and '..' not in Path(value).parts)
+
+
+def startup_environment(lines):
+    """Only noncredential path keys; owner IDs are counted/hashed, never emitted."""
+    selected={};duplicates=set()
+    for line in lines.splitlines():
+        key,separator,value=line.partition('=')
+        if separator and key in STARTUP_ENV:
+            if key in selected:duplicates.add(key)
+            selected[key]=value
+    result={'paths':{key:value for key,value in selected.items()
+                     if key in ('HOME','HERMES_HOME','VIRTUAL_ENV') and _public_path(value)}}
+    if selected.get('PATH'):
+        result['executable_search_directories']=[value for value in selected['PATH'].split(':') if _public_path(value)][:24]
+    profile=selected.get('HERMES_PROFILE','')
+    result['profile_configured']=bool(profile)
+    if profile:result['profile_sha256']=hashlib.sha256(profile.encode()).hexdigest()
+    result['duplicate_public_keys']=sorted(duplicates)
+    result['owner_allowlist_declaration_present']='TELEGRAM_ALLOWED_USERS' in selected
+    owners=selected.get('TELEGRAM_ALLOWED_USERS','') if 'TELEGRAM_ALLOWED_USERS' not in duplicates else ''
+    try:
+        parsed=json.loads(owners) if owners.startswith('[') else owners.split(',') if owners else []
+        valid=(type(parsed) is list and len(parsed)<=32 and all(type(v) in (str,int) and re.fullmatch('[1-9][0-9]{0,18}',str(v).strip()) for v in parsed))
+        ids=sorted({str(value).strip() for value in parsed}) if valid else []
+    except ValueError:ids=[]
+    result['numeric_allowed_owner_count']=len(ids)
+    result['owner_selection_required']=len(ids)!=1
+    if len(ids)==1:result['single_owner_id_sha256']=hashlib.sha256(ids[0].encode()).hexdigest()
+    result['effective_gateway_policy_verified']=False
+    return result
+
+
+def startup_source_metadata(raw):
+    """Shell is parsed as data; no eval, execution or literal credential output."""
+    value={'sha256':hashlib.sha256(raw).hexdigest(),'exec_shapes':[]}
+    text=raw.decode('utf-8',errors='replace')
+    public_assignments=[];dynamic_keys=set()
+    safe_words={'exec','env','hermes','gateway','python','python3','bash','sh','with-contenv',
+                's6-setuidgid','s6-applyuidgid','10000:10000','--','-u','-g'}
+    for line in text.splitlines():
+        try:words=shlex.split(line,comments=True)
+        except ValueError:continue
+        assignment=words[1:] if words[:1]==['export'] else words
+        for word in assignment:
+            key,separator,content=word.partition('=')
+            if separator and key in STARTUP_ENV:
+                if '$' in content or '`' in content:dynamic_keys.add(key)
+                else:public_assignments.append(key+'='+content)
+        if words[:1]!=['exec']:continue
+        shape=[]
+        for word in words:
+            if word in safe_words:shape.append(word)
+            elif _public_path(word) and (Path(word).name in safe_words or re.fullmatch(r'python[0-9.]*',Path(word).name)):
+                shape.append(word)
+            else:shape.append('<REDACTED_ARGUMENT>')
+        value['exec_shapes'].append(shape[:32])
+        if len(value['exec_shapes'])>=4:break
+    value['declared_runtime']=startup_environment('\n'.join(public_assignments))
+    value['dynamic_public_keys']=sorted(dynamic_keys)
+    value['effective_environment_verified']=False
+    return value
+
+
+def process_startup_sources(pid):
+    value={'process_id':pid,'entrypoint_candidates':[],'startup_sources':[],
+           'gateway_modules':[],'process_env_read':False,'process_cmdline_read':False}
+    if type(pid) is not int or pid<=0:return {**value,'code':'HERMES_PROCESS_NOT_IDENTIFIED'}
+    try:
+        executable=os.readlink(f'/proc/{pid}/exe')
+        if _public_path(executable) and re.fullmatch(r'python[0-9.]*',Path(executable).name):
+            value['observed_base_python_executable']=executable
+        root=os.open(f'/proc/{pid}/root',os.O_RDONLY|os.O_DIRECTORY)
+    except OSError:return {**value,'code':'PROCESS_METADATA_UNAVAILABLE'}
+    try:
+        for path in ('opt/hermes/.venv/bin/hermes','opt/venv/bin/hermes','usr/local/bin/hermes','usr/bin/hermes'):
+            observed=_read_relative_source(root,path,64*1024,with_metadata=True)
+            if observed is None:continue
+            raw,permissions=observed
+            if not raw:continue
+            first=raw.splitlines()[0].decode('ascii',errors='replace')
+            interpreter=first[2:] if first.startswith('#!') else ''
+            item={'path':'/'+path,'sha256':hashlib.sha256(raw).hexdigest(),**permissions}
+            if _public_path(interpreter) and re.fullmatch(r'python[0-9.]*',Path(interpreter).name):
+                item['python_shebang']=interpreter
+            value['entrypoint_candidates'].append(item)
+        for path in ('etc/s6-overlay/s6-rc.d/hermes/run','etc/s6-overlay/s6-rc.d/hermes-gateway/run',
+                     'etc/services.d/hermes/run','etc/services.d/hermes-gateway/run'):
+            observed=_read_relative_source(root,path,64*1024,with_metadata=True)
+            if observed is not None:
+                raw,permissions=observed
+                value['startup_sources'].append({'path':'/'+path,**permissions,**startup_source_metadata(raw)})
+        for module in ('gateway/run.py','gateway/authz_mixin.py','gateway/session.py',
+                       'gateway/session_context.py','tools/registry.py'):
+            observed=_read_relative_source(root,'opt/hermes/'+module,1536*1024,with_metadata=True)
+            if observed is not None:
+                raw,permissions=observed
+                value['gateway_modules'].append({'module':module,'sha256':hashlib.sha256(raw).hexdigest(),
+                                                 'size':len(raw),'executed':False,**permissions})
+    finally:os.close(root)
+    return value
+
+
+def collect_startup():
+    containers=container_inventory()
+    result={'read_only':True,'hostname':socket.gethostname(),'services_changed':False,
+            'search_executed':False,'model_called':False,'notifications_sent':False,
+            'credential_values_emitted':False,'process_environment_read':False,
+            'startup':[],'installation_ready':False}
+    docker=shutil.which('docker')
+    for container in containers.get('containers',[]):
+        if container.get('name')!='hermes-telegram' or docker is None:continue
+        # Filtering happens in Docker's formatting, not by dumping Config.Env.
+        conditions=' '.join('(eq (index (split . "=") 0) "'+key+'")' for key in STARTUP_ENV)
+        template='{"entrypoint":{{json .Config.Entrypoint}},"readonly_rootfs":{{json .HostConfig.ReadonlyRootfs}}}\n{{range .Config.Env}}{{if or '+conditions+'}}{{println .}}{{end}}{{end}}'
+        observed=subprocess.run([docker,'inspect','--format',template,'hermes-telegram'],capture_output=True,text=True,
+            timeout=10,env={'PATH':'/usr/local/bin:/usr/bin:/bin','LANG':'C.UTF-8'})
+        row={'container':'hermes-telegram','image_metadata':container.get('image_metadata',{}),
+             'processes':[],'bridge_mounts':container.get('bridge_mounts',[])}
+        if observed.returncode==0 and len(observed.stdout)<=16384:
+            first,_,rest=observed.stdout.partition('\n')
+            row['startup_descriptor_sha256']=hashlib.sha256(first.encode()).hexdigest()
+            row['container_declared_runtime']=startup_environment(rest)
+            try:
+                entrypoint=json.loads(first)
+                if type(entrypoint) is dict:
+                    flag=entrypoint.get('readonly_rootfs')
+                    row['container_rootfs_readonly']=flag if type(flag) is bool else None
+                    entrypoint=entrypoint.get('entrypoint')
+                if type(entrypoint) is list and entrypoint and Path(entrypoint[0]).name in ('init','tini','sh','bash','hermes','python','python3'):
+                    row['container_entrypoint_program']=Path(entrypoint[0]).name
+            except (ValueError,TypeError):pass
+        else:row['code']='CONTAINER_STARTUP_METADATA_UNAVAILABLE'
+        for process in container.get('process_credentials',[]):
+            if process.get('executable_name')=='hermes':row['processes'].append(process_startup_sources(process.get('host_pid')))
+        result['startup'].append(row)
+    return result
 
 
 def validation_contract(tree):
@@ -588,9 +740,10 @@ def collect_integration_requirements():
 
 def main():
     try:
-        if sys.argv[1:] not in ([],['--integration'],['--hermes-interface']):
+        if sys.argv[1:] not in ([],['--integration'],['--hermes-interface'],['--startup']):
             raise ValueError('unsupported_audit_arguments')
-        value=(collect_hermes_interface() if sys.argv[1:]==['--hermes-interface'] else
+        value=(collect_startup() if sys.argv[1:]==['--startup'] else
+               collect_hermes_interface() if sys.argv[1:]==['--hermes-interface'] else
                collect_integration_requirements() if sys.argv[1:] else collect())
         print(json.dumps(value,ensure_ascii=False))
         return 0
