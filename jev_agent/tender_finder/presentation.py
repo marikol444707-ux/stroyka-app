@@ -49,6 +49,11 @@ def render_report(report, scope, *, max_chars=3500):
            f"Запрос: {_line(report.get('request_id'),64)}",
            f'Карточек: {len(tenders)}; отдельно ссылок из выдачи ЕИС: {len(links)}.',
            f"Исключено при проверке: {report.get('excluded_count',0)}."]
+    if report.get('reason') in ('execution_interrupted','execution_failed','execution_not_completed','runtime_changed'):
+        lines.append('Причина: '+{'execution_interrupted':'выполнение прервано; повторный поиск не запускался.',
+            'execution_failed':'ошибка выполнения; требуется проверка.',
+            'execution_not_completed':'выполнение не завершено.',
+            'runtime_changed':'версия установленного CLI не совпадает с проверенной.'}[report['reason']])
     if not tenders and not links:lines.append('Подходящие карточки не подтверждены. Это не доказывает отсутствие закупок.')
     blocks=[]
     for row in tenders:

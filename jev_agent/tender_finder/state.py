@@ -182,7 +182,10 @@ class Reservation:
 
 
 class RequestLedger:
-    def __init__(self, private_directory, scope):
+    def __init__(self, private_directory, scope, *, namespace='ledger'):
+        if namespace not in ('ledger','delivery'):
+            raise StorageError('invalid_receipt_namespace')
+        self.namespace=namespace
         self.scope = scope
         self.scope_key = scope.key()
         self.fd = _directory(private_directory, private=True)
@@ -200,7 +203,7 @@ class RequestLedger:
         request_id = _identifier(request_id)
         if not isinstance(fingerprint, str) or not re.fullmatch('[0-9a-f]{64}', fingerprint):
             raise StorageError('invalid_fingerprint')
-        name = 'ledger-' + self.scope_key + '-' + request_id + '.json'
+        name = self.namespace + '-' + self.scope_key + '-' + request_id + '.json'
         try:
             lock = os.open(name + '.lock', os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_NONBLOCK,
                            0o600, dir_fd=self.fd)
