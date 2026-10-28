@@ -194,7 +194,9 @@ class RequestLedger:
         os.close(self.fd)
 
     @contextmanager
-    def claim(self, request_id, fingerprint):
+    def claim(self, request_id, fingerprint, *, existing_only=False):
+        if type(existing_only) is not bool:
+            raise StorageError('invalid_receipt_mode')
         request_id = _identifier(request_id)
         if not isinstance(fingerprint, str) or not re.fullmatch('[0-9a-f]{64}', fingerprint):
             raise StorageError('invalid_fingerprint')
@@ -240,6 +242,8 @@ class RequestLedger:
                 if record.get('fingerprint') != fingerprint:
                     raise RequestConflict('request_id_conflict')
             if record is None:
+                if existing_only:
+                    raise StorageError('receipt_missing')
                 record = {'format':1,'scope':self.scope_key,'company_id':self.scope.company_id,
                           'principal_subject':self.scope.principal_subject,
                           'request_id':request_id,'fingerprint':fingerprint,'state':'running'}
