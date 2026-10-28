@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - jev-tender-finder-audit-contract-20261028
   pull_request:
 
 jobs:
