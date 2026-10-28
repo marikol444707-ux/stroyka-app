@@ -48,6 +48,17 @@ jobs:
       - name: Compile backend
         run: PYTHONPYCACHEPREFIX=/tmp/stroyka-pycache python -m py_compile backend/main.py backend/config.py backend/db.py backend/__init__.py migrations/env.py migrations/versions/*.py
 
+      - name: Run offline JEV request and evidence tests
+        run: >-
+          python -B -m unittest -v
+          jev_agent.tender_finder.test_contract
+          jev_agent.tender_finder.test_reporting
+          jev_agent.tender_finder.test_cli
+          jev_agent.server_runtime.scripts.test_jev_commercial_search_profile
+          jev_agent.scripts.test_jev_eis_search
+          scripts.test_jev_commercial_search_and_import
+          scripts.test_jev_push_commercial_report
+
       - name: Run backend tests
         shell: bash
         env:
