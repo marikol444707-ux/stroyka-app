@@ -65,6 +65,7 @@ jobs:
           jev_agent.tender_finder.test_invoker
           jev_agent.tender_finder.test_publication
           jev_agent.tender_finder.test_evidence
+          jev_agent.tender_finder.test_card_page
           jev_agent.server_runtime.scripts.test_jev_commercial_search_profile
           jev_agent.scripts.test_jev_eis_search
           scripts.test_jev_commercial_search_and_import
