@@ -61,14 +61,9 @@ def _now(clock):
     return value
 
 
-def issue_admission(raw,source,*,authorize_source,bindings,signing_key,clock):
-    """Only request raw is model-controlled; every other parameter is server-bound.
-
-    Private Telegram DM only in this first binding: group/thread routing requires
-    separate authorization and delivery semantics. Existing gateway authorization
-    remains mandatory even if the configured owner matches.
-    """
-    _key(signing_key);policies=_policies(bindings)
+def authorized_owner(raw,source,*,authorize_source,bindings):
+    """Validate real gateway origin without requiring a signing key there."""
+    policies=_policies(bindings)
     if type(raw) is not bytes or len(raw)>MAX_REQUEST_BYTES:raise ValueError('bounded_request_wire_required')
     request=validate_v2_request(_decode(raw))
     if isinstance(source,dict) or not callable(authorize_source) or authorize_source(source) is not True:
@@ -82,7 +77,20 @@ def issue_admission(raw,source,*,authorize_source,bindings,signing_key,clock):
     user=getattr(source,'user_id',None);chat=getattr(source,'chat_id',None);profile=getattr(source,'profile',None)
     matches=[binding for binding in policies if (binding.telegram_user_id,binding.reply_chat_id,binding.profile)==(user,chat,profile)]
     if len(matches)!=1:raise ValueError('owner_company_binding_missing_or_ambiguous')
-    binding=matches[0];issued=_now(clock)
+    return matches[0],request
+
+
+def issue_admission(raw,source,*,authorize_source,bindings,signing_key,clock):
+    """Only request raw is model-controlled; every other parameter is server-bound.
+
+    Private Telegram DM only in this first binding: group/thread routing requires
+    separate authorization and delivery semantics. Existing gateway authorization
+    remains mandatory even if the configured owner matches.
+    """
+    _key(signing_key)
+    binding,request=authorized_owner(raw,source,authorize_source=authorize_source,bindings=bindings)
+    user=getattr(source,'user_id',None);chat=getattr(source,'chat_id',None);profile=getattr(source,'profile',None)
+    issued=_now(clock)
     body={'version':1,'request_id':request.request_id,'request_sha256':hashlib.sha256(raw).hexdigest(),
           'company_id':binding.scope.company_id,'principal_subject':binding.scope.principal_subject,
           'telegram_user_id':user,'reply_chat_id':chat,'profile':profile,

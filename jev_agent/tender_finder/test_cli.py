@@ -1,6 +1,7 @@
 import io
 import json
 import unittest
+from types import SimpleNamespace
 from contextlib import redirect_stdout,redirect_stderr
 from unittest.mock import Mock
 from unittest.mock import patch
@@ -9,6 +10,19 @@ from .__main__ import main
 
 
 class ValidationCLITests(unittest.TestCase):
+    def test_host_pass_is_explicit_root_only_and_prints_only_summary(self):
+        result={'processed':1,'errors':0,'acknowledged':1}
+        settings=SimpleNamespace(queue=SimpleNamespace(writer_uid=0),gateway_uid=10000)
+        with patch('jev_agent.tender_finder.__main__.read_bootstrap_key',return_value='protected-key') as read,patch(
+                'jev_agent.tender_finder.__main__.load_settings',return_value=settings),patch(
+                'jev_agent.tender_finder.__main__.os.geteuid',return_value=0),patch(
+                'jev_agent.tender_finder.__main__.check_hermes_container'),patch(
+                'jev_agent.tender_finder.__main__.run_host_pass',return_value=result) as run,redirect_stdout(io.StringIO()) as out:
+            status=main(['host-pass','--config','/fixture','--key-fd','9','--gateway-gid','10000'])
+        self.assertEqual(status,0);self.assertEqual(json.loads(out.getvalue()),result)
+        read.assert_called_once_with(9);run.assert_called_once_with(settings,'protected-key',gateway_gid=10000)
+        self.assertNotIn('protected-key',out.getvalue())
+
     def test_settings_check_never_initializes_worker_or_prints_private_values(self):
         with patch('jev_agent.tender_finder.__main__.load_settings',return_value=object()) as loader,patch('jev_agent.tender_finder.__main__.initialize_worker') as worker,redirect_stdout(io.StringIO()) as output:
             status=main(['check-settings','--config','/fixture/settings.json'])

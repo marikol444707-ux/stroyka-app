@@ -32,6 +32,7 @@ FRAME={'action':'send','target':'telegram:123456789','message':'<b>JEV</b>\nТе
 
 def metadata(**changes):
     return json.dumps({'id':'a'*64,'image':IMAGE,'running':True,'privileged':False,
+        'cap_add':None,'pid_mode':'','security_opt':None,'devices':[],
         'mounts':[{'Type':'bind','Source':'/root/hermes-data','Destination':'/opt/data','RW':True}],
         **changes}).encode()
 
@@ -164,8 +165,21 @@ class HostDockerTransportTests(unittest.TestCase):
                               (OWNER,0,10000),(OWNER,10000,0),(OWNER,True,10000)):
             with self.assertRaises(ValueError):DockerHermesSender(owner,gateway_uid=uid,gateway_gid=gid)
 
+    def test_broker_socket_directory_mount_is_only_allowed_readonly(self):
+        base=json.loads(metadata())
+        ipc={'Type':'bind','Source':'/run/stroyka-jev','Destination':'/run/stroyka-jev','RW':False}
+        run=Mock(side_effect=[(metadata(mounts=[*base['mounts'],ipc]),0),(acknowledgement().encode(),0)])
+        with patch.object(os,'geteuid',return_value=0):self.sender(run)(FRAME)
+        self.assertEqual(run.call_count,2)
+        for wrong in ({**ipc,'RW':True},{**ipc,'Source':'/run/docker.sock'},base['mounts'][0]):
+            run=Mock(return_value=(metadata(mounts=[*base['mounts'],wrong]),0))
+            with patch.object(os,'geteuid',return_value=0),self.assertRaises(ValueError):self.sender(run)(FRAME)
+            self.assertEqual(run.call_count,1)
+
     def test_wrong_image_stopped_privileged_or_other_mount_prevents_exec(self):
         bad=[metadata(image='sha256:'+'b'*64),metadata(running=False),metadata(privileged=True),
+             metadata(cap_add=['SYS_PTRACE']),metadata(pid_mode='host'),metadata(security_opt=['seccomp=unconfined']),
+             metadata(devices=[{'PathOnHost':'/dev/mem'}]),
              metadata(mounts=[]),metadata(mounts=[{'Type':'bind','Source':'/','Destination':'/opt/hermes','RW':True}]),
              metadata(id='hermes-telegram'),b'{"id":0,"id":1}']
         for raw in bad:

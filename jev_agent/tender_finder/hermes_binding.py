@@ -1,6 +1,6 @@
 """Explicit bootstrap adapter for the observed Hermes revision.
 
-No installation, monkeypatch, registry mutation, key provisioning or sends. The
+No installation, monkeypatch, implicit registration, key provisioning or sends. The
 bootstrap must supply the actual running GatewayRunner and a protected signer.
 An in-process signer alone does not isolate a key from arbitrary Python/terminal
 tools running as that same identity; that deployment requirement remains open.
@@ -9,13 +9,13 @@ import dataclasses
 import hashlib
 import os
 from pathlib import Path
-import stat
 import sys
 from types import MappingProxyType
 
 from .audit_bridge import _read_relative_source
 from .discovery import RuntimeMismatch
 from .runtime import GatewayRuntime
+from .admission_broker import BrokerClient, BrokerGatewayRuntime
 from .contract import MAX_REQUEST_BYTES
 
 HERMES_REVISION = 'bf0203a794a07aac3ff764972ab9087baa4e4f4e'
@@ -25,6 +25,7 @@ REVIEWED_MODULES = MappingProxyType({
     'gateway.session': 'ed560fb1b416e1bc111ed9c1e20945238fc2632c60121852a428b4ec02b60d5c',
     'gateway.authz_mixin': '16178cdab78dd0fa32432bbf65bc1259e3b3da3eab1030c920b3b5a3cf33244d',
     'gateway.session_context': '3b74485dc394c44739f923142e8eaf9a1e87dbc98763c88c9d2ec21657a89b8b',
+    'tools.registry': '48c3875138ac9e1875349ed2900d6940f51dfff050d655d6fb17a1dafe30f5e7',
 })
 
 
@@ -122,13 +123,60 @@ def bind_gateway(runner, settings, secret):
                           authorize_source=source.authorize_source)
 
 
+def bind_broker_gateway(runner, owner, socket_path):
+    """Preferred explicit startup binding: the Hermes process receives NO key."""
+    modules=verified_loaded_modules()
+    if type(runner) is not modules['gateway.run'].GatewayRunner:
+        raise RuntimeMismatch('actual_reviewed_gateway_runner_required')
+    source=HermesSessionBinding(runner,modules['gateway.session_context'],
+                                modules['gateway.session'].SessionSource)
+    return BrokerGatewayRuntime(owner,BrokerClient(socket_path),
+        current_source=source.current_source,authorize_source=source.authorize_source)
+
+
+def register_broker_tool(runner,owner,socket_path,*,registry_scope):
+    """Explicit reviewed startup hook; never auto-run on import or from a tool.
+
+    Requires host broker provisioning separately. Adds only one new profile tool
+    and refuses an existing registration; no global monkeypatch or override.
+    The first protected route is the observed default /opt/data profile only.
+    """
+    owner.validate()
+    if owner.profile is not None or registry_scope!='/opt/data':
+        raise ValueError('reviewed_default_profile_scope_required')
+    modules=verified_loaded_modules()
+    if type(runner) is not modules['gateway.run'].GatewayRunner:
+        raise RuntimeMismatch('actual_reviewed_gateway_runner_required')
+    registry=modules['tools.registry'].registry
+    source=HermesSessionBinding(runner,modules['gateway.session_context'],modules['gateway.session'].SessionSource)
+    runtime=BrokerGatewayRuntime(owner,BrokerClient(socket_path),
+        current_source=source.current_source,authorize_source=source.authorize_source)
+    name='jev_tender_search'
+    schema={'name':name,'description':
+        'Поставить поиск строительных закупок Ставропольского края в очередь JEV. '
+        'Передай JSON версии 2 с уникальным request_id, region="Ставропольский край", '
+        'sources (eis/commercial), topics и при необходимости фильтрами цены/срока. '
+        'company_id, получателя, ключи и команды не передавай. queued означает только '
+        'принятое задание; результаты придут отдельным сообщением.',
+        'parameters':{'type':'object','properties':{'request_json':{'type':'string',
+            'maxLength':MAX_REQUEST_BYTES}},'required':['request_json'],'additionalProperties':False}}
+    # The reviewed registry uses an RLock; lock the check and registration
+    # together because same-toolset duplicates would otherwise replace a handler.
+    with registry._lock:
+        if registry.get_entry(name,scope=registry_scope) is not None:
+            raise RuntimeMismatch('existing_jev_registration_preserved')
+        registry.register(name=name,toolset='jev',schema=schema,handler=submit_handler(runtime),
+                          scope=registry_scope,override=False,execution_timeout=5)
+    return {'registered':True,'tool_name':name,'key_in_gateway':False,'search_executed':False}
+
+
 def submit_handler(runtime):
     """Return a narrow registry-compatible handler; registration stays explicit.
 
     The only model parameter is the bounded v2 request JSON. Registry kwargs such
     as session_id are deliberately ignored; they cannot supply an identity.
     """
-    if type(runtime) is not GatewayRuntime:
+    if type(runtime) not in (GatewayRuntime,BrokerGatewayRuntime):
         raise ValueError('protected_gateway_runtime_required')
 
     def handle(args, **_context_kwargs):

@@ -6,13 +6,14 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import threading
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
 from .bootstrap_key import AdmissionSecret
 from .discovery import RuntimeMismatch
-from .hermes_binding import HermesSessionBinding, bind_gateway, submit_handler, verified_loaded_modules
+from .hermes_binding import HermesSessionBinding, bind_gateway, submit_handler, verified_loaded_modules, register_broker_tool
 from .ingress import OwnerBinding, issue_admission
 from .pipeline import PipelineConfig
 from .queue import QueueConfig
@@ -183,6 +184,29 @@ class HermesBindingTests(unittest.TestCase):
         self.assertEqual(source,self.source)
         self.assertTrue(callbacks['authorize_source'](source))
         self.runner._is_user_authorized_for_source.assert_called_once_with(source,allow_adapter_delegation=False)
+
+    def test_explicit_broker_registration_needs_no_key_and_uses_only_profile_scope(self):
+        registry=SimpleNamespace(_lock=threading.RLock(),get_entry=Mock(return_value=None),register=Mock())
+        modules={'gateway.run':SimpleNamespace(GatewayRunner=type(self.runner)),
+                 'gateway.session_context':self.ctx,'gateway.session':SimpleNamespace(SessionSource=Source),
+                 'tools.registry':SimpleNamespace(registry=registry)}
+        with patch('jev_agent.tender_finder.hermes_binding.verified_loaded_modules',return_value=modules):
+            result=register_broker_tool(self.runner,OWNER,'/run/stroyka-jev/admission.sock',registry_scope='/opt/data')
+        self.assertTrue(result['registered']);self.assertFalse(result['key_in_gateway'])
+        kwargs=registry.register.call_args.kwargs
+        self.assertEqual(kwargs['scope'],'/opt/data');self.assertFalse(kwargs['override'])
+        self.assertEqual(kwargs['toolset'],'jev')
+        self.assertEqual(set(kwargs['schema']['parameters']['properties']),{'request_json'})
+        registry.get_entry.return_value=object();registry.register.reset_mock()
+        with patch('jev_agent.tender_finder.hermes_binding.verified_loaded_modules',return_value=modules):
+            with self.assertRaises(RuntimeMismatch):
+                register_broker_tool(self.runner,OWNER,'/run/stroyka-jev/admission.sock',registry_scope='/opt/data')
+        registry.register.assert_not_called()
+
+    def test_broker_registration_has_no_implicit_global_or_other_profile_scope(self):
+        for scope in (None,'','/other','/opt/data/profiles/other'):
+            with self.subTest(scope=scope),self.assertRaises(ValueError):
+                register_broker_tool(self.runner,OWNER,'/run/stroyka-jev/admission.sock',registry_scope=scope)
 
 
 if __name__=='__main__':unittest.main()

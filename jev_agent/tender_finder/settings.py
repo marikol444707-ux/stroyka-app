@@ -34,18 +34,26 @@ class BridgeSettings:
     worker_admissions: Path
     gateway_inbox: Path
     gateway_admissions: Path
+    gateway_uid: int | None = None
 
     def __repr__(self):return 'BridgeSettings(<protected bindings>)'
 
 
 def parse_settings(value):
-    if (type(value) is not dict or set(value)!=FIELDS or type(value['schema_version']) is not int
-            or value['schema_version']!=1):raise ValueError('explicit_bridge_settings_required')
+    if type(value) is not dict or type(value.get('schema_version')) is not int:
+        raise ValueError('explicit_bridge_settings_required')
+    version=value['schema_version']
+    required=FIELDS if version==1 else FIELDS|{'gateway_uid'} if version==2 else set()
+    if not required or set(value)!=required:raise ValueError('explicit_bridge_settings_required')
     scope=Scope(value['company_id'],value['principal_subject']);scope.key()
     owner=OwnerBinding(scope,value['telegram_user_id'],value['reply_chat_id'],value['hermes_profile'])
     owner.validate()
-    if (type(value['writer_uid']) is not int or not 0<value['writer_uid']<2**31
+    if (type(value['writer_uid']) is not int
+            or (not 0<value['writer_uid']<2**31 if version==1 else value['writer_uid']!=0)
             or type(value['result_gid']) is not int or not 0<value['result_gid']<2**31):
+        raise ValueError('unprivileged_gateway_identity_required')
+    gateway_uid=value['writer_uid'] if version==1 else value['gateway_uid']
+    if type(gateway_uid) is not int or not 0<gateway_uid<2**31:
         raise ValueError('unprivileged_gateway_identity_required')
     worker=value['worker'];gateway=value['gateway']
     if (type(worker) is not dict or set(worker)!={'inbox','private','results','admissions'}
@@ -58,7 +66,7 @@ def parse_settings(value):
             raise ValueError('bridge_paths_must_be_separate')
     pipeline=PipelineConfig(scope,worker['private'],worker['results'],value['result_gid'])
     return BridgeSettings(owner,QueueConfig(pipeline,worker['inbox'],value['writer_uid']),
-                          worker['admissions'],gateway['inbox'],gateway['admissions'])
+                          worker['admissions'],gateway['inbox'],gateway['admissions'],gateway_uid)
 
 
 def load_settings(path,*,trusted_root=Path('/etc/stroyka-jev'),expected_uid=0):

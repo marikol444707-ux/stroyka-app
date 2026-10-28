@@ -19,6 +19,7 @@ from .settings import BridgeSettings
 IMAGE = 'sha256:9c5561579f3ffdf333401797094ac3a743738d6c25d40f4331c7bf77b694238d'
 DOCKER = '/usr/bin/docker'
 CONTAINER = 'hermes-telegram'
+INSPECT_TEMPLATE='{"id":{{json .Id}},"image":{{json .Image}},"running":{{json .State.Running}},"privileged":{{json .HostConfig.Privileged}},"mounts":{{json .Mounts}},"cap_add":{{json .HostConfig.CapAdd}},"pid_mode":{{json .HostConfig.PidMode}},"security_opt":{{json .HostConfig.SecurityOpt}},"devices":{{json .HostConfig.Devices}}}'
 
 # Fixed program, passed as argv code rather than importing JEV from a writable
 # shared volume. Request/message/recipient are stdin data, never executable code.
@@ -112,16 +113,39 @@ def _container_id(raw):
     if type(raw) is not bytes or len(raw)>32768:
         raise ValueError('bounded_container_metadata_required')
     value=json.loads(raw.decode('utf-8'),object_pairs_hook=_pairs,parse_constant=_nonfinite)
-    if (type(value) is not dict or set(value)!={'id','image','running','privileged','mounts'}
+    if (type(value) is not dict or set(value)!={'id','image','running','privileged','mounts','cap_add','pid_mode','security_opt','devices'}
             or type(value['id']) is not str or not re.fullmatch('[a-f0-9]{64}',value['id'])
             or value['image']!=IMAGE or value['running'] is not True or value['privileged'] is not False):
         raise ValueError('reviewed_running_container_required')
+    if (value['cap_add'] not in (None,[]) or value['pid_mode']!=''
+            or value['devices'] not in (None,[]) or value['security_opt'] not in (
+                None,[],['no-new-privileges'],['no-new-privileges:true'])):
+        raise ValueError('private_unprivileged_container_policy_required')
     mounts=value['mounts']
-    if (type(mounts) is not list or len(mounts)!=1 or type(mounts[0]) is not dict
-            or mounts[0].get('Type')!='bind' or mounts[0].get('Source')!='/root/hermes-data'
-            or mounts[0].get('Destination')!='/opt/data' or mounts[0].get('RW') is not True):
+    allowed={('/root/hermes-data','/opt/data',True),
+             ('/run/stroyka-jev','/run/stroyka-jev',False),
+             ('/opt/stroyka-jev','/opt/stroyka-jev',False),
+             ('/opt/stroyka-jev/app/jev_agent/tender_finder/integration/hermes_jev_tool.py',
+              '/opt/hermes/tools/jev_tender_tool.py',False)}
+    seen=set()
+    if type(mounts) is not list or not 1<=len(mounts)<=4:
+        raise ValueError('reviewed_data_mount_only_required')
+    for mount in mounts:
+        if type(mount) is not dict or mount.get('Type')!='bind' or type(mount.get('RW')) is not bool:
+            raise ValueError('reviewed_data_mount_only_required')
+        identity=(mount.get('Source'),mount.get('Destination'),mount['RW'])
+        if identity not in allowed or identity in seen:raise ValueError('reviewed_data_mount_only_required')
+        seen.add(identity)
+    if ('/root/hermes-data','/opt/data',True) not in seen:
         raise ValueError('reviewed_data_mount_only_required')
     return value['id']
+
+
+def check_hermes_container(*,_run=_run_bounded):
+    """Fresh policy gate usable BEFORE any privileged signing key is loaded."""
+    raw,code=_run((DOCKER,'inspect','--format',INSPECT_TEMPLATE,CONTAINER),None,10)
+    if code!=0:raise ValueError('container_inspection_failed')
+    return _container_id(raw)
 
 
 class DockerHermesSender:
@@ -149,10 +173,7 @@ class DockerHermesSender:
             raise ValueError('protected_completion_target_required')
         wire=json.dumps(args,ensure_ascii=False,separators=(',',':')).encode('utf-8')
         if len(wire)>32768:raise ValueError('bounded_completion_required')
-        template='{"id":{{json .Id}},"image":{{json .Image}},"running":{{json .State.Running}},"privileged":{{json .HostConfig.Privileged}},"mounts":{{json .Mounts}}}'
-        raw,code=self._run((DOCKER,'inspect','--format',template,CONTAINER),None,10)
-        if code!=0:raise ValueError('container_inspection_failed')
-        identifier=_container_id(raw)
+        identifier=check_hermes_container(_run=self._run)
         # Execute by immutable container ID: name replacement cannot redirect it.
         argv=(DOCKER,'exec','--interactive','--user','10000:10000','--workdir','/opt/hermes',
               '--env','HOME=/opt/data','--env','HERMES_HOME=/opt/data','--env','HERMES_PROFILE=',
@@ -166,6 +187,7 @@ class DockerHermesSender:
 def deliver_via_hermes(settings,event_id,request_id,fingerprint,*,gateway_gid):
     """Explicit root host completion entrypoint; no search or automatic retry."""
     if type(settings) is not BridgeSettings:raise ValueError('protected_bridge_settings_required')
-    sender=DockerHermesSender(settings.owner,gateway_uid=settings.queue.writer_uid,gateway_gid=gateway_gid)
+    uid=settings.gateway_uid if settings.gateway_uid is not None else settings.queue.writer_uid
+    sender=DockerHermesSender(settings.owner,gateway_uid=uid,gateway_gid=gateway_gid)
     return deliver_completion(settings.queue.pipeline.private_directory,settings.owner.scope,event_id,
         request_id,fingerprint,route=owner_route((settings.owner,),settings.owner.scope),send=sender)

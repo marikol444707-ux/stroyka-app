@@ -19,6 +19,14 @@ def settings():
 
 
 class SettingsTests(unittest.TestCase):
+    def test_v2_broker_queue_is_root_owned_with_separate_gateway_uid(self):
+        value={**settings(),'schema_version':2,'writer_uid':0,'gateway_uid':10000}
+        parsed=parse_settings(value)
+        self.assertEqual(parsed.queue.writer_uid,0);self.assertEqual(parsed.gateway_uid,10000)
+        for field,wrong in (('gateway_uid',0),('writer_uid',10000),('schema_version',3)):
+            with self.subTest(field=field),self.assertRaises(ValueError):parse_settings({**value,field:wrong})
+        with self.assertRaises(ValueError):parse_settings({**settings(),'writer_uid':0})
+
     def test_explicit_settings_preserve_separate_host_and_container_views(self):
         config=parse_settings(settings())
         self.assertEqual(config.owner.scope.company_id,37)
