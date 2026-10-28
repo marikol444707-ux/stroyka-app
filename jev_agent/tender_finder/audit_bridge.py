@@ -16,6 +16,7 @@ import shutil
 import socket
 import stat
 import subprocess
+import sys
 
 WORKER = Path('/usr/local/libexec/hermes-jev-bridge/worker.py')
 DIRECTORIES = ('/root/hermes-data/jev-bridge', '/root/hermes-data/jev-bridge/requests',
@@ -28,6 +29,27 @@ REVIEWED_RUNTIME = {
     'jev_commercial_search.py': ('c73b7a1111f948c083eda7967e4b301ac8175cd45a2b08c01af81f6867e753cc', 'acb1a3838a13cb650440340a774be46f1a3830a8'),
     'jev_eis_probe.py': ('a9175836648e1064c9b255fdc9d2b3b9bdeff8c246f11173760a761f12348fc4', 'e3d08744f07522040dcbd8580ef7f29906daa562'),
 }
+OPTIONAL_REVIEWED_RUNTIME = {
+    'jev_eis_review_runner.py': 'abcad9238cf33264c0c0b2feb02580668ae21a4c8849f198d641ab8f0cd82a43',
+    'jev_eis_documents.py': 'e099b7d2dfde271ea08e4a1711eeb9df467cb0a132c56fcf19a9c247d2e7c8c4',
+    'jev_eis_document_report.py': '9b4d032dc21dd5a6b6e78e87970210c002db9bb09da278c6f33492a4c9d86a76',
+    'jev_eis_document_model.py': '78880f6c6cc78e4ceec57b53720713c7b0f13847157200f444e7574fba198d12',
+}
+
+
+def public_image_metadata(value):
+    """Emit only bounded OCI revision/version/public repository identifiers."""
+    result = {}
+    for key, pattern in (
+        ('image_id', r'sha256:[a-f0-9]{64}'),
+        ('revision', r'[a-f0-9]{40}|[a-f0-9]{64}'),
+        ('version', r'v?[0-9][A-Za-z0-9._+-]{0,39}'),
+        ('source', r'https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?')):
+        observed = value.get(key)
+        if isinstance(observed,str) and re.fullmatch(pattern,observed):
+            result[key] = observed
+    result['installed_version_verified'] = False
+    return result
 
 
 def validation_contract(tree):
@@ -274,7 +296,7 @@ def container_inventory():
         if len(results) >= 4:
             break
         observed = subprocess.run([docker, 'inspect', '--format',
-            '{"user":{{json .Config.User}},"status":{{json .State.Status}},"pid":{{json .State.Pid}},"privileged":{{json .HostConfig.Privileged}},"mounts":{{json .Mounts}}}', name],
+            '{"user":{{json .Config.User}},"status":{{json .State.Status}},"pid":{{json .State.Pid}},"privileged":{{json .HostConfig.Privileged}},"mounts":{{json .Mounts}},"image_id":{{json .Image}},"version":{{json (index .Config.Labels "org.opencontainers.image.version")}},"revision":{{json (index .Config.Labels "org.opencontainers.image.revision")}},"source":{{json (index .Config.Labels "org.opencontainers.image.source")}}}', name],
             capture_output=True, text=True, timeout=10, env=environment)
         if observed.returncode:
             results.append({'name':name, 'code':'metadata_unavailable'})
@@ -282,7 +304,7 @@ def container_inventory():
         value=json.loads(observed.stdout)
         row={'name':name,'configured_user':value.get('user'),'status':value.get('status'),
              'bridge_mounts':[], 'privileged':value.get('privileged'), 'risky_mount_kinds':[],
-             'real_hermes_result_read_access':'NOT_TESTED'}
+             'real_hermes_result_read_access':'NOT_TESTED','image_metadata':public_image_metadata(value)}
         processes = subprocess.run([docker, 'top', name, '-eo', 'pid,euid,egid,comm'],
                                   capture_output=True, text=True, timeout=10, env=environment)
         row['process_credentials'] = []
@@ -384,6 +406,9 @@ def runtime_source(path, allowed_roots=(Path('/opt/stroyka-jev-tools'), Path('/u
             expected, revision = REVIEWED_RUNTIME[path.name]
             value['matches_reviewed_source'] = value['sha256'] == expected
             value['reviewed_revision'] = revision
+        elif path.name in OPTIONAL_REVIEWED_RUNTIME:
+            value['matches_reviewed_source'] = value['sha256'] == OPTIONAL_REVIEWED_RUNTIME[path.name]
+            value['reviewed_revision'] = 'e3d08744f07522040dcbd8580ef7f29906daa562'
         tree = ast.parse(raw)
         value['parser_flags'] = sorted({node.args[0].value for node in ast.walk(tree)
              if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == 'add_argument'
@@ -416,7 +441,7 @@ def runtime_cli_inventory():
                     paths.add(candidate)
     for tools in tuple(paths):
         if tools.name == 'jev_server_tools.py':
-            paths.update(tools.parent/name for name in ('jev_commercial_search.py','jev_eis_probe.py'))
+            paths.update(tools.parent/name for name in ('jev_commercial_search.py','jev_eis_probe.py',*OPTIONAL_REVIEWED_RUNTIME))
     for path in sorted(paths):
         result[str(path)] = runtime_source(path)
     return result
@@ -447,9 +472,22 @@ def collect():
     return report
 
 
+def collect_integration_requirements():
+    """Focused report: no worker AST, request/result content, env, or paid calls."""
+    return {'read_only':True,'hostname':socket.gethostname(),'services_changed':False,
+            'search_executed':False,'model_called':False,'notifications_sent':False,
+            'database_accessed':False,'runtime_cli':runtime_cli_inventory(),
+            'hermes_containers':container_inventory(),'notification_binding_verified':False,
+            'reviewed_eis_review_operation':{'search_only':False,'downloads_documents':True,
+                                            'writes_snapshots':True,'invokes_model':True},
+            'installation_ready':False}
+
+
 def main():
     try:
-        print(json.dumps(collect(), ensure_ascii=False))
+        if sys.argv[1:] not in ([],['--integration']):
+            raise ValueError('unsupported_audit_arguments')
+        print(json.dumps(collect_integration_requirements() if sys.argv[1:] else collect(), ensure_ascii=False))
         return 0
     except Exception as error:
         print(json.dumps({'read_only':True, 'report_complete':False, 'code':type(error).__name__}))

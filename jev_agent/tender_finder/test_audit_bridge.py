@@ -5,10 +5,32 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from .audit_bridge import collect, inspect_worker, validation_contract, result_permissions, runtime_source
+from .audit_bridge import (collect, collect_integration_requirements, inspect_worker, validation_contract,
+                           result_permissions, runtime_source, public_image_metadata, REVIEWED_RUNTIME)
 
 
 class BridgeAuditTests(unittest.TestCase):
+    def test_integration_audit_does_not_execute_worker_or_inspect_requests(self):
+        with patch('jev_agent.tender_finder.audit_bridge.runtime_cli_inventory',return_value={}),patch('jev_agent.tender_finder.audit_bridge.container_inventory',return_value={}),patch('jev_agent.tender_finder.audit_bridge.inspect_worker') as worker,patch('jev_agent.tender_finder.audit_bridge.result_permissions') as results:
+            value=collect_integration_requirements()
+        worker.assert_not_called();results.assert_not_called()
+        self.assertFalse(value['search_executed']);self.assertFalse(value['model_called'])
+        self.assertFalse(value['notifications_sent']);self.assertFalse(value['notification_binding_verified'])
+        self.assertTrue(value['reviewed_eis_review_operation']['invokes_model'])
+        # Optional review tools must not accidentally become mandatory search dependencies.
+        self.assertEqual(set(REVIEWED_RUNTIME),{'jev_server_tools.py','jev_commercial_search.py','jev_eis_probe.py'})
+
+    def test_image_metadata_never_emits_private_labels_or_urls(self):
+        value=public_image_metadata({'image_id':'sha256:'+'a'*64,'revision':'b'*40,'version':'v1.2.3',
+                    'source':'https://github.com/synthetic/hermes-agent','Env':['PRIVATE'],
+                    'token':'PRIVATE','arbitrary_label':'PRIVATE'})
+        self.assertEqual(value['version'],'v1.2.3')
+        self.assertEqual(value['revision'],'b'*40)
+        self.assertNotIn('PRIVATE',json.dumps(value))
+        for source in ('https://user:PRIVATE@github.com/org/repo','https://github.com/org/repo?token=PRIVATE'):
+            result=public_image_metadata({'source':source,'version':'PRIVATE_TOKEN'})
+            self.assertNotIn('source',result);self.assertNotIn('version',result)
+
     def test_release_symlink_inventory_reads_only_protected_source_without_executing_it(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder)
