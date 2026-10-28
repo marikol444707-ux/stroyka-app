@@ -20,7 +20,7 @@ from .presentation import render_report
 from .state import RequestLedger, Scope, StorageError, _json, _read
 
 HERMES_SEND_SHA256='65058bf22cf614c4e954131d81e5655b8016dfc8c87e74b9ed6582c733f02227'
-HERMES_SEND_SOURCE_REVISION='8245012d4db49897782e0a95f46c727191e68061'
+HERMES_SEND_SOURCE_REVISION='bf0203a794a07aac3ff764972ab9087baa4e4f4e'
 
 
 @dataclass(frozen=True)

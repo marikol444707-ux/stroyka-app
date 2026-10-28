@@ -72,6 +72,7 @@ jobs:
           jev_agent.tender_finder.test_ingress
           jev_agent.tender_finder.test_settings
           jev_agent.tender_finder.test_runtime
+          jev_agent.tender_finder.test_hermes_binding
           jev_agent.server_runtime.scripts.test_jev_commercial_search_profile
           jev_agent.scripts.test_jev_eis_search
           scripts.test_jev_commercial_search_and_import
