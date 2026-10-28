@@ -70,6 +70,7 @@ jobs:
           jev_agent.tender_finder.test_notification
           jev_agent.tender_finder.test_queue
           jev_agent.tender_finder.test_ingress
+          jev_agent.tender_finder.test_settings
           jev_agent.server_runtime.scripts.test_jev_commercial_search_profile
           jev_agent.scripts.test_jev_eis_search
           scripts.test_jev_commercial_search_and_import
