@@ -181,6 +181,10 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(value['status'], 'failed')
         self.assertEqual(value['sources_status'][0]['status'], 'not_tested')
 
+    def test_unexecuted_source_cannot_leak_credentials_in_a_placeholder_url(self):
+        with self.assertRaisesRegex(ValueError, 'invalid_source_url'):
+            SourceOutcome('B2B-Center', 'not_tested', url='https://PRIVATE@www.b2b-center.ru/')
+
     def test_input_budget_does_not_consume_an_unbounded_source_iterator(self):
         consumed = []
         def stream():

@@ -67,6 +67,8 @@ class SourceOutcome:
             raise ValueError('invalid_source_filters')
         if set(self.applied_filters) - FILTERS or self.error_code is not None and self.error_code not in ERROR_CODES:
             raise ValueError('invalid_source_evidence')
+        if self.url is not None and not official_url(self.source, self.url):
+            raise ValueError('invalid_source_url')
         if self.status == 'not_tested':
             if self.checked_at is not None or self.queries_checked or self.pages_checked or self.matched_count or self.applied_filters:
                 raise ValueError('unexecuted_source_cannot_claim_evidence')
