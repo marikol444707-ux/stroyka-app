@@ -186,6 +186,24 @@ class StandaloneReleaseTests(unittest.TestCase):
             self.release.rollback()
         self.assertEqual(self.commands,[])
 
+    def test_foreign_runtime_directory_blocks_before_stop(self):
+        self.prepare();(self.root/'run/stroyka-jev').mkdir(parents=True)
+        with self.assertRaisesRegex(ValueError,'existing_target_requires_review'):self.release.apply()
+        self.assertEqual(self.commands,[]);self.assertTrue(self.api.old['State']['Running'])
+
+    def test_rollback_resumes_after_crash_between_own_file_unlink_and_journal(self):
+        self.prepare();self.release.apply()
+        real_run=self.release.run
+        def crash(*args):
+            if args==('/usr/bin/systemctl','daemon-reload'):raise RuntimeError('synthetic interruption')
+            return real_run(*args)
+        self.release.run=crash
+        with self.assertRaises(RuntimeError):self.release.rollback()
+        self.release.run=real_run
+        self.assertTrue(self.release.rollback()['restored'])
+        self.assertTrue(self.api.old['State']['Running'])
+        self.assertEqual(self.data.read_bytes(),b'original history')
+
     def test_ci_checks_exact_commit_workflow_and_success(self):
         commit='a'*40
         url='https://github.com/marikol444707-ux/stroyka-app/actions?query=branch%3A'+BRANCH

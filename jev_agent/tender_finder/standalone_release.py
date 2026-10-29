@@ -212,6 +212,9 @@ class Release:
                 or not re.fullmatch('[a-f0-9]{40}',str(state.get('commit','')))
                 or state.get('source_name') not in ('source','source-next') or type(state.get('written')) is not dict):
             raise ValueError('owned_release_state_required')
+        if (type(state.get('remove_intents',[])) is not list
+                or any(name not in state['written'] for name in state.get('remove_intents',[]))):
+            raise ValueError('owned_remove_intents_required')
         fixed={self.path('/etc/stroyka-jev')/name for name in ('private/admission.key','bridge.json','container-image.json')}
         fixed|={self.path('/etc/systemd/system')/name for name in NEW_UNITS}
         fixed.add(self.path('/etc/tmpfiles.d/stroyka-jev.conf'))
@@ -235,6 +238,11 @@ class Release:
                 if directory.is_relative_to(path) or path.is_relative_to(directory):
                     raise ValueError('other_active_data_writer_blocks_maintenance')
 
+    def _empty_targets(self):
+        for target in ('/opt/stroyka-jev','/etc/stroyka-jev','/var/lib/stroyka-jev','/run/stroyka-jev',
+                       '/etc/systemd/system/stroyka-jev.service','/etc/systemd/system/stroyka-jev.socket','/etc/tmpfiles.d/stroyka-jev.conf'):
+            path=self.path(target)
+            if path.exists() or path.is_symlink():raise ValueError('existing_target_requires_review')
     def _same_source(self,state,running=True):
         actual=self.api.request('GET','/containers/hermes-telegram/json')
         validate_source(actual,stopped=not running)
@@ -264,10 +272,7 @@ class Release:
             raise ValueError('docker_storage_path_required')
         if shutil.disk_usage(self.path(docker_root)).free<required:
             raise ValueError('docker_snapshot_space_required')
-        for target in ('/opt/stroyka-jev','/etc/stroyka-jev','/var/lib/stroyka-jev/v2',
-                       '/etc/systemd/system/stroyka-jev.service','/etc/systemd/system/stroyka-jev.socket','/etc/tmpfiles.d/stroyka-jev.conf'):
-            path=self.path(target)
-            if path.exists() or path.is_symlink():raise ValueError('existing_target_requires_review')
+        self._empty_targets()
         for name in NEW_UNITS:
             observed=self.unit(name)
             if observed.get('LoadState')!='not-found' or observed.get('UnitFileState')!='':raise ValueError('existing_new_unit_preserved')
@@ -276,7 +281,7 @@ class Release:
         ci_url=self.ci(commit)
         state={'phase':'prepared','host':socket.gethostname(),'token':secrets.token_hex(16),'commit':commit,'ci_url':ci_url,'source_name':source_name,
             'source_files':files,'original':original,'policy':policy,'old_units':{name:self.unit(name) for name in OLD_UNITS},
-            'written':{},'owned_units_started':False,'data_backup_verified':False,'container_snapshot':None,
+            'written':{},'remove_intents':[],'owned_units_started':False,'data_backup_verified':False,'container_snapshot':None,
             'new_id':None,'old_renamed':False,'activated':False,'accepted':False,'stop_intent':False,'stop_confirmed':False,
             'data_bytes':data_bytes,'storage_driver':driver,'required_free_bytes':required}
         self._exclusive_writer(state)
@@ -329,7 +334,7 @@ class Release:
         state=self.state()
         if state['phase']!='prepared':raise ValueError('reviewed_prepared_plan_required')
         if state['host']!=socket.gethostname():raise ValueError('prepared_host_changed')
-        self.ci(state['commit']);self._same_source(state)
+        self.ci(state['commit']);self._same_source(state);self._empty_targets()
         for name,old in state['old_units'].items():
             if self.unit(name)!=old:raise ValueError('service_states_changed_since_review')
         self._exclusive_writer(state)
@@ -410,6 +415,7 @@ class Release:
                 state['new_id']=untracked['Id'];self.checkpoint(state)
         for name,digest in state['written'].items():
             path=Path(name)
+            if name in state.get('remove_intents',[]) and not path.exists() and not path.is_symlink():continue
             if not path.is_file() or path.is_symlink() or _sha(path.read_bytes())!=digest:
                 raise ValueError('foreign_file_change_blocks_rollback')
         if state['new_id'] is not None:
@@ -429,7 +435,10 @@ class Release:
         # recovery. Remove only our pin/code/unit bytes; never restore data tar.
         keep={str(self.path('/etc/stroyka-jev/private/admission.key')),str(self.path('/etc/stroyka-jev/bridge.json'))}
         for name in state['written']:
-            if name not in keep:Path(name).unlink()
+            if name not in keep:
+                if name not in state.setdefault('remove_intents',[]):
+                    state['remove_intents'].append(name);self.checkpoint(state)
+                Path(name).unlink(missing_ok=True)
         self.run('/usr/bin/systemctl','daemon-reload')
         if state['old_renamed']:
             self.api.request('POST','/containers/'+state['original']['Id']+'/rename?name=hermes-telegram')
