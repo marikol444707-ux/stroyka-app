@@ -10,7 +10,7 @@ import os
 import socket
 import threading
 
-from .admission_broker import AdmissionBroker
+from .admission_broker import AdmissionBroker,process_start_ticks
 from .bootstrap_key import read_bootstrap_key
 from .broker_service import _main
 from .host_worker import run_host_pass
@@ -25,7 +25,9 @@ class ConnectedHost:
     """Root host component; private callbacks are offline fixture seams only."""
     def __init__(self,settings,secret,peer,*,_run_pass=None,_emit_summary=_emit):
         self.broker=AdmissionBroker(settings,secret,peer)
-        self._run_pass=_run_pass or (lambda:run_host_pass(settings,secret,gateway_gid=peer.gid))
+        self._peer=peer
+        self._run_pass=_run_pass or (lambda:run_host_pass(settings,secret,gateway_gid=peer.gid,
+                                                       should_stop=self._stop.is_set))
         self._emit=_emit_summary
         self._wake=threading.Event();self._stop=threading.Event()
         self._thread=None
@@ -56,6 +58,9 @@ class ConnectedHost:
         try:
             listener.settimeout(1)
             while not stop.is_set():
+                if (process_start_ticks(self._peer.pid)!=self._peer.start_ticks
+                        or not self._thread.is_alive()):
+                    raise ValueError('host_service_rebind_required')
                 try:connection,_=listener.accept()
                 except socket.timeout:continue
                 with connection:

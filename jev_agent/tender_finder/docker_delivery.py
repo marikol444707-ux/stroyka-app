@@ -109,7 +109,7 @@ if __name__=='__main__': sys.exit(main())
 '''
 
 
-def _container_id(raw):
+def _container_id(raw,*,require_jev_mounts=False):
     if type(raw) is not bytes or len(raw)>32768:
         raise ValueError('bounded_container_metadata_required')
     value=json.loads(raw.decode('utf-8'),object_pairs_hook=_pairs,parse_constant=_nonfinite)
@@ -138,14 +138,16 @@ def _container_id(raw):
         seen.add(identity)
     if ('/root/hermes-data','/opt/data',True) not in seen:
         raise ValueError('reviewed_data_mount_only_required')
+    if require_jev_mounts and seen!=allowed:
+        raise ValueError('complete_readonly_jev_mounts_required')
     return value['id']
 
 
-def check_hermes_container(*,_run=_run_bounded):
+def check_hermes_container(*,_run=_run_bounded,require_jev_mounts=False):
     """Fresh policy gate usable BEFORE any privileged signing key is loaded."""
     raw,code=_run((DOCKER,'inspect','--format',INSPECT_TEMPLATE,CONTAINER),None,10)
     if code!=0:raise ValueError('container_inspection_failed')
-    return _container_id(raw)
+    return _container_id(raw,require_jev_mounts=require_jev_mounts)
 
 
 class DockerHermesSender:

@@ -10,7 +10,7 @@ import sys
 sys.dont_write_bytecode=True
 if os.geteuid()!=0 or not sys.flags.isolated:
     raise SystemExit('isolated_root_host_launcher_required')
-if len(sys.argv)<2 or sys.argv[1] not in ('broker','worker','service'):
+if len(sys.argv)<2 or sys.argv[1] not in ('broker','worker','service','systemd-service'):
     raise SystemExit('explicit_host_operation_required')
 
 from pathlib import Path
@@ -45,6 +45,9 @@ if sys.argv[1]=='broker':
     raise SystemExit(main(sys.argv[2:]))
 if sys.argv[1]=='service':
     from jev_agent.tender_finder.host_service import main
+    raise SystemExit(main(sys.argv[2:]))
+if sys.argv[1]=='systemd-service':
+    from jev_agent.tender_finder.systemd_bootstrap import main
     raise SystemExit(main(sys.argv[2:]))
 from jev_agent.tender_finder.__main__ import main
 raise SystemExit(main(['host-pass',*sys.argv[2:]]))

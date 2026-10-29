@@ -141,5 +141,16 @@ class ConnectedHostTests(unittest.TestCase):
             release.set();thread.join(6)
         self.assertFalse(thread.is_alive());calls.assert_called_once()
 
+    def test_gateway_restart_requires_rebinding_instead_of_trusting_reused_pid(self):
+        host=ConnectedHost(self.fixture.settings,self.fixture.secret,self.peer,
+            _run_pass=Mock(return_value={'processed':0,'acknowledged':0,'unknown':0,'errors':0}),
+            _emit_summary=lambda summary:None)
+        listener=Mock()
+        with patch('jev_agent.tender_finder.host_service.process_start_ticks',return_value=self.peer.start_ticks+1):
+            with self.assertRaisesRegex(ValueError,'host_service_rebind_required'):
+                host.serve(listener,threading.Event())
+        listener.accept.assert_not_called()
+        self.assertFalse(host._thread.is_alive())
+
 
 if __name__=='__main__':unittest.main()

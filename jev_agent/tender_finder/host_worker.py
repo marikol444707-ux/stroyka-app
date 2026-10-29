@@ -57,7 +57,8 @@ def pending_completions(settings,limit=32):
     return handles
 
 
-def run_host_pass(settings,secret,*,gateway_gid,invoke=None,verify_runtime=None,deliver=None):
+def run_host_pass(settings,secret,*,gateway_gid,invoke=None,verify_runtime=None,deliver=None,
+                  should_stop=lambda:False):
     """Trusted host entrypoint. Injection callbacks exist for offline acceptance.
 
     Production bootstrap must load settings v2 and the host-only key as root;
@@ -76,7 +77,10 @@ def run_host_pass(settings,secret,*,gateway_gid,invoke=None,verify_runtime=None,
             elif outcome.get('status')=='legacy_v1':summary['legacy_untouched']+=1
             else:summary['errors']+=1
         except Exception:summary['errors']+=1
-    for handle in worker.pending():handled(lambda handle=handle:worker.resume(handle))
+    for handle in worker.pending():
+        if should_stop():return summary
+        handled(lambda handle=handle:worker.resume(handle))
+    if should_stop():return summary
     inbox=_inbox(settings.queue)
     try:
         names=[]
@@ -86,8 +90,12 @@ def run_host_pass(settings,secret,*,gateway_gid,invoke=None,verify_runtime=None,
                     names.append(entry.name)
                     if len(names)>=32:break
     finally:os.close(inbox)
-    for name in names:handled(lambda name=name:worker.consume(name))
+    for name in names:
+        if should_stop():return summary
+        handled(lambda name=name:worker.consume(name))
+    if should_stop():return summary
     for event,identifier,fingerprint in pending_completions(settings):
+        if should_stop():return summary
         try:
             result=(deliver if deliver is not None else deliver_via_hermes)(
                 settings,event,identifier,fingerprint,gateway_gid=gateway_gid)

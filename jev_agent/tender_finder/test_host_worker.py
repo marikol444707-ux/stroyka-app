@@ -78,6 +78,17 @@ class HostPassTests(unittest.TestCase):
         first=self.run_pass();self.assertEqual(first['authorization_pending'],1)
         self.assertEqual(first['processed'],0);self.invoke.assert_not_called();self.sender.assert_not_called()
 
+    def test_stop_between_search_and_delivery_recovers_without_repeating_search(self):
+        stop=[]
+        response=self.invoke.return_value
+        self.invoke.side_effect=lambda *args:(stop.append(True) or response)
+        first=run_host_pass(self.settings,self.secret,gateway_gid=10000,invoke=self.invoke,
+            verify_runtime=Mock(),deliver=self.deliver,should_stop=lambda:bool(stop))
+        self.assertEqual(first['processed'],1);self.assertEqual(first['acknowledged'],0)
+        self.sender.assert_not_called()
+        self.assertEqual(self.run_pass()['acknowledged'],1)
+        self.invoke.assert_called_once();self.sender.assert_called_once()
+
     def test_model_json_cannot_supply_delivery_handles_or_other_scope(self):
         self.run_pass(deliver=Mock(side_effect=RuntimeError('not delivered')))
         event=next(self.settings.queue.pipeline.private_directory.glob('completion-*.json'))
