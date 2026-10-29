@@ -129,6 +129,9 @@ class AdmissionBroker:
             connection.settimeout(3);connection.sendall(_json(outcome))
             connection.shutdown(socket.SHUT_WR)
         except OSError:pass  # Publication may already be durable; retry same ID only.
+        # The host service wakes its worker only after authenticated publication.
+        # A lost socket response must not strand an already committed request.
+        return outcome.get('queued') is True
 
 
 def initialize_root_broker(settings_path,key_fd,peer):

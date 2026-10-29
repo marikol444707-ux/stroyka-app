@@ -86,7 +86,7 @@ def validate_gateway_peer(peer,*,_run=_run_bounded):
     if process_start_ticks(peer.pid)!=peer.start_ticks:raise ValueError('gateway_process_changed')
 
 
-def main(argv=None):
+def _main(argv,initialize,run_loop):
     parser=BrokerParser(description=__doc__)
     parser.add_argument('--config',required=True)
     parser.add_argument('--key-fd',type=int,required=True)
@@ -110,12 +110,12 @@ def main(argv=None):
         # initialize_root_broker takes ownership and closes the key FD even if
         # later validation fails. The caller never receives a signing object.
         key_owned=False
-        broker=initialize_root_broker(args.config,args.key_fd,peer)
+        broker=initialize(args.config,args.key_fd,peer)
         stop=threading.Event()
         for number in (signal.SIGTERM,signal.SIGINT):
             handlers[number]=signal.signal(number,lambda signum,frame:stop.set())
         print(json.dumps({'broker_listening':True,'search_executed':False,'installation_ready':False}),flush=True)
-        serve(listener,broker,stop)
+        run_loop(listener,broker,stop)
         return 0
     except Exception as error:
         print(json.dumps({'broker_listening':False,'code':type(error).__name__,'installation_ready':False}))
@@ -126,6 +126,10 @@ def main(argv=None):
         if key_owned and args.key_fd>=3:
             try:os.close(args.key_fd)
             except OSError:pass
+
+
+def main(argv=None):
+    return _main(argv,initialize_root_broker,serve)
 
 
 if __name__=='__main__':raise SystemExit(main())

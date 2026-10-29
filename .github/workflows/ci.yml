@@ -77,6 +77,7 @@ jobs:
           jev_agent.tender_finder.test_admission_broker
           jev_agent.tender_finder.test_startup_tool
           jev_agent.tender_finder.test_host_worker
+          jev_agent.tender_finder.test_host_service
           jev_agent.tender_finder.test_broker_service
           jev_agent.server_runtime.scripts.test_jev_commercial_search_profile
           jev_agent.scripts.test_jev_eis_search

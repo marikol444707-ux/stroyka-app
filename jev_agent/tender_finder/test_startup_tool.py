@@ -1,6 +1,8 @@
 import ast
 import json
+import os
 from pathlib import Path
+import stat
 import threading
 import subprocess
 import sys
@@ -18,6 +20,31 @@ from .state import Scope
 
 
 class StartupToolTests(unittest.TestCase):
+    def test_host_bootstrap_checks_actual_source_leaves_before_imports(self):
+        # Extract the standalone bootstrap guard without running the root-only
+        # launcher. Test its real filesystem operations as our fixture UID.
+        entry=Path(__file__).parent/'integration/host_entry.py'
+        tree=ast.parse(entry.read_bytes())
+        function=next(node for node in tree.body if isinstance(node,ast.FunctionDef) and node.name=='_verify_package')
+        namespace={'Path':Path,'stat':stat}
+        exec(compile(ast.Module(body=[function],type_ignores=[]),str(entry),'exec'),namespace)
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);package=root/'app';package.mkdir(mode=0o755)
+            leaf=package/'runtime.py';leaf.write_text('pass');leaf.chmod(0o644)
+            check=lambda:namespace['_verify_package'](package,_uid=os.geteuid(),_trusted_root=root)
+            check()
+            leaf.chmod(0o666)
+            with self.assertRaises(RuntimeError):check()
+            leaf.chmod(0o644)
+            alias=package/'alias.py';alias.symlink_to(leaf)
+            with self.assertRaises(RuntimeError):check()
+            alias.unlink();os.link(leaf,alias)
+            with self.assertRaises(RuntimeError):check()
+            alias.unlink();os.mkfifo(alias)
+            with self.assertRaises(RuntimeError):check()
+            alias.unlink();cache=package/'__pycache__';cache.mkdir()
+            with self.assertRaises(RuntimeError):check()
+
     def test_host_launcher_requires_privileged_isolated_bootstrap(self):
         entry=Path(__file__).parent/'integration/host_entry.py'
         result=subprocess.run([sys.executable,'-I','-B',str(entry),'worker'],capture_output=True,timeout=5)

@@ -11,7 +11,7 @@ import tempfile
 import threading
 from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock,patch
 
 from .admission_broker import AdmissionBroker, BrokerClient, BrokerGatewayRuntime, GatewayPeer, process_start_ticks
 from .bootstrap_key import AdmissionSecret
@@ -54,6 +54,17 @@ class AdmissionBrokerTests(unittest.TestCase):
         self.authorize=Mock(return_value=True)
         self.gateway=BrokerGatewayRuntime(OWNER,self.client,current_source=lambda:self.source,
                                           authorize_source=self.authorize)
+
+    def test_lost_socket_ack_still_signals_a_durable_admission_to_host_worker(self):
+        wire=json.dumps({'version':1,'request_b64':base64.b64encode(RAW).decode(),
+                         'origin':{name:getattr(self.source,name) for name in (
+                             'platform','chat_type','chat_id','user_id','profile')}}).encode()
+        connection=Mock();connection.sendall.side_effect=BrokenPipeError()
+        with patch.object(GatewayPeer,'permits',return_value=True),patch(
+                'jev_agent.tender_finder.admission_broker._read_frame',return_value=wire):
+            self.assertTrue(self.broker.serve_connection(connection))
+        self.assertTrue((self.settings.queue.inbox/(PAYLOAD['request_id']+'.json')).is_file())
+        self.assertEqual(len(list(self.settings.worker_admissions.glob('*.auth.json'))),1)
 
     def serve(self,action):
         failures=[]
