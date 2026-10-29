@@ -27,10 +27,10 @@ REQUIRED=EXTRA|{'jev_agent/tender_finder/__init__.py','jev_agent/tender_finder/h
     'jev_agent/tender_finder/source_package.py',
     'jev_agent/tender_finder/integration/host_entry.py','jev_agent/tender_finder/integration/hermes_jev_tool.py'}
 REQUIRED|={'jev_agent/tender_finder/'+name+'.py' for name in (
-    '__main__ admission_broker admission_files audit_bridge bootstrap_key broker_service '
+    '__main__ admission_broker admission_files audit_bridge bootstrap_key broker_service container_transfer '
     'card_page catalog cli_plan cli_result compat contract discovery docker_delivery evidence '
-    'hermes_binding host_worker ingress invoker jobs notification pipeline presentation '
-    'publication queue reporting runtime settings startup_tool state').split()}
+    'hermes_binding host_worker image_pin ingress invoker jobs notification pipeline presentation '
+    'publication queue reporting runtime settings standalone_release startup_tool state').split()}
 
 
 def _source(path):

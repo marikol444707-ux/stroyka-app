@@ -15,6 +15,7 @@ from .ingress import OwnerBinding, owner_route
 from .invoker import _run_bounded
 from .notification import deliver_completion
 from .settings import BridgeSettings
+from .image_pin import load_pin
 
 IMAGE = 'sha256:9c5561579f3ffdf333401797094ac3a743738d6c25d40f4331c7bf77b694238d'
 DOCKER = '/usr/bin/docker'
@@ -109,13 +110,13 @@ if __name__=='__main__': sys.exit(main())
 '''
 
 
-def _container_id(raw,*,require_jev_mounts=False):
+def _container_id(raw,*,require_jev_mounts=False,expected_image=IMAGE):
     if type(raw) is not bytes or len(raw)>32768:
         raise ValueError('bounded_container_metadata_required')
     value=json.loads(raw.decode('utf-8'),object_pairs_hook=_pairs,parse_constant=_nonfinite)
     if (type(value) is not dict or set(value)!={'id','image','running','privileged','mounts','cap_add','pid_mode','security_opt','devices'}
             or type(value['id']) is not str or not re.fullmatch('[a-f0-9]{64}',value['id'])
-            or value['image']!=IMAGE or value['running'] is not True or value['privileged'] is not False):
+            or value['image']!=expected_image or value['running'] is not True or value['privileged'] is not False):
         raise ValueError('reviewed_running_container_required')
     if (value['cap_add'] not in (None,[]) or value['pid_mode']!=''
             or value['devices'] not in (None,[]) or value['security_opt'] not in (
@@ -145,9 +146,19 @@ def _container_id(raw,*,require_jev_mounts=False):
 
 def check_hermes_container(*,_run=_run_bounded,require_jev_mounts=False):
     """Fresh policy gate usable BEFORE any privileged signing key is loaded."""
+    pin=load_pin()
+    expected_image=IMAGE if pin is None else pin['snapshot_image']
+    if pin is not None:
+        template='{"id":{{json .Id}},"parent":{{json .Parent}}}'
+        image_raw,image_code=_run((DOCKER,'image','inspect','--format',template,expected_image),None,10)
+        if image_code!=0 or type(image_raw) is not bytes or len(image_raw)>4096:
+            raise ValueError('snapshot_parent_attestation_required')
+        image=json.loads(image_raw.decode('utf-8'),object_pairs_hook=_pairs,parse_constant=_nonfinite)
+        if type(image) is not dict or image!={'id':expected_image,'parent':IMAGE}:
+            raise ValueError('snapshot_parent_attestation_required')
     raw,code=_run((DOCKER,'inspect','--format',INSPECT_TEMPLATE,CONTAINER),None,10)
     if code!=0:raise ValueError('container_inspection_failed')
-    return _container_id(raw,require_jev_mounts=require_jev_mounts)
+    return _container_id(raw,require_jev_mounts=require_jev_mounts,expected_image=expected_image)
 
 
 class DockerHermesSender:

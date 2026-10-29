@@ -12,6 +12,7 @@ from .hermes_binding import bind_broker_gateway, submit_handler, verified_loaded
 from .settings import load_settings
 
 NAME='jev_tender_search'
+TOOLSET='hermes-telegram'
 SCOPE='/opt/data'
 SOCKET='/run/stroyka-jev/admission.sock'
 POLICY=Path('/opt/stroyka-jev/config/bridge.json')
@@ -52,5 +53,7 @@ class StartupRegistration:
         with self._registry._lock:
             if self._registry.get_entry(NAME,scope=SCOPE) is not None:
                 raise ValueError('existing_jev_registration_preserved')
-            self._registry.register(name=NAME,toolset='jev',schema=SCHEMA,handler=handle,
+            # The pinned Telegram bundle merges registry entries registered
+            # under its own name. A separate 'jev' group is not in that bundle.
+            self._registry.register(name=NAME,toolset=TOOLSET,schema=SCHEMA,handler=handle,
                                     scope=SCOPE,override=False,execution_timeout=5)

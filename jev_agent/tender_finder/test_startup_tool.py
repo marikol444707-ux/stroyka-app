@@ -90,6 +90,7 @@ print('PACKAGE_ISOLATED')
         startup_tool.StartupRegistration(registry).register()
         kwargs=registry.register.call_args.kwargs
         self.assertEqual(kwargs['name'],'jev_tender_search');self.assertEqual(kwargs['scope'],'/opt/data')
+        self.assertEqual(kwargs['toolset'],'hermes-telegram')
         self.assertFalse(kwargs['override']);self.assertIs(kwargs['handler'],startup_tool.handle)
         registry.get_entry.return_value=object();registry.register.reset_mock()
         with self.assertRaises(ValueError):startup_tool.StartupRegistration(registry).register()

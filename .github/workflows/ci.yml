@@ -82,11 +82,16 @@ jobs:
           jev_agent.tender_finder.test_systemd_bootstrap
           jev_agent.tender_finder.test_prepare_install
           jev_agent.tender_finder.test_source_package
+          jev_agent.tender_finder.test_image_pin
+          jev_agent.tender_finder.test_container_transfer
+          jev_agent.tender_finder.test_standalone_release
           jev_agent.server_runtime.scripts.test_jev_commercial_search_profile
           jev_agent.scripts.test_jev_eis_search
           scripts.test_jev_commercial_search_and_import
           scripts.test_jev_push_commercial_report
 
+      - name: Verify JEV container preservation on isolated Docker
+        run: python -B -m scripts.verify_jev_docker_preservation
       - name: Run backend tests
         shell: bash
         env:
