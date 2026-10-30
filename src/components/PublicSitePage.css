@@ -4869,15 +4869,38 @@
     padding-right: 12px;
   }
   .public-nav {
-    gap: 8px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px 10px;
   }
   .public-login {
     width: 100%;
     justify-content: center;
     text-align: center;
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+    min-height: 40px;
+    padding: 9px 12px;
+  }
+  .public-brand {
+    grid-column: 1;
+    grid-row: 1;
+    align-self: center;
   }
   .public-nav-links {
-    grid-template-columns: 1fr;
+    grid-column: 1 / -1;
+    grid-row: 2;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    padding: 3px;
+    gap: 3px;
+  }
+  .public-nav-links button {
+    min-height: 38px;
+    padding: 7px 3px;
+    font-size: 12px;
+    line-height: 1.1;
   }
   .public-eyebrow {
     overflow-wrap: anywhere;
