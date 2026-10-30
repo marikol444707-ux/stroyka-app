@@ -12,6 +12,8 @@ import hashlib
 from html.parser import HTMLParser
 import json
 import os
+import grp
+import pwd
 from pathlib import Path
 import re
 import secrets
@@ -76,6 +78,32 @@ def _read(path,uid):
             raise ValueError('private_release_file_required')
         return os.read(fd,4*1024*1024+1)
     finally:os.close(fd)
+
+
+def _operator_lock(path,uid=0):
+    fd=os.open(path,os.O_RDWR|os.O_CREAT|os.O_NOFOLLOW|os.O_NONBLOCK,0o600)
+    try:
+        info=os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid!=uid or info.st_nlink!=1 or stat.S_IMODE(info.st_mode)!=0o600:
+            raise ValueError('private_release_lock_required')
+        fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        return fd
+    except BaseException:os.close(fd);raise
+
+
+def _gateway_group_plan():
+    # systemd SocketGroup= resolves even numeric groups through NSS. A numeric
+    # GID in the container alone is insufficient; no user memberships are added.
+    try:group=grp.getgrgid(10000)
+    except KeyError:
+        try:grp.getgrnam('stroyka-jev-gateway')
+        except KeyError:pass
+        else:raise ValueError('gateway_group_name_conflict')
+        return {'gid':10000,'name':'stroyka-jev-gateway','existing':False,
+                'members_sha256':_sha(_json([]))}
+    if group.gr_gid!=10000:raise ValueError('gateway_group_identity_required')
+    return {'gid':10000,'name':group.gr_name,'existing':True,
+            'members_sha256':_sha(_json(sorted(group.gr_mem)))}
 
 
 def _save(path,value):
@@ -199,10 +227,11 @@ def root_broker_probe(path):
 class Release:
     """Fixed production paths; underscored dependency seams are test-only."""
     def __init__(self,stage,*,_api=None,_unit=_unit,_run=_run,_ci=verify_ci,_root=Path('/'),_uid=0,
-                 _verify=check_hermes_container,_probe=root_broker_probe):
+                 _verify=check_hermes_container,_probe=root_broker_probe,_group_plan=_gateway_group_plan):
         self.stage=Path(stage).absolute();_private(self.stage,_uid)
         self.uid=_uid;self.api=_api or DockerAPI();self.unit=_unit;self.run=_run;self.ci=_ci;self.root=Path(_root);self.verify=_verify;self.probe=_probe
         self.state_path=self.stage/'release-state.json'
+        self.group_plan=_group_plan
 
     def path(self,value):return self.root/value.lstrip('/')
     def checkpoint(self,state):_save(self.state_path,state)
@@ -215,6 +244,15 @@ class Release:
         if (type(state.get('remove_intents',[])) is not list
                 or any(name not in state['written'] for name in state.get('remove_intents',[]))):
             raise ValueError('owned_remove_intents_required')
+        retained=state.get('retained_files',{})
+        expected={str(self.path('/etc/stroyka-jev')/name) for name in ('private/admission.key','bridge.json')}
+        if (type(retained) is not dict or state.get('previous_stage') is None and retained
+                or state.get('previous_stage') is not None and (
+                    type(state['previous_stage']) is not str or not Path(state['previous_stage']).is_absolute()
+                    or set(retained)!=expected
+                    or not re.fullmatch('[a-f0-9]{64}',str(state.get('previous_journal_sha256',''))))
+                or any(not re.fullmatch('[a-f0-9]{64}',str(v)) for v in retained.values())):
+            raise ValueError('owned_retained_private_files_required')
         fixed={self.path('/etc/stroyka-jev')/name for name in ('private/admission.key','bridge.json','container-image.json')}
         fixed|={self.path('/etc/systemd/system')/name for name in NEW_UNITS}
         fixed.add(self.path('/etc/tmpfiles.d/stroyka-jev.conf'))
@@ -238,7 +276,75 @@ class Release:
                 if directory.is_relative_to(path) or path.is_relative_to(directory):
                     raise ValueError('other_active_data_writer_blocks_maintenance')
 
-    def _empty_targets(self):
+    def _retry_targets(self,previous_stage,expected_digest=None):
+        previous=Release(previous_stage,_api=self.api,_unit=self.unit,_run=self.run,
+                         _ci=self.ci,_root=self.root,_uid=self.uid,_group_plan=self.group_plan)
+        if previous.stage==self.stage:raise ValueError('new_retry_stage_required')
+        raw=_read(previous.state_path,self.uid)
+        if expected_digest is not None and _sha(raw)!=expected_digest:
+            raise ValueError('previous_release_journal_changed')
+        old=previous.state()
+        if (old['phase']!='rolled_back' or old['host']!=socket.gethostname()
+                or not old['data_backup_verified'] or not old['owned_units_started']
+                or old['container_snapshot'] is None or old['new_id'] is None):
+            raise ValueError('completed_owned_rollback_required')
+        archive=previous.stage/'hermes-data.tar.gz';info=archive.lstat()
+        if (not stat.S_ISREG(info.st_mode) or archive.is_symlink() or info.st_uid!=self.uid
+                or stat.S_IMODE(info.st_mode)!=0o600 or info.st_nlink!=1
+                or _file_sha(archive)!=old['data_backup']['archive_sha256']):
+            raise ValueError('retained_data_backup_changed')
+        previous._same_source(old)
+        stopped=deepcopy(old['original']);stopped['State']['Running']=False
+        failed=self.api.request('GET','/containers/'+old['new_id']+'/json')
+        verify_created(failed,stopped,old['container_snapshot'],release_token=old['token'])
+        if failed.get('Name')!='/hermes-jev-failed-'+old['token']:
+            raise ValueError('retained_failed_container_identity_required')
+        for path in (self.path('/etc/stroyka-jev'),self.path('/etc/stroyka-jev/private')):_private(path,self.uid)
+        retained={str(self.path('/etc/stroyka-jev')/name) for name in ('private/admission.key','bridge.json')}
+        for name,digest in old['written'].items():
+            path=Path(name)
+            if name in retained:
+                if _sha(_read(path,self.uid))!=digest:raise ValueError('retained_private_file_changed')
+            elif name not in old.get('remove_intents',[]) or path.exists() or path.is_symlink():
+                raise ValueError('previous_owned_files_not_rolled_back')
+        if not retained<=old['written'].keys():raise ValueError('retained_key_and_policy_required')
+        if {p.name for p in self.path('/etc/stroyka-jev/private').iterdir()}!={'admission.key'}:
+            raise ValueError('foreign_private_entry_preserved')
+        if (self.path('/etc/stroyka-jev/bridge.json').read_bytes()!=
+                old['policy']['policy/host-bridge.json'].encode()):raise ValueError('retained_owner_policy_changed')
+        app=self.path('/opt/stroyka-jev')
+        allowed={app,app/'app',app/'config'}
+        for name in old['source_files']:
+            path=app/'app'/name
+            allowed.update(p for p in path.parents if p.is_relative_to(app))
+        for path in (app,*app.rglob('*')):
+            info=path.lstat()
+            mode=0o750 if path==app/'config' else 0o755
+            if (path not in allowed or not stat.S_ISDIR(info.st_mode) or path.resolve(strict=True)!=path
+                    or info.st_uid!=self.uid or stat.S_IMODE(info.st_mode)!=mode
+                    or self.uid==0 and path==app/'config' and info.st_gid!=10000):
+                raise ValueError('foreign_retry_code_directory_preserved')
+        for target,mode,gid in (('/var/lib/stroyka-jev',0o700,0),('/var/lib/stroyka-jev/v2',0o700,0),
+                ('/var/lib/stroyka-jev/v2/inbox',0o700,0),('/var/lib/stroyka-jev/v2/admissions',0o700,0),
+                ('/var/lib/stroyka-jev/v2/private',0o700,0),('/var/lib/stroyka-jev/v2/results',0o750,10000),
+                ('/run/stroyka-jev',0o710,10000)):
+            path=self.path(target);info=path.lstat()
+            if (not stat.S_ISDIR(info.st_mode) or path.resolve(strict=True)!=path or info.st_uid!=self.uid
+                    or stat.S_IMODE(info.st_mode)!=mode or self.uid==0 and info.st_gid!=gid):
+                raise ValueError('retained_state_permissions_changed')
+        for path in self.path('/run/stroyka-jev').iterdir():
+            info=path.lstat()
+            if (path.name!='admission.sock' or not stat.S_ISSOCK(info.st_mode) or info.st_uid!=self.uid
+                    or stat.S_IMODE(info.st_mode)!=0o660 or self.uid==0 and info.st_gid!=10000):
+                raise ValueError('foreign_runtime_entry_preserved')
+        for target in ('/etc/systemd/system/stroyka-jev.service','/etc/systemd/system/stroyka-jev.socket',
+                       '/etc/tmpfiles.d/stroyka-jev.conf','/etc/stroyka-jev/container-image.json'):
+            path=self.path(target)
+            if path.exists() or path.is_symlink():raise ValueError('existing_target_requires_review')
+        return old,_sha(raw)
+
+    def _empty_targets(self,previous_stage=None,expected_digest=None):
+        if previous_stage is not None:return self._retry_targets(previous_stage,expected_digest)
         # This protected parent can already hold unrelated QA settings. Do not
         # read, chmod, move or remove them. Reserve only this release's leaves.
         etc=self.path('/etc/stroyka-jev')
@@ -257,7 +363,7 @@ class Release:
             raise ValueError('source_container_changed_since_review')
         return actual
 
-    def prepare(self,commit,company_id,owner_id,source_name='source'):
+    def prepare(self,commit,company_id,owner_id,source_name='source',*,previous_stage=None):
         if self.state_path.exists():raise ValueError('existing_release_state_preserved')
         if source_name not in ('source','source-next'):raise ValueError('fixed_source_directory_required')
         files=source_files(self.stage/'repository',self.stage/source_name,commit,self.uid)
@@ -279,7 +385,16 @@ class Release:
             raise ValueError('docker_storage_path_required')
         if shutil.disk_usage(self.path(docker_root)).free<required:
             raise ValueError('docker_snapshot_space_required')
-        self._empty_targets()
+        # The host root account must resolve; the gateway's GID is not a host
+        # service account. Numeric gateway groups are used only on socket/files.
+        if pwd.getpwnam('root').pw_uid!=0 or grp.getgrnam('root').gr_gid!=0:
+            raise ValueError('host_root_credentials_required')
+        group=self.group_plan()
+        if not group['existing'] and not os.access('/usr/sbin/groupadd',os.X_OK):
+            raise ValueError('gateway_group_provisioner_required')
+        retry=self._empty_targets(previous_stage)
+        if retry is not None and retry[0]['policy']['policy/host-bridge.json']!=policy['policy/host-bridge.json']:
+            raise ValueError('retry_owner_policy_must_match')
         for name in NEW_UNITS:
             observed=self.unit(name)
             if observed.get('LoadState')!='not-found' or observed.get('UnitFileState')!='':raise ValueError('existing_new_unit_preserved')
@@ -290,11 +405,23 @@ class Release:
             'source_files':files,'original':original,'policy':policy,'old_units':{name:self.unit(name) for name in OLD_UNITS},
             'written':{},'remove_intents':[],'owned_units_started':False,'data_backup_verified':False,'container_snapshot':None,
             'new_id':None,'old_renamed':False,'activated':False,'accepted':False,'stop_intent':False,'stop_confirmed':False,
-            'data_bytes':data_bytes,'storage_driver':driver,'required_free_bytes':required}
+            'data_bytes':data_bytes,'storage_driver':driver,'required_free_bytes':required,
+            'gateway_group':group,'gateway_group_created':False,
+            'previous_stage':str(Path(previous_stage).absolute()) if retry is not None else None,
+            'previous_journal_sha256':retry[1] if retry is not None else None,
+            'retained_files':{name:retry[0]['written'][name] for name in (
+                str(self.path('/etc/stroyka-jev/private/admission.key')),
+                str(self.path('/etc/stroyka-jev/bridge.json')))} if retry is not None else {}}
         self._exclusive_writer(state)
         self.checkpoint(state)
         return {'prepared':True,'ci_url':ci_url,'maintenance_required':True,'installation_started':False,
-                'estimated_downtime_minutes':[5,10]}
+                'estimated_downtime_minutes':[5,10],'gateway_group_creation_required':not group['existing']}
+
+    def prepare_retry(self,commit,previous_stage,source_name='source'):
+        old,_=self._retry_targets(previous_stage)
+        binding=json.loads(old['policy']['policy/host-bridge.json'])
+        return self.prepare(commit,binding['company_id'],binding['telegram_user_id'],source_name,
+                            previous_stage=previous_stage)
 
     def _write(self,state,path,raw,mode=0o644,gid=0):
         path.parent.mkdir(parents=True,exist_ok=True)
@@ -306,7 +433,10 @@ class Release:
 
     def _install_files(self,state):
         app=self.path('/opt/stroyka-jev/app')
-        app.parent.mkdir(mode=0o755)  # Exclusive reservation; never join a foreign install directory.
+        # Recovery joins only the exact empty directories proven owned by the
+        # completed rollback; a cold install still reserves the parent exclusively.
+        retry=state.get('previous_stage') is not None
+        app.parent.mkdir(mode=0o755,exist_ok=retry)
         for name,digest in state['source_files'].items():
             raw=(self.stage/state['source_name']/name).read_bytes()
             if _sha(raw)!=digest:raise ValueError('source_changed_after_approval')
@@ -315,10 +445,17 @@ class Release:
         self.path('/opt/stroyka-jev').chmod(0o755)
         etc=self.path('/etc/stroyka-jev');etc.mkdir(mode=0o700,exist_ok=True)
         _private(etc,self.uid)
-        private=etc/'private';private.mkdir(mode=0o700)
-        self._write(state,private/'admission.key',secrets.token_bytes(32),0o600)
-        self._write(state,etc/'bridge.json',state['policy']['policy/host-bridge.json'].encode(),0o600)
-        gateway=self.path('/opt/stroyka-jev/config');gateway.mkdir(mode=0o750);gateway.chmod(0o750)
+        private=etc/'private'
+        if retry:
+            _private(private,self.uid)
+            for name,digest in state['retained_files'].items():
+                if _sha(_read(Path(name),self.uid))!=digest:raise ValueError('retained_private_file_changed')
+                state['written'][name]=digest;self.checkpoint(state)
+        else:
+            private.mkdir(mode=0o700)
+            self._write(state,private/'admission.key',secrets.token_bytes(32),0o600)
+            self._write(state,etc/'bridge.json',state['policy']['policy/host-bridge.json'].encode(),0o600)
+        gateway=self.path('/opt/stroyka-jev/config');gateway.mkdir(mode=0o750,exist_ok=retry);gateway.chmod(0o750)
         if self.uid==0:os.chown(gateway,0,10000)
         self._write(state,gateway/'bridge.json',state['policy']['policy/gateway-bridge.json'].encode(),0o640,10000)
         self._write(state,etc/'container-image.json',_json(state['container_snapshot']),0o600)
@@ -342,7 +479,9 @@ class Release:
         state=self.state()
         if state['phase']!='prepared':raise ValueError('reviewed_prepared_plan_required')
         if state['host']!=socket.gethostname():raise ValueError('prepared_host_changed')
-        self.ci(state['commit']);self._same_source(state);self._empty_targets()
+        self.ci(state['commit']);self._same_source(state)
+        self._empty_targets(state.get('previous_stage'),state.get('previous_journal_sha256'))
+        if self.group_plan()!=state.get('gateway_group'):raise ValueError('gateway_group_changed_since_review')
         for name,old in state['old_units'].items():
             if self.unit(name)!=old:raise ValueError('service_states_changed_since_review')
         self._exclusive_writer(state)
@@ -350,6 +489,13 @@ class Release:
             raise ValueError('source_changed_after_review')
         state['phase']='maintenance';self.checkpoint(state)
         try:
+            group=state['gateway_group']
+            if not group['existing']:
+                state['gateway_group_creation_intent']=True;self.checkpoint(state)
+                self.run('/usr/sbin/groupadd','--gid','10000','stroyka-jev-gateway')
+                expected={**group,'existing':True}
+                if self.group_plan()!=expected:raise ValueError('gateway_group_creation_not_confirmed')
+                state['gateway_group_created']=True;self.checkpoint(state)
             for name in OLD_UNITS:
                 if self.unit(name).get('ActiveState')=='active':self.run('/usr/bin/systemctl','stop',name)
             if self.unit('hermes-jev-search.service').get('ActiveState') not in ('inactive','failed'):
@@ -463,24 +609,29 @@ class Parser(argparse.ArgumentParser):
 
 def main(argv=None):
     parser=Parser(description=__doc__)
-    parser.add_argument('operation',choices=('prepare','apply','rollback'))
+    parser.add_argument('operation',choices=('prepare','prepare-retry','apply','rollback'))
     parser.add_argument('--stage',required=True);parser.add_argument('--commit')
     parser.add_argument('--company-id',type=int);parser.add_argument('--owner-id');parser.add_argument('--source-name',default='source')
+    parser.add_argument('--previous-stage')
     args=parser.parse_args(argv)
-    lock=None;release=None
+    locks=[];release=None
     try:
         if os.geteuid()!=0:raise ValueError('explicit_root_operator_required')
         _private(Path(args.stage).absolute(),0)
-        lock=os.open(Path(args.stage)/'release.lock',os.O_RDWR|os.O_CREAT|os.O_NOFOLLOW|os.O_NONBLOCK,0o600)
-        info=os.fstat(lock)
-        if not stat.S_ISREG(info.st_mode) or info.st_uid!=0 or info.st_nlink!=1 or stat.S_IMODE(info.st_mode)!=0o600:
-            raise ValueError('private_release_lock_required')
-        fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        # A per-stage lock alone permits two recovery stages to race over the
+        # same container. Serialize all operator releases on this host as well.
+        locks.append(_operator_lock('/run/stroyka-jev-release.lock'))
+        locks.append(_operator_lock(Path(args.stage)/'release.lock'))
         release=Release(args.stage)
         if args.operation=='prepare':
+            if args.previous_stage:raise ValueError('explicit_prepare_retry_operation_required')
             result=release.prepare(args.commit,args.company_id,args.owner_id,args.source_name)
+        elif args.operation=='prepare-retry':
+            if not args.previous_stage or args.company_id is not None or args.owner_id:
+                raise ValueError('previous_verified_owner_binding_required')
+            result=release.prepare_retry(args.commit,args.previous_stage,args.source_name)
         else:
-            if args.commit or args.company_id is not None or args.owner_id or args.source_name!='source':
+            if args.commit or args.company_id is not None or args.owner_id or args.source_name!='source' or args.previous_stage:
                 raise ValueError('existing_reviewed_plan_only')
             result=release.apply() if args.operation=='apply' else release.rollback()
         print(json.dumps(result));return 0
@@ -492,7 +643,7 @@ def main(argv=None):
             except Exception as rollback_error:result['rollback']={'restored':False,'code':type(rollback_error).__name__}
         print(json.dumps(result));return 1
     finally:
-        if lock is not None:os.close(lock)
+        for fd in reversed(locks):os.close(fd)
 
 
 if __name__=='__main__':raise SystemExit(main())

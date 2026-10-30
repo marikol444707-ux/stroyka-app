@@ -128,26 +128,31 @@ def validate_state_directories(settings):
 
 
 def main(argv=None):
-    listener=None;handlers={}
+    listener=None;handlers={};stage='arguments'
     try:
         if argv is None:argv=sys.argv[1:]
         if argv or os.geteuid()!=0:raise ValueError('explicit_root_systemd_bootstrap_required')
-        settings=runtime_settings()
+        stage='policy';settings=runtime_settings()
+        stage='state_permissions'
         validate_state_directories(settings)
+        stage='installed_runtime'
         verify_installed_runtime()
+        stage='inherited_listener'
         listener=inherited_listener(os.environ)
+        stage='gateway_peer'
         peer=discover_gateway_peer()
         # Existing anonymous-pipe reader closes its FD on every outcome.
-        secret=read_bootstrap_key(credential_pipe())
+        stage='credential';secret=read_bootstrap_key(credential_pipe())
+        stage='broker_initialization'
         host=ConnectedHost(settings,secret,peer)
         stop=threading.Event()
         for number in (signal.SIGTERM,signal.SIGINT):
             handlers[number]=signal.signal(number,lambda signum,frame:stop.set())
         print(json.dumps({'host_service_started':True,'installation_ready':False}),flush=True)
-        host.serve(listener,stop)
+        stage='serving';host.serve(listener,stop)
         return 0
     except Exception as error:
-        print(json.dumps({'host_service_started':False,'code':type(error).__name__,
+        print(json.dumps({'host_service_started':False,'code':type(error).__name__,'stage':stage,
                           'installation_ready':False}),flush=True)
         return 1
     finally:

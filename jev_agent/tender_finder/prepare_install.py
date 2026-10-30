@@ -22,7 +22,7 @@ StartLimitBurst=10
 [Service]
 Type=simple
 User=root
-Group=10000
+Group=root
 UMask=0077
 LoadCredential=admission.key:/etc/stroyka-jev/private/admission.key
 ExecStart=/usr/bin/python3 -I -B /opt/stroyka-jev/app/jev_agent/tender_finder/integration/host_entry.py systemd-service

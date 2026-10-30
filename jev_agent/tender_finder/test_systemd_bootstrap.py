@@ -108,6 +108,7 @@ class SystemdBootstrapTests(unittest.TestCase):
         stages=('runtime_settings','validate_state_directories','verify_installed_runtime',
                 'inherited_listener','discover_gateway_peer')
         from contextlib import ExitStack
+        labels=dict(zip(stages,('policy','state_permissions','installed_runtime','inherited_listener','gateway_peer')))
         for failed in stages:
             with self.subTest(stage=failed),ExitStack() as stack,redirect_stdout(io.StringIO()) as output:
                 stack.enter_context(patch.object(bootstrap.os,'geteuid',return_value=0))
@@ -119,6 +120,7 @@ class SystemdBootstrapTests(unittest.TestCase):
                 self.assertEqual(bootstrap.main([]),1)
                 credential.assert_not_called();host.assert_not_called()
                 self.assertNotIn('PRIVATE',output.getvalue())
+                self.assertEqual(json.loads(output.getvalue())['stage'],labels[failed])
 
     def test_root_gate_rejects_before_any_settings_or_credential_read(self):
         with patch.object(bootstrap.os,'geteuid',return_value=10000),patch.object(bootstrap,'runtime_settings') as settings,patch.object(

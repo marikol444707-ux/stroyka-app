@@ -7,11 +7,22 @@ import subprocess
 import tempfile
 import unittest
 
-from .prepare_install import prepare,review_files
+from .prepare_install import prepare,review_files,SERVICE,SOCKET,TMPFILES
 from .settings import parse_settings
 
 
 class PrepareInstallTests(unittest.TestCase):
+    def test_host_uses_resolvable_root_group_and_gateway_keeps_numeric_socket_permissions(self):
+        import grp,pwd
+        self.assertEqual(pwd.getpwnam('root').pw_uid,0)
+        self.assertEqual(grp.getgrnam('root').gr_gid,0)
+        self.assertIn('\nUser=root\nGroup=root\n',SERVICE)
+        self.assertNotIn('\nGroup=10000\n',SERVICE)
+        self.assertIn('\nSocketGroup=10000\nSocketMode=0660\n',SOCKET)
+        self.assertIn('d /run/stroyka-jev 0710 root 10000 -',TMPFILES)
+        self.assertIn('d /var/lib/stroyka-jev/v2/private 0700 root root -',TMPFILES)
+        self.assertIn('LoadCredential=admission.key:/etc/stroyka-jev/private/admission.key',SERVICE)
+
     def test_candidate_files_have_manifest_and_preserve_one_explicit_private_owner(self):
         with tempfile.TemporaryDirectory() as folder:
             target=Path(folder)/'review'

@@ -1,24 +1,28 @@
 from copy import deepcopy
 import json
+import hashlib
 import os
 from pathlib import Path
 import subprocess
+import shutil
 import tarfile
 import tempfile
 import unittest
 from unittest.mock import Mock,patch
+from types import SimpleNamespace
 from urllib.parse import unquote
 
-from .standalone_release import Release,backup_data,verify_ci,source_files,BRANCH,OLD_UNITS,NEW_UNITS
+from .standalone_release import Release,backup_data,verify_ci,source_files,_operator_lock,_gateway_group_plan,BRANCH,OLD_UNITS,NEW_UNITS
 from .source_package import REQUIRED
 from .container_transfer import DockerFailure
+from .prepare_install import TMPFILES
 from .test_container_transfer import source
 
 
 class EngineFixture:
     def __init__(self):
         self.old=source();self.old['State']['Running']=True
-        self.containers={self.old['Id']:self.old};self.calls=[];self.fail_create=False
+        self.containers={self.old['Id']:self.old};self.calls=[];self.fail_create=False;self.created=0
         self.snapshot='sha256:'+'b'*64
     def request(self,method,path,body=None):
         self.calls.append((method,path))
@@ -40,7 +44,8 @@ class EngineFixture:
         if path.startswith('/containers/create?'):
             if self.fail_create:raise RuntimeError('synthetic create failure')
             name=path.split('name=',1)[1]
-            row={'Id':'c'*64,'Name':'/'+name,'Image':body['Image'],'State':{'Running':False},
+            identifier=hex(12+self.created)[2:]*64;self.created+=1
+            row={'Id':identifier,'Name':'/'+name,'Image':body['Image'],'State':{'Running':False},
                 'Config':{key:deepcopy(value) for key,value in body.items() if key!='HostConfig'},
                 'HostConfig':deepcopy(body['HostConfig']),'Mounts':deepcopy(self.old['Mounts'])}
             self.containers[row['Id']]=row;return {'Id':row['Id']}
@@ -76,15 +81,30 @@ class StandaloneReleaseTests(unittest.TestCase):
         self.units[OLD_UNITS[0]]={'LoadState':'loaded','ActiveState':'active','UnitFileState':'enabled'}
         self.units['hermes-jev-search.service']={'LoadState':'loaded','ActiveState':'inactive','UnitFileState':'static'}
         self.old_states=deepcopy(self.units)
-        self.probe=Mock()
+        self.probe=Mock();self.group_exists=False
         self.release=Release(self.stage,_api=self.api,_unit=lambda name:deepcopy(self.units[name]),
             _run=self.run_command,_ci=lambda commit:'https://github.com/example/fixture-success',
-            _root=self.root,_uid=os.geteuid(),_verify=Mock(),_probe=self.probe)
+            _root=self.root,_uid=os.geteuid(),_verify=Mock(),_probe=self.probe,_group_plan=self.group_plan)
+
+    def group_plan(self):
+        return {'gid':10000,'name':'stroyka-jev-gateway','existing':self.group_exists,
+                'members_sha256':hashlib.sha256(b'[]').hexdigest()}
 
     def run_command(self,*args):
         self.commands.append(args)
+        if args[0]=='/usr/sbin/groupadd':
+            self.assertEqual(args,('/usr/sbin/groupadd','--gid','10000','stroyka-jev-gateway'))
+            self.group_exists=True
+        if args[0]=='/usr/bin/systemd-tmpfiles':
+            for row in TMPFILES.splitlines():
+                _,name,mode,*_=row.split();path=self.root/name.lstrip('/')
+                path.mkdir(parents=True,exist_ok=True);path.chmod(int(mode,8))
         if args[0]=='/usr/bin/systemctl':
             operation=args[1]
+            if operation=='daemon-reload':
+                for name in NEW_UNITS:
+                    if not (self.root/'etc/systemd/system'/name).exists():
+                        self.units[name].update(LoadState='not-found',UnitFileState='')
             if operation in ('stop','start','enable','disable'):
                 for name in args[2:]:
                     if name.startswith('--'):continue
@@ -95,6 +115,43 @@ class StandaloneReleaseTests(unittest.TestCase):
         return b''
 
     def prepare(self):return self.release.prepare(self.commit,37,'123456789')
+
+    def test_operator_mutex_prevents_two_stages_from_overlapping_without_overwriting_contents(self):
+        path=self.folder/'host-release.lock';path.write_bytes(b'keep existing private bytes');path.chmod(0o600)
+        first=_operator_lock(path,os.geteuid())
+        try:
+            with self.assertRaises(BlockingIOError):_operator_lock(path,os.geteuid())
+            self.assertEqual(path.read_bytes(),b'keep existing private bytes')
+        finally:os.close(first)
+        os.close(_operator_lock(path,os.geteuid()))
+
+    def test_operator_mutex_rejects_symlink_fifo_and_readable_foreign_file(self):
+        path=self.folder/'host-release.lock'
+        path.write_bytes(b'foreign bytes');path.chmod(0o644)
+        with self.assertRaises(ValueError):_operator_lock(path,os.geteuid())
+        self.assertEqual(path.read_bytes(),b'foreign bytes');path.unlink()
+        path.symlink_to(self.data)
+        with self.assertRaises(OSError):_operator_lock(path,os.geteuid())
+        self.assertEqual(self.data.read_bytes(),b'original history');path.unlink()
+        os.mkfifo(path,mode=0o600)
+        with self.assertRaises(ValueError):_operator_lock(path,os.geteuid())
+
+    def failed_start_and_retry_fixture(self):
+        self.prepare();state=self.release.state()
+        # Reproduce the previous pinned release's invalid host group while
+        # keeping its protected binding and ownership journal intact.
+        state['policy']['units/stroyka-jev.service']=state['policy']['units/stroyka-jev.service'].replace('\nGroup=root\n','\nGroup=10000\n')
+        self.release.checkpoint(state)
+        self.probe.side_effect=ValueError('synthetic_startup_failure')
+        with patch('jev_agent.tender_finder.standalone_release.time.monotonic',side_effect=[0,100]):
+            with self.assertRaisesRegex(ValueError,'initialized_jev_broker_not_confirmed'):self.release.apply()
+        self.assertTrue(self.release.rollback()['restored'])
+        stage=self.folder/'retry';stage.mkdir(mode=0o700)
+        for name in ('repository','source'):shutil.copytree(self.stage/name,stage/name)
+        retry=Release(stage,_api=self.api,_unit=lambda name:deepcopy(self.units[name]),
+            _run=self.run_command,_ci=lambda commit:'https://github.com/example/retry-success',
+            _root=self.root,_uid=os.geteuid(),_verify=Mock(),_probe=Mock(),_group_plan=self.group_plan)
+        return retry
 
     def test_prepare_does_not_stop_or_mutate_containers_or_install_files(self):
         result=self.prepare()
@@ -221,6 +278,125 @@ class StandaloneReleaseTests(unittest.TestCase):
         after=directory.stat()
         self.assertEqual((after.st_ino,after.st_mode,after.st_uid,after.st_gid),
                          (parent.st_ino,parent.st_mode,parent.st_uid,parent.st_gid))
+
+    def test_retry_preserves_key_receipts_old_backups_and_copies_fresh_current_data(self):
+        retry=self.failed_start_and_retry_fixture()
+        key=self.root/'etc/stroyka-jev/private/admission.key';key_bytes=key.read_bytes()
+        old_backup=(self.stage/'hermes-data.tar.gz').read_bytes()
+        receipt=self.root/'var/lib/stroyka-jev/v2/private/durable-receipt.json'
+        receipt.write_bytes(b'opaque existing receipt');receipt.chmod(0o600)
+        self.data.write_bytes(b'current history after rollback')
+        before=len(self.commands);calls=len(self.api.calls)
+        plan=retry.prepare_retry(self.commit,self.stage)
+        self.assertTrue(plan['prepared']);self.assertFalse(plan['installation_started'])
+        self.assertEqual(len(self.commands),before)
+        self.assertFalse(any(method!='GET' for method,path in self.api.calls[calls:]))
+        self.assertEqual(retry.state()['policy']['policy/host-bridge.json'],self.release.state()['policy']['policy/host-bridge.json'])
+        self.assertIn('\nGroup=root\n',retry.state()['policy']['units/stroyka-jev.service'])
+        self.assertTrue(retry.apply()['activated'])
+        self.assertEqual(key.read_bytes(),key_bytes)
+        self.assertEqual(receipt.read_bytes(),b'opaque existing receipt')
+        self.assertEqual((self.stage/'hermes-data.tar.gz').read_bytes(),old_backup)
+        with tarfile.open(retry.stage/'hermes-data.tar.gz') as archive:
+            self.assertEqual(archive.extractfile('hermes-data/session.sqlite').read(),b'current history after rollback')
+        self.assertEqual(len(self.api.containers),3)
+        self.assertFalse(self.api.containers['c'*64]['State']['Running'])
+        self.data.write_bytes(b'new history after retry activation')
+        self.assertTrue(retry.rollback()['restored'])
+        self.assertEqual(self.data.read_bytes(),b'new history after retry activation')
+        self.assertEqual(key.read_bytes(),key_bytes)
+        self.assertEqual(receipt.read_bytes(),b'opaque existing receipt')
+        self.assertTrue(self.api.old['State']['Running'])
+
+    def test_retry_requires_completed_rollback_and_unchanged_retained_key(self):
+        retry=self.failed_start_and_retry_fixture()
+        old=self.release.state();old['phase']='failed';self.release.checkpoint(old)
+        with self.assertRaisesRegex(ValueError,'completed_owned_rollback_required'):
+            retry.prepare_retry(self.commit,self.stage)
+        old['phase']='rolled_back';self.release.checkpoint(old)
+        key=self.root/'etc/stroyka-jev/private/admission.key';key.write_bytes(b'foreign changed private key')
+        with self.assertRaisesRegex(ValueError,'retained_private_file_changed'):
+            retry.prepare_retry(self.commit,self.stage)
+        self.assertTrue(self.api.old['State']['Running']);self.assertFalse(retry.state_path.exists())
+
+    def test_retry_rejects_foreign_code_or_changed_previous_journal_before_stop(self):
+        retry=self.failed_start_and_retry_fixture()
+        foreign=self.root/'opt/stroyka-jev/app/foreign.py';foreign.write_bytes(b'foreign code')
+        with self.assertRaisesRegex(ValueError,'foreign_retry_code_directory_preserved'):
+            retry.prepare_retry(self.commit,self.stage)
+        self.assertEqual(foreign.read_bytes(),b'foreign code');foreign.unlink()
+        retry.prepare_retry(self.commit,self.stage)
+        old=self.release.state();old['accepted']=True;self.release.checkpoint(old)
+        before=len(self.commands)
+        with self.assertRaisesRegex(ValueError,'previous_release_journal_changed'):retry.apply()
+        self.assertEqual(len(self.commands),before);self.assertTrue(self.api.old['State']['Running'])
+
+    def test_retry_refuses_foreign_running_retained_container_and_owner_change(self):
+        retry=self.failed_start_and_retry_fixture()
+        failed=self.api.containers['c'*64];failed['State']['Running']=True
+        with self.assertRaisesRegex(DockerFailure,'stopped_replacement_required'):
+            retry.prepare_retry(self.commit,self.stage)
+        failed['State']['Running']=False
+        with self.assertRaisesRegex(ValueError,'retry_owner_policy_must_match'):
+            retry.prepare(self.commit,999,'987654321',previous_stage=self.stage)
+        self.assertFalse(retry.state_path.exists());self.assertTrue(self.api.old['State']['Running'])
+
+    def test_retry_refuses_changed_backup_before_stopping_anything(self):
+        retry=self.failed_start_and_retry_fixture()
+        archive=self.stage/'hermes-data.tar.gz';archive.write_bytes(b'changed archive')
+        before=len(self.commands)
+        with self.assertRaisesRegex(ValueError,'retained_data_backup_changed'):
+            retry.prepare_retry(self.commit,self.stage)
+        self.assertEqual(len(self.commands),before);self.assertTrue(self.api.old['State']['Running'])
+        self.assertEqual(archive.read_bytes(),b'changed archive')
+
+    def test_missing_host_root_group_blocks_prepare_without_gateway_group_fallback(self):
+        with patch('jev_agent.tender_finder.standalone_release.grp.getgrnam',side_effect=KeyError('root')) as group:
+            with self.assertRaises(KeyError):self.prepare()
+        group.assert_called_once_with('root')
+        self.assertEqual(self.commands,[]);self.assertFalse(self.release.state_path.exists())
+        self.assertTrue(self.api.old['State']['Running'])
+
+    def test_socket_group_is_provisioned_before_stop_and_retained_on_rollback(self):
+        self.prepare();self.release.apply()
+        create=('/usr/sbin/groupadd','--gid','10000','stroyka-jev-gateway')
+        stop=('/usr/bin/systemctl','stop','hermes-jev-search.timer')
+        self.assertLess(self.commands.index(create),self.commands.index(stop))
+        self.assertTrue(self.release.state()['gateway_group_created'])
+        self.assertTrue(self.release.rollback()['restored'])
+        self.assertTrue(self.group_exists)
+        self.assertEqual(self.commands.count(create),1)
+
+    def test_existing_gateway_group_is_preserved_without_membership_changes(self):
+        self.group_exists=True;self.prepare();self.release.apply()
+        self.assertFalse(any(args[0]=='/usr/sbin/groupadd' for args in self.commands))
+        self.assertFalse(self.release.state()['gateway_group_created'])
+
+    def test_group_nss_plan_handles_missing_reuses_existing_and_rejects_name_conflict(self):
+        with patch('grp.getgrgid',side_effect=KeyError),patch('grp.getgrnam',side_effect=KeyError):
+            plan=_gateway_group_plan()
+            self.assertFalse(plan['existing']);self.assertEqual(plan['gid'],10000)
+        with patch('grp.getgrgid',return_value=SimpleNamespace(gr_gid=10000,gr_name='existing-hermes',gr_mem=['synthetic-member'])):
+            plan=_gateway_group_plan()
+            self.assertTrue(plan['existing']);self.assertEqual(plan['name'],'existing-hermes')
+        with patch('grp.getgrgid',side_effect=KeyError),patch('grp.getgrnam',return_value=SimpleNamespace(gr_gid=999)):
+            with self.assertRaisesRegex(ValueError,'gateway_group_name_conflict'):_gateway_group_plan()
+
+    def test_group_change_since_prepare_blocks_before_stop(self):
+        self.prepare();self.group_exists=True
+        with self.assertRaisesRegex(ValueError,'gateway_group_changed_since_review'):self.release.apply()
+        self.assertEqual(self.commands,[]);self.assertTrue(self.api.old['State']['Running'])
+
+    def test_group_provision_failure_does_not_stop_running_hermes(self):
+        self.prepare();real_run=self.release.run
+        def fail(*args):
+            if args[0]=='/usr/sbin/groupadd':raise ValueError('synthetic_groupadd_failure')
+            return real_run(*args)
+        self.release.run=fail
+        with self.assertRaisesRegex(ValueError,'synthetic_groupadd_failure'):self.release.apply()
+        self.assertTrue(self.release.rollback()['restored'])
+        self.assertFalse(any(method!='GET' for method,path in self.api.calls))
+        self.assertTrue(self.api.old['State']['Running'])
 
     def test_shared_parent_does_not_allow_existing_owned_leaf_or_symlink(self):
         directory=self.root/'etc/stroyka-jev';directory.mkdir(mode=0o700)
