@@ -82,7 +82,7 @@ SocketGroup=10000
 SocketMode=0660
 DirectoryMode=0710
 Service={name}.service
-RemoveOnStop=yes
+RemoveOnStop=no
 '''
         for suffix,content in (('service',service),('socket',socket_unit)):
             path=Path('/run/systemd/system')/(name+'.'+suffix)
@@ -95,7 +95,15 @@ RemoveOnStop=yes
         assert proof=={'uid':0,'gid':0,'socket_gid':10000,'socket_mode':'0660',
                        'listener_fd':'admission','credential_read':True}
         assert stat.S_IMODE((folder/'proof.json').stat().st_mode)==0o600
-        print(json.dumps({'native_systemd_credentials':'PASS',**proof}))
+        run('/usr/bin/systemctl','stop',name+'.service',name+'.socket')
+        assert stat.S_ISSOCK((folder/'admission.sock').stat().st_mode)
+        (folder/'proof.json').rename(folder/'first-proof.json')
+        # Production rollback deliberately retains the socket inode. Verify a
+        # real manager can rebind it and supply the same FD/credential contract.
+        run('/usr/bin/systemctl','start',name+'.socket')
+        run('/usr/bin/systemctl','start',name+'.service')
+        assert json.loads((folder/'proof.json').read_text())==proof
+        print(json.dumps({'native_systemd_credentials':'PASS','restart_with_retained_socket':True,**proof}))
         return 0
     finally:
         if registered:
