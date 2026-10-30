@@ -31,6 +31,8 @@ REQUIRED|={'jev_agent/tender_finder/'+name+'.py' for name in (
     'card_page catalog cli_plan cli_result compat contract discovery docker_delivery evidence '
     'hermes_binding host_worker image_pin ingress invoker jobs notification pipeline presentation '
     'publication queue reporting runtime settings standalone_release startup_tool state').split()}
+REQUIRED|={'jev_agent/tender_finder/commercial/'+name+'.py' for name in (
+    '__init__ __main__ model policy readers registry runner sources').split()}
 
 
 def _source(path):
