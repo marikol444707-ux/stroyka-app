@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import Mock,patch
 from urllib.parse import unquote
 
-from .standalone_release import Release,backup_data,verify_ci,BRANCH,OLD_UNITS,NEW_UNITS
+from .standalone_release import Release,backup_data,verify_ci,source_files,BRANCH,OLD_UNITS,NEW_UNITS
 from .source_package import REQUIRED
 from .container_transfer import DockerFailure
 from .test_container_transfer import source
@@ -103,6 +103,18 @@ class StandaloneReleaseTests(unittest.TestCase):
         self.assertEqual(self.commands,[])
         self.assertFalse((self.root/'opt/stroyka-jev').exists())
 
+    def test_git_archive_explicit_private_modes_pass_source_protection(self):
+        # Regression for root tar extraction preserving Git's default group-write
+        # archive modes despite the calling shell's restrictive umask.
+        output=self.stage/'archive-source';output.mkdir(mode=0o700)
+        raw=subprocess.check_output(['git','-C',str(self.stage/'repository'),
+            '-c','tar.umask=0077','archive',self.commit])
+        subprocess.run(['tar','-x','-C',str(output)],input=raw,check=True)
+        for path in output.rglob('*'):
+            self.assertEqual(path.stat().st_mode & 0o077,0)
+        verified=source_files(self.stage/'repository',output,self.commit,os.geteuid())
+        self.assertEqual(set(verified),REQUIRED)
+
     def test_apply_then_rollback_preserves_current_data_key_and_original_configuration(self):
         self.prepare();result=self.release.apply()
         self.assertTrue(result['activated']);self.assertFalse(result['real_telegram_acceptance'])
@@ -189,6 +201,59 @@ class StandaloneReleaseTests(unittest.TestCase):
     def test_foreign_runtime_directory_blocks_before_stop(self):
         self.prepare();(self.root/'run/stroyka-jev').mkdir(parents=True)
         with self.assertRaisesRegex(ValueError,'existing_target_requires_review'):self.release.apply()
+        self.assertEqual(self.commands,[]);self.assertTrue(self.api.old['State']['Running'])
+
+    def test_existing_private_qa_directory_and_files_survive_apply_and_rollback(self):
+        directory=self.root/'etc/stroyka-jev';directory.mkdir(mode=0o700)
+        directory.chmod(0o700)
+        secret=directory/'qa.env';secret.write_bytes(b'SYNTHETIC_ONLY=opaque\n')
+        secret.chmod(0o600)
+        script=directory/'model-click-probe.py';script.write_bytes(b'# unrelated QA probe\n')
+        script.chmod(0o644)
+        def signatures():
+            return {p.name:(p.read_bytes(),p.stat()) for p in (secret,script)}
+        before=signatures();parent=directory.stat()
+        self.assertTrue(self.prepare()['prepared'])
+        self.assertTrue(self.release.apply()['activated'])
+        self.assertEqual(signatures(),before)
+        self.assertTrue(self.release.rollback()['restored'])
+        self.assertEqual(signatures(),before)
+        after=directory.stat()
+        self.assertEqual((after.st_ino,after.st_mode,after.st_uid,after.st_gid),
+                         (parent.st_ino,parent.st_mode,parent.st_uid,parent.st_gid))
+
+    def test_shared_parent_does_not_allow_existing_owned_leaf_or_symlink(self):
+        directory=self.root/'etc/stroyka-jev';directory.mkdir(mode=0o700)
+        for name in ('bridge.json','container-image.json','private'):
+            with self.subTest(name=name):
+                target=directory/name;target.write_bytes(b'foreign contents')
+                with self.assertRaisesRegex(ValueError,'existing_target_requires_review'):self.prepare()
+                self.assertEqual(target.read_bytes(),b'foreign contents')
+                target.unlink()
+        link=directory/'bridge.json';link.symlink_to('missing-target')
+        with self.assertRaisesRegex(ValueError,'existing_target_requires_review'):self.prepare()
+        self.assertTrue(link.is_symlink())
+        self.assertFalse(self.release.state_path.exists());self.assertEqual(self.commands,[])
+
+    def test_shared_parent_owner_mode_and_type_are_checked_without_chmod(self):
+        directory=self.root/'etc/stroyka-jev';directory.mkdir(mode=0o700)
+        directory.chmod(0o755)
+        with self.assertRaisesRegex(ValueError,'private_release_directory_required'):self.prepare()
+        self.assertEqual(directory.stat().st_mode & 0o777,0o755)
+        directory.rmdir();other=self.root/'other-qa';other.mkdir(mode=0o700)
+        directory.symlink_to(other)
+        with self.assertRaisesRegex(ValueError,'private_release_path_required'):self.prepare()
+        self.assertTrue(directory.is_symlink());directory.unlink()
+        directory.write_bytes(b'foreign plain file')
+        with self.assertRaisesRegex(ValueError,'private_release_directory_required'):self.prepare()
+        self.assertEqual(directory.read_bytes(),b'foreign plain file')
+        self.assertEqual(self.commands,[])
+
+    def test_owned_leaf_created_after_prepare_blocks_before_service_stop(self):
+        directory=self.root/'etc/stroyka-jev';directory.mkdir(mode=0o700)
+        self.prepare();target=directory/'bridge.json';target.write_bytes(b'later foreign settings')
+        with self.assertRaisesRegex(ValueError,'existing_target_requires_review'):self.release.apply()
+        self.assertEqual(target.read_bytes(),b'later foreign settings')
         self.assertEqual(self.commands,[]);self.assertTrue(self.api.old['State']['Running'])
 
     def test_rollback_resumes_after_crash_between_own_file_unlink_and_journal(self):

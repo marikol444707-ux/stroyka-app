@@ -239,10 +239,17 @@ class Release:
                     raise ValueError('other_active_data_writer_blocks_maintenance')
 
     def _empty_targets(self):
-        for target in ('/opt/stroyka-jev','/etc/stroyka-jev','/var/lib/stroyka-jev','/run/stroyka-jev',
+        # This protected parent can already hold unrelated QA settings. Do not
+        # read, chmod, move or remove them. Reserve only this release's leaves.
+        etc=self.path('/etc/stroyka-jev')
+        if etc.exists() or etc.is_symlink():_private(etc,self.uid)
+        for target in ('/opt/stroyka-jev','/etc/stroyka-jev/private',
+                       '/etc/stroyka-jev/bridge.json','/etc/stroyka-jev/container-image.json',
+                       '/var/lib/stroyka-jev','/run/stroyka-jev',
                        '/etc/systemd/system/stroyka-jev.service','/etc/systemd/system/stroyka-jev.socket','/etc/tmpfiles.d/stroyka-jev.conf'):
             path=self.path(target)
             if path.exists() or path.is_symlink():raise ValueError('existing_target_requires_review')
+
     def _same_source(self,state,running=True):
         actual=self.api.request('GET','/containers/hermes-telegram/json')
         validate_source(actual,stopped=not running)
@@ -306,7 +313,8 @@ class Release:
             self._write(state,app/name,raw)
         for directory in (app,*[path for path in app.rglob('*') if path.is_dir()]):directory.chmod(0o755)
         self.path('/opt/stroyka-jev').chmod(0o755)
-        etc=self.path('/etc/stroyka-jev');etc.mkdir(mode=0o700);etc.chmod(0o700)
+        etc=self.path('/etc/stroyka-jev');etc.mkdir(mode=0o700,exist_ok=True)
+        _private(etc,self.uid)
         private=etc/'private';private.mkdir(mode=0o700)
         self._write(state,private/'admission.key',secrets.token_bytes(32),0o600)
         self._write(state,etc/'bridge.json',state['policy']['policy/host-bridge.json'].encode(),0o600)
