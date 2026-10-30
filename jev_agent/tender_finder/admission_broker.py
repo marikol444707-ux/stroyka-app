@@ -19,7 +19,7 @@ from types import SimpleNamespace
 
 from .admission_files import publish_admission
 from .bootstrap_key import AdmissionSecret, read_bootstrap_key
-from .contract import MAX_REQUEST_BYTES
+from .contract import MAX_REQUEST_BYTES, validate_v2_request
 from .ingress import OwnerBinding, authorized_owner, issue_admission
 from .queue import _decode
 from .settings import BridgeSettings, load_settings
@@ -81,9 +81,9 @@ class AdmissionBroker:
     require root-owned queues and a DIFFERENT, unprivileged gateway UID. The key
     and signatures never enter the client process or its response.
     """
-    def __init__(self,settings,secret,peer,*,clock=lambda:int(time.time())):
+    def __init__(self,settings,secret,peer,*,clock=lambda:int(time.time()),request_validator=validate_v2_request):
         if (type(settings) is not BridgeSettings or type(secret) is not AdmissionSecret
-                or type(peer) is not GatewayPeer or not callable(clock)):
+                or type(peer) is not GatewayPeer or not callable(clock) or not callable(request_validator)):
             raise ValueError('protected_broker_bootstrap_required')
         peer.validate()
         if settings.queue.writer_uid!=os.geteuid() or settings.gateway_uid!=peer.uid:
@@ -93,6 +93,7 @@ class AdmissionBroker:
         self._settings=replace(settings,gateway_inbox=settings.queue.inbox,
                                gateway_admissions=settings.worker_admissions)
         self._secret=secret;self._peer=peer;self._clock=clock
+        self._validate=request_validator
 
     def _admit(self,wire):
         value=_decode(wire)
@@ -103,6 +104,8 @@ class AdmissionBroker:
             raise ValueError('fixed_broker_frame_required')
         raw=base64.b64decode(value['request_b64'],validate=True)
         if len(raw)>MAX_REQUEST_BYTES:raise ValueError('request_limit')
+        if _decode(raw).get('version')!=self._settings.queue.pipeline.protocol:
+            raise ValueError('broker_request_protocol_mismatch')
         origin=value['origin']
         if (origin['platform']!='telegram' or origin['chat_type']!='dm'
                 or any(type(origin[name]) is not str for name in ('chat_id','user_id'))
@@ -112,7 +115,8 @@ class AdmissionBroker:
         # Peer process is the trust boundary, NOT the JSON source alone. The
         # client binding first uses real SessionSource + live Hermes policy.
         receipt=issue_admission(raw,source,authorize_source=lambda source:True,
-            bindings=(self._settings.owner,),signing_key=self._secret.material,clock=self._clock)
+            bindings=(self._settings.owner,),signing_key=self._secret.material,clock=self._clock,
+            request_validator=self._validate)
         return publish_admission(raw,receipt,self._settings,self._secret,clock=self._clock)
 
     def serve_connection(self,connection):
@@ -203,14 +207,17 @@ class BrokerClient:
 
 class BrokerGatewayRuntime:
     """No secret/key/signing method exists in the gateway-side object."""
-    def __init__(self,owner,client,*,current_source,authorize_source):
+    def __init__(self,owner,client,*,current_source,authorize_source,request_validator=validate_v2_request):
         if type(owner) is not OwnerBinding:raise ValueError('protected_owner_binding_required')
         owner.validate()
-        if type(client) is not BrokerClient or not callable(current_source) or not callable(authorize_source):
+        if (type(client) is not BrokerClient or not callable(current_source) or not callable(authorize_source)
+                or not callable(request_validator)):
             raise ValueError('protected_broker_gateway_binding_required')
         self._owner=owner;self._client=client;self._source=current_source;self._authorize=authorize_source
+        self._validate=request_validator
 
     def submit(self,raw):
         source=self._source()
-        authorized_owner(raw,source,authorize_source=self._authorize,bindings=(self._owner,))
+        authorized_owner(raw,source,authorize_source=self._authorize,bindings=(self._owner,),
+                         request_validator=self._validate)
         return self._client.submit(raw,source)

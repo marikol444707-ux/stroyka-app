@@ -41,6 +41,9 @@ def assess(candidate, now, hosts, profile=Profile(), *, run_started_at=None):
 
     cards = [doc for doc in docs.values() if doc.kind == 'card' and start <= doc.checked_at <= now]
     risks, exclusions = [], []
+    searchable = ' '.join(values.get(name,'') for name in ('title','work_scope')).casefold().replace('ё','е')
+    if any(word.casefold().replace('ё','е') in searchable for word in profile.exclude_keywords):
+        exclusions.append('Совпадение со словами исключения')
     if not cards: risks.append('Первичная карточка в этом запуске не проверена')
     if conflicts: risks.append('Противоречия источников: ' + ', '.join(conflicts))
     region = values.get('work_region')

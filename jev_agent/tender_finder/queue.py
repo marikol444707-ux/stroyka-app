@@ -69,10 +69,10 @@ def _read_incoming(directory,name,uid,*,strict_mode=True):
     finally:os.close(fd)
 
 
-def _validate(raw,identifier):
+def _validate(raw,identifier,request_validator=validate_v2_request):
     value=_decode(raw)
     if type(value.get('version')) is int and value['version']==1:return None
-    request=validate_v2_request(value)
+    request=request_validator(value)
     if request.request_id!=identifier:raise ValueError('queue_request_identity_conflict')
     return value
 
@@ -119,7 +119,7 @@ def _finish(config,private,handle,authenticate,pipeline_bindings):
     stored=_read(private,frozen,private=True)
     if stored is None:
         raw=_read_incoming(private,original,config.writer_uid)
-        value=_validate(raw,identifier)
+        value=_validate(raw,identifier,pipeline_bindings.get('request_validator',validate_v2_request))
         if value is None:
             return {'status':'needs_review','reason':'claimed_protocol_changed','claim_handle':handle}
         record={'format':1,'scope':config.pipeline.scope.key(),'handle':handle,
@@ -133,7 +133,7 @@ def _finish(config,private,handle,authenticate,pipeline_bindings):
         raw=base64.b64decode(record['wire'],validate=True)
         if len(raw)>MAX_REQUEST_BYTES or hashlib.sha256(raw).hexdigest()!=record.get('sha256'):
             raise StorageError('invalid_frozen_request_digest')
-        value=_validate(raw,identifier)
+        value=_validate(raw,identifier,pipeline_bindings.get('request_validator',validate_v2_request))
         if value is None:raise StorageError('invalid_frozen_request_protocol')
     digest=hashlib.sha256(raw).hexdigest()
     if authenticate(identifier+'.json',digest,config.pipeline.scope) is not True:
@@ -154,12 +154,14 @@ def consume_file(config,name,*,authenticate,**pipeline_bindings):
     inbox=_inbox(config)
     try:
         raw=_read_incoming(inbox,name,config.writer_uid,strict_mode=False)
-        if _validate(raw,identifier) is None:return {'status':'legacy_v1','handled':False}
+        if _validate(raw,identifier,pipeline_bindings.get('request_validator',validate_v2_request)) is None:
+            return {'status':'legacy_v1','handled':False}
         _read_incoming(inbox,name,config.writer_uid)
         with _private_lock(config) as private:
             # Re-read after acquiring the consumer lock; producer may have changed it.
             raw=_read_incoming(inbox,name,config.writer_uid)
-            if _validate(raw,identifier) is None:return {'status':'legacy_v1','handled':False}
+            if _validate(raw,identifier,pipeline_bindings.get('request_validator',validate_v2_request)) is None:
+                return {'status':'legacy_v1','handled':False}
             if sum(name.startswith(INCOMING) for name in os.listdir(private))>=32:
                 raise StorageError('pending_claim_limit')
             handle=identifier+'.'+secrets.token_hex(16)

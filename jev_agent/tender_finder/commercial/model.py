@@ -142,6 +142,8 @@ class Profile:
     legal_entity: str | None = None
     # Explicit confirmed qualifications of the SELECTED entity, no inferred SRO.
     qualifications: frozenset[str] = frozenset()
+    queries: tuple[str, ...] = QUERIES
+    exclude_keywords: tuple[str, ...] = ()
 
     def validate(self):
         if (not self.regions or set(self.regions) - set(REGIONS)
@@ -150,3 +152,7 @@ class Profile:
                     'construction_sro', 'design_sro', 'fire_license'}
                 or self.qualifications and not self.legal_entity):
             raise ValueError('explicit_executor_profile_required')
+        if (not self.queries or set(self.queries)-set(QUERIES)
+                or len(self.exclude_keywords)>20 or any(not isinstance(word,str)
+                    or not 2<=len(word)<=80 for word in self.exclude_keywords)):
+            raise ValueError('bounded_commercial_queries_required')

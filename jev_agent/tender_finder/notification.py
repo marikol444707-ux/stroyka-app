@@ -41,7 +41,10 @@ def build_send_args(report, scope, route):
         raise ValueError('notification_scope_mismatch')
     target=route.target()
     for limit in (1800,1000):
-        text=render_report(report,scope,max_chars=limit)
+        if report.get('schema_version')==3:
+            from .commercial.preview import render_preview
+            text=render_preview(report,scope,max_chars=limit)
+        else:text=render_report(report,scope,max_chars=limit)
         # Hermes auto-extracts MEDIA:<path> and [[as_document]] directives before
         # dispatch. Encode colon/brackets *after* escaping untrusted page text,
         # so it cannot attach a local file. Telegram decodes the HTML entities.

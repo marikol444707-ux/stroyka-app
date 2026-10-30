@@ -61,11 +61,12 @@ def _now(clock):
     return value
 
 
-def authorized_owner(raw,source,*,authorize_source,bindings):
+def authorized_owner(raw,source,*,authorize_source,bindings,request_validator=validate_v2_request):
     """Validate real gateway origin without requiring a signing key there."""
     policies=_policies(bindings)
     if type(raw) is not bytes or len(raw)>MAX_REQUEST_BYTES:raise ValueError('bounded_request_wire_required')
-    request=validate_v2_request(_decode(raw))
+    if not callable(request_validator):raise ValueError('protected_request_validator_required')
+    request=request_validator(_decode(raw))
     if isinstance(source,dict) or not callable(authorize_source) or authorize_source(source) is not True:
         raise ValueError('gateway_authorization_required')
     platform=getattr(source,'platform',None)
@@ -80,7 +81,7 @@ def authorized_owner(raw,source,*,authorize_source,bindings):
     return matches[0],request
 
 
-def issue_admission(raw,source,*,authorize_source,bindings,signing_key,clock):
+def issue_admission(raw,source,*,authorize_source,bindings,signing_key,clock,request_validator=validate_v2_request):
     """Only request raw is model-controlled; every other parameter is server-bound.
 
     Private Telegram DM only in this first binding: group/thread routing requires
@@ -88,7 +89,8 @@ def issue_admission(raw,source,*,authorize_source,bindings,signing_key,clock):
     remains mandatory even if the configured owner matches.
     """
     _key(signing_key)
-    binding,request=authorized_owner(raw,source,authorize_source=authorize_source,bindings=bindings)
+    binding,request=authorized_owner(raw,source,authorize_source=authorize_source,bindings=bindings,
+                                     request_validator=request_validator)
     user=getattr(source,'user_id',None);chat=getattr(source,'chat_id',None);profile=getattr(source,'profile',None)
     issued=_now(clock)
     body={'version':1,'request_id':request.request_id,'request_sha256':hashlib.sha256(raw).hexdigest(),

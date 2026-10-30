@@ -27,6 +27,7 @@ class PipelineConfig:
     private_directory: Path
     result_directory: Path
     result_gid: int
+    protocol: int = 2
 
 
 def _bind_private(config):
@@ -36,6 +37,7 @@ def _bind_private(config):
         expected={'format':1,'scope':config.scope.key(),
                   'result_directory':str(Path(config.result_directory).resolve(strict=True)),
                   'result_gid':config.result_gid}
+        if config.protocol!=2:expected['request_protocol']=config.protocol
         if NAMESPACE not in os.listdir(fd) and set(os.listdir(fd))-{NAMESPACE_LOCK}:
             raise StorageError('legacy_private_namespace_requires_review')
         try:
@@ -63,6 +65,8 @@ def prepare_pipeline(config):
     if type(config) is not PipelineConfig or type(config.scope) is not Scope:
         raise StorageError('protected_pipeline_config_required')
     config.scope.key()
+    if type(config.protocol) is not int or config.protocol not in (2,3):
+        raise StorageError('supported_pipeline_protocol_required')
     if type(config.result_gid) is not int or not 0<=config.result_gid<2**31:
         raise StorageError('protected_result_gid_required')
     with _channel(config.result_directory,config.scope,config.result_gid):
@@ -70,13 +74,18 @@ def prepare_pipeline(config):
 
 
 def run_request(payload, config, *, invoke, verify_runtime=verify_installed_runtime,
-                clock=lambda:datetime.now(timezone.utc)):
+                clock=lambda:datetime.now(timezone.utc),request_validator=validate_v2_request,
+                job_executor=process_request):
     """No second search when replaying after a result/event publication failure.
 
     config and callbacks must be protected worker bindings, not model JSON.
     v1 must remain with its reviewed existing handler until migration is agreed.
     """
-    request=validate_v2_request(payload)
+    if not callable(request_validator) or not callable(job_executor):
+        raise ValueError('protected_pipeline_bindings_required')
+    request=request_validator(payload)
+    if request.canonical_payload().get('version')!=config.protocol:
+        raise ValueError('pipeline_protocol_mismatch')
     prepare_pipeline(config)
     fingerprint=request.fingerprint(config.scope.company_id)
     # Validate public channel before any search, including a lost private receipt.
@@ -89,7 +98,7 @@ def run_request(payload, config, *, invoke, verify_runtime=verify_installed_runt
                 with ledger.claim(request.request_id,fingerprint,existing_only=True) as receipt:
                     if _json(receipt.result)!=existing:
                         raise RequestConflict('published_receipt_conflict')
-    job=process_request(payload,config.scope,config.private_directory,invoke=invoke,
+    job=job_executor(payload,config.scope,config.private_directory,invoke=invoke,
                         verify_runtime=verify_runtime,clock=clock)
     publication=publish_committed_result(config.private_directory,config.scope,config.result_directory,
                                          request.request_id,fingerprint,result_gid=config.result_gid)

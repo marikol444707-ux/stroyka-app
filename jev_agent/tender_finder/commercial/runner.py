@@ -26,7 +26,8 @@ class SourceResult:
 
 def _profile(profile):
     return {'regions': list(profile.regions), 'minimum_rub': str(profile.minimum_rub),
-            'legal_entity': profile.legal_entity, 'qualifications': sorted(profile.qualifications)}
+            'legal_entity': profile.legal_entity, 'qualifications': sorted(profile.qualifications),
+            'queries':list(profile.queries),'exclude_keywords':list(profile.exclude_keywords)}
 
 
 def run(request_id, scope, directory, *, adapters, sources=None, profile=Profile(),
