@@ -2,6 +2,7 @@
 import re
 
 from ..state import Scope
+from .sources import LIMITATION_LABELS
 
 
 def render_preview(report,scope,*,max_chars=1800):
@@ -18,6 +19,10 @@ def render_preview(report,scope,*,max_chars=1800):
     if report['baseline']:lines.append('Первый базовый сбор; находки не объявляются новыми.')
     inaccessible=[line(row['name'],60)+': '+line(row['status'],30) for row in coverage if row['status']!='checked']
     if inaccessible:lines.append('Ограничения: '+'; '.join(inaccessible[:4])+(' …' if len(inaccessible)>4 else ''))
+    limitations=sorted({item for row in coverage for item in row.get('limitations',())})
+    if limitations:
+        text='Проверка источников: '+'; '.join(LIMITATION_LABELS.get(item,'требует проверки') for item in limitations)
+        if len('\n'.join(lines))+len(text[:180])+250<max_chars:lines.append(text[:180])
     sections=report['sections'];shown=0
     total=sum(len(sections.get(key,[])) for key in ('priority','postpayment','adjacent','qualifications','unconfirmed'))
     suffix='\nПолные условия, доказательства и изменения — в сохранённом отчёте JEV.'

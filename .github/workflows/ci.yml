@@ -54,6 +54,8 @@ jobs:
           python -B -m unittest -v
           jev_agent.tender_finder.commercial.test_commercial
           jev_agent.tender_finder.commercial.test_bridge
+          jev_agent.tender_finder.commercial.test_b2b
+          jev_agent.tender_finder.commercial.test_b2b_browser
           jev_agent.tender_finder.test_contract
           jev_agent.tender_finder.test_reporting
           jev_agent.tender_finder.test_cli

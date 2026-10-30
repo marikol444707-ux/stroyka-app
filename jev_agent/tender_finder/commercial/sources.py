@@ -5,6 +5,14 @@ No guessed procurement URLs, login, registration or source text execution.
 """
 from dataclasses import dataclass
 
+LIMITATION_LABELS={
+    'first_pages_only':'просмотрены первые страницы выдачи',
+    'primary_parser_not_live_verified':'парсер ещё не проверен на живом сайте',
+    'documents_not_read':'документы с условиями не прочитаны',
+    'read_budget_exhausted':'достигнут лимит чтения',
+    'some_primary_cards_not_verified':'часть первичных карточек не удалось проверить',
+}
+
 
 @dataclass(frozen=True)
 class Source:

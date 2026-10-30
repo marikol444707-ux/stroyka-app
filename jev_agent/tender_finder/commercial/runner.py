@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 from .model import Candidate, Document, Profile, aware
 from .policy import assess
 from .registry import compare, deduplicate, digest, registry
-from .sources import source_registry
+from .sources import source_registry, LIMITATION_LABELS
 from ..state import RequestConflict
 
 
@@ -22,6 +22,8 @@ class SourceResult:
     candidates: tuple[Candidate, ...] = ()
     # Captures from a successfully read listing page prove an empty search.
     listings: tuple = ()
+    limitations: tuple[str, ...] = ()
+    primary_captures: tuple = ()
 
 
 def _profile(profile):
@@ -68,7 +70,7 @@ def run(request_id, scope, directory, *, adapters, sources=None, profile=Profile
               'baseline_established': bool(previous and previous.get('baseline_established'))})
         rows, coverage = [], []
         for key, source in sources.items():
-            status, cards, documents = 'not_connected', set(), set()
+            status, cards, documents, limitations = 'not_connected', set(), set(), ()
             adapter = adapters.get(key)
             if adapter is not None and source.hosts:
                 try:
@@ -77,8 +79,12 @@ def run(request_id, scope, directory, *, adapters, sources=None, profile=Profile
                     if not aware(completed) or completed < started: raise ValueError('invalid_run_clock')
                     if (type(output) is not SourceResult or output.status not in (
                             'checked', 'partial', 'unavailable', 'login_required', 'captcha', 'error')
-                            or len(output.candidates) > 100 or len(output.listings) > 50):
+                            or len(output.candidates) > 100 or len(output.listings) > 50
+                            or len(output.primary_captures)>100):
                         raise ValueError('bounded_source_result_required')
+                    if type(output.limitations) is not tuple or set(output.limitations)-set(LIMITATION_LABELS):
+                        raise ValueError('fixed_source_limitations_required')
+                    limitations=output.limitations
                     assessed = []
                     for candidate in output.candidates:
                         if candidate.source != key: raise ValueError('source_candidate_mismatch')
@@ -90,12 +96,19 @@ def run(request_id, scope, directory, *, adapters, sources=None, profile=Profile
                                 or listing.kind != 'card' or urlsplit(listing.url).hostname not in hosts[key]
                                 or not started <= listing.checked_at <= completed):
                             raise ValueError('fresh_listing_evidence_required')
+                    for capture in output.primary_captures:
+                        if (type(capture) is not Document or capture.kind!='card' or capture.source!=key
+                                or urlsplit(capture.url).hostname not in hosts[key]
+                                or not started<=capture.checked_at<=completed):
+                            raise ValueError('fresh_primary_capture_required')
                     captures = [doc for candidate in output.candidates for doc in candidate.documents
                                 if started <= doc.checked_at <= completed]
+                    captures.extend(output.primary_captures)
                     cards = {doc.url for doc in captures if doc.kind == 'card'}
                     documents = {(doc.url, doc.sha256) for doc in captures
                                  if doc.kind not in ('card', 'aggregator')}
                     status = output.status
+                    if status=='checked' and limitations:status='partial'
                     if status == 'checked' and not output.listings:
                         # Individual cards do not establish complete source coverage.
                         status = 'partial'
@@ -104,7 +117,8 @@ def run(request_id, scope, directory, *, adapters, sources=None, profile=Profile
                     # Source errors may contain tokens/URLs. Emit fixed codes only.
                     status, cards, documents = 'error', set(), set()
             coverage.append({'source': key, 'name': source.name, 'status': status,
-                             'primary_cards': len(cards), 'documents': len(documents)})
+                             'primary_cards': len(cards), 'documents': len(documents),
+                             'limitations':list(limitations)})
         # Unconfirmed rediscovery cannot erase last verified values. It remains
         # visible in this report while history keeps the last primary observation.
         rows = deduplicate(rows)
@@ -180,4 +194,5 @@ def render(report):
     for source in report['coverage']:
         lines.append(f"{source['name']}: {source['status']}; "
                      f"карточек {source['primary_cards']}, документов {source['documents']}")
+        lines.extend('Ограничение: '+LIMITATION_LABELS[item] for item in source.get('limitations',()))
     return '\n'.join(lines)
