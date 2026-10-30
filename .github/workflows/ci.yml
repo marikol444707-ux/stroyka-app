@@ -92,6 +92,8 @@ jobs:
 
       - name: Verify JEV container preservation on isolated Docker
         run: python -B -m scripts.verify_jev_docker_preservation
+      - name: Verify native JEV systemd socket credentials
+        run: sudo python3 -B -m scripts.verify_jev_systemd_credentials
       - name: Run backend tests
         shell: bash
         env:
