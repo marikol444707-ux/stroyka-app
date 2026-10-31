@@ -100,7 +100,7 @@ class JobCandidateRouteTests(unittest.TestCase):
 
         self.assertEqual(response, {"ok": True, "id": 41, "inserted": False, "status": "Подходит"})
         sql, params = cursor.calls[0]
-        self.assertIn("ON CONFLICT DO UPDATE", sql)
+        self.assertIn("ON CONFLICT (company_id, source, identity_key) DO UPDATE", sql)
         self.assertEqual(params[0], 8)
         self.assertEqual(sql.count("%s"), len(params))
         self.assertEqual(conn.commits, 1)

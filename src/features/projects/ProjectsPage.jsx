@@ -338,7 +338,11 @@ export default function ProjectsPage({ ctx }) {
                         onOpenStages={()=>setActiveProjectTab('Этапы')}
                         onAction={({ item, action }) => {
                           const targetTab = directorMapActionTarget({ item, action });
+                          if (targetTab === 'Входной контроль') {
+                            setJournalDiagnosticMode('pending');
+                          }
                           if (targetTab) setActiveProjectTab(targetTab);
+                          window.scrollTo?.({top:0, behavior:'auto'});
                         }}
                       />
                     )}

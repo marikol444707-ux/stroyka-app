@@ -179,6 +179,7 @@ def register_project_payments_module(app, deps):
         _current_user: dict = Depends(get_current_user),
     ):
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             project_name = str(data.get("projectName") or data.get("project_name") or "").strip()
@@ -198,6 +199,10 @@ def register_project_payments_module(app, deps):
                 x_company_mode=x_company_mode,
             )
             if note:
+                # Keep the existing duplicate identity, but serialize its check and insert.
+                # The lock is transaction-scoped and cannot outlive commit/rollback.
+                cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                            (f"project-payments:{company_id}",))
                 cur.execute("""SELECT id FROM project_payments
                                WHERE company_id=%s AND project_name=%s
                                  AND COALESCE(work_package,'')=%s AND amount=%s

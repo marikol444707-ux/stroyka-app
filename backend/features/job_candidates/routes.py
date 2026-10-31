@@ -33,7 +33,7 @@ def _save_candidates(cur, *, company_id, candidates, created_by):
                 company_id, source, source_name, source_item_id, identity_key, url, title, description,
                 published_at, region, work_types, price, deadline, evidence, status, created_by
             ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            ON CONFLICT DO UPDATE SET
+            ON CONFLICT (company_id, source, identity_key) DO UPDATE SET
                 source_item_id=COALESCE(crm_job_candidates.source_item_id, EXCLUDED.source_item_id),
                 source_name=EXCLUDED.source_name, title=EXCLUDED.title, description=EXCLUDED.description,
                 published_at=COALESCE(EXCLUDED.published_at, crm_job_candidates.published_at),
@@ -150,6 +150,7 @@ def register_job_candidates_module(app, deps):
         current_user: dict = Depends(get_current_user),
     ):
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             company_id = selected_company(cur, current_user, "read", x_company_id, x_company_mode)
@@ -171,6 +172,7 @@ def register_job_candidates_module(app, deps):
         current_user: dict = Depends(get_current_user),
     ):
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             company_id = selected_company(cur, current_user, "read", x_company_id, x_company_mode)
@@ -209,6 +211,7 @@ def register_job_candidates_module(app, deps):
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             company_id = selected_company(cur, current_user, "write", x_company_id, x_company_mode)
@@ -218,7 +221,7 @@ def register_job_candidates_module(app, deps):
                     company_id, source, source_name, source_item_id, identity_key, url, title, description,
                     published_at, region, work_types, price, deadline, evidence, status, created_by
                 ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                ON CONFLICT DO UPDATE SET
+                ON CONFLICT (company_id, source, identity_key) DO UPDATE SET
                     source_item_id=COALESCE(crm_job_candidates.source_item_id, EXCLUDED.source_item_id),
                     title=EXCLUDED.title, description=EXCLUDED.description,
                     published_at=COALESCE(EXCLUDED.published_at, crm_job_candidates.published_at),
@@ -262,6 +265,7 @@ def register_job_candidates_module(app, deps):
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         created = 0
         updated = 0
@@ -288,6 +292,7 @@ def register_job_candidates_module(app, deps):
     def list_jev_search_targets(x_jev_ingest_key: str = Header(default="", alias="X-JEV-Ingest-Key")):
         require_jev_ingest_key(x_jev_ingest_key)
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             cur.execute("""
@@ -351,6 +356,7 @@ def register_job_candidates_module(app, deps):
         except (TypeError, ValueError) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         created = 0
         updated = 0
@@ -420,6 +426,7 @@ def register_job_candidates_module(app, deps):
             raise HTTPException(status_code=422, detail="Выберите решение: подходит, не подходит или дубль")
         note = str(data.get("reviewNote") or "").strip()[:2000]
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor()
         try:
             company_id = selected_company(cur, current_user, "write", x_company_id, x_company_mode)

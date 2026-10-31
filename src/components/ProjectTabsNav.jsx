@@ -44,14 +44,16 @@ function ProjectTabsNav({
     <div>
       <div style={{display:'grid',gridTemplateColumns:'repeat('+tabGroups.length+',1fr)',gap:'6px',marginBottom:'12px'}}>
         {tabGroups.map(group=>(
-          <div
+          <button
+            type="button"
+            aria-expanded={activeTabGroup===group.id}
             key={group.id}
             onClick={()=>{setActiveTabGroup(activeTabGroup===group.id?null:group.id);if(group.tabs.length>0)setActiveProjectTab(group.tabs[0]);}}
             style={{padding:'12px 4px',borderRadius:'12px',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:'4px',backgroundColor:activeGroup&&activeGroup.id===group.id?C.accentLight:C.bgWhite,border:'1.5px solid '+(activeGroup&&activeGroup.id===group.id?C.accentBorder:C.border),transition:'all 0.15s',minHeight:'72px'}}
           >
             <div style={{fontSize:'22px',lineHeight:1,display:'flex',alignItems:'center',justifyContent:'center'}}>{group.icon}</div>
             <div style={{fontSize:'11px',fontWeight:activeGroup&&activeGroup.id===group.id?'700':'500',color:activeGroup&&activeGroup.id===group.id?C.accent:C.textSec,textAlign:'center',lineHeight:1.2}}>{group.label}</div>
-          </div>
+          </button>
         ))}
       </div>
       {activeGroup&&(

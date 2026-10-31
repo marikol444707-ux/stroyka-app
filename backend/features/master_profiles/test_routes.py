@@ -1,3 +1,4 @@
+from backend.features.legacy_project_records.testing import fixture_scope
 import unittest
 
 from fastapi import HTTPException
@@ -57,6 +58,8 @@ def build(cursor, projects=("Объект",)):
     app = FakeApp()
     connection = FakeConnection(cursor)
     register_master_profiles_module(app, {
+        "record_scope": fixture_scope(cursor, connection),
+        "get_current_user": lambda: {},
         "get_db": lambda: connection,
         "get_current_user": lambda: {},
         "finance_roles": ("директор", "бухгалтер"),
@@ -90,7 +93,7 @@ class MasterProfilesRoutesTest(unittest.TestCase):
             self.assertNotIn(hidden, rows[0])
 
     def test_finance_list_keeps_all_fields(self):
-        app, _conn = build(FakeCursor(rows=[dict(PROFILE)]))
+        app, _conn = build(FakeCursor(rows=[dict(PROFILE)], row={"id":42}))
         rows = app.routes[("GET", "/master-profiles")](current_user={"id": 1, "role": "директор"})
         self.assertEqual(rows[0]["passport"], "1234")
 

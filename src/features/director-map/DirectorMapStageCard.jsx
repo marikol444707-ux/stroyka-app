@@ -79,7 +79,7 @@ export default function DirectorMapStageCard({ item, onAction }) {
             Проверить связь
           </ActionButton>
           <ActionButton icon={Link2} disabled={disabled} onClick={() => handleAction('create_task')}>
-            Создать задачу
+            Открыть задачи
           </ActionButton>
         </div>
       </div>

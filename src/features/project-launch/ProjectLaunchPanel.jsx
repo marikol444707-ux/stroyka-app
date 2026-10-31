@@ -239,7 +239,7 @@ function ProjectLaunchPanel({
           <ShieldCheck size={18} color={activeDrafts.length ? C.accent : C.textMuted}/>
           <p style={{margin:'8px 0 3px',color:C.textSec,fontSize:'11px'}}>AI-черновики</p>
           <b style={{color:C.text,fontSize:'18px'}}>{activeDrafts.length}</b>
-          <p style={{margin:'8px 0 0',color:C.textMuted,fontSize:'11px',lineHeight:1.35}}>Черновики не меняют рабочие данные до подтверждения.</p>
+          <p style={{margin:'8px 0 0',color:C.textMuted,fontSize:'11px',lineHeight:1.35}}>Доступны проверка готовности, создание и отклонение черновиков. Применение черновика в этом интерфейсе пока недоступно; рабочие данные не меняются.</p>
         </div>
       </div>
 

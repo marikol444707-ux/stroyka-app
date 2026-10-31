@@ -564,3 +564,27 @@ test('supplier initial load populates its linked card and catalog', async () => 
   expect(setSuppliers).toHaveBeenCalledWith([card]);
   expect(setSupplierCatalog).toHaveBeenCalledWith([item]);
 });
+
+test('cold project load fetches material and warehouse sources without a warehouse visit', async () => {
+  const rows = [{id: 101}];
+  global.fetch = jest.fn(async () => ({ok: true, headers: snapshotHeaders, json: async () => rows}));
+  const setInvoices = jest.fn(), setWarehouseMovements = jest.fn(), setMaterials = jest.fn();
+  const {result} = renderHook(() => useJournalHarness(company(2), {
+    activePage: 'projects', setInvoices, setWarehouseMovements, setMaterials,
+  }));
+  await act(async () => {await result.current.refreshData('projects');});
+  for (const path of ['/materials', '/warehouse-invoices', '/warehouse-main', '/warehouse-movements', '/warehouse-history']) {
+    expect(fetch.mock.calls.some(([url]) => url === '/api' + path)).toBe(true);
+  }
+  expect(setInvoices).toHaveBeenLastCalledWith(rows);
+  expect(setWarehouseMovements).toHaveBeenLastCalledWith(rows);
+  expect(setMaterials).toHaveBeenLastCalledWith(rows);
+});
+
+test('failed warehouse source is incomplete rather than a confirmed zero project balance', async () => {
+  global.fetch = jest.fn(async url => ({ok: !url.endsWith('/warehouse-invoices'), status: 500, headers: snapshotHeaders, json: async () => []}));
+  const setProjectMaterialSourcesState = jest.fn();
+  const {result} = renderHook(() => useJournalHarness(company(2), {activePage: 'projects', setProjectMaterialSourcesState}));
+  await act(async () => {await result.current.refreshData('projects');});
+  expect(setProjectMaterialSourcesState).toHaveBeenLastCalledWith(expect.objectContaining({status: 'error'}));
+});

@@ -456,6 +456,7 @@ class CrmRouteOwnershipTests(unittest.TestCase):
         self.assertEqual(resource_calls[0][:2], (4, "update"))
         self.assertEqual(response["staff"]["id"], 81)
         self.assertEqual(connection.commits, 1)
+        self.assertFalse(connection.autocommit)
 
     def test_worker_approval_rejects_project_outside_lead_company(self):
         cursor = FakeCursor(fetchone_values=[lead_row()], fetchall_values=[[]])
@@ -493,6 +494,7 @@ class CrmRouteOwnershipTests(unittest.TestCase):
         self.assertEqual(resource_calls[0][:2], (4, "update"))
         self.assertEqual(response["invite"]["company_id"], 4)
         self.assertEqual(connection.commits, 1)
+        self.assertFalse(connection.autocommit)
 
     def test_invite_rejects_project_outside_lead_company(self):
         cursor = FakeCursor(
@@ -559,6 +561,7 @@ class CrmRouteOwnershipTests(unittest.TestCase):
         self.assertEqual(resource_calls[0][:2], (4, "update"))
         self.assertEqual(response["created"], [101])
         self.assertEqual(connection.commits, 1)
+        self.assertFalse(connection.autocommit)
 
     def test_document_transfer_rejects_document_outside_exact_lead_owner(self):
         cursor = FakeCursor(

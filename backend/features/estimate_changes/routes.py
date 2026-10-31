@@ -844,6 +844,7 @@ def register_estimate_changes_module(app, deps):
         payload = data or {}
         selected_ids = _change_ids(payload)
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             actor, estimate, project = estimate_mutation_scope(
@@ -1075,6 +1076,7 @@ def register_estimate_changes_module(app, deps):
         payload = data or {}
         selected_ids = _change_ids(payload)
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             actor, estimate, project = estimate_mutation_scope(

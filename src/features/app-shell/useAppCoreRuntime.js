@@ -226,6 +226,7 @@ export function useAppCoreRuntime({
   } = useAppDataLoaders({
     companyContext,
     setQualityJournalLoadState: appMainState.setQualityJournalLoadState,
+    setProjectMaterialSourcesState: appMainState.setProjectMaterialSourcesState,
     setCustomerRecordsLoadState: appMainState.setCustomerRecordsLoadState,
     customerProjects: appMainState.projects,
     activePage,
@@ -504,8 +505,9 @@ export function useAppCoreRuntime({
   } = useAppNavigationRuntime({
     ROLES,
     data: { clients: appMainState.clients, materials, projects, tools },
-    state: { globalSearch, isMobile, masterProjectId, user: currentUser },
+    state: { globalSearch, isMobile, masterProjectId, user: currentUser, activePage, expandedProject: appMainState.expandedProject, activeProjectTab: appMainState.activeProjectTab },
     actions: {
+      setActiveProjectTab: appMainState.setActiveProjectTab,
       loadPricelistItems,
       setActivePage,
       setEditingItem,

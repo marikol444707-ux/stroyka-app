@@ -47,7 +47,7 @@ const RELATED_REFRESH_PAGES = {
 export const useAppDataLoaders = (ctx) => {
   const reloadCustomerRecords = useCustomerRecordsLoader(ctx);
   const {
-    companyContext = {}, setQualityJournalLoadState,
+    companyContext = {}, setQualityJournalLoadState, setProjectMaterialSourcesState,
     activePage, API, AUDIT_LOG_PAGE_LIMIT, buildPagedPath, canAccessRole, createMaterialNormsPageState,
     createMaterialsPageState, createWorkJournalPageState, estimatesTab, initialDataLoaded, MATERIAL_NORMS_PAGE_LIMIT, materialNormSearch,
     MATERIALS_PAGE_LIMIT, mergeRowsByIdValue, mobileApiRequestsRef, mobileLoadedScopesRef, mobileScopeForPage, normalizeEstimateList, roleFlagsForUser,
@@ -190,7 +190,9 @@ export const useAppDataLoaders = (ctx) => {
   };
 
   const getApi = (path, fallback = []) => {
-    if (mobileApiRequestsRef.current.has(path)) return mobileApiRequestsRef.current.get(path);
+    // Never reuse an in-flight response started for a different company/membership.
+    const requestKey = JSON.stringify([journalScope, path]);
+    if (mobileApiRequestsRef.current.has(requestKey)) return mobileApiRequestsRef.current.get(requestKey);
     const request = fetch(API + path)
       .then(r => {
         if (r.ok) return r.json();
@@ -198,8 +200,8 @@ export const useAppDataLoaders = (ctx) => {
         return fallback;
       })
       .catch(() => fallback)
-      .finally(() => mobileApiRequestsRef.current.delete(path));
-    mobileApiRequestsRef.current.set(path, request);
+      .finally(() => mobileApiRequestsRef.current.delete(requestKey));
+    mobileApiRequestsRef.current.set(requestKey, request);
     return request;
   };
   const apiAuthHeaders = (headers={}) => {
@@ -505,8 +507,12 @@ export const useAppDataLoaders = (ctx) => {
     });
     if (['projects','site','works','documents','cable'].includes(page)) return loadMobileScopeOnce('mobile:projects-docs', async () => {
       if (canSeeProjectDocs) markEstimatesLoading(true);
+      const materialScopeKey = journalScope;
+      setProjectMaterialSourcesState?.({scopeKey: materialScopeKey, status: 'loading'});
       const loadWorkMaterials = isWorkerRole && workMaterialAccountingEnabled();
-      const [p,wj,mt,ro,rw,rwin,rdoor,ps,pcl,pres,uw,est,er,bc,abi,hwa,mij,cbj,sva,inspO,warD,pdocs,plet,pmeas,mdrafts,s,u,ct,ia,pw,mp,m,mn,mno,h,tb] = await Promise.all([
+      const loadProjectStock = isWarehouseRole || isFinanceRole;
+      const loadProjectMaterials = loadWorkMaterials || loadProjectStock;
+      const [p,wj,mt,ro,rw,rwin,rdoor,ps,pcl,pres,uw,est,er,bc,abi,hwa,mij,cbj,sva,inspO,warD,pdocs,plet,pmeas,mdrafts,s,u,ct,ia,pw,mp,m,mn,mno,h,tb,inv,wm,mov] = await Promise.all([
         role === 'поставщик' ? Promise.resolve([]) : getApi('/projects'),
         role === 'поставщик' ? Promise.resolve([]) : getApi(pagedPath('/work-journal', {limit: WORK_JOURNAL_PAGE_LIMIT})),
         (isWarehouseRole || ['мастер','субподрядчик','бригадир'].includes(role)) ? getApi('/material-transfers') : Promise.resolve([]),
@@ -538,12 +544,20 @@ export const useAppDataLoaders = (ctx) => {
         canLoadAccountingData ? getApi('/interim-acts') : Promise.resolve([]),
         canLoadPeopleData ? getApi('/piecework') : Promise.resolve([]),
         canLoadPeopleData ? getApi('/master-profiles') : Promise.resolve([]),
-        loadWorkMaterials ? getApi(pagedPath('/materials', {limit: MATERIALS_PAGE_LIMIT})) : Promise.resolve([]),
+        loadProjectMaterials ? getApi(pagedPath('/materials', {limit: MATERIALS_PAGE_LIMIT}), null) : Promise.resolve([]),
         loadWorkMaterials ? getApi(pagedPath('/material-norms', {limit: MATERIAL_NORMS_PAGE_LIMIT})) : Promise.resolve([]),
         loadWorkMaterials ? getApi('/material-norms/overrides') : Promise.resolve([]),
-        loadWorkMaterials ? getApi('/warehouse-history') : Promise.resolve([]),
+        loadProjectMaterials ? getApi('/warehouse-history', null) : Promise.resolve([]),
         isInternalRole ? getApi('/tb-journal') : Promise.resolve([]),
+        loadProjectStock ? getApi('/warehouse-invoices', null) : Promise.resolve([]),
+        loadProjectStock ? getApi('/warehouse-main', null) : Promise.resolve([]),
+        loadProjectStock ? getApi('/warehouse-movements', null) : Promise.resolve([]),
       ]);
+      if (materialScopeKey !== currentJournalScope.current) return;
+      const materialSourcesReady = (!loadProjectMaterials || [m,h].every(Array.isArray)) &&
+        (!loadProjectStock || [inv,wm,mov].every(Array.isArray));
+      setProjectMaterialSourcesState?.({scopeKey: materialScopeKey, status: materialSourcesReady ? 'ready' : 'error'});
+      if (!materialSourcesReady) mobileLoadedScopesRef.current.delete('mobile:projects-docs');
       const safeWorkJournal = Array.isArray(wj) ? wj : [];
       setProjects(Array.isArray(p)?p:[]);
       setWorkJournal(safeWorkJournal);
@@ -571,8 +585,16 @@ export const useAppDataLoaders = (ctx) => {
       setInterimActs(Array.isArray(ia)?ia:[]);
       setPiecework(Array.isArray(pw)?pw:[]);
       setMasterProfiles(Array.isArray(mp)?mp:[]);
-      if (loadWorkMaterials) {
+      if (loadProjectStock) {
+        setInvoices(Array.isArray(inv)?inv:[]);
+        setWarehouseMain(Array.isArray(wm)?wm:[]);
+        setWarehouseMovements(Array.isArray(mov)?mov:[]);
+      }
+      if (loadProjectMaterials) {
         setMaterials(Array.isArray(m)?m:[]); resetMaterialsPage(m);
+        setHistory(Array.isArray(h)?h:[]);
+      }
+      if (loadWorkMaterials) {
         setMaterialNorms(Array.isArray(mn)?mn:[]); resetMaterialNormsPage(mn);
         setMaterialNormOverrides(Array.isArray(mno)?mno:[]);
         setHistory(Array.isArray(h)?h:[]);

@@ -393,6 +393,8 @@ export function buildAppActionGroups({
   }
 
   const projectCrudActions = createProjectCrudActions({
+    projectSaveRef: appMainState.projectSaveRef,
+    projectCreateCommandRef: appMainState.projectCreateCommandRef,
     API,
     brigadeContracts,
     editingItem,

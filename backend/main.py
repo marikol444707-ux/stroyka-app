@@ -4061,22 +4061,12 @@ def init_db():
         ALTER TABLE users ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
         ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
         ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
-        ALTER TABLE estimates ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
         ALTER TABLE materials ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
-        ALTER TABLE warehouse_main ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
-        ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
         ALTER TABLE staff ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
         ALTER TABLE staff ADD COLUMN IF NOT EXISTS telegram_id VARCHAR(100);
         ALTER TABLE staff ADD COLUMN IF NOT EXISTS telegram_chat_id VARCHAR(100);
-        ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
-        ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS scan_url TEXT;
-        ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS work_package VARCHAR(100) DEFAULT '';
-        ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS work_journal_ids TEXT DEFAULT '[]';
-        ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS source_type VARCHAR(100) DEFAULT '';
-        ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS photo_urls TEXT DEFAULT '[]';
         ALTER TABLE projects ADD COLUMN IF NOT EXISTS archived BOOLEAN DEFAULT FALSE;
         ALTER TABLE projects ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP;
-        ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
         -- Рабочие роли пользователя в нескольких компаниях одного SaaS-аккаунта.
         -- users.company_id остается default/legacy-привязкой до полной миграции рабочих цепочек.
         CREATE TABLE IF NOT EXISTS user_company_roles (
@@ -4629,6 +4619,7 @@ def init_db():
             is_template BOOLEAN DEFAULT FALSE,
             created_at TIMESTAMP DEFAULT NOW()
         );
+        ALTER TABLE estimates ADD COLUMN IF NOT EXISTS company_id INT;
         CREATE TABLE IF NOT EXISTS project_payments (
             id SERIAL PRIMARY KEY,
             company_id INT,
@@ -5043,6 +5034,7 @@ def init_db():
             confirmed_by VARCHAR(255),
             confirmed_at VARCHAR(50)
         );
+        ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS company_id INT;
         CREATE TABLE IF NOT EXISTS master_profiles (
             id SERIAL PRIMARY KEY,
             user_id INT UNIQUE,
@@ -5091,6 +5083,12 @@ def init_db():
             source_type VARCHAR(100) DEFAULT '',
             photo_urls TEXT DEFAULT '[]'
         );
+        ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS company_id INT;
+        ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS scan_url TEXT;
+        ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS work_package VARCHAR(100) DEFAULT '';
+        ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS work_journal_ids TEXT DEFAULT '[]';
+        ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS source_type VARCHAR(100) DEFAULT '';
+        ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS photo_urls TEXT DEFAULT '[]';
         CREATE TABLE IF NOT EXISTS timesheet (
             id SERIAL PRIMARY KEY,
             staff_id INT,
@@ -5098,6 +5096,8 @@ def init_db():
         );
         CREATE TABLE IF NOT EXISTS rooms (
             id SERIAL PRIMARY KEY,
+            company_id INT,
+            project_id INT,
             project VARCHAR(255),
             name VARCHAR(255),
             floor INT DEFAULT 1,
@@ -5176,6 +5176,7 @@ def init_db():
             min_quantity FLOAT DEFAULT 0,
             category VARCHAR(255)
         );
+        ALTER TABLE warehouse_main ADD COLUMN IF NOT EXISTS company_id INT;
         ALTER TABLE warehouse_main ALTER COLUMN name TYPE TEXT;
         CREATE TABLE IF NOT EXISTS warehouse_movements (
             id SERIAL PRIMARY KEY,
@@ -5221,7 +5222,6 @@ def init_db():
         );
         ALTER TABLE work_journal ALTER COLUMN description TYPE TEXT;
         ALTER TABLE room_works ALTER COLUMN description TYPE TEXT;
-        ALTER TABLE hidden_works_acts ALTER COLUMN section_name TYPE TEXT;
         ALTER TABLE supplier_invoices ALTER COLUMN material_name TYPE TEXT;
         ALTER TABLE supply_requests ALTER COLUMN material_name TYPE TEXT;
         ALTER TABLE supply_deliveries ALTER COLUMN material_name TYPE TEXT;
@@ -5778,6 +5778,8 @@ def init_db():
             comments TEXT,
             created_at TIMESTAMP DEFAULT NOW()
         );
+        ALTER TABLE hidden_works_acts ALTER COLUMN section_name TYPE TEXT;
+        ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS company_id INT;
         ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS signed_customer_at DATE;
         ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS signed_supervisor_at DATE;
         ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS signed_contractor_at DATE;
@@ -13532,12 +13534,14 @@ def _raise_work_journal_duplicate(duplicate):
         detail="Эта работа уже заведена" + room_part + ". Запись ЖПР №" + str(row_id) + " (" + str(master_name or "исполнитель") + ")"
     )
 
-def _room_work_duplicate(cur, project, room_id=None, room_name="", estimate_item_key="", description="", work_package="", exclude_work_journal_id=None, family_journal_ids=None):
+def _room_work_duplicate(cur, project, room_id=None, room_name="", estimate_item_key="", description="", work_package="", exclude_work_journal_id=None, family_journal_ids=None, company_id=None):
     project = (project or "").strip()
     room_name = (room_name or "").strip()
     estimate_item_key = (estimate_item_key or "").strip()
     description = (description or "").strip()
     work_package = (work_package or "").strip()
+    if not company_id:
+        raise HTTPException(409,"Владелец работы не определён")
     if not project or (not room_id and not room_name) or (not estimate_item_key and not description):
         return None
 
@@ -13554,18 +13558,18 @@ def _room_work_duplicate(cur, project, room_id=None, room_name="", estimate_item
 
     if room_id:
         cur.execute(f"""SELECT id, master_name, status, room_name, work_package FROM room_works
-                        WHERE project=%s AND room_id=%s AND {target_sql}
+                        WHERE company_id=%s AND project=%s AND room_id=%s AND {target_sql}
                           AND COALESCE(status,'') NOT IN ('Отклонено','Аннулировано'){package_sql}{exclude_sql}
-                        LIMIT 1""", [project, room_id, target_value] + package_params + exclude_params)
+                        LIMIT 1""", [company_id, project, room_id, target_value] + package_params + exclude_params)
         duplicate = cur.fetchone()
         if duplicate:
             return duplicate
 
     if room_name:
         cur.execute(f"""SELECT id, master_name, status, room_name, work_package FROM room_works
-                        WHERE project=%s AND LOWER(TRIM(COALESCE(room_name,'')))=LOWER(TRIM(%s)) AND {target_sql}
+                        WHERE company_id=%s AND project=%s AND LOWER(TRIM(COALESCE(room_name,'')))=LOWER(TRIM(%s)) AND {target_sql}
                           AND COALESCE(status,'') NOT IN ('Отклонено','Аннулировано'){package_sql}{exclude_sql}
-                        LIMIT 1""", [project, room_name, target_value] + package_params + exclude_params)
+                        LIMIT 1""", [company_id, project, room_name, target_value] + package_params + exclude_params)
         duplicate = cur.fetchone()
         if duplicate:
             return duplicate
@@ -13587,6 +13591,12 @@ def _sync_room_work_from_journal(cur, work_row: dict, *, family_journal_ids=None
             cur.execute("DELETE FROM room_works WHERE work_journal_id=%s", (work_journal_id,))
         return
 
+    company_id=work_row.get('company_id')
+    if not company_id: raise HTTPException(409,'Владелец ЖПР не определён')
+    parent=resolve_project_parent(cur,{'companyId':company_id},project_name=project,for_update=True)
+    if room_id:
+        cur.execute('SELECT id FROM rooms WHERE id=%s AND company_id=%s AND project_id=%s FOR UPDATE',(room_id,company_id,parent['id']))
+        if not cur.fetchone(): raise HTTPException(404,'Помещение ЖПР не принадлежит объекту')
     duplicate = _room_work_duplicate(
         cur,
         project,
@@ -13597,6 +13607,7 @@ def _sync_room_work_from_journal(cur, work_row: dict, *, family_journal_ids=None
         work_package=work_package,
         exclude_work_journal_id=work_journal_id,
         family_journal_ids=family_journal_ids,
+        company_id=company_id,
     )
     if duplicate:
         _raise_work_journal_duplicate(duplicate)
@@ -13604,7 +13615,7 @@ def _sync_room_work_from_journal(cur, work_row: dict, *, family_journal_ids=None
     cur.execute("SELECT id FROM room_works WHERE work_journal_id=%s", (work_journal_id,))
     existing = cur.fetchone()
     payload = (
-        room_id,
+        company_id, parent["id"], room_id,
         project,
         room_name,
         work_row.get("master_id"),
@@ -13625,15 +13636,15 @@ def _sync_room_work_from_journal(cur, work_row: dict, *, family_journal_ids=None
     )
     if existing:
         cur.execute("""UPDATE room_works
-                       SET room_id=%s, project=%s, room_name=%s, master_id=%s, master_name=%s,
+                       SET company_id=%s, project_id=%s, room_id=%s, project=%s, room_name=%s, master_id=%s, master_name=%s,
                            description=%s, surface=%s, unit=%s, quantity=%s, price_per_unit=%s,
                            total=%s, date=%s, status=%s, photo_url=%s, confirmed_by=%s,
                            work_journal_id=%s, work_package=%s, estimate_item_key=%s
                        WHERE work_journal_id=%s""", payload + (work_journal_id,))
     else:
         cur.execute("""INSERT INTO room_works
-                       (room_id,project,room_name,master_id,master_name,description,surface,unit,quantity,price_per_unit,total,date,status,photo_url,confirmed_by,work_journal_id,work_package,estimate_item_key)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", payload)
+                       (company_id,project_id,room_id,project,room_name,master_id,master_name,description,surface,unit,quantity,price_per_unit,total,date,status,photo_url,confirmed_by,work_journal_id,work_package,estimate_item_key)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", payload)
 
 def _work_journal_sync_row(cur, work_journal_id: int):
     if not work_journal_id:
@@ -14472,6 +14483,7 @@ def delete_work_journal(
         _sync_daily_interim_act_group(
             cur,
             project=work.get("project") or "",
+            company_id=work.get("company_id"),
             master_id=work.get("master_id"),
             master_name=work.get("master_name") or "",
             work_package=work.get("work_package") or "Основная",
@@ -14744,7 +14756,27 @@ except ModuleNotFoundError:
     from features.contracts.routes import register_contracts_module
 
 
+try:
+    from backend.features.customer_cabinet.record_scope import RecordScope
+except ModuleNotFoundError:
+    from features.customer_cabinet.record_scope import RecordScope
+
+project_record_scope = RecordScope(
+    get_db, _resolve_work_company_context, effective_company_actors, visible_project_names,
+)
+
+try:
+    from backend.features.legacy_project_records.scope import owned_query as owned_project_query, require_record as require_owned_project_record
+    from backend.features.project_access.service import resolve_project_parent
+    from backend.features.legacy_project_records.user_scope import selected_actors
+except ModuleNotFoundError:
+    from features.legacy_project_records.scope import owned_query as owned_project_query, require_record as require_owned_project_record
+    from features.project_access.service import resolve_project_parent
+    from features.legacy_project_records.user_scope import selected_actors
+
 register_contracts_module(app, {
+    "record_scope": project_record_scope,
+    "get_current_user": get_current_user,
     "get_db": get_db,
     "require_roles": require_roles,
     "contract_roles": CONTRACT_ROLES,
@@ -14757,7 +14789,7 @@ register_contracts_module(app, {
 })
 
 
-def _confirmed_execution_total_for_act(cur, master_id, master_name, project, work_package, period_start, period_end):
+def _confirmed_execution_total_for_act(cur, master_id, master_name, project, work_package, period_start, period_end, *, company_id):
     def scalar(row, key="total"):
         if not row:
             return 0
@@ -14768,31 +14800,31 @@ def _confirmed_execution_total_for_act(cur, master_id, master_name, project, wor
     cur.execute(
         """SELECT COALESCE(SUM(COALESCE(execution_total,0)),0) AS total
            FROM work_journal
-           WHERE project=%s
+           WHERE company_id=%s AND project=%s
              AND COALESCE(NULLIF(work_package,''),'Основная')=%s
              AND status='Подтверждено'
              AND (room_id IS NOT NULL OR COALESCE(NULLIF(room_name,''),'') <> '')
              AND date BETWEEN %s AND %s
              AND ((%s::int IS NOT NULL AND master_id=%s) OR (%s::int IS NULL AND LOWER(TRIM(COALESCE(master_name,'')))=%s))""",
-        (project, package, period_start, period_end, master_id, master_id, master_id, name),
+        (company_id, project, package, period_start, period_end, master_id, master_id, master_id, name),
     )
     confirmed_total = float(scalar(cur.fetchone()) or 0)
     cur.execute(
         """SELECT COALESCE(SUM(COALESCE(total_amount,0)),0) AS total
            FROM interim_acts
-           WHERE project=%s
+           WHERE company_id=%s AND project=%s
              AND COALESCE(NULLIF(work_package,''),'Основная')=%s
              AND period_start=%s
              AND period_end=%s
              AND COALESCE(status,'') <> 'Аннулирован'
              AND COALESCE(source_type,'') <> %s
              AND ((%s::int IS NOT NULL AND master_id=%s) OR (%s::int IS NULL AND LOWER(TRIM(COALESCE(master_name,'')))=%s))""",
-        (project, package, period_start, period_end, DAILY_WORK_ACT_SOURCE_TYPE, master_id, master_id, master_id, name),
+        (company_id, project, package, period_start, period_end, DAILY_WORK_ACT_SOURCE_TYPE, master_id, master_id, master_id, name),
     )
     already_acted = float(scalar(cur.fetchone()) or 0)
     return max(0, confirmed_total - already_acted)
 
-def _sync_daily_interim_act_group(cur, *, project, master_id=None, master_name="", work_package="", work_date=""):
+def _sync_daily_interim_act_group(cur, *, project, company_id=None, master_id=None, master_name="", work_package="", work_date=""):
     project = (project or "").strip()
     work_date = str(work_date or "").strip()
     package = (work_package or "Основная").strip() or "Основная"
@@ -14804,19 +14836,22 @@ def _sync_daily_interim_act_group(cur, *, project, master_id=None, master_name="
     if not project or not work_date or (not master_id_value and not master_name_key):
         return None
 
+    if not company_id:
+        raise HTTPException(409, 'Для дневного акта не определён владелец ЖПР')
+    parent = resolve_project_parent(cur, {'companyId':company_id}, project_name=project, for_update=True)
     master_filter = "master_id=%s" if master_id_value else "LOWER(TRIM(COALESCE(master_name,'')))=%s"
     master_param = master_id_value if master_id_value else master_name_key
     cur.execute(
         f"""SELECT id, COALESCE(status,'Новый') AS status
             FROM interim_acts
-            WHERE project=%s
+            WHERE company_id=%s AND project=%s
               AND COALESCE(NULLIF(work_package,''),'Основная')=%s
               AND period_start=%s
               AND period_end=%s
               AND COALESCE(source_type,'')=%s
               AND {master_filter}
             ORDER BY id DESC LIMIT 1""",
-        (project, package, work_date, work_date, DAILY_WORK_ACT_SOURCE_TYPE, master_param),
+        (company_id, project, package, work_date, work_date, DAILY_WORK_ACT_SOURCE_TYPE, master_param),
     )
     daily_act = cur.fetchone()
     daily_act_id = _row_get(daily_act, "id", 0) if daily_act else None
@@ -14827,14 +14862,14 @@ def _sync_daily_interim_act_group(cur, *, project, master_id=None, master_name="
     cur.execute(
         f"""SELECT id, COALESCE(execution_total,0) AS execution_total, COALESCE(photo_url,'') AS photo_url
             FROM work_journal
-            WHERE project=%s
+            WHERE company_id=%s AND project=%s
               AND COALESCE(NULLIF(work_package,''),'Основная')=%s
               AND date=%s
               AND status='Подтверждено'
               AND (room_id IS NOT NULL OR COALESCE(NULLIF(room_name,''),'') <> '')
               AND {master_filter}
             ORDER BY id""",
-        (project, package, work_date, master_param),
+        (company_id, project, package, work_date, master_param),
     )
     rows = cur.fetchall() or []
     work_ids = []
@@ -14881,12 +14916,12 @@ def _sync_daily_interim_act_group(cur, *, project, master_id=None, master_name="
 
     cur.execute(
         """INSERT INTO interim_acts
-           (master_id, master_name, project, work_package, period_start, period_end,
+           (company_id, project_id, master_id, master_name, project, work_package, period_start, period_end,
             total_amount, paid_amount, status, work_journal_ids, source_type, photo_urls)
-           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
            RETURNING id""",
         (
-            master_id_value,
+            company_id, parent["id"], master_id_value,
             master_name or "",
             project,
             package,
@@ -14909,6 +14944,7 @@ def _sync_daily_interim_act_from_work_journal(cur, work_row: dict):
     return _sync_daily_interim_act_group(
         cur,
         project=work_row.get("project") or "",
+        company_id=work_row.get("company_id"),
         master_id=work_row.get("master_id"),
         master_name=work_row.get("master_name") or "",
         work_package=work_row.get("work_package") or "Основная",
@@ -14918,96 +14954,126 @@ def _sync_daily_interim_act_from_work_journal(cur, work_row: dict):
 
 
 
+def _room_work_actor(conn, user, request, roles, write=False):
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as context_cur:
+        actors=selected_actors(project_record_scope,context_cur,user,request,roles,write=write)
+    if len(actors)!=1: raise HTTPException(409,'Выберите одну компанию')
+    return actors[0]
+
 @app.get("/room-works")
-def get_room_works(current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
+def get_room_works(request: Request = None, current_user: dict = Depends(get_current_user)):
     conn = get_db()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    allowed_projects = visible_project_names(current_user)
-    role = current_user.get("role")
-    package_names = user_package_names(current_user) if role in PACKAGE_LIMIT_ROLES else []
-    if role in PACKAGE_LIMIT_ROLES and role != "прораб" and not package_names:
-        cur.close(); conn.close()
-        return []
-    select_sql = "SELECT id,room_id as \"roomId\",project,room_name as \"roomName\",master_id as \"masterId\",master_name as \"masterName\",description,surface,unit,quantity,price_per_unit as \"pricePerUnit\",total,date,status,photo_url as \"photoUrl\",confirmed_by as \"confirmedBy\",work_journal_id as \"workJournalId\",work_package as \"workPackage\",estimate_item_key as \"estimateItemKey\" FROM room_works"
-    conditions = []
-    params = []
-    if allowed_projects is not None:
-        if not allowed_projects:
+    try:
+        current_user=_room_work_actor(conn,current_user,request,PROJECT_DOCUMENT_ROLES)
+        allowed_projects = visible_project_names(current_user)
+        role = current_user.get("role")
+        package_names = user_package_names(current_user) if role in PACKAGE_LIMIT_ROLES else []
+        if role in PACKAGE_LIMIT_ROLES and role != "прораб" and not package_names:
             cur.close(); conn.close()
             return []
-        conditions.append("project = ANY(%s)")
-        params.append(allowed_projects)
-    if role in WORKER_EXECUTION_ROLES:
-        conditions.append("(COALESCE(master_id,0)=%s OR (COALESCE(master_id,0)=0 AND LOWER(TRIM(master_name))=LOWER(TRIM(%s))))")
-        params.extend([current_user.get("id"), current_user.get("name") or ""])
-    if role in PACKAGE_LIMIT_ROLES and package_names:
-        conditions.append("COALESCE(NULLIF(work_package,''),'Основная') = ANY(%s)")
-        params.append(package_names)
-    if conditions:
-        cur.execute(select_sql + " WHERE " + " AND ".join(conditions) + " ORDER BY id DESC", tuple(params))
-    else:
-        cur.execute(select_sql + " ORDER BY id DESC")
-    rows = cur.fetchall()
-    conn.close()
-    result = [dict(r) for r in rows]
-    if role in WORKER_EXECUTION_ROLES:
-        for row in result:
-            row["pricePerUnit"] = 0
-            row["total"] = 0
-    return result
+        select_sql = "SELECT id,room_id as \"roomId\",project,room_name as \"roomName\",master_id as \"masterId\",master_name as \"masterName\",description,surface,unit,quantity,price_per_unit as \"pricePerUnit\",total,date,status,photo_url as \"photoUrl\",confirmed_by as \"confirmedBy\",work_journal_id as \"workJournalId\",work_package as \"workPackage\",estimate_item_key as \"estimateItemKey\" FROM room_works"
+        owned_sql, owned_params=owned_project_query(project_record_scope,[current_user],PROJECT_DOCUMENT_ROLES,'room_works','r.id')
+        conditions = ['id IN ('+owned_sql+')']
+        params = list(owned_params)
+        if allowed_projects is not None:
+            if not allowed_projects:
+                cur.close(); conn.close()
+                return []
+            conditions.append("project = ANY(%s)")
+            params.append(allowed_projects)
+        if role in WORKER_EXECUTION_ROLES:
+            conditions.append("(COALESCE(master_id,0)=%s OR (COALESCE(master_id,0)=0 AND LOWER(TRIM(master_name))=LOWER(TRIM(%s))))")
+            params.extend([current_user.get("id"), current_user.get("name") or ""])
+        if role in PACKAGE_LIMIT_ROLES and package_names:
+            conditions.append("COALESCE(NULLIF(work_package,''),'Основная') = ANY(%s)")
+            params.append(package_names)
+        if conditions:
+            cur.execute(select_sql + " WHERE " + " AND ".join(conditions) + " ORDER BY id DESC", tuple(params))
+        else:
+            cur.execute(select_sql + " ORDER BY id DESC")
+        rows = cur.fetchall()
+        conn.close()
+        result = [dict(r) for r in rows]
+        if role in WORKER_EXECUTION_ROLES:
+            for row in result:
+                row["pricePerUnit"] = 0
+                row["total"] = 0
+        return result
+    finally:
+        if not conn.closed:
+            conn.rollback(); conn.close()
 
 @app.post("/room-works")
-def create_room_work(w: RoomWorkModel, _current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES))):
-    require_project_access(_current_user, w.project)
-    if _current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(_current_user, w.workPackage or "Основная"):
-        raise HTTPException(status_code=403, detail="Нет доступа к пакету работ")
-    if _current_user.get("role") in WORKER_EXECUTION_ROLES:
-        if not w.workJournalId:
-            raise HTTPException(status_code=403, detail="Работа по помещению создаётся только через ЖПР")
-        own_id = str(_current_user.get("id") or "")
-        own_name = (_current_user.get("name") or "").strip().lower()
-        if str(w.masterId or "") != own_id and (w.masterName or "").strip().lower() != own_name:
-            raise HTTPException(status_code=403, detail="Мастер может создавать только свои работы по помещениям")
+def create_room_work(w: RoomWorkModel, request: Request = None, _current_user: dict = Depends(get_current_user)):
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    if w.workJournalId:
-        work = require_work_journal_actor_access(cur, w.workJournalId, _current_user)
-        if (work.get("project") or "") != (w.project or ""):
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="ЖПР относится к другому объекту")
-    _raise_work_journal_duplicate(_room_work_duplicate(
-        cur,
-        w.project,
-        room_id=w.roomId,
-        room_name=w.roomName,
-        estimate_item_key=w.estimateItemKey,
-        description=w.description,
-        work_package=w.workPackage,
-        exclude_work_journal_id=w.workJournalId,
-    ))
-    cur.execute("""INSERT INTO room_works
-                   (room_id,project,room_name,master_id,master_name,description,surface,unit,quantity,price_per_unit,total,date,photo_url,work_journal_id,work_package,estimate_item_key)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
-                (w.roomId,w.project,w.roomName,w.masterId,w.masterName,w.description,w.surface,w.unit,w.quantity,w.pricePerUnit,w.total,w.date,w.photoUrl,w.workJournalId,w.workPackage,w.estimateItemKey))
-    row = cur.fetchone()
-    conn.close()
-    _run_project_ai_control_safely(w.project, "room_work:create")
-    return dict(row)
+    try:
+        _current_user=_room_work_actor(conn,_current_user,request,JOURNAL_WRITE_ROLES,write=True)
+        parent=project_record_scope.parent(cur,_current_user,{'projectName':w.project},JOURNAL_WRITE_ROLES)
+        if w.roomId:
+            cur.execute('SELECT id FROM rooms WHERE id=%s AND company_id=%s AND project_id=%s FOR UPDATE',(w.roomId,parent['companyId'],parent['id']))
+            if not cur.fetchone(): raise HTTPException(404,'Помещение не найдено в объекте')
+        if _current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(_current_user, w.workPackage or "Основная"):
+            raise HTTPException(status_code=403, detail="Нет доступа к пакету работ")
+        if _current_user.get("role") in WORKER_EXECUTION_ROLES:
+            if not w.workJournalId:
+                raise HTTPException(status_code=403, detail="Работа по помещению создаётся только через ЖПР")
+            own_id = str(_current_user.get("id") or "")
+            own_name = (_current_user.get("name") or "").strip().lower()
+            if str(w.masterId or "") != own_id:
+                raise HTTPException(status_code=403, detail="Мастер может создавать только свои работы по помещениям")
+        if w.workJournalId:
+            work = require_work_journal_actor_access(cur, w.workJournalId, _current_user)
+            if (work.get("project") or "") != (w.project or ""):
+                cur.close(); conn.close()
+                raise HTTPException(status_code=400, detail="ЖПР относится к другому объекту")
+        _raise_work_journal_duplicate(_room_work_duplicate(
+            cur,
+            w.project,
+            room_id=w.roomId,
+            room_name=w.roomName,
+            estimate_item_key=w.estimateItemKey,
+            description=w.description,
+            work_package=w.workPackage,
+            exclude_work_journal_id=w.workJournalId,
+            company_id=parent["companyId"],
+        ))
+        cur.execute("""INSERT INTO room_works
+                       (company_id,project_id,room_id,project,room_name,master_id,master_name,description,surface,unit,quantity,price_per_unit,total,date,photo_url,work_journal_id,work_package,estimate_item_key)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
+                    (parent["companyId"],parent["id"],w.roomId,parent["name"],w.roomName,w.masterId,w.masterName,w.description,w.surface,w.unit,w.quantity,w.pricePerUnit,w.total,w.date,w.photoUrl,w.workJournalId,w.workPackage,w.estimateItemKey))
+        row = cur.fetchone()
+        conn.commit()
+        conn.close()
+        _run_project_ai_control_safely(w.project, "room_work:create")
+        return dict(row)
+    finally:
+        if not conn.closed:
+            conn.rollback(); conn.close()
 
 @app.put("/room-works/{id}")
-def update_room_work(id: int, data: dict, _current_user: dict = Depends(require_roles(*PROJECT_WRITE_ROLES, "технадзор", "стройконтроль"))):
+def update_room_work(id: int, data: dict, request: Request = None, _current_user: dict = Depends(get_current_user)):
     conn = get_db()
+    conn.autocommit=False
     cur = conn.cursor()
-    require_row_project_access(cur, "room_works", id, _current_user, "project")
-    cur.execute("SELECT project FROM room_works WHERE id=%s", (id,))
-    project_row = cur.fetchone()
-    project_name = project_row[0] if project_row else ""
-    if 'status' in data:
-        cur.execute("UPDATE room_works SET status=%s,confirmed_by=%s WHERE id=%s",
-                    (data['status'],data.get('confirmedBy',''),id))
-    conn.close()
-    _run_project_ai_control_safely(project_name, "room_work:update")
-    return {"ok": True}
+    try:
+        _current_user=_room_work_actor(conn,_current_user,request,(*PROJECT_WRITE_ROLES,'технадзор','стройконтроль'),write=True)
+        require_owned_project_record(cur,project_record_scope,[_current_user],(*PROJECT_WRITE_ROLES,'технадзор','стройконтроль'),'room_works',id)
+        cur.execute("SELECT project FROM room_works WHERE id=%s", (id,))
+        project_row = cur.fetchone()
+        project_name = project_row[0] if project_row else ""
+        if 'status' in data:
+            cur.execute("UPDATE room_works SET status=%s,confirmed_by=%s WHERE id=%s",
+                        (data['status'],data.get('confirmedBy',''),id))
+        conn.commit()
+        conn.close()
+        _run_project_ai_control_safely(project_name, "room_work:update")
+        return {"ok": True}
+    finally:
+        if not conn.closed:
+            conn.rollback(); conn.close()
 
 AI_FINDING_SELECT = """
 SELECT id,
@@ -16369,6 +16435,7 @@ except ModuleNotFoundError:
 
 
 register_pd_consents_module(app, {
+    "record_scope": project_record_scope,
     "get_db": get_db,
     "get_current_user": get_current_user,
     "require_roles": require_roles,
@@ -16691,10 +16758,6 @@ register_company_documents_module(app, {
     "finance_roles": FINANCE_ROLES,
 })
 
-try:
-    from backend.features.customer_cabinet.record_scope import RecordScope
-except ModuleNotFoundError:
-    from features.customer_cabinet.record_scope import RecordScope
 
 try:
     from backend.features.counterparty_documents.routes import register_counterparty_document_archive
@@ -16709,9 +16772,6 @@ register_counterparty_document_archive(app, {
     "project_full_view_roles": BRIGADE_FULL_VIEW_ROLES,
 })
 
-project_record_scope = RecordScope(
-    get_db, _resolve_work_company_context, effective_company_actors, visible_project_names,
-)
 
 try:
     from backend.features.customer_cabinet.extra_works import register_customer_extra_works
@@ -16754,6 +16814,8 @@ except ModuleNotFoundError:
 
 
 register_project_checklists_module(app, {
+    "record_scope": project_record_scope,
+    "get_current_user": get_current_user,
     "get_db": get_db,
     "require_roles": require_roles,
     "read_roles": PROJECT_DOCUMENT_ROLES,
@@ -16770,6 +16832,8 @@ except ModuleNotFoundError:
 
 
 register_checklist_items_module(app, {
+    "record_scope": project_record_scope,
+    "get_current_user": get_current_user,
     "get_db": get_db,
     "require_roles": require_roles,
     "project_document_roles": PROJECT_DOCUMENT_ROLES,
@@ -16803,6 +16867,9 @@ except ModuleNotFoundError:
 
 
 register_project_chat_module(app, {
+    "project_document_roles": PROJECT_DOCUMENT_ROLES,
+    "record_scope": project_record_scope,
+    "get_current_user": get_current_user,
     "get_db": get_db,
     "get_current_user": get_current_user,
     "require_project_access": require_project_access,
@@ -20284,33 +20351,42 @@ register_supplier_catalog_module(app, {
 
 # === Сн.5: история цен на материал ===
 @app.get("/material-price-history")
-def material_price_history(material: str = "", _current_user: dict = Depends(require_roles(*MATERIAL_PRICE_HISTORY_ROLES))):
+def material_price_history(material: str = "", request: Request = None, _current_user: dict = Depends(get_current_user)):
     """Прошлые цены по материалу: из истории поставок + текущие предложения каталога.
     Помогает снабженцу понять адекватную цену при создании заявки."""
     material = (material or "").strip()
     if not material:
         return {"history": [], "catalog": [], "stats": None}
-    conn = get_db()
-    cur = conn.cursor()
-    like = "%" + material + "%"
-    # реально закупленные позиции (история поставок)
-    cur.execute(
-        "SELECT h.material_name, h.price_per_unit, h.unit, h.quantity, h.project, h.date, "
-        "COALESCE(s.name, h.confirmed_by, '') AS supplier_name "
-        "FROM supply_history h LEFT JOIN suppliers s ON s.id = h.supplier_id "
-        "WHERE h.material_name ILIKE %s AND COALESCE(h.price_per_unit,0) > 0 "
-        "ORDER BY h.id DESC LIMIT 15", (like,))
-    history = [{"materialName": r[0], "price": float(r[1] or 0), "unit": r[2] or "",
-               "quantity": float(r[3] or 0), "project": r[4] or "", "date": r[5] or "",
-               "supplierName": r[6] or ""} for r in cur.fetchall()]
-    # актуальные предложения из каталогов поставщиков
-    cur.execute(
-        "SELECT material_name, supplier_name, price, unit, delivery_days, in_stock "
-        "FROM supplier_catalog WHERE material_name ILIKE %s AND COALESCE(price,0) > 0 "
-        "ORDER BY price ASC LIMIT 15", (like,))
-    catalog = [{"materialName": r[0], "supplierName": r[1] or "", "price": float(r[2] or 0),
-                "unit": r[3] or "", "deliveryDays": r[4] or 3, "inStock": r[5]} for r in cur.fetchall()]
-    cur.close(); conn.close()
+    with project_record_scope.transaction(_current_user, request, MATERIAL_PRICE_HISTORY_ROLES) as (cur, actors):
+        clauses, owner_params = [], []
+        for actor in actors:
+            clause, values = "h.company_id=%s", [actor["companyId"]]
+            names = visible_project_names(actor)
+            if names is not None:
+                clause += " AND h.project=ANY(%s)"
+                values.append(names)
+            package_sql, package_params = package_access_filter(actor, "h.work_package")
+            clauses.append("(" + clause + package_sql + ")")
+            owner_params.extend([*values,*package_params])
+        owner_sql = " OR ".join(clauses) or "FALSE"
+        like = "%" + material + "%"
+        # реально закупленные позиции (история поставок)
+        cur.execute(
+            "SELECT h.material_name, h.price_per_unit, h.unit, h.quantity, h.project, h.date, "
+            "COALESCE(s.name, h.confirmed_by, '') AS supplier_name "
+            "FROM supply_history h LEFT JOIN suppliers s ON s.id = h.supplier_id "
+            "WHERE (" + owner_sql + ") AND h.material_name ILIKE %s AND COALESCE(h.price_per_unit,0) > 0 "
+            "ORDER BY h.id DESC LIMIT 15", [*owner_params,like])
+        history = [{"materialName": r[0], "price": float(r[1] or 0), "unit": r[2] or "",
+                   "quantity": float(r[3] or 0), "project": r[4] or "", "date": r[5] or "",
+                   "supplierName": r[6] or ""} for r in cur.fetchall()]
+        # актуальные предложения из каталогов поставщиков
+        cur.execute(
+            "SELECT material_name, supplier_name, price, unit, delivery_days, in_stock "
+            "FROM supplier_catalog WHERE material_name ILIKE %s AND COALESCE(price,0) > 0 "
+            "ORDER BY price ASC LIMIT 15", (like,))
+        catalog = [{"materialName": r[0], "supplierName": r[1] or "", "price": float(r[2] or 0),
+                    "unit": r[3] or "", "deliveryDays": r[4] or 3, "inStock": r[5]} for r in cur.fetchall()]
     prices = [h["price"] for h in history] + [c["price"] for c in catalog]
     stats = None
     if prices:
@@ -24956,6 +25032,8 @@ except ModuleNotFoundError:
 
 
 register_supervisor_acts_module(app, {
+    "record_scope": project_record_scope,
+    "get_current_user": get_current_user,
     "get_db": get_db,
     "require_roles": require_roles,
     "read_roles": PROJECT_DOCUMENT_ROLES,
@@ -24966,23 +25044,12 @@ register_supervisor_acts_module(app, {
 })
 
 @app.get("/tb-journal")
-def list_tb_journal(project_name: str = None, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
+def list_tb_journal(project_name: str = None, request: Request = None, current_user: dict = Depends(get_current_user)):
     cols = "id, project_name, master_name, instructor, instruction_type, program, instruction_text, participants_json, photo_url, date, ai_filled, created_at"
-    if project_name:
-        require_project_access(current_user, project_name)
-        cur.execute(f"SELECT {cols} FROM tb_journal WHERE project_name=%s ORDER BY id DESC", (project_name,))
-    elif visible_project_names(current_user) is not None:
-        projects = user_project_names(current_user)
-        if not projects:
-            cur.close(); conn.close()
-            return []
-        cur.execute(f"SELECT {cols} FROM tb_journal WHERE project_name = ANY(%s) ORDER BY id DESC", (projects,))
-    else:
-        cur.execute(f"SELECT {cols} FROM tb_journal ORDER BY id DESC")
-    rows = cur.fetchall()
-    cur.close(); conn.close()
+    with project_record_scope.transaction(current_user, request, PROJECT_DOCUMENT_ROLES) as (cur, actors):
+        query, params = owned_project_query(project_record_scope,actors,PROJECT_DOCUMENT_ROLES,'tb_journal',','.join('r.'+c.strip() for c in cols.split(',')),project_name=project_name)
+        cur.execute(query+' ORDER BY r.id DESC',params)
+        rows=cur.fetchall()
     import json as j
     out = []
     for r in rows:
@@ -24997,35 +25064,30 @@ def list_tb_journal(project_name: str = None, current_user: dict = Depends(requi
     return out
 
 @app.post("/tb-journal")
-def create_tb_entry(data: dict, current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES))):
+def create_tb_entry(data: dict, request: Request = None, current_user: dict = Depends(get_current_user)):
     import json as j
-    require_project_access(current_user, data.get("projectName", ""))
-    conn = get_db()
-    cur = conn.cursor()
-    parts = j.dumps(data.get("participants") or [], ensure_ascii=False)
-    cur.execute("""INSERT INTO tb_journal
-                   (project_name, master_name, instructor, instruction_type, program, instruction_text,
-                    participants_json, photo_url, date, ai_filled)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-                (data.get("projectName",""), data.get("masterName",""),
-                 data.get("instructor",""), data.get("instructionType","Первичный инструктаж"),
-                 data.get("program",""), data.get("instructionText",""),
-                 parts, data.get("photoUrl",""), data.get("date") or None,
-                 bool(data.get("aiFilled", False))))
-    conn.commit()
-    row = cur.fetchone()
-    cur.close(); conn.close()
+    with project_record_scope.transaction(current_user,request,JOURNAL_WRITE_ROLES,write=True) as (cur,actors):
+        parent=project_record_scope.parent(cur,actors[0],data,JOURNAL_WRITE_ROLES)
+        parts = j.dumps(data.get("participants") or [], ensure_ascii=False)
+        cur.execute("""INSERT INTO tb_journal
+                       (company_id,project_id,project_name, master_name, instructor, instruction_type, program, instruction_text,
+                        participants_json, photo_url, date, ai_filled)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                    (parent["companyId"],parent["id"],parent["name"], data.get("masterName",""),
+                     data.get("instructor",""), data.get("instructionType","Первичный инструктаж"),
+                     data.get("program",""), data.get("instructionText",""),
+                     parts, data.get("photoUrl",""), data.get("date") or None,
+                     bool(data.get("aiFilled", False))))
+        row=cur.fetchone()
     return {"id": row[0], "ok": True}
 
 @app.delete("/tb-journal/{id}")
-def delete_tb_entry(id: int, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "прораб", "главный_инженер"))):
-    conn = get_db()
-    cur = conn.cursor()
-    require_row_project_access(cur, "tb_journal", id, current_user, "project_name")
-    cur.execute("DELETE FROM tb_journal WHERE id=%s", (id,))
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok": True}
+def delete_tb_entry(id: int, request: Request = None, current_user: dict = Depends(get_current_user)):
+    roles=(*LEADERSHIP_ROLES,'прораб','главный_инженер')
+    with project_record_scope.transaction(current_user,request,roles,write=True) as (cur,actors):
+        require_owned_project_record(cur,project_record_scope,actors,roles,'tb_journal',id)
+        cur.execute('DELETE FROM tb_journal WHERE id=%s',(id,))
+    return {'ok':True}
 
 @app.post("/tb-journal/ai-generate")
 def ai_generate_tb_instruction(data: dict, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
@@ -25067,6 +25129,8 @@ except ModuleNotFoundError:
 
 
 register_inspection_orders_module(app, {
+    "record_scope": project_record_scope,
+    "get_current_user": get_current_user,
     "get_db": get_db,
     "require_roles": require_roles,
     "read_roles": PROJECT_DOCUMENT_ROLES,
@@ -26121,6 +26185,7 @@ except ModuleNotFoundError:
 
 
 register_master_profiles_module(app, {
+    "record_scope": project_record_scope,
     "get_db": get_db,
     "get_current_user": get_current_user,
     "finance_roles": FINANCE_ROLES,
@@ -26135,6 +26200,8 @@ except ModuleNotFoundError:
 
 
 register_timesheet_module(app, {
+    "record_scope": project_record_scope,
+    "get_current_user": get_current_user,
     "get_db": get_db,
     "require_roles": require_roles,
     "staff_view_roles": STAFF_VIEW_ROLES,
@@ -26149,6 +26216,7 @@ except ModuleNotFoundError:
 
 
 register_interim_acts_module(app, {
+    "record_scope": project_record_scope,
     "lock_settlement": _lock_legacy_work_settlement,
     "require_legacy_work": work_settlement_guards.require_legacy_work,
     "require_legacy_interim": work_settlement_guards.require_legacy_interim,
@@ -26190,25 +26258,40 @@ register_supplier_invoice_templates_module(app, {
 
 def save_doc_version(document_type, document_id, snapshot_json, changed_by="", change_reason=""):
     """Сохранить snapshot документа в document_versions. Возвращает label новой версии."""
+    conn = None
+    cur = None
     try:
         import json as _j
         from datetime import datetime as _dt
         conn = get_db()
         cur = conn.cursor()
+        if document_type != 'hidden_works_act':
+            raise ValueError('Unsupported version owner type')
+        cur.execute("SELECT h.company_id,p.id FROM hidden_works_acts h "
+                    "JOIN work_journal w ON w.id=h.work_journal_id AND w.company_id=h.company_id "
+                    "JOIN projects p ON p.company_id=h.company_id AND p.name=h.project_name AND p.name=w.project "
+                    "WHERE h.id=%s AND NOT EXISTS (SELECT 1 FROM projects other WHERE other.company_id=p.company_id AND other.name=p.name AND other.id<>p.id)", (document_id,))
+        owner=cur.fetchone()
+        if not owner:
+            raise ValueError('Document has no verified owner')
         cur.execute("SELECT COUNT(*) FROM document_versions WHERE document_type=%s AND document_id=%s",
                     (document_type, document_id))
         count = cur.fetchone()[0]
         label = "v" + str(count+1) + "_" + _dt.now().strftime("%Y%m%d_%H%M%S")
         snap = snapshot_json if isinstance(snapshot_json, str) else _j.dumps(snapshot_json, ensure_ascii=False, default=str)
-        cur.execute("""INSERT INTO document_versions (document_type, document_id, version_label, snapshot_json, changed_by, change_reason)
-                       VALUES (%s,%s,%s,%s,%s,%s)""",
-                    (document_type, document_id, label, snap, changed_by, change_reason))
+        cur.execute("""INSERT INTO document_versions (company_id,project_id,document_type, document_id, version_label, snapshot_json, changed_by, change_reason)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (owner[0],owner[1],document_type, document_id, label, snap, changed_by, change_reason))
         conn.commit()
-        cur.close(); conn.close()
         return label
     except Exception as e:
         print("VERSION SAVE ERROR:", str(e))
         return None
+    finally:
+        if cur is not None:
+            cur.close()
+        if conn is not None:
+            conn.close()
 
 try:
     from backend.features.warehouse_distribution import register_warehouse_distribution_module
@@ -26234,6 +26317,8 @@ except ModuleNotFoundError:
 
 
 register_document_versions_module(app, {
+    "record_scope": project_record_scope,
+    "get_current_user": get_current_user,
     "get_db": get_db,
     "require_roles": require_roles,
     "project_document_roles": PROJECT_DOCUMENT_ROLES,
@@ -26406,6 +26491,8 @@ except ModuleNotFoundError:
 
 
 register_rooms_module(app, {
+    "record_scope": project_record_scope,
+    "get_current_user": get_current_user,
     "get_db": get_db,
     "require_roles": require_roles,
     "read_roles": PROJECT_DOCUMENT_ROLES,

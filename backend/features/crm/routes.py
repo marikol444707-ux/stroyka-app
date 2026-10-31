@@ -922,6 +922,7 @@ def register_crm_module(app, deps):
     ):
         data = data or {}
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             lead = fetch_lead(cur, lead_id, for_update=True)
@@ -1020,6 +1021,7 @@ def register_crm_module(app, deps):
         if role not in ("мастер", "бригадир", "субподрядчик"):
             raise HTTPException(status_code=400, detail="Укажите роль: мастер, бригадир или субподрядчик")
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             lead = fetch_lead(cur, lead_id, for_update=True)
@@ -1086,6 +1088,7 @@ def register_crm_module(app, deps):
     ):
         data = data or {}
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             lead = fetch_lead(cur, lead_id, for_update=True)
@@ -1162,6 +1165,7 @@ def register_crm_module(app, deps):
     ):
         data = data or {}
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             lead = fetch_lead(cur, lead_id, for_update=True)

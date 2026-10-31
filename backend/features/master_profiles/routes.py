@@ -7,7 +7,8 @@ payloads. MasterProfileModel moved here — this was its only user.
 """
 
 import psycopg2.extras
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
+from ..legacy_project_records.user_scope import selected_actors, user_visibility, require_user
 from pydantic import BaseModel
 
 
@@ -44,117 +45,91 @@ SENSITIVE_PROFILE_FIELDS = ("passport", "inn", "bankAccount", "bankName", "ogrni
 
 
 def register_master_profiles_module(app, deps):
-    get_db = deps["get_db"]
-    get_current_user = deps["get_current_user"]
-    finance_roles = tuple(deps.get("finance_roles") or ())
-    worker_execution_roles = tuple(deps.get("worker_execution_roles") or ())
-    user_project_names = deps["user_project_names"]
+    get_db, authenticated, scope = deps['get_db'], deps['get_current_user'], deps['record_scope']
+    finance_roles = tuple(deps['finance_roles'])
+    public_roles = ('прораб','главный_инженер')
+    read_roles = (*finance_roles,*public_roles,*deps['worker_execution_roles'])
+    def names(actor):
+        return deps['user_project_names'](actor) if actor.get('role') in public_roles else None
+    def public(row):
+        return {key:value for key,value in dict(row).items() if key not in SENSITIVE_PROFILE_FIELDS}
 
-    @app.get("/master-profiles")
-    def get_master_profiles(current_user: dict = Depends(get_current_user)):
-        conn = get_db()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        def _public_master_profile(row):
-            data = dict(row)
-            for key in SENSITIVE_PROFILE_FIELDS:
-                data.pop(key, None)
-            return data
-        if current_user.get("role") in finance_roles:
-            cur.execute("SELECT " + PROFILE_COLUMNS + " FROM master_profiles")
-        elif current_user.get("role") in ("прораб", "главный_инженер"):
-            allowed_projects = user_project_names(current_user)
-            if not allowed_projects:
-                cur.close(); conn.close()
-                return []
-            cur.execute("""
-                SELECT mp.id,mp.user_id as "userId",mp.full_name as "fullName",mp.passport,mp.inn,
-                       mp.contract_type as "contractType",mp.bank_account as "bankAccount",
-                       mp.bank_name as "bankName",mp.phone,mp.specialization,mp.ogrnip,mp.kpp,mp.ogrn,
-                       mp.legal_address as "legalAddress",mp.bank_bik as "bankBik",mp.bank_corr as "bankCorr",
-                       mp.signatory_name as "signatoryName",mp.signatory_position as "signatoryPosition",
-                       mp.signatory_basis as "signatoryBasis",mp.profile_completed as "profileCompleted"
-                FROM master_profiles mp
-                JOIN users u ON u.id=mp.user_id
-                WHERE COALESCE(u.project_name,'') = ANY(%s)
-                   OR EXISTS (
-                       SELECT 1 FROM jsonb_array_elements_text(COALESCE(u.assigned_projects,'[]'::jsonb)) ap(project_name)
-                       WHERE ap.project_name = ANY(%s)
-                   )
-                ORDER BY mp.id DESC
-            """, (allowed_projects, allowed_projects))
-        elif current_user.get("role") in worker_execution_roles:
-            cur.execute("SELECT " + PROFILE_COLUMNS + " FROM master_profiles WHERE user_id=%s", (current_user.get("id"),))
-        else:
+    @app.get('/master-profiles')
+    def get_master_profiles(request: Request = None, current_user: dict = Depends(authenticated)):
+        conn=get_db(); cur=conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            actors=selected_actors(scope,cur,current_user,request,read_roles)
+            if not actors: return []
+            manager_actors=[actor for actor in actors if actor.get('role') in (*finance_roles,*public_roles)]
+            where,params=user_visibility(manager_actors,project_names=names)
+            cur.execute('SELECT '+PROFILE_COLUMNS+' FROM master_profiles WHERE user_id=%s OR user_id IN (SELECT u.id FROM users u WHERE '+where+')', [current_user.get('id'),*params])
+            rows=cur.fetchall()
+            result=[]
+            for row in rows:
+                if row['userId']==current_user.get('id'):
+                    result.append(dict(row)); continue
+                finance=[actor for actor in manager_actors if actor.get('role') in finance_roles]
+                where,params=user_visibility(finance)
+                cur.execute('SELECT u.id FROM users u WHERE u.id=%s AND ('+where+')',[row['userId'],*params])
+                result.append(dict(row) if cur.fetchone() else public(row))
+            return result
+        finally:
             cur.close(); conn.close()
-            return []
-        rows = cur.fetchall()
-        conn.close()
-        if current_user.get("role") in ("прораб", "главный_инженер"):
-            return [_public_master_profile(r) for r in rows]
-        return [dict(r) for r in rows]
 
-    @app.get("/master-profile/{user_id}")
-    def get_master_profile(user_id: int, current_user: dict = Depends(get_current_user)):
-        if current_user.get("id") != user_id and current_user.get("role") not in finance_roles and current_user.get("role") not in ("прораб", "главный_инженер"):
-            raise HTTPException(status_code=403, detail="Нет доступа к профилю")
-        conn = get_db()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        if current_user.get("id") != user_id and current_user.get("role") in ("прораб", "главный_инженер"):
-            allowed_projects = user_project_names(current_user)
+    @app.get('/master-profile/{user_id}')
+    def get_master_profile(user_id: int, request: Request = None, current_user: dict = Depends(authenticated)):
+        conn=get_db();cur=conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            sensitive = user_id==current_user.get('id')
+            if not sensitive:
+                actors=selected_actors(scope,cur,current_user,request,(*finance_roles,*public_roles))
+                if not actors: raise HTTPException(403,"Нет доступа к профилю")
+                require_user(cur,actors,user_id,project_names=names)
+                where,params=user_visibility([actor for actor in actors if actor.get('role') in finance_roles])
+                cur.execute('SELECT u.id FROM users u WHERE u.id=%s AND ('+where+')',[user_id,*params])
+                sensitive=bool(cur.fetchone())
+            cur.execute('SELECT '+PROFILE_COLUMNS+' FROM master_profiles WHERE user_id=%s',(user_id,))
+            row=cur.fetchone()
+            if not row: return {'userId':user_id,'fullName':'','profileCompleted':False}
+            return dict(row) if sensitive else public(row)
+        finally:
+            cur.close();conn.close()
+
+    @app.post('/master-profile')
+    def create_master_profile(p: MasterProfileModel, request: Request = None, current_user: dict = Depends(authenticated)):
+        conn=get_db();conn.autocommit=False
+        cur=conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            if current_user.get('id')!=p.userId:
+                actors=selected_actors(scope,cur,current_user,request,finance_roles,write=True)
+                require_user(cur,actors,p.userId)
             cur.execute("""
-                SELECT 1 FROM users u
-                WHERE u.id=%s AND (
-                    COALESCE(u.project_name,'') = ANY(%s)
-                    OR EXISTS (
-                        SELECT 1 FROM jsonb_array_elements_text(COALESCE(u.assigned_projects,'[]'::jsonb)) ap(project_name)
-                        WHERE ap.project_name = ANY(%s)
-                    )
-                )
-            """, (user_id, allowed_projects, allowed_projects))
-            if not cur.fetchone():
-                cur.close(); conn.close()
-                raise HTTPException(status_code=403, detail="Нет доступа к профилю исполнителя другого объекта")
-        cur.execute("SELECT " + PROFILE_COLUMNS + " FROM master_profiles WHERE user_id=%s", (user_id,))
-        row = cur.fetchone()
-        conn.close()
-        if not row:
-            return {"userId": user_id, "fullName": "", "profileCompleted": False}
-        if current_user.get("id") != user_id and current_user.get("role") in ("прораб", "главный_инженер"):
-            data = dict(row)
-            for key in SENSITIVE_PROFILE_FIELDS:
-                data.pop(key, None)
-            return data
-        return dict(row)
-
-    @app.post("/master-profile")
-    def create_master_profile(p: MasterProfileModel, current_user: dict = Depends(get_current_user)):
-        if current_user.get("id") != p.userId and current_user.get("role") not in finance_roles:
-            raise HTTPException(status_code=403, detail="Можно редактировать только свой профиль")
-        conn = get_db()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("""
-            INSERT INTO master_profiles (user_id,full_name,passport,inn,contract_type,bank_account,bank_name,
-                phone,specialization,ogrnip,kpp,ogrn,legal_address,bank_bik,bank_corr,signatory_name,
-                signatory_position,signatory_basis,profile_completed)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE)
-            ON CONFLICT (user_id) DO UPDATE SET
-                full_name=EXCLUDED.full_name,passport=EXCLUDED.passport,inn=EXCLUDED.inn,
-                contract_type=EXCLUDED.contract_type,bank_account=EXCLUDED.bank_account,
-                bank_name=EXCLUDED.bank_name,phone=EXCLUDED.phone,
-                specialization=EXCLUDED.specialization,ogrnip=EXCLUDED.ogrnip,kpp=EXCLUDED.kpp,
-                ogrn=EXCLUDED.ogrn,legal_address=EXCLUDED.legal_address,bank_bik=EXCLUDED.bank_bik,
-                bank_corr=EXCLUDED.bank_corr,signatory_name=EXCLUDED.signatory_name,
-                signatory_position=EXCLUDED.signatory_position,signatory_basis=EXCLUDED.signatory_basis,
-                profile_completed=TRUE
-            RETURNING id,user_id as "userId",full_name as "fullName",passport,inn,
-                contract_type as "contractType",bank_account as "bankAccount",
-                bank_name as "bankName",phone,specialization,ogrnip,kpp,ogrn,legal_address as "legalAddress",
-                bank_bik as "bankBik",bank_corr as "bankCorr",signatory_name as "signatoryName",
-                signatory_position as "signatoryPosition",signatory_basis as "signatoryBasis",
-                profile_completed as "profileCompleted"
-        """, (p.userId,p.fullName,p.passport,p.inn,p.contractType,p.bankAccount,p.bankName,p.phone,
-                p.specialization,p.ogrnip,p.kpp,p.ogrn,p.legalAddress,p.bankBik,p.bankCorr,
-                p.signatoryName,p.signatoryPosition,p.signatoryBasis))
-        row = cur.fetchone()
-        conn.close()
-        return dict(row)
+                INSERT INTO master_profiles (user_id,full_name,passport,inn,contract_type,bank_account,bank_name,
+                    phone,specialization,ogrnip,kpp,ogrn,legal_address,bank_bik,bank_corr,signatory_name,
+                    signatory_position,signatory_basis,profile_completed)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE)
+                ON CONFLICT (user_id) DO UPDATE SET
+                    full_name=EXCLUDED.full_name,passport=EXCLUDED.passport,inn=EXCLUDED.inn,
+                    contract_type=EXCLUDED.contract_type,bank_account=EXCLUDED.bank_account,
+                    bank_name=EXCLUDED.bank_name,phone=EXCLUDED.phone,
+                    specialization=EXCLUDED.specialization,ogrnip=EXCLUDED.ogrnip,kpp=EXCLUDED.kpp,
+                    ogrn=EXCLUDED.ogrn,legal_address=EXCLUDED.legal_address,bank_bik=EXCLUDED.bank_bik,
+                    bank_corr=EXCLUDED.bank_corr,signatory_name=EXCLUDED.signatory_name,
+                    signatory_position=EXCLUDED.signatory_position,signatory_basis=EXCLUDED.signatory_basis,
+                    profile_completed=TRUE
+                RETURNING id,user_id as "userId",full_name as "fullName",passport,inn,
+                    contract_type as "contractType",bank_account as "bankAccount",
+                    bank_name as "bankName",phone,specialization,ogrnip,kpp,ogrn,legal_address as "legalAddress",
+                    bank_bik as "bankBik",bank_corr as "bankCorr",signatory_name as "signatoryName",
+                    signatory_position as "signatoryPosition",signatory_basis as "signatoryBasis",
+                    profile_completed as "profileCompleted"
+            """, (p.userId,p.fullName,p.passport,p.inn,p.contractType,p.bankAccount,p.bankName,p.phone,
+                    p.specialization,p.ogrnip,p.kpp,p.ogrn,p.legalAddress,p.bankBik,p.bankCorr,
+                    p.signatoryName,p.signatoryPosition,p.signatoryBasis))
+            row = cur.fetchone()
+            conn.commit()
+            return dict(row)
+        except Exception:
+            conn.rollback();raise
+        finally:
+            cur.close();conn.close()
