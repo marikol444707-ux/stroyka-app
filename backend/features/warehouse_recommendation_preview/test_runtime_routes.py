@@ -257,11 +257,11 @@ class WarehouseAnomalyRuntimeRouteRegistrationTests(unittest.TestCase):
         package_bytes = package_path.read_bytes()
         runtime_source = runtime_path.read_text(encoding="utf-8")
 
-        # Reviewed audit-owner/bootstrap changes at aa4e2872; preview parser, registration,
-        # package and db.py are unchanged. See docs/ci-fixtures-review-2026-10-31.md.
+        # Reviewed FH04 extraction at 52441e17; preview parser, registration,
+        # package and db.py are unchanged. See docs/fh04-ci-contract-review-2026-10-31.md.
         self.assertEqual(
             hashlib.sha256(main_bytes).hexdigest(),
-            "2bbaa5d092abad146e7c7fcacfcf097ae10fa814a4729e4d4d0b839431beb0c6",
+            "0aa9ad5b5ecf2cb0757526fca5413ddec4d068b10e1f1ec7ac9d0c8ebe6a69c2",
         )
         self.assertEqual(
             hashlib.sha256(package_bytes).hexdigest(),
