@@ -34,7 +34,8 @@ def evaluate(bundle, *, now=None):
             raise ValueError('explicit_candidate_fields_required')
         documents = []
         for raw in entry['documents']:
-            if type(raw) is not dict or set(raw) != {'id', 'source', 'url', 'name', 'kind', 'checked_at', 'text'}:
+            required={'id', 'source', 'url', 'name', 'kind', 'checked_at', 'text'}
+            if type(raw) is not dict or not required<=set(raw) or set(raw)-required-{'raw_sha256','complete'}:
                 raise ValueError('explicit_document_fields_required')
             documents.append(Document(**{**raw, 'checked_at': datetime.fromisoformat(raw['checked_at'])}))
         candidate = Candidate(entry['source'], entry['number'], tuple(documents),

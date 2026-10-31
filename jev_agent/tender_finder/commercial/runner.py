@@ -10,6 +10,7 @@ import re
 from zoneinfo import ZoneInfo
 
 from .model import Candidate, Document, Profile, aware
+from .model import public_url
 from .policy import assess
 from .registry import compare, deduplicate, digest, registry
 from .sources import source_registry, LIMITATION_LABELS
@@ -24,6 +25,7 @@ class SourceResult:
     listings: tuple = ()
     limitations: tuple[str, ...] = ()
     primary_captures: tuple = ()
+    attachment_statuses: tuple = ()
 
 
 def _profile(profile):
@@ -70,7 +72,7 @@ def run(request_id, scope, directory, *, adapters, sources=None, profile=Profile
               'baseline_established': bool(previous and previous.get('baseline_established'))})
         rows, coverage = [], []
         for key, source in sources.items():
-            status, cards, documents, limitations = 'not_connected', set(), set(), ()
+            status, cards, documents, limitations, attachments = 'not_connected', set(), set(), (), ()
             adapter = adapters.get(key)
             if adapter is not None and source.hosts:
                 try:
@@ -80,11 +82,20 @@ def run(request_id, scope, directory, *, adapters, sources=None, profile=Profile
                     if (type(output) is not SourceResult or output.status not in (
                             'checked', 'partial', 'unavailable', 'login_required', 'captcha', 'error')
                             or len(output.candidates) > 100 or len(output.listings) > 50
-                            or len(output.primary_captures)>100):
+                            or len(output.primary_captures)>100 or len(output.attachment_statuses)>800):
                         raise ValueError('bounded_source_result_required')
                     if type(output.limitations) is not tuple or set(output.limitations)-set(LIMITATION_LABELS):
                         raise ValueError('fixed_source_limitations_required')
                     limitations=output.limitations
+                    from urllib.parse import urlsplit
+                    for entry in output.attachment_statuses:
+                        if (type(entry) is not dict or set(entry)!={'url','name','status'}
+                                or not public_url(entry['url']) or urlsplit(entry['url']).hostname not in hosts[key]
+                                or type(entry['name']) is not str or not 1<=len(entry['name'])<=300
+                                or entry['status'] not in ('text','needs_review_or_ocr','encrypted','login_required',
+                                                          'captcha','unavailable','not_verified')):
+                            raise ValueError('bounded_attachment_status_required')
+                    attachments=output.attachment_statuses
                     assessed = []
                     for candidate in output.candidates:
                         if candidate.source != key: raise ValueError('source_candidate_mismatch')
@@ -118,7 +129,7 @@ def run(request_id, scope, directory, *, adapters, sources=None, profile=Profile
                     status, cards, documents = 'error', set(), set()
             coverage.append({'source': key, 'name': source.name, 'status': status,
                              'primary_cards': len(cards), 'documents': len(documents),
-                             'limitations':list(limitations)})
+                             'limitations':list(limitations),'attachments':list(attachments)})
         # Unconfirmed rediscovery cannot erase last verified values. It remains
         # visible in this report while history keeps the last primary observation.
         rows = deduplicate(rows)
@@ -195,4 +206,6 @@ def render(report):
         lines.append(f"{source['name']}: {source['status']}; "
                      f"карточек {source['primary_cards']}, документов {source['documents']}")
         lines.extend('Ограничение: '+LIMITATION_LABELS[item] for item in source.get('limitations',()))
+        for attachment in source.get('attachments',()):
+            lines.append(attachment['name']+': '+attachment['status']+'; '+attachment['url'])
     return '\n'.join(lines)

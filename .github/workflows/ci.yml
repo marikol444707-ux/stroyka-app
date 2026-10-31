@@ -56,6 +56,7 @@ jobs:
           jev_agent.tender_finder.commercial.test_bridge
           jev_agent.tender_finder.commercial.test_b2b
           jev_agent.tender_finder.commercial.test_b2b_browser
+          jev_agent.tender_finder.commercial.test_documents
           jev_agent.tender_finder.test_contract
           jev_agent.tender_finder.test_reporting
           jev_agent.tender_finder.test_cli
@@ -96,6 +97,8 @@ jobs:
 
       - name: Verify JEV container preservation on isolated Docker
         run: python -B -m scripts.verify_jev_docker_preservation
+      - name: Verify native JEV document isolation
+        run: python -B -m jev_agent.tender_finder.commercial.verify_document_sandbox
       - name: Verify native JEV systemd socket credentials
         run: sudo python3 -B -m scripts.verify_jev_systemd_credentials
       - name: Run backend tests

@@ -13,7 +13,8 @@ from jev_agent.server_runtime.scripts.jev_commercial_search import OBSERVE, sear
 from .b2b import B2BReader, Observation, HOST
 
 TEXT = '''(()=>{const text=document.body?.innerText||'';return {url:location.href,
-ready:document.readyState,oversize:text.length>131072,text:text.slice(0,131073)};})()'''
+ready:document.readyState,oversize:text.length>131072,text:text.slice(0,131073),
+links:[...document.querySelectorAll('a[href]')].slice(0,100).map(a=>({url:a.href,name:(a.innerText||'').slice(0,200)}))};})()'''
 
 
 def approved_url(url):
@@ -63,14 +64,17 @@ class Session:
                 # Bound serialization before carrying any source output forward.
                 if type(state) is not dict or len(json.dumps(state,ensure_ascii=False).encode())>128*1024:
                     raise ValueError('bounded_b2b_search_state_required')
-            signature=hashlib.sha256(json.dumps({'text':text,'state':state},ensure_ascii=False,sort_keys=True).encode()).hexdigest()
-            if signature==previous:return Observation(url,'ok',self.clock(),text,state)
+            links=page.get('links',[])
+            if type(links) is not list or len(links)>100 or len(json.dumps(links).encode())>256*1024:
+                raise ValueError('bounded_b2b_dom_links_required')
+            signature=hashlib.sha256(json.dumps({'text':text,'state':state,'links':links},ensure_ascii=False,sort_keys=True).encode()).hexdigest()
+            if signature==previous:return Observation(url,'ok',self.clock(),text,state,tuple(links))
             previous=signature
             await asyncio.sleep(self.poll)
         raise ValueError('stable_b2b_page_not_observed')
 
 
-def browser_adapter(*,open_browser,clock):
+def browser_adapter(*,open_browser,clock,document_enricher=None):
     """Protected sync worker adapter. No asyncio loop or browser on import."""
     if not callable(open_browser) or not callable(clock):raise ValueError('protected_browser_factory_required')
     def collect(profile,started):
@@ -83,7 +87,7 @@ def browser_adapter(*,open_browser,clock):
                     try:return future.result(timeout=30)
                     except BaseException:
                         future.cancel();raise
-                return await asyncio.to_thread(B2BReader(read=read,clock=clock),profile,started)
+                return await asyncio.to_thread(B2BReader(read=read,clock=clock,document_enricher=document_enricher),profile,started)
         # The host worker is synchronous. Existing async callers must use an
         # explicit worker thread, not nest or replace Hermes' running loop.
         try:asyncio.get_running_loop()

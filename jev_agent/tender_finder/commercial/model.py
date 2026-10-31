@@ -67,17 +67,21 @@ class Document:
     kind: str  # card / terms / contract / quote / authority / aggregator
     checked_at: datetime
     text: str
+    raw_sha256: str | None = None
+    complete: bool = True
 
     def __post_init__(self):
         if (not self.id or not self.name or not self.source or not public_url(self.url)
                 or self.kind not in ('card', 'terms', 'contract', 'quote', 'authority', 'aggregator')
                 or not aware(self.checked_at) or not isinstance(self.text, str)
-                or not 1 <= len(self.text.encode()) <= 512 * 1024):
+                or not 1 <= len(self.text.encode()) <= 512 * 1024 or type(self.complete) is not bool
+                or self.raw_sha256 is not None and (type(self.raw_sha256) is not str
+                    or not re.fullmatch('[a-f0-9]{64}',self.raw_sha256))):
             raise ValueError('bounded_captured_document_required')
 
     @property
     def sha256(self):
-        return hashlib.sha256(self.text.encode()).hexdigest()
+        return self.raw_sha256 or hashlib.sha256(self.text.encode()).hexdigest()
 
 
 @dataclass(frozen=True)

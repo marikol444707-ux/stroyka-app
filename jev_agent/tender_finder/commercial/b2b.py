@@ -12,6 +12,7 @@ from decimal import Decimal
 import re
 import time
 from urllib.parse import urlsplit
+import hashlib
 
 from jev_agent.server_runtime.scripts.jev_commercial_search import search_url, search_checks, tender_url
 from .model import Candidate, Document, Fact, aware, public_url
@@ -50,6 +51,7 @@ class Observation:
     checked_at: datetime
     text: str = ''
     search_state: dict | None = None
+    attachment_links: tuple = ()
 
 
 def fields(text):
@@ -96,6 +98,11 @@ def parse_card(document):
     if not re.search(r'(?:Тендер|Закупка|Процедура|Запрос предложений|Запрос цен|Конкурс|Аукцион)\s*(?:№|номер)\s*'+re.escape(number)+r'(?![0-9])',
                      document.text,re.I):
         raise ValueError('independent_b2b_notice_number_required')
+    return Candidate('b2b',number,(document,),extract_fields(document))
+
+
+def extract_fields(document):
+    """Labeled text extraction shared with source-bound terms; no role inference."""
     facts={}
     def add(name,value,quote,locator):
         facts.setdefault(name,[]).append(Fact(value,document.id,quote,locator))
@@ -143,13 +150,15 @@ def parse_card(document):
                     add('kind','current_repair',quote,locator)
     # No role/authority inference from Organizer, Customer, brand or search tab.
     if any(len(values)>8 for values in facts.values()):raise ValueError('b2b_field_evidence_limit')
-    return Candidate('b2b',number,(document,),{key:tuple(value) for key,value in facts.items()})
+    return {key:tuple(value) for key,value in facts.items()}
 
 
 class B2BReader:
-    def __init__(self,*,read,clock,monotonic=time.monotonic):
+    def __init__(self,*,read,clock,monotonic=time.monotonic,document_enricher=None):
         if not all(callable(value) for value in (read,clock,monotonic)):raise ValueError('protected_b2b_reader_required')
         self.read,self.clock,self.monotonic=read,clock,monotonic
+        if document_enricher is not None and not callable(document_enricher):raise ValueError('protected_document_enricher_required')
+        self.document_enricher=document_enricher
 
     def _capture(self,url,started,identifier):
         # Only generated public listing URLs or the previously reviewed notice
@@ -165,7 +174,10 @@ class B2BReader:
         if observed.status in ('captcha','login_required','unavailable'):return None,observed
         if observed.status!='ok':raise ValueError('public_b2b_capture_required')
         name='Выдача B2B-Center' if parsed.path=='/app/next/market-search' else 'Карточка B2B-Center'
-        doc=Document(identifier,'b2b',url,name,'card',observed.checked_at,observed.text)
+        text=observed.text
+        if parsed.path!='/app/next/market-search':
+            for ref in attachment_references(observed,identifier):text+='\n'+ref.link_quote
+        doc=Document(identifier,'b2b',url,name,'card',observed.checked_at,text)
         return doc,observed
 
     def __call__(self,profile,started):
@@ -173,10 +185,13 @@ class B2BReader:
         terms=tuple(dict.fromkeys((*profile.queries,*profile.regions)))
         if len(terms)>20:raise ValueError('bounded_b2b_search_plan_required')
         listings,candidates,captures,seen=[],[],[],set();calls=0;partial=False
+        attachment_statuses=[]
         deadline=self.monotonic()+180
         def exhausted():return calls>=40 or self.monotonic()>=deadline
         def finish(status,limitations=LIMITS):
-            return SourceResult(status,tuple(candidates),tuple(listings),limitations,tuple(captures))
+            limitations=tuple('document_coverage_incomplete' if item=='documents_not_read' and self.document_enricher
+                              else item for item in limitations)
+            return SourceResult(status,tuple(candidates),tuple(listings),limitations,tuple(captures),tuple(attachment_statuses))
         for index,term in enumerate(terms):
             if exhausted():return finish('partial',(*LIMITS,'read_budget_exhausted'))
             url=search_url(term);calls+=1
@@ -200,7 +215,35 @@ class B2BReader:
                     return finish('error',(*LIMITS,'some_primary_cards_not_verified'))
                 if card is None:return finish(page.status)
                 captures.append(card)
-                try:candidates.append(parse_card(card))
+                try:
+                    item=parse_card(card)
+                    if self.document_enricher is not None:
+                        enriched=self.document_enricher(item,attachment_references(page,card.id))
+                        attachment_statuses.extend(enriched.statuses)
+                        item=enriched.candidate
+                    candidates.append(item)
                 except ValueError:partial=True
         limitations=(*LIMITS,'some_primary_cards_not_verified') if partial else LIMITS
         return finish('partial',limitations)
+
+
+def attachment_references(observation,card_id):
+    """Only same-host supported links actually observed by the fixed DOM reader."""
+    from .documents import Attachment
+    if type(observation.attachment_links) is not tuple or len(observation.attachment_links)>100:
+        raise ValueError('bounded_observed_attachment_links_required')
+    result=[];seen=set()
+    for row in observation.attachment_links:
+        if type(row) is not dict or set(row)!={'url','name'}:raise ValueError('observed_attachment_link_required')
+        url=row['url'];name=row['name']
+        if not public_url(url) or urlsplit(url).hostname!=HOST or not isinstance(name,str):continue
+        extension=next((value for value in ('.pdf','.docx','.txt') if urlsplit(url).path.lower().endswith(value)),None)
+        if extension is None or url in seen:continue
+        if len(result)>=8:break
+        seen.add(url)
+        name=re.sub(r'[\x00-\x20\x7f]+',' ',name).strip()[:200] or 'Документ закупки'
+        kind='contract' if 'договор' in name.casefold() else 'authority' if 'полномочи' in name.casefold() else 'terms'
+        quote='Вложение из DOM: '+name+' — '+url
+        result.append(Attachment('b2b-doc-'+hashlib.sha256(url.encode()).hexdigest()[:16],'b2b',url,name,kind,
+                                 extension,card_id,quote))
+    return tuple(result)

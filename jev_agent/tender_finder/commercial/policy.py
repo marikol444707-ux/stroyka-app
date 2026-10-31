@@ -22,11 +22,12 @@ def assess(candidate, now, hosts, profile=Profile(), *, run_started_at=None):
             rows.append({'value': fact.value, 'url': doc.url, 'document': doc.name,
                          'locator': fact.locator, 'quote': fact.quote,
                          'checked_at': doc.checked_at.isoformat(), 'sha256': doc.sha256,
-                         'kind': doc.kind})
+                         'kind': doc.kind,'complete':doc.complete})
         evidence[name] = rows or [{'missing': 'Не удалось проверить'}]
         # Aggregator claims never establish facts. Stale captures remain visible,
         # but cannot override a new primary page or establish current acceptance.
         primary = [row for row in rows if 'value' in row and row['kind'] != 'aggregator'
+                   and row['complete']
                    and start <= datetime.fromisoformat(row['checked_at']) <= now]
         if name == 'stage':
             primary = [row for row in primary if row['kind'] == 'card']
@@ -41,6 +42,10 @@ def assess(candidate, now, hosts, profile=Profile(), *, run_started_at=None):
 
     cards = [doc for doc in docs.values() if doc.kind == 'card' and start <= doc.checked_at <= now]
     risks, exclusions = [], []
+    incomplete_documents=any(not doc.complete for doc in docs.values())
+    inaccessible_documents=any(fact.missing=='Не удалось проверить' for fact in candidate.facts.get('documents',()))
+    if incomplete_documents:risks.append('Неполный текст документа: требуется проверка или OCR')
+    if inaccessible_documents:risks.append('Документ с условиями не удалось проверить')
     searchable = ' '.join(values.get(name,'') for name in ('title','work_scope')).casefold().replace('ё','е')
     if any(word.casefold().replace('ё','е') in searchable for word in profile.exclude_keywords):
         exclusions.append('Совпадение со словами исключения')
@@ -109,7 +114,8 @@ def assess(candidate, now, hosts, profile=Profile(), *, run_started_at=None):
 
     # Missing price/deadline is visible, never a synthetic zero or exclusion.
     critical = ('title', 'counterparty', 'work_region', 'work_address', 'work_scope', 'kind', 'regime', 'stage')
-    confirmed = bool(cards) and direct and all(name in values for name in critical) and not conflicts and not expired
+    confirmed = (bool(cards) and direct and all(name in values for name in critical) and not conflicts and not expired
+                 and not incomplete_documents and not inaccessible_documents)
     bucket = ('excluded' if exclusions else 'unconfirmed' if not confirmed else
               'qualifications' if stage in ('qualification', 'standing') else
               'adjacent' if kind in ('current_repair', 'engineering_modernization') else
