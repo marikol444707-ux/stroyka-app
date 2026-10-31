@@ -6,7 +6,7 @@ import urllib.parse
 import uuid
 
 import psycopg2.extras
-from fastapi import Depends, File, HTTPException, Request, UploadFile
+from fastapi import BackgroundTasks, Depends, File, HTTPException, Request, UploadFile
 
 from .upload_policy import (
     MAX_PUBLIC_LEAD_FILE_BYTES,
@@ -395,6 +395,7 @@ def register_public_site_routes(app, deps):
     save_upload_bytes = deps.get("save_upload_bytes")
     delete_local_file = deps.get("delete_local_file")
     delete_s3_object = deps.get("delete_s3_object")
+    notify_public_site_lead = deps.get("notify_public_site_lead")
 
     site_admin = require_roles(*leadership_roles)
 
@@ -560,7 +561,11 @@ def register_public_site_routes(app, deps):
             conn.close()
 
     @app.post("/site/leads")
-    def create_site_lead(data: dict, request: Request):
+    def create_site_lead(
+        data: dict,
+        request: Request,
+        background_tasks: BackgroundTasks,
+    ):
         lead_owner = resolve_public_lead_owner(public_site_company_id)
         client_ip = _public_client_ip(request)
         now = time.time()
@@ -684,6 +689,12 @@ def register_public_site_routes(app, deps):
         finally:
             cur.close()
             conn.close()
+        if notify_public_site_lead:
+            background_tasks.add_task(
+                notify_public_site_lead,
+                lead_owner["companyId"],
+                new_id,
+            )
         return {"ok": True, "id": new_id, "attachments": len(attachment_tokens)}
 
     @app.put("/projects/{id}/site-publication")
