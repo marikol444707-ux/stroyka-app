@@ -536,6 +536,7 @@ export function buildAppActionGroups({
   const supplyActions = createSupplyActions({
     API,
     supplyRequestCreationRef: supplyWorkflowState.supplyRequestCreationRef,
+    requestCancellationRef: supplyWorkflowState.requestCancellationRef,
     editingItem,
     getProjectWorkPackageOptions,
     newOffer,
