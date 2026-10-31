@@ -5,6 +5,7 @@ paid search. Each source receives an isolated context from the protected factory
 The factory must enforce the source's hosts and credentials-free network policy.
 """
 import asyncio
+from contextlib import AsyncExitStack
 from functools import partial
 import hashlib
 import re
@@ -90,6 +91,12 @@ def collect_portal(spec,*,read,clock,document_enricher=None,monotonic=time.monot
         state=page.search_state
         if (type(state) is not dict or state.get('url')!=url or type(state.get('notice_urls')) is not list
                 or len(state['notice_urls'])>40):return finish('partial',('some_primary_cards_not_verified',))
+        request_count=state.get('request_count',1)
+        extra=state.get('limitations',[])
+        if (type(request_count) is not int or not 1<=request_count<=20 or type(extra) is not list
+                or any(item!='read_budget_exhausted' for item in extra)):
+            return finish('error',('some_primary_cards_not_verified',))
+        calls+=request_count-1;limitations.extend(extra)
         for notice in state['notice_urls']:
             try:
                 if spec.approve(notice)!='card':continue
@@ -112,7 +119,8 @@ def collect_portal(spec,*,read,clock,document_enricher=None,monotonic=time.monot
     return finish('partial')
 
 
-def portal_adapter(spec_factory,*,open_browser,clock,scope=None,extract_document=extract_isolated,access_check=None):
+def portal_adapter(spec_factory,*,open_browser,clock,scope=None,extract_document=extract_isolated,access_check=None,
+                   listing_fetch=None):
     if scope is not None:
         if type(scope) is not Scope:raise ValueError('protected_source_scope_required')
         scope.key()
@@ -121,13 +129,22 @@ def portal_adapter(spec_factory,*,open_browser,clock,scope=None,extract_document
         if type(spec) is not PortalSpec or not spec.source.hosts or len(spec.listings)>20:
             raise ValueError('bounded_reviewed_source_spec_required')
         async def operation():
-            async with open_browser(spec.source) as call:
-                session=PortalSession(call,clock,spec,access_check=access_check);loop=asyncio.get_running_loop()
+            async with AsyncExitStack() as stack:
+                session=None;loop=asyncio.get_running_loop()
+                async def read_page(url):
+                    nonlocal session
+                    if listing_fetch is not None and url in spec.listings:
+                        if session is not None:session.invalidate()
+                        return await asyncio.to_thread(listing_fetch,spec,profile,url)
+                    if session is None:
+                        call=await stack.enter_async_context(open_browser(spec.source))
+                        session=PortalSession(call,clock,spec,access_check=access_check)
+                    return await session.read(url)
                 def sync(coroutine,timeout):
                     future=asyncio.run_coroutine_threadsafe(coroutine,loop)
                     try:return future.result(timeout=timeout)
                     except BaseException:future.cancel();raise
-                read=lambda url:sync(session.read(url),30)
+                read=lambda url:sync(read_page(url),175 if listing_fetch is not None and url in spec.listings else 30)
                 bound=None
                 if scope is not None:
                     bound=partial(enrich,scope=scope,hosts={spec.source.id:spec.source.hosts},
@@ -142,7 +159,7 @@ def portal_adapter(spec_factory,*,open_browser,clock,scope=None,extract_document
 
 
 def source_bundle(*,open_browser,clock,scope=None,reviewed_recipes=None,extra_sources=(),extract_document=extract_isolated,
-                  access_check=None):
+                  access_check=None,api_fetch=None):
     """One call binds all eight existing platforms plus reviewed new portals.
 
     open_browser(source) is mandatory and operator-bound. No guessing Tender.Pro,
@@ -157,7 +174,13 @@ def source_bundle(*,open_browser,clock,scope=None,reviewed_recipes=None,extra_so
                                   document_scope=scope,extract_document=extract_document,access_check=permission)}
     for key in ('fabrikant','tektorg','gpb','roseltorg','sber','federation','rtender'):
         factory=lambda profile,now,key=key:platform_specs(profile,now)[key]
-        adapters[key]=portal_adapter(factory,open_browser=open_browser,clock=clock,scope=scope,extract_document=extract_document,access_check=permission)
+        listing_fetch=None
+        if key in ('federation','rtender'):
+            from .api_listing import observe,public_search
+            listing_fetch=partial(observe,clock=clock,access_check=permission,
+                                  fetch=public_search if api_fetch is None else api_fetch)
+        adapters[key]=portal_adapter(factory,open_browser=open_browser,clock=clock,scope=scope,
+            extract_document=extract_document,access_check=permission,listing_fetch=listing_fetch)
     for key,factory in (reviewed_recipes or {}).items():
         if key not in sources or key in adapters:raise ValueError('unique_registered_portal_recipe_required')
         def checked(profile,now,key=key,factory=factory):

@@ -94,10 +94,13 @@ class Session:
         if type(observed) is not dict or 'exceptionDetails' in observed:raise ValueError('b2b_search_evaluation_failed')
         return observed.get('result',{}).get('value')
 
-    async def read(self,url):
-        self.approve(url)
+    def invalidate(self):
         self._generation+=1
         self._card=None;self._links.clear();self._downloads.clear();self._download_deadline=None
+
+    async def read(self,url):
+        self.approve(url)
+        self.invalidate()
         if self.access_check is not None:
             from .access import Decision
             decision=await asyncio.to_thread(self.access_check,url)

@@ -1,0 +1,85 @@
+{
+  "read_only": true,
+  "deployed": false,
+  "real_telegram_acceptance": false,
+  "scope": "first public search pages only; no populated-page acceptance",
+  "results": [
+    {
+      "source": "federation",
+      "first_checked_at": "2026-10-31T20:43:20.509825+00:00",
+      "last_checked_at": "2026-10-31T20:43:20.509825+00:00",
+      "terms": [
+        "капитальный ремонт",
+        "кровля",
+        "фасад",
+        "отделка",
+        "ремонт помещений",
+        "бассейн СПА",
+        "водоснабжение",
+        "канализация",
+        "отопление",
+        "вентиляция",
+        "электроснабжение",
+        "комплексные СМР"
+      ],
+      "additional_terms": [
+        "Ставропольский край",
+        "Краснодарский край"
+      ],
+      "requests": 14,
+      "discovered_cards": 0,
+      "statuses": [
+        "ok"
+      ],
+      "primary_cards_checked": 0,
+      "capture_sha256": [
+        "cd99eddbd4d4245d8ef9ce4e051587a1dd0418931f71ea72c6107a7da0c5e5b4"
+      ]
+    },
+    {
+      "source": "rtender",
+      "first_checked_at": "2026-10-31T20:44:27.555473+00:00",
+      "last_checked_at": "2026-10-31T20:44:34.535495+00:00",
+      "terms": [
+        "капитальный ремонт",
+        "кровля",
+        "фасад",
+        "отделка",
+        "ремонт помещений",
+        "бассейн СПА",
+        "водоснабжение",
+        "канализация",
+        "отопление",
+        "вентиляция",
+        "электроснабжение",
+        "комплексные СМР"
+      ],
+      "additional_terms": [
+        "Ставропольский край",
+        "Краснодарский край"
+      ],
+      "requests": 14,
+      "discovered_cards": 0,
+      "statuses": [
+        "ok"
+      ],
+      "primary_cards_checked": 0,
+      "capture_sha256": [
+        "e079c151e39a8d9a417d6258c75459eaf56f772d9cc596767ce39d559111db55",
+        "b0b8dab57a6646d0b8318f695811d50990ca7d92e3fc5b466f01556c436500ee",
+        "20aa079a52077b0d49caae88aee36821e822f35233c59dd2d5e6c7881c3ab8a8",
+        "b9256267f5757ef8f1271e2af5aae952a72bc642c3284f796e028ea289f87ca0",
+        "85e1cfdb4d056f6dec07638ddfdb671634ccec5fc44c8733ecfaedd2e09afb22",
+        "2139756be69fe14479a261c383dfa4e4d5446d33bbec2a553b5486b17cc30a22",
+        "1b59099686978400b6ccf763265d18dafca692c9c8a3726e5bed58bafa0d41ff",
+        "ff422d50cd9645cbf8ee6b43427e903cdaccafc492954978891329805ee872ec",
+        "2fde86439c9cd4043fef0a99576440b5b5cb3a21128b589cd55066c7653fdd26",
+        "3aa1bee4d57f435687912069f8bd7ab53065a4bb3aa2fc10606b969fa82722d0",
+        "d7c8d1a270324cb968e2123bf430262d2f9cda1751087c12518b2347ba6951b9",
+        "f970d79e017dc1e508ad4e01f61b636e3bcda477e9936554f6fa0deb5e174d19",
+        "9109a99bbd34aa5645a1ece2af8447df6562aa1026f4f4565c0bef97939f75a0",
+        "d309a65741a169b2276a0ffc270783de8e32aa0aa73ecbbeea06973c27d9890f"
+      ]
+    }
+  ]
+}

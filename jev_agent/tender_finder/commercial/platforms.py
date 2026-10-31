@@ -79,7 +79,7 @@ def platform_specs(profile,now):
             ('section_ids[]','2'),('statuses[]','1'),('statuses[]','5')]),),
         'gpb':('https://etpgpb.ru/api/v2/procedures/?'+urlencode([
             ('page','1'),('per','10'),('procedure[stage][0]','accepting')]),),
-        'federation':('https://etpp.ru/tenders?section=SECTION_COMMERCIAL_PROCEDURES',),
+        'federation':('https://lk.fedtorgi.ru/api/v1/procedures/search?page=1&limit=10',),
     }
     result={}
     for key,urls in plans.items():
