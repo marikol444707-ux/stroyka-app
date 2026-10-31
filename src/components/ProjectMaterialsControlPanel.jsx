@@ -160,7 +160,7 @@ export default function ProjectMaterialsControlPanel({
   const metrics = [
     {label: 'Позиций по смете', value: planRows.length, active: true, color: C.text, bg: C.bg, border: C.border},
     {label: 'Поставлялось', value: suppliedRows.length, active: true, color: C.success, bg: C.successLight, border: C.successBorder},
-    {label: 'Накладные', value: invoiceRows.length, active: invoiceRows.length > 0, color: C.info, bg: C.infoLight, border: C.infoBorder},
+    {label: 'Позиций по накладным', value: invoiceRows.length, active: invoiceRows.length > 0, color: C.info, bg: C.infoLight, border: C.infoBorder},
     {label: 'Поставки', value: deliveryRows.length, active: deliveryRows.length > 0, color: C.success, bg: C.successLight, border: C.successBorder},
     {label: 'Перемещения', value: movedRows.length, active: movedRows.length > 0, color: C.info, bg: C.infoLight, border: C.infoBorder},
     {label: 'У мастеров', value: masterBalanceRows.length, active: masterBalanceRows.length > 0, color: C.info, bg: C.infoLight, border: C.infoBorder},

@@ -13,6 +13,7 @@ import __future__
 import ast
 from contextlib import ExitStack
 import importlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -39,9 +40,10 @@ def connection_settings(environ):
     return {"host": host, "port": port, "dbname": name, "user": "chain_test", "password": ""}
 
 
-def build_fixture(*, contract_review=False, document_bindings=False):
+def build_fixture(*, contract_review=False, document_bindings=False, work_owners=False):
     settings = connection_settings(os.environ)
-    return _build_isolated_fixture(settings, contract_review=contract_review, document_bindings=document_bindings)
+    return _build_isolated_fixture(settings, contract_review=contract_review,
+                                   document_bindings=document_bindings, work_owners=work_owners)
 
 
 def guarded_connector(settings, connect):
@@ -130,6 +132,96 @@ def _initialize_schema(runtime, source):
     raise RuntimeError("Unexpected bootstrap retry limit")
 
 
+# This is an explicit partial fixture profile, NOT an Alembic upgrade/head.
+# Keep unrelated quality-journal/payment migrations in their owning fixtures.
+WORK_OWNER_MIGRATIONS = (
+    "0103_room_owner_identity.py", "0104_legacy_project_owners.py",
+    "0106_document_version_owner.py", "0107_room_work_owner.py",
+)
+
+
+def _migration_statements(filename):
+    """Collect the complete existing upgrade without importing app/test runners."""
+    path = Path(__file__).resolve().parents[3] / "migrations/versions" / filename
+    spec = importlib.util.spec_from_file_location("fixture_owner_migration", path)
+    module = importlib.util.module_from_spec(spec)
+    statements = []
+    fake = types.ModuleType("alembic")
+    fake.op = types.SimpleNamespace(execute=statements.append)
+    with patch.dict(sys.modules, {"alembic": fake}):
+        spec.loader.exec_module(module)
+    module.upgrade()
+    return statements
+
+
+def _work_owner_statements():
+    # Reuse exactly the prerequisite index DDL from 0023, not its unrelated
+    # quality-journal backfill/trigger schema. Never record 0023 as applied.
+    prefix = "CREATE UNIQUE INDEX quality_projects_id_company_idx ON projects("
+    keys = [sql for sql in _migration_statements("0023_quality_journal_owners.py")
+            if sql.startswith(prefix)]
+    if len(keys) != 1:
+        raise RuntimeError("Work fixture project-key prerequisite changed; review migration 0023")
+    return keys + [sql for name in WORK_OWNER_MIGRATIONS
+                   for sql in _migration_statements(name)]
+
+
+def _assert_work_owner_schema(cur):
+    """Fail before seed/HTTP with the exact missing schema contract."""
+    tables = ("rooms", "room_works", "document_versions", "inspection_orders",
+              "supervisor_acts", "contracts", "project_chat", "tb_journal", "interim_acts")
+    for table in (*tables, "api_errors"):
+        cur.execute("""SELECT column_name FROM information_schema.columns
+                       WHERE table_schema='public' AND table_name=%s""", (table,))
+        columns = {row["column_name"] for row in cur.fetchall()}
+        needed = {"company_id", "project_id"}
+        if table == "api_errors":
+            needed.add("owner_scope")
+        missing = needed - columns
+        if missing:
+            raise RuntimeError(f"Work fixture schema not ready: {table} missing {sorted(missing)}")
+    cur.execute("""SELECT indexdef FROM pg_indexes WHERE schemaname='public'
+                   AND tablename='projects' AND indexname='quality_projects_id_company_idx'""")
+    indexes = cur.fetchall()
+    if len(indexes) != 1 or not re.search(
+            r"CREATE UNIQUE INDEX .* ON .*projects USING btree \(id, company_id\)$",
+            indexes[0]["indexdef"]):
+        raise RuntimeError("Work fixture schema not ready: projects composite unique key")
+    for table in (*tables, "api_errors"):
+        cur.execute("""SELECT conname, contype, convalidated,
+                       pg_get_constraintdef(oid) AS definition FROM pg_constraint
+                       WHERE conrelid=to_regclass(%s)""", ("public." + table,))
+        constraints = {row["conname"]: row for row in cur.fetchall()}
+        if table == "api_errors":
+            expected = {"ck_api_errors_owner_scope": "c"}
+        elif table == "rooms":
+            expected = {"rooms_exact_project_owner": "f", "rooms_owner_pair": "c"}
+        else:
+            expected = {table + "_owner_fk": "f", table + "_owner_pair": "c"}
+        for name, kind in expected.items():
+            row = constraints.get(name)
+            if not row or row["contype"] != kind or not row["convalidated"]:
+                raise RuntimeError(f"Work fixture schema not ready: {table}.{name}")
+            if kind == "f" and re.sub(r"\s+", "", row["definition"]) not in (
+                    "FOREIGNKEY(project_id,company_id)REFERENCESprojects(id,company_id)",
+                    "FOREIGNKEY(project_id,company_id)REFERENCESpublic.projects(id,company_id)"):
+                raise RuntimeError(f"Work fixture schema not ready: wrong owner FK {table}.{name}")
+
+
+def _initialize_work_owners(runtime):
+    from backend.features.api_error_ownership.migration import _ensure_schema
+    from psycopg2.extras import RealDictCursor
+    conn = runtime.get_db()
+    try:
+        with conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+            for statement in _work_owner_statements():
+                cur.execute(statement)
+            _ensure_schema(cur)
+            _assert_work_owner_schema(cur)
+    finally:
+        conn.close()
+
+
 def _seed(runtime):
     from psycopg2.extras import Json, RealDictCursor
     project, material, package = "SUPPLY CHAIN synthetic object", "SUPPLY CHAIN exact resource", "Основная"
@@ -193,7 +285,7 @@ def _seed(runtime):
             "quantity": 2, "unit": "шт", "workPackage": package}
 
 
-def _build_isolated_fixture(settings, *, contract_review=False, document_bindings=False):
+def _build_isolated_fixture(settings, *, contract_review=False, document_bindings=False, work_owners=False):
     import psycopg2
     stack = ExitStack()
     connections = []
@@ -260,6 +352,8 @@ def _build_isolated_fixture(settings, *, contract_review=False, document_binding
         main_path = root / "main.py"
         schema_runtime = _module_from_source("backend._supply_chain_schema", main_path, stack, before_call="init_db")
         prerequisites = _initialize_schema(schema_runtime, main_path.read_text(encoding="utf-8"))
+        if work_owners:
+            _initialize_work_owners(schema_runtime)
         if contract_review:
             # Execute the existing migration SQL only in the guarded empty test DB.
             from backend.features.supplier_deal_parties.test_migration import migration_statements

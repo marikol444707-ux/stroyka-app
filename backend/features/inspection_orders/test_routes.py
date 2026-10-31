@@ -1,3 +1,4 @@
+from backend.features.legacy_project_records.testing import fixture_scope
 import unittest
 
 from fastapi import HTTPException
@@ -88,6 +89,8 @@ def inspection_build(cursor):
     app = FakeApp()
     connection = FakeConnection(cursor)
     register_inspection_orders_module(app, {
+        "record_scope": fixture_scope(cursor, connection),
+        "get_current_user": lambda: {},
         "get_db": lambda: connection,
         "require_roles": lambda *roles: (lambda: None),
         "read_roles": ("директор",),
@@ -136,7 +139,7 @@ class InspectionAndBrigadeActsTest(unittest.TestCase):
         app.routes[("PUT", "/inspection-orders/{id}")](
             id=4, data={"responseDate": "", "status": "Исполнено"}, current_user={}
         )
-        sql, vals = cursor.calls[0]
+        sql, vals = cursor.calls[-1]
         self.assertIn("response_date=%s", sql)
         self.assertIsNone(vals[list(vals).index(None)])
 
@@ -145,7 +148,7 @@ class InspectionAndBrigadeActsTest(unittest.TestCase):
         app, connection = inspection_build(cursor)
         result = app.routes[("DELETE", "/inspection-orders/{id}")](id=4, current_user={})
         self.assertEqual(result, {"ok": True})
-        self.assertIn("SET status='Аннулировано'", cursor.calls[0][0])
+        self.assertIn("SET status='Аннулировано'", cursor.calls[-1][0])
         self.assertTrue(connection.committed)
 
     def test_brigade_act_scope_false_short_circuits(self):

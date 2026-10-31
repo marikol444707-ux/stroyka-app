@@ -1,4 +1,6 @@
+from backend.features.legacy_project_records.testing import fixture_scope
 import unittest
+from fastapi import HTTPException
 
 from backend.features.document_versions.routes import register_document_versions_module
 
@@ -50,6 +52,8 @@ def build(cursor):
     app = FakeApp()
     connection = FakeConnection(cursor)
     register_document_versions_module(app, {
+        "record_scope": fixture_scope(cursor, connection),
+        "get_current_user": lambda: {},
         "get_db": lambda: connection,
         "require_roles": lambda *roles: (lambda: None),
         "project_document_roles": ("директор",),
@@ -74,12 +78,12 @@ class DocumentVersionsRoutesTest(unittest.TestCase):
             "changedBy": "Тест", "changeReason": "правка", "createdAt": "2026-07-27",
         }])
         sql, params = cursor.calls[0]
-        self.assertIn("WHERE document_type=%s AND document_id=%s", sql)
-        self.assertEqual(params, ("act", 7))
+        self.assertIn("AND v.document_type=%s AND v.document_id=%s", sql)
+        self.assertEqual(params, (3,"act",7))
         self.assertTrue(connection.closed)
 
     def test_detail_parses_snapshot_and_handles_missing(self):
-        found = FakeCursor(row=(1, "act", 7, "v2", '{"a": 1}', "Тест", "", "2026-07-27"))
+        found = FakeCursor(rows=[(1, "hidden_works_act", 7, "v2", '{"a": 1}', "Тест", "", "2026-07-27")])
         app, _conn = build(found)
         result = app.routes[("GET", "/document-versions/{vid}")](vid=1, _current_user={})
         self.assertEqual(result["snapshot"], {"a": 1})
@@ -87,10 +91,9 @@ class DocumentVersionsRoutesTest(unittest.TestCase):
 
         missing = FakeCursor(row=None)
         app2, _conn2 = build(missing)
-        self.assertEqual(
-            app2.routes[("GET", "/document-versions/{vid}")](vid=99, _current_user={}),
-            {"error": "not found"},
-        )
+        with self.assertRaises(HTTPException) as error:
+            app2.routes[("GET", "/document-versions/{vid}")](vid=99, _current_user={})
+        self.assertEqual(error.exception.status_code,404)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import ToolCustodyPanel from './ToolCustodyPanel';
 import { formatMoney } from '../work-material-accounting/ledgerUi';
 import '../work-material-accounting/ledger.css';
@@ -36,16 +36,17 @@ function ToolForm({ initial, API, companyId, onSaved, onCancel }) {
   </section></form>;
 }
 
-function Workspace({ tools, toolHistory, API, companyContext, user, C, refreshData }) {
+function Workspace({ focusedToolId, tools, toolHistory, API, companyContext, user, C, refreshData }) {
   const [selected, setSelected] = useState(null);
   const [editing, setEditing] = useState(undefined);
   const [search, setSearch] = useState('');
   const [tab, setTab] = useState('list');
   const [showArchive, setShowArchive] = useState(false);
+  useEffect(() => { if (focusedToolId) { setSelected(null); setEditing(undefined); setTab('list'); setSearch(''); } }, [focusedToolId]);
   const selectedCompany = companyContext?.mode === 'company' && Number(companyContext?.selectedCompanyId) > 0;
   const canManage = selectedCompany && ['директор', 'зам_директора', 'прораб', 'главный_инженер', 'кладовщик', 'снабженец'].includes(user?.role);
-  const visible = tools.filter(tool => (showArchive || tool.status !== 'В архиве')
-    && [tool.name, tool.inventoryNumber, tool.masterName, tool.project].join(' ').toLocaleLowerCase('ru-RU').includes(search.toLocaleLowerCase('ru-RU')));
+  const visible = tools.filter(tool => (!focusedToolId || String(tool.id) === focusedToolId) && (focusedToolId || showArchive || tool.status !== 'В архиве')
+    && (focusedToolId || [tool.name, tool.inventoryNumber, tool.masterName, tool.project].join(' ').toLocaleLowerCase('ru-RU').includes(search.toLocaleLowerCase('ru-RU'))));
   return <div className="work-ledger tool-custody" style={{ '--ledger-bg': C.card || C.bg, '--ledger-text': C.text, '--ledger-border': C.border }}>
     <h3>Инструмент</h3><p>Местонахождение, получатель и история ответственности.</p>
     <div className="ledger-actions"><button onClick={() => setTab('list')} aria-pressed={tab === 'list'}>Список</button><button onClick={() => setTab('history')} aria-pressed={tab === 'history'}>Общая история</button>{canManage && <button className="primary" onClick={() => setEditing(null)}>Добавить инструмент</button>}</div>

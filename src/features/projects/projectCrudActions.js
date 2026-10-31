@@ -6,6 +6,8 @@ import { createClientForm, createProjectForm } from './projectInitialForms';
 
 export const createProjectCrudActions = ({
   API,
+  projectSaveRef = {current:false},
+  projectCreateCommandRef = {current:null},
   brigadeContracts,
   editingItem,
   newClient,
@@ -29,13 +31,25 @@ export const createProjectCrudActions = ({
       alert('Введите название');
       return;
     }
+    if (projectSaveRef.current) return;
+    projectSaveRef.current = true;
     const data = {...newProject, budget: Number(newProject.budget)};
     ['archived', 'archivedAt', 'archived_at', 'id', 'clientEmail', 'clientPassword'].forEach(key => delete data[key]);
     try {
       if (editingItem) {
         await readApiResult(await fetch(API + '/projects/' + editingItem.id, {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)}));
       } else {
-        await readApiResult(await fetch(API + '/projects', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)}));
+        const fingerprint = JSON.stringify(data);
+        if (!projectCreateCommandRef.current || projectCreateCommandRef.current.fingerprint !== fingerprint) {
+          const requestKey = typeof crypto.randomUUID === 'function' ? crypto.randomUUID() :
+            'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, char => {
+              const value = crypto.getRandomValues(new Uint8Array(1))[0] & 15;
+              return (char === 'x' ? value : ((value & 3) | 8)).toString(16);
+            });
+          projectCreateCommandRef.current = {fingerprint, requestKey};
+        }
+        data.requestKey = projectCreateCommandRef.current.requestKey;
+        await readApiResult(await fetch(API + '/projects' , {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)}));
         notify('Создан проект: ' + newProject.name, 'project');
       }
       await refreshData();
@@ -43,8 +57,11 @@ export const createProjectCrudActions = ({
       setNewProject(createProjectForm());
       setEditingItem(null);
       setShowForm(false);
+      projectCreateCommandRef.current = null;
     } catch (err) {
       alert('Не удалось сохранить проект: ' + (err.message || err));
+    } finally {
+      projectSaveRef.current = false;
     }
   };
 

@@ -564,3 +564,44 @@ test('supplier initial load populates its linked card and catalog', async () => 
   expect(setSuppliers).toHaveBeenCalledWith([card]);
   expect(setSupplierCatalog).toHaveBeenCalledWith([item]);
 });
+
+test('cold project load fetches material and warehouse sources without a warehouse visit', async () => {
+  const rows = [{id: 101}];
+  global.fetch = jest.fn(async () => ({ok: true, headers: snapshotHeaders, json: async () => rows}));
+  const setInvoices = jest.fn(), setWarehouseMovements = jest.fn(), setMaterials = jest.fn();
+  const {result} = renderHook(() => useJournalHarness(company(2), {
+    activePage: 'projects', setInvoices, setWarehouseMovements, setMaterials,
+  }));
+  await act(async () => {await result.current.refreshData('projects');});
+  for (const path of ['/materials', '/warehouse-invoices', '/warehouse-main', '/warehouse-movements', '/warehouse-history']) {
+    expect(fetch.mock.calls.some(([url]) => url === '/api' + path)).toBe(true);
+  }
+  expect(setInvoices).toHaveBeenLastCalledWith(rows);
+  expect(setWarehouseMovements).toHaveBeenLastCalledWith(rows);
+  expect(setMaterials).toHaveBeenLastCalledWith(rows);
+});
+
+test('failed warehouse source is incomplete rather than a confirmed zero project balance', async () => {
+  global.fetch = jest.fn(async url => ({ok: !url.endsWith('/warehouse-invoices'), status: 500, headers: snapshotHeaders, json: async () => []}));
+  const setProjectMaterialSourcesState = jest.fn();
+  const {result} = renderHook(() => useJournalHarness(company(2), {activePage: 'projects', setProjectMaterialSourcesState}));
+  await act(async () => {await result.current.refreshData('projects');});
+  expect(setProjectMaterialSourcesState).toHaveBeenLastCalledWith(expect.objectContaining({status: 'error'}));
+});
+
+test('payment-specific loadAll propagates failed GET instead of fallback success', async()=>{
+  global.fetch=jest.fn(async()=>({ok:false,status:500}));
+  const setSupplierInvoices=jest.fn();
+  const {result}=renderHook(()=>useJournalHarness(company(2),{setSupplierInvoices}));
+  await expect(result.current.loadAll({paymentConfirmation:{requestId:'r',companyId:2,invoiceId:4,paidAmount:'10'},isCurrent:()=>true})).rejects.toThrow('обновить');
+  expect(setSupplierInvoices).not.toHaveBeenCalled();
+});
+test('payment-specific loadAll applies verified invoice and returns receipt',async()=>{
+  const rows=[{id:4,companyId:2,paidAmount:10}];
+  global.fetch=jest.fn(async()=>({ok:true,json:async()=>rows}));
+  const setSupplierInvoices=jest.fn();
+  const {result}=renderHook(()=>useJournalHarness(company(2),{setSupplierInvoices}));
+  const confirmation={requestId:'r',companyId:2,invoiceId:4,paidAmount:'10'};
+  const received=await result.current.loadAll({paymentConfirmation:confirmation,isCurrent:()=>true});
+  expect(received).toEqual({requestId:'r',companyId:2,invoiceId:4});expect(setSupplierInvoices).toHaveBeenCalledWith(rows);
+});

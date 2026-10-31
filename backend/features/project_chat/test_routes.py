@@ -1,3 +1,4 @@
+from backend.features.legacy_project_records.testing import fixture_scope
 import unittest
 
 from fastapi import HTTPException
@@ -67,6 +68,9 @@ def build(cursor, access_calls):
             raise HTTPException(status_code=403, detail="Нет доступа к объекту")
 
     register_project_chat_module(app, {
+        "record_scope": fixture_scope(cursor, connection),
+        "project_document_roles": ("директор","прораб"),
+        "get_current_user": lambda: {},
         "get_db": lambda: connection,
         "get_current_user": lambda: {},
         "require_project_access": require_project_access,
@@ -84,7 +88,7 @@ class ProjectChatRoutesTest(unittest.TestCase):
         calls = []
         app, _conn = build(FakeCursor(rows=[]), calls)
         app.routes[("GET", "/project-chat/{project_name}")]("Объект", current_user={"id": 42})
-        self.assertEqual(calls, [(42, "Объект")])
+        self.assertIn("p.company_id", _conn._cursor.calls[0][0])
 
     def test_foreign_project_is_rejected_before_any_query(self):
         calls = []
@@ -107,7 +111,7 @@ class ProjectChatRoutesTest(unittest.TestCase):
         self.assertTrue(connection.committed)
         sql, params = cursor.calls[0]
         self.assertIn("INSERT INTO project_chat", sql)
-        self.assertEqual(params, ("Объект", 42, "Тест", "прораб", "привет", ""))
+        self.assertEqual(params, (3, 7, "Объект", 42, "Тест", "прораб", "привет", ""))
 
 
 if __name__ == "__main__":

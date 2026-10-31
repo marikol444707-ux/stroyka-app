@@ -23,12 +23,16 @@ export default function ProjectMaterialInspectionTab({
   toNum,
 }) {
   const diagnostics = projectJournalDiagnostics(project);
-  const rows = selectQualityJournalRows(materialInspections, project);
+  const allRows = selectQualityJournalRows(materialInspections, project);
+  const rows = journalDiagnosticMode === 'pending' ? allRows.filter(row => !row.inspected && row.status !== 'Закрыта') : allRows;
 
   const modeControls = (
     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '10px' }}>
       <button onClick={() => setJournalDiagnosticMode('all')} style={{ ...btnG, fontSize: '12px', padding: '6px 10px', backgroundColor: journalDiagnosticMode === 'all' ? C.accent : C.bg, color: journalDiagnosticMode === 'all' ? 'white' : C.text }}>
-        Все записи: {rows.length}
+        Все записи: {allRows.length}
+      </button>
+      <button onClick={() => setJournalDiagnosticMode('pending')} style={{...btnG, fontSize:'12px', padding:'6px 10px'}} aria-pressed={journalDiagnosticMode==='pending'}>
+        Не закрыты: {allRows.filter(row => !row.inspected && row.status !== 'Закрыта').length}
       </button>
       <button onClick={() => setJournalDiagnosticMode('unlinked')} style={{ ...btnG, fontSize: '12px', padding: '6px 10px', backgroundColor: journalDiagnosticMode === 'unlinked' ? C.warning : C.bg, color: journalDiagnosticMode === 'unlinked' ? 'white' : C.text }}>
         Не связано: {diagnostics.stockWithoutInspection.length}
@@ -124,8 +128,8 @@ export default function ProjectMaterialInspectionTab({
         <div style={{ ...card, padding: '12px', backgroundColor: C.accentLight, border: '1.5px solid ' + C.accentBorder }}><p style={{ color: C.accent, fontSize: '11px', margin: '0 0 4px' }}>Соответствует</p><b style={{ color: C.accent, fontSize: '16px' }}>{conformingCount}</b></div>
       </div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '10px' }}>
-        <button onClick={() => showPreview(buildMaterialInspectionContent(rows, project, '', ''), 'Журнал входного контроля — ' + project.name)} style={{ ...btnB, fontSize: '12px', padding: '7px 12px' }}>
-          <Eye size={13} />🖨 Печать журнала
+        <button onClick={() => showPreview(buildMaterialInspectionContent(allRows, project, '', ''), 'Журнал входного контроля — ' + project.name)} style={{ ...btnB, fontSize: '12px', padding: '7px 12px' }}>
+          <Eye size={13} />🖨 Печать полного журнала
         </button>
       </div>
       <div style={{ ...card, padding: 0, overflow: 'auto' }}>

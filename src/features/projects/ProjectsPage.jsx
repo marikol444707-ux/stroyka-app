@@ -1,4 +1,5 @@
 import React from 'react';
+import { clearNavigationTarget, selectedCompanyId, useNavigationTarget } from '../navigation/navigationTarget';
 import { qualityJournalLoadIssue, selectQualityJournalRows } from '../../utils/qualityJournalScope';
 import {
   createInspectionOrderForm,
@@ -52,7 +53,7 @@ export default function ProjectsPage({ ctx }) {
     newBrigadeContract, newBrigadeItem, newChecklist, newChecklistItem, newInspOrder, newLetter,
     newParticipant, newPrescription, newProject, newProjectDoc, newStage, newTbEntry,
     newWarrantyDefect, normalizeMeasure, openAiTaskAction, openBrigadeContract, openConfirmModal,
-    openEstimateDetail, ownExpenses, parseAiTaskPayload, prescriptionsList, pricelists, projectAiSummaries, projectBudgetSpent, projectChatMessage,
+    ownExpenses, parseAiTaskPayload, prescriptionsList, pricelists, projectAiSummaries, projectBudgetSpent, projectChatMessage,
     projectChatMessages, projectDocuments, projectEconomy, projectLetters, projectPaymentInAmount, projectPaymentSignedAmount,
     projectPayments, projectPlanDone, projectRealProgress, projectStages, projects, refreshData, renderEstimateChangeReconcileTask,
     renderEstimateReconciliationsPanel, renderMaterialSupplyAction, renderWorkJournalEstimateReconciliationPanel, roleColor,
@@ -75,6 +76,7 @@ export default function ProjectsPage({ ctx }) {
     weatherLog, workJournal, workJournalPage,
   } = ctx;
 
+  const documentTarget = useNavigationTarget();
   const journalIssue = (project, kinds) => qualityJournalLoadIssue(ctx.qualityJournalLoadState, project, ctx.companyContext, user, kinds);
   const journalLoadNotice = issue => <div role="alert" style={{ ...card, padding: '16px' }}>
     <p>{issue}</p><p>Печать и диагностика журналов недоступны до полной загрузки.</p>
@@ -158,6 +160,10 @@ export default function ProjectsPage({ ctx }) {
     }
   };
 
+  if (documentTarget?.type === 'document' && (documentTarget.companyId !== selectedCompanyId(ctx.companyContext, user)
+      || !(projects || []).some(project => String(project.id) === documentTarget.projectId && String(project.companyId ?? project.company_id) === documentTarget.companyId))) {
+    return <div role="status"><p>Выберите компанию и доступный объект из ссылки на документ. Объект может быть ещё не загружен или недоступен.</p><button onClick={clearNavigationTarget}>Вернуться к объектам</button></div>;
+  }
   return (
 <div>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'20px',flexWrap:'wrap',gap:'10px'}}>
@@ -338,7 +344,11 @@ export default function ProjectsPage({ ctx }) {
                         onOpenStages={()=>setActiveProjectTab('Этапы')}
                         onAction={({ item, action }) => {
                           const targetTab = directorMapActionTarget({ item, action });
+                          if (targetTab === 'Входной контроль') {
+                            setJournalDiagnosticMode('pending');
+                          }
                           if (targetTab) setActiveProjectTab(targetTab);
+                          window.scrollTo?.({top:0, behavior:'auto'});
                         }}
                       />
                     )}
@@ -391,7 +401,7 @@ export default function ProjectsPage({ ctx }) {
                           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                             <div><b style={{color:C.text,fontSize:'13px'}}>{est.name}</b><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{estimateKind(est)+' · 📁 '+estimatePackage(est)+' · v'+est.version}</p></div>
                             <div style={{display:'flex',gap:'6px'}}>
-                              <button onClick={()=>{openEstimateDetail(est);navigateTo('estimates');}} style={btnB}><Eye size={13}/>Открыть</button>
+                              <button onClick={()=>{navigateTo('estimates', {entityType:'estimate',entityId:est.id,companyId:p.companyId??p.company_id,projectId:p.id});}} style={btnB}><Eye size={13}/>Открыть</button>
                             </div>
                           </div>
                         </div>));
@@ -678,6 +688,7 @@ export default function ProjectsPage({ ctx }) {
                   )}
                   {activeProjectTab==='📁 Реестр'&&(
                     <ProjectDocumentsRegistryPanel
+                      companyId={p.companyId??p.company_id}
                       projectId={p.id}
                       projectName={p.name}
                       projectCustomerName={p.client}

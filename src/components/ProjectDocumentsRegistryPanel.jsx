@@ -1,4 +1,5 @@
 import React from 'react';
+import { clearNavigationTarget, navigationHref, ownerId, targetMatchesRow, useNavigationTarget } from '../features/navigation/navigationTarget';
 import { Check, Eye, Plus, Trash2, Upload, X } from 'lucide-react';
 import { API } from '../api';
 import DocumentRecognitionPanel from './DocumentRecognitionPanel';
@@ -14,6 +15,7 @@ const isCustomerContract = doc => doc?.side === 'customer' && /(договор|�
 const isCustomerKsAct = doc => doc?.side === 'customer' && ['Акт КС-2', 'Акт КС-3'].includes(doc?.docType);
 
 export default function ProjectDocumentsRegistryPanel({
+  companyId,
   projectId,
   projectName,
   projectCustomerName = '',
@@ -36,8 +38,13 @@ export default function ProjectDocumentsRegistryPanel({
   btnB,
   btnR,
 }) {
-  const customerContracts = projectDocuments
-    .filter(doc => doc.projectName === projectName && isCustomerContract(doc) && doc.partySnapshot)
+  const routeTarget = useNavigationTarget();
+  const target = routeTarget?.type === 'document' ? routeTarget : null;
+  const ownedDocuments = projectDocuments.filter(doc => String(doc.projectId ?? doc.project_id) === String(projectId) && ownerId(doc) === String(companyId));
+  const targetDoc = target && target.companyId === String(companyId) && target.projectId === String(projectId)
+    ? ownedDocuments.find(doc => targetMatchesRow(target, doc)) : null;
+  const customerContracts = ownedDocuments
+    .filter(doc => isCustomerContract(doc) && doc.partySnapshot)
     .sort((left, right) => Number(right.contractVersion || 1) - Number(left.contractVersion || 1) || Number(right.id) - Number(left.id));
 
   const saveDocument = async () => {
@@ -156,6 +163,7 @@ export default function ProjectDocumentsRegistryPanel({
     setShowDocForm(false);
   };
 
+  if (target && !targetDoc) return <div role="status"><p>Документ по ссылке ещё не загружен или недоступен в выбранном объекте и компании.</p><button type="button" onClick={clearNavigationTarget}>Показать реестр</button></div>;
   return (
     <div>
       <div style={{...card, padding: '14px', marginBottom: '12px', backgroundColor: C.accentLight, border: '1.5px solid ' + C.accentBorder}}>
@@ -242,8 +250,9 @@ export default function ProjectDocumentsRegistryPanel({
         </div>
       )}
 
+      {target && <p role="status">Открыт документ #{target.id}. <button type="button" onClick={clearNavigationTarget}>Показать весь реестр</button></p>}
       {GROUPS.map(group => {
-        const docs = projectDocuments.filter(d => d.projectName === projectName && d.side === group.key);
+        const docs = ownedDocuments.filter(d => d.side === group.key && (!target || targetMatchesRow(target, d)));
 
         return (
           <div key={group.key} style={{...card, padding: '16px', marginBottom: '12px'}}>
@@ -273,6 +282,7 @@ export default function ProjectDocumentsRegistryPanel({
                   }}>
                     {signed ? '✅ Подписан' : doc.scanUrl ? '📎 Скан есть' : '⏳ ' + doc.signStatus}
                   </span>
+                  <a href={navigationHref({type:'document', id:doc.id, companyId, projectId})}>Ссылка на документ</a>
                   {doc.scanUrl && (
                     <a href={fileSrc(doc.scanUrl)} target="_blank" rel="noreferrer" style={{...btnB, padding: '4px 8px', fontSize: '11px', textDecoration: 'none'}}>
                       <Eye size={11}/>Скан

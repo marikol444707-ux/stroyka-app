@@ -1,3 +1,4 @@
+import { qualityJournalScopeKey } from '../../utils/qualityJournalScope';
 import React from 'react';
 import { createMaterialTransferForm } from '../warehouse/warehouseInitialForms';
 import { projectMaterialEstimateDetailsToLoad } from './projectMaterialsUtils';
@@ -35,6 +36,7 @@ export default function ProjectMaterialsTab({ ctx, project, projectJournalDiagno
     activeEstimatesForProject,
   });
   const estimatesToLoadKey = estimatesToLoad.map(estimate => estimate.id).sort().join(',');
+  const materialSourcesReady = ctx.projectMaterialSourcesState?.status === 'ready' && ctx.projectMaterialSourcesState.scopeKey === qualityJournalScopeKey(ctx.companyContext || {}, ctx.user);
   const isEstimatePlanLoading = estimatesToLoad.length > 0 && !estimateLoadError;
 
   React.useEffect(() => {
@@ -65,7 +67,7 @@ export default function ProjectMaterialsTab({ ctx, project, projectJournalDiagno
           <p style={{color:C.textSec,fontSize:'11px',margin:'3px 0 0'}}>Плановая потребность активных смет, заявки, поставки и фактический остаток объекта.</p>
         </div>
       </div>
-      {(()=>{
+      {materialSourcesReady && (()=>{
         const diag=projectJournalDiagnostics(p);
         if(!diag.smetaOutsideRows.length&&!diag.smetaOverRows.length) return null;
         return(<div style={{...card,padding:'12px',marginBottom:'12px',backgroundColor:C.warningLight,border:'1.5px solid '+C.warningBorder}}>
@@ -76,6 +78,10 @@ export default function ProjectMaterialsTab({ ctx, project, projectJournalDiagno
           </div>
         </div>);
       })()}
+      {!materialSourcesReady && <div role="status" style={{padding:'12px',color:C.textSec}}>
+        {ctx.projectMaterialSourcesState?.status === 'error' ? 'Не удалось загрузить все складские источники. Итоги пока недоступны.' : 'Загружаем складские источники объекта...'}
+        <button type="button" onClick={() => ctx.refreshData('projects')} style={btnB}>Повторить загрузку</button>
+      </div>}
       {isEstimatePlanLoading && (
         <div role="status" style={{padding:'14px 0',marginBottom:'12px',borderTop:'1px solid '+C.border,borderBottom:'1px solid '+C.border,color:C.textSec,fontSize:'12px'}}>
           Загружаем материалы активных смет объекта...
@@ -87,7 +93,7 @@ export default function ProjectMaterialsTab({ ctx, project, projectJournalDiagno
           <button type="button" onClick={()=>setEstimateLoadRetry(value=>value+1)} style={{...btnB,padding:'6px 10px',fontSize:'11px'}}>Повторить</button>
         </div>
       )}
-      {!isEstimatePlanLoading && !estimateLoadError && !aliasError && <ProjectMaterialsControlPanel
+      {materialSourcesReady && !isEstimatePlanLoading && !estimateLoadError && !aliasError && <ProjectMaterialsControlPanel
         project={p}
         projectName={p.name}
         rows={materialReconciliationRows(p)}
