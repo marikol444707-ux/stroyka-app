@@ -1,8 +1,19 @@
 """Deterministic direct-contract and financing triage; no invented economics."""
 from datetime import datetime, timedelta
 from decimal import Decimal
+import re
 
 from .model import FIELDS, Profile
+
+QUERY_PATTERNS={
+    'капитальный ремонт':r'капитальн\w*\s+ремонт|капремонт',
+    'кровля':r'кров(?:л|ел)|крыш', 'фасад':r'фасад', 'отделка':r'отделоч|отделк',
+    'ремонт помещений':r'ремонт\w*\s+помещен', 'бассейн СПА':r'бассейн|\bспа\b|\bspa\b',
+    'водоснабжение':r'водоснабжен|водопровод', 'канализация':r'канализац|водоотведен',
+    'отопление':r'отоплен|теплоснабжен', 'вентиляция':r'вентиляц|кондиционир',
+    'электроснабжение':r'электроснабжен|электромонтаж|электрическ',
+    'комплексные СМР':r'\bсмр\b|строительно-монтажн',
+}
 
 
 def assess(candidate, now, hosts, profile=Profile(), *, run_started_at=None):
@@ -47,6 +58,8 @@ def assess(candidate, now, hosts, profile=Profile(), *, run_started_at=None):
     if incomplete_documents:risks.append('Неполный текст документа: требуется проверка или OCR')
     if inaccessible_documents:risks.append('Документ с условиями не удалось проверить')
     searchable = ' '.join(values.get(name,'') for name in ('title','work_scope')).casefold().replace('ё','е')
+    if values.get('work_scope') and not any(re.search(QUERY_PATTERNS[query],searchable) for query in profile.queries):
+        exclusions.append('Работы не соответствуют выбранным направлениям')
     if any(word.casefold().replace('ё','е') in searchable for word in profile.exclude_keywords):
         exclusions.append('Совпадение со словами исключения')
     if not cards: risks.append('Первичная карточка в этом запуске не проверена')

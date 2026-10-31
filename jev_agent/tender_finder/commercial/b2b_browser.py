@@ -81,15 +81,26 @@ class Session:
         self._card=None;self._links=set();self._downloads={};self._download_deadline=None
         self._generation=0
 
+    def approve(self,url):approved_url(url)
+
+    def is_listing(self,url):return urlsplit(url).path=='/app/next/market-search'
+
+    def is_attachment(self,url):return attachment_url(url)
+
+    async def observe_listing(self,url):
+        observed=await self.call('Runtime.evaluate',{'expression':OBSERVE,'returnByValue':True})
+        if type(observed) is not dict or 'exceptionDetails' in observed:raise ValueError('b2b_search_evaluation_failed')
+        return observed.get('result',{}).get('value')
+
     async def read(self,url):
-        approved_url(url)
+        self.approve(url)
         return await asyncio.wait_for(self._read(url),25)
 
     async def _read(self,url):
         self._generation+=1
         self._card=None;self._links.clear();self._downloads.clear();self._download_deadline=None
         await self.call('Page.navigate',{'url':url})
-        search=urlsplit(url).path=='/app/next/market-search'
+        search=self.is_listing(url)
         previous=None
         for _ in range(12):
             reply=await self.call('Runtime.evaluate',{'expression':TEXT,'returnByValue':True})
@@ -108,9 +119,7 @@ class Session:
                 await asyncio.sleep(self.poll);continue
             state=None
             if search:
-                observed=await self.call('Runtime.evaluate',{'expression':OBSERVE,'returnByValue':True})
-                if type(observed) is not dict or 'exceptionDetails' in observed:raise ValueError('b2b_search_evaluation_failed')
-                state=observed.get('result',{}).get('value')
+                state=await self.observe_listing(url)
                 # Bound serialization before carrying any source output forward.
                 if type(state) is not dict or len(json.dumps(state,ensure_ascii=False).encode())>128*1024:
                     raise ValueError('bounded_b2b_search_state_required')
@@ -124,7 +133,7 @@ class Session:
                         raise ValueError('observed_dom_attachment_links_required')
                     self._card=url
                     self._links={row['url'] for row in links if row.get('section')=='procurement_documents'
-                                 and attachment_url(row.get('url'))}
+                                 and self.is_attachment(row.get('url'))}
                     self._download_deadline=asyncio.get_running_loop().time()+45
                 return Observation(url,'ok',self.clock(),text,state,tuple(links))
             previous=signature
@@ -138,7 +147,7 @@ class Session:
         or btoa. The existing CDP transport must bound replies to <=12 MiB.
         No arbitrary URL/model-facing download tool is registered.
         """
-        if (not attachment_url(url) or url not in self._links or self._card is None
+        if (not self.is_attachment(url) or url not in self._links or self._card is None
                 or type(maximum) is not int or not 0<maximum<=MAX_BYTES):
             raise ValueError('current_primary_public_attachment_required')
         if url in self._downloads:

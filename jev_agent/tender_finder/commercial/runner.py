@@ -7,6 +7,7 @@ No default network, model, messaging, login, schedules or installation callbacks
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import re
+import time
 from zoneinfo import ZoneInfo
 
 from .model import Candidate, Document, Profile, aware
@@ -35,7 +36,7 @@ def _profile(profile):
 
 
 def run(request_id, scope, directory, *, adapters, sources=None, profile=Profile(),
-        clock=lambda: datetime.now(timezone.utc)):
+        clock=lambda: datetime.now(timezone.utc),monotonic=time.monotonic):
     """adapters[source_id](profile, started_at) -> SourceResult; trusted bindings.
 
     A protected registry directory must be provisioned explicitly by the caller.
@@ -44,6 +45,7 @@ def run(request_id, scope, directory, *, adapters, sources=None, profile=Profile
     if not isinstance(request_id, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}', request_id):
         raise ValueError('bounded_request_id_required')
     profile.validate()
+    if not callable(monotonic):raise ValueError('protected_monotonic_clock_required')
     sources = source_registry() if sources is None else sources
     if set(adapters) - set(sources): raise ValueError('registered_sources_required')
     for key, source in sources.items():
@@ -62,6 +64,7 @@ def run(request_id, scope, directory, *, adapters, sources=None, profile=Profile
             return old['report']
         if len(requests) >= 1000: raise ValueError('commercial_registry_retention_review_required')
         started = clock()
+        deadline=monotonic()+600
         if not aware(started): raise ValueError('aware_clock_required')
         records = {} if previous is None else previous['records']
         history = [] if previous is None else previous['history']
@@ -74,7 +77,9 @@ def run(request_id, scope, directory, *, adapters, sources=None, profile=Profile
         for key, source in sources.items():
             status, cards, documents, limitations, attachments = 'not_connected', set(), set(), (), ()
             adapter = adapters.get(key)
-            if adapter is not None and source.hosts:
+            if adapter is not None and source.hosts and monotonic()>=deadline:
+                status='not_checked_due_budget';limitations=('read_budget_exhausted',)
+            elif adapter is not None and source.hosts:
                 try:
                     output = adapter(profile, started)
                     completed = clock()
