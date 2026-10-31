@@ -39,3 +39,27 @@ test('unknown project ID is never restored as selected entity',()=>{
   const {result}=renderHook(()=>useHarness());
   expect(result.current.expandedProject).toBeNull();
 });
+test('typed target includes owner and exact ID; explicit foreign company is rejected',()=>{
+  const {result}=renderHook(()=>useHarness());
+  act(()=>result.current.navigateTo('warehouse',{entityType:'material',entityId:51,companyId:3,projectId:7}));
+  expect(new URLSearchParams(window.location.search).get('entityId')).toBe('51');
+  expect(new URLSearchParams(window.location.search).get('appCompanyId')).toBe('3');
+  act(()=>result.current.navigateTo('warehouse',{entityType:'material',entityId:52,companyId:4}));
+  expect(new URLSearchParams(window.location.search).get('entityId')).toBe('51');
+  act(()=>result.current.navigateTo('projects'));
+  expect(new URLSearchParams(window.location.search).has('entityId')).toBe(false);
+});
+test('foreign company link never restores an object from stale context',()=>{
+  window.history.replaceState({},'','/app?view=projects&appProjectId=7&appCompanyId=4');
+  const {result}=renderHook(()=>useHarness());
+  expect(result.current.expandedProject).toBeNull();
+  expect(new URLSearchParams(window.location.search).get('appCompanyId')).toBe('4');
+});
+
+test('typed document navigation selects the registry tab and keeps it in URL',()=>{
+  const {result}=renderHook(()=>useHarness());
+  act(()=>result.current.navigateTo('projects',{entityType:'document',entityId:40,companyId:3,projectId:7}));
+  expect(result.current.activeProjectTab).toBe('📁 Реестр');
+  expect(new URLSearchParams(window.location.search).get('projectTab')).toBe('📁 Реестр');
+  expect(new URLSearchParams(window.location.search).get('entityId')).toBe('40');
+});

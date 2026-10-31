@@ -6,6 +6,7 @@ import WarehouseMovementSource from './WarehouseMovementSource';
 import { identifiedInvoiceLines } from '../utils/warehouseInvoiceSource';
 
 export default function WarehouseOperationsPanel({
+  focusedToolId,
   warehouseTab,
   C,
   card,
@@ -500,7 +501,7 @@ export default function WarehouseOperationsPanel({
               </tr>
             </thead>
             <tbody>
-              {tools.map(tool => (
+              {tools.filter(tool => !focusedToolId || String(tool.id) === focusedToolId).map(tool => (
                 <tr key={tool.id}>
                   <td style={tblC}>
                     <b style={{ fontSize: '13px' }}>{tool.name}</b>

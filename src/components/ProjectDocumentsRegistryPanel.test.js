@@ -4,6 +4,7 @@ import ProjectDocumentsRegistryPanel from './ProjectDocumentsRegistryPanel';
 
 
 const buildProps = (overrides = {}) => ({
+  companyId: 3,
   projectId: 17,
   projectName: 'Лицей',
   projectDocuments: [],
@@ -84,7 +85,7 @@ describe('ProjectDocumentsRegistryPanel', () => {
   it('starts a clean next version from a frozen customer contract', () => {
     const props=buildProps({
       showDocForm:false,
-      projectDocuments:[{
+      projectDocuments:[{companyId:3,projectId:17,
         id:9,projectName:'Лицей',side:'customer',docType:'Договор',number:'1',
         docDate:'2026-10-01',counterparty:'ООО Заказчик',signStatus:'Подписан',
         scanUrl:'/tenant-files/9/content',contractVersion:1,
@@ -128,7 +129,7 @@ describe('ProjectDocumentsRegistryPanel', () => {
     global.fetch = jest.fn().mockResolvedValue({ok: true});
     const props = buildProps({
       showDocForm: false,
-      projectDocuments: [{
+      projectDocuments: [{companyId:3,projectId:17,
         id: 9,
         projectName: 'Лицей',
         side: 'customer',
@@ -156,7 +157,7 @@ describe('ProjectDocumentsRegistryPanel', () => {
   });
 
   it('selects the only signed customer contract when KS-2 is chosen', () => {
-    const contract={
+    const contract={companyId:3,projectId:17,
       id:40,projectName:'Лицей',side:'customer',docType:'Договор',number:'15',
       contractVersion:2,partySnapshot:{schemaVersion:1},signStatus:'Подписан',
       scanUrl:'/tenant-files/40/content',
@@ -183,7 +184,7 @@ describe('ProjectDocumentsRegistryPanel', () => {
   });
 
   it('shows the frozen KS contract basis without offering a contract revision', () => {
-    const props=buildProps({showDocForm:false,projectDocuments:[{
+    const props=buildProps({showDocForm:false,projectDocuments:[{companyId:3,projectId:17,
       id:44,projectName:'Лицей',side:'customer',docType:'Акт КС-3',number:'3',
       signStatus:'Подписан',scanUrl:'/tenant-files/78/content',notes:'',
       partySnapshot:{documentKind:'customerWorkAct',contractBasis:{documentId:40,number:'15',version:2}},
@@ -192,5 +193,30 @@ describe('ProjectDocumentsRegistryPanel', () => {
     expect(getByText('Стороны и договор-основание зафиксированы')).toBeInTheDocument();
     expect(getByText('По договору № 15 · версия 2')).toBeInTheDocument();
     expect(queryByRole('button',{name:/Новая версия/i})).not.toBeInTheDocument();
+  });
+});
+
+describe('exact document navigation',()=>{
+  afterEach(()=>window.history.replaceState({},'','/app'));
+  it('shows only the exact document and does not mix equal names across companies',()=>{
+    window.history.replaceState({},'','/app?view=projects&appProjectId=17&projectTab=Реестр&appCompanyId=3&entityType=document&entityId=40');
+    const props=buildProps({showDocForm:false,projectDocuments:[
+      {id:40,companyId:3,projectId:17,projectName:'Лицей',side:'customer',docType:'Свой документ'},
+      {id:41,companyId:3,projectId:17,projectName:'Лицей',side:'customer',docType:'Другой документ'},
+      {id:40,companyId:4,projectId:18,projectName:'Лицей',side:'customer',docType:'Чужой документ'}]});
+    const view=render(<ProjectDocumentsRegistryPanel {...props}/>);
+    expect(view.getByText('Свой документ')).toBeInTheDocument();
+    expect(view.queryByText('Другой документ')).not.toBeInTheDocument();
+    expect(view.queryByText('Чужой документ')).not.toBeInTheDocument();
+    expect(view.getByText('Ссылка на документ').getAttribute('href')).toContain('entityId=40');
+    fireEvent.click(view.getByText('Показать весь реестр'));
+    expect(view.getByText('Другой документ')).toBeInTheDocument();
+    expect(view.queryByText('Чужой документ')).not.toBeInTheDocument();
+  });
+  it('does not fall back to a document on another project',()=>{
+    window.history.replaceState({},'','/app?view=projects&appProjectId=18&appCompanyId=3&entityType=document&entityId=40');
+    const view=render(<ProjectDocumentsRegistryPanel {...buildProps({showDocForm:false,projectDocuments:[{id:40,companyId:3,projectId:17,projectName:'Лицей',side:'customer',docType:'Свой документ'}]})}/>);
+    expect(view.getByRole('status')).toHaveTextContent('недоступен');
+    expect(view.queryByText('Свой документ')).not.toBeInTheDocument();
   });
 });

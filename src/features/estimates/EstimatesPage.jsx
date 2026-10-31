@@ -1,4 +1,5 @@
 import React from 'react';
+import { clearNavigationTarget, selectedCompanyId, targetMatchesProject, targetMatchesRow, useNavigationTarget } from '../navigation/navigationTarget';
 import { canManageEstimateForContext, estimateRoleForContext } from './estimateAccess';
 
 export default function EstimatesPage({ ctx }) {
@@ -27,6 +28,24 @@ export default function EstimatesPage({ ctx }) {
     companyContext, showEstimateIssuesOnly, showEstimateWorkSummary, showForm, showPreview, user, visibleActiveProjects, visibleEstimatesForCurrentUser, WORK_MATERIAL_NORM_RULES,
     WorkAssignmentStatusPanel,
   } = ctx;
+  const routeTarget = useNavigationTarget();
+  const target = routeTarget?.type === 'estimate' ? routeTarget : null;
+  const routeCompany = selectedCompanyId(companyContext, user);
+  const targetEstimate = target && target.companyId === routeCompany
+    ? visibleEstimatesForCurrentUser(estimatesList || []).find(row => targetMatchesRow(target, row) && targetMatchesProject(target, row, projects)) : null;
+  const openRef = React.useRef(openEstimateDetail);
+  openRef.current = openEstimateDetail;
+  React.useEffect(() => {
+    if (!target) return;
+    setSelectedEstimate(null);
+    if (targetEstimate) { setEstimatesTab('list'); openRef.current(targetEstimate); }
+    return () => setSelectedEstimate(null);
+    // Re-open only for a new exact target or newly loaded metadata.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target?.id, target?.companyId, routeCompany, targetEstimate?.id]);
+  if (target && !targetEstimate) return <div role="status"><p>{target.companyId !== routeCompany
+    ? 'Ссылка относится к другой компании. Выберите её в переключателе компаний.'
+    : 'Смета по ссылке ещё не загружена или недоступна.'}</p><button onClick={clearNavigationTarget}>Вернуться к сметам</button></div>;
   const effectiveUserRole = estimateRoleForContext(user, companyContext);
   const isLeadershipUser = canManageEstimateForContext(user, companyContext);
 
@@ -130,7 +149,7 @@ export default function EstimatesPage({ ctx }) {
                   hasDiff={Boolean(estimateDiffBaseFor(selectedEstimate))}
                   issueCount={estimateQualityRows(selectedEstimate).length}
                   onAiAnalysis={handleEstimateAiAnalysis}
-                  onBack={()=>setSelectedEstimate(null)}
+                  onBack={()=>{clearNavigationTarget();setSelectedEstimate(null);}}
                   onDetectHiddenWorks={handleDetectEstimateHiddenWorks}
                   onExport={handleExportSelectedEstimate}
                   onHistory={handleOpenSelectedEstimateHistory}
