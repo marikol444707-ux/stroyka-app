@@ -156,7 +156,7 @@ class AttachmentTests(unittest.TestCase):
         read,_=ReaderTests().fixture_reader()
         def observed(url):
             page=read(url)
-            if url==CARD_URL:return replace(page,attachment_links=({'url':URL,'name':'Проект договора'},))
+            if url==CARD_URL:return replace(page,attachment_links=({'url':URL,'name':'Проект договора','section':'procurement_documents'},))
             return page
         bound=partial(enrich,scope=SCOPE,hosts=HOSTS,fetch=lambda *_:Download(URL,'ok',NOW,docx(TEXT)),
                       clock=lambda:NOW,extract=extract)

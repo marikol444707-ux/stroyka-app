@@ -234,7 +234,9 @@ def attachment_references(observation,card_id):
         raise ValueError('bounded_observed_attachment_links_required')
     result=[];seen=set()
     for row in observation.attachment_links:
-        if type(row) is not dict or set(row)!={'url','name'}:raise ValueError('observed_attachment_link_required')
+        if type(row) is not dict or set(row) not in ({'url','name'},{'url','name','section'}):
+            raise ValueError('observed_attachment_link_required')
+        if row.get('section')!='procurement_documents':continue
         url=row['url'];name=row['name']
         if not public_url(url) or urlsplit(url).hostname!=HOST or not isinstance(name,str):continue
         extension=next((value for value in ('.pdf','.docx','.txt') if urlsplit(url).path.lower().endswith(value)),None)

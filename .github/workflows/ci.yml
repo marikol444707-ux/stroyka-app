@@ -57,6 +57,7 @@ jobs:
           jev_agent.tender_finder.commercial.test_b2b
           jev_agent.tender_finder.commercial.test_b2b_browser
           jev_agent.tender_finder.commercial.test_documents
+          jev_agent.tender_finder.commercial.test_attachment_browser
           jev_agent.tender_finder.test_contract
           jev_agent.tender_finder.test_reporting
           jev_agent.tender_finder.test_cli
@@ -192,6 +193,9 @@ jobs:
         with:
           node-version: "20"
           cache: npm
+
+      - name: Verify JEV attachment JavaScript streams
+        run: python -B -m jev_agent.tender_finder.commercial.verify_attachment_javascript
 
       - name: Install frontend dependencies
         run: npm ci
