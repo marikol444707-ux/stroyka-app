@@ -630,8 +630,9 @@ def register_public_site_routes(app, deps):
                     raise HTTPException(status_code=422, detail="Один или несколько файлов недоступны или просрочены")
             cur.execute(
                 """INSERT INTO crm_leads
-                   (company_id,name,phone,email,source,budget,notes,stage,created_by,created_at,lead_type,review_status)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                   (company_id,name,phone,email,source,budget,notes,stage,created_by,created_at,lead_type,review_status,
+                    public_site_origin,privacy_last_activity_at)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE,NOW()) RETURNING id""",
                 (
                     lead_owner["companyId"], name, phone, email, source, budget, notes,
                     "Новый", "Сайт", created_at, lead_type, review_status,

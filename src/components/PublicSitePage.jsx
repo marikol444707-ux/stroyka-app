@@ -1462,8 +1462,8 @@ const PublicSitePage = ({ onLogin }) => {
             <p>
               Заявка отправляется только после отметки согласия. Отозвать согласие можно
               по адресу {PUBLIC_SITE_OPERATOR.address}, по телефону {PUBLIC_SITE_OPERATOR.phone}
-              или на {PUBLIC_SITE_OPERATOR.privacyEmail}. Конкретные сроки хранения и удаления
-              должны соответствовать фактическим процессам оператора.
+              или на {PUBLIC_SITE_OPERATOR.privacyEmail}. Заявки с сайта без активности в течение
+              12 месяцев автоматически удаляются, если они не переведены в проект или договор.
             </p>
           </article>
           <article>

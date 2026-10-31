@@ -68,6 +68,8 @@ def _ensure_crm_schema(get_db):
         ALTER TABLE crm_leads ADD COLUMN IF NOT EXISTS estimate_id INT;
         ALTER TABLE crm_leads ADD COLUMN IF NOT EXISTS document_status VARCHAR(80) DEFAULT 'Не собраны';
         ALTER TABLE crm_leads ADD COLUMN IF NOT EXISTS review_status VARCHAR(80) DEFAULT 'Новая';
+        ALTER TABLE crm_leads ADD COLUMN IF NOT EXISTS public_site_origin BOOLEAN NOT NULL DEFAULT FALSE;
+        ALTER TABLE crm_leads ADD COLUMN IF NOT EXISTS privacy_last_activity_at TIMESTAMPTZ;
 
         CREATE TABLE IF NOT EXISTS crm_lead_documents (
             id SERIAL PRIMARY KEY,
@@ -98,6 +100,32 @@ def _ensure_crm_schema(get_db):
             completed_at TIMESTAMP
         );
         CREATE INDEX IF NOT EXISTS idx_crm_lead_tasks_lead_id ON crm_lead_tasks(lead_id);
+
+        UPDATE crm_leads SET privacy_last_activity_at=NOW()
+         WHERE privacy_last_activity_at IS NULL;
+        CREATE OR REPLACE FUNCTION touch_crm_lead_privacy_activity() RETURNS trigger AS $$
+        BEGIN
+            IF TG_TABLE_NAME = 'crm_leads' THEN
+                NEW.privacy_last_activity_at := NOW();
+                RETURN NEW;
+            END IF;
+            IF TG_OP = 'DELETE' THEN
+                UPDATE crm_leads SET privacy_last_activity_at=NOW() WHERE id=OLD.lead_id;
+                RETURN OLD;
+            END IF;
+            UPDATE crm_leads SET privacy_last_activity_at=NOW() WHERE id=NEW.lead_id;
+            RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql;
+        DROP TRIGGER IF EXISTS trg_crm_leads_privacy_activity ON crm_leads;
+        CREATE TRIGGER trg_crm_leads_privacy_activity
+        BEFORE UPDATE ON crm_leads FOR EACH ROW EXECUTE FUNCTION touch_crm_lead_privacy_activity();
+        DROP TRIGGER IF EXISTS trg_crm_lead_documents_privacy_activity ON crm_lead_documents;
+        CREATE TRIGGER trg_crm_lead_documents_privacy_activity
+        AFTER INSERT OR UPDATE OR DELETE ON crm_lead_documents FOR EACH ROW EXECUTE FUNCTION touch_crm_lead_privacy_activity();
+        DROP TRIGGER IF EXISTS trg_crm_lead_tasks_privacy_activity ON crm_lead_tasks;
+        CREATE TRIGGER trg_crm_lead_tasks_privacy_activity
+        AFTER INSERT OR UPDATE OR DELETE ON crm_lead_tasks FOR EACH ROW EXECUTE FUNCTION touch_crm_lead_privacy_activity();
     """)
     conn.commit()
     cur.close()
