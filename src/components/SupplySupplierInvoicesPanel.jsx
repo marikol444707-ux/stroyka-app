@@ -95,6 +95,16 @@ function SupplySupplierInvoicesPanel({
   const [, paymentChanged] = React.useReducer(n=>n+1,0);
   const paymentScope = JSON.stringify([user?.id,companyContext?.mode,companyContext?.selectedCompanyId,companyContext?.loading]);
   const paymentScopeRef = React.useRef(paymentScope);
+  const lifecycle = React.useRef({scope:paymentScope,active:true});
+  if (lifecycle.current.scope !== paymentScope) {
+    lifecycle.current.active = false;
+    lifecycle.current = {scope:paymentScope,active:true};
+  }
+  React.useEffect(()=>{
+    const generation = {scope:paymentScope,active:true};
+    lifecycle.current = generation;
+    return ()=>{generation.active=false;};
+  },[paymentScope]);
   paymentScopeRef.current = paymentScope;
   const paymentKey = invoice => paymentStorageKey(API,user?.id,Number(companyContext?.selectedCompanyId),invoice.id);
   const hasPending = invoice => {
@@ -107,6 +117,8 @@ function SupplySupplierInvoicesPanel({
         || !Number.isSafeInteger(companyId) || companyId <= 0 || Number(invoice.companyId) !== companyId) {
       alert('Выберите компанию этого счёта.'); return;
     }
+    const generation = lifecycle.current;
+    const isCurrent = ()=>generation.active && lifecycle.current===generation && paymentScopeRef.current===paymentScope;
     const key = paymentKey(invoice);
     if (paymentBusy.current.has(key)) return;
     paymentBusy.current.add(key);
@@ -124,19 +136,21 @@ function SupplySupplierInvoicesPanel({
         command = {requestId:crypto.randomUUID(),companyId,invoiceId:invoice.id,
           amount:sum.toFixed(2),expectedPaidAmount:Number(paidAmount).toFixed(2),paidAt:today()};
       }
-      const result = await recordLegacyPayment({api:API,key,storage:window.localStorage,command,companyId,invoiceId:invoice.id});
+      const result = await recordLegacyPayment({api:API,key,storage:window.localStorage,command,companyId,invoiceId:invoice.id,isCurrent});
       confirmed = true;
-      if (paymentScopeRef.current !== paymentScope) return;
-      await loadAll();
-      if (paymentScopeRef.current !== paymentScope) return;
-      result.clear();
+      if (!isCurrent()) return;
+      const refreshed = await loadAll({paymentConfirmation:result.data,isCurrent});
+      if (!isCurrent()) return;
+      if (refreshed?.requestId !== result.data.requestId || refreshed?.companyId !== companyId
+          || refreshed?.invoiceId !== invoice.id) throw new Error('Обновление счёта не подтверждено.');
+      await result.clear(isCurrent);
     } catch(error) {
-      if (paymentScopeRef.current === paymentScope) alert(confirmed
+      if (isCurrent()) alert(confirmed
         ? 'Оплата записана, но список не обновился. Проверьте сохранённую операцию; новая оплата заблокирована.'
         : 'Результат оплаты не подтверждён: '+error.message+' Сохранённая попытка не удаляется. Проверка повторяет только тот же запрос; новую оплату не создавайте.');
     } finally {
       paymentBusy.current.delete(key);
-      paymentChanged();
+      if (isCurrent()) paymentChanged();
     }
   };
 

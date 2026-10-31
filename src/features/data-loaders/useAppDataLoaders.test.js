@@ -588,3 +588,20 @@ test('failed warehouse source is incomplete rather than a confirmed zero project
   await act(async () => {await result.current.refreshData('projects');});
   expect(setProjectMaterialSourcesState).toHaveBeenLastCalledWith(expect.objectContaining({status: 'error'}));
 });
+
+test('payment-specific loadAll propagates failed GET instead of fallback success', async()=>{
+  global.fetch=jest.fn(async()=>({ok:false,status:500}));
+  const setSupplierInvoices=jest.fn();
+  const {result}=renderHook(()=>useJournalHarness(company(2),{setSupplierInvoices}));
+  await expect(result.current.loadAll({paymentConfirmation:{requestId:'r',companyId:2,invoiceId:4,paidAmount:'10'},isCurrent:()=>true})).rejects.toThrow('обновить');
+  expect(setSupplierInvoices).not.toHaveBeenCalled();
+});
+test('payment-specific loadAll applies verified invoice and returns receipt',async()=>{
+  const rows=[{id:4,companyId:2,paidAmount:10}];
+  global.fetch=jest.fn(async()=>({ok:true,json:async()=>rows}));
+  const setSupplierInvoices=jest.fn();
+  const {result}=renderHook(()=>useJournalHarness(company(2),{setSupplierInvoices}));
+  const confirmation={requestId:'r',companyId:2,invoiceId:4,paidAmount:'10'};
+  const received=await result.current.loadAll({paymentConfirmation:confirmation,isCurrent:()=>true});
+  expect(received).toEqual({requestId:'r',companyId:2,invoiceId:4});expect(setSupplierInvoices).toHaveBeenCalledWith(rows);
+});

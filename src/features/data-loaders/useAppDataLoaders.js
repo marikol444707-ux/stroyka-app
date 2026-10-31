@@ -1,3 +1,4 @@
+import { refreshLegacyPayment } from '../supply/legacyInvoicePayment';
 import { isSupportWorkspaceUser } from '../participant-support/workspaceMode';
 import { useCallback, useEffect, useRef } from 'react';
 import useCustomerRecordsLoader from '../customer-cabinet/useCustomerRecordsLoader';
@@ -839,7 +840,14 @@ export const useAppDataLoaders = (ctx) => {
     apiAuthHeaders,
     // Legacy leaf components still call this prop after a mutation. Keep the
     // name for compatibility, but refresh only the currently visible scope.
-    loadAll: () => refreshData(activePage),
+    loadAll: options => options?.paymentConfirmation
+      ? refreshLegacyPayment({api:API,confirmation:options.paymentConfirmation,
+          isCurrent:()=>journalMounted.current && currentJournalScope.current===journalScope
+            && companyContext.mode==='company' && !companyContext.loading
+            && Number(companyContext.selectedCompanyId)===options.paymentConfirmation.companyId
+            && options.isCurrent?.()===true,
+          setInvoices:setSupplierInvoices})
+      : refreshData(activePage),
     loadMaterialNormsPage, loadMaterialsPage, loadMobileInitial, loadWorkJournalPage,
     refreshData, reloadQualityJournals,
   };
