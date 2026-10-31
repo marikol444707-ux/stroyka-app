@@ -60,7 +60,9 @@ test('imports JEV commercial and separate government-review rows while excluding
     json: async () => String(_url).endsWith('/access') ? { enabled: true } : options.method === 'POST' ? { ok: true, received: 1, created: 1, updated: 0 } : [],
   }));
   const report = {
+    run_id: '5a0e8400-e29b-41d4-a716-446655440000',
     region: 'Ставропольский край',
+    sources: [{ provider: 'B2B-Center', query: 'школа', ok: true, status: 'observed_first_page', rows: 1 }],
     confirmed: [{ source: 'B2B-Center', id: '77', url: 'https://b2b-center.ru/tender/77', title: 'Ремонт школы', price: '1.234.567,89 ₽', deadline_msk: '2026-11-01T12:00:00+03:00', reasons: [] }],
     review: [],
     government_review: [{ source: 'ЕИС', provider: 'ЕИС · 44-ФЗ', id: '0123456789012345678', regime: '44-ФЗ', region_scope: 'not_filtered', url: 'https://zakupki.gov.ru/epz/order/notice/ea20/view/common-info.html?regNumber=0123456789012345678', title: 'Капитальный ремонт школы', region: '', price: '40538924.61', reasons: ['government_procurement_manual_verification'] }],
@@ -76,6 +78,7 @@ test('imports JEV commercial and separate government-review rows while excluding
   const request = fetchMock.mock.calls.find(([, options]) => options?.method === 'POST');
   const body = JSON.parse(request[1].body);
   expect(body.items).toHaveLength(2);
+  expect(body).toMatchObject({ runId: report.run_id, region: report.region, sources: report.sources });
   expect(body.items[0]).toMatchObject({
     source: 'browser_agent', sourceName: 'B2B-Center', sourceItemId: 'B2B-Center:77',
     title: 'Ремонт школы', region: 'Ставропольский край', price: '1234567.89',
@@ -98,4 +101,66 @@ test('hides candidate actions for an organization without a JEV subscription', a
 
   expect(await screen.findByText(/функция пока не подключена вашей организации/i)).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Добавить находку' })).not.toBeInTheDocument();
+});
+
+test('filters the company queue by text, source and deadline without another API request', async () => {
+  const candidates = [
+    {
+      id: 31, title: 'Ремонт школы', description: 'Заказчик: администрация', region: 'Ставропольский край',
+      sourceName: 'B2B-Center', url: 'https://example.org/31', status: 'Нужно проверить',
+      deadline: '2999-12-31T12:00:00+03:00',
+    },
+    {
+      id: 32, title: 'Ремонт кровли', description: 'Заказчик: лицей', region: 'Ставропольский край',
+      sourceName: 'Росэлторг', url: 'https://example.org/32', status: 'Нужно проверить',
+      deadline: '2000-01-01T12:00:00+03:00',
+    },
+  ];
+  const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue({
+    ok: true,
+    json: async () => String(fetchMock.mock.calls.at(-1)?.[0]).endsWith('/access')
+      ? { enabled: true }
+      : candidates,
+  });
+
+  render(<OpportunityCandidatesPanel API="/api" C={{ text: '#111', textSec: '#555', border: '#ddd' }} />);
+
+  expect(await screen.findByText('Ремонт школы')).toBeInTheDocument();
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Поиск по находкам' }), { target: { value: 'кровля' } });
+  expect(screen.queryByText('Ремонт школы')).not.toBeInTheDocument();
+  expect(screen.getByText('Ремонт кровли')).toBeInTheDocument();
+
+  fireEvent.change(screen.getByLabelText('Площадка'), { target: { value: 'B2B-Center' } });
+  expect(screen.queryByText('Ремонт кровли')).not.toBeInTheDocument();
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Поиск по находкам' }), { target: { value: '' } });
+  expect(screen.getByText('Ремонт школы')).toBeInTheDocument();
+
+  fireEvent.change(screen.getByLabelText('Срок подачи'), { target: { value: 'expired' } });
+  expect(screen.queryByText('Ремонт школы')).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Площадка'), { target: { value: '' } });
+  expect(screen.getByText('Ремонт кровли')).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledTimes(3);
+});
+
+test('shows a company search run with successful empty and failed sources', async () => {
+  jest.spyOn(global, 'fetch').mockImplementation(async url => ({
+    ok: true,
+    json: async () => String(url).endsWith('/access') ? { enabled: true }
+      : String(url).includes('search-runs') ? [{
+        id: 4, runId: 'run-4', region: 'Ставропольский край', receivedCount: 0,
+        createdCount: 0, updatedCount: 0, sourcesChecked: 2, sourcesUnavailable: 1,
+        finishedAt: '2026-10-23T10:00:00Z', sources: [
+          { provider: 'B2B-Center', query: 'ремонт школы', ok: true, status: 'observed_first_page', rows: 0 },
+          { provider: 'Росэлторг', query: 'ремонт школы', ok: false, status: 'source_unavailable', rows: 0 },
+        ],
+      }]
+        : [],
+  }));
+
+  render(<OpportunityCandidatesPanel API="/api" C={{ text: '#111', textSec: '#555', border: '#ddd' }} />);
+
+  expect(await screen.findByText(/площадок с ошибкой 1\/2/)).toBeInTheDocument();
+  fireEvent.click(screen.getByText(/площадок с ошибкой 1\/2/));
+  expect(screen.getByText(/B2B-Center · «ремонт школы»: проверено, строк 0 \(пустая выдача\)/)).toBeInTheDocument();
+  expect(screen.getByText(/Росэлторг · «ремонт школы»: ошибка, строк 0/)).toBeInTheDocument();
 });

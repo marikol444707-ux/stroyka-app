@@ -255,3 +255,30 @@ class ProjectsRoutesTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class ProjectCreationCommandTests(unittest.TestCase):
+    def test_retry_returns_same_project_without_insert(self):
+        import hashlib,json
+        model=ProjectModel(name='Учебный объект',requestKey='11111111-1111-4111-8111-111111111111')
+        digest=hashlib.sha256(json.dumps(model.model_dump(exclude={'requestKey'}),sort_keys=True,ensure_ascii=False).encode()).hexdigest()
+        cursor=FakeCursor(fetchone_results=[{'request_hash':digest,'project_id':1},dict(ROW)])
+        app,connection=build(cursor,actors=[{'id':9,'companyId':3,'role':'директор'}])
+        result=app.routes[('POST','/projects')](model,x_company_id='3',x_company_mode='company',current_user={})
+        self.assertEqual(result['id'],1)
+        self.assertIn('pg_advisory_xact_lock',cursor.calls[0][0])
+        self.assertEqual(cursor.calls[1][1],(3,9,str(model.requestKey)))
+        self.assertFalse(any('INSERT' in sql for sql,_ in cursor.calls))
+    def test_reused_key_with_changed_payload_is_rejected(self):
+        cursor=FakeCursor(fetchone_results=[{'request_hash':'other','project_id':1}])
+        app,connection=build(cursor,actors=[{'id':9,'companyId':3,'role':'директор'}])
+        with self.assertRaises(HTTPException) as error:
+            app.routes[('POST','/projects')](ProjectModel(name='Изменено',requestKey='11111111-1111-4111-8111-111111111111'),current_user={})
+        self.assertEqual(error.exception.status_code,409)
+        self.assertTrue(connection.rolled_back)
+    def test_first_command_records_identity_before_commit(self):
+        cursor=FakeCursor(fetchone_results=[None,{'max_projects':None,'max_users':None},dict(ROW)])
+        app,connection=build(cursor,actors=[{'id':9,'companyId':3,'role':'директор'}])
+        app.routes[('POST','/projects')](ProjectModel(name='Учебный объект',requestKey='11111111-1111-4111-8111-111111111111'),current_user={})
+        self.assertTrue(connection.committed)
+        self.assertIn('INSERT INTO project_create_requests',cursor.calls[-1][0])
+        self.assertEqual(cursor.calls[-1][1][:2],(3,9))

@@ -27,6 +27,8 @@ describe('buildAppShellProps work assignment modal', () => {
   });
 
   test('passes the selected estimate from app state to the modal', () => {
+    const user={id:9,role:'директор'};
+    const companyContext={mode:'company',selectedCompanyId:4};
     const selectedEstimate = {
       id: 25,
       name: 'Электрика',
@@ -37,6 +39,7 @@ describe('buildAppShellProps work assignment modal', () => {
     const brigadeContractItems = [{id: 701, contractId: 70}];
 
     const props = buildAppShellProps({
+      user,companyContext,
       API: '/api',
       appMainState: {
         selectedEstimate,
@@ -53,6 +56,8 @@ describe('buildAppShellProps work assignment modal', () => {
     });
 
     expect(props.workAssignmentProps.show).toBe(true);
+    expect(props.workAssignmentProps.user.id).toBe(user.id);
+    expect(props.workAssignmentProps.companyContext).toBe(companyContext);
     expect(props.workAssignmentProps.selectedEstimate).toBe(selectedEstimate);
     expect(props.workAssignmentProps.brigadeContracts).toBe(brigadeContracts);
     expect(props.workAssignmentProps.brigadeContractItems).toBe(brigadeContractItems);

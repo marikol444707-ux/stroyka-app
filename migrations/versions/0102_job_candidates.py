@@ -3,8 +3,8 @@
 from alembic import op
 
 
-revision = "0101_job_candidates"
-down_revision = "0100_packaging_history_guard"
+revision = "0102_job_candidates"
+down_revision = "0101_manual_brigade_origins"
 branch_labels = None
 depends_on = None
 

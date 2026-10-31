@@ -15,6 +15,7 @@ import { uniqueStoredProjectForName } from '../features/estimates/projectEstimat
 import { isInvoiceLineIndex } from '../utils/warehouseInvoiceSource';
 
 export default function WarehouseObjectsPanel({
+  focusedMaterial = null,
   C,
   card,
   inp,
@@ -237,8 +238,8 @@ export default function WarehouseObjectsPanel({
       ].some(value => String(value || '').toLowerCase().includes(normalizedObjectSearch)))
       : selectedProjectMaterials
   ), [normalizedObjectSearch, selectedProjectMaterials]);
-  const displayedProjectMaterials = filteredProjectMaterials.slice(0, visibleObjectRows);
-  const hiddenProjectMaterials = Math.max(0, filteredProjectMaterials.length - displayedProjectMaterials.length);
+  const displayedProjectMaterials = focusedMaterial ? [focusedMaterial] : filteredProjectMaterials.slice(0, visibleObjectRows);
+  const hiddenProjectMaterials = focusedMaterial ? 0 : Math.max(0, filteredProjectMaterials.length - displayedProjectMaterials.length);
   const objectRowsStep = useCompactRows ? 60 : 180;
   const transferRowsStep = useCompactRows ? 40 : 100;
   const normalizedTransferSearch = deferredTransferMaterialSearch.trim().toLowerCase();
@@ -269,7 +270,7 @@ export default function WarehouseObjectsPanel({
 
   return (
     <div>
-      {!selectedWarehouseProject ? (
+      {!selectedWarehouseProject && !focusedMaterial ? (
         <div>
           <h3 style={{ color: C.text, marginBottom: '15px', fontSize: '15px', fontWeight: '700' }}>Материалы по объектам</h3>
           {visibleWarehouseProjects.map(project => {
@@ -355,7 +356,7 @@ export default function WarehouseObjectsPanel({
               Удаление остатков объекта доступно только директору. Для корректировки используйте накладную, перемещение, выдачу или списание.
             </div>
           )}
-          {renderMaterialReconciliationPanel(selectedMaterialControlProject, { limit: 25, title: '📊 Контроль материалов объекта' })}
+          {!focusedMaterial && renderMaterialReconciliationPanel(selectedMaterialControlProject, { limit: 25, title: '📊 Контроль материалов объекта' })}
           {useCompactRows ? (
             <div style={{ display: 'grid', gap: '10px', width: '100%', maxWidth: 'min(720px,100%)', margin: '0 auto' }}>
               {displayedProjectMaterials.map(material => {
@@ -463,7 +464,7 @@ export default function WarehouseObjectsPanel({
               Показать ещё {Math.min(hiddenProjectMaterials, objectRowsStep)} материалов
             </button>
           )}
-          {canLoadMoreFromServer && (
+          {!focusedMaterial && canLoadMoreFromServer && (
             <button
               type="button"
               onClick={loadNextProjectMaterials}
@@ -473,7 +474,7 @@ export default function WarehouseObjectsPanel({
               {materialsPage.loading ? 'Загружаю...' : 'Загрузить ещё материалы с сервера'}
             </button>
           )}
-          {selectedWarehouseProject && !canLoadMoreFromServer && !materialsPage.loading && filteredProjectMaterials.length > 0 && (
+          {!focusedMaterial && selectedWarehouseProject && !canLoadMoreFromServer && !materialsPage.loading && filteredProjectMaterials.length > 0 && (
             <p style={{ color: C.textMuted, fontSize: '11px', margin: '8px 0 0' }}>
               Показано {displayedProjectMaterials.length} из {filteredProjectMaterials.length} загруженных позиций объекта.
             </p>

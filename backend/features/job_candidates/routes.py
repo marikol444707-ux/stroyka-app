@@ -1,11 +1,13 @@
 import hmac
 import json
+import logging
 import re
+from uuid import uuid4
 
 import psycopg2.extras
 from fastapi import Depends, Header, HTTPException, Query
 
-from .service import build_candidate_record, jev_report_items
+from .service import build_candidate_record, jev_report_items, normalize_jev_run_id, summarize_jev_sources
 
 
 _JEV_PROVIDER_PREFIXES = {
@@ -24,6 +26,20 @@ _JEV_ACTIVE_PROVIDERS = (
     "ТЭК-Торг", "Торги Федерации", "Р-ТЕНДЕР",
 )
 
+logger = logging.getLogger(__name__)
+
+
+def _log_database_failure(operation, error):
+    """Log non-sensitive database diagnostics without request values or SQL text."""
+    diagnostic = getattr(error, "diag", None)
+    logger.error(
+        "%s failed: error_type=%s sqlstate=%s constraint=%s",
+        operation,
+        type(error).__name__,
+        getattr(error, "pgcode", None),
+        getattr(diagnostic, "constraint_name", None),
+    )
+
 
 def _save_candidates(cur, *, company_id, candidates, created_by):
     created = updated = 0
@@ -33,7 +49,7 @@ def _save_candidates(cur, *, company_id, candidates, created_by):
                 company_id, source, source_name, source_item_id, identity_key, url, title, description,
                 published_at, region, work_types, price, deadline, evidence, status, created_by
             ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            ON CONFLICT DO UPDATE SET
+            ON CONFLICT (company_id, source, identity_key) DO UPDATE SET
                 source_item_id=COALESCE(crm_job_candidates.source_item_id, EXCLUDED.source_item_id),
                 source_name=EXCLUDED.source_name, title=EXCLUDED.title, description=EXCLUDED.description,
                 published_at=COALESCE(EXCLUDED.published_at, crm_job_candidates.published_at),
@@ -150,6 +166,7 @@ def register_job_candidates_module(app, deps):
         current_user: dict = Depends(get_current_user),
     ):
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             company_id = selected_company(cur, current_user, "read", x_company_id, x_company_mode)
@@ -171,6 +188,7 @@ def register_job_candidates_module(app, deps):
         current_user: dict = Depends(get_current_user),
     ):
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             company_id = selected_company(cur, current_user, "read", x_company_id, x_company_mode)
@@ -197,6 +215,32 @@ def register_job_candidates_module(app, deps):
             cur.close()
             conn.close()
 
+    @app.get("/crm/job-candidates/search-runs")
+    def list_job_candidate_search_runs(
+        limit: int = Query(default=10, ge=1, le=50),
+        x_company_id: str = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: str = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(get_current_user),
+    ):
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            company_id = selected_company(cur, current_user, "read", x_company_id, x_company_mode)
+            require_feature(cur, company_id)
+            cur.execute("""
+                SELECT id, run_id AS "runId", region, received_count AS "receivedCount",
+                       created_count AS "createdCount", updated_count AS "updatedCount",
+                       sources_checked AS "sourcesChecked", sources_unavailable AS "sourcesUnavailable",
+                       sources, finished_at AS "finishedAt"
+                FROM public.crm_job_candidate_search_runs
+                WHERE company_id=%s
+                ORDER BY finished_at DESC, id DESC LIMIT %s
+            """, (company_id, limit))
+            return [dict(row) for row in cur.fetchall()]
+        finally:
+            cur.close()
+            conn.close()
+
     @app.post("/crm/job-candidates")
     def ingest_job_candidate(
         data: dict,
@@ -209,6 +253,7 @@ def register_job_candidates_module(app, deps):
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             company_id = selected_company(cur, current_user, "write", x_company_id, x_company_mode)
@@ -218,7 +263,7 @@ def register_job_candidates_module(app, deps):
                     company_id, source, source_name, source_item_id, identity_key, url, title, description,
                     published_at, region, work_types, price, deadline, evidence, status, created_by
                 ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                ON CONFLICT DO UPDATE SET
+                ON CONFLICT (company_id, source, identity_key) DO UPDATE SET
                     source_item_id=COALESCE(crm_job_candidates.source_item_id, EXCLUDED.source_item_id),
                     title=EXCLUDED.title, description=EXCLUDED.description,
                     published_at=COALESCE(EXCLUDED.published_at, crm_job_candidates.published_at),
@@ -259,9 +304,12 @@ def register_job_candidates_module(app, deps):
             raise HTTPException(status_code=422, detail="Отчёт должен содержать от 1 до 200 кандидатов")
         try:
             candidates = [build_candidate_record(item) for item in items]
+            run_id = normalize_jev_run_id(data.get("runId") or uuid4())
+            sources = summarize_jev_sources(data.get("sources"))
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         created = 0
         updated = 0
@@ -272,8 +320,27 @@ def register_job_candidates_module(app, deps):
                 cur, company_id=company_id, candidates=candidates,
                 created_by=str(current_user.get("name") or current_user.get("email") or ""),
             )
+            if sources:
+                cur.execute("""
+                    INSERT INTO public.crm_job_candidate_search_runs (
+                        company_id, run_id, region, received_count, created_count, updated_count,
+                        sources_checked, sources_unavailable, sources
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (company_id, run_id) DO UPDATE SET
+                        region=EXCLUDED.region, received_count=EXCLUDED.received_count,
+                        created_count=GREATEST(crm_job_candidate_search_runs.created_count, EXCLUDED.created_count),
+                        updated_count=GREATEST(crm_job_candidate_search_runs.updated_count, EXCLUDED.updated_count),
+                        sources_checked=EXCLUDED.sources_checked,
+                        sources_unavailable=EXCLUDED.sources_unavailable,
+                        sources=EXCLUDED.sources, finished_at=NOW()
+                """, (
+                    company_id, run_id, str(data.get("region") or "")[:255], len(candidates),
+                    created, updated, len(sources), sum(1 for source in sources if not source["ok"]),
+                    psycopg2.extras.Json(sources),
+                ))
             conn.commit()
-            return {"ok": True, "received": len(candidates), "created": created, "updated": updated}
+            return {"ok": True, "received": len(candidates), "created": created, "updated": updated,
+                    "runId": run_id}
         except HTTPException:
             conn.rollback()
             raise
@@ -288,6 +355,7 @@ def register_job_candidates_module(app, deps):
     def list_jev_search_targets(x_jev_ingest_key: str = Header(default="", alias="X-JEV-Ingest-Key")):
         require_jev_ingest_key(x_jev_ingest_key)
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             cur.execute("""
@@ -345,12 +413,13 @@ def register_job_candidates_module(app, deps):
             if body_size > 1_000_000:
                 raise ValueError("Отчёт JEV превышает лимит размера")
             items = jev_report_items(data)
-            if not items:
-                raise ValueError("В отчёте JEV нет подтверждённых находок или записей для проверки")
+            run_id = normalize_jev_run_id(data.get("run_id") or data.get("runId") or uuid4())
+            sources = summarize_jev_sources(data.get("sources"))
             candidates = [build_candidate_record(item) for item in items]
         except (TypeError, ValueError) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         created = 0
         updated = 0
@@ -372,6 +441,7 @@ def register_job_candidates_module(app, deps):
             if not target_rows:
                 raise HTTPException(status_code=409, detail="JEV не подключён ни одной активной организации")
             target_results = []
+            history_rows = []
             for target in target_rows:
                 target_company_id = int(target["company_id"])
                 company_candidates = [
@@ -381,6 +451,12 @@ def register_job_candidates_module(app, deps):
                 target_created, target_updated = _save_candidates(
                     cur, company_id=target_company_id, candidates=company_candidates, created_by="JEV",
                 )
+                history_rows.append((
+                    target_company_id, run_id, str(data.get("region") or "")[:255],
+                    len(company_candidates), target_created, target_updated, len(sources),
+                    sum(1 for source in sources if not source["ok"]),
+                    psycopg2.extras.Json(sources),
+                ))
                 created += target_created
                 updated += target_updated
                 target_results.append({
@@ -389,19 +465,32 @@ def register_job_candidates_module(app, deps):
                     "updated": target_updated,
                     "skippedByProfile": len(candidates) - len(company_candidates),
                 })
+            for history_row in history_rows:
+                cur.execute("""
+                    INSERT INTO public.crm_job_candidate_search_runs (
+                        company_id, run_id, region, received_count, created_count, updated_count,
+                        sources_checked, sources_unavailable, sources
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (company_id, run_id) DO UPDATE SET
+                        region=EXCLUDED.region, received_count=EXCLUDED.received_count,
+                        created_count=GREATEST(crm_job_candidate_search_runs.created_count, EXCLUDED.created_count),
+                        updated_count=GREATEST(crm_job_candidate_search_runs.updated_count, EXCLUDED.updated_count),
+                        sources_checked=EXCLUDED.sources_checked,
+                        sources_unavailable=EXCLUDED.sources_unavailable,
+                        sources=EXCLUDED.sources, finished_at=NOW()
+                """, history_row)
             conn.commit()
             return {"ok": True, "targetCompanies": target_results, "received": len(candidates),
                     "created": created, "updated": updated,
-                    "sourcesChecked": len(data.get("sources", [])) if isinstance(data.get("sources"), list) else 0,
-                    "sourcesUnavailable": sum(
-                        1 for source in data.get("sources", [])
-                        if isinstance(source, dict) and source.get("ok") is not True
-                    ) if isinstance(data.get("sources"), list) else 0}
+                    "sourcesChecked": len(sources),
+                    "sourcesUnavailable": sum(1 for source in sources if not source["ok"]),
+                    "runId": run_id}
         except HTTPException:
             conn.rollback()
             raise
         except Exception as error:
             conn.rollback()
+            _log_database_failure("JEV candidate import", error)
             raise HTTPException(status_code=400, detail="Не удалось принять отчёт JEV") from error
         finally:
             cur.close()
@@ -420,6 +509,7 @@ def register_job_candidates_module(app, deps):
             raise HTTPException(status_code=422, detail="Выберите решение: подходит, не подходит или дубль")
         note = str(data.get("reviewNote") or "").strip()[:2000]
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor()
         try:
             company_id = selected_company(cur, current_user, "write", x_company_id, x_company_mode)

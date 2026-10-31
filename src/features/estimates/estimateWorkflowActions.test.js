@@ -330,3 +330,31 @@ describe('estimate workflow detail loading', () => {
     expect(alertFn).toHaveBeenCalledWith(expect.stringContaining('network timeout'));
   });
 });
+
+test('late estimate detail cannot reopen a closed document or replace another company list', async () => {
+  let resolve;
+  let selected=null;
+  let list=[{id:5,companyId:4,name:'Other company'}];
+  const actions=createEstimateWorkflowActions({API:'/api',
+    fetchFn:()=>new Promise(done=>{resolve=done;}),
+    setSelectedEstimate:value=>{selected=typeof value==='function'?value(selected):value;},
+    setEstimatesList:fn=>{list=fn(list);}, alertFn:jest.fn()});
+  const pending=actions.openEstimateDetail({id:5,companyId:3,sectionsLoaded:false});
+  selected=null;
+  resolve({ok:true,json:async()=>[{id:5,companyId:3,sections:[]}]});
+  await pending;
+  expect(selected).toBeNull();
+  expect(list).toEqual([{id:5,companyId:4,name:'Other company'}]);
+});
+
+test('detail response with another owner is rejected before merging',async()=>{
+  const setEstimatesList=jest.fn(),setSelectedEstimate=jest.fn(),alertFn=jest.fn();
+  const actions=createEstimateWorkflowActions({API:'/api',setEstimatesList,setSelectedEstimate,alertFn,
+    fetchFn:async()=>({ok:true,json:async()=>[{id:5,companyId:4,sections:[]}]})});
+  const own={id:5,companyId:3,sectionsLoaded:false};
+  await actions.openEstimateDetail(own);
+  expect(setEstimatesList).not.toHaveBeenCalled();
+  expect(setSelectedEstimate).toHaveBeenCalledTimes(1);
+  expect(setSelectedEstimate).toHaveBeenCalledWith(own);
+  expect(alertFn).toHaveBeenCalled();
+});

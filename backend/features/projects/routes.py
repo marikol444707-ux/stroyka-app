@@ -9,6 +9,9 @@ public-fields SELECT fragment are injected.
 """
 
 from typing import List, Optional
+from uuid import UUID
+import hashlib
+import json
 
 import psycopg2.extras
 from fastapi import Depends, Header, HTTPException
@@ -17,6 +20,7 @@ from ..company_limits.service import require_project_capacity
 
 
 class ProjectModel(BaseModel):
+    requestKey: Optional[UUID] = None
     name: str
     clientId: Optional[int] = None
     client: str = ""
@@ -125,6 +129,26 @@ def register_projects_module(app, deps):
                 project_card_write_roles,
             )
             company_id = int(actor.get("companyId") or actor.get("company_id"))
+            command_hash = None
+            if p.requestKey:
+                if not actor.get('id'):
+                    raise HTTPException(403, 'Не определён автор команды')
+                command_hash = hashlib.sha256(json.dumps(p.model_dump(exclude={'requestKey'}), sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+                cur.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))',
+                            (f'project-create:{company_id}:{actor["id"]}:{p.requestKey}',))
+                cur.execute('SELECT request_hash,project_id FROM project_create_requests WHERE company_id=%s AND user_id=%s AND request_key=%s',
+                            (company_id,actor['id'],str(p.requestKey)))
+                previous=cur.fetchone()
+                if previous:
+                    if previous['request_hash']!=command_hash:
+                        raise HTTPException(409,'Эта команда уже использована с другими данными')
+                    cur.execute(f'''SELECT id,company_id as "companyId",client_id as "clientId",name,client,status,budget,deadline,progress,tasks,
+                        pricelist_id as "pricelistId",floors,liters,COALESCE(archived,false) as archived,
+                        archived_at as "archivedAt",{project_public_select} FROM projects WHERE id=%s AND company_id=%s''',
+                        (previous['project_id'],company_id))
+                    previous_project=cur.fetchone()
+                    if not previous_project: raise HTTPException(409,'Сохранённый объект недоступен')
+                    return dict(previous_project)
             require_project_capacity(cur, company_id)
             client_id = p.clientId
             client_name = p.client
@@ -142,6 +166,9 @@ def register_projects_module(app, deps):
                                        archived_at as "archivedAt",{project_public_select}""",
                         (company_id,client_id,p.name,client_name,p.status,p.budget,p.deadline,p.progress,p.tasks,p.pricelistId,p.floors,p.liters))
             row = cur.fetchone()
+            if p.requestKey:
+                cur.execute('INSERT INTO project_create_requests(company_id,user_id,request_key,request_hash,project_id) VALUES (%s,%s,%s,%s,%s)',
+                            (company_id,actor['id'],str(p.requestKey),command_hash,row['id']))
             conn.commit()
             log_audit(user_name=actor.get("name",""), user_role=actor.get("role",""),
                       action="create", entity_type="project", entity_id=row["id"], description="Создан объект", project_name=row["name"])

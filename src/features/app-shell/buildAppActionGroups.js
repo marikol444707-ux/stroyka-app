@@ -393,6 +393,8 @@ export function buildAppActionGroups({
   }
 
   const projectCrudActions = createProjectCrudActions({
+    projectSaveRef: appMainState.projectSaveRef,
+    projectCreateCommandRef: appMainState.projectCreateCommandRef,
     API,
     brigadeContracts,
     editingItem,
@@ -534,6 +536,7 @@ export function buildAppActionGroups({
   const supplyActions = createSupplyActions({
     API,
     supplyRequestCreationRef: supplyWorkflowState.supplyRequestCreationRef,
+    requestCancellationRef: supplyWorkflowState.requestCancellationRef,
     editingItem,
     getProjectWorkPackageOptions,
     newOffer,

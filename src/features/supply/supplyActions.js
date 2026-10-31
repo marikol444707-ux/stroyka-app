@@ -51,6 +51,7 @@ export const createSupplyActions = ({
   user,
   companyContext = {},
   supplyRequestCreationRef = { current: false },
+  requestCancellationRef = { current: null },
 }) => {
   const currentUser = user || {};
   const selectedCompanyId = Number(companyContext?.selectedCompanyId || companyContext?.selectedCompany?.companyId || 0) || null;
@@ -237,13 +238,40 @@ export const createSupplyActions = ({
     await refreshCreatedRequests();
   });
 
+  const cancellationKey = JSON.stringify([API, currentUser.id, selectedCompanyId, companyContext.mode, Boolean(companyContext.loading)]);
+  if (requestCancellationRef.current?.key !== cancellationKey) {
+    requestCancellationRef.current = { key: cancellationKey, pending: new Set() };
+  }
+  const cancellationScope = requestCancellationRef.current;
   const cancelRequest = async (id) => {
-    await fetch(API + '/supply-requests/' + id, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'Отменена' }),
-    });
-    await refreshData();
+    const isCurrent = () => requestCancellationRef.current === cancellationScope;
+    if (!isCurrent() || cancellationScope.pending.has(id)) return false;
+    const companyId = requireSelectedCompanyForWrite();
+    if (!companyId) return false;
+    cancellationScope.pending.add(id);
+    let saved = false;
+    try {
+      const response = await fetch(API + '/supply-requests/' + id, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'X-Company-Id': String(companyId), 'X-Company-Mode': 'company' },
+        body: JSON.stringify({ action: 'cancel', companyId }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.error || Number(data.id) !== Number(id) || data.status !== 'Отменена') {
+        throw new Error(typeof data.detail === 'string' ? data.detail : 'Сервер не подтвердил отмену заявки.');
+      }
+      saved = true;
+      if (!isCurrent()) return false;
+      await refreshData();
+      return true;
+    } catch (error) {
+      if (isCurrent()) alert(saved
+        ? 'Заявка отменена, но список не обновился. Обновите страницу; повторно отменять не нужно.'
+        : 'Не удалось подтвердить отмену заявки: ' + error.message + ' Обновите список перед повтором.');
+      return false;
+    } finally {
+      cancellationScope.pending.delete(id);
+    }
   };
 
   const createSupplyReq = () => runRequestCreation(async (markCreated) => {

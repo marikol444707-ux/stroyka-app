@@ -656,7 +656,7 @@ export const buildMaterialControlSummary = (rows = []) => {
   const invoiceRows = rows.filter(r => r.invoiceReceived > 0);
   const deliveryRows = rows.filter(r => r.supplyReceived > 0);
   const movedRows = rows.filter(r => r.movedNet !== 0);
-  const toBuyRows = rows.filter(r => r.toBuy > 0);
+  const toBuyRows = rows.filter(r => r.toBuy > 0 && r.procurementEligible !== false);
   const outsideRows = rows.filter(r => r.isOutsideEstimate);
   const overRows = rows.filter(r => r.over > 0);
   const mismatchRows = rows.filter(r => r.unitMismatch);

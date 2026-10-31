@@ -1,5 +1,5 @@
 import { isSupportWorkspaceUser } from '../participant-support/workspaceMode';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { createAiAssistantActions } from '../ai-assistant/aiAssistantActions';
 import { createAuthActions } from '../auth/authActions';
 import { createChatActions } from '../chat/chatActions';
@@ -48,6 +48,7 @@ export function useAppCoreRuntime({
   limits,
   layout,
 }) {
+  const materialReceiptScopeRef = useRef(null);
   const ownedAliasRuntime = useOwnedAliasSnapshot({API, companyContext, projects: appMainState.projects,
     userId: authEntryState.user?.id, setMaterialAliases: appMainState.setMaterialAliases,
     setMaterialAliasesError: appMainState.setMaterialAliasesError});
@@ -226,6 +227,7 @@ export function useAppCoreRuntime({
   } = useAppDataLoaders({
     companyContext,
     setQualityJournalLoadState: appMainState.setQualityJournalLoadState,
+    setProjectMaterialSourcesState: appMainState.setProjectMaterialSourcesState,
     setCustomerRecordsLoadState: appMainState.setCustomerRecordsLoadState,
     customerProjects: appMainState.projects,
     activePage,
@@ -451,6 +453,9 @@ export function useAppCoreRuntime({
     returnMaterialToProject,
   } = createMaterialTransferActions({
     API,
+    companyContext,
+    user: currentUser,
+    receiptScopeRef: materialReceiptScopeRef,
     fmtMeasure,
     notify,
     refreshData,
@@ -504,8 +509,9 @@ export function useAppCoreRuntime({
   } = useAppNavigationRuntime({
     ROLES,
     data: { clients: appMainState.clients, materials, projects, tools },
-    state: { globalSearch, isMobile, masterProjectId, user: currentUser },
+    state: { companyContext, globalSearch, isMobile, masterProjectId, user: currentUser, activePage, expandedProject: appMainState.expandedProject, activeProjectTab: appMainState.activeProjectTab },
     actions: {
+      setActiveProjectTab: appMainState.setActiveProjectTab,
       loadPricelistItems,
       setActivePage,
       setEditingItem,

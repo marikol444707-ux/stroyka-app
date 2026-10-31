@@ -19,7 +19,15 @@ class ReleaseRevisionGraphTests(unittest.TestCase):
         config = Config(str(root / 'alembic.ini'))
         config.set_main_option('script_location', str(root / 'migrations'))
         graph = ScriptDirectory.from_config(config)
-        self.assertEqual(graph.get_heads(), ['0102_platform_company_features'])
+        self.assertEqual(graph.get_heads(), ['0109_legacy_payment_requests'])
+        chain = ['0100_packaging_history_guard', '0101_manual_brigade_origins',
+                 '0102_job_candidates', '0103_platform_company_features',
+                 '0104_jev_search_run_history', '0103_room_owner_identity',
+                 '0104_legacy_project_owners', '0105_settlement_cash_guard',
+                 '0106_document_version_owner', '0107_room_work_owner',
+                 '0108_project_create_requests', '0109_legacy_payment_requests']
+        for parent, child in zip(chain, chain[1:]):
+            self.assertEqual(graph.get_revision(child).down_revision, parent)
         for revision in graph.walk_revisions():
             self.assertLessEqual(len(revision.revision), 32, revision.revision)
 

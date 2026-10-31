@@ -16,6 +16,13 @@ _OFFER_MUTATION_PATH = re.compile(
 
 def is_owned_supplier_profile_mutation(cur, user, method, path):
     """A supplier's public profile does not consume a customer's subscription."""
+    if user.get('role') == 'поставщик' and (
+        (str(method).upper() == 'POST' and str(path).rstrip('/') == '/supplier-documents') or
+        (str(method).upper() == 'DELETE' and re.fullmatch(r'/supplier-documents/[1-9][0-9]*/?', str(path)))
+    ):
+        # Private supplier storage has no buyer billing owner. The route still
+        # validates exact supplier identity and owner_scope for every mutation.
+        return True
     if user.get('role') == 'поставщик' and str(method).upper() == 'POST':
         from ..participant_support.connections import owned_response_mutation
         if owned_response_mutation(cur,user,path):

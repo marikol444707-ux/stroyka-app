@@ -1,0 +1,150 @@
+# Integration notice: NOT AUTHORIZED FOR INSTALLATION
+
+The current local integration continues server revision `0104_jev_search_run_history`
+to `0109_legacy_payment_requests`. The seven audit migrations execute only after
+that source; old audit-only databases are outside this path. Historical instructions
+below are retained for provenance, NOT executable directions for this integration.
+The git delivery helper exits before any fetch/staging. The installer rejects apply
+before reading configuration. Readiness is always blocked pending real schema/data,
+restored-backup, migration and runtime acceptance. No override flag is provided.
+See `docs/server-audit-integration-2026-11-01.md` for evidence and remaining gates.
+
+---
+
+# Проверка единого выпуска «Стройки» — 19.10.2026
+
+Подготовлен локальный пакет; рабочий сервер и его база не проверены и не изменены.
+Пользователь выбрал рабочий сервер и отдельно подтвердил: включать только
+накопленные изменения «Стройки», без самостоятельной ветки Jev QA.
+
+## Состав и совместимость
+
+Общая база кода — `c30b5c7a6b641bc59860ea5eed6e743f67f1318d`.
+Выпуск включает 11 накопленных коммитов до `a7880fd4`, затем подготовку единого
+установщика и исправление устаревших release assertions. Точный итоговый SHA и
+все коммиты после базы записаны в release.json внутри архива.
+
+Одна цепочка Alembic: `0100_packaging_history_guard → 0101_manual_brigade_origins → 0102_job_candidates → 0103_platform_company_features`.
+Пакет принимает фактическую схему 0100, 0101 или 0102 и устанавливает 0103;
+перед продолжением требуется известный SHA текущей установки.
+Неизвестные изменения сервера не стираются. Флаги берутся из его конфигурации;
+служебный доступ, объединение истории и пилоты не включаются при установке.
+
+## Выполненные проверки
+
+- PostgreSQL 16.15: 142 теста в 17 отдельных пустых socket-only БД — успешно.
+  Покрыты подрядчики, typed/exact/manual ссылки, восстановление запроса,
+  менеджеры и отзыв прав, история поставщиков, оригиналы/версии документов,
+  упаковки и конкурирующие записи.
+- Дополнительная настоящая Alembic-репетиция: 3 теста — успешно. Upgrade 0100→0101
+  на небольшой синтетической predecessor-схеме сохраняет старые договоры,
+  frozen-party snapshots и цены, не создаёт backfill. Read-only checker
+  обнаруживает отключённый guard; настоящий downgrade отказывается удалять
+  использованную manual origin и сохраняет head/данные.
+- Custom pg_dump этой тестовой БД проверен через pg_restore --list и действительно
+  восстановлен в другую пустую БД. Все строки всех синтетических таблиц совпали;
+  read-only readiness check восстановленной БД успешен. Это не backup рабочей БД.
+- Frontend production build с CI=true успешен; verifier подтвердил режимы:
+  WORK_MATERIAL_ACCOUNTING/WORK_ACCEPTANCE/PARTICIPANT_SUPPORT/CONNECTIONS=1,
+  SUPPORT_ACCESS=0; остальные participant modes выключены. Есть уведомления
+  Browserslist/Node и о размере bundle. Настройки рабочего сервера неизвестны;
+  установщик заново собирает frontend по ним.
+- Ранее на неизменившемся коде интерфейса прошли 1966 frontend-тестов и 4 настоящих
+  Chromium-сценария восстановления обеих форм с имитацией потерянного API-ответа.
+  В подготовке пакета код интерфейса не менялся, эти прогоны не повторялись.
+- Проверены перенос полного набора коммитов настоящим Git bundle в другую
+  локальную установку, отказ при повреждении пакета, backup текущих frontend
+  assets без старых chunks и отказ от traversal/ссылок. Вместе с существующими
+  deploy regression tests: 15 тестов успешно.
+- Компиляция 95 backend/migration/release файлов и git diff --check успешны.
+
+Общий backend-прогон собрал 6204 теста (2385 opt-in/платформенных пропусков).
+Он обнаружил четыре устаревших release assertions: ожидание head 0100 и три
+whole-file hash pins main.py. Проверен весь diff main.py после baseline:
+изменения касаются точного выбора подрядчика, company-scoped worker access,
+manual origins и квитанций повторного запроса; warehouse preview/регистрация
+не менялись. Обновлены только соответствующие head/pins и комментарии;
+защитные ожидания остальных файлов/замыканий сохранены.
+Повторный общий прогон: 6204 теста за 189.625s; failures=0, errors=3,
+skipped=2385. Таким образом, 3816 проверок прошли; оставшиеся три ошибки
+относятся к document sandbox и перечислены ниже. Пропуски не считались успехом.
+
+Три проверки извлечения текста DOCX/PDF блокируются sandbox этой среды:
+`bwrap: setting up uid map: Read-only file system`. Исходный обработчик
+не менялся, изоляция не отключалась, тесты не удалялись и не помечались успешными.
+Установщик содержит настоящий синтетический DOCX probe на сервере и остановится
+при таком же отказе до смены кода или применения миграции.
+
+Это не полностью зелёный Linux CI и не полная репетиция всех миграций с нуля
+или на копии production. Проверка реальной рабочей БД остаётся обязательной.
+
+## Артефакты и запуск
+
+Логи в `/workspace/stroyka-verification/unified-release/`: postgres.log,
+migration-rehearsal.log, database-rehearsal-report.json, dump-restore.log,
+dump-restore-report.json, frontend-build.log, package-unit.log, backend-all.log,
+release-regression-final.log и backend-final.log. Первый узкий прогон полных
+warehouse-модулей без сетевых разрешений завис на ASGI-проверке и остановлен;
+эти же модули отработали в общем прогоне с нужными разрешениями. Финальный
+узкий прогон включает четыре исправленных release assertions и 15 проверок пакета.
+Все 19 проверок финального узкого прогона прошли за 2.285s.
+
+Пакет содержит install.py, release.bundle, release.json, read-only database checker,
+этот отчёт, инструкцию и правило хранения материалов выпуска. Команды db-check,
+check и apply описаны в README.ru.md. SHA256 архива передаётся отдельным файлом.
+
+На момент первоначальной сборки `242463c5e08e` на сервер ничего не отправлялось;
+GitHub push/merge, production migration,
+изменения флагов/данных и deployment markers не выполнялись. В текущей cloud
+среде отсутствуют настроенные credentials/outbound identities и SSH endpoint.
+Для следующего шага нужен адрес/настроенный доступ к рабочему серверу либо
+вывод серверных db-check/check без секретов.
+
+## Исправление EnvironmentFiles после серверного preflight
+
+Пользователь запустил доставку из опубликованной отдельной ветки
+`codex/unified-production-release`. Сервер успешно получил исходные 12 коммитов
+и проверил bundle, но старый установщик отказал при наличии EnvironmentFiles.
+Отказ произошёл до проверки production БД, создания release stage, остановки
+сервисов, переключения Git и миграций. Успешная установка пока не подтверждена.
+
+Исправлен только установщик: конфигурация systemd читается через busctl JSON,
+поддерживаются упорядоченные/необязательные/glob EnvironmentFiles, quoting и
+continuation без выполнения shell, PassEnvironment/UnsetEnvironment и штатный
+backend/.env fallback. Итоговые feature-значения используются также frontend
+resolver; DB/auth/feature-переменные установочного shell не выбирают runtime.
+Изменений прикладного кода или SQL в этой правке нет.
+
+Все 20 узких проверок пакета/доставки, окружения, deployment runner и retention
+прошли (`environment-files-tests.log`). Проверены py_compile, bash -n, diff --check.
+Отдельно настоящий busctl прочитал синтетический systemd D-Bus интерфейс через
+одноразовый dbus-daemon: подтверждены точные строки/array-of-struct, пути с
+пробелами и backslash, приоритет файла, optional и UnsetEnvironment
+(`systemd-dbus-report.json`). Это проверка транспорта с искусственным сервисом,
+не подключение к рабочему серверу и не подтверждение его БД.
+
+## JEV — настройки по организациям и интеграция в release-ветку — 22.10.2026
+
+PR #384 с поиском по профилям организаций, распределением результатов по ID,
+панелью платформенного администратора и настройкой тарифа прошёл CI и включён
+в `main`. Для production подготовлена интеграционная ветка поверх актуальной
+`codex/unified-production-release`, сохранившая production-исправления JEV:
+точный ключ `ON CONFLICT` и безопасную диагностику ошибок БД.
+
+В production уже есть `0102_job_candidates`; повторно создавать таблицу нельзя.
+Подписка организаций добавляется отдельной миграцией
+`0103_platform_company_features`. Read-only preflight принимает текущую схему
+0102 и проверяет схему 0103 после применения. Организация 1 сохраняет доступ,
+миграция подключает её без платы по умолчанию.
+
+Проверки интеграционной ветки: 69 backend/JEV/release тестов прошли, 4 opt-in
+PostgreSQL проверки пропущены без отдельного тестового окружения; 6 тестов двух
+frontend-панелей прошли; production frontend build и проверка Alembic head 0103
+прошли. Первая локальная сборка использовала устаревшие общие node_modules и не
+нашла pdf.js worker; после установки зависимостей строго по `package-lock.json`
+сборка прошла. Production API и базу этой веткой не меняли.
+
+Месячная цена пока сохраняется как тариф, но не выставляет счёт и не списывает
+оплату. Следующий продуктовый блок после приёмки — подключить тариф к биллингу.
+Перед установкой релиза нужно проверить фактический HEAD и tracked-изменения
+рабочего сервера.

@@ -64,7 +64,10 @@ export default function SupplierDuplicateMerge({prefix,source,btnG,btnO,inp,onCl
       <p>Номера документов, сохранённые реквизиты и суммы оплат останутся прежними.</p>
       {review.hasSupplierAccount?<>
         <p>У основной карточки есть кабинет. Перед объединением нужно проверить доступ к старой истории.</p>
-        {review.canCompleteInn?<p>В основной карточке ИНН не заполнен. В карточке-дубле указан <strong>{review.sourceInn}</strong>. Проверьте этот ИНН по счёту или договору кабинета. Изменение применяется к профилю поставщика для новых операций; старые документы не переписываются.</p>:
+        {review.innCompletionBlocker?<>
+          <p role="status">{review.innCompletionBlocker}</p>
+          <button type="button" style={btnG} disabled={pending} onClick={()=>submit('review')}>Повторить проверку реквизитов</button>
+        </>:review.canCompleteInn?<p>В основной карточке ИНН не заполнен. В карточке-дубле указан <strong>{review.sourceInn}</strong>. Проверьте этот ИНН по счёту или договору кабинета. Изменение применяется к профилю поставщика для новых операций; старые документы не переписываются.</p>:
           <button style={btnO} disabled={pending} onClick={()=>setHistory(true)}>Проверить доступ к истории</button>}
       </>:null}
       {(!review.hasSupplierAccount||review.canCompleteInn)&&<>

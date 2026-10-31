@@ -23,7 +23,11 @@ const normalizeReportPrice = (value) => {
 
 export default function OpportunityCandidatesPanel({ API = '', C = {}, compact = false }) {
   const [items, setItems] = React.useState([]);
+  const [searchRuns, setSearchRuns] = React.useState([]);
   const [status, setStatus] = React.useState('Нужно проверить');
+  const [searchText, setSearchText] = React.useState('');
+  const [sourceFilter, setSourceFilter] = React.useState('');
+  const [deadlineFilter, setDeadlineFilter] = React.useState('');
   const [loading, setLoading] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [importing, setImporting] = React.useState(false);
@@ -32,6 +36,29 @@ export default function OpportunityCandidatesPanel({ API = '', C = {}, compact =
   const [accessLoading, setAccessLoading] = React.useState(true);
   const [formOpen, setFormOpen] = React.useState(false);
   const fileInput = React.useRef(null);
+  const sources = React.useMemo(() => [...new Set(items.map(item => item.sourceName || item.source).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ru')), [items]);
+  const visibleItems = React.useMemo(() => {
+    const query = searchText.trim().toLocaleLowerCase('ru').replace(/ё/g, 'е');
+    const queryWords = query.split(/\s+/).filter(Boolean);
+    return items.filter(item => {
+      const searchable = [item.title, item.description, item.region, item.sourceName, item.source, ...(item.workTypes || [])]
+        .filter(Boolean).join(' ').toLocaleLowerCase('ru').replace(/ё/g, 'е');
+      const searchableWords = searchable.match(/[а-яa-z0-9-]+/gi) || [];
+      if (queryWords.length && !queryWords.every(word => {
+        const prefix = word.slice(0, Math.max(4, word.length - 2));
+        return searchableWords.some(value => value.startsWith(prefix));
+      })) return false;
+      if (sourceFilter && (item.sourceName || item.source) !== sourceFilter) return false;
+      if (deadlineFilter) {
+        const deadline = item.deadline ? Date.parse(item.deadline) : NaN;
+        const expired = Number.isFinite(deadline) && deadline < Date.now();
+        if (deadlineFilter === 'expired' && !expired) return false;
+        if (deadlineFilter === 'active' && (!Number.isFinite(deadline) || expired)) return false;
+        if (deadlineFilter === 'unknown' && Number.isFinite(deadline)) return false;
+      }
+      return true;
+    });
+  }, [items, searchText, sourceFilter, deadlineFilter]);
   const [draft, setDraft] = React.useState({ title: '', url: '', region: 'Ставропольский край', workType: '', description: '', evidence: '', price: '', deadline: '' });
 
   React.useEffect(() => {
@@ -58,6 +85,9 @@ export default function OpportunityCandidatesPanel({ API = '', C = {}, compact =
       const data = await response.json().catch(() => []);
       if (!response.ok) throw new Error(data.detail || 'Не удалось загрузить находки');
       setItems(Array.isArray(data) ? data : []);
+      const runsResponse = await fetch(`${API}/crm/job-candidates/search-runs?limit=10`);
+      const runsData = await runsResponse.json().catch(() => []);
+      if (runsResponse.ok) setSearchRuns(Array.isArray(runsData) ? runsData : []);
     } catch (loadError) {
       setError(loadError.message || 'Не удалось загрузить находки');
     } finally {
@@ -149,7 +179,7 @@ export default function OpportunityCandidatesPanel({ API = '', C = {}, compact =
       const response = await fetch(`${API}/crm/job-candidates/import-report`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items }),
+        body: JSON.stringify({ items, runId: report.run_id, region: report.region, sources: report.sources }),
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.detail || 'Не удалось импортировать отчёт');
@@ -257,7 +287,28 @@ export default function OpportunityCandidatesPanel({ API = '', C = {}, compact =
         </form>
       )}
 
-      <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginTop: 14 }}>
+      <div aria-label="Фильтры находок" style={{ display: 'grid', gridTemplateColumns: compact ? '1fr' : 'minmax(0, 2fr) repeat(2, minmax(0, 1fr))', gap: 8, marginTop: 14 }}>
+        <input
+          type="search"
+          aria-label="Поиск по находкам"
+          placeholder="Поиск по названию, заказчику, региону"
+          value={searchText}
+          onChange={event => setSearchText(event.target.value)}
+          style={inputStyle}
+        />
+        <select aria-label="Площадка" value={sourceFilter} onChange={event => setSourceFilter(event.target.value)} style={inputStyle}>
+          <option value="">Все площадки</option>
+          {sources.map(source => <option key={source} value={source}>{source}</option>)}
+        </select>
+        <select aria-label="Срок подачи" value={deadlineFilter} onChange={event => setDeadlineFilter(event.target.value)} style={inputStyle}>
+          <option value="">Любой срок</option>
+          <option value="active">Срок не истёк</option>
+          <option value="expired">Срок истёк</option>
+          <option value="unknown">Срок не указан</option>
+        </select>
+      </div>
+
+      <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginTop: 10 }}>
         {STATUSES.map(value => (
           <button key={value || 'all'} type="button" onClick={() => setStatus(value)} aria-pressed={status === value} style={{ ...buttonStyle, minHeight: 34, fontSize: 12, background: status === value ? (C.accentLight || '#fff7ed') : buttonStyle.background, borderColor: status === value ? (C.accent || '#f97316') : buttonStyle.border }}>
             {value || 'Все'}
@@ -265,10 +316,32 @@ export default function OpportunityCandidatesPanel({ API = '', C = {}, compact =
         ))}
       </div>
 
+      <section aria-label="История поиска JEV" style={{ marginTop: 14, padding: 12, borderRadius: 10, background: C.bg || '#f9fafb', border: `1px solid ${C.border || '#d0d5dd'}` }}>
+        <h4 style={{ margin: 0, color: C.text || '#101828' }}>Последние запуски поиска</h4>
+        {searchRuns.length === 0 ? (
+          <p style={{ color: C.textSec || '#667085', margin: '6px 0 0', fontSize: 12 }}>Запусков пока нет. После поиска здесь появятся результаты по площадкам.</p>
+        ) : searchRuns.map(run => (
+          <details key={run.runId || run.id} style={{ marginTop: 8 }}>
+            <summary style={{ cursor: 'pointer', color: C.text || '#101828' }}>
+              {run.finishedAt ? new Date(run.finishedAt).toLocaleString('ru-RU') : 'Запуск поиска'} · {run.region || 'Регион не указан'} · найдено {run.receivedCount || 0}, новых {run.createdCount || 0}, обновлено {run.updatedCount || 0} · площадок с ошибкой {run.sourcesUnavailable || 0}/{run.sourcesChecked || 0}
+            </summary>
+            {Array.isArray(run.sources) && run.sources.length > 0 && (
+              <ul style={{ margin: '7px 0 0', paddingLeft: 20, color: C.textSec || '#667085', fontSize: 12 }}>
+                {run.sources.map((source, index) => (
+                  <li key={`${source.provider}-${source.query}-${index}`}>
+                    {source.provider}{source.query ? ` · «${source.query}»` : ''}: {source.ok ? 'проверено' : 'ошибка'}, строк {source.rows || 0}{source.ok && source.rows === 0 ? ' (пустая выдача)' : ''}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </details>
+        ))}
+      </section>
+
       {error && <p role="alert" style={{ color: C.danger || '#b42318', margin: '12px 0 0' }}>{error}</p>}
-      {loading ? <p style={{ color: C.textSec || '#667085' }}>Загружаю…</p> : items.length === 0 ? <p style={{ color: C.textSec || '#667085', margin: '14px 0 0' }}>В этой подборке пока нет находок.</p> : (
+      {loading ? <p style={{ color: C.textSec || '#667085' }}>Загружаю…</p> : items.length === 0 ? <p style={{ color: C.textSec || '#667085', margin: '14px 0 0' }}>В этой подборке пока нет находок.</p> : visibleItems.length === 0 ? <p role="status" style={{ color: C.textSec || '#667085', margin: '14px 0 0' }}>По этим фильтрам находок нет.</p> : (
         <div style={{ display: 'grid', gap: 9, marginTop: 12 }}>
-          {items.map(item => (
+          {visibleItems.map(item => (
             <article key={item.id} style={{ border: `1px solid ${C.border || '#d0d5dd'}`, borderRadius: 9, padding: compact ? 10 : 12, minWidth: 0 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
                 <b style={{ color: C.text || '#101828', overflowWrap: 'anywhere' }}>{item.title}</b>

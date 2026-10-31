@@ -126,6 +126,37 @@ class SupplierHistoryMergePostgresTests(unittest.TestCase):
         time.sleep(0.15);self.confirm(source,plan,expected=409)
         self.assertEqual(self.sql('SELECT user_id FROM suppliers WHERE id=%s',(source,)),[(None,)])
 
+    def test_open_plan_cannot_outlive_cookie_revocation_or_admin_role(self):
+        import secrets
+        from fastapi.testclient import TestClient
+        admin=self.fixture['users']['admin']['id']
+        for change,status in (('session',401),('role',403)):
+            with self.subTest(change=change):
+                source,target,invoice=self.seed()
+                before=self.sql('SELECT to_jsonb(i) FROM supplier_invoices i WHERE id=%s',(invoice,))
+                token=secrets.token_urlsafe(32)
+                session=self.sql('''INSERT INTO user_sessions(user_id,session_hash,expires_at,two_factor_passed)
+                    VALUES(%s,%s,NOW()+INTERVAL '1 hour',TRUE) RETURNING id''',
+                    (admin,self.main._session_token_hash(token)))[0][0]
+                with TestClient(self.main.app) as client:
+                    client.cookies.set(self.main.AUTH_SESSION_COOKIE_NAME,token)
+                    headers={'X-CSRF-Token':self.main._create_csrf_token(token)}
+                    preview=client.post(self.path(source),json={'targetSupplierId':target},headers=headers)
+                    self.assertEqual(preview.status_code,200,preview.text)
+                    plan=preview.json()
+                    if change=='session':self.sql('UPDATE user_sessions SET revoked_at=NOW() WHERE id=%s',(session,))
+                    else:self.sql("UPDATE users SET role='мастер' WHERE id=%s",(admin,))
+                    try:
+                        denied=client.post(self.path(source)+f"/{plan['id']}/confirm",
+                            json=dict(confirmed=True,reason='Проверены исходные документы'),headers=headers)
+                        self.assertEqual(denied.status_code,status,denied.text)
+                    finally:
+                        if change=='role':self.sql("UPDATE users SET role='system_owner' WHERE id=%s",(admin,))
+                self.assertEqual(self.sql('SELECT user_id FROM suppliers WHERE id=%s',(source,)),[(None,)])
+                self.assertEqual(self.sql('SELECT applied_at FROM supplier_history_merge_plans WHERE id=%s',(plan['id'],)),[(None,)])
+                self.assertEqual(self.sql("SELECT count(*) FROM audit_log WHERE action='supplier_history_merged' AND entity_id=%s",(source,)),[(0,)])
+                self.assertEqual(self.sql('SELECT to_jsonb(i) FROM supplier_invoices i WHERE id=%s',(invoice,)),before)
+
     def test_exact_file_rights_include_photo_arrays_without_foreign_or_unrelated_files(self):
         source,target,invoice=self.seed()
         files=[]
