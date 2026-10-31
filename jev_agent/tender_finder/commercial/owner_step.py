@@ -1,14 +1,16 @@
 """Public, first-page STEP discovery and freshly read primary cards.
 
 Reviewed 2026-11-01: ahstep.ru/procurement -> /tender -> /tenders/tender<digits>.
-GET only, inherited proxy/CA, no login, browser, JS, redirects or downloads.
-An active listing filter does not confirm a card's current stage. ZIP documents
-and malformed download links remain unread; counterparty/role/payment unknown.
+GET only, inherited proxy/CA, no login, browser, JS or redirects. ZIP reading is
+opt-in via protected scope and isolated extraction; incomplete bundles remain
+unconfirmed. An active listing filter does not confirm a card's current stage.
 """
 from datetime import datetime
 from html.parser import HTMLParser
 import hashlib
 import re
+import time
+from functools import partial
 from urllib.parse import urljoin
 from urllib.request import Request, build_opener
 from urllib.error import HTTPError
@@ -16,13 +18,34 @@ from urllib.error import HTTPError
 from .access import Decision, NoRedirect, USER_AGENT
 from .b2b import Observation, extract_fields
 from .model import Candidate, Fact
+from .documents import Download, extract_isolated, MAX_BYTES
+from ..state import Scope
 from .platforms import PortalSpec
 from .sources import Source
 
-SOURCE = Source('step', 'Степь', 'agriculture', ('ahstep.ru',))
+SOURCE = Source('step', 'Степь', 'agriculture', ('ahstep.ru','www.ahstep.ru'))
 LISTING = 'https://ahstep.ru/tender?status=1'
 CARD_PATH = r'/tenders/tender[0-9]{10,20}'
 MAX_HTML = 1024 * 1024
+
+
+def document_url(raw, card):
+    """Canonicalize only the observed same-procedure STEP download path."""
+    identifier=card.rsplit('/',1)[-1]
+    if (type(raw) is not str or len(raw)>2048 or not re.fullmatch('tender[0-9]{10,20}',identifier)):
+        raise ValueError('published_step_archive_required')
+    match=re.fullmatch(r'https://www\.ahstep\.ru/storage/tenders[\\/]{1,2}(tender[0-9]{10,20})\.zip',raw)
+    if not match or match[1]!=identifier:raise ValueError('same_procedure_archive_required')
+    return 'https://www.ahstep.ru/storage/tenders/'+identifier+'.zip'
+
+
+def fetch_archive(url, maximum):
+    if type(maximum) is not int or not 0<maximum<=MAX_BYTES:raise ValueError('archive_size_limit')
+    req=Request(url,headers={'User-Agent':USER_AGENT,'Accept':'application/zip'})
+    try:response=build_opener(NoRedirect).open(req,timeout=15)
+    except HTTPError as error:response=error
+    with response:
+        return response.code,response.read(maximum+1)
 
 
 class MainText(HTMLParser):
@@ -97,7 +120,17 @@ def read(url, *, clock, access_check, fetch=fetch_html):
             state = {'url': url, 'notice_urls': links[:40]}
         elif 'УВЕДОМЛЕНИЕ' not in text or 'О ПРОВЕДЕНИИ ЗАКУПОЧНОЙ ПРОЦЕДУРЫ' not in text:
             return Observation(url, 'unavailable', clock())
-        return Observation(url, 'ok', clock(), text, state, raw_sha256=hashlib.sha256(body).hexdigest())
+        attachments=[]
+        if kind=='card':
+            for raw,name in parser.links:
+                if not re.search('закупочн.*документац',name,re.I):continue
+                try:target=document_url(raw,url)
+                except ValueError:continue
+                if any(item['url']==target for item in attachments):continue
+                name=name[:200]
+                attachments.append({'url':target,'name':name,'section':'procurement_documents'})
+                text+='\nИсходная ссылка архива: '+raw+'\nНормализованный URL: '+target
+        return Observation(url, 'ok', clock(), text, state, tuple(attachments),raw_sha256=hashlib.sha256(body).hexdigest())
     except Exception:
         return Observation(url, 'unavailable', clock())
 
@@ -125,10 +158,38 @@ def parse_card(document, source):
     return Candidate(source, next(iter(numbers)), (document,), facts)
 
 
-def adapter(*, clock, access_check, fetch=fetch_html):
+def adapter(*, clock, access_check, fetch=fetch_html,scope=None,extract_document=extract_isolated,
+            archive_fetch=fetch_archive,monotonic=time.monotonic):
+    if scope is not None:
+        if type(scope) is not Scope:raise ValueError('protected_step_document_scope_required')
+        scope.key()
     def collect(profile, started):
         from .portal_reader import collect_portal
+        from .terms import enrich
         profile.validate()
-        return collect_portal(spec(started), read=lambda url: read(url, clock=clock,
-            access_check=access_check, fetch=fetch), clock=clock, extract_card=parse_card)
+        leases={}
+        def page(url):
+            leases.clear()
+            observed=read(url,clock=clock,access_check=access_check,fetch=fetch)
+            for row in observed.attachment_links:leases[row['url']]={'deadline':monotonic()+45,'result':None}
+            return observed
+        def download(url,maximum):
+            lease=leases.get(url)
+            if lease is None or monotonic()>lease['deadline']:raise ValueError('fresh_observed_step_archive_required')
+            decision=access_check(url)
+            if type(decision) is not Decision:raise ValueError('typed_archive_access_required')
+            if not decision.allowed:return Download(url,decision.status,clock())
+            if lease['result'] is not None:return lease['result']
+            result=Download(url,'unavailable',clock())
+            try:
+                code,body=archive_fetch(url,maximum)
+                if code==200 and type(body) is bytes and 0<len(body)<=maximum and body.startswith(b'PK'):
+                    result=Download(url,'ok',clock(),body)
+                elif code==401:result=Download(url,'login_required',clock())
+            except Exception:pass
+            lease['result']=result
+            return result
+        bound=partial(enrich,scope=scope,hosts={'step':SOURCE.hosts},fetch=download,clock=clock,
+                      extract=extract_document) if scope is not None else None
+        return collect_portal(spec(started),read=page,clock=clock,extract_card=parse_card,document_enricher=bound)
     return collect

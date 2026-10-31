@@ -1,0 +1,31 @@
+{
+  "read_only": true,
+  "deployed": false,
+  "source": "step",
+  "procedure_number": "25202",
+  "archive_url": "https://www.ahstep.ru/storage/tenders/tender63928705612762.zip",
+  "archive_bytes": 3307384,
+  "archive_sha256": "b8ab8b0f00a2ac8e891a12a09ae9f8ad8ef153f630f1d833887eec23ceefbeac",
+  "result": {
+    "status": "needs_review_or_ocr",
+    "complete": false,
+    "blocks": 278,
+    "characters": 29698,
+    "members_represented": 6,
+    "unread_members": [
+      "файл 1: 4. МТС-Банк-письмо-партнерам.doc",
+      "файл 3: 6. ФАКТОРИНГ.pptx"
+    ],
+    "archive_sha256": "b8ab8b0f00a2ac8e891a12a09ae9f8ad8ef153f630f1d833887eec23ceefbeac",
+    "worker_sha256": "23dc935992b1420738e84788035557d6fcd0f9569e6742d5b906f01beaf6ab31",
+    "isolation": "local Docker, network none, readonly rootfs, UID65534, empty process environment, cap-drop ALL, no-new-privileges",
+    "production_bwrap_verified_locally": false
+  },
+  "fully_verified_conditions": false,
+  "limitations": [
+    "Legacy DOC and PPTX unsupported",
+    "PDF warnings or image content require review/OCR",
+    "Whole incomplete ZIP cannot establish authoritative terms",
+    "Local Docker audit does not prove production bwrap readiness"
+  ]
+}

@@ -9,6 +9,7 @@ import unittest
 
 from .documents import extract_isolated,sandbox_command
 from .test_documents import TEXT,docx
+from .test_zip_documents import bundle
 from ..invoker import _run_bounded
 
 
@@ -16,6 +17,11 @@ class SandboxTests(unittest.TestCase):
     def test_real_sandbox_extracts_docx(self):
         result=extract_isolated(docx(TEXT),'.docx')
         self.assertTrue(result['complete']);self.assertIn('Постоплата',str(result))
+
+    def test_real_sandbox_extracts_zip_and_marks_unread_members(self):
+        result=extract_isolated(bundle([('terms.docx',docx(TEXT)),('unread.xls',b'fixture')]),'.zip')
+        self.assertFalse(result['complete'])
+        self.assertIn('terms.docx',str(result));self.assertIn('неподдерживаемый формат',str(result))
 
     def test_host_files_environment_and_network_not_exposed(self):
         with tempfile.TemporaryDirectory(prefix='jev-private-probe-') as directory:

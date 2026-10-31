@@ -18,7 +18,7 @@ MAX_BYTES=8*1024*1024
 
 
 def sandbox_command(extension):
-    if extension not in ('.pdf','.docx','.txt') or sys.platform!='linux':
+    if extension not in ('.pdf','.docx','.txt','.zip') or sys.platform!='linux':
         raise ValueError('isolated_document_format_required')
     sandbox=shutil.which('bwrap')
     if not sandbox:raise ValueError('document_sandbox_unavailable')
@@ -90,7 +90,8 @@ def read_attachment(reference,card,*,hosts,fetch,clock,extract=extract_isolated)
     if (type(reference) is not Attachment or type(card) is not Document or card.kind!='card'
             or reference.card_id!=card.id or reference.source!=card.source
             or reference.kind not in ('terms','contract','quote','authority')
-            or reference.extension not in ('.pdf','.docx','.txt')
+            or reference.extension not in ('.pdf','.docx','.txt','.zip')
+            or reference.extension=='.zip' and reference.kind!='terms'
             or not reference.id or reference.id==card.id or not reference.name
             or not public_url(reference.url) or reference.source not in hosts
             or urlsplit(reference.url).hostname not in hosts[reference.source]

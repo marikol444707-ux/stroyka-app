@@ -54,11 +54,12 @@ def references(observation,card,source):
         url=row.get('url');name=row.get('name')
         if (not public_url(url) or urlsplit(url).hostname not in source.hosts or type(name) is not str
                 or url in seen):continue
-        extension=next((ext for ext in ('.pdf','.docx','.txt') if urlsplit(url).path.lower().endswith(ext)),None)
+        extension=next((ext for ext in ('.pdf','.docx','.txt','.zip') if urlsplit(url).path.lower().endswith(ext)),None)
         if extension is None:continue
         if len(result)>=8:break
         seen.add(url);name=re.sub(r'[\x00-\x20\x7f]+',' ',name).strip()[:200] or 'Документ закупки'
-        kind='contract' if 'договор' in name.casefold() else 'authority' if 'полномочи' in name.casefold() else 'terms'
+        kind=('terms' if extension=='.zip' else 'contract' if 'договор' in name.casefold()
+              else 'authority' if 'полномочи' in name.casefold() else 'terms')
         result.append(Attachment(source.id+'-doc-'+hashlib.sha256(url.encode()).hexdigest()[:16],source.id,url,name,kind,
                                  extension,card,'Вложение из DOM: '+name+' — '+url))
     return tuple(result)
@@ -183,7 +184,7 @@ def source_bundle(*,open_browser,clock,scope=None,reviewed_recipes=None,extra_so
                                   fetch=public_search if api_fetch is None else api_fetch)
         adapters[key]=portal_adapter(factory,open_browser=open_browser,clock=clock,scope=scope,
             extract_document=extract_document,access_check=permission,listing_fetch=listing_fetch)
-    adapters['step']=step_adapter(clock=clock,access_check=permission)
+    adapters['step']=step_adapter(clock=clock,access_check=permission,scope=scope,extract_document=extract_document)
     for key,factory in (reviewed_recipes or {}).items():
         if key not in sources or key in adapters:raise ValueError('unique_registered_portal_recipe_required')
         def checked(profile,now,key=key,factory=factory):

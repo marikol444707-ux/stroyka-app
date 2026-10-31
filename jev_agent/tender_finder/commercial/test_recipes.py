@@ -28,7 +28,7 @@ class RecipesTests(unittest.TestCase):
             reviewed_recipes=compiled.factories,extra_sources=compiled.extra_sources)
         self.assertEqual(len(adapters),19)
         self.assertTrue(set(keys)<=set(adapters))
-        self.assertEqual(sources['step'].hosts,('ahstep.ru',))
+        self.assertEqual(sources['step'].hosts,('ahstep.ru','www.ahstep.ru'))
 
     def test_data_recipe_cannot_run_python_shell_or_override_native(self):
         for row in ({**recipe(),'command':'fake'},{**recipe(),'source_id':'b2b'},
