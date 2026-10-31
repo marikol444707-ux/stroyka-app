@@ -57,3 +57,5 @@ class StartupRegistration:
             # under its own name. A separate 'jev' group is not in that bundle.
             self._registry.register(name=NAME,toolset=TOOLSET,schema=SCHEMA,handler=handle,
                                     scope=SCOPE,override=False,execution_timeout=5)
+        from .commercial.startup_tool import register_if_configured
+        register_if_configured(self._registry)

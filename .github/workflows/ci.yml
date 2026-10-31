@@ -64,6 +64,8 @@ jobs:
           jev_agent.tender_finder.commercial.test_api_listing
           jev_agent.tender_finder.commercial.test_owner_step
           jev_agent.tender_finder.commercial.test_zip_documents
+          jev_agent.tender_finder.commercial.test_runtime_config
+          jev_agent.tender_finder.commercial.test_startup
           jev_agent.tender_finder.test_contract
           jev_agent.tender_finder.test_reporting
           jev_agent.tender_finder.test_cli

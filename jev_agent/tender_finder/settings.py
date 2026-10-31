@@ -69,7 +69,7 @@ def parse_settings(value):
                           worker['admissions'],gateway['inbox'],gateway['admissions'],gateway_uid)
 
 
-def load_settings(path,*,trusted_root=Path('/etc/stroyka-jev'),expected_uid=0):
+def _load_settings_json(path,*,trusted_root=Path('/etc/stroyka-jev'),expected_uid=0):
     """trusted_root/expected_uid are bootstrap parameters, never model inputs.
 
     pyproject/app env/home-channel values are never configuration fallbacks.
@@ -94,4 +94,8 @@ def load_settings(path,*,trusted_root=Path('/etc/stroyka-jev'),expected_uid=0):
     finally:os.close(fd)
     try:value=json.loads(raw.decode('utf-8'),object_pairs_hook=_pairs,parse_constant=_nonfinite)
     except (ValueError,UnicodeError,RecursionError):raise StorageError('invalid_settings_json') from None
-    return parse_settings(value)
+    return value
+
+
+def load_settings(path,*,trusted_root=Path('/etc/stroyka-jev'),expected_uid=0):
+    return parse_settings(_load_settings_json(path,trusted_root=trusted_root,expected_uid=expected_uid))

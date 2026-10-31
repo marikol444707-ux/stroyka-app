@@ -8,6 +8,8 @@ import hashlib
 import json
 import os
 import re
+import time
+from datetime import datetime, timezone
 
 from .bootstrap_key import AdmissionSecret
 from .docker_delivery import deliver_via_hermes
@@ -58,7 +60,8 @@ def pending_completions(settings,limit=32):
 
 
 def run_host_pass(settings,secret,*,gateway_gid,invoke=None,verify_runtime=None,deliver=None,
-                  should_stop=lambda:False):
+                  should_stop=lambda:False,commercial_bridge=None,epoch=lambda:int(time.time()),
+                  clock=lambda:datetime.now(timezone.utc)):
     """Trusted host entrypoint. Injection callbacks exist for offline acceptance.
 
     Production bootstrap must load settings v2 and the host-only key as root;
@@ -66,7 +69,19 @@ def run_host_pass(settings,secret,*,gateway_gid,invoke=None,verify_runtime=None,
     """
     if type(settings) is not BridgeSettings or type(secret) is not AdmissionSecret:
         raise ValueError('protected_host_worker_required')
-    worker=WorkerRuntime(settings,secret,invoke=invoke,verify_runtime=verify_runtime)
+    if commercial_bridge is None:
+        if settings.queue.pipeline.protocol!=2:raise ValueError('explicit_commercial_host_binding_required')
+        worker=WorkerRuntime(settings,secret,invoke=invoke,verify_runtime=verify_runtime)
+        consume=worker.consume;resume=worker.resume
+    else:
+        from .commercial.bridge import CommercialBridge
+        if (type(commercial_bridge) is not CommercialBridge or commercial_bridge.settings is not settings
+                or commercial_bridge.secret is not secret or settings.queue.pipeline.protocol!=3
+                or invoke is not None or verify_runtime is not None):
+            raise ValueError('exact_commercial_host_binding_required')
+        worker=commercial_bridge
+        consume=lambda name:worker.consume(name,epoch=epoch,clock=clock)
+        resume=lambda handle:worker.resume(handle,epoch=epoch,clock=clock)
     summary={'processed':0,'authorization_pending':0,'acknowledged':0,'unknown':0,'errors':0,
              'legacy_untouched':0,'human_read_verified':False}
     def handled(action):
@@ -79,7 +94,7 @@ def run_host_pass(settings,secret,*,gateway_gid,invoke=None,verify_runtime=None,
         except Exception:summary['errors']+=1
     for handle in worker.pending():
         if should_stop():return summary
-        handled(lambda handle=handle:worker.resume(handle))
+        handled(lambda handle=handle:resume(handle))
     if should_stop():return summary
     inbox=_inbox(settings.queue)
     try:
@@ -92,7 +107,7 @@ def run_host_pass(settings,secret,*,gateway_gid,invoke=None,verify_runtime=None,
     finally:os.close(inbox)
     for name in names:
         if should_stop():return summary
-        handled(lambda name=name:worker.consume(name))
+        handled(lambda name=name:consume(name))
     if should_stop():return summary
     for event,identifier,fingerprint in pending_completions(settings):
         if should_stop():return summary

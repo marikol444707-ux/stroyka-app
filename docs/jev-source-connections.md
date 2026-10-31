@@ -264,3 +264,81 @@ bwrap, без host fallback. В текущей среде bwrap заблокир
 его реальная ZIP-проверка добавлена в обязательный native CI наряду с проверкой
 невидимости файлов, переменных и сети. Локальный Docker-аудит не заменяет этот CI
 или проверку на целевом сервере. Установка/перезапуск/отправка сообщений не выполнялись.
+
+## Подключение нового режима к Hermes: подготовлено в коде
+
+Последняя ZIP-сборка eff535bf прошла полный GitHub CI. Следующий блок добавляет
+отдельную защищённую конфигурацию v3 и связывает CommercialBridge с существующим
+ConnectedHost: подписанный RPC → очередь → результат → журнал доставки.
+Тест использует настоящий Unix-сокет и файловые журналы, синтетические источники
+и имитатор Telegram; это не проверка работающего Telegram на Timeweb.
+
+По умолчанию v2 остаётся единственным зарегистрированным инструментом.
+Новый jev_direct_commercial_search регистрируется только при наличии корректной
+root-owned /opt/stroyka-jev/config/commercial.json. Неверный/отсутствующий
+необязательный файл не отключает v2; существующие обработчики не заменяются.
+Файл gateway содержит только format=1, protocol=3 и bridge с транспортной
+схемой 2. Ключи и профиль юридического лица в gateway-файл не принимаются.
+Текущий GatewayRunner определяется на реальном вызове инструмента, а не во
+время обнаружения builtin. Авторизация использует тот же проверенный SessionSource.
+
+Приватный /etc/stroyka-jev-commercial/runtime.json имеет строго такие поля:
+
+```json
+{
+  "format": 1,
+  "protocol": 3,
+  "bridge": {
+    "schema_version": 2,
+    "company_id": 37,
+    "principal_subject": "fixture-owner",
+    "telegram_user_id": "123456789",
+    "reply_chat_id": "123456789",
+    "hermes_profile": null,
+    "writer_uid": 0,
+    "gateway_uid": 10000,
+    "result_gid": 10000,
+    "worker": {
+      "inbox": "/var/lib/stroyka-jev-commercial/requests",
+      "private": "/var/lib/stroyka-jev-commercial/private",
+      "results": "/var/lib/stroyka-jev-commercial/results",
+      "admissions": "/var/lib/stroyka-jev-commercial/admissions"
+    },
+    "gateway": {
+      "inbox": "/opt/data/jev-commercial/requests",
+      "admissions": "/opt/data/jev-commercial/admissions"
+    }
+  },
+  "registry_directory": "/var/lib/stroyka-jev-commercial/registry",
+  "profile": {"legal_entity": null, "qualifications": []},
+  "enabled_sources": ["step", "federation", "rtender"]
+}
+```
+
+Пример синтетический, не конфигурация пользователя. Поля владельца
+при подготовке установки копируются из существующей подтверждённой политики;
+нельзя подставлять компанию/пользователя из примера или модели. Host проверяет
+совпадение владельца и UID gateway со старой политикой, разделение inbox/private/
+results/admissions/registry и путей gateway, отсутствие алиасов/симлинков и точное
+совпадение новой host/gateway конфигурации. Квалификации относятся только к
+явно выбранному юрлицу; construction_sro не добавляет design_sro или fire_license.
+
+Три перечисленных native источника можно собрать без browser opener. Для
+включения браузерного читателя нужен явно переданный проверенный opener; строка
+импорта/команда/функция из JSON не принимаются. Неподключённые направления остаются
+not_connected, а не успешно проверенными. Сборка конфигурации не начинает поиск
+и ничего не создаёт в очереди. Подписывающий ключ отдельно приходит root-процессу
+через проверяемый анонимный FD; его не копируют в Python gateway или JSON.
+
+Root launcher получил отдельную операцию commercial-service с Unix listener
+/run/stroyka-jev/commercial.sock. Она принимает только явные проверенные FD, PID,
+start ticks и группу gateway; используются прежние проверки реального Hermes
+процесса и исходников. Импорт и инициализация не устанавливают unit, не создают
+ключ/директории, не запускают поиск и не отправляют сообщения. Старый запуск
+по-прежнему принимает v2; протокол 3 требует явного CommercialBridge.
+
+**Ещё не выполнено:** установочный bootstrap/unit для нового socket/service,
+передача ключа при запуске и rebind после перезапуска Hermes, проверка пары
+политик/зависимостей на реальном сервере и приёмка Telegram. Текущий установщик
+не считается готовым к v3 лишь из-за появления этих функций. Рабочий сервер
+и существующие файлы/службы/ключи не менялись.

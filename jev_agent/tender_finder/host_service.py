@@ -9,6 +9,8 @@ import json
 import os
 import socket
 import threading
+import time
+from datetime import datetime,timezone
 
 from .admission_broker import AdmissionBroker,process_start_ticks
 from .bootstrap_key import read_bootstrap_key
@@ -23,11 +25,21 @@ def _emit(summary):
 
 class ConnectedHost:
     """Root host component; private callbacks are offline fixture seams only."""
-    def __init__(self,settings,secret,peer,*,_run_pass=None,_emit_summary=_emit):
-        self.broker=AdmissionBroker(settings,secret,peer)
+    def __init__(self,settings,secret,peer,*,commercial_bridge=None,epoch=lambda:int(time.time()),
+                 clock=lambda:datetime.now(timezone.utc),_run_pass=None,_emit_summary=_emit):
+        if commercial_bridge is None:
+            if settings.queue.pipeline.protocol!=2:raise ValueError('explicit_commercial_service_binding_required')
+            self.broker=AdmissionBroker(settings,secret,peer,clock=epoch)
+        else:
+            from .commercial.bridge import CommercialBridge
+            if (type(commercial_bridge) is not CommercialBridge or commercial_bridge.settings is not settings
+                    or commercial_bridge.secret is not secret or settings.queue.pipeline.protocol!=3):
+                raise ValueError('exact_commercial_service_binding_required')
+            self.broker=commercial_bridge.broker(peer,epoch=epoch)
         self._peer=peer
         self._run_pass=_run_pass or (lambda:run_host_pass(settings,secret,gateway_gid=peer.gid,
-                                                       should_stop=self._stop.is_set))
+                                                       should_stop=self._stop.is_set,commercial_bridge=commercial_bridge,
+                                                       epoch=epoch,clock=clock))
         self._emit=_emit_summary
         self._wake=threading.Event();self._stop=threading.Event()
         self._thread=None

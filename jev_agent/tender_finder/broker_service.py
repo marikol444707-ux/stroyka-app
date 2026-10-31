@@ -86,7 +86,7 @@ def validate_gateway_peer(peer,*,_run=_run_bounded):
     if process_start_ticks(peer.pid)!=peer.start_ticks:raise ValueError('gateway_process_changed')
 
 
-def _main(argv,initialize,run_loop):
+def _main(argv,initialize,run_loop,*,settings_loader=None,listener_path=None):
     parser=BrokerParser(description=__doc__)
     parser.add_argument('--config',required=True)
     parser.add_argument('--key-fd',type=int,required=True)
@@ -99,14 +99,16 @@ def _main(argv,initialize,run_loop):
     try:
         if (args.key_fd<3 or args.listener_fd<3 or args.key_fd==args.listener_fd
                 or os.geteuid()!=0):raise ValueError('privileged_separate_descriptors_required')
-        settings=load_settings(args.config)
+        settings=(load_settings if settings_loader is None else settings_loader)(args.config)
         if settings.queue.writer_uid!=0 or settings.gateway_uid is None:
             raise ValueError('root_broker_settings_v2_required')
         peer=GatewayPeer(args.gateway_pid,settings.gateway_uid,args.gateway_gid,args.gateway_start_ticks)
         peer.validate()
         validate_gateway_peer(peer)
         listener=socket.socket(fileno=args.listener_fd)
-        listener.set_inheritable(False);validate_listener(listener,args.gateway_gid)
+        listener.set_inheritable(False)
+        if listener_path is None:validate_listener(listener,args.gateway_gid)
+        else:validate_listener(listener,args.gateway_gid,_path=listener_path)
         # initialize_root_broker takes ownership and closes the key FD even if
         # later validation fails. The caller never receives a signing object.
         key_owned=False

@@ -96,5 +96,9 @@ class CommercialBridge:
     def consume(self,filename,*,epoch,clock=lambda:datetime.now(timezone.utc)):
         return consume_file(self.settings.queue,filename,**self._bindings(epoch,clock))
 
+    def pending(self):
+        from ..queue import pending_claims
+        return pending_claims(self.settings.queue)
+
     def resume(self,handle,*,epoch,clock=lambda:datetime.now(timezone.utc)):
         return resume_claim(self.settings.queue,handle,**self._bindings(epoch,clock))
