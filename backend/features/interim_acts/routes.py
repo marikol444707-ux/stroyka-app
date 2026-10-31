@@ -11,11 +11,14 @@ need arrives through deps. The model moved here — sole user.
 from typing import Optional
 
 import psycopg2.extras
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, Header, HTTPException, Request
+from ..legacy_project_records.user_scope import selected_actors
+from ..legacy_project_records.scope import require_record, owned_query
 from pydantic import BaseModel
 
 
 class InterimActModel(BaseModel):
+    projectId: Optional[int] = None
     masterId: int
     masterName: str
     project: str
@@ -29,6 +32,7 @@ class InterimActModel(BaseModel):
 
 
 def register_interim_acts_module(app, deps):
+    scope = deps["record_scope"]
     get_db = deps["get_db"]
     get_current_user = deps["get_current_user"]
     require_roles = deps["require_roles"]
@@ -47,43 +51,67 @@ def register_interim_acts_module(app, deps):
     interim_act_locked_statuses = deps["interim_act_locked_statuses"]
     log_audit = deps["log_audit"]
 
+    def actor_for(conn, user, request, roles, write=False):
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as context_cur:
+            actors=selected_actors(scope,context_cur,user,request,roles,write=write)
+        if len(actors)!=1:
+            raise HTTPException(409,'Выберите одну доступную компанию для работы с актами')
+        return actors[0]
+
+    def require_work_owner(cur, ids, actor, project):
+        ids=list({int(value) for value in (ids or [])})
+        if not ids: return
+        cur.execute('SELECT id FROM work_journal WHERE id=ANY(%s) AND company_id=%s AND project=%s AND (SELECT COUNT(*) FROM projects p WHERE p.company_id=%s AND p.name=%s)=1 FOR UPDATE',
+                    (ids,actor['companyId'],project,actor['companyId'],project))
+        actual={int(row['id'] if isinstance(row,dict) else row[0]) for row in cur.fetchall()}
+        if actual!=set(ids): raise HTTPException(404,'Работы не найдены в компании и объекте акта')
+
     @app.get("/interim-acts")
-    def get_interim_acts(_current_user: dict = Depends(require_roles(*contract_roles))):
+    def get_interim_acts(_current_user: dict = Depends(get_current_user), request: Request = None):
         conn = get_db()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        allowed_projects = visible_project_names(_current_user)
-        if allowed_projects is not None and not allowed_projects:
+        try:
+            _current_user=actor_for(conn,_current_user,request,contract_roles)
+            allowed_projects = visible_project_names(_current_user)
+            if allowed_projects is not None and not allowed_projects:
+                conn.close()
+                return []
+            owner_query, owner_params=owned_query(scope,[_current_user],contract_roles,"interim_acts","r.id")
+            where, params = ["id IN ("+owner_query+")"], list(owner_params)
+            if allowed_projects is not None:
+                where.append("project = ANY(%s)")
+                params.append(allowed_projects)
+            if _current_user.get("role") in worker_execution_roles:
+                where.append("(COALESCE(master_id,0)=%s OR (COALESCE(master_id,0)=0 AND master_name=%s))")
+                params.extend([_current_user.get("id"), _current_user.get("name") or ""])
+            package_sql, package_params = package_access_filter(_current_user)
+            if package_sql:
+                where.append("1=1" + package_sql)
+                params.extend(package_params)
+            q = "SELECT id,master_id as \"masterId\",master_name as \"masterName\",project,COALESCE(work_package,'') as \"workPackage\",period_start as \"periodStart\",period_end as \"periodEnd\",total_amount as \"totalAmount\",paid_amount as \"paidAmount\",contract_id as \"contractId\",status,scan_url as \"scanUrl\",COALESCE(work_journal_ids,'[]') as \"workJournalIds\",COALESCE(source_type,'') as \"sourceType\",COALESCE(photo_urls,'[]') as \"photoUrls\" FROM interim_acts"
+            if where:
+                q += " WHERE " + " AND ".join(where)
+            q += " ORDER BY id DESC"
+            cur.execute(q, tuple(params))
+            rows = cur.fetchall()
             conn.close()
-            return []
-        where, params = [], []
-        if allowed_projects is not None:
-            where.append("project = ANY(%s)")
-            params.append(allowed_projects)
-        if _current_user.get("role") in worker_execution_roles:
-            where.append("(COALESCE(master_id,0)=%s OR (COALESCE(master_id,0)=0 AND master_name=%s))")
-            params.extend([_current_user.get("id"), _current_user.get("name") or ""])
-        package_sql, package_params = package_access_filter(_current_user)
-        if package_sql:
-            where.append("1=1" + package_sql)
-            params.extend(package_params)
-        q = "SELECT id,master_id as \"masterId\",master_name as \"masterName\",project,COALESCE(work_package,'') as \"workPackage\",period_start as \"periodStart\",period_end as \"periodEnd\",total_amount as \"totalAmount\",paid_amount as \"paidAmount\",contract_id as \"contractId\",status,scan_url as \"scanUrl\",COALESCE(work_journal_ids,'[]') as \"workJournalIds\",COALESCE(source_type,'') as \"sourceType\",COALESCE(photo_urls,'[]') as \"photoUrls\" FROM interim_acts"
-        if where:
-            q += " WHERE " + " AND ".join(where)
-        q += " ORDER BY id DESC"
-        cur.execute(q, tuple(params))
-        rows = cur.fetchall()
-        conn.close()
-        return [dict(r) for r in rows]
+            return [dict(r) for r in rows]
+        finally:
+            if not conn.closed: conn.close()
 
     @app.post("/interim-acts")
-    def create_interim_act(a: InterimActModel, _current_user: dict = Depends(require_roles(*finance_roles))):
-        require_project_access(_current_user, a.project)
-        if not has_package_access(_current_user, a.workPackage or ""):
-            raise HTTPException(status_code=403, detail="Нет доступа к этому пакету работ")
+    def create_interim_act(a: InterimActModel, _current_user: dict = Depends(get_current_user), request: Request = None):
         conn = get_db()
         conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
+            _current_user=actor_for(conn,_current_user,request,finance_roles,write=True)
+            parent=scope.parent(cur,_current_user,{'projectId':a.projectId,'projectName':a.project},finance_roles)
+            if not has_package_access(_current_user,a.workPackage or ''):
+                raise HTTPException(403,'Нет доступа к пакету работ')
+            require_work_owner(cur,a.workJournalIds,_current_user,parent['name'])
+            if a.contractId:
+                require_record(cur,scope,[_current_user],finance_roles,'contracts',a.contractId)
             if deps.get('lock_settlement'):
                 deps['lock_settlement'](cur)
                 deps['require_legacy_work'](cur, a.workJournalIds, a.contractId)
@@ -92,7 +120,7 @@ def register_interim_acts_module(app, deps):
             if _current_user.get("role") not in finance_roles and paid_amount > 0:
                 cur.close(); conn.close()
                 raise HTTPException(status_code=403, detail="Оплату по акту указывает только директор, замдиректора или бухгалтер")
-            available_total = confirmed_execution_total_for_act(cur, a.masterId, a.masterName, a.project, a.workPackage, a.periodStart, a.periodEnd)
+            available_total = confirmed_execution_total_for_act(cur, a.masterId, a.masterName, a.project, a.workPackage, a.periodStart, a.periodEnd, company_id=parent["companyId"])
             if total_amount <= 0:
                 cur.close(); conn.close()
                 raise HTTPException(status_code=400, detail="Сумма акта должна быть больше нуля")
@@ -139,9 +167,9 @@ def register_interim_acts_module(app, deps):
                 cur.close(); conn.close()
                 raise HTTPException(status_code=400, detail=f"Сумма акта должна равняться выбранным подтверждённым ЖПР: {selected_total:.2f} ₽. Удержания и частичную оплату фиксируйте отдельными полями.")
             cur.execute("""INSERT INTO interim_acts
-                           (master_id,master_name,project,work_package,period_start,period_end,total_amount,paid_amount,contract_id,work_journal_ids)
-                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
-                        (a.masterId,a.masterName,a.project,a.workPackage or "",a.periodStart,a.periodEnd,total_amount,paid_amount,a.contractId,_json.dumps(work_journal_ids, ensure_ascii=False)))
+                           (company_id,project_id,master_id,master_name,project,work_package,period_start,period_end,total_amount,paid_amount,contract_id,work_journal_ids)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
+                        (parent["companyId"],parent["id"],a.masterId,a.masterName,parent["name"],a.workPackage or "",a.periodStart,a.periodEnd,total_amount,paid_amount,a.contractId,_json.dumps(work_journal_ids, ensure_ascii=False)))
             row = cur.fetchone()
             conn.commit()
             conn.close()
@@ -152,18 +180,19 @@ def register_interim_acts_module(app, deps):
                 conn.close()
 
     @app.put("/interim-acts/{id}")
-    def update_interim_act(id: int, data: dict, _current_user: dict = Depends(require_roles(*finance_roles))):
+    def update_interim_act(id: int, data: dict, _current_user: dict = Depends(get_current_user), request: Request = None):
         import json as _json
         conn = get_db()
         conn.autocommit = False
         cur = conn.cursor()
         try:
+            _current_user=actor_for(conn,_current_user,request,finance_roles,write=True)
+            require_record(cur,scope,[_current_user],finance_roles,'interim_acts',id)
             if deps.get('lock_settlement'):
                 deps['lock_settlement'](cur)
                 deps['require_legacy_interim'](cur, id)
                 if 'workJournalIds' in data:
                     deps['require_legacy_work'](cur, data['workJournalIds'])
-            require_row_project_access(cur, "interim_acts", id, _current_user, "project")
             cur.execute("""SELECT master_id, master_name, project, COALESCE(NULLIF(work_package,''),'Основная'),
                                   period_start, period_end, total_amount, paid_amount,
                                   COALESCE(status,''), COALESCE(scan_url,''), COALESCE(work_journal_ids,'[]'),
@@ -174,6 +203,8 @@ def register_interim_acts_module(app, deps):
                 cur.close(); conn.close()
                 raise HTTPException(status_code=404, detail="Акт не найден")
             master_id, master_name, project, work_package, period_start, period_end, total_amount, current_paid, current_status, scan_url, current_work_ids, source_type = act_row
+            if 'workJournalIds' in data:
+                require_work_owner(cur,data['workJournalIds'],_current_user,project)
             if not has_package_access(_current_user, work_package or "Основная"):
                 cur.close(); conn.close()
                 raise HTTPException(status_code=403, detail="Нет доступа к разделу сметы акта")
@@ -302,6 +333,7 @@ def register_interim_acts_module(app, deps):
                 x_company_mode=x_company_mode,
                 require_unambiguous_project=True,
             )
+            require_record(cur,scope,[actor],finance_roles,"interim_acts",id)
             _current_user = actor
             total_amount = float(act[0] or 0)
             current_paid = float(act[1] or 0)
@@ -345,15 +377,16 @@ def register_interim_acts_module(app, deps):
             conn.close()
 
     @app.delete("/interim-acts/{id}")
-    def delete_interim_act(id: int, _current_user: dict = Depends(require_roles(*delete_roles))):
+    def delete_interim_act(id: int, _current_user: dict = Depends(get_current_user), request: Request = None):
         conn = get_db()
         conn.autocommit = False
         cur = conn.cursor()
         try:
+            _current_user=actor_for(conn,_current_user,request,delete_roles,write=True)
+            require_record(cur,scope,[_current_user],delete_roles,'interim_acts',id)
             if deps.get('lock_settlement'):
                 deps['lock_settlement'](cur)
                 deps['require_legacy_interim'](cur, id)
-            require_row_project_access(cur, "interim_acts", id, _current_user, "project")
             cur.execute("SELECT COALESCE(work_package,''), COALESCE(project,''), COALESCE(master_name,'') FROM interim_acts WHERE id=%s", (id,))
             act_row = cur.fetchone()
             if act_row and not has_package_access(_current_user, act_row[0] or "Основная"):

@@ -29,7 +29,7 @@ export default function WeatherPage({
 
       {weatherTab==='log'&&(<div>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
-          <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Журнал погоды</b>
+          <b style={{color:C.text,fontSize:'15px',fontWeight:'700'}}>Журнал погоды</b><p style={{color:C.textMuted,fontSize:12}}>Записи сохраняются только в этом браузере и не синхронизируются с командой.</p>
           <button onClick={()=>setShowForm(!showForm)} style={btnO}><Plus size={14}/>Добавить запись</button>
         </div>
         {showForm&&(<div style={{...card,padding:'20px',marginBottom:'16px'}}>

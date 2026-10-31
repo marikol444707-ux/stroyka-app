@@ -1,3 +1,4 @@
+import { qualityJournalScopeKey } from '../../utils/qualityJournalScope';
 import React, { useState } from 'react';
 
 export default function ProjectOverviewTab({
@@ -8,6 +9,7 @@ export default function ProjectOverviewTab({
   project,
   total,
 }) {
+  const materialSourcesReady = ctx.projectMaterialSourcesState?.status === 'ready' && ctx.projectMaterialSourcesState.scopeKey === qualityJournalScopeKey(ctx.companyContext || {}, ctx.user);
   const [journalError, setJournalError] = useState(null);
   const {
     API,
@@ -93,7 +95,7 @@ export default function ProjectOverviewTab({
         </div>
       )}
 
-      {isFinanceUser && (
+      {isFinanceUser && materialSourcesReady && (
         <ProjectEconomyPanel
           C={C}
           card={card}
@@ -202,7 +204,8 @@ export default function ProjectOverviewTab({
       </div>
 
       <div style={{ backgroundColor: C.bg, borderRadius: '10px', padding: '14px', border: '1.5px solid ' + C.border, marginBottom: '12px' }}>
-        {isFinanceUser && (
+        {isFinanceUser && !materialSourcesReady && <p role="status">Затраты будут показаны после загрузки складских источников объекта.</p>}
+        {isFinanceUser && materialSourcesReady && (
           <>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}><b style={{ color: C.text, fontSize: '13px' }}>Прогресс бюджета</b><span style={{ fontSize: '13px', color: total > p.budget ? C.danger : C.success }}>{Math.round(total).toLocaleString('ru-RU') + ' из ' + p.budget.toLocaleString() + ' ₽'}</span></div>
             <div style={{ backgroundColor: C.bgGray, borderRadius: '6px', height: '10px' }}><div style={{ backgroundColor: total > p.budget ? C.danger : total > p.budget * 0.8 ? C.warning : C.success, width: Math.min(100, p.budget > 0 ? total / p.budget * 100 : 0) + '%', height: '100%', borderRadius: '6px', transition: 'width 0.3s' }} /></div>

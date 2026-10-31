@@ -20,7 +20,7 @@ export default function ProjectRoomsTab({ ctx, project }) {
 	                    {activeProjectTab==='Помещения'&&(<div>
 	                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
 	                        <b style={{color:C.text}}>Помещения</b>
-                        {isProrab()&&<button onClick={()=>{setShowRoomForm(!showRoomForm);setEditingItem(null);setDraftRoomWindows([]);setDraftRoomDoors([]);setNewRoom(createRoomForm({project:p.name}));}} style={btnO}><Plus size={14}/>Добавить</button>}
+                        {isProrab()&&<button onClick={()=>{setShowRoomForm(!showRoomForm);setEditingItem(null);setDraftRoomWindows([]);setDraftRoomDoors([]);setNewRoom(createRoomForm({project:p.name,projectId:p.id}));}} style={btnO}><Plus size={14}/>Добавить</button>}
                       </div>
                       {showRoomForm&&(<div style={{...card,padding:'16px',marginBottom:'16px',backgroundColor:C.bg}}>
                         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>

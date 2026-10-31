@@ -166,6 +166,7 @@ def register_job_candidates_module(app, deps):
         current_user: dict = Depends(get_current_user),
     ):
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             company_id = selected_company(cur, current_user, "read", x_company_id, x_company_mode)
@@ -187,6 +188,7 @@ def register_job_candidates_module(app, deps):
         current_user: dict = Depends(get_current_user),
     ):
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             company_id = selected_company(cur, current_user, "read", x_company_id, x_company_mode)
@@ -251,6 +253,7 @@ def register_job_candidates_module(app, deps):
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             company_id = selected_company(cur, current_user, "write", x_company_id, x_company_mode)
@@ -306,6 +309,7 @@ def register_job_candidates_module(app, deps):
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         created = 0
         updated = 0
@@ -351,6 +355,7 @@ def register_job_candidates_module(app, deps):
     def list_jev_search_targets(x_jev_ingest_key: str = Header(default="", alias="X-JEV-Ingest-Key")):
         require_jev_ingest_key(x_jev_ingest_key)
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             cur.execute("""
@@ -414,6 +419,7 @@ def register_job_candidates_module(app, deps):
         except (TypeError, ValueError) as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         created = 0
         updated = 0
@@ -503,6 +509,7 @@ def register_job_candidates_module(app, deps):
             raise HTTPException(status_code=422, detail="Выберите решение: подходит, не подходит или дубль")
         note = str(data.get("reviewNote") or "").strip()[:2000]
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor()
         try:
             company_id = selected_company(cur, current_user, "write", x_company_id, x_company_mode)

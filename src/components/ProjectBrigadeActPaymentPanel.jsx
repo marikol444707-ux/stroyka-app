@@ -54,21 +54,29 @@ export default function ProjectBrigadeActPaymentPanel({
     const file = event.target.files[0];
     if (!file) return;
 
+    try {
     const url = await uploadPhoto(file, {
       projectName: selectedBrigadeContract.projectName,
       context: 'brigade-contracts',
     });
     if (!url) return;
 
-    await fetch(API + '/brigade-contracts/' + selectedBrigadeContract.id, {
+    const response = await fetch(API + '/brigade-contracts/' + selectedBrigadeContract.id, {
       method: 'PUT',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({...selectedBrigadeContract, actScanUrl: url}),
     });
+    if (!response.ok) {
+      alert('Подписанный акт не сохранён. Оплата не разблокирована.');
+      return;
+    }
     setSelectedBrigadeContract(prev => ({...prev, actScanUrl: url}));
     setBrigadeContracts(prev => prev.map(contract => (
       contract.id === selectedBrigadeContract.id ? {...contract, actScanUrl: url} : contract
     )));
+    } catch (_error) {
+      alert('Не удалось подтвердить сохранение подписанного акта. Проверьте соединение.');
+    }
   };
 
   const openPaymentModal = () => {

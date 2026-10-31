@@ -136,15 +136,15 @@ class RegionRoutesTest(unittest.TestCase):
 
     def test_checklist_delete_cascades_items_first(self):
         calls = []
-        cursor = FakeCursor()
+        cursor = FakeCursor(row=(9,))
         app = FakeApp()
         connection, deps = common_deps(cursor, calls)
         register_project_checklists_module(app, deps)
-        result = app.routes[("DELETE", "/project-checklists/{id}")](id=9, _current_user={})
+        result = app.routes[("DELETE", "/project-checklists/{id}")](id=9, request=None, current_user={})
         self.assertEqual(result, {"ok": True})
-        self.assertEqual(calls, [("project_checklists", 9)])
-        self.assertIn("DELETE FROM checklist_items WHERE checklist_id=%s", cursor.calls[0][0])
-        self.assertIn("DELETE FROM project_checklists WHERE id=%s", cursor.calls[1][0])
+        self.assertIn("p.company_id=%s", cursor.calls[0][0])
+        self.assertIn("DELETE FROM checklist_items WHERE checklist_id=%s", cursor.calls[1][0])
+        self.assertIn("DELETE FROM project_checklists WHERE id=%s", cursor.calls[2][0])
         self.assertTrue(connection.committed)
 
     def test_all_urls_registered(self):

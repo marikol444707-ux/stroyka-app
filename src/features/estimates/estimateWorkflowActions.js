@@ -62,8 +62,16 @@ export const createEstimateWorkflowActions = ({
     if (pending.some(estimate => !byId.has(String(estimate.id)))) {
       throw new Error('Сервер не вернул все запрошенные сметы');
     }
+    if (pending.some(estimate => {
+      const owner = estimate.companyId ?? estimate.company_id;
+      const detail = byId.get(String(estimate.id));
+      return owner != null && String(detail.companyId ?? detail.company_id ?? '') !== String(owner);
+    })) throw new Error('Компания загруженной сметы не совпадает с выбранной');
     const mergedById = new Map(pending.map(estimate => [String(estimate.id), mergeEstimateDetail(estimate, byId.get(String(estimate.id)))]));
-    setEstimatesList(prev => (prev||[]).map(estimate => mergedById.get(String(estimate.id)) || estimate));
+    setEstimatesList(prev => (prev||[]).map(estimate => {
+      const loaded = mergedById.get(String(estimate.id));
+      return loaded && String(loaded.companyId ?? loaded.company_id ?? '') === String(estimate.companyId ?? estimate.company_id ?? '') ? loaded : estimate;
+    }));
     return (estimates || []).map(estimate => mergedById.get(String(estimate?.id)) || estimate);
   };
 
@@ -77,7 +85,7 @@ export const createEstimateWorkflowActions = ({
     setSelectedEstimate(estimate);
     try {
       const full = await loadEstimateDetail(estimate);
-      if (full && full !== estimate) setSelectedEstimate(full);
+      if (full && full !== estimate) setSelectedEstimate(current => current?.id === estimate.id && String(current.companyId ?? current.company_id ?? '') === String(estimate.companyId ?? estimate.company_id ?? '') ? full : current);
       return full;
     } catch (err) {
       alertFn('Не удалось загрузить смету: ' + (err?.message || err));

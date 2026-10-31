@@ -1,4 +1,5 @@
 import React from 'react';
+import { paymentStorageKey, recordLegacyPayment } from '../features/supply/legacyInvoicePayment';
 import SupplierPaymentButton from '../features/supplier-payments/SupplierPaymentButton';
 import { Check, ChevronDown, ChevronUp, FileCheck2, Plus, Search, Trash2 } from 'lucide-react';
 import { API } from '../api';
@@ -90,48 +91,67 @@ function SupplySupplierInvoicesPanel({
     await loadAll();
   };
 
+  const paymentBusy = React.useRef(new Set());
+  const [, paymentChanged] = React.useReducer(n=>n+1,0);
+  const paymentScope = JSON.stringify([user?.id,companyContext?.mode,companyContext?.selectedCompanyId,companyContext?.loading]);
+  const paymentScopeRef = React.useRef(paymentScope);
+  const lifecycle = React.useRef({scope:paymentScope,active:true});
+  if (lifecycle.current.scope !== paymentScope) {
+    lifecycle.current.active = false;
+    lifecycle.current = {scope:paymentScope,active:true};
+  }
+  React.useEffect(()=>{
+    const generation = {scope:paymentScope,active:true};
+    lifecycle.current = generation;
+    return ()=>{generation.active=false;};
+  },[paymentScope]);
+  paymentScopeRef.current = paymentScope;
+  const paymentKey = invoice => paymentStorageKey(API,user?.id,Number(companyContext?.selectedCompanyId),invoice.id);
+  const hasPending = invoice => {
+    try { return Boolean(window.localStorage.getItem(paymentKey(invoice))); }
+    catch { return true; } // Fail closed if durable storage is unavailable.
+  };
   const payInvoice = async (invoice, total, paidAmount, owe) => {
-    if(!window.confirm('Деньги уже перечислены поставщику через банк? Программа только зафиксирует выполненную оплату.')) return;
-    const ans = prompt('Зафиксировать уже оплаченную сумму (₽). Остаток: '+Math.round(owe).toLocaleString('ru-RU')+' ₽', String(owe));
-    if(!ans) return;
-    const sum = toNum(ans);
-    if(sum<=0||sum>owe){
-      alert('Сумма должна быть от 1 до '+Math.round(owe).toLocaleString('ru-RU'));
-      return;
+    const companyId = Number(companyContext?.selectedCompanyId);
+    if (!user?.id || companyContext?.mode !== 'company' || companyContext?.loading
+        || !Number.isSafeInteger(companyId) || companyId <= 0 || Number(invoice.companyId) !== companyId) {
+      alert('Выберите компанию этого счёта.'); return;
     }
-    const newPaid = paidAmount + sum;
-    const newStatus = newPaid >= total ? 'Оплачен' : 'Частично оплачен';
-    const payRes = await fetch(API+'/supplier-invoices/'+invoice.id,{
-      method:'PUT',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        status:newStatus,
-        paidAmount:newPaid,
-        paidBy:user.name,
-        paidAt:today(),
-        paidNote:'Оплачено '+Math.round(sum).toLocaleString('ru-RU')+' ₽',
-      }),
-    });
-    const payData = await payRes.json().catch(()=>({}));
-    if(!payRes.ok || payData.detail || payData.error){
-      alert('Оплата не проведена: '+(payData.detail||payData.error||'сервер отклонил оплату'));
-      return;
+    const generation = lifecycle.current;
+    const isCurrent = ()=>generation.active && lifecycle.current===generation && paymentScopeRef.current===paymentScope;
+    const key = paymentKey(invoice);
+    if (paymentBusy.current.has(key)) return;
+    paymentBusy.current.add(key);
+    let confirmed = false;
+    try {
+      let command;
+      if (!window.localStorage.getItem(key)) {
+        if(!window.confirm('Деньги уже перечислены поставщику через банк? Программа только зафиксирует выполненную оплату.')) return;
+        const ans = prompt('Зафиксировать уже оплаченную сумму (₽). Остаток: '+Math.round(owe).toLocaleString('ru-RU')+' ₽', String(owe));
+        if(!ans) return;
+        const sum = toNum(ans);
+        if (!Number.isFinite(sum) || sum<=0 || sum>owe || Math.abs(sum*100-Math.round(sum*100))>0.000001) {
+          alert('Укажите сумму в пределах остатка, точную до копейки.'); return;
+        }
+        command = {requestId:crypto.randomUUID(),companyId,invoiceId:invoice.id,
+          amount:sum.toFixed(2),expectedPaidAmount:Number(paidAmount).toFixed(2),paidAt:today()};
+      }
+      const result = await recordLegacyPayment({api:API,key,storage:window.localStorage,command,companyId,invoiceId:invoice.id,isCurrent});
+      confirmed = true;
+      if (!isCurrent()) return;
+      const refreshed = await loadAll({paymentConfirmation:result.data,isCurrent});
+      if (!isCurrent()) return;
+      if (refreshed?.requestId !== result.data.requestId || refreshed?.companyId !== companyId
+          || refreshed?.invoiceId !== invoice.id) throw new Error('Обновление счёта не подтверждено.');
+      await result.clear(isCurrent);
+    } catch(error) {
+      if (isCurrent()) alert(confirmed
+        ? 'Оплата записана, но список не обновился. Проверьте сохранённую операцию; новая оплата заблокирована.'
+        : 'Результат оплаты не подтверждён: '+error.message+' Сохранённая попытка не удаляется. Проверка повторяет только тот же запрос; новую оплату не создавайте.');
+    } finally {
+      paymentBusy.current.delete(key);
+      if (isCurrent()) paymentChanged();
     }
-    if(invoice.projectName){
-      await fetch(API+'/project-payments',{
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({
-          projectName:invoice.projectName,
-          workPackage:invoice.workPackage || '',
-          amount:sum,
-          note:'Оплата счёта '+invoice.supplierName+' №'+invoice.invoiceNumber+(invoice.workPackage?' · '+invoice.workPackage:''),
-          date:today(),
-          paidBy:user.name,
-        }),
-      });
-    }
-    await loadAll();
   };
 
   const deleteInvoice = async (invoice) => {
@@ -241,7 +261,7 @@ function SupplySupplierInvoicesPanel({
                         <div style={{display:'flex',gap:'4px',alignItems:'center',flexWrap:'wrap'}}>
                           <span style={invoiceBadge(invoice)}>{invoice.status}</span>
                           {canPay&&invoice.status==='На утверждении'&&<button onClick={()=>approveInvoice(invoice)} style={{...btnGr,padding:'4px 8px',fontSize:'11px'}}>✅</button>}
-                          {process.env.REACT_APP_SUPPLIER_PAYMENTS_ENABLED !== 'true' && canPay&&(invoice.status==='Утверждён'||invoice.status==='Частично оплачен')&&owe>0&&<button onClick={()=>payInvoice(invoice, total, paidAmount, owe)} style={{...btnO,padding:'4px 8px',fontSize:'11px'}}>💰 Зафиксировать оплату</button>}
+                          {process.env.REACT_APP_SUPPLIER_PAYMENTS_ENABLED !== 'true' && canPay&&(hasPending(invoice)||((invoice.status==='Утверждён'||invoice.status==='Частично оплачен')&&owe>0))&&<button onClick={()=>payInvoice(invoice, total, paidAmount, owe)} style={{...btnO,padding:'4px 8px',fontSize:'11px'}}>{hasPending(invoice)?'Проверить сохранённую оплату':'💰 Зафиксировать оплату'}</button>}
                           {canPay && <SupplierPaymentButton document={invoice} documentKind="invoice" companyContext={companyContext} user={user} onSuccess={loadAll} style={btnO} />}
                           {canPay&&<button onClick={()=>deleteInvoice(invoice)} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button>}
                         </div>

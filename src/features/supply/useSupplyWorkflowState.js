@@ -9,6 +9,7 @@ import {
 } from './supplyInitialForms';
 export function useSupplyWorkflowState(scopeKey = '') {
   const supplyRequestCreationRef = useRef(false);
+  const requestCancellationRef = useRef(null);
   const [supplyTab, setSupplyTab] = useState('inbox');
   const [showSupplyForm, setShowSupplyForm] = useState(false);
   const [newSupplyReq, setNewSupplyReq] = useState(createSupplyRequestForm);
@@ -54,6 +55,7 @@ export function useSupplyWorkflowState(scopeKey = '') {
 
   return {
     supplyRequestCreationRef,
+    requestCancellationRef,
     compareLoadingReqId,
     compareResultByReq,
     deliveryAiLoadingId,

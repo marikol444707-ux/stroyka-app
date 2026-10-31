@@ -23,7 +23,7 @@ class TransferWorkflowPostgresTests(unittest.TestCase):
     def setUpClass(cls):
         from backend.features.supplier_access.test_postgres_chain_support import build_fixture
         from fastapi.testclient import TestClient
-        cls.main, cls.fixture, cleanup = build_fixture()
+        cls.main, cls.fixture, cleanup = build_fixture(work_owners=True)
         cls.addClassCleanup(cleanup)
         cls.client = TestClient(cls.main.app)
         cls.addClassCleanup(cls.client.close)

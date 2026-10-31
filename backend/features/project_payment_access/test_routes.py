@@ -135,6 +135,11 @@ class ProjectPaymentRoutesTest(unittest.TestCase):
             x_company_id="3", x_company_mode="company", _current_user={},
         )
         self.assertEqual(result, {"id": 77, "companyId": 3, "ok": True, "duplicate": True})
+        self.assertFalse(connection.autocommit)
+        self.assertIn('pg_advisory_xact_lock', cursor.calls[0][0])
+        self.assertEqual(cursor.calls[0][1], ('project-payments:3',))
+        self.assertIn('SELECT id FROM project_payments', cursor.calls[1][0])
+        self.assertFalse(any(sql.startswith('INSERT') for sql, _ in cursor.calls))
         self.assertFalse(connection.committed)
 
     def test_delete_missing_payment_404(self):

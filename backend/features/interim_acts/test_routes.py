@@ -1,3 +1,4 @@
+from backend.features.legacy_project_records.testing import fixture_scope
 import unittest
 
 from fastapi import HTTPException
@@ -72,6 +73,8 @@ def build(cursor, confirmed_total=1000.0, audit_calls=None):
     connection = FakeConnection(cursor)
     audit_log = audit_calls if audit_calls is not None else []
     register_interim_acts_module(app, {
+        "record_scope": fixture_scope(cursor, connection),
+        "get_current_user": lambda: {},
         "get_db": lambda: connection,
         "get_current_user": lambda: {},
         "require_roles": lambda *roles: (lambda: None),
@@ -84,8 +87,8 @@ def build(cursor, confirmed_total=1000.0, audit_calls=None):
         "require_project_access": lambda user, project: None,
         "has_package_access": lambda user, pkg: True,
         "require_row_project_access": lambda cur, table, row_id, user, col: None,
-        "confirmed_execution_total_for_act": lambda cur, mid, mn, pr, wp, ps, pe: confirmed_total,
-        "resolve_project_payment_actor": lambda cur, user, project, pkg, **kw: (3, {"name": "Тест", "role": "директор"}),
+        "confirmed_execution_total_for_act": lambda cur, mid, mn, pr, wp, ps, pe, **kwargs: confirmed_total,
+        "resolve_project_payment_actor": lambda cur, user, project, pkg, **kw: (3, {"name": "Тест", "role": "директор", "companyId":3}),
         "daily_work_act_source_type": "daily_work",
         "interim_act_locked_statuses": ("Подписан", "Оплачен", "Частично оплачен"),
         "log_audit": lambda *args: audit_log.append(args),
@@ -109,7 +112,7 @@ class InterimActsRoutesTest(unittest.TestCase):
             self.assertIn(key, app.routes)
 
     def test_create_rejects_amount_above_confirmed_work(self):
-        app, _conn = build(FakeCursor(), confirmed_total=100.0)
+        app, _conn = build(FakeCursor(rows=[{"id":11},{"id":12}]), confirmed_total=100.0)
         with self.assertRaises(HTTPException) as ctx:
             app.routes[("POST", "/interim-acts")](act_model(totalAmount=500), _current_user={"role": "директор"})
         self.assertEqual(ctx.exception.status_code, 400)
@@ -120,8 +123,8 @@ class InterimActsRoutesTest(unittest.TestCase):
         app, _conn = build(cursor)
         with self.assertRaises(HTTPException) as ctx:
             app.routes[("POST", "/interim-acts")](act_model(), _current_user={"role": "директор"})
-        self.assertEqual(ctx.exception.status_code, 400)
-        self.assertIn("12", ctx.exception.detail)
+        self.assertEqual(ctx.exception.status_code, 404)
+        self.assertIn("Работы", ctx.exception.detail)
 
     def test_pay_blocks_daily_control_act(self):
         act = (500, 0, "Объект", "", "Мастер", "daily_work")
@@ -167,7 +170,7 @@ class InterimActsRoutesTest(unittest.TestCase):
         app, connection = build(cursor, audit_calls=audit)
         result = app.routes[("DELETE", "/interim-acts/{id}")](id=7, _current_user={})
         self.assertEqual(result, {"ok": True})
-        self.assertIn("SET status='Аннулирован'", cursor.calls[1][0])
+        self.assertIn("SET status='Аннулирован'", cursor.calls[2][0])
         self.assertEqual(audit[0][2], "cancel")
         self.assertTrue(connection.committed)
 

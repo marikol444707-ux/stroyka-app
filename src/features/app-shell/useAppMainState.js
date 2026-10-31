@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { EMPTY_ESTIMATE_CHANGE } from '../../utils/estimateChangeUtils';
 import { readStoredJson } from '../../utils/appRuntimeUtils';
 import { emptyStaffForm } from '../../utils/staffUtils';
@@ -111,6 +111,9 @@ export function useAppMainState() {
   const [journalFilter, setJournalFilter] = useState({from:'',to:'',masterName:'',sectionName:'',status:''});
   const [showJournalTableModal, setShowJournalTableModal] = useState(null);
   const [materialInspections, setMaterialInspections] = useState([]);
+  const projectSaveRef = useRef(false);
+  const projectCreateCommandRef = useRef(null);
+  const [projectMaterialSourcesState, setProjectMaterialSourcesState] = useState({});
   const [qualityJournalLoadState, setQualityJournalLoadState] = useState({});
   const [customerRecordsLoadState, setCustomerRecordsLoadState] = useState({});
   const [editingInspection, setEditingInspection] = useState(null);
@@ -338,7 +341,7 @@ export function useAppMainState() {
     globalSearch, hiddenActs, history, initialDataLoaded, inlineEditPl, inlineEditPlData, inlineEditPrice,
     inspectionOrders, interimActs, inventory, inviteCodes, invoices, issueToolData, journalFilter, leads,
     listSearch, manualExpenses, masterProfile, masterProfiles, masterProjectId, masterRatings, materialAliases, materialAliasesError,
-    materialInspections, qualityJournalLoadState, setQualityJournalLoadState, customerRecordsLoadState, setCustomerRecordsLoadState, materialNormOverrides, materialNorms, materialTransfers, materials, materialsPage,
+    projectSaveRef, projectCreateCommandRef, materialInspections, qualityJournalLoadState, setQualityJournalLoadState, projectMaterialSourcesState, setProjectMaterialSourcesState, customerRecordsLoadState, setCustomerRecordsLoadState, materialNormOverrides, materialNorms, materialTransfers, materials, materialsPage,
     measurementDraftLoadingId, measurementRoomDrafts, mobileExpandedRenderLists, newAct, newBrigadeContract,
     newBrigadeItem, newBrigadePayment, newCatalogItem, newChecklist, newChecklistItem, newClient,
     newCompanyDoc, newContract, newDoor, newExpenseReport, newInspOrder, newInventory, newInvoice,

@@ -1,3 +1,4 @@
+from backend.features.legacy_project_records.testing import fixture_scope
 import unittest
 
 from fastapi import HTTPException
@@ -59,6 +60,8 @@ def build(cursor):
     app = FakeApp()
     connection = FakeConnection(cursor)
     register_pd_consents_module(app, {
+        "record_scope": fixture_scope(cursor, connection),
+        "get_current_user": lambda: {},
         "get_db": lambda: connection,
         "get_current_user": lambda: {},
         "require_roles": lambda *roles: (lambda: None),
@@ -93,11 +96,11 @@ class PdConsentsRoutesTest(unittest.TestCase):
         self.assertIn("ON CONFLICT (user_id) DO UPDATE", cursor.calls[0][0])
 
     def test_delete_targets_exact_user(self):
-        cursor = FakeCursor()
+        cursor = FakeCursor(row={"id":42})
         app, _conn = build(cursor)
         result = app.routes[("DELETE", "/pd-consents/{user_id}")](user_id=42, _current_user={})
         self.assertEqual(result, {"ok": True})
-        self.assertEqual(cursor.calls[0][1], (42,))
+        self.assertEqual(cursor.calls[-1][1], (42,))
 
 
 if __name__ == "__main__":

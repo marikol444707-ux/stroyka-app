@@ -1,4 +1,5 @@
 import unittest
+from contextlib import contextmanager
 
 from fastapi import HTTPException
 
@@ -63,21 +64,18 @@ def build(cursor, access_calls, deny_id=None):
     app = FakeApp()
     connection = FakeConnection(cursor)
 
-    def require_checklist_access(cur, checklist_id, user):
-        access_calls.append(("checklist", checklist_id))
-        if checklist_id == deny_id:
-            raise HTTPException(status_code=403, detail="Нет доступа")
-
-    def require_checklist_item_access(cur, item_id, user):
-        access_calls.append(("item", item_id))
-
+    class Scope:
+        @contextmanager
+        def transaction(self, user, request, roles, write=False):
+            yield cursor, [{'companyId': 2, 'role': 'директор'}]
+            if write:
+                connection.commit()
+        def visible(self, actors, roles):
+            return 'p.company_id=%s', [2]
     register_checklist_items_module(app, {
-        "get_db": lambda: connection,
-        "require_roles": lambda *roles: (lambda: None),
-        "project_document_roles": ("директор",),
-        "project_write_roles": ("директор",),
-        "require_checklist_access": require_checklist_access,
-        "require_checklist_item_access": require_checklist_item_access,
+        'record_scope': Scope(), 'get_current_user': lambda: {},
+        'project_document_roles': ('директор',),
+        'project_write_roles': ('директор',),
     })
     return app, connection
 
@@ -90,10 +88,10 @@ class ChecklistItemsRoutesTest(unittest.TestCase):
 
     def test_list_checks_access_and_maps_rows(self):
         calls = []
-        cursor = FakeCursor(rows=[(1, 4, "Проверка", True, "Тест", "2026-07-28", 1)])
+        cursor = FakeCursor(row=(4,), rows=[(1, 4, "Проверка", True, "Тест", "2026-07-28", 1)])
         app, _conn = build(cursor, calls)
-        rows = app.routes[("GET", "/checklist-items/{checklist_id}")](checklist_id=4, _current_user={})
-        self.assertEqual(calls, [("checklist", 4)])
+        rows = app.routes[("GET", "/checklist-items/{checklist_id}")](checklist_id=4, request=None, current_user={})
+        self.assertIn("p.company_id=%s", cursor.calls[0][0])
         self.assertEqual(rows[0]["checklistId"], 4)
         self.assertEqual(rows[0]["checkedBy"], "Тест")
 
@@ -102,18 +100,19 @@ class ChecklistItemsRoutesTest(unittest.TestCase):
         cursor = FakeCursor()
         app, _conn = build(cursor, calls, deny_id=9)
         with self.assertRaises(HTTPException):
-            app.routes[("POST", "/checklist-items")]({"checklistId": 9, "name": "x"}, _current_user={})
-        self.assertEqual(cursor.calls, [])
+            app.routes[("POST", "/checklist-items")]({"checklistId": 9, "name": "x"}, request=None, current_user={})
+        self.assertEqual(len(cursor.calls), 1)
+        self.assertNotIn("INSERT", cursor.calls[0][0])
 
     def test_update_toggles_checked_state(self):
         calls = []
-        cursor = FakeCursor()
+        cursor = FakeCursor(row=(3,))
         app, connection = build(cursor, calls)
-        result = app.routes[("PUT", "/checklist-items/{id}")](id=3, data={"checked": True, "checkedBy": "Тест"}, _current_user={})
+        result = app.routes[("PUT", "/checklist-items/{id}")](id=3, data={"checked": True, "checkedBy": "Тест"}, request=None, current_user={})
         self.assertEqual(result, {"ok": True})
-        self.assertEqual(calls, [("item", 3)])
+        self.assertIn("p.company_id=%s", cursor.calls[0][0])
         self.assertTrue(connection.committed)
-        self.assertIn("UPDATE checklist_items SET checked=%s", cursor.calls[0][0])
+        self.assertIn("UPDATE checklist_items SET checked=%s", cursor.calls[1][0])
 
 
 if __name__ == "__main__":

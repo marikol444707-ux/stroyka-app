@@ -1,4 +1,6 @@
 import unittest
+from contextlib import contextmanager
+from fastapi import HTTPException
 
 from backend.features.rooms.routes import RoomModel, register_rooms_module
 
@@ -64,7 +66,18 @@ def build(cursor, ai_calls=None):
     app = FakeApp()
     connection = FakeConnection(cursor)
     ai_log = ai_calls if ai_calls is not None else []
+    class Scope:
+        @contextmanager
+        def transaction(self, user, request, roles, write=False):
+            yield cursor, [{'companyId': 2, 'role': 'директор'}]
+            if write:
+                connection.commit()
+        def visible(self, actors, roles):
+            return 'p.company_id=%s', [2]
+        def parent(self, cur, actor, data, roles):
+            return {'id': 7, 'companyId': 2, 'name': 'Объект'}
     register_rooms_module(app, {
+        'record_scope': Scope(), 'get_current_user': lambda: {},
         "get_db": lambda: connection,
         "require_roles": lambda *roles: (lambda: None),
         "read_roles": ("директор",),
@@ -91,42 +104,53 @@ class RoomsRoutesTest(unittest.TestCase):
     def test_room_list_scopes_to_visible_projects(self):
         cursor = FakeCursor(rows=[])
         app, _conn = build(cursor)
-        app.routes[("GET", "/rooms")](current_user={})
-        self.assertIn("WHERE project = ANY(%s)", cursor.calls[0][0])
+        app.routes[("GET", "/rooms")](request=None, current_user={})
+        self.assertIn("p.company_id=%s", cursor.calls[0][0])
 
     def test_room_create_triggers_ai_recalc(self):
         ai = []
-        cursor = FakeCursor(fetchone_results=[{"id": 1, "project": "Объект", "name": "Кухня"}])
+        cursor = FakeCursor(fetchone_results=[(1,)])
         app, _conn = build(cursor, ai_calls=ai)
-        app.routes[("POST", "/rooms")](RoomModel(project="Объект", name="Кухня"), _current_user={})
+        app.routes[("POST", "/rooms")](RoomModel(project="Объект", name="Кухня"), request=None, current_user={})
         self.assertEqual(ai, [("Объект", "room:create")])
 
     def test_room_delete_cascades_children(self):
-        cursor = FakeCursor()
+        cursor = FakeCursor(fetchone_results=[(5,"Объект")])
         app, _conn = build(cursor)
-        result = app.routes[("DELETE", "/rooms/{id}")](id=5, _current_user={})
+        result = app.routes[("DELETE", "/rooms/{id}")](id=5, request=None, current_user={})
         self.assertEqual(result, {"ok": True})
-        tables = [c[0].split("DELETE FROM ")[1].split(" ")[0] for c in cursor.calls]
+        tables = [c[0].split("DELETE FROM ")[1].split(" ")[0] for c in cursor.calls if c[0].startswith("DELETE")]
         self.assertEqual(tables, ["room_windows", "room_doors", "room_works", "rooms"])
 
     def test_window_create_checks_room_access_and_recalcs(self):
         ai = []
-        cursor = FakeCursor(fetchone_results=[(9, 5, "Окно"), ("Объект",)])
+        cursor = FakeCursor(fetchone_results=[(5,"Объект"), (9,5,"Окно")])
         app, connection = build(cursor, ai_calls=ai)
         app.routes[("POST", "/room-windows")](
-            {"roomId": 5, "name": "Окно", "width": 1.2, "height": 1.4}, _current_user={}
+            {"roomId": 5, "name": "Окно", "width": 1.2, "height": 1.4}, request=None, current_user={}
         )
         self.assertTrue(connection.committed)
         self.assertEqual(ai, [("Объект", "room_window:create")])
 
     def test_door_update_resolves_room_from_row_when_missing(self):
-        cursor = FakeCursor(fetchone_results=[(5,), ("Объект",)])
+        cursor = FakeCursor(fetchone_results=[(5,), (5,"Объект")])
         app, _conn = build(cursor)
         result = app.routes[("PUT", "/room-doors/{id}")](
-            id=3, data={"name": "Дверь", "width": 0.9, "height": 2.1}, _current_user={}
+            id=3, data={"name": "Дверь", "width": 0.9, "height": 2.1}, request=None, current_user={}
         )
         self.assertEqual(result, {"ok": True})
-        self.assertIn("SELECT room_id FROM room_doors WHERE id=%s", cursor.calls[0][0])
+        self.assertIn("SELECT c.room_id FROM room_doors c JOIN rooms", cursor.calls[0][0])
+
+    def test_missing_owned_parent_never_inserts_child(self):
+        cursor = FakeCursor()
+        app, connection = build(cursor)
+        with self.assertRaises(HTTPException) as error:
+            app.routes[('POST', '/room-windows')]({'roomId': 5}, request=None, current_user={})
+        self.assertEqual(error.exception.status_code, 404)
+        self.assertFalse(connection.committed)
+        self.assertEqual(len(cursor.calls), 1)
+        self.assertIn('p.company_id=r.company_id', cursor.calls[0][0])
+        self.assertEqual(cursor.calls[0][1], (5, 2))
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
 import React from 'react';
+import { clearNavigationTarget, selectedCompanyId, targetMatchesProject, targetMatchesRow, useNavigationTarget } from '../features/navigation/navigationTarget';
 import ToolsWorkspace from '../features/tool-custody/ToolsWorkspace';
 import { toolCustodyEnabled } from '../features/tool-custody/ToolCustodyPanel';
 import InventoryWorkspace, { inventoryReconciliationEnabled } from '../features/inventory-reconciliation/InventoryWorkspace';
@@ -15,6 +16,22 @@ import HumanApprovedActionReviewPanel from '../features/human-approved-actions/H
 import { roleFlagsForUser } from '../utils/accessUtils';
 
 export default function WarehousePage(props) {
+  const routeTarget = useNavigationTarget();
+  const target = ['material', 'tool'].includes(routeTarget?.type) ? routeTarget : null;
+  const targetCompanyMatches = !target || target.companyId === selectedCompanyId(props.companyContext, props.user);
+  const targetRow = targetCompanyMatches && target
+    ? (target.type === 'material' ? props.materials || [] : props.tools || []).find(row => targetMatchesRow(target, row) && targetMatchesProject(target, row, props.projects || [])) : null;
+  const targetType = target?.type;
+  const targetId = targetRow?.id;
+  const targetProject = targetRow?.project;
+  const {setWarehouseTab: selectTab, setSelectedWarehouseProject: selectProject, setToolsTab: selectToolsTab} = props;
+  React.useEffect(() => {
+    if (!targetId || !targetType) return;
+    selectTab(targetType === 'material' ? 'objects' : 'tools');
+    if (targetType === 'material') selectProject(targetProject);
+    else selectToolsTab?.('list');
+  }, [targetType, targetId, targetProject, selectTab, selectProject, selectToolsTab]);
+
   const {
     warehouseTab,
     setWarehouseTab,
@@ -126,17 +143,23 @@ export default function WarehousePage(props) {
     && process.env.REACT_APP_WAREHOUSE_DISTRIBUTION_TRANSFERS_ENABLED === 'true';
 
   if (user?.role === 'прораб' && inventoryReconciliationEnabled()) {
+    if (target) return <div role="status"><p>В этом режиме прорабу доступна инвентаризация. Открытие складской позиции по ссылке здесь не поддерживается.</p><button type="button" onClick={clearNavigationTarget}>Перейти к инвентаризации</button></div>;
     return <InventoryWorkspace {...{ API, companyContext, user, C, showPreview }} onChanged={refreshData} />;
   }
 
+  if (target && (!targetCompanyMatches || !targetRow)) return <div role="status">
+    <p>{!targetCompanyMatches ? 'Ссылка относится к другой компании. Выберите её в переключателе компаний.' : 'Позиция по ссылке ещё не загружена или недоступна в выбранной компании.'}</p>
+    <button type="button" onClick={clearNavigationTarget}>Вернуться к складу</button>
+  </div>;
   return (
     <div
       data-warehouse-movement-mode={useTwoStageMovements ? 'two-stage-v1' : 'legacy-v1'}
       style={{width:'100%',maxWidth:'100%',minWidth:0,overflowX:'hidden'}}
     >
+      {target && <p role="status">Открыта позиция #{target.id}: {targetRow.name}. <button type="button" onClick={clearNavigationTarget}>Показать все позиции</button></p>}
       <WarehouseTabsNav
         warehouseTab={warehouseTab}
-        setWarehouseTab={setWarehouseTab}
+        setWarehouseTab={tab => { clearNavigationTarget(); setWarehouseTab(tab); }}
         setShowForm={setShowForm}
         btnO={btnO}
         btnG={btnG}
@@ -171,8 +194,8 @@ export default function WarehousePage(props) {
             materialReconciliationRows={materialReconciliationRows}
             parseSupplyItems={parseSupplyItems}
             projects={projects}
-            setSelectedWarehouseProject={setSelectedWarehouseProject}
-            setWarehouseTab={setWarehouseTab}
+            setSelectedWarehouseProject={name => { clearNavigationTarget(); setSelectedWarehouseProject(name); }}
+            setWarehouseTab={tab => { clearNavigationTarget(); setWarehouseTab(tab); }}
             showPreview={showPreview}
             supplyRequests={supplyRequests}
             visibleActiveProjects={visibleActiveProjects}
@@ -184,6 +207,7 @@ export default function WarehousePage(props) {
 
       {warehouseTab === 'objects' && (
         <WarehouseObjectsPanel
+          focusedMaterial={target?.type === 'material' ? targetRow : null}
           C={C}
           card={card}
           inp={inp}
@@ -196,7 +220,7 @@ export default function WarehousePage(props) {
           tblC={tblC}
           badge={badge}
           selectedWarehouseProject={selectedWarehouseProject}
-          setSelectedWarehouseProject={setSelectedWarehouseProject}
+          setSelectedWarehouseProject={name => { clearNavigationTarget(); setSelectedWarehouseProject(name); }}
           visibleActiveProjects={visibleActiveProjects}
           projects={projects}
           materials={materials}
@@ -276,8 +300,8 @@ export default function WarehousePage(props) {
           setShowQRModal={setShowQRModal}
           materials={materials}
           materialControlSummaryForProject={materialControlSummaryForProject}
-          setWarehouseTab={setWarehouseTab}
-          setSelectedWarehouseProject={setSelectedWarehouseProject}
+          setWarehouseTab={tab => { clearNavigationTarget(); setWarehouseTab(tab); }}
+          setSelectedWarehouseProject={name => { clearNavigationTarget(); setSelectedWarehouseProject(name); }}
           setNewTransfer={setNewTransfer}
           setShowTransferForm={setShowTransferForm}
           materialTransfers={materialTransfers}
@@ -316,11 +340,12 @@ export default function WarehousePage(props) {
       )}
 
       {warehouseTab === 'move' && <WarehouseDistributionPanel companyContext={companyContext} projects={projects} warehouseMain={warehouseMain} C={C} refreshData={refreshData} />}
-      {warehouseTab === 'tools' && toolCustodyEnabled() && <ToolsWorkspace {...{ tools, toolHistory, API, companyContext, user, C, refreshData }} />}
+      {warehouseTab === 'tools' && toolCustodyEnabled() && <ToolsWorkspace focusedToolId={target?.type === 'tool' ? target.id : null} {...{ tools, toolHistory, API, companyContext, user, C, refreshData }} />}
       {warehouseTab === 'inventory' && inventoryReconciliationEnabled() && <InventoryWorkspace {...{ API, companyContext, user, C, showPreview }} onChanged={refreshData} />}
 
       {((warehouseTab === 'tools' && !toolCustodyEnabled()) || (warehouseTab === 'inventory' && !inventoryReconciliationEnabled()) || (warehouseTab === 'move' && !useTwoStageMovements)) && (
         <WarehouseOperationsPanel
+          focusedToolId={target?.type === 'tool' ? target.id : null}
           isMobile={isMobile}
           warehouseTab={warehouseTab}
           C={C}

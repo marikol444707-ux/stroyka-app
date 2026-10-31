@@ -15,7 +15,7 @@ export default function ProjectWeatherTab({
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
         <b style={{ color: C.text, fontSize: '15px', fontWeight: '700' }}>🌤 Журнал погоды</b>
-        <span style={{ fontSize: '11px', color: C.textMuted }}>Метеоусловия по дням строительства</span>
+        <span style={{ fontSize: '11px', color: C.textMuted }}>Локальные записи этого браузера · не синхронизируются с командой</span>
       </div>
 
       {rows.length === 0 ? (

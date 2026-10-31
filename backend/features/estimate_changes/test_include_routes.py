@@ -238,6 +238,7 @@ class EstimateChangeIncludeRouteTests(unittest.TestCase):
         app = self._register(connection)
 
         response = self._call(app, "/estimates/{id}/include-changes", {"changeIds": [21]})
+        self.assertFalse(connection.autocommit)
 
         insert_sql, insert_params = next(call for call in cursor.calls if call[0].startswith("INSERT INTO estimates"))
         self.assertIn("company_id,project_id", insert_sql)

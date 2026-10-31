@@ -718,9 +718,10 @@ class WarehouseAnomalyRuntimeDisclosurePolicyTests(unittest.TestCase):
             backend_root / "db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Also reviewed the invoice-scan change; warehouse preview behavior is unchanged.
+            # Reviewed server/audit integration; preview parser, registration,
+            # package and db.py are unchanged. See docs/server-audit-integration-2026-11-01.md.
             backend_root / "main.py": (
-                "2b71e5c5eb6c312a7f54e0fe8f8a6cdc49a8c3d55bbc2dcc6ab433029c86cfcf"
+                "d10f49d3e781788394b2dd65bd145ea7e4b1d043259f43f95eef908f9a430d86"
             ),
         }
         actual = {

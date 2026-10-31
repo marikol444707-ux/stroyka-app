@@ -19,7 +19,19 @@ class SupplierInvoiceLinkRouteContractTests(unittest.TestCase):
             if isinstance(node, ast.FunctionDef)
             and node.name == "update_supplier_invoice"
         )
-        cls.source = ast.unparse(cls.function)
+        cls.route_source = ast.unparse(cls.function)
+        cls.worker = next(node for node in cls.tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "_update_supplier_invoice_in_transaction")
+        cls.source = ast.unparse(cls.worker)
+
+    def test_route_passes_exact_context_and_uses_worker_result(self):
+        self.assertIn("_update_supplier_invoice_in_transaction(cur, id, data, x_company_id, x_company_mode, _current_user)", self.route_source)
+        self.assertIn("result = _update_supplier_invoice_in_transaction", self.route_source)
+        self.assertIn("actor=_current_user", self.source)
+        self.assertIn("companyId=supplier_company_id", self.source)
+        self.assertIn("linkChanged=link_changed", self.source)
+        self.assertIn("result.get('linkChanged')", self.route_source)
 
     def test_link_mutation_resolves_the_selected_company_actor(self):
         argument_names = {
@@ -50,9 +62,9 @@ class SupplierInvoiceLinkRouteContractTests(unittest.TestCase):
     def test_changed_link_is_written_to_the_audit_log(self):
         self.assertIn(
             "accounting_supplier_warehouse_link_repaired",
-            self.source,
+            self.route_source,
         )
-        self.assertIn("company_id=supplier_company_id", self.source)
+        self.assertIn("company_id=result['companyId']", self.route_source)
 
 
 if __name__ == "__main__":

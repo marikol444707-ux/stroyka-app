@@ -154,15 +154,18 @@ class PrescriptionsAndSupervisorActsTest(unittest.TestCase):
         self.assertTrue(connection.committed)
 
     def test_supervisor_act_update_maps_only_known_fields(self):
-        cursor = FakeCursor()
+        # Explicit successful owned-record lookup, not a bypass of require_record.
+        cursor = FakeCursor(fetchone_results=[(5,)])
         app = FakeApp()
         connection, deps = deps_for(cursor)
         register_supervisor_acts_module(app, deps)
         result = app.routes[("PUT", "/supervisor-acts/{id}")](
-            id=5, data={"status": "Закрыт", "hack": "x"}, current_user={}
+            id=5, data={"status": "Закрыт", "hack": "x"}, current_user={"id": 1, "companyId": 1, "role": "директор"}
         )
         self.assertEqual(result, {"ok": True})
-        sql, vals = cursor.calls[0]
+        self.assertIn("p.company_id=r.company_id", cursor.calls[0][0])
+        self.assertIn("FOR UPDATE", cursor.calls[0][0])
+        sql, vals = cursor.calls[1]
         self.assertIn("SET status=%s WHERE id=%s", sql)
         self.assertEqual(vals, ("Закрыт", 5))
 
@@ -172,10 +175,12 @@ class PrescriptionsAndSupervisorActsTest(unittest.TestCase):
         _conn, deps = deps_for(cursor)
         register_supervisor_acts_module(app, deps)
         app.routes[("POST", "/supervisor-acts")](
-            {"projectName": "Объект"}, current_user={}
+            {"projectName": "Объект"}, current_user={"id": 1, "companyId": 1, "role": "директор"}
         )
         sql, params = cursor.calls[0]
-        self.assertTrue(str(params[1]).startswith("САО-"))
+        self.assertIn("company_id, project_id, project_name, act_number", sql)
+        self.assertEqual(params[:3], (1, 1, "Объект"))
+        self.assertTrue(str(params[3]).startswith("САО-"))
 
 
 if __name__ == "__main__":
