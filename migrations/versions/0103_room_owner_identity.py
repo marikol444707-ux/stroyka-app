@@ -2,7 +2,9 @@
 from alembic import op
 
 revision = '0103_room_owner_identity'
-down_revision = '0102_platform_company_features'
+# Integration continuation for the deployed server lineage, not the older
+# published audit-only lineage. Do not apply this tree to an audit-migrated DB.
+down_revision = '0104_jev_search_run_history'
 branch_labels = None
 depends_on = None
 
