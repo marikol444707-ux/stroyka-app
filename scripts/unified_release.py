@@ -21,11 +21,17 @@ from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
-BASE_REVISION = '0100_packaging_history_guard'
+LEGACY_BASE_REVISION = '0100_packaging_history_guard'
+BASE_REVISION = '0104_jev_search_run_history'
 INTERMEDIATE_REVISION = '0101_manual_brigade_origins'
 CANDIDATE_REVISION = '0102_job_candidates'
 FEATURE_REVISION = '0103_platform_company_features'
-TARGET_REVISION = '0104_jev_search_run_history'
+TARGET_REVISION = '0109_legacy_payment_requests'
+PENDING_REVISIONS = (
+    '0103_room_owner_identity', '0104_legacy_project_owners',
+    '0105_settlement_cash_guard', '0106_document_version_owner',
+    '0107_room_work_owner', '0108_project_create_requests', TARGET_REVISION,
+)
 
 
 def run(args, *, cwd=None, env=None, capture=False):
@@ -55,6 +61,26 @@ def require(condition, reason):
         raise ValueError(reason)
 
 
+def validate_revision_graph(revisions):
+    chain = (LEGACY_BASE_REVISION, INTERMEDIATE_REVISION, CANDIDATE_REVISION,
+             FEATURE_REVISION, BASE_REVISION, *PENDING_REVISIONS)
+    require(set(revisions) - set(revisions.values()) == {TARGET_REVISION},
+            'Unexpected migration heads')
+    require(all(parent is None or parent in revisions for parent in revisions.values()),
+            'Missing migration parent')
+    require(all(revisions.get(child) == parent for parent, child in zip(chain, chain[1:])),
+            'Unexpected server-to-audit migration path')
+    require('0101_job_candidates' not in revisions and '0102_platform_company_features' not in revisions,
+            'Audit-only migration history is not supported by this package')
+    for revision in revisions:
+        seen = set()
+        cursor = revision
+        while cursor is not None:
+            require(cursor not in seen, 'Migration cycle')
+            seen.add(cursor)
+            cursor = revisions[cursor]
+
+
 def pack(args):
     root = args.app_root.resolve()
     require(not git(root, 'status', '--porcelain'), 'Commit all changes before packaging')
@@ -73,14 +99,9 @@ def pack(args):
                     if isinstance(name, ast.Name):
                         constants[name.id] = node.value.value
         if constants.get('revision'):
+            require(constants['revision'] not in revisions, 'Duplicate migration revision')
             revisions[constants['revision']] = constants.get('down_revision')
-    heads = set(revisions) - set(revisions.values())
-    require(heads == {TARGET_REVISION}
-            and revisions.get(INTERMEDIATE_REVISION) == BASE_REVISION
-            and revisions[CANDIDATE_REVISION] == INTERMEDIATE_REVISION
-            and revisions[FEATURE_REVISION] == CANDIDATE_REVISION
-            and revisions[TARGET_REVISION] == FEATURE_REVISION,
-            'Unexpected migration graph; review this release tooling before packaging')
+    validate_revision_graph(revisions)
     tracked = git(root, 'ls-files', '-z').split('\0')
     require(not any(Path(name).name == '.env' or name.endswith(('.key', '.pem'))
                     for name in tracked if name), 'Do not package tracked credentials')
@@ -377,6 +398,10 @@ def deployment_lock(path):
 
 
 def install(args):
+    # No executable release authorization exists for this integration yet.
+    # Stop before configuration/credentials, DB access, staging or service changes.
+    require(args.action != 'apply',
+            'INTEGRATION_RELEASE_NOT_ACCEPTED: schema, restore and runtime acceptance required')
     package = Path(__file__).resolve().parent
     manifest = load_package(package)
     root = args.app_root.resolve()

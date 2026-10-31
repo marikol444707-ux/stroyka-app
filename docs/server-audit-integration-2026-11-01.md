@@ -60,11 +60,33 @@ SQL-тела; он не изображает полноценный Alembic upgr
 Новый source-only набор подтверждает исключение ровно для одного parent,
 сохранение SQL/серверных файлов, полный граф, точный pending path и ancestry.
 
-scripts/unified_release.py/release_database_check.py всё ещё рассчитаны на
-старую вершину 0104. Их guard требует старый граф, поэтому упаковка новой
-цепочки не должна пройти. Не менять TARGET_REVISION вслепую: сначала нужна
-приёмка новой схемы/данных и отдельная адаптация readiness/rollback. Установщик
-не запускался; его защиту не ослабляли. Этот коммит не является готовым выпуском.
+Release tooling теперь знает точный source 0104 и target 0109, полный pending
+path, отсутствие старых audit-only IDs, missing parents/циклов/дублей. Manifest
+и package validation используют тот же source/target. Исторический partial PG
+fixture по-прежнему обновляется лишь до SOURCE_REVISION (0104), не притворяется
+приёмкой 0109; теперь явно ожидает blocked от нового readiness checker.
+
+Это подготовка tooling, НЕ разрешение выполнения: apply останавливается самым
+первым guard до чтения credentials/DB/staging; git delivery helper останавливается
+до fetch/mktemp и не использует старые pinned SHA. Нет флага обхода. Checker
+сохраняет старые schema/owner/trigger/read-only проверки, допускает только source
+0104 при preflight и target0109 при postcheck, но всегда добавляет блокер
+INTEGRATION_RELEASE_ACCEPTANCE_REQUIRED; для target также
+TARGET_SCHEMA_AND_DATA_ACCEPTANCE_REQUIRED. Новая схема/данные/backup restore
+ещё не приняты, поэтому status ready не выдаётся даже при подходящем revision.
+Проверки новых constraints/данных и механизм доказанной приёмки предстоит довести
+после разрешённых проверок; их наличие не имитируется булевым разрешением.
+
+Существующие backup, expected SHA, clean checkout, branch-main, ownership,
+service/health, checksum, rollback-material и browser=false guards сохранены.
+Неподтверждённое имя серверной ветки также остаётся возможным блокером: main не
+предполагается автоматически. Установщик/pack/check/db-check не запускались.
+Его реальные действия после допуска: чтение service config, read-only schema
+query, backup БД/frontend, fetch локального bundle, build, остановка служб,
+fast-forward, upgrade, import main (startup DDL), restart, публикация и HTTP
+проверки. Поэтому это не диагностическая команда. pg_restore --list не является
+доказательством восстановления. Остановка всех writers, согласованность backup
+файлов/БД и доказанный rollback должны входить в последующую приёмку.
 
 ## Проверки: новый проход и прежние результаты раздельно
 
@@ -106,3 +128,18 @@ NOT RUN: миграции, SQL/БД/HTTP/browser/mobile/внешние серв�
 security/full-remainder аудит. Нового стенда нет, запрет не обходился.
 Нет push, PR mutation, main merge, deploy, production changes или новых
 credentials. Новых временных БД/контейнеров/сборок нет; отчёты/patch сохранены.
+
+## Дополнение: локальная проверка release tooling
+
+Финальный выбранный набор: 28 passed, 0 failed, 0 skipped. Включает 10 новых
+policy mock/AST тестов, 9 source/graph проверок и 9 существующих unit-тестов
+парсера synthetic config/backup/manifest/early-stop. Fake cursors записывают
+строки, но не исполняют SQL. Guard apply проверен извлечением первого AST узла,
+install() не вызывался. Полный transport/pack test намеренно не включён и не
+считается PASS; его synthetic graph expectation обновлено. PG fixture только
+отредактирован, не запущен. Предварительные 19 результатов не суммируются с 28.
+Frontend и бизнес-код не менялись, повторные frontend/build не запускались.
+
+Снятие release stop — отдельная будущая правка после доказанной приёмки,
+не runtime-флаг и не приглашение обойти прежний запрет. Нет публикации, сервера,
+новых БД/стендов или доступа. Старые ветки/инвентаризация сохранены.

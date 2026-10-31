@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Delivery helper for the already reviewed release. No application changes here.
 set -Eeuo pipefail
+# Historical pins below are retained for review, not usable for this integration.
+echo "STOP: integration 0104-to-0109 requires release acceptance and new reviewed pins." >&2
+exit 1
 umask 077
 
 APP_ROOT="${STROYKA_APP_ROOT:-/var/www/stroyka-app}"

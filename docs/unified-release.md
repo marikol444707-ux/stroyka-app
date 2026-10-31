@@ -1,3 +1,16 @@
+# Integration notice: NOT AUTHORIZED FOR INSTALLATION
+
+The current local integration continues server revision `0104_jev_search_run_history`
+to `0109_legacy_payment_requests`. The seven audit migrations execute only after
+that source; old audit-only databases are outside this path. Historical instructions
+below are retained for provenance, NOT executable directions for this integration.
+The git delivery helper exits before any fetch/staging. The installer rejects apply
+before reading configuration. Readiness is always blocked pending real schema/data,
+restored-backup, migration and runtime acceptance. No override flag is provided.
+See `docs/server-audit-integration-2026-11-01.md` for evidence and remaining gates.
+
+---
+
 # Единый пакет для рабочего сервера
 
 Пакет содержит все коммиты после production baseline, закреплённого в

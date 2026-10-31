@@ -69,7 +69,7 @@ class UnifiedReleasePostgresTests(unittest.TestCase):
         db = ModuleType('backend.db')
         db.DB_CONFIG = cls.settings
         with patch.dict('sys.modules', {'backend.db': db}):
-            command.upgrade(cls.config, cls.checker.TARGET_REVISION)
+            command.upgrade(cls.config, cls.checker.SOURCE_REVISION)
 
     @staticmethod
     def history(conn):
@@ -82,15 +82,15 @@ class UnifiedReleasePostgresTests(unittest.TestCase):
     def test_00_real_upgrade_preserves_legacy_snapshots_prices_and_does_no_backfill(self):
         conn = self.connect()
         try:
-            self.assertEqual(self.baseline_report['status'], 'ready', self.baseline_report)
-            self.assertEqual(self.baseline_report['pendingMigrations'], [
-                self.checker.MANUAL_REVISION, self.checker.CANDIDATE_REVISION,
-                self.checker.FEATURE_REVISION, self.checker.TARGET_REVISION,
-            ])
+            # This historical 0100 fixture is not the supported release source.
+            self.assertEqual(self.baseline_report['status'], 'blocked')
+            self.assertIn('UNEXPECTED_DATABASE_REVISION', self.baseline_report['blockers'])
+            self.assertEqual(self.baseline_report['pendingMigrations'], [])
             self.assertEqual(self.before, self.history(conn))
             conn.rollback()
-            report = self.checker.inspect_connection(conn, require_target=True)
-            self.assertEqual(report['status'], 'ready', report)
+            report = self.checker.inspect_connection(conn)
+            self.assertEqual(report['status'], 'blocked', report)
+            self.assertIn('INTEGRATION_RELEASE_ACCEPTANCE_REQUIRED', report['blockers'])
             self.assertEqual(report['checks']['manualOriginCount'], 0)
         finally:
             conn.close()
@@ -137,8 +137,9 @@ class UnifiedReleasePostgresTests(unittest.TestCase):
             self.assertIn('Preserve manual contract origins', str(raised.exception))
             self.assertEqual(original, self.history(conn))
             conn.rollback()
-            report = self.checker.inspect_connection(conn, require_target=True)
-            self.assertEqual(report['status'], 'ready', report)
+            report = self.checker.inspect_connection(conn)
+            self.assertEqual(report['status'], 'blocked', report)
+            self.assertIn('INTEGRATION_RELEASE_ACCEPTANCE_REQUIRED', report['blockers'])
             self.assertEqual(report['checks']['manualOriginCount'], 1)
         finally:
             conn.close()

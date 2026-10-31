@@ -134,66 +134,11 @@ BAD-NAME=ignored
         self.assertEqual(set(shlex.split(release.frontend_service_environment(env))),
                          {'PARTICIPANT_SUPPORT_ENABLED=1', 'ASSIGNMENT_DAILY_DRAFT_COMPANY_IDS=4,5'})
 
-    def test_git_delivery_fetches_pinned_release_and_cleans_its_worktree_on_success_and_failure(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            work = Path(temporary)
-            source = work / 'source'
-            source.mkdir()
-            self.git(source, 'init', '-b', 'main')
-            self.git(source, 'config', 'user.email', 'test@local.invalid')
-            self.git(source, 'config', 'user.name', 'Release test')
-            (source / 'app.txt').write_text('installed baseline')
-            self.commit(source, 'baseline')
-            base = self.git(source, 'rev-parse', 'HEAD')
-            self.git(source, 'branch', 'installed', base)
-            (source / 'scripts').mkdir()
-            (source / 'scripts/unified_release.py').write_text('''
-import io, os, pathlib, subprocess, sys, tarfile
-arguments = sys.argv
-output = pathlib.Path(arguments[arguments.index('--output') + 1])
-root = arguments[arguments.index('--app-root') + 1]
-target = subprocess.check_output(['git','-C',root,'rev-parse','HEAD'], text=True).strip()
-installer = b"import json,os,pathlib,sys\\npathlib.Path(os.environ['DELIVERY_TEST_EVIDENCE']).write_text(json.dumps(sys.argv[1:]))\\nsys.exit(int(os.environ['DELIVERY_TEST_EXIT']))\\n"
-with tarfile.open(output, 'w:gz') as archive:
-    entry = tarfile.TarInfo('stroyka-unified-' + target[:12] + '/install.py')
-    entry.size = len(installer)
-    archive.addfile(entry, io.BytesIO(installer))
-''')
-            (source / 'app.txt').write_text('candidate')
-            self.commit(source, 'candidate')
-            target = self.git(source, 'rev-parse', 'HEAD')
-            self.git(source, 'branch', 'codex/jev-production-intake', target)
-            server = work / 'server'
-            self.git(work, 'clone', '--branch', 'installed', str(source), str(server))
-            self.git(server, 'branch', '-m', 'main')
-            helper = work / 'delivery.sh'
-            helper_source = (SCRIPTS / 'install-unified-from-git.sh').read_text()
-            helper_source = re.sub(r'^TARGET="[0-9a-f]{40}"$', f'TARGET="{target}"',
-                                   helper_source, flags=re.MULTILINE)
-            helper_source = re.sub(r'^BASE="[0-9a-f]{40}"$', f'BASE="{base}"',
-                                   helper_source, flags=re.MULTILINE)
-            helper_source = helper_source.replace(
-                'codex/unified-production-release', 'codex/jev-production-intake')
-            helper.write_text(helper_source)
-            parent = work / 'temporary-transfer'
-            parent.mkdir()
-            evidence = work / 'evidence.json'
-            for exit_code in (0, 42):
-                with self.subTest(exit_code=exit_code):
-                    env = dict(os.environ, STROYKA_APP_ROOT=str(server),
-                               STROYKA_RELEASE_PYTHON=sys.executable, STROYKA_DELIVERY_WORK_PARENT=str(parent),
-                               DELIVERY_TEST_EVIDENCE=str(evidence), DELIVERY_TEST_EXIT=str(exit_code))
-                    result = subprocess.run(['bash', str(helper)], env=env, capture_output=True, text=True)
-                    self.assertEqual(result.returncode, exit_code, result.stderr)
-                    arguments = json.loads(evidence.read_text())
-                    self.assertEqual(arguments[0], 'apply')
-                    self.assertEqual(arguments[arguments.index('--expect-current') + 1], base)
-                    self.assertEqual(arguments[arguments.index('--app-root') + 1], str(server))
-                    self.assertEqual(arguments[arguments.index('--public-url') + 1], 'https://stroyka26.pro')
-                    self.assertEqual(self.git(server, 'rev-parse', 'HEAD'), base)
-                    self.assertEqual((server / 'app.txt').read_text(), 'installed baseline')
-                    self.assertEqual(list(parent.iterdir()), [])
-                    self.assertEqual(self.git(server, 'worktree', 'list', '--porcelain').count('worktree '), 1)
+    def test_git_delivery_is_blocked_before_any_git_or_install_action(self):
+        text = (SCRIPTS / 'install-unified-from-git.sh').read_text()
+        self.assertIn('integration 0104-to-0109 requires release acceptance', text)
+        self.assertLess(text.index('exit 1'), text.index('git fetch'))
+        self.assertLess(text.index('exit 1'), text.index('mktemp'))
 
     def test_bundle_transports_all_commits_without_a_remote_and_rejects_tampering(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -219,6 +164,10 @@ with tarfile.open(output, 'w:gz') as archive:
             (migrations / '0102.py').write_text("revision='0102_job_candidates'\ndown_revision='0101_manual_brigade_origins'\n")
             (migrations / '0103.py').write_text("revision='0103_platform_company_features'\ndown_revision='0102_job_candidates'\n")
             (migrations / '0104.py').write_text("revision='0104_jev_search_run_history'\ndown_revision='0103_platform_company_features'\n")
+            parent = release.BASE_REVISION
+            for i, revision in enumerate(release.PENDING_REVISIONS):
+                (migrations / f'audit_{i}.py').write_text(f'revision={revision!r}\ndown_revision={parent!r}\n')
+                parent = revision
             for name in ('unified_release.py', 'release_database_check.py'):
                 shutil.copyfile(SCRIPTS / name, source / 'scripts' / name)
             (source / 'docs/unified-release.md').write_text('Runbook')
