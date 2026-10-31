@@ -1,5 +1,5 @@
 import { isSupportWorkspaceUser } from '../participant-support/workspaceMode';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { createAiAssistantActions } from '../ai-assistant/aiAssistantActions';
 import { createAuthActions } from '../auth/authActions';
 import { createChatActions } from '../chat/chatActions';
@@ -48,6 +48,7 @@ export function useAppCoreRuntime({
   limits,
   layout,
 }) {
+  const materialReceiptScopeRef = useRef(null);
   const ownedAliasRuntime = useOwnedAliasSnapshot({API, companyContext, projects: appMainState.projects,
     userId: authEntryState.user?.id, setMaterialAliases: appMainState.setMaterialAliases,
     setMaterialAliasesError: appMainState.setMaterialAliasesError});
@@ -452,6 +453,9 @@ export function useAppCoreRuntime({
     returnMaterialToProject,
   } = createMaterialTransferActions({
     API,
+    companyContext,
+    user: currentUser,
+    receiptScopeRef: materialReceiptScopeRef,
     fmtMeasure,
     notify,
     refreshData,
