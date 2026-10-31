@@ -37,6 +37,24 @@ REQUIRE_S3=1 npm run smoke:s3-readiness
 
 The first command is non-blocking and shows the current local uploads state. The second command must pass before real migration.
 
+## Private-access audit
+
+Before changing the bucket to private or changing any object ACL, run the
+read-only audit below. It reports counts for the object ACL, unauthenticated
+HTTP access through the S3 endpoint and configured public URL bases, and
+authenticated application access. It does not print URLs or object keys and
+does not write to S3 or the database.
+
+```bash
+python3 scripts/audit_s3_anonymous_access.py --limit 5
+```
+
+After the sample is understood, run without `--limit` for the complete
+registered-file inventory. A private object ACL is not sufficient evidence by
+itself: anonymous HTTP access must also be denied. The report covers objects
+registered in `file_ownership`; reconcile the S3 reference cutover report and
+Timeweb bucket policy before switching the bucket to private.
+
 ## Rollout sequence
 
 1. Configure the bucket and credentials.
