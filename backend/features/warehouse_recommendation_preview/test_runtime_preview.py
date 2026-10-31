@@ -946,9 +946,10 @@ class WarehouseAnomalyRuntimePreviewCompositionTests(unittest.TestCase):
             root / "backend/db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Reviewed participant access and JEV route registration; the warehouse preview package is unchanged.
+            # Reviewed audit-owner/bootstrap changes at aa4e2872; preview parser, registration,
+            # package and db.py are unchanged. See docs/ci-fixtures-review-2026-10-31.md.
             root / "backend/main.py": (
-                "b9053387fd398ad5919e6411dcd22160c6e5a04f004deb111af7e5133a88bbcd"
+                "2bbaa5d092abad146e7c7fcacfcf097ae10fa814a4729e4d4d0b839431beb0c6"
             ),
         }
         self.assertEqual({

@@ -1,5 +1,7 @@
 import unittest
 
+from backend.features.legacy_project_records.testing import FakeScope
+
 from fastapi import HTTPException
 
 from backend.features.contracts.routes import ContractModel, register_contracts_module
@@ -69,7 +71,11 @@ class FakeConnection:
 def contracts_build(cursor, visible=None):
     app = FakeApp()
     connection = FakeConnection(cursor)
+    scope = FakeScope(cursor, connection)
+    scope.visible_project_names = lambda actor: visible
     register_contracts_module(app, {
+        "record_scope": scope,
+        "get_current_user": lambda: {},
         "get_db": lambda: connection,
         "require_roles": lambda *roles: (lambda: None),
         "contract_roles": ("директор", "мастер"),
@@ -122,15 +128,19 @@ class ContractsAndSupplyHistoryTest(unittest.TestCase):
         app, _conn = contracts_build(cursor, visible=["Объект"])
         app.routes[("GET", "/contracts")](_current_user={"id": 42, "name": "Мастер", "role": "мастер"})
         sql, params = cursor.calls[0]
-        self.assertIn("COALESCE(master_id,0)=%s", sql)
+        self.assertIn("r.master_id=%s", sql)
+        self.assertIn("p.company_id=r.company_id", sql)
+        self.assertIn("p.id=r.project_id", sql)
         self.assertIn(42, params)
 
     def test_contract_delete_is_soft(self):
-        cursor = FakeCursor()
+        cursor = FakeCursor(fetchone_results=[(5,)])
         app, connection = contracts_build(cursor)
-        result = app.routes[("DELETE", "/contracts/{id}")](id=5, _current_user={})
+        result = app.routes[("DELETE", "/contracts/{id}")](id=5, _current_user={"id": 1, "companyId": 3, "role": "директор"})
         self.assertEqual(result, {"ok": True})
-        self.assertIn("SET status='Аннулирован'", cursor.calls[0][0])
+        self.assertIn("FOR UPDATE", cursor.calls[0][0])
+        self.assertIn("SET status='Аннулирован'", cursor.calls[1][0])
+        self.assertEqual(cursor.calls[1][1], (5,))
         self.assertTrue(connection.committed)
 
     def test_supplier_without_links_gets_empty_history(self):

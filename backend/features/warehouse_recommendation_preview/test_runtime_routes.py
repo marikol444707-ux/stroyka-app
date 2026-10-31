@@ -257,10 +257,11 @@ class WarehouseAnomalyRuntimeRouteRegistrationTests(unittest.TestCase):
         package_bytes = package_path.read_bytes()
         runtime_source = runtime_path.read_text(encoding="utf-8")
 
-        # Reviewed participant access and JEV route registration; the warehouse preview package is unchanged.
+        # Reviewed audit-owner/bootstrap changes at aa4e2872; preview parser, registration,
+        # package and db.py are unchanged. See docs/ci-fixtures-review-2026-10-31.md.
         self.assertEqual(
             hashlib.sha256(main_bytes).hexdigest(),
-            "b9053387fd398ad5919e6411dcd22160c6e5a04f004deb111af7e5133a88bbcd",
+            "2bbaa5d092abad146e7c7fcacfcf097ae10fa814a4729e4d4d0b839431beb0c6",
         )
         self.assertEqual(
             hashlib.sha256(package_bytes).hexdigest(),
@@ -302,6 +303,18 @@ class WarehouseAnomalyRuntimeMainAndNginxContractTests(unittest.TestCase):
         if len(matches) != 1:
             raise AssertionError(f"expected one {name} function")
         return matches[0]
+
+    def test_reviewed_preview_parser_and_registration_bytes_are_unchanged(self):
+        source, tree = self._main_tree()
+        protected = [node for node in tree.body
+                     if (isinstance(node, ast.FunctionDef) and node.name == '_parse_warehouse_anomaly_preview_company_ids')
+                     or (isinstance(node, ast.If) and 'WAREHOUSE_ANOMALY_PREVIEW_HTTP_ENABLED' in ast.unparse(node.test))]
+        self.assertEqual(len(protected), 2)
+        self.assertEqual([hashlib.sha256(ast.get_source_segment(source, node).encode()).hexdigest()
+                          for node in protected], [
+            'dcb440959ce91b8b599c69a04d26d887d3091d461093c290b1e6b76e5ba9f78f',
+            '8c43da5677aebf1d80eab054bd4194f468a8615559f4cebecd0e7c631666f650',
+        ])
 
     def test_main_allowlist_parser_is_exact_and_fail_closed(self):
         _source, tree = self._main_tree()
