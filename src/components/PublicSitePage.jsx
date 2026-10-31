@@ -1315,8 +1315,10 @@ const PublicSitePage = ({ onLogin }) => {
               onChange={(event) => setPartnerConsent(event.target.checked)}
             />
             <span>
-              Даю согласие на обработку данных для проверки заявки и понимаю,
-              что кабинет не создаётся автоматически.
+              Даю согласие на обработку имени, телефона, email, ИНН (если указаны), региона,
+              специализации, комментария, приложенных файлов и технических сведений формы для
+              рассмотрения партнёрской заявки.
+              Кабинет не создаётся автоматически. Подробнее — в <a href="/privacy.html">политике</a>.
             </span>
           </label>
           <button className="public-primary" type="submit" disabled={partnerSending || !partnerConsent}>
@@ -1406,8 +1408,8 @@ const PublicSitePage = ({ onLogin }) => {
               onChange={(event) => setLeadConsent(event.target.checked)}
             />
             <span>
-              Даю согласие на обработку имени, телефона, комментария и параметров расчёта
-              для ответа на заявку. С{' '}
+              Даю согласие на обработку имени, телефона, комментария, параметров расчёта,
+              приложенных файлов и технических сведений формы для ответа на заявку. С{' '}
               <button
                 className="public-consent-link"
                 type="button"
@@ -1434,30 +1436,34 @@ const PublicSitePage = ({ onLogin }) => {
           <p className="public-eyebrow dark">Юридическая информация</p>
           <h2>Политика обработки персональных данных</h2>
           <p>
-            Заявки с сайта передаются в CRM только для обратной связи, расчёта и подготовки предложения.
-            Полные реквизиты исполнителя фиксируются в договоре и коммерческом предложении.
+            Заявки с сайта передаются в CRM для обратной связи, расчёта и подготовки предложения.
+            Оператор сайта — {PUBLIC_SITE_OPERATOR.name} (ИНН {PUBLIC_SITE_OPERATOR.inn},
+            ОГРНИП {PUBLIC_SITE_OPERATOR.ogrnip}). Адрес: {PUBLIC_SITE_OPERATOR.address}.
           </p>
         </div>
         <div className="public-legal-grid">
           <article>
             <h3>Что обрабатываем</h3>
             <p>
-              Имя, телефон, комментарий к заявке, параметры предварительного расчёта,
-              технические данные отправки формы и источник заявки.
+              Имя и телефон; если указаны — email, ИНН, регион и специализация партнёра;
+              текст обращения, параметры расчёта и выбранный проект, приложенные PDF и изображения,
+              а также IP, User-Agent, referrer и UTM-метки.
             </p>
           </article>
           <article>
             <h3>Зачем</h3>
             <p>
-              Чтобы ответить на обращение, подготовить расчёт, связать заявку с CRM
-              и не потерять историю общения с клиентом.
+              Чтобы ответить на обращение, подготовить расчёт или предложение, проверить партнёрскую
+              заявку и сохранить историю обращения в CRM.
             </p>
           </article>
           <article>
             <h3>Согласие</h3>
             <p>
               Заявка отправляется только после отметки согласия. Отозвать согласие можно
-              через контакт оператора, указанный в этом разделе.
+              по адресу {PUBLIC_SITE_OPERATOR.address}, по телефону {PUBLIC_SITE_OPERATOR.phone}
+              или на {PUBLIC_SITE_OPERATOR.privacyEmail}. Конкретные сроки хранения и удаления
+              должны соответствовать фактическим процессам оператора.
             </p>
           </article>
           <article>
@@ -1475,6 +1481,9 @@ const PublicSitePage = ({ onLogin }) => {
         </div>
         <div className="public-requisites">
           <span>Оператор: {PUBLIC_SITE_OPERATOR.name}</span>
+          <span>ИНН: {PUBLIC_SITE_OPERATOR.inn} · ОГРНИП: {PUBLIC_SITE_OPERATOR.ogrnip}</span>
+          <span>Адрес: {PUBLIC_SITE_OPERATOR.address}</span>
+          <span>Телефон: <a href="tel:+79097638505">{PUBLIC_SITE_OPERATOR.phone}</a></span>
           <span>Сайт: {PUBLIC_SITE_OPERATOR.site}</span>
           <span>По персональным данным: {PUBLIC_SITE_OPERATOR.privacyEmail}</span>
           <span>Заявки: {PUBLIC_SITE_OPERATOR.leadEmail}</span>
