@@ -12,13 +12,13 @@ export const createMaterialTransferActions = ({
   promptFn = window.prompt,
 }) => {
   const companyId = Number(companyContext.selectedCompanyId);
-  const scopeKey = JSON.stringify([API, user.id, companyContext.mode, companyId, Boolean(companyContext.loading)]);
+  const scopeKey = JSON.stringify([API, user?.id, companyContext.mode, companyId, Boolean(companyContext.loading)]);
   if (receiptScopeRef.current?.key !== scopeKey) receiptScopeRef.current = { key: scopeKey, pending: new Set() };
   const scope = receiptScopeRef.current;
   const isCurrent = () => receiptScopeRef.current === scope;
   const confirmMaterialReceipt = async (transferId) => {
     if (!isCurrent() || scope.pending.has(transferId)) return false;
-    if (companyContext.loading || companyContext.mode !== 'company' || !Number.isSafeInteger(companyId) || companyId <= 0) {
+    if (!user?.id || companyContext.loading || companyContext.mode !== 'company' || !Number.isSafeInteger(companyId) || companyId <= 0) {
       alertFn('Выберите компанию для подтверждения получения материала.');
       return false;
     }

@@ -42,3 +42,11 @@ test('loading or aggregate company context cannot submit', async () => {
   }
   expect(global.fetch).not.toHaveBeenCalled();
 });
+
+test('logged-out app can construct actions without sending a receipt command', async () => {
+  global.fetch = jest.fn();
+  const deps = setup({user:null});
+  expect(await createMaterialTransferActions(deps).confirmMaterialReceipt(11)).toBe(false);
+  expect(global.fetch).not.toHaveBeenCalled();
+  expect(deps.setMaterialTransfers).not.toHaveBeenCalled();
+});
