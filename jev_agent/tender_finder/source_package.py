@@ -32,7 +32,7 @@ REQUIRED|={'jev_agent/tender_finder/'+name+'.py' for name in (
     'hermes_binding host_worker image_pin ingress invoker jobs notification pipeline presentation '
     'publication queue reporting runtime settings standalone_release startup_tool state').split()}
 REQUIRED|={'jev_agent/tender_finder/commercial/'+name+'.py' for name in (
-    '__init__ __main__ b2b b2b_browser bridge contract document_worker documents model platforms policy portal_reader preview readers recipes registry runner sources terms tool').split()}
+    '__init__ __main__ access b2b b2b_browser bridge contract document_worker documents model platforms policy portal_reader preview readers recipes registry runner sources terms tool').split()}
 
 
 def _source(path):

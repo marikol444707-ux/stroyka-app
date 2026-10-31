@@ -74,12 +74,14 @@ def approved_url(url):
 
 
 class Session:
-    def __init__(self,call,clock,*,poll_seconds=.3):
+    def __init__(self,call,clock,*,poll_seconds=.3,access_check=None):
         if not callable(call) or not callable(clock) or not 0<=poll_seconds<=1:
             raise ValueError('protected_bounded_cdp_binding_required')
         self.call,self.clock,self.poll=call,clock,poll_seconds
         self._card=None;self._links=set();self._downloads={};self._download_deadline=None
         self._generation=0
+        if access_check is not None and not callable(access_check):raise ValueError('protected_access_check_required')
+        self.access_check=access_check
 
     def approve(self,url):approved_url(url)
 
@@ -94,11 +96,16 @@ class Session:
 
     async def read(self,url):
         self.approve(url)
+        self._generation+=1
+        self._card=None;self._links.clear();self._downloads.clear();self._download_deadline=None
+        if self.access_check is not None:
+            from .access import Decision
+            decision=await asyncio.to_thread(self.access_check,url)
+            if type(decision) is not Decision:raise ValueError('typed_public_access_decision_required')
+            if not decision.allowed:return Observation(url,decision.status,self.clock())
         return await asyncio.wait_for(self._read(url),25)
 
     async def _read(self,url):
-        self._generation+=1
-        self._card=None;self._links.clear();self._downloads.clear();self._download_deadline=None
         await self.call('Page.navigate',{'url':url})
         search=self.is_listing(url)
         previous=None
@@ -159,6 +166,14 @@ class Session:
         # Reserve before any remote work; even timeouts do not trigger retries.
         generation=self._generation;card=self._card
         self._downloads[url]=Download(url,'unavailable',self.clock())
+        if self.access_check is not None:
+            from .access import Decision
+            decision=await asyncio.to_thread(self.access_check,url)
+            if type(decision) is not Decision:raise ValueError('typed_public_access_decision_required')
+            if not decision.allowed:
+                result=Download(url,decision.status,self.clock())
+                if generation==self._generation:self._downloads[url]=result
+                return result
         try:result=await asyncio.wait_for(self._download(url,maximum,card,generation),20)
         except Exception:result=Download(url,'unavailable',self.clock())
         if generation!=self._generation:return Download(url,'unavailable',self.clock())
@@ -197,7 +212,7 @@ class Session:
 
 
 def browser_adapter(*,open_browser,clock,document_enricher=None,document_scope=None,
-                    extract_document=extract_isolated):
+                    extract_document=extract_isolated,access_check=None):
     """Protected sync worker adapter. No asyncio loop or browser on import."""
     if not callable(open_browser) or not callable(clock):raise ValueError('protected_browser_factory_required')
     if document_scope is not None:
@@ -208,7 +223,7 @@ def browser_adapter(*,open_browser,clock,document_enricher=None,document_scope=N
     def collect(profile,started):
         async def operation():
             async with open_browser() as call:
-                session=Session(call,clock)
+                session=Session(call,clock,access_check=access_check)
                 loop=asyncio.get_running_loop()
                 def read(url):
                     future=asyncio.run_coroutine_threadsafe(session.read(url),loop)

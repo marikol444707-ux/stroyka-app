@@ -74,7 +74,7 @@ def collect_portal(spec,*,read,clock,document_enricher=None,monotonic=time.monot
         kind=spec.approve(url);observed=read(url);now=clock()
         if observed.url!=url or not spec.planned_at<=observed.checked_at<=now:
             raise ValueError('fresh_exact_source_capture_required')
-        if observed.status in ('captcha','login_required','unavailable'):return None,observed
+        if observed.status in ('captcha','login_required','unavailable','robots_disallow','policy_not_verified'):return None,observed
         if observed.status!='ok':raise ValueError('source_capture_not_verified')
         refs=references(observed,identifier,spec.source) if kind=='card' else ()
         text=observed.text+''.join('\n'+ref.link_quote for ref in refs)
@@ -112,7 +112,7 @@ def collect_portal(spec,*,read,clock,document_enricher=None,monotonic=time.monot
     return finish('partial')
 
 
-def portal_adapter(spec_factory,*,open_browser,clock,scope=None,extract_document=extract_isolated):
+def portal_adapter(spec_factory,*,open_browser,clock,scope=None,extract_document=extract_isolated,access_check=None):
     if scope is not None:
         if type(scope) is not Scope:raise ValueError('protected_source_scope_required')
         scope.key()
@@ -122,7 +122,7 @@ def portal_adapter(spec_factory,*,open_browser,clock,scope=None,extract_document
             raise ValueError('bounded_reviewed_source_spec_required')
         async def operation():
             async with open_browser(spec.source) as call:
-                session=PortalSession(call,clock,spec);loop=asyncio.get_running_loop()
+                session=PortalSession(call,clock,spec,access_check=access_check);loop=asyncio.get_running_loop()
                 def sync(coroutine,timeout):
                     future=asyncio.run_coroutine_threadsafe(coroutine,loop)
                     try:return future.result(timeout=timeout)
@@ -141,7 +141,8 @@ def portal_adapter(spec_factory,*,open_browser,clock,scope=None,extract_document
     return collect
 
 
-def source_bundle(*,open_browser,clock,scope=None,reviewed_recipes=None,extra_sources=(),extract_document=extract_isolated):
+def source_bundle(*,open_browser,clock,scope=None,reviewed_recipes=None,extra_sources=(),extract_document=extract_isolated,
+                  access_check=None):
     """One call binds all eight existing platforms plus reviewed new portals.
 
     open_browser(source) is mandatory and operator-bound. No guessing Tender.Pro,
@@ -150,11 +151,13 @@ def source_bundle(*,open_browser,clock,scope=None,reviewed_recipes=None,extra_so
     """
     if not callable(open_browser) or not callable(clock):raise ValueError('protected_batch_browser_factory_required')
     sources=source_registry(extra_sources)
+    gate={}
+    def permission(url):return gate['check'](url)
     adapters={'b2b':browser_adapter(open_browser=lambda:open_browser(sources['b2b']),clock=clock,
-                                  document_scope=scope,extract_document=extract_document)}
+                                  document_scope=scope,extract_document=extract_document,access_check=permission)}
     for key in ('fabrikant','tektorg','gpb','roseltorg','sber','federation','rtender'):
         factory=lambda profile,now,key=key:platform_specs(profile,now)[key]
-        adapters[key]=portal_adapter(factory,open_browser=open_browser,clock=clock,scope=scope,extract_document=extract_document)
+        adapters[key]=portal_adapter(factory,open_browser=open_browser,clock=clock,scope=scope,extract_document=extract_document,access_check=permission)
     for key,factory in (reviewed_recipes or {}).items():
         if key not in sources or key in adapters:raise ValueError('unique_registered_portal_recipe_required')
         def checked(profile,now,key=key,factory=factory):
@@ -170,5 +173,26 @@ def source_bundle(*,open_browser,clock,scope=None,reviewed_recipes=None,extra_so
             spec=checked(profile,now)
             if spec.source!=source:raise ValueError('portal_source_changed')
             return spec
-        adapters[key]=portal_adapter(frozen,open_browser=open_browser,clock=clock,scope=scope,extract_document=extract_document)
+        adapters[key]=portal_adapter(frozen,open_browser=open_browser,clock=clock,scope=scope,extract_document=extract_document,access_check=permission)
+    if access_check is None:
+        from .access import PublicAccess
+        gate['check']=PublicAccess(host for source in sources.values() for host in source.hosts).check
+    elif callable(access_check):gate['check']=access_check
+    else:raise ValueError('protected_batch_access_check_required')
+    # Permission is checked before starting an expensive browser as well as
+    # inside Session before every page/file. Denied/unknown robots must not be
+    # masked by an unavailable local Chrome runtime.
+    from .access import Decision
+    from jev_agent.server_runtime.scripts.jev_commercial_search import search_url
+    for key,adapter in list(adapters.items()):
+        def guarded(profile,started,key=key,adapter=adapter):
+            if key=='b2b':first=search_url(profile.queries[0])
+            elif key in ('fabrikant','tektorg','gpb','roseltorg','sber','federation','rtender'):
+                first=platform_specs(profile,started)[key].listings[0]
+            else:first=reviewed_recipes[key](profile,started).listings[0]
+            decision=permission(first)
+            if type(decision) is not Decision:raise ValueError('typed_source_preflight_required')
+            if not decision.allowed:return SourceResult(decision.status)
+            return adapter(profile,started)
+        adapters[key]=guarded
     return sources,adapters

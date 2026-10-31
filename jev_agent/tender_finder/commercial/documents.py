@@ -103,7 +103,7 @@ def read_attachment(reference,card,*,hosts,fetch,clock,extract=extract_isolated)
         if (type(response) is not Download or response.url!=reference.url or not aware(now)
                 or not aware(response.checked_at) or not card.checked_at<=response.checked_at<=now):
             raise ValueError('fresh_exact_attachment_download_required')
-        if response.status in ('login_required','captcha','unavailable'):
+        if response.status in ('login_required','captcha','unavailable','robots_disallow','policy_not_verified'):
             return ReadResult(reference,response.status)
         if response.status!='ok' or type(response.content) is not bytes or not 0<len(response.content)<=MAX_BYTES:
             raise ValueError('bounded_attachment_download_required')

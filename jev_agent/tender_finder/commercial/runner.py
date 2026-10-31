@@ -85,7 +85,7 @@ def run(request_id, scope, directory, *, adapters, sources=None, profile=Profile
                     completed = clock()
                     if not aware(completed) or completed < started: raise ValueError('invalid_run_clock')
                     if (type(output) is not SourceResult or output.status not in (
-                            'checked', 'partial', 'unavailable', 'login_required', 'captcha', 'error')
+                            'checked', 'partial', 'unavailable', 'login_required', 'captcha', 'error','robots_disallow','policy_not_verified')
                             or len(output.candidates) > 100 or len(output.listings) > 50
                             or len(output.primary_captures)>100 or len(output.attachment_statuses)>800):
                         raise ValueError('bounded_source_result_required')
@@ -98,7 +98,7 @@ def run(request_id, scope, directory, *, adapters, sources=None, profile=Profile
                                 or not public_url(entry['url']) or urlsplit(entry['url']).hostname not in hosts[key]
                                 or type(entry['name']) is not str or not 1<=len(entry['name'])<=300
                                 or entry['status'] not in ('text','needs_review_or_ocr','encrypted','login_required',
-                                                          'captcha','unavailable','not_verified')):
+                                                          'captcha','unavailable','not_verified','robots_disallow','policy_not_verified')):
                             raise ValueError('bounded_attachment_status_required')
                     attachments=output.attachment_statuses
                     assessed = []

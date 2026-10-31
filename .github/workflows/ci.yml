@@ -60,6 +60,7 @@ jobs:
           jev_agent.tender_finder.commercial.test_attachment_browser
           jev_agent.tender_finder.commercial.test_platforms
           jev_agent.tender_finder.commercial.test_recipes
+          jev_agent.tender_finder.commercial.test_access
           jev_agent.tender_finder.test_contract
           jev_agent.tender_finder.test_reporting
           jev_agent.tender_finder.test_cli

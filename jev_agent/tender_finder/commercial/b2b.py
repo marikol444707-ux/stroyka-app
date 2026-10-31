@@ -171,7 +171,7 @@ class B2BReader:
         if type(observed) is not Observation or observed.url!=url or not aware(observed.checked_at):
             raise ValueError('exact_b2b_observation_required')
         if not started<=observed.checked_at<=self.clock():raise ValueError('fresh_b2b_observation_required')
-        if observed.status in ('captcha','login_required','unavailable'):return None,observed
+        if observed.status in ('captcha','login_required','unavailable','robots_disallow','policy_not_verified'):return None,observed
         if observed.status!='ok':raise ValueError('public_b2b_capture_required')
         name='Выдача B2B-Center' if parsed.path=='/app/next/market-search' else 'Карточка B2B-Center'
         text=observed.text
