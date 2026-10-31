@@ -22,12 +22,13 @@ class RecipesTests(unittest.TestCase):
     def parse(self,rows=None):return parse_recipes({'format':1,'portals':[recipe()] if rows is None else rows})
 
     def test_tenderpro_and_all_named_owners_join_one_packet_without_code_changes(self):
-        keys=('tenderpro','ozon','agrokompleks','progress','step','ecoculture','rusagro','yugrusi','pokrovsky','resurs','damate')
+        keys=('tenderpro','ozon','agrokompleks','progress','ecoculture','rusagro','yugrusi','pokrovsky','resurs','damate')
         compiled=self.parse([recipe(key) for key in keys])
         sources,adapters=source_bundle(open_browser=lambda _:None,clock=lambda:NOW,
             reviewed_recipes=compiled.factories,extra_sources=compiled.extra_sources)
         self.assertEqual(len(adapters),19)
         self.assertTrue(set(keys)<=set(adapters))
+        self.assertEqual(sources['step'].hosts,('ahstep.ru',))
 
     def test_data_recipe_cannot_run_python_shell_or_override_native(self):
         for row in ({**recipe(),'command':'fake'},{**recipe(),'source_id':'b2b'},

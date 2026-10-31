@@ -40,7 +40,7 @@ CARDS={
 class PlansTests(unittest.TestCase):
     def test_all_seven_native_plans_plus_b2b_are_bound_together(self):
         sources,adapters=source_bundle(open_browser=lambda _:None,clock=lambda:NOW)
-        self.assertEqual(set(adapters),set(CARDS)|{'b2b'})
+        self.assertEqual(set(adapters),set(CARDS)|{'b2b','step'})
         self.assertEqual(len(sources),22)
         self.assertNotIn('tenderpro',adapters)
         self.assertNotIn('ozon',adapters)

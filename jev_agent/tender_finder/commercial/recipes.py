@@ -27,7 +27,7 @@ def parse_recipes(value):
             or value['format']!=1 or type(value['portals']) is not list or len(value['portals'])>24):
         raise ValueError('bounded_operator_portal_recipes_required')
     known=source_registry();extras=[];factories={}
-    native={'b2b','fabrikant','tektorg','gpb','roseltorg','sber','federation','rtender'}
+    native={'b2b','fabrikant','tektorg','gpb','roseltorg','sber','federation','rtender','step'}
     for row in value['portals']:
         required={'source_id','hosts','listings','reviewer_subject','review_evidence_url','notice_path'}
         optional={'name','category','notice_query_key','search_query_parameter'}

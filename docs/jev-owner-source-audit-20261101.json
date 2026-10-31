@@ -1,0 +1,194 @@
+{
+  "read_only": true,
+  "network_revision": "6",
+  "deployed": false,
+  "checked_date_moscow": "2026-11-01",
+  "all_sources_connected": false,
+  "observations": [
+    {
+      "host": "corp.ozon.ru",
+      "url": "https://corp.ozon.ru/",
+      "checked_at": "2026-10-31T21:20:51.612061+00:00",
+      "robots_http": 307,
+      "robots_redirect": "https://corp.ozon.ru/robots.txt?__rr=1",
+      "access": "policy_not_verified"
+    },
+    {
+      "host": "ozon.ru",
+      "url": "https://ozon.ru/",
+      "checked_at": "2026-10-31T21:20:51.612810+00:00",
+      "robots_http": 307,
+      "robots_redirect": "https://ozon.ru/robots.txt?__rr=1",
+      "access": "policy_not_verified"
+    },
+    {
+      "host": "www.ozon.ru",
+      "url": "https://www.ozon.ru/",
+      "checked_at": "2026-10-31T21:20:51.613320+00:00",
+      "robots_http": 307,
+      "robots_redirect": "https://www.ozon.ru/robots.txt?__rr=1",
+      "access": "policy_not_verified"
+    },
+    {
+      "host": "zao-agrokomplex.ru",
+      "url": "https://zao-agrokomplex.ru/",
+      "checked_at": "2026-10-31T21:20:51.613890+00:00",
+      "robots_http": 503,
+      "access": "policy_not_verified"
+    },
+    {
+      "host": "www.zao-agrokomplex.ru",
+      "url": "https://www.zao-agrokomplex.ru/",
+      "checked_at": "2026-10-31T21:20:53.074249+00:00",
+      "robots_http": 503,
+      "access": "policy_not_verified"
+    },
+    {
+      "host": "ahstep.ru",
+      "url": "https://ahstep.ru/",
+      "checked_at": "2026-10-31T21:20:53.245166+00:00",
+      "robots_http": 200,
+      "access": "allowed",
+      "http": 200,
+      "bytes": 14545,
+      "sha256": "16e9961097e7230e823dfdd16343c9d6957af8a1527b243c6b1a9a59752ed896",
+      "title": "Агрохолдинг \"СТЕПЬ\""
+    },
+    {
+      "host": "www.ahstep.ru",
+      "url": "https://www.ahstep.ru/",
+      "checked_at": "2026-10-31T21:20:53.247751+00:00",
+      "robots_http": 200,
+      "access": "allowed",
+      "http": 200,
+      "bytes": 14609,
+      "sha256": "019ba1f1919bb1eb879e6d0b61a65ac369a4563cad42088d41ca1c9672445ea7",
+      "title": "Агрохолдинг \"СТЕПЬ\""
+    },
+    {
+      "host": "aph-ecoculture.ru",
+      "url": "https://aph-ecoculture.ru/",
+      "checked_at": "2026-10-31T21:20:53.680800+00:00",
+      "robots_http": 200,
+      "access": "allowed",
+      "http": 200,
+      "bytes": 556501,
+      "sha256": "dcb654c4068b180dbc0247d7ae6f4dd95f550220f13a7e7a74e54a05aa78c07b",
+      "title": "«ЭКО-культура», агропромышленный холдинг — События, новости, информация"
+    },
+    {
+      "host": "www.aph-ecoculture.ru",
+      "url": "https://www.aph-ecoculture.ru/",
+      "checked_at": "2026-10-31T21:20:55.813631+00:00",
+      "robots_http": 301,
+      "robots_redirect": "https://aph-ecoculture.ru/robots.txt",
+      "access": "policy_not_verified"
+    },
+    {
+      "host": "rusagrogroup.ru",
+      "url": "https://rusagrogroup.ru/",
+      "checked_at": "2026-10-31T21:20:56.548134+00:00",
+      "robots_http": 503,
+      "access": "policy_not_verified"
+    },
+    {
+      "host": "www.rusagrogroup.ru",
+      "url": "https://www.rusagrogroup.ru/",
+      "checked_at": "2026-10-31T21:20:56.690169+00:00",
+      "robots_http": 503,
+      "access": "policy_not_verified"
+    },
+    {
+      "host": "goldenseed.ru",
+      "url": "https://goldenseed.ru/",
+      "checked_at": "2026-10-31T21:20:57.362143+00:00",
+      "robots_http": 404,
+      "access": "allowed",
+      "http": 503,
+      "bytes": 91,
+      "sha256": "2f85832e31ca57711e6107af6b142363351ae516adb71c69afc643fac26be7f6"
+    },
+    {
+      "host": "www.goldenseed.ru",
+      "url": "https://www.goldenseed.ru/",
+      "checked_at": "2026-10-31T21:20:57.471085+00:00",
+      "robots_http": 404,
+      "access": "allowed",
+      "http": 200,
+      "bytes": 94889,
+      "sha256": "0e09b076826244d1dfa18de293bc5944530b90393bd91c42106f3dfeac3f8b16",
+      "title": "ЮГ РУСИ — Агропромышленная группа компаний"
+    },
+    {
+      "host": "gapresurs.ru",
+      "url": "https://gapresurs.ru/",
+      "checked_at": "2026-10-31T21:20:57.895894+00:00",
+      "robots_http": 308,
+      "robots_redirect": "https://www.gapresurs.ru/robots.txt",
+      "access": "policy_not_verified"
+    },
+    {
+      "host": "www.gapresurs.ru",
+      "url": "https://www.gapresurs.ru/",
+      "checked_at": "2026-10-31T21:20:58.564296+00:00",
+      "robots_http": 200,
+      "access": "allowed",
+      "http": 200,
+      "bytes": 179398,
+      "sha256": "81b47f90b5a9c2052f4bbe1112b4fbc6c1fdffc189b7f2c3b37e4c053972eb1b",
+      "title": "Для всех, как для себя! | ГАП «Ресурс»"
+    },
+    {
+      "host": "acdamate.com",
+      "url": "https://acdamate.com/",
+      "checked_at": "2026-10-31T21:20:59.951730+00:00",
+      "robots_http": 301,
+      "robots_redirect": "https://www.acdamate.com/robots.txt",
+      "access": "policy_not_verified"
+    },
+    {
+      "host": "www.acdamate.com",
+      "url": "https://www.acdamate.com/",
+      "checked_at": "2026-10-31T21:21:00.816573+00:00",
+      "robots_http": 200,
+      "access": "allowed",
+      "http": 200,
+      "bytes": 28817,
+      "sha256": "6df694650c0f117205ce5ddaf68e860aa0f1d09c4409c14f682e21fbfcbe3b68",
+      "title": "Главная"
+    }
+  ],
+  "step_reader": {
+    "started_at": "2026-10-31T21:27:02.045380+00:00",
+    "completed_at": "2026-10-31T21:27:15.607086+00:00",
+    "read_only": true,
+    "source": "step",
+    "status": "partial",
+    "listings": 1,
+    "primary_cards": 30,
+    "candidates_parsed": 30,
+    "documents_read": 0,
+    "limitations": [
+      "first_pages_only",
+      "primary_parser_not_live_verified",
+      "documents_not_read"
+    ],
+    "buckets": {
+      "excluded": 30
+    }
+  },
+  "owner_status": {
+    "ozon": "robots_redirect_not_verified",
+    "agrokompleks": "robots_network_503",
+    "step": "partial_native_reader_30_primary_cards",
+    "ecoculture": "site_and_procurement_department_found_no_public_board_verified",
+    "rusagro": "robots_network_503",
+    "yugrusi": "official_tenders_page_explicit_empty_state_reader_not_connected",
+    "resurs": "corporate_site_found_no_public_board_verified",
+    "damate": "site_and_procurement_department_found_no_public_board_verified",
+    "progress": "domain_not_verified",
+    "pokrovsky": "domain_not_verified"
+  },
+  "direct_contract_verified": false,
+  "documents_read": 0
+}

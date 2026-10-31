@@ -64,7 +64,7 @@ def references(observation,card,source):
     return tuple(result)
 
 
-def collect_portal(spec,*,read,clock,document_enricher=None,monotonic=time.monotonic):
+def collect_portal(spec,*,read,clock,document_enricher=None,monotonic=time.monotonic,extract_card=parse_primary):
     listings=[];candidates=[];captures=[];attachments=[];seen=set();calls=0;deadline=monotonic()+180
     limitations=list(LIMITATIONS)
     if document_enricher is not None:limitations[-1]='document_coverage_incomplete'
@@ -80,7 +80,7 @@ def collect_portal(spec,*,read,clock,document_enricher=None,monotonic=time.monot
         refs=references(observed,identifier,spec.source) if kind=='card' else ()
         text=observed.text+''.join('\n'+ref.link_quote for ref in refs)
         return Document(identifier,spec.source.id,url,'Выдача '+spec.source.name if kind=='listing' else
-                        'Карточка '+spec.source.name,'card',observed.checked_at,text),observed
+                        'Карточка '+spec.source.name,'card',observed.checked_at,text,raw_sha256=observed.raw_sha256),observed
     for index,url in enumerate(spec.listings):
         if calls>=40 or monotonic()>=deadline:return finish('partial',('read_budget_exhausted',))
         calls+=1
@@ -109,7 +109,7 @@ def collect_portal(spec,*,read,clock,document_enricher=None,monotonic=time.monot
             if card is None:return finish(observed.status)
             captures.append(card)
             try:
-                candidate=parse_primary(card,spec.source.id)
+                candidate=extract_card(card,spec.source.id)
                 if document_enricher:
                     enriched=document_enricher(candidate,references(observed,card.id,spec.source))
                     attachments.extend(enriched.statuses);candidate=enriched.candidate
@@ -170,6 +170,8 @@ def source_bundle(*,open_browser,clock,scope=None,reviewed_recipes=None,extra_so
     sources=source_registry(extra_sources)
     gate={}
     def permission(url):return gate['check'](url)
+    from .owner_step import SOURCE as step_source, adapter as step_adapter
+    sources['step']=step_source
     adapters={'b2b':browser_adapter(open_browser=lambda:open_browser(sources['b2b']),clock=clock,
                                   document_scope=scope,extract_document=extract_document,access_check=permission)}
     for key in ('fabrikant','tektorg','gpb','roseltorg','sber','federation','rtender'):
@@ -181,6 +183,7 @@ def source_bundle(*,open_browser,clock,scope=None,reviewed_recipes=None,extra_so
                                   fetch=public_search if api_fetch is None else api_fetch)
         adapters[key]=portal_adapter(factory,open_browser=open_browser,clock=clock,scope=scope,
             extract_document=extract_document,access_check=permission,listing_fetch=listing_fetch)
+    adapters['step']=step_adapter(clock=clock,access_check=permission)
     for key,factory in (reviewed_recipes or {}).items():
         if key not in sources or key in adapters:raise ValueError('unique_registered_portal_recipe_required')
         def checked(profile,now,key=key,factory=factory):
@@ -210,6 +213,9 @@ def source_bundle(*,open_browser,clock,scope=None,reviewed_recipes=None,extra_so
     for key,adapter in list(adapters.items()):
         def guarded(profile,started,key=key,adapter=adapter):
             if key=='b2b':first=search_url(profile.queries[0])
+            elif key=='step':
+                from .owner_step import LISTING
+                first=LISTING
             elif key in ('fabrikant','tektorg','gpb','roseltorg','sber','federation','rtender'):
                 first=platform_specs(profile,started)[key].listings[0]
             else:first=reviewed_recipes[key](profile,started).listings[0]

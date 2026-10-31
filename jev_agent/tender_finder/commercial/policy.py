@@ -92,6 +92,12 @@ def assess(candidate, now, hosts, profile=Profile(), *, run_started_at=None):
     if not stage: risks.append('Актуальный этап не подтверждён')
     deadline = values.get('deadline')
     expired = False
+    if not stage and deadline:
+        try:
+            parsed = datetime.fromisoformat(deadline.replace('Z', '+00:00'))
+            if parsed.utcoffset() is not None and parsed <= now:
+                risks.append('Указанный срок истёк; текущий этап требует проверки')
+        except ValueError: pass
     if stage == 'accepting':
         if deadline:
             try:

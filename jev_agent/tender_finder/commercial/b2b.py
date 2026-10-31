@@ -52,6 +52,7 @@ class Observation:
     text: str = ''
     search_state: dict | None = None
     attachment_links: tuple = ()
+    raw_sha256: str | None = None
 
 
 def fields(text):
