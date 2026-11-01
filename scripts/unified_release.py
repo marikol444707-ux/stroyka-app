@@ -395,6 +395,8 @@ def _qa_prepare_internal(adapter, *, expected_sha, statements, revisions):
     """
     require(re.fullmatch('[0-9a-f]{40}', expected_sha or ''), 'Exact QA SHA required')
     from scripts.qa_bootstrap_plan import migration_order
+    require(adapter.execution_bindings_ready() is True,
+            'QA process, recovery storage and replacement bindings are not accepted')
     require(tuple(revisions) == tuple(migration_order(ROOT / 'migrations/versions')),
             'Invalid QA migration path')
     require(adapter.verify_target() == ('stroyka-qa-db', 5432, 'stroyka_qa'), 'Unexpected QA target')
@@ -428,6 +430,8 @@ def _qa_restore_internal(adapter, bundle):
     services. The transport owns actual restore mechanics and has no production
     implementation in this package.
     """
+    require(adapter.execution_bindings_ready() is True,
+            'QA process, recovery storage and replacement bindings are not accepted')
     require(adapter.verify_target() == ('stroyka-qa-db', 5432, 'stroyka_qa'), 'Unexpected QA target')
     adapter.quiesce_both_backends_and_workers()
     require(adapter.writers_stopped() is True, 'QA writers remain active')

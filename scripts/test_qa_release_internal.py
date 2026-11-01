@@ -17,7 +17,7 @@ def adapter():
     a = MagicMock()
     a.verify_target.return_value = ('stroyka-qa-db', 5432, 'stroyka_qa')
     a.code_sha.return_value = 'a' * 40
-    for name in ('writers_stopped', 'verify_recovery_bundle', 'restore_demonstrated',
+    for name in ('execution_bindings_ready', 'writers_stopped', 'verify_recovery_bundle', 'restore_demonstrated',
                  'schema_is_empty', 'verify_schema', 'verify_restored_bundle'):
         getattr(a, name).return_value = True
     a.schema_connection.return_value = connection()
