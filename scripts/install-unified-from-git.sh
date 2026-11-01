@@ -6,9 +6,9 @@ umask 077
 APP_ROOT="${STROYKA_APP_ROOT:-/var/www/stroyka-app}"
 PYTHON_BIN="${STROYKA_RELEASE_PYTHON:-python3}"
 WORK_PARENT="${STROYKA_DELIVERY_WORK_PARENT:-/root}"
-TARGET="aec0c9c3ca008440fc1a017f116cb09ea44d95b9"
-BASE="b2cf8c511339cbde239f4a60c055100b4dfc1198"
-RELEASE_BRANCH="codex/unified-production-release"
+TARGET="65687ab01956804d968932deed8f9812af5db10e"
+BASE="57023611c6090c1bdf63a107a28eefadd1afb492"
+RELEASE_BRANCH="codex/public-site-launch-570"
 
 cd "$APP_ROOT"
 BEFORE="$(git rev-parse HEAD)"
