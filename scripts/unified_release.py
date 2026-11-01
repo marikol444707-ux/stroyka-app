@@ -350,6 +350,98 @@ def database_backup(module, env, destination):
     run(['pg_restore', '--list', destination], env=child, capture=True)
 
 
+# QA internals have no CLI route. The only orchestration entry below is held
+# before it inspects arguments or obtains an adapter. Never wire these into apply
+# until the separate QA bootstrap/recovery acceptance is complete.
+QA_HOLD = 'QA_BOOTSTRAP_EXECUTION_NOT_ACCEPTED'
+
+
+def qa_apply_or_restore(*args, **kwargs):
+    raise ValueError(QA_HOLD)
+
+
+def _qa_schema_transaction(connection, statements):
+    """Internal transactional base-DDL writer; caller owns target/quiescence checks.
+
+    No seed, repair, reset, commit-per-statement or application import. A failure
+    rolls back the entire batch and propagates. Commit uncertainty propagates too.
+    """
+    from backend.bootstrap_schema import SCHEMA_STATEMENTS
+    require(connection.autocommit is False, 'QA schema requires explicit transaction')
+    require(statements == SCHEMA_STATEMENTS and isinstance(statements, tuple),
+            'Only reviewed QA schema statements are accepted')
+    cursor = connection.cursor()
+    try:
+        # Verify the same connection, not a supplied boolean claiming emptiness.
+        cursor.execute("SELECT count(*) FROM pg_catalog.pg_class c "
+                       "JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace "
+                       "WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','S','f')")
+        require(cursor.fetchone() == (0,), 'QA schema is not empty')
+        for statement in statements:
+            cursor.execute(statement)
+        connection.commit()
+    except BaseException:
+        connection.rollback()
+        raise
+    finally:
+        cursor.close()
+
+
+def _qa_prepare_internal(adapter, *, expected_sha, statements, revisions):
+    """Internal implementation over an injected transport; no default transport.
+
+    This is not a public execution entry. Real adapters are deliberately absent.
+    The adapter must implement the documented checks with actual evidence.
+    """
+    require(re.fullmatch('[0-9a-f]{40}', expected_sha or ''), 'Exact QA SHA required')
+    from scripts.qa_bootstrap_plan import migration_order
+    require(tuple(revisions) == tuple(migration_order(ROOT / 'migrations/versions')),
+            'Invalid QA migration path')
+    require(adapter.verify_target() == ('stroyka-qa-db', 5432, 'stroyka_qa'), 'Unexpected QA target')
+    require(adapter.code_sha() == expected_sha, 'QA code changed')
+    # Stop every writer before a consistent bundle, never just the candidate.
+    adapter.quiesce_both_backends_and_workers()
+    require(adapter.writers_stopped() is True, 'QA writers remain active')
+    bundle = adapter.backup_database_files_code_and_config()
+    require(adapter.verify_recovery_bundle(bundle) is True, 'QA recovery bundle incomplete')
+    require(adapter.restore_demonstrated(bundle) is True, 'QA restore is not demonstrated')
+    require(adapter.schema_is_empty() is True, 'QA schema must already be empty; reset is not implemented')
+    require(adapter.code_sha() == expected_sha and adapter.writers_stopped() is True,
+            'QA prerequisites changed')
+    connection = adapter.schema_connection()
+    try:
+        _qa_schema_transaction(connection, statements)
+    finally:
+        connection.close()
+    # No stamp: adapter must execute each real migration in the supplied order.
+    adapter.apply_migrations(tuple(revisions))
+    require(adapter.verify_schema(TARGET_REVISION) is True, 'QA target schema not accepted')
+    # No startup, synthetic credentials or release-success marker here.
+    return {'status': 'prepared_awaiting_runtime_acceptance', 'head': expected_sha,
+            'firstBackendMayStart': False, 'cleanupAllowed': False}
+
+
+def _qa_restore_internal(adapter, bundle):
+    """Restore a coherent bundle, retaining evidence and keeping services stopped.
+
+    No automatic downgrade or automatic reopening; no exception path starts
+    services. The transport owns actual restore mechanics and has no production
+    implementation in this package.
+    """
+    require(adapter.verify_target() == ('stroyka-qa-db', 5432, 'stroyka_qa'), 'Unexpected QA target')
+    adapter.quiesce_both_backends_and_workers()
+    require(adapter.writers_stopped() is True, 'QA writers remain active')
+    require(adapter.verify_recovery_bundle(bundle) is True, 'QA recovery bundle incomplete')
+    adapter.preserve_failed_state()
+    adapter.restore_database(bundle)
+    adapter.restore_uploads(bundle)
+    adapter.restore_both_code_versions_and_config(bundle)
+    adapter.restore_frontend(bundle)
+    require(adapter.verify_restored_bundle(bundle) is True, 'QA restored bundle verification failed')
+    return {'status': 'restored_awaiting_reopening_acceptance',
+            'servicesMayStart': False, 'cleanupAllowed': False}
+
+
 def document_worker_probe(root, env):
     # Exercise the existing isolated worker, without database or business records.
     probe = '''
