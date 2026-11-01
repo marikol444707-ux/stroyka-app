@@ -234,3 +234,30 @@ env.py импортирует db/config, а config читает backend/.env. П
 Scope замены уже определён: только stroyka_qa в stroyka-qa-db. Повторное общее
 согласование scope не нужно. Конкретный destructive/reset/restore запуск в этом
 задании отсутствует. Пути файлового bundle ещё нужны, не угадываются.
+
+
+## Подтверждённая топология: адаптация без исполнения
+
+qa_topology.py фиксирует полученные image IDs/workdir/mounts шести контейнеров.
+verify_target проверяет точное совпадение, включая RW=False у обоих /app binds;
+неожиданное изменение требует review и не принимается автоматически.
+DB mounts пуст: внешняя persistence НЕ доказана. Контейнер БД сохранять; никакого
+rm/recreate/volume prune или stop DB в адаптере. Это не вывод о потере данных.
+Общий frontend volume резервируется одной физической копией с двумя consumers.
+В quiesce включены frontend (writer тома) и gateway (writers /data,/config),
+помимо двух backend. Static читает том, его остановка для записи не требуется.
+Файлы /tmp/stroyka-qa-static.Caddyfile, /opt/stroyka-qa-gateway/Caddyfile и тома
+Caddy включены в защищённый manifest, содержимое не читается/не выводится/не
+передаётся в Library. Исторические recovery артефакты не удаляются.
+
+По main.py:2924 UPLOAD_DIR='uploads', при cwd/app это /app/uploads. Read-only bind
+не даёт предполагать работоспособную локальную запись. STORAGE_BACKEND может
+использовать S3 (main.py:2942,3207). Фактический режим/хранилище остаётся unknown,
+а не пустой или автоматически покрытой частью backup.
+
+Единый остаточный blocker: нет подтверждённого execution/recovery binding для
+этой топологии: существующий host Python/bridge connectivity и фактическое
+uploads storage/проверенное восстановление. Основные mounts/image IDs и scope
+stroyka_qa уже установлены, повторно запрашивать их не нужно. Hold сохраняется;
+никакая команда изменения/backup/остановки контейнера не исполнена.
+Финальный объединённый набор: 47 passed,0 failed,0 skipped, только mock/unit.

@@ -11,6 +11,7 @@ import json
 import ipaddress
 import re
 from pathlib import Path, PurePosixPath
+from scripts.qa_topology import TOPOLOGY, QUIESCE, validate_topology, backup_manifest
 
 DB = 'stroyka-qa-db'
 DATABASE = 'stroyka_qa'
@@ -64,6 +65,14 @@ class _QaServerAdapter:
         return False
 
     def _run(self, argv, **kwargs):
+        # Preserve the DB container's writable layer: no lifecycle recreation,
+        # deletion, volume cleanup or writes into read-only application mounts.
+        if argv and argv[0] == 'docker':
+            _require(len(argv) > 1 and argv[1] in ('inspect', 'stop', 'exec'), 'QA Docker action forbidden')
+            if argv[1] == 'stop':
+                _require(set(argv[2:]) <= set(QUIESCE), 'QA database must remain running')
+            if argv[1] == 'exec':
+                _require(tuple(argv[2:4]) == (DB, 'pg_dump'), 'Unapproved QA container execution')
         try:
             return self.transport.run(tuple(argv), **kwargs)
         except Exception:
@@ -74,6 +83,14 @@ class _QaServerAdapter:
         return json.loads(self._run(['docker', 'inspect', '--format', expression, name]))
 
     def verify_target(self):
+        observed = {}
+        for name in TOPOLOGY:
+            observed[name] = {
+                'image': self._inspect(name, '{{json .Image}}'),
+                'workdir': self._inspect(name, '{{json .Config.WorkingDir}}'),
+                'mounts': self._inspect(name, '{{json .Mounts}}'),
+            }
+        validate_topology(observed)
         for name, bind in zip(BACKENDS, BINDS):
             # Do not inspect full Env: it can contain credentials.
             mounts = self._inspect(name, '{{json .Mounts}}')
@@ -97,12 +114,12 @@ class _QaServerAdapter:
 
     def quiesce_both_backends_and_workers(self):
         self.verify_target()
-        self._run(['docker', 'stop', *BACKENDS])
+        self._run(['docker', 'stop', *QUIESCE])
         self.quiesced = self.writers_stopped()
         _require(self.quiesced, 'QA writers did not stop')
 
     def writers_stopped(self):
-        return all(self._inspect(name, '{{json .State.Running}}') is False for name in BACKENDS)
+        return all(self._inspect(name, '{{json .State.Running}}') is False for name in QUIESCE)
 
     def backup_database_files_code_and_config(self):
         _require(self.quiesced and self.writers_stopped(), 'Backup requires stopped writers')
@@ -110,7 +127,7 @@ class _QaServerAdapter:
         self._run(['docker', 'exec', DB, 'pg_dump', '--format=custom', '--no-password',
                    '--username', self.manifest['db_user'], '--dbname', DATABASE], stdout_file=dump)
         # Store must preserve both bind trees, runtime config and exact frontend/uploads.
-        self.bundle = self.store.create(dict(self.manifest), dump)
+        self.bundle = self.store.create(dict(self.manifest, topology_backup=backup_manifest()), dump)
         return self.bundle
 
     def verify_recovery_bundle(self, bundle):

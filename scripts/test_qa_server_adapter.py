@@ -2,6 +2,7 @@ import json
 import unittest
 from unittest.mock import MagicMock
 from scripts.qa_server_adapter import _QaServerAdapter, create_adapter, BINDS, BACKENDS
+from scripts.qa_topology import TOPOLOGY
 
 
 def make():
@@ -17,7 +18,11 @@ def metadata(argv, **kwargs):
         raise AssertionError('unexpected command')
     fmt, name = argv[3], argv[4]
     if fmt == '{{json .Mounts}}':
-        return json.dumps([dict(Type='bind', Source=BINDS[BACKENDS.index(name)], Destination='/app')])
+        return json.dumps([dict(Type=k, Source=s, Destination=d, RW=w) for k,s,d,w in TOPOLOGY[name][2]])
+    if fmt == '{{json .Image}}':
+        return json.dumps(TOPOLOGY[name][0])
+    if fmt == '{{json .Config.WorkingDir}}':
+        return json.dumps(TOPOLOGY[name][1])
     if fmt == '{{json .NetworkSettings.Networks}}':
         return '{"stroyka-qa-net":{}}'
     if fmt == '{{json .State.Running}}':
