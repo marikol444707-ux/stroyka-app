@@ -8,8 +8,9 @@ Filesystem bundle/restore attestations are injected independently of command exi
 codes: a successful archive or pg_restore invocation is not verified recovery.
 """
 import json
+import ipaddress
 import re
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 DB = 'stroyka-qa-db'
 DATABASE = 'stroyka_qa'
@@ -37,11 +38,13 @@ class _QaServerAdapter:
     checksums and restore evidence. It is not implemented by pretend True results.
     No store or connection provider is instantiated here.
     """
-    def __init__(self, transport, connection_provider, bundle_store, manifest):
+    def __init__(self, transport, connection_provider, bundle_store, manifest,
+                 migration_runtime=None):
         self.transport = transport
         self.connect = connection_provider
         self.store = bundle_store
         self.manifest = dict(manifest)
+        self.migration_runtime = migration_runtime
         _require(re.fullmatch(r'[0-9a-f]{40}', manifest.get('head', '')), 'Exact SHA required')
         _require(re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', manifest.get('db_user', '')), 'Explicit QA DB role required')
         python = manifest.get('python_path', '')
@@ -146,9 +149,43 @@ class _QaServerAdapter:
             conn.close()
 
     def apply_migrations(self, revisions):
-        # A stopped candidate cannot docker-exec. Starting it would invoke main
-        # and defeat bootstrap ordering. Do not silently run a new container.
-        raise RuntimeError('QA_MIGRATION_PROCESS_BINDING_UNRESOLVED: candidate must remain stopped')
+        """Use an already provisioned host interpreter, never start a container.
+
+        runtime supplies python_path and environment() in memory. Actual host
+        dependencies/connectivity must already be verified; this does not install
+        them or consider a manifest boolean independent proof of readiness.
+        """
+        from scripts.qa_bootstrap_plan import migration_order
+        runtime = self.migration_runtime
+        _require(runtime is not None, 'QA_HOST_MIGRATION_RUNTIME_UNVERIFIED')
+        _require(runtime.dependencies_verified is True and runtime.connectivity_verified is True,
+                 'QA_HOST_MIGRATION_RUNTIME_UNVERIFIED')
+        python = runtime.python_path
+        _require(isinstance(python, str) and python.startswith('/')
+                 and '..' not in PurePosixPath(python).parts, 'Verified host interpreter required')
+        _require(self.quiesced and self.writers_stopped(), 'QA writers active')
+        _require(self.code_sha() == self.manifest['head'], 'QA code changed')
+        expected = migration_order(Path(__file__).resolve().parents[1] / 'migrations/versions')
+        _require(tuple(revisions) == tuple(expected), 'Unexpected full migration graph')
+        networks = self._inspect(DB, '{{json .NetworkSettings.Networks}}')
+        host = str(ipaddress.ip_address(networks[NETWORK]['IPAddress']))
+        # Docker bridge name is not assumed resolvable on the host. Bind the
+        # connection to the inspected DB container IP on the existing QA network.
+        supplied = runtime.environment()
+        allowed = {'DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD'}
+        _require(isinstance(supplied, dict) and set(supplied) == allowed,
+                 'Explicit migration connection environment required')
+        _require(all(isinstance(v, str) and '\x00' not in v for v in supplied.values()),
+                 'Invalid migration environment')
+        _require(supplied['DB_HOST'] == host and supplied['DB_PORT'] == '5432'
+                 and supplied['DB_NAME'] == DATABASE and supplied['DB_USER'] == self.manifest['db_user']
+                 and bool(supplied['DB_PASSWORD']), 'Migration connection mismatch')
+        environment = dict(supplied, PGOPTIONS='-c lock_timeout=5000 -c statement_timeout=60000')
+        # -I excludes user site/PYTHONPATH; alembic.ini explicitly prepends cwd.
+        # env.py imports backend.db/config, not main. Config still reads .env:
+        # its full implications remain part of runtime acceptance.
+        self._run([python, '-I', '-m', 'alembic', '-c', 'alembic.ini', 'upgrade', expected[-1]],
+                  cwd=BINDS[1], env=environment, replace_env=True, redact_output=True)
 
     def verify_schema(self, revision):
         return self.store.verify_schema_contract(revision) is True

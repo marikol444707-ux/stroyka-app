@@ -84,8 +84,45 @@ class AdapterTests(unittest.TestCase):
 
     def test_stopped_candidate_migration_binding_stays_blocked(self):
         a = make()
-        with self.assertRaisesRegex(RuntimeError, 'MIGRATION_PROCESS_BINDING_UNRESOLVED'):
+        with self.assertRaisesRegex(ValueError, 'HOST_MIGRATION_RUNTIME_UNVERIFIED'):
             a.apply_migrations(['anything'])
+        a.transport.run.assert_not_called()
+
+    def test_host_migration_uses_existing_runtime_not_container_start(self):
+        from scripts.qa_bootstrap_plan import migration_order
+        from pathlib import Path
+        a = make()
+        a.quiesced = True
+        runtime = MagicMock()
+        runtime.dependencies_verified = runtime.connectivity_verified = True
+        runtime.python_path = '/verified/venv/bin/python'
+        runtime.environment.return_value = dict(DB_HOST='172.18.0.2', DB_PORT='5432',
+            DB_NAME='stroyka_qa', DB_USER='qa_user', DB_PASSWORD='synthetic-only')
+        a.migration_runtime = runtime
+        def run(argv, **kw):
+            if argv[0] == 'git':
+                return 'a'*40
+            if argv[0] == runtime.python_path:
+                return ''
+            if argv[3] == '{{json .NetworkSettings.Networks}}':
+                return '{"stroyka-qa-net":{"IPAddress":"172.18.0.2"}}'
+            return metadata(argv, **kw)
+        a.transport.run.side_effect = run
+        revisions = migration_order(Path(__file__).resolve().parents[1] / 'migrations/versions')
+        a.apply_migrations(revisions)
+        final = a.transport.run.call_args
+        self.assertEqual(final.args[0][1:4], ('-I', '-m', 'alembic'))
+        self.assertEqual(final.kwargs['cwd'], BINDS[1])
+        self.assertTrue(final.kwargs['replace_env'])
+        self.assertTrue(final.kwargs['redact_output'])
+        self.assertNotIn('synthetic-only', repr(final.args))
+        self.assertFalse(any('start' in c.args[0] for c in a.transport.run.call_args_list))
+
+    def test_unverified_host_runtime_stops_before_transport(self):
+        a = make()
+        a.migration_runtime = MagicMock(dependencies_verified=False, connectivity_verified=True)
+        with self.assertRaises(ValueError):
+            a.apply_migrations([])
         a.transport.run.assert_not_called()
 
     def test_database_restore_never_invents_clean_command(self):
