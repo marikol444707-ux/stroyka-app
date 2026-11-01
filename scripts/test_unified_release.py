@@ -173,7 +173,7 @@ with tarfile.open(output, 'w:gz') as archive:
             helper_source = re.sub(r'^BASE="[0-9a-f]{40}"$', f'BASE="{base}"',
                                    helper_source, flags=re.MULTILINE)
             helper_source = helper_source.replace(
-                'codex/unified-production-release', 'codex/jev-production-intake')
+                'codex/public-site-launch-570', 'codex/jev-production-intake')
             helper.write_text(helper_source)
             parent = work / 'temporary-transfer'
             parent.mkdir()
