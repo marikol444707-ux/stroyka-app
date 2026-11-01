@@ -165,6 +165,22 @@ describe('installAuthFetch', () => {
     expect(requestHeaders.has('Authorization')).toBe(false);
   });
 
+  it.each(['/site/leads', '/site/lead-files'])(
+    'does not wait for CSRF before sending public site mutation %s',
+    async path => {
+      const nativeFetch = jest.fn().mockResolvedValue(new Response('{"ok":true}', { status: 200 }));
+      window.fetch = nativeFetch;
+
+      installAuthFetch();
+      const response = await window.fetch(path, { method: 'POST', body: 'public form payload' });
+
+      expect(response.status).toBe(200);
+      expect(nativeFetch).toHaveBeenCalledTimes(1);
+      expect(nativeFetch.mock.calls[0][0]).toBe(path);
+      expect(new Headers(nativeFetch.mock.calls[0][1].headers || {}).has('X-CSRF-Token')).toBe(false);
+    },
+  );
+
   it('explains when an expired subscription blocks a mutation', async () => {
     const nativeFetch = jest.fn()
       .mockResolvedValueOnce(new Response('{"csrfToken":"csrf-token"}', { status: 200 }))
