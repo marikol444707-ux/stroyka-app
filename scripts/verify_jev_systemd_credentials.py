@@ -17,26 +17,29 @@ import uuid
 from jev_agent.tender_finder.standalone_release import _gateway_group_plan
 
 
-PROBE='''import json,os,socket,stat
+PROBE='''import json,os,socket,stat,sys
 from pathlib import Path
 assert os.geteuid()==0 and os.getegid()==0
 assert os.environ.get("LISTEN_PID")==str(os.getpid())
 assert os.environ.get("LISTEN_FDS")=="1"
-assert os.environ.get("LISTEN_FDNAMES")=="admission"
+assert os.environ.get("LISTEN_FDNAMES")=="__LISTENER__"
 root=Path(__file__).parent
-with socket.socket(fileno=3) as listener:
+sys.path.insert(0,__REPOSITORY__)
+from jev_agent.tender_finder.systemd_bootstrap import inherited_listener,credential_pipe
+from jev_agent.tender_finder.bootstrap_key import read_bootstrap_key
+with inherited_listener(os.environ,listener_name="__LISTENER__",listener_path=root/"__LISTENER__.sock") as listener:
     assert listener.getsockopt(socket.SOL_SOCKET,socket.SO_ACCEPTCONN)==1
-    assert listener.getsockname()==str(root/"admission.sock")
-metadata=(root/"admission.sock").stat()
+    assert listener.getsockname()==str(root/"__LISTENER__.sock")
+metadata=(root/"__LISTENER__.sock").stat()
 assert metadata.st_uid==0 and metadata.st_gid==10000
 assert stat.S_IMODE(metadata.st_mode)==0o660
 credential=Path(os.environ["CREDENTIALS_DIRECTORY"])/"admission.key"
 assert credential.stat().st_uid==0
 assert stat.S_IMODE(credential.stat().st_mode) in (0o400,0o600)
 assert stat.S_IMODE(credential.parent.stat().st_mode) in (0o500,0o700)
-assert credential.read_bytes()==b"native-systemd-fixture-key-123456"
+assert read_bootstrap_key(credential_pipe(_path=credential)).material==b"native-systemd-fixture-key-123456"
 with (root/"proof.json").open("x") as stream:
-    json.dump({"uid":0,"gid":0,"socket_gid":10000,"socket_mode":"0660","listener_fd":"admission","credential_read":True},stream)
+    json.dump({"uid":0,"gid":0,"socket_gid":10000,"socket_mode":"0660","listener_fd":"__LISTENER__","credential_read":True},stream)
 '''
 
 
@@ -47,7 +50,8 @@ def run(*args):
     return result.stdout
 
 
-def main():
+def exercise(listener_name):
+    if listener_name not in ("admission","commercial"):raise ValueError("fixed_fixture_listener_required")
     if os.geteuid()!=0 or not Path('/run/systemd/system').is_dir():
         raise RuntimeError('native_root_systemd_required')
     group=_gateway_group_plan()
@@ -62,7 +66,7 @@ def main():
     owned={};registered=False
     try:
         key=folder/'synthetic.key';key.write_bytes(b'native-systemd-fixture-key-123456');key.chmod(0o600)
-        probe=folder/'probe.py';probe.write_text(PROBE);probe.chmod(0o644)
+        probe=folder/'probe.py';probe.write_text(PROBE.replace('__LISTENER__',listener_name).replace('__REPOSITORY__',repr(str(Path(__file__).resolve().parents[1]))));probe.chmod(0o644)
         service=f'''[Unit]
 Requires={name}.socket
 After={name}.socket
@@ -75,8 +79,8 @@ LoadCredential=admission.key:{key}
 ExecStart=/usr/bin/python3 -I -B {probe}
 '''
         socket_unit=f'''[Socket]
-ListenStream={folder}/admission.sock
-FileDescriptorName=admission
+ListenStream={folder}/{listener_name}.sock
+FileDescriptorName={listener_name}
 SocketUser=root
 SocketGroup=10000
 SocketMode=0660
@@ -93,10 +97,10 @@ RemoveOnStop=no
         run('/usr/bin/systemctl','start',name+'.service')
         proof=json.loads((folder/'proof.json').read_text())
         assert proof=={'uid':0,'gid':0,'socket_gid':10000,'socket_mode':'0660',
-                       'listener_fd':'admission','credential_read':True}
+                       'listener_fd':listener_name,'credential_read':True}
         assert stat.S_IMODE((folder/'proof.json').stat().st_mode)==0o600
         run('/usr/bin/systemctl','stop',name+'.service',name+'.socket')
-        assert stat.S_ISSOCK((folder/'admission.sock').stat().st_mode)
+        assert stat.S_ISSOCK((folder/(listener_name+'.sock')).stat().st_mode)
         (folder/'proof.json').rename(folder/'first-proof.json')
         # Production rollback deliberately retains the socket inode. Verify a
         # real manager can rebind it and supply the same FD/credential contract.
@@ -115,6 +119,11 @@ RemoveOnStop=no
             path.unlink()
         if registered:run('/usr/bin/systemctl','daemon-reload')
         shutil.rmtree(folder)
+
+
+def main():
+    for listener_name in ('admission','commercial'):exercise(listener_name)
+    return 0
 
 
 if __name__=='__main__':raise SystemExit(main())

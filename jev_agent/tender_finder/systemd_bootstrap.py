@@ -49,15 +49,17 @@ def discover_gateway_peer(*,_run=_run_bounded):
     return peer
 
 
-def inherited_listener(environment,*,_pid=None,_factory=socket.socket):
+def inherited_listener(environment,*,listener_name='admission',listener_path=None,_pid=None,_factory=socket.socket):
     if (environment.get('LISTEN_PID')!=str(os.getpid() if _pid is None else _pid)
             or environment.get('LISTEN_FDS')!='1'
-            or environment.get('LISTEN_FDNAMES')!='admission'):
+            or listener_name not in ('admission','commercial')
+            or environment.get('LISTEN_FDNAMES')!=listener_name):
         raise ValueError('single_named_systemd_listener_required')
     listener=_factory(fileno=3)
     try:
         listener.set_inheritable(False)
-        validate_listener(listener,10000)
+        if listener_path is None:validate_listener(listener,10000)
+        else:validate_listener(listener,10000,_path=listener_path)
         return listener
     except BaseException:
         listener.close();raise
