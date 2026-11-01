@@ -1,0 +1,72 @@
+# Штатный QA-режим: реализован локально, НЕ исполнен
+
+В unified_release добавлен отдельный qa-install. По умолчанию он только проверяет
+структуру manifest и печатает план, не создаёт driver и не обращается к серверу.
+Реальное исполнение требует отдельного выбора execute, терминала и ввода точной
+фразы с именем QA-базы/контейнера/целевым SHA. Подтверждение истекает через 5 минут;
+после него preflight повторяется. Это не разрешение запуска в текущей задаче.
+Production install/apply и его безусловный hold сохранены без изменения AST.
+
+Manifest принимает только: qa_only=true, database=stroyka_qa,
+container=stroyka-qa-db, candidate_root=/opt/stroyka-jev-qa-7e89d73,
+frontend_root=/var/lib/docker/volumes/stroyka-qa-frontend-work/_data,
+source_sha и target_sha (полные), discard_test_data=true,
+other_writers_accounted_for=true. Дополнительные поля/другие цели отклоняются.
+Нет флага production, force, skip или stamp. Старые учебные записи не требуют backup.
+
+## Реальные функции
+
+- LocalDriver.preflight: QA-host, точные images/mounts/workdirs, clean candidate,
+  локальное наличие target и ancestry012c9984; совпадение reviewed SQL, зависимости
+  установленного venv, точная DB mapping, Caddy routing и read-only DB предусловия.
+  Не делает fetch/install packages. Секреты подключения читаются локально из
+  выбранных Docker Env-ключей, остаются в памяти, raw stderr не выводится.
+- stop: оба backend, frontend writer и gateway; DB-контейнер не останавливается.
+- switch: обычный git checkout --detach точного target без force/reset/clean.
+  Первый checkout не меняется. Непереносимые bind/git layouts дают ошибку, не обход.
+- reset_schema: один child-процесс известного host venv, проверка current_database,
+  отсутствие дополнительных схем/extensions/чужих соединений, очистка только public
+  существующей stroyka_qa и base schema в одной транзакции. Нет DROP DATABASE,
+  новых БД/контейнеров, изменения ролей или очистки Docker volume.
+- migrate: полный Alembic upgrade до0109, затем проверка version table. main не
+  импортируется. Частичная/неопределённая ошибка останавливает работу без retry.
+- frontend: git archive только frontend sources/lock/scripts в новый временный
+  каталог СУЩЕСТВУЮЩЕГО общего тома; npm ci/build внутри СУЩЕСТВУЮЩЕГО frontend
+  контейнера; links/traversal/.env отвергаются. Затем frontend writer остановлен,
+  build заменяется с сохранением предыдущей сборки. Config/source-root не стираются.
+- start_and_check: candidate start и health с точным SHA/DB ok; защищённая копия
+  двух исходных Caddyfile, узкое изменение root на /srv/app/build и backend upstream
+  на candidate с портом из фактической mapping8002; запуск static/gateway и caddy
+  validate. Неизвестные/неоднозначные формы конфигурации дают отказ, не guessed rewrite.
+- execute: fail-stop на каждом этапе, старается остановить QA writers после ошибки;
+  не обещает rollback, не удаляет промежуточные материалы и не начинает аудит.
+
+## Проверки и пределы
+
+Финальный набор64passed/0failed/0skipped, только unit/mock/text. Проверены default
+dry-run, QA scope, отсутствие/истечение confirmation, повторная preflight, сбой
+каждой стадии, маршрутизация и сохранение соседнего config, SQLpayload только
+через mock, старые guards/SQL/inventory. Production install AST не изменился.
+Реальная схема, npm build, Caddy и контейнеры не запускались в разработке.
+
+Не заявляется готовый релиз. До реального применения нужно предъявить точные
+manifest/версию/операцию удаления пользователю для действийного подтверждения.
+Target должен быть доставлен в checkout отдельно: исполнитель не публикует и
+не скачивает код. При не-git bind layout preflight остановится; это не основание
+копировать поверх неизвестных файлов. Venv уже установлен, повторная установка
+не нужна. npm ci использует существующую frontend runtime-конфигурацию; его
+доступность и воспроизводимость сборки относятся к непройденной приёмке.
+
+Оставшиеся runtime-проверки:
+1. Реальные target/code/layout/permissions, DBauth/bridge и exclusive writers.
+2. Очистка public+bootstrap, полный граф, constraints и последующий startup DDL.
+3. npm build/публикация и фактическое обслуживание новой сборки через QA gateway.
+4. Health/version после старта и обычная отдельно согласованная бизнес-приёмка.
+5. Поведение при реальном сбое: остановка writers и ручное решение; старые учебные
+   записи не сохраняются, автоматического отката нет.
+
+Есть реальные ограничения: frontend HTTP/browser-приёмка не реализована как
+доказанный PASS; успешный caddy validate и файлы не заменяют браузер. Инициализация
+может создавать legacy default accounts и repairs — это пока непроверенный runtime.
+Глобальный security/role/full-remainder аудит не включён и не обходится.
+Ничего на сервере не выполнено, новых контейнеров нет, push/merge отсутствуют.

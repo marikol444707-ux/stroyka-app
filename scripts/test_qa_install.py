@@ -1,0 +1,120 @@
+"""No host/database/container/app calls: only mocked driver and source assertions."""
+import ast
+import json
+from pathlib import Path
+import tempfile
+from types import SimpleNamespace
+import unittest
+from unittest.mock import MagicMock, patch
+from scripts import qa_install as qa
+
+
+def manifest():
+    return dict(qa_only=True, database='stroyka_qa', container='stroyka-qa-db',
+                source_sha='a'*40, target_sha='b'*40, candidate_root=str(qa.ROOT),
+                frontend_root=qa.FRONTEND_VOLUME, discard_test_data=True,
+                other_writers_accounted_for=True)
+
+
+class QAInstallTests(unittest.TestCase):
+    def test_routing_change_preserves_other_routes(self):
+        static=':80 {\n root * /srv/app\n file_server\n}\n'
+        gateway=':80 {\n reverse_proxy stroyka-qa-backend:8000\n}\n# unrelated configuration\n'
+        a,b=qa.routing_update(static,gateway,{'8000/tcp':[{'HostPort':'8002'}]})
+        self.assertIn('root * /srv/app/build',a)
+        self.assertIn('reverse_proxy stroyka-qa-backend-candidate:8000',b)
+        self.assertIn('# unrelated configuration',b)
+
+    def test_unknown_route_or_ports_rejected(self):
+        for ports,gateway in [({},'reverse_proxy stroyka-qa-backend:8000\n'),
+                              ({'8000/tcp':[{'HostPort':'8002'}]},'reverse_proxy other:80\n')]:
+            with self.assertRaises(ValueError):
+                qa.routing_update('root * /srv/app\n',gateway,ports)
+
+    def test_driver_sql_only_sends_to_bound_child_not_current_process(self):
+        d=qa.LocalDriver()
+        d.environment={'synthetic':'only'}
+        with patch.object(d,'run') as run:
+            d.sql('reset',('CREATE TABLE example(id int);',))
+        args=run.call_args.args[0]
+        self.assertEqual(args[0],qa.PYTHON_PATH)
+        ast.parse(args[-1])
+        payload=json.loads(run.call_args.kwargs['stdin'])
+        self.assertEqual(payload['action'],'reset')
+        self.assertEqual(payload['statements'],['CREATE TABLE example(id int);'])
+
+    def test_plan_has_no_execution(self):
+        self.assertFalse(qa.plan(manifest())['execution'])
+
+    def test_scope_or_extra_fields_rejected(self):
+        for key, value in [('database','production'), ('container','other'),
+                           ('qa_only',False), ('candidate_root','/var/www/stroyka-app'),
+                           ('target_sha','short'), ('extra','anything')]:
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                qa.plan(dict(manifest(), **{key:value}))
+
+    def test_explicit_confirmation_before_writes(self):
+        d = MagicMock()
+        d.preflight.return_value = {'same': True}
+        out = qa.execute(manifest(), d, lambda _: qa.confirmation(manifest()))
+        self.assertFalse(out['audit_complete'])
+        self.assertEqual([c[0] for c in d.mock_calls], ['preflight','preflight','stop','switch',
+                         'reset_schema','migrate','frontend','start_and_check'])
+
+    def test_missing_confirmation_has_no_writes(self):
+        d = MagicMock()
+        with self.assertRaises(ValueError):
+            qa.execute(manifest(), d, lambda _: '')
+        d.stop.assert_not_called()
+        d.reset_schema.assert_not_called()
+
+    def test_expired_confirmation_has_no_writes(self):
+        d = MagicMock()
+        with self.assertRaises(ValueError):
+            qa.execute(manifest(), d, lambda _: qa.confirmation(manifest()),
+                       clock=MagicMock(side_effect=[0,301]))
+        d.stop.assert_not_called()
+
+    def test_changed_preflight_has_no_writes(self):
+        d = MagicMock()
+        d.preflight.side_effect = [{'version':1},{'version':2}]
+        with self.assertRaises(ValueError):
+            qa.execute(manifest(), d, lambda _: qa.confirmation(manifest()))
+        d.stop.assert_not_called()
+
+    def test_each_failed_phase_stops_without_rollback(self):
+        phases = ['stop','switch','reset_schema','migrate','frontend','start_and_check']
+        for i, phase in enumerate(phases):
+            d = MagicMock()
+            d.preflight.return_value = {}
+            getattr(d,phase).side_effect = RuntimeError('mock failure')
+            with self.subTest(phase=phase), self.assertRaises(RuntimeError):
+                qa.execute(manifest(),d,lambda _:qa.confirmation(manifest()))
+            for later in phases[i+1:]:
+                getattr(d,later).assert_not_called()
+
+    def test_dry_run_command_never_constructs_driver(self):
+        with tempfile.TemporaryDirectory() as folder:
+            p = Path(folder)/'manifest.json'
+            p.write_text(json.dumps(manifest()))
+            with patch.object(qa,'LocalDriver') as driver, patch('builtins.print'):
+                qa.command(SimpleNamespace(manifest=p,execute=False))
+                driver.assert_not_called()
+
+    def test_noninteractive_execution_rejected(self):
+        with tempfile.TemporaryDirectory() as folder:
+            p = Path(folder)/'manifest.json'
+            p.write_text(json.dumps(manifest()))
+            with patch.object(qa,'LocalDriver') as driver, patch('sys.stdin.isatty',return_value=False):
+                with self.assertRaises(ValueError):
+                    qa.command(SimpleNamespace(manifest=p,execute=True))
+                driver.assert_not_called()
+
+    def test_sql_and_command_scope_source(self):
+        tree=ast.parse(Path(qa.__file__).read_text())
+        text='\n'.join(n.value for n in ast.walk(tree) if isinstance(n,ast.Constant) and isinstance(n.value,str))
+        self.assertIn('DROP SCHEMA public CASCADE',text)
+        self.assertNotIn('DROP DATABASE',text.replace('No DROP DATABASE',''))
+        self.assertNotIn('docker run',text)
+        self.assertIn('Other QA sessions remain',text)
+        self.assertIn('stroyka_qa',text)

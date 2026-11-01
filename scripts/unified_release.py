@@ -623,6 +623,9 @@ def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest='action', required=True)
+    qa = commands.add_parser('qa-install', help='QA only; defaults to a non-executing plan')
+    qa.add_argument('--manifest', type=Path, required=True)
+    qa.add_argument('--execute', action='store_true')
     build = commands.add_parser('pack')
     build.add_argument('--app-root', type=Path, default=ROOT)
     build.add_argument('--base', required=True)
@@ -638,7 +641,11 @@ def main():
     database.add_argument('--service', default='stroyka')
     args = parser.parse_args()
     try:
-        pack(args) if args.action == 'pack' else install(args)
+        if args.action == 'qa-install':
+            from scripts.qa_install import command
+            command(args)
+        else:
+            pack(args) if args.action == 'pack' else install(args)
     except Exception as error:
         # DB/client errors may contain credentials. Persist no raw exception text.
         if isinstance(error, ValueError):
