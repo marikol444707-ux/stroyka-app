@@ -12,6 +12,7 @@ import ipaddress
 import re
 from pathlib import Path, PurePosixPath
 from scripts.qa_topology import TOPOLOGY, QUIESCE, validate_topology, backup_manifest
+from scripts.qa_host_runtime import require_current_runtime
 
 DB = 'stroyka-qa-db'
 DATABASE = 'stroyka_qa'
@@ -177,6 +178,7 @@ class _QaServerAdapter:
         _require(runtime is not None, 'QA_HOST_MIGRATION_RUNTIME_UNVERIFIED')
         _require(runtime.dependencies_verified is True and runtime.connectivity_verified is True,
                  'QA_HOST_MIGRATION_RUNTIME_UNVERIFIED')
+        require_current_runtime(runtime)
         python = runtime.python_path
         _require(isinstance(python, str) and python.startswith('/')
                  and '..' not in PurePosixPath(python).parts, 'Verified host interpreter required')

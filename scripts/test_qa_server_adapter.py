@@ -3,11 +3,12 @@ import unittest
 from unittest.mock import MagicMock
 from scripts.qa_server_adapter import _QaServerAdapter, create_adapter, BINDS, BACKENDS
 from scripts.qa_topology import TOPOLOGY
+from scripts.qa_host_runtime import PYTHON_PATH
 
 
 def make():
     transport, connect, store = MagicMock(), MagicMock(), MagicMock()
-    manifest = dict(head='a'*40, db_user='qa_user', python_path='/verified/python',
+    manifest = dict(head='a'*40, db_user='qa_user', python_path=PYTHON_PATH,
                     recovery_root='/opt/stroyka-qa-recovery/reviewed',
                     other_writers_accounted_for=True, restart_prevented=True)
     return _QaServerAdapter(transport, connect, store, manifest)
@@ -100,7 +101,8 @@ class AdapterTests(unittest.TestCase):
         a.quiesced = True
         runtime = MagicMock()
         runtime.dependencies_verified = runtime.connectivity_verified = True
-        runtime.python_path = '/verified/venv/bin/python'
+        runtime.python_path = PYTHON_PATH
+        runtime.verify_current_installation.return_value = True
         runtime.environment.return_value = dict(DB_HOST='172.18.0.2', DB_PORT='5432',
             DB_NAME='stroyka_qa', DB_USER='qa_user', DB_PASSWORD='synthetic-only')
         a.migration_runtime = runtime
