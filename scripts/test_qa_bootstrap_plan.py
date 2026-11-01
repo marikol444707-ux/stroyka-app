@@ -31,8 +31,9 @@ class PreparationTests(unittest.TestCase):
 
     def test_inert_schema_exact_preservation(self):
         tree = ast.parse((ROOT / 'backend/bootstrap_schema.py').read_text())
-        self.assertEqual(len(tree.body), 2)
-        sql = ast.literal_eval(tree.body[1].value)
+        steps = ast.literal_eval(tree.body[1].value)
+        self.assertTrue(all(kind in ('schema', 'seed', 'repair') for kind, sql in steps))
+        sql = ''.join(sql for kind, sql in steps)
         self.assertEqual(hashlib.sha256(sql.encode()).hexdigest(), '8f402c3d1cc8f04adfd484c8295011bb6c73db386d4dee51b54efddd39ffe30c')
 
     def test_main_retains_existing_startup_order(self):

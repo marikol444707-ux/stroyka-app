@@ -49,7 +49,7 @@ def preparation_plan(directory):
         'target_revision': TARGET,
         'migration_order': migration_order(directory),
         'execution_allowed': False,
-        'blockers': [HOLD, 'BASE_SCHEMA_AND_REPAIR_SPLIT_UNACCEPTED',
+        'blockers': [HOLD, 'BASE_SCHEMA_EXECUTION_UNACCEPTED',
                      'RESTORE_NOT_VERIFIED', 'RUNTIME_SCOPE_NOT_APPROVED'],
         'stages': ['freeze_both_writers', 'verified_recovery_bundle',
                    'approved_empty_schema', 'base_schema_without_seed_or_repairs',
