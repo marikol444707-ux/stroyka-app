@@ -1,14 +1,14 @@
 """Track inactivity for leads originating from the public website.
 
-Revision ID: 0007_public_site_lead_retention
-Revises: 0006_user_company_staff_links
+Revision ID: 0105_public_site_lead_retention
+Revises: 0104_jev_search_run_history
 """
 
 from alembic import op
 
 
-revision = "0007_public_site_lead_retention"
-down_revision = "0006_user_company_staff_links"
+revision = "0105_public_site_lead_retention"
+down_revision = "0104_jev_search_run_history"
 branch_labels = None
 depends_on = None
 

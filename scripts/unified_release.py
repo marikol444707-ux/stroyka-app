@@ -25,7 +25,8 @@ BASE_REVISION = '0100_packaging_history_guard'
 INTERMEDIATE_REVISION = '0101_manual_brigade_origins'
 CANDIDATE_REVISION = '0102_job_candidates'
 FEATURE_REVISION = '0103_platform_company_features'
-TARGET_REVISION = '0104_jev_search_run_history'
+PREVIOUS_TARGET_REVISION = '0104_jev_search_run_history'
+TARGET_REVISION = '0105_public_site_lead_retention'
 
 
 def run(args, *, cwd=None, env=None, capture=False):
@@ -79,7 +80,8 @@ def pack(args):
             and revisions.get(INTERMEDIATE_REVISION) == BASE_REVISION
             and revisions[CANDIDATE_REVISION] == INTERMEDIATE_REVISION
             and revisions[FEATURE_REVISION] == CANDIDATE_REVISION
-            and revisions[TARGET_REVISION] == FEATURE_REVISION,
+            and revisions[PREVIOUS_TARGET_REVISION] == FEATURE_REVISION
+            and revisions[TARGET_REVISION] == PREVIOUS_TARGET_REVISION,
             'Unexpected migration graph; review this release tooling before packaging')
     tracked = git(root, 'ls-files', '-z').split('\0')
     require(not any(Path(name).name == '.env' or name.endswith(('.key', '.pem'))

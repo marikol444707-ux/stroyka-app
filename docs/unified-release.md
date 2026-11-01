@@ -95,7 +95,8 @@ python3 install.py apply --app-root /var/www/stroyka-app \
 4. Только после успешной сборки останавливает backend и активный agent worker,
    делает fast-forward на точный SHA и выполняет upgrade **до 0103**, не `stamp`.
    Миграции выполняются последовательно: `0101_manual_brigade_origins`,
-   `0102_job_candidates`, затем `0103_platform_company_features`.
+   `0102_job_candidates`, `0103_platform_company_features`, `0104_jev_search_run_history`
+   и `0105_public_site_lead_retention`.
    Есть короткое окно недоступности API. DB baseline должен быть ровно 0100,
    0101 либо 0102; более старый/неизвестный head требует отдельной проверки цепочки.
 5. Заново проверяет схему, импорт backend, перезапускает сервисы, публикует
