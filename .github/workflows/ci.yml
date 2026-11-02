@@ -71,6 +71,7 @@ jobs:
           jev_agent.tender_finder.commercial.test_server_preflight
           jev_agent.tender_finder.commercial.test_upgrade_review
           scripts.test_activate_jev_commercial
+          scripts.test_repair_jev_tool_exposure
           jev_agent.tender_finder.test_contract
           jev_agent.tender_finder.test_reporting
           jev_agent.tender_finder.test_cli
