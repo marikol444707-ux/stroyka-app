@@ -109,6 +109,59 @@ def main():
 if __name__=='__main__': sys.exit(main())
 '''
 
+# Hermes' published --print-runtime-command boundary resolves store Python and
+# leases the selected dependency generation. A stale .venv is not that runtime.
+# Accept exactly the reviewed bf0203 bootstrap, replace ONLY its inert io entry,
+# and keep the whole command inside the already checked unprivileged container.
+RUNTIME_BOOTSTRAP = (
+    "import os, sys, runpy; "
+    "os.environ.pop('PYTHONHOME', None); os.environ.pop('PYTHONPATH', None); "
+    "os.environ.pop('VIRTUAL_ENV', None); sys.path.insert(0, '/opt/hermes'); "
+    "sys._hermes_pin_default_home = True; import hermes_bootstrap; "
+    "os.environ.get('HERMES_HOME') or os.environ.__setitem__('HERMES_HOME', "
+    "str(__import__('hermes_constants').get_default_hermes_root())); "
+)
+RUNTIME_ENTRY = "runpy.run_module('io', run_name='__main__', alter_sys=True)"
+REMOTE_PROBE_PROGRAM = (
+    "import contextlib, json, os; namespace={'__name__':'jev_delivery_probe'}; "
+    "exec("+repr(REMOTE_PROGRAM)+",namespace); "
+    "\nwith open(os.devnull,'w') as sink, contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):\n"
+    "    namespace['_load_sender']()\n"
+    "print(json.dumps({'runtime_sender_ready':True,'notifications_sent':False}))\n"
+)
+
+
+def _runtime_command(raw,program):
+    if type(raw) is not bytes or len(raw)>16384:
+        raise ValueError('bounded_runtime_command_required')
+    command=json.loads(raw.decode('utf-8'),object_pairs_hook=_pairs,parse_constant=_nonfinite)
+    if (type(command) is not list or len(command)!=4 or any(type(x) is not str for x in command)
+            or command[1:3]!=['-I','-c'] or command[3]!=RUNTIME_BOOTSTRAP+RUNTIME_ENTRY
+            or not re.fullmatch(r'/opt/(?:hermes|data/tools)/[A-Za-z0-9_./+-]+/bin/python(?:3(?:\.[0-9]+)?)?',command[0])
+            or any(part in ('','.', '..') for part in command[0].split('/')[1:])):
+        raise ValueError('reviewed_published_runtime_command_required')
+    return (command[0],'-I','-B','-c',RUNTIME_BOOTSTRAP+'exec('+repr(program)+')')
+
+
+def _runtime_exec(identifier,program,wire,run):
+    prefix=(DOCKER,'exec','--user','10000:10000','--workdir','/opt/hermes',
+        '--env','HOME=/opt/data','--env','HERMES_HOME=/opt/data','--env','HERMES_PROFILE=',identifier)
+    raw,code=run((*prefix,'/opt/hermes/bin/hermes','--print-runtime-command','--module','io'),None,20)
+    if code!=0:raise ValueError('hermes_runtime_resolution_failed')
+    command=_runtime_command(raw,program)
+    # stdin is reserved for message DATA. The resolver never receives the frame.
+    return run((DOCKER,'exec','--interactive',*prefix[2:],*command),wire,75)
+
+
+def probe_delivery_runtime(*,_run=_run_bounded):
+    """Load the reviewed sender in actual Hermes dependencies, never call it."""
+    if os.geteuid()!=0:raise ValueError('host_root_completion_consumer_required')
+    identifier=check_hermes_container(_run=_run,require_jev_mounts=True)
+    raw,code=_runtime_exec(identifier,REMOTE_PROBE_PROGRAM,None,_run)
+    if code!=0 or raw!=b'{"runtime_sender_ready": true, "notifications_sent": false}\n':
+        raise ValueError('hermes_sender_runtime_not_confirmed')
+    return {'runtime_sender_ready':True,'notifications_sent':False}
+
 
 def _container_id(raw,*,require_jev_mounts=False,expected_image=IMAGE):
     if type(raw) is not bytes or len(raw)>32768:
@@ -188,10 +241,7 @@ class DockerHermesSender:
         if len(wire)>32768:raise ValueError('bounded_completion_required')
         identifier=check_hermes_container(_run=self._run)
         # Execute by immutable container ID: name replacement cannot redirect it.
-        argv=(DOCKER,'exec','--interactive','--user','10000:10000','--workdir','/opt/hermes',
-              '--env','HOME=/opt/data','--env','HERMES_HOME=/opt/data','--env','HERMES_PROFILE=',
-              identifier,'/opt/hermes/.venv/bin/python','-I','-B','-c',REMOTE_PROGRAM)
-        raw,code=self._run(argv,wire,75)
+        raw,code=_runtime_exec(identifier,REMOTE_PROGRAM,wire,self._run)
         if code!=0 or type(raw) is not bytes or len(raw)>32768:
             raise ValueError('hermes_delivery_not_acknowledged')
         return raw.decode('utf-8')

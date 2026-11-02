@@ -8,6 +8,8 @@ import ast
 import hashlib
 import json
 import logging
+import os
+from pathlib import Path
 import sys
 import types
 import typing
@@ -18,7 +20,8 @@ REVISION='bf0203a794a07aac3ff764972ab9087baa4e4f4e'
 SOURCES={'tools/registry.py':'48c3875138ac9e1875349ed2900d6940f51dfff050d655d6fb17a1dafe30f5e7',
  'toolsets.py':'7674a11eeebcc06b7c83c816fca0bc6982107870f5615375d2ffc5dbe6044eaa',
  'model_tools.py':'da5b7db1b05de615658e56c4172426ed82099a093c5b586e48e65ef930b778c8',
- 'hermes_cli/tools_config.py':'35012cc12fc709a5a95c3f547ebb76a1938f231f0012e7e6fa843bf4be52a2fd'}
+ 'hermes_cli/tools_config.py':'35012cc12fc709a5a95c3f547ebb76a1938f231f0012e7e6fa843bf4be52a2fd',
+ 'hermes_cli/_launchers.py':'f45dbb4bcf1582e82d90b7425bb1480756f85234defe9269785603735546c9b4'}
 
 
 def load_sources():
@@ -38,6 +41,16 @@ def functions(raw,names,namespace):
 
 
 def verify(sources):
+    from jev_agent.tender_finder.docker_delivery import _runtime_command,REMOTE_PROGRAM
+    runtime={'Path':Path,'os':os,'sys':sys,'PIN_DEFAULT_HOME_FLAG':'_hermes_pin_default_home',
+        'resolve_store_python':lambda root:Path('/opt/hermes/pm-runtime/python/fixture/bin/python3')}
+    functions(sources['hermes_cli/_launchers.py'],('_inline_string_literal','runtime_command'),runtime)
+    command=runtime['runtime_command'](Path('/opt/hermes'),module='io')
+    resolved=_runtime_command(json.dumps(command).encode(),REMOTE_PROGRAM)
+    # Preserve the REAL pinned bootstrap, including dependency generation lease;
+    # replace just its requested module with the fixed sender. No live sending.
+    assert resolved[0]==command[0] and resolved[1:4]==('-I','-B','-c')
+    assert resolved[4]==command[3].removesuffix("runpy.run_module('io', run_name='__main__', alter_sys=True)")+'exec('+repr(REMOTE_PROGRAM)+')'
     from jev_agent.tender_finder import startup_tool as v2
     from jev_agent.tender_finder.commercial import startup_tool as v3
     from jev_agent.tender_finder.commercial.test_runtime_config import policies
@@ -94,6 +107,12 @@ def verify(sources):
         after=select(sorted(resolve(new,'telegram')),None,True)
         assert after-before=={v2.NAME,v3.NAME},after-before
         assert not before-after
+        bundle_only={'platform_toolsets':{'telegram':['hermes-telegram']}}
+        bundle_jev={'platform_toolsets':{'telegram':['hermes-telegram','jev']}}
+        before_bundle=select(sorted(resolve(bundle_only,'telegram')),None,True)
+        after_bundle=select(sorted(resolve(bundle_jev,'telegram')),None,True)
+        assert after_bundle-before_bundle=={v2.NAME,v3.NAME}
+        assert not before_bundle-after_bundle
         with patch.object(v3,'handle',return_value={'queued':True,'search_executed':False}):
             result=actual.dispatch(v3.NAME,{'request_json':'{}'},scope='/opt/data')
         assert json.loads(result)=={'queued':True,'search_executed':False},result
@@ -102,7 +121,8 @@ def verify(sources):
         assert v3.NAME not in select(sorted(resolve(config,'telegram')),None,True)
     return {'pinned_registry_and_resolver':'PASS','old_bundle_hidden_reproduced':True,
         'old_dictionary_result_rejected_reproduced':True,'dedicated_opt_in_exposes_only_jev':True,
-        'json_acknowledgement_preserved':True,'disabled_group_respected':True,'search_executed':False}
+        'json_acknowledgement_preserved':True,'disabled_group_respected':True,
+        'published_runtime_bootstrap_preserved':True,'search_executed':False,'notifications_sent':False}
 
 
 if __name__=='__main__':print(json.dumps(verify(load_sources())))

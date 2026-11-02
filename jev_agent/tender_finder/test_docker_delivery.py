@@ -13,7 +13,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from .contract import validate_v2_request
-from .docker_delivery import DockerHermesSender, IMAGE, REMOTE_PROGRAM, deliver_via_hermes
+from .docker_delivery import DockerHermesSender, IMAGE, REMOTE_PROGRAM, RUNTIME_BOOTSTRAP, RUNTIME_ENTRY, REMOTE_PROBE_PROGRAM, _runtime_command, probe_delivery_runtime, deliver_via_hermes
 from .ingress import OwnerBinding
 from .notification import build_send_args, deliver_completion, TelegramRoute
 from .pipeline import PipelineConfig, run_request
@@ -35,6 +35,10 @@ def metadata(**changes):
         'cap_add':None,'pid_mode':'','security_opt':None,'devices':[],
         'mounts':[{'Type':'bind','Source':'/root/hermes-data','Destination':'/opt/data','RW':True}],
         **changes}).encode()
+
+
+def runtime_metadata():
+    return json.dumps(['/opt/hermes/pm-runtime/python/fixture/bin/python3','-I','-c',RUNTIME_BOOTSTRAP+RUNTIME_ENTRY]).encode()
 
 
 def acknowledgement(**changes):
@@ -140,13 +144,15 @@ class HostDockerTransportTests(unittest.TestCase):
         return DockerHermesSender(OWNER,gateway_uid=10000,gateway_gid=10000,_run=run)
 
     def test_exec_is_fixed_unprivileged_container_id_and_message_stays_in_stdin(self):
-        run=Mock(side_effect=[(metadata(),0),(acknowledgement().encode(),0)])
+        run=Mock(side_effect=[(metadata(),0),(runtime_metadata(),0),(acknowledgement().encode(),0)])
         with patch.object(os,'geteuid',return_value=0):self.sender(run)(FRAME)
         argv,wire,timeout=run.call_args.args
         self.assertEqual(argv[:3],('/usr/bin/docker','exec','--interactive'))
         self.assertIn('10000:10000',argv);self.assertIn('a'*64,argv)
         self.assertNotIn('hermes-telegram',argv)
-        self.assertEqual(argv[-5:],('/opt/hermes/.venv/bin/python','-I','-B','-c',REMOTE_PROGRAM))
+        self.assertEqual(argv[-5:],_runtime_command(runtime_metadata(),REMOTE_PROGRAM))
+        self.assertEqual(run.call_args_list[1].args[1:],(None,20))
+        self.assertEqual(run.call_args_list[1].args[0][-4:],('/opt/hermes/bin/hermes','--print-runtime-command','--module','io'))
         self.assertNotIn(OWNER.reply_chat_id,' '.join(argv))
         self.assertNotIn(FRAME['message'],' '.join(argv))
         self.assertEqual(json.loads(wire),FRAME);self.assertEqual(timeout,75)
@@ -160,6 +166,38 @@ class HostDockerTransportTests(unittest.TestCase):
         with patch.object(os,'geteuid',return_value=10000),self.assertRaises(ValueError):sender(FRAME)
         run.assert_not_called()
 
+    def test_runtime_resolution_has_no_venv_fallback_and_never_receives_message(self):
+        good=json.loads(runtime_metadata())
+        for raw,code in ((b'PRIVATE_RUNTIME_ERROR',1),(b'x'*16385,0),
+            (json.dumps([good[0],'-c',good[3]]).encode(),0),
+            (json.dumps([good[0],'-I','-c',good[3]+'; print("BAD")']).encode(),0),
+            (json.dumps(['/bin/sh',*good[1:]]).encode(),0),
+            (json.dumps(['/opt/hermes/../bin/python3',*good[1:]]).encode(),0)):
+            run=Mock(side_effect=[(metadata(),0),(raw,code)])
+            with self.subTest(raw=raw[:80]),patch.object(os,'geteuid',return_value=0),self.assertRaises(ValueError):
+                self.sender(run)(FRAME)
+            self.assertEqual(run.call_count,2)
+            self.assertIsNone(run.call_args.args[1])
+
+    def test_runtime_probe_only_loads_sender_without_a_send_frame(self):
+        base=json.loads(metadata())
+        mounts=base['mounts']+[
+            {'Type':'bind','Source':'/run/stroyka-jev','Destination':'/run/stroyka-jev','RW':False},
+            {'Type':'bind','Source':'/opt/stroyka-jev','Destination':'/opt/stroyka-jev','RW':False},
+            {'Type':'bind','Source':'/opt/stroyka-jev/app/jev_agent/tender_finder/integration/hermes_jev_tool.py',
+             'Destination':'/opt/hermes/tools/jev_tender_tool.py','RW':False}]
+        run=Mock(side_effect=[(metadata(mounts=mounts),0),(runtime_metadata(),0),
+            (b'{"runtime_sender_ready": true, "notifications_sent": false}\n',0)])
+        with patch.object(os,'geteuid',return_value=0):result=probe_delivery_runtime(_run=run)
+        self.assertTrue(result['runtime_sender_ready']);self.assertFalse(result['notifications_sent'])
+        self.assertEqual(run.call_args.args[0][-5:],_runtime_command(runtime_metadata(),REMOTE_PROBE_PROGRAM))
+        self.assertIsNone(run.call_args.args[1])
+        fixture="def _load_sender():\n    def sender(*args): raise RuntimeError('probe_must_not_send')\n    return sender\n"
+        output=io.StringIO()
+        with contextlib.redirect_stdout(output):
+            exec(compile(REMOTE_PROBE_PROGRAM.replace(repr(REMOTE_PROGRAM),repr(fixture)),'probe-only','exec'),{})
+        self.assertFalse(json.loads(output.getvalue())['notifications_sent'])
+
     def test_unreviewed_identity_and_named_profile_have_no_fallback(self):
         for owner,uid,gid in ((replace(OWNER,profile='other'),10000,10000),
                               (OWNER,0,10000),(OWNER,10000,0),(OWNER,True,10000)):
@@ -168,9 +206,9 @@ class HostDockerTransportTests(unittest.TestCase):
     def test_broker_socket_directory_mount_is_only_allowed_readonly(self):
         base=json.loads(metadata())
         ipc={'Type':'bind','Source':'/run/stroyka-jev','Destination':'/run/stroyka-jev','RW':False}
-        run=Mock(side_effect=[(metadata(mounts=[*base['mounts'],ipc]),0),(acknowledgement().encode(),0)])
+        run=Mock(side_effect=[(metadata(mounts=[*base['mounts'],ipc]),0),(runtime_metadata(),0),(acknowledgement().encode(),0)])
         with patch.object(os,'geteuid',return_value=0):self.sender(run)(FRAME)
-        self.assertEqual(run.call_count,2)
+        self.assertEqual(run.call_count,3)
         for wrong in ({**ipc,'RW':True},{**ipc,'Source':'/run/docker.sock'},base['mounts'][0]):
             run=Mock(return_value=(metadata(mounts=[*base['mounts'],wrong]),0))
             with patch.object(os,'geteuid',return_value=0),self.assertRaises(ValueError):self.sender(run)(FRAME)
@@ -189,8 +227,8 @@ class HostDockerTransportTests(unittest.TestCase):
             self.assertEqual(run.call_count,1)
 
     def test_failed_inspection_nonzero_send_and_oversized_ack_are_not_accepted(self):
-        for outcomes in ([(b'PRIVATE_TOKEN',1)],[(metadata(),0),(b'PRIVATE_TOKEN',1)],
-                         [(metadata(),0),(b'x'*32769,0)]):
+        for outcomes in ([(b'PRIVATE_TOKEN',1)],[(metadata(),0),(runtime_metadata(),0),(b'PRIVATE_TOKEN',1)],
+                         [(metadata(),0),(runtime_metadata(),0),(b'x'*32769,0)]):
             with patch.object(os,'geteuid',return_value=0),self.assertRaises(ValueError):
                 self.sender(Mock(side_effect=outcomes))(FRAME)
 
@@ -200,7 +238,7 @@ class HostDockerTransportTests(unittest.TestCase):
             public=root/'public';public.mkdir(mode=0o750);public.chmod(0o750)
             output=run_request(PAYLOAD,PipelineConfig(SCOPE,private,public,os.getegid()),invoke=Mock(),
                 verify_runtime=Mock(side_effect=ValueError('runtime fixture')),clock=lambda:datetime(2026,10,28,tzinfo=timezone.utc))
-            run=Mock(side_effect=[(metadata(),0),subprocess.TimeoutExpired('fixed transport',75)])
+            run=Mock(side_effect=[(metadata(),0),(runtime_metadata(),0),subprocess.TimeoutExpired('fixed transport',75)])
             sender=self.sender(run)
             for _ in range(2):
                 with patch('jev_agent.tender_finder.docker_delivery.os',SimpleNamespace(geteuid=lambda:0)):
@@ -208,7 +246,7 @@ class HostDockerTransportTests(unittest.TestCase):
                                               FINGERPRINT,route=ROUTE,send=sender)
                 self.assertEqual(result['delivery_status'],'unknown')
                 self.assertIsNone(result['notification_sent'])
-            self.assertEqual(run.call_count,2)  # One inspect and one exec, no resend.
+            self.assertEqual(run.call_count,3)  # Inspect, resolve, send exactly once; no resend.
 
     def test_other_company_event_never_launches_transport(self):
         run=Mock()
