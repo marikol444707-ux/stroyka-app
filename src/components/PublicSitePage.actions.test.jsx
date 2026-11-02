@@ -159,7 +159,8 @@ describe('public project actions', () => {
     expect(sharedUrl.searchParams.get('project')).toBe('H1-01');
     expect(sharedUrl.searchParams.has('compare')).toBe(false);
     expect(sharedUrl.hash).toBe('#projects');
-    expect(screen.getByRole('status')).toHaveTextContent('Ссылка на проект отправлена');
+    expect(document.querySelector('.public-project-action-status'))
+      .toHaveTextContent('Ссылка на проект отправлена');
   });
 
   test('copies the selected project link when system sharing is unavailable', async () => {
@@ -179,7 +180,8 @@ describe('public project actions', () => {
     const copiedUrl = new URL(writeText.mock.calls[0][0]);
     expect(copiedUrl.searchParams.get('project')).toBe('H1-01');
     expect(copiedUrl.searchParams.has('compare')).toBe(false);
-    expect(screen.getByRole('status')).toHaveTextContent('Ссылка на проект скопирована');
+    expect(document.querySelector('.public-project-action-status'))
+      .toHaveTextContent('Ссылка на проект скопирована');
   });
 
   test('copies the selected project link when system sharing fails', async () => {
@@ -199,7 +201,8 @@ describe('public project actions', () => {
 
     expect(share).toHaveBeenCalledTimes(1);
     expect(writeText).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole('status')).toHaveTextContent('Ссылка на проект скопирована');
+    expect(document.querySelector('.public-project-action-status'))
+      .toHaveTextContent('Ссылка на проект скопирована');
   });
 
   test('opens the selected project request at the required phone field', () => {
