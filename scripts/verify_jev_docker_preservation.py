@@ -1,7 +1,8 @@
 """Real isolated Docker regression; synthetic data only, no production access."""
-import copy, http.client, io, json, socket, tarfile, time, uuid
+import copy, http.client, io, json, shutil, socket, tarfile, time, uuid
 from jev_agent.tender_finder.container_transfer import DockerAPI, _private_clone, _same_host_config, stop_gracefully
 from jev_agent.tender_finder.image_pin import snapshot_pin
+from scripts.activate_jev_commercial import Activation,command
 
 class UnixHTTP(http.client.HTTPConnection):
     def connect(self):
@@ -68,6 +69,41 @@ try:
     stop_gracefully(api,new,timeout=10)
     request('POST',prefix+'/containers/'+old+'/start')
     assert obj('GET',prefix+'/containers/'+old+'/json')['State']['Running']
+    # Exercise the new operator's exact stop primitive against a real daemon.
+    # A handler deliberately outlives Config.StopTimeout=1. --timeout=-1 must
+    # allow it to finish, suppress unless-stopped auto-restart and keep the ID.
+    term_body={'Image':base,'Entrypoint':['/bin/sh','-c'],
+        'Cmd':['trap "sleep 2; printf graceful >/tmp/jev-term-finished; exit 0" TERM; printf ready >/tmp/jev-term-ready; while :; do sleep 1 & wait $!; done'],
+        'StopSignal':'SIGTERM','StopTimeout':1,'Labels':{'jev-fixture':nonce},
+        'HostConfig':{'NetworkMode':'none','RestartPolicy':{'Name':'unless-stopped'}}}
+    term=obj('POST',prefix+'/containers/create?name=jev-term-'+nonce,term_body)['Id'];created.append(term)
+    request('POST',prefix+'/containers/'+term+'/start')
+    for attempt in range(30):
+        try:request('GET',prefix+'/containers/'+term+'/archive?path=/tmp/jev-term-ready');break
+        except RuntimeError:time.sleep(.1)
+    else:raise AssertionError('synthetic TERM fixture not ready')
+    before_term=obj('GET',prefix+'/containers/'+term+'/json')
+    def fixture_command(*args,**kwargs):
+        # Managed cloud places its client under /usr/local/bin; production's
+        # verified /usr/bin/docker path is unchanged by this test-only seam.
+        if args[0]=='/usr/bin/docker':args=(shutil.which('docker'),*args[1:])
+        return command(*args,**kwargs)
+    stopper=object.__new__(Activation);stopper.run=fixture_command;stopper.sleep=time.sleep;stopper.save=lambda state:None
+    stopper.stop_container({'container':term})
+    after_term=obj('GET',prefix+'/containers/'+term+'/json')
+    assert after_term['State']['Running'] is False and after_term['State']['ExitCode']==0
+    assert after_term['Id']==before_term['Id'] and after_term['Config']==before_term['Config']
+    assert _same_host_config(after_term['HostConfig'],before_term['HostConfig'])
+    archive=request('GET',prefix+'/containers/'+term+'/archive?path=/tmp/jev-term-finished')
+    with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
+        member=next(item for item in tar if item.isfile())
+        assert tar.extractfile(member).read()==b'graceful'
+    time.sleep(.3)
+    assert obj('GET',prefix+'/containers/'+term+'/json')['State']['Running'] is False
+    request('POST',prefix+'/containers/'+term+'/start')
+    assert obj('GET',prefix+'/containers/'+term+'/json')['Id']==term
+    stopper.stop_container({'container':term})
+    print('PASS: commercial operator real Docker TERM stop waits beyond configured timeout without SIGKILL, suppresses auto-restart, and preserves container identity/configuration')
     print('PASS: real managed Docker; stopped snapshot retains writable-layer file; opaque multiline env, entrypoint, command, complete HostConfig and mounted data preserved; added mount is read-only; original container restart verified; no production access')
 finally:
     for identifier in reversed(created):
