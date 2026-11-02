@@ -40,7 +40,7 @@ def identity(conn):
     return tuple(conn.exec_driver_sql('''SELECT current_database(),
         (SELECT oid::bigint FROM pg_database WHERE datname=current_database()),
         (SELECT system_identifier::text FROM pg_control_system()),
-        inet_server_addr()::text, inet_server_port(), pg_backend_pid()''').one())
+        host(inet_server_addr()), inet_server_port(), pg_backend_pid()''').one())
 
 
 def preflight_connections(control, work, *, service_database, expected_host):

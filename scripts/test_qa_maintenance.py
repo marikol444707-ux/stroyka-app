@@ -265,3 +265,89 @@ class PercentDispatchRegressionTests(unittest.TestCase):
                 self.assertIs(ast.literal_eval(options).get('no_parameters'), True)
                 checked.append((str(path), node.lineno))
         self.assertEqual(len(checked), 2)
+
+
+class NetworkIdentityConnection(Connection):
+    """Model documented PostgreSQL inet::text versus host(inet) output.
+
+    Rows preserve psycopg2 scalar types: str database/system ID/address and int
+    OID/port/PID. No SQL or real driver runs in this model.
+    """
+    def __init__(self, name, pid, address='172.18.0.2'):
+        super().__init__(name, pid)
+        self.ident = (*self.ident[:2], '7612345678901234567', address, 5432, pid)
+
+    def exec_driver_sql(self, sql, params=None, **kwargs):
+        if 'SELECT current_database()' in sql:
+            self.calls.append((sql, params))
+            row = list(self.ident)
+            if 'inet_server_addr()::text' in sql:
+                if row[3] is not None:
+                    row[3] += '/128' if ':' in row[3] else '/32'
+            elif 'host(inet_server_addr())' not in sql:
+                raise AssertionError('Unmodelled address conversion')
+            return Result(tuple(row))
+        return super().exec_driver_sql(sql, params, **kwargs)
+
+
+class NetworkIdentityRegressionTests(unittest.TestCase):
+    def preflight(self, c, w, expected='172.18.0.2'):
+        from scripts.qa_maintenance import preflight_connections
+        return preflight_connections(c, w, service_database='postgres', expected_host=expected)
+
+    def test_old_cast_adds_mask_fixed_identity_matches_exact_host(self):
+        from scripts.qa_maintenance import identity
+        c = NetworkIdentityConnection('postgres', 1)
+        w = NetworkIdentityConnection('stroyka_qa', 2)
+        # Old projection fails despite the SAME cluster, address and port.
+        identity(c)
+        old_sql = c.calls[-1][0].replace('host(inet_server_addr())', 'inet_server_addr()::text')
+        old_c, old_w = c.exec_driver_sql(old_sql).one(), w.exec_driver_sql(old_sql).one()
+        self.assertEqual(old_c[2:5], old_w[2:5])
+        self.assertEqual(old_c[3], '172.18.0.2/32')
+        self.assertNotEqual(old_c[3], '172.18.0.2')
+        result = self.preflight(c, w)
+        self.assertEqual(result['server_address'], '172.18.0.2')
+        self.assertEqual(result['database_oid'], 50)
+        self.assertEqual(c.ident[1], 5)  # Different database OIDs are expected.
+        self.assertIs(type(result['server_port']), int)
+        self.assertIs(type(result['system_identifier']), str)
+
+    def test_same_projection_used_during_maintenance_and_restore(self):
+        c = NetworkIdentityConnection('postgres', 1)
+        w = NetworkIdentityConnection('stroyka_qa', 2)
+        maintain(c, w, service_database='postgres', expected_host='172.18.0.2',
+                 statements=(), upgrade=MagicMock(), journal=MagicMock())
+        w.tx.commit.assert_called_once()
+        self.assertTrue(c.allow)
+        for sql, _ in c.calls + w.calls:
+            if 'SELECT current_database()' in sql:
+                self.assertIn('host(inet_server_addr())', sql)
+                self.assertNotIn('inet_server_addr()::text', sql)
+
+    def test_real_identity_mismatches_remain_rejected(self):
+        cases = [(2, 'other-cluster'), (3, '172.18.0.99'), (4, 5433),
+                 (4, '5432'), (3, None)]
+        for index, value in cases:
+            with self.subTest(index=index, value=value):
+                c = NetworkIdentityConnection('postgres', 1)
+                w = NetworkIdentityConnection('stroyka_qa', 2)
+                row = list(w.ident); row[index] = value; w.ident = tuple(row)
+                with self.assertRaisesRegex(ValueError, '^QA server identity mismatch$'):
+                    self.preflight(c, w)
+                self.assertFalse(any('ALTER DATABASE' in sql for sql, _ in c.calls))
+        c = NetworkIdentityConnection('postgres', 1, '172.18.0.99')
+        w = NetworkIdentityConnection('stroyka_qa', 2, '172.18.0.99')
+        with self.assertRaisesRegex(ValueError, '^QA server identity mismatch$'):
+            self.preflight(c, w)  # Same cluster/IP but not the expected address.
+
+    def test_ipv6_host_without_mask_still_uses_exact_comparison(self):
+        c = NetworkIdentityConnection('postgres', 1, 'fd00::2')
+        w = NetworkIdentityConnection('stroyka_qa', 2, 'fd00::2')
+        from scripts.qa_maintenance import identity
+        identity(c)
+        old_sql = c.calls[-1][0].replace('host(inet_server_addr())', 'inet_server_addr()::text')
+        self.assertEqual(c.exec_driver_sql(old_sql).one()[3], 'fd00::2/128')
+        self.assertEqual(self.preflight(c, w, 'fd00::2')['server_address'], 'fd00::2')
+        with self.assertRaisesRegex(ValueError, '^QA server identity mismatch$'):
+            self.preflight(c, w, 'fd00::3')
