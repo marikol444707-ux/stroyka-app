@@ -171,3 +171,14 @@ class MaintenanceTests(unittest.TestCase):
             visited.add(current)
             current = revisions[current]
         self.assertEqual(visited, set(revisions))
+
+    def test_preflight_connections_only_reads_and_checks_privileges(self):
+        from scripts.qa_maintenance import preflight_connections
+        evidence=preflight_connections(self.c,self.w,service_database='postgres',expected_host='172.18.0.2')
+        self.assertEqual(evidence['database_oid'],50)
+        for sql,params in self.c.calls+self.w.calls:
+            self.assertTrue(sql.startswith('SELECT') or sql=='SET TRANSACTION READ ONLY',sql)
+        self.c.superuser=False
+        with self.assertRaises(ValueError):
+            preflight_connections(self.c,self.w,service_database='postgres',expected_host='172.18.0.2')
+        self.assertTrue(self.c.allow)

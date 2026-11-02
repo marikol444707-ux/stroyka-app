@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import socket
 import subprocess
 import tarfile
@@ -48,15 +49,22 @@ def validate_manifest(m):
 
 
 def confirmation(m):
-    return 'CLOSE QA CONNECTIONS VIA postgres; TERMINATE OTHER stroyka_qa SESSIONS; REPLACE stroyka_qa ON stroyka-qa-db WITH ' + m['target_sha']
+    return 'STOP QA BACKENDS/FRONTEND/GATEWAY; SWITCH CANDIDATE AND FRONTEND; UPDATE QA ROUTING; CLOSE QA CONNECTIONS VIA postgres; TERMINATE OTHER stroyka_qa SESSIONS; REPLACE stroyka_qa ON stroyka-qa-db WITH ' + m['target_sha']
 
 
 def plan(m):
     return {'manifest_sha256': validate_manifest(m), 'execution': False,
-            'stages': ['preflight', 'fresh_confirmation', 'stop_qa_writers',
-                       'switch_candidate', 'exclusive_schema_and_migrations', 'build_frontend', 'start_candidate',
+            'stages': ['deliver_target_objects', 'readonly_preflight', 'isolated_frontend_build',
+                       'repeat_preflight', 'fresh_confirmation', 'stop_qa_writers',
+                       'exclusive_schema_and_migrations', 'switch_candidate', 'publish_frontend', 'start_candidate',
                        'check_health_and_frontend', 'open_gateway'],
             'old_backend_remains_stopped': True, 'automatic_rollback': False}
+
+
+def check_version_environment(values, target):
+    configured = (values.get('APP_VERSION') or values.get('GIT_COMMIT') or '').strip()
+    require(not configured or (re.fullmatch(r'[0-9a-f]{12}|[0-9a-f]{40}', configured) and configured[:12] == target[:12]),
+            'Candidate version environment pins another version; no container reconfiguration is performed')
 
 
 def routing_update(static, gateway, ports):
@@ -82,6 +90,9 @@ class LocalDriver:
         self.stage = None
         self.maintenance_stage = None
         self.config_updates = {}
+        self.frontend_stage = None
+        self.database_evidence = None
+        self.frontend_environment = {}
 
     def run(self, args, *, cwd=None, env=None, binary=False, stdin=None):
         try:
@@ -96,9 +107,63 @@ class LocalDriver:
         return json.loads(self.run(['docker', 'inspect', '--format', expression, name]))
 
     def git(self, *args):
-        return self.run(['git', '-C', str(ROOT), *args]).strip()
+        git_env = {k:v for k,v in os.environ.items() if not k.startswith('GIT_')}
+        git_env.update(GIT_TERMINAL_PROMPT='0', GIT_ASKPASS='/bin/false',
+                       SSH_ASKPASS='/bin/false', GIT_OPTIONAL_LOCKS='0')
+        return self.run(['git', '-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false',
+                         '-C', str(ROOT), *args], env=git_env).strip()
+
+    def deliver_target(self, m):
+        # Git objects only: no checkout, remote-tracking ref change or force.
+        require(socket.gethostname().lower().rstrip('.') in
+                ('stroyka-dev-agent', 'stroyka-dev-agent.local'), 'Wrong host')
+        keys = self.git('config', '--name-only', '--list').splitlines()
+        require(not any(k.startswith('filter.') or (k.startswith('url.') and k.lower().endswith(('insteadof', 'pushinsteadof'))) for k in keys), 'Configured Git filters or URL rewrites require review')
+        require(self.git('rev-parse', 'HEAD') == m['source_sha'] and not self.git('status', '--porcelain'),
+                'Candidate changed or dirty')
+        tooling = Path(__file__).resolve().parents[1]
+        require(self.run(['git', '-C', str(tooling), 'rev-parse', 'HEAD']).strip() == m['target_sha'],
+                'Tooling must be the exact target version')
+        args = ['fetch', '--no-tags', '--no-recurse-submodules']
+        if self.git('rev-parse', '--is-shallow-repository') == 'true':
+            args.append('--unshallow')
+        # Fixed official source; no credential configuration or unsafe protocol.
+        self.git('-c', 'protocol.allow=never', '-c', 'protocol.https.allow=always',
+                 '-c', 'http.followRedirects=false', *args,
+                 'https://github.com/marikol444707-ux/stroyka-app.git', m['target_sha'])
+        require(self.git('rev-parse', 'FETCH_HEAD^{commit}') == m['target_sha'], 'Delivered target mismatch')
+        require(self.git('rev-parse', 'HEAD') == m['source_sha'] and not self.git('status', '--porcelain'),
+                'Delivery unexpectedly changed worktree')
+
+    def selected_env(self, container, prefix):
+        fmt = ('{{range .Config.Env}}{{if and (ge (len .) '+str(len(prefix))+
+               ') (eq (slice . 0 '+str(len(prefix))+') "'+prefix+
+               '")}}{{json .}}{{println}}{{end}}{{end}}')
+        result = {}
+        for line in self.run(['docker', 'inspect', '--format', fmt, container]).splitlines():
+            if not line.strip():
+                continue
+            value = json.loads(line)
+            key, sep, content = value.partition('=')
+            require(sep and key not in result, 'Ambiguous environment configuration')
+            result[key] = content
+        return result
+
+    def database_preflight(self, m):
+        tooling = str(Path(__file__).resolve().parents[1])
+        code = ('import sys,os,json; sys.path.insert(0,' + repr(tooling) + '); '
+                'from scripts.qa_maintenance import run; '
+                'print(json.dumps(run(json.load(sys.stdin),os.environ)))')
+        payload = {'action': 'preflight', 'maintenance_database': m['maintenance_database'],
+                   'root': str(ROOT), 'schema_root': tooling}
+        return json.loads(self.run([PYTHON_PATH, '-I', '-c', code], env=self.environment,
+                                  stdin=json.dumps(payload)))
 
     def preflight(self, m):
+        tooling = str(Path(__file__).resolve().parents[1])
+        require(self.run(['git', '-C', tooling, 'rev-parse', 'HEAD']).strip() == m['target_sha']
+                and not self.run(['git', '-c', 'core.fsmonitor=false', '-C', tooling, 'status', '--porcelain']).strip(),
+                'Tooling changed since delivery')
         require(socket.gethostname().lower().rstrip('.') in
                 ('stroyka-dev-agent', 'stroyka-dev-agent.local'), 'Wrong host')
         observed = {n: {'image': self.inspect(n, '{{json .Image}}'),
@@ -148,35 +213,23 @@ class LocalDriver:
             '/tmp/stroyka-qa-static.Caddyfile': (static, new_static),
             '/opt/stroyka-qa-gateway/Caddyfile': (gateway, new_gateway)}
         require(all(not Path(path).is_symlink() for path in self.config_updates), 'Configuration symlink')
-        self.sql('preflight')
-        return {'topology': observed, 'running': {name: self.inspect(name, '{{json .State.Running}}')
+        versions = {}
+        for key in ('APP_VERSION', 'GIT_COMMIT'):
+            versions.update(self.selected_env(CANDIDATE, key + '='))
+        check_version_environment(versions, m['target_sha'])
+        require(not (ROOT / 'backend/.env').exists(), 'Candidate dotenv requires explicit version/config review')
+        from scripts.qa_frontend_stage import build_environment
+        self.frontend_environment = self.selected_env('stroyka-qa-frontend', 'REACT_APP_')
+        build_environment(self.frontend_environment)
+        require(not any((Path(FRONTEND_VOLUME) / name).exists() for name in
+                        ('.env', '.env.local', '.env.production', '.env.production.local')),
+                'Existing frontend dotenv requires explicit build-config review')
+        self.database_evidence = self.database_preflight(m)
+        return {'database': self.database_evidence, 'version_env': versions,
+                'frontend_env': self.frontend_environment, 'topology': observed, 'running': {name: self.inspect(name, '{{json .State.Running}}')
                 for name in (*WRITERS, 'stroyka-qa-static')}, 'config_sha256': {
             'static': hashlib.sha256(static.encode()).hexdigest(),
             'gateway': hashlib.sha256(gateway.encode()).hexdigest()}}
-
-    def sql(self, action, statements=()):
-        # The only destructive scope is public within the existing stroyka_qa.
-        # No DROP DATABASE, role changes, container lifecycle or stamp.
-        code = '''
-import json,os,sys,psycopg2
-p=json.load(sys.stdin)
-c=psycopg2.connect(host=os.environ['DB_HOST'],port=os.environ['DB_PORT'],dbname=os.environ['DB_NAME'],user=os.environ['DB_USER'],password=os.environ['DB_PASSWORD'],connect_timeout=5)
-try:
- with c:
-  with c.cursor() as q:
-   q.execute('SELECT current_database()')
-   assert q.fetchone()==('stroyka_qa',)
-   q.execute("SELECT nspname FROM pg_namespace WHERE nspname NOT IN ('public','information_schema') AND nspname NOT LIKE 'pg_%'")
-   assert not q.fetchall(), 'Unexpected non-public schema'
-   q.execute("SELECT extname FROM pg_extension WHERE extname <> 'plpgsql'")
-   assert not q.fetchall(), 'Extension requires explicit preservation'
-   if p['action']=='verify':
-    q.execute('SELECT version_num FROM public.alembic_version')
-    assert q.fetchall()==[('0109_legacy_payment_requests',)]
-finally: c.close()
-'''
-        self.run([PYTHON_PATH, '-I', '-c', code], env=self.environment,
-                 stdin=json.dumps({'action': action, 'statements': statements}))
 
     def stop(self):
         self.run(['docker', 'stop', *WRITERS])
@@ -186,7 +239,7 @@ finally: c.close()
     def switch(self, m):
         require(self.git('rev-parse', 'HEAD') == m['source_sha'] and not self.git('status', '--porcelain'),
                 'Candidate changed during confirmation')
-        self.run(['git', '-C', str(ROOT), 'checkout', '--detach', m['target_sha']])
+        self.git('checkout', '--detach', m['target_sha'])
 
     def record_maintenance_intent(self, m, evidence):
         from scripts.qa_maintenance import Journal
@@ -194,7 +247,8 @@ finally: c.close()
         journal = Journal(self.maintenance_stage / 'intent.jsonl')
         try:
             journal.record(phase='confirmed_before_container_or_checkout_changes',
-                           manifest=m, original=evidence)
+                           manifest=m, original=evidence, frontend_staging=str(self.frontend_stage.host),
+                           frontend_hashes=self.frontend_stage.hashes)
         finally:
             journal.close()
         print('QA maintenance journal: ' + str(self.maintenance_stage))
@@ -205,49 +259,52 @@ finally: c.close()
         stage = self.maintenance_stage
         payload = {'confirmed_scope': 'qa_connection_gate_and_session_termination',
                    'maintenance_database': m['maintenance_database'],
-                   'root': str(ROOT), 'journal': str(stage / 'maintenance.jsonl')}
+                   'root': str(ROOT), 'target_root': str(Path(__file__).resolve().parents[1]),
+                   'journal': str(stage / 'maintenance.jsonl'),
+                   'expected_database': self.database_evidence}
         tooling = str(Path(__file__).resolve().parents[1])
         code = ('import sys,os,json; sys.path.insert(0,' + repr(tooling) + '); '
                 'from scripts.qa_maintenance import run; '
-                'sys.path.insert(0,' + repr(str(ROOT)) + '); run(json.load(sys.stdin),os.environ)')
+                'run(json.load(sys.stdin),os.environ)')
         self.run([PYTHON_PATH, '-I', '-c', code], env=self.environment,
                  stdin=json.dumps(payload))
 
-    def frontend(self, m):
-        # Replace tracked frontend inputs only, never mounts/config/secrets/uploads.
+    def prepare_frontend(self, m):
+        from scripts.qa_frontend_stage import FrontendStage
+        self.frontend_stage = FrontendStage(self)
         raw = self.run(['git', '-C', str(ROOT), 'archive', m['target_sha'],
                         'src', 'public', 'package.json', 'package-lock.json', 'scripts'], binary=True)
+        return self.frontend_stage.prepare(raw, self.frontend_environment)
+
+    def verify_frontend(self):
+        require(self.frontend_stage is not None, 'Frontend not prepared')
+        self.frontend_stage.verify()
+
+    def discard_preparation(self):
+        if self.frontend_stage is not None:
+            self.frontend_stage.discard_unaccepted()
+
+    def accept_preparation(self):
+        self.verify_frontend()
+        self.frontend_stage.accepted = True
+
+    def frontend(self, m):
+        # Publication only, after acceptance and QA writer stop. No npm here.
+        self.verify_frontend()
         volume = Path(FRONTEND_VOLUME)
         require(not volume.is_symlink(), 'Frontend root symlink')
-        # Build in a fresh subdirectory of the EXISTING volume: no stale source
-        # files, no replacement of .env/Caddyfiles or existing frontend source.
-        destination = Path(tempfile.mkdtemp(prefix='qa-build-', dir=volume))
-        with tarfile.open(fileobj=io.BytesIO(raw)) as archive:
-            for member in archive.getmembers():
-                require(member.isfile() or member.isdir(), 'Archive links are not accepted')
-                target = destination / member.name
-                require(target.resolve().is_relative_to(destination.resolve()), 'Archive escapes frontend')
-                require(not any(x.startswith('.env') for x in Path(member.name).parts), 'Protected frontend config')
-            archive.extractall(destination, filter='data')
-        # Existing frontend container only; gateway remains stopped throughout.
-        self.run(['docker', 'start', 'stroyka-qa-frontend'])
-        workdir = '/app/' + destination.name
-        self.run(['docker', 'exec', '-w', workdir, 'stroyka-qa-frontend', 'npm', 'ci'])
-        self.run(['docker', 'exec', '-w', workdir, 'stroyka-qa-frontend', 'npm', 'run', 'build'])
-        from scripts.unified_release import manifest_files
-        files = manifest_files(destination / 'build')
-        require(files and (destination / 'build/index.html').is_file(), 'Frontend build incomplete')
-        self.run(['docker', 'stop', 'stroyka-qa-frontend'])
         require(self.inspect('stroyka-qa-frontend', '{{json .State.Running}}') is False,
                 'Frontend writer remains active')
+        destination = Path(tempfile.mkdtemp(prefix='qa-publish-', dir=volume))
+        shutil.copytree(self.frontend_stage.host / 'build', destination / 'build')
+        from scripts.qa_frontend_stage import digest
+        require(digest(destination / 'build') == self.frontend_stage.hashes, 'Published copy changed')
         published = volume / 'build'
         require(not published.is_symlink(), 'Published build symlink')
         if published.exists():
             os.replace(published, destination / 'frontend-before')
         os.replace(destination / 'build', published)
-        for relative in files:
-            require((published / relative).is_file(), 'Published asset missing')
-        # Keep only current rollback assets; no cleanup on failure/partial release.
+        require(digest(published) == self.frontend_stage.hashes, 'Published assets mismatch')
         self.stage = destination
 
     def start_and_check(self, m):
@@ -288,17 +345,26 @@ finally: c.close()
 def execute(m, driver, prompt, *, clock=time.monotonic):
     """No unattended confirmation; caller supplies terminal input, not a flag."""
     plan(m)
-    evidence = driver.preflight(m)
-    started = clock()
-    require(prompt(confirmation(m)) == confirmation(m), 'QA confirmation mismatch')
-    require(0 <= clock()-started <= 300, 'QA confirmation expired')
-    # Repeat preflight after human delay; metadata changes invalidate consent.
-    require(driver.preflight(m) == evidence, 'QA state changed after confirmation')
-    driver.record_maintenance_intent(m, evidence)
+    driver.deliver_target(m)
+    try:
+        evidence = driver.preflight(m)
+        driver.prepare_frontend(m)
+        require(driver.preflight(m) == evidence, 'QA state changed during preparation')
+        driver.verify_frontend()
+        started = clock()
+        require(prompt(confirmation(m)) == confirmation(m), 'QA confirmation mismatch')
+        require(0 <= clock()-started <= 300, 'QA confirmation expired')
+        require(driver.preflight(m) == evidence, 'QA state changed after confirmation')
+        driver.verify_frontend()
+        driver.record_maintenance_intent(m, evidence)
+        driver.accept_preparation()
+    except BaseException:
+        driver.discard_preparation()
+        raise
     try:
         driver.stop()
-        driver.switch(m)
         driver.prepare_database(m)
+        driver.switch(m)
         driver.frontend(m)
         driver.start_and_check(m)
     except BaseException:

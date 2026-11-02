@@ -60,8 +60,10 @@ class QAInstallTests(unittest.TestCase):
         d.preflight.return_value = {'same': True}
         out = qa.execute(manifest(), d, lambda _: qa.confirmation(manifest()))
         self.assertFalse(out['audit_complete'])
-        self.assertEqual([c[0] for c in d.mock_calls], ['preflight','preflight','record_maintenance_intent','stop','switch',
-                         'prepare_database','frontend','start_and_check'])
+        self.assertEqual([c[0] for c in d.mock_calls],
+            ['deliver_target','preflight','prepare_frontend','preflight','verify_frontend',
+             'preflight','verify_frontend','record_maintenance_intent','accept_preparation',
+             'stop','prepare_database','switch','frontend','start_and_check'])
 
     def test_missing_confirmation_has_no_writes(self):
         d = MagicMock()
@@ -85,7 +87,7 @@ class QAInstallTests(unittest.TestCase):
         d.stop.assert_not_called()
 
     def test_each_failed_phase_stops_without_rollback(self):
-        phases = ['stop','switch','prepare_database','frontend','start_and_check']
+        phases = ['stop','prepare_database','switch','frontend','start_and_check']
         for i, phase in enumerate(phases):
             d = MagicMock()
             d.preflight.return_value = {}
@@ -135,3 +137,68 @@ class QAInstallTests(unittest.TestCase):
         self.assertIn('CLOSE QA CONNECTIONS VIA postgres',phrase)
         self.assertIn('TERMINATE OTHER stroyka_qa SESSIONS',phrase)
         self.assertIn(manifest()['target_sha'],phrase)
+
+    def test_every_preparation_failure_precedes_live_changes(self):
+        for phase in ('deliver_target','preflight','prepare_frontend','verify_frontend','record_maintenance_intent'):
+            with self.subTest(phase=phase):
+                d=MagicMock()
+                d.preflight.return_value={}
+                getattr(d,phase).side_effect=RuntimeError('synthetic preparation failure')
+                with self.assertRaises(RuntimeError):
+                    qa.execute(manifest(),d,lambda _:qa.confirmation(manifest()))
+                for later in ('stop','switch','prepare_database','frontend','start_and_check'):
+                    getattr(d,later).assert_not_called()
+
+    def test_denied_confirmation_discards_only_preparation(self):
+        d=MagicMock()
+        d.preflight.return_value={}
+        with self.assertRaises(ValueError):
+            qa.execute(manifest(),d,lambda _: '')
+        d.discard_preparation.assert_called_once()
+        d.stop.assert_not_called()
+        d.accept_preparation.assert_not_called()
+
+    def test_database_child_runs_target_tooling_before_switch(self):
+        d=qa.LocalDriver()
+        d.environment={}
+        d.maintenance_stage=Path('/synthetic')
+        d.database_evidence={'synthetic':True}
+        with patch.object(d,'run') as run:
+            d.prepare_database(manifest())
+        payload=json.loads(run.call_args.kwargs['stdin'])
+        self.assertEqual(payload['expected_database'],{'synthetic':True})
+        self.assertEqual(payload['target_root'],str(Path(qa.__file__).resolve().parents[1]))
+
+    def test_runtime_version_precedence(self):
+        target='b'*40
+        qa.check_version_environment({},target)
+        qa.check_version_environment({'APP_VERSION':target,'GIT_COMMIT':'old'},target)
+        qa.check_version_environment({'GIT_COMMIT':target[:12]},target)
+        with self.assertRaises(ValueError):
+            qa.check_version_environment({'APP_VERSION':'old','GIT_COMMIT':target},target)
+
+    def test_dry_run_imports_do_not_load_maintenance_or_frontend_stager(self):
+        tree=ast.parse(Path(qa.__file__).read_text())
+        names=[n.module for n in tree.body if isinstance(n,ast.ImportFrom)]
+        self.assertNotIn('scripts.qa_maintenance',names)
+        self.assertNotIn('scripts.qa_frontend_stage',names)
+        self.assertFalse(any((n or '').startswith('backend') for n in names))
+
+    def test_delivery_rejects_wrong_target_without_checkout(self):
+        d=qa.LocalDriver()
+        m=manifest()
+        def git(*args):
+            if args==('config','--name-only','--list'): return ''
+            if args==('rev-parse','HEAD'): return m['source_sha']
+            if args==('status','--porcelain'): return ''
+            if args==('rev-parse','--is-shallow-repository'): return 'true'
+            if args==('rev-parse','FETCH_HEAD^{commit}'): return 'c'*40
+            if 'fetch' in args: return ''
+            raise AssertionError(args)
+        with patch.object(qa.socket,'gethostname',return_value='stroyka-dev-agent'), patch.object(d,'git',side_effect=git) as git_call, patch.object(d,'run',return_value=m['target_sha']):
+            with self.assertRaises(ValueError): d.deliver_target(m)
+        fetch=[c.args for c in git_call.call_args_list if 'fetch' in c.args]
+        self.assertEqual(len(fetch),1)
+        self.assertIn('--unshallow',fetch[0])
+        self.assertIn('https://github.com/marikol444707-ux/stroyka-app.git',fetch[0])
+        self.assertFalse(any('checkout' in c.args or '--force' in c.args for c in git_call.call_args_list))

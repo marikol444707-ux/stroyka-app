@@ -43,6 +43,33 @@ def identity(conn):
         inet_server_addr()::text, inet_server_port(), pg_backend_pid()''').one())
 
 
+def preflight_connections(control, work, *, service_database, expected_host):
+    """SELECT-only evidence; no locks, gate changes, grants or termination."""
+    work.exec_driver_sql('SET TRANSACTION READ ONLY')
+    try:
+        c, w = identity(control), identity(work)
+        require(c[0] == service_database == 'postgres' and w[0] == QA,
+                'Unexpected maintenance databases')
+        require(c[2:5] == w[2:5] and c[3] == expected_host and c[4] == 5432,
+                'QA server identity mismatch')
+        require(control.exec_driver_sql('SELECT rolsuper FROM pg_roles WHERE rolname=current_user').scalar() is True,
+                'Existing maintenance privileges insufficient')
+        require(control.exec_driver_sql('SELECT datallowconn FROM pg_database WHERE oid=%s AND datname=%s',
+                                       (w[1], QA)).scalar() is True, 'QA already closed')
+        require(control.exec_driver_sql('SELECT count(*) FROM pg_prepared_xacts WHERE database=%s', (QA,)).scalar() == 0,
+                'Prepared QA transactions')
+        require(control.exec_driver_sql('SELECT count(*) FROM pg_subscription WHERE subdbid=%s', (w[1],)).scalar() == 0,
+                'QA subscriptions')
+        require(work.exec_driver_sql("SELECT count(*) FROM pg_namespace WHERE nspname NOT IN ('public','information_schema') AND nspname NOT LIKE 'pg_%'").scalar() == 0,
+                'Unexpected schema')
+        require(work.exec_driver_sql("SELECT count(*) FROM pg_extension WHERE extname<>'plpgsql'").scalar() == 0,
+                'Unexpected extension')
+        return {'control_database': c[0], 'database': w[0], 'database_oid': w[1],
+                'system_identifier': w[2], 'server_address': w[3], 'server_port': w[4]}
+    finally:
+        work.rollback()
+
+
 def maintain(control, work, *, service_database, expected_host, statements, upgrade, journal):
     """Connections are already open. Control must be AUTOCOMMIT; work idle.
 
@@ -144,14 +171,18 @@ def run(payload, environment):
     from sqlalchemy.pool import NullPool
     from alembic.config import Config
     from alembic import command
-    require(payload.get('confirmed_scope') == 'qa_connection_gate_and_session_termination', 'Exact consent missing')
+    readonly = payload.get('action') == 'preflight'
+    require(readonly or payload.get('confirmed_scope') == 'qa_connection_gate_and_session_termination', 'Exact consent missing')
     service = payload['maintenance_database']
     require(service == 'postgres', 'Only the existing postgres maintenance database is supported')
     require(environment['DB_NAME'] == QA and environment['DB_PORT'] == '5432', 'Wrong QA target')
     host = str(ipaddress.ip_address(environment['DB_HOST']))
     root = Path(payload['root'])
     require(str(root) == '/opt/stroyka-jev-qa-7e89d73', 'Wrong candidate root')
-    tree = ast.parse((root / 'backend/bootstrap_schema.py').read_text())
+    target_root = Path(payload['schema_root'] if readonly else payload['target_root'])
+    require(target_root.is_absolute(), 'Absolute reviewed target required')
+    schema_root = target_root
+    tree = ast.parse((schema_root / 'backend/bootstrap_schema.py').read_text())
     steps = next(ast.literal_eval(n.value) for n in tree.body if isinstance(n, ast.Assign)
                  and any(isinstance(t, ast.Name) and t.id == 'LEGACY_STEPS' for t in n.targets))
     statements = [sql for kind, sql in steps if kind == 'schema']
@@ -164,14 +195,18 @@ def run(payload, environment):
     def interrupted(signum, frame):
         raise InterruptedError('QA maintenance interrupted')
     previous = signal.signal(signal.SIGTERM, interrupted)
-    journal = Journal(payload['journal'])
+    journal = None if readonly else Journal(payload['journal'])
     control_engine = engine(service)
     work_engine = engine(QA)
     try:
         with control_engine.connect().execution_options(isolation_level='AUTOCOMMIT') as control, work_engine.connect() as work:
+            evidence = preflight_connections(control, work, service_database=service, expected_host=host)
+            if readonly:
+                return evidence
+            require(evidence == payload.get('expected_database'), 'DB identity changed since confirmation')
             def upgrade(connection):
-                cfg = Config(str(root / 'alembic.ini'))
-                cfg.set_main_option('script_location', str(root / 'migrations'))
+                cfg = Config(str(target_root / 'alembic.ini'))
+                cfg.set_main_option('script_location', str(target_root / 'migrations'))
                 cfg.attributes['connection'] = connection
                 command.upgrade(cfg, TARGET)
             maintain(control, work, service_database=service, expected_host=host,
@@ -179,5 +214,6 @@ def run(payload, environment):
     finally:
         control_engine.dispose()
         work_engine.dispose()
-        journal.close()
+        if journal is not None:
+            journal.close()
         signal.signal(signal.SIGTERM, previous)
