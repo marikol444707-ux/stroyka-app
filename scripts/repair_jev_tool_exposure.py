@@ -18,13 +18,13 @@ import urllib.request
 
 BASE_REV='11bda5ff0200848d5948ea73f41a28c299cb9c9b'
 BASE_SHA='621c7c2bcea211f3d5e425591be8b65fc2585d0ad1c03cfac3b5e82503826917'
-PATCH_REV='230ae7dab0123528ae92a523fc26f2a326e7045a'
+PATCH_REV='2d8ba5f3b66f4d0e70f0ad39438e3733528c9ec5'
 PATCHES={
  'jev_agent/tender_finder/startup_tool.py':'006418ed67e94d48d6828fc0c4ae6205f962187ae68e3a954894f656d26b2eb7',
  'jev_agent/tender_finder/hermes_binding.py':'e31db6b5690a99c45bca50683cd029eb873d25a5b15f9aca2b5c7a537706eec4',
  'jev_agent/tender_finder/commercial/startup_tool.py':'372df99ee86b900863cc9ca21664a36336ce8bd897b62fd74cee68e5abe4637d',
  'jev_agent/tender_finder/commercial/tool.py':'a42acc7236803a5162727f802fa939197caf73b0119d94cdb71a4a93abfdba9f',
- 'jev_agent/tender_finder/docker_delivery.py':'cff1d62163d8cd454e5ef6dce3527dea807f623246de8ed27ea79e78138fc9cc'}
+ 'jev_agent/tender_finder/docker_delivery.py':'07c6406aa0eb5b81a5e374b386abad638a75acea9aade455d89cabb0064e637d'}
 CONFIG='/root/hermes-data/config.yaml'
 
 

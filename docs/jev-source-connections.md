@@ -515,3 +515,22 @@ CLI должен подтвердить изменение только Telegram
 Отдельные journal/backup сохраняются в исходном stage и не заменяют backup
 первичной активации. `repaired=true` всё ещё не означает приёмку реального
 поиска или Telegram: до неё installation_ready=false и backups сохраняются.
+
+Уточнение по Docker resolver (2026-11-02): первая попытка ремонта остановилась
+до обслуживания с `hermes_runtime_resolution_failed`. В Docker этого образа
+`/opt/hermes/bin/hermes` — privilege-drop shim с SHA256 57637e73..., который
+передаёт аргументы обычному `.venv/bin/hermes`. Он не является minted source
+launcher и не поддерживает его `--print-runtime-command`. Предыдущая проверка
+только runtime_command не воспроизвела фактическую точку входа Docker.
+
+Пользователь подтвердил на сервере успешный прямой вызов
+`/opt/hermes/.venv/bin/python -I -B /opt/hermes/hermes_cli/_launchers.py
+--print-runtime-command --module io`. Возвращён Python
+`/opt/hermes/tools/python-3.14.9+20261021-linux-x64/bin/python3` и точный
+ожидаемый bootstrap. Теперь resolver использует старый interpreter только для
+этого stdlib-модуля; исходник `_launchers.py` сначала проверяется по SHA256,
+владельцу, режиму и отсутствию ссылок, затем выполняются проверенные bytes.
+Отправщик по-прежнему запускается в возвращённом runtime с bootstrap и lease,
+а не в старом venv. Реальное имя Docker shim, полный модуль `_launchers.py`
+и его main-путь добавлены в проверку закреплённых исходников Hermes.
+Это подтверждает способ разрешения runtime, но ещё не отправку в Telegram.
