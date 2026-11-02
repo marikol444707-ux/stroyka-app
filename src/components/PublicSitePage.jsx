@@ -92,10 +92,19 @@ const PublicSitePage = ({ onLogin }) => {
     if (typeof window === 'undefined' || typeof document === 'undefined') return undefined;
     const hero = document.querySelector('.public-hero');
     if (!hero) return undefined;
+    const forms = [
+      document.querySelector('#suppliers'),
+      document.querySelector('#request'),
+    ].filter(Boolean);
 
     const updateMobileActions = () => {
-      const shouldShow = window.matchMedia('(max-width: 760px)').matches
-        && window.scrollY >= hero.offsetHeight;
+      const isMobile = window.matchMedia('(max-width: 760px)').matches;
+      const passedHero = window.scrollY >= hero.offsetHeight;
+      const formIsVisible = forms.some((section) => {
+        const bounds = section.getBoundingClientRect();
+        return bounds.top < window.innerHeight && bounds.bottom > 0;
+      });
+      const shouldShow = isMobile && passedHero && !formIsVisible;
       setShowMobileActions((current) => (current === shouldShow ? current : shouldShow));
     };
     updateMobileActions();
