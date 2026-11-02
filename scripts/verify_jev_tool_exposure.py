@@ -11,6 +11,7 @@ import logging
 import os
 from pathlib import Path
 import sys
+import tempfile
 import types
 import typing
 import urllib.request
@@ -21,7 +22,8 @@ SOURCES={'tools/registry.py':'48c3875138ac9e1875349ed2900d6940f51dfff050d655d6fb
  'toolsets.py':'7674a11eeebcc06b7c83c816fca0bc6982107870f5615375d2ffc5dbe6044eaa',
  'model_tools.py':'da5b7db1b05de615658e56c4172426ed82099a093c5b586e48e65ef930b778c8',
  'hermes_cli/tools_config.py':'35012cc12fc709a5a95c3f547ebb76a1938f231f0012e7e6fa843bf4be52a2fd',
- 'hermes_cli/_launchers.py':'f45dbb4bcf1582e82d90b7425bb1480756f85234defe9269785603735546c9b4'}
+ 'hermes_cli/_launchers.py':'f45dbb4bcf1582e82d90b7425bb1480756f85234defe9269785603735546c9b4',
+ 'docker/hermes-exec-shim.sh':'57637e73c8db76aa84a38e4a2edb1b155bfd86a2e89a8d4c38c4546ee1175985'}
 
 
 def load_sources():
@@ -40,10 +42,45 @@ def functions(raw,names,namespace):
     exec(compile(ast.Module(body=nodes,type_ignores=[]),'reviewed-resolver','exec'),namespace)
 
 
+def verify_docker_runtime_boundary(sources):
+    from jev_agent.tender_finder.docker_delivery import RUNTIME_RESOLVE_PROGRAM,RUNTIME_BOOTSTRAP,RUNTIME_ENTRY
+    import contextlib,io
+    # The actual Docker shim forwards the print flag to the ordinary CLI; it
+    # does not use the minted source launcher. Reproduce the relevant contract.
+    shim=sources['docker/hermes-exec-shim.sh'].decode()
+    assert 'REAL=/opt/hermes/.venv/bin/hermes' in shim and 'exec "$REAL" "$@"' in shim
+    assert '--print-runtime-command' not in shim
+    real_open=os.open;real_fstat=os.fstat
+    with tempfile.TemporaryDirectory() as folder:
+        root=Path(folder);source=root/'opt/hermes/hermes_cli/_launchers.py';source.parent.mkdir(parents=True)
+        source.write_bytes(sources['hermes_cli/_launchers.py'])
+        store=root/'runtime';python=store/'python-fixture/bin/python3';python.parent.mkdir(parents=True);python.touch()
+        (store/'facts.json').write_text(json.dumps({'packages':{'python':{'entry':'python-fixture'}}}))
+        pm=types.ModuleType('pm');pm.__path__=[];environments=types.ModuleType('pm.environments')
+        environments.owning_home_root=lambda *_:None;environments.store_root=lambda *_:store
+        def opened(path,*args,**kwargs):return real_open(folder if path=='/' else path,*args,**kwargs)
+        def info(fd):
+            value=real_fstat(fd)
+            return types.SimpleNamespace(st_uid=0,st_mode=value.st_mode,st_nlink=value.st_nlink,st_size=value.st_size)
+        output=io.StringIO()
+        with patch.dict(sys.modules,{'pm':pm,'pm.environments':environments}),patch.object(sys,'argv',[]),patch.object(
+                os,'geteuid',return_value=10000),patch.object(os,'getegid',return_value=10000),patch.object(
+                os,'open',side_effect=opened),patch.object(os,'fstat',side_effect=info),contextlib.redirect_stdout(output):
+            with_exit=False
+            try:exec(compile(RUNTIME_RESOLVE_PROGRAM,'reviewed-fixed-docker-resolver','exec'),{})
+            except SystemExit as error:
+                assert error.code==0;with_exit=True
+            assert with_exit
+        # FULL authenticated _launchers.py ran its real main + resolver, not an
+        # AST-extracted imitation. Only PM's external store location is fixture.
+        assert json.loads(output.getvalue())==[str(python),'-I','-c',RUNTIME_BOOTSTRAP+RUNTIME_ENTRY]
+
+
 def verify(sources):
+    verify_docker_runtime_boundary(sources)
     from jev_agent.tender_finder.docker_delivery import _runtime_command,REMOTE_PROGRAM
     runtime={'Path':Path,'os':os,'sys':sys,'PIN_DEFAULT_HOME_FLAG':'_hermes_pin_default_home',
-        'resolve_store_python':lambda root:Path('/opt/hermes/pm-runtime/python/fixture/bin/python3')}
+        'resolve_store_python':lambda root:Path('/opt/hermes/tools/python-3.14.9+20261021-linux-x64/bin/python3')}
     functions(sources['hermes_cli/_launchers.py'],('_inline_string_literal','runtime_command'),runtime)
     command=runtime['runtime_command'](Path('/opt/hermes'),module='io')
     resolved=_runtime_command(json.dumps(command).encode(),REMOTE_PROGRAM)
@@ -122,7 +159,7 @@ def verify(sources):
     return {'pinned_registry_and_resolver':'PASS','old_bundle_hidden_reproduced':True,
         'old_dictionary_result_rejected_reproduced':True,'dedicated_opt_in_exposes_only_jev':True,
         'json_acknowledgement_preserved':True,'disabled_group_respected':True,
-        'published_runtime_bootstrap_preserved':True,'search_executed':False,'notifications_sent':False}
+        'docker_shim_boundary_verified':True,'published_runtime_bootstrap_preserved':True,'search_executed':False,'notifications_sent':False}
 
 
 if __name__=='__main__':print(json.dumps(verify(load_sources())))

@@ -122,6 +122,39 @@ RUNTIME_BOOTSTRAP = (
     "str(__import__('hermes_constants').get_default_hermes_root())); "
 )
 RUNTIME_ENTRY = "runpy.run_module('io', run_name='__main__', alter_sys=True)"
+# The Docker privilege-drop shim forwards to the CLI entry point, which does
+# NOT implement the source launcher's print flag. Run the reviewed stdlib-only
+# machine-boundary module directly, without importing the dependency graph.
+RUNTIME_RESOLVE_PROGRAM = r'''
+import hashlib, os, runpy, stat, sys
+if os.geteuid()!=10000 or os.getegid()!=10000:
+    raise ValueError('observed_unprivileged_identity_required')
+descriptors=[]
+try:
+    parent=os.open('/',os.O_RDONLY|os.O_DIRECTORY)
+    descriptors.append(parent)
+    for part in ('opt','hermes','hermes_cli'):
+        parent=os.open(part,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=parent)
+        descriptors.append(parent)
+        info=os.fstat(parent)
+        if info.st_uid!=0 or info.st_mode & 0o022:
+            raise ValueError('protected_runtime_source_required')
+    fd=os.open('_launchers.py',os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK,dir_fd=parent)
+    descriptors.append(fd)
+    info=os.fstat(fd)
+    if (not stat.S_ISREG(info.st_mode) or info.st_uid!=0 or info.st_nlink!=1
+            or info.st_mode & 0o022 or info.st_size>131072):
+        raise ValueError('protected_runtime_source_required')
+    with os.fdopen(fd,'rb',closefd=False) as stream:raw=stream.read(131073)
+    if hashlib.sha256(raw).hexdigest()!='f45dbb4bcf1582e82d90b7425bb1480756f85234defe9269785603735546c9b4':
+        raise ValueError('reviewed_runtime_boundary_required')
+finally:
+    for fd in reversed(descriptors):os.close(fd)
+sys.argv=['/opt/hermes/hermes_cli/_launchers.py','--print-runtime-command','--module','io']
+# Use the authenticated bytes, rather than reopen the file after validation.
+namespace={'__name__':'__main__','__file__':sys.argv[0]}
+exec(compile(raw,sys.argv[0],'exec'),namespace)
+'''
 REMOTE_PROBE_PROGRAM = (
     "import contextlib, json, os; namespace={'__name__':'jev_delivery_probe'}; "
     "exec("+repr(REMOTE_PROGRAM)+",namespace); "
@@ -146,7 +179,7 @@ def _runtime_command(raw,program):
 def _runtime_exec(identifier,program,wire,run):
     prefix=(DOCKER,'exec','--user','10000:10000','--workdir','/opt/hermes',
         '--env','HOME=/opt/data','--env','HERMES_HOME=/opt/data','--env','HERMES_PROFILE=',identifier)
-    raw,code=run((*prefix,'/opt/hermes/bin/hermes','--print-runtime-command','--module','io'),None,20)
+    raw,code=run((*prefix,'/opt/hermes/.venv/bin/python','-I','-B','-c',RUNTIME_RESOLVE_PROGRAM),None,20)
     if code!=0:raise ValueError('hermes_runtime_resolution_failed')
     command=_runtime_command(raw,program)
     # stdin is reserved for message DATA. The resolver never receives the frame.

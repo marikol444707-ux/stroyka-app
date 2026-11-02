@@ -13,7 +13,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from .contract import validate_v2_request
-from .docker_delivery import DockerHermesSender, IMAGE, REMOTE_PROGRAM, RUNTIME_BOOTSTRAP, RUNTIME_ENTRY, REMOTE_PROBE_PROGRAM, _runtime_command, probe_delivery_runtime, deliver_via_hermes
+from .docker_delivery import DockerHermesSender, IMAGE, REMOTE_PROGRAM, RUNTIME_BOOTSTRAP, RUNTIME_ENTRY, RUNTIME_RESOLVE_PROGRAM, REMOTE_PROBE_PROGRAM, _runtime_command, probe_delivery_runtime, deliver_via_hermes
 from .ingress import OwnerBinding
 from .notification import build_send_args, deliver_completion, TelegramRoute
 from .pipeline import PipelineConfig, run_request
@@ -38,7 +38,7 @@ def metadata(**changes):
 
 
 def runtime_metadata():
-    return json.dumps(['/opt/hermes/pm-runtime/python/fixture/bin/python3','-I','-c',RUNTIME_BOOTSTRAP+RUNTIME_ENTRY]).encode()
+    return json.dumps(['/opt/hermes/tools/python-3.14.9+20261021-linux-x64/bin/python3','-I','-c',RUNTIME_BOOTSTRAP+RUNTIME_ENTRY]).encode()
 
 
 def acknowledgement(**changes):
@@ -139,6 +139,28 @@ class SimpleInput:
     def __init__(self,raw):self.buffer=io.BytesIO(raw)
 
 
+class RuntimeResolverTests(unittest.TestCase):
+    def test_wrong_identity_never_opens_runtime_source(self):
+        with patch.object(os,'geteuid',return_value=0),patch.object(os,'open') as opened:
+            with self.assertRaisesRegex(ValueError,'unprivileged_identity'):
+                exec(compile(RUNTIME_RESOLVE_PROGRAM,'fixed-resolver','exec'),{})
+        opened.assert_not_called()
+
+    def test_changed_source_refused_before_execution_or_printing_command(self):
+        real_open=os.open;real_fstat=os.fstat
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);(root/'opt/hermes/hermes_cli').mkdir(parents=True)
+            (root/'opt/hermes/hermes_cli/_launchers.py').write_bytes(b'raise RuntimeError("MUST_NOT_EXECUTE")')
+            def opened(path,*args,**kwargs):return real_open(folder if path=='/' else path,*args,**kwargs)
+            def info(fd):
+                value=real_fstat(fd)
+                return SimpleNamespace(st_uid=0,st_mode=value.st_mode,st_nlink=value.st_nlink,st_size=value.st_size)
+            with patch.object(os,'geteuid',return_value=10000),patch.object(os,'getegid',return_value=10000),patch.object(
+                    os,'open',side_effect=opened),patch.object(os,'fstat',side_effect=info):
+                with self.assertRaisesRegex(ValueError,'reviewed_runtime_boundary_required'):
+                    exec(compile(RUNTIME_RESOLVE_PROGRAM,'fixed-resolver','exec'),{})
+
+
 class HostDockerTransportTests(unittest.TestCase):
     def sender(self,run):
         return DockerHermesSender(OWNER,gateway_uid=10000,gateway_gid=10000,_run=run)
@@ -152,7 +174,7 @@ class HostDockerTransportTests(unittest.TestCase):
         self.assertNotIn('hermes-telegram',argv)
         self.assertEqual(argv[-5:],_runtime_command(runtime_metadata(),REMOTE_PROGRAM))
         self.assertEqual(run.call_args_list[1].args[1:],(None,20))
-        self.assertEqual(run.call_args_list[1].args[0][-4:],('/opt/hermes/bin/hermes','--print-runtime-command','--module','io'))
+        self.assertEqual(run.call_args_list[1].args[0][-5:],('/opt/hermes/.venv/bin/python','-I','-B','-c',RUNTIME_RESOLVE_PROGRAM))
         self.assertNotIn(OWNER.reply_chat_id,' '.join(argv))
         self.assertNotIn(FRAME['message'],' '.join(argv))
         self.assertEqual(json.loads(wire),FRAME);self.assertEqual(timeout,75)
