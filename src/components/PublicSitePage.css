@@ -349,6 +349,17 @@
   font-size: 26px;
 }
 
+.public-calculator-price-warning {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid rgba(160, 98, 15, 0.28);
+  border-radius: 8px;
+  background: #fff8e8;
+  color: #70450b;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
 .public-live-badge,
 .public-passport-status {
   color: var(--site-green-dark);

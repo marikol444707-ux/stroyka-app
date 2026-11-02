@@ -69,6 +69,7 @@ import {
 } from '../features/public-site/publicPlotCheck';
 const PublicSitePage = ({ onLogin }) => {
   const [calc, setCalc] = useState(publicCalcDefaults);
+  const [showMobileActions, setShowMobileActions] = useState(false);
   const [selectedReferenceId, setSelectedReferenceId] = useState(referenceDirections[0].id);
   const [selectedReferenceExample, setSelectedReferenceExample] = useState(getReferenceProjectCards(referenceDirections[0])[0].title);
   const [selectedReferenceMediaId, setSelectedReferenceMediaId] = useState('render-front');
@@ -87,8 +88,28 @@ const PublicSitePage = ({ onLogin }) => {
   const comparisonDirectionRef = useRef(selectedReferenceId);
   const requestPhoneInputRef = useRef(null);
 
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return undefined;
+    const hero = document.querySelector('.public-hero');
+    if (!hero) return undefined;
+
+    const updateMobileActions = () => {
+      const shouldShow = window.matchMedia('(max-width: 760px)').matches
+        && window.scrollY >= hero.offsetHeight;
+      setShowMobileActions((current) => (current === shouldShow ? current : shouldShow));
+    };
+    updateMobileActions();
+    window.addEventListener('scroll', updateMobileActions, { passive: true });
+    window.addEventListener('resize', updateMobileActions);
+    return () => {
+      window.removeEventListener('scroll', updateMobileActions);
+      window.removeEventListener('resize', updateMobileActions);
+    };
+  }, []);
+
   const {
     sitePricingRules,
+    sitePricingStatus,
     leadFileUploadsEnabled,
     hasPublishedProjects,
     projectCategory,
@@ -615,6 +636,7 @@ const PublicSitePage = ({ onLogin }) => {
             calc={calc}
             updateCalc={updatePublicCalculator}
             result={result}
+            pricingStatus={sitePricingStatus}
             scrollTo={scrollTo}
             leadFileUploadsEnabled={leadFileUploadsEnabled}
             leadFiles={leadFiles}
@@ -1461,7 +1483,7 @@ const PublicSitePage = ({ onLogin }) => {
             <h3>Согласие</h3>
             <p>
               Заявка отправляется только после отметки согласия. Отозвать согласие можно
-              по адресу {PUBLIC_SITE_OPERATOR.address}, по телефону {PUBLIC_SITE_OPERATOR.phone}
+              по адресу {PUBLIC_SITE_OPERATOR.address}, по телефону {PUBLIC_SITE_OPERATOR.phone}{' '}
               или на {PUBLIC_SITE_OPERATOR.privacyEmail}. Заявки с сайта без активности в течение
               12 месяцев автоматически удаляются, если они не переведены в проект или договор.
             </p>
@@ -1494,16 +1516,18 @@ const PublicSitePage = ({ onLogin }) => {
         </div>
       </section>
 
-      <nav className="public-mobile-actions" aria-label="Быстрые действия">
-        <button type="button" onClick={() => scrollTo('projects')}>
-          <House size={18} />
-          Проекты
-        </button>
-        <button className="primary" type="button" onClick={() => scrollTo('request')}>
-          <Calculator size={18} />
-          Заявка
-        </button>
-      </nav>
+      {showMobileActions ? (
+        <nav className="public-mobile-actions" aria-label="Быстрые действия">
+          <button type="button" onClick={() => scrollTo('projects')}>
+            <House size={18} />
+            Проекты
+          </button>
+          <button className="primary" type="button" onClick={() => scrollTo('request')}>
+            <Calculator size={18} />
+            Заявка
+          </button>
+        </nav>
+      ) : null}
     </main>
   );
 };
