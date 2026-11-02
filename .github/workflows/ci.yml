@@ -69,6 +69,7 @@ jobs:
           jev_agent.tender_finder.commercial.test_systemd_bootstrap
           jev_agent.tender_finder.commercial.test_prepare_install
           jev_agent.tender_finder.commercial.test_server_preflight
+          jev_agent.tender_finder.commercial.test_upgrade_review
           jev_agent.tender_finder.test_contract
           jev_agent.tender_finder.test_reporting
           jev_agent.tender_finder.test_cli
