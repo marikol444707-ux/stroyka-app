@@ -6,7 +6,6 @@ from alembic import context
 from sqlalchemy import create_engine, pool
 from sqlalchemy.engine import URL
 
-from backend.db import DB_CONFIG
 
 
 config = context.config
@@ -18,6 +17,7 @@ target_metadata = None
 
 
 def _database_url() -> URL:
+    from backend.db import DB_CONFIG
     port = DB_CONFIG.get("port")
     try:
         port = int(port) if port else None
@@ -46,6 +46,12 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
+    supplied = config.attributes.get("connection")
+    if supplied is not None:
+        context.configure(connection=supplied, target_metadata=target_metadata)
+        with context.begin_transaction():
+            context.run_migrations()
+        return
     connectable = create_engine(
         _database_url(),
         poolclass=pool.NullPool,

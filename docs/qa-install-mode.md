@@ -70,3 +70,44 @@ Target должен быть доставлен в checkout отдельно: и
 может создавать legacy default accounts и repairs — это пока непроверенный runtime.
 Глобальный security/role/full-remainder аудит не включён и не обходится.
 Ничего на сервере не выполнено, новых контейнеров нет, push/merge отсутствуют.
+
+## Local maintenance exclusion revision (2026-11-02; NOT deployed)
+
+The manifest now requires `maintenance_database: "postgres"` instead of the
+unprovable `other_writers_accounted_for` flag. Old manifests fail validation.
+Dry-run remains pure plan rendering; it does not validate actual DB permissions.
+Actual invocation requires a fresh interactive phrase explicitly naming the
+connection gate, termination of other stroyka_qa sessions, and replacement SHA.
+No permission to perform these actions is implied by publishing or planning.
+
+Before stopping containers or changing checkout, a private durable intent journal
+records the manifest, observed container running states and topology/config hashes.
+The DB phase uses two connections to the same verified QA PostgreSQL address,
+port and system identifier: an existing postgres database for control, and one
+stroyka_qa worker for schema, Alembic and final revision verification. Nothing
+creates postgres or grants privileges. Current implementation conservatively
+requires existing superuser privileges; absent privileges fail before gate change.
+Production installer hold is unchanged.
+
+The control connection serializes instances of this tool, records original access
+state/OID/identity/PID, closes new QA connections and waits for other QA client
+sessions to terminate. Prepared transactions, subscriptions and unexpected workers
+are rejected. This is not protection against another administrator actively
+changing the gate or the cluster. No other database's sessions are terminated.
+Reset plus migrations use one READ COMMITTED transaction and the same connection;
+ordinary Alembic invocation retains its original connection creation path.
+
+Confirmed rollback/success restores the original open state. A pre-existing closed
+DB is rejected, never automatically reopened. Lost commit/rollback outcome leaves
+access closed and records recovery_required; no automatic retry/reset. Restore
+failure propagates. No old backend is automatically started on an unknown schema.
+SIGTERM/KeyboardInterrupt get ordinary cleanup; SIGKILL, power loss, or loss of
+both connections cannot be repaired by finally. Journals under the private
+/opt/stroyka-qa-maintenance-* directory must be retained. Recovery after an abrupt
+crash is deliberately not an automatic CLI: reconcile the recorded cluster/OID,
+transaction outcome and worker lifetime before separately approving restoration.
+
+Local mock/static tests do not prove PostgreSQL DDL/migration compatibility,
+termination races, privileges, recovery or frontend/browser acceptance. None of
+those runtime checks were executed during implementation. No new container, DB,
+role, permanent credentials, server service or production change is introduced.

@@ -36,9 +36,9 @@ def require(ok, message):
 def validate_manifest(m):
     require(set(m) == {'qa_only', 'database', 'container', 'source_sha', 'target_sha',
                        'candidate_root', 'frontend_root', 'discard_test_data',
-                       'other_writers_accounted_for'}, 'Unexpected QA manifest fields')
+                       'maintenance_database'}, 'Unexpected QA manifest fields')
     require(m['qa_only'] is True and m['discard_test_data'] is True
-            and m['other_writers_accounted_for'] is True, 'Explicit QA scope required')
+            and m['maintenance_database'] == 'postgres', 'Explicit QA scope required')
     require(m['database'] == 'stroyka_qa' and m['container'] == DB
             and m['candidate_root'] == str(ROOT) and m['frontend_root'] == FRONTEND_VOLUME,
             'QA target mismatch')
@@ -48,14 +48,13 @@ def validate_manifest(m):
 
 
 def confirmation(m):
-    return 'REPLACE stroyka_qa ON stroyka-qa-db WITH ' + m['target_sha']
+    return 'CLOSE QA CONNECTIONS VIA postgres; TERMINATE OTHER stroyka_qa SESSIONS; REPLACE stroyka_qa ON stroyka-qa-db WITH ' + m['target_sha']
 
 
 def plan(m):
     return {'manifest_sha256': validate_manifest(m), 'execution': False,
             'stages': ['preflight', 'fresh_confirmation', 'stop_qa_writers',
-                       'switch_candidate', 'reset_public_and_base_schema',
-                       'migrate', 'build_frontend', 'start_candidate',
+                       'switch_candidate', 'exclusive_schema_and_migrations', 'build_frontend', 'start_candidate',
                        'check_health_and_frontend', 'open_gateway'],
             'old_backend_remains_stopped': True, 'automatic_rollback': False}
 
@@ -81,6 +80,7 @@ class LocalDriver:
     def __init__(self):
         self.environment = None
         self.stage = None
+        self.maintenance_stage = None
         self.config_updates = {}
 
     def run(self, args, *, cwd=None, env=None, binary=False, stdin=None):
@@ -149,7 +149,8 @@ class LocalDriver:
             '/opt/stroyka-qa-gateway/Caddyfile': (gateway, new_gateway)}
         require(all(not Path(path).is_symlink() for path in self.config_updates), 'Configuration symlink')
         self.sql('preflight')
-        return {'topology': observed, 'config_sha256': {
+        return {'topology': observed, 'running': {name: self.inspect(name, '{{json .State.Running}}')
+                for name in (*WRITERS, 'stroyka-qa-static')}, 'config_sha256': {
             'static': hashlib.sha256(static.encode()).hexdigest(),
             'gateway': hashlib.sha256(gateway.encode()).hexdigest()}}
 
@@ -169,13 +170,7 @@ try:
    assert not q.fetchall(), 'Unexpected non-public schema'
    q.execute("SELECT extname FROM pg_extension WHERE extname <> 'plpgsql'")
    assert not q.fetchall(), 'Extension requires explicit preservation'
-   if p['action']=='reset':
-    q.execute("SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid()")
-    assert q.fetchone()==(0,), 'Other QA sessions remain'
-    q.execute('DROP SCHEMA public CASCADE')
-    q.execute('CREATE SCHEMA public AUTHORIZATION CURRENT_USER')
-    for s in p['statements']: q.execute(s)
-   elif p['action']=='verify':
+   if p['action']=='verify':
     q.execute('SELECT version_num FROM public.alembic_version')
     assert q.fetchall()==[('0109_legacy_payment_requests',)]
 finally: c.close()
@@ -193,15 +188,30 @@ finally: c.close()
                 'Candidate changed during confirmation')
         self.run(['git', '-C', str(ROOT), 'checkout', '--detach', m['target_sha']])
 
-    def reset_schema(self):
-        # Reviewed data-only module; no import of target application.
-        from backend.bootstrap_schema import SCHEMA_STATEMENTS
-        self.sql('reset', SCHEMA_STATEMENTS)
+    def record_maintenance_intent(self, m, evidence):
+        from scripts.qa_maintenance import Journal
+        self.maintenance_stage = Path(tempfile.mkdtemp(prefix='stroyka-qa-maintenance-', dir='/opt'))
+        journal = Journal(self.maintenance_stage / 'intent.jsonl')
+        try:
+            journal.record(phase='confirmed_before_container_or_checkout_changes',
+                           manifest=m, original=evidence)
+        finally:
+            journal.close()
+        print('QA maintenance journal: ' + str(self.maintenance_stage))
 
-    def migrate(self):
-        self.run([PYTHON_PATH, '-I', '-m', 'alembic', '-c', 'alembic.ini', 'upgrade', TARGET],
-                 cwd=ROOT, env=self.environment)
-        self.sql('verify')
+    def prepare_database(self, m):
+        # One child owns both connections; retain its private recovery journal.
+        require(self.maintenance_stage is not None, 'Durable maintenance intent required')
+        stage = self.maintenance_stage
+        payload = {'confirmed_scope': 'qa_connection_gate_and_session_termination',
+                   'maintenance_database': m['maintenance_database'],
+                   'root': str(ROOT), 'journal': str(stage / 'maintenance.jsonl')}
+        tooling = str(Path(__file__).resolve().parents[1])
+        code = ('import sys,os,json; sys.path.insert(0,' + repr(tooling) + '); '
+                'from scripts.qa_maintenance import run; '
+                'sys.path.insert(0,' + repr(str(ROOT)) + '); run(json.load(sys.stdin),os.environ)')
+        self.run([PYTHON_PATH, '-I', '-c', code], env=self.environment,
+                 stdin=json.dumps(payload))
 
     def frontend(self, m):
         # Replace tracked frontend inputs only, never mounts/config/secrets/uploads.
@@ -284,11 +294,11 @@ def execute(m, driver, prompt, *, clock=time.monotonic):
     require(0 <= clock()-started <= 300, 'QA confirmation expired')
     # Repeat preflight after human delay; metadata changes invalidate consent.
     require(driver.preflight(m) == evidence, 'QA state changed after confirmation')
+    driver.record_maintenance_intent(m, evidence)
     try:
         driver.stop()
         driver.switch(m)
-        driver.reset_schema()
-        driver.migrate()
+        driver.prepare_database(m)
         driver.frontend(m)
         driver.start_and_check(m)
     except BaseException:

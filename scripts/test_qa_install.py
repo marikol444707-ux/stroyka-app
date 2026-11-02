@@ -13,7 +13,7 @@ def manifest():
     return dict(qa_only=True, database='stroyka_qa', container='stroyka-qa-db',
                 source_sha='a'*40, target_sha='b'*40, candidate_root=str(qa.ROOT),
                 frontend_root=qa.FRONTEND_VOLUME, discard_test_data=True,
-                other_writers_accounted_for=True)
+                maintenance_database='postgres')
 
 
 class QAInstallTests(unittest.TestCase):
@@ -31,17 +31,19 @@ class QAInstallTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 qa.routing_update('root * /srv/app\n',gateway,ports)
 
-    def test_driver_sql_only_sends_to_bound_child_not_current_process(self):
+    def test_database_preparation_is_one_bound_child(self):
         d=qa.LocalDriver()
         d.environment={'synthetic':'only'}
-        with patch.object(d,'run') as run:
-            d.sql('reset',('CREATE TABLE example(id int);',))
+        d.maintenance_stage=Path('/synthetic')
+        with tempfile.TemporaryDirectory() as folder, patch.object(qa.tempfile,'mkdtemp',return_value=folder), patch.object(d,'run') as run:
+            d.prepare_database(manifest())
+        self.assertEqual(run.call_count, 1)
         args=run.call_args.args[0]
         self.assertEqual(args[0],qa.PYTHON_PATH)
         ast.parse(args[-1])
         payload=json.loads(run.call_args.kwargs['stdin'])
-        self.assertEqual(payload['action'],'reset')
-        self.assertEqual(payload['statements'],['CREATE TABLE example(id int);'])
+        self.assertEqual(payload['maintenance_database'],'postgres')
+        self.assertEqual(payload['confirmed_scope'],'qa_connection_gate_and_session_termination')
 
     def test_plan_has_no_execution(self):
         self.assertFalse(qa.plan(manifest())['execution'])
@@ -58,15 +60,15 @@ class QAInstallTests(unittest.TestCase):
         d.preflight.return_value = {'same': True}
         out = qa.execute(manifest(), d, lambda _: qa.confirmation(manifest()))
         self.assertFalse(out['audit_complete'])
-        self.assertEqual([c[0] for c in d.mock_calls], ['preflight','preflight','stop','switch',
-                         'reset_schema','migrate','frontend','start_and_check'])
+        self.assertEqual([c[0] for c in d.mock_calls], ['preflight','preflight','record_maintenance_intent','stop','switch',
+                         'prepare_database','frontend','start_and_check'])
 
     def test_missing_confirmation_has_no_writes(self):
         d = MagicMock()
         with self.assertRaises(ValueError):
             qa.execute(manifest(), d, lambda _: '')
         d.stop.assert_not_called()
-        d.reset_schema.assert_not_called()
+        d.prepare_database.assert_not_called()
 
     def test_expired_confirmation_has_no_writes(self):
         d = MagicMock()
@@ -83,7 +85,7 @@ class QAInstallTests(unittest.TestCase):
         d.stop.assert_not_called()
 
     def test_each_failed_phase_stops_without_rollback(self):
-        phases = ['stop','switch','reset_schema','migrate','frontend','start_and_check']
+        phases = ['stop','switch','prepare_database','frontend','start_and_check']
         for i, phase in enumerate(phases):
             d = MagicMock()
             d.preflight.return_value = {}
@@ -113,8 +115,23 @@ class QAInstallTests(unittest.TestCase):
     def test_sql_and_command_scope_source(self):
         tree=ast.parse(Path(qa.__file__).read_text())
         text='\n'.join(n.value for n in ast.walk(tree) if isinstance(n,ast.Constant) and isinstance(n.value,str))
-        self.assertIn('DROP SCHEMA public CASCADE',text)
+        self.assertNotIn('DROP SCHEMA public CASCADE',text)
         self.assertNotIn('DROP DATABASE',text.replace('No DROP DATABASE',''))
         self.assertNotIn('docker run',text)
-        self.assertIn('Other QA sessions remain',text)
+        self.assertIn('qa_connection_gate_and_session_termination',text)
         self.assertIn('stroyka_qa',text)
+
+    def test_intent_failure_prevents_stops_and_switch(self):
+        d=MagicMock()
+        d.preflight.return_value={}
+        d.record_maintenance_intent.side_effect=OSError('synthetic journal failure')
+        with self.assertRaises(OSError):
+            qa.execute(manifest(),d,lambda _:qa.confirmation(manifest()))
+        d.stop.assert_not_called()
+        d.switch.assert_not_called()
+
+    def test_confirmation_names_access_change_and_termination(self):
+        phrase=qa.confirmation(manifest())
+        self.assertIn('CLOSE QA CONNECTIONS VIA postgres',phrase)
+        self.assertIn('TERMINATE OTHER stroyka_qa SESSIONS',phrase)
+        self.assertIn(manifest()['target_sha'],phrase)
