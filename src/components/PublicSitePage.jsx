@@ -98,7 +98,9 @@ const PublicSitePage = ({ onLogin }) => {
     ].filter(Boolean);
 
     const updateMobileActions = () => {
-      const isMobile = window.matchMedia('(max-width: 760px)').matches;
+      const isMobile = window.matchMedia
+        ? window.matchMedia('(max-width: 760px)').matches
+        : window.innerWidth <= 760;
       const passedHero = window.scrollY >= hero.offsetHeight;
       const formIsVisible = forms.some((section) => {
         const bounds = section.getBoundingClientRect();
