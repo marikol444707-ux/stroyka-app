@@ -95,6 +95,7 @@ def routing_update(static, gateway, ports):
 class LocalDriver:
     """Actual host operations; instantiated only after explicit execution selection."""
     def __init__(self):
+        self.diagnostics = None
         self.environment = None
         self.stage = None
         self.maintenance_stage = None
@@ -103,14 +104,32 @@ class LocalDriver:
         self.database_evidence = None
         self.frontend_environment = {}
 
-    def run(self, args, *, cwd=None, env=None, binary=False, stdin=None):
+    def run(self, args, *, cwd=None, env=None, binary=False, stdin=None, diagnostic_db=False):
+        d = self.diagnostics
+        if d:
+            d.child_index += 1
+            d.event('child_start', child_index=d.child_index, operation=(
+                'database_child' if diagnostic_db else
+                'git' if args[0] == 'git' else 'docker' if args[0] == 'docker' else
+                'python' if args[0] == PYTHON_PATH else 'other'))
+        completed = False
         try:
             r = subprocess.run(args, cwd=cwd, env=env, input=stdin,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 text=not binary, timeout=900, check=True)
+            completed = True
+            if d:
+                d.event('child_success', child_index=d.child_index)
             return r.stdout
-        except Exception:
-            raise RuntimeError('QA command failed; no raw output disclosed') from None
+        except Exception as error:
+            from scripts.qa_diagnostics import DiagnosticError, child_failure
+            details = child_failure(error, database=diagnostic_db)
+            if completed:
+                details['uncertain_outcome'] = True  # child finished but durable success recording failed
+            if d:
+                details['child_index'] = d.child_index
+                d.uncertain |= details['uncertain_outcome']
+            raise DiagnosticError(d.stage if d else 'preflight', details) from None
 
     def inspect(self, name, expression):
         return json.loads(self.run(['docker', 'inspect', '--format', expression, name]))
@@ -162,11 +181,12 @@ class LocalDriver:
         tooling = str(Path(__file__).resolve().parents[1])
         code = ('import sys,os,json; sys.path.insert(0,' + repr(tooling) + '); '
                 'from scripts.qa_maintenance import run; '
-                'print(json.dumps(run(json.load(sys.stdin),os.environ)))')
+                'from scripts.qa_diagnostics import child_entry; '
+                'child_entry(run,json.load(sys.stdin),os.environ)')
         payload = {'action': 'preflight', 'maintenance_database': m['maintenance_database'],
                    'root': str(ROOT), 'schema_root': tooling}
         return json.loads(self.run([PYTHON_PATH, '-I', '-c', code], env=self.environment,
-                                  stdin=json.dumps(payload)))
+                                  stdin=json.dumps(payload), diagnostic_db=True))
 
     def preflight(self, m):
         tooling = str(Path(__file__).resolve().parents[1])
@@ -253,6 +273,8 @@ class LocalDriver:
     def record_maintenance_intent(self, m, evidence):
         from scripts.qa_maintenance import Journal
         self.maintenance_stage = Path(tempfile.mkdtemp(prefix='stroyka-qa-maintenance-', dir='/opt'))
+        if self.diagnostics:
+            self.diagnostics.resource('maintenance', self.maintenance_stage)
         journal = Journal(self.maintenance_stage / 'intent.jsonl')
         try:
             journal.record(phase='confirmed_before_container_or_checkout_changes',
@@ -274,9 +296,10 @@ class LocalDriver:
         tooling = str(Path(__file__).resolve().parents[1])
         code = ('import sys,os,json; sys.path.insert(0,' + repr(tooling) + '); '
                 'from scripts.qa_maintenance import run; '
-                'run(json.load(sys.stdin),os.environ)')
+                'from scripts.qa_diagnostics import child_entry; '
+                'child_entry(run,json.load(sys.stdin),os.environ)')
         self.run([PYTHON_PATH, '-I', '-c', code], env=self.environment,
-                 stdin=json.dumps(payload))
+                 stdin=json.dumps(payload), diagnostic_db=True)
 
     def prepare_frontend(self, m):
         from scripts.qa_frontend_stage import FrontendStage
@@ -305,6 +328,8 @@ class LocalDriver:
         require(self.inspect('stroyka-qa-frontend', '{{json .State.Running}}') is False,
                 'Frontend writer remains active')
         destination = Path(tempfile.mkdtemp(prefix='qa-publish-', dir=volume))
+        if self.diagnostics:
+            self.diagnostics.resource('publication', destination)
         shutil.copytree(self.frontend_stage.host / 'build', destination / 'build')
         from scripts.qa_frontend_stage import digest
         require(digest(destination / 'build') == self.frontend_stage.hashes, 'Published copy changed')
@@ -330,6 +355,8 @@ class LocalDriver:
                     raise RuntimeError('QA health/version check failed') from None
                 time.sleep(1)
         config_backup = Path(tempfile.mkdtemp(prefix='stroyka-qa-config-before-', dir='/opt'))
+        if self.diagnostics:
+            self.diagnostics.resource('configuration_backup', config_backup)
         config_backup.chmod(0o700)
         # Keep bind-mounted inodes: replace contents only after backup and exact
         # before comparison. Never print Caddy contents or certificate material.
@@ -367,8 +394,18 @@ def execute(m, driver, prompt, *, clock=time.monotonic):
         driver.verify_frontend()
         driver.record_maintenance_intent(m, evidence)
         driver.accept_preparation()
-    except BaseException:
-        driver.discard_preparation()
+    except BaseException as error:
+        from scripts.qa_diagnostics import LoggedDriver, DiagnosticError, classify
+        original = error
+        if isinstance(driver, LoggedDriver) and not isinstance(error, DiagnosticError):
+            original = DiagnosticError(driver.diagnostics.stage, classify(error))
+        try:
+            driver.discard_preparation()
+        except BaseException:
+            # LoggedDriver records cleanup failure separately. Preserve primary error.
+            pass
+        if original is not error:
+            raise original from None
         raise
     try:
         driver.stop()
@@ -397,4 +434,26 @@ def command(args):
     def prompt(phrase):
         print('This replaces ONLY test data in stroyka_qa. Type exactly:\n' + phrase)
         return input('Confirmation: ').strip()
-    print(json.dumps(execute(m, LocalDriver(), prompt), indent=2))
+    from scripts.qa_diagnostics import Diagnostics, LoggedDriver, DiagnosticError, classify
+    validate_manifest(m)
+    diagnostics = Diagnostics()
+    def logged_prompt(phrase):
+        diagnostics.stage = 'confirmation'
+        diagnostics.event('start')
+        return prompt(phrase)
+    try:
+        print(json.dumps(execute(m, LoggedDriver(LocalDriver(), diagnostics), logged_prompt), indent=2))
+    except BaseException as error:
+        try:
+            safe = diagnostics.failure(error)
+        except Exception:
+            safe = error if isinstance(error, DiagnosticError) else DiagnosticError(diagnostics.stage, classify(error))
+        raise safe from None
+    finally:
+        import sys
+        active_error = sys.exc_info()[0] is not None
+        try:
+            diagnostics.close()
+        except Exception as error:
+            if not active_error:
+                raise DiagnosticError(diagnostics.stage, classify(error)) from None

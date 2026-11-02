@@ -60,6 +60,8 @@ class FrontendStage:
         require(d.inspect(CONTAINER, '{{json .State.Running}}') is True,
                 'Existing frontend builder must already be running; no automatic start')
         self.host = Path(tempfile.mkdtemp(prefix='stroyka-qa-prebuild-', dir='/opt'))
+        if getattr(d, 'diagnostics', None):
+            d.diagnostics.resource('host_staging', self.host)
         info = self.host.stat()
         self.host_identity = (info.st_dev, info.st_ino)
         source = self.host / 'source'
@@ -81,6 +83,8 @@ class FrontendStage:
         path = d.run(['docker', 'exec', CONTAINER, 'mktemp', '-d', '/tmp/stroyka-qa-prebuild.XXXXXXXXXX']).strip()
         require(re.fullmatch(r'/tmp/stroyka-qa-prebuild\.[A-Za-z0-9]{10}', path), 'Unexpected staging path')
         self.container_path = path
+        if getattr(d, 'diagnostics', None):
+            d.diagnostics.resource('container_staging', path)
         self.cleanup_safe = False
         d.run(['docker', 'cp', str(source) + '/.', CONTAINER + ':' + path])
         env = build_environment(environment)
@@ -101,7 +105,7 @@ class FrontendStage:
         # Exact resources allocated by this instance only; never unknown paths.
         if self.accepted:
             return
-        if not self.cleanup_safe:
+        if not self.cleanup_safe or (getattr(self.driver, 'diagnostics', None) and self.driver.diagnostics.uncertain):
             print('Uncertain builder outcome; retain owned staging for review: ' + str(self.host))
             return
         if self.container_path:
