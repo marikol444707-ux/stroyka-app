@@ -18,12 +18,13 @@ def manifest():
 
 class QAInstallTests(unittest.TestCase):
     def test_routing_change_preserves_other_routes(self):
-        static=':80 {\n root * /srv/app\n file_server\n}\n'
-        gateway=':80 {\n reverse_proxy stroyka-qa-backend:8000\n}\n# unrelated configuration\n'
-        a,b=qa.routing_update(static,gateway,{'8000/tcp':[{'HostPort':'8002'}]})
-        self.assertIn('root * /srv/app/build',a)
-        self.assertIn('reverse_proxy stroyka-qa-backend-candidate:8000',b)
-        self.assertIn('# unrelated configuration',b)
+        from scripts.test_qa_routing import GATEWAY, STATIC, MAIN, CANDIDATE
+        a,b=qa.routing_update(STATIC,GATEWAY,{'8001/tcp':[{'HostPort':'8002'}]})
+        self.assertEqual(a,STATIC)
+        self.assertEqual(b,GATEWAY.replace(MAIN,CANDIDATE))
+        old=STATIC.replace('/srv/app/build','/srv/app')
+        a,b=qa.routing_update(old,GATEWAY,{'8001/tcp':[{'HostPort':'8002'}]})
+        self.assertEqual(a,STATIC)
 
     def test_unknown_route_or_ports_rejected(self):
         for ports,gateway in [({},'reverse_proxy stroyka-qa-backend:8000\n'),
@@ -202,3 +203,24 @@ class QAInstallTests(unittest.TestCase):
         self.assertIn('--unshallow',fetch[0])
         self.assertIn('https://github.com/marikol444707-ux/stroyka-app.git',fetch[0])
         self.assertFalse(any('checkout' in c.args or '--force' in c.args for c in git_call.call_args_list))
+
+    def test_dryrun_and_confirmation_disclose_general_api_switch(self):
+        view=qa.plan(manifest())
+        self.assertFalse(view['execution'])
+        self.assertEqual(view['routing_change']['general_api'],'/api/*')
+        self.assertEqual(view['routing_change']['preserve_exact_canary'],'/api/users/qa-readonly-context/identity')
+        self.assertIn('SWITCH GENERAL /api/* FROM MAIN TO CANDIDATE',qa.confirmation(manifest()))
+        self.assertIn('PRESERVE EXACT IDENTITY CANARY',qa.confirmation(manifest()))
+
+    def test_config_reader_and_adapter_preserve_crlf_bytes(self):
+        from scripts.test_qa_routing import GATEWAY, STATIC, MAIN, CANDIDATE
+        with tempfile.TemporaryDirectory() as folder:
+            p=Path(folder)/'Caddyfile'
+            original=GATEWAY.replace('\n','\r\n').encode()
+            p.write_bytes(original)
+            read=qa.read_config_text(p)
+            self.assertEqual(read.encode(),original)
+            static=STATIC.replace('\n','\r\n')
+            a,b=qa.routing_update(static,read,{'8001/tcp':[{'HostPort':'8002'}]})
+            self.assertEqual(a,static)
+            self.assertEqual(b.encode(),original.replace(MAIN.encode(),CANDIDATE.encode()))

@@ -49,7 +49,7 @@ def validate_manifest(m):
 
 
 def confirmation(m):
-    return 'STOP QA BACKENDS/FRONTEND/GATEWAY; SWITCH CANDIDATE AND FRONTEND; UPDATE QA ROUTING; CLOSE QA CONNECTIONS VIA postgres; TERMINATE OTHER stroyka_qa SESSIONS; REPLACE stroyka_qa ON stroyka-qa-db WITH ' + m['target_sha']
+    return 'STOP QA BACKENDS/FRONTEND/GATEWAY; SWITCH CANDIDATE AND FRONTEND; SWITCH GENERAL /api/* FROM MAIN TO CANDIDATE; PRESERVE EXACT IDENTITY CANARY; UPDATE QA STATIC ROOT; CLOSE QA CONNECTIONS VIA postgres; TERMINATE OTHER stroyka_qa SESSIONS; REPLACE stroyka_qa ON stroyka-qa-db WITH ' + m['target_sha']
 
 
 def plan(m):
@@ -58,6 +58,10 @@ def plan(m):
                        'repeat_preflight', 'fresh_confirmation', 'stop_qa_writers',
                        'exclusive_schema_and_migrations', 'switch_candidate', 'publish_frontend', 'start_candidate',
                        'check_health_and_frontend', 'open_gateway'],
+            'routing_change': {'general_api': '/api/*', 'from': 'stroyka-qa-backend',
+                               'to': CANDIDATE,
+                               'preserve_exact_canary': '/api/users/qa-readonly-context/identity',
+                               'static_root': '/srv/app/build'},
             'old_backend_remains_stopped': True, 'automatic_rollback': False}
 
 
@@ -67,19 +71,24 @@ def check_version_environment(values, target):
             'Candidate version environment pins another version; no container reconfiguration is performed')
 
 
+def read_config_text(path):
+    # Preserve existing line endings, including the exact canary block.
+    with Path(path).open('r', encoding='utf-8', newline='') as source:
+        return source.read()
+
+
 def routing_update(static, gateway, ports):
-    roots = re.findall(r'(?m)^([ \t]*root\s+\*\s+)(/srv/app(?:/build)?)([ \t]*)$', static)
+    from scripts.qa_routing import validate_static
+    validate_static(static)
+    roots = re.findall(r'(?m)^([ \t]*root\s+\*\s+)(/srv/app(?:/build)?)([ \t]*\r?)$', static)
     require(len(roots) == 1, 'Static root is ambiguous or outside reviewed QA volume')
-    new_static = re.sub(r'(?m)^([ \t]*root\s+\*\s+)/srv/app(?:/build)?([ \t]*)$',
+    new_static = re.sub(r'(?m)^([ \t]*root\s+\*\s+)/srv/app(?:/build)?([ \t]*\r?)$',
                         r'\g<1>/srv/app/build\2', static)
-    active_gateway = '\n'.join(line.split('#', 1)[0] for line in gateway.splitlines())
-    upstreams = re.findall(r'(?m)^[ \t]*reverse_proxy\s+(stroyka-qa-backend(?:-candidate)?:\d+)[ \t]*$', active_gateway)
-    require(len(upstreams) == 1, 'QA backend route ambiguous')
     matches = [key.split('/')[0] for key, bindings in ports.items()
                if key.endswith('/tcp') and any(b.get('HostPort') == '8002' for b in (bindings or []))]
     require(len(matches) == 1 and matches[0].isdigit(), 'Candidate port mapping ambiguous')
-    new_gateway = re.sub(r'(?m)^([ \t]*reverse_proxy\s+)'+re.escape(upstreams[0])+r'([ \t]*)$',
-                        r'\g<1>'+CANDIDATE+':'+matches[0]+r'\2', gateway)
+    from scripts.qa_routing import adapt_dual_gateway
+    new_gateway = adapt_dual_gateway(gateway, matches[0])
     return new_static, new_gateway
 
 
@@ -205,8 +214,8 @@ class LocalDriver:
                  'import psycopg2,alembic,sqlalchemy,fastapi,pydantic')
         self.run([PYTHON_PATH, '-I', '-c', check], env=self.environment)
         # Verify known QA frontend routing before permitting any deletion.
-        static = Path('/tmp/stroyka-qa-static.Caddyfile').read_text()
-        gateway = Path('/opt/stroyka-qa-gateway/Caddyfile').read_text()
+        static = read_config_text('/tmp/stroyka-qa-static.Caddyfile')
+        gateway = read_config_text('/opt/stroyka-qa-gateway/Caddyfile')
         ports = self.inspect(CANDIDATE, '{{json .NetworkSettings.Ports}}')
         new_static, new_gateway = routing_update(static, gateway, ports)
         self.config_updates = {
@@ -326,7 +335,7 @@ class LocalDriver:
         # before comparison. Never print Caddy contents or certificate material.
         for i, (name, (before, after)) in enumerate(self.config_updates.items()):
             path = Path(name)
-            require(not path.is_symlink() and path.read_text() == before, 'QA config changed')
+            require(not path.is_symlink() and read_config_text(path) == before, 'QA config changed')
             saved = config_backup / str(i)
             saved.write_text(before)
             saved.chmod(0o600)

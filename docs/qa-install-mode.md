@@ -37,7 +37,7 @@ The top-level import chain is stdlib plus inert QA runtime/topology definitions.
    official npm registry lock entries are accepted. npm ci uses --ignore-scripts;
    builds needing additional install scripts fail before live changes.
    env -i excludes inherited secrets/proxies/API. Existing boolean REACT_APP flags
-   are preserved, other values rejected. API '/.' is root-relative to the same
+   are preserved, other values rejected. API '/api' uses the confirmed gateway prefix on the same
    origin and avoids src/api.js's localhost:8001 fallback. Existing dotenv files
    need explicit config review instead of silently losing their settings.
 4. Validate/digest build outputs and repeat preflight before and after fresh
@@ -78,3 +78,28 @@ actual permissions, restore after crash, npm build, Caddy, health or browser flo
 Another administrator actively reopening the gate is outside the exclusivity
 claim. Third-party systemd services/timers are not modified. This is deployment
 maintenance code, not permission to resume the previously blocked runtime audit.
+
+
+## Confirmed dual-route QA topology (local adaptation, not applied)
+
+The identity canary is an intentional separate route:
+`handle /api/users/qa-readonly-context/identity` with `uri strip_prefix /api`
+and `reverse_proxy stroyka-qa-backend-candidate:8001`. Preserve its entire text,
+comments, whitespace and line endings. Never call this endpoint as part of the
+installer or its tests.
+
+The general route is `handle_path /api/*` with exactly one literal upstream
+`stroyka-qa-backend:8001`. The fallback handle remains
+`stroyka-qa-static:3000`. The bounded parser requires this exact topology,
+rejects imports/snippets/named matchers, additional routing or multiple upstreams,
+and changes only the one general-route upstream to candidate:8001. This is a
+real change in API traffic destination, not a formatting correction. Dry-run
+reports it and fresh confirmation names it explicitly. Candidate port mapping
+must still agree with 8001 internally / 8002 on the host; drift fails closed.
+
+Static root is retained if already /srv/app/build; only the previously allowed
+/srv/app -> /srv/app/build change is supported. Header contents are neither
+rewritten nor disclosed. The frontend build must use REACT_APP_API_URL=/api so
+requests reach the same general API route; the previous '/.' assumption was
+incorrect for this now-confirmed QA topology. Other external/unrecognized API
+values are rejected before changes. No endpoint permission or role logic changes.

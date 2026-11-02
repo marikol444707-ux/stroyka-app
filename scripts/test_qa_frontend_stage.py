@@ -22,11 +22,11 @@ def archive(scripts=None, resolved='https://registry.npmjs.org/example/-/example
 
 
 class FrontendStageTests(unittest.TestCase):
-    def test_api_root_same_origin_even_on_localhost(self):
+    def test_api_uses_confirmed_gateway_prefix_even_on_localhost(self):
         env=build_environment({})
         for page in ('http://localhost:8080/app','https://qa.example/app/projects/'):
             self.assertEqual(urljoin(page,env['REACT_APP_API_URL']+'/projects'),
-                             page.split('/app')[0]+'/projects')
+                             page.split('/app')[0]+'/api/projects')
     def test_production_or_unknown_settings_rejected(self):
         for values in ({'REACT_APP_API_URL':'https://production.example'},
                        {'REACT_APP_TOKEN':'synthetic-secret'}, {'OTHER':'true'}):
@@ -57,7 +57,7 @@ class FrontendStageTests(unittest.TestCase):
             npm=[c for c in calls if 'npm' in c]
             self.assertEqual(len(npm),2)
             for c in npm:
-                self.assertIn('-i',c); self.assertIn('REACT_APP_API_URL=/.',c)
+                self.assertIn('-i',c); self.assertIn('REACT_APP_API_URL=/api',c)
             self.assertIn('--ignore-scripts',npm[0])
             (Path(folder)/'build/index.html').write_text('changed')
             with self.assertRaises(ValueError): stage.verify()

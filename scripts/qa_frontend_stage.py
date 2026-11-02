@@ -19,9 +19,9 @@ def require(ok, message):
 
 
 def build_environment(values):
-    require(values.get('REACT_APP_API_URL', '') in ('', '/.'), 'Frontend API must be same-origin for this QA mode')
+    require(values.get('REACT_APP_API_URL', '') in ('', '/api'), 'Frontend API must use the confirmed same-origin /api QA route')
     result = {'PATH': '/usr/local/bin:/usr/bin:/bin', 'CI': 'true',
-              'REACT_APP_API_URL': '/.', 'PUBLIC_URL': '',
+              'REACT_APP_API_URL': '/api', 'PUBLIC_URL': '',
               'NPM_CONFIG_USERCONFIG': '/dev/null', 'NPM_CONFIG_GLOBALCONFIG': '/dev/null',
               'NPM_CONFIG_REGISTRY': 'https://registry.npmjs.org/'}
     for key, value in values.items():
