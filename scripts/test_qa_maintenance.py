@@ -182,3 +182,86 @@ class MaintenanceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             preflight_connections(self.c,self.w,service_database='postgres',expected_host='172.18.0.2')
         self.assertTrue(self.c.allow)
+
+
+class ParameterDispatchConnection(Connection):
+    """Model SQLAlchemy's omitted-parameter {} and DBAPI formatting branch.
+
+    No driver, SQL execution or database connection. The formatter rejects literal
+    percent with a parameter object, instead of silently accepting every string.
+    """
+    def __init__(self, name, pid, *, drop_option=False):
+        super().__init__(name, pid)
+        self.dispatches = []
+        self.drop_option = drop_option
+
+    def exec_driver_sql(self, sql, params=None, **kwargs):
+        effective = {} if params is None else params
+        no_parameters = kwargs.get('execution_options', {}).get('no_parameters', False)
+        if self.drop_option:
+            no_parameters = False
+        arguments = (sql,) if no_parameters and not effective else (sql, effective)
+        self.dispatches.append(arguments)
+        if len(arguments) == 2:
+            # Models the formatter trigger, not the exact psycopg2 error wording.
+            sql % effective
+        return super().exec_driver_sql(sql, params, **kwargs)
+
+
+class PercentDispatchRegressionTests(unittest.TestCase):
+    def connections(self, *, drop_option=False):
+        return (ParameterDispatchConnection('postgres', 1),
+                ParameterDispatchConnection('stroyka_qa', 2, drop_option=drop_option))
+
+    def preflight(self, c, w):
+        from scripts.qa_maintenance import preflight_connections
+        return preflight_connections(c, w, service_database='postgres', expected_host='172.18.0.2')
+
+    def maintenance(self, c, w):
+        return maintain(c, w, service_database='postgres', expected_host='172.18.0.2',
+                        statements=("SELECT 'synthetic%literal'",), upgrade=MagicMock(), journal=MagicMock())
+
+    def test_old_dispatch_fails_in_both_catalog_checks(self):
+        for operation in (self.preflight, self.maintenance):
+            with self.subTest(operation=operation.__name__):
+                c, w = self.connections(drop_option=True)
+                with self.assertRaises((ValueError, TypeError)):
+                    operation(c, w)
+                self.assertIn("NOT LIKE 'pg_%'", w.dispatches[-1][0])
+                self.assertEqual(w.dispatches[-1][1], {})
+                self.assertFalse(any('DROP SCHEMA' in args[0] for args in w.dispatches))
+
+    def test_preflight_catalog_omits_dbapi_parameters_only_per_query(self):
+        c, w = self.connections()
+        self.preflight(c, w)
+        catalog = [args for args in w.dispatches if 'pg_namespace' in args[0]]
+        self.assertEqual(len(catalog), 1)
+        self.assertEqual(len(catalog[0]), 1)
+        self.assertTrue(any(len(args) == 2 and args[1] == (50, 'stroyka_qa') for args in c.dispatches))
+        self.assertTrue(any(len(args) == 2 and args[1] == {} for args in w.dispatches))
+
+    def test_maintenance_catalog_and_schema_batch_omit_parameters(self):
+        c, w = self.connections()
+        self.maintenance(c, w)
+        percent_calls = [args for args in w.dispatches if '%' in args[0]]
+        self.assertEqual(len(percent_calls), 2)
+        self.assertTrue(all(len(args) == 1 for args in percent_calls))
+        self.assertTrue(any(len(args) == 2 and args[1] == ('stroyka_qa',) for args in c.dispatches))
+        w.tx.commit.assert_called_once()
+
+    def test_static_literal_percent_scan_in_qa_tooling(self):
+        checked = []
+        for path in sorted(Path('scripts').glob('qa_*.py')):
+            for node in ast.walk(ast.parse(path.read_text())):
+                if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                        and node.func.attr == 'exec_driver_sql' and node.args
+                        and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str)):
+                    continue
+                sql = node.args[0].value
+                if '%' not in sql or len(node.args) > 1:
+                    continue
+                options = next((k.value for k in node.keywords if k.arg == 'execution_options'), None)
+                self.assertIsNotNone(options, f'{path}:{node.lineno}')
+                self.assertIs(ast.literal_eval(options).get('no_parameters'), True)
+                checked.append((str(path), node.lineno))
+        self.assertEqual(len(checked), 2)

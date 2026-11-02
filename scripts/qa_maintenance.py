@@ -60,7 +60,8 @@ def preflight_connections(control, work, *, service_database, expected_host):
                 'Prepared QA transactions')
         require(control.exec_driver_sql('SELECT count(*) FROM pg_subscription WHERE subdbid=%s', (w[1],)).scalar() == 0,
                 'QA subscriptions')
-        require(work.exec_driver_sql("SELECT count(*) FROM pg_namespace WHERE nspname NOT IN ('public','information_schema') AND nspname NOT LIKE 'pg_%'").scalar() == 0,
+        require(work.exec_driver_sql("SELECT count(*) FROM pg_namespace WHERE nspname NOT IN ('public','information_schema') AND nspname NOT LIKE 'pg_%'",
+                    execution_options={'no_parameters': True}).scalar() == 0,
                 'Unexpected schema')
         require(work.exec_driver_sql("SELECT count(*) FROM pg_extension WHERE extname<>'plpgsql'").scalar() == 0,
                 'Unexpected extension')
@@ -124,7 +125,8 @@ def maintain(control, work, *, service_database, expected_host, statements, upgr
         try:
             work.exec_driver_sql('SET LOCAL lock_timeout = \'5s\'')
             work.exec_driver_sql('SET LOCAL statement_timeout = \'120s\'')
-            require(work.exec_driver_sql("SELECT count(*) FROM pg_namespace WHERE nspname NOT IN ('public','information_schema') AND nspname NOT LIKE 'pg_%'").scalar() == 0,
+            require(work.exec_driver_sql("SELECT count(*) FROM pg_namespace WHERE nspname NOT IN ('public','information_schema') AND nspname NOT LIKE 'pg_%'",
+                    execution_options={'no_parameters': True}).scalar() == 0,
                     'Unexpected schema')
             require(work.exec_driver_sql("SELECT count(*) FROM pg_extension WHERE extname<>'plpgsql'").scalar() == 0,
                     'Unexpected extension')
