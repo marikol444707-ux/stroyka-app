@@ -5,6 +5,7 @@ An absent/invalid optional policy never replaces the existing v2 tool. Installer
 preflight must validate both protected host and gateway policies explicitly.
 """
 import os
+import json
 from pathlib import Path
 
 from .tool import NAME,SCHEMA,handler,bind_live_gateway
@@ -41,6 +42,11 @@ def handle(args,**_ignored):
         return {'queued':False,'reason':'commercial_gateway_not_ready'}
 
 
+def dispatch(args,**kwargs):
+    """Keep the internal result structured; serialize at the Hermes boundary."""
+    return json.dumps(handle(args,**kwargs),ensure_ascii=False,allow_nan=False)
+
+
 def register_if_configured(registry):
     try:
         POLICY.lstat()
@@ -49,6 +55,6 @@ def register_if_configured(registry):
         return False
     with registry._lock:
         if registry.get_entry(NAME,scope=SCOPE) is not None:return False
-        registry.register(name=NAME,toolset='hermes-telegram',schema=SCHEMA,handler=handle,
+        registry.register(name=NAME,toolset='jev',schema=SCHEMA,handler=dispatch,
                           scope=SCOPE,override=False,execution_timeout=5)
     return True

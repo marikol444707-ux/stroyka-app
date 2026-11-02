@@ -1,4 +1,5 @@
 """Explicit, key-free Hermes tool binding. Not auto-registered or installed."""
+import json
 from ..admission_broker import BrokerClient, BrokerGatewayRuntime
 
 NAME='jev_direct_commercial_search'
@@ -51,8 +52,10 @@ def register(registry,gateway,*,scope):
     """Call only from reviewed protected startup, never from model tools."""
     if scope!='/opt/data':raise ValueError('reviewed_registry_scope_required')
     execute=handler(gateway)
+    def dispatch(args,**kwargs):
+        return json.dumps(execute(args,**kwargs),ensure_ascii=False,allow_nan=False)
     with registry._lock:
         if registry.get_entry(NAME,scope=scope) is not None:
             raise ValueError('existing_commercial_registration_preserved')
-        registry.register(name=NAME,toolset='hermes-telegram',schema=SCHEMA,handler=execute,
+        registry.register(name=NAME,toolset='jev',schema=SCHEMA,handler=dispatch,
                           scope=scope,override=False,execution_timeout=5)

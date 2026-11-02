@@ -209,7 +209,8 @@ class BridgeTests(unittest.TestCase):
         register(Registry(),gateway,scope='/opt/data')
         self.assertNotIn('jev_tender_search',entries)
         with patch.object(BrokerClient,'submit',return_value={'queued':True}) as submit:
-            self.assertTrue(entries[NAME]['handler']({'request_json':self.raw.decode()})['queued'])
+            result=entries[NAME]['handler']({'request_json':self.raw.decode()})
+            self.assertIsInstance(result,str);self.assertTrue(json.loads(result)['queued'])
         submit.assert_called_once()
 
 

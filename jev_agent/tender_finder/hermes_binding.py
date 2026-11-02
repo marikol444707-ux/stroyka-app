@@ -7,6 +7,7 @@ tools running as that same identity; that deployment requirement remains open.
 """
 import dataclasses
 import hashlib
+import json
 import os
 from pathlib import Path
 import sys
@@ -165,7 +166,10 @@ def register_broker_tool(runner,owner,socket_path,*,registry_scope):
     with registry._lock:
         if registry.get_entry(name,scope=registry_scope) is not None:
             raise RuntimeMismatch('existing_jev_registration_preserved')
-        registry.register(name=name,toolset='jev',schema=schema,handler=submit_handler(runtime),
+        execute=submit_handler(runtime)
+        def dispatch(args,**kwargs):
+            return json.dumps(execute(args,**kwargs),ensure_ascii=False,allow_nan=False)
+        registry.register(name=name,toolset='jev',schema=schema,handler=dispatch,
                           scope=registry_scope,override=False,execution_timeout=5)
     return {'registered':True,'tool_name':name,'key_in_gateway':False,'search_executed':False}
 

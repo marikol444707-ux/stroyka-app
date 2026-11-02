@@ -115,6 +115,8 @@ jobs:
         run: python -B -m jev_agent.tender_finder.commercial.verify_document_sandbox
       - name: Verify native JEV commercial copied Python runtime
         run: python -B -m scripts.verify_jev_commercial_runtime
+      - name: Verify JEV exposure in pinned Hermes registry and resolver
+        run: python -B -m scripts.verify_jev_tool_exposure
       - name: Verify native JEV systemd socket credentials
         run: sudo python3 -B -m scripts.verify_jev_systemd_credentials
       - name: Run backend tests

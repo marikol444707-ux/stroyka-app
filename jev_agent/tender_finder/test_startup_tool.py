@@ -20,6 +20,13 @@ from .state import Scope
 
 
 class StartupToolTests(unittest.TestCase):
+    def test_registry_boundary_returns_json_string_without_changing_acknowledgement(self):
+        expected={'queued':False,'reason':'jev_gateway_not_ready'}
+        with patch.object(startup_tool,'handle',return_value=expected) as handle:
+            result=startup_tool.dispatch({'request_json':'{}'},session_id='ignored')
+        self.assertIsInstance(result,str);self.assertEqual(json.loads(result),expected)
+        handle.assert_called_once_with({'request_json':'{}'},session_id='ignored')
+
     def test_host_bootstrap_checks_actual_source_leaves_before_imports(self):
         # Extract the standalone bootstrap guard without running the root-only
         # launcher. Test its real filesystem operations as our fixture UID.
@@ -90,8 +97,8 @@ print('PACKAGE_ISOLATED')
         startup_tool.StartupRegistration(registry).register()
         kwargs=registry.register.call_args.kwargs
         self.assertEqual(kwargs['name'],'jev_tender_search');self.assertEqual(kwargs['scope'],'/opt/data')
-        self.assertEqual(kwargs['toolset'],'hermes-telegram')
-        self.assertFalse(kwargs['override']);self.assertIs(kwargs['handler'],startup_tool.handle)
+        self.assertEqual(kwargs['toolset'],'jev')
+        self.assertFalse(kwargs['override']);self.assertIs(kwargs['handler'],startup_tool.dispatch)
         registry.get_entry.return_value=object();registry.register.reset_mock()
         with self.assertRaises(ValueError):startup_tool.StartupRegistration(registry).register()
         registry.register.assert_not_called()

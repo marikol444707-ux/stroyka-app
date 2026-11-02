@@ -6,13 +6,14 @@ on an actual tool call, avoiding a gateway import cycle during startup. No key,
 credential generation, service start, search or send happens on module import.
 """
 import os
+import json
 from pathlib import Path
 
 from .hermes_binding import bind_broker_gateway, submit_handler, verified_loaded_modules
 from .settings import load_settings
 
 NAME='jev_tender_search'
-TOOLSET='hermes-telegram'
+TOOLSET='jev'
 SCOPE='/opt/data'
 SOCKET='/run/stroyka-jev/admission.sock'
 POLICY=Path('/opt/stroyka-jev/config/bridge.json')
@@ -40,6 +41,11 @@ def handle(args,**_ignored):
         return {'queued':False,'reason':'jev_gateway_not_ready'}
 
 
+def dispatch(args,**kwargs):
+    """Hermes registry accepts a JSON string, not a plain dictionary result."""
+    return json.dumps(handle(args,**kwargs),ensure_ascii=False,allow_nan=False)
+
+
 class StartupRegistration:
     """AST-visible registry.register() wrapper with atomic collision prevention.
 
@@ -53,9 +59,9 @@ class StartupRegistration:
         with self._registry._lock:
             if self._registry.get_entry(NAME,scope=SCOPE) is not None:
                 raise ValueError('existing_jev_registration_preserved')
-            # The pinned Telegram bundle merges registry entries registered
-            # under its own name. A separate 'jev' group is not in that bundle.
-            self._registry.register(name=NAME,toolset=TOOLSET,schema=SCHEMA,handler=handle,
+            # Platform bundles are reverse-mapped into configurable groups by
+            # Hermes. A dedicated group needs an explicit Telegram opt-in.
+            self._registry.register(name=NAME,toolset=TOOLSET,schema=SCHEMA,handler=dispatch,
                                     scope=SCOPE,override=False,execution_timeout=5)
         from .commercial.startup_tool import register_if_configured
         register_if_configured(self._registry)

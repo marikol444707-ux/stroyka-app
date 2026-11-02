@@ -17,6 +17,12 @@ from ..state import StorageError
 
 
 class GatewayStartupTests(unittest.TestCase):
+    def test_registry_boundary_serializes_both_queued_and_refused_results(self):
+        for expected in ({'queued':True,'search_executed':False},{'queued':False,'reason':'commercial_gateway_not_ready'}):
+            with patch.object(startup_tool,'handle',return_value=expected):
+                result=startup_tool.dispatch({'request_json':'{}'})
+            self.assertIsInstance(result,str);self.assertEqual(json.loads(result),expected)
+
     def registry(self):
         return SimpleNamespace(_lock=threading.RLock(),get_entry=Mock(return_value=None),register=Mock())
 
@@ -40,7 +46,8 @@ class GatewayStartupTests(unittest.TestCase):
             legacy_startup.StartupRegistration(registry).register()
         self.assertEqual([call.kwargs['name'] for call in registry.register.call_args_list],
                          [legacy_startup.NAME,startup_tool.NAME])
-        self.assertIs(registry.register.call_args.kwargs['handler'],startup_tool.handle)
+        self.assertIs(registry.register.call_args.kwargs['handler'],startup_tool.dispatch)
+        self.assertEqual(registry.register.call_args.kwargs['toolset'],'jev')
         self.assertFalse(registry.register.call_args.kwargs['override']);bind.assert_not_called()
 
     def test_existing_commercial_registration_is_never_overwritten(self):
