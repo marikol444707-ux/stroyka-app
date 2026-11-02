@@ -42,7 +42,7 @@ class ActivationTests(unittest.TestCase):
         self.old_units={operator.OLD[0]:b'old socket fixture',operator.OLD[1]:b'old service fixture'}
         for name,raw in self.old_units.items():self.put('/etc/systemd/system/'+name,raw)
         legacy,_=policies();prepared={k:v.encode() for k,v in review_files(parse_settings(legacy)).items()}
-        self.identifier='c'*64;self.running=True;self.calls=[];self.fail_enable=False;self.hang_stop=False
+        self.identifier='c'*64;self.running=True;self.calls=[];self.fail_enable=False;self.hang_stop=False;self.stop_signal='SIGTERM'
         self.units={name:{'ActiveState':'active','UnitFileState':'enabled'} for name in operator.OLD}
         self.bundle={'stage':self.stage,'previous':{k:operator.sha(v) for k,v in self.previous.items()},
             'candidate':{k:operator.sha(v) for k,v in self.candidate.items()},'prepared':prepared,
@@ -80,7 +80,7 @@ class ActivationTests(unittest.TestCase):
             if operation=='daemon-reload':return b''
         if args[0]=='/usr/bin/docker':
             if 'inspect' in args:
-                if args[-2]=='{{json .Config.StopSignal}}':return b'"SIGTERM"'
+                if args[-2]=='{{json .Config.StopSignal}}':return json.dumps(self.stop_signal).encode()
                 return json.dumps(self.running).encode()
             if 'stop' in args:
                 self.assertIn('--timeout=-1',args)
@@ -181,6 +181,13 @@ class ActivationTests(unittest.TestCase):
         self.activation.provision=provision
         with self.assertRaisesRegex(ValueError,'existing_owner_policy_changed'):self.activation.apply()
         self.assertFalse(self.activation.state()['maintenance'])
+        self.assertFalse(any(args[:2]==('/usr/bin/systemctl','stop') for args in self.calls))
+
+    def test_unreviewed_container_stop_signal_is_rejected_before_downtime_or_new_files(self):
+        self.stop_signal='SIGQUIT'
+        with self.assertRaisesRegex(ValueError,'reviewed_term_stop_signal'):self.activation.apply()
+        self.assertFalse(self.activation.journal.exists())
+        self.assertFalse(self.path('/opt/stroyka-jev-commercial').exists())
         self.assertFalse(any(args[:2]==('/usr/bin/systemctl','stop') for args in self.calls))
 
 

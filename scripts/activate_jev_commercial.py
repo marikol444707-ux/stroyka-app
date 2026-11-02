@@ -345,11 +345,15 @@ class Activation:
         if type(value) is not bool:raise ValueError('container_state_required')
         return value
 
+    def validate_stop_signal(self,identifier):
+        if not re.fullmatch('[a-f0-9]{64}',identifier):raise ValueError('fixed_container_identity_required')
+        raw=self.run('/usr/bin/docker','--host=unix:///var/run/docker.sock','inspect','--format','{{json .Config.StopSignal}}',identifier)
+        if json.loads(raw) not in (None,'','SIGTERM','15'):raise ValueError('reviewed_term_stop_signal_required')
+
     def stop_container(self,state):
         state['container_stop_intent']=True;self.save(state)
         if self.container_running(state['container']):
-            raw=self.run('/usr/bin/docker','--host=unix:///var/run/docker.sock','inspect','--format','{{json .Config.StopSignal}}',state['container'])
-            if json.loads(raw) not in (None,'','SIGTERM','15'):raise ValueError('reviewed_term_stop_signal_required')
+            self.validate_stop_signal(state['container'])
             # An explicit stop suppresses unless-stopped restarts. -1 instructs
             # the daemon to wait forever: a CLI timeout must NOT become SIGKILL.
             self.run('/usr/bin/docker','--host=unix:///var/run/docker.sock','stop','--timeout=-1',state['container'])
@@ -383,7 +387,7 @@ class Activation:
 
     def apply(self):
         if self.journal.exists():raise ValueError('existing_activation_requires_rollback_review')
-        self.validate_old();identifier=self.bundle['container']()
+        self.validate_old();identifier=self.bundle['container']();self.validate_stop_signal(identifier)
         state={'format':1,'payload':PAYLOAD,'phase':'provisioning','container':identifier,
             'intents':[],'maintenance':False,'container_stop_intent':False,'new_units_intent':False,
             'backups':{},'legacy_hash':self.bundle['legacy_hash'],'step':'wheel_download','failed_step':None}
@@ -394,6 +398,7 @@ class Activation:
             # Recheck mutable inputs after dependency download/provisioning.
             self.bundle['installed'](self.path('/opt/stroyka-jev/app'),self.bundle['previous'],uid=self.uid,trusted_root=self.root)
             if self.bundle['container']()!=identifier:raise ValueError('container_changed_before_maintenance')
+            self.validate_stop_signal(identifier)
             self.validate_existing_policies_and_units();self.bundle['peer']()
             self.step(state,'source_backup')
             self.backup.mkdir(mode=0o700)
