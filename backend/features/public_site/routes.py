@@ -564,7 +564,7 @@ def register_public_site_routes(app, deps):
     def create_site_lead(
         data: dict,
         request: Request,
-        background_tasks: BackgroundTasks,
+        background_tasks: BackgroundTasks = None,
     ):
         lead_owner = resolve_public_lead_owner(public_site_company_id)
         client_ip = _public_client_ip(request)
