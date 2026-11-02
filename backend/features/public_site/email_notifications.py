@@ -48,7 +48,7 @@ class LeadEmailNotifier:
             issues.append("smtp_port_invalid")
         # The shared _send_email helper requires SMTP_FROM; do not report the
         # notifier as ready when the transport will reject the message.
-        sender = str(env.get("SMTP_FROM", "") or "").strip()
+        sender = str(env.get("SMTP_FROM", "") or env.get("SMTP_USER", "") or "").strip()
         if not _valid_email(sender):
             issues.append("smtp_sender_missing_or_invalid")
         smtp_user = str(env.get("SMTP_USER", "") or "").strip()

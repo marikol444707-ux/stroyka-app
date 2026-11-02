@@ -31,6 +31,50 @@ def _storage_config():
     }
 
 
+def _file_is_retained(file_row):
+    return bool(file_row[5])
+
+
+def _restore_file_states(cur, file_rows):
+    for row in file_rows:
+        ownership_id, _file_url, _storage_key, previous_status, company_id, _retained_at, previous_error, previous_requested_at = row
+        cur.execute(
+            """UPDATE file_ownership
+                  SET deletion_status=%s,deletion_error=%s,deletion_requested_at=%s
+                WHERE id=%s AND company_id=%s AND deletion_status='deleting'""",
+            (previous_status, previous_error, previous_requested_at, ownership_id, company_id),
+        )
+
+
+def _fetch_candidate_page(cur, limit, after=None):
+    cursor_filter = ""
+    params = []
+    if after:
+        cursor_filter = "AND (privacy_last_activity_at,id) > (%s,%s)"
+        params.extend((after[0], after[1]))
+    params.append(limit)
+    cur.execute(
+        f"""SELECT id,privacy_last_activity_at FROM crm_leads
+             WHERE public_site_origin IS TRUE
+               AND privacy_last_activity_at <= NOW() - INTERVAL '12 months'
+               AND project_id IS NULL AND estimate_id IS NULL
+               AND COALESCE(stage,'') IN ('Новый','Новая','Новая заявка','На проверке')
+               {cursor_filter}
+             ORDER BY privacy_last_activity_at,id LIMIT %s""",
+        tuple(params),
+    )
+    return cur.fetchall()
+
+
+def _delete_upload_metadata(cur, company_id, lead_id):
+    cur.execute("SELECT to_regclass('public.public_lead_uploads')")
+    if cur.fetchone()[0]:
+        cur.execute(
+            "DELETE FROM public_lead_uploads WHERE company_id=%s AND lead_id=%s",
+            (company_id, lead_id),
+        )
+
+
 def _eligible(cur, lead_id):
     cur.execute(
         """SELECT id,company_id,project_id,estimate_id,stage
@@ -71,13 +115,16 @@ def _eligible(cur, lead_id):
             return None, "unmanaged_document_preserved"
         ownership_id = int(match.group(1))
         cur.execute(
-            """SELECT id,file_url,storage_key,deletion_status,company_id
+            """SELECT id,file_url,storage_key,deletion_status,company_id,
+                      to_jsonb(file_ownership)->>'retained_at',deletion_error,deletion_requested_at
                  FROM file_ownership WHERE id=%s AND company_id=%s FOR UPDATE""",
             (ownership_id, lead[1]),
         )
         ownership = cur.fetchone()
         if not ownership:
             return None, "file_owner_missing"
+        if _file_is_retained(ownership):
+            return None, "retained_file_preserved"
         cur.execute("SELECT COUNT(*) FROM crm_lead_documents WHERE file_url=%s", (url,))
         if cur.fetchone()[0] != 1:
             return None, "shared_file_preserved"
@@ -123,77 +170,95 @@ def main():
             if not cur.fetchone()[0]:
                 raise RuntimeError("retention_job_already_running")
             lock_acquired = True
-            cur.execute(
-                """SELECT id FROM crm_leads
-                    WHERE public_site_origin IS TRUE
-                      AND privacy_last_activity_at <= NOW() - INTERVAL '12 months'
-                      AND project_id IS NULL AND estimate_id IS NULL
-                      AND COALESCE(stage,'') IN ('Новый','Новая','Новая заявка','На проверке')
-                    ORDER BY privacy_last_activity_at,id LIMIT %s""",
-                (limit,),
-            )
-            ids = [row[0] for row in cur.fetchall()]
             conn.commit()
 
-        for lead_id in ids:
-            try:
-                with conn.cursor() as cur:
-                    cur.execute("SET LOCAL statement_timeout='60s'")
-                    candidate, state = _eligible(cur, lead_id)
-                    if not candidate:
-                        conn.rollback()
-                        summary["preserved"][state] = summary["preserved"].get(state, 0) + 1
-                        continue
-                    summary["eligible"] += 1
-                    if not args.apply:
-                        conn.rollback()
-                        continue
+        after = None
+        stop = False
+        while not stop:
+            with conn.cursor() as page_cur:
+                page_cur.execute("SET LOCAL statement_timeout='60s'")
+                page = _fetch_candidate_page(page_cur, limit, after)
+                conn.commit()
+            if not page:
+                break
+            for lead_id, activity_at in page:
+                after = (activity_at, lead_id)
+                try:
+                    with conn.cursor() as cur:
+                        cur.execute("SET LOCAL statement_timeout='60s'")
+                        candidate, state = _eligible(cur, lead_id)
+                        if not candidate:
+                            conn.rollback()
+                            summary["preserved"][state] = summary["preserved"].get(state, 0) + 1
+                            continue
+                        summary["eligible"] += 1
+                        if not args.apply:
+                            conn.rollback()
+                            if summary["eligible"] >= limit:
+                                stop = True
+                                break
+                            continue
 
-                    file_ids = [row[0] for row in candidate["files"]]
-                    if file_ids:
-                        cur.execute(
-                            "UPDATE file_ownership SET deletion_status='deleting',deletion_error=NULL,deletion_requested_at=NOW() WHERE id=ANY(%s)",
-                            (file_ids,),
-                        )
-                    conn.commit()
-
-                    # Lock the eligible lead again and retain that lock through storage cleanup.
-                    # CRM edits and child-record changes therefore cannot race the purge.
-                    cur.execute("SET LOCAL statement_timeout='60s'")
-                    candidate, state = _eligible(cur, lead_id)
-                    if not candidate:
-                        conn.rollback()
-                        summary["preserved"][state] = summary["preserved"].get(state, 0) + 1
-                        continue
-                    deleted_files = []
-                    try:
-                        for file_row in candidate["files"]:
-                            deleted_files.append(_remove_file(file_row, storage))
-                    except Exception:
-                        conn.rollback()
-                        summary["storageCleanupFailed"] += 1
-                        with conn.cursor() as failed_cur:
-                            failed_cur.execute("SET LOCAL statement_timeout='15s'")
-                            if file_ids:
-                                failed_cur.execute(
-                                    "UPDATE file_ownership SET deletion_status='cleanup_failed',deletion_error='retention_storage_cleanup_failed' WHERE id=ANY(%s)",
-                                    (file_ids,),
-                                )
+                        staged_files = candidate["files"]
+                        file_ids = [row[0] for row in staged_files]
+                        if file_ids:
+                            cur.execute(
+                                "UPDATE file_ownership SET deletion_status='deleting',deletion_error=NULL,deletion_requested_at=NOW() WHERE id=ANY(%s)",
+                                (file_ids,),
+                            )
                         conn.commit()
-                        continue
 
-                    if deleted_files:
-                        cur.execute(
-                            "DELETE FROM file_ownership WHERE id=ANY(%s)", (deleted_files,)
-                        )
-                    cur.execute("DELETE FROM crm_lead_documents WHERE lead_id=%s", (lead_id,))
-                    cur.execute("DELETE FROM crm_lead_tasks WHERE lead_id=%s", (lead_id,))
-                    cur.execute("DELETE FROM crm_leads WHERE id=%s", (lead_id,))
-                    conn.commit()
-                    summary["deleted"] += 1
-            except Exception:
-                conn.rollback()
-                summary["preserved"]["processing_error"] = summary["preserved"].get("processing_error", 0) + 1
+                        # Revalidate after marking files. If the lead changed while the
+                        # storage marker was committed, restore each pre-existing state.
+                        cur.execute("SET LOCAL statement_timeout='60s'")
+                        candidate, state = _eligible(cur, lead_id)
+                        if not candidate:
+                            _restore_file_states(cur, staged_files)
+                            conn.commit()
+                            summary["preserved"][state] = summary["preserved"].get(state, 0) + 1
+                            if summary["eligible"] >= limit:
+                                stop = True
+                                break
+                            continue
+                        deleted_files = []
+                        try:
+                            for file_row in candidate["files"]:
+                                deleted_files.append(_remove_file(file_row, storage))
+                        except Exception:
+                            conn.rollback()
+                            summary["storageCleanupFailed"] += 1
+                            with conn.cursor() as failed_cur:
+                                failed_cur.execute("SET LOCAL statement_timeout='15s'")
+                                if file_ids:
+                                    failed_cur.execute(
+                                        "UPDATE file_ownership SET deletion_status='cleanup_failed',deletion_error='retention_storage_cleanup_failed' WHERE id=ANY(%s)",
+                                        (file_ids,),
+                                    )
+                            conn.commit()
+                            if summary["eligible"] >= limit:
+                                stop = True
+                                break
+                            continue
+
+                        if deleted_files:
+                            cur.execute(
+                                "DELETE FROM file_ownership WHERE id=ANY(%s)", (deleted_files,)
+                            )
+                        cur.execute("DELETE FROM crm_lead_documents WHERE lead_id=%s", (lead_id,))
+                        cur.execute("DELETE FROM crm_lead_tasks WHERE lead_id=%s", (lead_id,))
+                        _delete_upload_metadata(cur, candidate["lead"][1], lead_id)
+                        cur.execute("DELETE FROM crm_leads WHERE id=%s", (lead_id,))
+                        conn.commit()
+                        summary["deleted"] += 1
+                        if summary["eligible"] >= limit:
+                            stop = True
+                            break
+                except Exception:
+                    conn.rollback()
+                    summary["preserved"]["processing_error"] = summary["preserved"].get("processing_error", 0) + 1
+                    if summary["eligible"] >= limit:
+                        stop = True
+                        break
         print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
         if summary["storageCleanupFailed"] or summary["preserved"].get("processing_error"):
             raise SystemExit(1)
