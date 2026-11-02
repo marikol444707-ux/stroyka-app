@@ -224,3 +224,9 @@ class QAInstallTests(unittest.TestCase):
             a,b=qa.routing_update(static,read,{'8001/tcp':[{'HostPort':'8002'}]})
             self.assertEqual(a,static)
             self.assertEqual(b.encode(),original.replace(MAIN.encode(),CANDIDATE.encode()))
+
+    def test_routing_preflight_accepts_observed_global_gateway_and_plain_static(self):
+        from scripts.test_qa_routing import KNOWN_LINE_GLOBAL_GATEWAY, STATIC, MAIN, CANDIDATE
+        a,b=qa.routing_update(STATIC,KNOWN_LINE_GLOBAL_GATEWAY,{'8001/tcp':[{'HostPort':'8002'}]})
+        self.assertEqual(a,STATIC)
+        self.assertEqual(b,KNOWN_LINE_GLOBAL_GATEWAY.replace(MAIN,CANDIDATE))

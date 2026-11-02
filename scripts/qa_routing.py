@@ -2,7 +2,7 @@
 Not a general Caddy parser. Unknown routing syntax fails without exposing content.
 """
 import re
-import shlex
+import json
 
 IDENTITY = '/api/users/qa-readonly-context/identity'
 MAIN = 'stroyka-qa-backend:8001'
@@ -15,32 +15,95 @@ def require(ok, message='Unsupported or ambiguous QA routing structure'):
         raise ValueError(message)
 
 
+def tokens_for_line(line):
+    """Small literal-token lexer; quoted braces are values, never structure.
+
+    No expansion, imports, heredocs or multiline strings. Original text is kept
+    separately and never reconstructed from tokens.
+    """
+    tokens = []
+    index = 0
+    while index < len(line):
+        if line[index].isspace():
+            index += 1
+            continue
+        if line[index] == '#':
+            break
+        quoted = line[index] == '"'
+        if quoted:
+            try:
+                value, size = json.JSONDecoder().raw_decode(line[index:])
+            except ValueError:
+                raise ValueError('Unsupported QA quoted token or multiline string') from None
+            require(isinstance(value, str), 'Unsupported QA quoted token')
+            index += size
+            require(index == len(line) or line[index].isspace() or line[index] == '#',
+                    'Concatenated QA tokens require explicit review')
+        else:
+            end = index
+            while end < len(line) and not line[end].isspace():
+                end += 1
+            value = line[index:end]
+            require('"' not in value and '`' not in value and not value.startswith('<<'),
+                    'Unsupported QA token quoting or heredoc')
+            index = end
+        tokens.append((value, not quoted and value in ('{', '}')))
+    return tokens
+
+
+GLOBAL_OPTIONS = frozenset(('auto_https', 'admin', 'debug', 'http_port', 'https_port',
+                            'email', 'default_bind', 'persist_config', 'local_certs',
+                            'skip_install_trust', 'grace_period', 'shutdown_delay'))
+
+
+def site_nodes(root):
+    sites = [node for node in root if not node.get('global_options')]
+    require(len(sites) == 1 and sites[0]['children'] is not None,
+            'Expected exactly one QA site after optional leading global options')
+    return sites
+
+
 def parse(text):
     lines = text.splitlines(keepends=True)
     root = []
     stack = [root]
     for number, line in enumerate(lines):
-        try:
-            words = shlex.split(line, comments=True, posix=True)
-        except ValueError:
-            raise ValueError('Unsupported QA routing syntax') from None
-        if not words:
+        tokens = tokens_for_line(line)
+        if not tokens:
             continue
-        if words == ['}']:
-            require(len(stack) > 1)
+        if tokens == [('}', True)]:
+            require(len(stack) > 1, 'Unmatched QA closing brace')
             stack.pop()
             continue
-        opening = words[-1] == '{'
+        if tokens == [('{', True)]:
+            require(len(stack) == 1 and not root,
+                    'Global QA options must be the single leading block')
+            node = {'words': [], 'children': [], 'line': number, 'global_options': True}
+            root.append(node)
+            stack.append(node['children'])
+            continue
+        opening = tokens[-1] == ('{', True)
         if opening:
-            words = words[:-1]
-        require(words and '{' not in words and '}' not in words)
+            tokens = tokens[:-1]
+        require(tokens and not any(structural for _, structural in tokens),
+                'Inline or misplaced QA braces require explicit review')
+        words = [value for value, _ in tokens]
         require(words[0] != 'import' and not words[0].startswith(('(', '@')),
                 'QA imports, snippets or named matchers require explicit review')
         node = {'words': words, 'children': [] if opening else None, 'line': number}
         stack[-1].append(node)
         if opening:
+            require(len(stack) < 16, 'QA nesting limit exceeded')
             stack.append(node['children'])
-    require(len(stack) == 1)
+    require(len(stack) == 1, 'Unclosed QA block')
+    for node in root:
+        if node.get('global_options'):
+            for option in node['children']:
+                require(option['children'] is None,
+                        'Nested QA global option blocks require explicit review')
+                require(option['words'][0] in GLOBAL_OPTIONS,
+                        'Unsupported QA global option; routing order/modules require explicit review')
+    site_nodes(root)
     return lines, root
 
 
@@ -54,8 +117,8 @@ def adapt_dual_gateway(text, candidate_port):
     """Change ONE reviewed general API upstream; preserve all other bytes."""
     require(str(candidate_port) == '8001', 'Candidate port differs from confirmed canary route')
     lines, root = parse(text)
-    require(len(root) == 1 and root[0]['children'] is not None)
-    site = root[0]['children']
+    sites = site_nodes(root)
+    site = sites[0]['children']
     handlers = [n for n in site if n['words'][0] in ('handle', 'handle_path')]
     require(len(handlers) == 3)
     canary = [n for n in handlers if n['words'] == ['handle', IDENTITY]]
@@ -74,7 +137,7 @@ def adapt_dual_gateway(text, candidate_port):
     allowed = {id(n) for h in handlers for n in (h, *(h['children'] or []))}
     routing = {'handle', 'handle_path', 'route', 'reverse_proxy', 'uri', 'rewrite',
                'redir', 'try_files', 'respond', 'invoke', 'php_fastcgi'}
-    for n in walk(root):
+    for n in walk(sites):
         if n['words'][0] in routing:
             require(id(n) in allowed)
     target_line = general[0]['children'][0]['line']
@@ -86,7 +149,8 @@ def adapt_dual_gateway(text, candidate_port):
 
 
 def validate_static(text):
-    _, root = parse(text)
+    _, parsed = parse(text)
+    root = site_nodes(parsed)
     roots = [n for n in walk(root) if n['words'][0] == 'root']
     require(len(roots) == 1 and roots[0]['children'] is None
             and roots[0]['words'] in (['root', '*', '/srv/app'], ['root', '*', '/srv/app/build']),

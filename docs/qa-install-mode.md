@@ -103,3 +103,22 @@ rewritten nor disclosed. The frontend build must use REACT_APP_API_URL=/api so
 requests reach the same general API route; the previous '/.' assumption was
 incorrect for this now-confirmed QA topology. Other external/unrecognized API
 values are rejected before changes. No endpoint permission or role logic changes.
+
+### Leading global options regression
+
+The confirmed gateway starts with a global options block, while static does not.
+The parser now accepts at most one leading unnamed global block and exactly one
+site. It preserves the original global text; route validation operates only on
+the site. Simple global options supported without interpreting their values:
+auto_https, admin, debug, http_port, https_port, email, default_bind,
+persist_config, local_certs, skip_install_trust, grace_period, shutdown_delay.
+Nested global modules, imports, directive-order changes, unknown option names,
+multiple/misplaced global blocks and extra sites fail with non-sensitive reasons.
+This bounded parser is not a replacement for Caddy's own runtime validation.
+
+Double-quoted braces, hashes and escaped quotes remain literal values rather than
+block delimiters. Multiline strings, heredocs and unsupported quoting fail closed.
+Regression fixture matches observed gateway lines 8/9/10, 13/14, 17/18; only line
+14 changes. Header values in tests are synthetic; no actual secrets were copied.
+The earlier 107-test result lacked this structural fixture and did not establish
+compatibility with the actual gateway. Runtime Caddy/DB/build remains untested.
