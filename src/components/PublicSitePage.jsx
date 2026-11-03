@@ -851,11 +851,11 @@ const PublicSitePage = ({ onLogin }) => {
 
         <div id="work-proof" className="public-work-proof">
           <div className="public-section-head compact">
-            <p className="public-eyebrow dark">Наши работы</p>
-            <h2>Показываем не только красивый финал, а доказательства выполнения</h2>
+            <p className="public-eyebrow dark">Контроль выполнения</p>
+            <h2>Как фиксируем ход работ и материалы</h2>
             <p>
-              Для сайта отдельно выводятся реальные работы и понятные этапы:
-              фото, ход работ, материалы, результат и паспорт объекта.
+              Ниже — примеры того, что можно фиксировать в системе. Фотографии
+              иллюстративные и не показывают выполненные компанией объекты.
             </p>
           </div>
           <div className="public-work-grid">
