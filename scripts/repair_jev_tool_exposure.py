@@ -1,6 +1,6 @@
 """Explicit, scoped repair of the installed f214 JEV Telegram adapters.
 
-Only pinned JEV adapters/delivery and Telegram's JEV opt-in are changed. The existing
+Only four pinned JEV adapters and Telegram's JEV opt-in are changed. The existing
 container, keys, queues, model settings and other platform permissions remain.
 Uses the previously verified operator's shutdown/probe primitives. No YAML
 package installation, old worker rewrite, registration override, or auto-search.
@@ -18,13 +18,12 @@ import urllib.request
 
 BASE_REV='11bda5ff0200848d5948ea73f41a28c299cb9c9b'
 BASE_SHA='621c7c2bcea211f3d5e425591be8b65fc2585d0ad1c03cfac3b5e82503826917'
-PATCH_REV='2d8ba5f3b66f4d0e70f0ad39438e3733528c9ec5'
+PATCH_REV='bd963d17b1ce0af80ec2399d2756b18c266ef0f5'
 PATCHES={
  'jev_agent/tender_finder/startup_tool.py':'006418ed67e94d48d6828fc0c4ae6205f962187ae68e3a954894f656d26b2eb7',
  'jev_agent/tender_finder/hermes_binding.py':'e31db6b5690a99c45bca50683cd029eb873d25a5b15f9aca2b5c7a537706eec4',
  'jev_agent/tender_finder/commercial/startup_tool.py':'372df99ee86b900863cc9ca21664a36336ce8bd897b62fd74cee68e5abe4637d',
- 'jev_agent/tender_finder/commercial/tool.py':'a42acc7236803a5162727f802fa939197caf73b0119d94cdb71a4a93abfdba9f',
- 'jev_agent/tender_finder/docker_delivery.py':'07c6406aa0eb5b81a5e374b386abad638a75acea9aade455d89cabb0064e637d'}
+ 'jev_agent/tender_finder/commercial/tool.py':'a42acc7236803a5162727f802fa939197caf73b0119d94cdb71a4a93abfdba9f'}
 CONFIG='/root/hermes-data/config.yaml'
 
 
@@ -160,12 +159,23 @@ class Repair:
                 raise ValueError('commercial_unit_changed')
 
     def delivery_probe(self):
-        namespace={'__name__':'jev_agent.tender_finder.verified_delivery_repair',
-            '__package__':'jev_agent.tender_finder'}
-        exec(compile(self.patches['jev_agent/tender_finder/docker_delivery.py'],'pinned-delivery-repair','exec'),namespace)
-        # Imports/validates sender in published Hermes runtime; no request,
-        # message, credentials output, or automatic retry of old deliveries.
-        return namespace['probe_delivery_runtime']()
+        # This module is from the authenticated f214 stage, and remains byte
+        # identical on the server. Use its SAME source/identity guards and
+        # interpreter as normal completion delivery. No PM/store selection.
+        from jev_agent.tender_finder.docker_delivery import REMOTE_PROGRAM
+        program=("import contextlib, json, os; namespace={'__name__':'jev_delivery_probe'}; "
+            "exec("+repr(REMOTE_PROGRAM)+",namespace); "
+            "\nwith open(os.devnull,'w') as sink, contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):\n"
+            "    namespace['_load_sender']()\n"
+            "print(json.dumps({'runtime_sender_ready':True,'notifications_sent':False}))\n")
+        identifier=self.bundle['container']()
+        raw=self.base.run('/usr/bin/docker','--host=unix:///var/run/docker.sock','exec',
+            '--user','10000:10000','--workdir','/opt/hermes',
+            '--env','HOME=/opt/data','--env','HERMES_HOME=/opt/data','--env','HERMES_PROFILE=',
+            identifier,'/opt/hermes/.venv/bin/python','-I','-B','-c',program)
+        if raw!=b'{"runtime_sender_ready": true, "notifications_sent": false}\n':
+            raise ValueError('hermes_sender_runtime_not_confirmed')
+        return {'runtime_sender_ready':True,'notifications_sent':False}
 
     def apply(self):
         if self.journal.exists():raise ValueError('existing_repair_requires_review')

@@ -1,5 +1,7 @@
 """Scoped live-repair filesystem tests, no real server, keys or messages."""
 import json
+import contextlib
+import io
 from pathlib import Path
 import tempfile
 import unittest
@@ -51,6 +53,11 @@ class RepairTests(unittest.TestCase):
             raw=b'"""existing adapter fixture"""\n'
             self.fixture.put('/opt/stroyka-jev/app/'+name,raw)
             self.bundle['candidate'][name]=operator.sha(raw)
+        from jev_agent.tender_finder import docker_delivery
+        delivery='jev_agent/tender_finder/docker_delivery.py'
+        original=Path(docker_delivery.__file__).read_bytes()
+        self.fixture.put('/opt/stroyka-jev/app/'+delivery,original)
+        self.bundle['candidate'][delivery]=operator.sha(original)
         self.raw=b'model: PRIVATE_FIXTURE\nplatform_toolsets:\n  telegram: [hermes-telegram]\n  cli: [terminal]\nagent:\n  disabled_toolsets: []\n'
         self.fixture.put(repair_module.CONFIG,self.raw,0o600)
         self.patch={name:b'"""repaired adapter fixture"""\n' for name in repair_module.PATCHES}
@@ -74,13 +81,39 @@ class RepairTests(unittest.TestCase):
 
     def test_repair_changes_pinned_sources_and_telegram_only_preserving_keys_and_container(self):
         inode=self.fixture.path('/opt/stroyka-jev/app/'+operator.PLUGIN).stat().st_ino
+        delivery=self.fixture.path('/opt/stroyka-jev/app/jev_agent/tender_finder/docker_delivery.py')
+        delivery_before=(delivery.stat().st_ino,delivery.read_bytes())
         key=self.fixture.path('/etc/stroyka-jev-commercial/private/admission.key');old_key=key.read_bytes()
         result=self.repair.apply();self.assertTrue(result['repaired']);self.assertFalse(result['real_telegram_acceptance'])
         self.assertEqual(key.read_bytes(),old_key)
         self.assertEqual(self.fixture.path('/opt/stroyka-jev/app/'+operator.PLUGIN).stat().st_ino,inode)
+        self.assertEqual((delivery.stat().st_ino,delivery.read_bytes()),delivery_before)
+        self.assertEqual(result['source_files_updated'],4)
         self.assertEqual(self.fixture.path(repair_module.CONFIG).read_bytes(),self.raw.replace(b'[hermes-telegram]',b'["hermes-telegram", "jev"]'))
         self.repair.snapshot(self.repair.bundle['candidate'])
         for name in operator.OLD+operator.NEW:self.assertEqual(self.fixture.units[name]['ActiveState'],'active')
+
+    def test_sender_probe_uses_native_venv_and_only_loads_original_guarded_sender(self):
+        from jev_agent.tender_finder.docker_delivery import REMOTE_PROGRAM
+        self.repair.base.run=Mock(return_value=b'{"runtime_sender_ready": true, "notifications_sent": false}\n')
+        self.assertTrue(self.repair.delivery_probe()['runtime_sender_ready'])
+        argv=self.repair.base.run.call_args.args
+        self.assertEqual(argv[-5:-1],('/opt/hermes/.venv/bin/python','-I','-B','-c'))
+        self.assertIn('10000:10000',argv);self.assertIn('HERMES_HOME=/opt/data',argv)
+        self.assertNotIn('--print-runtime-command',argv)
+        # The fixed program loads the original gate. Invoking its returned
+        # sender here would fail this test; no real send/config is used.
+        guarded_fixture="def _load_sender():\n    def sender(*args): raise RuntimeError('probe_must_not_send')\n    return sender\n"
+        program=argv[-1].replace(repr(REMOTE_PROGRAM),repr(guarded_fixture))
+        output=io.StringIO()
+        with contextlib.redirect_stdout(output):exec(compile(program,'native-venv-probe','exec'),{})
+        self.assertEqual(json.loads(output.getvalue()),{'runtime_sender_ready':True,'notifications_sent':False})
+
+    def test_sender_probe_rejects_extra_logs_or_unconfirmed_load(self):
+        for raw in (b'',b'{}',b'BOOTSTRAP_ERROR\n{"runtime_sender_ready":true}'):
+            self.repair.base.run=Mock(return_value=raw)
+            with self.assertRaisesRegex(ValueError,'sender_runtime_not_confirmed'):self.repair.delivery_probe()
+        self.assertFalse(self.repair.journal.exists())
 
     def test_bad_config_readback_restores_raw_file_before_old_code_is_changed(self):
         self.readback_wrong=True
