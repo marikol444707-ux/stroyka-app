@@ -28262,9 +28262,15 @@ register_project_records_module(app, {
 })
 
 try:
-    from backend.features.public_site import register_public_site_routes
+    from backend.features.public_site import LeadEmailNotifier, register_public_site_routes
 except ModuleNotFoundError:
-    from features.public_site import register_public_site_routes
+    from features.public_site import LeadEmailNotifier, register_public_site_routes
+
+public_site_lead_email_notifier = LeadEmailNotifier(
+    os.environ,
+    get_db=get_db,
+    send_email=_send_email,
+)
 
 register_public_site_routes(app, {
     "get_db": get_db,
@@ -28278,6 +28284,7 @@ register_public_site_routes(app, {
     "public_lead_last_submit": _PUBLIC_LEAD_LAST_SUBMIT,
     "public_site_company_id": PUBLIC_SITE_COMPANY_ID,
     "public_site_lead_uploads_enabled": PUBLIC_SITE_LEAD_UPLOADS_ENABLED,
+    "notify_public_site_lead": public_site_lead_email_notifier.notify,
     "save_upload_bytes": save_upload_bytes,
     "delete_local_file": lambda file_url, missing_ok=False: delete_document_local_file(
         UPLOAD_DIR,

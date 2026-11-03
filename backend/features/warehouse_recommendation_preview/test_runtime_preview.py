@@ -946,9 +946,9 @@ class WarehouseAnomalyRuntimePreviewCompositionTests(unittest.TestCase):
             root / "backend/db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Also reviewed the invoice-scan change; warehouse preview behavior is unchanged.
+            # Also reviewed invoice-scan and public-site email wiring; warehouse preview behavior is unchanged.
             root / "backend/main.py": (
-                "2b71e5c5eb6c312a7f54e0fe8f8a6cdc49a8c3d55bbc2dcc6ab433029c86cfcf"
+                "4722dd8fc861529de4d411b042df168a572aeb1223b745cd70698b9547734108"
             ),
         }
         self.assertEqual({

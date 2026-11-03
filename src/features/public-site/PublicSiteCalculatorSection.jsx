@@ -21,6 +21,7 @@ export const PublicSiteCalculatorSection = ({
   calc,
   updateCalc,
   result,
+  pricingStatus = 'loading',
   scrollTo,
   leadFileUploadsEnabled = false,
   leadFiles = [],
@@ -41,6 +42,12 @@ export const PublicSiteCalculatorSection = ({
                 Сумма обновляется
               </div>
             </div>
+
+            {pricingStatus === 'fallback' && (
+              <p className="public-calculator-price-warning" role="status">
+                Не удалось загрузить актуальные цены. Расчёт предварительный и использует ориентировочные ставки — уточните стоимость у специалиста.
+              </p>
+            )}
 
             <div className="public-type-grid" aria-label="Тип расчёта">
               {workTypes.map((item) => (

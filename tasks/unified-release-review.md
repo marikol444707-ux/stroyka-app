@@ -11,7 +11,7 @@
 установщика и исправление устаревших release assertions. Точный итоговый SHA и
 все коммиты после базы записаны в release.json внутри архива.
 
-Одна цепочка Alembic: `0100_packaging_history_guard → 0101_manual_brigade_origins → 0102_job_candidates → 0103_platform_company_features`.
+Одна цепочка Alembic: `0100_packaging_history_guard → 0101_manual_brigade_origins → 0102_job_candidates → 0103_platform_company_features → 0104_jev_search_run_history → 0105_public_site_lead_retention`.
 Пакет принимает фактическую схему 0100, 0101 или 0102 и устанавливает 0103;
 перед продолжением требуется известный SHA текущей установки.
 Неизвестные изменения сервера не стираются. Флаги берутся из его конфигурации;
@@ -120,7 +120,7 @@ PR #384 с поиском по профилям организаций, расп
 
 В production уже есть `0102_job_candidates`; повторно создавать таблицу нельзя.
 Подписка организаций добавляется отдельной миграцией
-`0103_platform_company_features`. Read-only preflight принимает текущую схему
+`0105_public_site_lead_retention`. Read-only preflight принимает текущую схему
 0102 и проверяет схему 0103 после применения. Организация 1 сохраняет доступ,
 миграция подключает её без платы по умолчанию.
 

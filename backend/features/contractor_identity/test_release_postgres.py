@@ -49,6 +49,9 @@ class UnifiedReleasePostgresTests(unittest.TestCase):
                     CREATE TABLE estimates(id INTEGER PRIMARY KEY,company_id INTEGER);
                     CREATE TABLE estimate_versions(id INTEGER PRIMARY KEY,estimate_id INTEGER);
                     CREATE TABLE suppliers(id INTEGER PRIMARY KEY);
+                    CREATE TABLE crm_leads(id INTEGER PRIMARY KEY);
+                    CREATE TABLE crm_lead_documents(id INTEGER PRIMARY KEY,lead_id INTEGER);
+                    CREATE TABLE crm_lead_tasks(id INTEGER PRIMARY KEY,lead_id INTEGER);
                     CREATE TABLE company_supplier_links(id INTEGER PRIMARY KEY,company_id INTEGER,supplier_id INTEGER);
                     CREATE TABLE material_packaging_rules(id INTEGER PRIMARY KEY,supplier_id INTEGER);
                     CREATE TABLE alembic_version(version_num VARCHAR(32) PRIMARY KEY);
@@ -85,7 +88,8 @@ class UnifiedReleasePostgresTests(unittest.TestCase):
             self.assertEqual(self.baseline_report['status'], 'ready', self.baseline_report)
             self.assertEqual(self.baseline_report['pendingMigrations'], [
                 self.checker.MANUAL_REVISION, self.checker.CANDIDATE_REVISION,
-                self.checker.FEATURE_REVISION, self.checker.TARGET_REVISION,
+                self.checker.FEATURE_REVISION, self.checker.PREVIOUS_TARGET_REVISION,
+                self.checker.TARGET_REVISION,
             ])
             self.assertEqual(self.before, self.history(conn))
             conn.rollback()

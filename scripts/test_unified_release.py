@@ -219,6 +219,7 @@ with tarfile.open(output, 'w:gz') as archive:
             (migrations / '0102.py').write_text("revision='0102_job_candidates'\ndown_revision='0101_manual_brigade_origins'\n")
             (migrations / '0103.py').write_text("revision='0103_platform_company_features'\ndown_revision='0102_job_candidates'\n")
             (migrations / '0104.py').write_text("revision='0104_jev_search_run_history'\ndown_revision='0103_platform_company_features'\n")
+            (migrations / '0105.py').write_text("revision='0105_public_site_lead_retention'\ndown_revision='0104_jev_search_run_history'\n")
             for name in ('unified_release.py', 'release_database_check.py'):
                 shutil.copyfile(SCRIPTS / name, source / 'scripts' / name)
             (source / 'docs/unified-release.md').write_text('Runbook')
