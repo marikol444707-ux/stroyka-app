@@ -70,6 +70,107 @@ class LeadEmailNotifier:
             "deliveryVerified": False,
         }
 
+    def enqueue(self, cursor, company_id, lead_id):
+        """Persist a notification in the same transaction as the CRM lead."""
+        if not _env_bool(self.environ, "PUBLIC_SITE_LEAD_EMAIL_ENABLED"):
+            return False
+        cursor.execute(
+            """INSERT INTO public_site_lead_email_outbox (company_id, lead_id)
+               VALUES (%s, %s)
+               ON CONFLICT (company_id, lead_id) DO NOTHING""",
+            (int(company_id), int(lead_id)),
+        )
+        return True
+
+    def dispatch_pending(self, limit=20):
+        """Deliver due messages and leave failures queued for automatic retry."""
+        state = self.readiness()
+        if not state["enabled"]:
+            return {"processed": 0, "sent": 0, "retrying": 0, "paused": "disabled"}
+        if not state["configured"] or not self.get_db or not self.send_email:
+            LOGGER.warning(
+                "public_site_lead_email_queue_paused issues=%s",
+                ",".join(state["issues"] or ["delivery_unavailable"]),
+            )
+            return {"processed": 0, "sent": 0, "retrying": 0, "paused": "configuration_incomplete"}
+
+        conn = self.get_db()
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                """WITH due AS (
+                       SELECT id
+                         FROM public_site_lead_email_outbox
+                        WHERE (status='pending' AND next_attempt_at <= NOW())
+                           OR (status='sending' AND locked_at < NOW() - INTERVAL '10 minutes')
+                        ORDER BY next_attempt_at, id
+                        LIMIT %s
+                        FOR UPDATE SKIP LOCKED
+                   )
+                   UPDATE public_site_lead_email_outbox AS outbox
+                      SET status='sending',
+                          attempts=outbox.attempts + 1,
+                          locked_at=NOW(),
+                          updated_at=NOW()
+                     FROM due
+                    WHERE outbox.id=due.id
+                   RETURNING outbox.id, outbox.company_id, outbox.lead_id, outbox.attempts""",
+                (max(1, min(int(limit), 100)),),
+            )
+            rows = cur.fetchall()
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+            conn.close()
+
+        sent_count = 0
+        retry_count = 0
+        for row in rows:
+            outbox_id, company_id, lead_id, attempts = row
+            sent = self.notify(company_id, lead_id)
+            update_conn = self.get_db()
+            update_cur = update_conn.cursor()
+            try:
+                if sent:
+                    update_cur.execute(
+                        """UPDATE public_site_lead_email_outbox
+                              SET status='sent', sent_at=NOW(), locked_at=NULL,
+                                  last_error=NULL, updated_at=NOW()
+                            WHERE id=%s""",
+                        (outbox_id,),
+                    )
+                    sent_count += 1
+                else:
+                    retry_seconds = min(21600, 60 * (2 ** min(max(int(attempts) - 1, 0), 9)))
+                    update_cur.execute(
+                        """UPDATE public_site_lead_email_outbox
+                              SET status='pending',
+                                  next_attempt_at=NOW() + (%s * INTERVAL '1 second'),
+                                  locked_at=NULL,
+                                  last_error='delivery_failed_or_lead_unavailable',
+                                  updated_at=NOW()
+                            WHERE id=%s""",
+                        (retry_seconds, outbox_id),
+                    )
+                    retry_count += 1
+                update_conn.commit()
+            except Exception:
+                update_conn.rollback()
+                raise
+            finally:
+                update_cur.close()
+                update_conn.close()
+
+        return {
+            "processed": len(rows),
+            "sent": sent_count,
+            "retrying": retry_count,
+            "paused": None,
+        }
+
     def notify(self, company_id, lead_id):
         state = self.readiness()
         if not state["enabled"]:
