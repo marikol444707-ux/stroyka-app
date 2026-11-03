@@ -26,7 +26,7 @@ INTERMEDIATE_REVISION = '0101_manual_brigade_origins'
 CANDIDATE_REVISION = '0102_job_candidates'
 FEATURE_REVISION = '0103_platform_company_features'
 PREVIOUS_TARGET_REVISION = '0104_jev_search_run_history'
-TARGET_REVISION = '0106_public_site_lead_email_outbox'
+TARGET_REVISION = '0106_site_lead_outbox'
 
 
 def run(args, *, cwd=None, env=None, capture=False):

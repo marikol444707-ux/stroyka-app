@@ -96,7 +96,7 @@ python3 install.py apply --app-root /var/www/stroyka-app \
    делает fast-forward на точный SHA и выполняет upgrade **до 0106**, не `stamp`.
    Миграции выполняются последовательно: `0101_manual_brigade_origins`,
    `0102_job_candidates`, `0103_platform_company_features`, `0104_jev_search_run_history`
-   `0105_public_site_lead_retention` и `0106_public_site_lead_email_outbox`.
+   `0105_public_site_lead_retention` и `0106_site_lead_outbox`.
    Есть короткое окно недоступности API. DB baseline должен быть одной из известных
    ревизий 0100–0106; неизвестный head требует отдельной проверки цепочки.
 5. Заново проверяет схему, импорт backend, перезапускает сервисы, публикует

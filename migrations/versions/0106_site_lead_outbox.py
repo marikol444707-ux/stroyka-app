@@ -1,13 +1,13 @@
 """Persist public-site lead email notifications and retry delivery failures.
 
-Revision ID: 0106_public_site_lead_email_outbox
+Revision ID: 0106_site_lead_outbox
 Revises: 0105_public_site_lead_retention
 """
 
 from alembic import op
 
 
-revision = "0106_public_site_lead_email_outbox"
+revision = "0106_site_lead_outbox"
 down_revision = "0105_public_site_lead_retention"
 branch_labels = None
 depends_on = None
