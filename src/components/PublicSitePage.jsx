@@ -882,6 +882,25 @@ const PublicSitePage = ({ onLogin }) => {
             </p>
           </div>
           <div className="public-reference-layout">
+            <label className="public-reference-mobile-picker">
+              <span>Выберите направление</span>
+              <select
+                value={selectedReference.id}
+                onChange={(event) => {
+                  const direction = referenceDirections.find((item) => item.id === event.target.value);
+                  if (direction) chooseReference(direction, getReferenceProjectCards(direction)[0], 'catalog');
+                }}
+              >
+                {referenceDirections.map((item) => {
+                  const estimate = getReferenceProjectEstimate(item, getReferenceProjectCards(item)[0]);
+                  return (
+                    <option key={item.id} value={item.id}>
+                      {item.title} · {estimate.fromLabel}
+                    </option>
+                  );
+                })}
+              </select>
+            </label>
             <div className="public-reference-grid" aria-label="Направления проектов">
               {referenceDirections.map((item) => {
                 const isActive = selectedReference.id === item.id;
