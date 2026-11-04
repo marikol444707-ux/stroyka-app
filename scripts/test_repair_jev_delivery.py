@@ -4,7 +4,7 @@ import io
 import json
 from pathlib import Path
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from scripts import repair_jev_delivery as delivery
 from scripts import test_repair_jev_tool_exposure as visibility_fixture
@@ -17,6 +17,53 @@ def original_source():
     end = raw.index(b'\ndef main():', start)
     return (raw[:start] + raw[end:]).replace(
         b'return _profile_sender(module.send_message_tool)', b'return module.send_message_tool')
+
+
+class CiApiTests(unittest.TestCase):
+    def row(self, **changes):
+        return {'head_sha': 'a'*40, 'head_branch': delivery.BRANCH, 'event': 'push',
+                'repository': {'full_name': delivery.REPOSITORY}, 'path': '.github/workflows/ci.yml',
+                'status': 'completed', 'conclusion': 'success',
+                'html_url': 'https://github.com/marikol444707-ux/stroyka-app/actions/runs/123', **changes}
+
+    def verify(self, rows, *, redirect=False, raw=None):
+        url = 'https://api.github.com/repos/' + delivery.REPOSITORY + '/actions/workflows/ci.yml/runs?head_sha=' + 'a'*40 + '&per_page=10'
+        response = Mock()
+        response.url = 'https://example.test/' if redirect else url
+        response.read.return_value = json.dumps({'workflow_runs': rows}).encode() if raw is None else raw
+        response.__enter__ = Mock(return_value=response); response.__exit__ = Mock(return_value=False)
+        with patch.object(delivery.urllib.request, 'urlopen', return_value=response) as opened:
+            result = delivery.verify_ci_api('a'*40)
+            opened.assert_called_once_with(url, timeout=30)
+            return result
+
+    def test_exact_success_is_accepted(self):
+        self.assertEqual(self.verify([self.row()]), self.row()['html_url'])
+
+    def test_other_commit_branch_repository_workflow_or_event_cannot_authorize_install(self):
+        for changes in ({'head_sha': 'b'*40}, {'head_branch': 'main'}, {'event': 'pull_request'},
+                        {'path': '.github/workflows/other.yml'}, {'repository': {'full_name': 'another/repo'}}):
+            with self.subTest(changes=changes), self.assertRaisesRegex(ValueError, 'exact_source_ci_unconfirmed'):
+                self.verify([self.row(**changes)])
+
+    def test_failed_pending_or_cancelled_latest_run_never_falls_back_to_old_success(self):
+        for changes in ({'status': 'in_progress', 'conclusion': None}, {'conclusion': 'failure'}, {'conclusion': 'cancelled'}):
+            with self.subTest(changes=changes), self.assertRaisesRegex(ValueError, 'exact_source_ci_not_successful'):
+                self.verify([self.row(**changes), self.row()])
+
+    def test_redirect_malformed_oversized_or_wrong_origin_run_url_is_rejected(self):
+        for kwargs in ({'redirect': True}, {'raw': b'[]'}, {'raw': b'x'*(2*1024*1024+1)}):
+            with self.subTest(kwargs=list(kwargs)), self.assertRaises(ValueError): self.verify([], **kwargs)
+        with self.assertRaisesRegex(ValueError, 'exact_source_ci_url_required'):
+            self.verify([self.row(html_url='https://example.test/actions/runs/123')])
+
+    def test_operator_change_only_rebinds_ci_reader_and_preserves_all_other_bytes(self):
+        from scripts import activate_jev_commercial
+        raw = Path(activate_jev_commercial.__file__).read_bytes()
+        new = delivery.activation_source(raw)
+        self.assertEqual(new.replace(b'import _save,root_broker_probe', b'import verify_ci,_save,root_broker_probe'), raw)
+        with self.assertRaisesRegex(ValueError, 'exact_activation_ci_import_required'):
+            delivery.activation_source(new)
 
 
 class DeliveryRepairTests(unittest.TestCase):

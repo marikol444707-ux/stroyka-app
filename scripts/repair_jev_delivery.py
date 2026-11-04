@@ -11,6 +11,10 @@ import os
 from pathlib import Path
 import re
 import stat
+import urllib.request
+
+REPOSITORY = 'marikol444707-ux/stroyka-app'
+BRANCH = 'jev-tender-finder-audit-contract-20261028'
 
 REPAIR_REV = 'dfc68b84d6ac4481cd85718c6014bf3586fd3a60'
 REPAIR_SHA = '73e5019b483d0becbe76615e9b0dfbb1d6762a0ac97cbfdc43f3372efb3f8dd8'
@@ -52,6 +56,51 @@ def patched(raw, sha):
         raise ValueError('exact_profile_delivery_patch_required')
     compile(new, TARGET, 'exec')
     return new
+
+
+def verify_ci_api(commit):
+    """Verify exact source CI via official JSON, independent of GitHub's UI.
+
+    No credentials, skip flag, cached success, or fallback to a different SHA.
+    The first matching run must be completed successfully, just as before.
+    """
+    if not re.fullmatch('[a-f0-9]{40}', commit):
+        raise ValueError('full_pinned_revision_required')
+    url = ('https://api.github.com/repos/' + REPOSITORY +
+           '/actions/workflows/ci.yml/runs?head_sha=' + commit + '&per_page=10')
+    with urllib.request.urlopen(url, timeout=30) as response:
+        if response.url != url:
+            raise ValueError('github_ci_origin_changed')
+        raw = response.read(2 * 1024 * 1024 + 1)
+    if len(raw) > 2 * 1024 * 1024:
+        raise ValueError('github_ci_response_limit')
+    data = json.loads(raw)
+    if type(data) is not dict or type(data.get('workflow_runs')) is not list:
+        raise ValueError('github_ci_response_required')
+    for row in data['workflow_runs']:
+        if (type(row) is not dict or row.get('head_sha') != commit
+                or row.get('head_branch') != BRANCH or row.get('path') != '.github/workflows/ci.yml'
+                or row.get('event') != 'push' or type(row.get('repository')) is not dict
+                or row['repository'].get('full_name') != REPOSITORY):
+            continue
+        if row.get('status') != 'completed' or row.get('conclusion') != 'success':
+            raise ValueError('exact_source_ci_not_successful')
+        link = row.get('html_url')
+        if not re.fullmatch(r'https://github\.com/marikol444707-ux/stroyka-app/actions/runs/[0-9]+', str(link)):
+            raise ValueError('exact_source_ci_url_required')
+        return link
+    raise ValueError('exact_source_ci_unconfirmed')
+
+
+def activation_source(raw):
+    # The pinned operator's stage/source/policy checks remain byte-identical.
+    # Bind ONLY its CI verifier to the equivalent strict official API reader;
+    # never edit the authenticated old stage or replace its global module.
+    old = b'from jev_agent.tender_finder.standalone_release import verify_ci,_save,root_broker_probe'
+    new = b'from jev_agent.tender_finder.standalone_release import _save,root_broker_probe'
+    if raw.count(old) != 1:
+        raise ValueError('exact_activation_ci_import_required')
+    return raw.replace(old, new)
 
 
 def remote_probe(raw):
@@ -195,12 +244,12 @@ def main(argv=None):
         ns = {'__name__': 'verified_visibility_operator'}
         exec(compile(download('scripts/repair_jev_tool_exposure.py', REPAIR_REV, REPAIR_SHA), 'verified-visibility', 'exec'), ns)
         previous = type('VerifiedVisibility', (), ns)
-        base_ns = {'__name__': 'verified_activation_operator'}
-        exec(compile(download('scripts/activate_jev_commercial.py', previous.BASE_REV, previous.BASE_SHA), 'verified-activation', 'exec'), base_ns)
+        base_ns = {'__name__': 'verified_activation_operator', 'verify_ci': verify_ci_api}
+        activation = download('scripts/activate_jev_commercial.py', previous.BASE_REV, previous.BASE_SHA)
+        exec(compile(activation_source(activation), 'verified-activation', 'exec'), base_ns)
         operator = type('VerifiedOperator', (), base_ns)
         bundle = operator.bootstrap(args.stage)
-        from jev_agent.tender_finder.standalone_release import verify_ci
-        verify_ci(args.revision)
+        verify_ci_api(args.revision)
         lock = os.open('/run/stroyka-jev/operator-upgrade.lock', os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
         info = os.fstat(lock)
         if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) != 0o600:
