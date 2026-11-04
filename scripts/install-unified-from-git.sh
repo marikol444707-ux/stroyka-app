@@ -6,7 +6,7 @@ umask 077
 APP_ROOT="${STROYKA_APP_ROOT:-/var/www/stroyka-app}"
 PYTHON_BIN="${STROYKA_RELEASE_PYTHON:-python3}"
 WORK_PARENT="${STROYKA_DELIVERY_WORK_PARENT:-/root}"
-TARGET="2fba50d0bbbcfcdb6cfc109a4112deb062f4b282"
+TARGET="d82c4453ffa58267edd238ec73006e459866a3f5"
 BASE="57023611c6090c1bdf63a107a28eefadd1afb492"
 RELEASE_BRANCH="codex/unified-production-release"
 
