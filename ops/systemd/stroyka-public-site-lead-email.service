@@ -1,0 +1,16 @@
+[Unit]
+Description=Deliver queued Stroyka public-site lead email notifications
+After=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/var/www/stroyka-app
+Environment=PYTHONPATH=/var/www/stroyka-app
+EnvironmentFile=-/var/www/stroyka-app/backend/.env
+EnvironmentFile=-/etc/stroyka/public-site-email.env
+ExecStart=/usr/bin/python3 /var/www/stroyka-app/scripts/dispatch_public_site_lead_emails.py
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full

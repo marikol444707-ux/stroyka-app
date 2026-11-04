@@ -28284,7 +28284,7 @@ register_public_site_routes(app, {
     "public_lead_last_submit": _PUBLIC_LEAD_LAST_SUBMIT,
     "public_site_company_id": PUBLIC_SITE_COMPANY_ID,
     "public_site_lead_uploads_enabled": PUBLIC_SITE_LEAD_UPLOADS_ENABLED,
-    "notify_public_site_lead": public_site_lead_email_notifier.notify,
+    "enqueue_public_site_lead_email": public_site_lead_email_notifier.enqueue,
     "save_upload_bytes": save_upload_bytes,
     "delete_local_file": lambda file_url, missing_ok=False: delete_document_local_file(
         UPLOAD_DIR,

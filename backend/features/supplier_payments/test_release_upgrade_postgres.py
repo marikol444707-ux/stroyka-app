@@ -19,7 +19,7 @@ class ReleaseRevisionGraphTests(unittest.TestCase):
         config = Config(str(root / 'alembic.ini'))
         config.set_main_option('script_location', str(root / 'migrations'))
         graph = ScriptDirectory.from_config(config)
-        self.assertEqual(graph.get_heads(), ['0105_public_site_lead_retention'])
+        self.assertEqual(graph.get_heads(), ['0106_site_lead_outbox'])
         for revision in graph.walk_revisions():
             self.assertLessEqual(len(revision.revision), 32, revision.revision)
 

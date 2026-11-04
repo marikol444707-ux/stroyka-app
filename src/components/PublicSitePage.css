@@ -1569,6 +1569,10 @@
   gap: 12px;
 }
 
+.public-reference-mobile-picker {
+  display: none;
+}
+
 .public-reference-card {
   position: relative;
   min-width: 0;
@@ -4576,6 +4580,28 @@
   .public-project-thumb-grid,
   .public-partner-types {
     grid-template-columns: 1fr;
+  }
+  .public-reference-mobile-picker {
+    display: block;
+  }
+  .public-reference-mobile-picker span {
+    display: block;
+    margin-bottom: 6px;
+    color: var(--site-muted);
+    font-size: 13px;
+    font-weight: 800;
+  }
+  .public-reference-mobile-picker select {
+    width: 100%;
+    min-height: 48px;
+    border: 1px solid var(--site-line);
+    border-radius: 8px;
+    background: #ffffff;
+    color: var(--site-ink);
+    padding: 10px 12px;
+  }
+  .public-reference-grid {
+    display: none;
   }
   .public-plot-check-head {
     grid-template-columns: auto minmax(0, 1fr);

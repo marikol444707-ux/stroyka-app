@@ -851,11 +851,11 @@ const PublicSitePage = ({ onLogin }) => {
 
         <div id="work-proof" className="public-work-proof">
           <div className="public-section-head compact">
-            <p className="public-eyebrow dark">Наши работы</p>
-            <h2>Показываем не только красивый финал, а доказательства выполнения</h2>
+            <p className="public-eyebrow dark">Контроль выполнения</p>
+            <h2>Как фиксируем ход работ и материалы</h2>
             <p>
-              Для сайта отдельно выводятся реальные работы и понятные этапы:
-              фото, ход работ, материалы, результат и паспорт объекта.
+              Ниже — примеры того, что можно фиксировать в системе. Фотографии
+              иллюстративные и не показывают выполненные компанией объекты.
             </p>
           </div>
           <div className="public-work-grid">
@@ -882,6 +882,25 @@ const PublicSitePage = ({ onLogin }) => {
             </p>
           </div>
           <div className="public-reference-layout">
+            <label className="public-reference-mobile-picker">
+              <span>Выберите направление</span>
+              <select
+                value={selectedReference.id}
+                onChange={(event) => {
+                  const direction = referenceDirections.find((item) => item.id === event.target.value);
+                  if (direction) chooseReference(direction, getReferenceProjectCards(direction)[0], 'catalog');
+                }}
+              >
+                {referenceDirections.map((item) => {
+                  const estimate = getReferenceProjectEstimate(item, getReferenceProjectCards(item)[0]);
+                  return (
+                    <option key={item.id} value={item.id}>
+                      {item.title} · {estimate.fromLabel}
+                    </option>
+                  );
+                })}
+              </select>
+            </label>
             <div className="public-reference-grid" aria-label="Направления проектов">
               {referenceDirections.map((item) => {
                 const isActive = selectedReference.id === item.id;

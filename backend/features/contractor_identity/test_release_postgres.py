@@ -89,6 +89,7 @@ class UnifiedReleasePostgresTests(unittest.TestCase):
             self.assertEqual(self.baseline_report['pendingMigrations'], [
                 self.checker.MANUAL_REVISION, self.checker.CANDIDATE_REVISION,
                 self.checker.FEATURE_REVISION, self.checker.PREVIOUS_TARGET_REVISION,
+                self.checker.RETENTION_REVISION,
                 self.checker.TARGET_REVISION,
             ])
             self.assertEqual(self.before, self.history(conn))
