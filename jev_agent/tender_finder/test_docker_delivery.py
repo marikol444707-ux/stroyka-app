@@ -1,4 +1,5 @@
 import contextlib
+from contextvars import ContextVar
 from dataclasses import replace
 from datetime import datetime, timezone
 import io
@@ -9,7 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from types import SimpleNamespace
+from types import SimpleNamespace, ModuleType
 from unittest.mock import Mock, patch
 
 from .contract import validate_v2_request
@@ -46,6 +47,52 @@ class RemoteProgramTests(unittest.TestCase):
     def setUp(self):
         self.program={'__name__':'test_fixture_not_main'}
         exec(compile(REMOTE_PROGRAM,'fixed-hermes-send-program','exec'),self.program)
+
+    def profile_fixture(self, home='/opt/data'):
+        current=ContextVar('fixture_credentials',default=None)
+        scope=ModuleType('agent.secret_scope')
+        scope.build_profile_secret_scope=Mock(return_value={'fixture_token':'PRIVATE_FIXTURE'})
+        scope.set_secret_scope=lambda values,**kw:current.set(values)
+        scope.reset_secret_scope=current.reset
+        constants=ModuleType('hermes_constants')
+        constants.get_hermes_home=lambda:Path(home)
+        return current,scope,{'agent.secret_scope':scope,'hermes_constants':constants}
+
+    def test_profile_credentials_reach_sender_without_process_environment_or_scope_leak(self):
+        current,scope,modules=self.profile_fixture()
+        def send(args):
+            self.assertEqual(current.get(),{'fixture_token':'PRIVATE_FIXTURE'})
+            self.assertNotIn('fixture_token',os.environ)
+            self.assertEqual(args,FRAME)
+            return acknowledgement()
+        with patch.dict(sys.modules,modules),patch.dict(os.environ,{'HERMES_HOME':'/opt/data','HERMES_PROFILE':''}):
+            before=dict(os.environ)
+            raw=self.program['_profile_sender'](send)(FRAME)
+            self.assertEqual(raw,acknowledgement())
+            self.assertEqual(os.environ,before)
+            self.assertIsNone(current.get())
+        scope.build_profile_secret_scope.assert_called_once_with(Path('/opt/data'))
+
+    def test_profile_scope_restored_after_sender_failure_without_swallowing_policy_denial(self):
+        current,scope,modules=self.profile_fixture()
+        original=current.set({'previous':'scope'})
+        sender=Mock(side_effect=ValueError('relay_denied'))
+        with patch.dict(sys.modules,modules),patch.dict(os.environ,{'HERMES_HOME':'/opt/data','HERMES_PROFILE':''}):
+            with self.assertRaisesRegex(ValueError,'relay_denied'):
+                self.program['_profile_sender'](sender)(FRAME)
+            self.assertEqual(current.get(),{'previous':'scope'})
+        current.reset(original)
+
+    def test_other_profile_is_rejected_before_credential_resolution_or_send(self):
+        for home,environment in (('/other',{'HERMES_HOME':'/opt/data','HERMES_PROFILE':''}),
+                ('/opt/data',{'HERMES_HOME':'/opt/data','HERMES_PROFILE':'other'}),
+                ('/opt/data',{'HERMES_HOME':'/other','HERMES_PROFILE':''})):
+            current,scope,modules=self.profile_fixture(home)
+            sender=Mock()
+            with self.subTest(home=home,environment=environment),patch.dict(sys.modules,modules),patch.dict(os.environ,environment):
+                with self.assertRaisesRegex(ValueError,'reviewed_default_hermes_profile_required'):
+                    self.program['_profile_sender'](sender)(FRAME)
+            scope.build_profile_secret_scope.assert_not_called();sender.assert_not_called()
 
     def invoke(self,wire,sender):
         self.program['_load_sender']=lambda:sender

@@ -80,7 +80,28 @@ def _load_sender():
     module = importlib.import_module('tools.send_message_tool')
     if module.__file__!='/opt/hermes/tools/send_message_tool.py':
         raise ValueError('reviewed_sender_origin_required')
-    return module.send_message_tool
+    return _profile_sender(module.send_message_tool)
+
+def _profile_sender(sender):
+    # A standalone docker exec does not inherit gateway startup's credential
+    # initialization. Resolve ONLY this supported default Hermes profile using
+    # its own SDK, in memory; never copy credentials into JEV or os.environ.
+    def send(args):
+        from pathlib import Path
+        from hermes_constants import get_hermes_home
+        from agent.secret_scope import (
+            build_profile_secret_scope, set_secret_scope, reset_secret_scope,
+        )
+        home = Path('/opt/data')
+        if (get_hermes_home() != home or os.environ.get('HERMES_PROFILE')
+                or os.environ.get('HERMES_HOME') != str(home)):
+            raise ValueError('reviewed_default_hermes_profile_required')
+        token = set_secret_scope(build_profile_secret_scope(home), profile_home=str(home))
+        try:
+            return sender(args)
+        finally:
+            reset_secret_scope(token)
+    return send
 
 def main():
     result = {'success':False,'code':'hermes_delivery_failed'}

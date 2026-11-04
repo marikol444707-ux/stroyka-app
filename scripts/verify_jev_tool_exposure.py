@@ -20,7 +20,8 @@ SOURCES={'tools/registry.py':'48c3875138ac9e1875349ed2900d6940f51dfff050d655d6fb
  'toolsets.py':'7674a11eeebcc06b7c83c816fca0bc6982107870f5615375d2ffc5dbe6044eaa',
  'model_tools.py':'da5b7db1b05de615658e56c4172426ed82099a093c5b586e48e65ef930b778c8',
  'hermes_cli/tools_config.py':'35012cc12fc709a5a95c3f547ebb76a1938f231f0012e7e6fa843bf4be52a2fd',
- 'pm/environments.py':'40b5fb014b07ad7c7187352bacb9b79581da4c1304d2e86768eb5dfd95a2ea2b'}
+ 'pm/environments.py':'40b5fb014b07ad7c7187352bacb9b79581da4c1304d2e86768eb5dfd95a2ea2b',
+ 'agent/secret_scope.py':'dce64ce99a6966836108e202e1db41c4be97bd3dad41a79e357f39b8d7e90dec'}
 
 
 def load_sources():
@@ -56,9 +57,29 @@ def verify_sealed_docker_contract(sources):
         except namespace['NoCommittedEnvironment']:pass
         else:raise AssertionError('bare_store_must_refuse_missing_dependencies')
     from jev_agent.tender_finder import docker_delivery
-    # Exact f214 transport: keep the source already installed on the server,
-    # including UID/mount/image/source/recipient gates and delivery ledger.
-    assert hashlib.sha256(Path(docker_delivery.__file__).read_bytes()).hexdigest()=='9d5ab6593fc20bc68e3c5a13e098b180ae13abbbbdd68bdb4cc472b809f785c8'
+    # Removing ONLY the scoped-credential wrapper must reconstruct exact f214:
+    # UID/mount/image/source/recipient gates and delivery ledger stay identical.
+    raw=Path(docker_delivery.__file__).read_bytes()
+    start=raw.index(b'\ndef _profile_sender(sender):')
+    end=raw.index(b'\ndef main():',start)
+    original=(raw[:start]+raw[end:]).replace(
+        b'return _profile_sender(module.send_message_tool)',b'return module.send_message_tool')
+    assert hashlib.sha256(original).hexdigest()=='9d5ab6593fc20bc68e3c5a13e098b180ae13abbbbdd68bdb4cc472b809f785c8'
+    # Real pinned Hermes scope implementation: a standalone environment misses
+    # profile credentials until scoped resolution, with no .env or network use.
+    scope=types.ModuleType('agent.secret_scope')
+    exec(compile(sources['agent/secret_scope.py'],'reviewed-secret-scope','exec'),scope.__dict__)
+    constants=types.ModuleType('hermes_constants')
+    constants.get_hermes_home=lambda:Path('/opt/data')
+    namespace={'__name__':'credential_fixture'}
+    exec(compile(docker_delivery.REMOTE_PROGRAM,'fixed-transport','exec'),namespace)
+    with patch.dict(sys.modules,{'agent.secret_scope':scope,'hermes_constants':constants}),patch.dict(
+            'os.environ',{'HERMES_HOME':'/opt/data','HERMES_PROFILE':''}):
+        assert scope.current_secret_scope() is None
+        assert scope.get_secret('JEV_SYNTHETIC_TEST_TOKEN') is None
+        with patch.object(scope,'build_profile_secret_scope',return_value={'JEV_SYNTHETIC_TEST_TOKEN':'fixture'}):
+            assert namespace['_profile_sender'](lambda _:scope.get_secret('JEV_SYNTHETIC_TEST_TOKEN'))({})=='fixture'
+        assert scope.current_secret_scope() is None
 
 
 def verify(sources):
@@ -134,7 +155,8 @@ def verify(sources):
     return {'pinned_registry_and_resolver':'PASS','old_bundle_hidden_reproduced':True,
         'old_dictionary_result_rejected_reproduced':True,'dedicated_opt_in_exposes_only_jev':True,
         'json_acknowledgement_preserved':True,'disabled_group_respected':True,
-        'docker_native_transport_preserved':True,'bare_store_no_committed_reproduced':True,'search_executed':False,'notifications_sent':False}
+        'docker_transport_gates_preserved':True,'native_profile_scope_verified':True,
+        'bare_store_no_committed_reproduced':True,'search_executed':False,'notifications_sent':False}
 
 
 if __name__=='__main__':print(json.dumps(verify(load_sources())))
