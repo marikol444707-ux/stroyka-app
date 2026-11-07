@@ -231,6 +231,7 @@ def register_crm_module(app, deps):
     resolve_work_company_context = deps["resolve_work_company_context"]
     effective_company_actors = deps["effective_company_actors"]
     resolve_resource_company_actor = deps["resolve_resource_company_actor"]
+    public_site_company_id = int(deps.get("public_site_company_id") or 0)
 
     _ensure_crm_schema(get_db)
 
@@ -271,6 +272,46 @@ def register_crm_module(app, deps):
         if not company_ids:
             raise HTTPException(status_code=403, detail="Роль в выбранной компании не позволяет читать CRM")
         return company_ids
+
+    @app.get("/crm/public-site-analytics")
+    def crm_public_site_analytics(
+        x_company_id: str = Header(default=None, alias="X-Company-Id"),
+        x_company_mode: str = Header(default=None, alias="X-Company-Mode"),
+        current_user: dict = Depends(crm_access),
+    ):
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            company_ids = readable_company_ids(cur, current_user, x_company_id, x_company_mode)
+            scoped_ids = [company_id for company_id in company_ids if company_id == public_site_company_id]
+            if not scoped_ids:
+                return {"days": 30, "views": 0, "pages": [], "campaigns": []}
+            cur.execute("""
+                SELECT COALESCE(SUM(view_count), 0) AS views
+                FROM public_site_page_views
+                WHERE company_id = ANY(%s) AND view_date >= CURRENT_DATE - 29
+            """, (scoped_ids,))
+            views = int(cur.fetchone()["views"] or 0)
+            cur.execute("""
+                SELECT page_path AS path, SUM(view_count)::BIGINT AS views
+                FROM public_site_page_views
+                WHERE company_id = ANY(%s) AND view_date >= CURRENT_DATE - 29
+                GROUP BY page_path ORDER BY views DESC, page_path LIMIT 8
+            """, (scoped_ids,))
+            pages = [dict(row) for row in cur.fetchall()]
+            cur.execute("""
+                SELECT utm_source AS source, utm_medium AS medium, utm_campaign AS campaign,
+                       SUM(view_count)::BIGINT AS views
+                FROM public_site_page_views
+                WHERE company_id = ANY(%s) AND view_date >= CURRENT_DATE - 29
+                  AND (utm_source <> '' OR utm_medium <> '' OR utm_campaign <> '')
+                GROUP BY utm_source, utm_medium, utm_campaign
+                ORDER BY views DESC, source LIMIT 8
+            """, (scoped_ids,))
+            return {"days": 30, "views": views, "pages": pages, "campaigns": [dict(row) for row in cur.fetchall()]}
+        finally:
+            cur.close()
+            conn.close()
 
     def authorize_owner(cur, current_user, owner, action_mode, x_company_id, x_company_mode):
         resolve_resource_company_actor(

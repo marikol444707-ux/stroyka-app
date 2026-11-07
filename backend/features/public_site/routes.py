@@ -29,6 +29,14 @@ SITE_PRICE_GROUP_LABELS = {
     "reconstruction_scope": "Реконструкция: объём",
 }
 
+PUBLIC_SITE_ANALYTICS_MAX_BUCKETS_PER_DAY = 500
+PUBLIC_SITE_ANALYTICS_RETENTION_DAYS = 400
+PUBLIC_SITE_ANALYTICS_LOCK_NAMESPACE = 1128354387
+PUBLIC_SITE_ANALYTICS_PATHS = frozenset({
+    "/", "/contacts.html", "/features.html", "/privacy.html",
+    "/project-catalog.html", "/terms.html",
+})
+
 
 def _site_list_value(value):
     if value is None:
@@ -60,6 +68,16 @@ def _site_int(value, default=0):
 
 def _public_text(value, limit: int = 255) -> str:
     return str(value or "").strip()[:limit]
+
+
+def _public_site_utm_value(value, limit: int) -> str:
+    normalized = str(value or "").strip().lower()
+    if len(normalized) > limit or (normalized and not re.fullmatch(r"[a-z0-9._-]+", normalized)):
+        return ""
+    # Reject obvious phone-like values before retaining a campaign label.
+    if normalized.isdigit() or re.search(r"\d{8,}", normalized):
+        return ""
+    return normalized
 
 
 def _public_comparison_url(value) -> str:
@@ -392,12 +410,75 @@ def register_public_site_routes(app, deps):
     lead_last_submit = deps.get("public_lead_last_submit", {})
     lead_uploads_enabled = bool(deps.get("public_site_lead_uploads_enabled", False))
     public_site_company_id = int(deps.get("public_site_company_id") or 0)
+    public_site_views_enabled = public_site_company_id > 0
     save_upload_bytes = deps.get("save_upload_bytes")
     delete_local_file = deps.get("delete_local_file")
     delete_s3_object = deps.get("delete_s3_object")
     enqueue_public_site_lead_email = deps.get("enqueue_public_site_lead_email")
 
     site_admin = require_roles(*leadership_roles)
+
+    @app.post("/site/analytics/pageview", status_code=202)
+    def record_public_site_pageview(data: dict, request: Request):
+        """Store daily page-view aggregates only; no visitor identifiers are retained."""
+        if not public_site_views_enabled:
+            raise HTTPException(status_code=503, detail="Счётчик сайта не настроен")
+        origin = urllib.parse.urlparse(request.headers.get("origin") or "")
+        if origin.scheme != "https" or origin.hostname not in {"stroyka26.pro", "www.stroyka26.pro"}:
+            raise HTTPException(status_code=403, detail="Недопустимый источник запроса")
+
+        page_path = str(data.get("path") or "")
+        if page_path not in PUBLIC_SITE_ANALYTICS_PATHS:
+            raise HTTPException(status_code=422, detail="Недопустимая страница")
+
+        values = (
+            public_site_company_id,
+            page_path,
+            _public_site_utm_value(data.get("utmSource"), 80),
+            _public_site_utm_value(data.get("utmMedium"), 80),
+            _public_site_utm_value(data.get("utmCampaign"), 120),
+        )
+        conn = get_db()
+        cur = conn.cursor()
+        try:
+            # Bound daily cardinality so anonymous requests cannot grow the table
+            # without limit by sending a fresh campaign label on every request.
+            cur.execute(
+                "SELECT pg_advisory_xact_lock(%s, %s)",
+                (PUBLIC_SITE_ANALYTICS_LOCK_NAMESPACE, public_site_company_id),
+            )
+            cur.execute("""
+                DELETE FROM public_site_page_views
+                WHERE company_id=%s AND view_date < CURRENT_DATE - %s
+            """, (public_site_company_id, PUBLIC_SITE_ANALYTICS_RETENTION_DAYS - 1))
+            cur.execute("""
+                SELECT EXISTS (
+                    SELECT 1 FROM public_site_page_views
+                    WHERE company_id=%s AND view_date=CURRENT_DATE AND page_path=%s
+                      AND utm_source=%s AND utm_medium=%s AND utm_campaign=%s
+                ) AS bucket_exists,
+                (SELECT COUNT(*) FROM public_site_page_views
+                 WHERE company_id=%s AND view_date=CURRENT_DATE) AS bucket_count
+            """, (values[0], values[1], values[2], values[3], values[4], values[0]))
+            bucket_state = cur.fetchone()
+            bucket_exists, bucket_count = bucket_state
+            if not bucket_exists and bucket_count >= PUBLIC_SITE_ANALYTICS_MAX_BUCKETS_PER_DAY:
+                values = (values[0], values[1], "", "", "")
+            cur.execute("""
+                INSERT INTO public_site_page_views
+                    (company_id, view_date, page_path, utm_source, utm_medium, utm_campaign, view_count)
+                VALUES (%s, CURRENT_DATE, %s, %s, %s, %s, 1)
+                ON CONFLICT (company_id, view_date, page_path, utm_source, utm_medium, utm_campaign)
+                DO UPDATE SET view_count = public_site_page_views.view_count + 1
+            """, values)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+            conn.close()
+        return {"ok": True}
 
     @app.post("/site/lead-files")
     async def create_site_lead_file(request: Request, file: UploadFile = File(...)):
