@@ -72,9 +72,13 @@ def register_work_assignment_module(app, deps):
     ):
         data = data or {}
         assignee = data.get("assignee") or {}
+        if not isinstance(assignee, dict):
+            raise HTTPException(status_code=400, detail="Некорректная карточка исполнителя")
+        if 'contractorRef' in assignee and 'contractorRef' in data and assignee['contractorRef'] != data['contractorRef']:
+            raise HTTPException(status_code=400, detail="Указаны разные карточки исполнителя")
         brigade_name = _text(assignee.get("brigadeName") or assignee.get("name") or data.get("brigadeName"), 255)
         contractor_type = _text(assignee.get("contractorType") or data.get("contractorType") or "Своя бригада", 100)
-        contractor_id = assignee.get("contractorId") or data.get("contractorId")
+        contractor_id = assignee.get("contractorId", data.get("contractorId"))
         if not brigade_name:
             raise HTTPException(status_code=400, detail="Выберите мастера или укажите название бригады")
         assignments = data.get("items") or data.get("assignments") or []
@@ -102,6 +106,30 @@ def register_work_assignment_module(app, deps):
             project_id = estimate_scope.get("projectId")
             if not project_id:
                 raise HTTPException(status_code=409, detail="Смета не привязана к точному объекту выбранной компании")
+            reference = assignee.get('contractorRef', data.get('contractorRef'))
+            manual_command = None
+            if isinstance(reference, dict) and reference.get('type') == 'manual':
+                from ..contractor_identity.manual import command_evidence, find_manual_retry, record_manual_origin
+                resolve_brigade_contractor_user(cur, company_id, contractor_id, brigade_name, contractor_ref=reference)
+                manual_command = command_evidence(reference, company_id=company_id, project_id=project_id,
+                    actor_id=actor['id'], command='estimate_assignment:'+str(estimate_id), payload=data)
+                manual_retry = find_manual_retry(cur, company_id, project_id,
+                    estimate_scope.get('workPackage') or 'Основная', *manual_command)
+                if manual_retry:
+                    # A committed command is only acknowledged. Do not resolve
+                    # today's estimate snapshot or issue any additional rows.
+                    cur.execute('SELECT brigade_name FROM brigade_contracts WHERE id=%s', (manual_retry,))
+                    saved_name = cur.fetchone()[0]
+                    cur.execute('''SELECT COUNT(*) FROM brigade_contract_items i
+                        JOIN estimate_versions v ON v.id=i.source_estimate_version_id
+                        WHERE i.contract_id=%s AND v.estimate_id=%s''', (manual_retry, estimate_id))
+                    count = cur.fetchone()[0]
+                    conn.rollback()
+                    return {'ok': True, 'contractId': manual_retry, 'createdContract': False,
+                        'inserted': 0, 'updated': 0, 'reused': count, 'brigadeName': saved_name,
+                        'contractorId': None, 'companyId': company_id, 'projectId': project_id,
+                        'workPackage': estimate_scope.get('workPackage') or 'Основная',
+                        'manualRequestId': manual_command[0]}
             coordinates = []
             for assignment in assignments:
                 if not isinstance(assignment, dict):
@@ -138,18 +166,32 @@ def register_work_assignment_module(app, deps):
                 raise HTTPException(status_code=409, detail="Смета не привязана к точному объекту выбранной компании")
             project_name = estimate_scope.get("projectName") or estimate[3] or ""
             work_package = estimate_scope.get("workPackage") or estimate[4] or "Основная"
+            selection = ({'contractor_ref': assignee['contractorRef']} if 'contractorRef' in assignee else
+                         {'contractor_ref': data['contractorRef']} if 'contractorRef' in data else {})
+            if selection:
+                selection.update(project_id=project_id, work_package=work_package)
             contractor_user_id = resolve_brigade_contractor_user(
                 cur,
                 company_id,
                 contractor_id,
                 brigade_name,
+                **selection,
             )
-
-            existing_id = find_existing_brigade_contract_id(
-                cur, company_id, project_id, work_package, contractor_user_id, brigade_name,
-            )
+            reference = selection.get('contractor_ref') or {}
+            selected_contract_id = int(reference['id']) if reference.get('type') == 'contract' else None
+            if manual_command:
+                selected_contract_id = manual_retry
+                existing_id = manual_retry
+            else:
+                existing_id = selected_contract_id or find_existing_brigade_contract_id(
+                    cur, company_id, project_id, work_package, contractor_user_id, brigade_name,
+                )
             created_contract = False
-            if existing_id:
+            if selected_contract_id:
+                contract_id = selected_contract_id
+                cur.execute('SELECT brigade_name,contractor_type FROM brigade_contracts WHERE id=%s', (contract_id,))
+                brigade_name, contractor_type = cur.fetchone()
+            elif existing_id:
                 contract_id = existing_id
                 cur.execute(
                     """UPDATE brigade_contracts
@@ -183,6 +225,8 @@ def register_work_assignment_module(app, deps):
                 )
                 contract_id = cur.fetchone()[0]
                 created_contract = True
+                if manual_command:
+                    record_manual_origin(cur, contract_id, company_id, project_id, *manual_command, actor['id'])
 
             inserted = 0
             updated = 0
@@ -206,6 +250,14 @@ def register_work_assignment_module(app, deps):
                 if qty <= 0:
                     raise HTTPException(status_code=400, detail="В работе нулевой объем: " + _text(item.get("name"), 120))
                 price_smeta = estimate_item_unit_price(item)
+                if manual_command and 'expectedSource' in assignment:
+                    expected = assignment['expectedSource']
+                    actual = {'name': _text(item.get('name') or item.get('description'), 500),
+                        'unit': _text(item.get('unit') or 'шт', 80), 'quantity': qty, 'priceSmeta': price_smeta}
+                    if (not isinstance(expected, dict) or set(expected) != set(actual)
+                            or any(type(expected.get(field)) not in (int,float) for field in ('quantity','priceSmeta'))
+                            or expected != actual):
+                        raise HTTPException(409, 'Смета изменилась после подготовки отправки. Проверьте исходные работы')
                 if price_smeta <= 0:
                     raise HTTPException(status_code=400, detail="В работе нет цены сметы: " + _text(item.get("name"), 120))
                 row_mode = _text(assignment.get("priceMode") or price_mode, 40)
@@ -317,4 +369,5 @@ def register_work_assignment_module(app, deps):
             "companyId": company_id,
             "projectId": project_id,
             "items": result_items,
+            "manualRequestId": manual_command[0] if manual_command else None,
         }

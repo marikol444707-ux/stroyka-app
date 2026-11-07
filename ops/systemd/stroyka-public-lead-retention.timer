@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily cleanup of stale public-site leads
+
+[Timer]
+OnCalendar=*-*-* 03:40:00
+Persistent=true
+RandomizedDelaySec=15m
+Unit=stroyka-public-lead-retention.service
+
+[Install]
+WantedBy=timers.target

@@ -82,6 +82,8 @@ export default function ProjectBrigadeCalculationTab({
 
       {showLeadership && showBrigadeForm && (
         <ProjectBrigadeCreateForm
+          companyContext={companyContext}
+          user={user}
           project={project}
           brigadeContracts={brigadeContracts}
           newBrigadeContract={newBrigadeContract}

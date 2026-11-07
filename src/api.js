@@ -84,6 +84,7 @@ export const installAuthFetch = () => {
     '/password-reset/confirm',
   ];
   const csrfMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+  const csrfPublicPaths = new Set(['/site/leads', '/site/lead-files']);
   const csrfHeaderName = 'X-CSRF-Token';
   let csrfToken = '';
   let csrfTokenPromise = null;
@@ -170,6 +171,9 @@ export const installAuthFetch = () => {
   };
   window.fetch = async (input, init = {}) => {
     const path = getRequestPath(input);
+    if (path === '/site/analytics/pageview') {
+      return nativeFetch(input, {...init, credentials: 'omit'});
+    }
     const isPublicAuthRequest = isAuthPublicPath(path);
     if (isPublicAuthRequest) {
       const isLogin = path === '/login' || path === '/login/2fa/verify' || path === '/login/2fa/setup-confirm';
@@ -182,7 +186,7 @@ export const installAuthFetch = () => {
     const method = getRequestMethod(input, init);
     let nextInit = withStoredCompanyContextHeaders({...init, credentials: init.credentials || 'include'});
     nextInit = withSupplierPaymentContext(path, nextInit);
-    if (csrfMethods.has(method) && !hasCsrfHeader(input, init)) {
+    if (csrfMethods.has(method) && !csrfPublicPaths.has(path) && !hasCsrfHeader(input, init)) {
       nextInit = withCsrfToken(nextInit, await fetchCsrfToken());
     }
     // A mutation waiting for old CSRF must never continue under the next login.

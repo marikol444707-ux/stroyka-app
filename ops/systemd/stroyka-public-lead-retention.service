@@ -1,0 +1,15 @@
+[Unit]
+Description=Expire inactive unconverted Stroyka public-site leads
+After=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/var/www/stroyka-app
+Environment=PYTHONPATH=/var/www/stroyka-app
+EnvironmentFile=-/var/www/stroyka-app/backend/.env
+ExecStart=/usr/bin/python3 /var/www/stroyka-app/scripts/expire_public_site_leads.py --apply --limit 100
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full

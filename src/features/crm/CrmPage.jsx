@@ -81,10 +81,21 @@ export default function CrmPage({
   const [documentForm, setDocumentForm] = React.useState({ docType: 'Договор', title: '', status: 'Загружен', number: '', docDate: '', confidential: false, notes: '', fileUrl: '' });
   const [taskForm, setTaskForm] = React.useState({ title: '', dueDate: '', assignedTo: '', notes: '' });
   const [inviteResult, setInviteResult] = React.useState(null);
+  const [siteAnalytics, setSiteAnalytics] = React.useState(null);
   const [filters, setFilters] = React.useState({ search: '', leadType: '', responsibleName: '', attention: '' });
   const [saving, setSaving] = React.useState(false);
   const compact = isMobile || (typeof window !== 'undefined' && window.innerWidth <= 1100);
   const today = React.useMemo(() => new Date().toISOString().slice(0, 10), []);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    if (!API) return undefined;
+    fetch(API + '/crm/public-site-analytics')
+      .then(response => response.ok ? response.json() : null)
+      .then(data => { if (!cancelled) setSiteAnalytics(data); })
+      .catch(() => { if (!cancelled) setSiteAnalytics(null); });
+    return () => { cancelled = true; };
+  }, [API]);
 
   const isPastDue = React.useCallback((dateValue) => {
     const value = String(dateValue || '').slice(0, 10);
@@ -342,6 +353,11 @@ export default function CrmPage({
     };
   }, [allLeads, attentionForLead, filteredLeads.length]);
 
+  const publicSiteLeads = React.useMemo(
+    () => allLeads.filter(lead => String(lead.createdBy || '').trim().toLowerCase() === 'сайт'),
+    [allLeads],
+  );
+
   const grouped = React.useMemo(() => {
     const map = new Map((CRM_STAGES || []).map(stage => [stage, []]));
     filteredLeads.forEach(lead => {
@@ -436,6 +452,8 @@ export default function CrmPage({
       </div>
 
       <CrmSummary C={C} card={card} compact={compact} summary={summary} />
+      <PublicSitePageViewStats C={C} card={card} compact={compact} analytics={siteAnalytics} />
+      <PublicSiteLeadStats C={C} card={card} compact={compact} leads={publicSiteLeads} />
       <CrmFilters
         C={C}
         inp={inp}
@@ -588,6 +606,106 @@ export default function CrmPage({
         })}
       </div>
     </div>
+  );
+}
+
+function PublicSitePageViewStats({ C, card, compact, analytics }) {
+  const pages = Array.isArray(analytics?.pages) ? analytics.pages : [];
+  const campaigns = Array.isArray(analytics?.campaigns) ? analytics.campaigns : [];
+  return (
+    <section aria-label="Просмотры публичного сайта" style={{ ...card, padding: compact ? '12px' : '14px', marginBottom: '12px', minWidth: 0 }}>
+      <b style={{ color: C.text, fontSize: compact ? '13px' : '14px' }}>Просмотры сайта за 30 дней</b>
+      <p style={{ color: C.textSec, margin: '3px 0 10px', fontSize: '11px' }}>Это просмотры страниц, не число уникальных людей. Один человек может дать несколько просмотров.</p>
+      <b style={{ color: C.accent, fontSize: '20px' }}>{analytics ? Number(analytics.views || 0).toLocaleString('ru-RU') : '—'}</b>
+      {pages.length > 0 && <div style={{ display: 'grid', gridTemplateColumns: compact ? '1fr' : 'repeat(2,minmax(0,1fr))', gap: '10px', marginTop: '10px' }}>
+        <div><b style={{ color: C.text, fontSize: '11px' }}>Популярные страницы</b>{pages.slice(0, 5).map(page => <div key={page.path} style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', color: C.textSec, fontSize: '11px', marginTop: '4px' }}><span style={{ overflowWrap: 'anywhere' }}>{page.path}</span><b>{Number(page.views || 0).toLocaleString('ru-RU')}</b></div>)}</div>
+        {campaigns.length > 0 && <div><b style={{ color: C.text, fontSize: '11px' }}>Переходы по UTM</b>{campaigns.slice(0, 5).map((row, index) => <div key={`${row.source}-${row.medium}-${row.campaign}-${index}`} style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', color: C.textSec, fontSize: '11px', marginTop: '4px' }}><span style={{ overflowWrap: 'anywhere' }}>{[row.source, row.medium, row.campaign].filter(Boolean).join(' / ')}</span><b>{Number(row.views || 0).toLocaleString('ru-RU')}</b></div>)}</div>}
+      </div>}
+    </section>
+  );
+}
+
+function PublicSiteLeadStats({ C, card, compact, leads }) {
+  const [period, setPeriod] = React.useState('30');
+  const filtered = React.useMemo(() => {
+    if (period === 'all') return leads;
+    const cutoff = Date.now() - Number(period) * 24 * 60 * 60 * 1000;
+    return leads.filter(lead => {
+      const createdAt = Date.parse(lead.createdAt || '');
+      return Number.isFinite(createdAt) && createdAt >= cutoff;
+    });
+  }, [leads, period]);
+
+  const campaigns = React.useMemo(() => {
+    const groups = new Map();
+    filtered.forEach(lead => {
+      const text = String(lead.notes || '');
+      const utmLine = text.split(/\r?\n/).find(line => line.trim().startsWith('UTM:')) || '';
+      const values = Object.fromEntries(
+        [...utmLine.matchAll(/(utm_source|utm_medium|utm_campaign)=([^·\n]+)/g)]
+          .map(([, key, value]) => [key, value.trim()]),
+      );
+      const label = values.utm_campaign
+        ? [values.utm_campaign, values.utm_source, values.utm_medium].filter(Boolean).join(' · ')
+        : (values.utm_source || values.utm_medium)
+          ? [values.utm_source, values.utm_medium].filter(Boolean).join(' · ')
+          : 'Без UTM-метки';
+      groups.set(label, (groups.get(label) || 0) + 1);
+    });
+    return [...groups.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'ru')).slice(0, 5);
+  }, [filtered]);
+
+  if (!leads.length) return null;
+  const converted = filtered.filter(lead => ['Договор', 'Передан в объект'].includes(lead.stage) || Boolean(lead.projectId)).length;
+  const rejected = filtered.filter(lead => lead.stage === 'Отказ').length;
+  const active = filtered.filter(lead => !['Договор', 'Передан в объект', 'Отказ'].includes(lead.stage) && !lead.projectId).length;
+  const metrics = [
+    { label: 'Заявок с сайта', value: filtered.length, color: C.text },
+    { label: 'В работе', value: active, color: C.accent },
+    { label: 'Стали объектом / договором', value: converted, color: C.success },
+    { label: 'Отказ', value: rejected, color: C.textSec },
+  ];
+  const buttonStyle = (selected) => ({
+    border: `1px solid ${selected ? (C.accent || '#f97316') : C.border}`,
+    color: selected ? (C.accent || '#f97316') : C.textSec,
+    background: selected ? (C.accentLight || 'rgba(249,115,22,.1)') : 'transparent',
+    borderRadius: '8px', padding: '6px 10px', minHeight: '36px', cursor: 'pointer', font: 'inherit',
+  });
+
+  return (
+    <section aria-labelledby="public-site-lead-stats-title" style={{ ...card, padding: compact ? '12px' : '14px', marginBottom: '12px', minWidth: 0 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '10px' }}>
+        <div>
+          <h4 id="public-site-lead-stats-title" style={{ color: C.text, fontSize: '14px', margin: 0 }}>Заявки с сайта</h4>
+          <p style={{ color: C.textSec, fontSize: '11px', margin: '3px 0 0' }}>Считаются отправленные формы, а не просмотры страниц.</p>
+        </div>
+        <div role="group" aria-label="Период статистики заявок с сайта" style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+          {[['30', '30 дней'], ['90', '90 дней'], ['all', 'Всё время']].map(([value, label]) => (
+            <button key={value} type="button" aria-pressed={period === value} onClick={() => setPeriod(value)} style={buttonStyle(period === value)}>{label}</button>
+          ))}
+        </div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: compact ? 'repeat(2,minmax(0,1fr))' : 'repeat(4,minmax(0,1fr))', gap: '8px' }}>
+        {metrics.map(metric => (
+          <div key={metric.label} style={{ border: `1px solid ${C.border}`, borderRadius: '8px', padding: '9px', minWidth: 0 }}>
+            <span style={{ display: 'block', color: C.textSec, fontSize: '10px', lineHeight: 1.35, marginBottom: '4px' }}>{metric.label}</span>
+            <b style={{ color: metric.color, fontSize: '15px' }}>{metric.value}</b>
+          </div>
+        ))}
+      </div>
+      {campaigns.length > 0 && (
+        <div style={{ marginTop: '10px' }}>
+          <b style={{ display: 'block', color: C.text, fontSize: '11px', marginBottom: '5px' }}>Источники и кампании</b>
+          <div style={{ display: 'grid', gap: '4px' }}>
+            {campaigns.map(([label, count]) => (
+              <div key={label} style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', color: C.textSec, fontSize: '11px', minWidth: 0 }}>
+                <span style={{ overflowWrap: 'anywhere' }}>{label}</span><b style={{ color: C.text, flex: '0 0 auto' }}>{count}</b>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 

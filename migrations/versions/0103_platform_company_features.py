@@ -3,8 +3,8 @@
 from alembic import op
 
 
-revision = "0102_platform_company_features"
-down_revision = "0101_job_candidates"
+revision = "0103_platform_company_features"
+down_revision = "0102_job_candidates"
 branch_labels = None
 depends_on = None
 

@@ -69,6 +69,7 @@ import {
 } from '../features/public-site/publicPlotCheck';
 const PublicSitePage = ({ onLogin }) => {
   const [calc, setCalc] = useState(publicCalcDefaults);
+  const [showMobileActions, setShowMobileActions] = useState(false);
   const [selectedReferenceId, setSelectedReferenceId] = useState(referenceDirections[0].id);
   const [selectedReferenceExample, setSelectedReferenceExample] = useState(getReferenceProjectCards(referenceDirections[0])[0].title);
   const [selectedReferenceMediaId, setSelectedReferenceMediaId] = useState('render-front');
@@ -87,8 +88,39 @@ const PublicSitePage = ({ onLogin }) => {
   const comparisonDirectionRef = useRef(selectedReferenceId);
   const requestPhoneInputRef = useRef(null);
 
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return undefined;
+    const hero = document.querySelector('.public-hero');
+    if (!hero) return undefined;
+    const forms = [
+      document.querySelector('#suppliers'),
+      document.querySelector('#request'),
+    ].filter(Boolean);
+
+    const updateMobileActions = () => {
+      const isMobile = window.matchMedia
+        ? window.matchMedia('(max-width: 760px)').matches
+        : window.innerWidth <= 760;
+      const passedHero = window.scrollY >= hero.offsetHeight;
+      const formIsVisible = forms.some((section) => {
+        const bounds = section.getBoundingClientRect();
+        return bounds.top < window.innerHeight && bounds.bottom > 0;
+      });
+      const shouldShow = isMobile && passedHero && !formIsVisible;
+      setShowMobileActions((current) => (current === shouldShow ? current : shouldShow));
+    };
+    updateMobileActions();
+    window.addEventListener('scroll', updateMobileActions, { passive: true });
+    window.addEventListener('resize', updateMobileActions);
+    return () => {
+      window.removeEventListener('scroll', updateMobileActions);
+      window.removeEventListener('resize', updateMobileActions);
+    };
+  }, []);
+
   const {
     sitePricingRules,
+    sitePricingStatus,
     leadFileUploadsEnabled,
     hasPublishedProjects,
     projectCategory,
@@ -615,6 +647,7 @@ const PublicSitePage = ({ onLogin }) => {
             calc={calc}
             updateCalc={updatePublicCalculator}
             result={result}
+            pricingStatus={sitePricingStatus}
             scrollTo={scrollTo}
             leadFileUploadsEnabled={leadFileUploadsEnabled}
             leadFiles={leadFiles}
@@ -818,11 +851,11 @@ const PublicSitePage = ({ onLogin }) => {
 
         <div id="work-proof" className="public-work-proof">
           <div className="public-section-head compact">
-            <p className="public-eyebrow dark">Наши работы</p>
-            <h2>Показываем не только красивый финал, а доказательства выполнения</h2>
+            <p className="public-eyebrow dark">Контроль выполнения</p>
+            <h2>Как фиксируем ход работ и материалы</h2>
             <p>
-              Для сайта отдельно выводятся реальные работы и понятные этапы:
-              фото, ход работ, материалы, результат и паспорт объекта.
+              Ниже — примеры того, что можно фиксировать в системе. Фотографии
+              иллюстративные и не показывают выполненные компанией объекты.
             </p>
           </div>
           <div className="public-work-grid">
@@ -849,6 +882,25 @@ const PublicSitePage = ({ onLogin }) => {
             </p>
           </div>
           <div className="public-reference-layout">
+            <label className="public-reference-mobile-picker">
+              <span>Выберите направление</span>
+              <select
+                value={selectedReference.id}
+                onChange={(event) => {
+                  const direction = referenceDirections.find((item) => item.id === event.target.value);
+                  if (direction) chooseReference(direction, getReferenceProjectCards(direction)[0], 'catalog');
+                }}
+              >
+                {referenceDirections.map((item) => {
+                  const estimate = getReferenceProjectEstimate(item, getReferenceProjectCards(item)[0]);
+                  return (
+                    <option key={item.id} value={item.id}>
+                      {item.title} · {estimate.fromLabel}
+                    </option>
+                  );
+                })}
+              </select>
+            </label>
             <div className="public-reference-grid" aria-label="Направления проектов">
               {referenceDirections.map((item) => {
                 const isActive = selectedReference.id === item.id;
@@ -1315,8 +1367,10 @@ const PublicSitePage = ({ onLogin }) => {
               onChange={(event) => setPartnerConsent(event.target.checked)}
             />
             <span>
-              Даю согласие на обработку данных для проверки заявки и понимаю,
-              что кабинет не создаётся автоматически.
+              Даю согласие на обработку имени, телефона, email, ИНН (если указаны), региона,
+              специализации, комментария, приложенных файлов и технических сведений формы для
+              рассмотрения партнёрской заявки.
+              Кабинет не создаётся автоматически. Подробнее — в <a href="/privacy.html">политике</a>.
             </span>
           </label>
           <button className="public-primary" type="submit" disabled={partnerSending || !partnerConsent}>
@@ -1406,8 +1460,8 @@ const PublicSitePage = ({ onLogin }) => {
               onChange={(event) => setLeadConsent(event.target.checked)}
             />
             <span>
-              Даю согласие на обработку имени, телефона, комментария и параметров расчёта
-              для ответа на заявку. С{' '}
+              Даю согласие на обработку имени, телефона, комментария, параметров расчёта,
+              приложенных файлов и технических сведений формы для ответа на заявку. С{' '}
               <button
                 className="public-consent-link"
                 type="button"
@@ -1434,30 +1488,34 @@ const PublicSitePage = ({ onLogin }) => {
           <p className="public-eyebrow dark">Юридическая информация</p>
           <h2>Политика обработки персональных данных</h2>
           <p>
-            Заявки с сайта передаются в CRM только для обратной связи, расчёта и подготовки предложения.
-            Полные реквизиты исполнителя фиксируются в договоре и коммерческом предложении.
+            Заявки с сайта передаются в CRM для обратной связи, расчёта и подготовки предложения.
+            Оператор сайта — {PUBLIC_SITE_OPERATOR.name} (ИНН {PUBLIC_SITE_OPERATOR.inn},
+            ОГРНИП {PUBLIC_SITE_OPERATOR.ogrnip}). Адрес: {PUBLIC_SITE_OPERATOR.address}.
           </p>
         </div>
         <div className="public-legal-grid">
           <article>
             <h3>Что обрабатываем</h3>
             <p>
-              Имя, телефон, комментарий к заявке, параметры предварительного расчёта,
-              технические данные отправки формы и источник заявки.
+              Имя и телефон; если указаны — email, ИНН, регион и специализация партнёра;
+              текст обращения, параметры расчёта и выбранный проект, приложенные PDF и изображения,
+              а также IP, User-Agent, referrer и UTM-метки.
             </p>
           </article>
           <article>
             <h3>Зачем</h3>
             <p>
-              Чтобы ответить на обращение, подготовить расчёт, связать заявку с CRM
-              и не потерять историю общения с клиентом.
+              Чтобы ответить на обращение, подготовить расчёт или предложение, проверить партнёрскую
+              заявку и сохранить историю обращения в CRM.
             </p>
           </article>
           <article>
             <h3>Согласие</h3>
             <p>
               Заявка отправляется только после отметки согласия. Отозвать согласие можно
-              через контакт оператора, указанный в этом разделе.
+              по адресу {PUBLIC_SITE_OPERATOR.address}, по телефону {PUBLIC_SITE_OPERATOR.phone}{' '}
+              или на {PUBLIC_SITE_OPERATOR.privacyEmail}. Заявки с сайта без активности в течение
+              12 месяцев автоматически удаляются, если они не переведены в проект или договор.
             </p>
           </article>
           <article>
@@ -1475,6 +1533,9 @@ const PublicSitePage = ({ onLogin }) => {
         </div>
         <div className="public-requisites">
           <span>Оператор: {PUBLIC_SITE_OPERATOR.name}</span>
+          <span>ИНН: {PUBLIC_SITE_OPERATOR.inn} · ОГРНИП: {PUBLIC_SITE_OPERATOR.ogrnip}</span>
+          <span>Адрес: {PUBLIC_SITE_OPERATOR.address}</span>
+          <span>Телефон: <a href="tel:+79097638505">{PUBLIC_SITE_OPERATOR.phone}</a></span>
           <span>Сайт: {PUBLIC_SITE_OPERATOR.site}</span>
           <span>По персональным данным: {PUBLIC_SITE_OPERATOR.privacyEmail}</span>
           <span>Заявки: {PUBLIC_SITE_OPERATOR.leadEmail}</span>
@@ -1485,16 +1546,18 @@ const PublicSitePage = ({ onLogin }) => {
         </div>
       </section>
 
-      <nav className="public-mobile-actions" aria-label="Быстрые действия">
-        <button type="button" onClick={() => scrollTo('projects')}>
-          <House size={18} />
-          Проекты
-        </button>
-        <button className="primary" type="button" onClick={() => scrollTo('request')}>
-          <Calculator size={18} />
-          Заявка
-        </button>
-      </nav>
+      {showMobileActions ? (
+        <nav className="public-mobile-actions" aria-label="Быстрые действия">
+          <button type="button" onClick={() => scrollTo('projects')}>
+            <House size={18} />
+            Проекты
+          </button>
+          <button className="primary" type="button" onClick={() => scrollTo('request')}>
+            <Calculator size={18} />
+            Заявка
+          </button>
+        </nav>
+      ) : null}
     </main>
   );
 };

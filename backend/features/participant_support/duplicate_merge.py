@@ -22,6 +22,18 @@ class Confirmation(Review):
     reason: constr(strip_whitespace=True,min_length=10,max_length=1000)
 
 
+def inn_completion_blocker(cur,company_id,target_id,source_inn):
+    cur.execute('SELECT 1 FROM company_supplier_links WHERE supplier_id=%s AND company_id<>%s LIMIT 1',
+                (target_id,company_id))
+    if cur.fetchone():
+        return 'Кабинет используется другими организациями. Уточните общий профиль отдельно'
+    cur.execute('SELECT 1 FROM suppliers WHERE inn=%s AND user_id IS NOT NULL AND id<>%s LIMIT 1',
+                (source_inn,target_id))
+    if cur.fetchone():
+        return 'С этим ИНН уже есть другой кабинет. Нужна проверка реквизитов'
+    return None
+
+
 def checked_preview(cur,user,company_id,source_id,target_id):
     company=company_lock(cur,company_id)
     # Resolve company-local provenance before inspecting or locking identities.
@@ -37,6 +49,9 @@ def checked_preview(cur,user,company_id,source_id,target_id):
     review.update(sourceInn=suppliers[source_id]['inn'] or '',targetInn=suppliers[target_id]['inn'] or '')
     review['canCompleteInn']=bool(review['hasSupplierAccount'] and not review['targetInn'].strip()
         and re.fullmatch(r'(?:[0-9]{10}|[0-9]{12})',review['sourceInn']))
+    review['innCompletionBlocker']=(inn_completion_blocker(cur,company_id,target_id,review['sourceInn'])
+                                    if review['canCompleteInn'] else None)
+    review['canCompleteInn']=review['canCompleteInn'] and review['innCompletionBlocker'] is None
     # Includes legal values and actor epoch so changed identity/authority demands review.
     evidence=dict(review,actorEpoch=actor['supplier_team_epoch'],
                   identities={sid:{key:suppliers[sid][key] for key in ('inn','ogrn','user_id')}
@@ -57,16 +72,10 @@ def register_duplicate_merge(app,deps,admin):
             raise HTTPException(422,'Подтвердите ИНН по документу кабинета')
         with transaction(deps) as cur:
             review=checked_preview(cur,user,company_id,source_id,data.targetSupplierId)
+            if review['innCompletionBlocker']:
+                raise HTTPException(409,review['innCompletionBlocker'])
             if not review['canCompleteInn'] or review['reviewVersion']!=data.expectedReview:
                 raise HTTPException(409,'Реквизиты изменились или ИНН уже заполнен. Повторите проверку')
-            cur.execute('SELECT 1 FROM company_supplier_links WHERE supplier_id=%s AND company_id<>%s LIMIT 1',
-                        (data.targetSupplierId,company_id))
-            if cur.fetchone():
-                raise HTTPException(409,'Кабинет используется другими организациями. Уточните общий профиль отдельно')
-            cur.execute('SELECT 1 FROM suppliers WHERE inn=%s AND user_id IS NOT NULL AND id<>%s LIMIT 1',
-                        (review['sourceInn'],data.targetSupplierId))
-            if cur.fetchone():
-                raise HTTPException(409,'С этим ИНН уже есть другой кабинет. Нужна проверка реквизитов')
             # Identity advisory and supplier locks are held by checked_preview.
             # Never change an existing INN, account owner or issued document.
             cur.execute('UPDATE suppliers SET inn=%s WHERE id=%s',(review['sourceInn'],data.targetSupplierId))

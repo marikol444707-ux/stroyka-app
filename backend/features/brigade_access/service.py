@@ -84,11 +84,8 @@ def find_existing_brigade_contract_id(cur, company_id, project_id, work_package,
     cur.execute("SELECT pg_advisory_xact_lock(%s,%s)", (int(company_id), int(project_id)))
     normalized_name = str(brigade_name or "").strip()
     if contractor_id:
-        identity_sql = (
-            "(contractor_id=%s OR (contractor_id IS NULL "
-            "AND LOWER(BTRIM(brigade_name))=LOWER(%s)))"
-        )
-        identity = (int(contractor_id), normalized_name)
+        identity_sql = "contractor_id=%s"
+        identity = (int(contractor_id),)
     else:
         if not normalized_name:
             raise HTTPException(status_code=400, detail="Укажите исполнителя или название бригады")
@@ -108,8 +105,15 @@ def find_existing_brigade_contract_id(cur, company_id, project_id, work_package,
     return _row_value(row, "id", 0) if row else None
 
 
-def resolve_brigade_contractor_user(cur, company_id, contractor_id=None, contractor_name=""):
+_LEGACY_REFERENCE = object()
+
+
+def resolve_brigade_contractor_user(cur, company_id, contractor_id=None, contractor_name="", *, contractor_ref=_LEGACY_REFERENCE, project_id=None, work_package=None):
     """Resolve an optional contractor user without crossing the selected-company boundary."""
+    if contractor_ref is not _LEGACY_REFERENCE:
+        from ..contractor_identity.selection import resolve_selected_user
+        return resolve_selected_user(cur, company_id, contractor_ref, contractor_id,
+                                     project_id=project_id, work_package=work_package)
     normalized_company_id = _positive_int(company_id)
     if not normalized_company_id:
         raise HTTPException(status_code=409, detail="Компания договора бригады не определена")
@@ -338,14 +342,10 @@ def brigade_contract_visibility_filter(
             actor_params.append(projects)
         if role in workers:
             actor_id = _positive_int((actor or {}).get("id")) or 0
-            actor_name = str((actor or {}).get("name") or "").strip()
-            if not actor_id and not actor_name:
+            if not actor_id:
                 continue
-            actor_clauses.append(
-                "(COALESCE(bc.contractor_id,0)=%s OR "
-                "(COALESCE(bc.contractor_id,0)=0 AND LOWER(COALESCE(bc.brigade_name,''))=LOWER(%s)))"
-            )
-            actor_params.extend([actor_id, actor_name])
+            actor_clauses.append("bc.contractor_id=%s")
+            actor_params.append(actor_id)
         if role in package_limited:
             packages = _values((actor or {}).get("assignedPackages", (actor or {}).get("assigned_packages", [])))
             if not packages and role not in package_optional:

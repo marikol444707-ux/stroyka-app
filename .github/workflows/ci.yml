@@ -64,6 +64,9 @@ jobs:
             exit "$backend_test_status"
           fi
 
+      - name: Verify unified release transport and frontend backup
+        run: python -m unittest -v scripts.test_unified_release
+
       - name: Run company-context PostgreSQL isolation tests
         env:
           COMPANY_CONTEXT_RUN_POSTGRES_INTEGRATION: "1"
@@ -133,6 +136,26 @@ jobs:
           python scripts/run_supplier_catalog_postgres_tests.py \
             backend.features.supplier_access.test_multicompany_chain \
             backend.features.supplier_payments.test_contract_context_postgres
+
+      - name: Run supplier manager assignments and revocation
+        run: |
+          export PATH="$(pg_config --bindir):$PATH"
+          python scripts/run_supplier_catalog_postgres_tests.py \
+            backend.features.supplier_team.test_policy_postgres.TeamPolicyPostgresTests \
+            backend.features.supplier_team.test_customer_team_postgres.CustomerTeamPostgresTests \
+            backend.features.supplier_team.test_manager_revocation_postgres.ManagerRevocationPostgresTests
+
+      - name: Run contractor identity audit and exact selection
+        run: |
+          export PATH="$(pg_config --bindir):$PATH"
+          python scripts/run_supplier_catalog_postgres_tests.py \
+            backend.features.contractor_identity.test_postgres.ContractorIdentityPostgresTests \
+            backend.features.contractor_identity.test_runtime_postgres.ContractorIdentityRuntimePostgresTests \
+            backend.features.contractor_identity.test_selection_postgres.TypedContractorSelectionPostgresTests \
+            backend.features.contractor_identity.test_contract_selection_postgres.ExactContractSelectionPostgresTests \
+            backend.features.contractor_identity.test_manual_postgres.ManualBrigadePostgresTests \
+            backend.features.contractor_identity.test_recovery_postgres.ManualRecoveryPostgresTests \
+            backend.features.contractor_identity.test_release_postgres.UnifiedReleasePostgresTests
 
       - name: Set up Node
         uses: actions/setup-node@v4

@@ -10,9 +10,14 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 
-export const PUBLIC_CONSENT_VERSION = 'public-site-pd-v1-2026-06-21';
+export const PUBLIC_CONSENT_VERSION = 'public-site-pd-v2-2026-11-01';
 export const PUBLIC_SITE_OPERATOR = {
-  name: 'СтройКа',
+  brand: 'СтройКа',
+  name: 'Индивидуальный предприниматель Буцыкин Николай Сергеевич',
+  inn: '261103507630',
+  ogrnip: '309264413800022',
+  address: '356031, Россия, Ставропольский край, Красногвардейский район, село Красногвардейское, улица Весенняя, дом 18',
+  phone: '+7 909 763-85-05',
   site: 'stroyka26.pro',
   privacyEmail: 'privacy@stroyka26.pro',
   leadEmail: 'info@stroyka26.pro',

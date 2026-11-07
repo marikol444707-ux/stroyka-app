@@ -349,6 +349,17 @@
   font-size: 26px;
 }
 
+.public-calculator-price-warning {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid rgba(160, 98, 15, 0.28);
+  border-radius: 8px;
+  background: #fff8e8;
+  color: #70450b;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
 .public-live-badge,
 .public-passport-status {
   color: var(--site-green-dark);
@@ -1556,6 +1567,10 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 12px;
+}
+
+.public-reference-mobile-picker {
+  display: none;
 }
 
 .public-reference-card {
@@ -4372,6 +4387,24 @@
 }
 
 @media (max-width: 760px) {
+  .public-site button {
+    min-height: 44px;
+  }
+  .public-project-decision-actions .public-primary,
+  .public-project-decision-actions .public-secondary {
+    min-height: 44px;
+  }
+  .public-site input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  .public-site select {
+    min-height: 44px;
+  }
+  .public-site a {
+    min-height: 44px;
+  }
+  .public-requisites a {
+    display: inline-flex;
+    align-items: center;
+  }
   html,
   body,
   .public-site {
@@ -4447,13 +4480,14 @@
     align-self: flex-start;
     font-size: 22px;
     line-height: 1.1;
+    min-height: 44px;
   }
   .public-login {
     order: 2;
     align-self: flex-start;
     margin-left: 0;
     max-width: 100%;
-    min-height: 42px;
+    min-height: 44px;
     padding: 10px 14px;
     font-size: 14px;
     line-height: 1.1;
@@ -4476,7 +4510,7 @@
   .public-nav-links button {
     width: 100%;
     min-width: 0;
-    min-height: 40px;
+    min-height: 44px;
     padding: 9px 6px;
     white-space: normal;
     line-height: 1.15;
@@ -4546,6 +4580,28 @@
   .public-project-thumb-grid,
   .public-partner-types {
     grid-template-columns: 1fr;
+  }
+  .public-reference-mobile-picker {
+    display: block;
+  }
+  .public-reference-mobile-picker span {
+    display: block;
+    margin-bottom: 6px;
+    color: var(--site-muted);
+    font-size: 13px;
+    font-weight: 800;
+  }
+  .public-reference-mobile-picker select {
+    width: 100%;
+    min-height: 48px;
+    border: 1px solid var(--site-line);
+    border-radius: 8px;
+    background: #ffffff;
+    color: var(--site-ink);
+    padding: 10px 12px;
+  }
+  .public-reference-grid {
+    display: none;
   }
   .public-plot-check-head {
     grid-template-columns: auto minmax(0, 1fr);
@@ -4869,15 +4925,38 @@
     padding-right: 12px;
   }
   .public-nav {
-    gap: 8px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px 10px;
   }
   .public-login {
     width: 100%;
     justify-content: center;
     text-align: center;
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+    min-height: 44px;
+    padding: 9px 12px;
+  }
+  .public-brand {
+    grid-column: 1;
+    grid-row: 1;
+    align-self: center;
   }
   .public-nav-links {
-    grid-template-columns: 1fr;
+    grid-column: 1 / -1;
+    grid-row: 2;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    padding: 3px;
+    gap: 3px;
+  }
+  .public-nav-links button {
+    min-height: 44px;
+    padding: 8px 3px;
+    font-size: 12px;
+    line-height: 1.1;
   }
   .public-eyebrow {
     overflow-wrap: anywhere;

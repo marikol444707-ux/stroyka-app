@@ -3,10 +3,40 @@ from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 import re
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from uuid import UUID
 
 
 _TRACKING_KEYS = {"fbclid", "gclid", "yclid", "ref", "source", "utm_campaign", "utm_medium", "utm_source", "utm_term"}
 _ALLOWED_SOURCES = {"eis", "public_web", "browser_agent", "manual"}
+
+
+def summarize_jev_sources(value):
+    """Keep a bounded, non-sensitive per-query outcome for company run history."""
+    if not isinstance(value, list):
+        return []
+    summary = []
+    for source in value[:100]:
+        if not isinstance(source, dict):
+            continue
+        try:
+            rows = max(0, min(100_000, int(source.get("rows") or 0)))
+        except (TypeError, ValueError):
+            rows = 0
+        summary.append({
+            "provider": str(source.get("provider") or "Неизвестная площадка")[:100],
+            "query": str(source.get("query") or "")[:120],
+            "ok": source.get("ok") is True,
+            "status": str(source.get("status") or "unknown")[:80],
+            "rows": rows,
+        })
+    return summary
+
+
+def normalize_jev_run_id(value):
+    try:
+        return str(UUID(str(value)))
+    except (TypeError, ValueError, AttributeError) as error:
+        raise ValueError("Некорректный идентификатор запуска JEV") from error
 
 
 def jev_report_items(report):

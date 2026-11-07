@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CheckSquare, RotateCcw, Settings2, UserCheck, X } from 'lucide-react';
 import { assignmentsForEstimate, contractName, formatMoney, formatQty, toNumber } from './workAssignmentUtils';
-import { findUserForStaff, normalizePersonKey } from '../../utils/performerUtils';
+import { normalizePersonKey } from '../../utils/performerUtils';
+import { useManualCommandRecovery } from './manualCommandRecovery';
+import ManualCommandRecoveryNotice from './ManualCommandRecoveryNotice';
 
 function isPerformer(item = {}) {
     const text = [item.role, item.systemRole, item.category, item.employmentType, item.position, item.name].map(value => String(value || '').toLowerCase()).join(' ');
@@ -14,52 +16,58 @@ export function performerRows(staff = [], users = [], brigadeContracts = []) {
   const rows = [];
   const seenKeys = new Set();
   const seenUserIds = new Set();
-  const seenNames = new Set();
   const addRow = (item, key, userId = '') => {
     if (!item || !key || seenKeys.has(key)) return;
     seenKeys.add(key);
     if (userId) seenUserIds.add(String(userId));
-    if (item.name) seenNames.add(normalizePersonKey(item.name));
     rows.push(item);
   };
   (staff || []).filter(isPerformer).forEach(item => {
-    const accessUser = findUserForStaff(item, users);
-    const contractorId = accessUser?.id || item.id;
+    if(!Number.isSafeInteger(Number(item.id))||Number(item.id)<=0)return;
+    const accessUser = item.accessUserId ? users.find(user=>Number(user.id)===Number(item.accessUserId)) : null;
+    const contractorId = item.id;
     addRow({
       ...item,
       id: contractorId,
       contractorId,
+      optionId:'staff:'+item.id,
+      contractorRef:{type:'staff',id:Number(item.id)},
       role: item.role || accessUser?.role || '',
       employmentType: item.employmentType || accessUser?.role || 'мастер',
       email: accessUser?.email || item.email || item.emailWork || item.emailPersonal || '',
-    }, accessUser?.id ? 'user:' + accessUser.id : 'staff:' + (item.id || normalizePersonKey(item.name)), accessUser?.id);
+    }, 'staff:'+item.id, item.accessUserId);
   });
   (users || []).filter(isPerformer).forEach(item => {
     if (!item.id || seenUserIds.has(String(item.id))) return;
     addRow({
       ...item,
       contractorId: item.id,
+      optionId:'user:'+item.id,
+      contractorRef:{type:'user',id:Number(item.id)},
       employmentType: item.role || 'мастер',
     }, 'user:' + item.id, item.id);
   });
   (brigadeContracts || []).forEach(contract => {
     const name = String(contract.brigadeName || contract.brigade_name || '').trim();
-    const nameKey = normalizePersonKey(name);
-    if (!name || seenNames.has(nameKey)) return;
     const contractId = contract.id;
+    if (!name || !Number.isSafeInteger(Number(contractId)) || Number(contractId) <= 0
+      || ['Аннулирован','Удалён','Удален'].includes(contract.status)) return;
     addRow({
       ...contract,
       id: 'contract:' + contractId,
       optionId: 'contract:' + contractId,
+      contractorRef: {type:'contract',id:Number(contractId)},
       contractorId: contract.contractorId || contract.contractor_id || '',
       name,
       employmentType: contract.contractorType || contract.contractor_type || 'Своя бригада',
-    }, 'contract:' + (contractId || nameKey));
+    }, 'contract:' + contractId);
   });
   return rows.sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'ru'));
 }
 
 export default function WorkAssignmentModal({
+  companyContext,
+  user,
   show,
   onClose,
   selectedEstimate,
@@ -94,6 +102,19 @@ export default function WorkAssignmentModal({
   const bodyRef = useRef(null);
   useEffect(() => { if (bodyRef.current) bodyRef.current.scrollTop = 0; }, [mobileStep]);
   const initializedSourceRef = useRef(null);
+  const recovery=useManualCommandRecovery({API,user,companyContext,kind:'assignment',enabled:show,
+    source:{id:selectedEstimate?.id,companyId:selectedEstimate?.companyId,
+      projectId:selectedEstimate?.projectId || selectedEstimate?.project_id,
+      workPackage:selectedEstimate?.workPackage || selectedEstimate?.work_package}});
+  const applyManual=async(_saved,_payload,current)=>{
+    try{await loadAll();}catch(_){throw new Error('Работы сохранены, но список не обновился. Повторите обновление списка.');}
+    if(!current()) return;
+  };
+  const completeManual=(saved,payload)=>{
+    setSelectedIds({});setManualPrices({});onClose();
+    alert('Работы выданы: '+(saved.brigadeName || payload.assignee.brigadeName)
+      +'\nПозиции: '+payload.items.length+'\nНаряд #'+saved.contractId);
+  };
 
   const assignmentRows = useMemo(
     () => assignmentsForEstimate(selectedEstimate, brigadeContractItems || [], brigadeContracts || []),
@@ -118,13 +139,21 @@ export default function WorkAssignmentModal({
   }, [rows, workSearch, sectionFilter]);
   const assignedCount = assignedRows.length;
   const performers = useMemo(
-    () => performerRows(staff || [], users || [], brigadeContracts || []),
-    [staff, users, brigadeContracts],
+    () => performerRows(staff || [], users || [], (brigadeContracts || []).filter(contract => (
+      Number(selectedEstimate?.projectId || selectedEstimate?.project_id) > 0
+      && Number(contract.projectId || contract.project_id) === Number(selectedEstimate?.projectId || selectedEstimate?.project_id)
+      && (contract.workPackage || contract.work_package || 'Основная') === (selectedEstimate?.workPackage || selectedEstimate?.work_package || 'Основная')
+    ))),
+    [staff, users, brigadeContracts, selectedEstimate],
   );
   const sourceKey = useMemo(() => JSON.stringify([
     selectedEstimate?.id,
+    selectedEstimate?.companyId,
+    selectedEstimate?.projectId || selectedEstimate?.project_id,
+    selectedEstimate?.workPackage || selectedEstimate?.work_package || 'Основная',
     assignmentRows.map(row => [row.estimateItemKey, row.name, row.quantity, row.priceSmeta, row.assignments.map(item => item.contractId || item.contract_id)]),
-  ]), [selectedEstimate?.id, assignmentRows]);
+  ]), [selectedEstimate?.id, selectedEstimate?.companyId, selectedEstimate?.projectId, selectedEstimate?.project_id,
+    selectedEstimate?.workPackage, selectedEstimate?.work_package, assignmentRows]);
   const selectedRows = rows.filter(row => selectedIds[row.id]);
   const visibleIds = new Set(visibleRows.map(row => row.id));
   const hiddenSelectedCount = selectedRows.filter(row => !visibleIds.has(row.id)).length;
@@ -180,6 +209,7 @@ export default function WorkAssignmentModal({
   };
 
   const submit = async () => {
+    if(recovery.pending || recovery.busy || recovery.blocked) return;
     setSubmissionError('');
     if (!brigadeName) {
       setSubmissionError('Выберите исполнителя или укажите название бригады');
@@ -204,6 +234,7 @@ export default function WorkAssignmentModal({
       const payload = {
         assignee: {
           contractorId: selectedPerformer?.contractorId || null,
+          contractorRef: selectedPerformer?.contractorRef || {type:'manual'},
           brigadeName,
           contractorType: selectedPerformer?.employmentType || selectedPerformer?.role || 'Своя бригада',
         },
@@ -221,9 +252,14 @@ export default function WorkAssignmentModal({
             coefficient: coef,
             priceMode: rowUsesManualPrice ? 'manual' : 'coefficient',
             manualPrice: rowUsesManualPrice ? toNumber(manualPrices[row.id]) : undefined,
+            ...(!selectedPerformer ? {expectedSource:{name:row.name,unit:row.unit,quantity:row.quantity,priceSmeta:row.priceSmeta}} : {}),
           };
         }),
       };
+      if(!selectedPerformer){
+        await recovery.run({payload,apply:applyManual,done:completeManual});
+        return;
+      }
       const response = await fetch(API + '/estimates/' + selectedEstimate.id + '/work-assignment', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -270,11 +306,15 @@ export default function WorkAssignmentModal({
               {selectedEstimate.projectName || 'Объект'} · {selectedEstimate.workPackage || selectedEstimate.work_package || 'Основная'}
             </p>
           </div>
-          <button type="button" aria-label="Закрыть назначение работ" onClick={onClose} disabled={submitting} style={{...btnG, padding: '7px 9px'}}><X size={14} /></button>
+          <button type="button" aria-label="Закрыть назначение работ" onClick={onClose} disabled={submitting || recovery.busy} style={{...btnG, padding: '7px 9px'}}><X size={14} /></button>
         </div>
 
         {isMobile && <p role="status" style={{margin:'10px 12px',color:C.textSec,fontSize:13}}>Шаг {mobileStep} из 3 · {['Исполнитель','Работы','Проверка суммы'][mobileStep-1]}</p>}
         <div ref={bodyRef} style={{padding: isMobile ? '12px' : '16px 20px', overflowY: 'auto', minHeight: 0, flex: '1 1 auto', overscrollBehavior: 'contain'}}>
+          <ManualCommandRecoveryNotice pending={recovery.pending} busy={recovery.busy}
+            onResume={()=>recovery.run({apply:applyManual,done:completeManual})}/>
+          <fieldset disabled={submitting || recovery.busy || Boolean(recovery.pending) || recovery.blocked}
+            style={{border:0,padding:0,margin:0,minWidth:0}}>
           <div style={{display: isMobile && mobileStep !== 1 ? 'none' : undefined, marginBottom: '18px'}}>
             <b style={{display: 'block', color: C.text, fontSize: '15px', marginBottom: '4px'}}>1. Кому выдать работы</b>
             <p style={{color: C.textSec, fontSize: '12px', margin: '0 0 10px'}}>Выберите человека или бригаду. Новую бригаду можно указать в этом же списке.</p>
@@ -286,7 +326,7 @@ export default function WorkAssignmentModal({
                 if (!isManual) setManualName('');
               }} style={{...inp, marginBottom: 0}}>
                 <option value="">Выберите исполнителя</option>
-                {performers.map(item => <option key={performerOptionId(item) + '-' + item.name} value={performerOptionId(item)}>{item.name}</option>)}
+                {performers.map(item => <option key={performerOptionId(item) + '-' + item.name} value={performerOptionId(item)}>{item.name}{item.contractorRef?.type==='contract' ? ` · договор №${item.contractorRef.id}` : performers.filter(row=>normalizePersonKey(row.name)===normalizePersonKey(item.name)).length>1 ? (item.contractorRef?.type==='staff'?' · сотрудник':' · учётная запись') : ''}</option>)}
                 <option value="__manual__">+ Новая бригада</option>
               </select>
               {manualPerformer && <input aria-label="Название новой бригады" autoFocus value={manualName} onChange={event => setManualName(event.target.value)} placeholder="Название бригады" style={{...inp, marginBottom: 0}} />}
@@ -325,7 +365,7 @@ export default function WorkAssignmentModal({
             <span style={{color:C.textSec,fontSize:'11px'}}>Показано: {visibleRows.length} из {rows.length}. Кнопка выбора действует только на показанные работы.</span>
             {hiddenSelectedCount > 0 && <div role="status" style={{marginTop:'8px',padding:'10px',border:'1px solid '+C.border,borderRadius:'8px'}}>
               <p style={{color:C.text,margin:'0 0 8px',fontSize:'12px'}}>Ещё {hiddenSelectedCount} выбранных работ скрыты {sectionFilter ? 'фильтром' : 'поиском'}. Они тоже будут выданы исполнителю.</p>
-              <button type="button" disabled={submitting} onClick={() => setSelectedIds(previous => Object.fromEntries(
+              <button type="button" disabled={submitting || recovery.busy} onClick={() => setSelectedIds(previous => Object.fromEntries(
                 Object.entries(previous).filter(([id]) => visibleRows.some(row => String(row.id) === id)),
               ))} style={{...btnB,minHeight:'44px'}}>Оставить только найденные</button>
             </div>}
@@ -422,20 +462,21 @@ export default function WorkAssignmentModal({
             </div>
           </div>
           </div>
+          </fieldset>
         </div>
 
         <div style={{flexShrink: 0, padding: isMobile ? '12px' : '14px 20px', borderTop: '1px solid ' + C.border, backgroundColor: C.bgWhite, display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', alignItems: 'center'}}>
           <div><b style={{display: 'block', color: C.text, fontSize: '14px'}}>Исполнителю: {formatMoney(selectedTotal)}</b><span style={{color: C.textSec, fontSize: '11px'}}>Выбрано работ: {selectedRows.length}</span></div>
           <div style={{display: 'flex', gap: '8px'}}>
-            {isMobile && mobileStep > 1 && <button type="button" disabled={submitting} onClick={()=>setMobileStep(step=>step-1)} style={{...btnG,minHeight:44}}>Назад</button>}
-            <button type="button" onClick={onClose} disabled={submitting} style={btnG}>Отмена</button>
-            {isMobile && mobileStep < 3 ? <button type="button" disabled={submitting || (mobileStep===1 ? !brigadeName : !selectedRows.length)} onClick={()=>setMobileStep(step=>step+1)} style={{...btnO,minHeight:44}}>Далее</button> : <button type="button" onClick={submit} disabled={submitting || !selectedRows.length || !brigadeName} style={{...btnO, opacity: submitting || !selectedRows.length || !brigadeName ? 0.65 : 1}}>
+            {isMobile && mobileStep > 1 && <button type="button" disabled={submitting || recovery.busy} onClick={()=>setMobileStep(step=>step-1)} style={{...btnG,minHeight:44}}>Назад</button>}
+            <button type="button" onClick={onClose} disabled={submitting || recovery.busy} style={btnG}>Отмена</button>
+            {isMobile && mobileStep < 3 ? <button type="button" disabled={submitting || recovery.busy || Boolean(recovery.pending) || recovery.blocked || (mobileStep===1 ? !brigadeName : !selectedRows.length)} onClick={()=>setMobileStep(step=>step+1)} style={{...btnO,minHeight:44}}>Далее</button> : <button type="button" onClick={submit} disabled={submitting || recovery.busy || Boolean(recovery.pending) || recovery.blocked || !selectedRows.length || !brigadeName} style={{...btnO, opacity: submitting || !selectedRows.length || !brigadeName ? 0.65 : 1}}>
               {submitting ? 'Выдаю...' : 'Выдать в работу'}
             </button>}
           </div>
-          {submissionError
-            ? <p role="alert" style={{order: 1, flexBasis: '100%', color: C.danger || '#b91c1c', margin: 0, fontSize: '12px'}}>{submissionError}</p>
-            : missingStep && <p role="status" style={{order: 1, flexBasis: '100%', color: C.textSec, margin: 0, fontSize: '12px'}}>{missingStep}</p>}
+          {(submissionError || recovery.error)
+            ? <p role="alert" style={{order: 1, flexBasis: '100%', color: C.danger || '#b91c1c', margin: 0, fontSize: '12px'}}>{submissionError || recovery.error}</p>
+            : !recovery.pending && missingStep && <p role="status" style={{order: 1, flexBasis: '100%', color: C.textSec, margin: 0, fontSize: '12px'}}>{missingStep}</p>}
         </div>
       </div>
     </div>

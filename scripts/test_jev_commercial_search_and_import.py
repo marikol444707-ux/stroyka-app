@@ -39,6 +39,15 @@ class JevCommercialSearchAndImportTests(unittest.TestCase):
 
         self.assertEqual(len(workflow.run_search(runner=runner)["confirmed"]), 1)
 
+    def test_search_keeps_empty_report_when_source_statuses_are_available(self):
+        report = {"confirmed": [], "review": [], "government_review": [], "sources": [
+            {"provider": "B2B-Center", "query": "ремонт", "ok": False,
+             "status": "source_unavailable", "rows": 0},
+        ]}
+        runner = lambda *a, **k: SimpleNamespace(returncode=1, stdout=json.dumps(report))
+
+        self.assertEqual(workflow.run_search(runner=runner)["sources"][0]["ok"], False)
+
     def test_profile_search_sends_json_over_stdin_and_checks_company_identity(self):
         profile = {"companyId": 8, "region": "Ставропольский край", "searchTerms": ["школа"],
                    "sourceProviders": ["B2B-Center"]}
