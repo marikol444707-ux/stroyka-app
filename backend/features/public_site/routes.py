@@ -29,6 +29,14 @@ SITE_PRICE_GROUP_LABELS = {
     "reconstruction_scope": "Реконструкция: объём",
 }
 
+PUBLIC_SITE_ANALYTICS_MAX_BUCKETS_PER_DAY = 500
+PUBLIC_SITE_ANALYTICS_RETENTION_DAYS = 400
+PUBLIC_SITE_ANALYTICS_LOCK_NAMESPACE = 1128354387
+PUBLIC_SITE_ANALYTICS_PATHS = frozenset({
+    "/", "/contacts.html", "/features.html", "/privacy.html",
+    "/project-catalog.html", "/terms.html",
+})
+
 
 def _site_list_value(value):
     if value is None:
@@ -60,6 +68,16 @@ def _site_int(value, default=0):
 
 def _public_text(value, limit: int = 255) -> str:
     return str(value or "").strip()[:limit]
+
+
+def _public_site_utm_value(value, limit: int) -> str:
+    normalized = str(value or "").strip().lower()
+    if len(normalized) > limit or (normalized and not re.fullmatch(r"[a-z0-9._-]+", normalized)):
+        return ""
+    # Reject obvious phone-like values before retaining a campaign label.
+    if normalized.isdigit() or re.search(r"\d{8,}", normalized):
+        return ""
+    return normalized
 
 
 def _public_comparison_url(value) -> str:
@@ -410,26 +428,42 @@ def register_public_site_routes(app, deps):
             raise HTTPException(status_code=403, detail="Недопустимый источник запроса")
 
         page_path = str(data.get("path") or "")
-        allowed_paths = {"/", "/contacts.html", "/features.html", "/privacy.html", "/project-catalog.html", "/terms.html"}
-        if page_path not in allowed_paths:
+        if page_path not in PUBLIC_SITE_ANALYTICS_PATHS:
             raise HTTPException(status_code=422, detail="Недопустимая страница")
-
-        def campaign_value(name, limit):
-            value = str(data.get(name) or "").strip().lower()
-            if len(value) > limit or (value and not re.fullmatch(r"[a-z0-9._-]+", value)):
-                return ""
-            return value
 
         values = (
             public_site_company_id,
             page_path,
-            campaign_value("utmSource", 80),
-            campaign_value("utmMedium", 80),
-            campaign_value("utmCampaign", 120),
+            _public_site_utm_value(data.get("utmSource"), 80),
+            _public_site_utm_value(data.get("utmMedium"), 80),
+            _public_site_utm_value(data.get("utmCampaign"), 120),
         )
         conn = get_db()
         cur = conn.cursor()
         try:
+            # Bound daily cardinality so anonymous requests cannot grow the table
+            # without limit by sending a fresh campaign label on every request.
+            cur.execute(
+                "SELECT pg_advisory_xact_lock(%s, %s)",
+                (PUBLIC_SITE_ANALYTICS_LOCK_NAMESPACE, public_site_company_id),
+            )
+            cur.execute("""
+                DELETE FROM public_site_page_views
+                WHERE company_id=%s AND view_date < CURRENT_DATE - %s
+            """, (public_site_company_id, PUBLIC_SITE_ANALYTICS_RETENTION_DAYS - 1))
+            cur.execute("""
+                SELECT EXISTS (
+                    SELECT 1 FROM public_site_page_views
+                    WHERE company_id=%s AND view_date=CURRENT_DATE AND page_path=%s
+                      AND utm_source=%s AND utm_medium=%s AND utm_campaign=%s
+                ) AS bucket_exists,
+                (SELECT COUNT(*) FROM public_site_page_views
+                 WHERE company_id=%s AND view_date=CURRENT_DATE) AS bucket_count
+            """, (values[0], values[1], values[2], values[3], values[4], values[0]))
+            bucket_state = cur.fetchone()
+            bucket_exists, bucket_count = bucket_state
+            if not bucket_exists and bucket_count >= PUBLIC_SITE_ANALYTICS_MAX_BUCKETS_PER_DAY:
+                values = (values[0], values[1], "", "", "")
             cur.execute("""
                 INSERT INTO public_site_page_views
                     (company_id, view_date, page_path, utm_source, utm_medium, utm_campaign, view_count)

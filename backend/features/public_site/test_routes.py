@@ -9,6 +9,7 @@ from starlette.datastructures import Headers, UploadFile
 from backend.features.public_site.routes import (
     _public_attachment_tokens,
     _public_lead_notes,
+    _public_site_utm_value,
     _public_site_project,
     register_public_site_routes,
 )
@@ -27,7 +28,7 @@ class _FakeApp:
     def get(self, path):
         return self._register("GET", path)
 
-    def post(self, path):
+    def post(self, path, **_kwargs):
         return self._register("POST", path)
 
     def put(self, path):
@@ -48,6 +49,8 @@ class _FakeCursor:
         self.rowcount = 1 if self.last_query.startswith("UPDATE public_lead_uploads") else 0
 
     def fetchone(self):
+        if self.last_query.startswith("SELECT EXISTS ("):
+            return (False, 0)
         if self.last_query.startswith("SELECT COUNT(*) FROM public_lead_uploads"):
             return (0,)
         if self.last_query.startswith("INSERT INTO file_ownership"):
@@ -86,6 +89,66 @@ class _FakeConnection:
 
 
 class PublicLeadNotesTests(unittest.TestCase):
+    def test_public_site_utm_values_are_bounded_and_not_phone_like(self):
+        self.assertEqual(_public_site_utm_value("Yandex_CPC-2026", 80), "yandex_cpc-2026")
+        self.assertEqual(_public_site_utm_value("89123456789", 120), "")
+        self.assertEqual(_public_site_utm_value("campaign89123456789", 120), "")
+        self.assertEqual(_public_site_utm_value("bad@example.com", 120), "")
+        self.assertEqual(_public_site_utm_value("x" * 121, 120), "")
+
+    def test_public_pageview_uses_shared_bucket_after_daily_cap(self):
+        app = _FakeApp()
+        statements = []
+        connections = []
+
+        def get_db():
+            connection = _FakeConnection(statements)
+            connections.append(connection)
+            connection.cursor_instance.fetchone = lambda: (False, 500)
+            return connection
+
+        register_public_site_routes(app, {
+            "get_db": get_db,
+            "require_roles": lambda *_roles: lambda: {},
+            "leadership_roles": ("директор",),
+            "require_project_access": lambda *_args: None,
+            "project_public_select": "",
+            "public_site_company_id": 1,
+        })
+        request = SimpleNamespace(
+            headers={"origin": "https://stroyka26.pro"},
+            client=SimpleNamespace(host="192.0.2.1"),
+        )
+
+        result = app.routes[("POST", "/site/analytics/pageview")](
+            {"path": "/", "utmSource": "yandex", "utmCampaign": "another-campaign"},
+            request,
+        )
+
+        insert = next(params for query, params in statements if query.startswith("INSERT INTO public_site_page_views"))
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(insert[2:], ("", "", ""))
+        self.assertEqual(connections[0].commits, 1)
+
+    def test_public_pageview_rejects_unknown_path_before_database_access(self):
+        app = _FakeApp()
+        register_public_site_routes(app, {
+            "get_db": lambda: self.fail("database must not be opened"),
+            "require_roles": lambda *_roles: lambda: {},
+            "leadership_roles": ("директор",),
+            "require_project_access": lambda *_args: None,
+            "project_public_select": "",
+            "public_site_company_id": 1,
+        })
+        request = SimpleNamespace(headers={"origin": "https://stroyka26.pro"})
+
+        with self.assertRaises(HTTPException) as error:
+            app.routes[("POST", "/site/analytics/pageview")](
+                {"path": "/unknown"}, request
+            )
+
+        self.assertEqual(error.exception.status_code, 422)
+
     def test_public_project_exposes_only_explicit_public_fields(self):
         project = _public_site_project({
             "id": 17,
