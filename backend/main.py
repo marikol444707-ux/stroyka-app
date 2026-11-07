@@ -28112,6 +28112,7 @@ register_crm_module(app, {
     "resolve_work_company_context": _resolve_work_company_context,
     "effective_company_actors": effective_company_actors,
     "resolve_resource_company_actor": resolve_resource_company_actor,
+    "public_site_company_id": PUBLIC_SITE_COMPANY_ID,
 })
 
 try:

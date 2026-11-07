@@ -392,12 +392,59 @@ def register_public_site_routes(app, deps):
     lead_last_submit = deps.get("public_lead_last_submit", {})
     lead_uploads_enabled = bool(deps.get("public_site_lead_uploads_enabled", False))
     public_site_company_id = int(deps.get("public_site_company_id") or 0)
+    public_site_views_enabled = public_site_company_id > 0
     save_upload_bytes = deps.get("save_upload_bytes")
     delete_local_file = deps.get("delete_local_file")
     delete_s3_object = deps.get("delete_s3_object")
     enqueue_public_site_lead_email = deps.get("enqueue_public_site_lead_email")
 
     site_admin = require_roles(*leadership_roles)
+
+    @app.post("/site/analytics/pageview", status_code=202)
+    def record_public_site_pageview(data: dict, request: Request):
+        """Store daily page-view aggregates only; no visitor identifiers are retained."""
+        if not public_site_views_enabled:
+            raise HTTPException(status_code=503, detail="Счётчик сайта не настроен")
+        origin = urllib.parse.urlparse(request.headers.get("origin") or "")
+        if origin.scheme != "https" or origin.hostname not in {"stroyka26.pro", "www.stroyka26.pro"}:
+            raise HTTPException(status_code=403, detail="Недопустимый источник запроса")
+
+        page_path = str(data.get("path") or "")
+        allowed_paths = {"/", "/contacts.html", "/features.html", "/privacy.html", "/project-catalog.html", "/terms.html"}
+        if page_path not in allowed_paths:
+            raise HTTPException(status_code=422, detail="Недопустимая страница")
+
+        def campaign_value(name, limit):
+            value = str(data.get(name) or "").strip().lower()
+            if len(value) > limit or (value and not re.fullmatch(r"[a-z0-9._-]+", value)):
+                return ""
+            return value
+
+        values = (
+            public_site_company_id,
+            page_path,
+            campaign_value("utmSource", 80),
+            campaign_value("utmMedium", 80),
+            campaign_value("utmCampaign", 120),
+        )
+        conn = get_db()
+        cur = conn.cursor()
+        try:
+            cur.execute("""
+                INSERT INTO public_site_page_views
+                    (company_id, view_date, page_path, utm_source, utm_medium, utm_campaign, view_count)
+                VALUES (%s, CURRENT_DATE, %s, %s, %s, %s, 1)
+                ON CONFLICT (company_id, view_date, page_path, utm_source, utm_medium, utm_campaign)
+                DO UPDATE SET view_count = public_site_page_views.view_count + 1
+            """, values)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+            conn.close()
+        return {"ok": True}
 
     @app.post("/site/lead-files")
     async def create_site_lead_file(request: Request, file: UploadFile = File(...)):

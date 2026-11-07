@@ -81,10 +81,21 @@ export default function CrmPage({
   const [documentForm, setDocumentForm] = React.useState({ docType: 'Договор', title: '', status: 'Загружен', number: '', docDate: '', confidential: false, notes: '', fileUrl: '' });
   const [taskForm, setTaskForm] = React.useState({ title: '', dueDate: '', assignedTo: '', notes: '' });
   const [inviteResult, setInviteResult] = React.useState(null);
+  const [siteAnalytics, setSiteAnalytics] = React.useState(null);
   const [filters, setFilters] = React.useState({ search: '', leadType: '', responsibleName: '', attention: '' });
   const [saving, setSaving] = React.useState(false);
   const compact = isMobile || (typeof window !== 'undefined' && window.innerWidth <= 1100);
   const today = React.useMemo(() => new Date().toISOString().slice(0, 10), []);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    if (!API) return undefined;
+    fetch(API + '/crm/public-site-analytics')
+      .then(response => response.ok ? response.json() : null)
+      .then(data => { if (!cancelled) setSiteAnalytics(data); })
+      .catch(() => { if (!cancelled) setSiteAnalytics(null); });
+    return () => { cancelled = true; };
+  }, [API]);
 
   const isPastDue = React.useCallback((dateValue) => {
     const value = String(dateValue || '').slice(0, 10);
@@ -441,6 +452,7 @@ export default function CrmPage({
       </div>
 
       <CrmSummary C={C} card={card} compact={compact} summary={summary} />
+      <PublicSitePageViewStats C={C} card={card} compact={compact} analytics={siteAnalytics} />
       <PublicSiteLeadStats C={C} card={card} compact={compact} leads={publicSiteLeads} />
       <CrmFilters
         C={C}
@@ -594,6 +606,22 @@ export default function CrmPage({
         })}
       </div>
     </div>
+  );
+}
+
+function PublicSitePageViewStats({ C, card, compact, analytics }) {
+  const pages = Array.isArray(analytics?.pages) ? analytics.pages : [];
+  const campaigns = Array.isArray(analytics?.campaigns) ? analytics.campaigns : [];
+  return (
+    <section aria-label="Просмотры публичного сайта" style={{ ...card, padding: compact ? '12px' : '14px', marginBottom: '12px', minWidth: 0 }}>
+      <b style={{ color: C.text, fontSize: compact ? '13px' : '14px' }}>Просмотры сайта за 30 дней</b>
+      <p style={{ color: C.textSec, margin: '3px 0 10px', fontSize: '11px' }}>Это просмотры страниц, не число уникальных людей. Один человек может дать несколько просмотров.</p>
+      <b style={{ color: C.accent, fontSize: '20px' }}>{analytics ? Number(analytics.views || 0).toLocaleString('ru-RU') : '—'}</b>
+      {pages.length > 0 && <div style={{ display: 'grid', gridTemplateColumns: compact ? '1fr' : 'repeat(2,minmax(0,1fr))', gap: '10px', marginTop: '10px' }}>
+        <div><b style={{ color: C.text, fontSize: '11px' }}>Популярные страницы</b>{pages.slice(0, 5).map(page => <div key={page.path} style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', color: C.textSec, fontSize: '11px', marginTop: '4px' }}><span style={{ overflowWrap: 'anywhere' }}>{page.path}</span><b>{Number(page.views || 0).toLocaleString('ru-RU')}</b></div>)}</div>
+        {campaigns.length > 0 && <div><b style={{ color: C.text, fontSize: '11px' }}>Переходы по UTM</b>{campaigns.slice(0, 5).map((row, index) => <div key={`${row.source}-${row.medium}-${row.campaign}-${index}`} style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', color: C.textSec, fontSize: '11px', marginTop: '4px' }}><span style={{ overflowWrap: 'anywhere' }}>{[row.source, row.medium, row.campaign].filter(Boolean).join(' / ')}</span><b>{Number(row.views || 0).toLocaleString('ru-RU')}</b></div>)}</div>}
+      </div>}
+    </section>
   );
 }
 

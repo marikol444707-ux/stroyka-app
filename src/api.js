@@ -171,6 +171,9 @@ export const installAuthFetch = () => {
   };
   window.fetch = async (input, init = {}) => {
     const path = getRequestPath(input);
+    if (path === '/site/analytics/pageview') {
+      return nativeFetch(input, {...init, credentials: 'omit'});
+    }
     const isPublicAuthRequest = isAuthPublicPath(path);
     if (isPublicAuthRequest) {
       const isLogin = path === '/login' || path === '/login/2fa/verify' || path === '/login/2fa/setup-confirm';
