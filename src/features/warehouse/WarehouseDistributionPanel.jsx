@@ -6,6 +6,7 @@ import IntercompanyWarehouseTransfersPanel from './IntercompanyWarehouseTransfer
 import './WarehouseDistributionPanel.css';
 
 const emptyRow = () => ({ lotId: '', projectId: '', quantity: '' });
+const unverifiedSource = source => ({ ...source, availabilityUnknown: true });
 const writers = ['директор', 'зам_директора', 'кладовщик', 'снабженец'];
 const readers = [...writers, 'бухгалтер'];
 const validQuantity = value => /^\d+(\.\d{1,6})?$/.test(value) && Number(value) > 0 && Number(value) < 100000000;
@@ -91,7 +92,10 @@ function CompanyDistribution({ companyId, companies, editable, projects = [], wa
     const current = ++generation.current[kind];
     inFlight.current[kind] = true;
     const setItems = source ? setSources : setRecords;
-    if (!beforeId) setItems([]);
+    if (!beforeId) {
+      setItems([]);
+      if (source && !applied.current.sources.q) setSelectedSources(previous => previous.map(unverifiedSource));
+    }
     setPages(previous => ({ ...previous, [kind]: { ...previous[kind], loading: true, error: '' } }));
     try {
       const options = { credentials: 'include', headers: { 'X-Company-Id': String(companyId), 'X-Company-Mode': 'company' } };
@@ -102,11 +106,17 @@ function CompanyDistribution({ companyId, companies, editable, projects = [], wa
         .then(readResponse).then(value => validateList(value, source, beforeId));
       if (!active.current || current !== generation.current[kind]) return;
       setItems(previous => beforeId ? [...previous, ...data.items] : data.items);
+      // A selected lot can outlive the search page. Always retain its newest
+      // observed balance, never the older snapshot captured at selection time.
+      if (source) setSelectedSources(previous => previous.map(selected => {
+        const fresh = data.items.find(item => item.lotId === selected.lotId);
+        return fresh ? { ...fresh, availabilityUnknown: false } : selected;
+      }));
       setPages(previous => ({ ...previous, [kind]: { nextCursor: data.nextCursor ?? null, truncated: Boolean(data.truncated), loading: false } }));
     } catch (e) {
       if (active.current && current === generation.current[kind]) {
         setItems([]);
-        if (source) setSelectedSources([]);
+        if (source) setSelectedSources(previous => previous.map(unverifiedSource));
         if ([401, 403].includes(e.status)) { denyAccess(); setError(e.message); }
         else setPages(previous => ({ ...previous, [kind]: { loading: false, error: e.message || 'Не удалось загрузить распределения.' } }));
       }
@@ -115,7 +125,8 @@ function CompanyDistribution({ companyId, companies, editable, projects = [], wa
     }
   }, [companyId, denyAccess]);
   const load = useCallback(() => {
-    denied.current = false; setAccessDenied(false); setError(''); setSelectedSources([]);
+    denied.current = false; setAccessDenied(false); setError('');
+    setSelectedSources(previous => previous.map(unverifiedSource));
     return Promise.all([loadPage('history'), editable ? loadPage('sources') : Promise.resolve()]);
   }, [editable, loadPage]);
   useEffect(() => {
@@ -170,7 +181,9 @@ function CompanyDistribution({ companyId, companies, editable, projects = [], wa
   });
   const batchProblems = rows.flatMap((row, index) => {
     const missing = [];
-    if (!sourceOptions.some(source => source.lotId === Number(row.lotId))) missing.push('выберите партию');
+    const selected = sourceOptions.find(source => source.lotId === Number(row.lotId));
+    if (!selected) missing.push('выберите партию');
+    else if (selected.availabilityUnknown) missing.push('обновите остаток выбранной партии: найдите её в списке');
     if (!ownProjects.some(project => Number(project.id) === Number(row.projectId))) missing.push('выберите объект');
     if (!validQuantity(row.quantity)) missing.push('укажите количество больше нуля (до 6 знаков после запятой)');
     return missing.length ? [`Строка ${index + 1}: ${missing.join('; ')}.`] : [];
@@ -178,12 +191,13 @@ function CompanyDistribution({ companyId, companies, editable, projects = [], wa
   sourceOptions.forEach(source => {
     const requested = lotTotals.get(source.lotId);
     const available = quantityUnits(source.availableQuantity);
-    if (requested != null && available != null && requested > available) {
+    if (!source.availabilityUnknown && requested != null && available != null && requested > available) {
       batchProblems.push(`Партия «${source.materialName}»: указано ${formatUnits(requested)} ${source.unit}, доступно ${formatUnits(available)} ${source.unit}. Уменьшите количество в строках этой партии.`);
     }
   });
   if (!reason.trim()) batchProblems.push('Укажите основание распределения.');
   const batchValid = batchProblems.length === 0;
+  const batchBlocked = busy || loading || Boolean(returning || pending || pendingError || transferSource) || accessDenied || transferBlocked;
   const selectedProjectCount = new Set(rows.filter(row => ownProjects.some(project => Number(project.id) === Number(row.projectId))).map(row => row.projectId)).size;
   const updateRow = (index, field, value) => {
     const next = rows.map((r, i) => i === index ? { ...r, [field]: value } : r);
@@ -211,7 +225,10 @@ function CompanyDistribution({ companyId, companies, editable, projects = [], wa
     {pendingError && <p role="alert">{pendingError}</p>}
     {pending && editable && <div role="status"><p>Есть неподтверждённая операция. Новая выдача заблокирована до проверки её результата. Повтор безопасен: используется прежний номер запроса.</p>
       <details><summary>Состав неподтверждённой операции</summary><p>{pending.payload.reason}</p>{pending.payload.rows ? <ul>{pending.payload.rows.map((r, i) => <li key={i}>Партия #{r.lotId} → объект #{r.projectId}: {r.quantity}</li>)}</ul> : <p>Возврат по распределению #{pending.path.split('/')[2]}: {pending.payload.quantity}</p>}</details>
-      <button type="button" disabled={busy || accessDenied || transferBlocked || Boolean(transferSource)} onClick={() => submit(pending.path, pending.payload, () => { setRows([emptyRow()]); setReason(''); closeReturn(); }, pending)}>Повторить неподтверждённую операцию</button></div>}
+      <button type="button" disabled={busy || accessDenied || transferBlocked || Boolean(transferSource)} onClick={() => submit(pending.path, pending.payload, () => {
+        if (pending.path.endsWith('/returns')) closeReturn();
+        else { setRows([emptyRow()]); setReason(''); setSelectedSources([]); }
+      }, pending)}>Повторить неподтверждённую операцию</button></div>}
     {!editable && notice && <p role="status">{notice}</p>}
     {((pages.history.truncated && !pages.history.nextCursor) || (pages.sources.truncated && !pages.sources.nextCursor)) && <p>Сервер вернул неполный реестр без продолжения. Уточните поиск.</p>}
     {editable && <form className="wd-filters" onSubmit={e => { e.preventDefault(); applied.current.sources = { q: sourceSearch.trim() }; loadPage('sources'); }}>
@@ -219,8 +236,8 @@ function CompanyDistribution({ companyId, companies, editable, projects = [], wa
       <button disabled={busy || accessDenied}>Найти партии</button>
       {pages.sources.nextCursor && <button type="button" disabled={busy || pages.sources.loading || accessDenied} onClick={() => loadPage('sources', pages.sources.nextCursor)}>Загрузить ещё партии</button>}
     </form>}
-    {editable && <form onSubmit={e => { e.preventDefault(); if (batchValid) submit('/warehouse-distributions', { companyId, reason: reason.trim(), rows: rows.map(r => ({ lotId: Number(r.lotId), projectId: Number(r.projectId), quantity: r.quantity })) }, () => { setRows([emptyRow()]); setReason(''); }); }}>
-      <fieldset className="wd-batch" disabled={busy || loading || Boolean(returning) || Boolean(pending) || Boolean(pendingError) || accessDenied || transferBlocked || Boolean(transferSource)}><legend>Новая выдача</legend>
+    {editable && <form onSubmit={e => { e.preventDefault(); if (batchValid && !batchBlocked) submit('/warehouse-distributions', { companyId, reason: reason.trim(), rows: rows.map(r => ({ lotId: Number(r.lotId), projectId: Number(r.projectId), quantity: r.quantity })) }, () => { setRows([emptyRow()]); setReason(''); setSelectedSources([]); }); }}>
+      <fieldset className="wd-batch" disabled={batchBlocked}><legend>Новая выдача</legend>
         <p className="wd-batch-intro">Выберите партию, объект и количество. Можно добавить несколько материалов.</p>
         {!loading && !sources.length && <p>{applied.current.sources.q
           ? 'По заданному поиску партий не найдено.'
@@ -228,15 +245,15 @@ function CompanyDistribution({ companyId, companies, editable, projects = [], wa
         <div className="wd-table-head" aria-hidden="true"><span>Партия и материал</span><span>Объект</span><span>Количество</span><span>Остаток после выдачи</span><span></span></div>
         {rows.map((row, index) => {
           const selectedLot = sourceOptions.find(source => source.lotId === Number(row.lotId));
-          const available = selectedLot && quantityUnits(selectedLot.availableQuantity);
+          const available = selectedLot && !selectedLot.availabilityUnknown ? quantityUnits(selectedLot.availableQuantity) : null;
           const requested = selectedLot && lotTotals.get(selectedLot.lotId);
           const remaining = available != null && requested != null ? formatUnits(available - requested) : null;
           return <div className="wd-row" key={index}>
           <div className="wd-row-heading"><strong>Материал {index + 1}</strong></div>
-          <label>Партия {index + 1}<select value={row.lotId} onChange={e => updateRow(index, 'lotId', e.target.value)}><option value="">Выберите поступление</option>{sourceOptions.map(s => <option key={s.lotId} value={s.lotId}>{s.invoiceNumber || `Накладная #${s.warehouseInvoiceId}`} · {s.materialName} · доступно {s.availableQuantity} {s.unit} · строка {s.invoiceLineIndex + 1}</option>)}</select></label>
+          <label>Партия {index + 1}<select value={row.lotId} onChange={e => updateRow(index, 'lotId', e.target.value)}><option value="">Выберите поступление</option>{sourceOptions.map(s => <option key={s.lotId} value={s.lotId}>{s.invoiceNumber || `Накладная #${s.warehouseInvoiceId}`} · {s.materialName} · {s.availabilityUnknown ? 'остаток не подтверждён' : `доступно ${s.availableQuantity} ${s.unit}`} · строка {s.invoiceLineIndex + 1}</option>)}</select></label>
           <label>Объект {index + 1}<select value={row.projectId} onChange={e => updateRow(index, 'projectId', e.target.value)}><option value="">Выберите объект</option>{ownProjects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
           <label>Количество {index + 1}<input inputMode="decimal" value={row.quantity} onChange={e => updateRow(index, 'quantity', e.target.value.replace(',', '.'))} /></label>
-          <p className={`wd-row-available${remaining != null && Number(remaining) < 0 ? ' wd-overdrawn' : ''}`}>{selectedLot ? `Доступно ${selectedLot.availableQuantity} ${selectedLot.unit}${remaining != null ? ` · останется ${remaining} ${selectedLot.unit}` : ''}` : 'Выберите партию'}</p>
+          <p className={`wd-row-available${remaining != null && Number(remaining) < 0 ? ' wd-overdrawn' : ''}`}>{selectedLot?.availabilityUnknown ? 'Выбранная партия сохранена. Остаток не подтверждён: обновите её данные через поиск или список.' : selectedLot ? `Доступно ${selectedLot.availableQuantity} ${selectedLot.unit}${remaining != null ? ` · останется ${remaining} ${selectedLot.unit}` : ''}` : 'Выберите партию'}</p>
           <button type="button" disabled={rows.length === 1} aria-label={`Удалить строку ${index + 1}`} onClick={() => setRows(rows.filter((_, i) => i !== index))}>Удалить</button>
         </div>;
         })}
