@@ -34,7 +34,10 @@ class HiddenWorksLocalRouteCutoverTest(unittest.TestCase):
             source.index("try_local_hidden_works_canary"),
             source.index("generate_hidden_works_detection"),
         )
-        self.assertNotIn("X-Company", source)
+        self.assertIn("_resolve_estimate_mutation_actor", source)
+        self.assertIn("company_id = row[1]", source)
+        self.assertIn("WHERE id=%s AND company_id=%s AND revision=%s", source)
+        self.assertEqual(source.count("require_estimate_revision("), 2)
         self.assertNotIn("str(e)", source)
 
     def test_local_empty_result_is_complete_and_does_not_trigger_keywords(self):

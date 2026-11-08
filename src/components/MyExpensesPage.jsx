@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import ExpenseReceiptPhoto from './ExpenseReceiptPhoto';
 import { ChevronDown, ChevronRight, FileText, Plus } from 'lucide-react';
 
 export default function MyExpensesPage({
@@ -120,7 +121,10 @@ export default function MyExpensesPage({
                   <b style={{color:C.text,fontSize:'13px'}}>{e.description}</b>
                   <p style={{color:C.textSec,margin:'4px 0',fontSize:'11px'}}>📍 {e.projectName||'Личные/без объекта'} · 📅 {e.date||e.createdAt||'—'}</p>
                   <span style={{padding:'2px 8px',borderRadius:'8px',backgroundColor:stBg,color:cat.color,fontSize:'10px',fontWeight:'600'}}>{cat.label}</span>
-                  {e.photoUrl&&<img src={fileSrc(e.photoUrl)} alt='' onClick={()=>setShowPhotoModal(fileSrc(e.photoUrl))} style={{width:'40px',height:'40px',borderRadius:'6px',objectFit:'cover',cursor:'pointer',marginLeft:'8px',verticalAlign:'middle'}}/>}
+                  {String(e.photoUrl || '').split(',').map(url => url.trim()).filter(Boolean).map((url, index) => (
+                    <ExpenseReceiptPhoto key={url + index} url={url} fileSrc={fileSrc} onOpen={setShowPhotoModal}
+                      style={{width:'40px',height:'40px',borderRadius:'6px',objectFit:'cover',cursor:'pointer',marginLeft:'8px',verticalAlign:'middle'}}/>
+                  ))}
                 </div>
                 <div style={{textAlign:'right'}}>
                   <b style={{color:stColor,fontSize:'15px',display:'block'}}>{Math.round(Number(e.amount||0)).toLocaleString('ru-RU')+' ₽'}</b>

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { CheckCircle, Eye, Printer, Upload } from 'lucide-react';
 import ProjectHiddenWorksActSignatureModal from './ProjectHiddenWorksActSignatureModal';
 
@@ -32,6 +32,8 @@ export default function MasterDocumentsPage({
   btnG,
   inp,
 }) {
+  const [consentError, setConsentError] = useState('');
+  const [consentSaving, setConsentSaving] = useState(false);
   const consentHtml = PD_CONSENT_TEXT({
     fullName: masterProfile?.fullName || user.name,
     passport: masterProfile?.passport || '',
@@ -74,6 +76,7 @@ export default function MasterDocumentsPage({
             Распечатать
           </button>
         </div>
+        {consentError && <p role="alert" style={{color: C.danger}}>{consentError}</p>}
         {consent?.scanUrl ? (
           <div style={{ backgroundColor: C.successLight, border: '1.5px solid ' + C.successBorder, padding: '10px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '10px' }}>
             <CheckCircle size={16} color={C.success} />
@@ -87,20 +90,36 @@ export default function MasterDocumentsPage({
               type="file"
               accept="image/*,application/pdf"
               style={{ display: 'none' }}
+              disabled={consentSaving}
               onChange={async (e) => {
-                if (!e.target.files?.[0]) return;
-                const url = await uploadPhoto(e.target.files[0], { context: 'pd-consents' });
-                await fetch(API + '/pd-consents', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    userId: user.id,
-                    signedAt: new Date().toLocaleString('ru-RU'),
-                    scanUrl: url,
-                    uploadedBy: user.name,
-                  }),
-                });
-                await refreshData();
+                if (!e.target.files?.[0] || consentSaving) return;
+                const input = e.target;
+                setConsentSaving(true);
+                setConsentError('');
+                try {
+                  const url = await uploadPhoto(input.files[0], { context: 'pd-consents', projectScoped: false });
+                  if (!url) throw new Error('Не удалось загрузить скан. Повторите загрузку.');
+                  const response = await fetch(API + '/pd-consents', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      userId: user.id,
+                      signedAt: new Date().toLocaleString('ru-RU'),
+                      scanUrl: url,
+                      uploadedBy: user.name,
+                    }),
+                  });
+                  if (!response.ok) {
+                    const body = await response.json().catch(() => ({}));
+                    throw new Error(body.detail?.message || (typeof body.detail === 'string' ? body.detail : 'Не удалось сохранить согласие'));
+                  }
+                  await refreshData();
+                } catch (error) {
+                  setConsentError(error.message || 'Не удалось сохранить согласие');
+                } finally {
+                  setConsentSaving(false);
+                  input.value = '';
+                }
               }}
             />
           </label>

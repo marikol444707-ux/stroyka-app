@@ -1,4 +1,5 @@
 import React from 'react';
+import ExpenseReceiptPhoto from './ExpenseReceiptPhoto';
 import { Check, X } from 'lucide-react';
 
 export default function OwnExpenseFormModal({
@@ -21,6 +22,8 @@ export default function OwnExpenseFormModal({
   showInfo = false,
   validationAlert = false,
 }) {
+  const submittingRef = React.useRef(false);
+  const [submitting, setSubmitting] = React.useState(false);
   const receiptGalleryInputRef = React.useRef(null);
   const receiptCameraInputRef = React.useRef(null);
   if (!showOwnExpenseForm) return null;
@@ -31,10 +34,14 @@ export default function OwnExpenseFormModal({
   };
 
   const submit = async () => {
+    if (submittingRef.current) return;
     if(!newOwnExpense.description||!newOwnExpense.amount) {
       if (validationAlert) alert('Заполните: описание и сумму');
       return;
     }
+    submittingRef.current = true;
+    setSubmitting(true);
+    try {
     const payload={category:newOwnExpense.category||'other',description:newOwnExpense.description,amount:Number(newOwnExpense.amount),photoUrl:newOwnExpense.photoUrl||'',date:newOwnExpense.date||''};
     if(newOwnExpense.projectId) payload.projectId=Number(newOwnExpense.projectId);
     let response;
@@ -54,6 +61,10 @@ export default function OwnExpenseFormModal({
     await loadAll();
     if (notify) notify('Трата отправлена на возмещение','myexpense');
     alert('Отправлено на возмещение!');
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
+    }
   };
 
   const appendReceiptPhotos = async (event) => {
@@ -83,7 +94,7 @@ export default function OwnExpenseFormModal({
               return (<div>
                 <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(80px,1fr))',gap:'6px',marginBottom:'8px'}}>
                   {urls.map((u,i)=>(<div key={i} style={{position:'relative'}}>
-                    <img src={fileSrc(u)} alt='' style={{width:'100%',height:'80px',objectFit:'cover',borderRadius:'6px',border:'1px solid '+C.border}}/>
+                    <ExpenseReceiptPhoto url={u} fileSrc={fileSrc} style={{width:'100%',height:'80px',objectFit:'cover',borderRadius:'6px',border:'1px solid '+C.border}}/>
                     <button type='button' onClick={(ev)=>{ev.preventDefault();ev.stopPropagation();const rem=urls.filter((_,j)=>j!==i).join(',');setNewOwnExpense(prev=>({...prev,photoUrl:rem}));}} style={{position:'absolute',top:'2px',right:'2px',background:'rgba(220,38,38,0.9)',color:'white',border:'none',borderRadius:'50%',width:'20px',height:'20px',cursor:'pointer',fontSize:'12px',lineHeight:'1',padding:0}}>×</button>
                   </div>))}
                 </div>
@@ -100,7 +111,7 @@ export default function OwnExpenseFormModal({
           ℹ️ После отправки трата попадёт бухгалтеру/директору на возмещение.
         </div>)}
         <div className='mobile-actions' style={{display:'flex',gap:'8px'}}>
-          <button onClick={submit} style={btnO}><Check size={14}/>Отправить</button>
+          <button onClick={submit} disabled={submitting} style={btnO}><Check size={14}/>Отправить</button>
           <button onClick={reset} style={btnG}><X size={14}/>Отмена</button>
         </div>
       </div>

@@ -1,3 +1,4 @@
+import { createJournalLineLinks } from './journalLineLinks';
 import { estimateSectionsOf, estimateItemTotal, isEstimateWorkItem, estimatePackage } from '../../utils/estimateUtils';
 import { customerProjectRecord } from './projectSelection';
 
@@ -8,12 +9,14 @@ export function customerActRows(project, estimates = [], journal = [], offers = 
   if (estimates.some(row => row.sectionsLoaded !== true || !customerProjectRecord(row, project))
       || new Set(estimates.map(estimatePackage)).size !== estimates.length) invalid();
   const lines = new Map();
+  const links = createJournalLineLinks();
   for (const estimate of estimates) {
     for (const [sectionIndex, section] of estimateSectionsOf(estimate).entries()) {
       for (const [itemIndex, item] of (section.items || []).entries()) {
         if (!isEstimateWorkItem(item, section.name)) continue;
         const amount = Number(estimateItemTotal(item));
-        lines.set(`${estimate.id}:${sectionIndex}:${itemIndex}`, { description: item.name,
+        const lineKey = links.add(estimate.id, sectionIndex, itemIndex, item);
+        lines.set(lineKey, { description: item.name,
           section: section.name, unit: item.unit, planned: Number(item.quantity), amount, kind: 'sourceItems' });
       }
     }
@@ -32,7 +35,7 @@ export function customerActRows(project, estimates = [], journal = [], offers = 
       line = { description: offer.description, unit: offer.unit, planned: Number(offer.quantity), amount: Number(offer.total),
         kind: offer.changeType === 'Дополнительный объём к строке сметы' ? 'additionalVolumeItems' : 'outsideEstimateItems' };
     } else {
-      key = entry.estimateItemKey;
+      key = links.resolve(entry);
       line = lines.get(key);
     }
     if (!line || !positive(line.planned) || !Number.isFinite(line.amount) || line.amount < 0) invalid();

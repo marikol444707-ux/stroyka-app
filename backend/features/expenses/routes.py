@@ -150,7 +150,7 @@ def register_expenses_module(app, deps):
                 params.append(project["id"])
             cur.execute(
                 """SELECT id,project,category,amount,note,date,added_by,
-                          own_expense_id,source,photo_url
+                          own_expense_id,source,photo_url,company_id,project_id
                      FROM public.expenses
                     WHERE company_id=%s
                       AND company_scope_verified IS TRUE"""
@@ -160,6 +160,8 @@ def register_expenses_module(app, deps):
             )
             return [
                 {
+                    "companyId": _row_value(row, "company_id", 10),
+                    "projectId": _row_value(row, "project_id", 11),
                     "id": _row_value(row, "id", 0),
                     "project": _row_value(row, "project", 1) or "",
                     "category": _row_value(row, "category", 2) or "",

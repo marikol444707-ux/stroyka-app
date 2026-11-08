@@ -1,4 +1,5 @@
 import React from 'react';
+import useProtectedFileObjectUrl from '../features/uploads/useProtectedFileObjectUrl';
 import { usesWorkAcceptance } from '../features/work-acceptance/acceptance';
 import { ChevronDown, ChevronUp, Search } from 'lucide-react';
 
@@ -173,11 +174,9 @@ export default function MasterHistoryPage({
                               <b style={{ color: status === 'Подтверждено' ? C.success : status === 'Отклонено' ? C.textMuted : C.warning, fontSize: '13px' }}>
                                 {Math.round(amount).toLocaleString('ru-RU') + ' ₽'}
                               </b>
-                              {work.photoUrl && (
-                                <button onClick={() => setShowPhotoModal(fileSrc(work.photoUrl))} style={{ ...btnG, padding: '2px 6px', fontSize: '10px', marginLeft: '4px', marginTop: '2px' }}>
-                                  📷
-                                </button>
-                              )}
+                              {String(work.photoUrl || '').split(',').map(url => url.trim()).filter(Boolean).map((url, index) => (
+                                <HistoryPhoto key={url + index} {...{url, fileSrc, setShowPhotoModal, btnG}} index={index}/>
+                              ))}
                             </div>
                           </div>
                         );
@@ -192,4 +191,14 @@ export default function MasterHistoryPage({
       })()}
     </div>
   );
+}
+
+
+function HistoryPhoto({url, fileSrc, setShowPhotoModal, btnG, index}) {
+  const {src, loading, error} = useProtectedFileObjectUrl(url, fileSrc);
+  return <button aria-label={'Фото работы ' + (index + 1)} disabled={loading || !src || Boolean(error)}
+    title={error || 'Открыть фото'} onClick={() => setShowPhotoModal(src)}
+    style={{...btnG, padding:'2px 6px', fontSize:'10px', marginLeft:'4px', marginTop:'2px'}}>
+    {error ? 'Фото недоступно' : loading ? 'Загрузка фото…' : '📷'}
+  </button>;
 }

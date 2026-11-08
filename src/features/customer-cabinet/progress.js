@@ -1,3 +1,4 @@
+import { createJournalLineLinks } from './journalLineLinks';
 import { estimateSectionsOf, estimateItemTotal, isEstimateWorkItem, estimatePackage } from '../../utils/estimateUtils';
 import { customerProjectRecord } from './projectSelection';
 
@@ -9,6 +10,7 @@ export function customerProgress(project, estimates = [], journal = []) {
     return { plan: null, done: null, percent: null, source: 'conflict' };
   }
   const lines = new Map();
+  const links = createJournalLineLinks();
   let plan = 0;
   for (const estimate of estimates) {
     for (const [sectionIndex, section] of estimateSectionsOf(estimate).entries()) {
@@ -17,7 +19,8 @@ export function customerProgress(project, estimates = [], journal = []) {
         const quantity = Number(item.quantity);
         const total = Number(estimateItemTotal(item));
         if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(total) || total <= 0) continue;
-        lines.set(`${estimate.id}:${sectionIndex}:${itemIndex}`, { quantity, total, done: 0 });
+        const lineKey = links.add(estimate.id, sectionIndex, itemIndex, item);
+        lines.set(lineKey, { quantity, total, done: 0 });
         plan += total;
       }
     }
@@ -31,7 +34,7 @@ export function customerProgress(project, estimates = [], journal = []) {
   let unmatched = false;
   for (const entry of journal) {
     if (!customerProjectRecord(entry, project) || entry.status !== 'Подтверждено') continue;
-    const line = lines.get(entry.estimateItemKey);
+    const line = lines.get(links.resolve(entry));
     const quantity = Number(entry.quantity);
     if (entry.unexpectedWorkId || !line || !Number.isFinite(quantity) || quantity < 0) {
       unmatched = true;

@@ -1,3 +1,4 @@
+import { applyConfirmedEstimateStatuses, estimateMutationPayload, estimateSaveFailure, readEstimateMutationResponse } from './estimateSaveClient';
 import { resolveEstimatePackage } from '../../utils/estimatePackage';
 import {
   activeEstimateFromList,
@@ -88,7 +89,6 @@ export const estimateImportRequestError = (error) => {
 export function createEstimatePageActions({
   API,
   ROLE_LABELS,
-  applyEstimateActivationState,
   aiMessages,
   autoReconcileEstimateChanges,
   buildEstimateDiffContent,
@@ -125,6 +125,8 @@ export function createEstimatePageActions({
   normalizeEstimateItemType,
   openEstimateDiffPreview,
   persistEstimate,
+  beginEstimateSave,
+  hasUnsavedEstimateChanges,
   projects,
   queueEstimateDiffReviewTask,
   queueEstimateNormReviewTask,
@@ -307,15 +309,18 @@ export function createEstimatePageActions({
         body: JSON.stringify(est),
       }));
       if (!saved?.id) throw new Error('Сервер не вернул id сохранённой сметы');
-      const estWithId = {...est, id: saved.id, smetaType: newEstimate.smetaType || 'Заказчик', workPackage: resolvedWorkPackage, status: estimateStatus};
+      const estWithId = {...est, id: saved.id, revision: saved.revision, smetaType: newEstimate.smetaType || 'Заказчик', workPackage: resolvedWorkPackage, status: estimateStatus};
       const diffBase = activeEstimateFromList((estimatesList || []).filter(e => (
         estWithId.status === 'Активная' &&
         !isGlobalEstimateTemplate(e) &&
         sameEstimateGroup(e, estWithId) &&
         e.status === 'Активная'
       )));
-      const nextEstimates = applyEstimateActivationState([...(estimatesList || []), estWithId], estWithId);
-      setEstimatesList(nextEstimates);
+      let nextEstimates;
+      setEstimatesList(previous => {
+        nextEstimates = [...applyConfirmedEstimateStatuses(previous, estimatesList, saved.affectedEstimates), estWithId];
+        return nextEstimates;
+      });
       setSelectedEstimate(estWithId);
       setEstimatesTab('list');
       const qualityWarnings = estimateQualityRows(estWithId).map(row => ({
@@ -500,20 +505,24 @@ export function createEstimatePageActions({
 
   const handleDetectEstimateHiddenWorks = async () => {
     if (!selectedEstimate || !selectedEstimate.id) return;
+    if (hasUnsavedEstimateChanges) {
+      alertFn('Сначала сохраните локальные правки сметы и дождитесь подтверждения сохранения.');
+      return;
+    }
     if (!confirmFn('ИИ пройдёт по позициям сметы и отметит 🔒 работы, по которым нужно подготовить АОСР. Уже отмеченные вручную останутся. Продолжить?')) return;
+    const operation = beginEstimateSave?.(selectedEstimate);
     try {
-      const res = await fetchFn(API + '/estimates/' + selectedEstimate.id + '/ai-detect-hidden', {method: 'POST'});
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        alertFn('Не удалось: ' + (data.detail || 'ошибка'));
-        return;
-      }
-      const updated = {...selectedEstimate, sections: data.sections};
-      setSelectedEstimate(updated);
+      const res = await fetchFn(API + '/estimates/' + selectedEstimate.id + '/ai-detect-hidden', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(estimateMutationPayload(selectedEstimate))});
+      const data = await readEstimateMutationResponse(res);
+      if (operation && !operation.isCurrent()) return;
+      const updated = {...selectedEstimate, sections: data.sections, revision: data.revision};
+      if (operation) operation.finish({status: 'saved', revision: data.revision, estimate: updated});
+      else setSelectedEstimate(updated);
       setEstimatesList(prev => prev.map(e => e.id === updated.id ? updated : e));
       alertFn(estimateHiddenWorksResultMessage(data));
     } catch (e) {
-      alertFn('Ошибка соединения');
+      if (operation) operation.finish(estimateSaveFailure(e));
+      else alertFn(e.message);
     }
   };
 
@@ -591,17 +600,28 @@ export function createEstimatePageActions({
     const updated = {...selectedEstimate, sections};
     setSelectedEstimate(updated);
     setEstimatesList(prev => prev.map(e => e.id === updated.id ? updated : e));
-    await persistEstimate(updated);
+    const result = await persistEstimate(updated);
+    if (!result?.ok || result.stale || !result.isCurrent?.()) return;
     alertFn('Заполнено внутренних цен исполнителям: ' + changed + '. Каждую строку можно поправить вручную.');
   };
 
   const handleToggleSelectedEstimateTemplate = async () => {
     if (!selectedEstimate?.id) return;
-    const res = await fetchFn(API + '/estimates/' + selectedEstimate.id + '/toggle-template', {method: 'PUT'});
-    const data = await res.json();
-    setEstimatesList(prev => prev.map(e => e.id === selectedEstimate.id ? {...e, isTemplate: data.isTemplate} : e));
-    setSelectedEstimate(prev => ({...prev, isTemplate: data.isTemplate}));
-    alertFn(data.isTemplate ? 'Смета помечена как шаблон — её можно использовать при создании новых смет' : 'Смета больше не шаблон');
+    const operation = beginEstimateSave?.(selectedEstimate, {fullSnapshot: false});
+    try {
+      const res = await fetchFn(API + '/estimates/' + selectedEstimate.id + '/toggle-template', {
+        method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(estimateMutationPayload(selectedEstimate)),
+      });
+      const data = await readEstimateMutationResponse(res);
+      if (operation && !operation.isCurrent()) return;
+      const updated = {...selectedEstimate, isTemplate: data.isTemplate, revision: data.revision};
+      if (operation) operation.finish({status: 'saved', revision: data.revision, estimate: updated});
+      else setSelectedEstimate(updated);
+      setEstimatesList(prev => prev.map(e => e.id === updated.id ? updated : e));
+    } catch (error) {
+      if (operation) operation.finish(estimateSaveFailure(error));
+      else alertFn(error.message);
+    }
   };
 
   const handleNormalizeSelectedEstimateImport = async () => {
@@ -610,7 +630,8 @@ export function createEstimatePageActions({
     const updated = {...selectedEstimate, sections: normalizedSections};
     setSelectedEstimate(updated);
     setEstimatesList(prev => prev.map(e => e.id === updated.id ? updated : e));
-    await persistEstimate(updated);
+    const result = await persistEstimate(updated);
+    if (!result?.ok || result.stale || !result.isCurrent?.()) return;
     const qualityWarnings = estimateQualityRows(updated).map(row => ({
       type: 'качество',
       where: (row.sectionName || '') + ' / ' + (row.itemName || ''),
@@ -618,7 +639,8 @@ export function createEstimatePageActions({
       severity: row.severity === 'critical' ? 'критично' : row.severity === 'info' ? 'совет' : 'внимание',
     }));
     setImportValidationWarnings(qualityWarnings);
-    await queueEstimateQualityReviewTask(updated, 'Нормализация импорта сметы');
+    await queueEstimateQualityReviewTask(result.estimate, 'Нормализация импорта сметы');
+    if (!result.isCurrent()) return;
     alertFn('Импорт нормализован. Осталось замечаний: ' + qualityWarnings.length);
   };
 

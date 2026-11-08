@@ -32,7 +32,7 @@ class FakeApp:
 
 
 class FakeCursor:
-    def __init__(self, *, changes=None, estimate_status="Активная"):
+    def __init__(self, *, changes=None, estimate_status="Активная", revision=1):
         self.changes = changes or [{
             "id": 21,
             "company_id": 4,
@@ -53,6 +53,7 @@ class FakeCursor:
             "status": "Утверждено",
             "included_in_estimate_id": None,
         }]
+        self.revision = revision
         self.estimate_status = estimate_status
         self.calls = []
         self.result = []
@@ -61,7 +62,9 @@ class FakeCursor:
     def execute(self, sql, params=()):
         normalized = " ".join(sql.split())
         self.calls.append((normalized, tuple(params)))
-        if "FROM estimates" in normalized and "COALESCE(is_template,FALSE)" in normalized:
+        if normalized.startswith("SELECT revision FROM estimates"):
+            self.result = [{"revision": self.revision}] if tuple(params) == (100, 4) else []
+        elif "FROM estimates" in normalized and "COALESCE(is_template,FALSE)" in normalized:
             self.result = [{
                 "id": 100,
                 "company_id": 4,
@@ -237,7 +240,7 @@ class EstimateChangeIncludeRouteTests(unittest.TestCase):
         connection = FakeConnection(cursor)
         app = self._register(connection)
 
-        response = self._call(app, "/estimates/{id}/include-changes", {"changeIds": [21]})
+        response = self._call(app, "/estimates/{id}/include-changes", {"changeIds": [21], "expectedRevision": 1})
 
         insert_sql, insert_params = next(call for call in cursor.calls if call[0].startswith("INSERT INTO estimates"))
         self.assertIn("company_id,project_id", insert_sql)
@@ -249,7 +252,31 @@ class EstimateChangeIncludeRouteTests(unittest.TestCase):
         self.assertIn("company_id=%s AND project_id=%s", update_sql)
         self.assertEqual(update_params[:4], (101, "Директор выбранной компании", 4, 14))
         self.assertEqual(response["includedChangeIds"], [21])
+        self.assertEqual(response["estimate"]["revision"], 1)
         self.assertTrue(connection.committed)
+
+    def test_missing_revision_blocks_include_before_archival_or_new_estimate(self):
+        cursor = FakeCursor()
+        connection = FakeConnection(cursor)
+        app = self._register(connection)
+        with self.assertRaises(HTTPException) as raised:
+            self._call(app, "/estimates/{id}/include-changes", {"changeIds": [21]})
+        self.assertEqual(raised.exception.status_code, 428)
+        self.assertFalse(any(sql.startswith(("UPDATE", "INSERT", "DELETE")) for sql, _ in cursor.calls))
+        self.assertTrue(connection.rolled_back)
+        self.assertTrue(connection.closed)
+
+    def test_stale_revision_blocks_include_before_archival_or_new_estimate(self):
+        cursor = FakeCursor(revision=2)
+        connection = FakeConnection(cursor)
+        app = self._register(connection)
+        with self.assertRaises(HTTPException) as raised:
+            self._call(app, "/estimates/{id}/include-changes", {"changeIds": [21], "expectedRevision": 1})
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertEqual(raised.exception.detail["code"], "estimate_revision_conflict")
+        self.assertFalse(any(sql.startswith(("UPDATE", "INSERT", "DELETE")) for sql, _ in cursor.calls))
+        self.assertTrue(connection.rolled_back)
+        self.assertTrue(connection.closed)
 
     def test_include_rejects_foreign_selected_change_before_estimate_write(self):
         cursor = FakeCursor(changes=[{
@@ -262,7 +289,7 @@ class EstimateChangeIncludeRouteTests(unittest.TestCase):
         app = self._register(connection)
 
         with self.assertRaises(HTTPException) as raised:
-            self._call(app, "/estimates/{id}/include-changes", {"changeIds": [21]})
+            self._call(app, "/estimates/{id}/include-changes", {"changeIds": [21], "expectedRevision": 1})
 
         self.assertEqual(raised.exception.status_code, 403)
         self.assertFalse(any(sql.startswith("UPDATE estimates") for sql, _ in cursor.calls))

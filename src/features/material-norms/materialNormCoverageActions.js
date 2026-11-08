@@ -70,7 +70,12 @@ export const createMaterialNormCoverageActions = ({
     const updated = {...est, sections, updatedBy:user?.name||''};
     setEstimatesList(prev=>prev.map(e=>Number(e.id)===Number(updated.id)?updated:e));
     if (selectedEstimate && Number(selectedEstimate.id)===Number(updated.id)) setSelectedEstimate(updated);
-    await persistEstimate(updated);
+    const result = await persistEstimate(updated, {source: 'list'});
+    if (result?.stale || !result?.isCurrent?.()) return;
+    if (!result.ok) {
+      setMaterialNormNotice({tone:'error',title:'Изменения сметы не сохранены',text:result.error?.message || 'Сохраните локальные правки отдельно и проверьте смету на сервере.'});
+      return;
+    }
     setMaterialNormNotice({tone:'success',title:successTitle,text:successText});
   };
 

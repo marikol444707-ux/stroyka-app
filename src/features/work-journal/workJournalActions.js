@@ -100,7 +100,7 @@ export const createWorkJournalActions = ({
     const overReason = materialNormOverrunReason(project.name, mi.name, usedMats);
     if (overReason === null) return;
     usedMats = applyMaterialOverNormReason(project.name, usedMats, overReason);
-    const newSections = est.sections.map((s,si)=>si===mi.sectionIdx?{...s,items:s.items.map((it,ii)=>ii===mi.itemIdx?{...it,doneQuantity:raw}:it)}:s);
+    const newSections = est.sections.map((s,si)=>si===mi.sectionIdx?{...s,items:s.items.map((it,ii)=>ii===mi.itemIdx?{...it,doneQuantity:toNum(it.doneQuantity)+deltaQty}:it)}:s);
     const customerPricePerUnit = toNum(mi.pricePerUnit || mi.price || 0) || (toNum(mi.priceWork || 0) + toNum(mi.priceMaterial || 0));
     const fixedExecutionPrice = toNum(mi.executionPricePerUnit || mi.internalPricePerUnit || mi.masterPricePerUnit || mi.contractorPricePerUnit || mi.executorPricePerUnit);
     const executionCoeff = toNum(mi.executionCoefficient || mi.internalCoefficient || mi.masterCoefficient || mi.contractorCoefficient || mi.executorCoefficient);
@@ -112,6 +112,7 @@ export const createWorkJournalActions = ({
     }
     const updated = {
       ...est,
+      expectedRevision: est.revision,
       sections:newSections,
       _workJournalMaterials:{[estimateItemKey]:usedMats},
       _workJournalParams:{[estimateItemKey]:{
@@ -145,7 +146,7 @@ export const createWorkJournalActions = ({
     const res = await fetch(API+'/estimates/'+est.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(updated)});
     if (!res.ok) {
       const er = await res.json().catch(()=>({}));
-      alert('Не удалось отправить работу: '+(er.detail||res.status));
+      alert('Не удалось отправить работу: '+(er.detail?.message||er.detail||res.status));
       return;
     }
     }
@@ -284,7 +285,7 @@ export const createWorkJournalActions = ({
       confirmedAt:new Date().toISOString().split('T')[0],
       quantity: accepted,
     };
-    if (isFinanceRole) {
+    if (typeof isFinanceRole === 'function' ? isFinanceRole() : Boolean(isFinanceRole)) {
       body.total = newTotal;
       body.pricePerUnit = ppu;
       body.executionPricePerUnit = ppu;

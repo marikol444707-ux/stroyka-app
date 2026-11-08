@@ -1,4 +1,6 @@
 import React from 'react';
+import {API as DEFAULT_API} from '../api';
+import useProtectedFileObjectUrl from '../features/uploads/useProtectedFileObjectUrl';
 import {
   Calendar,
   CheckCircle2,
@@ -219,7 +221,29 @@ function TaskReportForm({ C, btnG, btnO, inp, isMobile, submitAiTaskReport, task
   );
 }
 
+function ReportAttachment({attachment, API}) {
+  const name = attachment.name || 'Вложение отчета';
+  const {src, loading, error, contentType} = useProtectedFileObjectUrl(
+    attachment.url, url => url.startsWith('/') ? API + url : url,
+  );
+  if (loading) return <span role="status">Загрузка: {name}</span>;
+  if (error || !src) return <span role="alert">Файл недоступен: {name}</span>;
+  const image = contentType ? contentType.startsWith('image/') : attachment.type === 'photo';
+  return <a href={src} aria-label={name} target="_blank" rel="noopener noreferrer" download={image ? undefined : name}>
+    {image ? <img src={src} alt={name} style={{width: 96, height: 96, objectFit: 'cover'}}/> : name}
+  </a>;
+}
+
+function ReportAttachments({report, API}) {
+  return <div style={{display: 'flex', gap: '8px', flexWrap: 'wrap'}}>
+    {(report.attachments || []).map((attachment, index) => (
+      <ReportAttachment key={attachment.id || attachment.url + index} {...{attachment, API}}/>
+    ))}
+  </div>;
+}
+
 function AssignmentCard({
+  API,
   C,
   btnB,
   btnG,
@@ -305,7 +329,19 @@ function AssignmentCard({
           <div style={{ color: C.text, fontSize: '13px', lineHeight: 1.45, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
             {latestReport.text || 'Отчет без текста'}
           </div>
+          <ReportAttachments report={latestReport} API={API}/>
         </div>
+      )}
+      {(task.reports || []).some(report => report.id !== latestReport?.id) && (
+        <details style={{marginTop: '12px'}}>
+          <summary>История отчетов</summary>
+          {task.reports.filter(report => report.id !== latestReport?.id).map(report => (
+            <div key={report.id} style={{marginTop: '8px'}}>
+              <b>{report.authorName}</b><p>{report.text || 'Отчет без текста'}</p>
+              <ReportAttachments report={report} API={API}/>
+            </div>
+          ))}
+        </details>
       )}
 
       {!closed && (
@@ -344,7 +380,7 @@ function AssignmentCard({
 }
 
 export default function AssignmentsPage({
-  API,
+  API = DEFAULT_API,
   C,
   aiTasks = [],
   acceptAiTask,
@@ -730,6 +766,7 @@ export default function AssignmentsPage({
       {filteredTasks.map(task => (
         <AssignmentCard
           key={task.id}
+          API={API}
           C={C}
           btnB={btnB}
           btnG={btnG}

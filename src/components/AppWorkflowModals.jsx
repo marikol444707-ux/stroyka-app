@@ -48,6 +48,9 @@ export default function AppWorkflowModals({ ui, constants, state, actions }) {
     aiLoading,
     aiMessages,
     creatingFromEstimate,
+    estimateSelectionRef,
+    estimateSaveState,
+    beginEstimateSave,
     estimateChatHistoryLoading,
     estimateChatInput,
     estimateChatLoading,
@@ -428,6 +431,9 @@ export default function AppWorkflowModals({ ui, constants, state, actions }) {
 
       {showVersionHistory && (
         <EstimateVersionHistoryModal
+          estimateSelectionRef={estimateSelectionRef}
+          estimateSaveState={estimateSaveState}
+          beginEstimateSave={beginEstimateSave}
           showVersionHistory={showVersionHistory}
           setShowVersionHistory={setShowVersionHistory}
           selectedEstimate={selectedEstimate}

@@ -1,4 +1,5 @@
 import React from 'react';
+import ExpenseReceiptPhoto from './ExpenseReceiptPhoto';
 import { X } from 'lucide-react';
 
 export default function ReimburseModal({
@@ -20,6 +21,9 @@ export default function ReimburseModal({
   user,
   loadAll,
 }) {
+  const pendingRef = React.useRef(false);
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState('');
   if (!showReimburseModal) return null;
 
   const pending = (ownExpenses||[]).filter(e=>e.status==='Ожидает');
@@ -42,19 +46,31 @@ export default function ReimburseModal({
   const groups = Array.from(byEmp.values()).sort((a,b)=>priority(roleOf(a))-priority(roleOf(b)));
   const grandTotal = pending.reduce((s,e)=>s+Number(e.amount||0),0);
 
-  const approveExpense = async (e) => {
-    await fetch(API+'/own-expenses/'+e.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Возмещено'})});
-    if(e.projectName){
-      await fetch(API+'/project-payments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({projectName:e.projectName,amount:-Number(e.amount||0),note:'Возмещение «'+(e.description||'')+'» — '+(e.employeeName||''),date:new Date().toISOString().split('T')[0],paidBy:user.name})}).catch(()=>{});
+  const changeExpenseStatus = async (expense, status) => {
+    if (pendingRef.current) return;
+    pendingRef.current = true;
+    setSaving(true);
+    setError('');
+    try {
+      const response = await fetch(API+'/own-expenses/'+expense.id, {
+        method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify({status}),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.detail?.message || (typeof body.detail === 'string' ? body.detail : 'Не удалось изменить статус траты'));
+      }
+      await loadAll();
+    } catch (failure) {
+      setError(failure.message || 'Не удалось изменить статус траты');
+    } finally {
+      pendingRef.current = false;
+      setSaving(false);
     }
-    await loadAll();
   };
-
-  const rejectExpense = async (e) => {
-    const reason=prompt('Причина отклонения:','');
-    if(reason===null) return;
-    await fetch(API+'/own-expenses/'+e.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'Отклонено'})});
-    await loadAll();
+  const approveExpense = expense => changeExpenseStatus(expense, 'Возмещено');
+  const rejectExpense = async expense => {
+    if (prompt('Причина отклонения:', '') === null) return;
+    await changeExpenseStatus(expense, 'Отклонено');
   };
 
   return (
@@ -64,6 +80,7 @@ export default function ReimburseModal({
           <b style={{color:C.text,fontSize:'16px'}}>💰 Возмещения сотрудникам</b>
           <button onClick={()=>setShowReimburseModal(false)} style={{...btnG,padding:'4px 10px'}}><X size={14}/></button>
         </div>
+        {error && <p role="alert" style={{color:C.danger}}>{error}</p>}
         {pending.length===0 ? (
           <p style={{color:C.textMuted,textAlign:'center',padding:'20px',fontSize:'13px'}}>Нет трат на возмещении</p>
         ) : (<>
@@ -88,12 +105,12 @@ export default function ReimburseModal({
                     <div style={{flex:1,minWidth:'180px'}}>
                       <p style={{color:C.text,margin:0,fontSize:'12px',fontWeight:'600'}}>{e.description}</p>
                       <p style={{color:C.textMuted,margin:'2px 0 0',fontSize:'11px'}}>{(e.projectName?'🏗 '+e.projectName+' · ':'')+(e.date||'')+(e.category?' · '+(expenseCategories.find(c=>c.id===e.category)?.label||e.category):'')}</p>
-                      {(()=>{const urls=(e.photoUrl||'').split(',').filter(Boolean);if(urls.length===0) return null;return (<div style={{display:'flex',gap:'3px',marginTop:'4px',flexWrap:'wrap'}}>{urls.map((u,i)=>(<img key={i} src={fileSrc(u)} alt='' onClick={()=>setShowPhotoModal(fileSrc(u))} style={{width:'40px',height:'40px',borderRadius:'4px',objectFit:'cover',cursor:'pointer',border:'1px solid '+C.border}}/>))}</div>);})()}
+                      {(()=>{const urls=(e.photoUrl||'').split(',').filter(Boolean);if(urls.length===0) return null;return (<div style={{display:'flex',gap:'3px',marginTop:'4px',flexWrap:'wrap'}}>{urls.map((u,i)=>(<ExpenseReceiptPhoto key={i} url={u.trim()} fileSrc={fileSrc} onOpen={setShowPhotoModal} style={{width:'40px',height:'40px',borderRadius:'4px',objectFit:'cover',cursor:'pointer',border:'1px solid '+C.border}}/>))}</div>);})()}
                     </div>
                     <div style={{textAlign:'right',display:'flex',gap:'4px',alignItems:'center'}}>
                       <b style={{color:C.warning,fontSize:'13px'}}>{Math.round(Number(e.amount||0)).toLocaleString('ru-RU')+' ₽'}</b>
-                      <button onClick={()=>approveExpense(e)} style={{...btnO,padding:'3px 10px',fontSize:'11px'}}>✅</button>
-                      <button onClick={()=>rejectExpense(e)} style={{...btnR,padding:'3px 10px',fontSize:'11px'}}>❌</button>
+                      <button disabled={saving} onClick={()=>approveExpense(e)} style={{...btnO,padding:'3px 10px',fontSize:'11px'}}>✅</button>
+                      <button disabled={saving} onClick={()=>rejectExpense(e)} style={{...btnR,padding:'3px 10px',fontSize:'11px'}}>❌</button>
                     </div>
                   </div>
                 ))}

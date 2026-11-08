@@ -144,6 +144,10 @@ export function useAppBusinessRuntime({
     roomWorks,
     rooms,
     selectedEstimate,
+    estimateSelectionRef,
+    estimateListRef,
+    beginEstimateSave,
+    markEstimateDeleted,
     setActivePage,
     setActiveProjectTab,
     setActiveTabGroup,
@@ -204,6 +208,10 @@ export function useAppBusinessRuntime({
     updateAiTask
   } = aiTaskActions;
   const estimateWorkflowActions = createEstimateWorkflowActions({
+    estimateSelectionRef,
+    estimateListRef,
+    beginEstimateSave,
+    markEstimateDeleted,
     API,
     estimatesList,
     setEstimatesList,

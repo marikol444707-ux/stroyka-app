@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within, waitFor } from '@testing-library/react';
 import MasterDocumentsPage from './MasterDocumentsPage';
 import { buildPerformerContractHtml } from '../utils/contractTemplates';
 
@@ -131,4 +131,23 @@ test('renders the brigade rate and line total in the opened contract', () => {
   expect(html).toMatch(/>5(?:\s|&nbsp;| )*000</);
   expect(html).not.toContain('9 900');
   expect(html).not.toContain('99 000');
+});
+
+
+describe('consent upload failures', () => {
+  const originalFetch = global.fetch;
+  afterEach(() => { global.fetch = originalFetch; });
+  test.each(['upload', 'save'])('keeps the consent unconfirmed after %s failure', async stage => {
+    const uploadPhoto = jest.fn().mockResolvedValue(stage === 'upload' ? '' : '/tenant-files/7/content');
+    const refreshData = jest.fn();
+    global.fetch = jest.fn().mockResolvedValue({ok: false, json: async () => ({detail: 'Нет доступа'})});
+    renderPage({uploadPhoto, refreshData});
+    fireEvent.change(document.querySelector('input[type=file]'), {
+      target: {files: [new File(['scan'], 'consent.png', {type: 'image/png'})]},
+    });
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(stage === 'upload' ? 'Не удалось загрузить скан' : 'Нет доступа'));
+    expect(refreshData).not.toHaveBeenCalled();
+    if (stage === 'upload') expect(global.fetch).not.toHaveBeenCalled();
+    expect(screen.queryByText('Скан загружен')).not.toBeInTheDocument();
+  });
 });

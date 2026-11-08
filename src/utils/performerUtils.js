@@ -1,6 +1,7 @@
 export const normalizePersonKey = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
 
 export const staffPassportText = (staff = {}) => {
+  staff = staff || {};
   const number = [staff.passportSeries, staff.passportNumber].filter(Boolean).join(' ').trim();
   const issued = [staff.passportIssuedBy, staff.passportIssuedDate].filter(Boolean).join(', ');
   return [number, issued].filter(Boolean).join('; ');

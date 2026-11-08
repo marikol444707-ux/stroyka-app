@@ -445,7 +445,7 @@ def _startup_num(v) -> float:
 def _startup_repair_saved_estimate_adjustments(cur) -> int:
     """One-time compatible repair for estimates imported before adjustment rows existed."""
     try:
-        cur.execute("SELECT id, sections_json FROM estimates WHERE sections_json IS NOT NULL AND sections_json<>''")
+        cur.execute("SELECT id, sections_json, company_id, revision FROM estimates WHERE sections_json IS NOT NULL AND sections_json<>''")
         rows = cur.fetchall()
     except Exception:
         return 0
@@ -454,7 +454,7 @@ def _startup_repair_saved_estimate_adjustments(cur) -> int:
         "equipment", "оборудование", "delivery", "доставка", "transport",
     }
     repaired = 0
-    for estimate_id, raw_sections in rows:
+    for estimate_id, raw_sections, company_id, expected_revision in rows:
         try:
             sections = json.loads(raw_sections or "[]")
         except Exception:
@@ -490,10 +490,10 @@ def _startup_repair_saved_estimate_adjustments(cur) -> int:
                     changed = True
         if changed:
             cur.execute(
-                "UPDATE estimates SET sections_json=%s WHERE id=%s",
-                (json.dumps(sections, ensure_ascii=False), estimate_id),
+                "UPDATE estimates SET sections_json=%s WHERE id=%s AND company_id IS NOT DISTINCT FROM %s AND revision=%s",
+                (json.dumps(sections, ensure_ascii=False), estimate_id, company_id, expected_revision),
             )
-            repaired += 1
+            repaired += cur.rowcount
     return repaired
 
 DEFAULT_MATERIAL_NORMS = [
@@ -588,6 +588,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Quality-Journal-Snapshot"],
 )
 
 def public_user(row: dict, include_token: bool = False, two_factor_passed: bool = False) -> dict:
@@ -13268,13 +13269,16 @@ def _recalculate_contract_item_done_from_work_journal(cur, contract_item_id):
 def _recalculate_estimate_item_done_from_work_journal(cur, work_row: dict, *, strict_key=False):
     if not work_row:
         return False
+    company_id = work_row.get("company_id")
+    if type(company_id) is not int or company_id <= 0:
+        return False
     estimate_id = work_row.get("estimate_id") or work_row.get("estimateId")
     if not estimate_id:
         return False
     target_key = str(work_row.get("estimate_item_key") or work_row.get("estimateItemKey") or "").strip()
     target_section = str(work_row.get("section_name") or work_row.get("sectionName") or "").strip()
     target_name = str(work_row.get("estimate_item_name") or work_row.get("estimateItemName") or work_row.get("description") or "").strip()
-    cur.execute("SELECT sections_json FROM estimates WHERE id=%s FOR UPDATE", (estimate_id,))
+    cur.execute("SELECT sections_json FROM estimates WHERE id=%s AND company_id=%s FOR UPDATE", (estimate_id, company_id))
     est_row = cur.fetchone()
     if not est_row:
         return False
@@ -13316,18 +13320,18 @@ def _recalculate_estimate_item_done_from_work_journal(cur, work_row: dict, *, st
     if canonical_key:
         cur.execute("""SELECT COALESCE(SUM(COALESCE(quantity,0)),0) AS qty
                        FROM work_journal
-                       WHERE estimate_id=%s
+                       WHERE estimate_id=%s AND company_id=%s
                          AND COALESCE(status,'')='Подтверждено'
                          AND COALESCE(estimate_item_key,'')=%s""",
-                    (estimate_id, canonical_key))
+                    (estimate_id, company_id, canonical_key))
     else:
         cur.execute("""SELECT COALESCE(SUM(COALESCE(quantity,0)),0) AS qty
                        FROM work_journal
-                       WHERE estimate_id=%s
+                       WHERE estimate_id=%s AND company_id=%s
                          AND COALESCE(status,'')='Подтверждено'
                          AND COALESCE(section_name,'')=%s
                          AND COALESCE(NULLIF(estimate_item_name,''), description, '')=%s""",
-                    (estimate_id, section_name, item_name))
+                    (estimate_id, company_id, section_name, item_name))
     row = cur.fetchone()
     confirmed_qty = _float_or_zero((row.get("qty") if isinstance(row, dict) else row[0]) if row else 0)
     plan_qty = _safe_float(item.get("quantity"))
@@ -13336,8 +13340,8 @@ def _recalculate_estimate_item_done_from_work_journal(cur, work_row: dict, *, st
     if abs(_safe_float(item.get("doneQuantity")) - confirmed_qty) < 0.000001:
         return False
     item["doneQuantity"] = confirmed_qty
-    cur.execute("UPDATE estimates SET sections_json=%s WHERE id=%s",
-                (json.dumps(sections, ensure_ascii=False), estimate_id))
+    cur.execute("UPDATE estimates SET sections_json=%s WHERE id=%s AND company_id=%s",
+                (json.dumps(sections, ensure_ascii=False), estimate_id, company_id))
     return True
 
 def _work_material_key(material: dict, cur=None, project: str = "", *, company_id=None):
@@ -14635,19 +14639,31 @@ def _detect_hidden_by_keywords(name):
     return any(k in n for k in HIDDEN_WORK_KEYWORDS)
 
 @app.post("/estimates/{id}/ai-detect-hidden")
-def ai_detect_hidden_works(id: int, _current_user: dict = Depends(require_roles(*ESTIMATE_WRITE_ROLES))):
+def ai_detect_hidden_works(
+    id: int,
+    data: dict,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(get_current_user),
+):
     import json as j, re
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor()
-    require_estimate_access(cur, id, _current_user)
-    cur.execute(
-        "SELECT sections_json, company_id FROM estimates WHERE id=%s",
-        (id,),
-    )
-    row = cur.fetchone()
-    if not row:
+    try:
+        _, estimate = _resolve_estimate_mutation_actor(
+            conn, _current_user, id, ESTIMATE_WRITE_ROLES,
+            x_company_id=x_company_id, x_company_mode=x_company_mode,
+        )
+        expected_revision = require_estimate_revision(cur, id, estimate["companyId"], data)
+        cur.execute("SELECT sections_json, company_id FROM estimates WHERE id=%s AND company_id=%s", (id, estimate["companyId"]))
+        row = cur.fetchone()
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+    finally:
         cur.close(); conn.close()
-        raise HTTPException(status_code=404, detail="смета не найдена")
     try:
         sections = j.loads(row[0]) if row[0] else []
     except Exception:
@@ -14665,8 +14681,7 @@ def ai_detect_hidden_works(id: int, _current_user: dict = Depends(require_roles(
             if nm and nm not in names:
                 names.append(nm)
     if not names:
-        cur.close(); conn.close()
-        return {"ok": True, "count": 0, "sections": sections, "method": "empty"}
+        return {"ok": True, "revision": expected_revision, "count": 0, "sections": sections, "method": "empty"}
 
     company_id = row[1]
     hidden_set = set()
@@ -14723,10 +14738,25 @@ def ai_detect_hidden_works(id: int, _current_user: dict = Depends(require_roles(
             if nm in hidden_set and not it.get("hiddenWork"):
                 it["hiddenWork"] = True
                 count += 1
-    cur.execute("UPDATE estimates SET sections_json=%s WHERE id=%s", (j.dumps(sections, ensure_ascii=False), id))
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok": True, "count": count, "detected": len(hidden_set), "sections": sections, "method": method}
+    conn = get_db()
+    conn.autocommit = False
+    cur = conn.cursor()
+    try:
+        _, estimate = _resolve_estimate_mutation_actor(
+            conn, _current_user, id, ESTIMATE_WRITE_ROLES,
+            x_company_id=x_company_id, x_company_mode=x_company_mode,
+        )
+        require_estimate_revision(cur, id, estimate["companyId"], data)
+        cur.execute("UPDATE estimates SET sections_json=%s WHERE id=%s AND company_id=%s AND revision=%s RETURNING revision",
+                    (j.dumps(sections, ensure_ascii=False), id, estimate["companyId"], expected_revision))
+        saved_revision = cur.fetchone()[0]
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+    finally:
+        cur.close(); conn.close()
+    return {"ok": True, "revision": saved_revision, "count": count, "detected": len(hidden_set), "sections": sections, "method": method}
 
 
 try:
@@ -16360,6 +16390,8 @@ except ModuleNotFoundError:
 
 
 register_pd_consents_module(app, {
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
     "get_db": get_db,
     "get_current_user": get_current_user,
     "require_roles": require_roles,
@@ -17024,6 +17056,7 @@ def _estimate_response_payload_from_row(r, sections, *, sections_loaded: bool, t
     return {
         "id": r[0],
         "companyId": r[13],
+        "revision": int(r[14]),
         "projectId": r[1],
         "projectName": r[2],
         "name": r[3],
@@ -17089,7 +17122,7 @@ def get_estimates(
                    COALESCE(e.smeta_type,'Заказчик'),COALESCE(e.work_package,'Основная'),COALESCE(e.is_template,FALSE),e.status,e.created_at,
                    (SELECT COUNT(*) FROM estimate_versions ev WHERE ev.estimate_id=e.id) as version_count,
                    (SELECT MAX(ev.created_at) FROM estimate_versions ev WHERE ev.estimate_id=e.id) as latest_version_at,
-                   e.company_id"""
+                   e.company_id,e.revision"""
     where_sql = visibility_sql
     query_params = list(visibility_params)
     if requested_ids:
@@ -17216,7 +17249,7 @@ def get_estimate_detail(
                    COALESCE(e.smeta_type,'Заказчик'),COALESCE(e.work_package,'Основная'),COALESCE(e.is_template,FALSE),e.status,e.created_at,
                    (SELECT COUNT(*) FROM estimate_versions ev WHERE ev.estimate_id=e.id) as version_count,
                    (SELECT MAX(ev.created_at) FROM estimate_versions ev WHERE ev.estimate_id=e.id) as latest_version_at,
-                   e.company_id"""
+                   e.company_id,e.revision"""
     cur.execute(
         f"SELECT {base_cols} FROM estimates e WHERE e.id=%s AND {visibility_sql}",
         (id, *visibility_params),
@@ -18093,6 +18126,12 @@ except ModuleNotFoundError:
     )
 
 
+try:
+    from backend.features.estimate_concurrency.service import require_estimate_revision, read_estimate_revision
+except ModuleNotFoundError:
+    from features.estimate_concurrency.service import require_estimate_revision, read_estimate_revision
+
+
 @app.post("/estimates")
 def create_estimate(
     data: dict,
@@ -18113,6 +18152,7 @@ def create_estimate(
             resolve_project_parent,
         )
     conn = get_db()
+    conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     company_context = _resolve_work_company_context(
         cur,
@@ -18154,33 +18194,43 @@ def create_estimate(
     if status == "Активная" and actor.get("role") not in LEADERSHIP_ROLES:
         cur.close(); conn.close()
         raise HTTPException(status_code=403, detail="Активировать смету может только директор или замдиректора. Сохраните смету черновиком.")
-    if status == "Активная" and project_id:
-        cur.execute("""UPDATE estimates
-                       SET status='Черновик'
-                       WHERE company_id=%s
-                         AND project_id=%s
-                         AND COALESCE(smeta_type,'Заказчик')=%s
-                         AND COALESCE(NULLIF(work_package,''),'Основная')=%s
-                         AND status='Активная'""",
-                    (company_id, project_id, smeta_type, work_package))
-    sections, _ = _normalize_estimate_adjustment_rows(data.get("sections", []))
-    cur.execute("""INSERT INTO estimates
-                   (company_id,project_id,project_name,name,version,sections_json,smeta_type,work_package,status)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-        (company_id,project_id,project_name,data.get("name",""),data.get("version","1.0"),j.dumps(sections,ensure_ascii=False),smeta_type,work_package,status))
-    row = cur.fetchone()
-    new_estimate_id = row.get("id")
-    if status == "Активная" and smeta_type == "Заказчик" and project_id:
-        ensure_active_estimate_snapshot(
-            cur,
-            estimate_id=new_estimate_id,
-            company_id=company_id,
-            project_id=project_id,
-            created_by=actor.get("name") or current_user.get("name") or "",
-        )
-    supply_refresh = {"scanned": 0, "updated": 0, "pending": status == "Активная" and bool(project_name)}
-    conn.commit()
-    cur.close(); conn.close()
+    try:
+        affected_estimates = []
+        if status == "Активная" and project_id:
+            cur.execute("""UPDATE estimates
+                           SET status='Черновик'
+                           WHERE company_id=%s
+                             AND project_id=%s
+                             AND COALESCE(smeta_type,'Заказчик')=%s
+                             AND COALESCE(NULLIF(work_package,''),'Основная')=%s
+                             AND status='Активная' RETURNING id, revision, revision - 1 AS previous_revision""",
+                        (company_id, project_id, smeta_type, work_package))
+            affected_estimates = [{"id": row["id"], "revision": row["revision"],
+                                   "previousRevision": row["previous_revision"], "status": "Черновик"}
+                                  for row in cur.fetchall()]
+        sections, _ = _normalize_estimate_adjustment_rows(data.get("sections", []))
+        cur.execute("""INSERT INTO estimates
+                       (company_id,project_id,project_name,name,version,sections_json,smeta_type,work_package,status)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+            (company_id,project_id,project_name,data.get("name",""),data.get("version","1.0"),j.dumps(sections,ensure_ascii=False),smeta_type,work_package,status))
+        row = cur.fetchone()
+        new_estimate_id = row.get("id")
+        if status == "Активная" and smeta_type == "Заказчик" and project_id:
+            ensure_active_estimate_snapshot(
+                cur,
+                estimate_id=new_estimate_id,
+                company_id=company_id,
+                project_id=project_id,
+                created_by=actor.get("name") or current_user.get("name") or "",
+            )
+        supply_refresh = {"scanned": 0, "updated": 0, "pending": status == "Активная" and bool(project_name)}
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
     agent_dispatch_report = handoff_estimate_activation_transition(
         previous_status=None,
         next_status=status,
@@ -18208,7 +18258,7 @@ def create_estimate(
         )
     if project_name:
         background_tasks.add_task(_run_project_ai_control_safely, project_name, "estimate:create")
-    response = {"id":new_estimate_id,"ok":True,"supplyControlRefresh":supply_refresh}
+    response = {"id":new_estimate_id,"revision":1,"ok":True,"affectedEstimates":affected_estimates,"supplyControlRefresh":supply_refresh}
     if agent_dispatch_report is not None:
         response[
             "agentDispatchShadow"
@@ -18278,6 +18328,7 @@ def _update_estimate_with_connection(conn, id, data, x_company_id, x_company_mod
             return replay
     elif work_material_runtime.enabled() and _current_user.get("role") in WORKER_EXECUTION_ROLES:
         raise HTTPException(409, detail="Обновите страницу и проверьте источники расхода материалов")
+    expected_revision = require_estimate_revision(cur, id, estimate_scope["companyId"], data)
     cur.execute("""SELECT sections_json, name, version, project_name, COALESCE(smeta_type,'Заказчик'), status,
                           COALESCE(work_package,'Основная')
                      FROM estimates WHERE id=%s AND company_id=%s""",
@@ -18521,9 +18572,10 @@ def _update_estimate_with_connection(conn, id, data, x_company_id, x_company_mod
 
     cur.execute("""UPDATE estimates
                       SET name=%s,version=%s,sections_json=%s,smeta_type=%s,work_package=%s,status=%s
-                    WHERE id=%s AND company_id=%s""",
+                    WHERE id=%s AND company_id=%s AND revision=%s RETURNING revision""",
         (new_name,new_version,j.dumps(new_sections,ensure_ascii=False),new_smeta_type,new_work_package,new_status,
-         id,estimate_scope["companyId"]))
+         id,estimate_scope["companyId"],expected_revision))
+    saved_revision = cur.fetchone()[0]
 
     today = _date.today().isoformat()
     journal_added = 0
@@ -18791,11 +18843,12 @@ def _update_estimate_with_connection(conn, id, data, x_company_id, x_company_mod
                 project_id=estimate_scope["projectId"],
                 created_by=_current_user.get("name") or "",
             )
+        saved_revision = read_estimate_revision(cur, id, estimate_scope["companyId"])
         if use_material_v2:
             if not journal_added or set(work_journal_materials) - matched_material_keys:
                 raise HTTPException(409, "Расход должен относиться к новым отправляемым строкам работы")
             work_material_runtime.finish_operation(cur, material_operation_id, {
-                "ok": True, "journalEntries": journal_added, "hiddenWorkActs": acts_added,
+                "ok": True, "revision": saved_revision, "journalEntries": journal_added, "hiddenWorkActs": acts_added,
                 "brigadeItemsSynced": brigade_synced, "supplyControlRefresh": supply_refresh})
         conn.commit()
     except Exception:
@@ -18823,7 +18876,7 @@ def _update_estimate_with_connection(conn, id, data, x_company_id, x_company_mod
         sections=new_sections,
     )
     _run_project_ai_control_safely(project_name, "estimate:update")
-    response = {"ok": True, "journalEntries": journal_added, "hiddenWorkActs": acts_added, "brigadeItemsSynced": brigade_synced, "supplyControlRefresh": supply_refresh}
+    response = {"ok": True, "revision": saved_revision, "journalEntries": journal_added, "hiddenWorkActs": acts_added, "brigadeItemsSynced": brigade_synced, "supplyControlRefresh": supply_refresh}
     if agent_dispatch_report is not None:
         response[
             "agentDispatchShadow"
@@ -18852,18 +18905,27 @@ def update_estimate_status(
         raise HTTPException(status_code=400, detail="Недопустимый статус сметы")
     conn = get_db()
     conn.autocommit = False
-    actor, estimate = _resolve_estimate_mutation_actor(
-        conn,
-        current_user,
-        id,
-        ESTIMATE_WRITE_ROLES,
-        x_company_id=x_company_id,
-        x_company_mode=x_company_mode,
-    )
+    try:
+        actor, estimate = _resolve_estimate_mutation_actor(
+            conn,
+            current_user,
+            id,
+            ESTIMATE_WRITE_ROLES,
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+        )
+    except BaseException:
+        conn.rollback(); conn.close()
+        raise
     if status == "Активная" and actor.get("role") not in LEADERSHIP_ROLES:
         conn.rollback(); conn.close()
         raise HTTPException(status_code=403, detail="Активировать смету может только директор или замдиректора")
     cur = conn.cursor()
+    try:
+        require_estimate_revision(cur, id, estimate["companyId"], data)
+    except BaseException:
+        cur.close(); conn.rollback(); conn.close()
+        raise
     cur.execute("""SELECT project_id, project_name, COALESCE(smeta_type,'Заказчик'),
                           COALESCE(work_package,'Основная'), COALESCE(version,'1.0'),
                           sections_json, COALESCE(status,'Черновик')
@@ -18882,6 +18944,7 @@ def update_estimate_status(
         estimate_sections = json.loads(row[5]) if row[5] else []
     except Exception:
         estimate_sections = None
+    affected_estimates = []
     if status == "Активная":
         if not _positive_int_or_none(project_id):
             cur.close()
@@ -18898,9 +18961,13 @@ def update_estimate_status(
                          AND project_id=%s
                          AND COALESCE(smeta_type,'Заказчик')=%s
                          AND COALESCE(NULLIF(work_package,''),'Основная')=%s
-                         AND status='Активная'""",
+                         AND status='Активная' RETURNING id, revision, revision - 1""",
                     (id, estimate["companyId"], project_id, smeta_type, work_package))
-    cur.execute("UPDATE estimates SET status=%s WHERE id=%s AND company_id=%s", (status, id, estimate["companyId"]))
+        affected_estimates = [{"id": row[0], "revision": row[1], "previousRevision": row[2], "status": "Черновик"}
+                              for row in cur.fetchall()]
+    cur.execute("UPDATE estimates SET status=%s WHERE id=%s AND company_id=%s RETURNING revision", (status, id, estimate["companyId"]))
+    saved_revision = cur.fetchone()[0]
+    affected_estimates.append({"id": id, "revision": saved_revision, "previousRevision": data["expectedRevision"], "status": status})
     supply_refresh = {"scanned": 0, "updated": 0}
     if status == "Активная" and project_name:
         supply_refresh = _refresh_open_supply_controls_for_estimate(
@@ -18939,7 +19006,7 @@ def update_estimate_status(
     )
     if project_name:
         background_tasks.add_task(_run_project_ai_control_safely, project_name, "estimate:status")
-    response = {"ok": True, "status": status, "supplyControlRefresh": supply_refresh}
+    response = {"ok": True, "revision": saved_revision, "status": status, "affectedEstimates": affected_estimates, "supplyControlRefresh": supply_refresh}
     if agent_dispatch_report is not None:
         response[
             "agentDispatchShadow"
@@ -18958,28 +19025,38 @@ def update_estimate_status(
 @app.put("/estimates/{id}/toggle-template")
 def toggle_estimate_template(
     id: int,
+    data: dict,
     x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
     x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
     current_user: dict = Depends(get_current_user),
 ):
     conn = get_db()
     conn.autocommit = False
-    _, estimate = _resolve_estimate_mutation_actor(
-        conn,
-        current_user,
-        id,
-        (*LEADERSHIP_ROLES, "сметчик", "главный_инженер"),
-        x_company_id=x_company_id,
-        x_company_mode=x_company_mode,
-    )
+    try:
+        _, estimate = _resolve_estimate_mutation_actor(
+            conn,
+            current_user,
+            id,
+            (*LEADERSHIP_ROLES, "сметчик", "главный_инженер"),
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+        )
+    except BaseException:
+        conn.rollback(); conn.close()
+        raise
     cur = conn.cursor()
+    try:
+        require_estimate_revision(cur, id, estimate["companyId"], data)
+    except BaseException:
+        cur.close(); conn.rollback(); conn.close()
+        raise
     cur.execute("""UPDATE estimates SET is_template = NOT COALESCE(is_template,FALSE)
-                    WHERE id=%s AND company_id=%s RETURNING is_template""",
+                    WHERE id=%s AND company_id=%s RETURNING is_template,revision""",
                 (id, estimate["companyId"]))
     conn.commit()
     row = cur.fetchone()
     cur.close(); conn.close()
-    return {"ok": True, "isTemplate": bool(row[0]) if row else False}
+    return {"ok": True, "isTemplate": bool(row[0]), "revision": int(row[1])}
 
 try:
     from backend.features.estimate_access.service import (
@@ -19014,6 +19091,7 @@ register_estimate_versions_module(app, {
 def delete_estimate(
     id: int,
     hard: bool = False,
+    expectedRevision: Optional[int] = None,
     x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
     x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
     current_user: dict = Depends(get_current_user),
@@ -19047,6 +19125,7 @@ def delete_estimate(
             "projectId": row.get("project_id"),
             "projectName": row.get("project_name") or "",
         }
+        require_estimate_revision(cur, id, actor["companyId"], {"expectedRevision": expectedRevision})
         if (row.get("status") or "Черновик") != "Черновик":
             raise HTTPException(status_code=409, detail="Удалять можно только черновик. Активную смету сначала снимите с активности.")
         try:
@@ -24382,6 +24461,7 @@ def create_estimate_from_material_norm_suggestions(
     return {
         "ok": True,
         "id": estimate_id,
+        "revision": 1,
         "name": estimate_name,
         "version": version,
         "projectName": project_name,
@@ -26138,6 +26218,8 @@ except ModuleNotFoundError:
 
 
 register_master_profiles_module(app, {
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
     "get_db": get_db,
     "get_current_user": get_current_user,
     "finance_roles": FINANCE_ROLES,
@@ -26886,7 +26968,7 @@ def ai_generate_estimate(data: dict, _current_user: dict = Depends(require_roles
     cur.close(); conn.close()
     _run_project_ai_control_safely(project_name, "estimate:ai-generate")
 
-    return {"ok": True, "id": new_id, "name": final_name, "projectId": project_id, "projectName": project_name, "version": version, "sections": sections, "smetaType": smeta_type, "workPackage": work_package, "status": status}
+    return {"ok": True, "id": new_id, "revision": 1, "name": final_name, "projectId": project_id, "projectName": project_name, "version": version, "sections": sections, "smetaType": smeta_type, "workPackage": work_package, "status": status}
 
 @app.post("/pricelists/from-estimate")
 def pricelist_from_estimate(data: dict, _current_user: dict = Depends(require_roles(*PRICELIST_MANAGE_ROLES))):
@@ -28178,6 +28260,7 @@ document_access_dependencies = {
         os.getenv("SUPPLIER_DEAL_PARTIES_ENABLED", "0") == "1"
         and os.getenv("SUPPLIER_CONTRACT_SNAPSHOTS_ENABLED", "0") == "1"
     ),
+    "staff_manage_roles": STAFF_MANAGE_ROLES,
     "get_db": get_db,
     "get_current_user": get_current_user,
     "resolve_resource_company_actor": resolve_resource_company_actor,

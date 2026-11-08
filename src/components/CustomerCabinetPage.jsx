@@ -1,4 +1,5 @@
 import React from 'react';
+import WorkJournalPhotos from './WorkJournalPhotos';
 import { customerProject, customerProjectRecord, customerRemark } from '../features/customer-cabinet/projectSelection';
 import useCustomerCommands from '../features/customer-cabinet/useCustomerCommands';
 import { customerProgress } from '../features/customer-cabinet/progress';
@@ -218,14 +219,7 @@ export default function CustomerCabinetPage(props) {
                           </div>
                           <div style={{ textAlign: 'right', flexShrink: 0 }}>
                             <b style={{ fontSize: '12px', color: C.text }}>{fmtMeasure(entry.quantity, entry.unit)}</b>
-                            {entry.photoUrl && (
-                              <button
-                                onClick={() => setShowPhotoModal(fileSrc(entry.photoUrl))}
-                                style={{ ...btnG, padding: '2px 6px', fontSize: '10px', marginLeft: '4px' }}
-                              >
-                                📷
-                              </button>
-                            )}
+                            <WorkJournalPhotos urls={entry.photoUrl} fileSrc={fileSrc} onOpen={setShowPhotoModal}/>
                           </div>
                         </div>
                       ))}
@@ -547,26 +541,10 @@ export default function CustomerCabinetPage(props) {
                 }
                 return (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(80px,1fr))', gap: '6px' }}>
-                    {photos.map((entry, idx) => {
-                      const url = fileSrc(entry.photoUrl);
-                      return (
-                        <img
-                          key={idx}
-                          src={url}
-                          alt=""
-                          onClick={() => setShowPhotoModal(url)}
-                          title={entry.description + ' · ' + entry.date}
-                          style={{
-                            width: '100%',
-                            height: '80px',
-                            borderRadius: '6px',
-                            objectFit: 'cover',
-                            cursor: 'pointer',
-                            border: `1.5px solid ${C.border}`,
-                          }}
-                        />
-                      );
-                    })}
+                    {photos.map(entry => (
+                      <WorkJournalPhotos key={entry.id} urls={entry.photoUrl} fileSrc={fileSrc}
+                        onOpen={setShowPhotoModal} gallery title={entry.description + ' · ' + entry.date}/>
+                    ))}
                   </div>
                 );
               })()}

@@ -295,7 +295,7 @@ def register_own_expenses_module(app, deps):
             raise HTTPException(status_code=400, detail="ownExpenseId invalid")
         cur.execute(
             """SELECT id,company_id,project_id,project_name,employee_id,
-                      employee_name,description,amount,date,photo_url
+                      employee_name,description,amount,date,photo_url,status
                  FROM public.own_expenses
                 WHERE id=%s AND company_id=%s
                   AND company_scope_verified IS TRUE"""
@@ -314,6 +314,7 @@ def register_own_expenses_module(app, deps):
             "amount": _row_value(row, "amount", 7),
             "date": _row_value(row, "date", 8),
             "photoUrl": str(_row_value(row, "photo_url", 9) or ""),
+            "status": str(_row_value(row, "status", 10) or "Ожидает"),
         }
         if result["id"] is None:
             raise HTTPException(status_code=404, detail="Трата не найдена")
@@ -607,7 +608,7 @@ def register_own_expenses_module(app, deps):
 
             cur.execute(
                 """SELECT id,project_name,employee_name,description,amount,
-                          photo_url,date,status,approved_by,category,employee_id
+                          photo_url,date,status,approved_by,category,employee_id,company_id,project_id
                      FROM public.own_expenses
                     WHERE """
                 + " AND ".join(where)
@@ -616,6 +617,8 @@ def register_own_expenses_module(app, deps):
             )
             return [
                 {
+                    "companyId": _row_value(row, "company_id", 11),
+                    "projectId": _row_value(row, "project_id", 12),
                     "id": _row_value(row, "id", 0),
                     "projectName": _row_value(row, "project_name", 1) or "",
                     "employeeName": _row_value(row, "employee_name", 2) or "",
@@ -644,6 +647,7 @@ def register_own_expenses_module(app, deps):
         current_user: dict = Depends(get_current_user),
     ):
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             if not isinstance(data, Mapping):
@@ -866,6 +870,7 @@ def register_own_expenses_module(app, deps):
         current_user: dict = Depends(get_current_user),
     ):
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             if not isinstance(data, Mapping):
@@ -877,6 +882,20 @@ def register_own_expenses_module(app, deps):
             if status not in ("Ожидает", "Возмещено", "Отклонено"):
                 raise HTTPException(status_code=400, detail="Статус личной траты недопустим")
             expense = _verified_own_expense(cur, actor["companyId"], id, lock=True)
+            if expense["status"] == "Возмещено":
+                if status != "Возмещено":
+                    raise HTTPException(409, "Возмещение уже проведено. Изменять его статус без сторно нельзя")
+                conn.commit()
+                return {"ok": True}
+            if status == "Возмещено" and expense["projectId"] is not None:
+                # Locking the expense serializes retries; payment and status commit together.
+                project = _exact_project(cur, actor["companyId"], expense["projectId"], lock=True)
+                cur.execute("""INSERT INTO project_payments
+                    (company_id,project_name,amount,note,date,added_by,work_package)
+                    VALUES (%s,%s,%s,%s,CURRENT_DATE,%s,'')""",
+                    (actor["companyId"], project["name"], -expense["amount"],
+                     'Возмещение «' + expense["description"] + '» — ' + expense["employeeName"],
+                     _actor_name(actor)))
             cur.execute(
                 """UPDATE public.own_expenses
                       SET status=%s,approved_by=%s
@@ -932,12 +951,15 @@ def register_own_expenses_module(app, deps):
         current_user: dict = Depends(get_current_user),
     ):
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             actor = _review_actor(
                 cur, current_user, "delete", x_company_id, x_company_mode
             )
-            _verified_own_expense(cur, actor["companyId"], id, lock=True)
+            expense = _verified_own_expense(cur, actor["companyId"], id, lock=True)
+            if expense["status"] == "Возмещено":
+                raise HTTPException(409, "Возмещение уже проведено. Удаление без сторно запрещено")
             cur.execute(
                 """DELETE FROM public.expenses
                     WHERE own_expense_id=%s AND company_id=%s

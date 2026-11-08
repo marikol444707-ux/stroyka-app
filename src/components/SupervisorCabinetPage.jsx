@@ -1,4 +1,5 @@
 import React from 'react';
+import WorkJournalPhotos from './WorkJournalPhotos';
 import { API } from '../api';
 import ProjectHiddenWorksActSignatureModal from './ProjectHiddenWorksActSignatureModal';
 import PreviewModal from './PreviewModal';
@@ -243,14 +244,7 @@ export default function SupervisorCabinetPage(props) {
                           </div>
                           <div style={{ textAlign: 'right', flexShrink: 0 }}>
                             <b style={{ fontSize: '12px', color: C.text }}>{fmtMeasure(entry.quantity, entry.unit)}</b>
-                            {entry.photoUrl && (
-                              <button
-                                onClick={() => setShowPhotoModal(fileSrc(entry.photoUrl))}
-                                style={{ ...btnG, padding: '2px 6px', fontSize: '10px', marginLeft: '4px' }}
-                              >
-                                📷
-                              </button>
-                            )}
+                            <WorkJournalPhotos urls={entry.photoUrl} fileSrc={fileSrc} onOpen={setShowPhotoModal}/>
                           </div>
                         </div>
                       ))}

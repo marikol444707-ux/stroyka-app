@@ -1,3 +1,4 @@
+import { estimateMutationPayload, readEstimateMutationResponse } from '../features/estimates/estimateSaveClient';
 import { pricelistAssignments } from '../features/work-material-accounting/pricelistAssignments';
 import { matchesAssignedWork } from '../features/work-assignment/matchesAssignedWork';
 import WorkSubmitButton from '../features/work-journal/WorkSubmitButton';
@@ -407,18 +408,22 @@ export default function MasterCabinetPage(props) {
       const packageAllowed = userAssignedPackages.length > 0 && userAssignedPackages.includes(itemPackage);
       const namedToMe = item.brigadeName && (item.brigadeName === user?.name || (user?.brigade && item.brigadeName === user.brigade));
       const itemKey = String(estimateItemKeyForRow(estimate, sectionIndex, itemIndex, item) || '').trim();
+      // Normalization may add a display workKey. It must not hide a server row
+      // already linked by its stored ID. An explicit estimateItemKey stays authoritative.
+      const explicitKey = item.estimateItemKey || item.estimate_item_key;
+      const itemKeys = explicitKey ? [String(explicitKey)] : [...new Set([itemKey, String(item.id || '')].filter(Boolean))];
       const itemName = String(item.name || '').trim().toLowerCase();
       const sectionName = String(section.name || '').trim().toLowerCase();
       const itemUnit = String(item.unit || '').trim().toLowerCase();
       const contractCandidates = [
-        ...(itemKey ? (contractItemsByPackageAndKey.get(itemPackage + '\n' + itemKey) || []) : []),
+        ...itemKeys.flatMap(key => contractItemsByPackageAndKey.get(itemPackage + '\n' + key) || []),
         ...(itemName ? (contractItemsByPackageAndName.get(itemPackage + '\n' + itemName) || []) : []),
       ];
       const seenContractCandidates = new Set();
       const assignedContractItem = contractCandidates.find(contractItem => {
         if (seenContractCandidates.has(contractItem)) return false;
         seenContractCandidates.add(contractItem);
-        return matchesAssignedWork(contractItem, {projectName, itemKey, itemName, sectionName, itemUnit});
+        return itemKeys.some(key => matchesAssignedWork(contractItem, {projectName, itemKey: key, itemName, sectionName, itemUnit}));
       });
       if ((assignedContractItems.length > 0 && assignedContractItem) || (assignedContractItems.length === 0 && (packageAllowed || namedToMe))) {
         myItems.push({
@@ -431,7 +436,7 @@ export default function MasterCabinetPage(props) {
           section: section.name,
           quantity: assignedContractItem?.quantity ?? item.quantity,
           doneQuantity: assignedContractItem?.doneQuantity ?? assignedContractItem?.done_quantity ?? item.doneQuantity,
-          estimateItemKey: itemKey,
+          estimateItemKey: assignedContractItem?.estimateItemKey || assignedContractItem?.estimate_item_key || itemKey,
           contractItemId: assignedContractItem?.id || null,
           executionPricePerUnit: assignedContractItem?.priceBrigade || item.executionPricePerUnit,
         });
@@ -952,10 +957,10 @@ export default function MasterCabinetPage(props) {
         if (missingRows.length) {
           throw new Error('Не удалось найти в свежей смете строку: ' + missingRows[0].name);
         }
-        const payload = {
+        const payload = estimateMutationPayload(est, {
           ...est, sections: newSections,
           _workJournalMaterials: workJournalMaterials, _workJournalParams: workJournalParams,
-        };
+        });
         if (workMaterialAccountingEnabled()) {
           commands.push({ path: '/estimates/' + est.id, method: 'PUT', payload,
             drafts: rows.map(row => ({ kind: 'estimate', key: row.workKey,
@@ -966,17 +971,9 @@ export default function MasterCabinetPage(props) {
         const res = await fetch(API + '/estimates/' + est.id, {
           method: 'PUT',
           headers: authJsonHeaders(),
-          body: JSON.stringify({
-            ...est,
-            sections: newSections,
-            _workJournalMaterials: workJournalMaterials,
-            _workJournalParams: workJournalParams,
-          }),
+          body: JSON.stringify(payload),
         });
-        if (!res.ok) {
-          const error = await res.json().catch(() => ({}));
-          throw new Error(error.detail || ('HTTP ' + res.status));
-        }
+        await readEstimateMutationResponse(res);
       }
       if (workMaterialAccountingEnabled()) {
         const completed = await sendWorkBatch({ API, scope: workBatchScope(props.companyContext, user), commands });
@@ -1114,6 +1111,7 @@ export default function MasterCabinetPage(props) {
               projectName={dailyWorkReview.projectName || ''}
               context="daily-work-act"
               title="Общий фотоотчет"
+              protectedPreview
             />
             <textarea
               placeholder="Комментарий прорабу или директору"
@@ -1389,6 +1387,7 @@ export default function MasterCabinetPage(props) {
                         projectName={selectedMasterProject?.name || ''}
                         context="estimate-change"
                         title="Фото основания"
+                        protectedPreview
                       />
                       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                         <button onClick={submitEstimateChangeDraft} disabled={!selectedMasterProject?.name} style={{ ...btnO, opacity: selectedMasterProject?.name ? 1 : 0.65 }}>

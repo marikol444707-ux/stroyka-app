@@ -1,4 +1,4 @@
-import { findUserForStaff, performerMissingRequisites } from './performerUtils';
+import { findUserForStaff, performerMissingRequisites, resolveContractPerformer } from './performerUtils';
 import { buildPerformerContractHtml } from './contractTemplates';
 
 describe('findUserForStaff', () => {
@@ -61,4 +61,15 @@ describe('legal entity contractor requisites', () => {
     expect(result).toContain('<td>КПП</td><td>123456789</td>');
     expect(result).toContain('_____________/Иванов И.И.');
   });
+});
+
+
+test('master contract preview tolerates an own profile without passport and unavailable staff directory', () => {
+  const performer = resolveContractPerformer({
+    contract: {id: 91, contractorId: 11, brigadeName: 'Мастер'},
+    preferredProfile: {userId: 11, fullName: 'Мастер', passport: ''},
+    staffRows: [],
+  });
+  expect(performer.fullName).toBe('Мастер');
+  expect(performer.passport).toBe('');
 });
