@@ -1,7 +1,6 @@
 """Admin entry for company-local grouping; never grants historical cabinet access."""
 import hashlib
 import json
-import re
 
 from fastapi import Depends, HTTPException, Path
 from pydantic import BaseModel, ConfigDict, StrictBool, constr
@@ -9,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, StrictBool, constr
 from .connections import authorities, company_lock, is_admin, source_link
 from .history_merge import Id, transaction
 from ..supplier_access import company_merge
+from ..supplier_access.legal_identity import canonical_legal, legal_sql
 
 
 class Review(BaseModel):
@@ -27,7 +27,7 @@ def inn_completion_blocker(cur,company_id,target_id,source_inn):
                 (target_id,company_id))
     if cur.fetchone():
         return 'Кабинет используется другими организациями. Уточните общий профиль отдельно'
-    cur.execute('SELECT 1 FROM suppliers WHERE inn=%s AND user_id IS NOT NULL AND id<>%s LIMIT 1',
+    cur.execute('SELECT 1 FROM suppliers WHERE '+legal_sql('inn', (10, 12))+'=%s AND user_id IS NOT NULL AND id<>%s LIMIT 1',
                 (source_inn,target_id))
     if cur.fetchone():
         return 'С этим ИНН уже есть другой кабинет. Нужна проверка реквизитов'
@@ -46,9 +46,12 @@ def checked_preview(cur,user,company_id,source_id,target_id):
     if not company['active']:
         raise HTTPException(409,'Компания отключена')
     review=company_merge.preview(cur,company,target_id,source_id)
-    review.update(sourceInn=suppliers[source_id]['inn'] or '',targetInn=suppliers[target_id]['inn'] or '')
+    # Preview and save return the same confirmed value for existing clients.
+    # Raw source requisites stay unchanged and remain bound by the evidence.
+    review.update(sourceInn=canonical_legal(suppliers[source_id]['inn'], (10, 12)) or '',
+                  targetInn=suppliers[target_id]['inn'] or '')
     review['canCompleteInn']=bool(review['hasSupplierAccount'] and not review['targetInn'].strip()
-        and re.fullmatch(r'(?:[0-9]{10}|[0-9]{12})',review['sourceInn']))
+        and review['sourceInn'])
     review['innCompletionBlocker']=(inn_completion_blocker(cur,company_id,target_id,review['sourceInn'])
                                     if review['canCompleteInn'] else None)
     review['canCompleteInn']=review['canCompleteInn'] and review['innCompletionBlocker'] is None

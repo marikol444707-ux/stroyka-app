@@ -10,6 +10,7 @@ from fastapi import Depends, HTTPException, Path
 from pydantic import BaseModel
 
 from ..supplier_access.company_merge import check_company_documents
+from ..supplier_access.legal_identity import canonical_legal, legal_sql
 from ..supplier_access.service import supplier_invoice_visibility_filter, supplier_offer_visibility_filter
 from ..supplier_team.policy import access_ids, enabled as team_enabled
 from .service import admin_transaction
@@ -63,8 +64,7 @@ def card(row):
 
 
 def legal_key(value, lengths):
-    value = str(value or '').strip()
-    return value if value.isascii() and value.isdecimal() and len(value) in lengths else ''
+    return canonical_legal(value, lengths) or ''
 
 
 def diagnose(cur, company, supplier_id):
@@ -104,13 +104,14 @@ def diagnose(cur, company, supplier_id):
         else:
             # Existing public legal identities only. No contacts, foreign links,
             # documents or buyer names are returned by this candidate lookup.
-            cur.execute('''SELECT s.id,s.name,s.inn,s.ogrn,s.user_id,l.version AS link_version,l.profile
+            cur.execute(f'''SELECT s.id,s.name,s.inn,s.ogrn,s.user_id,l.version AS link_version,l.profile
                 FROM suppliers s LEFT JOIN company_supplier_links l ON l.supplier_id=s.id
                     AND l.company_id=%s AND l.platform_account_id=%s
                 WHERE s.id<>%s AND s.user_id IS NOT NULL
                     AND NOT EXISTS(SELECT 1 FROM company_supplier_links merged
                         WHERE merged.supplier_id=s.id AND merged.profile ? 'mergedIntoSupplierId')
-                    AND ((%s<>'' AND s.inn=%s) OR (%s<>'' AND s.ogrn=%s))
+                    AND ((%s<>'' AND {legal_sql('s.inn', (10, 12))}=%s)
+                        OR (%s<>'' AND {legal_sql('s.ogrn', (13, 15))}=%s))
                 ORDER BY s.id LIMIT 2''',
                 (company['id'],company['platform_account_id'],supplier_id,inn,inn,ogrn,ogrn))
             matches=cur.fetchall()
@@ -121,7 +122,9 @@ def diagnose(cur, company, supplier_id):
                 target=matches[0]
                 scenario='merge_cards' if target['link_version'] is not None else 'connect_existing'
                 for key in ('inn','ogrn'):
-                    if source[key] and target[key] and str(source[key]).strip()!=str(target[key]).strip():
+                    lengths = (10, 12) if key == 'inn' else (13, 15)
+                    left, right = canonical_legal(source[key], lengths), canonical_legal(target[key], lengths)
+                    if left is None or right is None or (left and right and left != right):
                         block('LEGAL_IDENTITY_CONFLICT','ИНН или ОГРН карточек различаются. Объединять разные юрлица нельзя.')
                         break
                 if scenario=='merge_cards':

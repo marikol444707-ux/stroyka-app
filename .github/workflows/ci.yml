@@ -105,6 +105,7 @@ jobs:
             backend.features.participant_support.test_history_preview_postgres.SupplierHistoryPreviewPostgresTests \
             backend.features.participant_support.test_history_merge_postgres.SupplierHistoryMergePostgresTests \
             backend.features.participant_support.test_duplicate_merge_postgres.AdminDuplicateMergePostgresTests \
+            backend.features.participant_support.test_admin_identity_postgres.AdminIdentityPostgresTests \
             backend.features.participant_support.test_history_contract_merge_postgres.SupplierHistoryContractMergePostgresTests \
             backend.features.invite_codes.test_supplier_registration_postgres.SupplierRegistrationPostgresTests \
             backend.features.invite_codes.test_merged_invitation_postgres.MergedInvitationPostgresTests \
