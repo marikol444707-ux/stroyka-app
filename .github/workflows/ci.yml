@@ -145,6 +145,13 @@ jobs:
             backend.features.supplier_team.test_customer_team_postgres.CustomerTeamPostgresTests \
             backend.features.supplier_team.test_manager_revocation_postgres.ManagerRevocationPostgresTests
 
+      - name: Run automatic draft contract selection
+        run: |
+          export PATH="$(pg_config --bindir):$PATH"
+          python scripts/run_brigade_draft_tests.py
+          python scripts/run_supplier_catalog_postgres_tests.py \
+            backend.features.brigade_access.test_draft_routes_postgres.DraftSelectionRoutesPostgresTests
+
       - name: Run contractor identity audit and exact selection
         run: |
           export PATH="$(pg_config --bindir):$PATH"

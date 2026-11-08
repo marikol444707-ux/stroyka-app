@@ -3,8 +3,27 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import PreviewModal from './PreviewModal';
 import { notifyQualityJournalMutation } from '../utils/qualityJournalEvents';
 import usePreviewInvalidation from '../hooks/usePreviewInvalidation';
+import { buildPerformerContractHtml } from '../utils/contractTemplates';
 
 afterEach(() => localStorage.clear());
+
+test('contract work table has its own accessible scroll area and retains full print data', () => {
+  const content = buildPerformerContractHtml({
+    contract: { id: 23, project: 'Школа' },
+    items: [{ name: 'Монтаж кабеля в защитных трубах', quantity: 2000, unit: 'м', priceBrigade: 29 }],
+  });
+  const print = jest.fn();
+  const close = jest.fn();
+  render(<PreviewModal content={content} title="Договор" onPrint={print} onClose={close} />);
+  const region = screen.getByRole('region', { name: 'Перечень работ договора' });
+  expect(region).toHaveAttribute('tabindex', '0');
+  expect(screen.getByRole('cell', { name: 'Монтаж кабеля в защитных трубах' })).toBeInTheDocument();
+  expect(screen.getByRole('cell', { name: /^58\s000$/ })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Распечатать' }));
+  expect(print).toHaveBeenCalledWith(expect.stringContaining('Монтаж кабеля в защитных трубах'));
+  fireEvent.click(screen.getByRole('button', { name: 'Закрыть' }));
+  expect(close).toHaveBeenCalledTimes(1);
+});
 
 test.each(['mutation', 'scope', 'storage'])('cached HTML cannot be printed after %s changes', change => {
   localStorage.setItem('user', JSON.stringify({ id: 1 }));
