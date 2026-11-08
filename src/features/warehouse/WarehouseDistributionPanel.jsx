@@ -91,7 +91,7 @@ function CompanyDistribution({ companyId, companies, editable, projects = [], wa
     const current = ++generation.current[kind];
     inFlight.current[kind] = true;
     const setItems = source ? setSources : setRecords;
-    if (!beforeId) { setItems([]); if (!source) { setReturning(null); setTransferSource(null); } }
+    if (!beforeId) { setItems([]); if (!source) setReturning(null); }
     setPages(previous => ({ ...previous, [kind]: { ...previous[kind], loading: true, error: '' } }));
     try {
       const options = { credentials: 'include', headers: { 'X-Company-Id': String(companyId), 'X-Company-Mode': 'company' } };
@@ -107,7 +107,7 @@ function CompanyDistribution({ companyId, companies, editable, projects = [], wa
       if (active.current && current === generation.current[kind]) {
         setItems([]);
         if (source) setSelectedSources([]);
-        else { setReturning(null); setTransferSource(null); }
+        else setReturning(null);
         if ([401, 403].includes(e.status)) { denyAccess(); setError(e.message); }
         else setPages(previous => ({ ...previous, [kind]: { loading: false, error: e.message || 'Не удалось загрузить распределения.' } }));
       }
@@ -192,6 +192,10 @@ function CompanyDistribution({ companyId, companies, editable, projects = [], wa
     setSelectedSources(sourceOptions.filter(s => next.some(r => Number(r.lotId) === s.lotId)));
   };
   const closeReturn = () => { setReturning(null); setReturnQuantity(''); setReturnReason(''); setConfirmed(false); };
+  // Retain the dispatch form through history refreshes, but authorize a new
+  // submission only from the freshly loaded allocation and its current balance.
+  const loadedTransferSource = transferSource && records.find(record => record.id === transferSource.id);
+  const transferSourceUnavailable = Boolean(transferSource && (!loadedTransferSource || pages.history.loading || pages.history.error));
   return <><section className="warehouse-distribution" style={{ '--wd-text': C.text, '--wd-muted': C.textSec || C.textMuted, '--wd-border': C.border, '--wd-surface': C.bgWhite || C.card, '--wd-accent': C.accent }} aria-label="Распределение по объектам">
     <div className="wd-heading"><div><h3>Материалы по объектам</h3><p>Выдайте материалы с общего склада и отслеживайте возвраты.</p></div><button type="button" disabled={busy || loading} onClick={load}>Обновить</button></div>
     <details className="wd-help"><summary>Как считается остаток</summary><p>В истории показано, сколько было выдано, возвращено и отправлено на другой объект. Это не фактический остаток на объекте и не новый долг поставщику.</p></details>
@@ -270,10 +274,10 @@ function CompanyDistribution({ companyId, companies, editable, projects = [], wa
       <p>{record.reason} {record.createdAt && `· ${record.createdAt}`} {record.createdBy && `· ${record.createdBy}`}</p>
       {record.returns?.length > 0 && <details><summary>Возвраты ({record.returns.length})</summary><ul>{record.returns.map(r => <li key={r.id}>{r.quantity} {record.unit} · {r.reason} · {r.createdAt} · {r.createdBy}</li>)}</ul></details>}
       {editable && Number(record.netQuantity) > 0 && <button type="button" disabled={busy || Boolean(pending) || Boolean(pendingError) || accessDenied || transferBlocked || Boolean(transferSource)} onClick={() => { closeReturn(); setReturning(record); }}>Оформить возврат</button>}
-      {transfersEnabled && editable && Number(record.netQuantity) > 0 && <button type="button" disabled={busy || loading || Boolean(pending) || Boolean(pendingError) || accessDenied || transferBlocked} onClick={() => { closeReturn(); setTransferSource(record); }}>Отправить на другой объект</button>}
+      {transfersEnabled && editable && Number(record.netQuantity) > 0 && <button type="button" disabled={busy || loading || Boolean(pending) || Boolean(pendingError) || accessDenied || transferBlocked || Boolean(transferSource)} onClick={() => { closeReturn(); setTransferSource(record); }}>Отправить на другой объект</button>}
     </article>)}</div>
     {pages.history.nextCursor && <button type="button" disabled={busy || pages.history.loading || accessDenied} onClick={() => loadPage('history', pages.history.nextCursor)}>Загрузить ещё распределения</button>}
-    {transfersEnabled && <WarehouseTransfersPanel companyId={companyId} editable={editable} source={transferSource} projects={projects}
+    {transfersEnabled && <WarehouseTransfersPanel companyId={companyId} editable={editable} source={loadedTransferSource || transferSource} sourceUnavailable={transferSourceUnavailable} projects={projects}
       accessDenied={accessDenied} blocked={busy || loading || Boolean(pending) || Boolean(pendingError) || Boolean(returning)}
       onClose={() => setTransferSource(null)} onDenied={denyAccess} onPendingChange={setTransferBlocked}
       onChanged={async () => { await load(); await refreshData?.(); }} />}

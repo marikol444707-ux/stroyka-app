@@ -8,7 +8,7 @@ export default function WarehouseTransfersPanel(props) {
   return <Transfers key={`${props.companyId}:${Boolean(props.editable && !props.readOnly)}`} {...props} editable={Boolean(props.editable && !props.readOnly)} />;
 }
 const statusLabels = { in_transit: 'В пути', partial: 'Частично принято', received: 'Принято', discrepancy: 'Есть расхождение' };
-function Transfers({ companyId, editable, source, projects = [], blocked = false, onClose, onChanged, onDenied, onPendingChange }) {
+function Transfers({ companyId, editable, source, sourceUnavailable = false, projects = [], blocked = false, onClose, onChanged, onDenied, onPendingChange }) {
   const [items, setItems] = useState([]);
   const [cursor, setCursor] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -119,7 +119,7 @@ function Transfers({ companyId, editable, source, projects = [], blocked = false
       <details><summary>Неподтверждённая отправка / приёмка</summary><p>{pending.payload.reason} · количество {pending.payload.quantity}{pending.payload.expectedQuantity !== undefined && ` · ожидалось ${pending.payload.expectedQuantity}`}</p></details>
       <button type="button" disabled={busy || denied || blocked} onClick={() => submit(pending.path, pending.payload, pending)}>Повторить перемещение безопасно</button>
     </div>}
-    {editable && source && !denied && <DispatchForm key={source.id} source={source} projects={projects} companyId={companyId} disabled={disabled || Boolean(receiving)} onClose={onClose} onSubmit={payload => submit(transferPath, payload)} />}
+    {editable && source && !denied && <DispatchForm key={source.id} source={source} projects={projects} companyId={companyId} disabled={disabled || Boolean(receiving)} unavailable={sourceUnavailable} onClose={onClose} onSubmit={payload => submit(transferPath, payload)} />}
     <form className="wd-filters" onSubmit={e => { e.preventDefault(); applied.current = search.trim(); load(); }}>
       <label>Поиск перемещений<input type="search" maxLength={200} value={search} onChange={e => setSearch(e.target.value)} /></label>
       <button disabled={busy || denied}>Найти перемещения</button>
@@ -132,21 +132,22 @@ function Transfers({ companyId, editable, source, projects = [], blocked = false
       <p>Отправлено: {item.quantity} {item.unit} · Принято: {item.receivedQuantity} {item.unit}</p>
       <strong>В пути: {item.inTransitQuantity} {item.unit}</strong><p>{statusLabels[item.status]} · {item.reason} · {item.createdAt} · {item.createdBy}</p>
       {item.receipts.length > 0 && <details><summary>Приёмки и расхождения ({item.receipts.length})</summary><ul>{item.receipts.map(receipt => <li key={receipt.id}>Ожидалось {receipt.expectedQuantity} · принято {receipt.quantity} · расхождение {receipt.discrepancyQuantity} {item.unit} · {receipt.reason} · {receipt.createdAt} · {receipt.createdBy}</li>)}</ul></details>}
-      {editable && Number(item.inTransitQuantity) > 0 && <button type="button" disabled={disabled || Boolean(receiving)} onClick={() => { onClose?.(); setReceiving(item); }}>Принять на объекте</button>}
+      {editable && Number(item.inTransitQuantity) > 0 && <button type="button" disabled={disabled || Boolean(receiving || source)} onClick={() => { onClose?.(); setReceiving(item); }}>Принять на объекте</button>}
       {editable && receiving?.id === item.id && !denied && <ReceiptForm key={item.id} item={item} companyId={companyId} disabled={disabled} unavailable={receiptUnavailable} onClose={() => setReceiving(null)} onSubmit={payload => submit(`${transferPath}/${item.id}/receipts`, payload)} />}
     </article>)}</div>
     {cursor !== null && <button type="button" disabled={busy || loading || denied} onClick={() => load(cursor)}>Загрузить ещё перемещения</button>}
   </section>;
 }
 
-function DispatchForm({ source, projects, companyId, disabled, onClose, onSubmit }) {
+function DispatchForm({ source, projects, companyId, disabled, unavailable, onClose, onSubmit }) {
   const [toProjectId, setProject] = useState('');
   const [quantity, setQuantity] = useState('');
   const [reason, setReason] = useState('');
   const destinations = projects.filter(p => Number(p.companyId ?? p.company_id) === companyId && Number(p.id) !== Number(source.projectId) && p.status !== 'Закрыт');
-  const valid = destinations.some(p => Number(p.id) === Number(toProjectId)) && transferQuantity(quantity) && Number(quantity) <= Number(source.netQuantity) && reason.trim();
+  const valid = !unavailable && destinations.some(p => Number(p.id) === Number(toProjectId)) && transferQuantity(quantity) && Number(quantity) <= Number(source.netQuantity) && reason.trim();
   return <form onSubmit={e => { e.preventDefault(); if (valid && !disabled) onSubmit({ companyId, allocationId: source.id, toProjectId: Number(toProjectId), quantity, reason: reason.trim() }); }}>
     <fieldset disabled={disabled}><legend>Отправка: {source.projectName} · {source.materialName}</legend>
+      {unavailable && <p role="status">Черновик отправки сохранён в открытой форме. Остаток пока не подтверждён: обновите историю распределений или очистите её фильтры.</p>}
       <p>Распределение #{source.id}. Максимум: {source.netQuantity} {source.unit}; сервер проверит остаток объекта.</p>
       <label>Объект назначения<select autoFocus value={toProjectId} onChange={e => setProject(e.target.value)}><option value="">Выберите объект</option>{destinations.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
       <label>Количество отправки<input inputMode="decimal" value={quantity} onChange={e => setQuantity(e.target.value.replace(',', '.'))} /></label>
