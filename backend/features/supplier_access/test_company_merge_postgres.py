@@ -16,7 +16,9 @@ class CompanyMergePostgresTests(unittest.TestCase):
     def seed(self,cabinet=False):
         source = self.sql("INSERT INTO suppliers(name) VALUES('Synthetic receipt card') RETURNING id")[0][0]
         owner = self.fixture['users']['supplier']['id']
-        target = self.sql("INSERT INTO suppliers(name,user_id,inn,registered_at) VALUES('Synthetic registered card',%s,'7799998877',NOW()) RETURNING id", (owner if cabinet else None,))[0][0]
+        # Independent scenarios must not leave the same registered INN behind.
+        inn = f'79{source:08d}'
+        target = self.sql("INSERT INTO suppliers(name,user_id,inn,registered_at) VALUES('Synthetic registered card',%s,%s,NOW()) RETURNING id", (owner if cabinet else None, inn))[0][0]
         for sid in (source, target):
             self.sql("INSERT INTO company_supplier_links(company_id,supplier_id,platform_account_id,profile) VALUES(2,%s,1,'{}')", (sid,))
         invoice = self.sql("INSERT INTO supplier_invoices(company_id,supplier_id,project_name,amount,paid_amount,status) VALUES(2,%s,%s,200,50,'На утверждении') RETURNING id", (source, self.fixture['project']))[0][0]
@@ -86,7 +88,8 @@ class CompanyMergePostgresTests(unittest.TestCase):
         invite = self.api('director', 'POST', '/invite-codes',
                           {'role':'поставщик','supplierId':target,'expiresInDays':1},
                           **{'X-Company-Id':'2'})
-        payload = base.SupplierRegistrationPostgresTests.registration(self, invite, inn='7799998877')
+        inn = self.sql('SELECT inn FROM suppliers WHERE id=%s', (target,))[0][0]
+        payload = base.SupplierRegistrationPostgresTests.registration(self, invite, inn=inn)
         response = self.client.post('/register', json=payload)
         self.assertEqual(response.status_code, 200, response.text)
         new_owner = self.sql('SELECT id FROM users WHERE email=%s', (payload['email'],))[0][0]
@@ -109,7 +112,8 @@ class CompanyMergePostgresTests(unittest.TestCase):
         invite = self.api('director','POST','/invite-codes',
                           {'role':'поставщик','supplierId':source,'expiresInDays':1},
                           **{'X-Company-Id':'2'})
-        payload = base.SupplierRegistrationPostgresTests.registration(self, invite, inn='7799998877')
+        inn = self.sql('SELECT inn FROM suppliers WHERE id=%s', (target,))[0][0]
+        payload = base.SupplierRegistrationPostgresTests.registration(self, invite, inn=inn)
         response = self.client.post('/register', json=payload)
         self.assertEqual(response.status_code,409,response.text)
         self.assertEqual(self.sql('SELECT user_id FROM suppliers WHERE id=%s',(source,)),[(None,)])

@@ -1139,10 +1139,10 @@ def _supplier_backfill_preview_review_state(row: dict) -> dict:
         "accountingStatus": "Нужно уточнение" if needs_review else "На проверке",
     }
 
-def _remember_supplier_alias(cur, supplier_id: int, payload: dict, source: str = "", confidence: float = 1.0):
+def _remember_supplier_alias(cur, supplier_id: int, payload: dict, source: str = "", confidence: float = 1.0, *, requisites=None):
     if not supplier_id:
         return
-    req = _supplier_extract_requisites(payload)
+    req = _supplier_extract_requisites(payload) if requisites is None else requisites
     if not req["nameKey"] and not req["inn"] and not req["ogrn"]:
         return
     cur.execute("""SELECT id FROM supplier_aliases
@@ -6650,11 +6650,20 @@ def register(data: dict, response: Response, request: Request):
                 "sourceType": "invite_link",
                 "sourceDetail": "Регистрация поставщика по ссылке приглашения",
             }
+            from backend.features.supplier_access.legal_identity import canonical_legal
+            for key, lengths in (('inn', (10, 12)), ('ogrn', (13, 15))):
+                canonical = canonical_legal(supplier_payload.get(key), lengths)
+                if canonical is None:
+                    raise HTTPException(422, 'Некорректные реквизиты поставщика: ' + key)
+                supplier_payload[key] = canonical
             requisites = _supplier_extract_requisites(supplier_payload)
-            from backend.features.invite_codes.supplier_relationship import lock_inviting_company
+            # Registration identity comes only from its explicit fields, not OCR
+            # aliases or legal numbers extracted from names/free text.
+            requisites.update({key: supplier_payload[key] for key in ('inn', 'ogrn')})
+            requisites.update(name=str(company_name).strip(), nameKey=_normalize_supplier_name_key(company_name))
+            from backend.features.invite_codes.supplier_relationship import lock_inviting_company, lock_invited_identity
             lock_inviting_company(cur, invite)
-            for identity in sorted({requisites.get(key, '') for key in ('inn', 'ogrn')} - {''}):
-                cur.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))', ('supplier-legal:' + identity,))
+            lock_invited_identity(cur, invite, requisites)
             if not supplier_id:
                 from backend.features.invite_codes.supplier_relationship import matching_invited_card
                 supplier_id = matching_invited_card(cur, invite, requisites, _normalize_supplier_name_key)
@@ -6673,14 +6682,14 @@ def register(data: dict, response: Response, request: Request):
                     (company_name, data.get("phone",""), email,
                      invite.get('preset_category') or data.get("category",""),
                      data.get("specialization",""),
-                     data.get("inn"), data.get("kpp"), data.get("ogrn"),
+                     requisites.get("inn"), data.get("kpp"), requisites.get("ogrn"),
                      data.get("legalAddress"), data.get("bank"), data.get("bik"),
                      data.get("account"), data.get("directorName"),
                      'Активный', 5.0, user['id'],
                      "invite_link", "Регистрация поставщика по ссылке приглашения"))
                 new_supplier = cur.fetchone()
                 supplier_id = new_supplier.get("id") if isinstance(new_supplier, dict) else new_supplier[0]
-            _remember_supplier_alias(cur, supplier_id, supplier_payload, source="supplier_invite")
+            _remember_supplier_alias(cur, supplier_id, supplier_payload, source="supplier_invite", requisites=requisites)
             from backend.features.invite_codes.supplier_relationship import link_registered_supplier
             link_registered_supplier(cur, invite, supplier_id, user, supplier_payload)
         cur.execute("UPDATE invite_codes SET used=TRUE WHERE code=%s", (code,))

@@ -718,9 +718,9 @@ class WarehouseAnomalyRuntimeDisclosurePolicyTests(unittest.TestCase):
             backend_root / "db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Also reviewed invoice-scan and public-site email wiring; warehouse preview behavior is unchanged.
+            # Reviewed estimate/master and supplier registration changes; warehouse preview is unchanged.
             backend_root / "main.py": (
-                "52202c96e6bbe47ec2de6d1f2d2009b6f85c911d22adbdcc9c914798e338163c"
+                "28b563c6246ed8fbf7ce3d714098da49a2d63594f260ab4263bda02bc4235317"
             ),
         }
         actual = {
