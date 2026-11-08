@@ -91,7 +91,7 @@ function CompanyDistribution({ companyId, companies, editable, projects = [], wa
     const current = ++generation.current[kind];
     inFlight.current[kind] = true;
     const setItems = source ? setSources : setRecords;
-    if (!beforeId) { setItems([]); if (!source) setReturning(null); }
+    if (!beforeId) setItems([]);
     setPages(previous => ({ ...previous, [kind]: { ...previous[kind], loading: true, error: '' } }));
     try {
       const options = { credentials: 'include', headers: { 'X-Company-Id': String(companyId), 'X-Company-Mode': 'company' } };
@@ -107,7 +107,6 @@ function CompanyDistribution({ companyId, companies, editable, projects = [], wa
       if (active.current && current === generation.current[kind]) {
         setItems([]);
         if (source) setSelectedSources([]);
-        else setReturning(null);
         if ([401, 403].includes(e.status)) { denyAccess(); setError(e.message); }
         else setPages(previous => ({ ...previous, [kind]: { loading: false, error: e.message || 'Не удалось загрузить распределения.' } }));
       }
@@ -196,6 +195,12 @@ function CompanyDistribution({ companyId, companies, editable, projects = [], wa
   // submission only from the freshly loaded allocation and its current balance.
   const loadedTransferSource = transferSource && records.find(record => record.id === transferSource.id);
   const transferSourceUnavailable = Boolean(transferSource && (!loadedTransferSource || pages.history.loading || pages.history.error));
+  const loadedReturnSource = returning && records.find(record => record.id === returning.id);
+  const returnSource = loadedReturnSource || returning;
+  const returnUnavailable = Boolean(returning && (!loadedReturnSource || pages.history.loading || pages.history.error));
+  const returnBlocked = busy || loading || Boolean(pending || pendingError || transferSource) || accessDenied || transferBlocked;
+  const returnValid = !returnUnavailable && confirmed && validQuantity(returnQuantity) && returnReason.trim()
+    && returnSource && Number(returnQuantity) <= Number(returnSource.netQuantity);
   return <><section className="warehouse-distribution" style={{ '--wd-text': C.text, '--wd-muted': C.textSec || C.textMuted, '--wd-border': C.border, '--wd-surface': C.bgWhite || C.card, '--wd-accent': C.accent }} aria-label="Распределение по объектам">
     <div className="wd-heading"><div><h3>Материалы по объектам</h3><p>Выдайте материалы с общего склада и отслеживайте возвраты.</p></div><button type="button" disabled={busy || loading} onClick={load}>Обновить</button></div>
     <details className="wd-help"><summary>Как считается остаток</summary><p>В истории показано, сколько было выдано, возвращено и отправлено на другой объект. Это не фактический остаток на объекте и не новый долг поставщику.</p></details>
@@ -255,7 +260,7 @@ function CompanyDistribution({ companyId, companies, editable, projects = [], wa
     </form>}
     <h4>История выдачи и возвратов</h4>
     <details className="wd-help"><summary>О поиске и датах</summary><p>Поиск проверяет всю историю на сервере. Период включает обе выбранные даты; дни считаются по UTC.</p></details>
-    <form className="wd-filters" onSubmit={e => { e.preventDefault(); applied.current.history = { q: search.trim(), ...filters }; closeReturn(); loadPage('history'); }}>
+    <form className="wd-filters" onSubmit={e => { e.preventDefault(); applied.current.history = { q: search.trim(), ...filters }; loadPage('history'); }}>
       <label>Найти по объекту, материалу или накладной<input type="search" maxLength={200} value={search} onChange={e => setSearch(e.target.value)} /></label>
       <label>История: объект<select value={filters.projectId} onChange={e => setFilters({ ...filters, projectId: e.target.value })}><option value="">Все объекты</option>{projects.filter(p => Number(p.companyId ?? p.company_id) === companyId).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
       <label>Дата с<input type="date" value={filters.dateFrom} max={filters.dateTo || undefined} onChange={e => setFilters({ ...filters, dateFrom: e.target.value })} /></label>
@@ -273,21 +278,22 @@ function CompanyDistribution({ companyId, companies, editable, projects = [], wa
       <strong>Осталось по распределению: {record.netQuantity} {record.unit}</strong>
       <p>{record.reason} {record.createdAt && `· ${record.createdAt}`} {record.createdBy && `· ${record.createdBy}`}</p>
       {record.returns?.length > 0 && <details><summary>Возвраты ({record.returns.length})</summary><ul>{record.returns.map(r => <li key={r.id}>{r.quantity} {record.unit} · {r.reason} · {r.createdAt} · {r.createdBy}</li>)}</ul></details>}
-      {editable && Number(record.netQuantity) > 0 && <button type="button" disabled={busy || Boolean(pending) || Boolean(pendingError) || accessDenied || transferBlocked || Boolean(transferSource)} onClick={() => { closeReturn(); setReturning(record); }}>Оформить возврат</button>}
-      {transfersEnabled && editable && Number(record.netQuantity) > 0 && <button type="button" disabled={busy || loading || Boolean(pending) || Boolean(pendingError) || accessDenied || transferBlocked || Boolean(transferSource)} onClick={() => { closeReturn(); setTransferSource(record); }}>Отправить на другой объект</button>}
+      {editable && Number(record.netQuantity) > 0 && <button type="button" disabled={returnBlocked || Boolean(returning)} onClick={() => { closeReturn(); setReturning(record); }}>Оформить возврат</button>}
+      {transfersEnabled && editable && Number(record.netQuantity) > 0 && <button type="button" disabled={busy || loading || Boolean(pending) || Boolean(pendingError) || accessDenied || transferBlocked || Boolean(transferSource || returning)} onClick={() => { closeReturn(); setTransferSource(record); }}>Отправить на другой объект</button>}
     </article>)}</div>
     {pages.history.nextCursor && <button type="button" disabled={busy || pages.history.loading || accessDenied} onClick={() => loadPage('history', pages.history.nextCursor)}>Загрузить ещё распределения</button>}
     {transfersEnabled && <WarehouseTransfersPanel companyId={companyId} editable={editable} source={loadedTransferSource || transferSource} sourceUnavailable={transferSourceUnavailable} projects={projects}
       accessDenied={accessDenied} blocked={busy || loading || Boolean(pending) || Boolean(pendingError) || Boolean(returning)}
       onClose={() => setTransferSource(null)} onDenied={denyAccess} onPendingChange={setTransferBlocked}
       onChanged={async () => { await load(); await refreshData?.(); }} />}
-    {editable && returning && <form onSubmit={e => { e.preventDefault(); if (confirmed && validQuantity(returnQuantity) && returnReason.trim() && Number(returnQuantity) <= Number(returning.netQuantity)) submit(`/warehouse-distributions/${returning.id}/returns`, { companyId, reason: returnReason.trim(), quantity: returnQuantity }, closeReturn); }}>
-      <fieldset disabled={busy || Boolean(pending) || Boolean(pendingError) || accessDenied || transferBlocked}><legend>Возврат: {returning.projectName} · {returning.materialName}</legend>
-        <p>Максимум по распределению: {returning.netQuantity} {returning.unit}. Сервер также проверит фактический остаток объекта.</p>
+    {editable && returning && <form onSubmit={e => { e.preventDefault(); if (returnValid && !returnBlocked) submit(`/warehouse-distributions/${returning.id}/returns`, { companyId, reason: returnReason.trim(), quantity: returnQuantity }, closeReturn); }}>
+      <fieldset disabled={returnBlocked}><legend>Возврат: {returnSource.projectName} · {returnSource.materialName}</legend>
+        {returnUnavailable && <p role="status">Черновик возврата сохранён в открытой форме. Остаток пока не подтверждён: обновите историю распределений или очистите её фильтры.</p>}
+        <p>Максимум по распределению: {returnSource.netQuantity} {returnSource.unit}. Сервер также проверит фактический остаток объекта.</p>
         <label>Количество возврата<input autoFocus inputMode="decimal" value={returnQuantity} onChange={e => setReturnQuantity(e.target.value.replace(',', '.'))} /></label>
         <label>Основание возврата<textarea maxLength={1000} value={returnReason} onChange={e => setReturnReason(e.target.value)} /></label>
         <label className="wd-confirm"><input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} />Подтверждаю фактический возврат на общий склад и его отнесение к этому распределению. Физическая принадлежность конкретной партии системой не устанавливается.</label>
-        <div className="wd-heading"><button type="submit" disabled={!confirmed || !validQuantity(returnQuantity) || !returnReason.trim() || Number(returnQuantity) > Number(returning.netQuantity)}>Подтвердить возврат</button><button type="button" onClick={closeReturn}>Отмена</button></div>
+        <div className="wd-heading"><button type="submit" disabled={!returnValid}>Подтвердить возврат</button><button type="button" onClick={closeReturn}>Отмена</button></div>
       </fieldset>
     </form>}
   </section><IntercompanyWarehouseTransfersPanel companyId={companyId} companies={companies} warehouseMain={warehouseMain} editable={editable} onChanged={refreshData}

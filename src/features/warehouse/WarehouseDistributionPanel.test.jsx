@@ -374,7 +374,7 @@ test('source selection can reach beyond the first 200 lots', async () => {
   expect(screen.getByLabelText('Партия 1')).toHaveValue('1');
 });
 
-test('malformed next page clears history and closes an open return', async () => {
+test('malformed next page clears history but preserves a blocked return draft', async () => {
   global.fetch = jest.fn(async url => response(url.includes('/sources') ? { items: sources } : { items: records, nextCursor: 8 }));
   render(<DistributionWorkspace {...props} />);
   fireEvent.click(await screen.findByText('Оформить возврат'));
@@ -382,7 +382,8 @@ test('malformed next page clears history and closes an open return', async () =>
   fireEvent.click(screen.getByText('Загрузить ещё распределения'));
   await screen.findByRole('alert');
   expect(screen.queryByText(/Осталось по распределению: 15 м/)).not.toBeInTheDocument();
-  expect(screen.queryByLabelText('Количество возврата')).not.toBeInTheDocument();
+  expect(screen.getByLabelText('Количество возврата')).toBeInTheDocument();
+  expect(screen.getByText('Подтвердить возврат')).toBeDisabled();
 });
 
 test('access denial on refresh clears previous data and disables writes', async () => {
