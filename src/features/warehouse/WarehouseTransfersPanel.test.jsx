@@ -29,6 +29,126 @@ async function fillDispatch() {
   fireEvent.change(screen.getByLabelText('Количество отправки'), { target: { value: '10' } });
   fireEvent.change(screen.getByLabelText('Основание отправки'), { target: { value: 'По заявке' } });
 }
+async function fillReceipt() {
+  fireEvent.click((await screen.findAllByText('Принять на объекте'))[0]);
+  fireEvent.change(screen.getByLabelText('Ожидалось в этой приёмке'), { target: { value: '5' } });
+  fireEvent.change(screen.getByLabelText('Фактически принято'), { target: { value: '3' } });
+  fireEvent.change(screen.getByLabelText('Основание приёмки / расхождения'), { target: { value: 'Две единицы не приехали' } });
+  fireEvent.click(screen.getByLabelText(/Подтверждаю фактическую приёмку/));
+}
+function expectReceiptDraft() {
+  expect(screen.getByLabelText('Ожидалось в этой приёмке')).toHaveValue('5');
+  expect(screen.getByLabelText('Фактически принято')).toHaveValue('3');
+  expect(screen.getByLabelText('Основание приёмки / расхождения')).toHaveValue('Две единицы не приехали');
+  expect(screen.getByLabelText(/Подтверждаю фактическую приёмку/)).toBeChecked();
+}
+test('receipt draft survives refresh and uses the newly loaded in-transit bound', async () => {
+  render(<WarehouseTransfersPanel {...props} source={null} />);
+  await fillReceipt();
+  let finish;
+  global.fetch = jest.fn(() => new Promise(resolve => { finish = resolve; }));
+  fireEvent.click(screen.getByText('Обновить перемещения'));
+  expectReceiptDraft();
+  expect(screen.getByText('Подтвердить приёмку')).toBeDisabled();
+  await act(async () => finish(page([{ ...transfer, receivedQuantity: '8', inTransitQuantity: '2', status: 'partial' }])));
+  expectReceiptDraft();
+  expect(screen.getByText(/^Осталось в пути: 2 м/)).toBeInTheDocument();
+  expect(screen.getByText('Подтвердить приёмку')).toBeDisabled();
+});
+test('search cannot discard a receipt draft and submission waits for the transfer to be reloaded', async () => {
+  render(<WarehouseTransfersPanel {...props} source={null} />);
+  await fillReceipt();
+  global.fetch = jest.fn(async () => page([]));
+  fireEvent.change(screen.getByLabelText('Поиск перемещений'), { target: { value: 'Другой материал' } });
+  fireEvent.click(screen.getByText('Найти перемещения'));
+  await screen.findByText('По поиску перемещений не найдено.');
+  expectReceiptDraft();
+  expect(screen.getByText('Подтвердить приёмку')).toBeDisabled();
+  expect(screen.getByText(/Черновик приёмки сохранён/)).toBeInTheDocument();
+  global.fetch = jest.fn(async () => page());
+  fireEvent.change(screen.getByLabelText('Поиск перемещений'), { target: { value: '' } });
+  fireEvent.click(screen.getByText('Найти перемещения'));
+  await waitFor(() => expect(screen.getByText('Подтвердить приёмку')).toBeEnabled());
+  expectReceiptDraft();
+});
+test.each([500, 403])('refresh status %s preserves draft only while access is still permitted', async status => {
+  render(<WarehouseTransfersPanel {...props} source={null} />);
+  await fillReceipt();
+  global.fetch = jest.fn(async () => ({ ok: false, status, json: async () => ({ detail: 'Ошибка обновления' }) }));
+  fireEvent.click(screen.getByText('Обновить перемещения'));
+  await screen.findByText('Ошибка обновления');
+  if (status === 403) {
+    expect(screen.queryByLabelText('Фактически принято')).not.toBeInTheDocument();
+    expect(props.onDenied).toHaveBeenCalled();
+  } else {
+    expectReceiptDraft();
+    expect(screen.getByText('Подтвердить приёмку')).toBeDisabled();
+    fireEvent.click(screen.getByText('Отменить приёмку'));
+    expect(screen.queryByLabelText('Фактически принято')).not.toBeInTheDocument();
+  }
+});
+test('another receipt cannot replace the current draft until explicit cancellation', async () => {
+  global.fetch = jest.fn(async () => page([transfer, { ...transfer, id: 29, toProjectName: 'Лицей' }]));
+  const onPendingChange = jest.fn();
+  render(<WarehouseTransfersPanel {...props} source={null} onPendingChange={onPendingChange} />);
+  await fillReceipt();
+  expect(onPendingChange).toHaveBeenLastCalledWith(true);
+  const secondCard = screen.getByText('Школа → Лицей · Кабель').closest('article');
+  fireEvent.click(within(secondCard).getByText('Принять на объекте'));
+  expectReceiptDraft();
+  expect(within(secondCard).queryByLabelText('Фактически принято')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByText('Отменить приёмку'));
+  expect(onPendingChange).toHaveBeenLastCalledWith(false);
+  fireEvent.click(within(secondCard).getByText('Принять на объекте'));
+  expect(within(secondCard).getByLabelText('Фактически принято')).toHaveValue('');
+});
+test('refreshed receipt submits the preserved quantities once to its original transfer', async () => {
+  render(<WarehouseTransfersPanel {...props} source={null} />);
+  await fillReceipt();
+  fireEvent.click(screen.getByText('Обновить перемещения'));
+  await waitFor(() => expect(screen.getByText('Подтвердить приёмку')).toBeEnabled());
+  const received = { ...transfer, receivedQuantity: '3', inTransitQuantity: '7', status: 'discrepancy', receipts: [{ id: 1, quantity: '3', expectedQuantity: '5', discrepancyQuantity: '2', allocationId: 9, reason: 'Две единицы не приехали' }] };
+  global.fetch = jest.fn(async (_url, options) => options?.method === 'POST'
+    ? response({ ok: true, requestId: JSON.parse(options.body).requestId, receiptId: 1, item: received }) : page([received]));
+  fireEvent.click(screen.getByText('Подтвердить приёмку'));
+  await screen.findByText('В пути: 7 м');
+  expect(screen.queryByLabelText('Фактически принято')).not.toBeInTheDocument();
+  const writes = global.fetch.mock.calls.filter(([, options]) => options?.method === 'POST');
+  expect(writes).toHaveLength(1);
+  expect(writes[0][0]).toMatch(/\/transfers\/30\/receipts$/);
+  expect(JSON.parse(writes[0][1].body)).toMatchObject({ companyId: 2, quantity: '3', expectedQuantity: '5', reason: 'Две единицы не приехали' });
+});
+test.each(['company', 'role'])('receipt draft is not exposed after changing %s', async change => {
+  const view = render(<WarehouseTransfersPanel {...props} source={null} />);
+  await fillReceipt();
+  let late;
+  global.fetch = jest.fn(() => new Promise(resolve => { late = resolve; }));
+  fireEvent.click(screen.getByText('Обновить перемещения'));
+  global.fetch = jest.fn(async () => page([]));
+  view.rerender(<WarehouseTransfersPanel {...props} source={null} companyId={change === 'company' ? 3 : 2} editable={change !== 'role'} />);
+  await screen.findByText('Перемещений пока нет.');
+  await act(async () => late(page()));
+  expect(screen.queryByLabelText('Фактически принято')).not.toBeInTheDocument();
+  expect(screen.queryByText('Две единицы не приехали')).not.toBeInTheDocument();
+  expect(screen.queryByText('В пути: 10 м')).not.toBeInTheDocument();
+});
+test('refresh after a lost receipt response retains the original command for a safe retry', async () => {
+  const read = global.fetch;
+  global.fetch = jest.fn((url, options) => options?.method === 'POST' ? Promise.reject(new Error('Ответ потерян')) : read(url, options));
+  render(<WarehouseTransfersPanel {...props} source={null} />);
+  await fillReceipt();
+  fireEvent.click(screen.getByText('Подтвердить приёмку'));
+  await screen.findByText('Ответ потерян');
+  const first = global.fetch.mock.calls.find(([, options]) => options?.method === 'POST')[1].body;
+  fireEvent.click(screen.getByText('Обновить перемещения'));
+  await waitFor(() => expect(screen.getByText('Обновить перемещения')).toBeEnabled());
+  expectReceiptDraft();
+  expect(screen.getByText('Подтвердить приёмку')).toBeDisabled();
+  global.fetch = read;
+  fireEvent.click(screen.getByText('Повторить перемещение безопасно'));
+  await screen.findByText(/Перемещение сохранено/);
+  expect(global.fetch.mock.calls.find(([, options]) => options?.method === 'POST')[1].body).toBe(first);
+});
 test('disabled flag makes no requests', () => {
   delete process.env.REACT_APP_WAREHOUSE_DISTRIBUTION_TRANSFERS_ENABLED;
   const { container } = render(<WarehouseTransfersPanel {...props} />);

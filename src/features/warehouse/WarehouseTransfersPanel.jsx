@@ -37,7 +37,7 @@ function Transfers({ companyId, editable, source, projects = [], blocked = false
     if (deniedRef.current || (beforeId && fetching.current)) return;
     const current = ++generation.current;
     fetching.current = true; setLoading(true); setError('');
-    if (!beforeId) { setItems([]); setCursor(null); setReceiving(null); }
+    if (!beforeId) { setItems([]); setCursor(null); }
     try {
       const query = new URLSearchParams({ limit: '100' });
       if (applied.current) query.set('q', applied.current);
@@ -48,7 +48,7 @@ function Transfers({ companyId, editable, source, projects = [], blocked = false
       setItems(previous => beforeId ? [...previous, ...data.items] : data.items); setCursor(data.nextCursor);
     } catch (e) {
       if (!active.current || current !== generation.current) return;
-      setItems([]); setCursor(null); setReceiving(null); setError(e.message);
+      setItems([]); setCursor(null); setError(e.message);
       if ([401, 403].includes(e.status)) deny();
     } finally {
       if (active.current && current === generation.current) { fetching.current = false; setLoading(false); }
@@ -62,7 +62,7 @@ function Transfers({ companyId, editable, source, projects = [], blocked = false
     }
     return () => { active.current = false; generation.current += 1; };
   }, [companyId, editable, load]);
-  useEffect(() => { callbacks.current.onPendingChange?.(Boolean(pending || storageError || busy)); }, [pending, storageError, busy]);
+  useEffect(() => { callbacks.current.onPendingChange?.(Boolean(pending || storageError || busy || receiving)); }, [pending, storageError, busy, receiving]);
 
   async function submit(path, payload, retry = null) {
     if (!editable || blocked || deniedRef.current || locked.current || storageError || (pending && !retry)) return;
@@ -103,6 +103,11 @@ function Transfers({ companyId, editable, source, projects = [], blocked = false
     } finally { locked.current = false; if (active.current) setBusy(false); }
   }
   const disabled = blocked || loading || busy || denied || Boolean(pending || storageError);
+  // Keep the same keyed form mounted through reloads, empty searches and read
+  // failures. Its old snapshot is only a draft; only a fresh list enables submit.
+  const receiptInList = receiving && items.some(item => item.id === receiving.id);
+  const visibleItems = receiving && !receiptInList ? [receiving, ...items] : items;
+  const receiptUnavailable = Boolean(receiving && (!receiptInList || error || loading));
   return <section className="warehouse-transfers" aria-label="Перемещения между объектами">
     <div className="wd-heading"><h4>Перемещения между объектами</h4><button type="button" disabled={loading || busy || denied} onClick={() => load()}>Обновить перемещения</button></div>
     <p>Отправка и приёмка — два этапа. Непринятое остаётся в пути и не считается потерей. Расхождение фиксируется отдельно; новый долг поставщику не возникает.</p>
@@ -120,14 +125,15 @@ function Transfers({ companyId, editable, source, projects = [], blocked = false
       <button disabled={busy || denied}>Найти перемещения</button>
     </form>
     {!loading && !error && !items.length && <p>{applied.current ? 'По поиску перемещений не найдено.' : 'Перемещений пока нет.'}</p>}
-    <div className="wd-records">{items.map(item => <article key={item.id}>
+    {receiving && receiptUnavailable && <p role="status">Черновик приёмки сохранён в открытой форме. Для отправки дождитесь успешного обновления перемещения; если оно скрыто поиском, очистите поиск.</p>}
+    <div className="wd-records">{visibleItems.map(item => <article key={item.id}>
       <h5>{item.fromProjectName} → {item.toProjectName} · {item.materialName}</h5>
       <p>Перемещение #{item.id} · накладная {item.invoiceNumber || `#${item.warehouseInvoiceId}`} · партия #{item.lotId}</p>
       <p>Отправлено: {item.quantity} {item.unit} · Принято: {item.receivedQuantity} {item.unit}</p>
       <strong>В пути: {item.inTransitQuantity} {item.unit}</strong><p>{statusLabels[item.status]} · {item.reason} · {item.createdAt} · {item.createdBy}</p>
       {item.receipts.length > 0 && <details><summary>Приёмки и расхождения ({item.receipts.length})</summary><ul>{item.receipts.map(receipt => <li key={receipt.id}>Ожидалось {receipt.expectedQuantity} · принято {receipt.quantity} · расхождение {receipt.discrepancyQuantity} {item.unit} · {receipt.reason} · {receipt.createdAt} · {receipt.createdBy}</li>)}</ul></details>}
-      {editable && Number(item.inTransitQuantity) > 0 && <button type="button" disabled={disabled} onClick={() => { onClose?.(); setReceiving(item); }}>Принять на объекте</button>}
-      {editable && receiving?.id === item.id && !denied && <ReceiptForm key={item.id} item={item} companyId={companyId} disabled={disabled} onClose={() => setReceiving(null)} onSubmit={payload => submit(`${transferPath}/${item.id}/receipts`, payload)} />}
+      {editable && Number(item.inTransitQuantity) > 0 && <button type="button" disabled={disabled || Boolean(receiving)} onClick={() => { onClose?.(); setReceiving(item); }}>Принять на объекте</button>}
+      {editable && receiving?.id === item.id && !denied && <ReceiptForm key={item.id} item={item} companyId={companyId} disabled={disabled} unavailable={receiptUnavailable} onClose={() => setReceiving(null)} onSubmit={payload => submit(`${transferPath}/${item.id}/receipts`, payload)} />}
     </article>)}</div>
     {cursor !== null && <button type="button" disabled={busy || loading || denied} onClick={() => load(cursor)}>Загрузить ещё перемещения</button>}
   </section>;
@@ -149,12 +155,12 @@ function DispatchForm({ source, projects, companyId, disabled, onClose, onSubmit
     </fieldset>
   </form>;
 }
-function ReceiptForm({ item, companyId, disabled, onClose, onSubmit }) {
+function ReceiptForm({ item, companyId, disabled, unavailable, onClose, onSubmit }) {
   const [quantity, setQuantity] = useState('');
   const [expectedQuantity, setExpected] = useState('');
   const [reason, setReason] = useState('');
   const [confirmed, setConfirmed] = useState(false);
-  const valid = transferQuantity(quantity, true) && transferQuantity(expectedQuantity) && Number(quantity) <= Number(expectedQuantity)
+  const valid = !unavailable && transferQuantity(quantity, true) && transferQuantity(expectedQuantity) && Number(quantity) <= Number(expectedQuantity)
     && Number(expectedQuantity) <= Number(item.inTransitQuantity) && reason.trim() && confirmed;
   return <form onSubmit={e => { e.preventDefault(); if (valid && !disabled) onSubmit({ companyId, quantity, expectedQuantity, reason: reason.trim() }); }}>
     <fieldset disabled={disabled}><legend>Приёмка #{item.id}: {item.toProjectName} · {item.materialName}</legend>

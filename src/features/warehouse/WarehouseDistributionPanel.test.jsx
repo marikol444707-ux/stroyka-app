@@ -8,6 +8,35 @@ const records = [{ id: 8, lotId: 5, warehouseInvoiceId: 10, invoiceNumber: 'НК
 const props = { companyContext, projects: [{ id: 11, companyId: 2, name: 'Школа' }, { id: 12, companyId: 3, name: 'Школа' }], C: {}, refreshData: jest.fn() };
 const oldFetch = global.fetch;
 const oldCrypto = global.crypto;
+test('an open transfer receipt blocks competing warehouse operations until cancellation', async () => {
+  const oldFlag = process.env.REACT_APP_WAREHOUSE_DISTRIBUTION_TRANSFERS_ENABLED;
+  process.env.REACT_APP_WAREHOUSE_DISTRIBUTION_TRANSFERS_ENABLED = 'true';
+  const transfer = { id: 30, companyId: 2, sourceAllocationId: 8, fromProjectId: 11, toProjectId: 13,
+    fromProjectName: 'Школа', toProjectName: 'Сад', warehouseInvoiceId: 10, lotId: 5,
+    materialName: 'Кабель', unit: 'м', quantity: '10', receivedQuantity: '0', inTransitQuantity: '10',
+    status: 'in_transit', reason: 'По заявке', receipts: [] };
+  const read = global.fetch;
+  global.fetch = jest.fn((url, options) => url.includes('/transfers')
+    ? Promise.resolve({ ok: true, json: async () => ({ items: [transfer], truncated: false, nextCursor: null }) }) : read(url, options));
+  try {
+    render(<DistributionWorkspace {...props} />);
+    fireEvent.click(await screen.findByText('Принять на объекте'));
+    fireEvent.change(screen.getByLabelText('Фактически принято'), { target: { value: '3' } });
+    expect(screen.getByText('Отправить на другой объект')).toBeDisabled();
+    expect(screen.getByText('Оформить возврат')).toBeDisabled();
+    // The parent's refresh must also leave the child receipt draft intact.
+    fireEvent.click(screen.getByRole('button', { name: 'Обновить', exact: true }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Обновить', exact: true })).toBeEnabled());
+    expect(screen.getByLabelText('Фактически принято')).toHaveValue('3');
+    fireEvent.click(screen.getByText('Отменить приёмку'));
+    expect(screen.getByText('Отправить на другой объект')).toBeEnabled();
+    expect(screen.getByText('Оформить возврат')).toBeEnabled();
+    expect(global.fetch.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false);
+  } finally {
+    if (oldFlag === undefined) delete process.env.REACT_APP_WAREHOUSE_DISTRIBUTION_TRANSFERS_ENABLED;
+    else process.env.REACT_APP_WAREHOUSE_DISTRIBUTION_TRANSFERS_ENABLED = oldFlag;
+  }
+});
 beforeAll(() => { Object.defineProperty(global, 'crypto', { configurable: true, value: require('crypto').webcrypto }); });
 afterAll(() => { Object.defineProperty(global, 'crypto', { configurable: true, value: oldCrypto }); });
 beforeEach(() => { sessionStorage.clear(); global.fetch = jest.fn(async (url, options) => ({ ok: true, json: async () => options?.method === 'POST' ? { ok: true, requestId: JSON.parse(options.body).requestId, items: JSON.parse(options.body).rows?.map((row, i) => ({ ...records[0], id: 8 + i })) || records, item: records[0] } : { items: url.includes('/sources') ? sources : records } })); });
