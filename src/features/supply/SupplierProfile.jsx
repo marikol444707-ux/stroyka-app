@@ -61,7 +61,7 @@ function Profile({API, supplierId, C, card, inp, btnO, btnG, onSaved}) {
             body:JSON.stringify({...changes,expectedProfileVersion:saved.version})});
           const data=await response.json();
           if (!mounted.current || generation.current !== run) return;
-          if (response.status===409) setConflict(true);
+          if (response.status===409 && data.code!=='supplier_identity_conflict') setConflict(true);
           if (!response.ok) throw new Error(data.detail || 'Не удалось сохранить реквизиты');
           accept(data); onSaved?.(data); setMessage('Реквизиты сохранены');
         } catch (e) {if (mounted.current && generation.current === run && e.name!=='AbortError') setError(e.message);}
