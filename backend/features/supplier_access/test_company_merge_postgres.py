@@ -29,6 +29,7 @@ class CompanyMergePostgresTests(unittest.TestCase):
 
     def merge(self, review, **kwargs):
         body = {key:review[key] for key in ('sourceId','targetVersion','sourceVersion')}
+        body['expectedReview'] = review['reviewVersion']
         return self.api('director', 'POST', f"/suppliers/{review['targetId']}/merge", {**body,'companyId':2,'confirmed':True}, **kwargs)
 
     def test_preview_then_merge_without_cabinet_preserves_original_documents(self):

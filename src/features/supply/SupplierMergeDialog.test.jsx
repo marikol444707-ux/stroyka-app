@@ -5,7 +5,7 @@ import SupplierMergeDialog from './SupplierMergeDialog';
 const originalFetch=global.fetch;
 const supplier={id:12,companyId:2,name:'Поставщик с кабинетом',hasSupplierAccount:true,_supplierIds:[4,12]};
 const sources=[supplier,{id:4,companyId:2,name:'Поставщик из накладной'}];
-const review={targetId:12,sourceId:4,targetVersion:3,sourceVersion:1,targetName:supplier.name,sourceName:sources[1].name,hasSupplierAccount:false,documents:{supplier_invoices:2,warehouse_invoices:1,supplier_offers:0}};
+const review={reviewVersion:'server-review-fingerprint',targetId:12,sourceId:4,targetVersion:3,sourceVersion:1,targetName:supplier.name,sourceName:sources[1].name,hasSupplierAccount:false,documents:{supplier_invoices:2,warehouse_invoices:1,supplier_offers:0}};
 const response=data=>({ok:true,json:async()=>data});
 afterEach(()=>{global.fetch=originalFetch;jest.restoreAllMocks();});
 
@@ -31,7 +31,7 @@ test('previews before confirmation and does not repeat a pending merge',async()=
   expect(JSON.parse(global.fetch.mock.calls[0][1].body)).toEqual({companyId:2,sourceId:4});
   fireEvent.click(confirm);fireEvent.click(confirm);
   expect(global.fetch).toHaveBeenCalledTimes(2);
-  expect(JSON.parse(global.fetch.mock.calls[1][1].body)).toEqual({companyId:2,sourceId:4,targetVersion:3,sourceVersion:1,confirmed:true});
+  expect(JSON.parse(global.fetch.mock.calls[1][1].body)).toEqual({companyId:2,sourceId:4,targetVersion:3,sourceVersion:1,expectedReview:review.reviewVersion,confirmed:true});
   finish(response({ok:true}));
   await waitFor(()=>expect(onClose).toHaveBeenCalledTimes(1));
   expect(loadAll).toHaveBeenCalledTimes(1);
@@ -57,4 +57,13 @@ test('a successful merge with failed refresh cannot be submitted again',async()=
   expect(await screen.findByRole('alert')).toHaveTextContent('Карточки объединены, но список не обновился');
   expect(screen.queryByRole('button',{name:'Подтвердить объединение'})).not.toBeInTheDocument();
   expect(global.fetch).toHaveBeenCalledTimes(2);
+});
+
+test('does not allow confirmation without a server-bound review fingerprint',async()=>{
+  global.fetch=jest.fn().mockResolvedValue(response({...review,reviewVersion:undefined}));
+  render(<SupplierMergeDialog supplier={supplier} suppliers={sources} API="/api" C={{}} onClose={jest.fn()} loadAll={jest.fn()}/>);
+  fireEvent.change(screen.getByRole('combobox'),{target:{value:'4'}});
+  fireEvent.click(screen.getByRole('button',{name:'Проверить карточки'}));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Не удалось получить результат проверки');
+  expect(screen.queryByRole('button',{name:'Подтвердить объединение'})).not.toBeInTheDocument();
 });

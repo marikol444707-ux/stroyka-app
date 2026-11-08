@@ -46,7 +46,8 @@ class MergedInvitationPostgresTests(unittest.TestCase):
         review = self.api('director', 'POST', f'/suppliers/{target}/merge-preview',
                           {'sourceId': source, 'companyId': 2}, **headers)
         return self.api('director', 'POST', f'/suppliers/{target}/merge',
-                        {**review, 'sourceId': source, 'companyId': 2, 'confirmed': True}, **headers)
+                        {**review, 'sourceId': source, 'companyId': 2, 'confirmed': True,
+                         'expectedReview': review['reviewVersion']}, **headers)
 
     def assert_refused(self, invite, payload, status=409):
         before = self.sql('SELECT row_to_json(s)::text FROM suppliers s ORDER BY id')

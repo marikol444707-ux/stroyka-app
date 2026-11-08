@@ -177,9 +177,10 @@ export default function SupplyPage({
     if (searchHint) setListSearch(searchHint);
     setSupplierLinkFocus({
       ...action,
+      companyId: companyContext?.selectedCompanyId,
       nonce: Date.now(),
     });
-  }, [canViewSuppliers, setListSearch, setShowForm, setSupplyTab]);
+  }, [canViewSuppliers, setListSearch, setShowForm, setSupplyTab, companyContext?.selectedCompanyId]);
 
   let list = supplyRequests || [];
   const curTab = tabs.find(tab => tab.id === supplyTab) ? supplyTab : tabs[0].id;
@@ -274,6 +275,8 @@ export default function SupplyPage({
         <>
         {process.env.REACT_APP_PARTICIPANT_SUPPORT_ENABLED==='1' && companyContext?.mode==='company' && ['директор','зам_директора'].includes(user?.role) && <MyParticipantTickets key={companyContext.selectedCompanyId} API={API} companyId={companyContext.selectedCompanyId} C={C} btnG={btnG}/>}
         <SupplySuppliersPanel
+          key={String(companyContext?.mode || 'legacy') + ':' + String(companyContext?.selectedCompanyId || '')}
+          companyId={companyContext?.mode === 'company' ? companyContext.selectedCompanyId : undefined}
           C={C}
           card={card}
           inp={inp}

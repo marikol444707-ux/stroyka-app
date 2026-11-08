@@ -12,7 +12,7 @@ export default function SupplierMergeDialog({supplier, suppliers, API, C, onClos
     const response = await fetch(API + '/suppliers/' + supplier.id + (review ? '/merge' : '/merge-preview'), {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({companyId: supplier.companyId, sourceId: Number(sourceId),
-        ...(review ? {targetVersion:review.targetVersion, sourceVersion:review.sourceVersion, confirmed:true} : {})}),
+        ...(review ? {targetVersion:review.targetVersion, sourceVersion:review.sourceVersion, expectedReview:review.reviewVersion, confirmed:true} : {})}),
     });
     const data = await response.json().catch(() => ({}));
     if (!active.current) return;
@@ -21,7 +21,7 @@ export default function SupplierMergeDialog({supplier, suppliers, API, C, onClos
       throw new Error(data.detail || 'Не удалось проверить объединение');
     }
     if (!review) {
-      if(data.targetId!==supplier.id || data.sourceId!==Number(sourceId) || !Number.isInteger(data.targetVersion) || !Number.isInteger(data.sourceVersion) || !data.documents) throw new Error('Не удалось получить результат проверки. Обновите каталог.');
+      if(data.targetId!==supplier.id || data.sourceId!==Number(sourceId) || !Number.isInteger(data.targetVersion) || !Number.isInteger(data.sourceVersion) || !data.documents || typeof data.reviewVersion !== 'string' || !data.reviewVersion) throw new Error('Не удалось получить результат проверки. Обновите каталог.');
       setReview(data); return;
     }
     if (!data.ok) throw new Error('Не удалось подтвердить объединение. Обновите каталог перед повторной попыткой.');

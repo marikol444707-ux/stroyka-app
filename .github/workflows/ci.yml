@@ -111,6 +111,7 @@ jobs:
             backend.features.supplier_access.test_profile_postgres.SupplierProfilePostgresTests \
             backend.features.supplier_access.test_identity_regression_postgres.SupplierIdentityRegressionPostgresTests \
             backend.features.supplier_access.test_company_merge_postgres.CompanyMergePostgresTests \
+            backend.features.supplier_access.test_merge_review_postgres.MergeReviewPostgresTests \
             backend.features.supplier_access.test_company_directory_postgres.CompanyDirectoryPostgresTests
 
       - name: Run supplier access correction and packaging merge guards

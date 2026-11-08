@@ -166,6 +166,13 @@ export const supplierHasStrongIdentity = supplier => (
 export const supplierMatchesRecord = (supplier, record) => {
   const ids = new Set((supplier?._supplierIds || [supplier?.id]).map(id => Number(id)).filter(Boolean));
   const recordId = Number(record?.supplierId || record?.supplier_id || 0);
+  if (supplier?._companyScoped) {
+    const recordCompanyId = record?.companyId ?? record?.company_id;
+    if (recordCompanyId != null && Number(recordCompanyId) !== Number(supplier.companyId)) return false;
+    // A catalog merge is an explicit server relationship, not a name match.
+    // Unassigned legacy documents must not be attributed to a company card.
+    return Boolean(recordId && ids.has(recordId));
+  }
   if (recordId && ids.has(recordId)) return true;
   const recordName = normalizeSupplierRecordName(record?.supplierName || record?.supplier_name || record?.supplier || '');
   return Boolean(recordName && (supplier?._supplierRecordNames || []).includes(recordName));
@@ -222,7 +229,7 @@ export const supplierReviewInfo = (supplier, stats = {}, possibleDuplicates = []
   if ((possibleDuplicates || []).length > 0) {
     reasons.push('есть похожие карточки');
   }
-  if (Number(supplier?._duplicateCount || 0) > 1) {
+  if (Number(supplier?._duplicateCount || 0) > 1 && !supplier?._companyScoped) {
     reasons.push('есть объединённые дубли карточек');
   }
   if (Number(stats?.duplicateDocumentsCount || 0) > 0) {
@@ -418,4 +425,38 @@ export const groupSuppliers = suppliers => {
   });
 
   return Array.from(groups.values()).sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'ru'));
+};
+
+
+// Company catalogs may contain the canonical card plus archived source rows.
+// Only the server's reciprocal, company-scoped relationship may collapse them;
+// equal legal keys/contact details are candidates for review, not a merge.
+export const groupCompanySuppliers = (suppliers = []) => {
+  const key = row => `${row.companyId}:${row.id}`;
+  const byId = new Map(suppliers.map(row => [key(row), row]));
+  const groups = new Map();
+  suppliers.forEach(row => {
+    const canonicalId = Number(row.canonicalSupplierId || row.id);
+    const target = byId.get(`${row.companyId}:${canonicalId}`);
+    const related = (row.relatedSupplierIds || []).map(Number);
+    const targetRelated = (target?.relatedSupplierIds || []).map(Number);
+    const verified = Number(row.companyId) > 0 && target
+      && Number(target.canonicalSupplierId || target.id) === Number(target.id)
+      && (canonicalId === Number(row.id)
+        || (related.includes(canonicalId) && targetRelated.includes(Number(row.id))));
+    const canonical = verified ? target : row;
+    const groupKey = key(canonical);
+    if (!groups.has(groupKey)) groups.set(groupKey, { canonical, rows: [] });
+    groups.get(groupKey).rows.push(row);
+  });
+  return Array.from(groups.values()).map(({canonical, rows}) => {
+    const ids = Array.from(new Set(rows.map(row => Number(row.id)))).sort((a, b) => a - b);
+    const [group] = groupSuppliers(rows.map(row => ({
+      ...row, canonicalSupplierId: canonical.id, relatedSupplierIds: ids,
+    })));
+    // Keep editable company fields/version from the actual canonical row.
+    // Historical source contacts, ratings and bank details must not overwrite it.
+    return { ...group, ...canonical, _supplierIds: ids, _duplicateCount: ids.length,
+      _canonicalSupplierId: canonical.id, _companyScoped: true };
+  }).sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'ru'));
 };
