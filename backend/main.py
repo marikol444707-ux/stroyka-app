@@ -758,6 +758,7 @@ PLATFORM_STAFF_ROLES = ("system_owner", "platform_admin", "platform_support", "b
 CLIENT_ACCOUNT_ROLES = ("account_owner", "account_admin")
 ESTIMATE_WRITE_ROLES = ("директор", "зам_директора", "прораб", "главный_инженер", "сметчик")
 WAREHOUSE_ROLES = ("директор", "зам_директора", "кладовщик", "снабженец", "прораб")
+PHYSICAL_RECEIPT_ROLES = (*WAREHOUSE_ROLES, "главный_инженер")
 MAIN_WAREHOUSE_WRITE_ROLES = ("директор", "зам_директора", "кладовщик", "снабженец")
 PROJECT_WAREHOUSE_INVOICE_OVERRIDE_ROLES = (*MAIN_WAREHOUSE_WRITE_ROLES, "прораб")
 SUPPLY_ROLES = ("директор", "зам_директора", "снабженец", "кладовщик", "прораб", "мастер", "субподрядчик", "бригадир", "поставщик", "бухгалтер")
@@ -11691,6 +11692,7 @@ def _ensure_supply_delivery_invoice_prepared(cur, delivery, received_qty=None, r
         offer_id=delivery.get('offer_id'),
         delivery=delivery,
     )
+    receipt_originals = delivery.get('receipt_original_urls') or ([delivery['photo_url']] if delivery.get('photo_url') else [])
     try:
         cur.execute("""INSERT INTO warehouse_invoices
 	                       (company_id,number,date,supplier_id,supplier_name,accepted_by,location,project,vat,
@@ -11705,8 +11707,8 @@ def _ensure_supply_delivery_invoice_prepared(cur, delivery, received_qty=None, r
 		                     "Принята", accepted_by or delivery.get('received_by') or "Снабжение",
 		                     delivery.get('photo_url') or "", "supply_delivery", delivery_id,
 		                     delivery_id, delivery.get('request_id'),
-	                         _json.dumps(([delivery.get('photo_url')] if delivery.get('photo_url') else []), ensure_ascii=False),
-	                         1, "object", "supply_receipt", _json.dumps([], ensure_ascii=False)))
+	                         _json.dumps(receipt_originals, ensure_ascii=False),
+	                         len(receipt_originals) or 1, "object", "supply_receipt", _json.dumps([], ensure_ascii=False)))
         new_id = cur.fetchone()
         warehouse_invoice_id = new_id['id'] if isinstance(new_id, dict) else new_id[0]
         if linked_supplier_invoice_id:
@@ -12150,7 +12152,7 @@ def _backfill_cable_journal(cur, project_names=None):
     return repaired
 
 def _fulfilment_visibility(cur, user, company_column, project_column, package_column,
-                           x_company_id=None, x_company_mode=None, worker_condition=None):
+                           x_company_id=None, x_company_mode=None, worker_condition=None, receipt_only=False):
     try:
         from backend.features.supplier_access.fulfilment import internal_fulfilment_filter
     except ModuleNotFoundError:
@@ -12160,7 +12162,8 @@ def _fulfilment_visibility(cur, user, company_column, project_column, package_co
     return internal_fulfilment_filter(effective_company_actors(user, context),
         company_column=company_column, project_column=project_column,
         full_view_roles=('директор', 'зам_директора', 'бухгалтер') if worker_condition else None,
-        package_column=package_column, worker_condition=worker_condition, deps={
+        package_column=package_column, worker_condition=worker_condition,
+        additional_project_roles=('главный_инженер',) if receipt_only else (), deps={
             'can_see_all_company_data': can_see_all_company_data,
             'scoped_project_filter': scoped_project_filter,
             'package_access_filter': package_access_filter,
@@ -12238,6 +12241,7 @@ DELIVERY_SELECT = """
            d.vehicle_number as "vehicleNumber",
            d.driver_name as "driverName",
            d.document_url as "documentUrl", d.photo_url as "photoUrl",
+           to_jsonb(d)->'receipt_original_urls' as "receiptOriginalUrls",
            d.shipped_at as "shippedAt", d.received_at as "receivedAt",
            d.received_by as "receivedBy",
            d.quality_status as "qualityStatus",
@@ -12256,6 +12260,13 @@ def receive_supply_delivery(
     x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
     _current_user: dict = Depends(get_current_user),
 ):
+    raise HTTPException(409, 'Приёмка выполняется через проверку оригинала накладной: откройте «Принять» и загрузите документ')
+
+
+def _receive_supply_delivery_record(
+    id, data, x_company_id=None, x_company_mode=None, _current_user=None,
+    *, connection=None, after_commit=None, read_only_replay=False,
+):
     from datetime import datetime
     try:
         from backend.features.supplier_payments.partial_receipt_runtime import finalize_receipt
@@ -12271,7 +12282,7 @@ def receive_supply_delivery(
     owned_quality = delivery_quality_enabled()
     if owned_quality and not owned_sources:
         raise HTTPException(503, 'Журнал поставки требует включённой проверки первичных документов')
-    conn = get_db()
+    conn = connection if connection is not None else get_db()
     conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     try:
@@ -12298,7 +12309,7 @@ def receive_supply_delivery(
                 cur, _current_user, delivery.get('company_id'), 'update',
                 claimed_company_id=data.get('companyId', data.get('company_id')),
                 x_company_id=x_company_id, x_company_mode=x_company_mode,
-                allowed_roles=WAREHOUSE_ROLES,
+                allowed_roles=PHYSICAL_RECEIPT_ROLES,
                 platform_staff_roles=PLATFORM_STAFF_ROLES,
                 client_account_roles=CLIENT_ACCOUNT_ROLES,
             )
@@ -12325,6 +12336,23 @@ def receive_supply_delivery(
         if ledger_present:
             _guard_delivery_accounting_write(cur, delivery)
         source_project_id = prepare_delivery_sources(cur, _current_user, delivery) if owned_sources else None
+        if read_only_replay:
+            if not (delivery['status'] in ('Принято', 'Проблема') or delivery.get('received_at')):
+                raise HTTPException(409, 'Состояние приёмки изменилось; повторите проверку')
+            cur.execute('SELECT id,company_id FROM warehouse_invoices WHERE supply_delivery_id=%s FOR UPDATE', (id,))
+            invoices = cur.fetchall()
+            positive = (delivery.get('received_quantity') or 0) > 0
+            if len(invoices) != int(positive) or any(row['company_id'] != delivery['company_id'] for row in invoices):
+                raise HTTPException(409, 'Нарушена связь принятой поставки с накладной')
+            invoice_id = invoices[0]['id'] if invoices else None
+            if owned_quality:
+                create_delivery_quality(cur, delivery_id=id, company_id=delivery['company_id'],
+                    project_id=source_project_id, invoice_id=invoice_id, replay=True,
+                    cable_info=_detect_cable_info(delivery['material_name']), normalize_unit=_norm_base_unit)
+            # All checks above are read-only for an already accepted delivery.
+            # Do not run legacy repair/finalization or any background analysis.
+            cur.close()
+            return {'ok': True, 'alreadyReceived': True, 'invoiceId': invoice_id}
         if delivery['status'] in ('Принято', 'Проблема') or delivery.get('received_at'):
             if not owned_quality:
                 try:
@@ -12435,7 +12463,7 @@ def receive_supply_delivery(
             _add_project_material(cur, delivery['material_name'], delivery['unit'], received_qty,
                                   _float_or_zero(delivery['price_per_unit']), delivery['project'],
                                   delivery.get('work_package') or delivery.get('workPackage') or "",
-                                  delivery.get('company_id') or delivery.get('companyId') or 1,
+                                  delivery['company_id'],
                                   source_type="supply_delivery", source_id=id,
                                   source_invoice_id=invoice_id)
         if owned_sources:
@@ -12459,7 +12487,10 @@ def receive_supply_delivery(
             row = projected[0]
         conn.commit()
         cur.close(); conn.close()
-        _run_project_ai_control_safely(delivery['project'], "supply_delivery:receive")
+        if after_commit is not None:
+            after_commit.append(lambda: _run_project_ai_control_safely(delivery['project'], "supply_delivery:receive"))
+        else:
+            _run_project_ai_control_safely(delivery['project'], "supply_delivery:receive")
         return {"ok": True, "delivery": dict(row), "claimId": claim_id, "invoiceId": invoice_id}
     except Exception:
         if not conn.closed:
@@ -20749,7 +20780,7 @@ def get_warehouse_invoices(
         result.append(invoice_result)
     return result
 
-def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_company_id=None, x_company_mode=None):
+def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_company_id=None, x_company_mode=None, receipt_admission=True):
     import json as j
     try:
         from backend.features.quality_journals.invoice_receipt import invoice_quality_enabled, create_invoice_quality
@@ -20779,6 +20810,7 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
         lock_distribution_compatible_stock(cur)
         ledger_present = _payment_ledger_available(cur)
         if not ledger_present:
+            _lock_legacy_supply_writer(cur)
             _ensure_invoice_document_link_columns(cur)
             _ensure_warehouse_invoice_accounting_columns(cur)
         source_type = (data.get("sourceType") or "").strip()
@@ -20842,12 +20874,23 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
         actor = actors[0] if len(actors) == 1 else {}
         if company_id <= 0 or not actor:
             raise HTTPException(status_code=409, detail="Компания складской накладной не определена")
-        if (actor.get("role") or "") not in WAREHOUSE_ROLES:
+        if (actor.get("role") or "") not in (PHYSICAL_RECEIPT_ROLES if receipt_admission else WAREHOUSE_ROLES):
             raise HTTPException(status_code=403, detail="Роль в выбранной компании не позволяет принимать складские накладные")
         current_user = actor
+        if receipt_admission:
+            try:
+                from backend.features.warehouse_receipts.admission import require_standalone_receipt
+            except ModuleNotFoundError:
+                from features.warehouse_receipts.admission import require_standalone_receipt
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as receipt_cur:
+                receipt_admission_result = require_standalone_receipt(receipt_cur, {**data, 'companyId': company_id, 'project': target_project}, current_user,
+                    {'x_company_id': x_company_id, 'x_company_mode': x_company_mode}, _receipt_workflow_deps)
+            original_urls = receipt_admission_result['originalUrls']
+            data = {**data, 'photos': original_urls, 'photoUrls': original_urls,
+                    'photoUrl': original_urls[0], 'pagesCount': len(original_urls)}
         if ledger_present:
-            # Stock-table locks precede company serialization; no document or
-            # project row locks have been acquired by this receipt yet.
+            # Stock-table locks and physical-document serialization precede
+            # company serialization; project row locks are acquired afterward.
             cur.execute('SELECT pg_advisory_xact_lock(%s,%s)', (1735289201, company_id))
         if target_project:
             try:
@@ -21668,6 +21711,7 @@ def create_warehouse_invoice(
         _current_user,
         x_company_id=x_company_id,
         x_company_mode=x_company_mode,
+        receipt_admission=True,
     )
 
 @app.post("/supplier-documents/backfill")
@@ -27870,6 +27914,7 @@ def _invoice_scan_json_format() -> str:
         "\"supplierKpp\":строка,"
         "\"supplierOgrn\":строка,"
         "\"buyer\":строка,"
+        "\"buyerInn\":строка_ИНН_покупателя_без_догадок,"
         "\"vat\":\"Без НДС|С НДС 20%|С НДС 22%\","
         "\"vatRate\":0|20|22,"
         "\"totalBase\":число_без_НДС,"
@@ -27990,7 +28035,7 @@ def _retry_invoice_scan_compact_json(images: list):
 
 
 @app.post("/scan-invoice")
-def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*WAREHOUSE_ROLES, "бухгалтер"))):
+def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*PHYSICAL_RECEIPT_ROLES, "бухгалтер"))):
     images = data.get("images") or data.get("pages") or []
     if isinstance(images, (str, dict)):
         images = [images]
@@ -28587,3 +28632,30 @@ register_supplier_allocation_routes(app, {
     'authorize_allocation_read': build_allocation_access(_supplier_payment_access_deps, operation='read'),
     'require_allocation_schema': require_allocation_schema,
 })
+
+# Shared physical receipt preview/confirmation. No schema or live flag changes.
+try:
+    from backend.features.warehouse_receipts.resolver import register_warehouse_receipt_resolver
+    from backend.features.warehouse_receipts.confirmation import register_receipt_confirmation
+    from backend.features.material_traceability.guards import lock_distribution_compatible_stock as _receipt_lock_stock
+except ModuleNotFoundError:
+    from features.warehouse_receipts.resolver import register_warehouse_receipt_resolver
+    from features.warehouse_receipts.confirmation import register_receipt_confirmation
+    from features.material_traceability.guards import lock_distribution_compatible_stock as _receipt_lock_stock
+
+_receipt_workflow_deps = {
+    'get_db': get_db, 'get_current_user': get_current_user,
+    'resolve_work_company_context': _resolve_work_company_context,
+    'effective_company_actors': effective_company_actors,
+    'fulfilment_visibility': lambda cur, user, company, project, package, company_id, mode: _fulfilment_visibility(
+        cur, user, company, project, package, company_id, mode, receipt_only=True),
+    'warehouse_roles': PHYSICAL_RECEIPT_ROLES,
+    'require_project_or_warehouse_access': require_project_or_warehouse_access,
+    'lock_stock': _receipt_lock_stock,
+    'prepare_receipt_transaction': lambda cur: None if _payment_ledger_available(cur) else _lock_legacy_supply_writer(cur),
+    'receive_delivery': _receive_supply_delivery_record,
+    'validate_existing_delivery': lambda identity, **kwargs: _receive_supply_delivery_record(
+        identity, {}, read_only_replay=True, **kwargs),
+}
+register_warehouse_receipt_resolver(app, _receipt_workflow_deps)
+register_receipt_confirmation(app, _receipt_workflow_deps)

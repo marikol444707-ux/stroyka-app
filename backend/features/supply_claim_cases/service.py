@@ -25,9 +25,11 @@ def capabilities(role, status):
 
 def validate(data):
     if set(data) - {'action', 'text', 'expectedVersion', 'requestId', 'expectedCompanyId',
-                    'expectedActorId', 'materialAccountingVersion', 'quantity'}:
+                    'expectedActorId', 'materialAccountingVersion', 'quantity', 'waybillNumber', 'waybillDate'}:
         raise HTTPException(400, 'Переданы неизвестные поля претензии')
     action, text = data.get('action'), data.get('text')
+    if action != 'replace' and any(key in data for key in ('waybillNumber', 'waybillDate')):
+        raise HTTPException(400, 'Реквизиты накладной допустимы только для замены')
     if not isinstance(action, str) or action not in ACTIONS:
         raise HTTPException(400, 'Выберите действие с претензией')
     if action in ('return','replace'):

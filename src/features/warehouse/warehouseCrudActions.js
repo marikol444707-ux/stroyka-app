@@ -58,9 +58,15 @@ export const createWarehouseCrudActions = ({
         : null;
       location = projectFromList?.name || assignedProjectNames[0] || '';
     }
+    if (newInvoice?.originalUrls?.length && !newInvoice.receiptCompleted
+        && (!preselectedLocation || newInvoice.location === preselectedLocation)) {
+      setShowScanInvoice(true);
+      return;
+    }
     const warehouseTarget = location && location !== 'Основной склад' ? 'object' : 'main';
     setNewInvoice({
       ...createWarehouseInvoiceForm(),
+      receiptDraftId: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
       date:new Date().toISOString().split('T')[0],
       acceptedBy:user?.name||'',
       location,
@@ -172,7 +178,11 @@ export const createWarehouseCrudActions = ({
       selectedAction,
       sourceType,
       sourceId:newInvoice.sourceId||null,
-      materialMatch
+      materialMatch,
+      receiptDocument: newInvoice.receiptDocument,
+      originalUrls: newInvoice.originalUrls || photoUrls,
+      physicalReceiptConfirmed: newInvoice.physicalReceiptConfirmed === true,
+      newDocumentConfirmed: newInvoice.newDocumentConfirmed === true,
     };
     const savedInv = inv;
     const invoiceRes = await fetch(API+'/warehouse-invoices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(savedInv)});

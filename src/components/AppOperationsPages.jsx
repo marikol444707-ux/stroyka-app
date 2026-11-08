@@ -144,6 +144,7 @@ export default function AppOperationsPages({ activePage, ui, constants, state, a
     setSelectedInventory,
     setSelectedWarehouseProject,
     setShowForm,
+    setShowScannedInvoiceForm,
     setShowIssueToolModal,
     setShowPhotoModal,
     setShowQRModal,
@@ -286,6 +287,8 @@ export default function AppOperationsPages({ activePage, ui, constants, state, a
 
       {activePage === 'supply' && (
         <SupplyPage
+          onStandaloneReceipt={draft => { setNewInvoice(draft); setShowScannedInvoiceForm(true); }}
+          onReceiptConfirmed={refreshData}
           API={API}
           C={C}
           card={card}

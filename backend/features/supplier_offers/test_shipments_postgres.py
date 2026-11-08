@@ -6,6 +6,7 @@ from uuid import uuid4
 from concurrent.futures import ThreadPoolExecutor
 from backend.features.supplier_offers import test_response_postgres as support
 from .test_retry_support import api_after_busy
+from backend.features.warehouse_receipts.test_http_support import confirm_test_receipt, physical_receipt_payload
 
 
 @unittest.skipUnless(os.environ.get('SUPPLY_CHAIN_RUN_POSTGRES') == '1', 'Requires isolated PostgreSQL')
@@ -18,18 +19,19 @@ class ShipmentPostgresTests(unittest.TestCase):
     quote = support.SupplierResponsePostgresTests.quote
 
     def approved(self, multi=False):
+        self.sql("INSERT INTO company_requisites(company_id,full_name,inn) SELECT 2,'Synthetic buyer','7702222222' WHERE NOT EXISTS (SELECT 1 FROM company_requisites WHERE company_id=2)")
         offer, path, body = self.quote(multi)
         self.api('supplier', 'PUT', path, body)
         self.api('director', 'PUT', path, {'action': 'select'})
         return offer, path + '/ship', body['itemsKp']
 
     def receipt(self, delivery, quantity):
-        return self.api('foreman', 'PUT', '/supply-deliveries/%s/receive' % delivery['id'],
+        return confirm_test_receipt(self, 'foreman', delivery['id'],
                         {'receivedQuantity': quantity, 'qualityStatus': 'Принято', 'receivedBy': 'Local test'})
 
     def test_partial_receipt_remainder_and_replays_preserve_every_row(self):
         offer, path, _ = self.approved()
-        body = dict(requestId=str(uuid4()), shippedQuantity=0.6, waybillNumber='BATCH-1')
+        body = dict(requestId=str(uuid4()), shippedQuantity=0.6, waybillNumber='BATCH-1', waybillDate='2026-09-16')
         first = self.api('supplier', 'POST', path, body)
         self.assertFalse(first['documentParties']['reviewRequired'])
         self.assertEqual(first['documentParties']['requestId'], offer['requestId'])
@@ -40,7 +42,7 @@ class ShipmentPostgresTests(unittest.TestCase):
         self.assertEqual(self.sql('SELECT status FROM supply_requests WHERE id=%s', (offer['requestId'],)), [('Частично поставлено',)])
         self.assertEqual(self.api('supplier', 'POST', path, body)['id'], first['id'])
         self.api('supplier', 'POST', path, dict(body, shippedQuantity=0.5), expected=409)
-        second = self.api('supplier', 'POST', path, dict(requestId=str(uuid4()), shippedQuantity=0.4))
+        second = self.api('supplier', 'POST', path, dict(requestId=str(uuid4()), shippedQuantity=0.4, waybillNumber='BATCH-2', waybillDate='2026-09-16'))
         self.assertNotEqual(first['id'], second['id'])
         self.receipt(second, 0.4)
         self.assertEqual(self.receipt(first, 0.6)['invoiceId'], received['invoiceId'])
@@ -67,13 +69,14 @@ class ShipmentPostgresTests(unittest.TestCase):
 
     def test_multiline_zero_skip_retry_race_and_receive_ship_race(self):
         offer, path, items = self.approved(multi=True)
-        body = dict(requestId=str(uuid4()), shippedItems=[dict(items[0], shippedQuantity=1), dict(items[1], shippedQuantity=0)])
+        body = dict(requestId=str(uuid4()), waybillNumber=str(uuid4()), waybillDate='2026-09-16', shippedItems=[dict(items[0], shippedQuantity=1), dict(items[1], shippedQuantity=0)])
         with ThreadPoolExecutor(max_workers=2) as pool:
             first, replay = list(pool.map(lambda _: api_after_busy(self, 'supplier', 'POST', path, body), range(2)))
         self.assertEqual(first['id'], replay['id'])
+        self._receipt_payloads = {first['id']: physical_receipt_payload(self, 'foreman', first['id'], 1)}
         with ThreadPoolExecutor(max_workers=2) as pool:
             receiving = pool.submit(self.receipt, first, 1)
-            shipping = pool.submit(api_after_busy, self, 'supplier', 'POST', path, dict(requestId=str(uuid4()), shippedItems=[dict(items[1], shippedQuantity=1)]))
+            shipping = pool.submit(api_after_busy, self, 'supplier', 'POST', path, dict(requestId=str(uuid4()), waybillNumber=str(uuid4()), waybillDate='2026-09-16', shippedItems=[dict(items[1], shippedQuantity=1)]))
             receiving.result(timeout=20)
             second = shipping.result(timeout=20)
         self.receipt(second, 1)
@@ -85,7 +88,7 @@ class ShipmentPostgresTests(unittest.TestCase):
                            dict(invoiceNumber='POSTPAY-TEST', amount=100, vatAmount=0))
         invoice_path = '/supplier-invoices/%s' % invoice['id']
         delivery = self.api('supplier', 'POST', ship_path,
-                            dict(requestId=str(uuid4()), shippedQuantity=1))
+                            dict(requestId=str(uuid4()), shippedQuantity=1, waybillNumber=str(uuid4()), waybillDate='2026-09-16'))
         self.receipt(delivery, 1)
         self.assertEqual(self.sql('SELECT paid_amount FROM supplier_invoices WHERE id=%s',
                                   (invoice['id'],)), [(0,)])

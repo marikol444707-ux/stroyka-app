@@ -88,7 +88,10 @@ export default function ScannedInvoiceFormModal({
   };
 
   const save = async () => {
-    if(!newInvoice.number && !inventoryOnly) return alert('Укажите номер накладной');
+    if(newInvoice.physicalReceiptConfirmed !== true) return alert('Подтвердите фактическое прибытие и количество');
+    if(!(newInvoice.originalUrls || newInvoice.photos || []).length) return alert('Сначала загрузите оригинал документа');
+    if(!String(newInvoice.number || '').trim()) return alert('Укажите номер оригинала документа');
+    if(!newInvoice.date) return alert('Укажите дату оригинала документа');
     if(!newInvoice.location) return alert('Выберите склад');
     const validItems=(newInvoice.items||[]).filter(i=>i.name&&Number(i.quantity)>0);
     if(!validItems.length) return alert('Добавьте хотя бы одну позицию');
@@ -216,7 +219,7 @@ export default function ScannedInvoiceFormModal({
             {scanWarnings.map((warning, index) => <div key={index}>{warning}</div>)}
           </div>
         )}
-        <input placeholder={inventoryOnly ? 'Номер документа (необязательно)' : 'Номер документа *'} value={newInvoice.number||''} onChange={e=>patchInvoice({number:e.target.value})} style={inputStyle}/>
+        <input placeholder='Номер документа *' value={newInvoice.number||''} onChange={e=>patchInvoice({number:e.target.value})} style={inputStyle}/>
         {!inventoryOnly && <input placeholder='Поставщик' value={newInvoice.supplier||newInvoice.newSupplierName||''} onChange={e=>patchInvoice({supplierId:'',supplier:e.target.value,newSupplierName:e.target.value,isNewSupplier:true,scanRecognition:{...scanRecognition,supplierId:0,supplierName:e.target.value}})} style={inputStyle}/>}
         <select value={newInvoice.location||''} onChange={e=>updateLocation(e.target.value)} style={inputStyle}>
           <option value=''>Выберите склад *</option>
@@ -235,7 +238,7 @@ export default function ScannedInvoiceFormModal({
           </label>
         )}
         <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr',gap:'8px'}}>
-          <input type='date' value={newInvoice.date||new Date().toISOString().split('T')[0]} onChange={e=>patchInvoice({date:e.target.value})} style={inputStyle}/>
+          <input type='date' value={newInvoice.date||''} onChange={e=>patchInvoice({date:e.target.value})} style={inputStyle}/>
           <select value={newInvoice.vat||'Без НДС'} disabled={inventoryOnly} onChange={e=>patchInvoice({vat:e.target.value})} style={{...inputStyle,opacity:inventoryOnly?0.65:1}}>
             <option value='Без НДС'>Без НДС</option>
             <option value='С НДС 20%'>С НДС 20%</option>
@@ -277,13 +280,14 @@ export default function ScannedInvoiceFormModal({
             {displayVat > 0 && <div>НДС: {displayVat.toLocaleString()} ₽</div>}
           </div>
         )}
-        <div className='mobile-actions' style={{display:'flex',gap:'8px',marginTop:'12px',flexWrap:isMobile?'wrap':'nowrap'}}>
+        <label style={{display:'block', marginTop:'12px'}}><input type="checkbox" checked={newInvoice.physicalReceiptConfirmed === true} onChange={e => patchInvoice({physicalReceiptConfirmed:e.target.checked}, false)}/>Подтверждаю фактическое прибытие, проверенные количество и состояние по прикреплённому оригиналу.</label>
+        <div className='mobile-actions'  style={{display:'flex',gap:'8px',marginTop:'12px',flexWrap:isMobile?'wrap':'nowrap'}}>
           {canRememberTemplate && (
             <button onClick={rememberInvoiceTemplate} disabled={rememberingTemplate} style={{...btnG,flex:isMobile?'1 1 100%':undefined,justifyContent:'center',borderColor:C.accent,color:C.accent,opacity:rememberingTemplate?0.7:1}}>
               {rememberingTemplate ? 'Сохраняю...' : '🧠 Запомнить исправления'}
             </button>
           )}
-          <button onClick={save} style={{...btnO,flex:isMobile?'1 1 100%':undefined,justifyContent:'center'}}><Check size={14}/>Сохранить</button>
+          <button disabled={newInvoice.physicalReceiptConfirmed !== true || !(newInvoice.originalUrls || newInvoice.photos || []).length} onClick={save} style={{...btnO,flex:isMobile?'1 1 100%':undefined,justifyContent:'center'}}><Check size={14}/>Сохранить</button>
           <button onClick={()=>setShowScannedInvoiceForm(false)} style={{...btnG,flex:isMobile?'1 1 100%':undefined,justifyContent:'center'}}><X size={14}/>Отмена</button>
         </div>
       </div>

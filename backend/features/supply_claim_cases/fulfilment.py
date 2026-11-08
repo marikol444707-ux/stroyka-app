@@ -1,5 +1,7 @@
 """Physical claim actions. No new invoice, payment or usable stock on shipment."""
 import os
+import hashlib
+import json
 from decimal import Decimal, InvalidOperation
 
 from fastapi import HTTPException
@@ -57,17 +59,31 @@ def execute(cur, claim, actor, data):
         raise HTTPException(409, 'Для действия требуется поддерживаемая приёмка по счёту')
     delivery_id = None
     if data['action']=='replace':
+        from ..warehouse_receipts.matching import _date
+        number = data.get('waybillNumber')
+        day = _date(data.get('waybillDate'))
+        if not isinstance(number, str) or not number.strip() or len(number) > 100 or not day:
+            raise HTTPException(400, 'Укажите номер и действительную дату фактической накладной замены. Черновик не проведён')
         # Copy only immutable source identity. Receipt/quality/claim fields start empty.
         cur.execute('''INSERT INTO supply_deliveries
             (company_id,request_id,offer_id,supplier_id,supplier_name,project,work_package,
              material_name,unit,planned_quantity,shipped_quantity,price_per_unit,total_price,
-             contract_version_id,source_supplier_invoice_id,status,shipped_at,waybill_number)
+             contract_version_id,source_supplier_invoice_id,status,shipped_at,waybill_number,waybill_date)
             SELECT company_id,request_id,offer_id,supplier_id,supplier_name,project,work_package,
              material_name,unit,planned_quantity,%s,price_per_unit,round(%s*price_per_unit,2),
-             contract_version_id,source_supplier_invoice_id,'В пути',now(),%s
+             contract_version_id,source_supplier_invoice_id,'В пути',now(),%s,%s
             FROM supply_deliveries WHERE id=%s RETURNING id''',
-            (qty,qty,'Замена по претензии №'+str(claim['id']),claim['deliveryId']))
+            (qty,qty,number.strip(),day,claim['deliveryId']))
         delivery_id = cur.fetchone()['id']
+        # The claim operation owns retry identity; the normal receipt resolver
+        # needs the same persisted shipment grouping as ordinary shipments.
+        fingerprint = hashlib.sha256(json.dumps(
+            {'claimId': claim['id'], 'data': data}, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        cur.execute('''INSERT INTO supplier_shipment_batches
+            (offer_id,company_id,request_key,payload_hash,delivery_ids,created_by_user_id)
+            VALUES(%s,%s,%s,%s,%s,%s)''',
+            (source['offer_id'],claim['companyId'],'claim-replacement:'+str(data['requestId']),
+             fingerprint,[delivery_id],actor['id']))
     return dict(quantity=str(qty),replacementDeliveryId=delivery_id)
 
 

@@ -38,10 +38,10 @@ class ReceiptLockBoundaryTests(unittest.TestCase):
                          HTTPException=HTTPException,
                          _payment_ledger_available=lambda cursor: False,
                          _ensure_supply_runtime_columns=schema,
-                         _ensure_invoice_document_link_columns=schema)
+                         _ensure_invoice_document_link_columns=schema, _lock_legacy_supply_writer=lambda cur: None)
         route = load_route(route_name, namespace)
         with self.assertRaises(HTTPException):
-            if route_name == 'receive_supply_delivery':
+            if route_name == '_receive_supply_delivery_record':
                 route(1, {}, _current_user={'role': 'директор'})
             else:
                 route({}, current_user={'role': 'директор'})
@@ -50,20 +50,26 @@ class ReceiptLockBoundaryTests(unittest.TestCase):
         return events
 
     def test_lock_precedes_receipt_schema_preparation(self):
-        for name in ('receive_supply_delivery', '_create_warehouse_invoice_record'):
+        for name in ('_receive_supply_delivery_record', '_create_warehouse_invoice_record'):
             with self.subTest(route=name):
                 self.assertEqual(self.invoke(name), ['lock', 'schema'])
 
     def test_acceptance_keeps_lock_after_schema_preparation(self):
-        self.assertEqual(self.invoke('receive_supply_delivery', continue_schema=True),
+        self.assertEqual(self.invoke('_receive_supply_delivery_record', continue_schema=True),
                          ['lock', 'schema', 'delivery'])
 
     def test_schema_absent_keeps_legacy_behavior(self):
-        for name in ('receive_supply_delivery', '_create_warehouse_invoice_record'):
+        for name in ('_receive_supply_delivery_record', '_create_warehouse_invoice_record'):
             with self.subTest(route=name):
                 self.assertEqual(self.invoke(name, present=False), ['schema'])
 
     def test_lock_failure_rolls_back_before_schema_changes(self):
-        for name in ('receive_supply_delivery', '_create_warehouse_invoice_record'):
+        for name in ('_receive_supply_delivery_record', '_create_warehouse_invoice_record'):
             with self.subTest(route=name):
                 self.assertEqual(self.invoke(name, fail_lock=True), ['lock'])
+
+    def test_old_direct_endpoint_cannot_bypass_document_review(self):
+        route = load_route('receive_supply_delivery', {'HTTPException':HTTPException})
+        with self.assertRaises(HTTPException) as error:
+            route(1, {}, _current_user={'role':'директор'})
+        self.assertEqual(error.exception.status_code,409)

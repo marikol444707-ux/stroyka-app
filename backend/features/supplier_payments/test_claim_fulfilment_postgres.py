@@ -1,4 +1,5 @@
 """Real HTTP rejected receipt -> return/replacement -> owned acceptance, isolated DB."""
+from backend.features.warehouse_receipts.test_http_support import confirm_test_receipt
 import os
 import unittest
 from unittest.mock import patch
@@ -44,7 +45,7 @@ class ClaimFulfilmentTests(unittest.TestCase):
 
     def problem(self,quantity=1,quality='Брак'):
         did=self.ship()
-        result=self.api('foreman','PUT',f'/supply-deliveries/{did}/receive',
+        result=confirm_test_receipt(self,'foreman',did,
                         dict(receivedQuantity=quantity,qualityStatus=quality))
         return result['claimId']
 
@@ -55,7 +56,20 @@ class ClaimFulfilmentTests(unittest.TestCase):
             body=dict(action=action,quantity=str(quantity),text='Synthetic physical claim action',
                 expectedVersion=card['claim']['version'],expectedCompanyId=2,
                 expectedActorId=self.fixture['users'][actor]['id'],requestId=str(uuid4()))
+            if action == 'replace':
+                body.update(waybillNumber='REPLACEMENT-'+str(uuid4()),waybillDate='2026-09-16')
         return self.api(actor,'POST',path,body,expected=expected),body
+
+    def test_replacement_requires_actual_waybill_identity_without_creating_delivery(self):
+        claim = self.problem()
+        card = self.api('supplier','GET',f'/supply-claims/{claim}/case')
+        body = dict(action='replace',quantity='1',text='Synthetic replacement without waybill',
+            expectedVersion=card['claim']['version'],expectedCompanyId=2,
+            expectedActorId=self.fixture['users']['supplier']['id'],requestId=str(uuid4()))
+        tables = ('supply_deliveries','supply_claim_fulfilments','supply_claim_events','supply_claims')
+        before = [self.sql('SELECT to_jsonb(t) FROM '+table+' t ORDER BY id') for table in tables]
+        self.action(claim,'replace',1,'supplier',body=body,expected=400)
+        self.assertEqual([self.sql('SELECT to_jsonb(t) FROM '+table+' t ORDER BY id') for table in tables],before)
 
     def test_rejected_return_then_replacement_and_original_balance_no_new_debt(self):
         claim=self.problem()
@@ -86,7 +100,7 @@ class ClaimFulfilmentTests(unittest.TestCase):
         claim=self.problem(.5,'Недостача')
         self.action(claim,'return',.5,expected=409)
         replacement,_=self.action(claim,'replace',.5,'supplier')
-        self.api('foreman','PUT',f"/supply-deliveries/{replacement['replacementDeliveryId']}/receive",
+        confirm_test_receipt(self,'foreman',replacement['replacementDeliveryId'],
                  dict(receivedQuantity=.5,qualityStatus='Принято'))
         self.receive(self.ship())
         self.assertEqual(self.sql('SELECT sum(p.amount) FROM supplier_receipt_line_proofs p JOIN supplier_invoice_lines l ON l.id=p.invoice_line_id JOIN supplier_invoice_line_specs s ON s.id=l.spec_id WHERE s.invoice_id=%s',(self.invoice,)),[(200,)])
@@ -159,7 +173,7 @@ class ClaimFulfilmentTests(unittest.TestCase):
     def test_zero_receipt_replacement_and_rejected_replacement_new_claim(self):
         claim=self.problem(0,'Недостача')
         first,_=self.action(claim,'replace',1,'supplier')
-        rejected=self.api('foreman','PUT',f"/supply-deliveries/{first['replacementDeliveryId']}/receive",
+        rejected=confirm_test_receipt(self,'foreman',first['replacementDeliveryId'],
             dict(receivedQuantity=1,qualityStatus='Брак'))
         second,_=self.action(rejected['claimId'],'replace',1,'supplier')
         self.receive(second['replacementDeliveryId'])

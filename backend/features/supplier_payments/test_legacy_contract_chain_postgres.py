@@ -3,6 +3,7 @@
 The blocking test preserves the current safe boundary, not a completed workflow.
 All originals, invoices, stock and cash in these tests are disposable fixtures.
 """
+from backend.features.warehouse_receipts.test_http_support import confirm_test_receipt
 import os, unittest
 from unittest.mock import patch
 from uuid import uuid4
@@ -38,8 +39,8 @@ class LegacyContractChainTests(unittest.TestCase):
         self.api('director','POST',f'/supplier-invoices/{self.invoice}/legacy-contract-binding',dict(requestId=str(uuid4()),contractVersionId=self.contract_id,expectedAmount='200.00',reason='Synthetic legacy review',confirmed=True))
         self.api('director','PUT',f'/supplier-invoices/{self.invoice}',{'status':'Утверждён'})
     def test_legacy_postpayment_after_waybill_review(self):
-        delivery=self.api('supplier','POST',self.path+'/ship',dict(requestId=str(uuid4()),shippedQuantity=2,waybillNumber='LEGACY-ALL'))['id']
-        accepted=self.api('foreman','PUT',f'/supply-deliveries/{delivery}/receive',dict(receivedQuantity=2,qualityStatus='Принято',receivedBy='Synthetic receiver'))
+        delivery=self.api('supplier','POST',self.path+'/ship',dict(requestId=str(uuid4()),shippedQuantity=2,waybillNumber='LEGACY-ALL',waybillDate='2026-09-16'))['id']
+        accepted=confirm_test_receipt(self,'foreman',delivery,dict(receivedQuantity=2,qualityStatus='Принято',receivedBy='Synthetic receiver'))
         self.assertTrue(accepted['invoiceId'])
         token=self.main.create_auth_token(self.fixture['users']['accountant'],two_factor_passed=True)
         upload=self.client.post('/upload-photo',files={'file':('waybill.txt',b'Synthetic waybill: 2 units, 200 total.','text/plain')},data={'context':'warehouse-invoice'},headers={'Authorization':'Bearer '+token,'X-Company-Id':'2','X-Company-Mode':'company'})

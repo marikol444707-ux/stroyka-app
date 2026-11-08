@@ -23,6 +23,7 @@ function ClaimCard({ claim, ...scope }) {
       setDraft(current => batch.commands.some(command => command.path === path
         && command.payload.action === current.action && command.payload.text === current.text.trim()
         && (!['return','replace'].includes(current.action) || command.payload.quantity === current.quantity)
+        && (current.action !== 'replace' || (command.payload.waybillNumber === current.waybillNumber?.trim() && command.payload.waybillDate === current.waybillDate))
         && command.payload.expectedVersion === current.version)
         ? { action: '', text: '', version: null } : current);
     },
@@ -30,6 +31,8 @@ function ClaimCard({ claim, ...scope }) {
   const available = actions.filter(([, capability]) => data?.[capability]);
   const action = available.some(([value]) => value === draft.action) ? draft.action : available[0]?.[0] || '';
   const change = next => setDraft({ ...draft, action, version: data.claim.version, ...next });
+  const receiptOriginals = Array.isArray(data?.claim?.receiptOriginalUrls)
+    ? data.claim.receiptOriginalUrls : [];
   return <section aria-label={`Претензия ${claim.id}`} className="supply-claim-card">
     <h3>Претензия №{claim.id}</h3>
     <WorkSubmissionRecovery {...scope} onRecovered={recovered} />
@@ -41,7 +44,13 @@ function ClaimCard({ claim, ...scope }) {
       <p>{data.claim.supplierName || 'Поставщик'} · {data.claim.project || 'Объект не указан'}</p>
       <p>{data.claim.status}</p>
       <p>{data.claim.description}</p>
-      <SupplyFileLink url={data.claim.photoUrl} fileSrc={url=>scope.API+url}>Скачать фото претензии</SupplyFileLink>
+      {receiptOriginals.length > 0 && <div aria-label="Оригиналы приёмки">
+        {receiptOriginals.map((url, index) => <SupplyFileLink key={url} url={url} fileSrc={value=>scope.API+value}>
+          Оригинал приёмки · страница {index + 1}
+        </SupplyFileLink>)}
+      </div>}
+      {!receiptOriginals.includes(data.claim.photoUrl) &&
+        <SupplyFileLink url={data.claim.photoUrl} fileSrc={url=>scope.API+url}>Скачать фото претензии</SupplyFileLink>}
       <p>Ожидалось: {data.claim.expectedQuantity ?? '—'} · Фактически получено: {data.claim.receivedQuantity ?? '—'} · Недостача: {data.claim.shortageQuantity ?? '—'}</p>
       {data.returnRemaining !== undefined && <p>Осталось вернуть непринятого: {data.returnRemaining} {data.unit}.
         Осталось отгрузить по претензии: {data.replacementRemaining} {data.unit}.</p>}
@@ -58,10 +67,14 @@ function ClaimCard({ claim, ...scope }) {
       </li>)}</ol>
       {available.length > 0 && <form onSubmit={async event => {
         event.preventDefault();
+        if (action === 'replace' && (!draft.waybillNumber?.trim() || !draft.waybillDate)) {
+          setError('Укажите номер и дату фактической накладной замены'); return;
+        }
         const version = draft.version ?? data.claim.version;
         setDraft(current => ({ ...current, action, version }));
         await submit(path, { action, text: draft.text.trim(), expectedVersion: version,
-          ...(['return','replace'].includes(action) ? { quantity: draft.quantity || '' } : {}) });
+          ...(['return','replace'].includes(action) ? { quantity: draft.quantity || '' } : {}),
+          ...(action === 'replace' ? { waybillNumber:draft.waybillNumber.trim(),waybillDate:draft.waybillDate } : {}) });
       }}>
         <p>Сообщение увидят участники претензии, включая поставщика.</p>
         <fieldset disabled={busy}>
@@ -74,6 +87,10 @@ function ClaimCard({ claim, ...scope }) {
               value={draft.quantity || ''} onChange={event => change({ quantity: event.target.value })} /></label>
             <p>{action==='return' ? 'Подтвердите фактическую передачу непринятого товара поставщику. Доступный склад и платежи не меняются.'
               : 'Будет создана поставка замены по исходному счёту. Материал поступит на склад после приёмки.'}</p>
+          </>}
+          {action === 'replace' && <>
+            <label>Номер накладной замены<input required maxLength={100} value={draft.waybillNumber || ''} onChange={event => change({waybillNumber:event.target.value})}/></label>
+            <label>Дата накладной замены<input required type="date" value={draft.waybillDate || ''} onChange={event => change({waybillDate:event.target.value})}/></label>
           </>}
           <label>Сообщение<textarea required maxLength={4000} value={draft.text}
             onChange={event => change({ text: event.target.value })} /></label>

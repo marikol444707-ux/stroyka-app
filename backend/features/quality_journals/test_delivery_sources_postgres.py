@@ -1,4 +1,5 @@
 """Exact automatic-receipt source owners, on an explicit isolated database."""
+from backend.features.warehouse_receipts.test_http_support import confirm_test_receipt, physical_receipt_payload
 import os
 from unittest.mock import patch
 from fastapi import HTTPException
@@ -14,8 +15,14 @@ class DeliverySourcesPostgresTests(support.OwnerStockPostgresTests):
         flag.start()
         cls.addClassCleanup(flag.stop)
 
+    def prepare_supplier_delivery(self):
+        self.sql("INSERT INTO company_requisites(company_id,full_name,inn) SELECT 2,'Synthetic buyer','7702222222' WHERE NOT EXISTS (SELECT 1 FROM company_requisites WHERE company_id=2)")
+        delivery, invoice = super().prepare_supplier_delivery()
+        self._receipt_payloads = {delivery: physical_receipt_payload(self, 'director', delivery, 2)}
+        return delivery, invoice
+
     def receive(self, delivery, expected=200, **overrides):
-        return self.api('director', 'PUT', f'/supply-deliveries/{delivery}/receive',
+        return confirm_test_receipt(self, 'director', delivery,
             {**dict(companyId=2, receivedQuantity=2, qualityStatus='Принято'), **overrides}, expected=expected)
 
     def test_receipt_sources_share_exact_owner_and_replay_is_stable(self):

@@ -8,6 +8,7 @@ from . import test_unpaid_receipts_postgres as unpaid
 from . import test_settlements_postgres as settlements
 from . import test_invoice_line_creation_postgres as invoices
 from .test_cancellations_postgres import migration
+from ..warehouse_receipts.test_http_support import confirm_test_receipt, upload_receipt_document
 
 
 @unittest.skipUnless(os.getenv('SUPPLY_CHAIN_RUN_POSTGRES')=='1','isolated PostgreSQL opt-in')
@@ -62,7 +63,7 @@ class ReceiptVatTests(unittest.TestCase):
 
     def test_rejected_vat_goods_do_not_consume_accepted_line_tax(self):
         did=self.ship()
-        result=self.api('foreman','PUT',f'/supply-deliveries/{did}/receive',dict(receivedQuantity=1,qualityStatus='Брак'))
+        result=confirm_test_receipt(self, 'foreman', did, dict(receivedQuantity=1,qualityStatus='Брак'))
         self.assertEqual(self.sql('SELECT total_base,total_vat,total_with_vat FROM warehouse_invoices WHERE id=%s',(result['invoiceId'],)),[(83,17,100)])
         self.assertEqual(self.sql('SELECT p.receipt_relation_id FROM supplier_receipt_line_proofs p JOIN supplier_payment_receipt_relations r ON r.id=p.receipt_relation_id WHERE r.warehouse_invoice_id=%s',(result['invoiceId'],)),[])
 
@@ -104,9 +105,22 @@ class ReceiptVatTests(unittest.TestCase):
         self.invoice=self.create(payload)['id']
         self.api('director','PUT',f'/supplier-invoices/{self.invoice}',{'status':'Утверждён'})
         result=self.api('supplier','POST',self.path+'/ship',dict(requestId=str(uuid4()),
+            waybillNumber='MIXED-'+uuid4().hex,waybillDate='2026-09-28',
             shippedItems=[{**first,'shippedQuantity':'1'},{**second,'shippedQuantity':'1'}]))
-        for delivery in result['deliveries']:
-            self.receive(delivery['id'])
+        ids = {row['id'] for row in result['deliveries']}
+        rows = [row for row in self.api('foreman','GET','/supply-deliveries') if row['id'] in ids]
+        self.assertEqual(len(rows), 2)
+        parties = rows[0]['documentParties']
+        document = dict(documentType='waybill', waybillNumber=rows[0]['waybillNumber'],
+            waybillDate=rows[0]['waybillDate'], supplierInn=parties['supplier']['inn'],
+            buyerInn=parties['buyer']['inn'], lines=[dict(materialName=r['materialName'],
+                unit=r['unit'], quantity=r['shippedQuantity']) for r in rows])
+        original = upload_receipt_document(self, 'foreman', 2, self.fixture['project'], document)
+        receipt_payload = dict(companyId=2, project=self.fixture['project'], document=document,
+            originalUrls=[original], physicalReceiptConfirmed=True,
+            actualLines=[dict(deliveryId=r['id'], receivedQuantity=1, qualityStatus='Принято') for r in rows])
+        self.assertEqual(self.api('foreman','POST','/warehouse-receipts/resolve',receipt_payload)['status'], 'match')
+        self.assertEqual(len(self.api('foreman','POST','/warehouse-receipts/confirm',receipt_payload)['receipts']), 2)
         self.assertEqual(self.sql('''SELECT l.material_name,p.amount,p.vat_amount FROM supplier_receipt_line_proofs p
             JOIN supplier_invoice_lines l ON l.id=p.invoice_line_id JOIN supplier_invoice_line_specs s ON s.id=l.spec_id
             WHERE s.invoice_id=%s ORDER BY l.line_no''',(self.invoice,)),[(first['materialName'],100,17),(second['materialName'],100,0)])

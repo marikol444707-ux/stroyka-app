@@ -1,4 +1,8 @@
 """Real-auth delivery receipt must not repair or mutate ledger-managed documents."""
+from backend.features.warehouse_receipts.test_http_support import confirm_test_receipt, physical_receipt_payload
+from backend.features.supplier_access.offer_party_snapshot import build_offer_party_snapshot
+from backend.features.supplier_access.rfq_requester_snapshot import build_rfq_requester_snapshot
+from psycopg2.extras import Json
 import os
 import unittest
 from uuid import uuid4
@@ -45,6 +49,21 @@ class DeliveryPaymentGuardTests(unittest.TestCase):
             VALUES(2,%s,%s,%s,%s,'Основная',%s,2,2,'шт',100,200,'Отгружено') RETURNING id''',
             (self.request_id, self.offer, f['supplierId'], self.project, f['materialName']))[0][0]
 
+        requester = build_rfq_requester_snapshot(request_id=self.request_id, company_id=2,
+            project_id=project_id, project_name=self.project, delivery_address='Synthetic address',
+            company={'name': 'Synthetic buyer'}, actor=f['users']['director'], frozen_at='2026-10-17T10:00:00Z')
+        parties = build_offer_party_snapshot(offer_id=self.offer, request_id=self.request_id,
+            company_id=2, supplier_id=f['supplierId'], buyer={'fullName': 'Synthetic buyer', 'inn': '7702222222'},
+            supplier={'fullName': 'Synthetic supplier', 'inn': '7701234567'}, actor=f['users']['supplier'],
+            frozen_at='2026-10-17T10:00:00Z')
+        self.sql('UPDATE supply_requests SET requester_snapshot_json=%s WHERE id=%s', (Json(requester), self.request_id))
+        self.sql('UPDATE supplier_offers SET party_snapshot_json=%s WHERE id=%s', (Json(parties), self.offer))
+        waybill = uuid4().hex
+        self.sql("UPDATE supply_deliveries SET waybill_number=%s,waybill_date='2026-10-17' WHERE id=%s", (waybill,self.delivery))
+        self.sql("INSERT INTO supplier_shipment_batches(company_id,offer_id,request_key,payload_hash,delivery_ids) VALUES(2,%s,%s,%s,%s)",
+            (self.offer,waybill,'a'*64,[self.delivery]))
+        self._receipt_payloads = {self.delivery: physical_receipt_payload(self, 'director', self.delivery, 2)}
+
     def register_invoice(self):
         self.sql('''INSERT INTO supplier_payment_documents
             (company_id,document_kind,document_id,payer_company_id,supplier_id,project_name,work_package,amount,opening_paid)
@@ -58,7 +77,7 @@ class DeliveryPaymentGuardTests(unittest.TestCase):
             FROM warehouse_invoices WHERE id=%s''', (warehouse,))
 
     def receive(self, *, expected=200, actor='director'):
-        return self.api(actor, 'PUT', f'/supply-deliveries/{self.delivery}/receive',
+        return confirm_test_receipt(self, actor, self.delivery,
                         {'receivedQuantity': 2, 'qualityStatus': 'Принято', 'receivedBy': 'Synthetic director'},
                         expected=expected)
 

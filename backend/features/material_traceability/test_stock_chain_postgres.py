@@ -5,6 +5,7 @@ estimate mocks. SQL triggers below only pause a transaction at a known boundary;
 the production handlers perform every business mutation. Each run needs a NEW DB.
 The shared fixture enforces statement_timeout=15s and lock_timeout=5s.
 """
+from backend.features.warehouse_receipts.test_http_support import physical_receipt_payload, inventory_receipt_payload
 from concurrent.futures import ThreadPoolExecutor
 import json
 import os
@@ -85,10 +86,10 @@ class StockChainPostgresTests(unittest.TestCase):
         return [invoices, self.sql('SELECT * FROM project_payments ORDER BY id')]
 
     def receipt_payload(self, quantity=2):
-        return dict(companyId=2, location='Основной склад', warehouseTarget='main',
+        return inventory_receipt_payload(self, 'director', dict(companyId=2, location='Основной склад', warehouseTarget='main',
             inventoryOnly=True, number='CHAIN-'+uuid4().hex, date='2026-09-16',
             items=[dict(name=self.f['materialName'], materialName=self.f['materialName'],
-                        unit='шт', quantity=quantity, price=100, workPackage='Основная')])
+                        unit='шт', quantity=quantity, price=100, workPackage='Основная')]))
 
     def prepare_lot(self):
         self.api('director', 'POST', '/warehouse-invoices', self.receipt_payload())
@@ -283,6 +284,7 @@ class StockChainPostgresTests(unittest.TestCase):
 
     def prepare_supplier_delivery(self):
         """Create the actual addressed request, offer, invoice and shipment via HTTP."""
+        self.sql("INSERT INTO company_requisites(company_id,full_name,inn) SELECT 2,'Synthetic buyer','7702222222' WHERE NOT EXISTS (SELECT 1 FROM company_requisites WHERE company_id=2)")
         item = dict(materialName=self.f['materialName'], quantity=2, unit='шт', workPackage='Основная')
         rid = self.api('director', 'POST', '/supply-requests', dict(companyId=2,
             project=self.f['project'], workPackage='Основная', items=[item]))['id']
@@ -312,14 +314,14 @@ class StockChainPostgresTests(unittest.TestCase):
         links = dict(self.sql('SELECT id,warehouse_invoice_id FROM supplier_invoices ORDER BY id'))
         self.assertIsNone(links[supplier_invoice_id])
         command = self.distribution(lot)
-        path = '/supply-deliveries/'+str(delivery_id)+'/receive'
-        payload = dict(companyId=2, receivedQuantity=2, qualityStatus='Принято', receivedBy='Synthetic director')
-        responses = self.overlap_distribution(command, 'PUT', path, payload)
+        path = '/warehouse-receipts/confirm'
+        payload = physical_receipt_payload(self, 'director', delivery_id, 2)
+        responses = self.overlap_distribution(command, 'POST', path, payload)
         self.assertEqual([r.status_code for r in responses], [200,200],
                          [(r.status_code,r.text) for r in responses])
         self.assertEqual(self.stocks(), (0,4))
         self.assertEqual(self.finances(allow_receipt_link=True), finances)
-        invoice_id = responses[1].json()['invoiceId']
+        invoice_id = responses[1].json()['receipts'][0]['invoiceId']
         self.assertTrue(invoice_id)
         links[supplier_invoice_id] = invoice_id
         self.assertEqual(dict(self.sql('SELECT id,warehouse_invoice_id FROM supplier_invoices ORDER BY id')), links)
@@ -327,9 +329,9 @@ class StockChainPostgresTests(unittest.TestCase):
                                   (delivery_id,)), [(invoice_id,supplier_invoice_id)])
         before = [self.sql('SELECT * FROM '+table+' ORDER BY id') for table in
                   ('materials', 'warehouse_main', 'warehouse_history', 'warehouse_invoices', 'supply_deliveries')]
-        replay = self.api('director', 'PUT', path, payload)
+        replay = self.api('director', 'POST', path, payload)
         self.assertTrue(replay['alreadyReceived'])
-        self.assertEqual(replay['invoiceId'], invoice_id)
+        self.assertEqual(replay['warehouseInvoiceIds'][0], invoice_id)
         self.assertEqual([self.sql('SELECT * FROM '+table+' ORDER BY id') for table in
                   ('materials', 'warehouse_main', 'warehouse_history', 'warehouse_invoices', 'supply_deliveries')], before)
         self.assertEqual(self.finances(allow_receipt_link=True), finances)
@@ -419,20 +421,20 @@ class StockChainPostgresTests(unittest.TestCase):
 
     def test_supplier_acceptance_late_stock_failure_rolls_back_and_retry_is_single(self):
         delivery_id, supplier_invoice_id = self.prepare_supplier_delivery()
-        path = '/supply-deliveries/'+str(delivery_id)+'/receive'
-        payload = dict(companyId=2, receivedQuantity=2, qualityStatus='Принято', receivedBy='Synthetic director')
+        path = '/warehouse-receipts/confirm'
+        payload = physical_receipt_payload(self, 'director', delivery_id, 2)
         finances = self.finances(allow_receipt_link=True)
-        self.inject_failure('materials', 'PUT', path, payload)
+        self.inject_failure('materials', 'POST', path, payload)
         self.assertEqual(self.stocks(), (0,0))
         self.assertEqual(self.sql('SELECT received_at FROM supply_deliveries WHERE id=%s', (delivery_id,)), [(None,)])
-        accepted = self.api('director', 'PUT', path, payload)
+        accepted = self.api('director', 'POST', path, payload)['receipts'][0]
         self.assertEqual(self.stocks(), (0,2))
         self.assertEqual(self.sql('SELECT id,supplier_invoice_id FROM warehouse_invoices WHERE supply_delivery_id=%s',
                                   (delivery_id,)), [(accepted['invoiceId'],supplier_invoice_id)])
         after = self.chain_snapshot()
-        replay = self.api('director', 'PUT', path, payload)
+        replay = self.api('director', 'POST', path, payload)
         self.assertTrue(replay['alreadyReceived'])
-        self.assertEqual(replay['invoiceId'], accepted['invoiceId'])
+        self.assertEqual(replay['warehouseInvoiceIds'][0], accepted['invoiceId'])
         self.assertEqual(self.chain_snapshot(), after)
         self.assertEqual(self.finances(allow_receipt_link=True), finances)
         self.assertEqual(self.sql('SELECT warehouse_invoice_id FROM supplier_invoices WHERE id=%s',

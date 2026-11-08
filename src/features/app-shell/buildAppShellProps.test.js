@@ -13,6 +13,7 @@ describe('buildAppShellProps work assignment modal', () => {
     const props = buildAppShellProps({ companyContext, ui: {} });
 
     expect(props.appBackofficePagesProps.state.companyContext).toBe(companyContext);
+    expect(props.appWorkflowModalsProps.state.companyContext).toBe(companyContext);
   });
 
   test('forwards the selected company context to secondary pages', () => {
