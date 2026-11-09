@@ -948,7 +948,7 @@ class WarehouseAnomalyRuntimePreviewCompositionTests(unittest.TestCase):
             ),
             # Reviewed through 5301551: physical receipt originals/guards; preview is unchanged.
             root / "backend/main.py": (
-                "47a34e47ad9fc0ac6aa4edafc072bf8b7b770a0edee5ce9c09013ddc14e78934"
+                "d8a664a1324d6682710a67a859757a27ade178837bdd896162c1f29b58ca90e4"
             ),
         }
         self.assertEqual({

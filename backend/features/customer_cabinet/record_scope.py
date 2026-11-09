@@ -6,7 +6,7 @@ from fastapi import HTTPException
 
 from ..project_access.service import require_project_write_actor, resolve_project_parent
 
-TABLES = frozenset(('prescriptions', 'warranty_defects', 'project_documents', 'project_letters'))
+TABLES = frozenset(('prescriptions', 'warranty_defects', 'project_documents', 'project_letters', 'supervisor_acts', 'inspection_orders'))
 
 
 def positive_id(value):

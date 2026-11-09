@@ -1,7 +1,8 @@
 import { POSITION_INSTRUCTIONS, TB_INSTRUCTIONS } from '../../constants/documentTemplates';
 import { EXPENSE_CATEGORIES } from '../../constants/catalogs';
 import { companyTitle, formatPrescriptionDate } from '../printDocumentShared';
-import { selectQualityJournalRows } from '../qualityJournalScope';
+import { selectRegulatoryRecords } from '../regulatoryRecordScope';
+import { resolveQualityJournalProject, selectQualityJournalRows } from '../qualityJournalScope';
 
 export const buildKS14DocContent = (project = {}, context = {}) => {
   const { companyRequisites = {}, companyName = '' } = context;
@@ -311,7 +312,7 @@ export const buildVATBookDocContent = (periodFrom, periodTo, context = {}) => {
   return html;
 };
 
-export const buildSupervisorMonthlyReportDocContent = (projectName, periodFrom, periodTo, context = {}) => {
+export const buildSupervisorMonthlyReportDocContent = (projectOrName, periodFrom, periodTo, context = {}) => {
   const {
     companyRequisites = {},
     companyName = '',
@@ -323,10 +324,11 @@ export const buildSupervisorMonthlyReportDocContent = (projectName, periodFrom, 
   } = context;
   const req = companyRequisites || {};
   const orgName = req.fullName || req.shortName || companyName || '_____';
-  const project = projects.find((item) => item.name === projectName) || {};
+  const project = resolveQualityJournalProject(projectOrName, projects);
+  const projectName = project.name;
   const inRange = (date) => !date ? false : (!periodFrom || date >= periodFrom) && (!periodTo || date <= periodTo);
   const acts = hiddenActs.filter((act) => act.projectName === projectName && inRange(act.workDate));
-  const supActs = supervisorActs.filter((act) => act.projectName === projectName && inRange(act.date));
+  const supActs = selectRegulatoryRecords(supervisorActs, project).filter(act => inRange(act.date));
   const prescriptions = prescriptionsList.filter((prescription) => (
     prescription.projectName === projectName && prescription.issuedByRole === 'Технадзор' && inRange(prescription.deadline)
   ));

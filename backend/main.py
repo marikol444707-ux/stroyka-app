@@ -25106,13 +25106,10 @@ except ModuleNotFoundError:
 
 
 register_supervisor_acts_module(app, {
-    "get_db": get_db,
-    "require_roles": require_roles,
+    "record_scope": project_record_scope,
+    "get_current_user": get_current_user,
     "read_roles": PROJECT_DOCUMENT_ROLES,
     "write_roles": PROJECT_DOCUMENT_WRITE_ROLES,
-    "visible_project_names": visible_project_names,
-    "require_project_access": require_project_access,
-    "require_row_project_access": require_row_project_access,
 })
 
 @app.get("/tb-journal")
@@ -25217,13 +25214,10 @@ except ModuleNotFoundError:
 
 
 register_inspection_orders_module(app, {
-    "get_db": get_db,
-    "require_roles": require_roles,
+    "record_scope": project_record_scope,
+    "get_current_user": get_current_user,
     "read_roles": PROJECT_DOCUMENT_ROLES,
     "write_roles": PROJECT_DOCUMENT_WRITE_ROLES,
-    "visible_project_names": visible_project_names,
-    "require_project_access": require_project_access,
-    "require_row_project_access": require_row_project_access,
 })
 
 try:

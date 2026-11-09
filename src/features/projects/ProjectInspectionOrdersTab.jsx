@@ -1,4 +1,5 @@
 import React from 'react';
+import { selectRegulatoryRecords, saveRegulatoryRecord } from '../../utils/regulatoryRecordScope';
 
 export default function ProjectInspectionOrdersTab({
   API,
@@ -22,7 +23,7 @@ export default function ProjectInspectionOrdersTab({
   setShowForm,
   showForm,
 }) {
-  const orders = (inspectionOrders || []).filter(order => order.projectName === project.name);
+  const orders = selectRegulatoryRecords(inspectionOrders, project);
   const openCount = orders.filter(order => order.status !== 'Закрыто').length;
   const closedCount = orders.filter(order => order.status === 'Закрыто').length;
 
@@ -37,10 +38,11 @@ export default function ProjectInspectionOrdersTab({
       alert('Опишите замечание');
       return;
     }
-    await fetch(API + '/inspection-orders', {
+    const saved = await saveRegulatoryRecord(API + '/inspection-orders', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        projectId: project.id,
         projectName: project.name,
         body: newInspOrder.body || 'ГСН',
         inspector: newInspOrder.inspector || '',
@@ -51,6 +53,7 @@ export default function ProjectInspectionOrdersTab({
         status: 'Открыто',
       }),
     });
+    if (!saved) return;
     await refreshData();
     setNewInspOrder(null);
     setShowForm(false);
@@ -59,17 +62,19 @@ export default function ProjectInspectionOrdersTab({
   const closeOrder = async (order) => {
     const response = prompt('Опишите как устранили / ответ органу:');
     if (!response) return;
-    await fetch(API + '/inspection-orders/' + order.id, {
+    const saved = await saveRegulatoryRecord(API + '/inspection-orders/' + order.id, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: 'Закрыто', response, responseDate: new Date().toISOString().split('T')[0] }),
     });
+    if (!saved) return;
     await refreshData();
   };
 
   const deleteOrder = async (order) => {
     if (!window.confirm('Удалить замечание?')) return;
-    await fetch(API + '/inspection-orders/' + order.id, { method: 'DELETE' });
+    const saved = await saveRegulatoryRecord(API + '/inspection-orders/' + order.id, { method: 'DELETE' });
+    if (!saved) return;
     await refreshData();
   };
 

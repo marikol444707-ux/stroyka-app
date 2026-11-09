@@ -1,4 +1,5 @@
 import React from 'react';
+import { selectRegulatoryRecords, saveRegulatoryRecord } from '../utils/regulatoryRecordScope';
 import WorkJournalPhotos from './WorkJournalPhotos';
 import { API } from '../api';
 import ProjectHiddenWorksActSignatureModal from './ProjectHiddenWorksActSignatureModal';
@@ -115,7 +116,7 @@ export default function SupervisorCabinetPage(props) {
                     const monthAgo = new Date(today.getTime() - 30 * 24 * 3600 * 1000);
                     showPreview(
                       buildSupervisorMonthlyReport(
-                        myProject.name,
+                        myProject,
                         monthAgo.toISOString().split('T')[0],
                         today.toISOString().split('T')[0]
                       ),
@@ -589,6 +590,7 @@ export default function SupervisorCabinetPage(props) {
                         onChange={async (e) => {
                           if (e.target.files && e.target.files.length > 0) {
                             const csv = await appendPhotos(supervisorActPhoto, e.target.files, {
+                              projectId: myProject.id,
                               projectName: myProject.name,
                               context: 'supervisor-acts',
                             });
@@ -661,10 +663,11 @@ export default function SupervisorCabinetPage(props) {
                           alert('Опишите предмет осмотра');
                           return;
                         }
-                        await fetch(`${API}/supervisor-acts`, {
+                        const saved = await saveRegulatoryRecord(`${API}/supervisor-acts`, {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({
+                            projectId: myProject.id,
                             projectName: myProject.name,
                             actType: newSupervisorAct.actType,
                             description: newSupervisorAct.description,
@@ -676,6 +679,7 @@ export default function SupervisorCabinetPage(props) {
                             date: newSupervisorAct.date || new Date().toISOString().split('T')[0],
                           }),
                         });
+                        if (!saved) return;
                         await refreshData();
                         setNewSupervisorAct(createSupervisorActForm());
                         setSupervisorActPhoto('');
@@ -701,7 +705,7 @@ export default function SupervisorCabinetPage(props) {
                 </div>
               )}
               {(() => {
-                const acts = supervisorActs.filter((act) => act.projectName === myProject.name);
+                const acts = selectRegulatoryRecords(supervisorActs, myProject);
                 if (acts.length === 0) {
                   return (
                     <p style={{ color: C.textMuted, fontSize: '12px' }}>
