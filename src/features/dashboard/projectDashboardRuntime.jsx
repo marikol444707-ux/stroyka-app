@@ -48,7 +48,6 @@ export function createProjectDashboardRuntime({
   ownExpenses,
   piecework,
   projectDocuments,
-  projectFactSpent,
   projectLetters,
   projectMeasurements,
   projectPayments,
@@ -95,7 +94,6 @@ export function createProjectDashboardRuntime({
   const projectRealProgress = (project) => projectRealProgressValue({
     project,
     projectPlanDone,
-    projectFactSpent,
   });
 
   const workExecutionTotal = (work) => workExecutionTotalValue(work);
