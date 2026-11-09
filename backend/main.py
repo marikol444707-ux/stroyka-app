@@ -26386,8 +26386,9 @@ except ModuleNotFoundError:
 
 
 register_document_versions_module(app, {
-    "get_db": get_db,
-    "require_roles": require_roles,
+    "record_scope": project_record_scope,
+    "get_current_user": get_current_user,
+    "package_access_filter": package_access_filter,
     "project_document_roles": PROJECT_DOCUMENT_ROLES,
 })
 

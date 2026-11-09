@@ -261,7 +261,7 @@ class WarehouseAnomalyRuntimeRouteRegistrationTests(unittest.TestCase):
         # estimate/master, supplier registration and physical receipt wiring (5301551); preview is unchanged.
         self.assertEqual(
             hashlib.sha256(main_bytes).hexdigest(),
-            "86b77bbe1b19a5b75c2e75e4ed7e9211dc478c99ade06b53d890d0be2b3083eb",
+            "47a34e47ad9fc0ac6aa4edafc072bf8b7b770a0edee5ce9c09013ddc14e78934",
         )
         self.assertEqual(
             hashlib.sha256(package_bytes).hexdigest(),
