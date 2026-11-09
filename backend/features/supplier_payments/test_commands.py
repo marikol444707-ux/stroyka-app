@@ -27,6 +27,23 @@ class CommandTests(unittest.TestCase):
             with self.subTest(key=key), self.assertRaises(HTTPException):
                 normalize_command({**self.body(), key: value})
 
+    def test_payment_credit_and_refund_accept_one_kopeck_as_text_or_json_number(self):
+        for kind in ('payment', 'credit', 'refund'):
+            for amount in ('0.01', 0.01):
+                with self.subTest(kind=kind, amount=amount):
+                    command = normalize_command({**self.body(), 'kind': kind, 'amount': amount})
+                    self.assertEqual(command['amount'], '0.01')
+                    self.assertEqual(command['kind'], kind)
+
+    def test_payment_credit_and_refund_reject_invalid_amounts(self):
+        for kind in ('payment', 'credit', 'refund'):
+            for amount in (True, False, None, [], {}, '', 'NaN', 'sNaN', 'Infinity',
+                           '-Infinity', '0', '-0.01', '0.001', '1000000000000'):
+                with self.subTest(kind=kind, amount=amount):
+                    with self.assertRaises(HTTPException) as error:
+                        normalize_command({**self.body(), 'kind': kind, 'amount': amount})
+                    self.assertEqual(error.exception.status_code, 422)
+
     def test_reversal_has_no_caller_amount(self):
         body = {key: value for key, value in self.body().items() if key != 'amount'}
         body.update(kind='reversal', reversesId=9)

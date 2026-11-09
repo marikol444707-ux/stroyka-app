@@ -1,6 +1,7 @@
 """Actual HTTP credits/refunds, no production data or money transfers."""
 import os
 import unittest
+from decimal import Decimal
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -45,6 +46,70 @@ class SettlementTests(unittest.TestCase):
 
     def snapshot(self):
         return self.api('accountant','GET',f'/companies/2/supplier-payment-documents/invoice/{self.invoice}')
+
+    def financial_state(self):
+        return {table: self.sql(f'SELECT to_jsonb(t) FROM {table} t ORDER BY to_jsonb(t)::text')
+                for table in ('supplier_invoices', 'project_payments', 'supplier_payment_documents',
+                              'supplier_payment_operations', 'supplier_payment_impacts')}
+
+    def test_one_kopeck_credit_and_reversal_replay_without_cash_or_history_changes(self):
+        before_cash = self.sql('SELECT to_jsonb(p) FROM project_payments p ORDER BY id')
+        credit, body = self.operation('credit', '0.01')
+        self.assertTrue(credit['nonCash'])
+        self.assertIsNone(credit['projectPaymentId'])
+        self.assertEqual(self.snapshot()['creditAmount'], '0.01')
+        saved_credit = self.sql('SELECT to_jsonb(o) FROM supplier_payment_operations o WHERE id=%s',
+                                (credit['operationId'],))
+        after_credit = self.financial_state()
+        self.assertEqual(self.operation('credit', body=body)[0], credit)
+        self.assertEqual(self.financial_state(), after_credit)
+
+        reversal, body = self.operation('reversal', original=credit['operationId'])
+        self.assertTrue(reversal['nonCash'])
+        self.assertIsNone(reversal['projectPaymentId'])
+        after_reversal = self.financial_state()
+        self.assertEqual(self.operation('reversal', body=body)[0], reversal)
+        self.assertEqual(self.financial_state(), after_reversal)
+        self.assertEqual(self.snapshot()['creditAmount'], '0.00')
+        self.assertEqual(self.sql('SELECT amount,paid_amount FROM supplier_invoices WHERE id=%s',
+                                 (self.invoice,)), [(Decimal('200'), Decimal('40'))])
+        self.assertEqual(self.sql('SELECT to_jsonb(p) FROM project_payments p ORDER BY id'), before_cash)
+        self.assertEqual(self.sql('SELECT to_jsonb(o) FROM supplier_payment_operations o WHERE id=%s',
+                                 (credit['operationId'],)), saved_credit)
+
+    def test_one_kopeck_refund_and_reversal_replay_preserve_exact_balance_and_history(self):
+        refund, body = self.operation('refund', '0.01')
+        self.assertEqual(self.snapshot()['paidAmount'], '39.99')
+        self.assertEqual(self.sql('SELECT amount FROM project_payments WHERE id=%s',
+                                 (refund['projectPaymentId'],)), [(Decimal('-0.01'),)])
+        saved_refund = self.sql('SELECT to_jsonb(o) FROM supplier_payment_operations o WHERE id=%s',
+                                (refund['operationId'],))
+        after_refund = self.financial_state()
+        self.assertEqual(self.operation('refund', body=body)[0], refund)
+        self.assertEqual(self.financial_state(), after_refund)
+
+        reversal, body = self.operation('reversal', original=refund['operationId'])
+        self.assertEqual(self.sql('SELECT amount FROM project_payments WHERE id=%s',
+                                 (reversal['projectPaymentId'],)), [(Decimal('0.01'),)])
+        after_reversal = self.financial_state()
+        self.assertEqual(self.operation('reversal', body=body)[0], reversal)
+        self.assertEqual(self.financial_state(), after_reversal)
+        self.assertEqual(self.snapshot()['paidAmount'], '40.00')
+        self.assertEqual(self.sql('SELECT amount FROM supplier_invoices WHERE id=%s',
+                                 (self.invoice,)), [(Decimal('200'),)])
+        self.assertEqual(self.sql('SELECT to_jsonb(o) FROM supplier_payment_operations o WHERE id=%s',
+                                 (refund['operationId'],)), saved_refund)
+
+    def test_invalid_http_amounts_leave_financial_records_unchanged(self):
+        before = self.financial_state()
+        for kind in ('payment', 'credit', 'refund'):
+            for amount in (True, False, None, [], {}, '', 'NaN', 'sNaN', 'Infinity',
+                           '-Infinity', '0', '-0.01', '0.001', '1000000000000'):
+                with self.subTest(kind=kind, amount=amount):
+                    body = dict(requestId=str(uuid4()), documentKind='invoice', documentId=self.invoice,
+                                kind=kind, amount=amount, paidAt='2026-09-28', reason='Synthetic invalid amount')
+                    self.operation(kind, body=body, expected=422)
+                    self.assertEqual(self.financial_state(), before)
 
     def test_credit_creates_no_cash_and_refund_reduces_cash_separately(self):
         before=self.sql('SELECT count(*),sum(amount) FROM project_payments')

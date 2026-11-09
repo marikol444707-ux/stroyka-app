@@ -68,6 +68,59 @@ class PolicyTests(unittest.TestCase):
                 self.row['status'] = status
                 self.validate()
 
+    def test_credit_and_its_reversal_accept_zero_cash(self):
+        from .policy import validate_new_payment
+        for kind in ('credit', 'reversal'):
+            for amount in ('0.00', '-0.00'):
+                with self.subTest(kind=kind, amount=amount):
+                    validate_new_payment(Cursor(self.row),
+                                         dict(documents=[self.doc], reversedKind='credit'),
+                                         dict(kind=kind), Decimal(amount))
+
+    def test_credit_and_its_reversal_reject_cash_movement(self):
+        from .policy import validate_new_payment
+        for kind in ('credit', 'reversal'):
+            for amount in ('0.01', '-0.01'):
+                with self.subTest(kind=kind, amount=amount):
+                    with self.assertRaises(HTTPException) as error:
+                        validate_new_payment(Cursor(self.row),
+                                             dict(documents=[self.doc], reversedKind='credit'),
+                                             dict(kind=kind), Decimal(amount))
+                    self.assertEqual(error.exception.status_code, 409)
+
+    def test_one_kopeck_refund_and_its_reversal_have_opposite_cash_directions(self):
+        from .policy import validate_new_payment
+        for kind, amount in (('refund', '-0.01'), ('reversal', '0.01')):
+            with self.subTest(kind=kind):
+                validate_new_payment(Cursor(self.row),
+                                     dict(documents=[self.doc], reversedKind='refund'),
+                                     dict(kind=kind), Decimal(amount))
+
+    def test_refund_and_its_reversal_reject_zero_and_wrong_direction(self):
+        from .policy import validate_new_payment
+        for kind, amount in (('refund', '0'), ('refund', '0.01'),
+                             ('reversal', '0'), ('reversal', '-0.01')):
+            with self.subTest(kind=kind, amount=amount):
+                with self.assertRaises(HTTPException) as error:
+                    validate_new_payment(Cursor(self.row),
+                                         dict(documents=[self.doc], reversedKind='refund'),
+                                         dict(kind=kind), Decimal(amount))
+                self.assertEqual(error.exception.status_code, 409)
+
+    def test_internal_cash_amount_requires_a_finite_decimal(self):
+        from .policy import validate_new_payment
+        for kind, original in (('payment', None), ('refund', None), ('credit', None),
+                               ('reversal', 'payment'), ('reversal', 'refund'),
+                               ('reversal', 'credit')):
+            for amount in (None, True, False, 1, 0.01, '0.01', Decimal('NaN'),
+                           Decimal('sNaN'), Decimal('Infinity'), Decimal('-Infinity')):
+                with self.subTest(kind=kind, original=original, amount=repr(amount)):
+                    with self.assertRaises(HTTPException) as error:
+                        validate_new_payment(Cursor(self.row),
+                                             dict(documents=[self.doc], reversedKind=original),
+                                             dict(kind=kind), amount)
+                    self.assertEqual(error.exception.status_code, 409)
+
     def test_pending_rejected_cancelled_unknown_fail_closed(self):
         for status in ('На утверждении', 'Отклонён', 'Аннулирован', '', None, 'unknown'):
             with self.subTest(status=status):
