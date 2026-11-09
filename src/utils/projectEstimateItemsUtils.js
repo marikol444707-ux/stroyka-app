@@ -26,12 +26,14 @@ export const ks2ItemsFromActiveEstimates = ({ project = {}, activeEstimates = []
     if (!isEstimateWorkItem(item, section.name)) return;
     const pkg = estimatePackage(est);
     const key = [est.id, sectionIdx, itemIdx].join(':');
+    const quantity = Number(item.quantity);
     const row = {
       section: (pkg && pkg !== 'Основная' ? pkg + ' / ' : '') + (section.name || ''),
       workPackage: pkg,
       description: item.name || '',
       unit: item.unit || '',
-      pricePerUnit: Number(estimateItemTotal(item)) / Math.max(1, Number(item.quantity || 0)),
+      pricePerUnit: Number.isFinite(quantity) && quantity > 0
+        ? Number(estimateItemTotal(item)) / quantity : 0,
       item,
     };
     itemByKey[key] = row;
