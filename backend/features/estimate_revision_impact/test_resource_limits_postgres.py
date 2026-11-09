@@ -4057,6 +4057,15 @@ class A93ResourceLimitsPostgresTests(unittest.TestCase):
             self.assertEqual(cur.fetchone(), (None, None, False))
 
     def test_accountable_http_routes_enforce_verified_company_ownership(self):
+        # Current membership resolver reads the staff link added after this fixture.
+        with self.connection.cursor() as cur:
+            cur.execute("ALTER TABLE public.user_company_roles ADD COLUMN staff_id INTEGER")
+            cur.execute("""ALTER TABLE public.companies
+                ADD COLUMN plan TEXT DEFAULT 'business',
+                ADD COLUMN trial_until DATE,
+                ADD COLUMN plan_expires_at DATE DEFAULT DATE '2099-01-01',
+                ADD COLUMN payment_status TEXT DEFAULT 'paid',
+                ADD COLUMN suspended_at TIMESTAMP""")
         schema_plan = build_accounting_ownership_schema_plan()
         schema_connection = self._new_connection()
         try:
@@ -4185,6 +4194,8 @@ class A93ResourceLimitsPostgresTests(unittest.TestCase):
 
         self.assertEqual(payment_list.status_code, 200)
         self.assertEqual([row["id"] for row in payment_list.json()], [200])
+        self.assertEqual(payment_list.json()[0].get("givenToId"), 100)
+        self.assertEqual(payment_list.json()[0].get("companyId"), 4)
         self.assertEqual(expense_list.status_code, 200)
         self.assertEqual([row["id"] for row in expense_list.json()], [300])
         self.assertEqual(rejected_project.status_code, 404)
@@ -4237,6 +4248,24 @@ class A93ResourceLimitsPostgresTests(unittest.TestCase):
         self.assertTrue(all(
             observed.observation["closed"] for observed in observed_connections
         ))
+
+        # Read the newly created payment after a rename and a namesake appears.
+        with self.connection.cursor() as cur:
+            cur.execute("UPDATE public.staff SET name='Renamed staff' WHERE id=100")
+            cur.execute("""INSERT INTO public.staff
+                (id,company_id,name,project,company_scope_verified)
+                VALUES (103,4,'Exact staff','Exact accounting',TRUE)""")
+        reread = client.get("/accountable-payments", headers=headers)
+        self.assertEqual(reread.status_code, 200)
+        created_row = next(row for row in reread.json()
+                           if row["id"] == created_payment.json()["id"])
+        self.assertEqual(created_row["givenToId"], 100)
+        self.assertEqual(created_row["companyId"], 4)
+        self.assertEqual(created_row["givenTo"], "Exact staff")
+        self.assertNotIn(202, [row["id"] for row in reread.json()])
+        foreign_staff = client.post("/accountable-payments", headers=headers,
+            json={"projectId": 19, "givenToId": 101, "amount": 50})
+        self.assertEqual(foreign_staff.status_code, 404)
 
     def test_expense_report_http_routes_enforce_verified_company_ownership(self):
         schema_plan = build_accounting_ownership_schema_plan()

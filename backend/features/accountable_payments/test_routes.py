@@ -101,6 +101,17 @@ def call(handler, *args, **kwargs):
 
 
 class AccountablePaymentsRoutesTest(unittest.TestCase):
+    def test_list_returns_stored_recipient_identity_without_name_lookup(self):
+        app, _connection, _cursor = build([{"rows": [
+            {"id": 1, "project_name": "Объект", "project_id": 19,
+             "given_to": "Старое имя", "given_to_id": 100, "company_id": 4,
+             "amount": 5000},
+        ]}])
+        rows = call(app.routes[("GET", "/accountable-payments")], project_name="")
+        self.assertEqual(rows[0].get("givenToId"), 100)
+        self.assertEqual(rows[0].get("companyId"), 4)
+        self.assertEqual(rows[0]["givenTo"], "Старое имя")
+
     def test_registers_same_public_urls(self):
         app, _connection, _cursor = build()
         self.assertEqual(set(app.routes), {

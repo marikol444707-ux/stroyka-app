@@ -188,7 +188,8 @@ def register_accountable_payments_module(app, deps):
                 params.append(project["id"])
             cur.execute(
                 """SELECT id,project_name,project_id,given_to,amount,
-                          payment_method,purpose,date,added_by,status,spent_amount
+                          payment_method,purpose,date,added_by,status,spent_amount,
+                          given_to_id,company_id
                      FROM public.accountable_payments
                     WHERE company_id=%s
                       AND company_scope_verified IS TRUE"""
@@ -209,6 +210,8 @@ def register_accountable_payments_module(app, deps):
                     "addedBy": _row_value(row, "added_by", 8) or "",
                     "status": _row_value(row, "status", 9) or "Открыт",
                     "spentAmount": float(_row_value(row, "spent_amount", 10) or 0),
+                    "givenToId": _row_value(row, "given_to_id", 11),
+                    "companyId": _row_value(row, "company_id", 12),
                 }
                 for row in (cur.fetchall() or [])
             ]

@@ -33,6 +33,10 @@ const isContractorLike = staffRow => {
 
 const matchByPerson = (payment, performer) => {
   const id = Number(performer.staffId || performer.masterId || 0);
+  if (payment.givenToId !== undefined && payment.givenToId !== null) {
+    const recipientId = Number(payment.givenToId);
+    return Number.isSafeInteger(recipientId) && recipientId > 0 && recipientId === id;
+  }
   const name = personKey(performer.performerName);
   return (
     (id && [payment.recipientId, payment.employeeId, payment.staffId, payment.masterId, payment.userId].some(value => Number(value) === id)) ||
