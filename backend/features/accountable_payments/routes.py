@@ -6,6 +6,7 @@ from typing import Optional
 
 import psycopg2.extras
 from fastapi import Depends, Header, HTTPException
+from . import advances
 
 
 def _positive_int(value):
@@ -140,7 +141,7 @@ def register_accountable_payments_module(app, deps):
         if _positive_int(payment_id) is None:
             raise HTTPException(status_code=400, detail="paymentId required")
         cur.execute(
-            """SELECT id,company_id,project_id,project_name
+            """SELECT id,company_id,project_id,project_name,payment_kind
                  FROM public.accountable_payments
                 WHERE id=%s AND company_id=%s
                   AND company_scope_verified IS TRUE"""
@@ -150,6 +151,8 @@ def register_accountable_payments_module(app, deps):
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Подотчётная выдача не найдена")
+        if lock and _row_value(row, 'payment_kind', 4) != 'expense':
+            raise HTTPException(409, 'Отчёт о расходах доступен только для подотчёта. Сначала бухгалтер должен проверить тип выдачи')
         result = {
             "id": _positive_int(_row_value(row, "id", 0)),
             "companyId": _positive_int(_row_value(row, "company_id", 1)),
@@ -189,8 +192,10 @@ def register_accountable_payments_module(app, deps):
             cur.execute(
                 """SELECT id,project_name,project_id,given_to,amount,
                           payment_method,purpose,date,added_by,status,spent_amount,
-                          given_to_id,company_id
-                     FROM public.accountable_payments
+                          given_to_id,company_id,payment_kind,revision,
+                          COALESCE((SELECT jsonb_agg(jsonb_build_object('actId',al.act_id,'amount',al.amount))
+                            FROM performer_advance_allocations al WHERE al.payment_id=ap.id AND al.company_id=ap.company_id AND al.amount>0),'[]'::jsonb) AS allocations
+                     FROM public.accountable_payments ap
                     WHERE company_id=%s
                       AND company_scope_verified IS TRUE"""
                 + project_clause
@@ -212,6 +217,9 @@ def register_accountable_payments_module(app, deps):
                     "spentAmount": float(_row_value(row, "spent_amount", 10) or 0),
                     "givenToId": _row_value(row, "given_to_id", 11),
                     "companyId": _row_value(row, "company_id", 12),
+                    "paymentKind": _row_value(row, "payment_kind", 13),
+                    "revision": _row_value(row, "revision", 14),
+                    "allocations": _row_value(row, "allocations", 15) or [],
                 }
                 for row in (cur.fetchall() or [])
             ]
@@ -227,9 +235,13 @@ def register_accountable_payments_module(app, deps):
         current_user: dict = Depends(get_current_user),
     ):
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             actor = selected_actor(cur, current_user, "write", x_company_id, x_company_mode)
+            kind = (data or {}).get('paymentKind')
+            if not isinstance(kind, str) or kind not in advances.KINDS:
+                raise HTTPException(409, 'Укажите тип выдачи: подотчёт или зарплатный аванс. Обновите форму; выдача не создана')
             project = exact_project(
                 cur,
                 actor["companyId"],
@@ -240,12 +252,13 @@ def register_accountable_payments_module(app, deps):
             amount = _positive_amount((data or {}).get("amount"))
             if amount is None:
                 raise HTTPException(status_code=400, detail="amount must be positive")
+            advances.money(amount)
             cur.execute(
                 """INSERT INTO public.accountable_payments
                        (company_id,project_id,company_scope_verified,
                         project_name,given_to,given_to_id,amount,payment_method,
-                        purpose,date,added_by)
-                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        purpose,date,added_by,payment_kind)
+                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                      RETURNING id""",
                 (
                     actor["companyId"], project["id"], True,
@@ -254,6 +267,7 @@ def register_accountable_payments_module(app, deps):
                     (data or {}).get("purpose") or "",
                     (data or {}).get("date") or None,
                     actor_name(actor),
+                    kind,
                 ),
             )
             row = cur.fetchone()
@@ -261,7 +275,7 @@ def register_accountable_payments_module(app, deps):
             if payment_id is None:
                 raise HTTPException(status_code=409, detail="Подотчётная выдача не создана")
             conn.commit()
-            return {"id": payment_id, "ok": True}
+            return {"id": payment_id, "ok": True, "revision": 0, "paymentKind": kind}
         except BaseException:
             conn.rollback()
             raise
@@ -322,8 +336,10 @@ def register_accountable_payments_module(app, deps):
         current_user: dict = Depends(get_current_user),
     ):
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
+            advances.lock_ledger(cur)
             actor = selected_actor(cur, current_user, "write", x_company_id, x_company_mode)
             parent = verified_payment(
                 cur, actor["companyId"], (data or {}).get("paymentId"), lock=True
@@ -339,6 +355,7 @@ def register_accountable_payments_module(app, deps):
             amount = _positive_amount((data or {}).get("amount"))
             if amount is None:
                 raise HTTPException(status_code=400, detail="amount must be positive")
+            advances.money(amount)
             cur.execute(
                 """INSERT INTO public.accountable_expenses
                        (payment_id,company_id,project_id,company_scope_verified,
@@ -357,7 +374,7 @@ def register_accountable_payments_module(app, deps):
                 raise HTTPException(status_code=409, detail="Авансовый расход не создан")
             cur.execute(
                 """UPDATE public.accountable_payments
-                      SET spent_amount=spent_amount+%s
+                      SET spent_amount=spent_amount+%s,revision=revision+1
                     WHERE id=%s AND company_id=%s AND project_id=%s
                       AND company_scope_verified IS TRUE""",
                 (amount, parent["id"], actor["companyId"], project["id"]),
@@ -372,3 +389,37 @@ def register_accountable_payments_module(app, deps):
         finally:
             cur.close()
             conn.close()
+
+    def change_advance(payment_id, data, current_user, company, mode, operation):
+        conn = get_db()
+        conn.autocommit = False
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            actor = selected_actor(cur, current_user, 'write', company, mode)
+            if operation == 'kind':
+                result = advances.classify(cur, actor['companyId'], payment_id, data, actor)
+            else:
+                result = advances.allocate(cur, actor['companyId'], payment_id, data, actor,
+                    deps['require_legacy_interim'], deps['has_package_access'])
+            conn.commit()
+            return result
+        except BaseException:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+            conn.close()
+
+    @app.put('/accountable-payments/{payment_id}/kind')
+    def classify_payment(payment_id: int, data: dict,
+        x_company_id: Optional[str] = Header(default=None, alias='X-Company-Id'),
+        x_company_mode: Optional[str] = Header(default=None, alias='X-Company-Mode'),
+        current_user: dict = Depends(get_current_user)):
+        return change_advance(payment_id, data, current_user, x_company_id, x_company_mode, 'kind')
+
+    @app.put('/accountable-payments/{payment_id}/allocations')
+    def allocate_payment(payment_id: int, data: dict,
+        x_company_id: Optional[str] = Header(default=None, alias='X-Company-Id'),
+        x_company_mode: Optional[str] = Header(default=None, alias='X-Company-Mode'),
+        current_user: dict = Depends(get_current_user)):
+        return change_advance(payment_id, data, current_user, x_company_id, x_company_mode, 'allocation')

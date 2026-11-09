@@ -1,3 +1,4 @@
+import { actAdvance } from '../actSettlement';
 import { fmtMeasure } from '../measureUtils';
 
 export const buildMasterActDocContent = (act = {}, context = {}) => {
@@ -80,8 +81,9 @@ export const buildMasterActDocContent = (act = {}, context = {}) => {
       html += '<tr><td colspan="3">' + payment.date + '</td><td colspan="2">' + payment.paymentType + '</td><td>' + payment.paidBy + '</td><td>' + payment.amount.toLocaleString() + ' руб.</td></tr>';
     });
   }
+  if (actAdvance(act)>0) html += '<tr><td colspan="6">Зачтён зарплатный аванс:</td><td>'+actAdvance(act).toLocaleString()+' руб.</td></tr>';
   html += '<tr><td colspan="6">Оплачено по акту:</td><td>' + paidAmt.toLocaleString() + ' руб.</td></tr>';
-  html += '<tr><td colspan="6"><b>Остаток к выплате:</b></td><td><b style="color:red">' + (totalAmt - toolDeductions - paidAmt).toLocaleString() + ' руб.</b></td></tr></table>';
+  html += '<tr><td colspan="6"><b>Остаток к выплате:</b></td><td><b style="color:red">' + (totalAmt - toolDeductions - paidAmt - actAdvance(act)).toLocaleString() + ' руб.</b></td></tr></table>';
   if (ownExpsReimbursed.length > 0 || advancesGiven.length > 0) {
     html += '<h3 style="margin-top:18px">📒 Сопутствующие операции по сотруднику в периоде</h3>';
     html += '<p style="font-size:11px;color:#666">Не входят в сумму акта — показаны для сверки с бухгалтерией</p>';

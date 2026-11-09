@@ -1,3 +1,4 @@
+import { actRemaining, actAdvance } from '../utils/actSettlement';
 import {brigadeBalance, balanceMoney} from './brigadeBalance';
 import React from 'react';
 import {
@@ -307,7 +308,7 @@ export default function AccountingActsPanel({
       {filteredInterimActs.map(act => {
         const paidAmount = Number(act.paidAmount || 0);
         const totalAmount = Number(act.totalAmount || 0);
-        const remaining = totalAmount - paidAmount;
+        const remaining = actRemaining(act);
         const actWorkCount = parseActWorkIds(act).length;
         const isDailyAct = String(act.sourceType || act.source_type || '') === 'daily_work';
         return (
@@ -319,6 +320,7 @@ export default function AccountingActsPanel({
                 <div style={{ display: 'flex', gap: '12px', marginTop: '4px', flexWrap: 'wrap' }}>
                   <span style={{ fontSize: '12px', color: C.text }}>{(isDailyAct ? 'Стоимость работ: ' : 'Начислено: ') + totalAmount.toLocaleString() + ' ₽'}</span>
                   {!isDailyAct && <span style={{ fontSize: '12px', color: C.success }}>{'Оплачено: ' + paidAmount.toLocaleString() + ' ₽'}</span>}
+                  {!isDailyAct && actAdvance(act)>0 && <span>Зачтён аванс: {actAdvance(act).toLocaleString('ru-RU')} ₽</span>}
                   {isDailyAct && <span style={{ fontSize: '12px', color: C.info }}>Дневной отчёт · оплата по отдельному акту</span>}
                   {actWorkCount > 0 && <span style={{ fontSize: '12px', color: C.accent }}>{'ЖПР: ' + actWorkCount}</span>}
                   {!isDailyAct && remaining > 0 && <span style={{ fontSize: '12px', color: C.danger, fontWeight: '700', padding: '2px 8px', borderRadius: '6px', backgroundColor: C.dangerLight }}>{'⚠️ Недоплата: ' + remaining.toLocaleString() + ' ₽'}</span>}

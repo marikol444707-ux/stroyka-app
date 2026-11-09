@@ -30,10 +30,11 @@ test.each(['Иван', 'Старое имя'])('advance to one exact employee is
     matchSearch={() => true} staff={[{ id: 1, name: 'Иван' }, { id: 2, name: 'Иван' }]}
     workJournal={[{ ...work, id: 1, masterId: 1 }, { ...work, id: 2, masterId: 2 }]}
     accountablePayments={[{ id: 9, companyId: 4, projectName: 'Объект', givenToId: 1, givenTo,
-      date: month + '-01', amount: 100 }]} projectPayments={[]} />);
+      date: month + '-01', amount: 100, paymentKind: 'salary_advance', revision: 1, allocations: [{actId: 10, amount: 100}] }]} projectPayments={[]}
+    interimActs={[{id:10,companyId:4,masterId:1,project:'Объект',workPackage:'Основная',periodStart:month+'-01',periodEnd:new Date(Date.UTC(Number(month.slice(0,4)),Number(month.slice(5,7)),0)).toISOString().slice(0,10),advanceAmount:100,paidAmount:0}]} />);
   const balances = screen.getAllByText('Выплачено / остаток').map(node => node.parentElement.querySelector('b').textContent);
   expect(balances).toEqual(['0 ₽ / 100 ₽', '0 ₽ / 200 ₽']);
-  expect(screen.getByText('Авансы/подотчет').parentElement).toHaveTextContent('100 ₽');
+  expect(screen.getByText('Зачтённые зарплатные авансы').parentElement).toHaveTextContent('100 ₽');
 });
 
 const closingWork = overrides => ({
@@ -72,4 +73,35 @@ test('warning counts only excluded legacy confirmed works in the closing month, 
   ]));
   expect(screen.getByText(/Не попадут в акт:/)).toHaveTextContent('2 подтверждённых строк');
   expect(screen.getAllByText('Выплачено / остаток')).toHaveLength(1);
+});
+
+test('one salary advance manually split between two packages is deducted once, including a prior-month issue', () => {
+  const month = new Date().toISOString().slice(0,7);
+  const end = new Date(Date.UTC(Number(month.slice(0,4)),Number(month.slice(5,7)),0)).toISOString().slice(0,10);
+  const works = ['Отделка','Электрика'].map((workPackage,i)=>closingWork({id:i+1,masterId:1,workPackage}));
+  render(<AccountingPerformerClosingPanel C={{}} card={{}} inp={{}} projects={[]} staff={[]} listSearch=""
+    workJournal={works} accountablePayments={[{id:9,companyId:4,givenToId:1,givenTo:'Иван',projectName:'Объект',
+      amount:100,date:'2001-01-01',paymentKind:'salary_advance',revision:2,allocations:[{actId:10,amount:60},{actId:11,amount:40}]}]}
+    interimActs={works.map((w,i)=>({id:10+i,companyId:4,masterId:1,project:w.project,workPackage:w.workPackage,
+      periodStart:month+'-01',periodEnd:end,totalAmount:200,paidAmount:0,advanceAmount:i?40:60}))} />);
+  expect(screen.getByText('Зачтённые зарплатные авансы').parentElement.querySelector('b')).toHaveTextContent(/^100 ₽$/);
+  expect(screen.getByText('К выплате').parentElement.querySelector('b')).toHaveTextContent(/^300 ₽$/);
+  expect(screen.getAllByText('Выплачено / остаток').map(n=>n.parentElement.querySelector('b').textContent)).toEqual(['0 ₽ / 140 ₽','0 ₽ / 160 ₽']);
+});
+
+test.each(['expense','unclassified','salary_advance'])('unallocated %s does not reduce earned wages', paymentKind=>{
+  render(<AccountingPerformerClosingPanel C={{}} card={{}} inp={{}} projects={[]} staff={[]} listSearch=""
+    workJournal={[closingWork({masterId:1})]} accountablePayments={[{id:9,companyId:4,givenToId:1,givenTo:'Иван',projectName:'Объект',
+      amount:100,date:new Date().toISOString().slice(0,7)+'-01',paymentKind,revision:0,allocations:[]}]} />);
+  expect(screen.getByText('Зачтённые зарплатные авансы').parentElement.querySelector('b')).toHaveTextContent(/^0 ₽$/);
+  expect(screen.getByText('К выплате').parentElement.querySelector('b')).toHaveTextContent(/^200 ₽$/);
+});
+
+test('closing preserves cents from a confirmed manual allocation',()=>{
+  const month=new Date().toISOString().slice(0,7);
+  const end=new Date(Date.UTC(Number(month.slice(0,4)),Number(month.slice(5,7)),0)).toISOString().slice(0,10);
+  render(<AccountingPerformerClosingPanel C={{}} card={{}} inp={{}} projects={[]} staff={[]} listSearch=""
+    workJournal={[closingWork({masterId:1})]} interimActs={[{id:10,companyId:4,masterId:1,project:'Объект',workPackage:'Основная',periodStart:month+'-01',periodEnd:end,totalAmount:200,paidAmount:0,advanceAmount:0.15}]}/>);
+  expect(screen.getByText('Зачтённые зарплатные авансы').parentElement.querySelector('b')).toHaveTextContent('0,15 ₽');
+  expect(screen.getByText('К выплате').parentElement.querySelector('b')).toHaveTextContent('199,85 ₽');
 });

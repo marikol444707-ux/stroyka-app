@@ -1,3 +1,4 @@
+import { actRemaining, actAdvance } from '../utils/actSettlement';
 import React, { useState } from 'react';
 import { CheckCircle, Eye, Printer, Upload } from 'lucide-react';
 import ProjectHiddenWorksActSignatureModal from './ProjectHiddenWorksActSignatureModal';
@@ -152,7 +153,7 @@ export default function MasterDocumentsPage({
           const totalAmt = act.totalAmount || 0;
           const paidAmt = act.paidAmount || 0;
           const toolDed = myTools.filter((tool) => tool.issueType === 'В счёт зарплаты').reduce((sum, tool) => sum + tool.cost, 0);
-          const rest = totalAmt - toolDed - paidAmt;
+          const rest = Math.max(0,actRemaining(act) - toolDed);
           return (
             <div key={act.id} style={{ padding: '12px', backgroundColor: C.bg, borderRadius: '8px', marginBottom: '8px', border: '1.5px solid ' + C.border }}>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -162,6 +163,7 @@ export default function MasterDocumentsPage({
                   <p style={{ color: C.text, margin: '1px 0', fontSize: '12px' }}>{'Начислено: ' + totalAmt.toLocaleString() + ' ₽'}</p>
                   {toolDed > 0 && <p style={{ color: C.danger, margin: '1px 0', fontSize: '12px' }}>{'Удержания: -' + toolDed.toLocaleString() + ' ₽'}</p>}
                   <p style={{ color: C.success, margin: '1px 0', fontSize: '12px' }}>{'Оплачено: ' + paidAmt.toLocaleString() + ' ₽'}</p>
+                  {actAdvance(act)>0 && <p>Зачтён аванс: {actAdvance(act).toLocaleString('ru-RU')} ₽</p>}
                   {rest > 0 && <p style={{ color: C.danger, margin: '1px 0', fontSize: '12px', fontWeight: '600' }}>{'Остаток: ' + rest.toLocaleString() + ' ₽'}</p>}
                 </div>
                 <button onClick={() => showPreview(buildActContent(act), 'Акт')} style={btnB}>

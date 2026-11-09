@@ -35,12 +35,19 @@ class FakeCursor:
         self.calls = []
 
     def execute(self, sql, params=()):
+        if "pg_advisory_xact_lock" in sql: return
+        self.project_query = sql.startswith('SELECT id FROM projects WHERE company_id=')
+        self.owner_query = sql.startswith('SELECT id FROM interim_acts WHERE id=%s AND company_id=') or sql.startswith('SELECT id FROM staff WHERE id=')
+        self.advance_query = "sum(amount)" in sql and "performer_advance_allocations" in sql
         self.calls.append((" ".join(sql.split()), tuple(params)))
 
     def fetchall(self):
+        if getattr(self,"project_query",False): return [{"id":1}]
         return list(self.rows)
 
     def fetchone(self):
+        if getattr(self,"owner_query",False): return (7,)
+        if getattr(self, "advance_query", False): return (0,)
         return self.fetchone_results.pop(0) if self.fetchone_results else None
 
     def close(self):
@@ -73,6 +80,8 @@ def build(cursor, confirmed_total=1000.0, audit_calls=None):
     audit_log = audit_calls if audit_calls is not None else []
     register_interim_acts_module(app, {
         "get_db": lambda: connection,
+        "resolve_work_company_context": lambda *a,**kw:{"mode":"company","companyId":3},
+        "effective_company_actors": lambda *a:[{"role":"директор","name":"Тест","companyId":3}],
         "get_current_user": lambda: {},
         "require_roles": lambda *roles: (lambda: None),
         "contract_roles": ("директор", "мастер"),
@@ -167,7 +176,7 @@ class InterimActsRoutesTest(unittest.TestCase):
         app, connection = build(cursor, audit_calls=audit)
         result = app.routes[("DELETE", "/interim-acts/{id}")](id=7, _current_user={})
         self.assertEqual(result, {"ok": True})
-        self.assertIn("SET status='Аннулирован'", cursor.calls[1][0])
+        self.assertTrue(any("SET status='Аннулирован'" in sql for sql, _ in cursor.calls))
         self.assertEqual(audit[0][2], "cancel")
         self.assertTrue(connection.committed)
 

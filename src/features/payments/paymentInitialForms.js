@@ -14,6 +14,7 @@ export const createBrigadePaymentForm = () => ({
 });
 
 export const createAccountablePaymentForm = (overrides = {}) => ({
+  paymentKind: 'expense',
   givenTo: '',
   amount: '',
   paymentMethod: 'Наличные',

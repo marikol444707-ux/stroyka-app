@@ -204,7 +204,8 @@ export default function AccountingContractsPanel({
     const paid = rowActs.reduce((sum, act) => sum + Number(act.paidAmount || 0), 0);
     const retention = Math.round(accrued * 0.05);
     const payable = Math.max(0, accrued - retention);
-    const owe = Math.max(0, payable - paid);
+    const advance = rowActs.reduce((sum, act) => sum + Number(act.advanceAmount || 0), 0);
+    const owe = Math.max(0, payable - paid - advance);
     const missingDocs = [];
     if (rowActs.some(act => Number(act.totalAmount || 0) > 0 && !act.scanUrl)) missingDocs.push('скан подписанного акта');
     if (paid > 0 && type.includes('самозан') && !hasClosingDoc(row, performer, 'self-employed-receipt')) missingDocs.push('чек НПД');

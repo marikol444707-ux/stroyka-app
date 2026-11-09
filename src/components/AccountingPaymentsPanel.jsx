@@ -1,3 +1,4 @@
+import { actRemaining, actAdvance } from '../utils/actSettlement';
 import React, { useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp, DollarSign, Plus, Search } from 'lucide-react';
 import AccountingIncomingPaymentForm from './AccountingIncomingPaymentForm';
@@ -178,10 +179,8 @@ export default function AccountingPaymentsPanel({
         actsDebt: 0,
       };
     }
-    const paid = Number(act.paidAmount || 0);
-    const total = Number(act.totalAmount || 0);
     allMovesByProject[projectName].actsPaid.push(act);
-    if (paid < total) allMovesByProject[projectName].actsDebt += (total - paid);
+    allMovesByProject[projectName].actsDebt += actRemaining(act);
   });
 
   const projectNames = Object.keys(allMovesByProject).sort((left, right) =>
@@ -402,7 +401,7 @@ export default function AccountingPaymentsPanel({
                         {group.actsPaid.map(act => {
                           const paid = Number(act.paidAmount || 0);
                           const total = Number(act.totalAmount || 0);
-                          const owe = Math.max(0, total - paid);
+                          const owe = actRemaining(act);
                           return (
                             <div key={act.id} style={{ padding: '4px 10px', display: 'flex', justifyContent: 'space-between', gap: '8px', borderBottom: '1px dashed ' + C.border }}>
                               <span style={{ color: C.textSec }}>
@@ -411,6 +410,7 @@ export default function AccountingPaymentsPanel({
                               <span>
                                 <b style={{ color: C.text }}>{Math.round(total).toLocaleString('ru-RU') + ' ₽'}</b>
                                 {paid > 0 && <span style={{ color: C.success, marginLeft: '4px' }}>(опл. {Math.round(paid).toLocaleString('ru-RU')})</span>}
+                                {actAdvance(act)>0 && <span> · аванс {actAdvance(act).toLocaleString('ru-RU')} ₽</span>}
                                 {owe > 0 && <b style={{ color: C.danger, marginLeft: '4px' }}>⚠️ долг {Math.round(owe).toLocaleString('ru-RU')}</b>}
                               </span>
                             </div>

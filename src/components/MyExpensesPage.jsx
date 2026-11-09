@@ -42,7 +42,7 @@ export default function MyExpensesPage({
   const sumP=pending.reduce((s,e)=>s+Number(e.amount||0),0);
   const sumA=approved.reduce((s,e)=>s+Number(e.amount||0),0);
   const sumR=rejected.reduce((s,e)=>s+Number(e.amount||0),0);
-  const myAcc=(accountablePayments||[]).filter(a=>a.givenTo===currentUser.name&&Number(a.amount||0)>Number(a.spentAmount||0));
+  const myAcc=(accountablePayments||[]).filter(a=>a.paymentKind!=='salary_advance'&&a.givenTo===currentUser.name&&Number(a.amount||0)>Number(a.spentAmount||0));
   const sortExpenseRows = (items) => [...items].sort((a,b)=>{
     const dateA = String(a.date || a.createdAt || '');
     const dateB = String(b.date || b.createdAt || '');
@@ -91,7 +91,8 @@ export default function MyExpensesPage({
             <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{'Выдано: '+Math.round(total).toLocaleString('ru-RU')+' ₽ · Потрачено: '+Math.round(spent).toLocaleString('ru-RU')+' ₽'}</p>
             <b style={{color:C.warning,fontSize:'12px'}}>{'⏳ Остаток отчитаться: '+Math.round(remaining).toLocaleString('ru-RU')+' ₽'}</b>
           </div>
-          <button onClick={()=>setReportingPayment(a)} style={btnO}><FileText size={14}/>Отчитаться</button>
+          {a.paymentKind!=='expense'&&<span>Тип выдачи должен проверить бухгалтер</span>}
+          <button disabled={a.paymentKind!=='expense'} onClick={()=>setReportingPayment(a)} style={btnO}><FileText size={14}/>Отчитаться</button>
         </div>);})}
       </div>)}
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'12px',marginBottom:'18px'}}>

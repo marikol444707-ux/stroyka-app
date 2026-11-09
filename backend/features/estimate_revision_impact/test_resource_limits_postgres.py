@@ -4130,6 +4130,25 @@ class A93ResourceLimitsPostgresTests(unittest.TestCase):
                 "'Foreign actor')"
             )
 
+        def remove_advance_test_schema():
+            # Restore this class's old fixture before its next test truncates/seeds it.
+            with self.connection.cursor() as cur:
+                cur.execute('DROP TABLE IF EXISTS performer_advance_events,performer_advance_allocations,interim_acts')
+                cur.execute('DROP FUNCTION IF EXISTS guard_performer_advance_act(),guard_salary_advance_expense(),guard_advance_payment_kind() CASCADE')
+                cur.execute("ALTER TABLE accountable_payments DROP COLUMN IF EXISTS payment_kind, DROP COLUMN IF EXISTS revision, DROP CONSTRAINT IF EXISTS performer_advance_payment_owner")
+        self.addCleanup(remove_advance_test_schema)
+
+        # The real routes now require the advance schema; migrate the seeded legacy rows.
+        import importlib.util
+        migration_path = Path(__file__).resolve().parents[3] / 'migrations/versions/0114_performer_advances.py'
+        spec = importlib.util.spec_from_file_location('advance_schema', migration_path)
+        migration = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(migration)
+        with self.connection.cursor() as cur:
+            cur.execute("CREATE TABLE interim_acts(id SERIAL PRIMARY KEY,company_id INTEGER)")
+            cur.execute(migration.SCHEMA_SQL)
+            cur.execute("UPDATE accountable_payments SET payment_kind='expense'")
+
         observed_connections = []
 
         def get_db():
@@ -4166,7 +4185,7 @@ class A93ResourceLimitsPostgresTests(unittest.TestCase):
         rejected_project = client.post(
             "/accountable-payments",
             headers=headers,
-            json={"projectId": 20, "givenToId": 100, "amount": 50},
+            json={"projectId": 20, "givenToId": 100, "amount": 50, "paymentKind": "expense"},
         )
         created_payment = client.post(
             "/accountable-payments",
@@ -4175,6 +4194,7 @@ class A93ResourceLimitsPostgresTests(unittest.TestCase):
                 "projectId": 19,
                 "givenToId": 100,
                 "amount": 50,
+                "paymentKind": "expense",
                 "projectName": "CLIENT FORGED",
                 "givenTo": "CLIENT FORGED",
                 "addedBy": "CLIENT FORGED",
@@ -4264,7 +4284,7 @@ class A93ResourceLimitsPostgresTests(unittest.TestCase):
         self.assertEqual(created_row["givenTo"], "Exact staff")
         self.assertNotIn(202, [row["id"] for row in reread.json()])
         foreign_staff = client.post("/accountable-payments", headers=headers,
-            json={"projectId": 19, "givenToId": 101, "amount": 50})
+            json={"projectId": 19, "givenToId": 101, "amount": 50, "paymentKind": "expense"})
         self.assertEqual(foreign_staff.status_code, 404)
 
     def test_expense_report_http_routes_enforce_verified_company_ownership(self):

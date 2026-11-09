@@ -1,10 +1,11 @@
 import React, { useMemo, useState } from 'react';
 import { CheckCircle2, CreditCard, FileText, Printer, Save, Search } from 'lucide-react';
 import { API } from '../api';
+import PerformerAdvancePanel from './PerformerAdvancePanel';
 import { isSupplierLedgerPayment } from '../utils/projectPaymentUtils';
 
 const toNumber = value => Number(String(value ?? 0).replace(',', '.')) || 0;
-const money = value => Math.round(toNumber(value)).toLocaleString('ru-RU') + ' ₽';
+const money = value => toNumber(value).toLocaleString('ru-RU', { maximumFractionDigits: 2 }) + ' ₽';
 const safeText = value => String(value ?? '').trim();
 const monthNow = () => new Date().toISOString().slice(0, 7);
 const dateOnly = value => safeText(value).split('T')[0];
@@ -216,19 +217,19 @@ export default function AccountingPerformerClosingPanel({
     });
     Object.values(byKey).forEach(group => {
       const performer = { performerName: group.performerName, staffId: group.staffId };
-      const advances = (accountablePayments || [])
-        .filter(payment => monthOf(payment.date || payment.createdAt) === month)
-        .filter(payment => !projectFilter || (payment.projectName || payment.project) === group.project)
-        .filter(payment => (payment.projectName || payment.project || group.project) === group.project)
-        .filter(payment => matchByPerson(payment, performer))
-        .reduce((sum, payment) => sum + toNumber(payment.amount), 0);
+      const matchingActs = (interimActs || []).filter(act => act.status !== 'Аннулирован'
+        && Number(act.masterId) === Number(group.staffId) && group.staffId > 0
+        && safeText(act.project) === group.project
+        && safeText(act.workPackage || 'Основная') === group.workPackage
+        && dateOnly(act.periodStart) === periodStart && dateOnly(act.periodEnd) === periodEnd);
+      const advances = matchingActs.reduce((sum, act) => sum + toNumber(act.advanceAmount), 0);
       const reimbursements = (ownExpenses || [])
         .filter(expense => monthOf(expense.date || expense.createdAt) === month)
         .filter(expense => (expense.projectName || expense.project || group.project) === group.project)
         .filter(expense => safeText(expense.status) === 'Возмещено')
         .filter(expense => matchByPerson(expense, performer))
         .reduce((sum, expense) => sum + toNumber(expense.amount), 0);
-      const paid = (projectPayments || [])
+      const paid = matchingActs.length ? matchingActs.reduce((sum, act) => sum + toNumber(act.paidAmount), 0) : (projectPayments || [])
         .reduce((sum, payment) => sum + performerPaymentAmount(payment, group, month), 0);
       group.advances = advances;
       group.reimbursements = reimbursements;
@@ -238,7 +239,7 @@ export default function AccountingPerformerClosingPanel({
       group.margin = group.customer - group.accrued;
     });
     return Object.values(byKey).sort((a, b) => b.accrued - a.accrued);
-  }, [rows, accountablePayments, ownExpenses, projectPayments, month, projectFilter]);
+  }, [rows, interimActs, ownExpenses, projectPayments, month, periodStart, periodEnd]);
 
   const visibleGroups = useMemo(() => {
     if (!listSearch || !matchSearch) return groups;
@@ -286,7 +287,7 @@ export default function AccountingPerformerClosingPanel({
       if (dateOnly(act.periodStart) !== periodStart || dateOnly(act.periodEnd) !== periodEnd) return false;
       const idMatch = staffId && Number(act.masterId) === Number(staffId);
       const nameMatch = personKey(act.masterName) === normalizedName;
-      return idMatch || nameMatch;
+      return staffId ? idMatch : nameMatch;
     });
   };
 
@@ -400,6 +401,7 @@ export default function AccountingPerformerClosingPanel({
 
   return (
     <div>
+      <PerformerAdvancePanel payments={accountablePayments} acts={interimActs} refreshData={refreshData} C={C} inp={inp} btnB={btnB} btnG={btnG} />
       {(workJournal || []).some(work => work.settlementVersion === 2) && <div style={{...card, padding: 16, marginBottom: 16}}><p>Работы по договорам с учётом материалов закрываются в разделе «Акты»: там указаны принятые работы, штрафы и сумма к оплате.</p><button style={btnB} onClick={onOpenContractActs}>Открыть акты договоров</button></div>}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
         <div>
@@ -454,7 +456,7 @@ export default function AccountingPerformerClosingPanel({
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: '10px', marginBottom: '14px' }}>
         <div style={{ ...card, padding: '12px', backgroundColor: C.bg }}><p style={{ color: C.textSec, margin: '0 0 4px', fontSize: '11px' }}>Исполнителей/пакетов</p><b style={{ color: C.text }}>{groups.length}</b></div>
         <div style={{ ...card, padding: '12px', backgroundColor: C.successLight }}><p style={{ color: C.success, margin: '0 0 4px', fontSize: '11px' }}>Начислено</p><b style={{ color: C.success }}>{money(summary.accrued)}</b></div>
-        <div style={{ ...card, padding: '12px', backgroundColor: C.warningLight }}><p style={{ color: C.warning, margin: '0 0 4px', fontSize: '11px' }}>Авансы/подотчет</p><b style={{ color: C.warning }}>{money(summary.advances)}</b></div>
+        <div style={{ ...card, padding: '12px', backgroundColor: C.warningLight }}><p style={{ color: C.warning, margin: '0 0 4px', fontSize: '11px' }}>Зачтённые зарплатные авансы</p><b style={{ color: C.warning }}>{money(summary.advances)}</b></div>
         <div style={{ ...card, padding: '12px', backgroundColor: C.warningLight }}><p style={{ color: C.warning, margin: '0 0 4px', fontSize: '11px' }}>Гарантийное удержание</p><b style={{ color: C.warning }}>{money(summary.retention)}</b></div>
         <div style={{ ...card, padding: '12px', backgroundColor: C.bg }}><p style={{ color: C.textSec, margin: '0 0 4px', fontSize: '11px' }}>Уже выплачено</p><b style={{ color: C.text }}>{money(summary.paid)}</b></div>
         <div style={{ ...card, padding: '12px', backgroundColor: C.infoLight }}><p style={{ color: C.info, margin: '0 0 4px', fontSize: '11px' }}>К выплате</p><b style={{ color: C.info }}>{money(summary.payable)}</b></div>

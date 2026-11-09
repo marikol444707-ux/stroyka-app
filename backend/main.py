@@ -26243,6 +26243,8 @@ except ModuleNotFoundError:
 
 
 register_interim_acts_module(app, {
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
     "lock_settlement": _lock_legacy_work_settlement,
     "require_legacy_work": work_settlement_guards.require_legacy_work,
     "require_legacy_interim": work_settlement_guards.require_legacy_interim,
@@ -26412,6 +26414,8 @@ except ModuleNotFoundError:
 
 
 register_accountable_payments_module(app, {
+    "require_legacy_interim": work_settlement_guards.require_legacy_interim,
+    "has_package_access": has_package_access,
     "get_db": get_db,
     "get_current_user": get_current_user,
     "resolve_work_company_context": _resolve_work_company_context,
