@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import AppWorkflowModals from './AppWorkflowModals';
 import { buildAppShellProps } from '../features/app-shell/buildAppShellProps';
 import { useAppMainState } from '../features/app-shell/useAppMainState';
+import { useShellOverlayState } from '../features/app-shell/useAppShellState';
 
 const original = {id: 7, revision: 1, name: 'Смета', sections: [{name: 'Исходная', items: []}]};
 const restored = [{name: 'Восстановленная', items: []}];
@@ -15,8 +16,10 @@ let state;
 const closeHistory = jest.fn();
 function Harness() {
   state = useAppMainState();
+  const shellOverlayState = useShellOverlayState();
   const props = buildAppShellProps({
     appMainState: state, API: '/api', user: {name: 'Тест'}, ui: {C: {}},
+    shellOverlayState,
     estimateWorkflowState: {
       showVersionHistory: true, setShowVersionHistory: closeHistory,
       estimateVersions: [{id: 3, versionLabel: '1'}], selectedVersionsToCompare: [],

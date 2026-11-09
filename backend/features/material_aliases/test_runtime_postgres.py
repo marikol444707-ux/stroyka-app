@@ -54,6 +54,7 @@ class OwnedAliasRuntimePostgresTests(support.OwnerStockPostgresTests):
 
     def test_alias_receipt_preserves_original_and_journal_owner(self):
         import json
+        from backend.features.warehouse_receipts.test_http_support import upload_receipt_document
         brand = 'SKU-' + self.f['materialName']
         own = self.seed_alias(2, brand, self.f['materialName'])
         self.seed_alias(3, brand, 'Foreign canonical')
@@ -62,6 +63,13 @@ class OwnedAliasRuntimePostgresTests(support.OwnerStockPostgresTests):
         payload.update(location=self.f['project'], project=self.f['project'], warehouseTarget='object',
                        inventoryOnly=False, supplierId=self.f['supplierId'], supplierName='Test supplier')
         payload['items'][0].update(name=brand, materialName=brand)
+        document = dict(documentType='waybill', waybillNumber=payload['number'],
+                        waybillDate=payload['date'], supplierInn='7701234567', buyerInn='7702222222',
+                        lines=[dict(materialName=brand, unit='шт', quantity=2)])
+        original = upload_receipt_document(self, 'director', 2, self.f['project'], document)
+        payload.update(receiptDocument=document, originalUrls=[original],
+                       physicalReceiptConfirmed=True, newDocumentConfirmed=True,
+                       supplierInn=document['supplierInn'])
         receipt = self.api('director', 'POST', '/warehouse-invoices', payload)
         raw = self.sql('SELECT items FROM warehouse_invoices WHERE id=%s', (receipt['id'],))[0][0]
         item = (json.loads(raw) if isinstance(raw, str) else raw)[0]

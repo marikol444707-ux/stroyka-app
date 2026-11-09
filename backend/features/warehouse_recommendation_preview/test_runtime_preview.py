@@ -946,9 +946,9 @@ class WarehouseAnomalyRuntimePreviewCompositionTests(unittest.TestCase):
             root / "backend/db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Reviewed estimate/master and supplier registration changes; warehouse preview is unchanged.
+            # Reviewed through 5301551: physical receipt originals/guards; preview is unchanged.
             root / "backend/main.py": (
-                "28b563c6246ed8fbf7ce3d714098da49a2d63594f260ab4263bda02bc4235317"
+                "86b77bbe1b19a5b75c2e75e4ed7e9211dc478c99ade06b53d890d0be2b3083eb"
             ),
         }
         self.assertEqual({
