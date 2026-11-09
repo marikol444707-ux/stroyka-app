@@ -136,6 +136,11 @@ class ProjectPaymentRoutesTest(unittest.TestCase):
         )
         self.assertEqual(result, {"id": 77, "companyId": 3, "ok": True, "duplicate": True})
         self.assertFalse(connection.committed)
+        self.assertFalse(connection.autocommit)
+        self.assertTrue(connection.closed)
+        self.assertEqual(cursor.calls[0], (
+            'SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))', ('project-payments:3',)))
+        self.assertIn('SELECT id FROM project_payments', cursor.calls[1][0])
 
     def test_delete_missing_payment_404(self):
         cursor = FakeCursor(fetchone_results=[None])
