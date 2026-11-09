@@ -79,17 +79,20 @@ export function validateCommandResult(data, command) {
 }
 
 export const transferPath = '/warehouse-distributions/transfers';
-const transferKey = companyId => `warehouse-transfers.pending.v1.${companyId}`;
+const legacyTransferKey = companyId => `warehouse-transfers.pending.v1.${companyId}`;
+const transferKey = (companyId, userId) => userId ? `warehouse-transfers.pending.v2.${userId}.${companyId}` : legacyTransferKey(companyId);
 const positiveId = value => Number.isSafeInteger(value) && value > 0;
 export const transferQuantity = (value, allowZero = false) => typeof value === 'string' && /^\d+(\.\d{1,6})?$/.test(value)
   && Number(value) >= 0 && (allowZero || Number(value) > 0) && Number(value) < 100000000;
-export function readTransferCommand(companyId) {
-  const raw = sessionStorage.getItem(transferKey(companyId));
+export function readTransferCommand(companyId, userId) {
+  if (userId && sessionStorage.getItem(legacyTransferKey(companyId))) throw new Error('В прежней вкладке осталось неподтверждённое перемещение. Сначала сверьте его с историей; новая операция заблокирована.');
+  const raw = sessionStorage.getItem(transferKey(companyId, userId));
   if (!raw) return null;
   const value = JSON.parse(raw);
   const payload = value?.payload;
   const receipt = /^\/warehouse-distributions\/transfers\/[1-9]\d*\/receipts$/.test(value?.path);
-  if (!payload || payload.companyId !== companyId || !/^[0-9a-f-]{36}$/i.test(value?.id)
+  if ((value?.draftRevision !== undefined && (!Number.isSafeInteger(value.draftRevision) || value.draftRevision <= 0))
+      || !payload || payload.companyId !== companyId || !/^[0-9a-f-]{36}$/i.test(value?.id)
       || typeof payload.reason !== 'string' || !payload.reason.trim() || payload.reason.length > 1000
       || !transferQuantity(payload.quantity, receipt)
       || (receipt ? !transferQuantity(payload.expectedQuantity) || Number(payload.quantity) > Number(payload.expectedQuantity)
@@ -99,11 +102,11 @@ export function readTransferCommand(companyId) {
   }
   return value;
 }
-export function saveTransferCommand(companyId, command) {
-  sessionStorage.setItem(transferKey(companyId), JSON.stringify(command));
+export function saveTransferCommand(companyId, command, userId) {
+  sessionStorage.setItem(transferKey(companyId, userId), JSON.stringify(command));
 }
-export function clearTransferCommand(companyId, id) {
-  if (readTransferCommand(companyId)?.id === id) sessionStorage.removeItem(transferKey(companyId));
+export function clearTransferCommand(companyId, id, userId) {
+  if (readTransferCommand(companyId, userId)?.id === id) sessionStorage.removeItem(transferKey(companyId, userId));
 }
 export function validateTransfer(item, companyId) {
   const quantity = value => ['number', 'string'].includes(typeof value) && String(value).trim() !== '' && Number.isFinite(Number(value)) && Number(value) >= 0;

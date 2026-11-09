@@ -1,3 +1,5 @@
+// Transfer persistence uses the real hook in WarehouseTransferPersistence.test.jsx.
+jest.mock('./useWarehouseTransferDraft', () => ({ __esModule: true, ...jest.requireActual('./useWarehouseTransferDraft'), default: () => ({ loading: false, saving: false, dirty: false, error: '', phase: 'ready', readyToSubmit: true, flush: async () => undefined, reloadAfterOperation: async () => {}, rejectConflict: () => {} }) }));
 // Return persistence is verified separately in WarehouseReturnPersistence.test.jsx.
 jest.mock('./useWarehouseReturnDraft', () => () => ({ loading: false, saving: false, dirty: false, error: '', phase: 'ready', readyToSubmit: true, flush: async () => undefined, rejectConflict: () => {} }));
 // These source/command regressions isolate draft transport; actual persistence is covered in WarehouseBatchPersistence.test.jsx.

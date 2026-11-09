@@ -10,7 +10,7 @@ from psycopg2.extras import RealDictCursor
 
 from .models import DistributionInput, ReturnInput, TransferInput, TransferReceiptInput, MAX_ID, MAIN, decimal_text
 from .service import allocation_views, issue, physical_return
-from . import transfers, drafts, return_drafts
+from . import transfers, drafts, return_drafts, transfer_drafts
 
 
 WAREHOUSE_WRITERS = {'директор', 'зам_директора', 'кладовщик', 'снабженец'}
@@ -199,6 +199,7 @@ def register_warehouse_distribution_module(app, deps):
 
     drafts.register_routes(router,deps,transaction,authorize)
     return_drafts.register_routes(router,deps,transaction,authorize)
+    transfer_drafts.register_routes(router,deps,transaction,authorize,require_transfers_enabled)
 
     @router.post('')
     def distribute(
@@ -248,25 +249,31 @@ def register_warehouse_distribution_module(app, deps):
     @router.post('/transfers', dependencies=[Depends(require_transfers_enabled)])
     def dispatch_transfer(
         data: TransferInput,
+        draft_revision: Annotated[Optional[int], Header(alias='X-Warehouse-Transfer-Draft-Revision',ge=1,le=9007199254740990)] = None,
         current_user: dict = Depends(deps['get_current_user']),
         x_company_id: Annotated[Optional[str], Header(alias='X-Company-Id')] = None,
         x_company_mode: Annotated[Optional[str], Header(alias='X-Company-Mode')] = None,
     ):
         with transaction(write=True) as cur:
             _, actor = authorize(cur,current_user,data.companyId,True,x_company_id,x_company_mode)
-            result = transfers.dispatch(cur,deps,data,actor)
+            result = (transfer_drafts.perform_saved(cur,data,actor,draft_revision,'dispatch',None,
+                lambda: transfers.dispatch(cur,deps,data,actor)) if draft_revision is not None
+                else transfers.dispatch(cur,deps,data,actor))
             return {key: result[key] for key in ('ok','requestId','item')}
 
     @router.post('/transfers/{transfer_id}/receipts', dependencies=[Depends(require_transfers_enabled)])
     def receive_transfer(
         transfer_id: Annotated[int, Path(gt=0, le=9223372036854775807)], data: TransferReceiptInput,
+        draft_revision: Annotated[Optional[int], Header(alias='X-Warehouse-Transfer-Draft-Revision',ge=1,le=9007199254740990)] = None,
         current_user: dict = Depends(deps['get_current_user']),
         x_company_id: Annotated[Optional[str], Header(alias='X-Company-Id')] = None,
         x_company_mode: Annotated[Optional[str], Header(alias='X-Company-Mode')] = None,
     ):
         with transaction(write=True) as cur:
             _, actor = authorize(cur,current_user,data.companyId,True,x_company_id,x_company_mode)
-            result = transfers.receive(cur,deps,transfer_id,data,actor)
+            result = (transfer_drafts.perform_saved(cur,data,actor,draft_revision,'receipt',transfer_id,
+                lambda: transfers.receive(cur,deps,transfer_id,data,actor)) if draft_revision is not None
+                else transfers.receive(cur,deps,transfer_id,data,actor))
             return {key: result[key] for key in ('ok','requestId','item')}
 
     @router.post('/{allocation_id}/returns')

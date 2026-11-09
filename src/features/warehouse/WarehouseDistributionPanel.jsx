@@ -324,7 +324,7 @@ function CompanyDistribution({ companyId, companies, editable, user, projects = 
       {transfersEnabled && editable && Number(record.netQuantity) > 0 && <button type="button" disabled={busy || loading || Boolean(pending) || Boolean(pendingError) || accessDenied || transferBlocked || Boolean(transferSource || returning) || returnDraft.loading} onClick={() => { closeReturn(); setTransferSource(record); }}>Отправить на другой объект</button>}
     </article>)}</div>
     {pages.history.nextCursor && <button type="button" disabled={busy || pages.history.loading || accessDenied} onClick={() => loadPage('history', pages.history.nextCursor)}>Загрузить ещё распределения</button>}
-    {transfersEnabled && <WarehouseTransfersPanel companyId={companyId} editable={editable} source={loadedTransferSource || transferSource} sourceUnavailable={transferSourceUnavailable} projects={projects}
+    {transfersEnabled && <WarehouseTransfersPanel userId={user?.id} onRestoreSource={setTransferSource} companyId={companyId} editable={editable} source={loadedTransferSource || transferSource} sourceUnavailable={transferSourceUnavailable} projects={projects}
       accessDenied={accessDenied} blocked={busy || loading || returnDraft.loading || Boolean(pending) || Boolean(pendingError) || Boolean(returning)}
       onClose={() => setTransferSource(null)} onDenied={denyAccess} onPendingChange={setTransferBlocked}
       onChanged={async () => { await load(); await refreshData?.(); }} />}

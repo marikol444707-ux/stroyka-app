@@ -1,3 +1,5 @@
+// Transfer persistence uses the real hook in WarehouseTransferPersistence.test.jsx.
+jest.mock('./useWarehouseTransferDraft', () => ({ __esModule: true, ...jest.requireActual('./useWarehouseTransferDraft'), default: () => ({ loading: false, saving: false, dirty: false, error: '', phase: 'ready', readyToSubmit: true, flush: async () => undefined, reloadAfterOperation: async () => {}, rejectConflict: () => {} }) }));
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import WarehouseTransfersPanel from './WarehouseTransfersPanel';
