@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { API } from '../../api';
 import { warehouseRequestId, pendingCommand, saveCommand, clearCommand, readResponse, validateList, validateCommandResult } from './distributionCommands';
 import useWarehouseBatchDraft from './useWarehouseBatchDraft';
+import useWarehouseReturnDraft from './useWarehouseReturnDraft';
 import WarehouseTransfersPanel from './WarehouseTransfersPanel';
 import IntercompanyWarehouseTransfersPanel from './IntercompanyWarehouseTransfersPanel';
 import './WarehouseDistributionPanel.css';
@@ -76,9 +77,12 @@ function CompanyDistribution({ companyId, companies, editable, user, projects = 
     inFlight.current = { history: false, sources: false };
     setPages({ history: {}, sources: {} });
     setRecords([]); setSources([]); setSelectedSources([]); setRows([emptyRow()]); setReason('');
-    setReturning(null); setTransferSource(null); setTransferBlocked(false); setAccessDenied(true);
+    setReturning(null); setReturnQuantity(''); setReturnReason(''); setConfirmed(false); setTransferSource(null); setTransferBlocked(false); setAccessDenied(true);
   }, []);
   const draft = useWarehouseBatchDraft({ companyId, userId: user?.id, enabled: editable && !accessDenied, rows, reason, setRows, setReason, setSelectedSources, onDenied: denyAccess });
+  const returnDraft = useWarehouseReturnDraft({ companyId, userId: user?.id, enabled: editable && !accessDenied,
+    returning, quantity: returnQuantity, reason: returnReason, setReturning, setQuantity: setReturnQuantity,
+    setReason: setReturnReason, setConfirmed, onDenied: denyAccess });
   const loadPage = useCallback(async (kind, beforeId = null) => {
     if (denied.current || (beforeId && inFlight.current[kind])) return;
     const source = kind === 'sources';
@@ -136,22 +140,27 @@ function CompanyDistribution({ companyId, companies, editable, user, projects = 
   async function submit(path, payload, reset, retryCommand = null) {
     if (locked.current || !editable || accessDenied || pendingError || transferBlocked || transferSource) return;
     locked.current = true; setBusy(true); setError(''); setNotice('');
+    const returningCommand = path.endsWith('/returns');
+    const persistence = returningCommand ? returnDraft : draft;
     let hadPending = false;
     try {
       const signature = JSON.stringify({ path, ...payload });
       const existing = pendingCommand(companyId, user?.id) || retryCommand;
       hadPending = Boolean(existing);
       if (existing && existing.signature !== signature) { setPending(existing); throw new Error('Сначала повторите неподтверждённую операцию.'); }
-      const draftRevision = !existing && path === '/warehouse-distributions' ? await draft.flush() : existing?.draftRevision;
+      const draftRevision = !existing ? await persistence.flush() : existing?.draftRevision;
       if (!active.current) return;
       command.current = existing || { signature, id: warehouseRequestId(), path, payload, ...(draftRevision ? { draftRevision } : {}) };
       saveCommand(companyId, command.current, user?.id); setPending(command.current);
-      const result = await fetch(`${API}${path}`, { method: 'POST', credentials: 'include', headers: { ...headers, 'Content-Type': 'application/json', ...(command.current.draftRevision ? { 'X-Warehouse-Draft-Revision': String(command.current.draftRevision) } : {}) }, body: JSON.stringify({ ...payload, requestId: command.current.id }) }).then(readResponse);
+      const result = await fetch(`${API}${path}`, { method: 'POST', credentials: 'include', headers: { ...headers, 'Content-Type': 'application/json', ...(command.current.draftRevision ? { [returningCommand ? 'X-Warehouse-Return-Draft-Revision' : 'X-Warehouse-Draft-Revision']: String(command.current.draftRevision) } : {}) }, body: JSON.stringify({ ...payload, requestId: command.current.id }) }).then(readResponse);
       validateCommandResult(result, command.current);
       clearCommand(companyId, command.current.id, user?.id);
       if (!active.current) return;
       command.current = null; setPending(pendingCommand(companyId, user?.id));
-      if (path === '/warehouse-distributions' && draftRevision) await draft.reloadAfterIssue();
+      if (draftRevision) {
+        if (returningCommand) await returnDraft.reloadAfterOperation();
+        else await draft.reloadAfterIssue();
+      }
       else reset();
       if (!active.current) return;
       setNotice('Операция сохранена. Ниже — результат последнего обновления истории.');
@@ -159,13 +168,13 @@ function CompanyDistribution({ companyId, companies, editable, user, projects = 
       if (!active.current) return;
       try { await refreshData?.(); } catch (_) { if (active.current) setNotice('Операция сохранена. Обновите остальные разделы страницы.'); }
     } catch (e) {
-      if ((!hadPending && [400, 409, 422].includes(e.status)) || e.code === 'warehouse_draft_conflict') {
+      if ((!hadPending && [400, 409, 422].includes(e.status)) || ['warehouse_draft_conflict', 'warehouse_return_draft_conflict'].includes(e.code)) {
         try {
           clearCommand(companyId, command.current?.id, user?.id); command.current = null;
           if (active.current) setPending(pendingCommand(companyId, user?.id));
         } catch (_) { if (active.current) setPendingError('Не удалось проверить хранилище неподтверждённой операции.'); }
       }
-      if (active.current && e.code === 'warehouse_draft_conflict') draft.rejectConflict(e);
+      if (active.current && ['warehouse_draft_conflict', 'warehouse_return_draft_conflict'].includes(e.code)) persistence.rejectConflict(e);
       if (active.current && [401, 403].includes(e.status)) denyAccess();
       if (active.current) setError(`${e.message || 'Нет ответа сервера.'} Для неподтверждённой операции используйте кнопку безопасного повтора.`);
     } finally {
@@ -197,7 +206,7 @@ function CompanyDistribution({ companyId, companies, editable, user, projects = 
   });
   if (!reason.trim()) batchProblems.push('Укажите основание распределения.');
   const batchValid = batchProblems.length === 0;
-  const batchBlocked = busy || loading || draft.loading || Boolean(returning || pending || pendingError || transferSource) || accessDenied || transferBlocked;
+  const batchBlocked = busy || loading || draft.loading || returnDraft.loading || Boolean(returning || pending || pendingError || transferSource) || accessDenied || transferBlocked;
   const selectedProjectCount = new Set(rows.filter(row => ownProjects.some(project => Number(project.id) === Number(row.projectId))).map(row => row.projectId)).size;
   const updateRow = (index, field, value) => {
     const next = rows.map((r, i) => i === index ? { ...r, [field]: value } : r);
@@ -212,8 +221,8 @@ function CompanyDistribution({ companyId, companies, editable, user, projects = 
   const loadedReturnSource = returning && records.find(record => record.id === returning.id);
   const returnSource = loadedReturnSource || returning;
   const returnUnavailable = Boolean(returning && (!loadedReturnSource || pages.history.loading || pages.history.error));
-  const returnBlocked = busy || loading || Boolean(pending || pendingError || transferSource) || accessDenied || transferBlocked;
-  const returnValid = !returnUnavailable && confirmed && validQuantity(returnQuantity) && returnReason.trim()
+  const returnBlocked = busy || loading || returnDraft.loading || Boolean(pending || pendingError || transferSource) || accessDenied || transferBlocked;
+  const returnValid = returnDraft.readyToSubmit && !returnUnavailable && confirmed && validQuantity(returnQuantity) && returnReason.trim()
     && returnSource && Number(returnQuantity) <= Number(returnSource.netQuantity);
   return <><section className="warehouse-distribution" style={{ '--wd-text': C.text, '--wd-muted': C.textSec || C.textMuted, '--wd-border': C.border, '--wd-surface': C.bgWhite || C.card, '--wd-accent': C.accent }} aria-label="Распределение по объектам">
     <div className="wd-heading"><div><h3>Материалы по объектам</h3><p>Выдайте материалы с общего склада и отслеживайте возвраты.</p></div><button type="button" disabled={busy || loading} onClick={load}>Обновить</button></div>
@@ -283,6 +292,14 @@ function CompanyDistribution({ companyId, companies, editable, user, projects = 
       </div>
 
     </form>}
+    {editable && (returning || returnDraft.loading || returnDraft.error || returnDraft.dirty || returnDraft.lastOperation) && <div aria-label="Серверный черновик возврата" aria-live="polite">
+      {returnDraft.loading ? <p role="status">Загружаем серверный черновик возврата…</p> : returnDraft.error
+        ? <p role="alert">{returnDraft.error}</p>
+        : <p role="status">{returnDraft.saving ? 'Сохраняем черновик возврата…' : returnDraft.dirty ? 'Есть несохранённые правки возврата.' : 'Черновик возврата сохранён на сервере.'}</p>}
+      {returnDraft.error && <><button type="button" disabled={busy || returnDraft.saving || accessDenied} onClick={returnDraft.download}>Скачать правки возврата</button><button type="button" disabled={busy || returnDraft.saving || accessDenied} onClick={returnDraft.reloadFromServer}>Загрузить серверный возврат</button></>}
+      {(returning || returnDraft.dirty) && <button type="button" disabled={busy || returnDraft.loading || returnDraft.saving || accessDenied || returnDraft.phase === 'conflict'} onClick={() => returnDraft.flush().catch(() => {})}>Сохранить черновик возврата</button>}
+      {returnDraft.lastOperation && !returning && !returnDraft.dirty && <p>Предыдущий возврат сохранён. Результат доступен в истории.</p>}
+    </div>}
     <h4>История выдачи и возвратов</h4>
     <details className="wd-help"><summary>О поиске и датах</summary><p>Поиск проверяет всю историю на сервере. Период включает обе выбранные даты; дни считаются по UTC.</p></details>
     <form className="wd-filters" onSubmit={e => { e.preventDefault(); applied.current.history = { q: search.trim(), ...filters }; loadPage('history'); }}>
@@ -304,18 +321,18 @@ function CompanyDistribution({ companyId, companies, editable, user, projects = 
       <p>{record.reason} {record.createdAt && `· ${record.createdAt}`} {record.createdBy && `· ${record.createdBy}`}</p>
       {record.returns?.length > 0 && <details><summary>Возвраты ({record.returns.length})</summary><ul>{record.returns.map(r => <li key={r.id}>{r.quantity} {record.unit} · {r.reason} · {r.createdAt} · {r.createdBy}</li>)}</ul></details>}
       {editable && Number(record.netQuantity) > 0 && <button type="button" disabled={returnBlocked || Boolean(returning)} onClick={() => { closeReturn(); setReturning(record); }}>Оформить возврат</button>}
-      {transfersEnabled && editable && Number(record.netQuantity) > 0 && <button type="button" disabled={busy || loading || Boolean(pending) || Boolean(pendingError) || accessDenied || transferBlocked || Boolean(transferSource || returning)} onClick={() => { closeReturn(); setTransferSource(record); }}>Отправить на другой объект</button>}
+      {transfersEnabled && editable && Number(record.netQuantity) > 0 && <button type="button" disabled={busy || loading || Boolean(pending) || Boolean(pendingError) || accessDenied || transferBlocked || Boolean(transferSource || returning) || returnDraft.loading} onClick={() => { closeReturn(); setTransferSource(record); }}>Отправить на другой объект</button>}
     </article>)}</div>
     {pages.history.nextCursor && <button type="button" disabled={busy || pages.history.loading || accessDenied} onClick={() => loadPage('history', pages.history.nextCursor)}>Загрузить ещё распределения</button>}
     {transfersEnabled && <WarehouseTransfersPanel companyId={companyId} editable={editable} source={loadedTransferSource || transferSource} sourceUnavailable={transferSourceUnavailable} projects={projects}
-      accessDenied={accessDenied} blocked={busy || loading || Boolean(pending) || Boolean(pendingError) || Boolean(returning)}
+      accessDenied={accessDenied} blocked={busy || loading || returnDraft.loading || Boolean(pending) || Boolean(pendingError) || Boolean(returning)}
       onClose={() => setTransferSource(null)} onDenied={denyAccess} onPendingChange={setTransferBlocked}
       onChanged={async () => { await load(); await refreshData?.(); }} />}
     {editable && returning && <form onSubmit={e => { e.preventDefault(); if (returnValid && !returnBlocked) submit(`/warehouse-distributions/${returning.id}/returns`, { companyId, reason: returnReason.trim(), quantity: returnQuantity }, closeReturn); }}>
       <fieldset disabled={returnBlocked}><legend>Возврат: {returnSource.projectName} · {returnSource.materialName}</legend>
         {returnUnavailable && <p role="status">Черновик возврата сохранён в открытой форме. Остаток пока не подтверждён: обновите историю распределений или очистите её фильтры.</p>}
         <p>Максимум по распределению: {returnSource.netQuantity} {returnSource.unit}. Сервер также проверит фактический остаток объекта.</p>
-        <label>Количество возврата<input autoFocus inputMode="decimal" value={returnQuantity} onChange={e => setReturnQuantity(e.target.value.replace(',', '.'))} /></label>
+        <label>Количество возврата<input autoFocus inputMode="decimal" maxLength={100} value={returnQuantity} onChange={e => setReturnQuantity(e.target.value.replace(',', '.'))} /></label>
         <label>Основание возврата<textarea maxLength={1000} value={returnReason} onChange={e => setReturnReason(e.target.value)} /></label>
         <label className="wd-confirm"><input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} />Подтверждаю фактический возврат на общий склад и его отнесение к этому распределению. Физическая принадлежность конкретной партии системой не устанавливается.</label>
         <div className="wd-heading"><button type="submit" disabled={!returnValid}>Подтвердить возврат</button><button type="button" onClick={closeReturn}>Отмена</button></div>

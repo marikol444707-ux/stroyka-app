@@ -10,7 +10,7 @@ from psycopg2.extras import RealDictCursor
 
 from .models import DistributionInput, ReturnInput, TransferInput, TransferReceiptInput, MAX_ID, MAIN, decimal_text
 from .service import allocation_views, issue, physical_return
-from . import transfers, drafts
+from . import transfers, drafts, return_drafts
 
 
 WAREHOUSE_WRITERS = {'директор', 'зам_директора', 'кладовщик', 'снабженец'}
@@ -198,6 +198,7 @@ def register_warehouse_distribution_module(app, deps):
                         nextCursor=rows[-1]['id'] if more else None)
 
     drafts.register_routes(router,deps,transaction,authorize)
+    return_drafts.register_routes(router,deps,transaction,authorize)
 
     @router.post('')
     def distribute(
@@ -271,12 +272,15 @@ def register_warehouse_distribution_module(app, deps):
     @router.post('/{allocation_id}/returns')
     def return_allocation(
         allocation_id: Annotated[int, Path(gt=0, le=9223372036854775807)], data: ReturnInput,
+        draft_revision: Annotated[Optional[int], Header(alias='X-Warehouse-Return-Draft-Revision',ge=1,le=9007199254740990)] = None,
         current_user: dict = Depends(deps['get_current_user']),
         x_company_id: Annotated[Optional[str], Header(alias='X-Company-Id')] = None,
         x_company_mode: Annotated[Optional[str], Header(alias='X-Company-Mode')] = None,
     ):
         with transaction(write=True) as cur:
             _, actor = authorize(cur, current_user, data.companyId, True, x_company_id, x_company_mode)
+            if draft_revision is not None:
+                return return_drafts.return_saved(cur,data,actor,allocation_id,draft_revision,lambda: physical_return(cur,deps,allocation_id,data,actor))
             return physical_return(cur, deps, allocation_id, data, actor)
 
     app.include_router(router)

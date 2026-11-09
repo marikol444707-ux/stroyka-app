@@ -1,3 +1,5 @@
+// Return persistence is verified separately in WarehouseReturnPersistence.test.jsx.
+jest.mock('./useWarehouseReturnDraft', () => () => ({ loading: false, saving: false, dirty: false, error: '', phase: 'ready', readyToSubmit: true, flush: async () => undefined, rejectConflict: () => {} }));
 import React from 'react';
 import { fireEvent, render, screen, waitFor, act, within } from '@testing-library/react';
 import { DistributionWorkspace } from './WarehouseDistributionPanel';
