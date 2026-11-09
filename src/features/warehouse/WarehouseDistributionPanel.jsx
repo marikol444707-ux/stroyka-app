@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { API } from '../../api';
-import { pendingCommand, saveCommand, clearCommand, readResponse, validateList, validateCommandResult } from './distributionCommands';
+import { warehouseRequestId, pendingCommand, saveCommand, clearCommand, readResponse, validateList, validateCommandResult } from './distributionCommands';
+import useWarehouseBatchDraft from './useWarehouseBatchDraft';
 import WarehouseTransfersPanel from './WarehouseTransfersPanel';
 import IntercompanyWarehouseTransfersPanel from './IntercompanyWarehouseTransfersPanel';
 import './WarehouseDistributionPanel.css';
@@ -21,15 +22,6 @@ const countLabel = (count, one, few, many) => {
   const last = count % 10;
   return last === 1 ? one : last >= 2 && last <= 4 ? few : many;
 };
-function requestId() {
-  if (window.crypto?.randomUUID) return window.crypto.randomUUID();
-  if (!window.crypto?.getRandomValues) throw new Error('Для сохранения откройте платформу по HTTPS в современном браузере.');
-  const bytes = window.crypto.getRandomValues(new Uint8Array(16));
-  bytes[6] = (bytes[6] & 15) | 64;
-  bytes[8] = (bytes[8] & 63) | 128;
-  const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-}
 export default function WarehouseDistributionPanel(props) {
   return process.env.REACT_APP_WAREHOUSE_DISTRIBUTION_ENABLED === 'true' ? <DistributionWorkspace {...props} /> : null;
 }
@@ -41,10 +33,10 @@ export function DistributionWorkspace({ companyContext = {}, ...props }) {
   const membership = companies.find(c => Number(c.companyId) === Number(selectedCompanyId));
   if (!membership || membership.active === false || membership.companyActive === false || !readers.includes(membership.role)) return null;
   const editable = !props.readOnly && !companyContext.readOnly && !membership.readOnly && writers.includes(membership.role);
-  return <CompanyDistribution key={`${selectedCompanyId}:${editable}`} {...props} companyId={Number(selectedCompanyId)} companies={companies} editable={editable} />;
+  return <CompanyDistribution key={`${props.user?.id}:${selectedCompanyId}:${editable}`} {...props} companyId={Number(selectedCompanyId)} companies={companies} editable={editable} />;
 }
 
-function CompanyDistribution({ companyId, companies, editable, projects = [], warehouseMain = [], refreshData, C = {} }) {
+function CompanyDistribution({ companyId, companies, editable, user, projects = [], warehouseMain = [], refreshData, C = {} }) {
   const transfersEnabled = process.env.REACT_APP_WAREHOUSE_DISTRIBUTION_TRANSFERS_ENABLED === 'true';
   const [transferSource, setTransferSource] = useState(null);
   const [transferBlocked, setTransferBlocked] = useState(false);
@@ -83,9 +75,10 @@ function CompanyDistribution({ companyId, companies, editable, projects = [], wa
     generation.current.history += 1; generation.current.sources += 1;
     inFlight.current = { history: false, sources: false };
     setPages({ history: {}, sources: {} });
-    setRecords([]); setSources([]); setSelectedSources([]); setRows([emptyRow()]);
+    setRecords([]); setSources([]); setSelectedSources([]); setRows([emptyRow()]); setReason('');
     setReturning(null); setTransferSource(null); setTransferBlocked(false); setAccessDenied(true);
   }, []);
+  const draft = useWarehouseBatchDraft({ companyId, userId: user?.id, enabled: editable && !accessDenied, rows, reason, setRows, setReason, setSelectedSources, onDenied: denyAccess });
   const loadPage = useCallback(async (kind, beforeId = null) => {
     if (denied.current || (beforeId && inFlight.current[kind])) return;
     const source = kind === 'sources';
@@ -136,9 +129,9 @@ function CompanyDistribution({ companyId, companies, editable, projects = [], wa
   }, [load]);
   useEffect(() => {
     if (!editable) return;
-    try { command.current = pendingCommand(companyId); setPending(command.current); }
+    try { command.current = pendingCommand(companyId, user?.id); setPending(command.current); }
     catch (e) { setPendingError(e.message || 'Хранилище сеанса недоступно.'); }
-  }, [companyId, editable]);
+  }, [companyId, editable, user?.id]);
 
   async function submit(path, payload, reset, retryCommand = null) {
     if (locked.current || !editable || accessDenied || pendingError || transferBlocked || transferSource) return;
@@ -146,26 +139,33 @@ function CompanyDistribution({ companyId, companies, editable, projects = [], wa
     let hadPending = false;
     try {
       const signature = JSON.stringify({ path, ...payload });
-      const existing = pendingCommand(companyId) || retryCommand;
+      const existing = pendingCommand(companyId, user?.id) || retryCommand;
       hadPending = Boolean(existing);
       if (existing && existing.signature !== signature) { setPending(existing); throw new Error('Сначала повторите неподтверждённую операцию.'); }
-      command.current = existing || { signature, id: requestId(), path, payload };
-      saveCommand(companyId, command.current); setPending(command.current);
-      const result = await fetch(`${API}${path}`, { method: 'POST', credentials: 'include', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...payload, requestId: command.current.id }) }).then(readResponse);
-      validateCommandResult(result, command.current);
-      clearCommand(companyId, command.current.id);
+      const draftRevision = !existing && path === '/warehouse-distributions' ? await draft.flush() : existing?.draftRevision;
       if (!active.current) return;
-      command.current = null; setPending(pendingCommand(companyId)); reset(); setNotice('Операция сохранена. Ниже — результат последнего обновления истории.');
+      command.current = existing || { signature, id: warehouseRequestId(), path, payload, ...(draftRevision ? { draftRevision } : {}) };
+      saveCommand(companyId, command.current, user?.id); setPending(command.current);
+      const result = await fetch(`${API}${path}`, { method: 'POST', credentials: 'include', headers: { ...headers, 'Content-Type': 'application/json', ...(command.current.draftRevision ? { 'X-Warehouse-Draft-Revision': String(command.current.draftRevision) } : {}) }, body: JSON.stringify({ ...payload, requestId: command.current.id }) }).then(readResponse);
+      validateCommandResult(result, command.current);
+      clearCommand(companyId, command.current.id, user?.id);
+      if (!active.current) return;
+      command.current = null; setPending(pendingCommand(companyId, user?.id));
+      if (path === '/warehouse-distributions' && draftRevision) await draft.reloadAfterIssue();
+      else reset();
+      if (!active.current) return;
+      setNotice('Операция сохранена. Ниже — результат последнего обновления истории.');
       await load();
       if (!active.current) return;
       try { await refreshData?.(); } catch (_) { if (active.current) setNotice('Операция сохранена. Обновите остальные разделы страницы.'); }
     } catch (e) {
-      if (!hadPending && [400, 409, 422].includes(e.status)) {
+      if ((!hadPending && [400, 409, 422].includes(e.status)) || e.code === 'warehouse_draft_conflict') {
         try {
-          clearCommand(companyId, command.current?.id); command.current = null;
-          if (active.current) setPending(pendingCommand(companyId));
+          clearCommand(companyId, command.current?.id, user?.id); command.current = null;
+          if (active.current) setPending(pendingCommand(companyId, user?.id));
         } catch (_) { if (active.current) setPendingError('Не удалось проверить хранилище неподтверждённой операции.'); }
       }
+      if (active.current && e.code === 'warehouse_draft_conflict') draft.rejectConflict(e);
       if (active.current && [401, 403].includes(e.status)) denyAccess();
       if (active.current) setError(`${e.message || 'Нет ответа сервера.'} Для неподтверждённой операции используйте кнопку безопасного повтора.`);
     } finally {
@@ -197,7 +197,7 @@ function CompanyDistribution({ companyId, companies, editable, projects = [], wa
   });
   if (!reason.trim()) batchProblems.push('Укажите основание распределения.');
   const batchValid = batchProblems.length === 0;
-  const batchBlocked = busy || loading || Boolean(returning || pending || pendingError || transferSource) || accessDenied || transferBlocked;
+  const batchBlocked = busy || loading || draft.loading || Boolean(returning || pending || pendingError || transferSource) || accessDenied || transferBlocked;
   const selectedProjectCount = new Set(rows.filter(row => ownProjects.some(project => Number(project.id) === Number(row.projectId))).map(row => row.projectId)).size;
   const updateRow = (index, field, value) => {
     const next = rows.map((r, i) => i === index ? { ...r, [field]: value } : r);
@@ -236,7 +236,15 @@ function CompanyDistribution({ companyId, companies, editable, projects = [], wa
       <button disabled={busy || accessDenied}>Найти партии</button>
       {pages.sources.nextCursor && <button type="button" disabled={busy || pages.sources.loading || accessDenied} onClick={() => loadPage('sources', pages.sources.nextCursor)}>Загрузить ещё партии</button>}
     </form>}
-    {editable && <form onSubmit={e => { e.preventDefault(); if (batchValid && !batchBlocked) submit('/warehouse-distributions', { companyId, reason: reason.trim(), rows: rows.map(r => ({ lotId: Number(r.lotId), projectId: Number(r.projectId), quantity: r.quantity })) }, () => { setRows([emptyRow()]); setReason(''); setSelectedSources([]); }); }}>
+    {editable && <form onSubmit={e => { e.preventDefault(); if (batchValid && !batchBlocked && draft.readyToSubmit) submit('/warehouse-distributions', { companyId, reason: reason.trim(), rows: rows.map(r => ({ lotId: Number(r.lotId), projectId: Number(r.projectId), quantity: r.quantity })) }, () => { setRows([emptyRow()]); setReason(''); setSelectedSources([]); }); }}>
+      <div aria-live="polite">
+        {draft.loading ? <p role="status">Загружаем ваш серверный черновик…</p> : draft.error ? <div role="alert"><p>{draft.error}</p><p>Введённые правки остаются в форме. Не закрывайте страницу, пока они не сохранены.</p></div>
+          : <p role="status">{draft.saving ? 'Сохраняем черновик…' : draft.dirty ? 'Есть несохранённые изменения.' : 'Черновик сохранён на сервере.'}</p>}
+        {draft.error && <><button type="button" onClick={draft.download}>Скачать мои правки</button><button type="button" onClick={draft.reloadFromServer}>Загрузить серверный черновик</button></>}
+        {!draft.loading && <button type="button" disabled={busy || draft.saving || accessDenied || draft.phase === 'conflict'} onClick={() => draft.flush().catch(() => {})}>Сохранить черновик</button>}
+        <button type="button" disabled={busy || draft.loading || Boolean(pending) || accessDenied} onClick={draft.clear}>Очистить черновик</button>
+        {draft.lastOperation && !draft.dirty && !reason && <p>Предыдущая выдача сохранена. Результат доступен в истории.</p>}
+      </div>
       <fieldset className="wd-batch" disabled={batchBlocked}><legend>Новая выдача</legend>
         <p className="wd-batch-intro">Выберите партию, объект и количество. Можно добавить несколько материалов.</p>
         {!loading && !sources.length && <p>{applied.current.sources.q
@@ -250,9 +258,9 @@ function CompanyDistribution({ companyId, companies, editable, projects = [], wa
           const remaining = available != null && requested != null ? formatUnits(available - requested) : null;
           return <div className="wd-row" key={index}>
           <div className="wd-row-heading"><strong>Материал {index + 1}</strong></div>
-          <label>Партия {index + 1}<select value={row.lotId} onChange={e => updateRow(index, 'lotId', e.target.value)}><option value="">Выберите поступление</option>{sourceOptions.map(s => <option key={s.lotId} value={s.lotId}>{s.invoiceNumber || `Накладная #${s.warehouseInvoiceId}`} · {s.materialName} · {s.availabilityUnknown ? 'остаток не подтверждён' : `доступно ${s.availableQuantity} ${s.unit}`} · строка {s.invoiceLineIndex + 1}</option>)}</select></label>
-          <label>Объект {index + 1}<select value={row.projectId} onChange={e => updateRow(index, 'projectId', e.target.value)}><option value="">Выберите объект</option>{ownProjects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
-          <label>Количество {index + 1}<input inputMode="decimal" value={row.quantity} onChange={e => updateRow(index, 'quantity', e.target.value.replace(',', '.'))} /></label>
+          <label>Партия {index + 1}<select value={row.lotId} onChange={e => updateRow(index, 'lotId', e.target.value)}><option value="">Выберите поступление</option>{row.lotId && !selectedLot && <option value={row.lotId}>Партия #{row.lotId} — загрузите доступный остаток</option>}{sourceOptions.map(s => <option key={s.lotId} value={s.lotId}>{s.invoiceNumber || `Накладная #${s.warehouseInvoiceId}`} · {s.materialName} · {s.availabilityUnknown ? 'остаток не подтверждён' : `доступно ${s.availableQuantity} ${s.unit}`} · строка {s.invoiceLineIndex + 1}</option>)}</select></label>
+          <label>Объект {index + 1}<select value={row.projectId} onChange={e => updateRow(index, 'projectId', e.target.value)}><option value="">Выберите объект</option>{row.projectId && !ownProjects.some(p => Number(p.id) === Number(row.projectId)) && <option value={row.projectId}>Объект #{row.projectId} недоступен</option>}{ownProjects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
+          <label>Количество {index + 1}<input inputMode="decimal" maxLength={100} value={row.quantity} onChange={e => updateRow(index, 'quantity', e.target.value.replace(',', '.'))} /></label>
           <p className={`wd-row-available${remaining != null && Number(remaining) < 0 ? ' wd-overdrawn' : ''}`}>{selectedLot?.availabilityUnknown ? 'Выбранная партия сохранена. Остаток не подтверждён: обновите её данные через поиск или список.' : selectedLot ? `Доступно ${selectedLot.availableQuantity} ${selectedLot.unit}${remaining != null ? ` · останется ${remaining} ${selectedLot.unit}` : ''}` : 'Выберите партию'}</p>
           <button type="button" disabled={rows.length === 1} aria-label={`Удалить строку ${index + 1}`} onClick={() => setRows(rows.filter((_, i) => i !== index))}>Удалить</button>
         </div>;
@@ -260,7 +268,7 @@ function CompanyDistribution({ companyId, companies, editable, projects = [], wa
         <button className="wd-add-row" type="button" disabled={rows.length >= 50} onClick={() => setRows([...rows, emptyRow()])}>+ Добавить материал</button>
         <label>Основание распределения<textarea maxLength={1000} value={reason} onChange={e => setReason(e.target.value)} placeholder="Например: передача материалов на объект" /></label>
         <p className="wd-batch-summary">В пакете: {rows.length} {countLabel(rows.length, 'строка', 'строки', 'строк')} · {selectedProjectCount} {countLabel(selectedProjectCount, 'объект', 'объекта', 'объектов')} · {lotTotals.size} {countLabel(lotTotals.size, 'партия', 'партии', 'партий')}</p>
-        <button className="wd-submit" type="submit" disabled={!batchValid} aria-describedby="distribution-submit-feedback">Распределить одним пакетом</button>
+        <button className="wd-submit" type="submit" disabled={!batchValid || !draft.readyToSubmit} aria-describedby="distribution-submit-feedback">Распределить одним пакетом</button>
       </fieldset>
       <div id="distribution-submit-feedback" aria-live="polite">
         {busy ? <p role="status">Сохраняем распределение…</p> : <>

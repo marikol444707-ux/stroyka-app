@@ -1,8 +1,20 @@
+export function warehouseRequestId() {
+  if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+  if (!window.crypto?.getRandomValues) throw new Error('Для сохранения откройте платформу по HTTPS в современном браузере.');
+  const bytes = window.crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 15) | 64;
+  bytes[8] = (bytes[8] & 63) | 128;
+  const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 // Business drafts only, no credentials. Session-scoped so an unanswered command
 // survives navigation/reload without becoming a second warehouse movement.
-const key = companyId => `warehouse-distribution.pending.v1.${companyId}`;
-export function pendingCommand(companyId) {
-  const raw = sessionStorage.getItem(key(companyId));
+const legacyKey = companyId => `warehouse-distribution.pending.v1.${companyId}`;
+const key = (companyId, userId) => userId ? `warehouse-distribution.pending.v2.${userId}.${companyId}` : legacyKey(companyId);
+export function pendingCommand(companyId, userId) {
+  if (userId && sessionStorage.getItem(legacyKey(companyId))) throw new Error('В прежней вкладке осталась неподтверждённая операция. Сначала сверьте её с историей; новая выдача заблокирована.');
+  const raw = sessionStorage.getItem(key(companyId, userId));
   if (!raw) return null;
   const value = JSON.parse(raw);
   const isQuantity = number => typeof number === 'string' && /^\d+(\.\d{1,6})?$/.test(number) && Number(number) > 0 && Number(number) < 100000000;
@@ -10,18 +22,19 @@ export function pendingCommand(companyId) {
   const rowsValid = value?.path?.endsWith('/returns') ? isQuantity(payload?.quantity)
     : Array.isArray(payload?.rows) && payload.rows.length > 0 && payload.rows.length <= 50
       && payload.rows.every(row => row && Number.isInteger(row.lotId) && Number.isInteger(row.projectId) && isQuantity(row.quantity));
-  if (payload?.companyId !== companyId || typeof payload?.reason !== 'string' || !rowsValid
+  if ((value?.draftRevision !== undefined && (!Number.isSafeInteger(value.draftRevision) || value.draftRevision <= 0))
+      || payload?.companyId !== companyId || typeof payload?.reason !== 'string' || !rowsValid
       || !/^\/warehouse-distributions(?:\/\d+\/returns)?$/.test(value?.path) || !/^[0-9a-f-]{36}$/i.test(value?.id)
       || value.signature !== JSON.stringify({ path: value.path, ...payload })) {
     throw new Error('Неподтверждённая операция повреждена. Требуется сверка истории перед новой выдачей.');
   }
   return value;
 }
-export function saveCommand(companyId, command) {
-  sessionStorage.setItem(key(companyId), JSON.stringify(command));
+export function saveCommand(companyId, command, userId) {
+  sessionStorage.setItem(key(companyId, userId), JSON.stringify(command));
 }
-export function clearCommand(companyId, requestId) {
-  if (pendingCommand(companyId)?.id === requestId) sessionStorage.removeItem(key(companyId));
+export function clearCommand(companyId, requestId, userId) {
+  if (pendingCommand(companyId, userId)?.id === requestId) sessionStorage.removeItem(key(companyId, userId));
 }
 
 export async function readResponse(response) {
@@ -29,8 +42,9 @@ export async function readResponse(response) {
   try { data = await response.json(); }
   catch (e) { if (response.ok) throw e; }
   if (!response.ok) {
-    const error = new Error(typeof data?.detail === 'string' ? data.detail : 'Операция не выполнена. Проверьте данные и права доступа.');
+    const error = new Error(typeof data?.detail === 'string' ? data.detail : typeof data?.detail?.message === 'string' ? data.detail.message : 'Операция не выполнена. Проверьте данные и права доступа.');
     error.status = response.status;
+    error.code = data?.detail?.code;
     throw error;
   }
   return data;

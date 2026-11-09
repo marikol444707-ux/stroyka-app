@@ -1,3 +1,5 @@
+// These source/command regressions isolate draft transport; actual persistence is covered in WarehouseBatchPersistence.test.jsx.
+jest.mock('./useWarehouseBatchDraft', () => () => ({ loading: false, saving: false, dirty: false, error: '', phase: 'ready', readyToSubmit: true, flush: async () => undefined, clear: () => {}, rejectConflict: () => {} }));
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { DistributionWorkspace } from './WarehouseDistributionPanel';

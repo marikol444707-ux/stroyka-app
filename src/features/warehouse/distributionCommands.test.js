@@ -84,3 +84,18 @@ test('unknown or mismatched success is not a receipt', () => {
   expect(() => validateCommandResult({ ok: true, requestId: value.id, items: [{ id: 1 }] }, value)).not.toThrow();
   expect(() => validateList({ items: [null] })).toThrow();
 });
+
+test('pending issues are scoped to user and company and preserve the draft revision', () => {
+  const value={...command('11111111-1111-4111-8111-111111111111'),draftRevision:4};
+  saveCommand(2,value,101);
+  expect(pendingCommand(2,101)).toEqual(value);
+  expect(pendingCommand(2,102)).toBeNull();expect(pendingCommand(3,101)).toBeNull();
+  clearCommand(2,value.id,102);expect(pendingCommand(2,101)).toEqual(value);
+  clearCommand(2,value.id,101);expect(pendingCommand(2,101)).toBeNull();
+});
+test('legacy pending operation without owner blocks new writes rather than guessing ownership',()=>{
+  saveCommand(2,command('11111111-1111-4111-8111-111111111111'));
+  expect(()=>pendingCommand(2,101)).toThrow();
+  expect(()=>pendingCommand(2,102)).toThrow();
+  expect(pendingCommand(2)).not.toBeNull();
+});
