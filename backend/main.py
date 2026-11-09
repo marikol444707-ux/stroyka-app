@@ -26121,6 +26121,8 @@ except ModuleNotFoundError:
 
 
 register_master_profiles_module(app, {
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
     "get_db": get_db,
     "get_current_user": get_current_user,
     "finance_roles": FINANCE_ROLES,

@@ -32,10 +32,18 @@ class FakeCursor:
         self.calls.append((" ".join(sql.split()), tuple(params)))
 
     def fetchall(self):
+        if self.calls and "FROM users u" in self.calls[-1][0]:
+            return [{"id": 42, "projects": ["Объект"], "project": ""}]
         return list(self.rows)
 
     def fetchone(self):
         return self.row
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        pass
 
     def close(self):
         pass
@@ -58,6 +66,8 @@ def build(cursor, projects=("Объект",)):
     connection = FakeConnection(cursor)
     register_master_profiles_module(app, {
         "get_db": lambda: connection,
+        "resolve_work_company_context": lambda *args, **kwargs: {},
+        "effective_company_actors": lambda user, context: [{**user, "companyId": 2, "assignedProjects": ["Объект"]}],
         "get_current_user": lambda: {},
         "finance_roles": ("директор", "бухгалтер"),
         "worker_execution_roles": ("мастер",),
@@ -103,12 +113,12 @@ class MasterProfilesRoutesTest(unittest.TestCase):
             signatoryPosition="Директор", signatoryBasis="Устава")
         self.assertEqual(row.signatoryName, "Иванов И.И.")
 
-    def test_unknown_role_gets_empty_list(self):
-        cursor = FakeCursor(rows=[dict(PROFILE)])
+    def test_unknown_role_list_is_limited_to_self(self):
+        cursor = FakeCursor()
         app, _conn = build(cursor)
         rows = app.routes[("GET", "/master-profiles")](current_user={"id": 1, "role": "заказчик"})
         self.assertEqual(rows, [])
-        self.assertEqual(cursor.calls, [])
+        self.assertEqual(cursor.calls[-1][1], ([1],))
 
     def test_profile_detail_forbidden_for_stranger(self):
         app, _conn = build(FakeCursor())
