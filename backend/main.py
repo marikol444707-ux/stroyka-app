@@ -25112,76 +25112,24 @@ register_supervisor_acts_module(app, {
     "write_roles": PROJECT_DOCUMENT_WRITE_ROLES,
 })
 
-@app.get("/tb-journal")
-def list_tb_journal(project_name: str = None, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    cols = "id, project_name, master_name, instructor, instruction_type, program, instruction_text, participants_json, photo_url, date, ai_filled, created_at"
-    if project_name:
-        require_project_access(current_user, project_name)
-        cur.execute(f"SELECT {cols} FROM tb_journal WHERE project_name=%s ORDER BY id DESC", (project_name,))
-    elif visible_project_names(current_user) is not None:
-        projects = user_project_names(current_user)
-        if not projects:
-            cur.close(); conn.close()
-            return []
-        cur.execute(f"SELECT {cols} FROM tb_journal WHERE project_name = ANY(%s) ORDER BY id DESC", (projects,))
-    else:
-        cur.execute(f"SELECT {cols} FROM tb_journal ORDER BY id DESC")
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    import json as j
-    out = []
-    for r in rows:
-        try: participants = j.loads(r[7]) if r[7] else []
-        except: participants = []
-        out.append({"id":r[0],"projectName":r[1] or "","masterName":r[2] or "",
-             "instructor":r[3] or "","instructionType":r[4] or "",
-             "program":r[5] or "","instructionText":r[6] or "",
-             "participants":participants,"photoUrl":r[8] or "",
-             "date":str(r[9]) if r[9] else "","aiFilled":bool(r[10]),
-             "createdAt":str(r[11])})
-    return out
+try:
+    from backend.features.tb_journal.routes import register_tb_journal
+except ModuleNotFoundError:
+    from features.tb_journal.routes import register_tb_journal
 
-@app.post("/tb-journal")
-def create_tb_entry(data: dict, current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES))):
-    import json as j
-    require_project_access(current_user, data.get("projectName", ""))
-    conn = get_db()
-    cur = conn.cursor()
-    parts = j.dumps(data.get("participants") or [], ensure_ascii=False)
-    cur.execute("""INSERT INTO tb_journal
-                   (project_name, master_name, instructor, instruction_type, program, instruction_text,
-                    participants_json, photo_url, date, ai_filled)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-                (data.get("projectName",""), data.get("masterName",""),
-                 data.get("instructor",""), data.get("instructionType","Первичный инструктаж"),
-                 data.get("program",""), data.get("instructionText",""),
-                 parts, data.get("photoUrl",""), data.get("date") or None,
-                 bool(data.get("aiFilled", False))))
-    conn.commit()
-    row = cur.fetchone()
-    cur.close(); conn.close()
-    return {"id": row[0], "ok": True}
-
-@app.delete("/tb-journal/{id}")
-def delete_tb_entry(id: int, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "прораб", "главный_инженер"))):
-    conn = get_db()
-    cur = conn.cursor()
-    require_row_project_access(cur, "tb_journal", id, current_user, "project_name")
-    cur.execute("DELETE FROM tb_journal WHERE id=%s", (id,))
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok": True}
+register_tb_journal(app, project_record_scope, get_current_user, PROJECT_DOCUMENT_ROLES,
+                    JOURNAL_WRITE_ROLES, (*LEADERSHIP_ROLES, "прораб", "главный_инженер"))
 
 @app.post("/tb-journal/ai-generate")
-def ai_generate_tb_instruction(data: dict, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
+def ai_generate_tb_instruction(data: dict, current_user: dict = Depends(get_current_user), request: Request = None):
     """AI генерирует текст инструктажа по ГОСТ 12.0.004-2015 для указанного типа работ."""
     instruction_type = data.get("instructionType", "Первичный инструктаж")
     work_context = data.get("workContext", "")
-    project_name = data.get("projectName", "")
-    if project_name:
-        require_project_access(current_user, project_name)
+    with project_record_scope.transaction(current_user, request, PROJECT_DOCUMENT_ROLES) as (cur, actors):
+        if len(actors) != 1:
+            raise HTTPException(403, "Выберите компанию с доступом к объекту")
+        parent = project_record_scope.parent(cur, actors[0], data, PROJECT_DOCUMENT_ROLES)
+        project_name = parent["name"]
 
     user_text = (
         "Тип инструктажа: " + instruction_type + "\n"

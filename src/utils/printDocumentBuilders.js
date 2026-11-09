@@ -1,3 +1,4 @@
+import { selectRegulatoryRecords } from './regulatoryRecordScope';
 import { docEsc, normalizeDocDate, parseWorkMaterials, photoCount, workDocDate } from './documentFormatUtils';
 import { fmtMeasure } from './measureUtils';
 import { resolveQualityJournalProject, selectQualityJournalRows } from './qualityJournalScope';
@@ -260,7 +261,7 @@ export const buildJPRDocContent = (projectOrName, context = {}) => {
   const acts = hiddenActs.filter((item) => item.projectName === projectName);
   const inspections = selectQualityJournalRows(materialInspections, project);
   const prescs = (prescriptionsList || []).filter((item) => item.projectName === projectName);
-  const tb = (tbJournal || []).filter((item) => item.project === projectName);
+  const tb = selectRegulatoryRecords(tbJournal, project);
   const cables = selectQualityJournalRows(cableJournal, project);
   const byDate = {};
   works.forEach((work) => {

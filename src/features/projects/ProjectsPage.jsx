@@ -610,6 +610,7 @@ export default function ProjectsPage({ ctx }) {
 
                     {activeProjectTab==='Журнал ТБ'&&(
                       <ProjectSafetyJournalPanel
+                        project={p}
                         projectName={p.name}
                         tbJournal={tbJournal}
                         showForm={showForm}

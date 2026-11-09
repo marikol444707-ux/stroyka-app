@@ -1,3 +1,4 @@
+import { selectRegulatoryRecords } from '../../utils/regulatoryRecordScope';
 import React from 'react';
 
 export default function ProjectJournalsHubTab({
@@ -57,7 +58,7 @@ export default function ProjectJournalsHubTab({
         { label: 'вне/алиас', value: diagnostics.smetaOutsideRows.length + '/' + diagnostics.aliasNeededRows.length, color: diagnostics.smetaOutsideRows.length ? C.warning : C.textMuted },
       ],
     },
-    { tab: 'Журнал ТБ', icon: '🛡️', label: 'Техника безопасности', hint: 'ГОСТ 12.0.004-2015', count: (tbJournal || []).filter(entry => entry.project === project.name).length },
+    { tab: 'Журнал ТБ', icon: '🛡️', label: 'Техника безопасности', hint: 'ГОСТ 12.0.004-2015', count: selectRegulatoryRecords(tbJournal, project).length },
     { tab: 'Погода', icon: '🌤', label: 'Погода', hint: 'Метеоусловия по дням', count: (weatherLog || []).filter(row => row.projectName === project.name).length },
     { tab: 'Предписания', icon: '⚠️', label: 'Предписания', hint: 'От технадзора и стройконтроля', count: (prescriptionsList || []).filter(item => item.projectName === project.name).length },
     { tab: 'Чат', icon: '💬', label: 'Чат проекта', hint: 'Переписка по объекту', count: 0 },

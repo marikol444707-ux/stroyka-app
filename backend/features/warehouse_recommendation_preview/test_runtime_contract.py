@@ -720,7 +720,7 @@ class WarehouseAnomalyRuntimeDisclosurePolicyTests(unittest.TestCase):
             ),
             # Reviewed through 5301551: physical receipt originals/guards; preview is unchanged.
             backend_root / "main.py": (
-                "d8a664a1324d6682710a67a859757a27ade178837bdd896162c1f29b58ca90e4"
+                "bc2200883bf672f73e65f3918ce05965ec9d706a6d350adfa4e2e25af0a87e3a"
             ),
         }
         actual = {
