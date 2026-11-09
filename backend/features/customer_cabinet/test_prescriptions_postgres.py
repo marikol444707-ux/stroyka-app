@@ -66,6 +66,35 @@ class PrescriptionPostgresTest(unittest.TestCase):
         self.assertEqual([row['violation'] for row in result],['Моё'])
         self.assertEqual((result[0]['companyId'],result[0]['projectId']),(1,1))
 
+    def test_default_read_transaction_does_not_commit_an_accidental_write(self):
+        with self.scope.transaction(self.customer, None, ('заказчик',)) as (cur, _actors):
+            cur.execute("UPDATE prescriptions SET violation='Uncommitted read-side write' WHERE id=1")
+        self.assertEqual([row['violation'] for row in self.call('GET', '/prescriptions')], ['Моё'])
+
+    def test_write_commits_success_and_rolls_back_a_later_exception(self):
+        with self.scope.transaction(self.customer, None, ('заказчик',), write=True) as (cur, _actors):
+            cur.execute("UPDATE prescriptions SET violation='Committed change' WHERE id=1")
+        self.assertEqual([row['violation'] for row in self.call('GET', '/prescriptions')], ['Committed change'])
+        with self.assertRaisesRegex(RuntimeError, 'Synthetic failure'):
+            with self.scope.transaction(self.customer, None, ('заказчик',), write=True) as (cur, _actors):
+                cur.execute("UPDATE prescriptions SET violation='Must roll back' WHERE id=1")
+                raise RuntimeError('Synthetic failure')
+        self.assertEqual([row['violation'] for row in self.call('GET', '/prescriptions')], ['Committed change'])
+
+    def test_legacy_actor_keeps_company_and_project_boundaries_in_sql(self):
+        legacy = dict(self.customer, company_id=self.customer['companyId'], project_id=self.customer['projectId'])
+        legacy.pop('companyId')
+        legacy.pop('projectId')
+        rows = self.app.routes[('GET', '/prescriptions')](current_user=legacy)
+        self.assertEqual([(row['companyId'], row['projectId'], row['violation']) for row in rows],
+                         [(1, 1, 'Моё')])
+        for foreign_id in (3, 4):
+            with self.subTest(foreign_id=foreign_id):
+                with self.assertRaises(HTTPException) as error:
+                    self.app.routes[('PUT', '/prescriptions/{id}')](
+                        id=foreign_id, data={'status': 'Закрыто'}, current_user=legacy)
+                self.assertEqual(error.exception.status_code, 404)
+
     def test_create_forces_owner_actor_and_initial_state(self):
         result=self.call('POST','/prescriptions',data={'projectId':1,'projectName':'Лицей','companyId':2,
             'violation':'Новое','createdByUserId':12,'issuedBy':'Чужой','status':'Закрыто','responsible':'Назначен'})

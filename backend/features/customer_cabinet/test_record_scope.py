@@ -1,8 +1,22 @@
 import unittest
 from fastapi import HTTPException
-from backend.features.customer_cabinet.record_scope import project_visibility, require_record_author
+from backend.features.customer_cabinet.record_scope import positive_id, project_visibility, require_record_author
 
 class RecordScopeTest(unittest.TestCase):
+    def test_zero_negative_and_malformed_ids_are_not_owner_ids(self):
+        for value in (0, '0', -1, '-1', True, False, None, '', 'bad', [], {}, 1.0):
+            with self.subTest(value=value):
+                self.assertIsNone(positive_id(value))
+
+    def test_legacy_company_and_project_fields_keep_the_exact_scope(self):
+        sql, params = project_visibility(
+            [{'company_id': '2', 'role': 'заказчик', 'project_id': '7'}],
+            ('заказчик',), lambda actor: ['Лицей'],
+        )
+        self.assertIn('p.company_id=%s', sql)
+        self.assertIn('p.id=%s', sql)
+        self.assertEqual(params, [2, ['Лицей'], 7])
+
     def test_lowest_positive_company_id_remains_visible(self):
         for company_id in (1, '1'):
             with self.subTest(company_id=company_id):
