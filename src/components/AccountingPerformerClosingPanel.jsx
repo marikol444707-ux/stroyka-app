@@ -189,7 +189,7 @@ export default function AccountingPerformerClosingPanel({
       .filter(work => work.settlementVersion !== 2)
       .filter(work => safeText(work.status) === 'Подтверждено')
       .filter(work => monthOf(work.confirmedAt || work.date) === month)
-      .filter(work => !safeText(work.roomName || work.room_name) || workExecutionTotal(work) <= 0);
+      .filter(work => (safeText(work.roomName || work.room_name) || 'Без помещения') === 'Без помещения' || workExecutionTotal(work) <= 0);
   }, [workJournal, month]);
 
   const groups = useMemo(() => {

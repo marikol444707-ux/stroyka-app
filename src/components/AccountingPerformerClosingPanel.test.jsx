@@ -35,3 +35,41 @@ test.each(['Иван', 'Старое имя'])('advance to one exact employee is
   expect(balances).toEqual(['0 ₽ / 100 ₽', '0 ₽ / 200 ₽']);
   expect(screen.getByText('Авансы/подотчет').parentElement).toHaveTextContent('100 ₽');
 });
+
+const closingWork = overrides => ({
+  id: 1, status: 'Подтверждено', date: new Date().toISOString().slice(0, 7) + '-01',
+  project: 'Объект', masterName: 'Иван', masterId: 1, roomName: 'Комната',
+  executionTotal: 200, quantity: 1, ...overrides,
+});
+const closingPanel = workJournal => <AccountingPerformerClosingPanel C={{}} card={{}} inp={{}}
+  projects={[]} staff={[]} listSearch="" workJournal={workJournal} />;
+
+test.each([
+  { roomName: 'Без помещения' },
+  { roomName: '  Без помещения  ' },
+  { roomName: '', room_name: 'Без помещения' },
+  { roomName: '' },
+  { roomName: null },
+  { roomName: '   ' },
+])('excluded room produces a warning and becomes payable after correction: %j', room => {
+  const { rerender } = render(closingPanel([closingWork(room)]));
+  expect(screen.getByText(/Не попадут в акт:/)).toHaveTextContent('1 подтверждённых строк');
+  expect(screen.queryByText('Выплачено / остаток')).not.toBeInTheDocument();
+  expect(screen.getByText('Зафиксировать месяц')).toBeDisabled();
+  rerender(closingPanel([closingWork({ ...room, roomName: 'Комната' })]));
+  expect(screen.queryByText(/Не попадут в акт:/)).not.toBeInTheDocument();
+  expect(screen.getByText('Выплачено / остаток').parentElement.querySelector('b')).toHaveTextContent('0 ₽ / 200 ₽');
+});
+
+test('warning counts only excluded legacy confirmed works in the closing month, once per work', () => {
+  render(closingPanel([
+    closingWork({ id: 1, roomName: 'Без помещения', executionTotal: 0 }),
+    closingWork({ id: 2, executionTotal: 0 }),
+    closingWork({ id: 3, roomName: 'Без помещения', status: 'На проверке' }),
+    closingWork({ id: 4, roomName: 'Без помещения', confirmedAt: '2001-01-01' }),
+    closingWork({ id: 5, roomName: 'Без помещения', settlementVersion: 2 }),
+    closingWork({ id: 6 }),
+  ]));
+  expect(screen.getByText(/Не попадут в акт:/)).toHaveTextContent('2 подтверждённых строк');
+  expect(screen.getAllByText('Выплачено / остаток')).toHaveLength(1);
+});
