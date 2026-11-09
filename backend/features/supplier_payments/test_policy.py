@@ -38,6 +38,30 @@ class PolicyTests(unittest.TestCase):
         return validate_new_payment(Cursor(self.row), dict(documents=[self.doc]), dict(kind=kind),
                                     Decimal('10') if kind == 'payment' else Decimal('-10'))
 
+    def test_payment_and_reversal_require_at_least_one_document(self):
+        from .policy import validate_new_payment
+        for kind, amount in (('payment', '0.01'), ('reversal', '-0.01')):
+            with self.subTest(kind=kind), self.assertRaises(HTTPException) as error:
+                validate_new_payment(Cursor(self.row), dict(documents=[]),
+                                     dict(kind=kind), Decimal(amount))
+            self.assertEqual(error.exception.status_code, 409)
+
+    def test_one_kopeck_payment_and_reversal_are_valid(self):
+        from .policy import validate_new_payment
+        for kind, amount in (('payment', '0.01'), ('reversal', '-0.01')):
+            with self.subTest(kind=kind):
+                validate_new_payment(Cursor(self.row), dict(documents=[self.doc]),
+                                     dict(kind=kind), Decimal(amount))
+
+    def test_zero_and_wrong_direction_are_rejected_at_kopeck_boundary(self):
+        from .policy import validate_new_payment
+        for kind, amount in (('payment', '0'), ('payment', '-0.01'),
+                             ('reversal', '0'), ('reversal', '0.01')):
+            with self.subTest(kind=kind, amount=amount), self.assertRaises(HTTPException) as error:
+                validate_new_payment(Cursor(self.row), dict(documents=[self.doc]),
+                                     dict(kind=kind), Decimal(amount))
+            self.assertEqual(error.exception.status_code, 409)
+
     def test_approved_partial_paid_statuses_supported(self):
         for status in ('Утверждён', 'Частично оплачен', 'Оплачен'):
             with self.subTest(status=status):

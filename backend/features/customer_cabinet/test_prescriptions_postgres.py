@@ -13,10 +13,13 @@ class PrescriptionPostgresTest(unittest.TestCase):
     def setUpClass(cls):
         import psycopg2
         from backend.features.supplier_access.test_postgres_chain_support import connection_settings, _assert_empty_database
+        from backend.features.supplier_deal_parties.test_contract_postgres import statements
         cls.settings=connection_settings(os.environ)
         cls.connect=staticmethod(lambda:psycopg2.connect(**cls.settings))
         conn=cls.connect();_assert_empty_database(conn,cls.settings)
         with conn.cursor() as cur:
+            cur.execute('CREATE TABLE companies(id INTEGER PRIMARY KEY); '
+                        'CREATE TABLE clients(id INTEGER PRIMARY KEY,name TEXT)')
             cur.execute('CREATE TABLE projects(id INTEGER PRIMARY KEY, company_id INTEGER NOT NULL, name TEXT, UNIQUE(id,company_id)); CREATE TABLE users(id INTEGER PRIMARY KEY)')
             cur.execute('''CREATE TABLE prescriptions(id SERIAL PRIMARY KEY,project_name TEXT,number TEXT,
                 issued_by TEXT,issued_by_role TEXT,violation TEXT,deadline TEXT,responsible TEXT,status TEXT,
@@ -27,7 +30,16 @@ class PrescriptionPostgresTest(unittest.TestCase):
             cur.execute('CREATE TABLE project_documents(id SERIAL PRIMARY KEY,project_name TEXT,side TEXT,\n                doc_type TEXT,number TEXT,doc_date DATE,counterparty TEXT,sign_status TEXT,scan_url TEXT,\n                amount NUMERIC,notes TEXT,uploaded_by TEXT,created_at TIMESTAMP DEFAULT NOW());\n                CREATE TABLE project_letters(id SERIAL PRIMARY KEY,project_name TEXT,side TEXT,direction TEXT,\n                subject TEXT,body TEXT,counterparty TEXT,letter_date DATE,file_url TEXT,author TEXT,status TEXT,\n                created_at TIMESTAMP DEFAULT NOW(),correction_reason TEXT,correction_requested_at TIMESTAMPTZ,\n                corrected_by_letter_id INT,replaces_letter_id INT)')
             cur.execute(importlib.import_module('migrations.versions.0040_customer_record_owners').SCHEMA_SQL)
             cur.execute(importlib.import_module('migrations.versions.0069_addressed_customer_publications').SCHEMA_SQL)
-            cur.execute("INSERT INTO projects VALUES(1,1,'Лицей'),(2,2,'Лицей'),(3,1,'Лицей'); INSERT INTO users VALUES(10),(11),(12)")
+            # The owned routes now read frozen parties and customer-act bases.
+            # Use their actual migrations so this fixture keeps the same constraints.
+            for migration in ('0075_customer_contract_parties.py',
+                              '0077_customer_act_contract_basis.py',
+                              '0080_outgoing_letter_parties.py'):
+                for statement in statements('upgrade', migration):
+                    cur.execute(statement)
+            cur.execute("INSERT INTO companies VALUES(1),(2); "
+                        "INSERT INTO projects(id,company_id,name) VALUES(1,1,'Лицей'),(2,2,'Лицей'),(3,1,'Лицей'); "
+                        "INSERT INTO users VALUES(10),(11),(12)")
         conn.commit();conn.close()
 
     def setUp(self):

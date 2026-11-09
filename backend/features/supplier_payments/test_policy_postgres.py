@@ -1,6 +1,7 @@
 """Real engine + current authorization + document resolver + internal policy."""
 import os
 import unittest
+from decimal import Decimal
 from uuid import uuid4
 
 from fastapi import HTTPException
@@ -51,6 +52,21 @@ class PolicyPostgresTests(unittest.TestCase):
         self.assertNotEqual(first['operationId'], second['operationId'])
         self.assertEqual(self.sql('SELECT paid_amount,status FROM supplier_invoices WHERE id=%s',
                                  (self.invoice,)), [(20, 'Частично оплачен')])
+
+    def test_one_kopeck_invoice_payment_replay_and_reversal_preserve_balance(self):
+        body = self.body()
+        body['amount'] = '0.01'
+        payment = self.execute(body)
+        self.assertEqual(self.execute(body), payment)
+        self.assertEqual(self.sql('SELECT paid_amount,status FROM supplier_invoices WHERE id=%s',
+                                 (self.invoice,)), [(Decimal('0.01'), 'Частично оплачен')])
+        reversal = self.body()
+        reversal.pop('amount')
+        reversal.update(kind='reversal', reversesId=payment['operationId'])
+        result = self.execute(reversal)
+        self.assertEqual(self.execute(reversal), result)
+        self.assertEqual(self.sql('SELECT paid_amount,status FROM supplier_invoices WHERE id=%s',
+                                 (self.invoice,)), [(Decimal('0'), 'Утверждён')])
 
     def test_reviewed_after_acceptance_schedule_does_not_cap_actual_payment(self):
         self.conn = self.main.get_db()
