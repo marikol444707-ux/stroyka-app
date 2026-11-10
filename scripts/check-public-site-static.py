@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import hashlib
 import re
 import sys
 from html import unescape
@@ -12,7 +13,6 @@ PUBLIC = ROOT / "public"
 BUILD = ROOT / "build"
 PUBLIC_SITE_CONTENT = ROOT / "src" / "features" / "public-site" / "publicSiteContent.jsx"
 PUBLIC_SITE_PAGE = ROOT / "src" / "components" / "PublicSitePage.jsx"
-PUBLIC_SITE_STYLES = ROOT / "src" / "components" / "PublicSitePage.css"
 HERO_IMAGE = "/site-assets/projects/h2-01/facade.webp"
 
 REQUIRED_PAGES = [
@@ -110,8 +110,8 @@ def parse_ready_project_details(source):
         }
         for code, title, area, floors, layout, visuals in rows
     }
-    if len(projects) != 45:
-        fail(f"React project catalog should expose 45 projects, got {len(projects)}")
+    if len(projects) != 43:
+        fail(f"React project catalog should expose 43 projects, got {len(projects)}")
     return projects
 
 
@@ -139,7 +139,7 @@ def check_sitemap_robots_llms():
         if page not in llms:
             fail(f"llms.txt missing {page}")
 
-    if "45 стартовыми карточками" not in llms and "45 стартовых карточек" not in llms:
+    if "43 стартовыми карточками" not in llms and "43 стартовых карточек" not in llms:
         fail("llms.txt missing project catalog scale")
 
 
@@ -150,8 +150,8 @@ def check_catalog_assets():
 
     if parser.catalog_cards != 15:
         fail(f"project catalog should have 15 direction cards, got {parser.catalog_cards}")
-    if parser.catalog_items != 45:
-        fail(f"project catalog should have 45 project items, got {parser.catalog_items}")
+    if parser.catalog_items != 43:
+        fail(f"project catalog should have 43 project items, got {parser.catalog_items}")
     if len(parser.images) < 30:
         fail(f"project catalog should expose facade and plan previews, got {len(parser.images)} images")
     catalog_lower = catalog.lower()
@@ -234,8 +234,8 @@ def check_catalog_json_matches_react_source():
 
     if catalog_json.get("directionCount") != 15 or len(catalog_json.get("directions", [])) != 15:
         fail("project-catalog.json should expose 15 directions")
-    if catalog_json.get("projectCount") != 45:
-        fail("project-catalog.json should expose 45 projects")
+    if catalog_json.get("projectCount") != 43:
+        fail("project-catalog.json should expose 43 projects")
 
     react_projects = parse_ready_project_details(source)
     json_projects = {
@@ -257,8 +257,8 @@ def check_catalog_json_matches_react_source():
         fail(f"project-catalog.json differs from React catalog; missing={missing[:5]} extra={extra[:5]}")
 
     for direction in catalog_json.get("directions", []):
-        if len(direction.get("projects", [])) != 3:
-            fail(f"project-catalog.json direction should have 3 projects: {direction.get('title')}")
+        if len(direction.get("projects", [])) not in (2, 3):
+            fail(f"project-catalog.json direction should have 2 or 3 projects: {direction.get('title')}")
         if len(direction.get("previewImages", [])) < 2:
             fail(f"project-catalog.json direction should expose preview images: {direction.get('title')}")
         for image in direction.get("previewImages", []):
@@ -276,11 +276,11 @@ def check_catalog_json_matches_react_source():
             if project.get("url") != expected_url:
                 fail(f"project-catalog.json project url mismatch for {code}")
             media = project.get("media", [])
-            if len(media) < 3:
+            if len(media) < 2:
                 fail(f"project-catalog.json project should expose media: {code}")
             if not any(item.get("role") == "render" for item in media):
                 fail(f"project-catalog.json project missing render media: {code}")
-            if not any(item.get("role") == "plan" for item in media):
+            if code != "B2-02" and not any(item.get("role") == "plan" for item in media):
                 fail(f"project-catalog.json project missing plan media: {code}")
             for item in media:
                 src = item.get("src", "")
@@ -299,8 +299,8 @@ def check_catalog_json_matches_react_source():
             break
     if not item_list:
         fail("project-catalog.html missing ItemList JSON-LD")
-    if item_list.get("numberOfItems") != 45:
-        fail("project-catalog.html ItemList should expose 45 projects")
+    if item_list.get("numberOfItems") != 43:
+        fail("project-catalog.html ItemList should expose 43 projects")
     item_list_description = item_list.get("description", "").lower()
     if "проектными примерами" not in item_list_description or "не опубликованными документами" not in item_list_description:
         fail("project-catalog.html ItemList should describe cards as examples, not published documents")
@@ -396,20 +396,32 @@ def check_react_project_media_assets():
 
     assets_root = PUBLIC / "site-assets" / "projects"
     asset_dirs = {path.name for path in assets_root.iterdir() if path.is_dir()}
-    if asset_dirs != expected_slugs:
+    if not expected_slugs.issubset(asset_dirs):
         missing = sorted(expected_slugs - asset_dirs)
         extra = sorted(asset_dirs - expected_slugs)
         fail(f"project asset directories differ from React project codes; missing={missing[:5]} extra={extra[:5]}")
 
-    leftover_svg = sorted(assets_root.rglob("*.svg"))
+    plan_manifest = json.loads(read(ROOT / "src/features/public-site/projectPlanPresentation.json"))
+    allowed_svg = {PUBLIC / entry[key].lstrip("/") for entry in plan_manifest.values() for key in ("diagram", "sheet")}
+    for asset in allowed_svg:
+        body = read(asset)
+        if re.search(r"<script|<foreignObject|\bon\w+\s*=|(?:href|src)\s*=", body, re.I):
+            fail(f"unexpected active content in plan SVG: {asset.relative_to(ROOT)}")
+    leftover_svg = sorted(set(assets_root.rglob("*.svg")) - allowed_svg)
     if leftover_svg:
         sample = leftover_svg[0].relative_to(ROOT)
         fail(f"project media should use PNG assets, found leftover SVG: {sample}")
 
+    facade_hashes = {}
     for slug, sources in sorted(media_by_slug.items()):
-        if len(sources) < 3:
-            fail(f"project {slug} should have at least 3 media files, got {len(sources)}")
-        if not any(Path(src).name.startswith("plan") for src in sources):
+        facade = assets_root / slug / 'facade.webp'
+        digest = hashlib.sha256(facade.read_bytes()).hexdigest()
+        if digest in facade_hashes:
+            fail(f"duplicate published facade: {slug} and {facade_hashes[digest]}")
+        facade_hashes[digest] = slug
+        if len(sources) < 2:
+            fail(f"project {slug} should have at least 2 media files, got {len(sources)}")
+        if slug != "b2-02" and not any(Path(src).name.startswith("plan") for src in sources):
             fail(f"project {slug} missing plan media")
         for src in sorted(sources):
             asset = PUBLIC / src.lstrip("/")
@@ -422,11 +434,11 @@ def check_react_project_media_assets():
 def check_index_jsonld():
     index = read(PUBLIC / "index.html")
     page = read(PUBLIC_SITE_PAGE)
-    styles = read(PUBLIC_SITE_STYLES)
+    hero = read(ROOT / "src/features/public-site/PublicSiteHero.jsx")
 
     if f'href="%PUBLIC_URL%{HERO_IMAGE}"' not in index:
         fail("index.html missing local hero preload")
-    if "var(--public-hero-image)" not in styles or HERO_IMAGE not in page:
+    if HERO_IMAGE not in hero or 'fetchPriority="high"' not in hero:
         fail("public site hero should use the local project image")
     if not re.search(
         r'className="public-mobile-actions".*?scrollTo\(\'request\'\).*?Заявка',

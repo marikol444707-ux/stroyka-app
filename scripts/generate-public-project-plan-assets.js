@@ -1414,6 +1414,9 @@ const renderJobs = async (jobs) => {
   }
 };
 
+module.exports = { definitions, drawFixture, autoFixtures, drawWindowOpenings, renderJobs };
+
+if (require.main === module) {
 const requested = new Set(process.argv.slice(2).map((item) => item.toLowerCase()));
 const selected = requested.size
   ? definitions.filter((def) => requested.has(def.slug))
@@ -1435,3 +1438,5 @@ renderJobs(jobs).then(() => {
   console.error(error);
   process.exit(1);
 });
+
+}

@@ -1,0 +1,26 @@
+.public-site .public-plan-sheet { width: 100%; margin: 0; padding: 24px; box-sizing: border-box; background: #fff; color: #193d46; }
+.public-site .public-plan-heading { padding-bottom: 20px; border-bottom: 1px solid #d8e4e2; }
+.public-site .public-plan-heading > span { display: block; color: #57736c; font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.public-site .public-plan-heading > strong { display: block; margin-top: 8px; font-size: clamp(22px, 2.5vw, 32px); line-height: 1.2; }
+.public-site .public-plan-heading > p { margin: 8px 0 0; font-size: 15px; color: #5b6b72; }
+.public-site .public-plan-body { display: grid; grid-template-columns: minmax(0, 2.4fr) minmax(190px, 1fr); gap: 24px; align-items: center; padding: 24px 0; }
+.public-site .public-plan-body img.public-plan-drawing { display: block; width: 100%; height: auto; max-height: 580px; object-fit: contain; }
+.public-site .public-plan-legend { padding: 16px; background: #fff; border: 1px solid #cbd2cd; border-radius: 2px; }
+.public-site .public-plan-legend h4 { font-size: 16px; margin: 0 0 14px; }
+.public-site .public-plan-legend ol { display: grid; list-style: none; padding: 0; margin: 0; }
+.public-site .public-plan-legend li { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid #e2e6e3; font-size: 14px; line-height: 1.4; }
+.public-site .public-plan-legend li b { display: grid; place-items: center; width: 25px; height: 25px; flex: 0 0 25px; border: 1px solid #6e7a71; border-radius: 50%; color: #35473c; background: #fff; font-size: 12px; }
+.public-site .public-plan-footer { display: flex; align-items: center; gap: 20px; justify-content: space-between; padding-top: 16px; border-top: 1px solid #d8e4e2; }
+.public-site .public-plan-footer p { max-width: 65ch; margin: 0; font-size: 13px; line-height: 1.5; color: #52696d; }
+.public-site .public-plan-footer a { flex-shrink: 0; display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; border: 1px solid #bacfc8; border-radius: 8px; color: #193d46; font-size: 14px; text-decoration: none; }
+.public-site .public-plan-footer a:hover { background: #edf5f2; }
+.public-site .public-plan-footer a:focus-visible { outline: 3px solid #dd6b24; outline-offset: 3px; }
+.public-site .public-project-hero-visual:has(.public-plan-sheet) { min-height: 0; aspect-ratio: auto; display: block; padding: 0; }
+.public-site .public-project-hero-visual:has(.public-plan-sheet) > .public-project-media-counter { position: static; display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 10px 24px; border-radius: 0; font-size: 13px; background: #f2f7f5; color: #193d46; }
+.public-site .public-project-hero-visual:has(.public-plan-sheet) > .public-project-media-counter b { color: #193d46; }
+@media (max-width: 700px) {
+  .public-site .public-plan-sheet { padding: 16px; }
+  .public-site .public-plan-body { grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 16px 0; }
+  .public-site .public-plan-legend { padding: 16px; }
+  .public-site .public-plan-footer { flex-direction: column; align-items: flex-start; gap: 10px; }
+}

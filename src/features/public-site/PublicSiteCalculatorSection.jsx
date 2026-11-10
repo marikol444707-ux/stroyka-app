@@ -77,6 +77,8 @@ export const PublicSiteCalculatorSection = ({
               ))}
             </div>
 
+            <div className="public-calculator-layout">
+            <div className="public-calculator-inputs">
             <div className="public-calc-grid">
               <label className="public-field">
                 <span>{calc.type === 'repair' ? 'Площадь ремонта, м2' : calc.type === 'commerce' ? 'Площадь помещения, м2' : 'Площадь, м2'}</span>
@@ -274,20 +276,12 @@ export const PublicSiteCalculatorSection = ({
               <PublicPlotCheckPanel value={plotCheck} onChange={updatePlotCheck} />
             )}
 
-            {leadFileUploadsEnabled && (
-              <PublicProjectFilePicker
-                files={leadFiles}
-                error={leadFileError}
-                onChoose={chooseLeadFiles}
-                onRemove={removeLeadFile}
-              />
-            )}
-
+            </div>
             <div className="public-result">
               <div className="public-result-main">
                 <div>
                   <span>Предварительно</span>
-                  <strong>{formatMoney(result.min)} - {formatMoney(result.max)} ₽</strong>
+                  <strong className="public-design-price-range"><span>{formatMoney(result.min)} ₽</span><span>– {formatMoney(result.max)} ₽</span></strong>
                   <small>{result.typeLabel}: {result.summary}</small>
                 </div>
                 <div className="public-confidence">
@@ -316,6 +310,15 @@ export const PublicSiteCalculatorSection = ({
                   <p key={item}><Check size={15} /> {item}</p>
                 ))}
               </div>
+            </div>
+            {leadFileUploadsEnabled && (
+              <PublicProjectFilePicker
+                files={leadFiles}
+                error={leadFileError}
+                onChoose={chooseLeadFiles}
+                onRemove={removeLeadFile}
+              />
+            )}
             </div>
           </section>
 );
