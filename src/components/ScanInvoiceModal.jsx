@@ -29,8 +29,10 @@ export default function ScanInvoiceModal({
   const [review, setReview] = React.useState(null);
   const [scanError, setScanError] = React.useState('');
   const sequence = React.useRef(0);
+  const latestDraft = React.useRef(newInvoice);
+  latestDraft.current = newInvoice;
   const effectiveCompanyId = companyId ?? user?.companyId ?? user?.company_id;
-  const activeScope = `${effectiveCompanyId ?? ''}:${newInvoice?.location || ''}:${newInvoice?.receiptDraftId || ''}:${newInvoice?.sourceSupplierInvoiceId || ''}:${newInvoice?.selectedBatchId || ''}`;
+  const activeScope = `${user?.id ?? ''}:${effectiveCompanyId ?? ''}:${newInvoice?.location || ''}:${newInvoice?.receiptDraftId || ''}:${newInvoice?.sourceSupplierInvoiceId || ''}:${newInvoice?.selectedBatchId || ''}`;
   const sourceScope = `${effectiveCompanyId ?? ''}:${newInvoice?.location || ''}`;
   const scopeRef = React.useRef(activeScope);
   scopeRef.current = activeScope;
@@ -82,9 +84,14 @@ export default function ScanInvoiceModal({
     const inferredVat = totalWithVat > 0 && totalBase > 0 ? Math.max(0, totalWithVat - totalBase) : 0;
     const inferredRate = totalBase > 0 && inferredVat > 0 ? inferredVat / totalBase * 100 : 0;
     const hasVat = parsed.vatIncluded === true || parsed.hasVat === true || vatAmount > 0 || rate > 0 || /ндс/.test(rawVat);
-    if ((!hasVat && inferredVat <= 0) || /без\s*ндс/.test(rawVat)) return 'Без НДС';
+    if (/без\s*ндс/.test(rawVat)) return 'Без НДС';
+    const explicitRate = rawVat.match(/(\d+(?:[.,]\d+)?)\s*%/);
+    if (explicitRate) return `С НДС ${Number(explicitRate[1].replace(',', '.'))}%`;
+    if (rate > 0) return `С НДС ${rate}%`;
+    if (!hasVat && inferredVat <= 0) return 'Без НДС';
     if (Math.abs(rate - 20) < 0.5 || Math.abs(inferredRate - 20) < 0.75 || /20\s*%/.test(rawVat)) return 'С НДС 20%';
-    return 'С НДС 22%';
+    if (Math.abs(inferredRate - 22) < 0.75) return 'С НДС 22%';
+    return 'НДС — уточните ставку';
   };
 
   const firstText = (...values) => {
@@ -148,7 +155,8 @@ export default function ScanInvoiceModal({
   };
 
   const scan = async (fileList) => {
-    const files = Array.from(fileList || []).filter(Boolean).slice(0, 8);
+    const files = Array.from(fileList || []).filter(Boolean);
+    if (files.length > 8) { setScanError('Выбрано больше 8 файлов. Ничего не загружено: выберите полный документ допустимого размера.'); return; }
     if(!files.length) return;
     if (!targetLocation) {
       alert('Сначала выберите, куда принять документ: основной склад или объект.');
@@ -209,7 +217,7 @@ export default function ScanInvoiceModal({
         mimeType: page.mimeType,
         name: page.originalName,
       }));
-      const resp = await fetch(API+'/scan-invoice',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({images, target:'warehouse', location, project, warehouseTarget, selectedAction, sourceType})});
+      const resp = await fetch(API+'/scan-invoice',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({companyId:effectiveCompanyId, images, target:'warehouse', location, project, warehouseTarget, selectedAction, sourceType})});
       const data = await resp.json();
       if (!current()) return;
       if(!resp.ok || !data.ok) throw new Error(scanErrorMessage(data.error||'Ошибка'));
@@ -249,7 +257,7 @@ export default function ScanInvoiceModal({
       });
       const itemsTotal = normalizedItems.reduce((sum, item) => sum + toNumber(item.lineTotal), 0);
       const detectedVat = detectVat(parsed);
-      const vatRate = detectedVat.includes('22') ? 22 : detectedVat.includes('20') ? 20 : 0;
+      const vatRate = toNumber(detectedVat.match(/(\d+(?:[.,]\d+)?)%/)?.[1]);
       let totalWithVat = totalWithVatRaw || (totalBaseRaw && totalVatRaw ? totalBaseRaw + totalVatRaw : itemsTotal);
       let totalVat = totalVatRaw;
       let totalBase = totalBaseRaw;
@@ -271,7 +279,7 @@ export default function ScanInvoiceModal({
       totalVat = Math.round((totalVat || 0) * 100) / 100;
       const numberFromScan = parsedNumber || (unifiedReceipt ? '' : buildScanDraftNumber());
       const normalizedDate = normalizeDate(parsedDate);
-      const warnings = [];
+      const warnings = Array.isArray(parsed.validationWarnings) ? [...parsed.validationWarnings] : [];
       if (!parsedNumber) warnings.push(unifiedReceipt ? 'Номер документа не распознан: перенесите номер из оригинала.' : 'Номер документа не распознан: поставлен черновой номер, проверьте перед оплатой.');
       if (!parsedDate) warnings.push(unifiedReceipt ? 'Дата документа не распознана: перенесите дату из оригинала.' : 'Дата документа не распознана: поставлена сегодняшняя дата, проверьте перед сохранением.');
       if (!parsedSupplier) warnings.push('Поставщик не распознан: укажите его вручную, чтобы бухгалтерия связала первичку.');
@@ -282,7 +290,7 @@ export default function ScanInvoiceModal({
       if (totalWithVat > 0 && itemsTotal > 0 && Math.abs(totalWithVat - itemsTotal) > Math.max(1, totalWithVat * 0.015)) {
         warnings.push('Сумма строк отличается от итога документа: проверьте количество, цену и НДС.');
       }
-      setNewInvoice(prev=>{
+      const mergeDraft = prev => {
         const photos = prev.photos || uploadedPhotos;
         const draft = {
           ...prev,
@@ -295,6 +303,7 @@ export default function ScanInvoiceModal({
           supplier:parsedSupplier,
           newSupplierName:parsedSupplier,
           supplierInn:firstText(parsed.supplierInn, parsed.supplier_inn, parsed.inn),
+          buyerInn:firstText(parsed.buyerInn, parsed.buyer_inn),
           supplierKpp:firstText(parsed.supplierKpp, parsed.supplier_kpp, parsed.kpp),
           supplierOgrn:firstText(parsed.supplierOgrn, parsed.supplier_ogrn, parsed.ogrn),
           isNewSupplier:Boolean(parsedSupplier) || prev.isNewSupplier,
@@ -321,8 +330,18 @@ export default function ScanInvoiceModal({
           if (!['photos', 'photoUrls', 'originalUrls'].includes(key) && prev[key] !== initialDraft?.[key]) draft[key] = prev[key];
         });
         return draft;
-      });
-      const scanResult = {parsed, originalUrls:uploadedPhotos, location, project, projectId, companyId:effectiveCompanyId, sourceSupplierInvoiceId:initialDraft.sourceSupplierInvoiceId, selectedBatchId:initialDraft.selectedBatchId, explicitSelectionConfirmed:initialDraft.explicitSelectionConfirmed};
+      };
+      const reviewedDraft = mergeDraft(latestDraft.current);
+      setNewInvoice(mergeDraft);
+      // The resolver and subsequent form must receive the same reviewed snapshot.
+      const reviewedParsed = {...parsed, number:reviewedDraft.number, invoiceNumber:reviewedDraft.number, waybillNumber:reviewedDraft.number,
+        date:reviewedDraft.date, invoiceDate:reviewedDraft.date, waybillDate:reviewedDraft.date, lines:undefined,
+        supplier:reviewedDraft.supplier, supplierInn:reviewedDraft.supplierInn, buyerInn:reviewedDraft.buyerInn,
+        supplierKpp:reviewedDraft.supplierKpp, supplierOgrn:reviewedDraft.supplierOgrn,
+        items:reviewedDraft.items, vat:reviewedDraft.vat, totalBase:reviewedDraft.totalBase,
+        totalVat:reviewedDraft.totalVat, totalWithVat:reviewedDraft.totalWithVat,
+        documentType:reviewedDraft.scanDocumentType, recognition:reviewedDraft.scanRecognition};
+      const scanResult = {parsed:reviewedParsed, originalUrls:uploadedPhotos, location, project, projectId, companyId:effectiveCompanyId, sourceSupplierInvoiceId:initialDraft.sourceSupplierInvoiceId, selectedBatchId:initialDraft.selectedBatchId, explicitSelectionConfirmed:initialDraft.explicitSelectionConfirmed};
       if (onDocumentScanned) { await onDocumentScanned(scanResult); return; }
       if (unifiedReceipt) { setReview(scanResult); return; }
       setShowScanInvoice(false);
@@ -379,7 +398,7 @@ export default function ScanInvoiceModal({
           <input aria-label='Оригиналы документа' ref={galleryInputRef} type='file' accept={invoiceImageAccept} multiple style={{display:'none'}} onChange={onFilesPicked}/>
           <input ref={cameraInputRef} type='file' accept='image/*' multiple capture='environment' style={{display:'none'}} onChange={onFilesPicked}/>
           <div onClick={()=>openPicker(galleryInputRef)} role='button' tabIndex={0} onKeyDown={event=>{ if(event.key==='Enter' || event.key===' ') openPicker(galleryInputRef); }} style={{border:'2px dashed '+C.border,borderRadius:'12px',padding:isMobile?'22px':'30px',textAlign:'center',cursor:'pointer'}}>
-	            {scanningInvoice?<div><div style={{fontSize:'32px',marginBottom:'8px'}}>⏳</div><p style={{color:C.textSec,fontSize:'13px'}}>ИИ распознаёт документ...</p></div>:<div><div style={{fontSize:'48px',marginBottom:'8px'}}>📄</div><p style={{color:C.text,fontSize:'14px',fontWeight:'600'}}>Выберите PDF или фото накладной/счёта</p><p style={{color:C.textSec,fontSize:'12px',marginTop:'4px'}}>Можно выбрать PDF или 1-8 фото страниц, ИИ соберёт их в один документ</p></div>}
+	            {scanningInvoice?<div><div style={{fontSize:'32px',marginBottom:'8px'}}>⏳</div><p style={{color:C.textSec,fontSize:'13px'}}>ИИ распознаёт документ...</p></div>:<div><div style={{fontSize:'48px',marginBottom:'8px'}}>📄</div><p style={{color:C.text,fontSize:'14px',fontWeight:'600'}}>Выберите PDF или фото накладной/счёта</p><p style={{color:C.textSec,fontSize:'12px',marginTop:'4px'}}>PDF — до 6 страниц; фото — до 8 файлов одного документа. Проверьте, что загружены все страницы</p></div>}
           </div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginTop:'8px'}}>
             <button type='button' disabled={scanningInvoice} onClick={()=>openPicker(galleryInputRef)} style={{...btnG,justifyContent:'center',opacity:scanningInvoice?0.6:1}}>🖼️ Галерея</button>

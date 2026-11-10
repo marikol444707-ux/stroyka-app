@@ -487,6 +487,7 @@ export default function AppWorkflowModals({ ui, constants, state, actions }) {
 
       {showScannedInvoiceForm && (
         <ScannedInvoiceFormModal
+          companyId={companyContext?.selectedCompanyId}
           user={user}
           showScannedInvoiceForm={showScannedInvoiceForm}
           setShowScannedInvoiceForm={setShowScannedInvoiceForm}

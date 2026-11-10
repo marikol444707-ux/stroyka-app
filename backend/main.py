@@ -20530,62 +20530,26 @@ def _scan_invoice_supplier_name(payload: dict) -> str:
             return text
     return ""
 
-def _find_supplier_by_name_key(cur, supplier_name: str):
-    if not _supplier_invoice_template_key(supplier_name):
-        return None
-    return _supplier_find_match(cur, {"supplierName": supplier_name, "supplier": supplier_name})
+def _find_supplier_invoice_template(cur, payload: dict, company_id: int, supplier_id: int):
+    document_type = str(payload.get("documentType") or payload.get("document_type") or "").strip()
+    cur.execute("""SELECT * FROM supplier_invoice_templates
+                   WHERE active=TRUE AND company_id=%s AND supplier_id=%s AND document_type=%s
+                   ORDER BY updated_at DESC, id DESC LIMIT 1""", (company_id, supplier_id, document_type))
+    row = cur.fetchone()
+    return ({"row": row} if row else None), _scan_invoice_supplier_name(payload)
 
-def _supplier_invoice_template_match_score(row, supplier_name: str) -> float:
-    supplier_key = _supplier_invoice_template_key(supplier_name)
-    template_key = str(row.get("supplier_key") or "").strip()
-    if supplier_key and template_key and supplier_key == template_key:
-        return 1.0
-    haystack = " ".join([
-        supplier_name or "",
-        str(row.get("supplier_name") or ""),
-        " ".join(_supplier_invoice_template_json(row.get("match_keywords"), [])),
-    ])
-    hay_key = _supplier_invoice_template_key(haystack)
-    if supplier_key and hay_key:
-        if supplier_key in hay_key or hay_key in supplier_key:
-            return 0.92
-        supplier_words = [w for w in supplier_key.split() if len(w) > 2]
-        if supplier_words:
-            hits = len([w for w in supplier_words if w in hay_key])
-            return hits / max(len(supplier_words), 1)
-    return 0.0
-
-def _find_supplier_invoice_template(cur, payload: dict):
-    supplier_name = _scan_invoice_supplier_name(payload)
-    supplier_key = _supplier_invoice_template_key(supplier_name)
-    if not supplier_key:
-        return None, supplier_name
-    cur.execute("""SELECT *
-                   FROM supplier_invoice_templates
-                   WHERE active=TRUE
-                   ORDER BY usage_count DESC, updated_at DESC, id DESC
-                   LIMIT 100""")
-    best = None
-    for row in cur.fetchall() or []:
-        score = _supplier_invoice_template_match_score(row, supplier_name)
-        if score >= 0.72 and (not best or score > best["score"]):
-            best = {"row": row, "score": score}
-    return best, supplier_name
-
-def _invoice_scan_template_hint(limit: int = 12) -> str:
+def _invoice_scan_template_hint(company_id: int, limit: int = 12) -> str:
+    conn = get_db()
     try:
-        conn = get_db()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("""SELECT supplier_name, template_name, document_type, match_keywords, sample_json, usage_count
-                       FROM supplier_invoice_templates
-                       WHERE active=TRUE
-                       ORDER BY usage_count DESC, updated_at DESC, id DESC
-                       LIMIT %s""", (limit,))
-        rows = cur.fetchall()
-        cur.close(); conn.close()
-    except Exception as exc:
-        print("INVOICE TEMPLATE HINT ERROR:", str(exc))
-        return ""
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""SELECT supplier_name, template_name, document_type, match_keywords, sample_json, usage_count
+                           FROM supplier_invoice_templates
+                           WHERE active=TRUE AND company_id=%s
+                           ORDER BY usage_count DESC, updated_at DESC, id DESC
+                           LIMIT %s""", (company_id, limit))
+            rows = cur.fetchall()
+    finally:
+        conn.close()
     if not rows:
         return ""
     lines = []
@@ -20609,7 +20573,7 @@ def _invoice_scan_template_hint(limit: int = 12) -> str:
         )
     return "\n".join(lines)
 
-def _apply_supplier_invoice_template_metadata(payload: dict, current_user: dict = None) -> dict:
+def _apply_supplier_invoice_template_metadata(payload: dict, company_id: int) -> dict:
     payload = dict(payload or {})
     recognition = {
         "method": "ai_ocr",
@@ -20621,49 +20585,25 @@ def _apply_supplier_invoice_template_metadata(payload: dict, current_user: dict 
         "supplierName": _scan_invoice_supplier_name(payload),
         "warnings": [],
     }
+    from backend.features.supplier_invoice_templates.scope import exact_supplier
+    conn = get_db()
     try:
-        conn = get_db()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        supplier_lookup_payload = {
-            **payload,
-            "supplierName": recognition["supplierName"],
-            "supplier": recognition["supplierName"] or payload.get("supplier") or "",
-        }
-        supplier = _supplier_find_match(cur, supplier_lookup_payload, allow_contact_match=False)
-        if supplier:
-            recognition["supplierId"] = supplier["id"]
-            recognition["supplierName"] = supplier["name"] or recognition["supplierName"]
-            _update_supplier_missing_fields(cur, supplier["id"], supplier_lookup_payload)
-            _remember_supplier_alias(cur, supplier["id"], supplier_lookup_payload, source="invoice_scan")
-        match, _supplier_name = _find_supplier_invoice_template(cur, payload)
-        if match:
-            row = match["row"]
-            template = _supplier_invoice_template_row(row)
-            recognition.update({
-                "method": "template",
-                "label": "Распознано по шаблону поставщика",
-                "templateId": template["id"],
-                "templateName": template["templateName"] or template["supplierName"],
-                "supplierId": template["supplierId"] or recognition["supplierId"],
-                "supplierName": template["supplierName"] or recognition["supplierName"],
-                "confidence": max(float(payload.get("confidence") or 0), min(1.0, float(match["score"]))),
-            })
-            payload["supplier"] = recognition["supplierName"] or payload.get("supplier") or ""
-            if recognition["supplierId"]:
-                _remember_supplier_alias(cur, recognition["supplierId"], supplier_lookup_payload, source="invoice_template")
-            cur.execute("""UPDATE supplier_invoice_templates
-                           SET usage_count=COALESCE(usage_count,0)+1, last_used_at=NOW()
-                           WHERE id=%s""", (template["id"],))
-            conn.commit()
-        else:
-            if recognition["supplierId"]:
-                recognition["warnings"].append("Поставщик найден в справочнике, но шаблон еще не сохранен.")
-                conn.commit()
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            supplier = exact_supplier(cur, company_id, payload)
+            if supplier:
+                recognition["supplierId"] = supplier["id"]
+                recognition["supplierName"] = supplier["name"] or recognition["supplierName"]
+                match, _ = _find_supplier_invoice_template(cur, payload, company_id, supplier["id"])
+                if match:
+                    template = _supplier_invoice_template_row(match["row"])
+                    recognition.update({
+                        "method": "template", "label": "OCR с подсказкой шаблона; проверьте оригинал",
+                        "templateId": template["id"], "templateName": template["templateName"],
+                    })
             else:
-                conn.rollback()
-        cur.close(); conn.close()
-    except Exception as exc:
-        print("INVOICE TEMPLATE APPLY ERROR:", str(exc))
+                recognition["warnings"].append("Точный поставщик по ИНН в компании не определён. Выберите и проверьте его вручную.")
+    finally:
+        conn.close()
     payload["recognition"] = recognition
     payload["scanRecognition"] = recognition
     return payload
@@ -20957,18 +20897,13 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
             "supplierName": supplier_name or data.get("supplier") or "",
             "supplier": data.get("supplier") or supplier_name,
         }
-        matched_supplier = _supplier_find_match(
-            cur,
-            supplier_lookup_payload,
-            allow_alias_name_match=not has_legal_supplier_identity(supplier_lookup_payload),
-            allow_contact_match=False,
-        )
+        from backend.features.supplier_invoice_templates.scope import receipt_supplier
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as supplier_cur:
+            matched_supplier = None if inventory_only else receipt_supplier(supplier_cur, company_id, supplier_lookup_payload)
         if matched_supplier:
             data["supplierId"] = matched_supplier["id"]
             data["supplierName"] = matched_supplier["name"] or supplier_name
             supplier_name = data["supplierName"]
-            _update_supplier_missing_fields(cur, matched_supplier["id"], supplier_lookup_payload)
-            _remember_supplier_alias(cur, matched_supplier["id"], supplier_lookup_payload, source="warehouse_invoice")
         if invoice_number:
             cur.execute("""SELECT id FROM warehouse_invoices
                            WHERE COALESCE(status,'Принята') <> 'Аннулирована'
@@ -21063,6 +20998,11 @@ def _create_warehouse_invoice_record(data: dict, current_user: dict, *, x_compan
         if not isinstance(material_match, list):
             material_match = []
         normalized_invoice = _normalize_invoice_totals_payload({**data, "items": items_list})
+        if source_type.startswith("scan_"):
+            from backend.features.supplier_invoice_templates.amounts import scan_amount_errors
+            amount_errors = scan_amount_errors(normalized_invoice)
+            if amount_errors:
+                raise HTTPException(422, "; ".join(amount_errors))
         items_list = normalized_invoice.get("items") or items_list
         invoice_vat = normalized_invoice.get("vat") or data.get("vat") or "Без НДС"
         total_base = normalized_invoice.get("totalBase", 0)
@@ -21414,18 +21354,12 @@ def _sync_supplier_invoice_from_warehouse_in_transaction(cur, warehouse_invoice_
         identity_requisites = _supplier_extract_requisites(supplier_payload)
         for identity in sorted({identity_requisites.get(key, "") for key in ("inn", "ogrn")} - {""}):
             cur.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))", ("supplier-legal:" + identity,))
-    matched_supplier = _supplier_find_match(
-        cur,
-        supplier_payload,
-        allow_alias_name_match=not legal_supplier_identity,
-        allow_contact_match=False,
-    )
+    from backend.features.supplier_invoice_templates.scope import receipt_supplier
+    matched_supplier = receipt_supplier(cur, company_id, supplier_payload)
     created_supplier = False
     if matched_supplier:
         supplier_id = matched_supplier["id"]
         supplier_name = matched_supplier["name"] or supplier_name
-        _update_supplier_missing_fields(cur, supplier_id, supplier_payload)
-        _remember_supplier_alias(cur, supplier_id, supplier_payload, source="warehouse_accounting")
     elif supplier_name:
         req = _supplier_extract_requisites(supplier_payload)
         if legal_supplier_identity:
@@ -26280,7 +26214,7 @@ register_supplier_invoice_templates_module(app, {
     "supplier_invoice_template_row": _supplier_invoice_template_row,
     "supplier_invoice_template_key": _supplier_invoice_template_key,
     "scan_invoice_supplier_name": _scan_invoice_supplier_name,
-    "find_supplier_by_name_key": _find_supplier_by_name_key,
+    "resolve_work_company_context": _resolve_work_company_context,
     "log_audit": log_audit,
 })
 
@@ -27982,7 +27916,16 @@ def _retry_invoice_scan_compact_json(images: list):
 
 
 @app.post("/scan-invoice")
-def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*PHYSICAL_RECEIPT_ROLES, "бухгалтер"))):
+def scan_invoice(data: dict, x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"), x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"), _current_user: dict = Depends(require_roles(*PHYSICAL_RECEIPT_ROLES, "бухгалтер"))):
+    from backend.features.supplier_invoice_templates.scope import resolve_scan_company
+    conn = get_db()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            company_id = resolve_scan_company(cur, _current_user, _resolve_work_company_context,
+                (*PHYSICAL_RECEIPT_ROLES, "бухгалтер"), company_id=data.get("companyId"),
+                x_company_id=x_company_id, x_company_mode=x_company_mode)
+    finally:
+        conn.close()
     images = data.get("images") or data.get("pages") or []
     if isinstance(images, (str, dict)):
         images = [images]
@@ -27990,11 +27933,13 @@ def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*PHYSIC
         images = []
     if data.get("image"):
         images = [data.get("image")] + images
-    images = [_normalize_invoice_scan_image_entry(img) for img in images[:8]]
+    if len(images) > 8:
+        raise HTTPException(422, "Выбрано больше 8 файлов. Загрузите полный документ допустимого размера или заполните его вручную.")
+    images = [_normalize_invoice_scan_image_entry(img) for img in images]
     images = [img for img in images if img]
     if not images:
         return {"ok": False, "error": "Нет изображения документа"}
-    template_hint = _invoice_scan_template_hint()
+    template_hint = _invoice_scan_template_hint(company_id)
     try:
         content = []
         for idx, image in enumerate(images, start=1):
@@ -28070,8 +28015,10 @@ def scan_invoice(data: dict, _current_user: dict = Depends(require_roles(*PHYSIC
         parsed["pagesCount"] = int(parsed.get("pagesCount") or len(images))
         parsed = _normalize_invoice_totals_payload(parsed)
         parsed["pagesCount"] = int(parsed.get("pagesCount") or len(images))
-        parsed = _apply_supplier_invoice_template_metadata(parsed, _current_user)
-        print("SCAN OK:", parsed)
+        from backend.features.supplier_invoice_templates.amounts import scan_amount_errors
+        parsed["validationWarnings"] = scan_amount_errors(parsed)
+        parsed = _apply_supplier_invoice_template_metadata(parsed, company_id)
+        print("SCAN OK: recognition completed")
         return {"ok": True, "data": parsed}
     except HTTPException as e:
         return {"ok": False, "error": str(e.detail or "Ошибка распознавания PDF/фото")}

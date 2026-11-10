@@ -321,3 +321,43 @@ test('manual receipt uploads an original and opens editable review without calli
   expect(fetch.mock.calls.map(call=>call[0])).toEqual(['/api/upload-photo','/api/warehouse-receipts/resolve']);
   expect(screen.getByRole('textbox',{name:'Номер документа'})).toHaveValue('');
 });
+
+test('late OCR sends the manually edited identity and rows to resolver and standalone receipt',async()=>{
+  let finish;
+  const next=jest.fn();
+  fetch.mockResolvedValueOnce(response({url:'/original'}))
+    .mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}))
+    .mockResolvedValueOnce(response({status:'no_match'}));
+  function EditableScanner() {
+    const [draft,setDraft]=React.useState({location:'Объект',items:[]});
+    const [busy,setBusy]=React.useState(false);
+    return <><button onClick={()=>setDraft(prev=>({...prev,number:'MANUAL-99',supplierInn:'7709999999',buyerInn:'7701111111',items:[{name:'Ручная строка',quantity:'3',unit:'шт',price:'20'}]}))}>Править документ</button>
+      <ScanInvoiceModal showScanInvoice setShowScanInvoice={()=>{}} setShowScannedInvoiceForm={()=>{}} C={{}} API="/api"
+        projects={[{id:11,name:'Объект',companyId:7}]} companyId={7} newInvoice={draft} setNewInvoice={setDraft}
+        scanningInvoice={busy} setScanningInvoice={setBusy} unifiedReceipt onStandaloneReceipt={next}/></>;
+  }
+  const {container}=render(<EditableScanner/>); pick(container);
+  await waitFor(()=>expect(finish).toBeDefined()); fireEvent.click(screen.getByText('Править документ'));
+  finish(response({ok:true,data:scan.parsed}));
+  fireEvent.click(await screen.findByText('Оформить отдельный документ'));
+  expect(JSON.parse(fetch.mock.calls[2][1].body).document).toEqual(expect.objectContaining({
+    waybillNumber:'MANUAL-99',supplierInn:'7709999999',buyerInn:'7701111111',
+    lines:[expect.objectContaining({materialName:'Ручная строка',quantity:'3'})],
+  }));
+  expect(next).toHaveBeenCalledWith(expect.objectContaining({number:'MANUAL-99',items:[expect.objectContaining({name:'Ручная строка',quantity:'3',price:'20'})]}));
+});
+
+test('too many originals are rejected without partially uploading or recognizing a document',()=>{
+  render(<Scanner/>);
+  fireEvent.change(screen.getByLabelText('Оригиналы документа'),{target:{files:Array.from({length:9},(_,i)=>new File(['x'],`${i}.jpg`,{type:'image/jpeg'}))}});
+  expect(screen.getByRole('alert')).toHaveTextContent('больше 8 файлов');
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+test.each([0,5,7,10])('OCR preserves the explicit VAT rate %s instead of replacing it with 22',async rate=>{
+  const next=jest.fn();
+  fetch.mockResolvedValueOnce(response({url:'/original'})).mockResolvedValueOnce(response({ok:true,data:{...scan.parsed,vat:`С НДС ${rate}%`,vatRate:rate,totalWithVat:100+rate,totalBase:100,totalVat:rate}}));
+  const {container}=render(<Scanner onDocumentScanned={next}/>);pick(container);
+  await waitFor(()=>expect(next).toHaveBeenCalled());
+  expect(next.mock.calls[0][0].parsed.vat).toBe(`С НДС ${rate}%`);
+});

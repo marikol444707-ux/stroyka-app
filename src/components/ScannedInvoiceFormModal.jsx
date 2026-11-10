@@ -5,6 +5,7 @@ import { createWarehouseInvoiceItemForm } from '../features/warehouse/warehouseI
 
 export default function ScannedInvoiceFormModal({
   user,
+  companyId,
   showScannedInvoiceForm,
   setShowScannedInvoiceForm,
   C,
@@ -22,6 +23,20 @@ export default function ScannedInvoiceFormModal({
   saveInvoiceNew,
 }) {
   const [rememberingTemplate, setRememberingTemplate] = React.useState(false);
+  const templateRequest = React.useRef(0);
+  const templateBusy = React.useRef(false);
+  const latestDraft = React.useRef(newInvoice);
+  latestDraft.current = newInvoice;
+  const effectiveCompanyId = companyId ?? user?.companyId ?? user?.company_id;
+  const scope = `${user?.id ?? ''}:${effectiveCompanyId ?? ''}:${newInvoice.receiptDraftId || ''}:${newInvoice.location || ''}:${showScannedInvoiceForm}`;
+  const latestScope = React.useRef(scope);
+  latestScope.current = scope;
+  React.useEffect(() => {
+    const requestToken = templateRequest;
+    const busyToken = templateBusy;
+    requestToken.current++; busyToken.current=false; setRememberingTemplate(false);
+    return () => {requestToken.current++; busyToken.current=false;};
+  }, [scope]);
   if (!showScannedInvoiceForm) return null;
   const isMobile = typeof window !== 'undefined' && window.innerWidth <= 640;
   const invoiceProject = newInvoice.location && newInvoice.location !== 'Основной склад' ? newInvoice.location : '';
@@ -38,6 +53,10 @@ export default function ScannedInvoiceFormModal({
   const updateItem = (idx, patch) => {
     const items=[...newInvoice.items];
     items[idx]={...items[idx],...patch};
+    if ('quantity' in patch || 'price' in patch) {
+      const total=Number(items[idx].quantity)*Number(items[idx].price);
+      items[idx].lineTotal=Number.isFinite(total) ? String(Math.round(total*100)/100) : '';
+    }
     setNewInvoice({...newInvoice,items,...(isScannedInvoice?{scanHasManualCorrections:true}:{})});
   };
   const workOptionsForItem = (item = {}) => invoiceProject && typeof getProjectEstimateWorkOptions === 'function'
@@ -88,6 +107,7 @@ export default function ScannedInvoiceFormModal({
   };
 
   const save = async () => {
+    if (String(newInvoice.vat).includes('уточните')) return alert('Проверьте ставку НДС по оригиналу');
     if(newInvoice.physicalReceiptConfirmed !== true) return alert('Подтвердите фактическое прибытие и количество');
     if(!(newInvoice.originalUrls || newInvoice.photos || []).length) return alert('Сначала загрузите оригинал документа');
     if(!String(newInvoice.number || '').trim()) return alert('Укажите номер оригинала документа');
@@ -95,6 +115,9 @@ export default function ScannedInvoiceFormModal({
     if(!newInvoice.location) return alert('Выберите склад');
     const validItems=(newInvoice.items||[]).filter(i=>i.name&&Number(i.quantity)>0);
     if(!validItems.length) return alert('Добавьте хотя бы одну позицию');
+    if (isScannedInvoice && Number(newInvoice.totalWithVat) > 0 && Math.abs(itemsTotal-Number(newInvoice.totalWithVat)) > Math.max(.02,validItems.length*.01)) {
+      return alert('Сумма строк не соответствует итогу оригинала. Проверьте суммы перед сохранением.');
+    }
     try{
       const saved = await saveInvoiceNew();
       if (saved) setShowScannedInvoiceForm(false);
@@ -126,16 +149,23 @@ export default function ScannedInvoiceFormModal({
   };
 
   const rememberInvoiceTemplate = async () => {
+    if (templateBusy.current) return;
     const supplierName = String(newInvoice.supplier || newInvoice.newSupplierName || scanRecognition.supplierName || '').trim();
     if (!supplierName) return alert('Сначала укажите поставщика.');
     const items = (newInvoice.items || []).filter(item => item.name && Number(item.quantity) > 0);
     if (!items.length) return alert('Добавьте хотя бы одну распознанную позицию.');
+    templateBusy.current = true;
+    const request = ++templateRequest.current;
+    const snapshot = newInvoice;
+    const current = () => request === templateRequest.current && scope === latestScope.current;
+    const unchanged = () => current() && latestDraft.current === snapshot;
     setRememberingTemplate(true);
     try {
       const response = await fetch(API + '/supplier-invoice-templates/learn', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({
+          companyId:effectiveCompanyId,
           supplierId:newInvoice.supplierId || scanRecognition.supplierId || 0,
           supplierName,
           number:newInvoice.number || '',
@@ -152,19 +182,15 @@ export default function ScannedInvoiceFormModal({
       });
       const data = await response.json().catch(()=>({}));
       if (!response.ok || !data.ok) throw new Error(data.detail || data.error || 'Не удалось сохранить правило поставщика');
-      setNewInvoice({
-        ...newInvoice,
-        scanRecognition:data.recognition || scanRecognition,
-        scanHasManualCorrections:false,
-        supplierId:data.template?.supplierId || newInvoice.supplierId,
-        supplier:data.template?.supplierName || newInvoice.supplier || supplierName,
-        newSupplierName:data.template?.supplierName || newInvoice.newSupplierName || supplierName,
-      });
+      if (!unchanged()) return;
+      setNewInvoice(prev => prev === snapshot ? {
+        ...prev, scanRecognition:data.recognition || scanRecognition, scanHasManualCorrections:false,
+      } : prev);
       alert('Правило распознавания поставщика сохранено.');
     } catch (error) {
-      alert(error.message || 'Не удалось сохранить правило поставщика');
+      if (unchanged()) alert(error.message || 'Не удалось сохранить правило поставщика');
     } finally {
-      setRememberingTemplate(false);
+      if (current()) {templateBusy.current=false; setRememberingTemplate(false);}
     }
   };
 
@@ -241,10 +267,16 @@ export default function ScannedInvoiceFormModal({
           <input type='date' value={newInvoice.date||''} onChange={e=>patchInvoice({date:e.target.value})} style={inputStyle}/>
           <select value={newInvoice.vat||'Без НДС'} disabled={inventoryOnly} onChange={e=>patchInvoice({vat:e.target.value})} style={{...inputStyle,opacity:inventoryOnly?0.65:1}}>
             <option value='Без НДС'>Без НДС</option>
+            {![undefined,'','Без НДС','С НДС 0%','С НДС 5%','С НДС 7%','С НДС 10%','С НДС 20%','С НДС 22%'].includes(newInvoice.vat) && <option value={newInvoice.vat}>{newInvoice.vat}</option>}
+            {[0,5,7,10].map(rate=><option key={rate} value={`С НДС ${rate}%`}>{`С НДС ${rate}%`}</option>)}
             <option value='С НДС 20%'>С НДС 20%</option>
             <option value='С НДС 22%'>С НДС 22%</option>
           </select>
         </div>
+        {isScannedInvoice && <div>
+          <label>Итого по оригиналу, с НДС<input aria-label='Итого по оригиналу, с НДС' type='number' step='0.01' min='0' value={newInvoice.totalWithVat ?? ''} onChange={e=>patchInvoice({totalWithVat:e.target.value,totalBase:Math.round((Number(e.target.value)-Number(newInvoice.totalVat||0))*100)/100})} style={inputStyle}/></label>
+          <label>В том числе НДС по оригиналу<input aria-label='В том числе НДС по оригиналу' type='number' step='0.01' min='0' value={newInvoice.totalVat ?? ''} onChange={e=>patchInvoice({totalVat:e.target.value,totalBase:Math.round((Number(newInvoice.totalWithVat||0)-Number(e.target.value))*100)/100})} style={inputStyle}/></label>
+        </div>}
         <b style={{color:C.text,fontSize:isMobile?'17px':'13px',display:'block',marginBottom:'8px'}}>Позиции:</b>
         {(newInvoice.items||[]).map((item,idx)=>(
           <div key={idx} style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'2fr 1.2fr 0.7fr 0.7fr 1fr 36px',gap:isMobile?'8px':'4px',marginBottom:isMobile?'12px':'6px',padding:isMobile?'10px':0,border:isMobile?'1px solid '+C.border:'none',borderRadius:isMobile?'12px':0}}>

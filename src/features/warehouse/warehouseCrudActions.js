@@ -199,10 +199,12 @@ export const createWarehouseCrudActions = ({
     }
     notify('Накладная №'+invoiceNumber+' принята'+(reviewTasksCreated ? ' · задач ИИ-контроля: '+reviewTasksCreated : ''),'invoice');
     addActivity('Принята накладная №'+invoiceNumber);
-    await refreshData();
-    setNewInvoice(createWarehouseInvoiceForm());
+    let refreshFailed = false;
+    try { await refreshData(); } catch (_error) { refreshFailed = true; }
+    setNewInvoice(prev => prev === newInvoice ? createWarehouseInvoiceForm() : prev);
     setShowForm(false);
-    alert('Накладная принята!'+(reviewTasksCreated ? '\nСоздано задач ИИ-контроля: '+reviewTasksCreated : ''));
+    alert('Накладная принята!'+(reviewTasksCreated ? '\nСоздано задач ИИ-контроля: '+reviewTasksCreated : '')
+      +(refreshFailed ? '\nНе удалось обновить список. Обновите его позже; повторно принимать накладную не нужно.' : ''));
     return true;
   };
 
