@@ -164,3 +164,16 @@ unit.log, payment-guards.log, postgres-regression.log, frontend-final.log,
 startup-check.log, full-startup.log, browser-proof.json, browser-server.log,
 browser-final.png, build.log, frontend-flags.txt). Статус установки — в отдельном
 tool-deduction-install-report.md; этот документ сам по себе не подтверждает деплой.
+
+## Уточнение после проверки установки
+
+Первые внешние проверки обнаружили, что nginx не направлял новые пути
+/tool-deductions и /salary-tool-deductions в backend: вместо JSON приходил HTML
+страницы с HTTP200. Поэтому установка не объявлялась завершённой, резерв сохранён.
+Добавлены scripts/ensure_tool_deduction_nginx_routes.py и
+scripts/test_tool_deduction_nginx_routes.py: три точных location, сохранение прочего
+конфига, резерв до записи, идемпотентность и отказ при конфликте/дрейфе. 3 теста
+прошли. Перед завершением установки обязательны применение helper к активному
+конфигу, nginx -t, reload, повторная проверка JSON/401 и браузера. Добавлять маршруты
+нужно до открытия новых форм; текущие API-пути не заменяются широким catch-all.
+Исходный результат отказа проверки сохранён в public-first-failure.log.
