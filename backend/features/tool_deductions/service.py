@@ -267,6 +267,59 @@ def refund(cur, company, source_id, data, actor, package_access):
         'amount': amount, 'basis': basis, 'projectPaymentId': payment_id}), 'projectPaymentId': payment_id}
 
 
+def historical_refund_state(source, events):
+    opening = next((e['change'] for e in events if e['change']['operation'] == 'historical_refund_review'), None)
+    refunded = sum((money(e['change']['amount']) for e in events
+                    if e['change']['operation'] == 'historical_refund'), Decimal(0))
+    previous = money(opening['previouslyRefunded']) if opening else None
+    return {'reviewed': opening is not None, 'previouslyRefunded': previous, 'refunded': refunded,
+            'remaining': money(source['previously_deducted']) - previous - refunded if opening else None}
+
+
+def historical_refund(cur, company, source_id, data, actor, *, review=False):
+    basis = confirmation(data)
+    amount_field = 'previouslyRefunded' if review else 'amount'
+    if set(data) - {'expectedRevision', 'confirmed', 'basis', amount_field}:
+        raise HTTPException(400, 'Получатель, объект и компания берутся из проверенной выдачи')
+    source = source_for_update(cur, company, source_id, data)
+    previous_deducted = money(source['previously_deducted'])
+    if previous_deducted <= 0:
+        raise HTTPException(409, 'В этой выдаче нет подтверждённых старых удержаний')
+    cur.execute('SELECT change FROM tool_deduction_events WHERE source_id=%s AND company_id=%s ORDER BY revision',
+                (source_id, company))
+    state = historical_refund_state(source, cur.fetchall())
+    amount = money(data.get(amount_field))
+    if review:
+        if state['reviewed']:
+            raise HTTPException(409, 'Прежние возвраты уже подтверждены. История сверки не переписывается')
+        if amount > previous_deducted:
+            raise HTTPException(409, 'Ранее возвращённая сумма превышает подтверждённое старое удержание')
+        return record(cur, source, actor, {'operation': 'historical_refund_review',
+            'previouslyRefunded': amount, 'basis': basis})
+    if not state['reviewed']:
+        raise HTTPException(409, 'Сначала подтвердите прежние возвраты по документам, включая явный ноль')
+    if amount <= 0:
+        raise HTTPException(400, 'Сумма возврата должна быть больше нуля')
+    if amount > state['remaining']:
+        raise HTTPException(409, 'Возврат превышает остаток старого удержания с учётом всех подтверждённых возвратов')
+    cur.execute('''SELECT p.name FROM projects p WHERE p.id=%s AND p.company_id=%s
+        AND NOT EXISTS(SELECT 1 FROM projects other WHERE other.company_id=p.company_id
+                       AND other.name=p.name AND other.id<>p.id)''', (source['project_id'], company))
+    project = cur.fetchone()
+    if not project:
+        raise HTTPException(409, 'Объект не найден или его название неоднозначно; денежная запись не создана')
+    # Never change the old act/salary or free capacity for another deduction.
+    cur.execute('''INSERT INTO project_payments(company_id,project_name,amount,note,date,added_by,work_package)
+        VALUES(%s,%s,%s,%s,CURRENT_DATE::text,%s,'') RETURNING id''',
+        (company, project['name'], -amount,
+         f"Возврат старого удержания за инструмент: выдача №{source_id}, сотрудник №{source['staff_id']}. {basis}",
+         str(actor.get('name') or '')))
+    payment_id = cur.fetchone()['id']
+    return {**record(cur, source, actor, {'operation': 'historical_refund', 'amount': amount,
+        'staffId': source['staff_id'], 'projectId': source['project_id'],
+        'basis': basis, 'projectPaymentId': payment_id}), 'projectPaymentId': payment_id}
+
+
 def prepare_salary(cur, company, staff_id, month, data):
     current = salary_state(cur, company, staff_id, month)
     if data.get('expectedToolState') != current['state']:

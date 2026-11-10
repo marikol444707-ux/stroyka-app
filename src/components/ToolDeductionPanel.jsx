@@ -51,6 +51,10 @@ function AllocationRow({row,acts,staff,refresh,C,inp,btnB,btnG}) {
   const [refundId,setRefundId]=useState(''),[refundAmount,setRefundAmount]=useState(''),[refundBasis,setRefundBasis]=useState(''),[refundConfirmed,setRefundConfirmed]=useState(false);
   const [correctedStaff,setCorrectedStaff]=useState(String(row.staff_id)),[correctedAmount,setCorrectedAmount]=useState(String(row.amount));
   const [correctionBasis,setCorrectionBasis]=useState(''),[correctionConfirmed,setCorrectionConfirmed]=useState(false);
+  const [previousRefund,setPreviousRefund]=useState(''),[historyBasis,setHistoryBasis]=useState(''),[historyConfirmed,setHistoryConfirmed]=useState(false);
+  const [oldRefundAmount,setOldRefundAmount]=useState(''),[oldRefundBasis,setOldRefundBasis]=useState(''),[oldRefundConfirmed,setOldRefundConfirmed]=useState(false);
+  const history=row.historicalRefund;
+
   const [busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
   const active=useRef(true),flight=useRef(false),current=useRef(row);current.current=row;
   useEffect(()=>{active.current=true;return()=>{active.current=false;};},[]);
@@ -60,15 +64,16 @@ function AllocationRow({row,acts,staff,refresh,C,inp,btnB,btnG}) {
   const canCorrect=Number(row.previously_deducted)===0&&row.allocations.every(a=>Number(a.amount)===0&&Number(a.refunded)===0);
   const change=async kind=>{
     const correction=kind==='correction',refund=kind===true;
+    const historyReview=kind==='history-review',historyRefund=kind==='history-refund';
     if(flight.current||stale)return;flight.current=true;setBusy(true);setError('');setNotice('');
     const isCurrent=()=>active.current&&current.current.revision===row.revision;
     try {
-      const result=await request(`/tool-deductions/${row.id}/${correction?'correction':refund?'refunds':'allocations'}`,{method:refund?'POST':'PUT',headers:headers(row.company_id),body:JSON.stringify({expectedRevision:revision,
-        ...(correction?{staffId:Number(correctedStaff),amount:correctedAmount,basis:correctionBasis,confirmed:correctionConfirmed}:refund?{allocationId:Number(refundId),amount:refundAmount,basis:refundBasis,confirmed:refundConfirmed}:{...(target==='act'?{actId:Number(actId)}:{month}),amount,basis,confirmed})})});
+      const result=await request(`/tool-deductions/${row.id}/${historyReview?'historical-refund-review':historyRefund?'historical-refunds':correction?'correction':refund?'refunds':'allocations'}`,{method:refund||historyRefund?'POST':'PUT',headers:headers(row.company_id),body:JSON.stringify({expectedRevision:revision,
+        ...(historyReview?{previouslyRefunded:previousRefund,basis:historyBasis,confirmed:historyConfirmed}:historyRefund?{amount:oldRefundAmount,basis:oldRefundBasis,confirmed:oldRefundConfirmed}:correction?{staffId:Number(correctedStaff),amount:correctedAmount,basis:correctionBasis,confirmed:correctionConfirmed}:refund?{allocationId:Number(refundId),amount:refundAmount,basis:refundBasis,confirmed:refundConfirmed}:{...(target==='act'?{actId:Number(actId)}:{month}),amount,basis,confirmed})})});
       if(!isCurrent())return;
       if(!result.ok||result.id!==row.id||!Number.isSafeInteger(result.revision)||result.revision<=revision)throw Error('Ответ не подтверждает новую ревизию. Обновите данные перед повтором; ввод сохранён.');
-      setRevision(result.revision);setConfirmed(false);setRefundConfirmed(false);setCorrectionConfirmed(false);
-      setNotice(correction?'Сверка исправлена. Прежние данные сохранены в истории; выплаты не изменились.':refund?'Возврат денег записан отдельной операцией.':'Распределение сохранено. Денежная выплата не создана.');
+      setRevision(result.revision);setConfirmed(false);setRefundConfirmed(false);setCorrectionConfirmed(false);setHistoryConfirmed(false);setOldRefundConfirmed(false);
+      setNotice(historyReview?'Прежние возвраты сверены. Новая денежная запись не создана.':historyRefund?'Возврат старого удержания записан отдельным платежом; история актов и зарплаты сохранена.':correction?'Сверка исправлена. Прежние данные сохранены в истории; выплаты не изменились.':refund?'Возврат денег записан отдельной операцией.':'Распределение сохранено. Денежная выплата не создана.');
       await refresh();
     }catch(e){if(isCurrent())setError(e.message);}finally{flight.current=false;if(active.current)setBusy(false);}
   };
@@ -93,6 +98,23 @@ function AllocationRow({row,acts,staff,refresh,C,inp,btnB,btnG}) {
       <button style={btnB} disabled={stale||!refundId||!numeric(refundAmount)||Number(refundAmount)<=0||!refundBasis.trim()||!refundConfirmed} onClick={()=>change(true)}>Записать возврат денег</button>
       <p>Создаёт денежную запись по объекту, но не банковский перевод. Возврат инструмента на склад сам по себе деньги не возвращает.</p>
     </details>
+    {Number(row.previously_deducted)>0&&<details><summary>Возврат старых удержаний</summary>
+      <p>Сотрудник №{row.staff_id} · {row.staff_name} · {row.project_name}. Старое удержание: {money(row.previously_deducted)}. Сначала сверьте все прежние возвраты по документам. Сверка не создаёт повторного расхода.</p>
+      {!history?<p role="alert">Сервер не подтвердил состояние старых возвратов. Обновите данные; запись недоступна.</p>:!history.reviewed?<>
+        <label>Ранее возвращено вне реестра <input aria-label={`Ранее возвращено вне реестра ${row.id}`} style={inp} type="number" min="0" max={row.previously_deducted} step="0.01" value={previousRefund} onChange={e=>{setPreviousRefund(e.target.value);setHistoryConfirmed(false);}}/></label>
+        <label>Основание сверки <input aria-label={`Основание сверки возвратов ${row.id}`} style={inp} maxLength={2000} value={historyBasis} onChange={e=>{setHistoryBasis(e.target.value);setHistoryConfirmed(false);}}/></label>
+        <label><input type="checkbox" checked={historyConfirmed} onChange={e=>setHistoryConfirmed(e.target.checked)}/>Прежние возвраты проверены по документам, включая отсутствие возвратов</label>
+        <button style={btnB} disabled={stale||!numeric(previousRefund)||Number(previousRefund)>Number(row.previously_deducted)||!historyBasis.trim()||!historyConfirmed} onClick={()=>change('history-review')}>Подтвердить прежние возвраты</button>
+        <p>Если возвратов не было, введите 0. Сверка записывается один раз и не переписывается; проверьте сумму до подтверждения.</p>
+      </>:<>
+        <p>Ранее возвращено вне реестра: {money(history.previouslyRefunded)} · Возвращено через реестр: {money(history.refunded)} · Доступно к возврату старых удержаний: {money(history.remaining)}</p>
+        <label>Сумма фактического возврата <input aria-label={`Возврат старого удержания ${row.id}`} style={inp} type="number" min="0.01" max={history.remaining} step="0.01" value={oldRefundAmount} onChange={e=>{setOldRefundAmount(e.target.value);setOldRefundConfirmed(false);}}/></label>
+        <label>Основание возврата <input aria-label={`Основание старого возврата ${row.id}`} style={inp} maxLength={2000} value={oldRefundBasis} onChange={e=>{setOldRefundBasis(e.target.value);setOldRefundConfirmed(false);}}/></label>
+        <label><input type="checkbox" checked={oldRefundConfirmed} onChange={e=>setOldRefundConfirmed(e.target.checked)}/>Подтверждаю фактический возврат старого удержания этому сотруднику</label>
+        <button style={btnB} disabled={stale||!numeric(oldRefundAmount)||Number(oldRefundAmount)<=0||Number(oldRefundAmount)>Number(history.remaining)||!oldRefundBasis.trim()||!oldRefundConfirmed} onClick={()=>change('history-refund')}>Записать возврат старого удержания</button>
+        <p>Создаёт отдельный расход по объекту, но не банковский перевод. Старые акты и зарплата не меняются; возвращённая сумма не доступна для нового удержания.</p>
+      </>}
+    </details>}
     <details><summary>Исправить первоначальную сверку</summary>
       {canCorrect?<>
         <p>Сейчас: {row.staff_name} · сотрудник №{row.staff_id} · {money(row.amount)}. Исправление меняет только получателя и стоимость; исходная выдача, объект и история сохраняются.</p>
@@ -106,8 +128,8 @@ function AllocationRow({row,acts,staff,refresh,C,inp,btnB,btnG}) {
       </>:<p>Сверку можно исправить только без прошлых и действующих удержаний. Сначала отмените неоплаченные распределения. При оплаченных удержаниях нужна отдельная финансовая корректировка.</p>}
     </details>
     <button style={btnG} onClick={refresh}>Обновить распределение</button>
-    {stale&&<button style={btnG} onClick={()=>{setRevision(row.revision);setConfirmed(false);setRefundConfirmed(false);setCorrectionConfirmed(false);setError('');}}>Сверено: использовать новую версию</button>}
-    <details><summary>История решений</summary>{row.events.map(e=><p key={e.revision}>Версия {e.revision} · {e.actor} · {({review:'Первоначальная сверка',allocate:'Распределение',refund:'Возврат денег',correct_review:'Исправление сверки'})[e.change.operation]||e.change.operation} · {e.change.basis}{e.change.operation==='correct_review'&&e.change.before&&e.change.after&&<span> · Получатель №{e.change.before.staffId} → №{e.change.after.staffId}; стоимость {money(e.change.before.amount)} → {money(e.change.after.amount)}</span>}</p>)}</details>
+    {stale&&<button style={btnG} onClick={()=>{setRevision(row.revision);setConfirmed(false);setRefundConfirmed(false);setCorrectionConfirmed(false);setHistoryConfirmed(false);setOldRefundConfirmed(false);setError('');}}>Сверено: использовать новую версию</button>}
+    <details><summary>История решений</summary>{row.events.map(e=><p key={e.revision}>Версия {e.revision} · {e.actor} · {({review:'Первоначальная сверка',allocate:'Распределение',refund:'Возврат денег',correct_review:'Исправление сверки',historical_refund_review:'Сверка прежних возвратов',historical_refund:'Возврат старого удержания'})[e.change.operation]||e.change.operation} · {e.change.basis}{e.change.operation==='correct_review'&&e.change.before&&e.change.after&&<span> · Получатель №{e.change.before.staffId} → №{e.change.after.staffId}; стоимость {money(e.change.before.amount)} → {money(e.change.after.amount)}</span>}{e.change.operation==='historical_refund_review'&&<span> · Ранее возвращено {money(e.change.previouslyRefunded)}</span>}{e.change.operation==='historical_refund'&&<span> · {money(e.change.amount)} · Платёж №{e.change.projectPaymentId}</span>}</p>)}</details>
   </fieldset>;
 }
 

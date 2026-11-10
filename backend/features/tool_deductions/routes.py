@@ -47,6 +47,7 @@ def register_tool_deductions(app, deps, company_actor):
                 row['allocations'] = [dict(r) for r in cur.fetchall()]
                 cur.execute('SELECT revision,actor,change,created_at FROM tool_deduction_events WHERE source_id=%s AND company_id=%s ORDER BY revision DESC', (row['id'], company))
                 row['events'] = [dict(r) for r in cur.fetchall()]
+                row['historicalRefund'] = service.historical_refund_state(row, row['events'])
             keys = {r['source_key'] for r in reviewed}
             cur.execute('SELECT id,name FROM staff WHERE company_id=%s AND company_scope_verified IS TRUE ORDER BY name,id', (company,))
             staff = [dict(r) for r in cur.fetchall()]
@@ -89,6 +90,20 @@ def register_tool_deductions(app, deps, company_actor):
         x_company_mode: Optional[str] = Header(default=None, alias='X-Company-Mode')):
         return run(current_user, x_company_id, x_company_mode,
             lambda cur, company, actor: service.refund(cur, company, source_id, data, actor, deps['has_package_access']), True)
+
+    @app.put('/tool-deductions/{source_id}/historical-refund-review')
+    def review_historical_refunds(source_id: int, data: dict, current_user: dict = Depends(get_user),
+        x_company_id: Optional[str] = Header(default=None, alias='X-Company-Id'),
+        x_company_mode: Optional[str] = Header(default=None, alias='X-Company-Mode')):
+        return run(current_user, x_company_id, x_company_mode,
+            lambda cur, company, actor: service.historical_refund(cur, company, source_id, data, actor, review=True), True)
+
+    @app.post('/tool-deductions/{source_id}/historical-refunds')
+    def refund_historical(source_id: int, data: dict, current_user: dict = Depends(get_user),
+        x_company_id: Optional[str] = Header(default=None, alias='X-Company-Id'),
+        x_company_mode: Optional[str] = Header(default=None, alias='X-Company-Mode')):
+        return run(current_user, x_company_id, x_company_mode,
+            lambda cur, company, actor: service.historical_refund(cur, company, source_id, data, actor), True)
 
     @app.get('/salary-tool-deductions')
     def salary(month: str, current_user: dict = Depends(get_user),

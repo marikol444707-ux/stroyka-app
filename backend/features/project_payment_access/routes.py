@@ -72,7 +72,8 @@ def register_project_payments_module(app, deps):
                 where.append("pp.project_name=%s")
                 params.append(project_name)
             cur.execute("SELECT to_regclass('public.supplier_payment_operations') IS NOT NULL AS ledger_exists, "
-                        "to_regclass('public.supplier_mixed_opening_bindings') IS NOT NULL AS mixed_exists")
+                        "to_regclass('public.supplier_mixed_opening_bindings') IS NOT NULL AS mixed_exists, "
+                        "to_regclass('public.tool_deduction_events') IS NOT NULL AS tool_exists")
             schema = cur.fetchone()
             ledger_exists = schema['ledger_exists']
             mixed_exists = schema.get('mixed_exists', False)
@@ -84,15 +85,23 @@ def register_project_payments_module(app, deps):
                     params.append(project_name)
             ledger_join = ("LEFT JOIN supplier_payment_operations ledger ON ledger.project_payment_id=pp.id "
                            "AND ledger.company_id=pp.company_id") if ledger_exists else ""
+            tool_exists = schema.get('tool_exists', False)
+            tool_join = ("LEFT JOIN tool_deduction_events tool_event ON tool_event.project_payment_id=pp.id "
+                         "AND tool_event.company_id=pp.company_id "
+                         "LEFT JOIN tool_deduction_sources tool_source ON tool_source.id=tool_event.source_id "
+                         "AND tool_source.company_id=pp.company_id") if tool_exists else ""
+            tool_project = "tool_source.project_id" if tool_exists else "NULL::integer"
             # Equal ledger instalments are distinct events, unlike the old
             # display-only deduplication of unlinked project expenses.
             ledger_identity = "ledger.id," if ledger_exists else ""
+            # Separate confirmed tool refunds remain separate even with equal date/amount/note.
+            ledger_identity += "tool_event.id," if tool_exists else ""
             ledger_columns = ("ledger.id AS operation_id,ledger.kind AS operation_kind,"
                               "ledger.reverses_id,ledger.payer_company_id") if ledger_exists else (
                               "NULL::bigint AS operation_id,NULL::text AS operation_kind,"
                               "NULL::bigint AS reverses_id,NULL::integer AS payer_company_id")
             cur.execute(f"""SELECT id,company_id,project_name,amount,note,date,added_by,
-                                   operation_id,operation_kind,reverses_id,payer_company_id,
+                                   operation_id,operation_kind,reverses_id,payer_company_id,tool_project_id,
                                    COALESCE(work_package,'') AS work_package
                             FROM (
                                 SELECT DISTINCT ON (
@@ -101,9 +110,10 @@ def register_project_payments_module(app, deps):
                                     pp.amount, COALESCE(pp.note,''), pp.date, COALESCE(pp.added_by,'')
                                 )
                                     pp.id,pp.company_id,pp.project_name,pp.amount,pp.note,pp.date,
-                                    pp.added_by,pp.work_package,{ledger_columns}
+                                    pp.added_by,pp.work_package,{ledger_columns},{tool_project} AS tool_project_id
                                 FROM project_payments pp
                                 {ledger_join}
+                                {tool_join}
                                 WHERE {' AND '.join(where)}
                                 ORDER BY {ledger_identity} pp.company_id, pp.project_name, COALESCE(pp.work_package,''),
                                          pp.amount, COALESCE(pp.note,''), pp.date,
@@ -156,6 +166,7 @@ def register_project_payments_module(app, deps):
             return [{
                 "id": row.get("id"),
                 "companyId": row.get("company_id"),
+                "projectId": row.get("tool_project_id"),
                 "projectName": row.get("project_name") or "",
                 "amount": float(row.get("amount") or 0),
                 "note": row.get("note") or "",
