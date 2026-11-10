@@ -20,4 +20,15 @@ describe('shipment retries',()=>{
   expect(await createSupplyActions(context).createShipmentFromOffer({id:70})).toBe(false);
   expect(global.fetch).not.toHaveBeenCalled();
  });
+ it('keeps confirmed shipment successful when the following list refresh fails',async()=>{
+  const context=deps();
+  context.refreshData.mockRejectedValueOnce(new Error('list unavailable'));
+  global.fetch.mockResolvedValueOnce({ok:true,json:async()=>({id:16})});
+  expect(await createSupplyActions(context).createShipmentFromOffer({id:70})).toBe(true);
+  expect(global.fetch).toHaveBeenCalledTimes(1);
+  expect(context.setShippingOfferId).toHaveBeenCalledWith(null);
+  expect(context.notify).toHaveBeenCalledTimes(1);
+  expect(window.alert).toHaveBeenCalledWith(expect.stringContaining('Партия отгружена, но список не обновился'));
+  expect(window.alert).not.toHaveBeenCalledWith(expect.stringContaining('Повторите отправку'));
+ });
 });

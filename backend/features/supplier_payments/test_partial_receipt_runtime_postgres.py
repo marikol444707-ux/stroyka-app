@@ -99,6 +99,34 @@ class PartialReceiptRuntimeTests(unittest.TestCase):
         self.pay('160.00')
         self.assertEqual(self.sql('SELECT paid_amount,status FROM supplier_invoices WHERE id=%s',
                                  (self.invoice,)),[(200,'Оплачен')])
+        # Check the projections consumed by the actual screens, not only rows
+        # written by receipt confirmation. Read twice to model a page reload.
+        for _ in range(2):
+            for actor in ('director', 'foreman'):
+                stock = [row for row in self.api(actor, 'GET', '/materials')
+                         if row['project'] == self.fixture['project']
+                         and row['name'] == self.fixture['materialName']]
+                self.assertEqual(sum(row['quantity'] for row in stock), stock_before + 2)
+                self.assertEqual({row['companyId'] for row in stock}, {2})
+                history = [row for row in self.api(actor, 'GET', '/warehouse-history')
+                           if row['sourceType'] == 'supply_delivery'
+                           and str(row['sourceId']) in {str(value) for value in deliveries}]
+                self.assertEqual(len(history), 2)
+                self.assertEqual(sum(row['quantity'] for row in history), 2)
+            for actor in ('director', 'supplier'):
+                invoices = [row for row in self.api(actor, 'GET', '/supplier-invoices')
+                            if row['id'] == self.invoice]
+                self.assertEqual(len(invoices), 1)
+                self.assertEqual((invoices[0]['paidAmount'], invoices[0]['status']),
+                                 (200, 'Оплачен'))
+                received = [row for row in self.api(actor, 'GET', '/supply-deliveries')
+                            if row['id'] in deliveries]
+                self.assertEqual(len(received), 2)
+                self.assertEqual(sum(row['receivedQuantity'] for row in received), 2)
+        foreign = self.api('stranger', 'GET', '/supply-deliveries')
+        self.assertFalse({row['id'] for row in foreign} & set(deliveries))
+        foreign = self.api('stranger', 'GET', '/supplier-invoices')
+        self.assertNotIn(self.invoice, [row['id'] for row in foreign])
 
     def physical_state(self):
         return {table:self.sql('SELECT to_jsonb(t) FROM '+table+' t ORDER BY id') for table in (
