@@ -113,6 +113,9 @@ jobs:
           scripts.test_jev_commercial_search_and_import
           scripts.test_jev_push_commercial_report
 
+      - name: Verify MAX polling cursor persistence
+        run: python -B -m unittest ops.hermes_max.test_poll_cursor
+
       - name: Verify JEV container preservation on isolated Docker
         run: python -B -m scripts.verify_jev_docker_preservation
       - name: Verify native JEV document isolation
