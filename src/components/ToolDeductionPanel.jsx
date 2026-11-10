@@ -45,26 +45,30 @@ function ReviewSource({source, data, refresh, C, inp, btnB}) {
   </fieldset>;
 }
 
-function AllocationRow({row,acts,refresh,C,inp,btnB,btnG}) {
+function AllocationRow({row,acts,staff,refresh,C,inp,btnB,btnG}) {
   const [revision,setRevision]=useState(row.revision),[target,setTarget]=useState('act'),[actId,setActId]=useState(''),[month,setMonth]=useState('');
   const [amount,setAmount]=useState(''),[basis,setBasis]=useState(''),[confirmed,setConfirmed]=useState(false);
   const [refundId,setRefundId]=useState(''),[refundAmount,setRefundAmount]=useState(''),[refundBasis,setRefundBasis]=useState(''),[refundConfirmed,setRefundConfirmed]=useState(false);
+  const [correctedStaff,setCorrectedStaff]=useState(String(row.staff_id)),[correctedAmount,setCorrectedAmount]=useState(String(row.amount));
+  const [correctionBasis,setCorrectionBasis]=useState(''),[correctionConfirmed,setCorrectionConfirmed]=useState(false);
   const [busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
   const active=useRef(true),flight=useRef(false),current=useRef(row);current.current=row;
   useEffect(()=>{active.current=true;return()=>{active.current=false;};},[]);
   const stale=revision!==row.revision;
   const eligible=(acts||[]).filter(a=>Number(a.companyId)===row.company_id&&Number(a.masterId)===row.staff_id&&a.project===row.project_name&&a.sourceType!=='daily_work'&&a.status!=='Аннулирован');
   const used=row.allocations.reduce((n,a)=>n+Number(a.amount),0);
-  const change=async refund=>{
+  const canCorrect=Number(row.previously_deducted)===0&&row.allocations.every(a=>Number(a.amount)===0&&Number(a.refunded)===0);
+  const change=async kind=>{
+    const correction=kind==='correction',refund=kind===true;
     if(flight.current||stale)return;flight.current=true;setBusy(true);setError('');setNotice('');
     const isCurrent=()=>active.current&&current.current.revision===row.revision;
     try {
-      const result=await request(`/tool-deductions/${row.id}/${refund?'refunds':'allocations'}`,{method:refund?'POST':'PUT',headers:headers(row.company_id),body:JSON.stringify({expectedRevision:revision,
-        ...(refund?{allocationId:Number(refundId),amount:refundAmount,basis:refundBasis,confirmed:refundConfirmed}:{...(target==='act'?{actId:Number(actId)}:{month}),amount,basis,confirmed})})});
+      const result=await request(`/tool-deductions/${row.id}/${correction?'correction':refund?'refunds':'allocations'}`,{method:refund?'POST':'PUT',headers:headers(row.company_id),body:JSON.stringify({expectedRevision:revision,
+        ...(correction?{staffId:Number(correctedStaff),amount:correctedAmount,basis:correctionBasis,confirmed:correctionConfirmed}:refund?{allocationId:Number(refundId),amount:refundAmount,basis:refundBasis,confirmed:refundConfirmed}:{...(target==='act'?{actId:Number(actId)}:{month}),amount,basis,confirmed})})});
       if(!isCurrent())return;
       if(!result.ok||result.id!==row.id||!Number.isSafeInteger(result.revision)||result.revision<=revision)throw Error('Ответ не подтверждает новую ревизию. Обновите данные перед повтором; ввод сохранён.');
-      setRevision(result.revision);setConfirmed(false);setRefundConfirmed(false);
-      setNotice(refund?'Возврат денег записан отдельной операцией.':'Распределение сохранено. Денежная выплата не создана.');
+      setRevision(result.revision);setConfirmed(false);setRefundConfirmed(false);setCorrectionConfirmed(false);
+      setNotice(correction?'Сверка исправлена. Прежние данные сохранены в истории; выплаты не изменились.':refund?'Возврат денег записан отдельной операцией.':'Распределение сохранено. Денежная выплата не создана.');
       await refresh();
     }catch(e){if(isCurrent())setError(e.message);}finally{flight.current=false;if(active.current)setBusy(false);}
   };
@@ -89,9 +93,21 @@ function AllocationRow({row,acts,refresh,C,inp,btnB,btnG}) {
       <button style={btnB} disabled={stale||!refundId||!numeric(refundAmount)||Number(refundAmount)<=0||!refundBasis.trim()||!refundConfirmed} onClick={()=>change(true)}>Записать возврат денег</button>
       <p>Создаёт денежную запись по объекту, но не банковский перевод. Возврат инструмента на склад сам по себе деньги не возвращает.</p>
     </details>
+    <details><summary>Исправить первоначальную сверку</summary>
+      {canCorrect?<>
+        <p>Сейчас: {row.staff_name} · сотрудник №{row.staff_id} · {money(row.amount)}. Исправление меняет только получателя и стоимость; исходная выдача, объект и история сохраняются.</p>
+        <label>Исправленный получатель <select aria-label={`Исправленный получатель ${row.id}`} style={inp} value={correctedStaff} onChange={e=>{setCorrectedStaff(e.target.value);setCorrectionConfirmed(false);}}>
+          <option value="">Выберите точного сотрудника</option>{staff.map(s=><option key={s.id} value={s.id}>{s.name} · №{s.id}</option>)}
+        </select></label>
+        <label>Исправленная стоимость <input aria-label={`Исправленная стоимость ${row.id}`} style={inp} type="number" min="0.01" step="0.01" value={correctedAmount} onChange={e=>{setCorrectedAmount(e.target.value);setCorrectionConfirmed(false);}}/></label>
+        <label>Причина исправления <input aria-label={`Причина исправления ${row.id}`} style={inp} maxLength={2000} value={correctionBasis} onChange={e=>{setCorrectionBasis(e.target.value);setCorrectionConfirmed(false);}}/></label>
+        <label><input type="checkbox" checked={correctionConfirmed} onChange={e=>setCorrectionConfirmed(e.target.checked)}/>Подтверждаю исправленные данные по документам</label>
+        <button style={btnB} disabled={stale||!correctedStaff||!numeric(correctedAmount)||Number(correctedAmount)<=0||!correctionBasis.trim()||!correctionConfirmed||(Number(correctedStaff)===row.staff_id&&Number(correctedAmount)===Number(row.amount))} onClick={()=>change('correction')}>Сохранить исправление сверки</button>
+      </>:<p>Сверку можно исправить только без прошлых и действующих удержаний. Сначала отмените неоплаченные распределения. При оплаченных удержаниях нужна отдельная финансовая корректировка.</p>}
+    </details>
     <button style={btnG} onClick={refresh}>Обновить распределение</button>
-    {stale&&<button style={btnG} onClick={()=>{setRevision(row.revision);setConfirmed(false);setRefundConfirmed(false);setError('');}}>Сверено: использовать новую версию</button>}
-    <details><summary>История решений</summary>{row.events.map(e=><p key={e.revision}>Версия {e.revision} · {e.actor} · {e.change.operation} · {e.change.basis}</p>)}</details>
+    {stale&&<button style={btnG} onClick={()=>{setRevision(row.revision);setConfirmed(false);setRefundConfirmed(false);setCorrectionConfirmed(false);setError('');}}>Сверено: использовать новую версию</button>}
+    <details><summary>История решений</summary>{row.events.map(e=><p key={e.revision}>Версия {e.revision} · {e.actor} · {({review:'Первоначальная сверка',allocate:'Распределение',refund:'Возврат денег',correct_review:'Исправление сверки'})[e.change.operation]||e.change.operation} · {e.change.basis}{e.change.operation==='correct_review'&&e.change.before&&e.change.after&&<span> · Получатель №{e.change.before.staffId} → №{e.change.after.staffId}; стоимость {money(e.change.before.amount)} → {money(e.change.after.amount)}</span>}</p>)}</details>
   </fieldset>;
 }
 
@@ -121,7 +137,7 @@ export default function ToolDeductionPanel({companyContext={},acts=[],refreshDat
     {data&&data.companyId===company&&<div key={company}>
       {!data.sources.length&&!data.reviewed.length&&<p>Выдач для сверки и распределения нет.</p>}
       {data.sources.map(s=><ReviewSource key={s.sourceKey} source={s} data={data} refresh={refresh} C={C} inp={inp} btnB={btnB}/>)}
-      {data.reviewed.map(row=><AllocationRow key={row.id} row={row} acts={acts} refresh={refresh} C={C} inp={inp} btnB={btnB} btnG={btnG}/>)}
+      {data.reviewed.map(row=><AllocationRow key={row.id} row={row} acts={acts} staff={data.staff} refresh={refresh} C={C} inp={inp} btnB={btnB} btnG={btnG}/>)}
     </div>}
   </details>;
 }

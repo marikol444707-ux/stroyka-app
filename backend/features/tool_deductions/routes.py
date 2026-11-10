@@ -63,6 +63,13 @@ def register_tool_deductions(app, deps, company_actor):
         return run(current_user, x_company_id, x_company_mode,
                    lambda cur, company, actor: service.review_source(cur, company, data, actor), True)
 
+    @app.put('/tool-deductions/{source_id}/correction')
+    def correct_review(source_id: int, data: dict, current_user: dict = Depends(get_user),
+        x_company_id: Optional[str] = Header(default=None, alias='X-Company-Id'),
+        x_company_mode: Optional[str] = Header(default=None, alias='X-Company-Mode')):
+        return run(current_user, x_company_id, x_company_mode,
+            lambda cur, company, actor: service.correct_review(cur, company, source_id, data, actor), True)
+
     @app.put('/tool-deductions/{source_id}/allocations')
     def allocate(source_id: int, data: dict, current_user: dict = Depends(get_user),
         x_company_id: Optional[str] = Header(default=None, alias='X-Company-Id'),

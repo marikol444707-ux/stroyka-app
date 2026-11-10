@@ -83,6 +83,45 @@ def source_for_update(cur, company, source_id, data):
     return row
 
 
+def review_recipient(cur, company, staff_id, snapshot):
+    cur.execute('SELECT id,name FROM staff WHERE id=%s AND company_id=%s AND company_scope_verified IS TRUE', (staff_id, company))
+    staff = cur.fetchone()
+    if not staff:
+        raise HTTPException(404, 'Сотрудник не подтверждён в выбранной компании')
+    if snapshot.get('master_id'):
+        cur.execute('''SELECT staff_id FROM user_company_roles WHERE user_id=%s AND company_id=%s
+            AND COALESCE(active,TRUE) IS TRUE''', (snapshot['master_id'], company))
+        links = {r['staff_id'] for r in cur.fetchall() if r['staff_id']}
+        if links != {staff_id}:
+            raise HTTPException(409, 'Точный получатель выдачи не связан с выбранным сотрудником. Сначала сверьте связь учётной записи')
+    return staff
+
+
+def correct_review(cur, company, source_id, data, actor):
+    basis = confirmation(data)
+    if set(data) - {'expectedRevision', 'confirmed', 'basis', 'staffId', 'amount'}:
+        raise HTTPException(400, 'Исправляются только получатель и стоимость; исходная выдача, объект и прошлые удержания сохраняются')
+    source = source_for_update(cur, company, source_id, data)
+    cur.execute('SELECT 1 FROM tool_deduction_allocations WHERE source_id=%s AND (amount>0 OR refunded>0) LIMIT 1', (source_id,))
+    if cur.fetchone() or money(source['previously_deducted']) > 0:
+        raise HTTPException(409, 'Сначала отмените неоплаченные распределения. При прошлых или оплаченных удержаниях сверка не переписывается; требуется отдельная финансовая корректировка')
+    staff_id, amount = identifier(data.get('staffId')), money(data.get('amount'))
+    if amount <= 0:
+        raise HTTPException(400, 'Стоимость выдачи должна быть больше нуля')
+    staff = review_recipient(cur, company, staff_id, source['snapshot'])
+    if staff_id == source['staff_id'] and amount == money(source['amount']):
+        raise HTTPException(409, 'Получатель и стоимость не изменились')
+    cur.execute('SELECT name FROM staff WHERE id=%s AND company_id=%s', (source['staff_id'], company))
+    old_staff = cur.fetchone()
+    before = {'staffId': source['staff_id'], 'staffName': old_staff['name'], 'amount': money(source['amount'])}
+    after = {'staffId': staff_id, 'staffName': staff['name'], 'amount': amount}
+    # Keep the original warehouse snapshot, review basis and zeroed allocation history.
+    cur.execute('UPDATE tool_deduction_sources SET staff_id=%s,amount=%s WHERE id=%s AND company_id=%s',
+                (staff_id, amount, source_id, company))
+    return {**record(cur, source, actor, {'operation': 'correct_review', 'before': before, 'after': after, 'basis': basis}),
+            'staffId': staff_id, 'amount': float(amount)}
+
+
 def review_source(cur, company, data, actor):
     basis = confirmation(data)
     key = data.get('sourceKey')
@@ -100,21 +139,13 @@ def review_source(cur, company, data, actor):
     if cur.fetchone():
         raise HTTPException(409, 'Эта выдача уже проверена; используйте существующее распределение')
     staff_id, project_id = identifier(data.get('staffId')), identifier(data.get('projectId'))
-    cur.execute('SELECT id FROM staff WHERE id=%s AND company_id=%s AND company_scope_verified IS TRUE', (staff_id, company))
-    if not cur.fetchone():
-        raise HTTPException(404, 'Сотрудник не подтверждён в выбранной компании')
+    review_recipient(cur, company, staff_id, source)
     cur.execute('SELECT id,name FROM projects WHERE id=%s AND company_id=%s', (project_id, company))
     project = cur.fetchone()
     if not project or (source['project_id'] and source['project_id'] != project_id):
         raise HTTPException(404, 'Объект не соответствует выдаче в выбранной компании')
     if not source['project_id'] and source['project'] and source['project'] != project['name']:
         raise HTTPException(409, 'Название объекта в старой выдаче не соответствует выбранному объекту. Сначала сверьте исходную запись')
-    if source['master_id']:
-        cur.execute('''SELECT staff_id FROM user_company_roles WHERE user_id=%s AND company_id=%s
-            AND COALESCE(active,TRUE) IS TRUE''', (source['master_id'], company))
-        links = [r['staff_id'] for r in cur.fetchall() if r['staff_id']]
-        if links != [staff_id]:
-            raise HTTPException(409, 'Точный получатель выдачи не связан с выбранным сотрудником. Сначала сверьте связь учётной записи')
     amount, previous = money(data.get('amount')), money(data.get('previouslyDeducted'))
     if amount <= 0 or previous > amount:
         raise HTTPException(400, 'Проверьте стоимость выдачи и уже удержанную сумму')
