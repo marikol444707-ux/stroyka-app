@@ -1,4 +1,5 @@
 import React from 'react';
+import PublicProjectPlan, { getPlanPresentation } from './PublicProjectPlan';
 import {
   BriefcaseBusiness,
   Building2,
@@ -147,21 +148,21 @@ export const workProofItems = [
   {
     title: 'Скрытые работы',
     text: 'Фото до закрытия, исполнитель и привязка к этапу работ.',
-    image: 'https://images.unsplash.com/photo-1503387762-592deb58ef4e?auto=format&fit=crop&w=900&q=82',
+    image: '/site-assets/illustrations/unsplash/photo-1503387762-592deb58ef4e.webp',
     metric: 'Этап + фото',
     icon: ClipboardCheck,
   },
   {
     title: 'Материалы на объекте',
     text: 'Поставки, остатки и движение материалов под внутренним контролем.',
-    image: 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=900&q=82',
+    image: '/site-assets/illustrations/generated/materials-delivery.jpg',
     metric: 'Склад',
     icon: Package,
   },
   {
     title: 'Ежедневный ход работ',
     text: 'Работы мастеров, объёмы, замечания и подтверждения.',
-    image: 'https://images.unsplash.com/photo-1581094271901-8022df4466f9?auto=format&fit=crop&w=900&q=82',
+    image: '/site-assets/illustrations/generated/site-supervision.jpg',
     metric: 'Журнал работ',
     icon: Hammer,
   },
@@ -278,7 +279,7 @@ export const referenceDirections = [
     id: 'two-floor-modern',
     title: 'Двухэтажный современный дом',
     text: 'Современная архитектура, больше площади на компактном участке.',
-    image: 'https://images.unsplash.com/photo-1600047509358-9dc75507daeb?auto=format&fit=crop&w=900&q=82',
+    image: '/site-assets/illustrations/unsplash/photo-1600047509358-9dc75507daeb.webp',
     tags: ['2 этажа', 'современный', 'панорама'],
     calcPatch: { type: 'house', floors: 2, wallType: 'gasblock', package: 'turnkey', area: 180, rooms: 5 },
     examples: [
@@ -298,7 +299,7 @@ export const referenceDirections = [
     id: 'two-floor-brick',
     title: 'Двухэтажный дом из кирпича',
     text: 'Капитальные дома с классическим фасадом и долгим сроком службы.',
-    image: 'https://images.unsplash.com/photo-1600566752355-35792bedcfea?auto=format&fit=crop&w=900&q=82',
+    image: '/site-assets/illustrations/unsplash/photo-1600566752355-35792bedcfea.webp',
     tags: ['кирпич', '2 этажа', 'статус'],
     calcPatch: { type: 'house', floors: 2, wallType: 'brick', package: 'turnkey', area: 205, rooms: 6 },
     examples: [
@@ -318,7 +319,7 @@ export const referenceDirections = [
     id: 'garage-house',
     title: 'Двухэтажный дом с гаражом',
     text: 'Дом, гараж и хозяйственные зоны в одной удобной схеме.',
-    image: 'https://images.unsplash.com/photo-1600607688969-a5bfcd646154?auto=format&fit=crop&w=900&q=82',
+    image: '/site-assets/illustrations/unsplash/photo-1600607688969-a5bfcd646154.webp',
     tags: ['гараж', 'хозблок', 'семья'],
     calcPatch: { type: 'house', floors: 2, wallType: 'gasblock', package: 'turnkey', area: 220, rooms: 5 },
     examples: [
@@ -338,7 +339,7 @@ export const referenceDirections = [
     id: 'townhouse',
     title: 'Компактный таунхаус',
     text: 'Секции для городской жизни, инвестиций или семейного формата.',
-    image: 'https://images.unsplash.com/photo-1600566752229-250ed79470f8?auto=format&fit=crop&w=900&q=82',
+    image: '/site-assets/illustrations/unsplash/photo-1600566752229-250ed79470f8.webp',
     tags: ['таунхаус', 'секции', 'компактно'],
     calcPatch: { type: 'house', floors: 2, wallType: 'brick', package: 'warm', area: 115, rooms: 4 },
     examples: [
@@ -358,7 +359,7 @@ export const referenceDirections = [
     id: 'cottage-reconstruction',
     title: 'Реконструкция коттеджа',
     text: 'Обновление старого дома: фасад, кровля, инженерия, планировка.',
-    image: 'https://images.unsplash.com/photo-1581094288338-2314dddb7ece?auto=format&fit=crop&w=900&q=82',
+    image: '/site-assets/illustrations/unsplash/photo-1581094288338-2314dddb7ece.webp',
     tags: ['реконструкция', 'до/после', 'инженерия'],
     calcPatch: { type: 'reconstruction', reconstructionScope: 'house', area: 170, rooms: 5, roofTouch: true, engineeringNew: true },
     examples: [
@@ -379,7 +380,7 @@ export const referenceDirections = [
     title: 'Ремонт и отделка фасада',
     layoutRequestEnabled: false,
     text: 'Фасад, утепление, декоративная отделка и аккуратный внешний вид дома.',
-    image: 'https://images.unsplash.com/photo-1503387762-592deb58ef4e?auto=format&fit=crop&w=900&q=82',
+    image: '/site-assets/illustrations/unsplash/photo-1503387762-592deb58ef4e.webp',
     tags: ['фасад', 'утепление', 'отделка'],
     calcPatch: { type: 'reconstruction', reconstructionScope: 'facade', area: 180, rooms: 1, roofTouch: false, engineeringNew: false },
     examples: [
@@ -400,7 +401,7 @@ export const referenceDirections = [
     title: 'Ремонт кровли',
     layoutRequestEnabled: false,
     text: 'Замена покрытия, утепление, водосток, примыкания и безопасность.',
-    image: 'https://images.unsplash.com/photo-1541976590-713941681591?auto=format&fit=crop&w=900&q=82',
+    image: '/site-assets/illustrations/unsplash/photo-1541976590-713941681591.webp',
     tags: ['кровля', 'утепление', 'водосток'],
     calcPatch: { type: 'reconstruction', reconstructionScope: 'roof', area: 150, rooms: 1, roofTouch: true, engineeringNew: false },
     examples: [
@@ -420,7 +421,7 @@ export const referenceDirections = [
     id: 'apartment-repair',
     title: 'Ремонт квартиры',
     text: 'Новостройка, вторичка, капитальный или быстрый ремонт под задачу.',
-    image: 'https://images.unsplash.com/photo-1600607687920-4e2a09cf159d?auto=format&fit=crop&w=900&q=82',
+    image: '/site-assets/illustrations/unsplash/photo-1600607687920-4e2a09cf159d.webp',
     tags: ['квартира', 'ремонт', 'чистовая'],
     calcPatch: { type: 'repair', repairObject: 'apartment', repairLevel: 'capital', area: 72, rooms: 3, bathrooms: 1 },
     examples: [
@@ -440,7 +441,7 @@ export const referenceDirections = [
     id: 'private-house-finish',
     title: 'Отделка частного дома',
     text: 'Дом после коробки: черновая, чистовая отделка и подготовка к проживанию.',
-    image: 'https://images.unsplash.com/photo-1600566753151-384129cf4e3e?auto=format&fit=crop&w=900&q=82',
+    image: '/site-assets/illustrations/unsplash/photo-1600566753151-384129cf4e3e.webp',
     tags: ['частный дом', 'отделка', 'заехать жить'],
     calcPatch: { type: 'repair', repairObject: 'privateHouse', repairLevel: 'capital', area: 150, rooms: 5, bathrooms: 2 },
     examples: [
@@ -460,7 +461,7 @@ export const referenceDirections = [
     id: 'bathroom',
     title: 'Ремонт ванной комнаты',
     text: 'Плитка, сантехника, гидроизоляция и аккуратные узлы.',
-    image: 'https://images.unsplash.com/photo-1600566752355-35792bedcfea?auto=format&fit=crop&w=900&q=82',
+    image: '/site-assets/illustrations/unsplash/photo-1600566752355-35792bedcfea.webp',
     tags: ['санузел', 'плитка', 'сантехника'],
     calcPatch: { type: 'repair', repairObject: 'apartment', repairLevel: 'capital', area: 8, rooms: 1, bathrooms: 1, tiles: true },
     examples: [
@@ -480,7 +481,7 @@ export const referenceDirections = [
     id: 'kitchen-living',
     title: 'Ремонт кухни и гостиной',
     text: 'Главная семейная зона: свет, электрика, полы, стены и финишная отделка.',
-    image: 'https://images.unsplash.com/photo-1600210491892-03d54c0aaf87?auto=format&fit=crop&w=900&q=82',
+    image: '/site-assets/illustrations/unsplash/photo-1600210491892-03d54c0aaf87.webp',
     tags: ['кухня-гостиная', 'свет', 'семья'],
     calcPatch: { type: 'repair', repairObject: 'apartment', repairLevel: 'designer', area: 42, rooms: 1, bathrooms: 0 },
     examples: [
@@ -500,7 +501,7 @@ export const referenceDirections = [
     id: 'office',
     title: 'Ремонт офисных помещений',
     text: 'Офисы и коммерческие помещения под работу команды и прием клиентов.',
-    image: 'https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&w=900&q=82',
+    image: '/site-assets/illustrations/unsplash/photo-1497366754035-f200968a6e72.webp',
     tags: ['офис', 'коммерция', 'сроки'],
     calcPatch: { type: 'commerce', commerceType: 'office', commerceLevel: 'opening', area: 180, rooms: 6 },
     examples: [
@@ -654,12 +655,10 @@ export const readyProjectCardsByDirection = {
   'two-floor-modern': [
     { code: 'H2-01', title: 'Двухэтажный дом 222 м2 в Ставрополе', area: '222 м2', floors: '2 этажа', layout: '1 этаж: кухня-столовая, гостиная, кабинет, терраса и хоззоны. 2 этаж: мастер-спальня, 2 спальни, гардеробные и санузлы.', visuals: 'Фасадные листы и планы 1/2 этажа из архитектурного альбома.', calcPatch: { area: 222, floors: 2, rooms: 6, bedrooms: 3, wallType: 'gasblock', package: 'turnkey' } },
     { code: 'H2-02', title: 'Дом 174 м2 с четырьмя спальнями', area: '174 м2', floors: '2 этажа', layout: '1 этаж: кухня-гостиная, кабинет, котельная. 2 этаж: 4 спальни, санузел, два балкона.', visuals: 'Фасад с балконами и планы этажей.', calcPatch: { area: 174, floors: 2, rooms: 6, bedrooms: 4, wallType: 'gasblock', package: 'turnkey' } },
-    { code: 'H2-03', title: 'Дом 235 м2 с террасой и балконом', area: '235 м2', floors: '2 этажа', layout: 'Большая кухня-гостиная, кабинет, мастер-спальня, 3 спальни, балкон, терраса.', visuals: 'Большой современный фасад и планы этажей.', calcPatch: { area: 235, floors: 2, rooms: 6, bedrooms: 4, wallType: 'gasblock', package: 'turnkey' } },
   ],
   'two-floor-brick': [
     { code: 'B2-01', title: 'Капитальный дом 222 м2 с террасой', area: '222 м2', floors: '2 этажа', layout: '1 этаж: кухня-столовая, гостиная, кабинет, терраса и хоззоны. 2 этаж: 3 спальни, гардеробные и санузлы.', visuals: 'Архитектурные фасады и планы 1/2 этажа.', calcPatch: { area: 222, floors: 2, rooms: 6, bedrooms: 3, wallType: 'brick', package: 'turnkey' } },
-    { code: 'B2-02', title: 'Дом 210 м2 с гаражной зоной', area: '210 м2', floors: '2 этажа', layout: '1 этаж: общая зона. 2 этаж: спальни. Отдельный хозблок.', visuals: 'Фасад + план 1/2 этажа.', calcPatch: { area: 210, floors: 2, rooms: 5, wallType: 'brick', package: 'turnkey' } },
-    { code: 'B2-03', title: 'Классический дом 240 м2', area: '240 м2', floors: '2 этажа', layout: '5 спален, кабинет, большая кухня-гостиная, 3 санузла.', visuals: 'Классический фасад + планы.', calcPatch: { area: 240, floors: 2, rooms: 6, wallType: 'brick', package: 'turnkey' } },
+    { code: 'B2-02', title: 'Дом 210 м2 с гаражной зоной', area: '210 м2', floors: '2 этажа', layout: 'Концепция дома с гаражом. Площадь ориентировочная; состав помещений уточняется при проектировании.', visuals: 'Два ракурса фасада. Планировка пока не разработана.', calcPatch: { area: 210, floors: 2, rooms: 5, wallType: 'brick', package: 'turnkey' } },
   ],
   'garage-house': [
     { code: 'GAR-01', title: 'Дом 136 м2 с гаражом и террасой', area: '136 м2', floors: '2 этажа', layout: 'Гараж, кухня-гостиная, терраса. 2 этаж: 3 спальни, санузел.', visuals: 'Фасад с гаражом, терраса и планы этажей.', calcPatch: { area: 136, floors: 2, rooms: 4, bedrooms: 3, wallType: 'gasblock', package: 'turnkey' } },
@@ -729,8 +728,9 @@ export const makeProjectMediaMap = (codes, labels, files) => Object.fromEntries(
 );
 
 export const readyProjectMediaByCode = {
+  ...makeProjectMediaMap(['B2-02'], ['Фасадная концепция', 'Второй ракурс'], ['facade.webp', 'side.webp']),
   ...makeProjectMediaMap(
-    ['H2-01', 'H2-02', 'H2-03', 'B2-01', 'B2-02', 'B2-03', 'GAR-01', 'GAR-02', 'GAR-03', 'TOWN-01', 'TOWN-02', 'TOWN-03'],
+    ['H2-01', 'H2-02', 'B2-01', 'GAR-01', 'GAR-02', 'GAR-03', 'TOWN-01', 'TOWN-02', 'TOWN-03'],
     ['3D фасад', '3D боковой', 'План 1 этажа', 'План 2 этажа'],
     ['facade.webp', 'side.webp', 'plan-1.png', 'plan-2.png'],
   ),
@@ -857,6 +857,14 @@ export const getProjectMediaOptions = (direction, project) => {
 };
 
 export const getProjectSpecs = (direction, project) => {
+  if (project?.code === 'B2-02') {
+    return [
+      ['Ориентировочная площадь', project.area],
+      ['Этажность', project.floors],
+      ['Гаражная зона', 'предусмотрена концепцией'],
+      ['Планировка и конструктив', 'требуют разработки'],
+    ];
+  }
   const area = parseProjectArea(project);
   const floors = Number(project?.calcPatch?.floors || direction.calcPatch?.floors || 1);
   const rooms = Number(project?.calcPatch?.rooms || direction.calcPatch?.rooms || 1);
@@ -1196,8 +1204,10 @@ export const ProjectPlanGraphic = ({ project, title, floor = 1 }) => {
   );
 };
 
-export const ProjectConceptVisual = ({ direction, project, media }) => {
+export const ProjectConceptVisual = ({ direction, project, media, compact = false }) => {
   const profile = getProjectProfile(direction, project);
+  const plan = getPlanPresentation(media?.src);
+  if (plan) return <PublicProjectPlan plan={plan} title={profile.title} compact={compact} />;
   if (media?.src) {
     return (
       <img
@@ -1298,13 +1308,13 @@ export const ProjectCardMediaPreview = ({ direction, project }) => {
   return (
     <div className="public-project-card-media" aria-hidden="true">
       <div className="public-project-card-primary">
-        <ProjectConceptVisual direction={direction} project={project} media={primary} />
+        <ProjectConceptVisual direction={direction} project={project} media={primary} compact />
         <span><b>{primary?.number || 1}</b>{primary?.label || '3D фасад'}</span>
       </div>
       <div className="public-project-card-secondary">
         {secondary.map((media) => (
           <div key={media.id}>
-            <ProjectConceptVisual direction={direction} project={project} media={media} />
+            <ProjectConceptVisual direction={direction} project={project} media={media} compact />
             <span><b>{media.number}</b>{media.compactLabel}</span>
           </div>
         ))}
@@ -1336,9 +1346,9 @@ export const publicProjects = [
     result: 'Коробка, кровля, окна, инженерная подготовка',
     tags: ['Дом', 'Тёплый контур', 'Паспорт объекта'],
     images: [
-      'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1200&q=84',
-      'https://images.unsplash.com/photo-1600566753190-17f0baa2a6c3?auto=format&fit=crop&w=900&q=82',
-      'https://images.unsplash.com/photo-1503387762-592deb58ef4e?auto=format&fit=crop&w=900&q=82',
+      '/site-assets/illustrations/unsplash/photo-1600585154340-be6161a56a0c.webp',
+      '/site-assets/illustrations/unsplash/photo-1600566753190-17f0baa2a6c3.webp',
+      '/site-assets/illustrations/unsplash/photo-1503387762-592deb58ef4e.webp',
     ],
   },
   {
@@ -1356,9 +1366,9 @@ export const publicProjects = [
     result: 'Офис под работу команды и приём клиентов',
     tags: ['Офис', 'Инженерия', 'Сроки'],
     images: [
-      'https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&w=1200&q=84',
-      'https://images.unsplash.com/photo-1497366811353-6870744d04b2?auto=format&fit=crop&w=900&q=82',
-      'https://images.unsplash.com/photo-1497215842964-222b430dc094?auto=format&fit=crop&w=900&q=82',
+      '/site-assets/illustrations/unsplash/photo-1497366754035-f200968a6e72.webp',
+      '/site-assets/illustrations/unsplash/photo-1497366811353-6870744d04b2.webp',
+      '/site-assets/illustrations/unsplash/photo-1497215842964-222b430dc094.webp',
     ],
   },
   {
@@ -1376,9 +1386,9 @@ export const publicProjects = [
     result: 'Капитальный ремонт с заменой инженерии',
     tags: ['Ремонт', 'Дом', 'Скрытые работы'],
     images: [
-      'https://images.unsplash.com/photo-1600607687920-4e2a09cf159d?auto=format&fit=crop&w=1200&q=84',
-      'https://images.unsplash.com/photo-1600566752355-35792bedcfea?auto=format&fit=crop&w=900&q=82',
-      'https://images.unsplash.com/photo-1600607687644-c7171b42498b?auto=format&fit=crop&w=900&q=82',
+      '/site-assets/illustrations/unsplash/photo-1600607687920-4e2a09cf159d.webp',
+      '/site-assets/illustrations/unsplash/photo-1600566752355-35792bedcfea.webp',
+      '/site-assets/illustrations/unsplash/photo-1600607688969-a5bfcd646154.webp',
     ],
   },
   {
@@ -1396,9 +1406,9 @@ export const publicProjects = [
     result: 'Торговый зал, подсобные зоны, освещение',
     tags: ['Коммерция', 'Под открытие', 'Гарантия'],
     images: [
-      'https://images.unsplash.com/photo-1604014237800-1c9102c219da?auto=format&fit=crop&w=1200&q=84',
-      'https://images.unsplash.com/photo-1600210491892-03d54c0aaf87?auto=format&fit=crop&w=900&q=82',
-      'https://images.unsplash.com/photo-1600607688969-a5bfcd646154?auto=format&fit=crop&w=900&q=82',
+      '/site-assets/illustrations/unsplash/photo-1604014237800-1c9102c219da.webp',
+      '/site-assets/illustrations/unsplash/photo-1600210491892-03d54c0aaf87.webp',
+      '/site-assets/illustrations/unsplash/photo-1600607688969-a5bfcd646154.webp',
     ],
   },
 ];

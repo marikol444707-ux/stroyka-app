@@ -17,10 +17,11 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import './PublicSitePage.css';
+import '../features/public-site/PublicSiteDesign.css';
+import { PublicSiteHero } from '../features/public-site/PublicSiteHero';
 import {
   PUBLIC_SITE_OPERATOR,
   PROJECT_EXAMPLE_STATUS,
-  publicFunnelSteps,
   projectFilters,
   workProofItems,
   trustItems,
@@ -89,9 +90,16 @@ const PublicSitePage = ({ onLogin }) => {
   const requestPhoneInputRef = useRef(null);
 
   useEffect(() => {
+    const roots = [document.documentElement, document.body];
+    roots.forEach((root) => root.classList.add('public-site-document'));
+    return () => roots.forEach((root) => root.classList.remove('public-site-document'));
+  }, []);
+
+  useEffect(() => {
     if (typeof window === 'undefined' || typeof document === 'undefined') return undefined;
     const hero = document.querySelector('.public-hero');
     if (!hero) return undefined;
+
     const forms = [
       document.querySelector('#suppliers'),
       document.querySelector('#request'),
@@ -215,7 +223,7 @@ const PublicSitePage = ({ onLogin }) => {
   const selectedReferencePlanCount = selectedReferenceMediaOptions.filter((item) => item.role === 'plan' || item.kind === 'plan').length;
   const selectedReferenceAssetSummary = [
     { icon: Camera, label: '3D ракурсы', value: `${Math.max(1, selectedReferenceRenderCount)} шт.` },
-    { icon: FileText, label: 'Планировка', value: `${Math.max(1, selectedReferencePlanCount)} шт.` },
+    { icon: FileText, label: 'Планировка', value: selectedReferencePlanCount ? `${selectedReferencePlanCount} шт.` : 'В разработку' },
     { icon: Calculator, label: 'Ориентир', value: selectedReferenceEstimate.fromLabel },
     { icon: Check, label: 'Действие', value: 'в расчет' },
   ];
@@ -306,7 +314,14 @@ const PublicSitePage = ({ onLogin }) => {
   const scrollTo = useCallback((id) => {
     if (typeof document === 'undefined') return;
     const element = document.getElementById(id);
-    if (element) element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (!element) return;
+    let parent = element.parentElement;
+    while (parent) {
+      if (parent.tagName === 'DETAILS') parent.open = true;
+      parent = parent.parentElement;
+    }
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    element.scrollIntoView({ behavior: reducedMotion ? 'instant' : 'smooth', block: 'start' });
   }, []);
 
   const scrollToCurrentHash = useCallback(() => {
@@ -590,123 +605,16 @@ const PublicSitePage = ({ onLogin }) => {
     requestPhoneInputRef.current?.focus({ preventScroll: true });
   };
 
+  const chooseHeroDirection = (id) => {
+    const direction = referenceDirections.find((item) => item.id === id);
+    if (direction) chooseReference(direction, undefined, 'catalog');
+  };
+
   return (
     <main className="public-site">
-      <section
-        className="public-hero"
-        style={{ '--public-hero-image': 'url("/site-assets/projects/h2-01/facade.webp")' }}
-      >
-        <header className="public-nav">
-          <button className="public-brand" type="button" onClick={() => scrollTo('top')}>
-            <span>Строй</span><strong>Ка</strong>
-          </button>
-          <nav className="public-nav-links" aria-label="Навигация по сайту">
-            <button type="button" onClick={() => scrollTo('directions')}>Направления</button>
-            <button type="button" onClick={() => scrollTo('projects')}>Проекты</button>
-            <button type="button" onClick={() => scrollTo('calculator')}>Калькулятор</button>
-            <button type="button" onClick={() => scrollTo('process')}>Как работаем</button>
-            <button type="button" onClick={() => scrollTo('objects')}>Работы</button>
-            <button type="button" onClick={() => scrollTo('request')}>Заявка</button>
-          </nav>
-          <button className="public-login" type="button" onClick={onLogin}>Вход в ERP</button>
-        </header>
+<PublicSiteHero onLogin={onLogin} scrollTo={scrollTo} onChooseDirection={chooseHeroDirection} />
 
-        <div id="top" className="public-hero-content">
-          <div className="public-hero-copy">
-            <p className="public-eyebrow">Строительная компания с цифровым контролем</p>
-            <h1>Строим с понятной сметой и цифровым паспортом объекта</h1>
-            <p className="public-lead">
-              Расчёт стоимости, фотоотчёты, этапы работ, материалы и гарантия
-              ведутся в одной системе.
-            </p>
-            <div className="public-hero-actions">
-              <button className="public-primary" type="button" onClick={() => scrollTo('directions')}>
-                Выбрать проект
-                <ChevronRight size={18} />
-              </button>
-              <button className="public-secondary" type="button" onClick={() => scrollTo('calculator')}>
-                Рассчитать стоимость
-              </button>
-            </div>
-            <div className="public-hero-flow" aria-label="Путь клиента на сайте">
-              {publicFunnelSteps.map((step) => (
-                <button key={step.number} type="button" onClick={() => scrollTo(step.target)}>
-                  <b>{step.number}</b>
-                  <span>
-                    <strong>{step.title}</strong>
-                    <small>{step.text}</small>
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="public-hero-tools">
-          <PublicSiteCalculatorSection
-            calc={calc}
-            updateCalc={updatePublicCalculator}
-            result={result}
-            pricingStatus={sitePricingStatus}
-            scrollTo={scrollTo}
-            leadFileUploadsEnabled={leadFileUploadsEnabled}
-            leadFiles={leadFiles}
-            leadFileError={leadFileError}
-            chooseLeadFiles={chooseLeadFiles}
-            removeLeadFile={removeLeadFile}
-            plotCheck={plotCheck}
-            updatePlotCheck={updatePlotCheck}
-          />
-
-          <section id="passport" className="public-passport" aria-label="Цифровой паспорт объекта">
-            <div className="public-passport-top">
-              <div>
-                <p className="public-tool-kicker">Пример контроля</p>
-                <h2>Цифровой паспорт объекта</h2>
-              </div>
-              <div className="public-passport-status">
-                <Check size={15} />
-                Гарантия активна
-              </div>
-            </div>
-
-            <div className="public-object-card">
-              <div>
-                <strong>Дом 142 м2, Михайловск</strong>
-                <span><MapPin size={14} /> Этап: тёплый контур</span>
-              </div>
-              <b>68%</b>
-            </div>
-
-            <div className="public-passport-line">
-              {['Смета', 'Материалы', 'Работы', 'Приёмка', 'Гарантия'].map((item, index) => (
-                <div className={index < 3 ? 'done' : ''} key={item}>
-                  <i />
-                  <span>{item}</span>
-                </div>
-              ))}
-            </div>
-
-            <div className="public-passport-grid">
-              <div className="public-passport-photo">
-                <img
-                  src="https://images.unsplash.com/photo-1503387762-592deb58ef4e?auto=format&fit=crop&w=700&q=80"
-                  alt="Фотоотчёт со строительного объекта"
-                />
-                <span>Фотоотчёт за сегодня</span>
-              </div>
-              <div className="public-proof-list">
-                <p><Package size={16} /> Материалы приняты: 12 позиций</p>
-                <p><FileText size={16} /> Этапы подтверждены: 4</p>
-                <p><Clock size={16} /> Отклонений по сроку нет</p>
-                <p><QrCode size={16} /> QR-проверка паспорта</p>
-              </div>
-            </div>
-          </section>
-        </div>
-      </section>
-
-      <section id="services" className="public-section public-services">
+<section id="services" className="public-section public-services">
         <div className="public-section-head">
           <p className="public-eyebrow dark">Что делаем</p>
           <h2>Берём объект от расчёта до гарантии</h2>
@@ -727,180 +635,17 @@ const PublicSitePage = ({ onLogin }) => {
         </div>
       </section>
 
-      <section id="trust" className="public-section public-trust">
-        <div className="public-section-head">
-          <p className="public-eyebrow dark">Почему удобно</p>
-          <h2>Сайт связан с рабочим процессом, а не просто собирает телефоны</h2>
-          <p>
-            Клиент выбирает проект и отправляет его в расчёт, а команда получает
-            понятную заявку с контекстом: что выбрано, какой ориентир стоимости и какие файлы приложены.
-          </p>
-        </div>
-        <div className="public-trust-grid">
-          {trustItems.map((item) => (
-            <article className="public-trust-card" key={item.title}>
-              <span><item.icon size={18} /></span>
-              <h3>{item.title}</h3>
-              <p>{item.text}</p>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section id="objects" className="public-section public-objects">
-        {hasPublishedProjects && <>
-          <div className="public-section-head">
-            <p className="public-eyebrow dark">Объекты</p>
-            <h2>Галерея выполненных и текущих объектов</h2>
-            <p>Опубликованные фотографии, этапы и показатели объектов.</p>
-          </div>
-
-        <div className="public-gallery-tabs" aria-label="Фильтр проектов">
-          {projectFilters.map((filter) => (
-            <button
-              className={projectCategory === filter.value ? 'active' : ''}
-              type="button"
-              key={filter.value}
-              onClick={() => chooseProjectCategory(filter.value)}
-            >
-              {filter.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="public-gallery">
-          <article className="public-gallery-feature">
-            <div className="public-gallery-image">
-              <img src={selectedPhoto} alt={selectedProject.title} />
-              <div className="public-gallery-image-badge">
-                <Camera size={16} />
-                {selectedProject.images.length} фото в объекте
-              </div>
-            </div>
-            <div className="public-gallery-thumbs">
-              {selectedProject.images.map((imageUrl, index) => (
-                <button
-                  className={selectedPhotoIndex === index ? 'active' : ''}
-                  type="button"
-                  key={imageUrl}
-                  onClick={() => setSelectedPhotoIndex(index)}
-                  aria-label={`Фото ${index + 1}: ${selectedProject.title}`}
-                >
-                  <img src={imageUrl} alt="" />
-                </button>
-              ))}
-            </div>
-          </article>
-
-          <aside className="public-gallery-info">
-            <div className="public-gallery-info-top">
-              <div>
-                <p className="public-tool-kicker">{selectedProject.isLive ? 'Текущий объект' : 'Завершённый объект'}</p>
-                <h3>{selectedProject.title}</h3>
-                <span><MapPin size={14} /> {selectedProject.location} · {selectedProject.year}</span>
-              </div>
-              <strong>{selectedProject.progress}%</strong>
-            </div>
-
-            {selectedProject.summary && <p className="public-gallery-summary">{selectedProject.summary}</p>}
-
-            <div className="public-gallery-progress">
-              <i style={{ width: `${selectedProject.progress}%` }} />
-            </div>
-
-            <div className="public-gallery-metrics">
-              <div><span>Площадь</span><b>{selectedProject.area}</b></div>
-              <div><span>Срок</span><b>{selectedProject.term}</b></div>
-              <div><span>Бюджет</span><b>{selectedProject.price}</b></div>
-              <div><span>Этап</span><b>{selectedProject.stage}</b></div>
-            </div>
-
-            <div className="public-gallery-proof">
-              <p><Image size={16} /> {selectedProject.result}</p>
-              <p><ShieldCheck size={16} /> {selectedProject.passport}</p>
-              <p><QrCode size={16} /> Можно открыть цифровой паспорт объекта</p>
-            </div>
-
-            <div className="public-gallery-tags">
-              {selectedProject.tags.map((tag) => <span key={tag}>{tag}</span>)}
-            </div>
-            <button className="public-gallery-cta" type="button" onClick={() => scrollTo('calculator')}>
-              Рассчитать похожий объект
-              <ChevronRight size={16} />
-            </button>
-          </aside>
-        </div>
-
-        <div className="public-project-strip">
-          {filteredProjects.map((project) => (
-            <button
-              className={selectedProject.id === project.id ? 'active' : ''}
-              type="button"
-              key={project.id}
-              onClick={() => chooseProject(project.id)}
-            >
-              <img src={project.images[0]} alt="" />
-              <span>
-                <b>{project.title}</b>
-                <small>{project.area} · {project.stage}</small>
-              </span>
-            </button>
-          ))}
-        </div>
-        </>}
-
-        <div id="work-proof" className="public-work-proof">
-          <div className="public-section-head compact">
-            <p className="public-eyebrow dark">Контроль выполнения</p>
-            <h2>Как фиксируем ход работ и материалы</h2>
-            <p>
-              Ниже — примеры того, что можно фиксировать в системе. Фотографии
-              иллюстративные и не показывают выполненные компанией объекты.
-            </p>
-          </div>
-          <div className="public-work-grid">
-            {workProofItems.map((item) => (
-              <article className="public-work-card" key={item.title}>
-                <img src={item.image} alt={item.title} />
-                <div>
-                  <span><item.icon size={15} /> {item.metric}</span>
-                  <h3>{item.title}</h3>
-                  <p>{item.text}</p>
-                </div>
-              </article>
-            ))}
-          </div>
-        </div>
-
-        <div id="directions" className="public-reference-board">
+<section id="objects" className="public-section public-objects">
+<div id="directions" className="public-reference-board">
           <div className="public-section-head compact">
             <p className="public-eyebrow dark">Идеи для проекта</p>
-            <h2>15 направлений и готовые проектные карточки</h2>
+            <h2>Найдите проект, в котором узнаете себя</h2>
             <p>
               Это не выполненные объекты, а понятные проект-идеи для заявки. Клиент выбирает
-              направление, готовую планировку и отправляет ее в расчет.
+              направление, идею дома и отправляет её в расчёт.
             </p>
           </div>
           <div className="public-reference-layout">
-            <label className="public-reference-mobile-picker">
-              <span>Выберите направление</span>
-              <select
-                value={selectedReference.id}
-                onChange={(event) => {
-                  const direction = referenceDirections.find((item) => item.id === event.target.value);
-                  if (direction) chooseReference(direction, getReferenceProjectCards(direction)[0], 'catalog');
-                }}
-              >
-                {referenceDirections.map((item) => {
-                  const estimate = getReferenceProjectEstimate(item, getReferenceProjectCards(item)[0]);
-                  return (
-                    <option key={item.id} value={item.id}>
-                      {item.title} · {estimate.fromLabel}
-                    </option>
-                  );
-                })}
-              </select>
-            </label>
             <div className="public-reference-grid" aria-label="Направления проектов">
               {referenceDirections.map((item) => {
                 const isActive = selectedReference.id === item.id;
@@ -1062,7 +807,7 @@ const PublicSitePage = ({ onLogin }) => {
                       <span>Состав проекта</span>
                       <strong>{selectedReferenceMediaOptions.length} материала для просмотра</strong>
                     </div>
-	                  <div className="public-project-media-strip" aria-label="Медиа проекта">
+	                  <div className="public-project-media-strip" style={{ '--media-count': selectedReferenceMediaOptions.length }} aria-label="Медиа проекта">
 	                    {selectedReferenceMediaOptions.map((media, index) => (
 	                      <button
 	                        className={selectedReferenceMedia.id === media.id ? 'active' : ''}
@@ -1075,6 +820,7 @@ const PublicSitePage = ({ onLogin }) => {
                               direction={selectedReference}
                               project={selectedReferenceProject}
                               media={media}
+                              compact
                             />
                             <b>{index + 1}</b>
                           </span>
@@ -1097,10 +843,15 @@ const PublicSitePage = ({ onLogin }) => {
 	                </div>
 
                 <div className="public-project-spec-column">
-                  <p className="public-tool-kicker">Каталог готовых проектов</p>
+                  <div className="public-project-spec-intro">
+                  <p className="public-tool-kicker">Каталог идей для строительства</p>
                   <h3>{selectedReferenceProject?.title || selectedReference.title}</h3>
                   <p>{selectedReferenceProject?.layout || selectedReference.text}</p>
-                  <div className="public-project-layout-card">
+                  </div>
+                  <p className="public-project-concept-note">{selectedReferenceProject?.code === 'B2-02'
+                    ? 'B2-02 — фасадная концепция, а не готовый архитектурный проект. Непроверенные схемы этажей сняты с показа. Планировку, размеры и конструктив разрабатываем после уточнения задания.'
+                    : 'Визуализации и схемы помогают обсудить будущий дом. Для строительства необходим проект, адаптированный к участку и согласованной комплектации.'}</p>
+                  {selectedReferenceProject?.code !== 'B2-02' && <details className="public-design-details"><summary>Состав помещений и планировка<span aria-hidden="true">+</span></summary><div className="public-design-details-content"><div className="public-project-layout-card">
                     <span>Планировочное решение</span>
                     {selectedReferenceLayoutGroups.map((group) => (
                       <div key={group.title}>
@@ -1112,7 +863,7 @@ const PublicSitePage = ({ onLogin }) => {
                         </ul>
                       </div>
                     ))}
-                  </div>
+                  </div></div></details>}
                   {selectedReferenceIsHouse && (
                     <PublicProjectPackageSelector
                       packages={selectedReferencePackageOptions}
@@ -1126,17 +877,21 @@ const PublicSitePage = ({ onLogin }) => {
                         ? `Ориентир: ${selectedReferencePackage.label}`
                         : 'Примерная стоимость этого проекта'}
                     </span>
-                    <strong>{selectedReferenceEstimate.rangeLabel}</strong>
+                    <strong className="public-design-price-range">
+                      {selectedReferenceEstimate.rangeLabel.split(' - ').map((amount, index) => (
+                        <span key={index}>{index > 0 ? '– ' : ''}{amount}</span>
+                      ))}
+                    </strong>
                     <small>Ориентир для сайта. Точная сумма зависит от замера, проекта, грунтов, материалов и комплектации.</small>
                   </div>
                   {selectedReferencePackage && (
-                    <PublicProjectPaymentSchedule
+                    <details className="public-design-details"><summary>График оплаты по этапам<span aria-hidden="true">+</span></summary><div className="public-design-details-content"><PublicProjectPaymentSchedule
                       packageLabel={selectedReferencePackage.label}
                       stages={selectedReferencePaymentSchedule}
-                    />
+                    /></div></details>
                   )}
                   {selectedReferenceIsHouse && (
-                    <PublicProjectFinancing
+                    <details className="public-design-details"><summary>Ипотека и рассрочка — предварительный расчёт<span aria-hidden="true">+</span></summary><div className="public-design-details-content"><PublicProjectFinancing
                       key={`${selectedReferenceProject?.code || selectedReference.id}-${selectedReferencePackage?.value || 'project'}`}
                       estimate={selectedReferenceEstimate}
                       selectedFinancing={selectedFinancing}
@@ -1144,9 +899,9 @@ const PublicSitePage = ({ onLogin }) => {
                         setSelectedFinancing(financing);
                         setReferenceActionMessage(`${financing.modeLabel} добавлена в заявку`);
                       }}
-                    />
+                    /></div></details>
                   )}
-                  <div className="public-generated-object-card">
+                  <details className="public-design-details"><summary>Что войдёт в паспорт объекта<span aria-hidden="true">+</span></summary><div className="public-design-details-content"><div className="public-generated-object-card">
                     <div className="public-generated-object-head">
                       <span>{selectedReferenceObjectCard.status}</span>
                       <b>{selectedReferenceObjectCard.code}</b>
@@ -1177,7 +932,7 @@ const PublicSitePage = ({ onLogin }) => {
                         </span>
                       ))}
                     </div>
-                  </div>
+                  </div></div></details>
                   <dl className="public-project-spec-list">
                     {selectedReferenceSpecs.map(([label, value]) => (
                       <div key={label}>
@@ -1261,19 +1016,230 @@ const PublicSitePage = ({ onLogin }) => {
             </section>
           </div>
         </div>
+        {hasPublishedProjects && <>
+          <div className="public-section-head">
+            <p className="public-eyebrow dark">Объекты</p>
+            <h2>Галерея выполненных и текущих объектов</h2>
+            <p>Опубликованные фотографии, этапы и показатели объектов.</p>
+          </div>
+
+        <div className="public-gallery-tabs" aria-label="Фильтр проектов">
+          {projectFilters.map((filter) => (
+            <button
+              className={projectCategory === filter.value ? 'active' : ''}
+              type="button"
+              key={filter.value}
+              onClick={() => chooseProjectCategory(filter.value)}
+            >
+              {filter.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="public-gallery">
+          <article className="public-gallery-feature">
+            <div className="public-gallery-image">
+              <img src={selectedPhoto} alt={selectedProject.title} />
+              <div className="public-gallery-image-badge">
+                <Camera size={16} />
+                {selectedProject.images.length} фото в объекте
+              </div>
+            </div>
+            <div className="public-gallery-thumbs">
+              {selectedProject.images.map((imageUrl, index) => (
+                <button
+                  className={selectedPhotoIndex === index ? 'active' : ''}
+                  type="button"
+                  key={imageUrl}
+                  onClick={() => setSelectedPhotoIndex(index)}
+                  aria-label={`Фото ${index + 1}: ${selectedProject.title}`}
+                >
+                  <img src={imageUrl} alt="" />
+                </button>
+              ))}
+            </div>
+          </article>
+
+          <aside className="public-gallery-info">
+            <div className="public-gallery-info-top">
+              <div>
+                <p className="public-tool-kicker">{selectedProject.isLive ? 'Текущий объект' : 'Завершённый объект'}</p>
+                <h3>{selectedProject.title}</h3>
+                <span><MapPin size={14} /> {selectedProject.location} · {selectedProject.year}</span>
+              </div>
+              <strong>{selectedProject.progress}%</strong>
+            </div>
+
+            {selectedProject.summary && <p className="public-gallery-summary">{selectedProject.summary}</p>}
+
+            <div className="public-gallery-progress">
+              <i style={{ width: `${selectedProject.progress}%` }} />
+            </div>
+
+            <div className="public-gallery-metrics">
+              <div><span>Площадь</span><b>{selectedProject.area}</b></div>
+              <div><span>Срок</span><b>{selectedProject.term}</b></div>
+              <div><span>Бюджет</span><b>{selectedProject.price}</b></div>
+              <div><span>Этап</span><b>{selectedProject.stage}</b></div>
+            </div>
+
+            <div className="public-gallery-proof">
+              <p><Image size={16} /> {selectedProject.result}</p>
+              <p><ShieldCheck size={16} /> {selectedProject.passport}</p>
+              <p><QrCode size={16} /> Можно открыть цифровой паспорт объекта</p>
+            </div>
+
+            <div className="public-gallery-tags">
+              {selectedProject.tags.map((tag) => <span key={tag}>{tag}</span>)}
+            </div>
+            <button className="public-gallery-cta" type="button" onClick={() => scrollTo('calculator')}>
+              Рассчитать похожий объект
+              <ChevronRight size={16} />
+            </button>
+          </aside>
+        </div>
+
+        <div className="public-project-strip">
+          {filteredProjects.map((project) => (
+            <button
+              className={selectedProject.id === project.id ? 'active' : ''}
+              type="button"
+              key={project.id}
+              onClick={() => chooseProject(project.id)}
+            >
+              <img src={project.images[0]} alt="" />
+              <span>
+                <b>{project.title}</b>
+                <small>{project.area} · {project.stage}</small>
+              </span>
+            </button>
+          ))}
+        </div>
+        </>}
+
+        <div id="work-proof" className="public-work-proof">
+          <div className="public-section-head compact">
+            <p className="public-eyebrow dark">Контроль на каждом этапе</p>
+            <h2>Всё важное об объекте — под рукой</h2>
+            <p>
+              Примеры того, что можно отслеживать в кабинете:
+              фото, материалы, ход работ и документы. Изображения иллюстрируют возможности сервиса.
+            </p>
+          </div>
+          <div className="public-work-grid">
+            {workProofItems.map((item) => (
+              <article className="public-work-card" key={item.title}>
+                <img src={item.image} alt={item.title} />
+                <div>
+                  <span><item.icon size={15} /> {item.metric}</span>
+                  <h3>{item.title}</h3>
+                  <p>{item.text}</p>
+                </div>
+              </article>
+            ))}
+          <article className="public-work-card public-design-document-card">
+            <img src="/site-assets/illustrations/generated/project-dossier.jpg" alt="Иллюстрация: чертежи, фотографии этапов строительства и планшет с документами объекта" loading="lazy" />
+            <div><span><ShieldCheck size={15}/> Документы</span><h3>История вашего объекта</h3><p>Смета, акты, фото и гарантийные сведения собраны в цифровом паспорте.</p></div>
+          </article></div>
+        </div>
+
+
       </section>
 
-      <section id="process" className="public-section public-process">
+<section className="public-design-tools-section public-section"><div className="public-section-head"><p className="public-eyebrow dark">От идеи к смете</p><h2>Давайте посчитаем ваш объект.</h2><p>Площадь, материалы, участок и комплектация — всё учитывается в одном расчёте.</p></div><div className="public-hero-tools">
+          <PublicSiteCalculatorSection
+            calc={calc}
+            updateCalc={updatePublicCalculator}
+            result={result}
+            pricingStatus={sitePricingStatus}
+            scrollTo={scrollTo}
+            leadFileUploadsEnabled={leadFileUploadsEnabled}
+            leadFiles={leadFiles}
+            leadFileError={leadFileError}
+            chooseLeadFiles={chooseLeadFiles}
+            removeLeadFile={removeLeadFile}
+            plotCheck={plotCheck}
+            updatePlotCheck={updatePlotCheck}
+          />
+
+          <section id="passport" className="public-passport" aria-label="Цифровой паспорт объекта">
+            <div className="public-passport-top">
+              <div>
+                <p className="public-tool-kicker">Демонстрационный пример · данные условные</p>
+                <h2>Цифровой паспорт объекта</h2>
+              </div>
+              <div className="public-passport-status">
+                <Check size={15} />
+                Пример статуса
+              </div>
+            </div>
+
+            <div className="public-object-card">
+              <div>
+                <strong>Условный объект · дом 142 м²</strong>
+                <span><MapPin size={14} /> Пример этапа: тёплый контур</span>
+              </div>
+              <b>68%</b>
+            </div>
+
+            <div className="public-passport-line">
+              {['Смета', 'Материалы', 'Работы', 'Приёмка', 'Гарантия'].map((item, index) => (
+                <div className={index < 3 ? 'done' : ''} key={item}>
+                  <i />
+                  <span>{item}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="public-passport-grid">
+              <div className="public-passport-photo">
+                <img
+                  src="/site-assets/illustrations/unsplash/photo-1503387762-592deb58ef4e.webp"
+                  alt="Иллюстрация демонстрационного цифрового паспорта, не фото объекта СтройКа"
+                />
+                <span>Иллюстрация · не фотоотчёт с объекта</span>
+              </div>
+              <div className="public-proof-list">
+                <p><Package size={16} /> Материалы: пример учёта</p>
+                <p><FileText size={16} /> Этапы: пример подтверждения</p>
+                <p><Clock size={16} /> Сроки: пример статуса</p>
+                <p><QrCode size={16} /> QR-проверка: демонстрация</p>
+              </div>
+            </div>
+          </section>
+        </div></section>
+
+<section id="trust" className="public-section public-trust">
+        <div className="public-section-head">
+          <p className="public-eyebrow dark">Почему удобно</p>
+          <h2>Больше ясности. На каждом этапе.</h2>
+          <p>
+            Клиент выбирает проект и отправляет его в расчёт, а команда получает
+            понятную заявку с контекстом: что выбрано, какой ориентир стоимости и какие файлы приложены.
+          </p>
+        </div>
+        <div className="public-trust-grid">
+          {trustItems.map((item) => (
+            <article className="public-trust-card" key={item.title}>
+              <span><item.icon size={18} /></span>
+              <h3>{item.title}</h3>
+              <p>{item.text}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+<section id="process" className="public-section public-process">
         <div className="public-section-head">
           <p className="public-eyebrow dark">Как ведём объект</p>
-          <h2>Заявка сразу превращается в управляемую стройку</h2>
+          <h2>От первого разговора до готового объекта</h2>
         </div>
         <div className="public-process-grid">
           {[
             ['1', 'Заявка', 'Клиент оставляет расчёт и контакты'],
             ['2', 'Смета', 'Команда уточняет объём и стоимость'],
-            ['3', 'Стройка', 'Работы, материалы и фото ведутся в ERP'],
-            ['4', 'Паспорт и гарантия', 'Клиент получает историю объекта'],
+            ['3', 'Стройка', 'Фиксируем этапы, материалы и фотоотчёты'],
+            ['4', 'Паспорт и гарантия', 'Передаём документы и историю выполненных работ'],
           ].map(([num, title, text]) => (
             <article className="public-process-item" key={title}>
               <b>{num}</b>
@@ -1284,10 +1250,10 @@ const PublicSitePage = ({ onLogin }) => {
         </div>
       </section>
 
-      <section id="faq" className="public-section public-faq">
+<section id="faq" className="public-section public-faq">
         <div className="public-section-head">
           <p className="public-eyebrow dark">Частые вопросы</p>
-          <h2>Чтобы перед заявкой было понятно, что именно считается</h2>
+          <h2>Ответы до начала работ</h2>
         </div>
         <div className="public-faq-grid">
           {faqItems.map((item) => (
@@ -1299,10 +1265,111 @@ const PublicSitePage = ({ onLogin }) => {
         </div>
       </section>
 
-      <section id="suppliers" className="public-section public-suppliers">
+<section id="request" className="public-section public-request">
+        <div className="public-request-intro">
+          <p className="public-eyebrow dark">Точная смета</p>
+          <h2>Оставьте заявку на расчёт</h2>
+          <p>
+            Сохраним выбранный проект и параметры расчёта. Свяжемся с вами,
+            уточним детали и подготовим смету под вашу задачу.
+          </p>
+        </div>
+        <form className="public-request-form" onSubmit={submitLead}>
+          <div className="public-request-selected">
+            <span>В заявку попадёт</span>
+            <strong>{selectedLeadProject.projectTitle}</strong>
+            <small>
+              {selectedLeadProject.directionTitle} · {selectedLeadProject.projectCode || 'проект'} · {selectedLeadProject.estimateRange}
+            </small>
+            {selectedReferencePackage && (
+              <small>Комплектация: {selectedReferencePackage.label} · {selectedReferencePackage.duration}</small>
+            )}
+            {leadFiles.length > 0 && (
+              <small>Приложено файлов: {leadFiles.length}</small>
+            )}
+            {selectedLeadProject.plotCheck && (
+              <small>
+                Участок: заполнено {selectedLeadProject.plotCheck.completed} из {selectedLeadProject.plotCheck.total}
+                {' · '}проверить пунктов: {selectedLeadProject.plotCheck.reviewItems.length}
+              </small>
+            )}
+            {selectedLeadProject.financing && (
+              <small>
+                {selectedLeadProject.financing.modeLabel}: {selectedLeadProject.financing.monthlyRange}
+              </small>
+            )}
+            {selectedLeadProject.comparison && (
+              <small>
+                Сравнивались: {selectedLeadProject.comparison.items.map((item) => item.code).join(', ')}
+              </small>
+            )}
+            <small>
+              {selectedLeadProject.variantLabel}
+              {layoutPreferences ? ` · ${describePublicLayoutPreferences(layoutPreferences)}` : ''}
+            </small>
+            <button type="button" onClick={() => scrollTo('projects')}>Изменить проект</button>
+          </div>
+          <label className="public-honeypot" aria-hidden="true">
+            Сайт
+            <input
+              value={leadWebsite}
+              onChange={(event) => setLeadWebsite(event.target.value)}
+              autoComplete="off"
+              tabIndex={-1}
+            />
+          </label>
+          <label className="public-request-contact-field">
+            Имя
+            <input value={lead.name} onChange={(event) => setLead({ ...lead, name: event.target.value })} placeholder="Как к вам обращаться" />
+          </label>
+          <label className="public-request-contact-field">
+            Телефон
+            <input
+              ref={requestPhoneInputRef}
+              value={lead.phone}
+              onChange={(event) => setLead({ ...lead, phone: event.target.value })}
+              placeholder="+7"
+              required
+            />
+          </label>
+          <label>
+            Комментарий
+            <textarea value={lead.comment} onChange={(event) => setLead({ ...lead, comment: event.target.value })} placeholder="Адрес, сроки, что нужно построить" />
+          </label>
+          <label className="public-consent">
+            <input
+              type="checkbox"
+              checked={leadConsent}
+              onChange={(event) => setLeadConsent(event.target.checked)}
+            />
+            <span>
+              Даю согласие на обработку имени, телефона, комментария, параметров расчёта,
+              приложенных файлов и технических сведений формы для ответа на заявку. С{' '}
+              <button
+                className="public-consent-link"
+                type="button"
+                onClick={(event) => {
+                  event.preventDefault();
+                  scrollTo('privacy');
+                }}
+              >
+                политикой обработки персональных данных
+              </button>{' '}
+              ознакомлен.
+            </span>
+          </label>
+          <button className="public-primary" type="submit" disabled={leadSending || !leadConsent}>
+            {leadSending ? 'Отправляем...' : 'Отправить заявку'}
+          </button>
+          {sent && <p className="public-form-success">Заявка отправлена в CRM. Менеджер или директор увидит её в разделе заявок.</p>}
+          {leadError && <p className="public-form-error" role="alert">{leadError}</p>}
+        </form>
+      </section>
+
+<details className="public-design-details"><summary>Партнёрам: поставщики, мастера и бригады<span aria-hidden="true">+</span></summary><div className="public-design-details-content"><section id="suppliers" className="public-section public-suppliers">
         <div className="public-supplier-copy">
           <p className="public-eyebrow dark">Партнёрам</p>
-          <h2>Поставщик, мастер, бригада или субподрядчик сначала оставляет заявку на проверку</h2>
+          <h2>Давайте строить вместе</h2>
           <p>
             Мы не создаём активный доступ с публичного сайта автоматически. Заявка попадает
             в CRM, директор или ответственный сотрудник проверяет данные и только потом
@@ -1378,112 +1445,11 @@ const PublicSitePage = ({ onLogin }) => {
           </button>
           <button className="public-secondary dark" type="button" onClick={onLogin}>Уже есть доступ</button>
           {partnerSent && <p className="public-form-success">Заявка отправлена в CRM на проверку.</p>}
-          {partnerError && <p className="public-form-error">{partnerError}</p>}
+          {partnerError && <p className="public-form-error" role="alert">{partnerError}</p>}
         </form>
-      </section>
+      </section></div></details>
 
-      <section id="request" className="public-section public-request">
-        <div>
-          <p className="public-eyebrow dark">Точная смета</p>
-          <h2>Оставьте заявку на расчёт</h2>
-          <p>
-            После отправки выбранный проект, параметры расчёта и ваши контакты
-            сразу появятся в CRM у менеджера.
-          </p>
-        </div>
-        <form className="public-request-form" onSubmit={submitLead}>
-          <div className="public-request-selected">
-            <span>В заявку попадёт</span>
-            <strong>{selectedLeadProject.projectTitle}</strong>
-            <small>
-              {selectedLeadProject.directionTitle} · {selectedLeadProject.projectCode || 'проект'} · {selectedLeadProject.estimateRange}
-            </small>
-            {selectedReferencePackage && (
-              <small>Комплектация: {selectedReferencePackage.label} · {selectedReferencePackage.duration}</small>
-            )}
-            {leadFiles.length > 0 && (
-              <small>Приложено файлов: {leadFiles.length}</small>
-            )}
-            {selectedLeadProject.plotCheck && (
-              <small>
-                Участок: заполнено {selectedLeadProject.plotCheck.completed} из {selectedLeadProject.plotCheck.total}
-                {' · '}проверить пунктов: {selectedLeadProject.plotCheck.reviewItems.length}
-              </small>
-            )}
-            {selectedLeadProject.financing && (
-              <small>
-                {selectedLeadProject.financing.modeLabel}: {selectedLeadProject.financing.monthlyRange}
-              </small>
-            )}
-            {selectedLeadProject.comparison && (
-              <small>
-                Сравнивались: {selectedLeadProject.comparison.items.map((item) => item.code).join(', ')}
-              </small>
-            )}
-            <small>
-              {selectedLeadProject.variantLabel}
-              {layoutPreferences ? ` · ${describePublicLayoutPreferences(layoutPreferences)}` : ''}
-            </small>
-            <button type="button" onClick={() => scrollTo('projects')}>Изменить проект</button>
-          </div>
-          <label className="public-honeypot" aria-hidden="true">
-            Сайт
-            <input
-              value={leadWebsite}
-              onChange={(event) => setLeadWebsite(event.target.value)}
-              autoComplete="off"
-              tabIndex={-1}
-            />
-          </label>
-          <label>
-            Имя
-            <input value={lead.name} onChange={(event) => setLead({ ...lead, name: event.target.value })} placeholder="Как к вам обращаться" />
-          </label>
-          <label>
-            Телефон
-            <input
-              ref={requestPhoneInputRef}
-              value={lead.phone}
-              onChange={(event) => setLead({ ...lead, phone: event.target.value })}
-              placeholder="+7"
-              required
-            />
-          </label>
-          <label>
-            Комментарий
-            <textarea value={lead.comment} onChange={(event) => setLead({ ...lead, comment: event.target.value })} placeholder="Адрес, сроки, что нужно построить" />
-          </label>
-          <label className="public-consent">
-            <input
-              type="checkbox"
-              checked={leadConsent}
-              onChange={(event) => setLeadConsent(event.target.checked)}
-            />
-            <span>
-              Даю согласие на обработку имени, телефона, комментария, параметров расчёта,
-              приложенных файлов и технических сведений формы для ответа на заявку. С{' '}
-              <button
-                className="public-consent-link"
-                type="button"
-                onClick={(event) => {
-                  event.preventDefault();
-                  scrollTo('privacy');
-                }}
-              >
-                политикой обработки персональных данных
-              </button>{' '}
-              ознакомлен.
-            </span>
-          </label>
-          <button className="public-primary" type="submit" disabled={leadSending || !leadConsent}>
-            {leadSending ? 'Отправляем...' : 'Отправить заявку'}
-          </button>
-          {sent && <p className="public-form-success">Заявка отправлена в CRM. Менеджер или директор увидит её в разделе заявок.</p>}
-          {leadError && <p className="public-form-error">{leadError}</p>}
-        </form>
-      </section>
-
-      <section id="privacy" className="public-section public-legal">
+<details className="public-design-details"><summary>Реквизиты и обработка персональных данных<span aria-hidden="true">+</span></summary><div className="public-design-details-content"><section id="privacy" className="public-section public-legal">
         <div className="public-section-head">
           <p className="public-eyebrow dark">Юридическая информация</p>
           <h2>Политика обработки персональных данных</h2>
@@ -1544,9 +1510,11 @@ const PublicSitePage = ({ onLogin }) => {
           <span><a href="/terms.html">Условия</a></span>
           <span><a href="/contacts.html">Контакты</a></span>
         </div>
-      </section>
+      </section></div></details>
 
-      {showMobileActions ? (
+<footer className="public-design-footer"><div><strong>Строй<span>Ка</span></strong><p>Строительство с понятным планом.</p></div><div><a href={'tel:+' + PUBLIC_SITE_OPERATOR.phone.replace(/\D/g, '')}>{PUBLIC_SITE_OPERATOR.phone}</a><a href={'mailto:' + PUBLIC_SITE_OPERATOR.leadEmail}>{PUBLIC_SITE_OPERATOR.leadEmail}</a><a href="/contacts.html">Контакты и реквизиты</a><a href="/privacy.html">Политика обработки данных</a></div><small>{PUBLIC_SITE_OPERATOR.name}<br/>ИНН {PUBLIC_SITE_OPERATOR.inn} · ОГРНИП {PUBLIC_SITE_OPERATOR.ogrnip}</small></footer>
+
+{showMobileActions ? (
         <nav className="public-mobile-actions" aria-label="Быстрые действия">
           <button type="button" onClick={() => scrollTo('projects')}>
             <House size={18} />
@@ -1558,7 +1526,7 @@ const PublicSitePage = ({ onLogin }) => {
           </button>
         </nav>
       ) : null}
-    </main>
+</main>
   );
 };
 

@@ -5,6 +5,7 @@ import PublicSitePage from './PublicSitePage';
 describe('public project actions', () => {
   beforeEach(() => {
     jest.useFakeTimers();
+    window.matchMedia = jest.fn().mockReturnValue({ matches: false });
     window.history.replaceState({}, '', '/');
     Element.prototype.scrollIntoView = jest.fn();
     global.fetch = jest.fn().mockResolvedValue({
@@ -13,8 +14,8 @@ describe('public project actions', () => {
     });
   });
 
-  afterEach(() => {
-    jest.runOnlyPendingTimers();
+  afterEach(async () => {
+    await act(async () => { jest.runOnlyPendingTimers(); });
     jest.useRealTimers();
     jest.restoreAllMocks();
     delete navigator.share;
@@ -37,7 +38,7 @@ describe('public project actions', () => {
     expect(preview).toHaveClass('mirrored');
     expect(preview.querySelector('img.public-project-media-image.is-render')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Вернуть обычный вариант' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('status')).toHaveTextContent('Зеркальный вариант включён');
+    expect(document.querySelector('.public-project-action-status')).toHaveTextContent('Зеркальный вариант включён');
     expect(preview.scrollIntoView).toHaveBeenCalled();
   });
 
@@ -74,7 +75,7 @@ describe('public project actions', () => {
     flushActions();
 
     expect(document.querySelector('.public-project-spec-column h3')).toHaveTextContent('Дом 116 м2 с кухней-гостиной');
-    expect(screen.getByRole('status')).toHaveTextContent('Открыт похожий проект');
+    expect(document.querySelector('.public-project-action-status')).toHaveTextContent('Открыт похожий проект');
     expect(document.getElementById('selected-project-preview').scrollIntoView).toHaveBeenCalled();
     expect(screen.queryByRole('region', { name: 'Похожие проекты' })).not.toBeInTheDocument();
   });
@@ -94,7 +95,7 @@ describe('public project actions', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Выбрать H1-01 для расчёта' }));
     expect(document.querySelector('.public-project-spec-column h3')).toHaveTextContent('Одноэтажный кирпичный дом 110 м2');
-    expect(screen.getByRole('status')).toHaveTextContent('Выбран проект H1-01');
+    expect(document.querySelector('.public-project-action-status')).toHaveTextContent('Выбран проект H1-01');
   });
 
   test('clears comparison when another project direction opens', () => {
@@ -159,8 +160,7 @@ describe('public project actions', () => {
     expect(sharedUrl.searchParams.get('project')).toBe('H1-01');
     expect(sharedUrl.searchParams.has('compare')).toBe(false);
     expect(sharedUrl.hash).toBe('#projects');
-    expect(document.querySelector('.public-project-action-status'))
-      .toHaveTextContent('Ссылка на проект отправлена');
+    expect(document.querySelector('.public-project-action-status')).toHaveTextContent('Ссылка на проект отправлена');
   });
 
   test('copies the selected project link when system sharing is unavailable', async () => {
@@ -180,8 +180,7 @@ describe('public project actions', () => {
     const copiedUrl = new URL(writeText.mock.calls[0][0]);
     expect(copiedUrl.searchParams.get('project')).toBe('H1-01');
     expect(copiedUrl.searchParams.has('compare')).toBe(false);
-    expect(document.querySelector('.public-project-action-status'))
-      .toHaveTextContent('Ссылка на проект скопирована');
+    expect(document.querySelector('.public-project-action-status')).toHaveTextContent('Ссылка на проект скопирована');
   });
 
   test('copies the selected project link when system sharing fails', async () => {
@@ -201,8 +200,7 @@ describe('public project actions', () => {
 
     expect(share).toHaveBeenCalledTimes(1);
     expect(writeText).toHaveBeenCalledTimes(1);
-    expect(document.querySelector('.public-project-action-status'))
-      .toHaveTextContent('Ссылка на проект скопирована');
+    expect(document.querySelector('.public-project-action-status')).toHaveTextContent('Ссылка на проект скопирована');
   });
 
   test('opens the selected project request at the required phone field', () => {
@@ -250,7 +248,7 @@ describe('public project actions', () => {
     flushActions();
 
     expect(document.getElementById('calculator').scrollIntoView).toHaveBeenCalled();
-    expect(screen.getByRole('status')).toHaveTextContent('Проект передан в калькулятор');
+    expect(document.querySelector('.public-project-action-status')).toHaveTextContent('Проект передан в калькулятор');
   });
 
   test('collects plot details for the request without changing the estimate', () => {
@@ -283,7 +281,8 @@ describe('public project actions', () => {
     expect(document.querySelector('.public-project-cost-panel strong')).not.toHaveTextContent(initialEstimate);
     expect(screen.getByLabelText('Комментарий').value).toContain('Комплектация: Тёплый контур');
     expect(document.querySelector('.public-request-selected')).toHaveTextContent('Тёплый контур');
-    expect(screen.getByRole('status')).toHaveTextContent('Выбрана комплектация «Тёплый контур»');
+    expect(document.querySelector('.public-project-action-status')).toHaveTextContent('Выбрана комплектация «Тёплый контур»');
+    fireEvent.click(screen.getByText('График оплаты по этапам'));
     expect(screen.getByRole('region', { name: 'Примерный график этапов и платежей' })).toHaveTextContent('5 этапов');
 
     fireEvent.change(screen.getByRole('combobox', { name: 'Комплектация' }), { target: { value: 'box' } });
@@ -295,6 +294,7 @@ describe('public project actions', () => {
   test('adds a selected mortgage or installment scenario to the request', () => {
     render(<PublicSitePage onLogin={jest.fn()} />);
 
+    fireEvent.click(screen.getByText('Ипотека и рассрочка — предварительный расчёт'));
     const financing = screen.getByRole('region', { name: 'Ипотека и рассрочка' });
     expect(financing).toHaveTextContent('Предварительный платёж');
     expect(screen.getByRole('radio', { name: 'Ипотека' })).toHaveAttribute('aria-checked', 'true');

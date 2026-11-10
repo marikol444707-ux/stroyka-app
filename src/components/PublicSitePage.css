@@ -1569,10 +1569,6 @@
   gap: 12px;
 }
 
-.public-reference-mobile-picker {
-  display: none;
-}
-
 .public-reference-card {
   position: relative;
   min-width: 0;
@@ -4387,24 +4383,6 @@
 }
 
 @media (max-width: 760px) {
-  .public-site button {
-    min-height: 44px;
-  }
-  .public-project-decision-actions .public-primary,
-  .public-project-decision-actions .public-secondary {
-    min-height: 44px;
-  }
-  .public-site input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
-  .public-site select {
-    min-height: 44px;
-  }
-  .public-site a {
-    min-height: 44px;
-  }
-  .public-requisites a {
-    display: inline-flex;
-    align-items: center;
-  }
   html,
   body,
   .public-site {
@@ -4480,14 +4458,13 @@
     align-self: flex-start;
     font-size: 22px;
     line-height: 1.1;
-    min-height: 44px;
   }
   .public-login {
     order: 2;
     align-self: flex-start;
     margin-left: 0;
     max-width: 100%;
-    min-height: 44px;
+    min-height: 42px;
     padding: 10px 14px;
     font-size: 14px;
     line-height: 1.1;
@@ -4510,7 +4487,7 @@
   .public-nav-links button {
     width: 100%;
     min-width: 0;
-    min-height: 44px;
+    min-height: 40px;
     padding: 9px 6px;
     white-space: normal;
     line-height: 1.15;
@@ -4580,28 +4557,6 @@
   .public-project-thumb-grid,
   .public-partner-types {
     grid-template-columns: 1fr;
-  }
-  .public-reference-mobile-picker {
-    display: block;
-  }
-  .public-reference-mobile-picker span {
-    display: block;
-    margin-bottom: 6px;
-    color: var(--site-muted);
-    font-size: 13px;
-    font-weight: 800;
-  }
-  .public-reference-mobile-picker select {
-    width: 100%;
-    min-height: 48px;
-    border: 1px solid var(--site-line);
-    border-radius: 8px;
-    background: #ffffff;
-    color: var(--site-ink);
-    padding: 10px 12px;
-  }
-  .public-reference-grid {
-    display: none;
   }
   .public-plot-check-head {
     grid-template-columns: auto minmax(0, 1fr);
@@ -4706,7 +4661,57 @@
     max-width: calc(100vw - 28px);
   }
   .public-reference-card {
-    padding: 0 0 14px;
+    display: grid;
+    grid-template-columns: 88px minmax(0, 1fr);
+    grid-template-rows: auto auto auto;
+    align-items: center;
+    gap: 4px 12px;
+    padding: 10px;
+    text-align: left;
+  }
+  .public-reference-card img,
+  .public-reference-card .public-project-concept-thumb {
+    grid-column: 1;
+    grid-row: 1 / span 3;
+    width: 88px;
+    height: 88px;
+    border-radius: 6px;
+  }
+  .public-reference-card .public-reference-count {
+    position: static;
+    grid-column: 2;
+    grid-row: 2;
+    width: max-content;
+    max-width: 100%;
+    min-height: 0;
+    margin: 0;
+    padding: 3px 7px;
+    background: #eef8f4;
+    color: var(--site-green-dark);
+    font-size: 10px;
+  }
+  .public-reference-card .public-reference-price {
+    grid-column: 2;
+    grid-row: 3;
+    max-width: 100%;
+    min-height: 0;
+    margin: 0;
+    padding: 4px 7px;
+    font-size: 10px;
+  }
+  .public-reference-card h3 {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: end;
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.25;
+  }
+  .public-reference-card .public-reference-media-note,
+  .public-reference-card p,
+  .public-reference-card > div,
+  .public-reference-card .public-reference-open {
+    display: none;
   }
   .public-project-visual-column,
   .public-project-spec-column {
@@ -4925,38 +4930,15 @@
     padding-right: 12px;
   }
   .public-nav {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 8px 10px;
+    gap: 8px;
   }
   .public-login {
     width: 100%;
     justify-content: center;
     text-align: center;
-    grid-column: 2;
-    grid-row: 1;
-    justify-self: end;
-    min-height: 44px;
-    padding: 9px 12px;
-  }
-  .public-brand {
-    grid-column: 1;
-    grid-row: 1;
-    align-self: center;
   }
   .public-nav-links {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    padding: 3px;
-    gap: 3px;
-  }
-  .public-nav-links button {
-    min-height: 44px;
-    padding: 8px 3px;
-    font-size: 12px;
-    line-height: 1.1;
+    grid-template-columns: 1fr;
   }
   .public-eyebrow {
     overflow-wrap: anywhere;

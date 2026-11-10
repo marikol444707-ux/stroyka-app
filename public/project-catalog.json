@@ -2,7 +2,7 @@
   "version": "2026-06-29",
   "site": "https://stroyka26.pro",
   "catalogUrl": "https://stroyka26.pro/project-catalog.html",
-  "projectCount": 45,
+  "projectCount": 43,
   "directionCount": 15,
   "directions": [
     {
@@ -360,7 +360,7 @@
       "id": 4,
       "title": "Двухэтажный современный дом",
       "description": "Современная архитектура, больше площади на компактном участке.",
-      "summary": "3 проекта · 4 вида · от 10,9 млн ₽",
+      "summary": "2 проекта · 4 вида · от 10,9 млн ₽",
       "previewImages": [
         {
           "src": "/site-assets/projects/h2-01/facade.webp",
@@ -451,46 +451,6 @@
             }
           ],
           "status": "Проект-идея / пример для расчета"
-        },
-        {
-          "code": "H2-03",
-          "title": "Дом 235 м2 с террасой и балконом",
-          "area": "235 м2",
-          "floors": "2 этажа",
-          "layout": "Большая кухня-гостиная, кабинет, мастер-спальня, 3 спальни, балкон, терраса.",
-          "visuals": "Большой современный фасад и планы этажей.",
-          "url": "https://stroyka26.pro/?project=H2-03#projects",
-          "media": [
-            {
-              "id": "render-front",
-              "kind": "image",
-              "role": "render",
-              "label": "3D фасад",
-              "src": "/site-assets/projects/h2-03/facade.webp"
-            },
-            {
-              "id": "render-side",
-              "kind": "image",
-              "role": "render",
-              "label": "Второй ракурс",
-              "src": "/site-assets/projects/h2-03/side.webp"
-            },
-            {
-              "id": "plan-1",
-              "kind": "image",
-              "role": "plan",
-              "label": "План 1 этажа",
-              "src": "/site-assets/projects/h2-03/plan-1.png"
-            },
-            {
-              "id": "plan-2",
-              "kind": "image",
-              "role": "plan",
-              "label": "План 2 этажа",
-              "src": "/site-assets/projects/h2-03/plan-2.png"
-            }
-          ],
-          "status": "Проект-идея / пример для расчета"
         }
       ]
     },
@@ -498,7 +458,7 @@
       "id": 5,
       "title": "Двухэтажный дом из кирпича",
       "description": "Капитальные дома с классическим фасадом и долгим сроком службы.",
-      "summary": "3 проекта · 4 вида · от 15,7 млн ₽",
+      "summary": "2 проекта · 4 вида · от 15,7 млн ₽",
       "previewImages": [
         {
           "src": "/site-assets/projects/b2-01/facade.webp",
@@ -555,8 +515,8 @@
           "title": "Дом 210 м2 с гаражной зоной",
           "area": "210 м2",
           "floors": "2 этажа",
-          "layout": "1 этаж: общая зона. 2 этаж: спальни. Отдельный хозблок.",
-          "visuals": "Фасад + план 1/2 этажа.",
+          "layout": "Концепция дома с гаражом. Площадь ориентировочная; состав помещений уточняется при проектировании.",
+          "visuals": "Два ракурса фасада. Планировка пока не разработана.",
           "url": "https://stroyka26.pro/?project=B2-02#projects",
           "media": [
             {
@@ -572,60 +532,6 @@
               "role": "render",
               "label": "Второй ракурс",
               "src": "/site-assets/projects/b2-02/side.webp"
-            },
-            {
-              "id": "plan-1",
-              "kind": "image",
-              "role": "plan",
-              "label": "План 1 этажа",
-              "src": "/site-assets/projects/b2-02/plan-1.png"
-            },
-            {
-              "id": "plan-2",
-              "kind": "image",
-              "role": "plan",
-              "label": "План 2 этажа",
-              "src": "/site-assets/projects/b2-02/plan-2.png"
-            }
-          ],
-          "status": "Проект-идея / пример для расчета"
-        },
-        {
-          "code": "B2-03",
-          "title": "Классический дом 240 м2",
-          "area": "240 м2",
-          "floors": "2 этажа",
-          "layout": "5 спален, кабинет, большая кухня-гостиная, 3 санузла.",
-          "visuals": "Классический фасад + планы.",
-          "url": "https://stroyka26.pro/?project=B2-03#projects",
-          "media": [
-            {
-              "id": "render-front",
-              "kind": "image",
-              "role": "render",
-              "label": "3D фасад",
-              "src": "/site-assets/projects/b2-03/facade.webp"
-            },
-            {
-              "id": "render-side",
-              "kind": "image",
-              "role": "render",
-              "label": "Второй ракурс",
-              "src": "/site-assets/projects/b2-03/side.webp"
-            },
-            {
-              "id": "plan-1",
-              "kind": "image",
-              "role": "plan",
-              "label": "План 1 этажа",
-              "src": "/site-assets/projects/b2-03/plan-1.png"
-            },
-            {
-              "id": "plan-2",
-              "kind": "image",
-              "role": "plan",
-              "label": "План 2 этажа",
-              "src": "/site-assets/projects/b2-03/plan-2.png"
             }
           ],
           "status": "Проект-идея / пример для расчета"
