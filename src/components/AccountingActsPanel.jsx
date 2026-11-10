@@ -1,4 +1,4 @@
-import { actRemaining, actAdvance, actRetention } from '../utils/actSettlement';
+import { actRemaining, actAdvance, actRetention, actToolDeduction } from '../utils/actSettlement';
 import {brigadeBalance, balanceMoney} from './brigadeBalance';
 import React from 'react';
 import {
@@ -322,6 +322,7 @@ export default function AccountingActsPanel({
                   {!isDailyAct && <span style={{ fontSize: '12px', color: C.success }}>{'Оплачено: ' + paidAmount.toLocaleString() + ' ₽'}</span>}
                   {!isDailyAct && actAdvance(act)>0 && <span>Зачтён аванс: {actAdvance(act).toLocaleString('ru-RU')} ₽</span>}
                   {actRetention(act)>0 && <span> · Гарантийное удержание: {actRetention(act).toLocaleString('ru-RU')} ₽</span>}
+                  {actToolDeduction(act)>0 && <span> · Инструмент: {actToolDeduction(act).toLocaleString('ru-RU')} ₽</span>}
                   {isDailyAct && <span style={{ fontSize: '12px', color: C.info }}>Дневной отчёт · оплата по отдельному акту</span>}
                   {actWorkCount > 0 && <span style={{ fontSize: '12px', color: C.accent }}>{'ЖПР: ' + actWorkCount}</span>}
                   {!isDailyAct && remaining > 0 && <span style={{ fontSize: '12px', color: C.danger, fontWeight: '700', padding: '2px 8px', borderRadius: '6px', backgroundColor: C.dangerLight }}>{'⚠️ Недоплата: ' + remaining.toLocaleString() + ' ₽'}</span>}

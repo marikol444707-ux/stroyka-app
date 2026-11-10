@@ -11,6 +11,8 @@ need arrives through deps. The model moved here — sole user.
 from typing import Optional
 from ..accountable_payments import advances
 from . import retention
+from ..tool_deductions import service as tool_deductions
+from ..tool_deductions.routes import register_tool_deductions
 
 import psycopg2.extras
 from fastapi import Depends, Header, HTTPException
@@ -66,6 +68,8 @@ def register_interim_acts_module(app, deps):
         if not cur.fetchone():
             raise HTTPException(404, 'Акт не найден в выбранной компании')
 
+    register_tool_deductions(app, deps, company_actor)
+
     @app.get("/interim-acts")
     def get_interim_acts(_current_user: dict = Depends(require_roles(*contract_roles)),
         x_company_id: Optional[str] = Header(default=None, alias='X-Company-Id'),
@@ -95,7 +99,7 @@ def register_interim_acts_module(app, deps):
         if package_sql:
             where.append("1=1" + package_sql)
             params.extend(package_params)
-        q = "SELECT id,company_id as \"companyId\",master_id as \"masterId\",master_name as \"masterName\",project,COALESCE(work_package,'') as \"workPackage\",period_start as \"periodStart\",period_end as \"periodEnd\",total_amount as \"totalAmount\",paid_amount as \"paidAmount\",contract_id as \"contractId\",status,scan_url as \"scanUrl\",COALESCE(work_journal_ids,'[]') as \"workJournalIds\",COALESCE(source_type,'') as \"sourceType\",COALESCE(photo_urls,'[]') as \"photoUrls\",COALESCE((SELECT sum(al.amount) FROM performer_advance_allocations al WHERE al.act_id=interim_acts.id AND al.company_id=interim_acts.company_id),0) as \"advanceAmount\",retention_amount as \"retentionAmount\",retention_released as \"retentionReleased\",retention_revision as \"retentionRevision\",retention_basis as \"retentionBasis\" FROM interim_acts"
+        q = "SELECT id,company_id as \"companyId\",master_id as \"masterId\",master_name as \"masterName\",project,COALESCE(work_package,'') as \"workPackage\",period_start as \"periodStart\",period_end as \"periodEnd\",total_amount as \"totalAmount\",paid_amount as \"paidAmount\",contract_id as \"contractId\",status,scan_url as \"scanUrl\",COALESCE(work_journal_ids,'[]') as \"workJournalIds\",COALESCE(source_type,'') as \"sourceType\",COALESCE(photo_urls,'[]') as \"photoUrls\",COALESCE((SELECT sum(al.amount) FROM performer_advance_allocations al WHERE al.act_id=interim_acts.id AND al.company_id=interim_acts.company_id),0) as \"advanceAmount\",retention_amount as \"retentionAmount\",retention_released as \"retentionReleased\",retention_revision as \"retentionRevision\",retention_basis as \"retentionBasis\",COALESCE((SELECT sum(td.amount-td.refunded) FROM tool_deduction_allocations td WHERE td.act_id=interim_acts.id AND td.company_id=interim_acts.company_id),0) as \"toolDeductionAmount\" FROM interim_acts"
         if where:
             q += " WHERE " + " AND ".join(where)
         q += " ORDER BY id DESC"
@@ -106,7 +110,7 @@ def register_interim_acts_module(app, deps):
         for row in result:
             row['advanceAmount'] = float(row.get('advanceAmount') or 0)
             row['retentionOutstanding'] = float(advances.money(row.get('retentionAmount') or 0)-advances.money(row.get('retentionReleased') or 0))
-            row['remainingAmount'] = float(max(0, advances.money(row['totalAmount'] or 0)-advances.money(row['paidAmount'] or 0)-advances.money(row['advanceAmount'])-advances.money(row['retentionOutstanding'])))
+            row['remainingAmount'] = float(max(0, advances.money(row['totalAmount'] or 0)-advances.money(row['paidAmount'] or 0)-advances.money(row['advanceAmount'])-advances.money(row['retentionOutstanding'])-advances.money(row.get('toolDeductionAmount') or 0)))
         return result
 
     @app.post("/interim-acts")
@@ -215,6 +219,7 @@ def register_interim_acts_module(app, deps):
             require_row_project_access(cur, "interim_acts", id, _current_user, "project")
             advances.guard_act_edit(cur, id, data)
             retention.guard_edit(cur, id, data)
+            tool_deductions.guard_act_edit(cur, id, data)
             cur.execute("""SELECT master_id, master_name, project, COALESCE(NULLIF(work_package,''),'Основная'),
                                   period_start, period_end, total_amount, paid_amount,
                                   COALESCE(status,''), COALESCE(scan_url,''), COALESCE(work_journal_ids,'[]'),
@@ -365,11 +370,12 @@ def register_interim_acts_module(app, deps):
                 raise HTTPException(status_code=400, detail="Сумма оплаты должна быть больше нуля")
             credited = advances.act_advance(cur, id)
             retained = advances.money(act[6] if len(act)>6 else 0)
+            tool_amount = tool_deductions.act_amount(cur, id)
             next_paid = current_paid + amount
-            if next_paid + credited + retained > total_amount:
+            if next_paid + credited + retained + tool_amount > total_amount:
                 conn.rollback()
-                raise HTTPException(status_code=400, detail=f"Оплата превышает сумму акта. Остаток к оплате: {max(0, total_amount-current_paid-credited-retained):.2f} ₽")
-            status = "Оплачен" if next_paid + credited >= total_amount else "Частично оплачен"
+                raise HTTPException(status_code=400, detail=f"Оплата превышает сумму акта. Остаток к оплате: {max(0, total_amount-current_paid-credited-retained-tool_amount):.2f} ₽")
+            status = "Оплачен" if next_paid + credited + tool_amount >= total_amount else "Частично оплачен"
             cur.execute("UPDATE interim_acts SET paid_amount=%s, status=%s WHERE id=%s", (next_paid, status, id))
             paid_by = data.get("paidBy") or _current_user.get("name") or ""
             paid_date = data.get("paidDate") or None
@@ -389,7 +395,7 @@ def register_interim_acts_module(app, deps):
                 ("Оплата акта исполнителя: " + str(amount) + " ₽, статус " + str(status))[:250],
                 project,
             )
-            return {"ok": True, "paidAmount": next_paid, "status": status, "projectPaymentId": payment_id, "advanceAmount": credited, "retentionOutstanding": retained, "remainingAmount": max(0,total_amount-next_paid-credited-retained)}
+            return {"ok": True, "paidAmount": next_paid, "status": status, "projectPaymentId": payment_id, "advanceAmount": credited, "retentionOutstanding": retained, "toolDeductionAmount": tool_amount, "remainingAmount": max(0,total_amount-next_paid-credited-retained-tool_amount)}
         except HTTPException:
             conn.rollback()
             raise
@@ -417,6 +423,7 @@ def register_interim_acts_module(app, deps):
             require_row_project_access(cur, "interim_acts", id, _current_user, "project")
             advances.guard_act_edit(cur, id, {"status": "Аннулирован"})
             retention.guard_edit(cur, id, {"status": "Аннулирован"})
+            tool_deductions.guard_act_edit(cur, id, {"status": "Аннулирован"})
             cur.execute("SELECT COALESCE(work_package,''), COALESCE(project,''), COALESCE(master_name,'') FROM interim_acts WHERE id=%s", (id,))
             act_row = cur.fetchone()
             if act_row and not has_package_access(_current_user, act_row[0] or "Основная"):

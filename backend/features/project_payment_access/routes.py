@@ -266,6 +266,11 @@ def register_project_payments_module(app, deps):
                 raise HTTPException(status_code=403, detail="Нет доступа к пакету платежа")
             if deps.get('require_legacy_project_payment'):
                 deps['require_legacy_project_payment'](cur, id)
+            cur.execute("SELECT to_regclass('public.tool_deduction_events') IS NOT NULL AS tool_exists")
+            if cur.fetchone()['tool_exists']:
+                cur.execute('SELECT id FROM tool_deduction_events WHERE project_payment_id=%s AND company_id=%s', (id, company_id))
+                if cur.fetchone():
+                    raise HTTPException(409, 'Платёж подтверждает возврат удержания за инструмент. Отдельное сторно нарушит историю удержаний; требуется сверка бухгалтера.')
             # Pre-0017 installations keep their existing flow. Once a payment
             # belongs to the ledger, a standalone negative expense would leave
             # its invoice balances unchanged. Never infer ownership from notes.

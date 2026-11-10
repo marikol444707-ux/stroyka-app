@@ -40,7 +40,8 @@ def change(cur, act_id, company_id, data, actor, release=False):
         raise HTTPException(409, 'Удержание изменено в другой вкладке. Обновите данные и сверьте сумму; автоматического повтора нет')
     if act['source_type'] == 'daily_work' or act['status'] == 'Аннулирован':
         raise HTTPException(409, 'Для этого акта изменение удержания недоступно')
-    credited = act_advance(cur, act_id)
+    from ..tool_deductions.service import act_amount
+    credited = act_advance(cur, act_id) + act_amount(cur, act_id)
     if release:
         if amount <= 0 or amount > held(act):
             raise HTTPException(409, 'Сумма снятия должна быть больше нуля и не превышать удержанный остаток')

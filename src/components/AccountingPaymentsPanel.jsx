@@ -1,4 +1,4 @@
-import { actRemaining, actAdvance, actRetention } from '../utils/actSettlement';
+import { actRemaining, actAdvance, actRetention, actToolDeduction } from '../utils/actSettlement';
 import React, { useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp, DollarSign, Plus, Search } from 'lucide-react';
 import AccountingIncomingPaymentForm from './AccountingIncomingPaymentForm';
@@ -412,6 +412,7 @@ export default function AccountingPaymentsPanel({
                                 {paid > 0 && <span style={{ color: C.success, marginLeft: '4px' }}>(опл. {Math.round(paid).toLocaleString('ru-RU')})</span>}
                                 {actAdvance(act)>0 && <span> · аванс {actAdvance(act).toLocaleString('ru-RU')} ₽</span>}
                   {actRetention(act)>0 && <span> · Гарантийное удержание: {actRetention(act).toLocaleString('ru-RU')} ₽</span>}
+                  {actToolDeduction(act)>0 && <span> · Инструмент: {actToolDeduction(act).toLocaleString('ru-RU')} ₽</span>}
                                 {owe > 0 && <b style={{ color: C.danger, marginLeft: '4px' }}>⚠️ долг {Math.round(owe).toLocaleString('ru-RU')}</b>}
                               </span>
                             </div>

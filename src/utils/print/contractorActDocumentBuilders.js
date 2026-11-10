@@ -1,4 +1,4 @@
-import { actAdvance, actRetention } from '../actSettlement';
+import { actAdvance, actRetention, actToolDeduction, actRemaining } from '../actSettlement';
 import { fmtMeasure } from '../measureUtils';
 
 export const buildMasterActDocContent = (act = {}, context = {}) => {
@@ -8,7 +8,6 @@ export const buildMasterActDocContent = (act = {}, context = {}) => {
     masterProfiles = [],
     workJournal = [],
     actPayments = [],
-    tools = [],
     ownExpenses = [],
     accountablePayments = [],
   } = context;
@@ -46,9 +45,7 @@ export const buildMasterActDocContent = (act = {}, context = {}) => {
     );
   });
   const payments = actPayments.filter((item) => Number(item.actId ?? item.act_id) === Number(act.id));
-  const toolDeductions = tools
-    .filter((item) => item.masterName === act.masterName && item.issueType === 'В счёт зарплаты')
-    .reduce((sum, item) => sum + item.cost, 0);
+  const toolDeductions = actToolDeduction(act);
   const ownExpsReimbursed = (ownExpenses || []).filter((item) => (
     (Number(item.employeeId ?? item.employee_id) === Number(act.masterId ?? act.master_id) || item.employeeName === act.masterName)
     && item.projectName === act.project
@@ -84,7 +81,7 @@ export const buildMasterActDocContent = (act = {}, context = {}) => {
   if (actAdvance(act)>0) html += '<tr><td colspan="6">Зачтён зарплатный аванс:</td><td>'+actAdvance(act).toLocaleString()+' руб.</td></tr>';
   if (actRetention(act)>0) html += '<tr><td colspan="6">Гарантийное удержание:</td><td>'+actRetention(act).toLocaleString()+' руб.</td></tr>';
   html += '<tr><td colspan="6">Оплачено по акту:</td><td>' + paidAmt.toLocaleString() + ' руб.</td></tr>';
-  html += '<tr><td colspan="6"><b>Остаток к выплате:</b></td><td><b style="color:red">' + (totalAmt - toolDeductions - paidAmt - actAdvance(act) - actRetention(act)).toLocaleString() + ' руб.</b></td></tr></table>';
+  html += '<tr><td colspan="6"><b>Остаток к выплате:</b></td><td><b style="color:red">' + actRemaining(act).toLocaleString() + ' руб.</b></td></tr></table>';
   if (ownExpsReimbursed.length > 0 || advancesGiven.length > 0) {
     html += '<h3 style="margin-top:18px">📒 Сопутствующие операции по сотруднику в периоде</h3>';
     html += '<p style="font-size:11px;color:#666">Не входят в сумму акта — показаны для сверки с бухгалтерией</p>';

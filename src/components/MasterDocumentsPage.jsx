@@ -1,4 +1,4 @@
-import { actRemaining, actAdvance, actRetention } from '../utils/actSettlement';
+import { actRemaining, actAdvance, actRetention, actToolDeduction } from '../utils/actSettlement';
 import React, { useState } from 'react';
 import { CheckCircle, Eye, Printer, Upload } from 'lucide-react';
 import ProjectHiddenWorksActSignatureModal from './ProjectHiddenWorksActSignatureModal';
@@ -152,8 +152,8 @@ export default function MasterDocumentsPage({
         {myActs.map((act) => {
           const totalAmt = act.totalAmount || 0;
           const paidAmt = act.paidAmount || 0;
-          const toolDed = myTools.filter((tool) => tool.issueType === 'В счёт зарплаты').reduce((sum, tool) => sum + tool.cost, 0);
-          const rest = Math.max(0,actRemaining(act) - toolDed);
+          const toolDed = actToolDeduction(act);
+          const rest = actRemaining(act);
           return (
             <div key={act.id} style={{ padding: '12px', backgroundColor: C.bg, borderRadius: '8px', marginBottom: '8px', border: '1.5px solid ' + C.border }}>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>

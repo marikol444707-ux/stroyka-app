@@ -7,6 +7,9 @@ from datetime import date
 from typing import Optional
 
 import psycopg2.extras
+from fastapi.encoders import jsonable_encoder
+from ..accountable_payments.advances import lock_ledger
+from ..tool_deductions import service as tool_deductions
 from fastapi import Depends, Header, HTTPException
 
 
@@ -178,8 +181,10 @@ def register_salary_payments_module(app, deps):
         current_user: dict = Depends(get_current_user),
     ):
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
+            lock_ledger(cur)
             actor = selected_actor(
                 cur, current_user, "write", x_company_id, x_company_mode
             )
@@ -189,19 +194,23 @@ def register_salary_payments_module(app, deps):
             month = str(data.get("month") or "").strip()
             if not _MONTH_RE.fullmatch(month):
                 raise HTTPException(status_code=400, detail="month invalid")
+            tool_snapshot = tool_deductions.prepare_salary(cur, actor['companyId'], staff['id'], month, data)
             amount = _positive_amount(data.get("amount"))
+            if type(data.get('amount')) in (int, float) and data['amount'] == 0 and tool_snapshot['amount'] > 0:
+                amount = 0
             if amount is None:
                 raise HTTPException(status_code=400, detail="amount required")
             cur.execute(
                 """INSERT INTO public.salary_payments
                        (company_id,company_scope_verified,staff_id,staff_name,
-                        month,amount,paid_by,paid_date,note)
-                       VALUES (%s,TRUE,%s,%s,%s,%s,%s,%s,%s)
+                        month,amount,paid_by,paid_date,note,tool_deduction_snapshot)
+                       VALUES (%s,TRUE,%s,%s,%s,%s,%s,%s,%s,%s)
                        RETURNING id""",
                 (
                     actor["companyId"], staff["id"], staff["name"], month,
                     amount, actor_name(actor), date.today().isoformat(),
                     str(data.get("note") or "").strip(),
+                    psycopg2.extras.Json(jsonable_encoder(tool_snapshot)),
                 ),
             )
             row = cur.fetchone()
@@ -225,12 +234,15 @@ def register_salary_payments_module(app, deps):
         current_user: dict = Depends(get_current_user),
     ):
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
+            lock_ledger(cur)
             actor = selected_actor(
                 cur, current_user, "write", x_company_id, x_company_mode
             )
             payment = verified_payment(cur, actor["companyId"], id, lock=True)
+            tool_deductions.guard_salary_delete(cur, actor['companyId'], id)
             cur.execute(
                 """DELETE FROM public.salary_payments
                     WHERE id=%s AND company_id=%s AND staff_id=%s

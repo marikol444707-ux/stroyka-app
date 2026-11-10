@@ -36,6 +36,7 @@ class FakeCursor:
 
     def execute(self, sql, params=()):
         if "pg_advisory_xact_lock" in sql: return
+        self.tool_query = "tool_deduction_allocations" in sql
         self.retention_query = sql.startswith('SELECT retention_amount FROM interim_acts')
         self.project_query = sql.startswith('SELECT id FROM projects WHERE company_id=')
         self.owner_query = sql.startswith('SELECT id FROM interim_acts WHERE id=%s AND company_id=') or sql.startswith('SELECT id FROM staff WHERE id=')
@@ -47,6 +48,7 @@ class FakeCursor:
         return list(self.rows)
 
     def fetchone(self):
+        if getattr(self,"tool_query",False): return (0,) if "sum(" in self.calls[-1][0] else None
         if getattr(self,"retention_query",False): return (0,)
         if getattr(self,"owner_query",False): return (7,)
         if getattr(self, "advance_query", False): return (0,)
@@ -62,6 +64,7 @@ class FakeConnection:
         self.committed = False
         self.rolled_back = False
         self.autocommit = True
+        self.closed = False
 
     def cursor(self, **_kwargs):
         return self._cursor

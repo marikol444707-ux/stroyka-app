@@ -18,3 +18,11 @@ test('remaining excludes held amount once, release only increases availability',
   expect(actRemaining({...act,retentionReleased:500})).toBe(500);
   expect(actRemaining({...act,remainingAmount:123})).toBe(123); // server is authoritative
 });
+
+test('server allocation for a tool is charged once alongside advance and guarantee',()=>{
+  const act={id:1,totalAmount:10000,paidAmount:1000,advanceAmount:2000,retentionAmount:500,toolDeductionAmount:700};
+  expect(actRemaining(act)).toBe(5800);
+  const node=document.createElement('div');node.innerHTML=buildMasterActDocContent(act,{tools:[{masterName:undefined,issueType:'В счёт зарплаты',cost:9999}]});
+  const row=[...node.querySelectorAll('tr')].find(r=>r.textContent.includes('Остаток к выплате:'));
+  expect(row.textContent.replace(/[\s,]/g,'')).toContain('5800руб.');
+});

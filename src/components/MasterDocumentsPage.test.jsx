@@ -151,3 +151,11 @@ describe('consent upload failures', () => {
     expect(screen.queryByText('Скан загружен')).not.toBeInTheDocument();
   });
 });
+
+test('unallocated tool cost is not subtracted from every saved act of the worker',()=>{
+  renderPage({myActs:[{id:701,project:'Объект',totalAmount:10000,paidAmount:0,remainingAmount:10000},
+    {id:702,project:'Объект',totalAmount:10000,paidAmount:0,remainingAmount:10000}],
+    myTools:[{id:10,cost:1000,issueType:'В счёт зарплаты'}]});
+  const texts=screen.getAllByText(/^Остаток:/).map(node=>Number(node.textContent.replace(/[^\d]/g,'')));
+  expect(texts).toEqual([10000,10000]);
+});

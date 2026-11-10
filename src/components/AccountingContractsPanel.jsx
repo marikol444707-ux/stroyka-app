@@ -1,4 +1,4 @@
-import { actRetention } from '../utils/actSettlement';
+import { actRetention, actToolDeduction } from '../utils/actSettlement';
 import {brigadeBalance, balanceMoney} from './brigadeBalance';
 import React, { useState } from 'react';
 import { Check, Eye, Plus, Search, Trash2, X } from 'lucide-react';
@@ -203,7 +203,7 @@ export default function AccountingContractsPanel({
     );
     const accrued = rowActs.reduce((sum, act) => sum + Number(act.totalAmount || 0), 0);
     const paid = rowActs.reduce((sum, act) => sum + Number(act.paidAmount || 0), 0);
-    const retention = rowActs.reduce((sum, act) => sum + actRetention(act), 0);
+    const retention = rowActs.reduce((sum, act) => sum + actRetention(act) + actToolDeduction(act), 0);
     const payable = Math.max(0, accrued - retention);
     const advance = rowActs.reduce((sum, act) => sum + Number(act.advanceAmount || 0), 0);
     const owe = Math.max(0, payable - paid - advance);

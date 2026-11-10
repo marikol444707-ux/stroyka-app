@@ -45,6 +45,16 @@ class AdvancePostgresTests(unittest.TestCase):
             spec=importlib.util.spec_from_file_location('retention_migration',path)
             migration=importlib.util.module_from_spec(spec);spec.loader.exec_module(migration)
             c.execute(migration.SCHEMA_SQL)
+            c.execute('''ALTER TABLE user_company_roles ADD staff_id INTEGER;
+                ALTER TABLE salary_payments ADD company_id INTEGER,ADD company_scope_verified BOOLEAN DEFAULT TRUE;
+                CREATE TABLE tools(id SERIAL PRIMARY KEY,company_id INTEGER,name TEXT,inventory_number TEXT,
+                    cost NUMERIC(14,2),master_id INTEGER,master_name TEXT,project_id INTEGER,project TEXT,issue_type TEXT);
+                CREATE TABLE tool_history(id SERIAL PRIMARY KEY,company_id INTEGER,tool_id INTEGER,master_id INTEGER,
+                    master_name TEXT,project_id INTEGER,project TEXT,date TEXT,action TEXT,issue_type TEXT);''')
+            path=path.with_name('0116_tool_deductions.py')
+            spec=importlib.util.spec_from_file_location('tool_deduction_migration',path)
+            migration=importlib.util.module_from_spec(spec);spec.loader.exec_module(migration)
+            c.execute(migration.SCHEMA_SQL)
 
     @classmethod
     def tearDownClass(cls):

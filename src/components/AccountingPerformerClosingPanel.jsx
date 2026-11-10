@@ -1,4 +1,5 @@
-import { actRetention } from '../utils/actSettlement';
+import ToolDeductionPanel from './ToolDeductionPanel';
+import { actRetention, actToolDeduction } from '../utils/actSettlement';
 import PerformerRetentionPanel from './PerformerRetentionPanel';
 import React, { useMemo, useState } from 'react';
 import { CheckCircle2, CreditCard, FileText, Printer, Save, Search } from 'lucide-react';
@@ -102,6 +103,7 @@ const buildPrintHtml = ({ month, rows, summary }) => {
     '<p><b>Начислено:</b> ' + money(summary.accrued) +
     ' &nbsp; <b>Авансы:</b> ' + money(summary.advances) +
     ' &nbsp; <b>Удержание:</b> ' + money(summary.retention) +
+    ' &nbsp; <b>Инструмент:</b> ' + money(summary.toolDeductions) +
     ' &nbsp; <b>Выплачено:</b> ' + money(summary.paid) +
     ' &nbsp; <b>К выплате:</b> ' + money(summary.payable) + '</p>' +
     '<table><tr><th>N</th><th>Объект</th><th>Исполнитель</th><th>Пакет</th><th>Помещение</th><th>Работа</th><th>Объем</th><th>Цена исп.</th><th>Начислено</th><th>Заказчик</th></tr>' +
@@ -109,12 +111,13 @@ const buildPrintHtml = ({ month, rows, summary }) => {
     '</table>' +
     '<p style="margin-top:24px">Бухгалтер ____________________ / ____________________</p>' +
     '<p>Руководитель ____________________ / ____________________</p>' +
-    '<p style="font-size:10px;color:#666">Ведомость сформирована из подтвержденного журнала производства работ. Удержание применяется расчетно по исполнителям с типом субподрядчик/ИП/ООО/самозанятый.</p>'
+    '<p style="font-size:10px;color:#666">Ведомость сформирована из подтвержденного журнала производства работ. Удержания учитываются только по сохранённым подтверждённым суммам актов.</p>'
   );
 };
 
 export default function AccountingPerformerClosingPanel({
   onOpenContractActs,
+  companyContext,
   C,
   card,
   inp,
@@ -236,8 +239,9 @@ export default function AccountingPerformerClosingPanel({
       group.advances = advances;
       group.reimbursements = reimbursements;
       group.retention = matchingActs.reduce((sum, act) => sum + actRetention(act), 0);
+      group.toolDeductions = matchingActs.reduce((sum, act) => sum + actToolDeduction(act), 0);
       group.paid = paid;
-      group.payable = Math.max(0, group.accrued - group.advances - group.retention - group.paid);
+      group.payable = Math.max(0, group.accrued - group.advances - group.retention - group.toolDeductions - group.paid);
       group.margin = group.customer - group.accrued;
     });
     return Object.values(byKey).sort((a, b) => b.accrued - a.accrued);
@@ -259,11 +263,12 @@ export default function AccountingPerformerClosingPanel({
     acc.customer += group.customer;
     acc.advances += group.advances;
     acc.retention += group.retention;
+    acc.toolDeductions += group.toolDeductions;
     acc.paid += group.paid;
     acc.payable += group.payable;
     acc.margin += group.margin;
     return acc;
-  }, { accrued: 0, customer: 0, advances: 0, retention: 0, paid: 0, payable: 0, margin: 0 });
+  }, { accrued: 0, customer: 0, advances: 0, retention: 0, toolDeductions: 0, paid: 0, payable: 0, margin: 0 });
 
   const actGroups = useMemo(() => {
     return groups.map(group => ({
@@ -403,6 +408,7 @@ export default function AccountingPerformerClosingPanel({
 
   return (
     <div>
+      <ToolDeductionPanel companyContext={companyContext} acts={interimActs} refreshData={refreshData} C={C} inp={inp} btnB={btnB} btnG={btnG}/>
       <PerformerRetentionPanel acts={interimActs} refreshData={refreshData} C={C} inp={inp} btnB={btnB} btnG={btnG} />
       <PerformerAdvancePanel payments={accountablePayments} acts={interimActs} refreshData={refreshData} C={C} inp={inp} btnB={btnB} btnG={btnG} />
       {(workJournal || []).some(work => work.settlementVersion === 2) && <div style={{...card, padding: 16, marginBottom: 16}}><p>Работы по договорам с учётом материалов закрываются в разделе «Акты»: там указаны принятые работы, штрафы и сумма к оплате.</p><button style={btnB} onClick={onOpenContractActs}>Открыть акты договоров</button></div>}
@@ -493,7 +499,7 @@ export default function AccountingPerformerClosingPanel({
                 </div>
                 <div><p style={{ color: C.textMuted, margin: 0, fontSize: '10px' }}>Начислено</p><b style={{ color: C.success }}>{money(group.accrued)}</b></div>
                 <div><p style={{ color: C.textMuted, margin: 0, fontSize: '10px' }}>Авансы</p><b style={{ color: C.warning }}>{money(group.advances)}</b></div>
-                <div><p style={{ color: C.textMuted, margin: 0, fontSize: '10px' }}>Удержание</p><b style={{ color: C.warning }}>{money(group.retention)}</b></div>
+                <div><p>Инструмент: {money(group.toolDeductions)}</p><p style={{ color: C.textMuted, margin: 0, fontSize: '10px' }}>Удержание</p><b style={{ color: C.warning }}>{money(group.retention)}</b></div>
                 <div><p style={{ color: C.textMuted, margin: 0, fontSize: '10px' }}>Выплачено / остаток</p><b style={{ color: C.info }}>{money(group.paid)} / {money(group.payable)}</b></div>
                 <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
                   <button

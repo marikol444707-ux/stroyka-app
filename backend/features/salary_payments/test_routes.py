@@ -1,6 +1,7 @@
 import unittest
 
 from fastapi import HTTPException
+from backend.features.tool_deductions.service import digest
 
 from backend.features.salary_payments.routes import register_salary_payments_module
 
@@ -35,6 +36,7 @@ class FakeCursor:
 
     def execute(self, sql, params=()):
         self.calls.append((" ".join(sql.split()), tuple(params or ())))
+        if "pg_advisory_xact_lock" in sql: return
         self.current = self.effects.pop(0) if self.effects else {}
         self.rowcount = self.current.get("rowcount", -1)
 
@@ -124,10 +126,13 @@ class SalaryPaymentsRoutesTest(unittest.TestCase):
     def test_create_locks_verified_staff_and_derives_names(self):
         app, conn, cursor = build([
             {"row": {"id": 5, "name": "Точный мастер"}},
+            {"rows": []}, {"rows": []},
             {"row": {"id": 3}},
         ])
         created = call(app.routes[("POST", "/salary-payments")], data={
             "staffId": 5,
+            "expectedToolState": digest({"company":4,"staff":5,"month":"2026-07","rows":[]}),
+            "toolDeductionAmount": 0,
             "staffName": "ПОДМЕНА",
             "month": "2026-07",
             "amount": 100,
@@ -135,8 +140,8 @@ class SalaryPaymentsRoutesTest(unittest.TestCase):
             "paidDate": "2000-01-01",
         })
         self.assertEqual(created, {"ok": True, "id": 3})
-        staff_sql, staff_params = cursor.calls[0]
-        insert_sql, insert_params = cursor.calls[1]
+        staff_sql, staff_params = cursor.calls[1]
+        insert_sql, insert_params = cursor.calls[4]
         self.assertIn("company_scope_verified IS TRUE", staff_sql)
         self.assertIn("FOR SHARE", staff_sql)
         self.assertEqual(staff_params, (5, 4))
@@ -167,12 +172,13 @@ class SalaryPaymentsRoutesTest(unittest.TestCase):
     def test_delete_locks_and_deletes_only_verified_company_row(self):
         app, conn, cursor = build([
             {"row": {"id": 3, "company_id": 4, "staff_id": 5}},
+            {"row": {"tool_deduction_snapshot": {}}},
             {"rowcount": 1},
         ])
         result = call(app.routes[("DELETE", "/salary-payments/{id}")], id=3)
         self.assertEqual(result, {"ok": True})
-        lookup_sql, lookup_params = cursor.calls[0]
-        delete_sql, delete_params = cursor.calls[1]
+        lookup_sql, lookup_params = cursor.calls[1]
+        delete_sql, delete_params = cursor.calls[3]
         self.assertIn("company_scope_verified IS TRUE", lookup_sql)
         self.assertIn("FOR UPDATE", lookup_sql)
         self.assertEqual(lookup_params, (3, 4))
