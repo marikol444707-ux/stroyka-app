@@ -64,7 +64,7 @@ class ContractTests(unittest.TestCase):
 class BridgeTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
-        root=Path(self.temp.name)
+        root=Path(self.temp.name).resolve()
         self.paths={name:root/name for name in ('private','results','inbox','admissions','registry')}
         for name,path in self.paths.items():path.mkdir(mode=0o750 if name=='results' else 0o700)
         self.paths['results'].chmod(0o750)

@@ -25,7 +25,17 @@ old local admission services disabled. Gateway: override only the two existing
 JEV services' ExecStart with `host_entry.py remote relay 2`/`3`; retain their
 systemd sockets. Relay startup does not read the signing key or execute work.
 The old file queue runner remains beside Hermes as an intake adapter; its fixed
-CLI forwards to main. Main uses the original pinned CLI and browser controller.
+CLI forwards to main. Main uses the original pinned CLI and browser controller. The browser profile is
+mounted from `/var/lib/stroyka-jev-browser/stroyka-jev-qa`; migrate it while the
+source browser is stopped and compare content/ownership/modes before starting.
+Exclude only Chrome transient process locks. A temporary, IP-restricted forced
+SSH receiver may transfer this fixed directory directly between servers; revoke
+that key immediately after verification. No other target path is accepted.
+
+`ProtectSystem=strict` requires an explicit writable `/tmp`. Keep `PrivateTmp=false`
+because the reviewed CLI passes temporary profile files to the host Docker daemon.
+Verify native document extraction under these exact service restrictions; a plain
+root-shell health check cannot establish that this namespace is usable.
 The gateway CLI proxy uses `host_entry.py remote cli "$@"`; the old direct
 controller entry uses `host_entry.py remote control --server` for compatibility.
 

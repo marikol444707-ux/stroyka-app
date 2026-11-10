@@ -19,7 +19,7 @@ NoNewPrivileges=true
 # CLI passes temporary profile files to the host Docker daemon.
 PrivateTmp=false
 ProtectSystem=strict
-ReadWritePaths=/var/lib/stroyka-jev /var/lib/stroyka-jev-commercial /var/lib/stroyka-jev-tools /var/lib/stroyka-jev-control /run/lock
+ReadWritePaths=/var/lib/stroyka-jev /var/lib/stroyka-jev-commercial /var/lib/stroyka-jev-tools /var/lib/stroyka-jev-control /run/lock /tmp
 InaccessiblePaths=-/var/www/stroyka-app -/var/lib/postgresql -/etc/stroyka -/etc/letsencrypt -/root/hermes-data
 
 [Install]

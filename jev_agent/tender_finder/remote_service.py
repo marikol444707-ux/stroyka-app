@@ -23,6 +23,7 @@ from .discovery import verify_installed_runtime
 from .docker_delivery import DockerHermesSender
 from .host_worker import run_host_pass
 from .invoker import _run_bounded
+from .pipeline import prepare_pipeline
 from .remote_transport import (RelayBroker, MAX_TRANSPORT, _keys, _protocol, decode_frame,
     exchange, receive_frame, send_remote_completion)
 from .state import _json
@@ -74,12 +75,16 @@ def policy(protocol):
     return value.bridge,validate_request,value
 
 
-def load(protocol):
-    settings,validator,_=policy(protocol)
+def admission_secret(protocol):
+    _protocol(protocol)
     key=Path('/etc/stroyka-jev/private/admission.key' if protocol==2 else
              '/etc/stroyka-jev-commercial/private/admission.key')
-    secret=read_bootstrap_key(credential_pipe(_path=key))
-    return settings,secret,validator
+    return read_bootstrap_key(credential_pipe(_path=key))
+
+
+def load(protocol):
+    settings,validator,_=policy(protocol)
+    return settings,admission_secret(protocol),validator
 
 
 def _signals(stop):
@@ -122,7 +127,8 @@ def exclusive_worker(settings):
 
 def worker(protocol):
     require_role('main')
-    settings,secret,_=load(protocol)
+    settings,_,configuration=policy(protocol)
+    secret=admission_secret(protocol)
     verify_installed_runtime()
     bridge=None
     if protocol==3:
@@ -130,8 +136,9 @@ def worker(protocol):
         from .commercial.runtime_config import build_bridge
         from datetime import datetime,timezone
         verify_document_runtime()
-        bridge=build_bridge(policy(3)[2],secret,clock=lambda:datetime.now(timezone.utc))
+        bridge=build_bridge(configuration,secret,clock=lambda:datetime.now(timezone.utc))
     stop=threading.Event();_signals(stop)
+    prepare_pipeline(settings.queue.pipeline)
     with exclusive_worker(settings):
         print(json.dumps({'worker_ready':True,'protocol':protocol,'local_telegram_polling':False}),flush=True)
         while not stop.is_set():

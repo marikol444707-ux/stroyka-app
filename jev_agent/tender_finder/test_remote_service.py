@@ -86,4 +86,42 @@ class RemoteCompletionTests(RemoteFixture):
         self.assertEqual(frame['args']['target'],'telegram:123456789')
         self.assertNotIn('secret',json.dumps(frame));invoke.assert_called_once()
 
+class CommercialWorkerAssemblyTests(unittest.TestCase):
+    def test_worker_executes_with_the_same_validated_commercial_policy_instance(self):
+        from dataclasses import replace
+        from .commercial import test_bridge as fixture_module
+        from .commercial.bridge import CommercialBridge
+        from .commercial.contract import validate_request
+        from contextlib import ExitStack
+        import threading
+        fixture=fixture_module.BridgeTests()
+        fixture.setUp();self.addCleanup(fixture.doCleanups)
+        fixture.submit()
+        def read_policy(protocol):
+            self.assertEqual(protocol,3)
+            settings=replace(fixture.settings)
+            return settings,validate_request,SimpleNamespace(bridge=settings)
+        def build(configuration,secret,**kwargs):
+            return CommercialBridge(configuration.bridge,secret,fixture.paths['registry'],
+                sources=fixture.bridge.sources,adapters=fixture.bridge.adapters)
+        stop=threading.Event()
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(service,'require_role'))
+            reader=stack.enter_context(patch.object(service,'policy',side_effect=read_policy))
+            stack.enter_context(patch.object(service,'credential_pipe',return_value=12))
+            stack.enter_context(patch.object(service,'read_bootstrap_key',return_value=fixture.secret))
+            stack.enter_context(patch.object(service,'verify_installed_runtime'))
+            stack.enter_context(patch.object(service,'_signals'))
+            stack.enter_context(patch.object(service.threading,'Event',return_value=stop))
+            stack.enter_context(patch.object(stop,'wait',side_effect=lambda _:stop.set()))
+            stack.enter_context(patch('jev_agent.tender_finder.commercial.systemd_bootstrap.verify_document_runtime'))
+            stack.enter_context(patch('jev_agent.tender_finder.commercial.runtime_config.build_bridge',side_effect=build))
+            stack.enter_context(patch('jev_agent.tender_finder.host_worker.time.time',fixture_module.EPOCH))
+            sender=stack.enter_context(patch.object(service,'send_remote_completion',return_value={'delivery_status':'acknowledged'}))
+            stack.enter_context(redirect_stdout(io.StringIO()))
+            service.worker(3)
+        fixture.reader.assert_called_once()
+        sender.assert_called_once()
+        self.assertEqual(reader.call_count,1)
+
 if __name__=='__main__':unittest.main()
