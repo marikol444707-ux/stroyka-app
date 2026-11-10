@@ -1,4 +1,4 @@
-import { actRemaining, actAdvance } from '../utils/actSettlement';
+import { actRemaining, actAdvance, actRetention } from '../utils/actSettlement';
 import React, { useState } from 'react';
 import { CheckCircle, Eye, Printer, Upload } from 'lucide-react';
 import ProjectHiddenWorksActSignatureModal from './ProjectHiddenWorksActSignatureModal';
@@ -164,6 +164,7 @@ export default function MasterDocumentsPage({
                   {toolDed > 0 && <p style={{ color: C.danger, margin: '1px 0', fontSize: '12px' }}>{'Удержания: -' + toolDed.toLocaleString() + ' ₽'}</p>}
                   <p style={{ color: C.success, margin: '1px 0', fontSize: '12px' }}>{'Оплачено: ' + paidAmt.toLocaleString() + ' ₽'}</p>
                   {actAdvance(act)>0 && <p>Зачтён аванс: {actAdvance(act).toLocaleString('ru-RU')} ₽</p>}
+                  {actRetention(act)>0 && <p> · Гарантийное удержание: {actRetention(act).toLocaleString('ru-RU')} ₽</p>}
                   {rest > 0 && <p style={{ color: C.danger, margin: '1px 0', fontSize: '12px', fontWeight: '600' }}>{'Остаток: ' + rest.toLocaleString() + ' ₽'}</p>}
                 </div>
                 <button onClick={() => showPreview(buildActContent(act), 'Акт')} style={btnB}>

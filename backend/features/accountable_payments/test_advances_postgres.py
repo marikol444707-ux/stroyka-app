@@ -41,6 +41,10 @@ class AdvancePostgresTests(unittest.TestCase):
             c.execute('SELECT payment_kind,revision,amount FROM accountable_payments WHERE id=999')
             assert c.fetchone()[0:2] == ('unclassified',0)
             cls.migration=migration
+            path=path.with_name('0115_performer_retention.py')
+            spec=importlib.util.spec_from_file_location('retention_migration',path)
+            migration=importlib.util.module_from_spec(spec);spec.loader.exec_module(migration)
+            c.execute(migration.SCHEMA_SQL)
 
     @classmethod
     def tearDownClass(cls):

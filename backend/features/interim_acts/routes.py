@@ -10,6 +10,7 @@ need arrives through deps. The model moved here — sole user.
 
 from typing import Optional
 from ..accountable_payments import advances
+from . import retention
 
 import psycopg2.extras
 from fastapi import Depends, Header, HTTPException
@@ -94,7 +95,7 @@ def register_interim_acts_module(app, deps):
         if package_sql:
             where.append("1=1" + package_sql)
             params.extend(package_params)
-        q = "SELECT id,company_id as \"companyId\",master_id as \"masterId\",master_name as \"masterName\",project,COALESCE(work_package,'') as \"workPackage\",period_start as \"periodStart\",period_end as \"periodEnd\",total_amount as \"totalAmount\",paid_amount as \"paidAmount\",contract_id as \"contractId\",status,scan_url as \"scanUrl\",COALESCE(work_journal_ids,'[]') as \"workJournalIds\",COALESCE(source_type,'') as \"sourceType\",COALESCE(photo_urls,'[]') as \"photoUrls\",COALESCE((SELECT sum(al.amount) FROM performer_advance_allocations al WHERE al.act_id=interim_acts.id AND al.company_id=interim_acts.company_id),0) as \"advanceAmount\" FROM interim_acts"
+        q = "SELECT id,company_id as \"companyId\",master_id as \"masterId\",master_name as \"masterName\",project,COALESCE(work_package,'') as \"workPackage\",period_start as \"periodStart\",period_end as \"periodEnd\",total_amount as \"totalAmount\",paid_amount as \"paidAmount\",contract_id as \"contractId\",status,scan_url as \"scanUrl\",COALESCE(work_journal_ids,'[]') as \"workJournalIds\",COALESCE(source_type,'') as \"sourceType\",COALESCE(photo_urls,'[]') as \"photoUrls\",COALESCE((SELECT sum(al.amount) FROM performer_advance_allocations al WHERE al.act_id=interim_acts.id AND al.company_id=interim_acts.company_id),0) as \"advanceAmount\",retention_amount as \"retentionAmount\",retention_released as \"retentionReleased\",retention_revision as \"retentionRevision\",retention_basis as \"retentionBasis\" FROM interim_acts"
         if where:
             q += " WHERE " + " AND ".join(where)
         q += " ORDER BY id DESC"
@@ -104,7 +105,8 @@ def register_interim_acts_module(app, deps):
         result = [dict(r) for r in rows]
         for row in result:
             row['advanceAmount'] = float(row.get('advanceAmount') or 0)
-            row['remainingAmount'] = max(0, float(row['totalAmount'] or 0)-float(row['paidAmount'] or 0)-row['advanceAmount'])
+            row['retentionOutstanding'] = float(advances.money(row.get('retentionAmount') or 0)-advances.money(row.get('retentionReleased') or 0))
+            row['remainingAmount'] = float(max(0, advances.money(row['totalAmount'] or 0)-advances.money(row['paidAmount'] or 0)-advances.money(row['advanceAmount'])-advances.money(row['retentionOutstanding'])))
         return result
 
     @app.post("/interim-acts")
@@ -212,6 +214,7 @@ def register_interim_acts_module(app, deps):
                     deps['require_legacy_work'](cur, data['workJournalIds'])
             require_row_project_access(cur, "interim_acts", id, _current_user, "project")
             advances.guard_act_edit(cur, id, data)
+            retention.guard_edit(cur, id, data)
             cur.execute("""SELECT master_id, master_name, project, COALESCE(NULLIF(work_package,''),'Основная'),
                                   period_start, period_end, total_amount, paid_amount,
                                   COALESCE(status,''), COALESCE(scan_url,''), COALESCE(work_journal_ids,'[]'),
@@ -330,7 +333,7 @@ def register_interim_acts_module(app, deps):
             if deps.get('lock_settlement'):
                 deps['lock_settlement'](cur)
                 deps['require_legacy_interim'](cur, id)
-            cur.execute("""SELECT total_amount, paid_amount, project, COALESCE(work_package,''), master_name, COALESCE(source_type,'')
+            cur.execute("""SELECT total_amount, paid_amount, project, COALESCE(work_package,''), master_name, COALESCE(source_type,''), retention_amount-retention_released
                            FROM interim_acts WHERE id=%s FOR UPDATE""", (id,))
             act = cur.fetchone()
             if not act:
@@ -361,10 +364,11 @@ def register_interim_acts_module(app, deps):
                 conn.rollback()
                 raise HTTPException(status_code=400, detail="Сумма оплаты должна быть больше нуля")
             credited = advances.act_advance(cur, id)
+            retained = advances.money(act[6] if len(act)>6 else 0)
             next_paid = current_paid + amount
-            if next_paid + credited > total_amount:
+            if next_paid + credited + retained > total_amount:
                 conn.rollback()
-                raise HTTPException(status_code=400, detail=f"Оплата превышает сумму акта. Остаток к оплате: {max(0, total_amount-current_paid-credited):.2f} ₽")
+                raise HTTPException(status_code=400, detail=f"Оплата превышает сумму акта. Остаток к оплате: {max(0, total_amount-current_paid-credited-retained):.2f} ₽")
             status = "Оплачен" if next_paid + credited >= total_amount else "Частично оплачен"
             cur.execute("UPDATE interim_acts SET paid_amount=%s, status=%s WHERE id=%s", (next_paid, status, id))
             paid_by = data.get("paidBy") or _current_user.get("name") or ""
@@ -385,7 +389,7 @@ def register_interim_acts_module(app, deps):
                 ("Оплата акта исполнителя: " + str(amount) + " ₽, статус " + str(status))[:250],
                 project,
             )
-            return {"ok": True, "paidAmount": next_paid, "status": status, "projectPaymentId": payment_id, "advanceAmount": credited, "remainingAmount": max(0,total_amount-next_paid-credited)}
+            return {"ok": True, "paidAmount": next_paid, "status": status, "projectPaymentId": payment_id, "advanceAmount": credited, "retentionOutstanding": retained, "remainingAmount": max(0,total_amount-next_paid-credited-retained)}
         except HTTPException:
             conn.rollback()
             raise
@@ -412,6 +416,7 @@ def register_interim_acts_module(app, deps):
                 deps['require_legacy_interim'](cur, id)
             require_row_project_access(cur, "interim_acts", id, _current_user, "project")
             advances.guard_act_edit(cur, id, {"status": "Аннулирован"})
+            retention.guard_edit(cur, id, {"status": "Аннулирован"})
             cur.execute("SELECT COALESCE(work_package,''), COALESCE(project,''), COALESCE(master_name,'') FROM interim_acts WHERE id=%s", (id,))
             act_row = cur.fetchone()
             if act_row and not has_package_access(_current_user, act_row[0] or "Основная"):
@@ -434,3 +439,33 @@ def register_interim_acts_module(app, deps):
             if not conn.closed:
                 conn.rollback()
                 conn.close()
+
+    def change_retention(id, data, user, company, mode, release):
+        conn=get_db();conn.autocommit=False
+        cur=conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        try:
+            advances.lock_ledger(cur)
+            company_id,actor=company_actor(cur,user,'write',company,mode,finance_roles)
+            require_owned_act(cur,id,company_id)
+            if deps.get('lock_settlement'):deps['lock_settlement'](cur)
+            deps['require_legacy_interim'](cur,id)
+            require_row_project_access(cur,'interim_acts',id,actor,'project')
+            cur.execute("SELECT COALESCE(work_package,'Основная') AS package FROM interim_acts WHERE id=%s",(id,))
+            if not has_package_access(actor,cur.fetchone()['package']):raise HTTPException(403,'Нет доступа к пакету работ')
+            result=retention.change(cur,id,company_id,data,actor,release)
+            conn.commit();return result
+        except BaseException:
+            conn.rollback();raise
+        finally:cur.close();conn.close()
+
+    @app.put('/interim-acts/{id}/retention')
+    def set_retention(id:int,data:dict,_current_user:dict=Depends(get_current_user),
+        x_company_id:Optional[str]=Header(default=None,alias='X-Company-Id'),
+        x_company_mode:Optional[str]=Header(default=None,alias='X-Company-Mode')):
+        return change_retention(id,data,_current_user,x_company_id,x_company_mode,False)
+
+    @app.post('/interim-acts/{id}/retention-release')
+    def release_retention(id:int,data:dict,_current_user:dict=Depends(get_current_user),
+        x_company_id:Optional[str]=Header(default=None,alias='X-Company-Id'),
+        x_company_mode:Optional[str]=Header(default=None,alias='X-Company-Mode')):
+        return change_retention(id,data,_current_user,x_company_id,x_company_mode,True)

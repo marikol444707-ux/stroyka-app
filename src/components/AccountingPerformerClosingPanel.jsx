@@ -1,3 +1,5 @@
+import { actRetention } from '../utils/actSettlement';
+import PerformerRetentionPanel from './PerformerRetentionPanel';
 import React, { useMemo, useState } from 'react';
 import { CheckCircle2, CreditCard, FileText, Printer, Save, Search } from 'lucide-react';
 import { API } from '../api';
@@ -233,7 +235,7 @@ export default function AccountingPerformerClosingPanel({
         .reduce((sum, payment) => sum + performerPaymentAmount(payment, group, month), 0);
       group.advances = advances;
       group.reimbursements = reimbursements;
-      group.retention = group.isContractor ? Math.round(group.accrued * 0.05) : 0;
+      group.retention = matchingActs.reduce((sum, act) => sum + actRetention(act), 0);
       group.paid = paid;
       group.payable = Math.max(0, group.accrued - group.advances - group.retention - group.paid);
       group.margin = group.customer - group.accrued;
@@ -401,6 +403,7 @@ export default function AccountingPerformerClosingPanel({
 
   return (
     <div>
+      <PerformerRetentionPanel acts={interimActs} refreshData={refreshData} C={C} inp={inp} btnB={btnB} btnG={btnG} />
       <PerformerAdvancePanel payments={accountablePayments} acts={interimActs} refreshData={refreshData} C={C} inp={inp} btnB={btnB} btnG={btnG} />
       {(workJournal || []).some(work => work.settlementVersion === 2) && <div style={{...card, padding: 16, marginBottom: 16}}><p>Работы по договорам с учётом материалов закрываются в разделе «Акты»: там указаны принятые работы, штрафы и сумма к оплате.</p><button style={btnB} onClick={onOpenContractActs}>Открыть акты договоров</button></div>}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
@@ -490,7 +493,7 @@ export default function AccountingPerformerClosingPanel({
                 </div>
                 <div><p style={{ color: C.textMuted, margin: 0, fontSize: '10px' }}>Начислено</p><b style={{ color: C.success }}>{money(group.accrued)}</b></div>
                 <div><p style={{ color: C.textMuted, margin: 0, fontSize: '10px' }}>Авансы</p><b style={{ color: C.warning }}>{money(group.advances)}</b></div>
-                <div><p style={{ color: C.textMuted, margin: 0, fontSize: '10px' }}>Удерж. 5%</p><b style={{ color: C.warning }}>{money(group.retention)}</b></div>
+                <div><p style={{ color: C.textMuted, margin: 0, fontSize: '10px' }}>Удержание</p><b style={{ color: C.warning }}>{money(group.retention)}</b></div>
                 <div><p style={{ color: C.textMuted, margin: 0, fontSize: '10px' }}>Выплачено / остаток</p><b style={{ color: C.info }}>{money(group.paid)} / {money(group.payable)}</b></div>
                 <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
                   <button

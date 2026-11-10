@@ -1,3 +1,4 @@
+import { actRetention } from '../utils/actSettlement';
 import {brigadeBalance, balanceMoney} from './brigadeBalance';
 import React, { useState } from 'react';
 import { Check, Eye, Plus, Search, Trash2, X } from 'lucide-react';
@@ -186,7 +187,7 @@ export default function AccountingContractsPanel({
       }
       const accrued = Number(row.doneAmount || 0);
       const paid = brigadePayments.filter(payment => Number(payment.contractId) === Number(row.id)).reduce((sum, payment) => sum + Number(payment.amount || 0), 0) || Number(row.paidAmount || 0);
-      const retention = Math.round(accrued * 0.05);
+      const retention = 0; // No confirmed act retention ledger for legacy brigade contracts.
       const payable = Math.max(0, accrued - retention);
       const owe = Math.max(0, payable - paid);
       const missingDocs = [];
@@ -202,7 +203,7 @@ export default function AccountingContractsPanel({
     );
     const accrued = rowActs.reduce((sum, act) => sum + Number(act.totalAmount || 0), 0);
     const paid = rowActs.reduce((sum, act) => sum + Number(act.paidAmount || 0), 0);
-    const retention = Math.round(accrued * 0.05);
+    const retention = rowActs.reduce((sum, act) => sum + actRetention(act), 0);
     const payable = Math.max(0, accrued - retention);
     const advance = rowActs.reduce((sum, act) => sum + Number(act.advanceAmount || 0), 0);
     const owe = Math.max(0, payable - paid - advance);
@@ -416,7 +417,7 @@ export default function AccountingContractsPanel({
                 <summary style={{cursor:'pointer',padding:'6px 0'}}>Подробный расчёт</summary>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(120px,1fr))', gap: '8px', marginBottom: '8px' }}>
                 <div style={{ padding: '8px', borderRadius: '8px', backgroundColor: C.bg, border: '1px solid ' + C.border }}><p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 2px' }}>Начислено</p><b style={{ color: C.text, fontSize: '12px' }}>{balanceMoney(group.total)}</b></div>
-                <div style={{ padding: '8px', borderRadius: '8px', backgroundColor: C.bg, border: '1px solid ' + C.border }}><p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 2px' }}>{group.rows.every(row => row.finance.byActs) ? 'Штрафы по актам' : group.rows.some(row => row.finance.byActs) ? 'Штрафы и удержания' : 'Удержание 5%'}</p><b style={{ color: C.warning, fontSize: '12px' }}>{balanceMoney(group.retention)}</b></div>
+                <div style={{ padding: '8px', borderRadius: '8px', backgroundColor: C.bg, border: '1px solid ' + C.border }}><p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 2px' }}>{group.rows.every(row => row.finance.byActs) ? 'Штрафы по актам' : group.rows.some(row => row.finance.byActs) ? 'Штрафы и удержания' : 'Подтверждённое удержание'}</p><b style={{ color: C.warning, fontSize: '12px' }}>{balanceMoney(group.retention)}</b></div>
                 <div style={{ padding: '8px', borderRadius: '8px', backgroundColor: C.bg, border: '1px solid ' + C.border }}><p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 2px' }}>{group.rows.every(row => row.finance.byActs) ? 'По актам после штрафов' : 'Можно выплатить'}</p><b style={{ color: C.accent, fontSize: '12px' }}>{balanceMoney(group.payable)}</b></div>
                 <div style={{ padding: '8px', borderRadius: '8px', backgroundColor: C.bg, border: '1px solid ' + C.border }}><p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 2px' }}>Оплачено</p><b style={{ color: C.success, fontSize: '12px' }}>{balanceMoney(group.paid)}</b></div>
                 <div style={{ padding: '8px', borderRadius: '8px', backgroundColor: C.bg, border: '1px solid ' + C.border }}><p style={{ color: C.textSec, fontSize: '10px', margin: '0 0 2px' }}>Остаток к выплате</p><b style={{ color: group.owe > 0 ? C.danger : C.success, fontSize: '12px' }}>{balanceMoney(group.owe)}</b></div>

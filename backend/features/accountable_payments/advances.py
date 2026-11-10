@@ -117,7 +117,8 @@ def allocate(cur, company_id, payment_id, data, actor, require_legacy, has_packa
         raise HTTPException(409, 'Сумма распределения превышает остаток зарплатного аванса')
     previously_credited = act_advance(cur, act_id)
     credited = previously_credited - old_amount + amount
-    if credited > money(act['total_amount']):
+    retained = money(act.get('retention_amount') or 0)-money(act.get('retention_released') or 0)
+    if credited + retained > money(act['total_amount']):
         raise HTTPException(409, 'Зачёт превышает остаток по акту')
     cur.execute('''INSERT INTO performer_advance_allocations(company_id,payment_id,act_id,amount)
         VALUES(%s,%s,%s,%s) ON CONFLICT(payment_id,act_id)
@@ -126,4 +127,4 @@ def allocate(cur, company_id, payment_id, data, actor, require_legacy, has_packa
     status = ('Оплачен' if credited >= money(act['total_amount']) else 'Частично оплачен') if credited else (prior_status or 'Новый')
     cur.execute('UPDATE interim_acts SET status=%s,advance_prior_status=%s WHERE id=%s', (status, prior_status if credited else None, act_id))
     return {**record_change(cur, payment, actor, {'actId': act_id, 'amount': str(amount), 'previousAmount': str(old_amount)}),
-            'actId': act_id, 'advanceAmount': float(credited), 'remainingAmount': float(money(act['total_amount']) - credited), 'status': status}
+            'actId': act_id, 'advanceAmount': float(credited), 'remainingAmount': float(money(act['total_amount']) - credited - retained), 'status': status}

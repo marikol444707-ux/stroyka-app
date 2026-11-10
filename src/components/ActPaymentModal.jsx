@@ -1,4 +1,4 @@
-import { actRemaining, actAdvance } from '../utils/actSettlement';
+import { actRemaining, actAdvance, actRetention } from '../utils/actSettlement';
 import React from 'react';
 import { Check } from 'lucide-react';
 
@@ -26,6 +26,7 @@ export default function ActPaymentModal({
         <h3 style={{color:C.text,marginBottom:'5px',fontWeight:'700'}}>Добавить оплату</h3>
         <p style={{color:C.textSec,fontSize:'13px',marginBottom:'15px'}}>{'Акт №'+showPayActModal.id+' · '+showPayActModal.masterName}</p>
         <p>Зачтён аванс: {actAdvance(showPayActModal).toLocaleString('ru-RU')} ₽ · Остаток по акту: {actRemaining(showPayActModal).toLocaleString('ru-RU')} ₽</p>
+        <p>Гарантийное удержание: {actRetention(showPayActModal).toLocaleString('ru-RU')} ₽. Освобождается отдельно в разделе «Закрытие» после проверки договора.</p>
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px'}}>
           <input placeholder="Сумма *" type="number" step="any" inputMode="decimal" value={newPayment.amount} onChange={e=>setNewPayment({...newPayment,amount:e.target.value})} style={{...inp,marginBottom:0}}/>
           <select value={newPayment.paymentType} onChange={e=>setNewPayment({...newPayment,paymentType:e.target.value})} style={{...inp,marginBottom:0}}>{paymentTypes.map(t=><option key={t} value={t}>{t}</option>)}</select>

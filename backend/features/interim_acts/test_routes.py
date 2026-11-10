@@ -36,6 +36,7 @@ class FakeCursor:
 
     def execute(self, sql, params=()):
         if "pg_advisory_xact_lock" in sql: return
+        self.retention_query = sql.startswith('SELECT retention_amount FROM interim_acts')
         self.project_query = sql.startswith('SELECT id FROM projects WHERE company_id=')
         self.owner_query = sql.startswith('SELECT id FROM interim_acts WHERE id=%s AND company_id=') or sql.startswith('SELECT id FROM staff WHERE id=')
         self.advance_query = "sum(amount)" in sql and "performer_advance_allocations" in sql
@@ -46,6 +47,7 @@ class FakeCursor:
         return list(self.rows)
 
     def fetchone(self):
+        if getattr(self,"retention_query",False): return (0,)
         if getattr(self,"owner_query",False): return (7,)
         if getattr(self, "advance_query", False): return (0,)
         return self.fetchone_results.pop(0) if self.fetchone_results else None
