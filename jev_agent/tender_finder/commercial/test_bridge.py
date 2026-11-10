@@ -83,6 +83,22 @@ class BridgeTests(unittest.TestCase):
 
     def consume(self):return self.bridge.consume(PAYLOAD['request_id']+'.json',epoch=EPOCH,clock=lambda:NOW)
 
+    def test_remote_admission_uses_exact_protocol3_policy_and_keeps_cached_result(self):
+        import base64
+        from ..remote_transport import receive_frame
+        wire=json.dumps({'version':1,'request_b64':base64.b64encode(self.raw).decode(),
+            'origin':{key:getattr(SOURCE,key) for key in ('platform','chat_type','chat_id','user_id','profile')}}).encode()
+        frame={'op':'admit','protocol':3,'wire':base64.b64encode(wire).decode()}
+        load=Mock(return_value=(self.settings,self.secret,self.bridge.validate))
+        with patch('jev_agent.tender_finder.remote_transport.time.time',EPOCH):
+            self.assertTrue(receive_frame(frame,load=load)['queued'])
+            first=self.consume()
+            self.assertTrue(receive_frame(frame,load=load)['queued'])
+            second=self.consume()
+        self.assertEqual(load.call_args.args,(3,))
+        self.assertEqual(first['result'],second['result'])
+        self.reader.assert_called_once()
+
     def test_signed_owner_queue_report_and_telegram_ack_once(self):
         admission=self.submit()
         self.assertTrue(admission['queued']);self.assertFalse(admission['search_executed'])

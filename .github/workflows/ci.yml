@@ -95,6 +95,8 @@ jobs:
           jev_agent.tender_finder.test_runtime
           jev_agent.tender_finder.test_hermes_binding
           jev_agent.tender_finder.test_docker_delivery
+          jev_agent.tender_finder.test_remote_transport
+          jev_agent.tender_finder.test_remote_service
           jev_agent.tender_finder.test_admission_broker
           jev_agent.tender_finder.test_startup_tool
           jev_agent.tender_finder.test_host_worker

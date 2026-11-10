@@ -39,13 +39,15 @@ def _stop(process):
     process.wait()
 
 
-def _run_bounded(argv, stdin, timeout):
+def _run_bounded(argv, stdin, timeout, *, maximum_bytes=MAX_RESULT_BYTES):
     """Internal transport; only invoke_cli supplies production argv.
 
     stdin is a temporary descriptor, not a pipe that can deadlock on a child
     ignoring its input. stdout is drained with a hard memory/byte limit; stderr
     is discarded so credentials/error text cannot become report fields.
     """
+    if type(maximum_bytes) is not int or not 1<=maximum_bytes<=4*1024*1024:
+        raise ValueError('bounded_process_output_required')
     with tempfile.TemporaryFile() as input_file:
         if stdin is not None:
             input_file.write(stdin)
@@ -70,7 +72,7 @@ def _run_bounded(argv, stdin, timeout):
                             selector.unregister(key.fileobj)
                             continue
                         total += len(chunk)
-                        if total > MAX_RESULT_BYTES:
+                        if total > maximum_bytes:
                             raise OSError(errno.EFBIG,'cli_output_limit')
                         chunks.append(chunk)
                 remaining = deadline - time.monotonic()
