@@ -4,45 +4,50 @@
     "rooms": [
       {
         "number": 1,
-        "name": "Мастер-спальня"
+        "name": "Спальня 1"
       },
       {
         "number": 2,
-        "name": "Санузел"
+        "name": "Спальня 2"
       },
       {
         "number": 3,
-        "name": "Кабинет"
+        "name": "Спальня 3"
       },
       {
         "number": 4,
-        "name": "Гостиная с эркером"
-      },
-      {
-        "number": 5,
-        "name": "Спальня"
-      },
-      {
-        "number": 6,
         "name": "Холл"
       },
       {
+        "number": 5,
+        "name": "Кухня-гостиная"
+      },
+      {
+        "number": 6,
+        "name": "Ванная"
+      },
+      {
         "number": 7,
-        "name": "Санузел"
+        "name": "Прихожая"
       },
       {
         "number": 8,
-        "name": "Спальня"
+        "name": "Кабинет"
       },
       {
         "number": 9,
-        "name": "Тамбур / гардероб"
+        "name": "Душевая"
       },
       {
         "number": 10,
-        "name": "Эркер"
+        "name": "Эркер гостиной"
+      },
+      {
+        "number": 11,
+        "name": "Крыльцо"
       }
     ],
+    "orientation": "Главный фасад — снизу схемы",
     "diagram": "/site-assets/projects/b1-02/plan-diagram.svg",
     "sheet": "/site-assets/projects/b1-02/plan-sheet.svg"
   },
@@ -51,45 +56,50 @@
     "rooms": [
       {
         "number": 1,
-        "name": "Спальня"
+        "name": "Спальня 1"
       },
       {
         "number": 2,
-        "name": "Спальня"
+        "name": "Спальня 2"
       },
       {
         "number": 3,
-        "name": "Санузел"
+        "name": "Спальня 3"
       },
       {
         "number": 4,
-        "name": "Кухня-гостиная"
+        "name": "Ванная"
       },
       {
         "number": 5,
-        "name": "Мастер-спальня"
-      },
-      {
-        "number": 6,
-        "name": "Спальня"
-      },
-      {
-        "number": 7,
-        "name": "Санузел"
-      },
-      {
-        "number": 8,
         "name": "Холл"
       },
       {
+        "number": 6,
+        "name": "Гостевая спальня"
+      },
+      {
+        "number": 7,
+        "name": "Прихожая"
+      },
+      {
+        "number": 8,
+        "name": "Душевая"
+      },
+      {
         "number": 9,
-        "name": "Котельная"
+        "name": "Хозблок"
       },
       {
         "number": 10,
-        "name": "Большая терраса"
+        "name": "Кухня-гостиная"
+      },
+      {
+        "number": 11,
+        "name": "Крытая терраса"
       }
     ],
+    "orientation": "Главный фасад — снизу схемы",
     "diagram": "/site-assets/projects/b1-03/plan-diagram.svg",
     "sheet": "/site-assets/projects/b1-03/plan-sheet.svg"
   },
@@ -98,45 +108,50 @@
     "rooms": [
       {
         "number": 1,
-        "name": "Мастер-спальня"
+        "name": "Спальня 1"
       },
       {
         "number": 2,
-        "name": "Санузел"
+        "name": "Спальня 2"
       },
       {
         "number": 3,
-        "name": "Кабинет"
+        "name": "Спальня 3"
       },
       {
         "number": 4,
-        "name": "Гостиная второй свет"
+        "name": "Ванная"
       },
       {
         "number": 5,
-        "name": "Спальня"
+        "name": "Холл"
       },
       {
         "number": 6,
-        "name": "Спальня"
+        "name": "Кабинет"
       },
       {
         "number": 7,
-        "name": "Холл / лестница"
+        "name": "Кухня-гостиная · второй свет"
       },
       {
         "number": 8,
-        "name": "Санузел"
+        "name": "Душевая"
       },
       {
         "number": 9,
-        "name": "Котельная"
+        "name": "Постирочная"
       },
       {
         "number": 10,
-        "name": "Терраса"
+        "name": "Прихожая"
+      },
+      {
+        "number": 11,
+        "name": "Крытая терраса"
       }
     ],
+    "orientation": "Главный фасад — снизу схемы",
     "diagram": "/site-assets/projects/fam-02/plan-diagram.svg",
     "sheet": "/site-assets/projects/fam-02/plan-sheet.svg"
   },
@@ -145,49 +160,50 @@
     "rooms": [
       {
         "number": 1,
-        "name": "Спальня"
+        "name": "Спальня 1"
       },
       {
         "number": 2,
-        "name": "Спальня"
+        "name": "Спальня 2"
       },
       {
         "number": 3,
-        "name": "Гостевая"
+        "name": "Спальня 3"
       },
       {
         "number": 4,
-        "name": "Кухня-гостиная"
+        "name": "Ванная"
       },
       {
         "number": 5,
-        "name": "Мастер-спальня"
-      },
-      {
-        "number": 6,
-        "name": "Спальня"
-      },
-      {
-        "number": 7,
-        "name": "Санузел"
-      },
-      {
-        "number": 8,
         "name": "Холл"
       },
       {
+        "number": 6,
+        "name": "Спальня 4"
+      },
+      {
+        "number": 7,
+        "name": "Кухня-гостиная"
+      },
+      {
+        "number": 8,
+        "name": "Прихожая"
+      },
+      {
         "number": 9,
-        "name": "Постирочная"
+        "name": "Душевая"
       },
       {
         "number": 10,
-        "name": "Холл / кладовая"
+        "name": "Гостевая"
       },
       {
         "number": 11,
-        "name": "Терраса"
+        "name": "Крытая терраса"
       }
     ],
+    "orientation": "Главный фасад — снизу схемы",
     "diagram": "/site-assets/projects/fam-03/plan-diagram.svg",
     "sheet": "/site-assets/projects/fam-03/plan-sheet.svg"
   },
@@ -196,37 +212,38 @@
     "rooms": [
       {
         "number": 1,
-        "name": "Кабинет"
+        "name": "Кухня-столовая"
       },
       {
         "number": 2,
-        "name": "Санузел"
+        "name": "Гостевая спальня"
       },
       {
         "number": 3,
-        "name": "Лестница"
+        "name": "Душевая / постирочная"
       },
       {
         "number": 4,
-        "name": "Котельная"
+        "name": "Холл"
       },
       {
         "number": 5,
-        "name": "Кухня"
+        "name": "Гостиная"
       },
       {
         "number": 6,
-        "name": "Холл / гардероб"
+        "name": "Лестница"
       },
       {
         "number": 7,
-        "name": "Гостиная-столовая"
+        "name": "Прихожая"
       },
       {
         "number": 8,
-        "name": "Терраса"
+        "name": "Крытая терраса"
       }
     ],
+    "orientation": "Главный фасад — снизу схемы",
     "diagram": "/site-assets/projects/h2-02/plan-1-diagram.svg",
     "sheet": "/site-assets/projects/h2-02/plan-1-sheet.svg"
   },
@@ -235,49 +252,38 @@
     "rooms": [
       {
         "number": 1,
-        "name": "Мастер-спальня"
+        "name": "Спальня 1"
       },
       {
         "number": 2,
-        "name": "Спальня"
+        "name": "Спальня 2"
       },
       {
         "number": 3,
-        "name": "Спальня"
+        "name": "Ванная"
       },
       {
         "number": 4,
-        "name": "Спальня"
-      },
-      {
-        "number": 5,
-        "name": "Лестница"
-      },
-      {
-        "number": 6,
-        "name": "Санузел"
-      },
-      {
-        "number": 7,
-        "name": "Постирочная"
-      },
-      {
-        "number": 8,
         "name": "Холл"
       },
       {
-        "number": 9,
-        "name": "Коридор"
+        "number": 5,
+        "name": "Мастер-спальня"
       },
       {
-        "number": 10,
-        "name": "Балкон"
+        "number": 6,
+        "name": "Лестница"
       },
       {
-        "number": 11,
+        "number": 7,
+        "name": "Гардеробная"
+      },
+      {
+        "number": 8,
         "name": "Балкон"
       }
     ],
+    "orientation": "Главный фасад — снизу схемы",
     "diagram": "/site-assets/projects/h2-02/plan-2-diagram.svg",
     "sheet": "/site-assets/projects/h2-02/plan-2-sheet.svg"
   },
@@ -286,37 +292,38 @@
     "rooms": [
       {
         "number": 1,
-        "name": "Гараж"
-      },
-      {
-        "number": 2,
-        "name": "Котельная"
-      },
-      {
-        "number": 3,
-        "name": "Санузел"
-      },
-      {
-        "number": 4,
-        "name": "Лестница"
-      },
-      {
-        "number": 5,
         "name": "Кухня"
       },
       {
+        "number": 2,
+        "name": "Душевая"
+      },
+      {
+        "number": 3,
+        "name": "Лестница"
+      },
+      {
+        "number": 4,
+        "name": "Холл"
+      },
+      {
+        "number": 5,
+        "name": "Гостиная-столовая"
+      },
+      {
         "number": 6,
-        "name": "Прихожая / хранение"
+        "name": "Прихожая / шлюз"
       },
       {
         "number": 7,
-        "name": "Гостиная-столовая"
+        "name": "Гараж"
       },
       {
         "number": 8,
         "name": "Терраса"
       }
     ],
+    "orientation": "Главный фасад — снизу схемы",
     "diagram": "/site-assets/projects/gar-01/plan-1-diagram.svg",
     "sheet": "/site-assets/projects/gar-01/plan-1-sheet.svg"
   },
@@ -325,37 +332,34 @@
     "rooms": [
       {
         "number": 1,
-        "name": "Мастер-спальня"
+        "name": "Спальня 1"
       },
       {
         "number": 2,
-        "name": "Спальня"
+        "name": "Ванная"
       },
       {
         "number": 3,
-        "name": "Спальня"
+        "name": "Лестница"
       },
       {
         "number": 4,
-        "name": "Лестница / холл"
-      },
-      {
-        "number": 5,
-        "name": "Санузел"
-      },
-      {
-        "number": 6,
-        "name": "Гардероб"
-      },
-      {
-        "number": 7,
         "name": "Холл"
       },
       {
-        "number": 8,
-        "name": "Коридор"
+        "number": 5,
+        "name": "Мастер-спальня"
+      },
+      {
+        "number": 6,
+        "name": "Спальня 2"
+      },
+      {
+        "number": 7,
+        "name": "Кровля гаража"
       }
     ],
+    "orientation": "Главный фасад — снизу схемы",
     "diagram": "/site-assets/projects/gar-01/plan-2-diagram.svg",
     "sheet": "/site-assets/projects/gar-01/plan-2-sheet.svg"
   },
@@ -364,37 +368,38 @@
     "rooms": [
       {
         "number": 1,
-        "name": "Гараж"
+        "name": "Кухня"
       },
       {
         "number": 2,
-        "name": "Котельная"
+        "name": "Душевая"
       },
       {
         "number": 3,
-        "name": "Санузел"
-      },
-      {
-        "number": 4,
         "name": "Лестница"
       },
       {
+        "number": 4,
+        "name": "Холл"
+      },
+      {
         "number": 5,
-        "name": "Кабинет"
+        "name": "Гостиная-столовая"
       },
       {
         "number": 6,
-        "name": "Прихожая / склад"
+        "name": "Прихожая / шлюз"
       },
       {
         "number": 7,
-        "name": "Кухня-гостиная"
+        "name": "Гараж · 2 автомобиля"
       },
       {
         "number": 8,
         "name": "Терраса"
       }
     ],
+    "orientation": "Главный фасад — снизу схемы",
     "diagram": "/site-assets/projects/gar-02/plan-1-diagram.svg",
     "sheet": "/site-assets/projects/gar-02/plan-1-sheet.svg"
   },
@@ -403,45 +408,34 @@
     "rooms": [
       {
         "number": 1,
-        "name": "Мастер-спальня"
+        "name": "Спальня 1"
       },
       {
         "number": 2,
-        "name": "Гардероб"
+        "name": "Ванная"
       },
       {
         "number": 3,
-        "name": "Санузел"
-      },
-      {
-        "number": 4,
-        "name": "Спальня"
-      },
-      {
-        "number": 5,
-        "name": "Спальня"
-      },
-      {
-        "number": 6,
         "name": "Лестница"
       },
       {
-        "number": 7,
+        "number": 4,
         "name": "Холл"
       },
       {
-        "number": 8,
-        "name": "Семейная зона"
+        "number": 5,
+        "name": "Мастер-спальня"
       },
       {
-        "number": 9,
-        "name": "Коридор"
+        "number": 6,
+        "name": "Спальня 2"
       },
       {
-        "number": 10,
-        "name": "Кровля-терраса"
+        "number": 7,
+        "name": "Кровля гаража"
       }
     ],
+    "orientation": "Главный фасад — снизу схемы",
     "diagram": "/site-assets/projects/gar-02/plan-2-diagram.svg",
     "sheet": "/site-assets/projects/gar-02/plan-2-sheet.svg"
   },
@@ -450,41 +444,42 @@
     "rooms": [
       {
         "number": 1,
-        "name": "Гараж"
+        "name": "Гостевая спальня"
       },
       {
         "number": 2,
-        "name": "Мастерская"
+        "name": "Душевая"
       },
       {
         "number": 3,
-        "name": "Котельная"
-      },
-      {
-        "number": 4,
-        "name": "Санузел"
-      },
-      {
-        "number": 5,
         "name": "Лестница"
       },
       {
+        "number": 4,
+        "name": "Холл"
+      },
+      {
+        "number": 5,
+        "name": "Кухня-гостиная"
+      },
+      {
         "number": 6,
-        "name": "Гостевая"
+        "name": "Прихожая / шлюз"
       },
       {
         "number": 7,
-        "name": "Прихожая / хранение"
+        "name": "Гараж"
       },
       {
         "number": 8,
-        "name": "Каминная гостиная"
+        "name": "Мастерская"
       },
       {
         "number": 9,
         "name": "Терраса"
       }
     ],
+    "orientation": "Главный фасад — снизу схемы",
     "diagram": "/site-assets/projects/gar-03/plan-1-diagram.svg",
     "sheet": "/site-assets/projects/gar-03/plan-1-sheet.svg"
   },
@@ -493,49 +488,34 @@
     "rooms": [
       {
         "number": 1,
-        "name": "Мастер-спальня"
+        "name": "Спальня 1"
       },
       {
         "number": 2,
-        "name": "Гардероб"
+        "name": "Ванная"
       },
       {
         "number": 3,
-        "name": "Санузел"
-      },
-      {
-        "number": 4,
-        "name": "Спальня"
-      },
-      {
-        "number": 5,
-        "name": "Спальня"
-      },
-      {
-        "number": 6,
-        "name": "Спальня"
-      },
-      {
-        "number": 7,
-        "name": "Санузел"
-      },
-      {
-        "number": 8,
-        "name": "Постирочная"
-      },
-      {
-        "number": 9,
         "name": "Лестница"
       },
       {
-        "number": 10,
-        "name": "Семейный холл"
+        "number": 4,
+        "name": "Холл"
       },
       {
-        "number": 11,
-        "name": "Коридор"
+        "number": 5,
+        "name": "Мастер-спальня"
+      },
+      {
+        "number": 6,
+        "name": "Спальня 2"
+      },
+      {
+        "number": 7,
+        "name": "Кровля гаража"
       }
     ],
+    "orientation": "Главный фасад — снизу схемы",
     "diagram": "/site-assets/projects/gar-03/plan-2-diagram.svg",
     "sheet": "/site-assets/projects/gar-03/plan-2-sheet.svg"
   },
@@ -544,25 +524,38 @@
     "rooms": [
       {
         "number": 1,
-        "name": "Прихожая"
-      },
-      {
-        "number": 2,
-        "name": "Санузел"
-      },
-      {
-        "number": 3,
-        "name": "Лестница"
-      },
-      {
-        "number": 4,
         "name": "Кухня-гостиная"
       },
       {
+        "number": 2,
+        "name": "Холл"
+      },
+      {
+        "number": 3,
+        "name": "Коридор"
+      },
+      {
+        "number": 4,
+        "name": "Душевая"
+      },
+      {
         "number": 5,
-        "name": "Дворик"
+        "name": "Лестничный холл"
+      },
+      {
+        "number": 6,
+        "name": "Лестница"
+      },
+      {
+        "number": 7,
+        "name": "Прихожая"
+      },
+      {
+        "number": 8,
+        "name": "Задняя терраса"
       }
     ],
+    "orientation": "Главный фасад — снизу схемы",
     "diagram": "/site-assets/projects/town-01/plan-1-diagram.svg",
     "sheet": "/site-assets/projects/town-01/plan-1-sheet.svg"
   },
@@ -571,29 +564,34 @@
     "rooms": [
       {
         "number": 1,
-        "name": "Спальня"
+        "name": "Спальня 1"
       },
       {
         "number": 2,
-        "name": "Спальня"
+        "name": "Холл"
       },
       {
         "number": 3,
-        "name": "Санузел"
+        "name": "Коридор"
       },
       {
         "number": 4,
-        "name": "Лестница"
+        "name": "Душевая"
       },
       {
         "number": 5,
-        "name": "Гардероб"
+        "name": "Лестничный холл"
       },
       {
         "number": 6,
-        "name": "Коридор"
+        "name": "Лестница"
+      },
+      {
+        "number": 7,
+        "name": "Мастер-спальня"
       }
     ],
+    "orientation": "Главный фасад — снизу схемы",
     "diagram": "/site-assets/projects/town-01/plan-2-diagram.svg",
     "sheet": "/site-assets/projects/town-01/plan-2-sheet.svg"
   },
@@ -602,25 +600,38 @@
     "rooms": [
       {
         "number": 1,
-        "name": "Прихожая"
-      },
-      {
-        "number": 2,
-        "name": "Санузел"
-      },
-      {
-        "number": 3,
-        "name": "Лестница"
-      },
-      {
-        "number": 4,
         "name": "Кухня-гостиная"
       },
       {
+        "number": 2,
+        "name": "Холл"
+      },
+      {
+        "number": 3,
+        "name": "Коридор"
+      },
+      {
+        "number": 4,
+        "name": "Душевая"
+      },
+      {
         "number": 5,
-        "name": "Дворик"
+        "name": "Лестничный холл"
+      },
+      {
+        "number": 6,
+        "name": "Лестница"
+      },
+      {
+        "number": 7,
+        "name": "Прихожая"
+      },
+      {
+        "number": 8,
+        "name": "Задняя терраса"
       }
     ],
+    "orientation": "Главный фасад — снизу схемы",
     "diagram": "/site-assets/projects/town-02/plan-1-diagram.svg",
     "sheet": "/site-assets/projects/town-02/plan-1-sheet.svg"
   },
@@ -629,29 +640,38 @@
     "rooms": [
       {
         "number": 1,
-        "name": "Мастер-спальня"
+        "name": "Спальня 1"
       },
       {
         "number": 2,
-        "name": "Детская"
+        "name": "Спальня 2"
       },
       {
         "number": 3,
-        "name": "Детская"
+        "name": "Холл"
       },
       {
         "number": 4,
-        "name": "Санузел"
+        "name": "Коридор"
       },
       {
         "number": 5,
-        "name": "Лестница"
+        "name": "Душевая"
       },
       {
         "number": 6,
-        "name": "Коридор"
+        "name": "Лестничный холл"
+      },
+      {
+        "number": 7,
+        "name": "Лестница"
+      },
+      {
+        "number": 8,
+        "name": "Мастер-спальня"
       }
     ],
+    "orientation": "Главный фасад — снизу схемы",
     "diagram": "/site-assets/projects/town-02/plan-2-diagram.svg",
     "sheet": "/site-assets/projects/town-02/plan-2-sheet.svg"
   },
@@ -660,25 +680,42 @@
     "rooms": [
       {
         "number": 1,
-        "name": "Кабинет"
-      },
-      {
-        "number": 2,
-        "name": "Санузел"
-      },
-      {
-        "number": 3,
-        "name": "Лестница"
-      },
-      {
-        "number": 4,
         "name": "Кухня-гостиная"
       },
       {
+        "number": 2,
+        "name": "Холл"
+      },
+      {
+        "number": 3,
+        "name": "Коридор"
+      },
+      {
+        "number": 4,
+        "name": "Душевая"
+      },
+      {
         "number": 5,
-        "name": "Дворик"
+        "name": "Лестничный холл"
+      },
+      {
+        "number": 6,
+        "name": "Лестница"
+      },
+      {
+        "number": 7,
+        "name": "Прихожая"
+      },
+      {
+        "number": 8,
+        "name": "Кабинет"
+      },
+      {
+        "number": 9,
+        "name": "Задняя терраса"
       }
     ],
+    "orientation": "Главный фасад — снизу схемы",
     "diagram": "/site-assets/projects/town-03/plan-1-diagram.svg",
     "sheet": "/site-assets/projects/town-03/plan-1-sheet.svg"
   },
@@ -687,29 +724,38 @@
     "rooms": [
       {
         "number": 1,
-        "name": "Мастер-спальня"
+        "name": "Спальня 1"
       },
       {
         "number": 2,
-        "name": "Спальня"
+        "name": "Спальня 2"
       },
       {
         "number": 3,
-        "name": "Спальня"
+        "name": "Холл"
       },
       {
         "number": 4,
-        "name": "Санузел"
+        "name": "Коридор"
       },
       {
         "number": 5,
-        "name": "Лестница"
+        "name": "Душевая"
       },
       {
         "number": 6,
-        "name": "Коридор"
+        "name": "Лестничный холл"
+      },
+      {
+        "number": 7,
+        "name": "Лестница"
+      },
+      {
+        "number": 8,
+        "name": "Мастер-спальня"
       }
     ],
+    "orientation": "Главный фасад — снизу схемы",
     "diagram": "/site-assets/projects/town-03/plan-2-diagram.svg",
     "sheet": "/site-assets/projects/town-03/plan-2-sheet.svg"
   },

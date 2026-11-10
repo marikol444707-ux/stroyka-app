@@ -46,3 +46,61 @@ test('concept rooms do not overlap and doors belong to shared room walls', () =>
     }
   }
 });
+
+const { layouts } = require('./public-plan-facade-layouts');
+test('facade layouts align stairs and wet rooms across floors; garage roofs remain unoccupied', () => {
+  for (const slug of ['h2-02','gar-01','gar-02','gar-03','town-01','town-02','town-03']) {
+    const lower=layouts[`${slug}/1`], upper=layouts[`${slug}/2`];
+    for (const id of ['stairs','bath']) {
+      const a=lower.rooms.find(r=>r.id===id), b=upper.rooms.find(r=>r.id===id);
+      assert.deepEqual([a.x,a.y,a.w,a.h],[b.x,b.y,b.w,b.h],`${slug}: ${id} shaft differs`);
+    }
+    for(const r of upper.rooms) {
+      const supported=lower.rooms.filter(a=>a.type!=='garage').reduce((sum,a)=>sum+Math.max(0,Math.min(r.x+r.w,a.x+a.w)-Math.max(r.x,a.x))*Math.max(0,Math.min(r.y+r.h,a.y+a.h)-Math.max(r.y,a.y)),0);
+      assert.ok(Math.abs(supported-r.w*r.h)<.001,`${slug}: unsupported upper room`);
+    }
+    const garage=lower.rooms.find(r=>r.type==='garage');
+    if(garage) {
+      assert.equal(garage.gateSide,'bottom');
+      assert.ok(upper.rooms.every(r=>r.x+r.w<=garage.x+.001));
+      const ds=doorConnections(lower.rooms);
+      assert.ok(ds.some(e=>[e.a,e.b].map(i=>lower.rooms[i].id).sort().join(',')==='entry,garage'));
+      assert.ok(upper.outdoor.some(r=>r.roof));
+    }
+  }
+});
+test('entrances and terraces connect to exterior walls; townhouses have no party-wall windows', () => {
+  for (const [key,layout] of Object.entries(layouts)) {
+    const edges=exterior(layout.rooms);
+    if(key.endsWith('/1')) {
+      const entry=layout.rooms.find(r=>r.entrySide);
+      assert.ok(entry && edges.some(e=>layout.rooms[e.room]===entry && e.side===entry.entrySide && e.end-e.start>=1.2),`${key}: missing exterior entrance`);
+    }
+    for(const t of layout.outdoor.filter(r=>r.access)) {
+      const target=layout.rooms.find(r=>r.id===t.access), edge=sharedEdge(t,target);
+      assert.ok(edge && edge.end-edge.start>=1.3,`${key}: terrace disconnected`);
+    }
+    if(layout.partyWalls) assert.ok(layout.rooms.every(r=>r.windows.every(s=>s==='top'||s==='bottom')),`${key}: party-wall window`);
+  }
+  assert.ok(!layouts['fam-02/1'].rooms.some(r=>r.id==='stairs'));
+  assert.equal(layouts['h2-02/2'].outdoor.filter(r=>r.label==='Балкон').length,1);
+  assert.equal(layouts['b1-02/1'].rooms.find(r=>r.id==='bay').openTo,'living');
+});
+
+test('every bedroom is reachable without crossing another bedroom, bathroom or stair flight', () => {
+  for (const [key, layout] of Object.entries(layouts)) {
+    const rooms=layout.rooms, edges=doorConnections(rooms);
+    const start=rooms.findIndex(r=>r.entrySide || r.id==='hall');
+    const seen=new Set([start]), queue=[start];
+    while(queue.length) {
+      const i=queue.shift();
+      for(const e of edges.filter(e=>e.a===i||e.b===i)) {
+        const j=e.a===i?e.b:e.a, r=rooms[j];
+        if(seen.has(j)) continue;
+        seen.add(j);
+        if(r.type!=='bed' && r.type!=='bath' && r.id!=='stairs') queue.push(j);
+      }
+    }
+    rooms.forEach((r,i)=>{if(r.type==='bed') assert.ok(seen.has(i),`${key}: private room blocks ${r.id}`);});
+  }
+});

@@ -31,6 +31,15 @@ function architecturalFixture(room, fixture, box) {
     svg += ellipse(w*.185,h*.83,w*.065,h*.085);
     svg += rect(w*.59,h*.62,w*.36,h*.32,2) + ellipse(w*.77,h*.78,w*.13,h*.1);
     svg += path(`M${w*.77} ${h*.62}v${h*.07}`);
+  } else if (fixture.type === 'shower') {
+    const side=Math.min(w,h);
+    svg=rect(0,0,side,side,2,'#f5f7f6')+path(`M2 2L${side-2} ${side-2}M2 ${side-2}L${side-2} 2`)+ellipse(side/2,side/2,2,2);
+  } else if (fixture.type === 'u-stairs') {
+    const landing=h*.22, flight=w*.43, run=h-landing;
+    svg=rect(0,0,w,h,0,'#faf9f5');
+    for(let i=0;i<=8;i++) svg+=path(`M0 ${landing+run*i/8}h${flight}M${w-flight} ${landing+run*i/8}h${flight}`);
+    svg+=path(`M${flight} ${landing}v${run}M${w-flight} ${landing}v${run}`);
+    svg+=`<path d="M${flight/2} ${h*.94}V${landing/2}H${w-flight/2}V${h*.9}m-4-7l4 7 4-7" fill="none" stroke="#3d5146" stroke-width="1.6"/>`;
   } else if (fixture.type === 'stairs') {
     const count = 10;
     svg = rect(0,0,w,h);
@@ -43,6 +52,7 @@ function architecturalFixture(room, fixture, box) {
     svg += [0,.9].map(a=>rect(w*a,h*.2,w*.1,h*.14,1,'#5d6860')+rect(w*a,h*.7,w*.1,h*.14,1,'#5d6860')).join('');
     svg += path(`M${w*.18} ${h*.08}h${w*.18}M${w*.64} ${h*.08}h${w*.18}M${w*.18} ${h*.94}h${w*.18}M${w*.64} ${h*.94}h${w*.18}`);
   }
+  if (svg && fixture.rotation === 180) svg = `<g transform="rotate(180 ${w/2} ${h/2})">${svg}</g>`;
   if (svg) return `<g transform="translate(${x} ${y})" stroke="#7b847d" stroke-width="1.1" stroke-linejoin="round">${svg}</g>`;
   return drawFixture(room,fixture,box).replaceAll('#a8b0b5','#828b87').replaceAll('#dce2e4','#eceeea');
 }

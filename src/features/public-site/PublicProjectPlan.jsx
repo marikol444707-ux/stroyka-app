@@ -12,6 +12,7 @@ export default function PublicProjectPlan({ plan, title, compact = false }) {
         <span>Эскизная планировка</span>
         <strong>{plan.heading}</strong>
         <p>{title}</p>
+        {plan.orientation && <p>{plan.orientation}</p>}
       </figcaption>
       <div className="public-plan-body">
         <img className="public-plan-drawing" src={plan.diagram} alt={`Схема с номерами помещений: ${title}`} />

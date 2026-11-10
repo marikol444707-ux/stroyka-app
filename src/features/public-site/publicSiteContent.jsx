@@ -642,7 +642,7 @@ export const readyProjectCardsByDirection = {
       title: 'Коттедж 185 м2 с гостевой комнатой',
       area: '185 м2',
       floors: '1 этаж',
-      layout: '4 спальни, гостевая, кухня-гостиная, постирочная.',
+      layout: '4 спальни, гостевая, кухня-гостиная, 2 санузла и терраса.',
       visuals: 'Терраса, второй ракурс и план 185 м2.',
       media: [
         { id: 'render-front', kind: 'image', role: 'render', label: '3D фасад', src: '/site-assets/projects/fam-03/facade.webp' },
@@ -654,7 +654,7 @@ export const readyProjectCardsByDirection = {
   ],
   'two-floor-modern': [
     { code: 'H2-01', title: 'Двухэтажный дом 222 м2 в Ставрополе', area: '222 м2', floors: '2 этажа', layout: '1 этаж: кухня-столовая, гостиная, кабинет, терраса и хоззоны. 2 этаж: мастер-спальня, 2 спальни, гардеробные и санузлы.', visuals: 'Фасадные листы и планы 1/2 этажа из архитектурного альбома.', calcPatch: { area: 222, floors: 2, rooms: 6, bedrooms: 3, wallType: 'gasblock', package: 'turnkey' } },
-    { code: 'H2-02', title: 'Дом 174 м2 с четырьмя спальнями', area: '174 м2', floors: '2 этажа', layout: '1 этаж: кухня-гостиная, кабинет, котельная. 2 этаж: 4 спальни, санузел, два балкона.', visuals: 'Фасад с балконами и планы этажей.', calcPatch: { area: 174, floors: 2, rooms: 6, bedrooms: 4, wallType: 'gasblock', package: 'turnkey' } },
+    { code: 'H2-02', title: 'Дом 174 м2 с четырьмя спальнями', area: '174 м2', floors: '2 этажа', layout: '1 этаж: кухня-столовая, гостиная, гостевая спальня, душевая. 2 этаж: 3 спальни, ванная, гардеробная и балкон. Лестничный холл с высоким остеклением.', visuals: 'Фасад с боковым балконом и эскизные планы этажей.', calcPatch: { area: 174, floors: 2, rooms: 5, bedrooms: 4, wallType: 'gasblock', package: 'turnkey' } },
   ],
   'two-floor-brick': [
     { code: 'B2-01', title: 'Капитальный дом 222 м2 с террасой', area: '222 м2', floors: '2 этажа', layout: '1 этаж: кухня-столовая, гостиная, кабинет, терраса и хоззоны. 2 этаж: 3 спальни, гардеробные и санузлы.', visuals: 'Архитектурные фасады и планы 1/2 этажа.', calcPatch: { area: 222, floors: 2, rooms: 6, bedrooms: 3, wallType: 'brick', package: 'turnkey' } },
@@ -662,8 +662,8 @@ export const readyProjectCardsByDirection = {
   ],
   'garage-house': [
     { code: 'GAR-01', title: 'Дом 136 м2 с гаражом и террасой', area: '136 м2', floors: '2 этажа', layout: 'Гараж, кухня-гостиная, терраса. 2 этаж: 3 спальни, санузел.', visuals: 'Фасад с гаражом, терраса и планы этажей.', calcPatch: { area: 136, floors: 2, rooms: 4, bedrooms: 3, wallType: 'gasblock', package: 'turnkey' } },
-    { code: 'GAR-02', title: 'Дом 193 м2 с гаражом и плоской кровлей', area: '193 м2', floors: '2 этажа', layout: 'Гараж, кабинет, кухня-гостиная, мастер-спальня, 2 спальни, кровля-терраса.', visuals: 'Современный фасад, гараж и планы этажей.', calcPatch: { area: 193, floors: 2, rooms: 5, bedrooms: 3, wallType: 'gasblock', package: 'turnkey' } },
-    { code: 'GAR-03', title: 'Дом 218 м2 с гаражом и мастер-спальней', area: '218 м2', floors: '2 этажа', layout: 'Гараж, мастерская, каминная гостиная, гостевая, мастер-спальня и 3 спальни.', visuals: 'Фасад с гаражом, мастерская и планы этажей.', calcPatch: { area: 218, floors: 2, rooms: 6, bedrooms: 5, wallType: 'gasblock', package: 'turnkey' } },
+    { code: 'GAR-02', title: 'Дом 193 м2 с гаражом на два автомобиля', area: '193 м2', floors: '2 этажа', layout: 'Гараж на два автомобиля справа, кухня, гостиная-столовая, терраса. На втором этаже мастер-спальня, 2 спальни и ванная. Над гаражом кровля.', visuals: 'Современный фасад, гараж и планы этажей.', calcPatch: { area: 193, floors: 2, rooms: 4, bedrooms: 3, wallType: 'gasblock', package: 'turnkey' } },
+    { code: 'GAR-03', title: 'Дом 218 м2 с гаражом и мастер-спальней', area: '218 м2', floors: '2 этажа', layout: 'Гараж и мастерская справа, кухня-гостиная и гостевая спальня. На втором этаже мастер-спальня, 2 спальни и ванная.', visuals: 'Фасад с гаражом, мастерская и планы этажей.', calcPatch: { area: 218, floors: 2, rooms: 5, bedrooms: 4, wallType: 'gasblock', package: 'turnkey' } },
   ],
   townhouse: [
     { code: 'TOWN-01', title: 'Таунхаус 95 м2', area: '95 м2', floors: '2 этажа', layout: '1 этаж: кухня-гостиная. 2 этаж: 2 спальни.', visuals: 'Фасад секции + план.', calcPatch: { area: 95, floors: 2, rooms: 3, wallType: 'brick', package: 'warm' } },
