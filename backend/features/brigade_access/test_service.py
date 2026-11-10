@@ -17,8 +17,8 @@ from backend.features.brigade_access.service import (
 
 
 class BrigadeDuplicateGuardTests(unittest.TestCase):
-    def test_existing_contract_is_scoped_by_company_project_package_and_user(self):
-        cur = SequencedCursor(one=[(71,)])
+    def test_existing_draft_is_scoped_by_company_project_package_and_exact_user(self):
+        cur = SequencedCursor(many=[[(71,)]])
         self.assertEqual(find_existing_brigade_contract_id(cur, 4, 17, "Основная", 9, "Дугин Паша"), 71)
         lock_sql, lock_params = cur.calls[0]
         self.assertIn("pg_advisory_xact_lock", lock_sql)
@@ -26,19 +26,33 @@ class BrigadeDuplicateGuardTests(unittest.TestCase):
         sql, params = cur.calls[1]
         self.assertIn("company_id=%s", sql)
         self.assertIn("project_id=%s", sql)
+        self.assertIn("COALESCE(NULLIF(status,''),'Черновик')='Черновик'", sql)
         self.assertIn("contractor_id=%s", sql)
-        self.assertIn("contractor_id IS NULL", sql)
-        self.assertIn("Аннулирован", sql)
-        self.assertIn("EXISTS (SELECT 1 FROM brigade_contract_items", sql)
-        self.assertEqual(params, (4, 17, "Основная", 9, "Дугин Паша"))
+        self.assertNotIn("contractor_id IS NULL AND", sql)
+        self.assertNotIn("status='Подписан'", sql)
+        self.assertEqual(params, (4, 17, "Основная", 9))
 
-    def test_name_fallback_does_not_match_another_user(self):
-        cur = SequencedCursor(one=[None])
+    def test_name_fallback_requires_unlinked_identity_and_normalizes_whitespace(self):
+        cur = SequencedCursor(many=[[]])
         self.assertIsNone(find_existing_brigade_contract_id(cur, 4, 17, "Основная", None, "  Бригада Север  "))
         sql, params = cur.calls[1]
         self.assertIn("contractor_id IS NULL", sql)
         self.assertIn("LOWER(BTRIM(brigade_name))", sql)
         self.assertEqual(params, (4, 17, "Основная", "Бригада Север"))
+
+    def test_multiple_drafts_fail_closed(self):
+        cur = SequencedCursor(many=[[(71,), (72,)]])
+        with self.assertRaises(HTTPException) as raised:
+            find_existing_brigade_contract_id(cur, 4, 17, "Основная", 9, "Дугин Паша")
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertIn("несколько черновиков", raised.exception.detail)
+
+    def test_blank_status_is_treated_as_legacy_draft(self):
+        cur = SequencedCursor(many=[[]])
+        find_existing_brigade_contract_id(cur, 4, 17, "", None, "Бригада")
+        sql, params = cur.calls[1]
+        self.assertIn("COALESCE(NULLIF(status,''),'Черновик')='Черновик'", sql)
+        self.assertEqual(params[:3], (4, 17, "Основная"))
 
 
 FULL_VIEW_ROLES = ("директор", "зам_директора", "бухгалтер", "главный_инженер", "сметчик")
