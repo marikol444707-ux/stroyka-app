@@ -64,7 +64,7 @@ class ContractTests(unittest.TestCase):
 class BridgeTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
-        root=Path(self.temp.name)
+        root=Path(self.temp.name).resolve()
         self.paths={name:root/name for name in ('private','results','inbox','admissions','registry')}
         for name,path in self.paths.items():path.mkdir(mode=0o750 if name=='results' else 0o700)
         self.paths['results'].chmod(0o750)
@@ -82,6 +82,22 @@ class BridgeTests(unittest.TestCase):
         return self.bridge.submit(self.raw if raw is None else raw,source,authorize_source=lambda _:True,clock=EPOCH)
 
     def consume(self):return self.bridge.consume(PAYLOAD['request_id']+'.json',epoch=EPOCH,clock=lambda:NOW)
+
+    def test_remote_admission_uses_exact_protocol3_policy_and_keeps_cached_result(self):
+        import base64
+        from ..remote_transport import receive_frame
+        wire=json.dumps({'version':1,'request_b64':base64.b64encode(self.raw).decode(),
+            'origin':{key:getattr(SOURCE,key) for key in ('platform','chat_type','chat_id','user_id','profile')}}).encode()
+        frame={'op':'admit','protocol':3,'wire':base64.b64encode(wire).decode()}
+        load=Mock(return_value=(self.settings,self.secret,self.bridge.validate))
+        with patch('jev_agent.tender_finder.remote_transport.time.time',EPOCH):
+            self.assertTrue(receive_frame(frame,load=load)['queued'])
+            first=self.consume()
+            self.assertTrue(receive_frame(frame,load=load)['queued'])
+            second=self.consume()
+        self.assertEqual(load.call_args.args,(3,))
+        self.assertEqual(first['result'],second['result'])
+        self.reader.assert_called_once()
 
     def test_signed_owner_queue_report_and_telegram_ack_once(self):
         admission=self.submit()

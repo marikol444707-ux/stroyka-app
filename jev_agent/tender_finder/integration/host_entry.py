@@ -10,7 +10,7 @@ import sys
 sys.dont_write_bytecode=True
 if os.geteuid()!=0 or not sys.flags.isolated:
     raise SystemExit('isolated_root_host_launcher_required')
-if len(sys.argv)<2 or sys.argv[1] not in ('broker','worker','service','systemd-service','commercial-service','commercial-systemd-service'):
+if len(sys.argv)<2 or sys.argv[1] not in ('broker','worker','service','systemd-service','commercial-service','commercial-systemd-service','remote'):
     raise SystemExit('explicit_host_operation_required')
 
 from pathlib import Path
@@ -39,6 +39,10 @@ sys.path.insert(0,str(_root))
 _existing=sys.modules.get('jev_agent')
 if _existing is not None and getattr(_existing,'__file__',None)!=str(_root/'jev_agent/__init__.py'):
     raise SystemExit('foreign_host_package_refused')
+
+if sys.argv[1]=='remote':
+    from jev_agent.tender_finder.remote_service import main
+    raise SystemExit(main(sys.argv[2:]))
 
 if sys.argv[1]=='broker':
     from jev_agent.tender_finder.broker_service import main

@@ -74,6 +74,43 @@ def _read_frame(connection,maximum):
         if size>maximum:raise ValueError('broker_frame_limit')
 
 
+def admit_authenticated_wire(settings,secret,wire,*,clock,request_validator=validate_v2_request):
+    """Called only after local kernel-peer or forced SSH-command authentication.
+
+    No endpoint is installed here. Ownership, schema and signatures are identical
+    for local and remote hosts; transport never supplies a company or recipient.
+    """
+    if (type(settings) is not BridgeSettings or type(secret) is not AdmissionSecret
+            or settings.queue.writer_uid!=os.geteuid() or type(wire) is not bytes
+            or len(wire)>MAX_FRAME or not callable(clock) or not callable(request_validator)):
+        raise ValueError('protected_authenticated_admission_required')
+    settings.owner.validate()
+    settings=replace(settings,gateway_inbox=settings.queue.inbox,
+                     gateway_admissions=settings.worker_admissions)
+    value=_decode(wire)
+    if (set(value)!={'version','request_b64','origin'} or type(value['version']) is not int
+            or value['version']!=1 or type(value['request_b64']) is not str
+            or len(value['request_b64'])>43692 or type(value['origin']) is not dict
+            or set(value['origin'])!=ORIGIN_FIELDS):
+        raise ValueError('fixed_broker_frame_required')
+    raw=base64.b64decode(value['request_b64'],validate=True)
+    if len(raw)>MAX_REQUEST_BYTES:raise ValueError('request_limit')
+    if _decode(raw).get('version')!=settings.queue.pipeline.protocol:
+        raise ValueError('broker_request_protocol_mismatch')
+    origin=value['origin']
+    if (origin['platform']!='telegram' or origin['chat_type']!='dm'
+            or any(type(origin[name]) is not str for name in ('chat_id','user_id'))
+            or origin['profile'] is not None and type(origin['profile']) is not str):
+        raise ValueError('private_gateway_origin_required')
+    source=SimpleNamespace(**origin,is_bot=False,thread_id=None,profile_route_rejected=False)
+    # Peer process is the trust boundary, NOT the JSON source alone. The
+    # client binding first uses real SessionSource + live Hermes policy.
+    receipt=issue_admission(raw,source,authorize_source=lambda source:True,
+        bindings=(settings.owner,),signing_key=secret.material,clock=clock,
+        request_validator=request_validator)
+    return publish_admission(raw,receipt,settings,secret,clock=clock)
+
+
 class AdmissionBroker:
     """Protected host core. Only initialize_root_broker is a production bootstrap.
 
@@ -96,28 +133,8 @@ class AdmissionBroker:
         self._validate=request_validator
 
     def _admit(self,wire):
-        value=_decode(wire)
-        if (set(value)!={'version','request_b64','origin'} or type(value['version']) is not int
-                or value['version']!=1 or type(value['request_b64']) is not str
-                or len(value['request_b64'])>43692 or type(value['origin']) is not dict
-                or set(value['origin'])!=ORIGIN_FIELDS):
-            raise ValueError('fixed_broker_frame_required')
-        raw=base64.b64decode(value['request_b64'],validate=True)
-        if len(raw)>MAX_REQUEST_BYTES:raise ValueError('request_limit')
-        if _decode(raw).get('version')!=self._settings.queue.pipeline.protocol:
-            raise ValueError('broker_request_protocol_mismatch')
-        origin=value['origin']
-        if (origin['platform']!='telegram' or origin['chat_type']!='dm'
-                or any(type(origin[name]) is not str for name in ('chat_id','user_id'))
-                or origin['profile'] is not None and type(origin['profile']) is not str):
-            raise ValueError('private_gateway_origin_required')
-        source=SimpleNamespace(**origin,is_bot=False,thread_id=None,profile_route_rejected=False)
-        # Peer process is the trust boundary, NOT the JSON source alone. The
-        # client binding first uses real SessionSource + live Hermes policy.
-        receipt=issue_admission(raw,source,authorize_source=lambda source:True,
-            bindings=(self._settings.owner,),signing_key=self._secret.material,clock=self._clock,
-            request_validator=self._validate)
-        return publish_admission(raw,receipt,self._settings,self._secret,clock=self._clock)
+        return admit_authenticated_wire(self._settings,self._secret,wire,
+            clock=self._clock,request_validator=self._validate)
 
     def serve_connection(self,connection):
         """One accepted Unix connection; caller owns listener lifecycle."""

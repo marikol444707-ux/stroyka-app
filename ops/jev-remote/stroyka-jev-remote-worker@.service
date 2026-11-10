@@ -1,0 +1,26 @@
+[Unit]
+Description=JEV remote worker protocol %i (no Telegram polling)
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=root
+UMask=0077
+ExecStart=/opt/stroyka-jev-commercial/venv/bin/python3 -I -B /opt/stroyka-jev/app/jev_agent/tender_finder/integration/host_entry.py remote worker %i
+Restart=on-failure
+RestartSec=15
+TimeoutStopSec=infinity
+CPUQuota=75%
+MemoryMax=1500M
+Nice=10
+NoNewPrivileges=true
+# CLI passes temporary profile files to the host Docker daemon.
+PrivateTmp=false
+ProtectSystem=strict
+ReadWritePaths=/var/lib/stroyka-jev /var/lib/stroyka-jev-commercial /var/lib/stroyka-jev-tools /var/lib/stroyka-jev-control /run/lock /tmp
+InaccessiblePaths=-/var/www/stroyka-app -/var/lib/postgresql -/etc/stroyka -/etc/letsencrypt -/root/hermes-data
+
+[Install]
+WantedBy=multi-user.target
