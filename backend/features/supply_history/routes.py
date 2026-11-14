@@ -48,16 +48,17 @@ def register_supply_history_module(app, deps):
 
     resolve_context = deps["resolve_work_company_context"]
     effective_actors = deps["effective_company_actors"]
+    read_current_user = deps.get("get_current_user_readonly") or get_current_user
 
     @app.get("/supply-history")
-    def get_supply_history(limit: Optional[int] = None, offset: int = 0, current_user: dict = Depends(get_current_user),
+    def get_supply_history(limit: Optional[int] = None, offset: int = 0, current_user: dict = Depends(read_current_user),
                            x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
                            x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode")):
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
-            ensure_supply_runtime_columns(cur)
-            conn.commit()
+            cur.execute("SET TRANSACTION READ ONLY")
             role = current_user.get("role")
             page_sql, page_params = limit_offset_sql(limit, offset)
             select_sql = ("SELECT id,company_id as \"companyId\",supplier_id as \"supplierId\",material_name as \"materialName\",quantity,unit,"
@@ -95,6 +96,7 @@ def register_supply_history_module(app, deps):
             rows = cur.fetchall()
             return [dict(r) for r in rows]
         finally:
+            conn.rollback()
             cur.close()
             conn.close()
 

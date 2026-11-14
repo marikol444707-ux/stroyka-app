@@ -643,28 +643,31 @@ def _current_user_from_bearer(authorization: Optional[str]) -> dict:
     payload = verify_auth_token(authorization.split(" ", 1)[1].strip())
     return _public_user_by_id(payload.get("id"), two_factor_passed=bool(payload.get("twoFactorPassed")))
 
-def _current_user_from_session_cookie(request: Optional[Request]) -> dict:
+def _current_user_from_session_cookie(request: Optional[Request], *, touch_session: bool = True) -> dict:
     token = request.cookies.get(AUTH_SESSION_COOKIE_NAME) if request else ""
     if not token:
         raise HTTPException(status_code=401, detail="Требуется вход в систему")
     conn = get_db()
+    if not touch_session:
+        conn.autocommit = False
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute(
-        """SELECT u.*, s.id AS auth_session_id, s.two_factor_passed AS auth_session_two_factor_passed
-           FROM user_sessions s
-           JOIN users u ON u.id=s.user_id
-           WHERE s.session_hash=%s
-             AND s.revoked_at IS NULL
-             AND s.expires_at>NOW()
-           LIMIT 1""",
-        (_session_token_hash(token),),
-    )
-    user = cur.fetchone()
-    if user:
-        cur.execute("UPDATE user_sessions SET last_seen_at=NOW() WHERE id=%s", (user.get("auth_session_id"),))
-        user = enrich_worker_project_links(cur, user)
-        conn.commit()
-    cur.close(); conn.close()
+    try:
+        try:
+            from backend.features.supply_history.session_read import load_cookie_session_user
+        except ImportError:
+            from features.supply_history.session_read import load_cookie_session_user
+        user = load_cookie_session_user(
+            cur,
+            conn,
+            _session_token_hash(token),
+            touch_session=touch_session,
+            enrich=enrich_worker_project_links,
+        )
+    finally:
+        if not touch_session:
+            conn.rollback()
+        cur.close()
+        conn.close()
     if not user:
         raise HTTPException(status_code=401, detail="Сессия недействительна. Войдите заново.")
     if user.get("active") is False:
@@ -673,17 +676,24 @@ def _current_user_from_session_cookie(request: Optional[Request]) -> dict:
         raise HTTPException(status_code=401, detail="Требуется подтверждение 2FA")
     return public_user(user, include_token=True, two_factor_passed=bool(user.get("auth_session_two_factor_passed")))
 
-def get_current_user(request: Request, authorization: Optional[str] = Header(default=None)) -> dict:
+def _authenticate_request(request: Request, authorization: Optional[str], *, touch_session: bool) -> dict:
     if authorization and authorization.lower().startswith("bearer "):
         user = _current_user_from_bearer(authorization)
     else:
-        user = _current_user_from_session_cookie(request)
+        user = _current_user_from_session_cookie(request, touch_session=touch_session)
     try:
         from backend.features.participant_support.capabilities import enforce_support_route
     except ImportError:
         from features.participant_support.capabilities import enforce_support_route
     enforce_support_route(user, request, get_db=get_db)
     return user
+
+def get_current_user(request: Request, authorization: Optional[str] = Header(default=None)) -> dict:
+    return _authenticate_request(request, authorization, touch_session=True)
+
+def get_current_user_readonly(request: Request, authorization: Optional[str] = Header(default=None)) -> dict:
+    """Same session check as get_current_user, without updating last_seen."""
+    return _authenticate_request(request, authorization, touch_session=False)
 
 def require_csrf_for_cookie_mutation(
     request: Request,
@@ -12590,6 +12600,7 @@ register_supply_history_module(app, {
     "client_account_roles": CLIENT_ACCOUNT_ROLES,
     "get_db": get_db,
     "get_current_user": get_current_user,
+    "get_current_user_readonly": get_current_user_readonly,
     "require_roles": require_roles,
     "write_roles": ("директор", "зам_директора", "снабженец", "кладовщик"),
     "worker_execution_roles": WORKER_EXECUTION_ROLES,
