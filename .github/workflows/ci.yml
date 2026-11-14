@@ -132,7 +132,16 @@ jobs:
           export PATH="$(pg_config --bindir):$PATH"
           python scripts/run_supplier_catalog_postgres_tests.py \
             backend.features.supplier_access.test_multicompany_chain \
-            backend.features.supplier_payments.test_contract_context_postgres
+            backend.features.supplier_payments.test_contract_context_postgres \
+            backend.features.supplier_payments.test_policy_postgres \
+            backend.features.supplier_payments.test_settlements_postgres \
+            backend.features.customer_cabinet.test_prescriptions_postgres
+
+      - name: Run master profile membership boundaries
+        run: |
+          export PATH="$(pg_config --bindir):$PATH"
+          python scripts/run_supplier_catalog_postgres_tests.py \
+            backend.features.master_profiles.test_access_postgres
 
       - name: Set up Node
         uses: actions/setup-node@v4

@@ -718,9 +718,9 @@ class WarehouseAnomalyRuntimeDisclosurePolicyTests(unittest.TestCase):
             backend_root / "db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Reviewed contractor estimate-row identity preservation; warehouse preview code and route registration are unchanged.
+            # Reviewed contractor estimate-row identity preservation and profile company-context dependencies; warehouse preview code and route registration are unchanged.
             backend_root / "main.py": (
-                "e10715cb3cf1b9d76d6d4461cae860f1c71510ea2795b24972f95d16f1068017"
+                "1071b52ba39c637730cb3a0383233d5bc8f2fc756be71faf3e83d7cc637d5a4c"
             ),
         }
         actual = {
