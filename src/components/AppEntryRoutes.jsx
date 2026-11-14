@@ -9,7 +9,7 @@ import {
   SupportWorkspace,
 } from '../app/lazyComponents';
 
-export default function AppEntryRoutes({ user, page, pageFallback, ui = {}, constants = {}, state = {}, actions = {} }) {
+export default function AppEntryRoutes({ user, sessionChecked = true, page, pageFallback, ui = {}, constants = {}, state = {}, actions = {} }) {
   const noop = () => {};
   const { API, C, badge, btnG, btnGr, btnO, btnR, card, inp } = ui;
   const { ROLE_LABELS } = constants;
@@ -42,6 +42,10 @@ export default function AppEntryRoutes({ user, page, pageFallback, ui = {}, cons
   } = actions;
   const changeLoginError = typeof setLoginError === 'function' ? setLoginError : noop;
   const changePage = typeof setPage === 'function' ? setPage : noop;
+
+  if (!user && sessionChecked === false) {
+    return <div role="status" style={{padding: '24px', textAlign: 'center'}}>Проверяем вход…</div>;
+  }
 
   if (!user) {
     if (page === 'register') {

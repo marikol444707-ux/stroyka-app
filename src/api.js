@@ -82,6 +82,7 @@ export const installAuthFetch = () => {
     '/password-reset',
     '/password-reset/request',
     '/password-reset/confirm',
+    '/auth/session',
   ];
   const csrfMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
   const csrfHeaderName = 'X-CSRF-Token';
