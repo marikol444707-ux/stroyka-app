@@ -4,9 +4,17 @@ from typing import Optional
 from fastapi import Depends, Header, HTTPException
 
 try:
-    from backend.features.brigade_access.service import find_existing_brigade_contract_id
+    from backend.features.brigade_access.service import (
+        REUSABLE_DRAFT_CONTRACT_SQL,
+        SIGNED_CONTRACT_BLOCK_DETAIL,
+        find_existing_brigade_contract_id,
+    )
 except ModuleNotFoundError:
-    from features.brigade_access.service import find_existing_brigade_contract_id
+    from features.brigade_access.service import (
+        REUSABLE_DRAFT_CONTRACT_SQL,
+        SIGNED_CONTRACT_BLOCK_DETAIL,
+        find_existing_brigade_contract_id,
+    )
 
 try:
     from backend.features.brigade_lineage.snapshot_service import (
@@ -152,14 +160,15 @@ def register_work_assignment_module(app, deps):
             if existing_id:
                 contract_id = existing_id
                 cur.execute(
-                    """UPDATE brigade_contracts
+                    f"""UPDATE brigade_contracts
                        SET brigade_name=%s, contractor_type=%s, contractor_id=COALESCE(%s, contractor_id)
                        WHERE id=%s AND company_id=%s AND project_id=%s
+                         AND {REUSABLE_DRAFT_CONTRACT_SQL}
                        RETURNING id""",
                     (brigade_name, contractor_type, contractor_user_id, contract_id, company_id, project_id),
                 )
                 if not cur.fetchone():
-                    raise HTTPException(status_code=409, detail="Договор изменился. Обновите страницу")
+                    raise HTTPException(status_code=409, detail=SIGNED_CONTRACT_BLOCK_DETAIL)
             else:
                 cur.execute(
                     """INSERT INTO brigade_contracts
@@ -266,12 +275,13 @@ def register_work_assignment_module(app, deps):
                 raise HTTPException(status_code=400, detail="В выбранных строках нет работ для назначения")
 
             cur.execute(
-                """UPDATE brigade_contracts
+                f"""UPDATE brigade_contracts
                    SET total_amount=COALESCE((
                      SELECT SUM(COALESCE(quantity,0)*COALESCE(price_brigade,0))
                      FROM brigade_contract_items WHERE contract_id=%s
                    ),0)
-                   WHERE id=%s AND company_id=%s AND project_id=%s""",
+                   WHERE id=%s AND company_id=%s AND project_id=%s
+                     AND {REUSABLE_DRAFT_CONTRACT_SQL}""",
                 (contract_id, contract_id, company_id, project_id),
             )
             grant_brigade_contractor_scope(

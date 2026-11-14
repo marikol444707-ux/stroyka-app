@@ -37,7 +37,8 @@ class FakeCursor:
         elif "SELECT id, coefficient FROM pricelists" in normalized:
             self.rows = [(3, 0.6)]
         elif normalized.startswith("SELECT id FROM brigade_contracts"):
-            self.result = (77,) if self.existing_contract else None
+            self.result = None
+            self.rows = [(77,)] if self.existing_contract else []
         elif normalized.startswith("INSERT INTO brigade_contracts"):
             self.result = (77,)
         elif normalized.startswith("UPDATE brigade_contracts") and "RETURNING id" in normalized:
@@ -172,6 +173,11 @@ class EstimateDistributionRouteTests(unittest.TestCase):
         self.assertEqual(grant_calls[0][:4], (4, 41, "Лицей", "Отделка"))
         self.assertEqual(result["createdContracts"][0]["inserted"], 1)
         self.assertEqual(result["createdContracts"][0]["reused"], 0)
+        lookup = next(call for call in connection.cursor_value.calls if call[0].startswith("SELECT id FROM brigade_contracts"))
+        self.assertIn("COALESCE(NULLIF(status,''),'Черновик')='Черновик'", lookup[0])
+        self.assertIn("signed_at IS NULL", lookup[0])
+        self.assertNotIn("status='Подписан'", lookup[0])
+        self.assertEqual(lookup[1][:3], (4, 19, "Отделка"))
         self.assertIn(
             ("SELECT pg_advisory_xact_lock(%s,%s)", (4, 19)),
             connection.cursor_value.calls,

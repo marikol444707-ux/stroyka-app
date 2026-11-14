@@ -19323,6 +19323,7 @@ def create_brigade_contract(
         existing_id = find_existing_brigade_contract_id(
             cur, company_id, project["id"], work_package,
             contractor_user_id, data.get("brigadeName", ""),
+            drafts_only=False,
         )
         if existing_id:
             conn.rollback()
