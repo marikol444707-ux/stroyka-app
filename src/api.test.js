@@ -384,6 +384,26 @@ describe('installAuthFetch', () => {
     }
   });
 
+  it('does not reload when the cookie session probe is anonymous', async () => {
+    const nativeFetch = jest.fn().mockResolvedValue(new Response('{"detail":"Сессия недействительна"}', {status: 401}));
+    window.fetch = nativeFetch;
+    const originalLocation = window.location;
+    delete window.location;
+    window.location = {...originalLocation, origin: 'http://localhost', reload: jest.fn()};
+
+    try {
+      installAuthFetch();
+      const response = await window.fetch('/auth/session');
+
+      expect(response.status).toBe(401);
+      expect(window.location.reload).not.toHaveBeenCalled();
+      expect(sessionStorage.getItem('authExpiredNotice')).toBeNull();
+      expect(localStorage.getItem('user')).toBeNull();
+    } finally {
+      window.location = originalLocation;
+    }
+  });
+
   it.each(['/login', '/password-reset-request'])(
     'does not add protected-request headers to public auth path %s',
     async (path) => {

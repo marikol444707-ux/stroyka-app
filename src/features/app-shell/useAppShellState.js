@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
+import { API } from '../../api';
 import { detectMobileLayout } from '../../constants/uiTheme';
+import { restoreCookieSession } from '../auth/sessionRestore';
 import {
   initialGuestPage,
   loadStoredUser,
@@ -46,6 +48,7 @@ export function useDarkModeState() {
 
 export function useAuthEntryState() {
   const [user, setUser] = useState(loadStoredUser);
+  const [sessionChecked, setSessionChecked] = useState(() => Boolean(loadStoredUser()));
   const [page, setPage] = useState(initialGuestPage);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -81,9 +84,31 @@ export function useAuthEntryState() {
     return '';
   });
 
+  useEffect(() => {
+    if (loadStoredUser()) {
+      setSessionChecked(true);
+      return undefined;
+    }
+    let cancelled = false;
+    restoreCookieSession(API).then((result) => {
+      if (cancelled) return;
+      if (result.status === 'authenticated' && result.user) {
+        setUser(result.user);
+        setLoginError('');
+      } else if (result.status === 'unavailable') {
+        setLoginError((current) => current || 'Не удалось проверить вход. Обновите страницу.');
+      }
+      setSessionChecked(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return {
     email,
     loginError,
+    sessionChecked,
     page,
     password,
     regCode,

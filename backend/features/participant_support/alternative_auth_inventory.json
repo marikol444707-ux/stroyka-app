@@ -56,6 +56,15 @@
   },
   {
     "methods": [
+      "GET"
+    ],
+    "path": "/auth/session",
+    "dependencies": [
+      "read_auth_session"
+    ]
+  },
+  {
+    "methods": [
       "POST"
     ],
     "path": "/password-reset-request",

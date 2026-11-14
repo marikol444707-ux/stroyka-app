@@ -223,6 +223,7 @@ export function renderAppEarlyRoleRoute({
     return (
       <AppEntryRoutes
         user={user}
+        sessionChecked={authEntryState?.sessionChecked}
         page={authEntryState.page}
         pageFallback={pageFallback}
         ui={{ API, C, badge, btnG, btnGr, btnO, btnR, card, inp }}

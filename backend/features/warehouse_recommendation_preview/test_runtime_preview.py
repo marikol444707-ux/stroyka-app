@@ -946,9 +946,9 @@ class WarehouseAnomalyRuntimePreviewCompositionTests(unittest.TestCase):
             root / "backend/db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Reviewed profile company-context dependencies; the warehouse preview package is unchanged.
+            # Reviewed cookie-session restore registration; the warehouse preview package is unchanged.
             root / "backend/main.py": (
-                "730c8fb911ac83d7e9c71c499652f3fe3cf4a4116a9e64f73e43de30e14ae0c9"
+                "20fb5536c10519f0de068e8876500c3c943fa8aeec90a958bad825c09c1d1607"
             ),
         }
         self.assertEqual({

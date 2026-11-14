@@ -6366,6 +6366,20 @@ def logout(response: Response, request: Request, _csrf: None = Depends(require_c
         log_audit(user_name="—", user_role="—", action="logout", entity_type="user", entity_id=user_id, description="Выход из серверной сессии")
     return {"ok": True}
 
+try:
+    from backend.features.auth_session.routes import register_auth_session_module
+except ModuleNotFoundError:
+    from features.auth_session.routes import register_auth_session_module
+
+register_auth_session_module(app, {
+    "get_db": get_db,
+    "session_cookie_name": AUTH_SESSION_COOKIE_NAME,
+    "session_token_hash": _session_token_hash,
+    "public_user": public_user,
+    "user_requires_2fa": _user_requires_2fa,
+    "enrich_worker_project_links": enrich_worker_project_links,
+})
+
 def _password_reset_dedupe_key(user_id) -> str:
     return f"PASSWORD_RESET:{user_id}"
 
