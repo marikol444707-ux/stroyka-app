@@ -61,7 +61,9 @@ class SupportSecurityPostgresTests(unittest.TestCase):
             self.assertNotIsInstance(route, APIWebSocketRoute)
             if isinstance(route, APIRoute):
                 names = calls(route.dependant)
-                (protected if 'get_current_user' in names else alternative).append((sorted(route.methods), route.path, sorted(names)))
+                # Read-only session auth still identifies the user and refuses support
+                # before the handler; it must not be treated as a public surface.
+                (protected if names.intersection(('get_current_user', 'get_current_user_readonly')) else alternative).append((sorted(route.methods), route.path, sorted(names)))
             else:
                 non_api.append(route.path)
         self.assertEqual(non_api, ['/openapi.json','/docs','/docs/oauth2-redirect','/redoc'],
@@ -81,7 +83,7 @@ class SupportSecurityPostgresTests(unittest.TestCase):
             return {getattr(dep.call, '__name__', '')}.union(*(calls(child) for child in dep.dependencies))
         count = 0
         for route in self.main.app.routes:
-            if not isinstance(route, APIRoute) or 'get_current_user' not in calls(route.dependant) or route.path.startswith('/participant-support/workspace'):
+            if not isinstance(route, APIRoute) or not calls(route.dependant).intersection(('get_current_user', 'get_current_user_readonly')) or route.path.startswith('/participant-support/workspace'):
                 continue
             path = re.sub(r'\{[^}]+\}', '1', route.path)
             for method in sorted(route.methods):
