@@ -1,0 +1,123 @@
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: stroyka-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: |
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Resolve target commit
+        id: target
+        shell: bash
+        env:
+          WORKFLOW_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = "workflow_run" ]; then
+            sha="$WORKFLOW_HEAD_SHA"
+          else
+            sha="$GITHUB_SHA"
+          fi
+          if ! printf '%s' "$sha" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "ОШИБКА: не удалось определить SHA коммита для выкладки." >&2
+            exit 1
+          fi
+          echo "target_sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "Целевой коммит: $sha"
+
+      - name: Confirm CI is green
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ steps.target.outputs.target_sha }}
+        run: |
+          set -euo pipefail
+          gh run list \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow ci.yml \
+            --commit "$TARGET_SHA" \
+            --limit 20 \
+            --json databaseId,conclusion,status,event,headBranch,headSha \
+            > "$RUNNER_TEMP/ci-runs.json"
+          python3 scripts/confirm-deploy-ci.py "$RUNNER_TEMP/ci-runs.json" "$TARGET_SHA"
+
+      - name: Prepare SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+        run: bash scripts/prepare-deploy-ssh.sh
+
+      - name: Deploy on the server
+        id: deploy
+        env:
+          TARGET_SHA: ${{ steps.target.outputs.target_sha }}
+        run: bash scripts/run-remote-deploy.sh
+
+      - name: Health check of the new release
+        id: health
+        if: steps.deploy.outputs.deploy_status == '0'
+        env:
+          TARGET_SHA: ${{ steps.target.outputs.target_sha }}
+        run: |
+          set +e
+          python3 scripts/check-deploy-health.py --sha "$TARGET_SHA"
+          status=$?
+          set -e
+          echo "health_status=$status" >> "$GITHUB_OUTPUT"
+
+      - name: Roll back after a failed health check
+        if: always() && !cancelled() && steps.deploy.outputs.deploy_status == '0' && steps.health.outputs.health_status != '0'
+        env:
+          TARGET_SHA: ${{ steps.deploy.outputs.rollback_sha }}
+        run: bash scripts/run-remote-deploy.sh --apply-only "$TARGET_SHA"
+
+      - name: Health check after rollback
+        if: always() && !cancelled() && ((steps.deploy.outputs.deploy_status == '0' && steps.health.outputs.health_status != '0') || (steps.deploy.outputs.deploy_status != '0' && steps.deploy.outputs.deploy_status != 'skipped' && steps.deploy.outputs.deploy_status != ''))
+        env:
+          ROLLBACK_SHA: ${{ steps.deploy.outputs.rollback_sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "$ROLLBACK_SHA" ]; then
+            echo "ОШИБКА: точка отката неизвестна. Либо сервер ещё не менялся, либо связь оборвалась в начале." >&2
+            exit 1
+          fi
+          python3 scripts/check-deploy-health.py --sha "$ROLLBACK_SHA"
+
+      - name: Mark the deploy failed
+        if: always() && !cancelled() && ((steps.deploy.outputs.deploy_status == '0' && steps.health.outputs.health_status != '0') || (steps.deploy.outputs.deploy_status != '0' && steps.deploy.outputs.deploy_status != 'skipped' && steps.deploy.outputs.deploy_status != ''))
+        run: |
+          echo "ОШИБКА: новая версия не подтверждена. Задача красная." >&2
+          echo "Если откат прошёл, сайт должен отвечать предыдущим коммитом." >&2
+          echo "Если проверка после отката тоже красная, сервер нужно посмотреть вручную." >&2
+          exit 1
+
+      - name: Remove the SSH key
+        if: always()
+        run: bash scripts/cleanup-deploy-ssh.sh
