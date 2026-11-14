@@ -34,14 +34,47 @@ if [[ ! "$rollback_sha" =~ ^[0-9a-f]{40}$ ]]; then
   exit 2
 fi
 
-printf 'STROYKA_ROLLBACK_SHA=%s\n' "$rollback_sha"
-echo "Точка отката: $rollback_sha"
 echo "Целевой коммит: $target_sha"
 
-switched=0
+# Hold the same lock as deploy.sh before changing the checkout. A manual
+# deploy must not be reading these files while HEAD is reset. deploy.sh locks
+# the file again on its own descriptor; the temporary flock wrapper below lets
+# that second lock succeed while this process keeps the real one.
+lock_file="${DEPLOY_LOCK_FILE:-/var/lock/stroyka-deploy.lock}"
+lock_wait="${STROYKA_LOCK_WAIT:-1200}"
+if [[ ! "$lock_wait" =~ ^[0-9]+$ ]]; then
+  echo "ОШИБКА: некорректное время ожидания блокировки." >&2
+  exit 1
+fi
+if ! command -v flock >/dev/null; then
+  echo "ОШИБКА: на сервере нет команды flock." >&2
+  exit 1
+fi
+export STROYKA_REAL_FLOCK
+export STROYKA_DEPLOY_LOCK_FILE
+STROYKA_REAL_FLOCK="$(command -v flock)"
+STROYKA_DEPLOY_LOCK_FILE="$lock_file"
+if ! exec 8>"$lock_file"; then
+  echo "ОШИБКА: не удалось открыть блокировку выкладки." >&2
+  exit 1
+fi
+if ! "$STROYKA_REAL_FLOCK" -w "$lock_wait" 8; then
+  rollback_sha="$(git rev-parse HEAD)"
+  printf 'STROYKA_ROLLBACK_SHA=%s\n' "$rollback_sha"
+  echo "Другой деплой уже выполняется. Сервер не менялся." >&2
+  exit 1
+fi
 
-# A newer commit already running on the server must not be replaced by an older
-# successful CI run that finished later. Rollback uses --apply-only and skips this.
+# Re-read after the lock: a manual deploy may have moved HEAD while we waited.
+# An older CI run must not replace that newer checkout. --apply-only is the
+# rollback path and must still be allowed to move backward.
+rollback_sha="$(git rev-parse HEAD)"
+if [[ ! "$rollback_sha" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "ОШИБКА: текущий коммит сервера не похож на SHA." >&2
+  exit 2
+fi
+printf 'STROYKA_ROLLBACK_SHA=%s\n' "$rollback_sha"
+echo "Точка отката: $rollback_sha"
 if [[ "$apply_only" -eq 0 ]]; then
   if git fetch origin main \
     && git cat-file -e "${target_sha}^{commit}" \
@@ -52,6 +85,8 @@ if [[ "$apply_only" -eq 0 ]]; then
     exit 0
   fi
 fi
+
+switched=0
 
 pin_and_deploy() {
   local sha="$1"
@@ -106,6 +141,19 @@ fi
 exec "$STROYKA_REAL_GIT" "$@"
 EOF
   chmod 700 "$wrap/git"
+  cat > "$wrap/flock" << 'EOF'
+#!/bin/bash
+set -euo pipefail
+if [[ "${1:-}" == "-n" && "${2:-}" =~ ^[0-9]+$ ]]; then
+  target="$(readlink -f "/proc/self/fd/$2" 2>/dev/null || true)"
+  expected="$(readlink -f "$STROYKA_DEPLOY_LOCK_FILE")"
+  if [[ -n "$target" && "$target" == "$expected" ]]; then
+    exit 0
+  fi
+fi
+exec "$STROYKA_REAL_FLOCK" "$@"
+EOF
+  chmod 700 "$wrap/flock"
 
   set +e
   STROYKA_REAL_GIT="$real" STROYKA_PINNED_SHA="$sha" PATH="$wrap:$PATH" bash "$deploy_script"

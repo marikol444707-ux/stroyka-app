@@ -2,6 +2,7 @@ import importlib.util
 import os
 import stat
 import subprocess
+import time
 import tempfile
 import textwrap
 import unittest
@@ -289,9 +290,15 @@ class RemoteDeployTests(unittest.TestCase):
         """).strip() + "\n", encoding="utf-8")
         fake_git.chmod(0o755)
         stub = self.repo / "deploy.sh"
+        self.lock_file = root / "deploy.lock"
         stub.write_text(textwrap.dedent("""\
             #!/bin/bash
             set -euo pipefail
+            exec 9>"$DEPLOY_LOCK_FILE"
+            if ! flock -n 9; then
+              echo "deploy.sh не получил блокировку" >&2
+              exit 1
+            fi
             echo "deploy $(git rev-parse HEAD)" >> "$STROYKA_TEST_LOG"
             git reset --hard HEAD
             git pull --ff-only
@@ -310,6 +317,7 @@ class RemoteDeployTests(unittest.TestCase):
             "STROYKA_DEPLOY_SCRIPT": str(stub),
             "STROYKA_TEST_LOG": str(self.log),
             "STROYKA_FAIL_FLAG": str(self.fail_flag),
+            "DEPLOY_LOCK_FILE": str(self.lock_file),
         })
 
     def head(self):
@@ -374,6 +382,36 @@ class RemoteDeployTests(unittest.TestCase):
         self.assertEqual(self.head(), NEW)
         self.assertEqual(self.deploys(), [])
         self.assertIn("STROYKA_SKIP=newer", result.stdout)
+
+    def test_busy_lock_does_not_change_the_checkout(self):
+        self.env["STROYKA_LOCK_WAIT"] = "0"
+        holder = subprocess.Popen(
+            ["flock", str(self.lock_file), "sleep", "30"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        def stop_holder():
+            if holder.poll() is None:
+                holder.kill()
+                holder.wait()
+
+        self.addCleanup(stop_holder)
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            probe = subprocess.run(
+                ["flock", "-n", str(self.lock_file), "true"],
+                check=False, capture_output=True,
+            )
+            if probe.returncode != 0:
+                break
+            time.sleep(0.05)
+        else:
+            self.fail("lock was not acquired")
+        result = self.run_remote(NEW)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(self.head(), OLD)
+        self.assertEqual(self.deploys(), [])
+        self.assertIn("Сервер не менялся", result.stderr)
 
     def test_bad_sha_is_rejected(self):
         result = self.run_remote("not-a-sha")
