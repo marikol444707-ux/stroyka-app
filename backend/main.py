@@ -16941,6 +16941,13 @@ def _sanitize_worker_estimate_sections(sections, allowed_items=None, estimate_id
                 if not item_keys and name_key not in allowed_by_name:
                     continue
             cleaned = dict(item)
+            # Filtering out materials/unassigned rows changes array indexes. Keep
+            # the original identity so the cabinet can match the contract row.
+            item_keys = _estimate_item_key_candidates(item, estimate_id, section_idx, item_idx)
+            if item_keys:
+                cleaned["estimateItemKey"] = next(
+                    (key for key in item_keys if key in allowed_by_key), item_keys[0]
+                )
             for key in money_keys:
                 if key in cleaned:
                     cleaned[key] = 0

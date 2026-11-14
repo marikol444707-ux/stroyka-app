@@ -103,9 +103,9 @@ const contractItemsTable = (items = []) => {
     return sum + qty * price;
   }, 0);
 
-  return '<table><tr><th>N</th><th>Работа</th><th>Ед.</th><th>Объём</th><th>Цена</th><th>Сумма</th></tr>' +
+  return '<div class="contract-work-scroll" role="region" aria-label="Перечень работ договора" tabindex="0"><table class="contract-work-table"><tr><th>N</th><th>Работа</th><th>Ед.</th><th>Объём</th><th>Цена</th><th>Сумма</th></tr>' +
     rows +
-    '<tr><td colspan="5"><b>ИТОГО по договору:</b></td><td style="text-align:right"><b>' + money(total) + '</b></td></tr></table>';
+    '<tr><td colspan="5"><b>ИТОГО по договору:</b></td><td style="text-align:right"><b>' + money(total) + '</b></td></tr></table></div>';
 };
 
 const commonClauses = (type) => {

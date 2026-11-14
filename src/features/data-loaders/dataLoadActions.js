@@ -1,3 +1,6 @@
+// Action factories are rebuilt on render; keep request order with the stable setter.
+const pricelistRequests = new WeakMap();
+
 export const createDataLoadActions = ({
   API,
   setChecklistItems,
@@ -16,8 +19,21 @@ export const createDataLoadActions = ({
   };
 
   const loadPricelistItems = async (plId) => {
-    const items = await fetch(API + '/pricelists/' + plId + '/items').then(r => r.json());
-    setPricelistItems(items);
+    const request = (pricelistRequests.get(setPricelistItems) || 0) + 1;
+    pricelistRequests.set(setPricelistItems, request);
+    setPricelistItems([]);
+    if (!plId) return { items: [], error: '' };
+    try {
+      const response = await fetch(API + '/pricelists/' + plId + '/items');
+      const items = await response.json();
+      if (!response.ok || !Array.isArray(items)) {
+        throw new Error(typeof items?.detail === 'string' ? items.detail : 'Не удалось загрузить прайс-лист');
+      }
+      if (request === pricelistRequests.get(setPricelistItems)) setPricelistItems(items);
+      return { items, error: '' };
+    } catch (error) {
+      return { items: [], error: error.message || 'Не удалось загрузить прайс-лист' };
+    }
   };
 
   const loadProjectChat = async (projectName) => {
