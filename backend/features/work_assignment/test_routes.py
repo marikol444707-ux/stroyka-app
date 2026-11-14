@@ -20,13 +20,14 @@ class FakeApp:
 
 
 class FakeCursor:
-    def __init__(self, existing_contract_id=None, existing_item=None):
+    def __init__(self, existing_contract_id=None, existing_item=None, block_draft_update=False):
         self.calls = []
         self.result = None
         self.rows = []
         self.closed = False
         self.existing_contract_id = existing_contract_id
         self.existing_item = existing_item
+        self.block_draft_update = block_draft_update
 
     def execute(self, sql, params=()):
         self.calls.append((sql, params))
@@ -51,9 +52,12 @@ class FakeCursor:
             }]
             self.result = (9, "Смета", 19, "Лицей", "Отделка", json.dumps(sections), "Активная")
         elif normalized.startswith("SELECT id FROM brigade_contracts"):
-            self.result = (self.existing_contract_id,) if self.existing_contract_id else None
+            self.result = None
+            self.rows = [(self.existing_contract_id,)] if self.existing_contract_id else []
         elif normalized.startswith("UPDATE brigade_contracts SET brigade_name"):
-            self.result = (self.existing_contract_id,) if self.existing_contract_id else None
+            self.result = None if self.block_draft_update else (
+                (self.existing_contract_id,) if self.existing_contract_id else None
+            )
         elif "INSERT INTO brigade_contracts" in normalized:
             self.result = (77,)
         elif "source_estimate_version_id=ANY(%s)" in normalized:
@@ -76,11 +80,12 @@ class FakeCursor:
 
 
 class FakeConnection:
-    def __init__(self, existing_contract_id=None, existing_item=None):
+    def __init__(self, existing_contract_id=None, existing_item=None, block_draft_update=False):
         self.autocommit = True
         self.cursor_value = FakeCursor(
             existing_contract_id=existing_contract_id,
             existing_item=existing_item,
+            block_draft_update=block_draft_update,
         )
         self.committed = False
         self.rolled_back = False
@@ -224,7 +229,10 @@ class WorkAssignmentTenantRouteTests(unittest.TestCase):
         )
         self.assertIn("company_id=%s", lookup_sql)
         self.assertIn("project_id=%s", lookup_sql)
-        self.assertEqual(lookup_params[:2], (4, 19))
+        self.assertIn("COALESCE(NULLIF(status,''),'Черновик')='Черновик'", lookup_sql)
+        self.assertIn("signed_at IS NULL", lookup_sql)
+        self.assertNotIn("status='Подписан'", lookup_sql)
+        self.assertEqual(lookup_params[:3], (4, 19, "Отделка"))
         self.assertIn(
             ("SELECT pg_advisory_xact_lock(%s,%s)", (4, 19)),
             connection.cursor_value.calls,
@@ -288,8 +296,31 @@ class WorkAssignmentTenantRouteTests(unittest.TestCase):
             if "UPDATE brigade_contracts" in call[0] and "SET brigade_name" in call[0]
         )
         self.assertIn("id=%s AND company_id=%s AND project_id=%s", update_sql)
+        self.assertIn("signed_at IS NULL", update_sql)
         self.assertEqual(update_params[-3:], (77, 4, 19))
         self.assertFalse(any("INSERT INTO brigade_contracts" in call[0] for call in connection.cursor_value.calls))
+
+    def test_signed_contract_is_not_appended_when_the_draft_guard_misses(self):
+        connection = FakeConnection(existing_contract_id=77, block_draft_update=True)
+        handler, *_ = self._register(connection)
+
+        with self.assertRaises(HTTPException) as raised:
+            handler(
+                9,
+                {
+                    "assignee": {"contractorId": 41, "brigadeName": "Иван Иванов"},
+                    "items": [{"sectionIndex": 0, "itemIndex": 0, "estimateItemKey": "work-1"}],
+                },
+                x_company_id="4",
+                x_company_mode="company",
+                current_user={"id": 5, "role": "директор"},
+            )
+
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertIn("Подписанный договор", raised.exception.detail)
+        self.assertFalse(any("INSERT INTO brigade_contract_items" in call[0] for call in connection.cursor_value.calls))
+        self.assertTrue(connection.rolled_back)
+        self.assertFalse(connection.committed)
 
     def test_assignment_accepts_manual_override_for_one_coefficient_row(self):
         connection = FakeConnection()

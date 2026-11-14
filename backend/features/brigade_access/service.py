@@ -77,35 +77,85 @@ def require_brigade_write_actor(company_actors, write_roles):
     return actor
 
 
-def find_existing_brigade_contract_id(cur, company_id, project_id, work_package, contractor_id, brigade_name):
-    """Find the one active contract that the create form would otherwise duplicate."""
-    # Lock the scope even when no contract exists yet. Row locks on an empty
-    # SELECT cannot stop two simultaneous requests from both inserting.
+REUSABLE_DRAFT_CONTRACT_SQL = (
+    "COALESCE(NULLIF(status,''),'Черновик')='Черновик' "
+    "AND signed_at IS NULL "
+    "AND party_snapshot_json IS NULL "
+    "AND party_snapshot_frozen_at IS NULL"
+)
+
+SIGNED_CONTRACT_BLOCK_DETAIL = (
+    "Подписанный договор нельзя изменить. Новые работы оформляются отдельным договором."
+)
+
+
+def find_existing_brigade_contract_id(
+    cur,
+    company_id,
+    project_id,
+    work_package,
+    contractor_id,
+    brigade_name,
+    *,
+    drafts_only=True,
+):
+    """Find the contract that new estimate works may be added to.
+
+    Assignment and distribution pass the default drafts_only=True. A signed,
+    closed, annulled or already frozen contract is never returned: the caller
+    creates a new draft instead. The direct contract form keeps drafts_only=False
+    so it can open an existing signed contract without changing it.
+
+    The project advisory lock is intentionally coarse. One lock for the whole
+    company and project serializes contract creation, including bulk
+    distribution groups, without opposite-order deadlocks.
+    """
     cur.execute("SELECT pg_advisory_xact_lock(%s,%s)", (int(company_id), int(project_id)))
+    normalized_package = str(work_package or "Основная").strip() or "Основная"
     normalized_name = str(brigade_name or "").strip()
     if contractor_id:
-        identity_sql = (
-            "(contractor_id=%s OR (contractor_id IS NULL "
-            "AND LOWER(BTRIM(brigade_name))=LOWER(%s)))"
-        )
-        identity = (int(contractor_id), normalized_name)
+        if drafts_only:
+            identity_sql = "contractor_id=%s"
+            identity = (int(contractor_id),)
+        else:
+            identity_sql = (
+                "(contractor_id=%s OR (contractor_id IS NULL "
+                "AND LOWER(BTRIM(brigade_name))=LOWER(%s)))"
+            )
+            identity = (int(contractor_id), normalized_name)
     else:
         if not normalized_name:
             raise HTTPException(status_code=400, detail="Укажите исполнителя или название бригады")
-        identity_sql = "contractor_id IS NULL AND LOWER(BTRIM(brigade_name))=LOWER(%s)"
+        identity_sql = "contractor_id IS NULL AND LOWER(BTRIM(brigade_name))=LOWER(BTRIM(%s))"
         identity = (normalized_name,)
+    if drafts_only:
+        status_sql = f"AND {REUSABLE_DRAFT_CONTRACT_SQL} "
+        order_sql = "ORDER BY id LIMIT 2 FOR UPDATE"
+    else:
+        status_sql = "AND COALESCE(status,'') NOT IN ('Аннулирован','Удалён','Удален') "
+        order_sql = (
+            "ORDER BY CASE WHEN EXISTS (SELECT 1 FROM brigade_contract_items i "
+            "WHERE i.contract_id=brigade_contracts.id) THEN 0 ELSE 1 END, "
+            "CASE WHEN status='Подписан' THEN 0 ELSE 1 END, id DESC LIMIT 1 FOR UPDATE"
+        )
     cur.execute(
         "SELECT id FROM brigade_contracts WHERE company_id=%s AND project_id=%s "
         "AND COALESCE(NULLIF(work_package,''),'Основная')=%s "
-        "AND COALESCE(status,'') NOT IN ('Аннулирован','Удалён','Удален') "
+        f"{status_sql}"
         f"AND {identity_sql} "
-        "ORDER BY CASE WHEN EXISTS (SELECT 1 FROM brigade_contract_items i WHERE i.contract_id=brigade_contracts.id) "
-        "THEN 0 ELSE 1 END, CASE WHEN status='Подписан' THEN 0 ELSE 1 END, id DESC "
-        "LIMIT 1 FOR UPDATE",
-        (int(company_id), int(project_id), work_package, *identity),
+        f"{order_sql}",
+        (int(company_id), int(project_id), normalized_package, *identity),
     )
-    row = cur.fetchone()
-    return _row_value(row, "id", 0) if row else None
+    if not drafts_only:
+        row = cur.fetchone()
+        return _row_value(row, "id", 0) if row else None
+    rows = cur.fetchall() or []
+    if len(rows) > 1:
+        raise HTTPException(
+            status_code=409,
+            detail="Найдено несколько черновиков договора; требуется разбор",
+        )
+    return _row_value(rows[0], "id", 0) if rows else None
 
 
 def resolve_brigade_contractor_user(cur, company_id, contractor_id=None, contractor_name=""):
