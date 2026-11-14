@@ -257,10 +257,10 @@ class WarehouseAnomalyRuntimeRouteRegistrationTests(unittest.TestCase):
         package_bytes = package_path.read_bytes()
         runtime_source = runtime_path.read_text(encoding="utf-8")
 
-        # Reviewed profile company-context dependencies; the warehouse preview package is unchanged.
+        # Reviewed read-only supply-history wiring; the warehouse preview package is unchanged.
         self.assertEqual(
             hashlib.sha256(main_bytes).hexdigest(),
-            "730c8fb911ac83d7e9c71c499652f3fe3cf4a4116a9e64f73e43de30e14ae0c9",
+            "6befccc00d8af736f8a559ee1687403e73dfdf312f048928a8eb8963f152c6e1",
         )
         self.assertEqual(
             hashlib.sha256(package_bytes).hexdigest(),
