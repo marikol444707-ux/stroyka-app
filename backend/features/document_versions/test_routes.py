@@ -1,6 +1,9 @@
+import json
 import unittest
+from contextlib import contextmanager
+from fastapi import HTTPException
 
-from backend.features.document_versions.routes import register_document_versions_module
+from .routes import owned_snapshot, register_document_versions_module
 
 
 class FakeApp:
@@ -9,89 +12,69 @@ class FakeApp:
 
     def get(self, path):
         def decorator(handler):
-            self.routes[("GET", path)] = handler
+            self.routes[path] = handler
             return handler
         return decorator
 
 
-class FakeCursor:
-    def __init__(self, rows=(), row=None):
-        self.rows = list(rows)
-        self.row = row
-        self.calls = []
-        self.closed = False
+class Scope:
+    def __init__(self, rows):
+        self.rows, self.calls, self.closed = rows, [], False
 
-    def execute(self, sql, params=()):
-        self.calls.append((" ".join(sql.split()), tuple(params)))
+    @contextmanager
+    def transaction(self, user, request, roles):
+        try:
+            yield self, [dict(id=7, role='директор', companyId=2)]
+        finally:
+            self.closed = True
 
-    def fetchall(self):
-        return list(self.rows)
+    def visible(self, actors, roles):
+        return 'p.company_id=%s', [2]
 
-    def fetchone(self):
-        return self.row
+    def execute(self, sql, params):
+        self.calls.append((sql, params))
 
-    def close(self):
-        self.closed = True
-
-
-class FakeConnection:
-    def __init__(self, cursor):
-        self._cursor = cursor
-        self.closed = False
-
-    def cursor(self, **_kwargs):
-        return self._cursor
-
-    def close(self):
-        self.closed = True
+    def __iter__(self):
+        return iter(self.rows)
 
 
-def build(cursor):
-    app = FakeApp()
-    connection = FakeConnection(cursor)
-    register_document_versions_module(app, {
-        "get_db": lambda: connection,
-        "require_roles": lambda *roles: (lambda: None),
-        "project_document_roles": ("директор",),
-    })
-    return app, connection
+def build(rows=()):
+    scope, app = Scope(rows), FakeApp()
+    register_document_versions_module(app, dict(record_scope=scope, get_current_user=lambda: None,
+        project_document_roles=('директор',), package_access_filter=lambda actor, column: ('', [])))
+    return app.routes, scope
 
 
 class DocumentVersionsRoutesTest(unittest.TestCase):
-    def test_registers_same_urls(self):
-        app, _conn = build(FakeCursor())
-        self.assertIn(("GET", "/document-versions"), app.routes)
-        self.assertIn(("GET", "/document-versions/{vid}"), app.routes)
+    def test_routes_filter_current_owner_and_typed_parent(self):
+        snapshot=dict(id=9,company_id=2,project_name='P',work_journal_id=4,work_package='A',total=10)
+        row=(1,'hidden_works_act',9,'v1',json.dumps(snapshot),'User','Reason','2026-11-09',2,'P',4,'A')
+        routes,scope=build([row])
+        result=routes['/document-versions'](document_type='hidden_works_act',document_id=9)
+        self.assertEqual(result[0]['id'],1)
+        self.assertNotIn('snapshot',result[0])
+        query,params=scope.calls[0]
+        self.assertIn('p.company_id=%s',query)
+        self.assertIn("v.document_type='hidden_works_act'",query)
+        self.assertEqual(params,[2,'hidden_works_act',9])
+        self.assertTrue(scope.closed)
+        self.assertEqual(routes['/document-versions/{vid}'](vid=1)['snapshot'],snapshot)
 
-    def test_list_filters_by_type_and_id_and_maps_fields(self):
-        cursor = FakeCursor(rows=[(1, "act", 7, "v2", "Тест", "правка", "2026-07-27")])
-        app, connection = build(cursor)
-        rows = app.routes[("GET", "/document-versions")](
-            document_type="act", document_id=7, _current_user={}
-        )
-        self.assertEqual(rows, [{
-            "id": 1, "documentType": "act", "documentId": 7, "versionLabel": "v2",
-            "changedBy": "Тест", "changeReason": "правка", "createdAt": "2026-07-27",
-        }])
-        sql, params = cursor.calls[0]
-        self.assertIn("WHERE document_type=%s AND document_id=%s", sql)
-        self.assertEqual(params, ("act", 7))
-        self.assertTrue(connection.closed)
+    def test_missing_version_is_404_and_connection_closes(self):
+        routes,scope=build()
+        with self.assertRaises(HTTPException) as error:
+            routes['/document-versions/{vid}'](vid=99)
+        self.assertEqual(error.exception.status_code,404)
+        self.assertTrue(scope.closed)
 
-    def test_detail_parses_snapshot_and_handles_missing(self):
-        found = FakeCursor(row=(1, "act", 7, "v2", '{"a": 1}', "Тест", "", "2026-07-27"))
-        app, _conn = build(found)
-        result = app.routes[("GET", "/document-versions/{vid}")](vid=1, _current_user={})
-        self.assertEqual(result["snapshot"], {"a": 1})
-        self.assertEqual(result["versionLabel"], "v2")
-
-        missing = FakeCursor(row=None)
-        app2, _conn2 = build(missing)
-        self.assertEqual(
-            app2.routes[("GET", "/document-versions/{vid}")](vid=99, _current_user={}),
-            {"error": "not found"},
-        )
+    def test_legacy_malformed_and_moved_snapshots_have_no_inferred_owner(self):
+        valid=dict(id=9,company_id=2,project_name='P',work_journal_id=4,work_package='A')
+        for raw in ('broken', '[]', '{}', dict(valid,company_id=True), dict(valid,company_id=3),
+                    dict(valid,id=10),dict(valid,project_name='Other'),dict(valid,work_journal_id=5),
+                    dict(valid,work_package='B')):
+            with self.subTest(raw=raw):
+                self.assertIsNone(owned_snapshot(raw,9,2,'P',4,'A'))
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     unittest.main()

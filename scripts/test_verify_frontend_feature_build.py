@@ -12,6 +12,30 @@ spec.loader.exec_module(module)
 
 
 class FrontendFeatureBuildTests(unittest.TestCase):
+    def test_alias_mode_mismatch_or_missing_metadata_blocks_release(self):
+        for actual in ('0', '', '%REACT_APP_COMPANY_MATERIAL_ALIASES_ENABLED%'):
+            with self.subTest(actual=actual):
+                root = self.make_build('/company-material-aliases')
+                (root / 'index.html').write_text(
+                    '<meta name="stroyka-company-material-aliases" content="' + actual + '">')
+                with self.assertRaisesRegex(ValueError, 'соответствий материалов'):
+                    module.verify(root, 'REACT_APP_COMPANY_MATERIAL_ALIASES_ENABLED=1\n')
+
+    def test_alias_mode_requires_owned_api_in_compiled_bundle(self):
+        root = self.make_build('/material-aliases')
+        (root / 'index.html').write_text(
+            '<meta name="stroyka-company-material-aliases" content="1">')
+        with self.assertRaisesRegex(ValueError, 'соответствий материалов'):
+            module.verify(root, 'REACT_APP_COMPANY_MATERIAL_ALIASES_ENABLED=1\n')
+
+    def test_alias_mode_accepts_matching_bundle_and_explicit_disabled_mode(self):
+        for mode in ('0', '1'):
+            with self.subTest(mode=mode):
+                root = self.make_build('/company-material-aliases' if mode == '1' else '/material-aliases')
+                (root / 'index.html').write_text(
+                    '<meta name="stroyka-company-material-aliases" content="' + mode + '">')
+                module.verify(root, 'REACT_APP_COMPANY_MATERIAL_ALIASES_ENABLED=' + mode + '\n')
+
     def make_build(self, source):
         temporary = tempfile.TemporaryDirectory()
         root = Path(temporary.name)

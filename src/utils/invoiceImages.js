@@ -1,6 +1,6 @@
 export const HEIC_INVOICE_HELP = 'Фото HEIC не удалось прочитать. На iPhone откройте Настройки -> Камера -> Форматы -> Наиболее совместимые или отправьте фото как JPEG/PNG.';
 export const RAW_INVOICE_HELP = 'RAW/DNG-фото накладной браузер не обрабатывает. Экспортируйте снимок в JPEG/PNG/HEIC или сделайте обычное фото через камеру телефона.';
-export const PDF_INVOICE_HELP = 'PDF накладной должен быть обычным PDF-файлом до 8 страниц. Если это защищенный или пустой PDF, распознайте его через фото страниц.';
+export const PDF_INVOICE_HELP = 'PDF накладной должен быть обычным PDF-файлом до 6 страниц. Если это защищенный или пустой PDF, распознайте его через фото страниц.';
 
 export const invoiceImageAccept = 'application/pdf,.pdf,image/jpeg,image/png,image/webp,image/heic,image/heif,image/*,.heic,.heif,.dng,.raw,.cr2,.nef,.arw,.raf,.orf,.rw2';
 

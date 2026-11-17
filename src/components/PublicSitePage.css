@@ -359,6 +359,17 @@
   font-size: 26px;
 }
 
+.public-calculator-price-warning {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid rgba(160, 98, 15, 0.28);
+  border-radius: 8px;
+  background: #fff8e8;
+  color: #70450b;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
 .public-live-badge,
 .public-passport-status {
   color: var(--site-green-dark);
@@ -4661,7 +4672,57 @@
     max-width: calc(100vw - 28px);
   }
   .public-reference-card {
-    padding: 0 0 14px;
+    display: grid;
+    grid-template-columns: 88px minmax(0, 1fr);
+    grid-template-rows: auto auto auto;
+    align-items: center;
+    gap: 4px 12px;
+    padding: 10px;
+    text-align: left;
+  }
+  .public-reference-card img,
+  .public-reference-card .public-project-concept-thumb {
+    grid-column: 1;
+    grid-row: 1 / span 3;
+    width: 88px;
+    height: 88px;
+    border-radius: 6px;
+  }
+  .public-reference-card .public-reference-count {
+    position: static;
+    grid-column: 2;
+    grid-row: 2;
+    width: max-content;
+    max-width: 100%;
+    min-height: 0;
+    margin: 0;
+    padding: 3px 7px;
+    background: #eef8f4;
+    color: var(--site-green-dark);
+    font-size: 10px;
+  }
+  .public-reference-card .public-reference-price {
+    grid-column: 2;
+    grid-row: 3;
+    max-width: 100%;
+    min-height: 0;
+    margin: 0;
+    padding: 4px 7px;
+    font-size: 10px;
+  }
+  .public-reference-card h3 {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: end;
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.25;
+  }
+  .public-reference-card .public-reference-media-note,
+  .public-reference-card p,
+  .public-reference-card > div,
+  .public-reference-card .public-reference-open {
+    display: none;
   }
   .public-project-visual-column,
   .public-project-spec-column {

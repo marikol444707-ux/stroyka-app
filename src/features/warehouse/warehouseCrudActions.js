@@ -58,9 +58,15 @@ export const createWarehouseCrudActions = ({
         : null;
       location = projectFromList?.name || assignedProjectNames[0] || '';
     }
+    if (newInvoice?.originalUrls?.length && !newInvoice.receiptCompleted
+        && (!preselectedLocation || newInvoice.location === preselectedLocation)) {
+      setShowScanInvoice(true);
+      return;
+    }
     const warehouseTarget = location && location !== 'Основной склад' ? 'object' : 'main';
     setNewInvoice({
       ...createWarehouseInvoiceForm(),
+      receiptDraftId: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
       date:new Date().toISOString().split('T')[0],
       acceptedBy:user?.name||'',
       location,
@@ -172,7 +178,11 @@ export const createWarehouseCrudActions = ({
       selectedAction,
       sourceType,
       sourceId:newInvoice.sourceId||null,
-      materialMatch
+      materialMatch,
+      receiptDocument: newInvoice.receiptDocument,
+      originalUrls: newInvoice.originalUrls || photoUrls,
+      physicalReceiptConfirmed: newInvoice.physicalReceiptConfirmed === true,
+      newDocumentConfirmed: newInvoice.newDocumentConfirmed === true,
     };
     const savedInv = inv;
     const invoiceRes = await fetch(API+'/warehouse-invoices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(savedInv)});
@@ -189,10 +199,12 @@ export const createWarehouseCrudActions = ({
     }
     notify('Накладная №'+invoiceNumber+' принята'+(reviewTasksCreated ? ' · задач ИИ-контроля: '+reviewTasksCreated : ''),'invoice');
     addActivity('Принята накладная №'+invoiceNumber);
-    await refreshData();
-    setNewInvoice(createWarehouseInvoiceForm());
+    let refreshFailed = false;
+    try { await refreshData(); } catch (_error) { refreshFailed = true; }
+    setNewInvoice(prev => prev === newInvoice ? createWarehouseInvoiceForm() : prev);
     setShowForm(false);
-    alert('Накладная принята!'+(reviewTasksCreated ? '\nСоздано задач ИИ-контроля: '+reviewTasksCreated : ''));
+    alert('Накладная принята!'+(reviewTasksCreated ? '\nСоздано задач ИИ-контроля: '+reviewTasksCreated : '')
+      +(refreshFailed ? '\nНе удалось обновить список. Обновите его позже; повторно принимать накладную не нужно.' : ''));
     return true;
   };
 

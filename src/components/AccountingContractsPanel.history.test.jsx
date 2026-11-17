@@ -121,3 +121,17 @@ it('still requires an NPD receipt after paying a self-employed canonical act', (
       settlementSummary: {grossAmount: 10, fineAmount: 0, netAmount: 10, paidAmount: 10, remainingAmount: 0}}]} />);
   expect(screen.getByText('⚠️ Не хватает: чек НПД')).toBeInTheDocument();
 });
+
+it.each([0,500])('legacy performer contracts use only confirmed retention %i',retentionAmount=>{
+  render(<AccountingContractsPanel C={{}} card={{}} inp={{}}
+    contracts={[{id:70,masterId:100,masterName:'Тест',project:'Объект',status:'Подписан'}]}
+    interimActs={[{id:10,contractId:70,masterId:100,masterName:'Тест',project:'Объект',totalAmount:10000,retentionAmount,retentionReleased:0,paidAmount:0}]}/>);
+  const label=screen.getByText('Подтверждённое удержание');
+  expect(label.parentElement.querySelector('b').textContent.replace(/[^\d]/g,'')).toBe(String(retentionAmount));
+});
+
+it('legacy brigade card does not invent five percent without an act ledger',()=>{
+  render(<AccountingContractsPanel C={{}} card={{}} inp={{}}
+    brigadeContracts={[{id:70,brigadeName:'Тест',projectName:'Объект',status:'Подписан',doneAmount:10000}]}/>);
+  expect(screen.getByText('Подтверждённое удержание').parentElement.querySelector('b').textContent.replace(/[^\d]/g,'')).toBe('0');
+});

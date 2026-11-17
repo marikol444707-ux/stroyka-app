@@ -476,7 +476,7 @@ test('loading settings hydrates both document data and the editable requisites f
   }));
 });
 
-test.each(['1', '0'])('first master works load hydrates warehouse stock, norms and history only with accounting flag=%s', async flag => {
+test.each(['1', '0'])('first master works load retains returns with either accounting flag=%s', async flag => {
   const previous = process.env.REACT_APP_WORK_MATERIAL_ACCOUNTING_ENABLED;
   process.env.REACT_APP_WORK_MATERIAL_ACCOUNTING_ENABLED = flag;
   const rowsByPath = {
@@ -509,7 +509,7 @@ test.each(['1', '0'])('first master works load hydrates warehouse stock, norms a
     const paths = global.fetch.mock.calls.map(([url]) => String(url).split('?')[0]);
     for (const [setterName, path] of [['setMaterials', '/api/materials'], ['setMaterialNorms', '/api/material-norms'],
       ['setMaterialNormOverrides', '/api/material-norms/overrides'], ['setHistory', '/api/warehouse-history']]) {
-      if (flag === '1') {
+      if (flag === '1' || path === '/api/warehouse-history') {
         expect(paths).toContain(path);
         expect(setters[setterName]).toHaveBeenCalledWith(rowsByPath[path]);
       } else {
@@ -563,4 +563,91 @@ test('supplier initial load populates its linked card and catalog', async () => 
   await act(async () => { await result.current.loadMobileInitial(); });
   expect(setSuppliers).toHaveBeenCalledWith([card]);
   expect(setSupplierCatalog).toHaveBeenCalledWith([item]);
+});
+
+
+test('worker loads their consent on first documents load and subsequent refresh', async () => {
+  const consent = {id: 1, userId: 7, scanUrl: '/tenant-files/1/content'};
+  const setPdConsents = jest.fn();
+  global.fetch = jest.fn(async url => ({ok: true, headers: snapshotHeaders, json: async () => url.endsWith('/pd-consents') ? [consent] : []}));
+  const {result} = renderHook(() => useJournalHarness(company(2), {
+    user: {id: 7, role: 'мастер'}, activePage: 'documents', setPdConsents,
+    roleFlagsForUser: () => ({role: 'мастер', isWorkerRole: true, canSeeProjectDocs: true}),
+  }));
+  await act(async () => { await result.current.refreshData('documents'); });
+  expect(setPdConsents).toHaveBeenCalledWith([consent]);
+  setPdConsents.mockClear();
+  await act(async () => { await result.current.refreshData('documents'); });
+  expect(setPdConsents).toHaveBeenCalledWith([consent]);
+});
+
+
+test('refreshing works after a new expense updates the master expense summary', async () => {
+  const expense = {id: 1, employeeId: 42, employeeName: 'Мастер', amount: 125.50, status: 'Ожидает'};
+  const setOwnExpenses = jest.fn();
+  global.fetch = jest.fn(async url => ({ok: true, headers: snapshotHeaders, json: async () => url.endsWith('/own-expenses') ? [expense] : []}));
+  const {result} = renderHook(() => useJournalHarness(company(2), {
+    user: {id: 7, role: 'мастер'}, activePage: 'works', setOwnExpenses,
+    roleFlagsForUser: () => ({role: 'мастер', isInternalRole: true, canSeeProjectDocs: true}),
+  }));
+  await act(async () => { await result.current.refreshData('works'); });
+  expect(setOwnExpenses).toHaveBeenCalledWith([expense]);
+});
+
+
+test.each(['мастер', 'бригадир', 'субподрядчик'])('worker %s keeps own acts and earnings on boot and documents refresh', async role => {
+  const actRow = {id: 1, masterId: 11, total: 300};
+  const earning = {id: 2, staffId: '11', total: 150, workJournalId: 1};
+  const setInterimActs = jest.fn(), setPiecework = jest.fn();
+  global.fetch = jest.fn(async url => ({ok: true, headers: snapshotHeaders,
+    json: async () => url.endsWith('/interim-acts') ? [actRow] : url.endsWith('/piecework') ? [earning] : []}));
+  const {result} = renderHook(() => useJournalHarness(company(2), {
+    user: {id: 11, role}, activePage: 'documents', setInterimActs, setPiecework,
+    roleFlagsForUser: () => ({role, isInternalRole: true, canSeeProjectDocs: true}),
+  }));
+  await act(async () => { await result.current.loadMobileInitial(); });
+  expect(setInterimActs).toHaveBeenLastCalledWith([actRow]);
+  expect(setPiecework).toHaveBeenLastCalledWith([earning]);
+  await act(async () => { await result.current.refreshData('documents'); });
+  expect(setInterimActs).toHaveBeenLastCalledWith([actRow]);
+  expect(setPiecework).toHaveBeenLastCalledWith([earning]);
+});
+
+
+test('foreman project load includes server stock and returns without visiting warehouse', async () => {
+  const stock = {id: 1, companyId: 2, project: 'Объект', name: 'Панели', quantity: 9};
+  const returned = {id: 2, project: 'Объект', type: 'возврат от мастера', quantity: 2};
+  const setMaterials = jest.fn(), setHistory = jest.fn();
+  global.fetch = jest.fn(async url => ({ok: true, headers: snapshotHeaders,
+    json: async () => url.startsWith('/api/materials') ? [stock] : url.endsWith('/warehouse-history') ? [returned] : []}));
+  const {result} = renderHook(() => useJournalHarness(company(2), {
+    user: {id: 6, role: 'прораб'}, activePage: 'projects', setMaterials, setHistory,
+    roleFlagsForUser: () => ({role: 'прораб', isWarehouseRole: true, isInternalRole: true, canSeeProjectDocs: true}),
+  }));
+  await act(async () => { await result.current.refreshData('projects'); });
+  expect(setMaterials).toHaveBeenLastCalledWith([stock]);
+  expect(setHistory).toHaveBeenLastCalledWith([returned]);
+});
+
+test('project overview loads full estimate lines needed for totals instead of treating summaries as empty estimates', async () => {
+  const full = {id:7,revision:3,sectionsLoaded:true,sections:[{name:'Основная',items:[{id:'work',name:'Монтаж',quantity:100,priceWork:100,doneQuantity:3}]}]};
+  const setEstimatesList=jest.fn();
+  global.fetch=jest.fn(async url=>({ok:true,headers:snapshotHeaders,json:async()=>
+    url==='/api/estimates'?[full]:url.startsWith('/api/estimates?')?[{id:7,revision:3,sectionsLoaded:false,sections:[]}]:[]}));
+  const {result}=renderHook(()=>useJournalHarness(company(2),{
+    user:{id:6,role:'прораб'},activePage:'projects',setEstimatesList,
+    roleFlagsForUser:()=>({role:'прораб',isWarehouseRole:true,isInternalRole:true,canSeeProjectDocs:true}),
+  }));
+  await act(async()=>{await result.current.refreshData('projects');});
+  expect(setEstimatesList).toHaveBeenCalledWith([full]);
+});
+
+test('finance project load includes the persisted expense mirror from master spending', async () => {
+  const expense={id:17,companyId:2,projectId:1,project:'Объект',amount:77.25,sourceType:'own_expense'};
+  const setManualExpenses=jest.fn();
+  global.fetch=jest.fn(async url=>({ok:true,headers:snapshotHeaders,json:async()=>url==='/api/expenses'?[expense]:[]}));
+  const {result}=renderHook(()=>useJournalHarness(company(2),{activePage:'projects',setManualExpenses,
+    roleFlagsForUser:()=>({role:'директор',isLeadershipRole:true,isFinanceRole:true,isWarehouseRole:true,isInternalRole:true,canSeeProjectDocs:true})}));
+  await act(async()=>{await result.current.refreshData('projects');});
+  expect(setManualExpenses).toHaveBeenLastCalledWith([expense]);
 });

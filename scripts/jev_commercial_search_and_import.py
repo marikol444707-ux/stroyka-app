@@ -66,7 +66,10 @@ def run_search(profile=None, *, runner=None):
         raise ValueError("jev_search_returned_invalid_report")
     # A remote nonzero exit may still contain a useful partial report if one
     # source failed; import remains safe because all rows enter review status.
-    if result.returncode and not (report.get("confirmed") or report.get("review") or report.get("government_review")):
+    if result.returncode and not (
+        report.get("confirmed") or report.get("review") or report.get("government_review")
+        or report.get("sources")
+    ):
         raise ValueError("jev_search_failed_without_candidates")
     if profile is not None and report.get("companyId") != profile.get("companyId"):
         raise ValueError("jev_search_profile_mismatch")

@@ -1,4 +1,5 @@
-import React from 'react';
+import { actRemaining, actAdvance, actRetention, actToolDeduction } from '../utils/actSettlement';
+import React, { useState } from 'react';
 import { CheckCircle, Eye, Printer, Upload } from 'lucide-react';
 import ProjectHiddenWorksActSignatureModal from './ProjectHiddenWorksActSignatureModal';
 
@@ -32,6 +33,8 @@ export default function MasterDocumentsPage({
   btnG,
   inp,
 }) {
+  const [consentError, setConsentError] = useState('');
+  const [consentSaving, setConsentSaving] = useState(false);
   const consentHtml = PD_CONSENT_TEXT({
     fullName: masterProfile?.fullName || user.name,
     passport: masterProfile?.passport || '',
@@ -74,6 +77,7 @@ export default function MasterDocumentsPage({
             Распечатать
           </button>
         </div>
+        {consentError && <p role="alert" style={{color: C.danger}}>{consentError}</p>}
         {consent?.scanUrl ? (
           <div style={{ backgroundColor: C.successLight, border: '1.5px solid ' + C.successBorder, padding: '10px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '10px' }}>
             <CheckCircle size={16} color={C.success} />
@@ -87,20 +91,36 @@ export default function MasterDocumentsPage({
               type="file"
               accept="image/*,application/pdf"
               style={{ display: 'none' }}
+              disabled={consentSaving}
               onChange={async (e) => {
-                if (!e.target.files?.[0]) return;
-                const url = await uploadPhoto(e.target.files[0], { context: 'pd-consents' });
-                await fetch(API + '/pd-consents', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    userId: user.id,
-                    signedAt: new Date().toLocaleString('ru-RU'),
-                    scanUrl: url,
-                    uploadedBy: user.name,
-                  }),
-                });
-                await refreshData();
+                if (!e.target.files?.[0] || consentSaving) return;
+                const input = e.target;
+                setConsentSaving(true);
+                setConsentError('');
+                try {
+                  const url = await uploadPhoto(input.files[0], { context: 'pd-consents', projectScoped: false });
+                  if (!url) throw new Error('Не удалось загрузить скан. Повторите загрузку.');
+                  const response = await fetch(API + '/pd-consents', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      userId: user.id,
+                      signedAt: new Date().toLocaleString('ru-RU'),
+                      scanUrl: url,
+                      uploadedBy: user.name,
+                    }),
+                  });
+                  if (!response.ok) {
+                    const body = await response.json().catch(() => ({}));
+                    throw new Error(body.detail?.message || (typeof body.detail === 'string' ? body.detail : 'Не удалось сохранить согласие'));
+                  }
+                  await refreshData();
+                } catch (error) {
+                  setConsentError(error.message || 'Не удалось сохранить согласие');
+                } finally {
+                  setConsentSaving(false);
+                  input.value = '';
+                }
               }}
             />
           </label>
@@ -132,8 +152,8 @@ export default function MasterDocumentsPage({
         {myActs.map((act) => {
           const totalAmt = act.totalAmount || 0;
           const paidAmt = act.paidAmount || 0;
-          const toolDed = myTools.filter((tool) => tool.issueType === 'В счёт зарплаты').reduce((sum, tool) => sum + tool.cost, 0);
-          const rest = totalAmt - toolDed - paidAmt;
+          const toolDed = actToolDeduction(act);
+          const rest = actRemaining(act);
           return (
             <div key={act.id} style={{ padding: '12px', backgroundColor: C.bg, borderRadius: '8px', marginBottom: '8px', border: '1.5px solid ' + C.border }}>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -143,6 +163,8 @@ export default function MasterDocumentsPage({
                   <p style={{ color: C.text, margin: '1px 0', fontSize: '12px' }}>{'Начислено: ' + totalAmt.toLocaleString() + ' ₽'}</p>
                   {toolDed > 0 && <p style={{ color: C.danger, margin: '1px 0', fontSize: '12px' }}>{'Удержания: -' + toolDed.toLocaleString() + ' ₽'}</p>}
                   <p style={{ color: C.success, margin: '1px 0', fontSize: '12px' }}>{'Оплачено: ' + paidAmt.toLocaleString() + ' ₽'}</p>
+                  {actAdvance(act)>0 && <p>Зачтён аванс: {actAdvance(act).toLocaleString('ru-RU')} ₽</p>}
+                  {actRetention(act)>0 && <p> · Гарантийное удержание: {actRetention(act).toLocaleString('ru-RU')} ₽</p>}
                   {rest > 0 && <p style={{ color: C.danger, margin: '1px 0', fontSize: '12px', fontWeight: '600' }}>{'Остаток: ' + rest.toLocaleString() + ' ₽'}</p>}
                 </div>
                 <button onClick={() => showPreview(buildActContent(act), 'Акт')} style={btnB}>

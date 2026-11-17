@@ -30,8 +30,9 @@ describe('delivery list pagination', () => {
     expect(screen.getByText('Материал-1')).toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('Показано поставок: 9 из 9');
     fireEvent.click(screen.getByRole('button', { name: 'Принять' }));
-    expect(deps.setReceivingDeliveryId).toHaveBeenCalledWith(1);
-    expect(deps.setReceiveForm).toHaveBeenCalledWith(expect.objectContaining({ receivedQuantity: '10' }));
+    expect(screen.getByText('📷 Сканировать накладную / счёт')).toBeInTheDocument();
+    expect(deps.setReceivingDeliveryId).not.toHaveBeenCalled();
+    expect(deps.setReceiveForm).not.toHaveBeenCalled();
     expect(screen.queryByRole('button', { name: /Показать ещё/ })).not.toBeInTheDocument();
   });
 

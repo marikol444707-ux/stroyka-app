@@ -1,16 +1,11 @@
-"""Supplier invoice recognition template routes.
-
-Extracted verbatim from backend/main.py (Task 13.1, slice 9):
-GET /supplier-invoice-templates and POST /supplier-invoice-templates/learn
-keep their URLs, warehouse+accountant role guard and payloads. Shared
-recognition helpers and log_audit stay in main.py and arrive through deps.
-"""
+"""Company-owned OCR templates; learning never grants supplier access."""
 
 import datetime as dt
 import json
 
 import psycopg2.extras
-from fastapi import Depends, HTTPException
+from fastapi import Depends, Header, HTTPException
+from .scope import resolve_scan_company
 
 
 def register_supplier_invoice_templates_module(app, deps):
@@ -20,23 +15,30 @@ def register_supplier_invoice_templates_module(app, deps):
     supplier_invoice_template_row = deps["supplier_invoice_template_row"]
     supplier_invoice_template_key = deps["supplier_invoice_template_key"]
     scan_invoice_supplier_name = deps["scan_invoice_supplier_name"]
-    find_supplier_by_name_key = deps["find_supplier_by_name_key"]
+    resolve_context = deps["resolve_work_company_context"]
     log_audit = deps["log_audit"]
 
+    def owner(cur, user, data, company, mode):
+        return resolve_scan_company(cur, user, resolve_context, (*warehouse_roles, "бухгалтер"),
+                                    company_id=(data or {}).get("companyId"),
+                                    x_company_id=company, x_company_mode=mode)
+
     @app.get("/supplier-invoice-templates")
-    def list_supplier_invoice_templates(current_user: dict = Depends(require_roles(*warehouse_roles, "бухгалтер"))):
+    def list_supplier_invoice_templates(x_company_id: str = Header(default=None, alias="X-Company-Id"), x_company_mode: str = Header(default=None, alias="X-Company-Mode"), current_user: dict = Depends(require_roles(*warehouse_roles, "бухгалтер"))):
         conn = get_db()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("""SELECT *
-                       FROM supplier_invoice_templates
-                       WHERE active=TRUE
-                       ORDER BY updated_at DESC, id DESC""")
-        rows = cur.fetchall()
-        cur.close(); conn.close()
+        try:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                company_id = owner(cur, current_user, None, x_company_id, x_company_mode)
+                cur.execute("""SELECT * FROM supplier_invoice_templates
+                               WHERE active=TRUE AND company_id=%s
+                               ORDER BY updated_at DESC, id DESC""", (company_id,))
+                rows = cur.fetchall()
+        finally:
+            conn.close()
         return [supplier_invoice_template_row(row) for row in rows]
 
     @app.post("/supplier-invoice-templates/learn")
-    def learn_supplier_invoice_template(data: dict, current_user: dict = Depends(require_roles(*warehouse_roles, "бухгалтер"))):
+    def learn_supplier_invoice_template(data: dict, x_company_id: str = Header(default=None, alias="X-Company-Id"), x_company_mode: str = Header(default=None, alias="X-Company-Mode"), current_user: dict = Depends(require_roles(*warehouse_roles, "бухгалтер"))):
         supplier_name = (
             data.get("supplierName")
             or data.get("supplier")
@@ -80,72 +82,50 @@ def register_supplier_invoice_templates_module(app, deps):
                 "price": "price",
                 "lineTotal": "lineTotal",
             },
-            "lastCorrectionAt": dt.datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+            "lastCorrectionAt": dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat(),
         }
-        conn = get_db()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        supplier_id = data.get("supplierId") or 0
         try:
-            supplier_id = int(supplier_id or 0)
+            supplier_id = int(str(data.get("supplierId") or 0))
+            if supplier_id < 0 or isinstance(data.get("supplierId"), bool):
+                raise ValueError()
+        except (ValueError, TypeError):
+            raise HTTPException(400, "Некорректный идентификатор поставщика")
+        conn = get_db()
+        try:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                company_id = owner(cur, current_user, data, x_company_id, x_company_mode)
+                if supplier_id:
+                    cur.execute("SELECT 1 FROM company_supplier_links WHERE company_id=%s AND supplier_id=%s FOR KEY SHARE", (company_id, supplier_id))
+                    if not cur.fetchone():
+                        raise HTTPException(403, "Поставщик недоступен в выбранной компании")
+                # Serialize simultaneous learns of the same company/key without duplicates.
+                cur.execute("""INSERT INTO supplier_invoice_templates (
+                     company_id,supplier_id,supplier_key,supplier_name,template_name,document_type,
+                     match_keywords,column_map,sample_json,updated_by)
+                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                     ON CONFLICT (company_id,supplier_key,(COALESCE(document_type,''))) WHERE active=TRUE
+                     DO UPDATE SET supplier_id=EXCLUDED.supplier_id,supplier_name=EXCLUDED.supplier_name,
+                       template_name=EXCLUDED.template_name,match_keywords=EXCLUDED.match_keywords,
+                       column_map=EXCLUDED.column_map,sample_json=EXCLUDED.sample_json,
+                       updated_by=EXCLUDED.updated_by,updated_at=NOW()
+                     RETURNING *""", (
+                         company_id, supplier_id or None, supplier_key, supplier_name,
+                         data.get("templateName") or ("Счет/накладная " + supplier_name), document_type,
+                         json.dumps(keywords, ensure_ascii=False),json.dumps(column_map, ensure_ascii=False),
+                         json.dumps(sample, ensure_ascii=False),current_user.get("name", "")))
+                saved = cur.fetchone()
+            conn.commit()
         except Exception:
-            supplier_id = 0
-        if not supplier_id:
-            supplier = find_supplier_by_name_key(cur, supplier_name)
-            if supplier:
-                supplier_id = supplier["id"]
-                supplier_name = supplier["name"] or supplier_name
-        cur.execute("""SELECT *
-                       FROM supplier_invoice_templates
-                       WHERE active=TRUE AND supplier_key=%s AND COALESCE(document_type,'')=%s
-                       ORDER BY id DESC LIMIT 1""", (supplier_key, document_type))
-        row = cur.fetchone()
-        if row:
-            cur.execute("""UPDATE supplier_invoice_templates
-                           SET supplier_id=%s,
-                               supplier_name=%s,
-                               template_name=%s,
-                               match_keywords=%s,
-                               column_map=%s,
-                               sample_json=%s,
-                               updated_by=%s,
-                               updated_at=NOW()
-                           WHERE id=%s
-                           RETURNING *""", (
-                supplier_id or None,
-                supplier_name,
-                data.get("templateName") or ("Счет/накладная " + supplier_name),
-                json.dumps(keywords, ensure_ascii=False),
-                json.dumps(column_map, ensure_ascii=False),
-                json.dumps(sample, ensure_ascii=False),
-                current_user.get("name", ""),
-                row["id"],
-            ))
-        else:
-            cur.execute("""INSERT INTO supplier_invoice_templates (
-                               supplier_id, supplier_key, supplier_name, template_name, document_type,
-                               match_keywords, column_map, sample_json, active, usage_count,
-                               updated_by, updated_at, created_at
-                           )
-                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,TRUE,0,%s,NOW(),NOW())
-                           RETURNING *""", (
-                supplier_id or None,
-                supplier_key,
-                supplier_name,
-                data.get("templateName") or ("Счет/накладная " + supplier_name),
-                document_type,
-                json.dumps(keywords, ensure_ascii=False),
-                json.dumps(column_map, ensure_ascii=False),
-                json.dumps(sample, ensure_ascii=False),
-                current_user.get("name", ""),
-            ))
-        saved = cur.fetchone()
-        conn.commit()
-        cur.close(); conn.close()
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
         template = supplier_invoice_template_row(saved)
         log_audit(
             user_name=current_user.get("name", ""),
             user_role=current_user.get("role", ""),
             action="learn",
+            owner_scope="company", company_id=company_id,
             entity_type="supplier_invoice_template",
             entity_id=template["id"],
             description="Обновлен шаблон распознавания поставщика " + template["supplierName"],

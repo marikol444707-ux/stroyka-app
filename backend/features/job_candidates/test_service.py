@@ -1,9 +1,29 @@
 import unittest
 
-from .service import build_candidate_record, jev_report_items
+from .service import build_candidate_record, jev_report_items, normalize_jev_run_id, summarize_jev_sources
 
 
 class JobCandidateNormalizationTests(unittest.TestCase):
+    def test_jev_source_history_keeps_only_bounded_status_fields(self):
+        result = summarize_jev_sources([{
+            "provider": "ЭТП ГПБ", "query": "ремонт школы", "ok": False,
+            "status": "source_unavailable", "rows": "3", "error": "secret response body",
+            "url": "https://private.invalid/path?token=secret",
+        }])
+        self.assertEqual(result, [{
+            "provider": "ЭТП ГПБ", "query": "ремонт школы", "ok": False,
+            "status": "source_unavailable", "rows": 3,
+        }])
+        self.assertEqual(len(summarize_jev_sources([{}] * 105)), 100)
+
+    def test_jev_run_id_is_normalized_and_validated(self):
+        self.assertEqual(
+            normalize_jev_run_id("5A0E8400-E29B-41D4-A716-446655440000"),
+            "5a0e8400-e29b-41d4-a716-446655440000",
+        )
+        with self.assertRaises(ValueError):
+            normalize_jev_run_id("not-a-uuid")
+
     def test_canonicalizes_url_and_uses_source_identity_for_deduplication(self):
         candidate = build_candidate_record({
             "source": "eis",

@@ -2,6 +2,10 @@ import React from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import WorkAssignmentModal, { performerRows } from './WorkAssignmentModal';
 
+jest.mock('../../utils/commandUuid',()=>({commandUuid:()=> '619c59a4-88af-4c11-9e58-765f2b232680'}));
+
+beforeEach(()=>{sessionStorage.clear();localStorage.clear();});
+
 function typeManualBrigade(name) {
   fireEvent.change(screen.getByRole('combobox', {name: 'Исполнитель'}), {target: {value: '__manual__'}});
   fireEvent.change(screen.getByPlaceholderText('Название бригады'), {target: {value: name}});
@@ -12,13 +16,13 @@ it('mobile steps preserve selected work and prices when going back', async () =>
   const fetchMock = jest.fn().mockResolvedValue({ok: false, json: async () => ({detail: 'Тестовая ошибка'})});
   global.fetch = fetchMock;
   try {
-  render(<WorkAssignmentModal show onClose={jest.fn()}
+  render(<WorkAssignmentModal user={{id:9}} companyContext={{mode:'company',selectedCompanyId:4}} show onClose={jest.fn()}
     selectedEstimate={{id:25,sections:[{name:'Стены',items:[
       {name:'Штукатурка',unit:'м2',quantity:2,priceWork:100,estimateItemKey:'work-1'},
       {name:'Грунтовка',unit:'м2',quantity:1,priceWork:100,estimateItemKey:'work-2'},
     ]}]}} users={[{id:11,name:'Мастер Иван',role:'мастер'}]} staff={[]}
     API="/api" loadAll={jest.fn()} C={{}} card={{}} inp={{}} btnO={{}} btnG={{}} btnB={{}} isMobile/>);
-  expect(screen.getByRole('combobox',{name:'Исполнитель'})).toHaveValue('11');
+  expect(screen.getByRole('combobox',{name:'Исполнитель'})).toHaveValue('user:11');
   expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
   expect(screen.queryByRole('button',{name:'Выдать в работу'})).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button',{name:'Далее'}));
@@ -37,6 +41,7 @@ it('mobile steps preserve selected work and prices when going back', async () =>
   await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Тестовая ошибка'));
   const payload = JSON.parse(fetchMock.mock.calls[0][1].body);
   expect(payload.assignee.contractorId).toBe(11);
+  expect(payload.assignee.contractorRef).toEqual({type:'user',id:11});
   expect(payload.items).toEqual([expect.objectContaining({estimateItemKey: 'work-1', manualPrice: 75})]);
   } finally {
     global.fetch = originalFetch;
@@ -44,6 +49,81 @@ it('mobile steps preserve selected work and prices when going back', async () =>
 });
 
 describe('work assignment performers', () => {
+  it('sends manual creation explicitly and retains its key after an uncertain network result',async()=>{
+    const original=global.fetch;
+    global.fetch=jest.fn().mockRejectedValue(new Error('network'));
+    try{
+      render(<WorkAssignmentModal user={{id:9}} companyContext={{mode:'company',selectedCompanyId:4}} show onClose={jest.fn()}
+        selectedEstimate={{id:25,projectId:17,sections:[{name:'Монтаж',items:[{name:'Кабель',unit:'м',quantity:5,priceWork:100,estimateItemKey:'manual-key'}]}]}}
+        staff={[]} users={[{id:11,name:'Иван',role:'мастер'}]}
+        API="/api" loadAll={jest.fn()} C={{}} card={{}} inp={{}} btnO={{}} btnG={{}} btnB={{}} isMobile={false}/>);
+      typeManualBrigade('Иван');
+      fireEvent.click(screen.getByRole('button',{name:'Выдать в работу'}));
+      expect(await screen.findByRole('alert')).toHaveTextContent('Проверьте соединение');
+      fireEvent.click(screen.getByRole('button',{name:'Повторить сохранённую отправку'}));
+      await waitFor(()=>expect(fetch).toHaveBeenCalledTimes(2));
+      const first=JSON.parse(fetch.mock.calls[0][1].body).assignee;
+      expect(first).toMatchObject({contractorId:null,contractorRef:{type:'manual',requestId:expect.any(String)}});
+      expect(JSON.parse(fetch.mock.calls[1][1].body).assignee).toEqual(first);
+    }finally{global.fetch=original;}
+  });
+  it('keeps each same-name contract beside the user and submits its exact contract ID',async()=>{
+    const original=global.fetch;
+    global.fetch=jest.fn().mockResolvedValue({ok:false,json:async()=>({detail:'Проверка договора'})});
+    try{
+      render(<WorkAssignmentModal user={{id:9}} companyContext={{mode:'company',selectedCompanyId:4}} show onClose={jest.fn()}
+        selectedEstimate={{id:25,projectId:17,workPackage:'Основная',sections:[{name:'Отделка',items:[{name:'Грунтовка',unit:'м²',quantity:5,priceWork:100,estimateItemKey:'contract-work'}]}]}}
+        staff={[]} users={[{id:11,name:'Иван',role:'мастер'}]}
+        brigadeContracts={[
+          {id:70,projectId:17,workPackage:'Основная',brigadeName:'Иван',contractorId:11},
+          {id:71,projectId:17,workPackage:'Основная',brigadeName:'Иван',contractorId:11},
+          {id:72,projectId:18,workPackage:'Основная',brigadeName:'Чужой объект',contractorId:11},
+          {id:73,projectId:17,workPackage:'Электрика',brigadeName:'Другой пакет',contractorId:11},
+        ]}
+        API="/api" loadAll={jest.fn()} C={{}} card={{}} inp={{}} btnO={{}} btnG={{}} btnB={{}} isMobile={false}/>);
+      expect(screen.getByRole('option',{name:'Иван · договор №70'})).toBeInTheDocument();
+      expect(screen.getByRole('option',{name:'Иван · договор №71'})).toBeInTheDocument();
+      expect(screen.getByRole('option',{name:'Иван · учётная запись'})).toBeInTheDocument();
+      expect(screen.queryByRole('option',{name:/Чужой объект|Другой пакет/})).not.toBeInTheDocument();
+      fireEvent.change(screen.getByRole('combobox',{name:'Исполнитель'}),{target:{value:'contract:70'}});
+      fireEvent.click(screen.getByRole('button',{name:'Выдать в работу'}));
+      expect(await screen.findByRole('alert')).toHaveTextContent('Проверка договора');
+      expect(JSON.parse(fetch.mock.calls[0][1].body).assignee).toMatchObject({contractorId:11,contractorRef:{type:'contract',id:70}});
+    }finally{global.fetch=original;}
+  });
+  it('submits the selected staff card when another user has the same number and name',async()=>{
+    const original=global.fetch;
+    global.fetch=jest.fn().mockResolvedValue({ok:false,json:async()=>({detail:'Проверка точного выбора'})});
+    try{
+      render(<WorkAssignmentModal user={{id:9}} companyContext={{mode:'company',selectedCompanyId:4}} show onClose={jest.fn()}
+        selectedEstimate={{id:25,sections:[{name:'Электрика',items:[{name:'Кабель',unit:'м',quantity:5,priceWork:100,estimateItemKey:'typed-1'}]}]}}
+        staff={[{id:23,name:'Иван',role:'мастер'}]} users={[{id:23,name:'Иван',role:'мастер'}]}
+        API="/api" loadAll={jest.fn()} C={{}} card={{}} inp={{}} btnO={{}} btnG={{}} btnB={{}} isMobile={false}/>);
+      fireEvent.change(screen.getByRole('combobox',{name:'Исполнитель'}),{target:{value:'staff:23'}});
+      expect(screen.getByRole('option',{name:'Иван · сотрудник'})).toBeInTheDocument();
+      expect(screen.getByRole('option',{name:'Иван · учётная запись'})).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button',{name:'Выдать в работу'}));
+      expect(await screen.findByRole('alert')).toHaveTextContent('Проверка точного выбора');
+      expect(JSON.parse(fetch.mock.calls[0][1].body).assignee).toMatchObject({contractorId:23,contractorRef:{type:'staff',id:23}});
+    }finally{global.fetch=original;}
+  });
+  it('keeps equal staff/user numbers and names as distinct exact selections', () => {
+    const rows=performerRows([{id:23,name:'Иван',role:'мастер',emailWork:'same@local.invalid'}],
+      [{id:23,name:'Иван',role:'мастер',email:'same@local.invalid'}]);
+    expect(rows).toHaveLength(2);
+    expect(rows.map(row=>row.optionId).sort()).toEqual(['staff:23','user:23']);
+    expect(rows.map(row=>row.contractorRef)).toEqual(expect.arrayContaining([
+      {type:'staff',id:23},{type:'user',id:23},
+    ]));
+  });
+
+  it('only deduplicates a staff account through the persisted accessUserId', () => {
+    const rows=performerRows([{id:23,name:'Иван',role:'мастер',accessUserId:41}],
+      [{id:23,name:'Иван',role:'мастер'},{id:41,name:'Другой профиль',role:'мастер'}]);
+    expect(rows).toHaveLength(2);
+    expect(rows.find(row=>row.optionId==='staff:23').contractorRef).toEqual({type:'staff',id:23});
+    expect(rows.find(row=>row.optionId==='user:23').contractorRef).toEqual({type:'user',id:23});
+  });
   it('offers a subcontractor as an estimate work assignee', () => {
     const rows = performerRows([], [
       { id: 11, name: 'ИП Исполнитель', role: 'субподрядчик' },
@@ -78,7 +158,7 @@ it('finds a work in a long estimate without changing the selected assignments', 
     name: `Монтаж кабеля ${index + 1}`, unit: 'м', quantity: 1, priceWork: 100,
     estimateItemKey: `work-${index + 1}`,
   }));
-  render(<WorkAssignmentModal show onClose={jest.fn()}
+  render(<WorkAssignmentModal user={{id:9}} companyContext={{mode:'company',selectedCompanyId:4}} show onClose={jest.fn()}
     selectedEstimate={{id:25, sections:[{name:'Электрика',items}]}}
     staff={[]} users={[{id:11,name:'Мастер Иван',role:'мастер'}]}
     API="/api" loadAll={jest.fn()} C={{}} card={{}} inp={{}} btnO={{}} btnG={{}} btnB={{}} isMobile={false} />);
@@ -102,7 +182,7 @@ it('changes only visible work when selecting or clearing a filtered list', () =>
     name: `Монтаж кабеля ${index + 1}`, unit: 'м', quantity: 1, priceWork: 100,
     estimateItemKey: `work-${index + 1}`,
   }));
-  render(<WorkAssignmentModal show onClose={jest.fn()}
+  render(<WorkAssignmentModal user={{id:9}} companyContext={{mode:'company',selectedCompanyId:4}} show onClose={jest.fn()}
     selectedEstimate={{id:25, sections:[{name:'Электрика',items}]}}
     staff={[]} users={[{id:11,name:'Мастер Иван',role:'мастер'}]}
     API="/api" loadAll={jest.fn()} C={{}} card={{}} inp={{}} btnO={{}} btnG={{}} btnB={{}} isMobile={false} />);
@@ -121,9 +201,8 @@ describe('work assignment prices', () => {
   beforeEach(() => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ok: true, brigadeName: 'Бригада', items: [{}, {}], contractId: 77}),
+      json: async () => ({ok: true, brigadeName: 'Бригада', items: [{}, {}], contractId: 77,companyId:4,projectId:17,manualRequestId:'619c59a4-88af-4c11-9e58-765f2b232680'}),
     });
-    Storage.prototype.getItem = jest.fn(() => 'token');
     window.alert = jest.fn();
   });
 
@@ -133,7 +212,7 @@ describe('work assignment prices', () => {
 
   it('uses one performer choice and only asks for a name for a new brigade', () => {
     render(
-      <WorkAssignmentModal
+      <WorkAssignmentModal user={{id:9}} companyContext={{mode:'company',selectedCompanyId:4}}
         show onClose={jest.fn()}
         selectedEstimate={{id: 25, sections: [{name: 'Монтаж', items: [
           {name: 'Блок управления', unit: 'шт', quantity: 1, priceWork: 2000, estimateItemKey: 'work-1'},
@@ -145,17 +224,17 @@ describe('work assignment prices', () => {
     );
 
     expect(screen.queryByPlaceholderText('Название бригады')).not.toBeInTheDocument();
-    expect(screen.getByRole('combobox', {name: 'Исполнитель'})).toHaveValue('11');
+    expect(screen.getByRole('combobox', {name: 'Исполнитель'})).toHaveValue('user:11');
 
     typeManualBrigade('Бригада Север');
     expect(screen.getByPlaceholderText('Название бригады')).toHaveValue('Бригада Север');
-    fireEvent.change(screen.getByRole('combobox', {name: 'Исполнитель'}), {target: {value: '11'}});
+    fireEvent.change(screen.getByRole('combobox', {name: 'Исполнитель'}), {target: {value: 'user:11'}});
     expect(screen.queryByPlaceholderText('Название бригады')).not.toBeInTheDocument();
   });
 
   it('applies the coefficient to all rows and sends one edited row as a manual price', async () => {
     render(
-      <WorkAssignmentModal
+      <WorkAssignmentModal user={{id:9}} companyContext={{mode:'company',selectedCompanyId:4}}
         show
         onClose={jest.fn()}
         selectedEstimate={{
@@ -202,11 +281,11 @@ describe('work assignment prices', () => {
     expect(payload.items[1].manualPrice).toBeUndefined();
   });
 
-  it('reports a saved assignment as successful when the follow-up refresh fails', async () => {
+  it('keeps a confirmed receipt and retries only refresh when the follow-up refresh fails', async () => {
     const onClose = jest.fn();
     const loadAll = jest.fn().mockRejectedValue(new Error('refresh unavailable'));
     render(
-      <WorkAssignmentModal
+      <WorkAssignmentModal user={{id:9}} companyContext={{mode:'company',selectedCompanyId:4}}
         show
         onClose={onClose}
         selectedEstimate={{id: 25, projectName: 'Объект', sections: [{name: 'Монтаж', items: [
@@ -229,12 +308,15 @@ describe('work assignment prices', () => {
     typeManualBrigade('Бригада');
     fireEvent.click(screen.getByRole('button', {name: 'Выдать в работу'}));
 
-    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Работы сохранены');
+    expect(onClose).not.toHaveBeenCalled();
     expect(global.fetch).toHaveBeenCalledTimes(1);
-    expect(loadAll).toHaveBeenCalledTimes(1);
-    expect(window.alert).toHaveBeenCalledWith(expect.stringContaining('Работы выданы'));
-    expect(window.alert).toHaveBeenCalledWith(expect.stringContaining('Обновите страницу'));
-    expect(window.alert).not.toHaveBeenCalledWith(expect.stringContaining('Не удалось назначить работы'));
+    loadAll.mockResolvedValueOnce(undefined);
+    fireEvent.click(screen.getByRole('button',{name:'Обновить список'}));
+    await waitFor(()=>expect(onClose).toHaveBeenCalledTimes(1));
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(loadAll).toHaveBeenCalledTimes(2);
+
   });
 
   it('keeps the draft open when the assignment request itself fails', async () => {
@@ -242,7 +324,7 @@ describe('work assignment prices', () => {
     const onClose = jest.fn();
     const loadAll = jest.fn();
     render(
-      <WorkAssignmentModal
+      <WorkAssignmentModal user={{id:9}} companyContext={{mode:'company',selectedCompanyId:4}}
         show onClose={onClose}
         selectedEstimate={{id: 25, sections: [{name: 'Монтаж', items: [
           {name: 'Блок управления', unit: 'шт', quantity: 1, priceWork: 2000, estimateItemKey: 'work-1'},
@@ -263,7 +345,7 @@ describe('work assignment prices', () => {
   });
 
   it('explains why issue is unavailable before sending', () => {
-    render(<WorkAssignmentModal show onClose={jest.fn()}
+    render(<WorkAssignmentModal user={{id:9}} companyContext={{mode:'company',selectedCompanyId:4}} show onClose={jest.fn()}
       selectedEstimate={{id:25,sections:[{name:'Монтаж',items:[
         {name:'Блок управления',unit:'шт',quantity:1,priceWork:2000,estimateItemKey:'work-1'},
       ]}]}}
@@ -291,14 +373,14 @@ describe('work assignment prices', () => {
       brigadeContractItems: [], staff: [], users: [], API: '/api', loadAll: jest.fn(),
       C: {}, card: {}, inp: {}, btnO: {}, btnG: {}, btnB: {}, isMobile: false,
     };
-    const {rerender} = render(<WorkAssignmentModal {...props} />);
+    const {rerender} = render(<WorkAssignmentModal user={{id:9}} companyContext={{mode:'company',selectedCompanyId:4}} {...props} />);
     typeManualBrigade('Бригада Север');
     fireEvent.click(screen.getByLabelText('Выбрать работу: Прокладка кабеля'));
     fireEvent.click(screen.getByRole('button', {name: 'Настроить цену'}));
     fireEvent.change(screen.getByLabelText('Доля исполнителя, %'), {target: {value: '40'}});
     fireEvent.change(screen.getByLabelText('Цена исполнителю: Блок управления'), {target: {value: '950'}});
 
-    rerender(<WorkAssignmentModal {...props} users={[{id: 11, name: 'Новый мастер', role: 'мастер'}]} />);
+    rerender(<WorkAssignmentModal user={{id:9}} companyContext={{mode:'company',selectedCompanyId:4}} {...props} users={[{id: 11, name: 'Новый мастер', role: 'мастер'}]} />);
 
     expect(screen.getByPlaceholderText('Название бригады')).toHaveValue('Бригада Север');
     expect(screen.getByLabelText('Выбрать работу: Прокладка кабеля')).not.toBeChecked();
@@ -312,19 +394,19 @@ describe('work assignment prices', () => {
         selectedEstimate.sections[0].items[1],
       ]}],
     };
-    rerender(<WorkAssignmentModal {...props} selectedEstimate={changedEstimate} />);
+    rerender(<WorkAssignmentModal user={{id:9}} companyContext={{mode:'company',selectedCompanyId:4}} {...props} selectedEstimate={changedEstimate} />);
     expect(screen.queryByPlaceholderText('Название бригады')).not.toBeInTheDocument();
     expect(screen.getByLabelText('Выбрать работу: Прокладка кабеля')).toBeChecked();
 
-    rerender(<WorkAssignmentModal {...props} show={false} />);
-    rerender(<WorkAssignmentModal {...props} />);
+    rerender(<WorkAssignmentModal user={{id:9}} companyContext={{mode:'company',selectedCompanyId:4}} {...props} show={false} />);
+    rerender(<WorkAssignmentModal user={{id:9}} companyContext={{mode:'company',selectedCompanyId:4}} {...props} />);
     expect(screen.queryByPlaceholderText('Название бригады')).not.toBeInTheDocument();
     expect(screen.getByLabelText('Выбрать работу: Прокладка кабеля')).toBeChecked();
   });
 
   it('selects only unassigned work by default and sends it in one action', async () => {
     render(
-      <WorkAssignmentModal
+      <WorkAssignmentModal user={{id:9}} companyContext={{mode:'company',selectedCompanyId:4}}
         show
         onClose={jest.fn()}
         selectedEstimate={{
@@ -386,7 +468,7 @@ describe('work assignment prices', () => {
 
   it('explains when every estimate row is already assigned', () => {
     render(
-      <WorkAssignmentModal
+      <WorkAssignmentModal user={{id:9}} companyContext={{mode:'company',selectedCompanyId:4}}
         show
         onClose={jest.fn()}
         selectedEstimate={{
@@ -425,7 +507,7 @@ describe('work assignment prices', () => {
 
 
 it('filters exact estimate sections without losing selections from another section', () => {
-  render(<WorkAssignmentModal show onClose={jest.fn()}
+  render(<WorkAssignmentModal user={{id:9}} companyContext={{mode:'company',selectedCompanyId:4}} show onClose={jest.fn()}
     selectedEstimate={{id:25, sections:[
       {name:'Монтаж', items:[{name:'Монтаж кабеля',unit:'м',quantity:10,priceWork:100,estimateItemKey:'electrical'}]},
       {name:'Монтаж', items:[{name:'Монтаж трубы',unit:'м',quantity:5,priceWork:200,estimateItemKey:'plumbing'}]},
@@ -446,7 +528,7 @@ it('filters exact estimate sections without losing selections from another secti
 });
 
 it('combines section and text filters when retaining only found work', () => {
-  render(<WorkAssignmentModal show onClose={jest.fn()}
+  render(<WorkAssignmentModal user={{id:9}} companyContext={{mode:'company',selectedCompanyId:4}} show onClose={jest.fn()}
     selectedEstimate={{id:25, sections:[
       {name:'Электрика', items:[{name:'Монтаж кабеля',unit:'м',quantity:10,priceWork:100,estimateItemKey:'cable'}]},
       {name:'Отделка', items:[{name:'Монтаж панели',unit:'м2',quantity:5,priceWork:200,estimateItemKey:'panel'}]},

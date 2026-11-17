@@ -59,7 +59,7 @@ function App() {
     API,
     user
   });
-  const appMainState = useAppMainState();
+  const appMainState = useAppMainState(`${user?.id}:${companyContext.mode}:${companyContext.selectedCompanyId}`);
   usePreviewInvalidation({
     user,
     companyContext,
@@ -123,7 +123,11 @@ function App() {
     selectedEstimateExecutionFillPercent,
     setExecutionPriceFillPercent
   });
-  const persistEstimate = async est => persistEstimateAction({
+  const persistEstimate = async (est, options) => persistEstimateAction({
+    options,
+    estimateListRef: appMainState.estimateListRef,
+    beginEstimateSave: appMainState.beginEstimateSave,
+    setEstimatesList: appMainState.setEstimatesList,
     API,
     est,
     estimateListWithUpdatedEstimate,

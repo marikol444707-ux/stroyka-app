@@ -1,7 +1,7 @@
 import React from 'react';
-import { Bot, Check, Upload, X } from 'lucide-react';
+import { Check } from 'lucide-react';
 import { API } from '../api';
-import { invoiceImageAccept, normalizeInvoiceImageFile } from '../utils/invoiceImages';
+import ScanInvoiceModal from './ScanInvoiceModal';
 
 const hasReceipt = delivery => Boolean(delivery.receivedAt) || ['Принято', 'Проблема'].includes(delivery.status);
 const hasProblem = delivery => delivery.status === 'Проблема'
@@ -12,7 +12,6 @@ function SupplyDeliveriesPanel({
   C,
   card,
   inp,
-  btnO,
   btnG,
   btnB,
   btnGr,
@@ -20,24 +19,24 @@ function SupplyDeliveriesPanel({
   role,
   supplyClaims,
   supplyDeliveries,
-  receivingDeliveryId,
-  setReceivingDeliveryId,
-  receiveForm,
-  setReceiveForm,
   deliveryAiLoadingId,
-  setDeliveryAiLoadingId,
   deliveryAiResultById,
-  setDeliveryAiResultById,
-  runDeliveryAiCheck,
-  receiveSupplyDelivery,
   invoices,
   showPreview,
   buildInvoiceContent,
-  uploadPhoto,
+  user,
+  companyId,
+  projects = [],
+  onReceiptConfirmed,
+  onStandaloneReceipt,
+  onOpenReceipt,
 }) {
   const [visibleCount, setVisibleCount] = React.useState(8);
   const [filter, setFilter] = React.useState('all');
-  const [receiptConfirmed, setReceiptConfirmed] = React.useState(false);
+  const [scanDelivery, setScanDelivery] = React.useState(null);
+  const [scanDraft, setScanDraft] = React.useState({});
+  const [scanning, setScanning] = React.useState(false);
+  const [scanContext, setScanContext] = React.useState(null);
   const deliveriesId = React.useId();
   const deliveries = supplyDeliveries || [];
   const claimsById = new Map((supplyClaims || []).map(claim => [claim.id, claim]));
@@ -55,64 +54,20 @@ function SupplyDeliveriesPanel({
   const remainingCount = filteredDeliveries.length - visibleDeliveries.length;
   const openClaimsCount = (supplyClaims || []).filter(unresolved).length;
 
-  const startReceiving = (delivery, isReceiving) => {
-    setReceiptConfirmed(false);
-    setReceivingDeliveryId(isReceiving ? null : delivery.id);
-    setReceiveForm({
-      receivedQuantity: String(delivery.shippedQuantity || delivery.plannedQuantity || ''),
-      qualityStatus: 'Принято',
-      qualityNotes: '',
-      photoUrl: '',
-      claimDescription: '',
-    });
-  };
-
-  React.useEffect(() => {
-    setReceiptConfirmed(false);
-  }, [receivingDeliveryId]);
-
-  const scanInvoice = async (event, delivery) => {
-    const file = event.target.files[0];
-    if (!file) return;
-    setDeliveryAiLoadingId(delivery.id);
-    try {
-      const normalized = await normalizeInvoiceImageFile(file);
-      const resp = await fetch(API+'/scan-invoice',{
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({image:{
-          data: normalized.base64,
-          mimeType: normalized.mimeType,
-          name: normalized.originalName,
-        }}),
-      });
-      const parsed = await resp.json();
-      const items = parsed?.data?.items || [];
-      await runDeliveryAiCheck(delivery, items);
-      const match = items.find(it=>String(it.name||'').toLowerCase().includes(String(delivery.materialName||'').split(' ')[0].toLowerCase()));
-      if (match) {
-        setReceiveForm(form=>({
-          ...form,
-          receivedQuantity:String(match.quantity||''),
-          qualityNotes:'AI распознал: '+(match.name||'')+' '+(match.quantity||'')+' '+(match.unit||''),
-        }));
-      }
-    } catch(error) {
-      setDeliveryAiResultById(prev=>({...prev,[delivery.id]:error?.message || 'Не удалось распознать накладную'}));
-    }
-    setDeliveryAiLoadingId(null);
-    event.target.value='';
-  };
-
-  const uploadReceptionFile = async (event, delivery) => {
-    const file = event.target.files[0];
-    if (!file) return;
-    const url = await uploadPhoto(file,{projectName:delivery.project||delivery.projectName,context:'supply-deliveries'});
-    setReceiveForm({...receiveForm, photoUrl:url});
+  const startReceiving = delivery => {
+    if (scanContext !== delivery.id) setScanDraft({location: delivery.project || delivery.projectName || 'Основной склад', items: []});
+    setScanContext(delivery.id);
+    setScanDelivery(delivery);
   };
 
   return (
     <div style={{...card,padding:'16px',marginBottom:'16px'}}>
+      <ScanInvoiceModal key={`${companyId ?? user?.companyId ?? user?.company_id ?? ''}:${scanContext}`} showScanInvoice={Boolean(scanDelivery) && ['прораб','кладовщик','снабженец','директор','зам_директора','главный_инженер'].includes(role)} setShowScanInvoice={show => {if (!show) setScanDelivery(null);}}
+        C={C} card={card} btnG={btnG} scanningInvoice={scanning} setScanningInvoice={setScanning}
+        API={API} user={user} companyId={companyId} newInvoice={scanDraft} setNewInvoice={setScanDraft}
+        projects={projects.length ? projects : Array.from(new Set(deliveries.map(d => d.project || d.projectName).filter(Boolean))).map(name => ({name}))}
+        unifiedReceipt onReceiptConfirmed={onReceiptConfirmed} onStandaloneReceipt={onStandaloneReceipt} onOpenReceipt={onOpenReceipt || (id => { const invoice = (invoices || []).find(row => Number(row.id) === Number(id)); if (invoice) showPreview(buildInvoiceContent(invoice), 'Накладная № ' + invoice.number); else { onReceiptConfirmed?.(); alert('Обновляем список накладных. Повторите открытие прихода.'); } })}/>
+
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'8px',flexWrap:'wrap',marginBottom:'10px'}}>
         <div>
           <b style={{color:C.text,fontSize:'14px'}}>🚚 Поставки и приёмка</b>
@@ -139,8 +94,7 @@ function SupplyDeliveriesPanel({
         const stC = problem?C.danger:done?C.success:C.info;
         const stBg = problem?C.dangerLight:done?C.successLight:C.infoLight;
         const stBd = problem?C.dangerBorder:done?C.successBorder:C.infoBorder;
-        const isReceiving = receivingDeliveryId===delivery.id;
-        const canReceive = ['прораб','кладовщик','снабженец','директор','зам_директора'].includes(role) && !done;
+        const canReceive = ['прораб','кладовщик','снабженец','директор','зам_директора','главный_инженер'].includes(role) && !done;
         const claim = claimFor(delivery);
         const linkedInvoice = (invoices||[]).find(inv=>String(inv.supplyDeliveryId||'')===String(delivery.id));
 
@@ -172,53 +126,15 @@ function SupplyDeliveriesPanel({
               </div>
               <div style={{display:'flex',gap:'5px',flexWrap:'wrap',justifyContent:'flex-end'}}>
                 <span style={badge(stC,stBg,stBd)}>{delivery.status}</span>
-                <label style={{...btnG,padding:'5px 10px',fontSize:'11px',cursor:'pointer'}}>
-                  <Bot size={11}/>AI PDF/фото
-                  <input type='file' accept={invoiceImageAccept} style={{display:'none'}} onChange={event=>scanInvoice(event, delivery)}/>
-                </label>
-                <label style={{...btnG,padding:'5px 10px',fontSize:'11px',cursor:'pointer'}}>
-                  📷 Камера
-                  <input type='file' accept='image/*' capture='environment' style={{display:'none'}} onChange={event=>scanInvoice(event, delivery)}/>
-                </label>
-                {canReceive && <button onClick={()=>startReceiving(delivery, isReceiving)} style={{...btnGr,padding:'5px 10px',fontSize:'11px'}}><Check size={11}/>Принять</button>}
+                {canReceive && <button onClick={()=>startReceiving(delivery)} style={{...btnGr,padding:'5px 10px',fontSize:'11px'}}><Check size={11}/>Принять</button>}
                 {linkedInvoice && <button onClick={()=>showPreview(buildInvoiceContent(linkedInvoice),'Накладная № '+linkedInvoice.number)} style={{...btnB,padding:'5px 10px',fontSize:'11px'}}>Печать накл.</button>}
               </div>
             </div>
 
             {deliveryAiLoadingId===delivery.id && <p style={{color:C.textMuted,fontSize:'11px',margin:'8px 0 0'}}>AI сверяет накладную...</p>}
-            {deliveryAiResultById[delivery.id] && <div style={{padding:'8px 10px',backgroundColor:C.bg,border:'1px solid '+C.border,borderRadius:'6px',fontSize:'11px',color:C.text,marginTop:'8px'}}>{deliveryAiResultById[delivery.id]}</div>}
+            {deliveryAiResultById?.[delivery.id] && <div style={{padding:'8px 10px',backgroundColor:C.bg,border:'1px solid '+C.border,borderRadius:'6px',fontSize:'11px',color:C.text,marginTop:'8px'}}>{deliveryAiResultById?.[delivery.id]}</div>}
 
-            {isReceiving && canReceive && (
-              <div style={{borderTop:'1.5px solid '+C.border,paddingTop:'10px',marginTop:'10px'}}>
-                <p style={{padding:'10px 12px',border:'1px solid '+C.warningBorder,borderRadius:'8px',backgroundColor:C.warningLight,color:C.text,fontSize:'12px',fontWeight:600}}>
-                  Программа запишет материал на склад и создаст приходную накладную. Делайте это только после фактического приезда поставки и проверки количества.
-                </p>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px',marginBottom:'8px'}}>
-                  <input type='number' step='any' inputMode='decimal' value={receiveForm.receivedQuantity} onChange={e=>setReceiveForm({...receiveForm,receivedQuantity:e.target.value})} placeholder='Принято количество' style={{...inp,marginBottom:0}}/>
-                  <select value={receiveForm.qualityStatus} onChange={e=>setReceiveForm({...receiveForm,qualityStatus:e.target.value})} style={{...inp,marginBottom:0}}>
-                    <option>Принято</option>
-                    <option>Частично</option>
-                    <option>Недостача</option>
-                    <option>Брак</option>
-                    <option>Несоответствие</option>
-                  </select>
-                </div>
-                <textarea value={receiveForm.qualityNotes} onChange={e=>setReceiveForm({...receiveForm,qualityNotes:e.target.value})} placeholder='Комментарий по качеству / упаковке / документам' style={{...inp,height:'54px',resize:'vertical'}}/>
-                {receiveForm.qualityStatus!=='Принято' && <textarea value={receiveForm.claimDescription} onChange={e=>setReceiveForm({...receiveForm,claimDescription:e.target.value})} placeholder='Текст претензии поставщику' style={{...inp,height:'54px',resize:'vertical'}}/>}
-                <label style={{...btnG,padding:'7px 12px',fontSize:'12px',cursor:'pointer',display:'inline-flex',marginBottom:'8px'}}>
-                  <Upload size={12}/>{receiveForm.photoUrl?'Фото загружено':'Фото приёмки'}
-                  <input type='file' accept='image/*,.pdf' style={{display:'none'}} onChange={event=>uploadReceptionFile(event, delivery)}/>
-                </label>
-                <label style={{display:'flex',alignItems:'flex-start',gap:'9px',padding:'10px 12px',marginBottom:'10px',border:'1px solid '+C.border,borderRadius:'8px',color:C.text,fontSize:'12px'}}>
-                  <input type="checkbox" checked={receiptConfirmed} onChange={event=>setReceiptConfirmed(event.target.checked)} style={{width:18,height:18,flex:'0 0 auto',margin:0}} />
-                  Подтверждаю: поставка физически прибыла по указанному адресу и от указанного поставщика; количество и состояние проверены. Указанное принятое количество, включая 0, соответствует факту.
-                </label>
-                <div style={{display:'flex',gap:'8px'}}>
-                  <button disabled={!receiptConfirmed} onClick={()=>{ if (receiptConfirmed) receiveSupplyDelivery(delivery); }} style={btnO}><Check size={14}/>Подтвердить фактическую приёмку</button>
-                  <button onClick={()=>{setReceiptConfirmed(false);setReceivingDeliveryId(null);}} style={btnG}><X size={14}/>Отмена</button>
-                </div>
-              </div>
-            )}
+
           </div>
         );
       })}

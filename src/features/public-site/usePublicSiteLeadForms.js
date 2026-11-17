@@ -7,6 +7,13 @@ import {
 } from './publicSiteContent';
 import { mergePublicLeadFiles, uploadPublicLeadFiles } from './publicLeadFiles';
 
+const submissionErrorMessage = (error) => {
+  if (error instanceof TypeError && /fetch|network|load failed/i.test(error.message)) {
+    return 'Не удалось связаться с сервером заявок. Введённые данные остались в форме. Попробуйте отправить позже или свяжитесь с нами по телефону.';
+  }
+  return error.message || 'Не удалось отправить заявку';
+};
+
 export const usePublicSiteLeadForms = ({ result, selectedLeadProject, onLeadFilesChanged }) => {
   const [lead, setLead] = useState({ name: '', phone: '', comment: '' });
   const [leadConsent, setLeadConsent] = useState(false);
@@ -102,7 +109,7 @@ export const usePublicSiteLeadForms = ({ result, selectedLeadProject, onLeadFile
       setLeadFileError('');
       onLeadFilesChanged?.(0);
     } catch (error) {
-      setLeadError(error.message || 'Не удалось отправить заявку');
+      setLeadError(submissionErrorMessage(error));
     } finally {
       setLeadSending(false);
     }
@@ -166,7 +173,7 @@ export const usePublicSiteLeadForms = ({ result, selectedLeadProject, onLeadFile
       setPartnerConsent(false);
       setPartnerWebsite('');
     } catch (error) {
-      setPartnerError(error.message || 'Не удалось отправить заявку');
+      setPartnerError(submissionErrorMessage(error));
     } finally {
       setPartnerSending(false);
     }

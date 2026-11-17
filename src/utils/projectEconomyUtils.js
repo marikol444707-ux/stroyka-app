@@ -152,18 +152,17 @@ export const buildProjectEconomy = ({
 export const projectRealProgressValue = ({
   project,
   projectPlanDone = () => ({ plan: 0, done: 0 }),
-  projectFactSpent = () => ({ total: 0 }),
 } = {}) => {
   if (!project) return 0;
   const { plan, done } = projectPlanDone(project);
-  if (plan > 0) {
-    const pct = (done / plan) * 100;
-    return done > 0 && pct < 1 ? 1 : Math.round(pct);
+  const planned = Number(plan);
+  const completed = Number(done);
+  if (Number.isFinite(planned) && planned > 0) {
+    if (!Number.isFinite(completed) || completed <= 0) return 0;
+    const pct = Math.min(1, completed / planned) * 100;
+    return pct < 1 ? 1 : Math.round(pct);
   }
-  const budget = Number(project.budget || 0);
-  if (budget > 0) {
-    const fact = projectFactSpent(project).total;
-    return Math.min(100, Math.round((fact / budget) * 100));
-  }
-  return Number(project.progress || 0);
+  // Spending measures budget consumption, not completed construction work.
+  const stored = Number(project.progress);
+  return Number.isFinite(stored) ? Math.max(0, Math.min(100, stored)) : 0;
 };

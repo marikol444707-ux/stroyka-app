@@ -134,3 +134,60 @@ class AdminDuplicateMergePostgresTests(unittest.TestCase):
             self.sql("UPDATE suppliers SET inn='2635045921' WHERE id=%s",(target,))
             self.complete_inn(source,review,expected=409)
             self.assertEqual(self.sql('SELECT inn FROM suppliers WHERE id=%s',(target,)),[('2635045921',)])
+
+    def test_missing_inn_preview_explains_shared_cabinet_before_confirmation(self):
+        source,target=self.seed(),self.seed(owned=True)
+        self.sql("UPDATE suppliers SET inn='7711223344' WHERE id=%s",(source,))
+        self.sql('INSERT INTO company_supplier_links(company_id,supplier_id,platform_account_id) VALUES(3,%s,1)',(target,))
+        with patch.dict(os.environ,PARTICIPANT_HISTORY_MERGE_ENABLED='1'):
+            review=self.duplicate_review(source,target)
+            self.assertFalse(review['canCompleteInn'])
+            self.assertIn('другими организациями',review['innCompletionBlocker'])
+            before=self.sql('SELECT to_jsonb(s) FROM suppliers s WHERE id=ANY(%s) ORDER BY id',([source,target],))
+            self.complete_inn(source,review,expected=409)
+            self.assertEqual(self.sql('SELECT to_jsonb(s) FROM suppliers s WHERE id=ANY(%s) ORDER BY id',([source,target],)),before)
+
+    def test_missing_inn_preview_explains_another_cabinet_without_disclosing_it(self):
+        source,target,other=self.seed(),self.seed(owned=True),self.seed(owned=True)
+        self.sql("UPDATE suppliers SET inn='7711223355' WHERE id=ANY(%s)",([source,other],))
+        with patch.dict(os.environ,PARTICIPANT_HISTORY_MERGE_ENABLED='1'):
+            review=self.duplicate_review(source,target)
+            self.assertFalse(review['canCompleteInn'])
+            self.assertEqual(review['innCompletionBlocker'],'С этим ИНН уже есть другой кабинет. Нужна проверка реквизитов')
+            self.complete_inn(source,review,expected=409)
+        self.assertEqual(self.sql('SELECT inn FROM suppliers WHERE id=%s',(target,)),[(None,)])
+        self.assertEqual(self.sql("SELECT count(*) FROM audit_log WHERE action='supplier_missing_inn_completed' AND entity_id=%s",(target,)),[(0,)])
+
+    def test_new_conflicting_cabinet_invalidates_an_inn_review(self):
+        source,target=self.seed(),self.seed(owned=True)
+        self.sql("UPDATE suppliers SET inn='7711223366' WHERE id=%s",(source,))
+        with patch.dict(os.environ,PARTICIPANT_HISTORY_MERGE_ENABLED='1'):
+            review=self.duplicate_review(source,target)
+            self.assertTrue(review['canCompleteInn'])
+            other=self.seed(owned=True)
+            self.sql("UPDATE suppliers SET inn='7711223366' WHERE id=%s",(other,))
+            self.complete_inn(source,review,expected=409)
+            current=self.duplicate_review(source,target)
+            self.assertFalse(current['canCompleteInn'])
+            self.assertNotEqual(current['reviewVersion'],review['reviewVersion'])
+        self.assertEqual(self.sql('SELECT inn FROM suppliers WHERE id=%s',(target,)),[(None,)])
+
+    def test_two_inn_confirmations_update_and_audit_once(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from fastapi.testclient import TestClient
+        source,target=self.seed(),self.seed(owned=True)
+        self.sql("UPDATE suppliers SET inn='7711223377' WHERE id=%s",(source,))
+        with patch.dict(os.environ,PARTICIPANT_HISTORY_MERGE_ENABLED='1'):
+            review=self.duplicate_review(source,target)
+            token=self.main.create_auth_token(self.fixture['users']['admin'],two_factor_passed=True)
+            def send(_):
+                with TestClient(self.main.app) as client:
+                    return client.post(f'/system/companies/2/participants/{source}/duplicate-complete-inn',
+                        json=dict(targetSupplierId=target,expectedReview=review['reviewVersion'],confirmed=True,
+                                  reason='ИНН подтверждён по исходному документу кабинета'),
+                        headers={'Authorization':'Bearer '+token}).status_code
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                self.assertEqual(sorted(pool.map(send,range(2))),[200,409])
+        self.assertEqual(self.sql('SELECT inn FROM suppliers WHERE id=%s',(target,)),[('7711223377',)])
+        self.assertEqual(self.sql('SELECT user_id FROM suppliers WHERE id=%s',(source,)),[(None,)])
+        self.assertEqual(self.sql("SELECT count(*) FROM audit_log WHERE action='supplier_missing_inn_completed' AND entity_id=%s",(target,)),[(1,)])

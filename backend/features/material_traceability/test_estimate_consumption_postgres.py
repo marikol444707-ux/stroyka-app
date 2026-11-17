@@ -54,6 +54,10 @@ class EstimateConsumptionPostgresTests(unittest.TestCase):
 
     def estimate_payload(self, quantity=2):
         return {
+            "expectedRevision": self.sql(
+                "SELECT revision FROM estimates WHERE id=%s AND company_id=2",
+                (self.f["estimateId"],),
+            )[0][0],
             "sections": [{"name": self.f["workPackage"], "items": [
                 {**self.work_item, "doneQuantity": 1},
             ]}],

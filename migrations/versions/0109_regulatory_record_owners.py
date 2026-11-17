@@ -1,0 +1,30 @@
+"""Exact ownership for inspection orders and supervisor acts; no inferred backfill."""
+from alembic import op
+
+revision = '0109_regulatory_record_owners'
+down_revision = '0108_receipt_originals'
+branch_labels = None
+depends_on = None
+
+TABLES = ('supervisor_acts', 'inspection_orders')
+SCHEMA_SQL = '\n'.join(f'''
+ALTER TABLE {table}
+    ADD COLUMN company_id INTEGER,
+    ADD COLUMN project_id INTEGER,
+    ADD COLUMN created_by_user_id INTEGER REFERENCES users(id),
+    ADD CONSTRAINT {table}_owner_pair CHECK (
+        (company_id IS NULL AND project_id IS NULL) OR
+        (company_id IS NOT NULL AND project_id IS NOT NULL)
+    ),
+    ADD CONSTRAINT {table}_project_owner_fk
+        FOREIGN KEY(project_id,company_id) REFERENCES projects(id,company_id);
+CREATE INDEX {table}_owner_idx ON {table}(company_id,project_id,id);
+''' for table in TABLES)
+
+
+def upgrade():
+    op.execute(SCHEMA_SQL)
+
+
+def downgrade():
+    raise RuntimeError('Verified record ownership must not be discarded')
