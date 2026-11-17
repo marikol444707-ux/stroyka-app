@@ -4,7 +4,7 @@
 
 URL: https://stroyka26.pro/
 Язык: ru-RU
-Дата обновления: 2026-06-27
+Дата обновления: 2026-11-17
 
 ## Что это
 
@@ -38,6 +38,7 @@ URL: https://stroyka26.pro/
 Каталог проектных карточек: https://stroyka26.pro/project-catalog.html
 JSON каталога проектных карточек: https://stroyka26.pro/project-catalog.json
 Контакты: https://stroyka26.pro/contacts.html
+Фотографии объектов: https://stroyka26.pro/our-objects.html
 Политика персональных данных: https://stroyka26.pro/privacy.html
 Условия использования: https://stroyka26.pro/terms.html
 

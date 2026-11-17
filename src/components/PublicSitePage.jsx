@@ -571,6 +571,7 @@ const PublicSitePage = ({ onLogin }) => {
           <nav className="public-nav-links" aria-label="Навигация по сайту">
             <button type="button" onClick={() => scrollTo('directions')}>Направления</button>
             <button type="button" onClick={() => scrollTo('projects')}>Проекты</button>
+            <a href="/our-objects.html">Наши объекты</a>
             <button type="button" onClick={() => scrollTo('calculator')}>Калькулятор</button>
             <button type="button" onClick={() => scrollTo('process')}>Как работаем</button>
             <button type="button" onClick={() => scrollTo('objects')}>Работы</button>
@@ -1478,6 +1479,7 @@ const PublicSitePage = ({ onLogin }) => {
           <span>Сайт: {PUBLIC_SITE_OPERATOR.site}</span>
           <span>По персональным данным: {PUBLIC_SITE_OPERATOR.privacyEmail}</span>
           <span>Заявки: {PUBLIC_SITE_OPERATOR.leadEmail}</span>
+          <span><a href="/our-objects.html">Наши объекты</a></span>
           <span><a href="/project-catalog.html">Каталог проектов</a></span>
           <span><a href="/privacy.html">Политика</a></span>
           <span><a href="/terms.html">Условия</a></span>

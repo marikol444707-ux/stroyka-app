@@ -23,6 +23,9 @@ REQUIRED_PAGES = [
     "contacts.html",
     "privacy.html",
     "terms.html",
+    "our-objects.html",
+    "our-objects.css",
+    "our-objects.js",
     "llms.txt",
     "robots.txt",
     "sitemap.xml",
@@ -37,6 +40,7 @@ PUBLIC_URLS = [
     "https://stroyka26.pro/contacts.html",
     "https://stroyka26.pro/privacy.html",
     "https://stroyka26.pro/terms.html",
+    "https://stroyka26.pro/our-objects.html",
 ]
 
 EXPECTED_PROJECT_STATUS = "Проект-идея / пример для расчета"
@@ -133,7 +137,7 @@ def check_sitemap_robots_llms():
         if url not in sitemap:
             fail(f"sitemap missing {url}")
 
-    for page in ["features.html", "project-catalog.html", "project-catalog.json", "contacts.html", "privacy.html", "terms.html"]:
+    for page in ["features.html", "project-catalog.html", "project-catalog.json", "contacts.html", "privacy.html", "terms.html", "our-objects.html"]:
         if f"Allow: /{page}" not in robots:
             fail(f"robots missing Allow for /{page}")
         if page not in llms:
@@ -419,6 +423,87 @@ def check_react_project_media_assets():
                 fail(f"project media looks empty: {src}")
 
 
+OUR_OBJECT_CAPTIONS = {
+    "commerc_01": "Коммерческое здание из газоблока, мощение плиткой",
+    "commerc_06": "Коммерческое здание из газоблока, мощение плиткой",
+    "commerc_07": "Коммерческое здание из газоблока, мощение плиткой",
+    "commerc_fasad_18": "Готовый фасад коммерческого здания",
+    "dom_19": "Одноэтажный дом: облицовочный кирпич, колонны, металлочерепица",
+    "kladka_21": "Кладка газоблока в монолитном каркасе",
+    "monolit_23": "Монолитный ж/б каркас, перекрытие",
+    "monolit_25": "Двухэтажный монолитный каркас, гидроизоляция цоколя",
+    "monolit_opalubka_29": "Колонны в опалубке",
+    "metallokarkas_09": "Металлокаркас здания",
+    "metallokarkas_17": "Металлокаркас здания",
+    "fundament_gidroizol_32": "Блочный цоколь с обмазочной гидроизоляцией",
+    "fundament_zalivka_35": "Заливка фундамента",
+    "fundament_armatura_39": "Армирование фундаментной плиты с коммуникациями",
+}
+
+
+def webp_size(path):
+    data = path.read_bytes()
+    if data[:4] != b"RIFF" or data[8:12] != b"WEBP":
+        fail(f"not a webp file: {path.relative_to(ROOT)}")
+    chunk = data[12:16]
+    if chunk == b"VP8 ":
+        start = 20
+        if data[start + 3:start + 6] != b"\x9d\x01\x2a":
+            fail(f"unreadable webp frame: {path.relative_to(ROOT)}")
+        width = int.from_bytes(data[start + 6:start + 8], "little") & 0x3FFF
+        height = int.from_bytes(data[start + 8:start + 10], "little") & 0x3FFF
+        return width, height
+    if chunk == b"VP8X":
+        width = 1 + int.from_bytes(data[24:27], "little")
+        height = 1 + int.from_bytes(data[27:30], "little")
+        return width, height
+    fail(f"unsupported webp chunk {chunk!r}: {path.relative_to(ROOT)}")
+
+
+def check_our_objects():
+    page = read(PUBLIC / "our-objects.html")
+    if "Наши объекты" not in page:
+        fail("our-objects.html missing gallery heading")
+    if 'id="object-lightbox"' not in page or "ArrowLeft" not in read(PUBLIC / "our-objects.js"):
+        fail("our-objects gallery missing keyboard lightbox")
+    if 'loading="lazy"' not in page:
+        fail("our-objects gallery images should lazy-load")
+    if page.count("<li>") != len(OUR_OBJECT_CAPTIONS):
+        fail(f"our-objects gallery should list {len(OUR_OBJECT_CAPTIONS)} photos")
+
+    total = 0
+    for slug, caption in OUR_OBJECT_CAPTIONS.items():
+        full = PUBLIC / "site-assets" / "our-objects" / f"{slug}.webp"
+        thumb = PUBLIC / "site-assets" / "our-objects" / "thumbs" / f"{slug}.webp"
+        if not full.exists() or not thumb.exists():
+            fail(f"our-objects image missing: {slug}")
+        if f'data-caption="{caption}"' not in page:
+            fail(f"our-objects caption missing for {slug}")
+        if f'alt="{caption}"' not in page:
+            fail(f"our-objects alt text missing for {slug}")
+        if f"/site-assets/our-objects/thumbs/{slug}.webp" not in page:
+            fail(f"our-objects thumb not referenced: {slug}")
+        if f"/site-assets/our-objects/{slug}.webp" not in page:
+            fail(f"our-objects full image not referenced: {slug}")
+        full_width, _full_height = webp_size(full)
+        thumb_width, _thumb_height = webp_size(thumb)
+        if full_width > 1600:
+            fail(f"our-objects full image wider than 1600: {slug}")
+        if thumb_width > 600:
+            fail(f"our-objects thumb wider than 600: {slug}")
+        total += full.stat().st_size + thumb.stat().st_size
+
+    if total > 8 * 1024 * 1024:
+        fail(f"our-objects images are too heavy: {total} bytes")
+
+    site = read(PUBLIC_SITE_PAGE)
+    if 'href="/our-objects.html"' not in site or "Наши объекты" not in site:
+        fail("public site navigation should link to our-objects.html")
+    index = read(PUBLIC / "index.html")
+    if 'href="/our-objects.html"' not in index:
+        fail("index noscript should link to our-objects.html")
+
+
 def check_index_jsonld():
     index = read(PUBLIC / "index.html")
     page = read(PUBLIC_SITE_PAGE)
@@ -457,7 +542,7 @@ def check_index_jsonld():
 def check_build_copy_if_present():
     if not BUILD.exists():
         return
-    for name in ["project-catalog.html", "project-catalog.json", "features.html", "contacts.html", "privacy.html", "terms.html"]:
+    for name in ["project-catalog.html", "project-catalog.json", "features.html", "contacts.html", "privacy.html", "terms.html", "our-objects.html"]:
         if not (BUILD / name).exists():
             fail(f"build missing copied public page: {name}")
 
@@ -469,6 +554,7 @@ def main():
     check_catalog_matches_react_source()
     check_catalog_json_matches_react_source()
     check_react_project_media_assets()
+    check_our_objects()
     check_index_jsonld()
     check_build_copy_if_present()
     print("Public static site check OK")
