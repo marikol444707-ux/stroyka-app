@@ -165,24 +165,36 @@ export const createPersonnelActions = ({
   };
 
   const paySalary = async (row, monthStr) => {
-    const net = Math.round(Number(row.net || 0));
-    if (net <= 0) {
+    const net = Number(Number(row.net || 0).toFixed(2));
+    if (net < 0 || (net === 0 && !Number(row.toolHold))) {
       alert('Нечего выплачивать (сумма на руки 0)');
       return;
     }
     if (!window.confirm('Записать выплату ' + net.toLocaleString('ru-RU') + ' ₽ → ' + row.name + ' за ' + monthStr + '?')) return;
-    await fetch(API + '/salary-payments', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        staffId: row.id,
-        month: monthStr,
-        amount: net,
-      }),
-    });
-    const sp = await fetch(API + '/salary-payments').then(r => r.json());
-    setSalaryPayments(Array.isArray(sp) ? sp : []);
-    alert('💰 Выплата зафиксирована');
+    if (!row.expectedToolState) { alert('Сначала загрузите и сверьте удержания за инструмент для этого месяца'); return false; }
+    let recorded = false;
+    try {
+      const headers = {'Content-Type': 'application/json', ...(row.companyId ? {'X-Company-Id': String(row.companyId), 'X-Company-Mode':'company'} : {})};
+      const response = await fetch(API + '/salary-payments', {
+        method: 'POST', headers,
+        body: JSON.stringify({staffId: row.id, month: monthStr, amount: net,
+          expectedToolState: row.expectedToolState, toolDeductionAmount: row.toolHold || 0}),
+      });
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        alert(typeof result.detail === 'string' ? result.detail : 'Выплата не записана'); return false;
+      }
+      recorded = true;
+      const updated = await fetch(API + '/salary-payments', {headers});
+      if (!updated.ok) throw Error('Не удалось обновить список выплат');
+      const sp = await updated.json();
+      if (!Array.isArray(sp)) throw Error('Некорректный список выплат');
+      setSalaryPayments(sp);
+      alert('💰 Выплата зафиксирована'); return true;
+    } catch (error) {
+      alert(recorded ? 'Выплата записана, но список не обновился. Обновите данные перед следующим действием.' : 'Ответ о выплате не получен. Проверьте список выплат перед повтором; автоматического повтора нет.');
+      return false;
+    }
   };
 
   const ratemaster = (masterId, rating) => {

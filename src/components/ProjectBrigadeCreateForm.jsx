@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Check, X } from 'lucide-react';
 import { API } from '../api';
+import { useManualCommandRecovery } from '../features/work-assignment/manualCommandRecovery';
+import ManualCommandRecoveryNotice from '../features/work-assignment/ManualCommandRecoveryNotice';
 
 const emptyBrigadeContract = () => ({
   projectId: '',
@@ -13,6 +15,8 @@ const emptyBrigadeContract = () => ({
 });
 
 export default function ProjectBrigadeCreateForm({
+  companyContext,
+  user,
   project,
   brigadeContracts = [],
   newBrigadeContract,
@@ -31,33 +35,54 @@ export default function ProjectBrigadeCreateForm({
   btnG,
 }) {
   const [saving, setSaving] = useState(false);
-  const normalizedName = String(newBrigadeContract.brigadeName || '').trim().toLocaleLowerCase('ru-RU');
-  const existingContract = normalizedName && brigadeContracts.filter(contract => Number(contract.projectId) === Number(project.id)
-    && contract.status !== 'Аннулирован'
-    && String(contract.workPackage || 'Основная') === String(newBrigadeContract.workPackage || 'Основная')
-    && (newBrigadeContract.contractorId && contract.contractorId
-      ? String(contract.contractorId) === String(newBrigadeContract.contractorId)
-      : String(contract.brigadeName || '').trim().toLocaleLowerCase('ru-RU') === normalizedName))
-    .sort((left, right) => Number(Number(right.planAmount || 0) > 0) - Number(Number(left.planAmount || 0) > 0)
-      || Number(right.status === 'Подписан') - Number(left.status === 'Подписан')
-      || Number(left.id) - Number(right.id))[0];
+  const [existingContractId, setExistingContractId] = useState('');
+  const recovery = useManualCommandRecovery({API,user,companyContext,kind:'contract',
+    source:{id:project.id,companyId:project.companyId,workPackage:newBrigadeContract.workPackage}});
+  const finishForm = () => {setShowBrigadeForm(false);setNewBrigadeContract(emptyBrigadeContract());};
+  const applyManual = async(saved,_payload,current) => {
+    const response=await fetch(API+'/brigade-contracts',{credentials:'include',headers:{
+      'X-Company-Mode':'company','X-Company-Id':String(recovery.scope.companyId)}});
+    const list=await response.json().catch(()=>null);
+    if(!current()) return;
+    const contract=response.ok && Array.isArray(list) ? list.find(item=>item.id===saved.id
+      && item.companyId===saved.companyId && item.projectId===saved.projectId) : null;
+    if(!contract) throw new Error('Договор сохранён, но список не обновился. Повторите обновление списка.');
+    return {contract,current};
+  };
+  const completeManual=(_saved,_payload,{contract,current})=>{
+    if(!current())return;
+    setBrigadeContracts(previous=>current()?[...previous.filter(item=>item.id!==contract.id),contract]:previous);
+    if(typeof openBrigadeContract==='function') openBrigadeContract(contract);
+    else setSelectedBrigadeContract(contract);
+    finishForm();
+  };
+  const selectedStaff=staff.find(item=>String(item.id)===String(newBrigadeContract.contractorId));
+  const availableContracts = brigadeContracts.filter(contract => Number(contract.projectId) === Number(project.id)
+    && !['Аннулирован','Удалён','Удален'].includes(contract.status)
+    && String(contract.workPackage || 'Основная') === String(newBrigadeContract.workPackage || 'Основная'));
+  const existingContract = availableContracts.find(contract => String(contract.id) === existingContractId);
   const createBrigadeContract = async () => {
     if (saving) return;
-    if (!newBrigadeContract.brigadeName) return;
-    if (existingContract) {
-      if (typeof openBrigadeContract === 'function') openBrigadeContract(existingContract);
-      else setSelectedBrigadeContract(existingContract);
-      setShowBrigadeForm(false);
-      return;
-    }
-
-    const data = {
-      ...newBrigadeContract,
-      projectId: project.id,
-      projectName: project.name,
-    };
+    if (recovery.pending || recovery.busy || recovery.blocked) return;
+    if (!existingContract && !String(newBrigadeContract.brigadeName || '').trim()) return;
+    if(existingContractId&&!existingContract){alert('Обновите список и выберите договор заново');return;}
+    if(!existingContract&&newBrigadeContract.contractorId&&!selectedStaff){alert('Обновите список и выберите карточку исполнителя заново');return;}
     setSaving(true);
     try {
+      const data = {
+        ...newBrigadeContract,
+        projectId: project.id,
+        projectName: project.name,
+        brigadeName: existingContract?.brigadeName || newBrigadeContract.brigadeName,
+        contractorId: existingContract ? existingContract.contractorId ?? null : selectedStaff ? newBrigadeContract.contractorId : null,
+        contractorRef: existingContract ? {type:'contract',id:Number(existingContract.id)}
+          : selectedStaff ? {type:'staff',id:Number(selectedStaff.id)}
+          : {type:'manual'},
+      };
+      if (!existingContract && !selectedStaff) {
+        await recovery.run({payload:data,apply:applyManual,done:completeManual});
+        return;
+      }
       const res = await fetch(API + '/brigade-contracts', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -79,6 +104,7 @@ export default function ProjectBrigadeCreateForm({
       } else {
         const newContract = {
           ...data,
+          contractorId:saved.contractorId??null,
           id: saved.id,
           companyId: saved.companyId,
           projectId: saved.projectId || project.id,
@@ -102,6 +128,16 @@ export default function ProjectBrigadeCreateForm({
 
   return (
     <div style={{...card, padding: '20px', marginBottom: '16px'}}>
+      <ManualCommandRecoveryNotice pending={recovery.pending} busy={recovery.busy}
+        onResume={()=>recovery.run({apply:applyManual,done:completeManual})}/>
+      {recovery.error && <p role="alert">{recovery.error}</p>}
+      <fieldset disabled={saving || recovery.busy || Boolean(recovery.pending) || recovery.blocked} style={{border:0,padding:0,margin:0,minWidth:0}}>
+      {availableContracts.length > 0 && <label>Существующий договор
+        <select aria-label="Существующий договор" value={existingContractId} onChange={event=>setExistingContractId(event.target.value)} style={inp}>
+          <option value="">Создать новый</option>
+          {availableContracts.map(contract=><option key={contract.id} value={contract.id}>{contract.brigadeName} · договор №{contract.id}</option>)}
+        </select>
+      </label>}
       <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px'}}>
         <select value={newBrigadeContract.contractorType} onChange={e => setNewBrigadeContract({...newBrigadeContract, contractorType: e.target.value})} style={{...inp, marginBottom: 0}}>
           {['Своя бригада', 'Субподрядчик', 'Мастер', 'ГПХ', 'Самозанятый', 'ИП', 'ООО', 'Трудовой договор'].map(t => <option key={t}>{t}</option>)}
@@ -117,11 +153,14 @@ export default function ProjectBrigadeCreateForm({
         </select>
         <textarea placeholder="Примечание" value={newBrigadeContract.notes} onChange={e => setNewBrigadeContract({...newBrigadeContract, notes: e.target.value})} style={{...inp, marginBottom: 0, height: '60px'}}/>
       </div>
-      {existingContract && <p role="status" style={{margin:'12px 0 0',fontSize:'13px'}}>У этого исполнителя уже есть договор по объекту. Откройте его и добавьте работы туда.</p>}
+      {!existingContract && !selectedStaff && <p role="status">Бригада без аккаунта. Доступ к программе не выдаётся.</p>}
+      {existingContract && <p role="status">Выбран договор №{existingContract.id}. Доступ будет проверен при открытии.</p>}
       <div style={{display: 'flex', gap: '8px', marginTop: '12px'}}>
-        <button onClick={createBrigadeContract} disabled={saving} style={btnO}><Check size={14}/>{saving ? 'Сохраняем…' : existingContract ? 'Открыть договор' : 'Создать договор'}</button>
+        <button onClick={createBrigadeContract} disabled={saving || recovery.busy || Boolean(recovery.pending) || recovery.blocked} style={btnO}><Check size={14}/>{saving ? 'Сохраняем…' : existingContract ? 'Открыть договор' : 'Создать договор'}</button>
         <button onClick={() => setShowBrigadeForm(false)} style={btnG}><X size={14}/>Отмена</button>
       </div>
+      </fieldset>
+      {recovery.pending && <button type="button" disabled={recovery.busy} onClick={()=>setShowBrigadeForm(false)} style={btnG}>Закрыть — отправка сохранится</button>}
     </div>
   );
 }

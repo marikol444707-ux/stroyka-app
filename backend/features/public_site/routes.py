@@ -395,6 +395,7 @@ def register_public_site_routes(app, deps):
     save_upload_bytes = deps.get("save_upload_bytes")
     delete_local_file = deps.get("delete_local_file")
     delete_s3_object = deps.get("delete_s3_object")
+    enqueue_public_site_lead_email = deps.get("enqueue_public_site_lead_email")
 
     site_admin = require_roles(*leadership_roles)
 
@@ -630,8 +631,9 @@ def register_public_site_routes(app, deps):
                     raise HTTPException(status_code=422, detail="Один или несколько файлов недоступны или просрочены")
             cur.execute(
                 """INSERT INTO crm_leads
-                   (company_id,name,phone,email,source,budget,notes,stage,created_by,created_at,lead_type,review_status)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                   (company_id,name,phone,email,source,budget,notes,stage,created_by,created_at,lead_type,review_status,
+                    public_site_origin,privacy_last_activity_at)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE,NOW()) RETURNING id""",
                 (
                     lead_owner["companyId"], name, phone, email, source, budget, notes,
                     "Новый", "Сайт", created_at, lead_type, review_status,
@@ -672,6 +674,8 @@ def register_public_site_routes(app, deps):
                 new_id,
                 "Телефон: " + phone + (("\nEmail: " + email) if email else "") + (("\n\n" + notes) if notes else ""),
             ))
+            if enqueue_public_site_lead_email:
+                enqueue_public_site_lead_email(cur, lead_owner["companyId"], new_id)
             conn.commit()
             lead_last_submit[client_ip] = now
         except HTTPException:

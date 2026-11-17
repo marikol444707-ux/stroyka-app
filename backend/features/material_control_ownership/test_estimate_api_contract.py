@@ -54,6 +54,7 @@ class EstimateApiOwnershipContractTests(unittest.TestCase):
             3,
             datetime(2026, 8, 7, tzinfo=timezone.utc),
             23,
+            73,
         )
 
         payload = _load_estimate_response_mapper()(
@@ -65,6 +66,7 @@ class EstimateApiOwnershipContractTests(unittest.TestCase):
 
         self.assertEqual(payload["companyId"], 23)
         self.assertEqual(payload["projectId"], 17)
+        self.assertEqual(payload["revision"], 73)
 
     def test_list_summary_and_detail_share_the_owner_aware_mapper(self):
         list_route = _main_function("get_estimates")
@@ -81,6 +83,7 @@ class EstimateApiOwnershipContractTests(unittest.TestCase):
                 if isinstance(node, ast.Constant) and isinstance(node.value, str)
             )
             self.assertIn("e.company_id", sql_literals)
+            self.assertIn("e.revision", sql_literals)
 
 
 if __name__ == "__main__":

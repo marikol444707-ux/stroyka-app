@@ -41,3 +41,26 @@ describe('authActions cookie-only browser session', () => {
     expect(JSON.parse(localStorage.getItem('user'))).not.toHaveProperty('authToken');
   });
 });
+
+describe('supplier invitation registration', () => {
+  const originalFetch = window.fetch;
+  afterEach(() => { window.fetch = originalFetch; localStorage.clear(); });
+
+  test.each([409, 422])('refusal %s preserves the supplied draft and does not log in or retry', async status => {
+    const draft = {companyName:'Мой поставщик',inn:'77 - 12345678',bank:'Ручной ввод банка'};
+    const setUser = jest.fn(), setPage = jest.fn(), setRegSupplierData = jest.fn(), setLoginError = jest.fn();
+    window.fetch = jest.fn().mockResolvedValue({ok:false,status,json:async()=>({detail:'Проверьте реквизиты приглашённого поставщика'})});
+    const actions = createAuthActions({API:'/api',regName:'Контакт',regEmail:'test@local.invalid',
+      regPassword:'Synthetic-only!123',regCode:'OLD-INVITATION',regInviteInfo:{role:'поставщик'},
+      regSupplierData:draft,setUser,setPage,setRegSupplierData,setLoginError});
+    await actions.handleRegister();
+    expect(window.fetch).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(window.fetch.mock.calls[0][1].body)).toMatchObject(draft);
+    expect(setLoginError).toHaveBeenCalledWith('Проверьте реквизиты приглашённого поставщика');
+    expect(setUser).not.toHaveBeenCalled();
+    expect(setPage).not.toHaveBeenCalled();
+    expect(setRegSupplierData).not.toHaveBeenCalled();
+    expect(draft).toEqual({companyName:'Мой поставщик',inn:'77 - 12345678',bank:'Ручной ввод банка'});
+    expect(localStorage.getItem('user')).toBeNull();
+  });
+});

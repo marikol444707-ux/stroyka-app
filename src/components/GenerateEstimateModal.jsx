@@ -42,7 +42,7 @@ export default function GenerateEstimateModal({
       const res=await fetch(API+'/ai-generate-estimate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...generateForm,version:genVersion})});
       const data=await res.json();
       if(!res.ok||!data.ok){alert('ИИ не справился: '+(data.detail||'попробуйте ещё раз с более детальным описанием'));setGenerating(false);return;}
-      const est={id:data.id,name:data.name,projectId:data.projectId||'',projectName:data.projectName||'',version:data.version||genVersion,smetaType:data.smetaType||generateForm.smetaType||'Заказчик',workPackage:data.workPackage||generateForm.workPackage||'Основная',status:data.status||generateForm.status||'Активная',sections:enrichEstimateMeasurementBasis(data.sections||[])};
+      const est={id:data.id,revision:data.revision,name:data.name,projectId:data.projectId||'',projectName:data.projectName||'',version:data.version||genVersion,smetaType:data.smetaType||generateForm.smetaType||'Заказчик',workPackage:data.workPackage||generateForm.workPackage||'Основная',status:data.status||generateForm.status||'Активная',sections:enrichEstimateMeasurementBasis(data.sections||[])};
       const diffBase=activeEstimateFromList((estimatesList||[]).filter(e=>est.status==='Активная'&&!isGlobalEstimateTemplate(e)&&sameEstimateGroup(e,est)&&e.status==='Активная'));
       const nextEstimates=applyEstimateActivationState ? applyEstimateActivationState([...(estimatesList||[]),est], est) : [...(estimatesList||[]),est];
       setEstimatesList(nextEstimates);

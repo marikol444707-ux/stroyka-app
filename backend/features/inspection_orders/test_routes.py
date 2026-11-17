@@ -1,6 +1,7 @@
 import unittest
 
 from fastapi import HTTPException
+from backend.features.prescriptions.test_routes import TestRecordScope
 
 from backend.features.brigade_access.act_routes import register_brigade_acts_module
 from backend.features.inspection_orders.routes import register_inspection_orders_module
@@ -88,6 +89,8 @@ def inspection_build(cursor):
     app = FakeApp()
     connection = FakeConnection(cursor)
     register_inspection_orders_module(app, {
+        "record_scope": TestRecordScope(connection),
+        "get_current_user": lambda: {},
         "get_db": lambda: connection,
         "require_roles": lambda *roles: (lambda: None),
         "read_roles": ("директор",),

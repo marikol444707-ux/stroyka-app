@@ -35,10 +35,18 @@ class FakeCursor:
         self.calls.append((" ".join(sql.split()), tuple(params)))
 
     def fetchall(self):
+        if self.calls and "FROM users u" in self.calls[-1][0]:
+            return [{"id": 42, "projects": ["Объект"], "project": ""}]
         return list(self.rows)
 
     def fetchone(self):
         return self.row
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        pass
 
     def close(self):
         pass
@@ -60,6 +68,8 @@ def build(cursor):
     connection = FakeConnection(cursor)
     register_pd_consents_module(app, {
         "get_db": lambda: connection,
+        "resolve_work_company_context": lambda *args, **kwargs: {},
+        "effective_company_actors": lambda user, context: [{**user, "companyId": 2, "assignedProjects": ["Объект"]}],
         "get_current_user": lambda: {},
         "require_roles": lambda *roles: (lambda: None),
         "staff_manage_roles": ("директор", "зам_директора"),
@@ -95,9 +105,9 @@ class PdConsentsRoutesTest(unittest.TestCase):
     def test_delete_targets_exact_user(self):
         cursor = FakeCursor()
         app, _conn = build(cursor)
-        result = app.routes[("DELETE", "/pd-consents/{user_id}")](user_id=42, _current_user={})
+        result = app.routes[("DELETE", "/pd-consents/{user_id}")](user_id=42, _current_user={"id": 1, "role": "директор"})
         self.assertEqual(result, {"ok": True})
-        self.assertEqual(cursor.calls[0][1], (42,))
+        self.assertEqual(cursor.calls[-1][1], (42,))
 
 
 if __name__ == "__main__":

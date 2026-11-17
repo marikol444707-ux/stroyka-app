@@ -53,12 +53,112 @@ test('physical return sends exact quantity with claim version and shows remainin
     expectedCompanyId: 2, expectedActorId: 9 }));
 });
 
+test('supplier replacement requires actual waybill number and date and submits them with quantity and version', async () => {
+  const posts = [];
+  const supplierClaim = { ...claim, companyId: 44 };
+  global.fetch = jest.fn(async (url, options = {}) => {
+    if (options.method === 'POST') {
+      posts.push({url, companyId:new Headers(options.headers).get('X-Company-Id'), body:JSON.parse(options.body)});
+      return response({ ok:true, id:7, eventId:82 });
+    }
+    return response(url.endsWith('/cases') ? list([supplierClaim]) : detail({
+      claim:supplierClaim, canComment:false, canStart:false, canReply:true, canReplace:true,
+      canResolve:false, canReopen:false, replacementRemaining:'2', unit:'шт',
+    }));
+  });
+  render(<SupplyClaims {...props}
+    companyContext={{mode:'company',selectedCompanyId:null,companies:[]}}
+    user={{id:19,role:'поставщик',name:'Моя поставка'}}/>);
+  const card = await openClaim();
+  fireEvent.change(within(card).getByLabelText('Действие'), {target:{value:'replace'}});
+  fireEvent.change(within(card).getByLabelText('Количество'), {target:{value:'1.5'}});
+  fireEvent.change(within(card).getByLabelText('Сообщение'), {target:{value:'Отгрузили замену по фактической накладной'}});
+  fireEvent.click(within(card).getByRole('button',{name:'Сохранить'}));
+  expect(posts).toHaveLength(0);
+
+  const number=within(card).getByLabelText('Номер накладной замены');
+  const date=within(card).getByLabelText('Дата накладной замены');
+  expect(number).toHaveValue('');
+  expect(date).toHaveValue('');
+  fireEvent.change(number,{target:{value:'REPLACE-ACTUAL-14'}});
+  fireEvent.click(within(card).getByRole('button',{name:'Сохранить'}));
+  expect(posts).toHaveLength(0);
+  fireEvent.change(date,{target:{value:'2026-11-09'}});
+  fireEvent.click(within(card).getByRole('button',{name:'Сохранить'}));
+  await waitFor(()=>expect(posts).toHaveLength(1));
+  expect(posts[0]).toEqual({url:'/api/supply-claims/7/case',companyId:'44',body:expect.objectContaining({
+    action:'replace',quantity:'1.5',expectedVersion:3,expectedCompanyId:44,expectedActorId:19,
+    waybillNumber:'REPLACE-ACTUAL-14',waybillDate:'2026-11-09',
+  })});
+});
+
 async function openClaim(id = 7) {
   fireEvent.click(await screen.findByRole('button', { name: `Открыть претензию ${id}` }));
   const card = await screen.findByRole('region', { name: `Претензия ${id}` });
   await waitFor(() => expect(within(card).queryByText('Загрузка карточки…')).not.toBeInTheDocument());
   return card;
 }
+
+test('zero-receipt claim opens every saved original in order through authenticated file downloads', async () => {
+  const pages = ['/tenant-files/78/content', '/tenant-files/77/content'];
+  const createObjectURL = URL.createObjectURL;
+  const revokeObjectURL = URL.revokeObjectURL;
+  URL.createObjectURL = jest.fn(() => 'blob:receipt-page');
+  URL.revokeObjectURL = jest.fn();
+  const click = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+  try {
+    global.fetch = jest.fn(async url => {
+      if (url.includes('/tenant-files/')) return { ok: true,
+        blob: async () => new Blob(['receipt']), headers: new Headers() };
+      return response(url.endsWith('/cases') ? list() : detail({ claim: {
+        ...claim, claimType: 'Недостача', expectedQuantity: 10, receivedQuantity: 0,
+        shortageQuantity: 10, photoUrl: pages[0], receiptOriginalUrls: pages,
+      } }));
+    });
+    render(<SupplyClaims {...props} />);
+    const card = await openClaim();
+    const originals = within(card).getByLabelText('Оригиналы приёмки');
+    const buttons = within(originals).getAllByRole('button');
+    expect(buttons.map(button => button.textContent)).toEqual([
+      'Оригинал приёмки · страница 1', 'Оригинал приёмки · страница 2',
+    ]);
+    expect(within(card).queryByRole('button', { name: 'Скачать фото претензии' })).not.toBeInTheDocument();
+    for (const [index, button] of buttons.entries()) {
+      fireEvent.click(button);
+      await waitFor(() => expect(click).toHaveBeenCalledTimes(index + 1));
+      expect(global.fetch).toHaveBeenCalledWith('/api' + pages[index], expect.objectContaining({
+        credentials: 'include', cache: 'no-store', signal: expect.any(AbortSignal),
+      }));
+    }
+  } finally {
+    click.mockRestore();
+    URL.createObjectURL = createObjectURL;
+    // A download schedules revocation; leave a harmless callable for the timer.
+    URL.revokeObjectURL = revokeObjectURL || (() => {});
+  }
+});
+
+test('legacy claims with unknown originals keep the existing photo link', async () => {
+  global.fetch = jest.fn(async url => response(url.endsWith('/cases') ? list()
+    : detail({ claim: { ...claim, photoUrl: '/tenant-files/77/content', receiptOriginalUrls: null } })));
+  render(<SupplyClaims {...props} />);
+  const card = await openClaim();
+  expect(within(card).getByRole('button', { name: 'Скачать фото претензии' })).toBeInTheDocument();
+  expect(within(card).queryByLabelText('Оригиналы приёмки')).not.toBeInTheDocument();
+});
+
+test('an extra receipt page rechecks access and reports revoked permission', async () => {
+  global.fetch = jest.fn(async url => url.includes('/tenant-files/') ? response({}, 403)
+    : response(url.endsWith('/cases') ? list() : detail({ claim: { ...claim,
+      receiptOriginalUrls: ['/tenant-files/77/content', '/tenant-files/78/content'],
+    } })));
+  render(<SupplyClaims {...props} />);
+  await openClaim();
+  fireEvent.click(screen.getByRole('button', { name: 'Оригинал приёмки · страница 2' }));
+  expect(await screen.findByText('Доступ к файлу отозван или не предоставлен.')).toBeInTheDocument();
+  expect(global.fetch).toHaveBeenCalledWith('/api/tenant-files/78/content',
+    expect.objectContaining({ credentials: 'include', cache: 'no-store' }));
+});
 
 test('loads only the selected company, opens a case and renders server capabilities and immutable history', async () => {
   const requests = [];

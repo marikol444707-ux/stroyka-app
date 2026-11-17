@@ -128,3 +128,27 @@ describe('ProjectWorkJournalPanel protected photo preview', () => {
     expect(props.buildJPRContent).toHaveBeenCalledWith(project);
   });
 });
+
+
+describe('leadership review of master reports', () => {
+  const {createAppRoleRuntime} = require('../features/app-shell/appShellSelectors');
+  test.each(['директор', 'зам_директора'])('%s sees the master report and an explicit acceptance action', role => {
+    const user = {id: 7, role};
+    const roles = createAppRoleRuntime({user});
+    const props = buildProps('', {user, canConfirm: roles.isProrab(), showCustomerTotals: true});
+    render(<ProjectWorkJournalPanel {...props}/>);
+    expect(screen.getByText('👷 Мастер')).toBeInTheDocument();
+    expect(screen.getByText('Штукатурка стен')).toBeInTheDocument();
+    expect(screen.getByText('10 м2')).toBeInTheDocument();
+    const accept = screen.getByRole('button', {name: 'Принять', exact: true});
+    expect(accept).toHaveTextContent('Принять');
+    fireEvent.click(accept);
+    expect(props.openConfirmModal).toHaveBeenCalledWith(props.workJournal[0]);
+    expect(props.setEditingJournal).not.toHaveBeenCalled();
+  });
+  test.each(['мастер','бухгалтер'])('%s cannot confirm from the review panel', role => {
+    const roles = createAppRoleRuntime({user: {role}});
+    render(<ProjectWorkJournalPanel {...buildProps('', {canConfirm: roles.isProrab()})}/>);
+    expect(screen.queryByTitle('Принять (можно пересчитать)')).not.toBeInTheDocument();
+  });
+});

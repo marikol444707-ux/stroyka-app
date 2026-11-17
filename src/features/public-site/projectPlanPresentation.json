@@ -1,0 +1,1259 @@
+{
+  "/site-assets/projects/b1-02/plan.png": {
+    "heading": "Планировка помещений",
+    "rooms": [
+      {
+        "number": 1,
+        "name": "Спальня 1"
+      },
+      {
+        "number": 2,
+        "name": "Спальня 2"
+      },
+      {
+        "number": 3,
+        "name": "Спальня 3"
+      },
+      {
+        "number": 4,
+        "name": "Холл"
+      },
+      {
+        "number": 5,
+        "name": "Кухня-гостиная"
+      },
+      {
+        "number": 6,
+        "name": "Ванная"
+      },
+      {
+        "number": 7,
+        "name": "Прихожая"
+      },
+      {
+        "number": 8,
+        "name": "Кабинет"
+      },
+      {
+        "number": 9,
+        "name": "Душевая"
+      },
+      {
+        "number": 10,
+        "name": "Эркер гостиной"
+      },
+      {
+        "number": 11,
+        "name": "Крыльцо"
+      }
+    ],
+    "orientation": "Главный фасад — снизу схемы",
+    "diagram": "/site-assets/projects/b1-02/plan-diagram.svg",
+    "sheet": "/site-assets/projects/b1-02/plan-sheet.svg"
+  },
+  "/site-assets/projects/b1-03/plan.png": {
+    "heading": "Планировка помещений",
+    "rooms": [
+      {
+        "number": 1,
+        "name": "Спальня 1"
+      },
+      {
+        "number": 2,
+        "name": "Спальня 2"
+      },
+      {
+        "number": 3,
+        "name": "Спальня 3"
+      },
+      {
+        "number": 4,
+        "name": "Ванная"
+      },
+      {
+        "number": 5,
+        "name": "Холл"
+      },
+      {
+        "number": 6,
+        "name": "Гостевая спальня"
+      },
+      {
+        "number": 7,
+        "name": "Прихожая"
+      },
+      {
+        "number": 8,
+        "name": "Душевая"
+      },
+      {
+        "number": 9,
+        "name": "Хозблок"
+      },
+      {
+        "number": 10,
+        "name": "Кухня-гостиная"
+      },
+      {
+        "number": 11,
+        "name": "Крытая терраса"
+      }
+    ],
+    "orientation": "Главный фасад — снизу схемы",
+    "diagram": "/site-assets/projects/b1-03/plan-diagram.svg",
+    "sheet": "/site-assets/projects/b1-03/plan-sheet.svg"
+  },
+  "/site-assets/projects/fam-02/plan.png": {
+    "heading": "Планировка помещений",
+    "rooms": [
+      {
+        "number": 1,
+        "name": "Спальня 1"
+      },
+      {
+        "number": 2,
+        "name": "Спальня 2"
+      },
+      {
+        "number": 3,
+        "name": "Спальня 3"
+      },
+      {
+        "number": 4,
+        "name": "Ванная"
+      },
+      {
+        "number": 5,
+        "name": "Холл"
+      },
+      {
+        "number": 6,
+        "name": "Кабинет"
+      },
+      {
+        "number": 7,
+        "name": "Кухня-гостиная · второй свет"
+      },
+      {
+        "number": 8,
+        "name": "Душевая"
+      },
+      {
+        "number": 9,
+        "name": "Постирочная"
+      },
+      {
+        "number": 10,
+        "name": "Прихожая"
+      },
+      {
+        "number": 11,
+        "name": "Крытая терраса"
+      }
+    ],
+    "orientation": "Главный фасад — снизу схемы",
+    "diagram": "/site-assets/projects/fam-02/plan-diagram.svg",
+    "sheet": "/site-assets/projects/fam-02/plan-sheet.svg"
+  },
+  "/site-assets/projects/fam-03/plan.png": {
+    "heading": "Планировка помещений",
+    "rooms": [
+      {
+        "number": 1,
+        "name": "Спальня 1"
+      },
+      {
+        "number": 2,
+        "name": "Спальня 2"
+      },
+      {
+        "number": 3,
+        "name": "Спальня 3"
+      },
+      {
+        "number": 4,
+        "name": "Ванная"
+      },
+      {
+        "number": 5,
+        "name": "Холл"
+      },
+      {
+        "number": 6,
+        "name": "Спальня 4"
+      },
+      {
+        "number": 7,
+        "name": "Кухня-гостиная"
+      },
+      {
+        "number": 8,
+        "name": "Прихожая"
+      },
+      {
+        "number": 9,
+        "name": "Душевая"
+      },
+      {
+        "number": 10,
+        "name": "Гостевая"
+      },
+      {
+        "number": 11,
+        "name": "Крытая терраса"
+      }
+    ],
+    "orientation": "Главный фасад — снизу схемы",
+    "diagram": "/site-assets/projects/fam-03/plan-diagram.svg",
+    "sheet": "/site-assets/projects/fam-03/plan-sheet.svg"
+  },
+  "/site-assets/projects/h2-02/plan-1.png": {
+    "heading": "План 1 этажа",
+    "rooms": [
+      {
+        "number": 1,
+        "name": "Кухня-столовая"
+      },
+      {
+        "number": 2,
+        "name": "Гостевая спальня"
+      },
+      {
+        "number": 3,
+        "name": "Душевая / постирочная"
+      },
+      {
+        "number": 4,
+        "name": "Холл"
+      },
+      {
+        "number": 5,
+        "name": "Гостиная"
+      },
+      {
+        "number": 6,
+        "name": "Лестница"
+      },
+      {
+        "number": 7,
+        "name": "Прихожая"
+      },
+      {
+        "number": 8,
+        "name": "Крытая терраса"
+      }
+    ],
+    "orientation": "Главный фасад — снизу схемы",
+    "diagram": "/site-assets/projects/h2-02/plan-1-diagram.svg",
+    "sheet": "/site-assets/projects/h2-02/plan-1-sheet.svg"
+  },
+  "/site-assets/projects/h2-02/plan-2.png": {
+    "heading": "План 2 этажа",
+    "rooms": [
+      {
+        "number": 1,
+        "name": "Спальня 1"
+      },
+      {
+        "number": 2,
+        "name": "Спальня 2"
+      },
+      {
+        "number": 3,
+        "name": "Ванная"
+      },
+      {
+        "number": 4,
+        "name": "Холл"
+      },
+      {
+        "number": 5,
+        "name": "Мастер-спальня"
+      },
+      {
+        "number": 6,
+        "name": "Лестница"
+      },
+      {
+        "number": 7,
+        "name": "Гардеробная"
+      },
+      {
+        "number": 8,
+        "name": "Балкон"
+      }
+    ],
+    "orientation": "Главный фасад — снизу схемы",
+    "diagram": "/site-assets/projects/h2-02/plan-2-diagram.svg",
+    "sheet": "/site-assets/projects/h2-02/plan-2-sheet.svg"
+  },
+  "/site-assets/projects/gar-01/plan-1.png": {
+    "heading": "План 1 этажа",
+    "rooms": [
+      {
+        "number": 1,
+        "name": "Кухня"
+      },
+      {
+        "number": 2,
+        "name": "Душевая"
+      },
+      {
+        "number": 3,
+        "name": "Лестница"
+      },
+      {
+        "number": 4,
+        "name": "Холл"
+      },
+      {
+        "number": 5,
+        "name": "Гостиная-столовая"
+      },
+      {
+        "number": 6,
+        "name": "Прихожая / шлюз"
+      },
+      {
+        "number": 7,
+        "name": "Гараж"
+      },
+      {
+        "number": 8,
+        "name": "Терраса"
+      }
+    ],
+    "orientation": "Главный фасад — снизу схемы",
+    "diagram": "/site-assets/projects/gar-01/plan-1-diagram.svg",
+    "sheet": "/site-assets/projects/gar-01/plan-1-sheet.svg"
+  },
+  "/site-assets/projects/gar-01/plan-2.png": {
+    "heading": "План 2 этажа",
+    "rooms": [
+      {
+        "number": 1,
+        "name": "Спальня 1"
+      },
+      {
+        "number": 2,
+        "name": "Ванная"
+      },
+      {
+        "number": 3,
+        "name": "Лестница"
+      },
+      {
+        "number": 4,
+        "name": "Холл"
+      },
+      {
+        "number": 5,
+        "name": "Мастер-спальня"
+      },
+      {
+        "number": 6,
+        "name": "Спальня 2"
+      },
+      {
+        "number": 7,
+        "name": "Кровля гаража"
+      }
+    ],
+    "orientation": "Главный фасад — снизу схемы",
+    "diagram": "/site-assets/projects/gar-01/plan-2-diagram.svg",
+    "sheet": "/site-assets/projects/gar-01/plan-2-sheet.svg"
+  },
+  "/site-assets/projects/gar-02/plan-1.png": {
+    "heading": "План 1 этажа",
+    "rooms": [
+      {
+        "number": 1,
+        "name": "Кухня"
+      },
+      {
+        "number": 2,
+        "name": "Душевая"
+      },
+      {
+        "number": 3,
+        "name": "Лестница"
+      },
+      {
+        "number": 4,
+        "name": "Холл"
+      },
+      {
+        "number": 5,
+        "name": "Гостиная-столовая"
+      },
+      {
+        "number": 6,
+        "name": "Прихожая / шлюз"
+      },
+      {
+        "number": 7,
+        "name": "Гараж · 2 автомобиля"
+      },
+      {
+        "number": 8,
+        "name": "Терраса"
+      }
+    ],
+    "orientation": "Главный фасад — снизу схемы",
+    "diagram": "/site-assets/projects/gar-02/plan-1-diagram.svg",
+    "sheet": "/site-assets/projects/gar-02/plan-1-sheet.svg"
+  },
+  "/site-assets/projects/gar-02/plan-2.png": {
+    "heading": "План 2 этажа",
+    "rooms": [
+      {
+        "number": 1,
+        "name": "Спальня 1"
+      },
+      {
+        "number": 2,
+        "name": "Ванная"
+      },
+      {
+        "number": 3,
+        "name": "Лестница"
+      },
+      {
+        "number": 4,
+        "name": "Холл"
+      },
+      {
+        "number": 5,
+        "name": "Мастер-спальня"
+      },
+      {
+        "number": 6,
+        "name": "Спальня 2"
+      },
+      {
+        "number": 7,
+        "name": "Кровля гаража"
+      }
+    ],
+    "orientation": "Главный фасад — снизу схемы",
+    "diagram": "/site-assets/projects/gar-02/plan-2-diagram.svg",
+    "sheet": "/site-assets/projects/gar-02/plan-2-sheet.svg"
+  },
+  "/site-assets/projects/gar-03/plan-1.png": {
+    "heading": "План 1 этажа",
+    "rooms": [
+      {
+        "number": 1,
+        "name": "Гостевая спальня"
+      },
+      {
+        "number": 2,
+        "name": "Душевая"
+      },
+      {
+        "number": 3,
+        "name": "Лестница"
+      },
+      {
+        "number": 4,
+        "name": "Холл"
+      },
+      {
+        "number": 5,
+        "name": "Кухня-гостиная"
+      },
+      {
+        "number": 6,
+        "name": "Прихожая / шлюз"
+      },
+      {
+        "number": 7,
+        "name": "Гараж"
+      },
+      {
+        "number": 8,
+        "name": "Мастерская"
+      },
+      {
+        "number": 9,
+        "name": "Терраса"
+      }
+    ],
+    "orientation": "Главный фасад — снизу схемы",
+    "diagram": "/site-assets/projects/gar-03/plan-1-diagram.svg",
+    "sheet": "/site-assets/projects/gar-03/plan-1-sheet.svg"
+  },
+  "/site-assets/projects/gar-03/plan-2.png": {
+    "heading": "План 2 этажа",
+    "rooms": [
+      {
+        "number": 1,
+        "name": "Спальня 1"
+      },
+      {
+        "number": 2,
+        "name": "Ванная"
+      },
+      {
+        "number": 3,
+        "name": "Лестница"
+      },
+      {
+        "number": 4,
+        "name": "Холл"
+      },
+      {
+        "number": 5,
+        "name": "Мастер-спальня"
+      },
+      {
+        "number": 6,
+        "name": "Спальня 2"
+      },
+      {
+        "number": 7,
+        "name": "Кровля гаража"
+      }
+    ],
+    "orientation": "Главный фасад — снизу схемы",
+    "diagram": "/site-assets/projects/gar-03/plan-2-diagram.svg",
+    "sheet": "/site-assets/projects/gar-03/plan-2-sheet.svg"
+  },
+  "/site-assets/projects/town-01/plan-1.png": {
+    "heading": "План 1 этажа",
+    "rooms": [
+      {
+        "number": 1,
+        "name": "Кухня-гостиная"
+      },
+      {
+        "number": 2,
+        "name": "Холл"
+      },
+      {
+        "number": 3,
+        "name": "Коридор"
+      },
+      {
+        "number": 4,
+        "name": "Душевая"
+      },
+      {
+        "number": 5,
+        "name": "Лестничный холл"
+      },
+      {
+        "number": 6,
+        "name": "Лестница"
+      },
+      {
+        "number": 7,
+        "name": "Прихожая"
+      },
+      {
+        "number": 8,
+        "name": "Задняя терраса"
+      }
+    ],
+    "orientation": "Главный фасад — снизу схемы",
+    "diagram": "/site-assets/projects/town-01/plan-1-diagram.svg",
+    "sheet": "/site-assets/projects/town-01/plan-1-sheet.svg"
+  },
+  "/site-assets/projects/town-01/plan-2.png": {
+    "heading": "План 2 этажа",
+    "rooms": [
+      {
+        "number": 1,
+        "name": "Спальня 1"
+      },
+      {
+        "number": 2,
+        "name": "Холл"
+      },
+      {
+        "number": 3,
+        "name": "Коридор"
+      },
+      {
+        "number": 4,
+        "name": "Душевая"
+      },
+      {
+        "number": 5,
+        "name": "Лестничный холл"
+      },
+      {
+        "number": 6,
+        "name": "Лестница"
+      },
+      {
+        "number": 7,
+        "name": "Мастер-спальня"
+      }
+    ],
+    "orientation": "Главный фасад — снизу схемы",
+    "diagram": "/site-assets/projects/town-01/plan-2-diagram.svg",
+    "sheet": "/site-assets/projects/town-01/plan-2-sheet.svg"
+  },
+  "/site-assets/projects/town-02/plan-1.png": {
+    "heading": "План 1 этажа",
+    "rooms": [
+      {
+        "number": 1,
+        "name": "Кухня-гостиная"
+      },
+      {
+        "number": 2,
+        "name": "Холл"
+      },
+      {
+        "number": 3,
+        "name": "Коридор"
+      },
+      {
+        "number": 4,
+        "name": "Душевая"
+      },
+      {
+        "number": 5,
+        "name": "Лестничный холл"
+      },
+      {
+        "number": 6,
+        "name": "Лестница"
+      },
+      {
+        "number": 7,
+        "name": "Прихожая"
+      },
+      {
+        "number": 8,
+        "name": "Задняя терраса"
+      }
+    ],
+    "orientation": "Главный фасад — снизу схемы",
+    "diagram": "/site-assets/projects/town-02/plan-1-diagram.svg",
+    "sheet": "/site-assets/projects/town-02/plan-1-sheet.svg"
+  },
+  "/site-assets/projects/town-02/plan-2.png": {
+    "heading": "План 2 этажа",
+    "rooms": [
+      {
+        "number": 1,
+        "name": "Спальня 1"
+      },
+      {
+        "number": 2,
+        "name": "Спальня 2"
+      },
+      {
+        "number": 3,
+        "name": "Холл"
+      },
+      {
+        "number": 4,
+        "name": "Коридор"
+      },
+      {
+        "number": 5,
+        "name": "Душевая"
+      },
+      {
+        "number": 6,
+        "name": "Лестничный холл"
+      },
+      {
+        "number": 7,
+        "name": "Лестница"
+      },
+      {
+        "number": 8,
+        "name": "Мастер-спальня"
+      }
+    ],
+    "orientation": "Главный фасад — снизу схемы",
+    "diagram": "/site-assets/projects/town-02/plan-2-diagram.svg",
+    "sheet": "/site-assets/projects/town-02/plan-2-sheet.svg"
+  },
+  "/site-assets/projects/town-03/plan-1.png": {
+    "heading": "План 1 этажа",
+    "rooms": [
+      {
+        "number": 1,
+        "name": "Кухня-гостиная"
+      },
+      {
+        "number": 2,
+        "name": "Холл"
+      },
+      {
+        "number": 3,
+        "name": "Коридор"
+      },
+      {
+        "number": 4,
+        "name": "Душевая"
+      },
+      {
+        "number": 5,
+        "name": "Лестничный холл"
+      },
+      {
+        "number": 6,
+        "name": "Лестница"
+      },
+      {
+        "number": 7,
+        "name": "Прихожая"
+      },
+      {
+        "number": 8,
+        "name": "Кабинет"
+      },
+      {
+        "number": 9,
+        "name": "Задняя терраса"
+      }
+    ],
+    "orientation": "Главный фасад — снизу схемы",
+    "diagram": "/site-assets/projects/town-03/plan-1-diagram.svg",
+    "sheet": "/site-assets/projects/town-03/plan-1-sheet.svg"
+  },
+  "/site-assets/projects/town-03/plan-2.png": {
+    "heading": "План 2 этажа",
+    "rooms": [
+      {
+        "number": 1,
+        "name": "Спальня 1"
+      },
+      {
+        "number": 2,
+        "name": "Спальня 2"
+      },
+      {
+        "number": 3,
+        "name": "Холл"
+      },
+      {
+        "number": 4,
+        "name": "Коридор"
+      },
+      {
+        "number": 5,
+        "name": "Душевая"
+      },
+      {
+        "number": 6,
+        "name": "Лестничный холл"
+      },
+      {
+        "number": 7,
+        "name": "Лестница"
+      },
+      {
+        "number": 8,
+        "name": "Мастер-спальня"
+      }
+    ],
+    "orientation": "Главный фасад — снизу схемы",
+    "diagram": "/site-assets/projects/town-03/plan-2-diagram.svg",
+    "sheet": "/site-assets/projects/town-03/plan-2-sheet.svg"
+  },
+  "/site-assets/projects/apt-01/plan.png": {
+    "heading": "Планировка помещений",
+    "rooms": [
+      {
+        "number": 1,
+        "name": "Прихожая"
+      },
+      {
+        "number": 2,
+        "name": "Санузел"
+      },
+      {
+        "number": 3,
+        "name": "Кухня"
+      },
+      {
+        "number": 4,
+        "name": "Спальня"
+      },
+      {
+        "number": 5,
+        "name": "Гостиная"
+      }
+    ],
+    "diagram": "/site-assets/projects/apt-01/plan-diagram.svg",
+    "sheet": "/site-assets/projects/apt-01/plan-sheet.svg"
+  },
+  "/site-assets/projects/apt-02/plan.png": {
+    "heading": "Планировка помещений",
+    "rooms": [
+      {
+        "number": 1,
+        "name": "Прихожая"
+      },
+      {
+        "number": 2,
+        "name": "Санузел"
+      },
+      {
+        "number": 3,
+        "name": "Спальня"
+      },
+      {
+        "number": 4,
+        "name": "Спальня"
+      },
+      {
+        "number": 5,
+        "name": "Холл / хранение"
+      },
+      {
+        "number": 6,
+        "name": "Кухня-гостиная"
+      }
+    ],
+    "diagram": "/site-assets/projects/apt-02/plan-diagram.svg",
+    "sheet": "/site-assets/projects/apt-02/plan-sheet.svg"
+  },
+  "/site-assets/projects/apt-03/plan.png": {
+    "heading": "Планировка помещений",
+    "rooms": [
+      {
+        "number": 1,
+        "name": "Прихожая"
+      },
+      {
+        "number": 2,
+        "name": "Санузел"
+      },
+      {
+        "number": 3,
+        "name": "Спальня"
+      },
+      {
+        "number": 4,
+        "name": "Спальня"
+      },
+      {
+        "number": 5,
+        "name": "Мастер-спальня"
+      },
+      {
+        "number": 6,
+        "name": "Санузел"
+      },
+      {
+        "number": 7,
+        "name": "Кухня-гостиная"
+      },
+      {
+        "number": 8,
+        "name": "Холл / гардероб"
+      }
+    ],
+    "diagram": "/site-assets/projects/apt-03/plan-diagram.svg",
+    "sheet": "/site-assets/projects/apt-03/plan-sheet.svg"
+  },
+  "/site-assets/projects/fin-01/plan.png": {
+    "heading": "Планировка помещений",
+    "rooms": [
+      {
+        "number": 1,
+        "name": "Спальня"
+      },
+      {
+        "number": 2,
+        "name": "Спальня"
+      },
+      {
+        "number": 3,
+        "name": "Санузел"
+      },
+      {
+        "number": 4,
+        "name": "Кухня-гостиная"
+      },
+      {
+        "number": 5,
+        "name": "Спальня"
+      },
+      {
+        "number": 6,
+        "name": "Холл"
+      },
+      {
+        "number": 7,
+        "name": "Котельная"
+      },
+      {
+        "number": 8,
+        "name": "Терраса"
+      }
+    ],
+    "diagram": "/site-assets/projects/fin-01/plan-diagram.svg",
+    "sheet": "/site-assets/projects/fin-01/plan-sheet.svg"
+  },
+  "/site-assets/projects/fin-02/plan.png": {
+    "heading": "Планировка помещений",
+    "rooms": [
+      {
+        "number": 1,
+        "name": "Спальня"
+      },
+      {
+        "number": 2,
+        "name": "Санузел"
+      },
+      {
+        "number": 3,
+        "name": "Лестница"
+      },
+      {
+        "number": 4,
+        "name": "Спальня"
+      },
+      {
+        "number": 5,
+        "name": "Спальня"
+      },
+      {
+        "number": 6,
+        "name": "Холл"
+      },
+      {
+        "number": 7,
+        "name": "Кухня-гостиная"
+      },
+      {
+        "number": 8,
+        "name": "Санузел"
+      },
+      {
+        "number": 9,
+        "name": "Постирочная"
+      },
+      {
+        "number": 10,
+        "name": "Терраса"
+      }
+    ],
+    "diagram": "/site-assets/projects/fin-02/plan-diagram.svg",
+    "sheet": "/site-assets/projects/fin-02/plan-sheet.svg"
+  },
+  "/site-assets/projects/fin-03/plan.png": {
+    "heading": "Планировка помещений",
+    "rooms": [
+      {
+        "number": 1,
+        "name": "1 этаж: кабинет"
+      },
+      {
+        "number": 2,
+        "name": "Санузел"
+      },
+      {
+        "number": 3,
+        "name": "Лестница"
+      },
+      {
+        "number": 4,
+        "name": "1 этаж: кухня-гостиная"
+      },
+      {
+        "number": 5,
+        "name": "2 этаж: мастер"
+      },
+      {
+        "number": 6,
+        "name": "Спальня"
+      },
+      {
+        "number": 7,
+        "name": "Спальня"
+      },
+      {
+        "number": 8,
+        "name": "Санузел"
+      },
+      {
+        "number": 9,
+        "name": "Санузел"
+      },
+      {
+        "number": 10,
+        "name": "Лестница"
+      },
+      {
+        "number": 11,
+        "name": "Холл"
+      },
+      {
+        "number": 12,
+        "name": "Спальня"
+      },
+      {
+        "number": 13,
+        "name": "Постирочная / хранение"
+      },
+      {
+        "number": 14,
+        "name": "Терраса"
+      }
+    ],
+    "diagram": "/site-assets/projects/fin-03/plan-diagram.svg",
+    "sheet": "/site-assets/projects/fin-03/plan-sheet.svg"
+  },
+  "/site-assets/projects/bath-01/plan.png": {
+    "heading": "Планировка помещений",
+    "rooms": [
+      {
+        "number": 1,
+        "name": "Душ"
+      },
+      {
+        "number": 2,
+        "name": "Унитаз"
+      },
+      {
+        "number": 3,
+        "name": "Раковина"
+      },
+      {
+        "number": 4,
+        "name": "Стиральная зона"
+      }
+    ],
+    "diagram": "/site-assets/projects/bath-01/plan-diagram.svg",
+    "sheet": "/site-assets/projects/bath-01/plan-sheet.svg"
+  },
+  "/site-assets/projects/bath-02/plan.png": {
+    "heading": "Планировка помещений",
+    "rooms": [
+      {
+        "number": 1,
+        "name": "Ванна"
+      },
+      {
+        "number": 2,
+        "name": "Инсталляция"
+      },
+      {
+        "number": 3,
+        "name": "Тумба"
+      },
+      {
+        "number": 4,
+        "name": "Теплый пол / проход"
+      }
+    ],
+    "diagram": "/site-assets/projects/bath-02/plan-diagram.svg",
+    "sheet": "/site-assets/projects/bath-02/plan-sheet.svg"
+  },
+  "/site-assets/projects/bath-03/plan.png": {
+    "heading": "Планировка помещений",
+    "rooms": [
+      {
+        "number": 1,
+        "name": "Душ"
+      },
+      {
+        "number": 2,
+        "name": "Ванна"
+      },
+      {
+        "number": 3,
+        "name": "Унитаз"
+      },
+      {
+        "number": 4,
+        "name": "Две раковины"
+      },
+      {
+        "number": 5,
+        "name": "Скрытые люки"
+      }
+    ],
+    "diagram": "/site-assets/projects/bath-03/plan-diagram.svg",
+    "sheet": "/site-assets/projects/bath-03/plan-sheet.svg"
+  },
+  "/site-assets/projects/kit-01/plan.png": {
+    "heading": "Планировка помещений",
+    "rooms": [
+      {
+        "number": 1,
+        "name": "Кухонная линия"
+      },
+      {
+        "number": 2,
+        "name": "Столовая"
+      },
+      {
+        "number": 3,
+        "name": "ТВ-зона"
+      }
+    ],
+    "diagram": "/site-assets/projects/kit-01/plan-diagram.svg",
+    "sheet": "/site-assets/projects/kit-01/plan-sheet.svg"
+  },
+  "/site-assets/projects/kit-02/plan.png": {
+    "heading": "Планировка помещений",
+    "rooms": [
+      {
+        "number": 1,
+        "name": "Кухня + остров"
+      },
+      {
+        "number": 2,
+        "name": "Столовая"
+      },
+      {
+        "number": 3,
+        "name": "Диванная зона"
+      }
+    ],
+    "diagram": "/site-assets/projects/kit-02/plan-diagram.svg",
+    "sheet": "/site-assets/projects/kit-02/plan-sheet.svg"
+  },
+  "/site-assets/projects/kit-03/plan.png": {
+    "heading": "Планировка помещений",
+    "rooms": [
+      {
+        "number": 1,
+        "name": "Кухня + остров"
+      },
+      {
+        "number": 2,
+        "name": "Столовая"
+      },
+      {
+        "number": 3,
+        "name": "Камин / ТВ-зона"
+      }
+    ],
+    "diagram": "/site-assets/projects/kit-03/plan-diagram.svg",
+    "sheet": "/site-assets/projects/kit-03/plan-sheet.svg"
+  },
+  "/site-assets/projects/off-01/plan.png": {
+    "heading": "Планировка помещений",
+    "rooms": [
+      {
+        "number": 1,
+        "name": "Ресепшен"
+      },
+      {
+        "number": 2,
+        "name": "Переговорная"
+      },
+      {
+        "number": 3,
+        "name": "Кухня"
+      },
+      {
+        "number": 4,
+        "name": "Санузел"
+      },
+      {
+        "number": 5,
+        "name": "Open space 18 мест"
+      }
+    ],
+    "diagram": "/site-assets/projects/off-01/plan-diagram.svg",
+    "sheet": "/site-assets/projects/off-01/plan-sheet.svg"
+  },
+  "/site-assets/projects/off-02/plan.png": {
+    "heading": "Планировка помещений",
+    "rooms": [
+      {
+        "number": 1,
+        "name": "Ресепшен"
+      },
+      {
+        "number": 2,
+        "name": "Переговорная"
+      },
+      {
+        "number": 3,
+        "name": "Архив"
+      },
+      {
+        "number": 4,
+        "name": "Кухня"
+      },
+      {
+        "number": 5,
+        "name": "Санузлы"
+      },
+      {
+        "number": 6,
+        "name": "Кабинет 1-2"
+      },
+      {
+        "number": 7,
+        "name": "Кабинет 3-4"
+      },
+      {
+        "number": 8,
+        "name": "Кабинет 5-6"
+      },
+      {
+        "number": 9,
+        "name": "Кабинет 7-8"
+      },
+      {
+        "number": 10,
+        "name": "Коридор и ожидание"
+      }
+    ],
+    "diagram": "/site-assets/projects/off-02/plan-diagram.svg",
+    "sheet": "/site-assets/projects/off-02/plan-sheet.svg"
+  },
+  "/site-assets/projects/off-03/plan.png": {
+    "heading": "Планировка помещений",
+    "rooms": [
+      {
+        "number": 1,
+        "name": "Клиентская зона"
+      },
+      {
+        "number": 2,
+        "name": "Ресепшен"
+      },
+      {
+        "number": 3,
+        "name": "Переговорная"
+      },
+      {
+        "number": 4,
+        "name": "Кухня"
+      },
+      {
+        "number": 5,
+        "name": "Санузлы"
+      },
+      {
+        "number": 6,
+        "name": "Open space"
+      },
+      {
+        "number": 7,
+        "name": "Кабинеты"
+      },
+      {
+        "number": 8,
+        "name": "Переговорная 2"
+      },
+      {
+        "number": 9,
+        "name": "Кабинеты руководства"
+      },
+      {
+        "number": 10,
+        "name": "Коридор / хранение"
+      }
+    ],
+    "diagram": "/site-assets/projects/off-03/plan-diagram.svg",
+    "sheet": "/site-assets/projects/off-03/plan-sheet.svg"
+  }
+}

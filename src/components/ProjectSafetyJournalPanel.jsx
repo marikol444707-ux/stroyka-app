@@ -1,9 +1,11 @@
-import React from 'react';
+import React, { useLayoutEffect, useRef, useState } from 'react';
+import { selectRegulatoryRecords } from '../utils/regulatoryRecordScope';
 import { Bot, Check, Eye, Plus, Search, X } from 'lucide-react';
 import { API } from '../api';
 import { createTbEntryForm } from '../features/project-operations/projectOperationInitialForms';
 
 export default function ProjectSafetyJournalPanel({
+  project,
   projectName,
   tbJournal = [],
   showForm,
@@ -29,7 +31,20 @@ export default function ProjectSafetyJournalPanel({
   btnR,
 }) {
   const formOpen = showForm === 'tb';
-  const projectEntries = tbJournal.filter(entry => entry.project === projectName);
+  const session = useRef(0);
+  const form = useRef(newTbEntry);
+  form.current = newTbEntry;
+  const savingRef = useRef(false);
+  const [saving, setSaving] = useState(false);
+  useLayoutEffect(() => {
+    session.current += 1;
+    savingRef.current = false;
+    setSaving(false);
+    if (form.current.aiLoading) setNewTbEntry(prev => ({ ...prev, aiLoading: false }));
+    return () => { session.current += 1; };
+  }, [project?.id, project?.companyId, formOpen, setNewTbEntry]);
+  const snapshot = value => JSON.stringify({ ...value, aiLoading: undefined });
+  const projectEntries = selectRegulatoryRecords(tbJournal, project);
   const visibleEntries = projectEntries.filter(entry => (
     matchSearch(listSearch, entry.type, entry.instructionText, entry.masterName, entry.instructor)
   ));
@@ -38,21 +53,26 @@ export default function ProjectSafetyJournalPanel({
   const extraInstructionTypes = Object.keys(tbInstructions).filter(key => !tbTypes.find(item => item.value === key));
 
   const generateInstruction = async () => {
+    const startedSession = session.current, startedDraft = snapshot(form.current);
     setNewTbEntry(prev => ({...prev, aiLoading: true}));
     try {
       const res = await fetch(API + '/tb-journal/ai-generate', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({instructionType: newTbEntry.type, projectName, workContext: ''}),
+        body: JSON.stringify({instructionType: newTbEntry.type, projectId: project.id, projectName, workContext: ''}),
       });
       if (!res.ok) {
         const error = await res.json().catch(() => ({}));
         throw new Error(error.detail || 'Ошибка');
       }
       const data = await res.json();
-      setNewTbEntry(prev => ({...prev, instructionText: data.instructionText || '', aiLoading: false}));
+      if (session.current !== startedSession) return;
+      setNewTbEntry(prev => snapshot(prev) === startedDraft
+        ? {...prev, instructionText: data.instructionText || '', aiLoading: false}
+        : {...prev, aiLoading: false});
     } catch (error) {
-      alert('AI: ' + error.message);
+      if (session.current !== startedSession) return;
+      if (snapshot(form.current) === startedDraft) alert('AI: ' + error.message);
       setNewTbEntry(prev => ({...prev, aiLoading: false}));
     }
   };
@@ -67,9 +87,27 @@ export default function ProjectSafetyJournalPanel({
   };
 
   const saveEntry = async () => {
-    await saveTbEntry({...newTbEntry, project: projectName});
-    setShowForm(false);
-    setNewTbEntry(createTbEntryForm());
+    if (savingRef.current) return;
+    const startedSession = session.current, startedDraft = snapshot(form.current);
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      const saved = await saveTbEntry({...newTbEntry, project: projectName, projectId: project.id, companyId: project.companyId}, {
+        onError: error => {
+          if (session.current === startedSession && snapshot(form.current) === startedDraft) {
+            alert('Сохранение инструктажа не подтверждено: ' + error.message);
+          }
+        },
+      });
+      if (!saved || session.current !== startedSession || snapshot(form.current) !== startedDraft) return;
+      setShowForm(false);
+      setNewTbEntry(createTbEntryForm());
+    } finally {
+      if (session.current === startedSession) {
+        savingRef.current = false;
+        setSaving(false);
+      }
+    }
   };
 
   return (
@@ -164,7 +202,7 @@ export default function ProjectSafetyJournalPanel({
           ))}
 
           <div style={{display: 'flex', gap: '8px', marginTop: '10px'}}>
-            <button onClick={saveEntry} style={btnO}>
+            <button onClick={saveEntry} disabled={saving} style={btnO}>
               <Check size={14}/>Сохранить
             </button>
             <button onClick={() => setShowForm(false)} style={btnG}>

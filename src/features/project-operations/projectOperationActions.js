@@ -54,7 +54,6 @@ export function createProjectOperationActions({
   setShowRoomForm,
   setTbJournal,
   setWeatherLog,
-  tbJournal,
   toNum,
   user,
   weatherLog,
@@ -186,8 +185,9 @@ export function createProjectOperationActions({
     setNewWeather(createWeatherForm());
   };
 
-  const saveTbEntry = async (data) => {
+  const saveTbEntry = async (data, { onError } = {}) => {
     const payload = {
+      projectId: data.projectId,
       projectName: data.project || data.projectName || '',
       masterName: data.masterName || '',
       instructor: data.instructor || (user ? user.name : ''),
@@ -198,15 +198,23 @@ export function createProjectOperationActions({
       photoUrl: data.photoUrl || '',
       date: data.date || new Date().toISOString().split('T')[0],
     };
-    let saved = null;
     try {
       const res = await fetch(API + '/tb-journal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-      saved = await res.json();
-    } catch (e) { console.error('TB save error', e); }
-    const localEntry = { ...payload, id: saved ? saved.id : Date.now(), createdBy: user.name, project: payload.projectName, type: payload.instructionType };
-    const updated = [...tbJournal, localEntry];
-    setTbJournal(updated);
-    localStorage.setItem('tbJournal', JSON.stringify(updated));
+      const saved = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(typeof saved.detail === 'string' ? saved.detail : `Ошибка ${res.status}`);
+      if (!saved.id || !saved.companyId || !saved.projectId
+          || Number(saved.projectId) !== Number(data.projectId)
+          || Number(saved.companyId) !== Number(data.companyId)) {
+        throw new Error('Сервер не подтвердил принадлежность записи. Обновите список перед повторным сохранением');
+      }
+      const entry = { ...saved, project: saved.projectName, type: saved.instructionType };
+      setTbJournal(current => [...current.filter(row => row.id !== entry.id || row.companyId !== entry.companyId), entry]);
+      return entry;
+    } catch (error) {
+      if (onError) onError(error);
+      else alert('Сохранение инструктажа не подтверждено: ' + error.message);
+      return null;
+    }
   };
 
   const saveWarehouse = async () => {

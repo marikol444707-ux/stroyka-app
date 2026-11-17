@@ -1,6 +1,7 @@
+import { applyConfirmedEstimateStatuses, estimateMutationPayload, estimateSaveFailure, readEstimateMutationResponse } from './estimateSaveClient';
+import { captureEstimateSelection, isEstimateSelectionCurrent } from './useEstimateSelection';
 import {
   activeEstimateFromList,
-  applyEstimateActivationState,
   estimateHasLoadedSections,
   estimateUpdatedTs,
   isGlobalEstimateTemplate,
@@ -20,6 +21,10 @@ export const createEstimateWorkflowActions = ({
   estimatesList = [],
   setEstimatesList,
   setSelectedEstimate,
+  estimateSelectionRef,
+  estimateListRef,
+  beginEstimateSave,
+  markEstimateDeleted,
   estimateReconciliations = [],
   setEstimateReconciliations,
   unexpectedWorksList = [],
@@ -50,7 +55,7 @@ export const createEstimateWorkflowActions = ({
     return {...estimate, ...normalized, sectionsLoaded:true};
   };
 
-  const loadEstimateDetails = async (estimates) => {
+  const loadEstimateDetails = async (estimates, isCurrent = () => true) => {
     const pending = (estimates || []).filter(estimate => estimate?.id && !estimateHasLoadedSections(estimate));
     if (!pending.length) return estimates || [];
     const ids = [...new Set(pending.map(estimate => Number(estimate.id)).filter(Number.isInteger))];
@@ -63,23 +68,31 @@ export const createEstimateWorkflowActions = ({
       throw new Error('Сервер не вернул все запрошенные сметы');
     }
     const mergedById = new Map(pending.map(estimate => [String(estimate.id), mergeEstimateDetail(estimate, byId.get(String(estimate.id)))]));
-    setEstimatesList(prev => (prev||[]).map(estimate => mergedById.get(String(estimate.id)) || estimate));
+    if (isCurrent()) {
+      // Only fill the exact list snapshot that initiated the GET.
+      const originals = new Map(pending.map(estimate => [String(estimate.id), estimate]));
+      setEstimatesList(prev => (prev||[]).map(estimate =>
+        originals.get(String(estimate.id)) === estimate ? mergedById.get(String(estimate.id)) : estimate));
+    }
     return (estimates || []).map(estimate => mergedById.get(String(estimate?.id)) || estimate);
   };
 
-  const loadEstimateDetail = async (estimate) => {
+  const loadEstimateDetail = async (estimate, isCurrent) => {
     if (!estimate?.id || estimateHasLoadedSections(estimate)) return estimate;
-    const [loaded] = await loadEstimateDetails([estimate]);
+    const [loaded] = await loadEstimateDetails([estimate], isCurrent);
     return loaded || estimate;
   };
 
   const openEstimateDetail = async (estimate) => {
     setSelectedEstimate(estimate);
+    const token = captureEstimateSelection(estimateSelectionRef, estimate?.id);
     try {
-      const full = await loadEstimateDetail(estimate);
-      if (full && full !== estimate) setSelectedEstimate(full);
+      const full = await loadEstimateDetail(estimate, () => isEstimateSelectionCurrent(estimateSelectionRef, token));
+      if (!isEstimateSelectionCurrent(estimateSelectionRef, token)) return null;
+      if (full && full !== estimate) setSelectedEstimate(full, {fromServer: true});
       return full;
     } catch (err) {
+      if (!isEstimateSelectionCurrent(estimateSelectionRef, token)) return null;
       alertFn('Не удалось загрузить смету: ' + (err?.message || err));
       return estimate;
     }
@@ -276,17 +289,20 @@ export const createEstimateWorkflowActions = ({
     const signedTotal = signedEstimateChangeTotal(rows);
     const msg = 'Создать новую активную версию сметы "' + (est.name || '') + '" и включить изменений: ' + rows.length + ' на ' + (signedTotal > 0 ? '+' : '') + Math.round(signedTotal).toLocaleString('ru-RU') + ' ₽?\n\nСтарая смета уйдёт в архив, изменения получат статус "Включено в новую смету" и не будут идти в КС отдельными строками.';
     if (!confirmFn(msg)) return;
+    const token = captureEstimateSelection(estimateSelectionRef, estimateSelectionRef?.current.id);
     const res = await fetchFn(API + '/estimates/' + est.id + '/include-changes', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({changeIds: rows.map(u => u.id), updatedBy: user.name}),
+      body: JSON.stringify(estimateMutationPayload(est, {changeIds: rows.map(u => u.id), updatedBy: user.name})),
     });
     const data = await res.json().catch(() => ({}));
+    if (!isEstimateSelectionCurrent(estimateSelectionRef, token)) return;
     if (!res.ok) {
-      alertFn(data.detail || 'Не удалось включить изменения в смету');
+      alertFn(data.detail?.message || data.detail || 'Не удалось включить изменения в смету');
       return;
     }
     await refreshData();
+    if (!isEstimateSelectionCurrent(estimateSelectionRef, token)) return;
     const next = data.estimate || null;
     if (next) {
       setSelectedEstimate(next);
@@ -298,42 +314,64 @@ export const createEstimateWorkflowActions = ({
 
   const setEstimateStatusRemote = async (est, status) => {
     if (!est?.id) return false;
+    const token = captureEstimateSelection(estimateSelectionRef, estimateSelectionRef?.current.id);
+    const operation = !estimateSelectionRef || estimateSelectionRef.current.id === est.id
+      ? beginEstimateSave?.(est, {fullSnapshot: false}) : null;
+    const isCurrent = () => operation ? operation.isCurrent() : isEstimateSelectionCurrent(estimateSelectionRef, token);
     let diffBase = status === 'Активная'
       ? activeEstimateFromList((estimatesList || []).filter(e => !isGlobalEstimateTemplate(e) && e.id !== est.id && sameEstimateGroup(e, est) && e.status === 'Активная'))
       : null;
     let fullEstimate = est;
     if (status === 'Активная') {
       try {
-        const loaded = await loadEstimateDetails(diffBase ? [diffBase, est] : [est]);
+        const loaded = await loadEstimateDetails(diffBase ? [diffBase, est] : [est], isCurrent);
         if (diffBase) diffBase = loaded[0] || diffBase;
         fullEstimate = loaded[diffBase ? 1 : 0] || est;
       } catch (error) {
-        alertFn('Не удалось загрузить строки редакций перед активацией: ' + (error?.message || error));
+        if (!isCurrent()) return false;
+        if (operation) operation.finish(estimateSaveFailure(error));
+        else alertFn('Не удалось загрузить строки редакций перед активацией: ' + (error?.message || error));
         return false;
       }
     }
-    let res;
+    if (!isCurrent()) return false;
+    const statusOriginals = estimateListRef?.current || estimatesList;
+    let data;
     try {
-      res = await fetchFn(API + '/estimates/' + est.id + '/status', {
+      const res = await fetchFn(API + '/estimates/' + est.id + '/status', {
         method: 'PUT',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({status}),
+        body: JSON.stringify(estimateMutationPayload(est, {status})),
       });
+      data = await readEstimateMutationResponse(res);
     } catch (error) {
-      alertFn('Не удалось связаться с сервером для изменения статуса сметы: ' + (error?.message || error));
+      if (!isCurrent()) return false;
+      if (operation) operation.finish(estimateSaveFailure(error));
+      else alertFn(error.message);
       return false;
     }
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      alertFn(data.detail || 'Не удалось изменить статус сметы' + (res.status ? ' (HTTP ' + res.status + ')' : ''));
-      return false;
+    if (!isCurrent()) return true;
+    const updated = {...fullEstimate, status, revision: data.revision};
+    const affected = data.affectedEstimates || [{id: est.id, previousRevision: est.revision, revision: data.revision, status}];
+    let nextEstimates;
+    setEstimatesList(previous => {
+      nextEstimates = applyConfirmedEstimateStatuses(previous, statusOriginals, affected);
+      return nextEstimates;
+    });
+    if (operation) operation.finish({status: 'saved', revision: data.revision, estimate: updated});
+    else if (estimateSelectionRef?.current.estimate) {
+      const selected = estimateSelectionRef.current.estimate;
+      const [acknowledged] = applyConfirmedEstimateStatuses([selected], [selected], affected);
+      if (acknowledged !== selected) {
+        const metadataSave = beginEstimateSave?.(selected, {fullSnapshot: false});
+        metadataSave?.finish({status: 'saved', revision: acknowledged.revision, estimate: acknowledged});
+        // Our metadata acknowledgement advances the selection revision, while
+        // the same activation may still queue reviews for its confirmed snapshot.
+        token.revision = estimateSelectionRef.current.revision;
+      }
+    } else if (!estimateSelectionRef) {
+      setSelectedEstimate(prev => prev && prev.id === est.id ? updated : prev);
     }
-    const updated = {...fullEstimate, status};
-    const detailedById = new Map([diffBase, updated].filter(Boolean).map(item => [String(item.id), item]));
-    const sourceEstimates = (estimatesList || []).map(item => detailedById.get(String(item.id)) || item);
-    const nextEstimates = applyEstimateActivationState(sourceEstimates.map(e => e.id === est.id ? updated : e), updated);
-    setEstimatesList(nextEstimates);
-    setSelectedEstimate(prev => prev && prev.id === est.id ? updated : prev);
     if (status === 'Активная') {
       if (diffBase) {
         const existingReconciliation = (estimateReconciliations || []).find(rec => (
@@ -342,17 +380,22 @@ export const createEstimateWorkflowActions = ({
         ));
         if (!existingReconciliation) {
           const reconciliation = await createEstimateReconciliation(diffBase, updated, { silent: true, preview: false });
+          if (!isCurrent()) return true;
           if (!reconciliation) {
             alertFn('Смета активирована, но серверную сверку редакций создать не удалось. Откройте объект → Изменения к смете и повторите сверку.');
           }
         }
+        if (!isCurrent()) return true;
         await queueEstimateDiffReviewTask(diffBase, updated, 'Смета активирована');
+        if (!isCurrent()) return true;
         await autoReconcileEstimateChanges(diffBase, updated, 'Смета активирована');
       }
+      if (!isCurrent()) return true;
       await queueEstimateQualityReviewTask(updated, 'Смета активирована');
+      if (!isCurrent()) return true;
       await queueEstimateNormReviewTask(updated, 'Смета активирована', nextEstimates);
     }
-    notify('Статус сметы изменён: ' + status, 'estimate');
+    if (isCurrent()) notify('Статус сметы изменён: ' + status, 'estimate');
     return true;
   };
 
@@ -360,20 +403,27 @@ export const createEstimateWorkflowActions = ({
     if (!est?.id) return false;
     const title = est.name || 'смету';
     if (!confirmFn('Удалить смету "' + title + '" безвозвратно? Это действие доступно только директору. Если смета уже связана с ЖПР, АОСР, договорными позициями или материалами, сервер не даст удалить ее, чтобы не потерять историю объекта.')) return false;
+    const token = captureEstimateSelection(estimateSelectionRef, estimateSelectionRef?.current.id);
     let res;
     try {
-      res = await fetchFn(API + '/estimates/' + est.id + '?hard=true', {method: 'DELETE'});
+      res = await fetchFn(API + '/estimates/' + est.id + '?hard=true&expectedRevision=' + encodeURIComponent(estimateMutationPayload(est).expectedRevision), {method: 'DELETE'});
     } catch (error) {
+      if (!isEstimateSelectionCurrent(estimateSelectionRef, token)) return false;
       alertFn('Не удалось связаться с сервером для удаления сметы: ' + (error?.message || error));
       return false;
     }
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      alertFn(data.detail || 'Не удалось удалить смету' + (res.status ? ' (HTTP ' + res.status + ')' : ''));
+      if (!isEstimateSelectionCurrent(estimateSelectionRef, token)) return false;
+      alertFn(data.detail?.message || data.detail || 'Не удалось удалить смету' + (res.status ? ' (HTTP ' + res.status + ')' : ''));
       return false;
     }
     setEstimatesList(prev => (prev || []).filter(e => e.id !== est.id));
-    setSelectedEstimate(prev => prev && prev.id === est.id ? null : prev);
+    if (isEstimateSelectionCurrent(estimateSelectionRef, token)) {
+      setSelectedEstimate(prev => prev && prev.id === est.id ? null : prev);
+    } else {
+      markEstimateDeleted?.(est.id);
+    }
     setEstimateReconciliations(prev => (prev || []).filter(rec =>
       Number(rec?.baseEstimateId || 0) !== Number(est.id)
       && Number(rec?.nextEstimateId || 0) !== Number(est.id)

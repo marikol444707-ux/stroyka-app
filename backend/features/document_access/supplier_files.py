@@ -83,13 +83,16 @@ def authorize_read(cur, user, row):
                 WHERE d.offer_id=supplier_offers.id AND d.company_id=supplier_offers.company_id
                 AND d.supplier_id=supplier_offers.supplier_id AND d.request_id=supplier_offers.request_id
                 AND d.project=r.project AND (d.document_url=ANY(%s) OR d.photo_url=ANY(%s)
+                    OR CASE WHEN jsonb_typeof(to_jsonb(d)->'receipt_original_urls')='array'
+                        THEN (to_jsonb(d)->'receipt_original_urls') @> jsonb_build_array(%s::text)
+                        ELSE FALSE END
                     OR EXISTS(SELECT 1 FROM supply_claims claim WHERE claim.delivery_id=d.id
                         AND claim.offer_id=d.offer_id AND claim.request_id=d.request_id
                         AND claim.supplier_id=d.supplier_id AND claim.project=d.project
                         AND COALESCE(claim.work_package,'')=COALESCE(d.work_package,'')
                         AND claim.photo_url=ANY(%s)))))''' + sql + ' LIMIT 1',
         [row['company_id'], row.get('project_id'), row.get('project_id'), row.get('context'),
-         urls, urls, urls, urls, urls, urls] + params)
+         urls, urls, urls, urls, urls, urls[0], urls] + params)
     if cur.fetchone():
         return dict(user)
     invoice_sql, invoice_params = supplier_invoice_visibility_filter(supplier_ids(cur, user), user['id'])

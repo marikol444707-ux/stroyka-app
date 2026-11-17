@@ -27,7 +27,8 @@ class FakeApp:
 
 
 class FakeCursor:
-    def __init__(self, rows=(), fetchone_results=(), ledger_operation=None, ledger_exists=False):
+    def __init__(self, rows=(), fetchone_results=(), ledger_operation=None, ledger_exists=False, tool_refund=None):
+        self.tool_refund = tool_refund
         self.rows = list(rows)
         self.fetchone_results = list(fetchone_results)
         self.calls = []
@@ -42,7 +43,8 @@ class FakeCursor:
 
     def fetchone(self):
         if 'to_regclass' in self.calls[-1][0]:
-            return {'ledger_exists': self.ledger_exists}
+            return {'ledger_exists': self.ledger_exists, 'tool_exists': self.tool_refund is not None}
+        if 'FROM tool_deduction_events' in self.calls[-1][0]: return self.tool_refund
         if 'FROM supplier_payment_operations' in self.calls[-1][0]:
             return self.ledger_operation
         return self.fetchone_results.pop(0) if self.fetchone_results else None
@@ -112,6 +114,17 @@ class ProjectPaymentRoutesTest(unittest.TestCase):
         self.assertFalse(connection.committed)
         self.assertFalse(any(sql.startswith('INSERT') for sql, _ in cursor.calls))
 
+    def test_tool_refund_cannot_be_reversed_separately_from_deduction_history(self):
+        row={'company_id':3,'project_name':'Объект','work_package':'','amount':-600}
+        cursor=FakeCursor(fetchone_results=[row,None,{'id':88}],tool_refund={'id':1})
+        app,conn,_=build(cursor)
+        with patch('backend.features.project_payment_access.routes.resolve_resource_company_actor',lambda *a,**kw:({}, {'name':'Тест','role':'директор'})):
+            with self.assertRaises(HTTPException) as error:
+                app.routes[('DELETE','/project-payments/{id}')](id=5,x_company_id='3',x_company_mode='company',_current_user={})
+        self.assertEqual(error.exception.status_code,409)
+        self.assertFalse(conn.committed)
+        self.assertFalse(any(sql.startswith('INSERT') for sql,_ in cursor.calls))
+
     def test_registers_same_urls(self):
         app, _conn, _v = build(FakeCursor())
         for key in [("GET", "/project-payments"), ("POST", "/project-payments"), ("DELETE", "/project-payments/{id}")]:
@@ -136,6 +149,11 @@ class ProjectPaymentRoutesTest(unittest.TestCase):
         )
         self.assertEqual(result, {"id": 77, "companyId": 3, "ok": True, "duplicate": True})
         self.assertFalse(connection.committed)
+        self.assertFalse(connection.autocommit)
+        self.assertTrue(connection.closed)
+        self.assertEqual(cursor.calls[0], (
+            'SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))', ('project-payments:3',)))
+        self.assertIn('SELECT id FROM project_payments', cursor.calls[1][0])
 
     def test_delete_missing_payment_404(self):
         cursor = FakeCursor(fetchone_results=[None])

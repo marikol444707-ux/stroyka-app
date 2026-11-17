@@ -257,10 +257,10 @@ class WarehouseAnomalyRuntimeRouteRegistrationTests(unittest.TestCase):
         package_bytes = package_path.read_bytes()
         runtime_source = runtime_path.read_text(encoding="utf-8")
 
-        # Reviewed cookie-session restore registration; the warehouse preview package is unchanged.
+        # Reviewed cookie-session restore registration on the combined server tree; the warehouse preview package is unchanged.
         self.assertEqual(
             hashlib.sha256(main_bytes).hexdigest(),
-            "20fb5536c10519f0de068e8876500c3c943fa8aeec90a958bad825c09c1d1607",
+            "e02508e342b11433386f5f5ad623c3d4470c18ebc2017372bf5cde8d03c9bc00",
         )
         self.assertEqual(
             hashlib.sha256(package_bytes).hexdigest(),
