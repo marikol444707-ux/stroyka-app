@@ -7,9 +7,17 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { DistributionWorkspace } from './WarehouseDistributionPanel';
 
 const allocation = { id: 8, lotId: 5, warehouseInvoiceId: 10, projectId: 11, projectName: 'Школа', materialName: 'Кабель', unit: 'м', quantity: '20', returnedQuantity: '5', netQuantity: '15', returns: [] };
-const props = { companyContext: { mode: 'company', selectedCompanyId: 2, companies: [{ companyId: 2, role: 'директор' }, { companyId: 3, role: 'директор' }] }, projects: [{ id: 11, companyId: 2, name: 'Школа' }, { id: 13, companyId: 2, name: 'Сад' }] };
+const props = { user: { id: 4 }, companyContext: { mode: 'company', selectedCompanyId: 2, companies: [{ companyId: 2, role: 'директор' }, { companyId: 3, role: 'директор' }] }, projects: [{ id: 11, companyId: 2, name: 'Школа' }, { id: 13, companyId: 2, name: 'Сад' }] };
 const ok = data => ({ ok: true, json: async () => data });
 const page = items => ok({ items, truncated: false, nextCursor: null });
+const idleTransferDraft = ok({
+  companyId: 2,
+  userId: 4,
+  revision: 0,
+  source: null,
+  lastOperation: null,
+  document: { kind: null, allocationId: null, transferId: null, toProjectId: null, quantity: '', expectedQuantity: '', reason: '' },
+});
 const originalFetch = global.fetch;
 const originalCrypto = global.crypto;
 const originalFlag = process.env.REACT_APP_WAREHOUSE_DISTRIBUTION_TRANSFERS_ENABLED;
@@ -17,8 +25,12 @@ beforeAll(() => Object.defineProperty(global, 'crypto', { configurable: true, va
 beforeEach(() => {
   sessionStorage.clear();
   process.env.REACT_APP_WAREHOUSE_DISTRIBUTION_TRANSFERS_ENABLED = 'true';
-  global.fetch = jest.fn(async url => url.includes('/sources') || url.includes('/transfers') ? page([])
-    : page([allocation, { ...allocation, id: 7, materialName: 'Краска' }]));
+  global.fetch = jest.fn(async url => {
+    const path = String(url);
+    if (path.includes('/transfer-draft')) return idleTransferDraft;
+    if (path.includes('/sources') || path.includes('/transfers')) return page([]);
+    return page([allocation, { ...allocation, id: 7, materialName: 'Краска' }]);
+  });
 });
 afterEach(() => { global.fetch = originalFetch; });
 afterAll(() => {
