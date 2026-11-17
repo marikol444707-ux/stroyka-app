@@ -36,14 +36,14 @@ class CustomerEstimateRouteTest(unittest.TestCase):
         cls.path=Path(__file__).resolve().parents[2]/'main.py'
         cls.tree=ast.parse(cls.path.read_text())
 
-    def response(self, name, role):
+    def response(self, name, role, summary=False):
         import ast
         import json
         from types import SimpleNamespace
         from unittest.mock import Mock, patch
         from backend.features.estimate_access import service
         sections=[{'name':'Отделка','items':[{'name':'Стена','quantity':10,'priceWork':100,'priceMaterial':20,'executionPricePerUnit':40,'internalNotes':'private'}]}]
-        row=(7,1,'Лицей','Смета','1',json.dumps(sections),'Заказчик','Основная',False,'Активная',None,0,None,1)
+        row=(7,1,'Лицей','Смета','1',json.dumps(sections),'Заказчик','Основная',False,'Активная',None,0,None,1,73)
         cur=Mock(); cur.fetchall.return_value=[row];cur.fetchone.return_value=row
         conn=Mock();conn.cursor.return_value=cur
         actor={'companyId':1,'role':role}
@@ -67,7 +67,7 @@ class CustomerEstimateRouteTest(unittest.TestCase):
         with patch.object(service,'estimate_visibility_filter',return_value=('TRUE',[])), patch.object(service,'resolve_estimate_parent',return_value={'id':1,'companyId':1}):
             kwargs={'current_user':actor}
             if name=='get_estimate_detail': kwargs['id']=7
-            else: kwargs['summary']=False
+            else: kwargs['summary']=summary
             result=namespace[name](**kwargs)
         return result[0] if isinstance(result,list) else result
 
@@ -86,3 +86,11 @@ class CustomerEstimateRouteTest(unittest.TestCase):
                 result=self.response(name,'директор')
                 self.assertEqual(result['sections'][0]['items'][0]['executionPricePerUnit'],40)
                 self.assertEqual(result['total'],1200)
+
+    def test_list_summary_and_detail_expose_current_revision(self):
+        for name, summary in (('get_estimates', False), ('get_estimates', True), ('get_estimate_detail', False)):
+            with self.subTest(route=name, summary=summary):
+                result = self.response(name, 'директор', summary=summary)
+                self.assertEqual(result['revision'], 73)
+                self.assertEqual(result['companyId'], 1)
+                self.assertEqual(result['sectionsLoaded'], not summary)

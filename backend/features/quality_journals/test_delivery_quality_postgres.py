@@ -1,3 +1,5 @@
+from backend.features.warehouse_receipts.test_http_support import confirm_test_receipt, physical_receipt_payload
+import copy
 import os
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
@@ -15,8 +17,14 @@ class DeliveryQualityPostgresTests(support.OwnerStockPostgresTests):
         flags.start()
         cls.addClassCleanup(flags.stop)
 
+    def prepare_supplier_delivery(self):
+        self.sql("INSERT INTO company_requisites(company_id,full_name,inn) SELECT 2,'Synthetic buyer','7702222222' WHERE NOT EXISTS (SELECT 1 FROM company_requisites WHERE company_id=2)")
+        delivery, invoice = super().prepare_supplier_delivery()
+        self._receipt_payloads = {delivery: physical_receipt_payload(self, 'director', delivery, 2)}
+        return delivery, invoice
+
     def receive(self, delivery, expected=200, **changes):
-        return self.api('director', 'PUT', f'/supply-deliveries/{delivery}/receive',
+        return confirm_test_receipt(self, 'director', delivery,
             {'companyId': 2, 'receivedQuantity': 2, 'qualityStatus': 'Принято', **changes}, expected=expected)
 
     def test_quality_has_both_sources_and_exact_owner(self):
@@ -41,9 +49,21 @@ class DeliveryQualityPostgresTests(support.OwnerStockPostgresTests):
                 (source,)), [(2,self.f['projectId'],1)])
         tables = ('supply_deliveries','warehouse_invoices','warehouse_history','materials','material_inspection_journal','cable_journal')
         before = [self.sql('SELECT * FROM '+table+' ORDER BY id') for table in tables]
+        payload = copy.deepcopy(self._receipt_payloads[delivery])
+        payload['actualLines'][0].update(receivedQuantity=1,qualityStatus='Частично')
         with ThreadPoolExecutor(max_workers=2) as pool:
-            responses = list(pool.map(lambda _: self.receive(delivery,receivedQuantity=1,qualityStatus='Частично'), range(2)))
-        self.assertTrue(all(r['alreadyReceived'] and r['invoiceId']==first['invoiceId'] for r in responses))
+            responses = list(pool.map(lambda _: self.request('POST','/warehouse-receipts/confirm',payload),range(2)))
+        self.assertIn(200,[response.status_code for response in responses])
+        results = []
+        for response in responses:
+            if response.status_code == 409:
+                self.assertEqual(response.json()['detail'],'Документы снабжения заняты другой операцией. Повторите запрос.')
+                # An explicit retry after the winner finishes uses exactly the same command.
+                results.append(self.api('director','POST','/warehouse-receipts/confirm',payload))
+            else:
+                self.assertEqual(response.status_code,200,response.text)
+                results.append(response.json())
+        self.assertTrue(all(r['alreadyReceived'] and r['warehouseInvoiceIds']==[first['invoiceId']] for r in results))
         self.assertEqual([self.sql('SELECT * FROM '+table+' ORDER BY id') for table in tables], before)
 
     def test_missing_quality_on_replay_is_not_silently_rebuilt(self):
@@ -101,6 +121,7 @@ class DeliveryQualityPostgresTests(support.OwnerStockPostgresTests):
         self.sql("UPDATE supply_deliveries SET material_name=%s,unit='метр' WHERE id=%s", (cable_name, delivery))
         self.sql("UPDATE estimates SET sections_json=replace(replace(sections_json,%s,%s),'шт','м') WHERE project_id=%s",
                  (self.f['materialName'], cable_name, self.f['projectId']))
+        self._receipt_payloads[delivery] = physical_receipt_payload(self, 'director', delivery, 2)
         result = self.receive(delivery)
         for table in ('material_inspection_journal', 'cable_journal'):
             self.assertEqual(self.sql(f'SELECT company_id,project_id,invoice_id FROM {table} WHERE delivery_id=%s', (delivery,)),

@@ -238,7 +238,7 @@ export default function ProjectWorkJournalPanel({
                       {canConfirm && !usesWorkAcceptance(item) && item.status === 'На проверке' && (
                         <>
                           <button onClick={event => { event.stopPropagation(); openConfirmModal(item); }} style={{...btnGr, padding: '3px 8px', fontSize: '11px'}} title="Принять (можно пересчитать)">
-                            <Check size={11}/>
+                            <Check size={11}/>Принять
                           </button>
                           <button onClick={event => { event.stopPropagation(); setRejectingEntry(item); }} style={{...btnR, padding: '3px 8px', fontSize: '11px'}} title="Отклонить">
                             <X size={11}/>

@@ -718,9 +718,9 @@ class WarehouseAnomalyRuntimeDisclosurePolicyTests(unittest.TestCase):
             backend_root / "db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Reviewed profile company-context dependencies; the warehouse preview package is unchanged.
+            # Combined main and the production server tree; the warehouse preview package is unchanged.
             backend_root / "main.py": (
-                "730c8fb911ac83d7e9c71c499652f3fe3cf4a4116a9e64f73e43de30e14ae0c9"
+                "7a98524e96d07affb5b445aafe9e9f90edb47c583d5596f4c13827c8ae561756"
             ),
         }
         actual = {

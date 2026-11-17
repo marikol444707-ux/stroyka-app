@@ -6,7 +6,7 @@ describe('estimate workflow detail loading', () => {
     const fetchFn = jest.fn().mockResolvedValue({
       ok: true,
       json: async () => ([{
-        id: 7,
+        id: 7, revision: 1,
         projectName: 'Лицей',
         status: 'Активная',
         sectionsLoaded: true,
@@ -27,7 +27,7 @@ describe('estimate workflow detail loading', () => {
     });
 
     const result = await actions.loadEstimateDetail({
-      id: 7,
+      id: 7, revision: 1,
       projectName: 'Лицей',
       sectionsLoaded: false,
       sections: [],
@@ -45,7 +45,7 @@ describe('estimate workflow detail loading', () => {
 
   it('does not request details that are already loaded', async () => {
     const fetchFn = jest.fn();
-    const loaded = { id: 7, sectionsLoaded: true, sections: [] };
+    const loaded = { id: 7, revision: 1, sectionsLoaded: true, sections: [] };
     const actions = createEstimateWorkflowActions({
       API: 'https://example.test',
       estimatesList: [loaded],
@@ -65,7 +65,7 @@ describe('estimate workflow detail loading', () => {
       ok: true,
       json: async () => ([
         { id: 8, sectionsLoaded: true, sections: [{ name: 'Электрика', items: [] }] },
-        { id: 7, sectionsLoaded: true, sections: [{ name: 'Общестрой', items: [] }] },
+        { id: 7, revision: 1, sectionsLoaded: true, sections: [{ name: 'Общестрой', items: [] }] },
       ]),
     });
     const actions = createEstimateWorkflowActions({
@@ -79,7 +79,7 @@ describe('estimate workflow detail loading', () => {
     });
 
     const loaded = await actions.loadEstimateDetails([
-      { id: 7, sectionsLoaded: false, sections: [] },
+      { id: 7, revision: 1, sectionsLoaded: false, sections: [] },
       { id: 8, sectionsLoaded: false, sections: [] },
     ]);
 
@@ -95,13 +95,13 @@ describe('estimate workflow detail loading', () => {
       ok: true,
       json: async () => ([
         {
-          id: 7,
+          id: 7, revision: 1,
           sectionsLoaded: true,
           summaryTotal: 1000,
           sections: [{ name: 'Отделка', items: [{ name: 'Штукатурка', type: 'work', isImported: true, unit: 'м2', quantity: 10, lineTotal: 1000, totalWork: 1000 }] }],
         },
         {
-          id: 8,
+          id: 8, revision: 1,
           sectionsLoaded: true,
           summaryTotal: 1200,
           sections: [{ name: 'Отделка', items: [{ name: 'Штукатурка', type: 'work', isImported: true, unit: 'м2', quantity: 12, lineTotal: 1200, totalWork: 1200 }] }],
@@ -121,7 +121,7 @@ describe('estimate workflow detail loading', () => {
     });
 
     await expect(actions.openEstimateDiffPreview(
-      { id: 7, sectionsLoaded: false, sections: [], summaryTotal: 1000 },
+      { id: 7, revision: 1, sectionsLoaded: false, sections: [], summaryTotal: 1000 },
       { id: 8, sectionsLoaded: false, sections: [], summaryTotal: 1200 },
     )).resolves.toBe(true);
 
@@ -161,7 +161,7 @@ describe('estimate workflow detail loading', () => {
     });
 
     await expect(actions.openProjectEstimateDiffSummary('Лицей', [
-      { base: { id: 7, sectionsLoaded: false }, next: { id: 8, sectionsLoaded: false } },
+      { base: { id: 7, revision: 1, sectionsLoaded: false }, next: { id: 8, sectionsLoaded: false } },
       { base: { id: 9, sectionsLoaded: false }, next: { id: 10, sectionsLoaded: false } },
     ])).resolves.toBe(true);
 
@@ -180,7 +180,7 @@ describe('estimate workflow detail loading', () => {
     const fetchFn = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, id: 7 }) });
     const actions = createEstimateWorkflowActions({
       API: 'https://example.test',
-      estimatesList: [{ id: 7, name: 'Лишний черновик', status: 'Черновик' }],
+      estimatesList: [{ id: 7, revision: 1, name: 'Лишний черновик', status: 'Черновик' }],
       setEstimatesList,
       setSelectedEstimate,
       setEstimateReconciliations,
@@ -188,9 +188,9 @@ describe('estimate workflow detail loading', () => {
       confirmFn: () => true,
     });
 
-    await actions.deleteEstimateRemote({ id: 7, name: 'Лишний черновик', status: 'Черновик' });
+    await actions.deleteEstimateRemote({ id: 7, revision: 1, name: 'Лишний черновик', status: 'Черновик' });
 
-    expect(fetchFn).toHaveBeenCalledWith('https://example.test/estimates/7?hard=true', { method: 'DELETE' });
+    expect(fetchFn).toHaveBeenCalledWith('https://example.test/estimates/7?hard=true&expectedRevision=1', { method: 'DELETE' });
     expect(setEstimatesList).toHaveBeenCalled();
     expect(setSelectedEstimate).toHaveBeenCalled();
     expect(setEstimateReconciliations).toHaveBeenCalled();
@@ -200,8 +200,8 @@ describe('estimate workflow detail loading', () => {
     const setEstimatesList = jest.fn();
     const setSelectedEstimate = jest.fn();
     const notify = jest.fn();
-    const fetchFn = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, status: 'Черновик' }) });
-    const estimate = { id: 7, name: 'Ошибочная смета', status: 'Активная' };
+    const fetchFn = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, revision: 2, status: 'Черновик' }) });
+    const estimate = { id: 7, revision: 1, name: 'Ошибочная смета', status: 'Активная' };
     const actions = createEstimateWorkflowActions({
       API: 'https://example.test',
       estimatesList: [estimate],
@@ -214,7 +214,7 @@ describe('estimate workflow detail loading', () => {
 
     await expect(actions.setEstimateStatusRemote(estimate, 'Черновик')).resolves.toBe(true);
 
-    expect(setEstimatesList).toHaveBeenCalledWith([{ ...estimate, status: 'Черновик' }]);
+    expect(setEstimatesList.mock.calls[0][0]([estimate])).toEqual([{ ...estimate, status: 'Черновик', revision: 2 }]);
     expect(setSelectedEstimate).toHaveBeenCalled();
     expect(notify).toHaveBeenCalledWith(expect.stringContaining('Черновик'), 'estimate');
   });
@@ -224,7 +224,7 @@ describe('estimate workflow detail loading', () => {
     const queueEstimateDiffReviewTask = jest.fn();
     const autoReconcileEstimateChanges = jest.fn();
     const fullBase = {
-      id: 7,
+      id: 7, revision: 1,
       projectName: 'Лицей',
       smetaType: 'Заказчик',
       workPackage: 'Отделка',
@@ -233,7 +233,7 @@ describe('estimate workflow detail loading', () => {
       sections: [{ name: 'Стены', items: [{ name: 'Штукатурка', quantity: 80 }] }],
     };
     const fullNext = {
-      id: 8,
+      id: 8, revision: 1,
       projectName: 'Лицей',
       smetaType: 'Заказчик',
       workPackage: 'Отделка',
@@ -246,7 +246,7 @@ describe('estimate workflow detail loading', () => {
         return { ok: true, json: async () => [fullBase, fullNext] };
       }
       if (url.endsWith('/estimates/8/status') && options.method === 'PUT') {
-        return { ok: true, json: async () => ({ ok: true, status: 'Активная' }) };
+        return { ok: true, json: async () => ({ ok: true, revision: 2, status: 'Активная' }) };
       }
       if (url.endsWith('/estimate-reconciliations') && options.method === 'POST') {
         return { ok: true, json: async () => ({ ok: true, id: 44 }) };
@@ -284,12 +284,12 @@ describe('estimate workflow detail loading', () => {
       'https://example.test/estimate-reconciliations/44',
     ]);
     expect(queueEstimateDiffReviewTask).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 7, sectionsLoaded: true }),
+      expect.objectContaining({ id: 7, revision: 1, sectionsLoaded: true }),
       expect.objectContaining({ id: 8, sectionsLoaded: true, status: 'Активная' }),
       'Смета активирована',
     );
     expect(autoReconcileEstimateChanges).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 7, sectionsLoaded: true }),
+      expect.objectContaining({ id: 7, revision: 1, sectionsLoaded: true }),
       expect.objectContaining({ id: 8, sectionsLoaded: true, status: 'Активная' }),
       'Смета активирована',
     );
@@ -298,7 +298,7 @@ describe('estimate workflow detail loading', () => {
 
   it('shows a useful message when the status request cannot reach the server', async () => {
     const alertFn = jest.fn();
-    const estimate = { id: 7, name: 'Ошибочная смета', status: 'Активная' };
+    const estimate = { id: 7, revision: 1, name: 'Ошибочная смета', status: 'Активная' };
     const actions = createEstimateWorkflowActions({
       API: 'https://example.test',
       estimatesList: [estimate],
@@ -317,7 +317,7 @@ describe('estimate workflow detail loading', () => {
     const alertFn = jest.fn();
     const actions = createEstimateWorkflowActions({
       API: 'https://example.test',
-      estimatesList: [{ id: 7, name: 'Лишний черновик', status: 'Черновик' }],
+      estimatesList: [{ id: 7, revision: 1, name: 'Лишний черновик', status: 'Черновик' }],
       setEstimatesList: jest.fn(),
       setSelectedEstimate: jest.fn(),
       setEstimateReconciliations: jest.fn(),
@@ -326,7 +326,7 @@ describe('estimate workflow detail loading', () => {
       confirmFn: () => true,
     });
 
-    await expect(actions.deleteEstimateRemote({ id: 7, name: 'Лишний черновик', status: 'Черновик' })).resolves.toBe(false);
+    await expect(actions.deleteEstimateRemote({ id: 7, revision: 1, name: 'Лишний черновик', status: 'Черновик' })).resolves.toBe(false);
     expect(alertFn).toHaveBeenCalledWith(expect.stringContaining('network timeout'));
   });
 });

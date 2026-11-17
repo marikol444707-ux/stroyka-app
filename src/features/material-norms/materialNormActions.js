@@ -336,6 +336,7 @@ export const createMaterialNormActions = ({
       if (!res.ok) throw new Error(data.detail || 'Не удалось сформировать черновик сметы');
       const created = {
         id:data.id,
+        revision:data.revision,
         projectName:data.projectName,
         name:data.name,
         version:data.version||'',

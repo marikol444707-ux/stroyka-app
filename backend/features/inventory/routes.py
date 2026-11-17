@@ -240,6 +240,9 @@ def register_inventory_module(app, deps):
             cur.execute("DELETE FROM tool_history WHERE tool_id=%s AND company_id=%s", (tool_id, company_id))
             cur.execute("DELETE FROM tools WHERE id=%s AND company_id=%s", (tool_id, company_id))
             conn.commit(); return {"ok": True}
+        except psycopg2.errors.ForeignKeyViolation:
+            conn.rollback()
+            raise HTTPException(409, 'У инструмента есть связанная история или финансовое распределение. Удаление запрещено')
         except Exception:
             conn.rollback(); raise
         finally:

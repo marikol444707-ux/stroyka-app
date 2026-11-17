@@ -1,4 +1,5 @@
 import React from 'react';
+import { selectRegulatoryRecords } from '../../utils/regulatoryRecordScope';
 
 export default function ProjectSupervisorActsTab({
   C,
@@ -8,7 +9,7 @@ export default function ProjectSupervisorActsTab({
   setShowPhotoModal,
   supervisorActs,
 }) {
-  const acts = (supervisorActs || []).filter(act => act.projectName === project.name);
+  const acts = selectRegulatoryRecords(supervisorActs, project);
 
   if (acts.length === 0) {
     return (

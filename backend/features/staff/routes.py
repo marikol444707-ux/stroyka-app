@@ -961,11 +961,12 @@ def register_staff_module(app, deps):
             works = []
             if allowed_staff_projects:
                 cur.execute(
-                    """SELECT id,project_name,instructor,instruction_type,date
-                         FROM public.tb_journal
-                        WHERE master_name=%s AND project_name=ANY(%s)
-                        ORDER BY id DESC LIMIT 20""",
-                    (staff_name, allowed_staff_projects),
+                    """SELECT t.id,p.name AS project_name,t.instructor,t.instruction_type,t.date
+                         FROM public.tb_journal t JOIN public.projects p
+                           ON p.id=t.project_id AND p.company_id=t.company_id
+                        WHERE t.company_id=%s AND t.master_name=%s AND p.name=ANY(%s)
+                        ORDER BY t.id DESC LIMIT 20""",
+                    (company_id, staff_name, allowed_staff_projects),
                 )
                 for item in cur.fetchall():
                     tb_entries.append({

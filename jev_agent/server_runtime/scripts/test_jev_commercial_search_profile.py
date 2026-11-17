@@ -14,6 +14,17 @@ SPEC.loader.exec_module(jev)
 
 
 class CompanyProfileTests(unittest.TestCase):
+    def test_search_report_has_uuid_for_safe_retries_of_same_report(self):
+        from uuid import UUID
+
+        report = jev.build_report([], [{
+            'provider': 'B2B-Center', 'query': 'ремонт', 'ok': True,
+            'status': 'observed_first_page', 'rows': 0,
+        }])
+
+        UUID(report['run_id'])
+        self.assertEqual(report['sources'][0]['rows'], 0)
+
     def test_normalizes_company_profile_and_removes_duplicates(self):
         profile = jev.normalize_company_profile({
             'companyId': 23,

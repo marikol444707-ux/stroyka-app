@@ -89,7 +89,7 @@ export default function AccountingSummaryPanel({
     { label: 'К возмещению сотрудникам', value: Math.round(pendingOwnExpenses).toLocaleString('ru-RU') + ' ₽', color: C.warning },
     { label: 'Возмещено сотрудникам', value: Math.round(visibleReimbursedOwnExpenses).toLocaleString('ru-RU') + ' ₽', color: C.textSec },
     ...(projectPaymentsOutByPurpose.other > 0 ? [{ label: 'Прочие выплаты', value: Math.round(projectPaymentsOutByPurpose.other).toLocaleString('ru-RU') + ' ₽', color: C.danger }] : []),
-    { label: 'Подотчётные на руках', value: Math.round(totalAccountable).toLocaleString('ru-RU') + ' ₽', color: C.warning },
+    { label: 'Выдано сотрудникам (все типы)', value: Math.round(totalAccountable).toLocaleString('ru-RU') + ' ₽', color: C.warning },
     ...(isLeadership ? [{ label: 'Всего расходов', value: Math.round(totalExpenses).toLocaleString('ru-RU') + ' ₽', color: C.danger }] : []),
     ...(isLeadership ? [{ label: 'Чистая прибыль', value: Math.round(netProfit).toLocaleString('ru-RU') + ' ₽', color: netProfit >= 0 ? C.success : C.danger }] : []),
     { label: 'Зарплата-сделка (начислено)', value: Math.round(totalPiecework).toLocaleString('ru-RU') + ' ₽', color: C.textSec },

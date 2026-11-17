@@ -235,6 +235,7 @@ export function buildAppRenderContext({
     createInvoiceFromOffer,
     createShipmentFromOffer,
     createSupplyReq,
+    cancelSupply,
     fetchPriceHint,
   } = supplyActions;
   const {
@@ -285,6 +286,8 @@ export function buildAppRenderContext({
   const pageFallback = <AppPageFallback C={C} card={card} isMobile={isMobile} />;
 
   const estimatePageActions = createEstimatePageActions({
+    beginEstimateSave: appMainState.beginEstimateSave,
+    hasUnsavedEstimateChanges: appMainState.hasUnsavedEstimateChanges,
     API,
     ROLE_LABELS,
     applyEstimateActivationState,
@@ -468,7 +471,7 @@ export function buildAppRenderContext({
       actions: {
         acceptAiTask, addMasterWorks, appendPhotos, applyMaterialOverNormReason, autoFillNormMaterialsForWork,
         checkinGeo, closeAiTask, closeNotifications, confirmMaterialReceipt, createAiTask,
-        createInvoiceFromOffer, createShipmentFromOffer, createSupplyReq, fetchPriceHint,
+        createInvoiceFromOffer, createShipmentFromOffer, createSupplyReq, cancelSupply, fetchPriceHint,
         getNotifPage, handleLogin, handleLogout, handleRegister, handleTwoFactorLogin,
         loadAll, loadPricelistItems, markMyNotificationsRead, myNotifications: readMyNotifications, navigateTo,
         materialNormOverrunReason, materialWriteoffBlockMessage, prepareWorkMaterialGroups,

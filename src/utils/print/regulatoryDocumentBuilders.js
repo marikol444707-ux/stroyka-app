@@ -1,7 +1,9 @@
 import { POSITION_INSTRUCTIONS, TB_INSTRUCTIONS } from '../../constants/documentTemplates';
 import { EXPENSE_CATEGORIES } from '../../constants/catalogs';
 import { companyTitle, formatPrescriptionDate } from '../printDocumentShared';
-import { selectQualityJournalRows } from '../qualityJournalScope';
+import { selectRegulatoryRecords } from '../regulatoryRecordScope';
+import { docEsc } from '../documentFormatUtils';
+import { resolveQualityJournalProject, selectQualityJournalRows } from '../qualityJournalScope';
 
 export const buildKS14DocContent = (project = {}, context = {}) => {
   const { companyRequisites = {}, companyName = '' } = context;
@@ -228,7 +230,7 @@ export const buildExecPackageDocContent = (project = {}, context = {}) => {
   const acts = hiddenActs.filter((act) => act.projectName === project.name);
   const inspections = selectQualityJournalRows(materialInspections, project);
   const cables = selectQualityJournalRows(cableJournal, project);
-  const tb = tbJournal.filter((entry) => entry.project === project.name);
+  const tb = selectRegulatoryRecords(tbJournal, project);
   const prescriptions = prescriptionsList.filter((item) => item.projectName === project.name);
   let html = '<h2 style="text-align:center;margin:8px 0">ПАКЕТ ИСПОЛНИТЕЛЬНОЙ ДОКУМЕНТАЦИИ</h2>';
   html += '<p style="text-align:center;font-size:11px;color:#444">для сдачи объекта в Госстройнадзор</p>';
@@ -311,7 +313,7 @@ export const buildVATBookDocContent = (periodFrom, periodTo, context = {}) => {
   return html;
 };
 
-export const buildSupervisorMonthlyReportDocContent = (projectName, periodFrom, periodTo, context = {}) => {
+export const buildSupervisorMonthlyReportDocContent = (projectOrName, periodFrom, periodTo, context = {}) => {
   const {
     companyRequisites = {},
     companyName = '',
@@ -323,10 +325,11 @@ export const buildSupervisorMonthlyReportDocContent = (projectName, periodFrom, 
   } = context;
   const req = companyRequisites || {};
   const orgName = req.fullName || req.shortName || companyName || '_____';
-  const project = projects.find((item) => item.name === projectName) || {};
+  const project = resolveQualityJournalProject(projectOrName, projects);
+  const projectName = project.name;
   const inRange = (date) => !date ? false : (!periodFrom || date >= periodFrom) && (!periodTo || date <= periodTo);
   const acts = hiddenActs.filter((act) => act.projectName === projectName && inRange(act.workDate));
-  const supActs = supervisorActs.filter((act) => act.projectName === projectName && inRange(act.date));
+  const supActs = selectRegulatoryRecords(supervisorActs, project).filter(act => inRange(act.date));
   const prescriptions = prescriptionsList.filter((prescription) => (
     prescription.projectName === projectName && prescription.issuedByRole === 'Технадзор' && inRange(prescription.deadline)
   ));
@@ -418,15 +421,19 @@ export const buildPrescriptionDocContent = (prescription = {}, context = {}) => 
 
 export const buildTBContentDoc = (entry = {}, context = {}) => {
   const { companyRequisites = {}, companyName = '' } = context;
-  const instruction = TB_INSTRUCTIONS[entry.type] || '<p>Общие требования безопасности.</p>';
-  let html = `<h2 style="text-align:center">${String(entry.type || '').toUpperCase()}</h2>`;
-  html += `<p>Организация: ${companyTitle(companyRequisites, companyName)}</p>`;
-  html += `<p>Объект: <b>${entry.project}</b> | Дата: <b>${entry.date}</b></p>${instruction}`;
+  const instruction = entry.instructionText
+    ? `<div style="white-space:pre-wrap">${docEsc(entry.instructionText)}</div>`
+    : TB_INSTRUCTIONS[entry.type] || '<p>Общие требования безопасности.</p>';
+  let html = `<h2 style="text-align:center">${docEsc(String(entry.type || '').toUpperCase())}</h2>`;
+  html += `<p>Организация: ${docEsc(companyTitle(companyRequisites, companyName))}</p>`;
+  html += `<p>Объект: <b>${docEsc(entry.project)}</b> | Дата: <b>${docEsc(entry.date)}</b></p>`;
+  if (entry.program) html += `<p><b>Программа инструктажа:</b></p><div style="white-space:pre-wrap">${docEsc(entry.program)}</div>`;
+  html += instruction;
   html += '<table><tr><th>N</th><th>ФИО</th><th>Должность</th><th>Подпись</th><th>Дата</th></tr>';
   (entry.participants || []).forEach((participant, index) => {
-    html += `<tr><td>${index + 1}</td><td>${participant}</td><td></td><td style="min-width:120px"></td><td>${entry.date}</td></tr>`;
+    html += `<tr><td>${index + 1}</td><td>${docEsc(participant)}</td><td></td><td style="min-width:120px"></td><td>${docEsc(entry.date)}</td></tr>`;
   });
-  html += '</table><div class="signatures"><div class="sig"><div class="sig-line">Инструктаж провёл</div></div></div>';
+  html += `</table><div class="signatures"><div class="sig"><div class="sig-line">Инструктаж провёл: ${docEsc(entry.instructor)}</div></div></div>`;
   return html;
 };
 

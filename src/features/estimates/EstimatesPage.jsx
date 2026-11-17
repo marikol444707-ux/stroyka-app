@@ -1,9 +1,11 @@
+import { applyConfirmedEstimateStatuses } from './estimateSaveClient';
+import EstimateSaveNotice from '../../components/EstimateSaveNotice';
 import React from 'react';
 import { canManageEstimateForContext, estimateRoleForContext } from './estimateAccess';
 
 export default function EstimatesPage({ ctx }) {
   const {
-    acceptMaterialNormSuggestion, acceptMaterialNormSuggestionAsOverride, activeEstimateFromList, activeMaterialNormSuggestions, addEstimateMaterialFromCoverage, allBrigadeItems, API, applyEstimateActivationState,
+    acceptMaterialNormSuggestion, acceptMaterialNormSuggestionAsOverride, activeEstimateFromList, activeMaterialNormSuggestions, addEstimateMaterialFromCoverage, allBrigadeItems, API,
     autoReconcileEstimateChanges, badge, brigadeContracts, btnB, btnG, btnGr, btnO, btnR,
     btnState, buildEstimateMaterialSummary, buildEstimateWorkSummary, buildMaterialNormCoverageContent, C, canCreateSupplyRequestFromNorm, canEditMaterialNorms, card,
     createBatchSupplyRequestFromNormCoverage, createEstimateFromNormSuggestions, createEstimateReconciliation, createMaterialNormCoverageTask, createSupplyRequestFromNormCoverage, createTaskFromMaterialNormSuggestion, deleteEstimateRemote, disableMaterialNorm,
@@ -20,6 +22,7 @@ export default function EstimatesPage({ ctx }) {
     materialNormRuleForCalc, materialNorms, materialNormSearch, MaterialNormsHeader, MaterialNormsListPanel, materialNormsPage, materialNormSuggestionLoading, MaterialNormSuggestionsPanel,
     materialNormSupplyRequestExists, materialTitleForNormRule, mobileExpandedRenderLists, newEstimate, newEstimateItem, newEstimateSection, newMaterialNorm, nextEstimateVersionFor,
     openEstimateDetail, openEstimateDiffPreview, persistEstimate, projects, queueEstimateDiffReviewTask, queueEstimateNormReviewTask, queueEstimateQualityReviewTask, readApiResult, refreshData,
+    estimateSaveState,
     rejectMaterialNormSuggestion, resetMaterialNormForm, sameEstimateGroup, saveMaterialNorm, saveMaterialNormOverrideFromCoverage, selectedEstimate, setActivePage,
     setEstimateProjectFilter, setEstimateSearch, setEstimatesList, setEstimatesTab, setEstimateStatusRemote, setGenerateForm, setImportValidationWarnings,
     setMaterialNormCoverageProject, setMaterialNormNotice, setMaterialNormPreviewSuggestions, setMaterialNormSearch, setMobileExpandedRenderLists, setNewEstimate, setNewEstimateItem, setNewEstimateSection,
@@ -89,10 +92,13 @@ export default function EstimatesPage({ ctx }) {
                   const estimateStatus=isLeadershipUser?(newEstimate.status||'Активная'):'Черновик';
                   const estimatePayload={...newEstimate,status:estimateStatus,sections};
                   const est=await readApiResult(await fetch(API+'/estimates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(estimatePayload)}));
-                  const newEst={...newEstimate,id:est.id,sections,smetaType:newEstimate.smetaType||'Заказчик',workPackage:newEstimate.workPackage||'Основная',status:estimateStatus};
+                  const newEst={...newEstimate,id:est.id,revision:est.revision,sections,smetaType:newEstimate.smetaType||'Заказчик',workPackage:newEstimate.workPackage||'Основная',status:estimateStatus};
                   const diffBase=activeEstimateFromList((estimatesList||[]).filter(e=>newEst.status==='Активная'&&!isGlobalEstimateTemplate(e)&&sameEstimateGroup(e,newEst)&&e.status==='Активная'));
-	                  const nextEstimates=applyEstimateActivationState([...(estimatesList||[]),newEst], newEst);
-                  setEstimatesList(nextEstimates);
+	                  let nextEstimates;
+                  setEstimatesList(previous => {
+                    nextEstimates=[...applyConfirmedEstimateStatuses(previous, estimatesList, est.affectedEstimates),newEst];
+                    return nextEstimates;
+                  });
                   setSelectedEstimate(newEst);
                   setShowForm(false);
                   setNewEstimate({projectId:'',projectName:'',name:'',version:'1.0',smetaType:'Заказчик',workPackage:'Основная',status:'Активная',templateId:''});
@@ -106,6 +112,7 @@ export default function EstimatesPage({ ctx }) {
                 }} onCancel={()=>setShowForm(false)} />
               </div>)}
               {selectedEstimate?(<div>
+                <EstimateSaveNotice state={estimateSaveState} />
                 <EstimateImportValidationBanner
                   C={C}
                   card={card}
