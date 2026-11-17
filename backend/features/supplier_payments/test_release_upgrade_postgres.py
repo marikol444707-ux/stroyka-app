@@ -19,9 +19,51 @@ class ReleaseRevisionGraphTests(unittest.TestCase):
         config = Config(str(root / 'alembic.ini'))
         config.set_main_option('script_location', str(root / 'migrations'))
         graph = ScriptDirectory.from_config(config)
-        self.assertEqual(graph.get_heads(), ['0117_invoice_template_owners'])
+        self.assertEqual(graph.get_heads(), ['0118_main_server_heads'])
         for revision in graph.walk_revisions():
             self.assertLessEqual(len(revision.revision), 32, revision.revision)
+        main_job = graph.get_revision('0101_job_candidates')
+        main_features = graph.get_revision('0102_platform_company_features')
+        self.assertEqual(main_job.down_revision, '0100_packaging_history_guard')
+        self.assertEqual(main_features.down_revision, '0101_job_candidates')
+        merge = graph.get_revision('0118_main_server_heads')
+        self.assertEqual(
+            set(merge.down_revision),
+            {'0117_invoice_template_owners', '0102_platform_company_features'},
+        )
+
+        def upgrade_ids(current):
+            return [step.revision.revision for step in graph._upgrade_revs('heads', current)]
+
+        # A production database already at the server head replays only the
+        # idempotent main revisions. It does not re-run 0104..0117.
+        self.assertEqual(upgrade_ids('0117_invoice_template_owners'), [
+            '0101_job_candidates',
+            '0102_platform_company_features',
+            '0118_main_server_heads',
+        ])
+        # A database stamped with main's previous head receives the server chain.
+        from_main = upgrade_ids('0102_platform_company_features')
+        self.assertEqual(from_main[0], '0101_manual_brigade_origins')
+        self.assertEqual(from_main[-2:], [
+            '0117_invoice_template_owners',
+            '0118_main_server_heads',
+        ])
+        self.assertNotIn('0101_job_candidates', from_main)
+        self.assertEqual(upgrade_ids('0101_job_candidates')[0], '0102_platform_company_features')
+        versions = root / 'migrations' / 'versions'
+        job_sql = (versions / '0101_job_candidates.py').read_text(encoding='utf-8')
+        feature_sql = (versions / '0102_platform_company_features.py').read_text(encoding='utf-8')
+        server_job = (versions / '0102_job_candidates.py').read_text(encoding='utf-8')
+        server_feature = (versions / '0103_platform_company_features.py').read_text(encoding='utf-8')
+        merge_sql = (versions / '0118_main_server_heads.py').read_text(encoding='utf-8')
+        self.assertIn('CREATE TABLE IF NOT EXISTS', job_sql)
+        self.assertIn('CREATE INDEX IF NOT EXISTS', job_sql)
+        self.assertIn('CREATE TABLE IF NOT EXISTS', feature_sql)
+        self.assertIn('ON CONFLICT (company_id, feature_code) DO NOTHING', feature_sql)
+        self.assertIn('CREATE TABLE IF NOT EXISTS', server_job)
+        self.assertIn('ON CONFLICT (company_id, feature_code) DO NOTHING', server_feature)
+        self.assertNotIn('op.execute', merge_sql)
 
 
 @unittest.skipUnless(os.getenv('SUPPLY_CHAIN_RUN_POSTGRES') == '1', 'isolated PostgreSQL opt-in')
