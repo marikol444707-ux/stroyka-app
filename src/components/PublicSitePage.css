@@ -106,6 +106,7 @@
 }
 
 .public-nav-links button,
+.public-nav-links a,
 .public-login {
   border: 0;
   color: rgba(255, 255, 255, 0.9);
@@ -116,7 +117,16 @@
   font-size: 14px;
 }
 
+.public-nav-links a {
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.15;
+  text-align: center;
+  text-decoration: none;
+}
+
 .public-nav-links button:hover,
+.public-nav-links a:hover,
 .public-login:hover {
   background: rgba(255, 255, 255, 0.12);
   color: #ffffff;
@@ -4473,7 +4483,8 @@
   .public-nav-links::-webkit-scrollbar {
     display: none;
   }
-  .public-nav-links button {
+  .public-nav-links button,
+  .public-nav-links a {
     width: 100%;
     min-width: 0;
     min-height: 40px;
