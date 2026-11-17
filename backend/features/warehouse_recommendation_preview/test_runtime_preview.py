@@ -946,9 +946,9 @@ class WarehouseAnomalyRuntimePreviewCompositionTests(unittest.TestCase):
             root / "backend/db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Reviewed read-only supply-history wiring on the combined server tree; the warehouse preview package is unchanged.
+            # Reviewed read-only supply-history wiring after the cookie-session restore; the warehouse preview package is unchanged.
             root / "backend/main.py": (
-                "47a799eb8ac7e31032ae49f6b79d2df1a97de5670f362497215d2b9022cd44a3"
+                "43a459317c06cf364e8fc8f7f1ec9adfd11310c3505286c8e77755990e4afe92"
             ),
         }
         self.assertEqual({
