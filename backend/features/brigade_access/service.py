@@ -78,17 +78,19 @@ def require_brigade_write_actor(company_actors, write_roles):
 
 
 def find_existing_brigade_contract_id(cur, company_id, project_id, work_package, contractor_id, brigade_name):
-    """Find the one active contract that the create form would otherwise duplicate."""
+    """Find the sole draft for automatic reuse in this exact scope.
+
+    Explicit contract selection and recorded manual-command retries are separate
+    paths. Never automatically add new work to a signed or completed contract.
+    """
     # Lock the scope even when no contract exists yet. Row locks on an empty
     # SELECT cannot stop two simultaneous requests from both inserting.
     cur.execute("SELECT pg_advisory_xact_lock(%s,%s)", (int(company_id), int(project_id)))
+    normalized_package = str(work_package or "Основная").strip() or "Основная"
     normalized_name = str(brigade_name or "").strip()
     if contractor_id:
-        identity_sql = (
-            "(contractor_id=%s OR (contractor_id IS NULL "
-            "AND LOWER(BTRIM(brigade_name))=LOWER(%s)))"
-        )
-        identity = (int(contractor_id), normalized_name)
+        identity_sql = "contractor_id=%s"
+        identity = (int(contractor_id),)
     else:
         if not normalized_name:
             raise HTTPException(status_code=400, detail="Укажите исполнителя или название бригады")
@@ -97,19 +99,29 @@ def find_existing_brigade_contract_id(cur, company_id, project_id, work_package,
     cur.execute(
         "SELECT id FROM brigade_contracts WHERE company_id=%s AND project_id=%s "
         "AND COALESCE(NULLIF(work_package,''),'Основная')=%s "
-        "AND COALESCE(status,'') NOT IN ('Аннулирован','Удалён','Удален') "
+        "AND COALESCE(NULLIF(status,''),'Черновик')='Черновик' "
         f"AND {identity_sql} "
-        "ORDER BY CASE WHEN EXISTS (SELECT 1 FROM brigade_contract_items i WHERE i.contract_id=brigade_contracts.id) "
-        "THEN 0 ELSE 1 END, CASE WHEN status='Подписан' THEN 0 ELSE 1 END, id DESC "
-        "LIMIT 1 FOR UPDATE",
-        (int(company_id), int(project_id), work_package, *identity),
+        "ORDER BY id LIMIT 2 FOR UPDATE",
+        (int(company_id), int(project_id), normalized_package, *identity),
     )
-    row = cur.fetchone()
-    return _row_value(row, "id", 0) if row else None
+    rows = cur.fetchall()
+    if len(rows) > 1:
+        raise HTTPException(
+            status_code=409,
+            detail="Найдено несколько черновиков договора; требуется разбор",
+        )
+    return _row_value(rows[0], "id", 0) if rows else None
 
 
-def resolve_brigade_contractor_user(cur, company_id, contractor_id=None, contractor_name=""):
+_LEGACY_REFERENCE = object()
+
+
+def resolve_brigade_contractor_user(cur, company_id, contractor_id=None, contractor_name="", *, contractor_ref=_LEGACY_REFERENCE, project_id=None, work_package=None):
     """Resolve an optional contractor user without crossing the selected-company boundary."""
+    if contractor_ref is not _LEGACY_REFERENCE:
+        from ..contractor_identity.selection import resolve_selected_user
+        return resolve_selected_user(cur, company_id, contractor_ref, contractor_id,
+                                     project_id=project_id, work_package=work_package)
     normalized_company_id = _positive_int(company_id)
     if not normalized_company_id:
         raise HTTPException(status_code=409, detail="Компания договора бригады не определена")
@@ -338,14 +350,10 @@ def brigade_contract_visibility_filter(
             actor_params.append(projects)
         if role in workers:
             actor_id = _positive_int((actor or {}).get("id")) or 0
-            actor_name = str((actor or {}).get("name") or "").strip()
-            if not actor_id and not actor_name:
+            if not actor_id:
                 continue
-            actor_clauses.append(
-                "(COALESCE(bc.contractor_id,0)=%s OR "
-                "(COALESCE(bc.contractor_id,0)=0 AND LOWER(COALESCE(bc.brigade_name,''))=LOWER(%s)))"
-            )
-            actor_params.extend([actor_id, actor_name])
+            actor_clauses.append("bc.contractor_id=%s")
+            actor_params.append(actor_id)
         if role in package_limited:
             packages = _values((actor or {}).get("assignedPackages", (actor or {}).get("assigned_packages", [])))
             if not packages and role not in package_optional:

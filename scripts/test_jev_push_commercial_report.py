@@ -30,6 +30,16 @@ class JevReportPushTests(unittest.TestCase):
             build_request({"confirmed": [], "review": [], "excluded": {}},
                           api_url="https://stroyka26.pro", ingest_key="s" * 40)
 
+    def test_allows_empty_results_when_source_checks_exist(self):
+        report = {"confirmed": [], "review": [], "sources": [
+            {"provider": "B2B-Center", "query": "ремонт", "ok": True, "rows": 0},
+        ]}
+        request, count = build_request(
+            report, api_url="https://stroyka26.pro", ingest_key="s" * 40,
+        )
+        self.assertEqual(count, 0)
+        self.assertIn(b'"sources"', request.data)
+
 
 if __name__ == "__main__":
     unittest.main()

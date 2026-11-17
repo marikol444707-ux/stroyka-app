@@ -283,7 +283,7 @@ def build_report(rows, sources, now=None):
         if row['decision'] == 'excluded':
             reason = row['reasons'][0] if row['reasons'] else 'other'
             excluded[reason] = excluded.get(reason, 0) + 1
-    return {'generated_at': now.isoformat(), 'region': 'Ставропольский край',
+    return {'run_id': str(uuid4()), 'generated_at': now.isoformat(), 'region': 'Ставропольский край',
             'coverage': 'Первые страницы B2B-Center по городам и строительным запросам, Росэлторга, Фабриканта, ЭТП ГПБ, Сбер А, ТЭК-Торг, Торгов Федерации и Р-ТЕНДЕР; поиск включает варианты строительных формулировок, охват неполный',
             'sources': sources, 'confirmed': [x for x in assessed if x['decision'] == 'confirmed'],
             'review': [x for x in assessed if x['decision'] == 'review'],

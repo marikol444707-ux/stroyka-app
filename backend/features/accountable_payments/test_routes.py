@@ -12,6 +12,9 @@ class FakeApp:
     def get(self, path):
         return self._register("GET", path)
 
+    def put(self, path):
+        return self._register("PUT", path)
+
     def post(self, path):
         return self._register("POST", path)
 
@@ -31,6 +34,7 @@ class FakeCursor:
         self.closed = False
 
     def execute(self, sql, params=()):
+        if "pg_advisory_xact_lock" in sql: return
         self.calls.append((" ".join(sql.split()), tuple(params or ())))
         self.current = self.effects.pop(0) if self.effects else {}
         if self.current.get("error"):
@@ -101,11 +105,24 @@ def call(handler, *args, **kwargs):
 
 
 class AccountablePaymentsRoutesTest(unittest.TestCase):
+    def test_list_returns_stored_recipient_identity_without_name_lookup(self):
+        app, _connection, _cursor = build([{"rows": [
+            {"id": 1, "project_name": "Объект", "project_id": 19,
+             "given_to": "Старое имя", "given_to_id": 100, "company_id": 4,
+             "amount": 5000},
+        ]}])
+        rows = call(app.routes[("GET", "/accountable-payments")], project_name="")
+        self.assertEqual(rows[0].get("givenToId"), 100)
+        self.assertEqual(rows[0].get("companyId"), 4)
+        self.assertEqual(rows[0]["givenTo"], "Старое имя")
+
     def test_registers_same_public_urls(self):
         app, _connection, _cursor = build()
         self.assertEqual(set(app.routes), {
             ("GET", "/accountable-payments"),
             ("POST", "/accountable-payments"),
+            ("PUT", "/accountable-payments/{payment_id}/kind"),
+            ("PUT", "/accountable-payments/{payment_id}/allocations"),
             ("GET", "/accountable-expenses"),
             ("POST", "/accountable-expenses"),
         })
@@ -164,9 +181,9 @@ class AccountablePaymentsRoutesTest(unittest.TestCase):
             "projectName": "Чужое имя",
             "givenTo": "Подмена сотрудника",
             "addedBy": "Подмена автора",
-            "amount": 5000,
+            "amount": 5000, "paymentKind": "expense",
         })
-        self.assertEqual(result, {"id": 7, "ok": True})
+        self.assertEqual(result, {"id": 7, "ok": True, "paymentKind": "expense", "revision": 0})
         self.assertIn("FOR SHARE", cursor.calls[0][0])
         self.assertIn("FOR SHARE", cursor.calls[1][0])
         insert_sql, insert_params = cursor.calls[2]
@@ -182,7 +199,7 @@ class AccountablePaymentsRoutesTest(unittest.TestCase):
         app, connection, cursor = build([{"rows": []}])
         with self.assertRaises(HTTPException) as caught:
             call(app.routes[("POST", "/accountable-payments")], {
-                "projectId": 99, "givenToId": 23, "amount": 5000,
+                "projectId": 99, "givenToId": 23, "amount": 5000, "paymentKind": "expense",
             })
         self.assertEqual(caught.exception.status_code, 404)
         self.assertEqual(connection.rollbacks, 1)
@@ -190,7 +207,7 @@ class AccountablePaymentsRoutesTest(unittest.TestCase):
 
     def test_expense_create_inherits_locked_verified_parent_ownership(self):
         app, connection, cursor = build([
-            {"row": {"id": 4, "company_id": 4, "project_id": 19, "project_name": "Точный объект"}},
+            {"row": {"id": 4, "company_id": 4, "project_id": 19, "project_name": "Точный объект", "payment_kind": "expense"}},
             {"rows": [{"id": 19, "name": "Точный объект"}]},
             {"row": {"id": 9}},
             {"rowcount": 1},

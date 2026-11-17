@@ -602,7 +602,11 @@ export const createSupplyActions = ({
       notify('Партия отгружена — ждёт приёмки', 'delivery');
       setShippingOfferId(null);
       setShipmentForm({ shippedQuantity: '', waybillNumber: '', waybillDate: new Date().toISOString().split('T')[0], vehicleNumber: '', driverName: '', documentUrl: '', photoUrl: '' });
-      await refreshData();
+      try {
+        await refreshData();
+      } catch {
+        alert('Партия отгружена, но список не обновился. Обновите страницу; повторно создавать отгрузку не нужно.');
+      }
       return true;
     } catch {
       alert('Не удалось подтвердить отгрузку. Повторите отправку этой формы: сохранённая партия не продублируется.');

@@ -66,14 +66,12 @@ class CustomerHiddenActTests(unittest.TestCase):
 
     def test_ai_does_not_apply_text_after_a_concurrent_act_edit(self):
         from unittest.mock import patch
-        from types import SimpleNamespace
         row_id=self.seed()
         self.sql("UPDATE hidden_works_acts SET conclusion='Keep' WHERE id=%s",(row_id,))
         def generate(**kwargs):
             self.sql('UPDATE hidden_works_acts SET quantity=2 WHERE id=%s',(row_id,))
-            return SimpleNamespace(output_text='{"conclusion":"Stale","projectDocs":"Stale","normatives":""}')
-        fake=SimpleNamespace(responses=SimpleNamespace(create=generate))
-        with patch('openai.OpenAI',return_value=fake):
+            return '{"conclusion":"Stale","projectDocs":"Stale","normatives":""}'
+        with patch.object(self.main,'generate_yandex_text',side_effect=generate):
             self.api(self.fixture['users']['director'],'POST',f'/hidden-works-acts/{row_id}/ai-prefill',{},expected=409)
         self.assertEqual(self.sql('SELECT conclusion,quantity FROM hidden_works_acts WHERE id=%s',(row_id,)),[('Keep',2)])
 

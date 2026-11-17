@@ -1,4 +1,5 @@
 """Allocated RFQ lines, independent awards and fulfilment on disposable PostgreSQL."""
+from backend.features.warehouse_receipts.test_http_support import confirm_test_receipt
 from importlib import import_module
 import json
 import os
@@ -38,6 +39,7 @@ class ItemScopesPostgresTests(unittest.TestCase):
     sql = support.PostgresSupplyChainTests.sql
 
     def request(self):
+        self.sql("INSERT INTO company_requisites(company_id,full_name,inn) SELECT 2,'Synthetic buyer','7702222222' WHERE NOT EXISTS (SELECT 1 FROM company_requisites WHERE company_id=2)")
         f = self.fixture
         items = [dict(materialName=f['materialName'] + ' scope-%s' % pos,
                       quantity=2, unit=f['unit'], workPackage=f['workPackage']) for pos in range(3)]
@@ -121,19 +123,19 @@ class ItemScopesPostgresTests(unittest.TestCase):
         invoice = self.api('supplier', 'POST', first_path + '/create-invoice',
                            dict(invoiceNumber='SCOPE-' + str(request['id']), amount=200, vatAmount=0))
         self.assertEqual(self.sql('SELECT amount FROM supplier_invoices WHERE id=%s', (invoice['id'],)), [(200,)])
-        self.api('supplier', 'POST', first_path + '/ship', dict(requestId=str(uuid4()),
+        self.api('supplier', 'POST', first_path + '/ship', dict(requestId=str(uuid4()), waybillNumber=str(uuid4()), waybillDate='2026-09-16',
                  shippedItems=[dict(items[1], requestPosition=1, shippedQuantity=2)]), expected=400)
-        shipment = self.api('supplier', 'POST', first_path + '/ship', dict(requestId=str(uuid4()),
+        shipment = self.api('supplier', 'POST', first_path + '/ship', dict(requestId=str(uuid4()), waybillNumber=str(uuid4()), waybillDate='2026-09-16',
                  shippedItems=[dict(items[0], requestPosition=0, shippedQuantity=2)]))
         self.assertEqual(shipment['materialName'], items[0]['materialName'])
-        self.api('foreman', 'PUT', '/supply-deliveries/%s/receive' % shipment['id'],
+        confirm_test_receipt(self, 'foreman', shipment['id'],
                  dict(receivedQuantity=2, qualityStatus='Принято', receivedBy='Synthetic scoped test'))
         self.assertEqual(self.sql('SELECT delivery_status FROM supplier_offers WHERE id=%s', (first['id'],)), [('Поставлено',)])
         self.assertEqual(self.sql('SELECT status FROM supply_requests WHERE id=%s', (request['id'],)), [('Частично поставлено',)])
         for pos in (1, 2):
-            delivery = self.api('stranger_supplier', 'POST', second_path + '/ship', dict(requestId=str(uuid4()),
+            delivery = self.api('stranger_supplier', 'POST', second_path + '/ship', dict(requestId=str(uuid4()), waybillNumber=str(uuid4()), waybillDate='2026-09-16',
                 shippedItems=[dict(items[pos], requestPosition=pos, shippedQuantity=2)]))
-            self.api('foreman', 'PUT', '/supply-deliveries/%s/receive' % delivery['id'],
+            confirm_test_receipt(self, 'foreman', delivery['id'],
                      dict(receivedQuantity=2, qualityStatus='Принято', receivedBy='Synthetic scoped test'))
             expected_status = 'Частично поставлено' if pos == 1 else 'Поставлено'
             self.assertEqual(self.sql('SELECT status FROM supply_requests WHERE id=%s', (request['id'],)), [(expected_status,)])

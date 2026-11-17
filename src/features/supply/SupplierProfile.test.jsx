@@ -75,3 +75,43 @@ test('merged receipt card never becomes a separate editable company profile',asy
   expect(global.fetch.mock.calls[0][0]).toBe('/suppliers/12/requisites');
   expect(screen.queryByLabelText('Компания поставщика')).not.toBeInTheDocument();
 });
+
+test.each([
+  [409, 'С этими реквизитами уже есть кабинет. Нужна проверка реквизитов'],
+  [422, 'Укажите ИНН (10 или 12 цифр) либо ОГРН/ОГРНИП (13 или 15 цифр)'],
+])('legal identity refusal %s preserves every edited field without retry or success', async (status, detail) => {
+  const onSaved = jest.fn();
+  global.fetch.mockResolvedValueOnce({ok:true,json:async()=>profile})
+    .mockResolvedValueOnce({ok:false,status,json:async()=>({detail,code:status === 409 ? 'supplier_identity_conflict' : undefined})});
+  render(<SupplierProfile {...props} onSaved={onSaved}/>);
+  fireEvent.change(await screen.findByLabelText('ИНН'), {target:{value:'7809876543'}});
+  fireEvent.change(screen.getByLabelText('Банк'), {target:{value:'Локальный черновик банка'}});
+  fireEvent.change(screen.getByLabelText('Телефон'), {target:{value:'Новый контакт'}});
+  fireEvent.click(screen.getByText('Сохранить реквизиты'));
+  expect(await screen.findByRole('alert')).toHaveTextContent(detail);
+  expect(screen.getByLabelText('ИНН')).toHaveValue('7809876543');
+  expect(screen.getByLabelText('Банк')).toHaveValue('Локальный черновик банка');
+  expect(screen.getByLabelText('Телефон')).toHaveValue('Новый контакт');
+  expect(screen.queryByText('Реквизиты сохранены')).not.toBeInTheDocument();
+  expect(onSaved).not.toHaveBeenCalled();
+  expect(global.fetch).toHaveBeenCalledTimes(2);
+  expect(screen.getByText('Сохранить реквизиты')).toBeEnabled();
+  expect(screen.getByLabelText('ИНН')).toBeEnabled();
+});
+
+test('correcting a conflicting identity keeps other edits and uses the original profile version', async () => {
+  global.fetch.mockResolvedValueOnce({ok:true,json:async()=>profile})
+    .mockResolvedValueOnce({ok:false,status:409,json:async()=>({detail:'С этими реквизитами уже есть кабинет',code:'supplier_identity_conflict'})})
+    .mockResolvedValueOnce({ok:true,json:async()=>({...profile,fields:{...profile.fields,inn:'7412345678',bank:'Мой банк'},version:'v2'})});
+  render(<SupplierProfile {...props}/>);
+  fireEvent.change(await screen.findByLabelText('ИНН'), {target:{value:'7809876543'}});
+  fireEvent.change(screen.getByLabelText('Банк'), {target:{value:'Мой банк'}});
+  fireEvent.click(screen.getByText('Сохранить реквизиты'));
+  await screen.findByRole('alert');
+  expect(screen.getByLabelText('ИНН')).toBeEnabled();
+  fireEvent.change(screen.getByLabelText('ИНН'), {target:{value:'7412345678'}});
+  fireEvent.click(screen.getByText('Сохранить реквизиты'));
+  expect(await screen.findByText('Реквизиты сохранены')).toBeInTheDocument();
+  expect(global.fetch).toHaveBeenCalledTimes(3);
+  expect(JSON.parse(global.fetch.mock.calls[2][1].body)).toEqual({inn:'7412345678',bank:'Мой банк',expectedProfileVersion:'v1'});
+});

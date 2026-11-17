@@ -58,8 +58,8 @@ test('successful merge refreshes the company list and opens the canonical cabine
   process.env.REACT_APP_PARTICIPANT_HISTORY_MERGE_ENABLED='1';
   let merged=false;
   global.fetch=jest.fn(async url=>{
-    if(url.endsWith('/confirm')){merged=true;return response({ok:true,sourceId:7,targetId:8});}
-    if(url.endsWith('/history-merge-plans'))return response({id:'synthetic',sourceId:7,targetId:8,newAccess:{invoices:[101],offers:[],files:[]},stillClosed:{invoices:[],offers:[]}});
+    if(url.endsWith('/confirm')){merged=true;return response({ok:true,planId:'00000000-0000-4000-8000-000000000001',companyId:2,sourceId:7,targetId:8});}
+    if(url.endsWith('/history-merge-plans'))return response({id:'00000000-0000-4000-8000-000000000001',companyId:2,sourceId:7,targetId:8,expiresAt:'2099-01-01T00:00:00Z',newAccess:{invoices:[101],offers:[],files:[],deliveries:[],claims:[]},stillClosed:{invoices:[],offers:[]},affected:{}});
     if(url.endsWith('/7/connection-preview'))return response({...preview,scenario:'merge_cards',supplier:{...preview.supplier,name:'Receipt'},blockers:[]});
     if(url.endsWith('/8/connection-preview'))return response({...preview,scenario:'already_connected'});
     return response({items:[{id:7,name:'Receipt',has_account:merged,merged_into_supplier_id:merged?'8':null}],hasMore:false});

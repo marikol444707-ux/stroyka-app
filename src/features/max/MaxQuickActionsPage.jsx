@@ -2,7 +2,7 @@ import React from 'react';
 import { ArrowLeft, Bot, Camera, CheckCircle2, ClipboardList, CloudSun, CreditCard, ExternalLink, FileText, FolderKanban, LogIn, MessageSquare, Package, Plus, ReceiptText, RefreshCw, Send, Truck } from 'lucide-react';
 import { API } from '../../api';
 import { EXPENSE_CATEGORIES } from '../../constants/catalogs';
-import { invoiceImageAccept, normalizeInvoiceImageFiles } from '../../utils/invoiceImages';
+import ScanInvoiceModal from '../../components/ScanInvoiceModal';
 import { clearLegacyBrowserAuthToken, normalizeStoredUser } from '../../utils/appRuntimeUtils';
 import { getQuickActionsForUser, QUICK_ACTION_IDS } from '../quick-actions/quickActionRegistry';
 
@@ -40,137 +40,6 @@ const toNumber = (value) => {
     .replace(/[^\d.-]/g, '');
   const parsed = Number(normalized);
   return Number.isFinite(parsed) ? parsed : 0;
-};
-
-const normalizeDate = (value) => {
-  const text = String(value || '').trim();
-  if (!text) return '';
-  const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
-  const ru = text.match(/(\d{1,2})[.\-/\s]+(\d{1,2})[.\-/\s]+(\d{2,4})/);
-  if (!ru) return '';
-  const year = ru[3].length === 2 ? `20${ru[3]}` : ru[3];
-  return `${year}-${ru[2].padStart(2, '0')}-${ru[1].padStart(2, '0')}`;
-};
-
-const firstText = (...values) => {
-  for (const value of values) {
-    const text = String(value || '').trim();
-    if (text) return text;
-  }
-  return '';
-};
-
-const detectVat = (parsed = {}) => {
-  const rawVat = String(parsed.vat || parsed.tax || parsed.vatType || '').toLowerCase();
-  const rate = toNumber(parsed.vatRate ?? parsed.vat_rate ?? parsed.vatPercent ?? parsed.vat_percent);
-  const vatAmount = toNumber(parsed.totalVat ?? parsed.total_vat ?? parsed.vatAmount ?? parsed.vat_amount);
-  const totalWithVat = toNumber(parsed.totalWithVat ?? parsed.total_with_vat ?? parsed.grandTotal ?? parsed.grand_total ?? parsed.total ?? parsed.amount);
-  const totalBase = toNumber(parsed.totalBase ?? parsed.total_base ?? parsed.totalWithoutVat ?? parsed.total_without_vat);
-  const inferredVat = totalWithVat > 0 && totalBase > 0 ? Math.max(0, totalWithVat - totalBase) : 0;
-  const inferredRate = totalBase > 0 && inferredVat > 0 ? inferredVat / totalBase * 100 : 0;
-  const hasVat = parsed.vatIncluded === true || parsed.hasVat === true || vatAmount > 0 || rate > 0 || /ндс/.test(rawVat);
-  if ((!hasVat && inferredVat <= 0) || /без\s*ндс/.test(rawVat)) return 'Без НДС';
-  if (Math.abs(rate - 20) < 0.5 || Math.abs(inferredRate - 20) < 0.75 || /20\s*%/.test(rawVat)) return 'С НДС 20%';
-  return 'С НДС 22%';
-};
-
-const buildScanDraftNumber = () => {
-  const d = new Date();
-  return `MAX-${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}-${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}`;
-};
-
-const normalizeInvoiceDraft = ({parsed, location, photos, pagesCount, account}) => {
-  const scanRecognition = parsed.recognition || parsed.scanRecognition || null;
-  const parsedNumber = firstText(parsed.number, parsed.invoiceNumber, parsed.invoice_number, parsed.documentNumber, parsed.document_number, parsed.no);
-  const parsedDate = firstText(parsed.date, parsed.invoiceDate, parsed.invoice_date, parsed.documentDate, parsed.document_date);
-  const supplierName = firstText(
-    parsed.supplier,
-    parsed.supplierName,
-    parsed.supplier_name,
-    parsed.seller,
-    parsed.shipper,
-    parsed.consignor,
-    parsed.sender,
-    scanRecognition?.supplierName
-  );
-  const project = location && location !== 'Основной склад' ? location : '';
-  const normalizedItems = (Array.isArray(parsed.items) ? parsed.items : []).map(item => {
-    const quantity = toNumber(item.quantity);
-    const lineTotal = toNumber(item.lineTotalWithVat ?? item.line_total_with_vat ?? item.lineTotal ?? item.line_total ?? item.total);
-    const rawPrice = toNumber(item.priceWithVat ?? item.price_with_vat ?? item.price ?? item.unitPrice ?? item.unit_price);
-    const price = rawPrice > 0 ? rawPrice : (quantity > 0 && lineTotal > 0 ? lineTotal / quantity : 0);
-    return {
-      name:item.name || '',
-      quantity:String(quantity),
-      unit:item.unit || 'шт',
-      price:String(price),
-      lineTotal:String(lineTotal || quantity * price),
-      category:item.category || '',
-      workPackage:item.workPackage || item.work_package || '',
-    };
-  }).filter(item => item.name && toNumber(item.quantity) > 0);
-  const itemsTotal = normalizedItems.reduce((sum, item) => sum + toNumber(item.lineTotal), 0);
-  const detectedVat = detectVat(parsed);
-  const vatRate = detectedVat.includes('22') ? 22 : detectedVat.includes('20') ? 20 : 0;
-  let totalWithVat = toNumber(parsed.totalWithVat ?? parsed.total_with_vat ?? parsed.grandTotal ?? parsed.grand_total ?? parsed.total ?? parsed.amount) || itemsTotal;
-  let totalBase = toNumber(parsed.totalBase ?? parsed.total_base ?? parsed.totalWithoutVat ?? parsed.total_without_vat);
-  let totalVat = toNumber(parsed.totalVat ?? parsed.total_vat ?? parsed.vatAmount ?? parsed.vat_amount);
-  if (detectedVat === 'Без НДС') {
-    totalVat = 0;
-    if (!totalBase && totalWithVat) totalBase = totalWithVat;
-  } else if (!totalVat && totalWithVat && totalBase) {
-    totalVat = Math.max(0, totalWithVat - totalBase);
-  } else if (!totalBase && totalWithVat && totalVat) {
-    totalBase = Math.max(0, totalWithVat - totalVat);
-  } else if (!totalBase && !totalVat && totalWithVat && vatRate) {
-    totalBase = totalWithVat / (1 + vatRate / 100);
-    totalVat = totalWithVat - totalBase;
-  }
-  const warnings = [];
-  if (!parsedNumber) warnings.push('Номер не распознан: поставлен черновой номер.');
-  if (!parsedDate) warnings.push('Дата не распознана: поставлена сегодняшняя дата.');
-  if (!supplierName) warnings.push('Поставщик не распознан: укажите перед подтверждением.');
-  if (!normalizedItems.length) warnings.push('Позиции не распознаны: лучше открыть полную форму и заполнить вручную.');
-  if (totalWithVat > 0 && itemsTotal > 0 && Math.abs(totalWithVat - itemsTotal) > Math.max(1, totalWithVat * 0.015)) {
-    warnings.push('Сумма строк отличается от итога документа.');
-  }
-  return {
-    number: parsedNumber || buildScanDraftNumber(),
-    date: normalizeDate(parsedDate) || todayKey(),
-    supplierName,
-    supplierInn: parsed.supplierInn || parsed.supplier_inn || '',
-    supplierKpp: parsed.supplierKpp || parsed.supplier_kpp || '',
-    supplierOgrn: parsed.supplierOgrn || parsed.supplier_ogrn || '',
-    acceptedBy: account?.employeeName || '',
-    location,
-    project,
-    vat: detectedVat,
-    totalBase: Math.round((totalBase || 0) * 100) / 100,
-    totalVat: Math.round((totalVat || 0) * 100) / 100,
-    totalWithVat: Math.round((totalWithVat || 0) * 100) / 100,
-    photos,
-    photoUrls: photos,
-    photoUrl: photos[0] || '',
-    pagesCount,
-    items: normalizedItems,
-    status:'Принята',
-    addedBy: account?.employeeName || '',
-    warehouseTarget: project ? 'object' : 'main',
-    selectedAction:'receive_to_warehouse',
-    sourceType: project ? 'max_app_project_invoice' : 'max_app_main_invoice',
-    sourceId:`max-app-${Date.now()}`,
-    materialMatch: normalizedItems.map((item, index) => ({
-      row:index + 1,
-      name:item.name,
-      quantity:toNumber(item.quantity),
-      unit:item.unit,
-      workPackage:item.workPackage || '',
-      estimateMatched:Boolean(item.workPackage),
-      needsReview:Boolean(project && !item.workPackage),
-    })),
-    warnings,
-  };
 };
 
 const jsonFetch = async (path, options = {}) => {
@@ -222,15 +91,6 @@ const compactField = {
   padding:'11px 12px',
   fontSize:'14px',
   outline:'none',
-};
-
-const invisibleFileInput = {
-  position:'absolute',
-  inset:0,
-  width:'100%',
-  height:'100%',
-  opacity:0,
-  cursor:'pointer',
 };
 
 const readStoredUser = () => {
@@ -587,12 +447,13 @@ function MaxOwnExpenseCompact({account, onBack, onOpenFull}) {
   );
 }
 
-function MaxWarehouseCompact({account, onBack, onOpenFull}) {
+export function MaxWarehouseCompact({account, onBack, onOpenFull}) {
   const [projects, setProjects] = React.useState([]);
   const [location, setLocation] = React.useState('');
   const [draft, setDraft] = React.useState(null);
   const [loading, setLoading] = React.useState(false);
   const [scanning, setScanning] = React.useState(false);
+  const [reviewOpen, setReviewOpen] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState('');
   const [message, setMessage] = React.useState('');
@@ -652,65 +513,8 @@ function MaxWarehouseCompact({account, onBack, onOpenFull}) {
     });
   };
 
-  const scanFiles = async (files) => {
-    const selectedFiles = fileList(files).slice(0, 8);
-    if (!selectedFiles.length) return;
-    if (!location) {
-      setError('Выберите склад или объект перед распознаванием');
-      return;
-    }
-    setScanning(true);
-    setMessage('');
-    setError('');
-    try {
-      const normalizedPages = await normalizeInvoiceImageFiles(selectedFiles, {maxSide:2400, quality:0.9});
-      const images = normalizedPages.map(page => ({
-        data:page.base64,
-        mimeType:page.mimeType,
-        name:page.originalName,
-      }));
-      const scanResponse = await jsonFetch('/scan-invoice', {
-        method:'POST',
-        body:JSON.stringify({
-          images,
-          target:'warehouse',
-          location,
-          project:activeProject,
-          warehouseTarget,
-          selectedAction:'receive_to_warehouse',
-          sourceType:activeProject ? 'max_app_project_invoice' : 'max_app_main_invoice',
-        }),
-      });
-      if (scanResponse?.ok === false) {
-        throw new Error(scanResponse.error || scanResponse.detail || 'Распознавание не выполнено');
-      }
-      const photos = [];
-      for (const page of normalizedPages) {
-        const url = await uploadMaxFile(page.uploadFile, {
-          projectName:activeProject || 'Основной склад',
-          context:'warehouse-invoices',
-        });
-        if (url) photos.push(url);
-      }
-      const parsed = scanResponse?.data || scanResponse?.invoice || scanResponse || {};
-      const nextDraft = normalizeInvoiceDraft({
-        parsed,
-        location,
-        photos,
-        pagesCount:normalizedPages.length,
-        account,
-      });
-      setDraft(nextDraft);
-      setMessage('Накладная распознана. Проверьте поля перед подтверждением.');
-    } catch (err) {
-      setError(err.message || 'Не удалось распознать накладную');
-    } finally {
-      setScanning(false);
-    }
-  };
-
   const confirmDraft = async () => {
-    if (!draft) return;
+    if (!draft || saving || draft.physicalReceiptConfirmed !== true || !draft.newDocumentConfirmed || !draft.originalUrls?.length) return;
     setSaving(true);
     setError('');
     setMessage('');
@@ -725,7 +529,7 @@ function MaxWarehouseCompact({account, onBack, onOpenFull}) {
         }));
       if (!draft.number) throw new Error('Укажите номер накладной');
       if (!draft.date) throw new Error('Укажите дату накладной');
-      if (!draft.supplierName) throw new Error('Укажите поставщика');
+      if (!draft.inventoryOnly && !draft.supplierName) throw new Error('Укажите поставщика');
       if (!validItems.length) throw new Error('Нет распознанных позиций. Откройте полную форму и заполните накладную вручную.');
       const payload = {
         ...draft,
@@ -775,47 +579,31 @@ function MaxWarehouseCompact({account, onBack, onOpenFull}) {
 
   return (
     <section>
-      <CompactHeader title="Приемка на склад" subtitle="OCR, проверка и проводка в общий склад" onBack={onBack} onOpenFull={onOpenFull} />
+      <CompactHeader title="Приемка на склад" subtitle="Оригинал, сверка и фактическая приёмка" onBack={onBack} onOpenFull={onOpenFull} />
       {error && <div style={{marginBottom:'10px'}}><CompactNotice tone="error">{error}</CompactNotice></div>}
       {message && <div style={{marginBottom:'10px'}}><CompactNotice tone="success">{message}</CompactNotice></div>}
       <div style={{display:'grid',gap:'10px',border:'1px solid rgba(148,163,184,.24)',borderRadius:'10px',padding:'12px',background:'#1e293b'}}>
-        <CompactNotice>
-          Фото или PDF уйдет в ИИ-распознавание, затем вы подтверждаете черновик. После подтверждения это обычная складская накладная Stroyka.
-        </CompactNotice>
-        <select value={location} onChange={event => { setLocation(event.target.value); setDraft(null); }} style={compactField}>
+        <CompactNotice>Загрузите оригинал и проверьте отгрузку. Приёмка требует отдельного подтверждения количества.</CompactNotice>
+        <select aria-label="Место приёмки" disabled={scanning || saving || Boolean(draft?.originalUrls?.length)} value={location} onChange={event => { setLocation(event.target.value); setDraft(null); }} style={compactField}>
           {!destinationOptions.length && <option value="">Объекты не загружены</option>}
           {destinationOptions.map(option => <option key={option.id} value={option.name}>{option.name}</option>)}
         </select>
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
-          <label style={{...compactButton('primary'),position:'relative',overflow:'hidden',minHeight:'48px',cursor:scanning ? 'default' : 'pointer',opacity:scanning ? .72 : 1}}>
-            <Camera size={15}/>{scanning ? 'Распознаю' : 'Камера'}
-            <input
-              type="file"
-              accept="image/*"
-              capture="environment"
-              disabled={scanning || loading}
-              onChange={event => { scanFiles(event.target.files); event.target.value = ''; }}
-              style={invisibleFileInput}
-              aria-label="Сделать фото накладной"
-            />
-          </label>
-          <label style={{...compactButton(),position:'relative',overflow:'hidden',minHeight:'48px',cursor:scanning ? 'default' : 'pointer',opacity:scanning ? .72 : 1}}>
-            <FileText size={15}/>PDF/фото
-            <input
-              type="file"
-              accept={invoiceImageAccept}
-              multiple
-              disabled={scanning || loading}
-              onChange={event => { scanFiles(event.target.files); event.target.value = ''; }}
-              style={invisibleFileInput}
-              aria-label="Выбрать PDF или фото накладной"
-            />
-          </label>
-        </div>
+        <button disabled={loading || saving || !location} style={compactButton('primary')} onClick={()=>{
+          setDraft(prev=>prev || {location,items:[],photos:[]}); setReviewOpen(true);
+        }}>Проверить оригинал</button>
         <button onClick={openWarehouse} style={{...compactButton(),minHeight:'44px'}}><Package size={15}/>Открыть полный склад</button>
       </div>
 
-      {draft && (
+      <ScanInvoiceModal showScanInvoice={reviewOpen} setShowScanInvoice={setReviewOpen}
+        unifiedReceipt API={API} companyId={account?.companyId ?? account?.employeeCompanyId}
+        user={{name:account?.employeeName,role}} projects={projects}
+        C={{text:'#f8fafc',textSec:'#cbd5e1',border:'#475569',bg:'#0f172a'}} card={{backgroundColor:'#1e293b'}} btnG={compactButton()}
+        newInvoice={draft || {location,items:[]}} setNewInvoice={setDraft}
+        scanningInvoice={scanning} setScanningInvoice={setScanning}
+        onReceiptConfirmed={()=>{setDraft(null);setReviewOpen(false);setMessage('Приёмка подтверждена. Остатки и документы обновлены.');}}
+        onStandaloneReceipt={reviewed=>{setDraft({...reviewed,supplierName:reviewed.supplierName || reviewed.supplier || reviewed.newSupplierName || ''});setReviewOpen(false);}}
+        onOpenReceipt={openWarehouse}/>
+      {draft?.newDocumentConfirmed && (
         <div style={{marginTop:'12px',display:'grid',gap:'10px',border:'1px solid rgba(148,163,184,.24)',borderRadius:'10px',padding:'12px',background:'#0f172a'}}>
           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:'8px'}}>
             <b style={{fontSize:'15px',color:'#f8fafc'}}>Черновик накладной</b>
@@ -828,8 +616,8 @@ function MaxWarehouseCompact({account, onBack, onOpenFull}) {
           )}
           <input value={draft.number} onChange={event => updateDraft({number:event.target.value})} placeholder="Номер накладной" style={compactField}/>
           <input value={draft.date} onChange={event => updateDraft({date:event.target.value})} type="date" style={compactField}/>
-          <input value={draft.supplierName} onChange={event => updateDraft({supplierName:event.target.value})} placeholder="Поставщик" style={compactField}/>
-          <select value={draft.vat} onChange={event => updateDraft({vat:event.target.value})} style={compactField}>
+          {!draft.inventoryOnly && <input value={draft.supplierName} onChange={event => updateDraft({supplierName:event.target.value})} placeholder="Поставщик" style={compactField}/>}
+          <select disabled={draft.inventoryOnly} value={draft.vat} onChange={event => updateDraft({vat:event.target.value})} style={compactField}>
             <option>Без НДС</option>
             <option>С НДС 20%</option>
             <option>С НДС 22%</option>
@@ -837,7 +625,7 @@ function MaxWarehouseCompact({account, onBack, onOpenFull}) {
           <input value={draft.totalWithVat || ''} onChange={event => updateDraft({totalWithVat:event.target.value})} placeholder="Итого, ₽" type="number" inputMode="decimal" step="any" style={compactField}/>
 
           <div style={{display:'grid',gap:'8px'}}>
-            {(draft.items || []).slice(0, 6).map((item, index) => (
+            {(draft.items || []).map((item, index) => (
               <div key={index} style={{border:'1px solid rgba(148,163,184,.2)',borderRadius:'9px',padding:'9px',background:'rgba(30,41,59,.72)',display:'grid',gap:'7px'}}>
                 <input value={item.name} onChange={event => updateDraftItem(index, {name:event.target.value})} placeholder="Материал" style={{...compactField,padding:'9px 10px'}}/>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'6px'}}>
@@ -847,13 +635,13 @@ function MaxWarehouseCompact({account, onBack, onOpenFull}) {
                 </div>
               </div>
             ))}
-            {draft.items.length > 6 && <span style={{fontSize:'12px',color:'#94a3b8'}}>Еще {draft.items.length - 6} позиций будут сохранены без показа в compact-форме.</span>}
             {!draft.items.length && <CompactNotice tone="warn">Позиции не распознаны. Откройте полную форму склада и заполните накладную вручную.</CompactNotice>}
           </div>
 
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
-            <button onClick={confirmDraft} disabled={saving || !draft.items.length} style={{...compactButton('primary'),opacity:(saving || !draft.items.length) ? .65 : 1}}>
-              <CheckCircle2 size={15}/>{saving ? 'Провожу' : 'Подтвердить'}
+            <label><input type="checkbox" checked={draft.physicalReceiptConfirmed === true} onChange={event=>updateDraft({physicalReceiptConfirmed:event.target.checked})}/>Количество и состояние сверены с оригиналом</label>
+            <button onClick={confirmDraft} disabled={saving || !draft.items.length || draft.physicalReceiptConfirmed !== true} style={{...compactButton('primary'),opacity:(saving || !draft.items.length) ? .65 : 1}}>
+              <CheckCircle2 size={15}/>{saving ? 'Провожу' : 'Подтвердить приёмку'}
             </button>
             <button onClick={() => setDraft(null)} disabled={saving} style={compactButton()}>Сбросить</button>
           </div>

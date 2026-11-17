@@ -1,3 +1,8 @@
+try:
+    from backend.features.estimate_concurrency.service import require_estimate_revision
+except ModuleNotFoundError:
+    from features.estimate_concurrency.service import require_estimate_revision
+
 import copy
 import json
 import re
@@ -844,6 +849,7 @@ def register_estimate_changes_module(app, deps):
         payload = data or {}
         selected_ids = _change_ids(payload)
         conn = get_db()
+        conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             actor, estimate, project = estimate_mutation_scope(
@@ -857,6 +863,7 @@ def register_estimate_changes_module(app, deps):
             )
             company_id = _positive_int(estimate.get("companyId"))
             project_id = _positive_int(estimate.get("projectId"))
+            require_estimate_revision(cur, id, company_id, payload)
             estimate_row = load_estimate_for_change(cur, estimate, include_sections=True)
             project_name = str(estimate.get("projectName") or project.get("name") or "").strip()
             name = str(estimate_row.get("name") or "Смета")
@@ -1046,6 +1053,7 @@ def register_estimate_changes_module(app, deps):
                 "includedChangeIds": applied_ids,
                 "estimate": {
                     "id": new_id,
+                    "revision": 1,
                     "projectId": project_id,
                     "projectName": project_name,
                     "name": new_name,

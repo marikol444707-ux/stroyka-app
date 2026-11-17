@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEstimateSelection } from '../estimates/useEstimateSelection';
+import { useCallback, useRef, useState } from 'react';
 import { EMPTY_ESTIMATE_CHANGE } from '../../utils/estimateChangeUtils';
 import { readStoredJson } from '../../utils/appRuntimeUtils';
 import { emptyStaffForm } from '../../utils/staffUtils';
@@ -70,7 +71,7 @@ const readCustomRoomTypes = () => {
   }
 };
 
-export function useAppMainState() {
+export function useAppMainState(companyContextKey = '') {
   const [activePage, setActivePage] = useState('dashboard');
   const [initialDataLoaded, setInitialDataLoaded] = useState(false);
   const [activeProjectTab, setActiveProjectTab] = useState('Общее');
@@ -197,7 +198,13 @@ export function useAppMainState() {
   const [pdConsents, setPdConsents] = useState([]);
   const [actPayments, setActPayments] = useState([]);
   const [weatherLog, setWeatherLog] = useState([]);
-  const [estimatesList, setEstimatesList] = useState([]);
+  const [estimatesList, setEstimatesListValue] = useState([]);
+  const estimateListRef = useRef(estimatesList);
+  const setEstimatesList = useCallback(update => {
+    const next = typeof update === 'function' ? update(estimateListRef.current) : update;
+    estimateListRef.current = next;
+    setEstimatesListValue(next);
+  }, []);
   const [estimatesPage, setEstimatesPage] = useState({loading:false, error:''});
   const [companyRequisites, setCompanyRequisites] = useState({});
   const [companyDocuments, setCompanyDocuments] = useState([]);
@@ -258,7 +265,7 @@ export function useAppMainState() {
   const [editingDoor, setEditingDoor] = useState(null);
   const [selectedPricelist, setSelectedPricelist] = useState(null);
   const [selectedInventory, setSelectedInventory] = useState(null);
-  const [selectedEstimate, setSelectedEstimate] = useState(null);
+  const {selectedEstimate, setSelectedEstimate, estimateSelectionRef, estimateSaveState, beginEstimateSave, markEstimateDeleted, hasUnsavedEstimateChanges} = useEstimateSelection(companyContextKey);
   const [mobileExpandedRenderLists, setMobileExpandedRenderLists] = useState({});
   const [selectedChecklist, setSelectedChecklist] = useState(null);
   const [expandedProject, setExpandedProject] = useState(null);
@@ -332,7 +339,7 @@ export function useAppMainState() {
     companyRequisites, confirmAcceptedQty, confirmComment, confirmingEntry, consentChecked, contracts,
     customRoomTypes, dailyReportDate, draftRoomDoors, draftRoomWindows, editingAct, editingCable,
     editingDoor, editingInspection, editingItem, editingJournal, editingPlItem, editingWindow, estimateDoneDrafts,
-    estimateReconciliations, estimateWorkMaterials, estimateWorkParams, estimatesList, estimatesPage,
+    estimateReconciliations, estimateWorkMaterials, estimateWorkParams, estimatesList, estimateListRef, estimatesPage,
     estimatesTab, expandedActDate, expandedClient, expandedGroup, expandedMaster, expandedMasterProject,
     expandedPieceworkProject, expandedProject, expandedRoom, expandedStaffId, expenseReports, geoCheckins,
     globalSearch, hiddenActs, history, initialDataLoaded, inlineEditPl, inlineEditPlData, inlineEditPrice,
@@ -351,7 +358,7 @@ export function useAppMainState() {
     projectChatMessages, projectDocuments, projectLetters, projectMeasurements, projectPayments, projectStages,
     projects, pushEnabled, rejectingEntry, rejectComment, returnToolCondition, roomDoors, roomWindows,
     roomWorks, rooms, salaryEdits, salaryMonth, salaryPayments, searchUser, selectedBrigadeContract,
-    selectedChecklist, selectedEstimate, selectedInventory, selectedPricelist, selectedWarehouseProject,
+    selectedChecklist, selectedEstimate, estimateSelectionRef, estimateSaveState, beginEstimateSave, markEstimateDeleted, hasUnsavedEstimateChanges, selectedInventory, selectedPricelist, selectedWarehouseProject,
     selectedWorks, showAiAssistant, showArchive, showBrigadeForm, showBrigadePayModal, showCatalogForm,
     showDocForm, showForm, showInvites, showIssueToolModal, showJournalTableModal, showLetterForm,
     showMeasurementForm, showNotifications, showOffers, showPayActModal, showPhotoModal, showPiecework,

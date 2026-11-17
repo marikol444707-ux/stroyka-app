@@ -361,6 +361,10 @@ def _invoice_confirm_patch(data: dict) -> dict:
         "workPackage",
         "work_package",
         "materialMatch",
+        "receiptDocument",
+        "originalUrls",
+        "physicalReceiptConfirmed",
+        "newDocumentConfirmed",
     }
     for key in safe_keys:
         if key in data:
@@ -1183,23 +1187,6 @@ def register_messenger_module(app, deps):
             "scanResult": scan_result,
             "storedFiles": stored_files,
         }
-
-    def select_existing_warehouse_by_source(cur, source_type: str, source_id: str):
-        if not source_type or not source_id:
-            return None
-        cur.execute(
-            """
-            SELECT id,status,project,location,source_type,source_id,supplier_invoice_id,accounting_status
-              FROM warehouse_invoices
-             WHERE COALESCE(status,'Принята') <> 'Аннулирована'
-               AND source_type=%s
-               AND source_id=%s
-             ORDER BY id DESC
-             LIMIT 1
-            """,
-            (source_type, source_id),
-        )
-        return cur.fetchone()
 
     def apply_max_invoice_confirm_patch(payload: dict, data: dict, employee: dict) -> dict:
         patch = _invoice_confirm_patch(data)
@@ -3755,26 +3742,9 @@ def register_messenger_module(app, deps):
                     existing_draft["employee_role"] = context["employee"].get("role") or ""
                     return _public_max_invoice_draft(existing_draft, duplicate=True)
 
-                existing_invoice = select_existing_warehouse_by_source(cur, payload.get("sourceType"), payload.get("sourceId"))
-                if existing_invoice:
-                    preview_row = {
-                        "draft_token": "",
-                        "provider": "max",
-                        "status": "confirmed",
-                        "warehouse_invoice_id": existing_invoice.get("id"),
-                        "supplier_invoice_id": existing_invoice.get("supplier_invoice_id"),
-                        "accounting_status": existing_invoice.get("accounting_status") or "",
-                        "project_name": existing_invoice.get("project") or payload.get("project") or "",
-                        "location": existing_invoice.get("location") or payload.get("location") or "",
-                        "source_type": payload.get("sourceType") or "",
-                        "source_id": payload.get("sourceId") or "",
-                        "recognized": context["recognized"],
-                        "recognition_json": payload.get("recognition") or {},
-                        "messenger_account_id": context["employee"].get("messengerAccountId"),
-                        "employee_name": context["employee"].get("name") or "",
-                        "employee_role": context["employee"].get("role") or "",
-                    }
-                    return _public_max_invoice_draft(preview_row, payload=payload, duplicate=True)
+                # A source string alone is neither company authorization nor proof
+                # that this draft was accepted. Only its saved confirmed record
+                # above may produce an already-confirmed response.
 
             cur.execute(
                 """
@@ -3942,27 +3912,11 @@ def register_messenger_module(app, deps):
 
             accounting_link = None
             already_confirmed = False
-            try:
-                result, accounting_link = commit_max_invoice_payload(
-                    payload,
-                    employee,
-                    data,
-                    bool(draft.get("recognized")),
-                )
-            except HTTPException as exc:
-                if exc.status_code != 409:
-                    raise
-                existing_invoice = select_existing_warehouse_by_source(cur, payload.get("sourceType"), payload.get("sourceId"))
-                if not existing_invoice:
-                    raise
-                result = {
-                    "id": existing_invoice.get("id"),
-                    "ok": True,
-                    "alreadyExists": True,
-                    "supplierInvoiceId": existing_invoice.get("supplier_invoice_id"),
-                    "accountingStatus": existing_invoice.get("accounting_status") or "",
-                }
-                already_confirmed = True
+            # A validation/conflict refusal is not proof that this draft was posted.
+            # Confirmed drafts are handled above; keep every other failure pending.
+            result, accounting_link = commit_max_invoice_payload(
+                payload, employee, data, bool(draft.get("recognized")),
+            )
 
             cur.execute(
                 """

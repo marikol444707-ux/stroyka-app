@@ -25,6 +25,7 @@ def verify(build_dir: Path, build_environment: str) -> None:
         if "=" in line
     )
     for key, metadata_name, label in (
+        ("REACT_APP_COMPANY_MATERIAL_ALIASES_ENABLED", "stroyka-company-material-aliases", "соответствий материалов"),
         ("REACT_APP_WORK_MATERIAL_ACCOUNTING_ENABLED", "stroyka-work-material-accounting", "учёта материалов"),
         ("REACT_APP_WORK_ACCEPTANCE_ENABLED", "stroyka-work-acceptance", "приёмки работ"),
         ("REACT_APP_PARTICIPANT_SUPPORT_ENABLED", "stroyka-participant-support", "участников организаций"),
@@ -52,6 +53,7 @@ def verify(build_dir: Path, build_environment: str) -> None:
     participant_enabled = any(key.startswith("REACT_APP_PARTICIPANT_") and value == "1" for key, value in flags.items())
     support_access_enabled = flags.get("REACT_APP_PARTICIPANT_SUPPORT_ACCESS_ENABLED") == "1"
     work_enabled = flags.get("REACT_APP_WORK_MATERIAL_ACCOUNTING_ENABLED") == "1"
+    aliases_enabled = flags.get("REACT_APP_COMPANY_MATERIAL_ALIASES_ENABLED") == "1"
     acceptance_enabled = flags.get("REACT_APP_WORK_ACCEPTANCE_ENABLED") == "1"
     warehouse_enabled = (
         flags.get("REACT_APP_WAREHOUSE_DISTRIBUTION_ENABLED") == "true"
@@ -64,7 +66,7 @@ def verify(build_dir: Path, build_environment: str) -> None:
         flags.get("REACT_APP_INTERCOMPANY_WAREHOUSE_TRANSFERS_ENABLED")
         == "true"
     )
-    if not warehouse_enabled and not capability_enabled and not intercompany_enabled and not work_enabled and not acceptance_enabled and not participant_enabled and not support_access_enabled:
+    if not warehouse_enabled and not capability_enabled and not intercompany_enabled and not work_enabled and not acceptance_enabled and not participant_enabled and not support_access_enabled and not aliases_enabled:
         return
 
     manifest = json.loads(
@@ -77,6 +79,9 @@ def verify(build_dir: Path, build_environment: str) -> None:
             if path.is_file():
                 javascript.append(path.read_text(encoding="utf-8"))
     bundle = "\n".join(javascript)
+
+    if aliases_enabled and "/company-material-aliases" not in bundle:
+        raise ValueError("Frontend собран без справочника соответствий материалов компании")
 
     if participant_enabled and any(marker not in bundle for marker in ("organization-participants", "participant-tickets")):
         raise ValueError("Frontend собран без раздела участников организаций")

@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import ExpenseReceiptPhoto from './ExpenseReceiptPhoto';
 import { ChevronDown, ChevronRight, FileText, Plus } from 'lucide-react';
 
 export default function MyExpensesPage({
@@ -41,7 +42,7 @@ export default function MyExpensesPage({
   const sumP=pending.reduce((s,e)=>s+Number(e.amount||0),0);
   const sumA=approved.reduce((s,e)=>s+Number(e.amount||0),0);
   const sumR=rejected.reduce((s,e)=>s+Number(e.amount||0),0);
-  const myAcc=(accountablePayments||[]).filter(a=>a.givenTo===currentUser.name&&Number(a.amount||0)>Number(a.spentAmount||0));
+  const myAcc=(accountablePayments||[]).filter(a=>a.paymentKind!=='salary_advance'&&a.givenTo===currentUser.name&&Number(a.amount||0)>Number(a.spentAmount||0));
   const sortExpenseRows = (items) => [...items].sort((a,b)=>{
     const dateA = String(a.date || a.createdAt || '');
     const dateB = String(b.date || b.createdAt || '');
@@ -90,7 +91,8 @@ export default function MyExpensesPage({
             <p style={{color:C.textSec,margin:'2px 0',fontSize:'11px'}}>{'Выдано: '+Math.round(total).toLocaleString('ru-RU')+' ₽ · Потрачено: '+Math.round(spent).toLocaleString('ru-RU')+' ₽'}</p>
             <b style={{color:C.warning,fontSize:'12px'}}>{'⏳ Остаток отчитаться: '+Math.round(remaining).toLocaleString('ru-RU')+' ₽'}</b>
           </div>
-          <button onClick={()=>setReportingPayment(a)} style={btnO}><FileText size={14}/>Отчитаться</button>
+          {a.paymentKind!=='expense'&&<span>Тип выдачи должен проверить бухгалтер</span>}
+          <button disabled={a.paymentKind!=='expense'} onClick={()=>setReportingPayment(a)} style={btnO}><FileText size={14}/>Отчитаться</button>
         </div>);})}
       </div>)}
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:'12px',marginBottom:'18px'}}>
@@ -120,7 +122,10 @@ export default function MyExpensesPage({
                   <b style={{color:C.text,fontSize:'13px'}}>{e.description}</b>
                   <p style={{color:C.textSec,margin:'4px 0',fontSize:'11px'}}>📍 {e.projectName||'Личные/без объекта'} · 📅 {e.date||e.createdAt||'—'}</p>
                   <span style={{padding:'2px 8px',borderRadius:'8px',backgroundColor:stBg,color:cat.color,fontSize:'10px',fontWeight:'600'}}>{cat.label}</span>
-                  {e.photoUrl&&<img src={fileSrc(e.photoUrl)} alt='' onClick={()=>setShowPhotoModal(fileSrc(e.photoUrl))} style={{width:'40px',height:'40px',borderRadius:'6px',objectFit:'cover',cursor:'pointer',marginLeft:'8px',verticalAlign:'middle'}}/>}
+                  {String(e.photoUrl || '').split(',').map(url => url.trim()).filter(Boolean).map((url, index) => (
+                    <ExpenseReceiptPhoto key={url + index} url={url} fileSrc={fileSrc} onOpen={setShowPhotoModal}
+                      style={{width:'40px',height:'40px',borderRadius:'6px',objectFit:'cover',cursor:'pointer',marginLeft:'8px',verticalAlign:'middle'}}/>
+                  ))}
                 </div>
                 <div style={{textAlign:'right'}}>
                   <b style={{color:stColor,fontSize:'15px',display:'block'}}>{Math.round(Number(e.amount||0)).toLocaleString('ru-RU')+' ₽'}</b>

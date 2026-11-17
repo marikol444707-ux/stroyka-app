@@ -1,8 +1,9 @@
-import React from 'react';
+import React, {useEffect, useState} from 'react';
 import { Plus, Search, Trash2 } from 'lucide-react';
 import { API } from '../api';
 
 export default function AccountingSalaryPanel({
+  companyContext = {},
   C,
   card,
   inp,
@@ -29,6 +30,25 @@ export default function AccountingSalaryPanel({
   paySalary,
   setPayrollExtra,
 }) {
+  const company = companyContext.mode === 'company' ? Number(companyContext.selectedCompanyId) : 0;
+  const [toolState, setToolState] = useState(null);
+  const [toolError, setToolError] = useState('');
+  const [reloadTools, setReloadTools] = useState(0);
+  useEffect(() => {
+    let active = true;
+    setToolState(null); setToolError('');
+    if (!company) return () => {active = false;};
+    fetch(API + '/salary-tool-deductions?month=' + encodeURIComponent(salaryMonth), {
+      headers: {'X-Company-Id': String(company), 'X-Company-Mode':'company'},
+    }).then(async response => {
+      const result = await response.json();
+      if (!response.ok) throw Error(result.detail || 'Не удалось загрузить удержания');
+      if (result.companyId !== company || result.month !== salaryMonth || !Array.isArray(result.rows)) throw Error('Ответ не соответствует компании и месяцу');
+      if (active) setToolState(result);
+    }).catch(e => {if (active) setToolError(e.message);});
+    return () => {active = false;};
+  }, [company, salaryMonth, salaryPayments, reloadTools]);
+  const stateCurrent = toolState?.companyId === company && toolState?.month === salaryMonth;
   const monthStr = salaryMonth;
   const monthStart = monthStr + '-01';
   const nextMonth = new Date(monthStart);
@@ -51,12 +71,13 @@ export default function AccountingSalaryPanel({
     const baseRaw = payTypeKind === 'piecework' ? pieceworkSum : (payTypeKind === 'salary' ? salary : salary + pieceworkSum);
     const editRow = edits[staffRow.id] || {};
     const bonus = Number(editRow.bonus || 0);
-    const toolHold = (tools || []).filter(tool => tool.masterName === staffRow.name && tool.issueType === 'В счёт зарплаты').reduce((sum, tool) => sum + Number(tool.cost || 0), 0);
+    const toolSnapshot = stateCurrent ? toolState.rows.find(r => Number(r.staffId) === Number(staffRow.id)) : null;
+    const toolHold = Number(toolSnapshot?.amount || 0);
     const deductExtra = Number(editRow.deduct || 0);
-    const accrued = baseRaw + bonus - toolHold - deductExtra;
+    const accrued = baseRaw + bonus - deductExtra;
     const ndfl = Math.max(0, Math.round(accrued * 0.13));
     const insurance = Math.max(0, Math.round((baseRaw + bonus) * 0.302));
-    const net = accrued - ndfl;
+    const net = Number((accrued - ndfl - toolHold).toFixed(2));
     return {
       id: staffRow.id,
       name: staffRow.name || (staffRow.lastName || '') + ' ' + (staffRow.firstName || ''),
@@ -69,6 +90,8 @@ export default function AccountingSalaryPanel({
       base: baseRaw,
       bonus,
       toolHold,
+      expectedToolState: toolSnapshot?.state,
+      companyId: company,
       deductExtra,
       accrued,
       ndfl,
@@ -164,7 +187,8 @@ export default function AccountingSalaryPanel({
                             <button
                               onClick={async () => {
                                 if (!window.confirm('Отменить выплату?')) return;
-                                await fetch(API + '/salary-payments/' + payment.id, { method: 'DELETE' });
+                                const response = await fetch(API + '/salary-payments/' + payment.id, { method: 'DELETE' });
+                                if (!response.ok) {const result = await response.json().catch(() => ({})); alert(result.detail || 'Отмена выплаты не выполнена'); return;}
                                 const refreshed = await fetch(API + '/salary-payments').then(response => response.json());
                                 setSalaryPayments(Array.isArray(refreshed) ? refreshed : []);
                               }}
@@ -176,7 +200,7 @@ export default function AccountingSalaryPanel({
                         );
                       }
                       return (
-                        <button onClick={() => paySalary(row, monthStr)} style={{ ...btnO, padding: '3px 8px', fontSize: '10px' }}>
+                        <button disabled={!row.expectedToolState || row.net < 0 || (row.net === 0 && !row.toolHold)} onClick={() => paySalary(row, monthStr)} style={{ ...btnO, padding: '3px 8px', fontSize: '10px' }}>
                           Выплатить
                         </button>
                       );
@@ -193,6 +217,9 @@ export default function AccountingSalaryPanel({
 
   return (
     <div>
+      {!stateCurrent && <p role="alert">{toolError || (company ? 'Удержания за инструмент загружаются. Выплата доступна после сверки.' : 'Для выплаты выберите одну компанию.')}</p>}
+      <button style={btnG} onClick={() => setReloadTools(n => n + 1)}>Обновить удержания за инструмент</button>
+      <p>Распределение по месяцам задаётся в «Закрытие → Инструмент в счёт оплаты». Выплаченные суммы сохраняются отдельно.</p>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px', flexWrap: 'wrap', gap: '8px' }}>
         <b style={{ color: C.text, fontSize: '15px', fontWeight: '700' }}>👥 Зарплата по сотрудникам</b>
         <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
@@ -202,7 +229,7 @@ export default function AccountingSalaryPanel({
         </div>
       </div>
       <div style={{ ...card, padding: '10px 14px', marginBottom: '12px', backgroundColor: C.infoLight, border: '1.5px solid ' + C.infoBorder, fontSize: '11px', color: C.info }}>
-        ℹ️ <b>Формулы:</b> Начислено = Оклад + Сдельные + Премия − Удержания. НДФЛ 13%. Страховые (от начислено): ПФР 22% + ФСС 2.9% + ОМС 5.1% + Травм 0.2% = <b>30.2%</b>. На руки = Начислено − НДФЛ.
+        ℹ️ <b>Формулы:</b> Начислено = Оклад + Сдельные + Премия − Удержания. НДФЛ 13%. Страховые (от начислено): ПФР 22% + ФСС 2.9% + ОМС 5.1% + Травм 0.2% = <b>30.2%</b>. На руки = Начислено − НДФЛ − подтверждённое удержание за инструмент.
       </div>
       <div style={{ position: 'relative', marginBottom: '12px' }}>
         <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: C.textMuted }} />

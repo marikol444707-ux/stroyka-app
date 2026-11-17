@@ -1,10 +1,14 @@
+import ToolDeductionPanel from './ToolDeductionPanel';
+import { actRetention, actToolDeduction } from '../utils/actSettlement';
+import PerformerRetentionPanel from './PerformerRetentionPanel';
 import React, { useMemo, useState } from 'react';
 import { CheckCircle2, CreditCard, FileText, Printer, Save, Search } from 'lucide-react';
 import { API } from '../api';
+import PerformerAdvancePanel from './PerformerAdvancePanel';
 import { isSupplierLedgerPayment } from '../utils/projectPaymentUtils';
 
 const toNumber = value => Number(String(value ?? 0).replace(',', '.')) || 0;
-const money = value => Math.round(toNumber(value)).toLocaleString('ru-RU') + ' ₽';
+const money = value => toNumber(value).toLocaleString('ru-RU', { maximumFractionDigits: 2 }) + ' ₽';
 const safeText = value => String(value ?? '').trim();
 const monthNow = () => new Date().toISOString().slice(0, 7);
 const dateOnly = value => safeText(value).split('T')[0];
@@ -33,6 +37,10 @@ const isContractorLike = staffRow => {
 
 const matchByPerson = (payment, performer) => {
   const id = Number(performer.staffId || performer.masterId || 0);
+  if (payment.givenToId !== undefined && payment.givenToId !== null) {
+    const recipientId = Number(payment.givenToId);
+    return Number.isSafeInteger(recipientId) && recipientId > 0 && recipientId === id;
+  }
   const name = personKey(performer.performerName);
   return (
     (id && [payment.recipientId, payment.employeeId, payment.staffId, payment.masterId, payment.userId].some(value => Number(value) === id)) ||
@@ -95,6 +103,7 @@ const buildPrintHtml = ({ month, rows, summary }) => {
     '<p><b>Начислено:</b> ' + money(summary.accrued) +
     ' &nbsp; <b>Авансы:</b> ' + money(summary.advances) +
     ' &nbsp; <b>Удержание:</b> ' + money(summary.retention) +
+    ' &nbsp; <b>Инструмент:</b> ' + money(summary.toolDeductions) +
     ' &nbsp; <b>Выплачено:</b> ' + money(summary.paid) +
     ' &nbsp; <b>К выплате:</b> ' + money(summary.payable) + '</p>' +
     '<table><tr><th>N</th><th>Объект</th><th>Исполнитель</th><th>Пакет</th><th>Помещение</th><th>Работа</th><th>Объем</th><th>Цена исп.</th><th>Начислено</th><th>Заказчик</th></tr>' +
@@ -102,12 +111,13 @@ const buildPrintHtml = ({ month, rows, summary }) => {
     '</table>' +
     '<p style="margin-top:24px">Бухгалтер ____________________ / ____________________</p>' +
     '<p>Руководитель ____________________ / ____________________</p>' +
-    '<p style="font-size:10px;color:#666">Ведомость сформирована из подтвержденного журнала производства работ. Удержание применяется расчетно по исполнителям с типом субподрядчик/ИП/ООО/самозанятый.</p>'
+    '<p style="font-size:10px;color:#666">Ведомость сформирована из подтвержденного журнала производства работ. Удержания учитываются только по сохранённым подтверждённым суммам актов.</p>'
   );
 };
 
 export default function AccountingPerformerClosingPanel({
   onOpenContractActs,
+  companyContext,
   C,
   card,
   inp,
@@ -185,7 +195,7 @@ export default function AccountingPerformerClosingPanel({
       .filter(work => work.settlementVersion !== 2)
       .filter(work => safeText(work.status) === 'Подтверждено')
       .filter(work => monthOf(work.confirmedAt || work.date) === month)
-      .filter(work => !safeText(work.roomName || work.room_name) || workExecutionTotal(work) <= 0);
+      .filter(work => (safeText(work.roomName || work.room_name) || 'Без помещения') === 'Без помещения' || workExecutionTotal(work) <= 0);
   }, [workJournal, month]);
 
   const groups = useMemo(() => {
@@ -212,29 +222,30 @@ export default function AccountingPerformerClosingPanel({
     });
     Object.values(byKey).forEach(group => {
       const performer = { performerName: group.performerName, staffId: group.staffId };
-      const advances = (accountablePayments || [])
-        .filter(payment => monthOf(payment.date || payment.createdAt) === month)
-        .filter(payment => !projectFilter || (payment.projectName || payment.project) === group.project)
-        .filter(payment => (payment.projectName || payment.project || group.project) === group.project)
-        .filter(payment => matchByPerson(payment, performer))
-        .reduce((sum, payment) => sum + toNumber(payment.amount), 0);
+      const matchingActs = (interimActs || []).filter(act => act.status !== 'Аннулирован'
+        && Number(act.masterId) === Number(group.staffId) && group.staffId > 0
+        && safeText(act.project) === group.project
+        && safeText(act.workPackage || 'Основная') === group.workPackage
+        && dateOnly(act.periodStart) === periodStart && dateOnly(act.periodEnd) === periodEnd);
+      const advances = matchingActs.reduce((sum, act) => sum + toNumber(act.advanceAmount), 0);
       const reimbursements = (ownExpenses || [])
         .filter(expense => monthOf(expense.date || expense.createdAt) === month)
         .filter(expense => (expense.projectName || expense.project || group.project) === group.project)
         .filter(expense => safeText(expense.status) === 'Возмещено')
         .filter(expense => matchByPerson(expense, performer))
         .reduce((sum, expense) => sum + toNumber(expense.amount), 0);
-      const paid = (projectPayments || [])
+      const paid = matchingActs.length ? matchingActs.reduce((sum, act) => sum + toNumber(act.paidAmount), 0) : (projectPayments || [])
         .reduce((sum, payment) => sum + performerPaymentAmount(payment, group, month), 0);
       group.advances = advances;
       group.reimbursements = reimbursements;
-      group.retention = group.isContractor ? Math.round(group.accrued * 0.05) : 0;
+      group.retention = matchingActs.reduce((sum, act) => sum + actRetention(act), 0);
+      group.toolDeductions = matchingActs.reduce((sum, act) => sum + actToolDeduction(act), 0);
       group.paid = paid;
-      group.payable = Math.max(0, group.accrued - group.advances - group.retention - group.paid);
+      group.payable = Math.max(0, group.accrued - group.advances - group.retention - group.toolDeductions - group.paid);
       group.margin = group.customer - group.accrued;
     });
     return Object.values(byKey).sort((a, b) => b.accrued - a.accrued);
-  }, [rows, accountablePayments, ownExpenses, projectPayments, month, projectFilter]);
+  }, [rows, interimActs, ownExpenses, projectPayments, month, periodStart, periodEnd]);
 
   const visibleGroups = useMemo(() => {
     if (!listSearch || !matchSearch) return groups;
@@ -252,11 +263,12 @@ export default function AccountingPerformerClosingPanel({
     acc.customer += group.customer;
     acc.advances += group.advances;
     acc.retention += group.retention;
+    acc.toolDeductions += group.toolDeductions;
     acc.paid += group.paid;
     acc.payable += group.payable;
     acc.margin += group.margin;
     return acc;
-  }, { accrued: 0, customer: 0, advances: 0, retention: 0, paid: 0, payable: 0, margin: 0 });
+  }, { accrued: 0, customer: 0, advances: 0, retention: 0, toolDeductions: 0, paid: 0, payable: 0, margin: 0 });
 
   const actGroups = useMemo(() => {
     return groups.map(group => ({
@@ -282,7 +294,7 @@ export default function AccountingPerformerClosingPanel({
       if (dateOnly(act.periodStart) !== periodStart || dateOnly(act.periodEnd) !== periodEnd) return false;
       const idMatch = staffId && Number(act.masterId) === Number(staffId);
       const nameMatch = personKey(act.masterName) === normalizedName;
-      return idMatch || nameMatch;
+      return staffId ? idMatch : nameMatch;
     });
   };
 
@@ -396,6 +408,9 @@ export default function AccountingPerformerClosingPanel({
 
   return (
     <div>
+      <ToolDeductionPanel companyContext={companyContext} acts={interimActs} refreshData={refreshData} C={C} inp={inp} btnB={btnB} btnG={btnG}/>
+      <PerformerRetentionPanel acts={interimActs} refreshData={refreshData} C={C} inp={inp} btnB={btnB} btnG={btnG} />
+      <PerformerAdvancePanel payments={accountablePayments} acts={interimActs} refreshData={refreshData} C={C} inp={inp} btnB={btnB} btnG={btnG} />
       {(workJournal || []).some(work => work.settlementVersion === 2) && <div style={{...card, padding: 16, marginBottom: 16}}><p>Работы по договорам с учётом материалов закрываются в разделе «Акты»: там указаны принятые работы, штрафы и сумма к оплате.</p><button style={btnB} onClick={onOpenContractActs}>Открыть акты договоров</button></div>}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
         <div>
@@ -450,7 +465,7 @@ export default function AccountingPerformerClosingPanel({
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: '10px', marginBottom: '14px' }}>
         <div style={{ ...card, padding: '12px', backgroundColor: C.bg }}><p style={{ color: C.textSec, margin: '0 0 4px', fontSize: '11px' }}>Исполнителей/пакетов</p><b style={{ color: C.text }}>{groups.length}</b></div>
         <div style={{ ...card, padding: '12px', backgroundColor: C.successLight }}><p style={{ color: C.success, margin: '0 0 4px', fontSize: '11px' }}>Начислено</p><b style={{ color: C.success }}>{money(summary.accrued)}</b></div>
-        <div style={{ ...card, padding: '12px', backgroundColor: C.warningLight }}><p style={{ color: C.warning, margin: '0 0 4px', fontSize: '11px' }}>Авансы/подотчет</p><b style={{ color: C.warning }}>{money(summary.advances)}</b></div>
+        <div style={{ ...card, padding: '12px', backgroundColor: C.warningLight }}><p style={{ color: C.warning, margin: '0 0 4px', fontSize: '11px' }}>Зачтённые зарплатные авансы</p><b style={{ color: C.warning }}>{money(summary.advances)}</b></div>
         <div style={{ ...card, padding: '12px', backgroundColor: C.warningLight }}><p style={{ color: C.warning, margin: '0 0 4px', fontSize: '11px' }}>Гарантийное удержание</p><b style={{ color: C.warning }}>{money(summary.retention)}</b></div>
         <div style={{ ...card, padding: '12px', backgroundColor: C.bg }}><p style={{ color: C.textSec, margin: '0 0 4px', fontSize: '11px' }}>Уже выплачено</p><b style={{ color: C.text }}>{money(summary.paid)}</b></div>
         <div style={{ ...card, padding: '12px', backgroundColor: C.infoLight }}><p style={{ color: C.info, margin: '0 0 4px', fontSize: '11px' }}>К выплате</p><b style={{ color: C.info }}>{money(summary.payable)}</b></div>
@@ -484,7 +499,7 @@ export default function AccountingPerformerClosingPanel({
                 </div>
                 <div><p style={{ color: C.textMuted, margin: 0, fontSize: '10px' }}>Начислено</p><b style={{ color: C.success }}>{money(group.accrued)}</b></div>
                 <div><p style={{ color: C.textMuted, margin: 0, fontSize: '10px' }}>Авансы</p><b style={{ color: C.warning }}>{money(group.advances)}</b></div>
-                <div><p style={{ color: C.textMuted, margin: 0, fontSize: '10px' }}>Удерж. 5%</p><b style={{ color: C.warning }}>{money(group.retention)}</b></div>
+                <div><p>Инструмент: {money(group.toolDeductions)}</p><p style={{ color: C.textMuted, margin: 0, fontSize: '10px' }}>Удержание</p><b style={{ color: C.warning }}>{money(group.retention)}</b></div>
                 <div><p style={{ color: C.textMuted, margin: 0, fontSize: '10px' }}>Выплачено / остаток</p><b style={{ color: C.info }}>{money(group.paid)} / {money(group.payable)}</b></div>
                 <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
                   <button

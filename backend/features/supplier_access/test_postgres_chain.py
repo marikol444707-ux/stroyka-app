@@ -3,6 +3,7 @@
 See docs/supply-request-current-chain.md for isolated database setup. This test
 does not run against a production URL or substitute authorization dependencies.
 """
+from backend.features.warehouse_receipts.test_http_support import confirm_test_receipt
 
 import datetime as dt
 import os
@@ -41,6 +42,7 @@ class PostgresSupplyChainTests(unittest.TestCase):
             conn.close()
 
     def test_addressed_supplier_to_paid_invoice_and_exact_company_stock(self):
+        self.sql("INSERT INTO company_requisites(company_id,full_name,inn) SELECT 2,'Synthetic buyer','7702222222' WHERE NOT EXISTS (SELECT 1 FROM company_requisites WHERE company_id=2)")
         f = self.fixture
         item = {key: f[key] for key in ("materialName", "quantity", "unit", "workPackage")}
         request = self.api("director", "POST", "/supply-requests", {
@@ -116,10 +118,9 @@ class PostgresSupplyChainTests(unittest.TestCase):
         shipment = self.api("supplier", "POST", offer_path + "/ship", ship)
         delivery_id = shipment["id"]  # Single-line API returns the delivery itself.
         receipt = {"receivedQuantity": 2, "qualityStatus": "Принято", "receivedBy": "Local foreman"}
-        receive_path = f"/supply-deliveries/{delivery_id}/receive"
-        received = self.api("foreman", "PUT", receive_path, receipt)
+        received = confirm_test_receipt(self, "foreman", delivery_id, receipt)
         self.assertTrue(received["invoiceId"])
-        replay = self.api("foreman", "PUT", receive_path, receipt)
+        replay = confirm_test_receipt(self, "foreman", delivery_id, receipt)
         self.assertTrue(replay["alreadyReceived"])
         self.assertEqual(replay["invoiceId"], received["invoiceId"])
         self.assertEqual(self.sql("SELECT company_id,quantity FROM materials WHERE project=%s AND name=%s",

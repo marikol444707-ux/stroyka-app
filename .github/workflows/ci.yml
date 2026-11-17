@@ -64,6 +64,9 @@ jobs:
             exit "$backend_test_status"
           fi
 
+      - name: Verify unified release transport and frontend backup
+        run: python -m unittest -v scripts.test_unified_release
+
       - name: Run company-context PostgreSQL isolation tests
         env:
           COMPANY_CONTEXT_RUN_POSTGRES_INTEGRATION: "1"
@@ -102,9 +105,14 @@ jobs:
             backend.features.participant_support.test_history_preview_postgres.SupplierHistoryPreviewPostgresTests \
             backend.features.participant_support.test_history_merge_postgres.SupplierHistoryMergePostgresTests \
             backend.features.participant_support.test_duplicate_merge_postgres.AdminDuplicateMergePostgresTests \
+            backend.features.participant_support.test_admin_identity_postgres.AdminIdentityPostgresTests \
             backend.features.participant_support.test_history_contract_merge_postgres.SupplierHistoryContractMergePostgresTests \
             backend.features.invite_codes.test_supplier_registration_postgres.SupplierRegistrationPostgresTests \
+            backend.features.invite_codes.test_merged_invitation_postgres.MergedInvitationPostgresTests \
+            backend.features.supplier_access.test_profile_postgres.SupplierProfilePostgresTests \
+            backend.features.supplier_access.test_identity_regression_postgres.SupplierIdentityRegressionPostgresTests \
             backend.features.supplier_access.test_company_merge_postgres.CompanyMergePostgresTests \
+            backend.features.supplier_access.test_merge_review_postgres.MergeReviewPostgresTests \
             backend.features.supplier_access.test_company_directory_postgres.CompanyDirectoryPostgresTests
 
       - name: Run supplier access correction and packaging merge guards
@@ -142,6 +150,33 @@ jobs:
           export PATH="$(pg_config --bindir):$PATH"
           python scripts/run_supplier_catalog_postgres_tests.py \
             backend.features.master_profiles.test_access_postgres
+
+      - name: Run supplier manager assignments and revocation
+        run: |
+          export PATH="$(pg_config --bindir):$PATH"
+          python scripts/run_supplier_catalog_postgres_tests.py \
+            backend.features.supplier_team.test_policy_postgres.TeamPolicyPostgresTests \
+            backend.features.supplier_team.test_customer_team_postgres.CustomerTeamPostgresTests \
+            backend.features.supplier_team.test_manager_revocation_postgres.ManagerRevocationPostgresTests
+
+      - name: Run automatic draft contract selection
+        run: |
+          export PATH="$(pg_config --bindir):$PATH"
+          python scripts/run_brigade_draft_tests.py
+          python scripts/run_supplier_catalog_postgres_tests.py \
+            backend.features.brigade_access.test_draft_routes_postgres.DraftSelectionRoutesPostgresTests
+
+      - name: Run contractor identity audit and exact selection
+        run: |
+          export PATH="$(pg_config --bindir):$PATH"
+          python scripts/run_supplier_catalog_postgres_tests.py \
+            backend.features.contractor_identity.test_postgres.ContractorIdentityPostgresTests \
+            backend.features.contractor_identity.test_runtime_postgres.ContractorIdentityRuntimePostgresTests \
+            backend.features.contractor_identity.test_selection_postgres.TypedContractorSelectionPostgresTests \
+            backend.features.contractor_identity.test_contract_selection_postgres.ExactContractSelectionPostgresTests \
+            backend.features.contractor_identity.test_manual_postgres.ManualBrigadePostgresTests \
+            backend.features.contractor_identity.test_recovery_postgres.ManualRecoveryPostgresTests \
+            backend.features.contractor_identity.test_release_postgres.UnifiedReleasePostgresTests
 
       - name: Set up Node
         uses: actions/setup-node@v4

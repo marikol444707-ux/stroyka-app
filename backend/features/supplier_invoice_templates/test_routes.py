@@ -28,6 +28,12 @@ class FakeCursor:
         self.fetchone_results = list(fetchone_results)
         self.calls = []
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+
     def execute(self, sql, params=()):
         self.calls.append((" ".join(sql.split()), tuple(params)))
 
@@ -50,6 +56,9 @@ class FakeConnection:
     def cursor(self, **_kwargs):
         return self._cursor
 
+    def rollback(self):
+        pass
+
     def commit(self):
         self.committed = True
 
@@ -67,7 +76,7 @@ def build(cursor, audit_calls):
         "supplier_invoice_template_row": lambda row: dict(row),
         "supplier_invoice_template_key": lambda name: name.lower().replace(" ", ""),
         "scan_invoice_supplier_name": lambda data: "",
-        "find_supplier_by_name_key": lambda cur, name: None,
+        "resolve_work_company_context": lambda *args, **kwargs: {"mode":"company","companyId":2,"companyIds":[2],"role":"кладовщик"},
         "log_audit": lambda **kw: audit_calls.append(kw),
     })
     return app, connection
@@ -88,7 +97,7 @@ class SupplierInvoiceTemplatesRoutesTest(unittest.TestCase):
     def test_learn_inserts_new_template_and_writes_audit(self):
         saved = {"id": 5, "supplierId": None, "supplierName": "ООО Поставка",
                  "templateName": "Счет/накладная ООО Поставка"}
-        cursor = FakeCursor(fetchone_results=[None, saved])
+        cursor = FakeCursor(fetchone_results=[saved])
         audit_calls = []
         app, connection = build(cursor, audit_calls)
         result = app.routes[("POST", "/supplier-invoice-templates/learn")](

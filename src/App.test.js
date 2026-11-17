@@ -3,6 +3,7 @@ import App from './App';
 
 test('opens login screen from public site', async () => {
   render(<App />);
-  fireEvent.click(await screen.findByRole('button', { name: /Вход в ERP/i }, { timeout: 5000 }));
+  const [login] = await screen.findAllByRole('button', { name: /Личный кабинет/i }, { timeout: 5000 });
+  fireEvent.click(login);
   expect(await screen.findByText(/Войти в систему/i, {}, { timeout: 5000 })).toBeInTheDocument();
 });

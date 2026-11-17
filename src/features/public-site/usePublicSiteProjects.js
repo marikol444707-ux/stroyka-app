@@ -11,6 +11,7 @@ export const usePublicSiteProjects = () => {
   const [selectedProjectId, setSelectedProjectId] = useState(publicProjects[0].id);
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(0);
   const [sitePricingRules, setSitePricingRules] = useState([]);
+  const [sitePricingStatus, setSitePricingStatus] = useState('loading');
   const [leadFileUploadsEnabled, setLeadFileUploadsEnabled] = useState(false);
   const [hasPublishedProjects, setHasPublishedProjects] = useState(false);
 
@@ -19,12 +20,20 @@ export const usePublicSiteProjects = () => {
     const loadSitePricing = async () => {
       try {
         const response = await fetch(API + '/site/pricing');
-        if (!response.ok) return;
+        if (!response.ok) {
+          if (!cancelled) setSitePricingStatus('fallback');
+          return;
+        }
         const data = await response.json();
         if (cancelled) return;
-        setSitePricingRules(Array.isArray(data.rules) ? data.rules : []);
+        const rules = Array.isArray(data.rules) ? data.rules : [];
+        setSitePricingRules(rules);
+        setSitePricingStatus(
+          rules.some((rule) => rule && rule.enabled !== false) ? 'live' : 'fallback',
+        );
         setLeadFileUploadsEnabled(data.capabilities?.leadFileUploads === true);
       } catch (_) {
+        if (!cancelled) setSitePricingStatus('fallback');
         // Если backend ещё не обновлён, калькулятор работает по локальным дефолтам.
       }
     };
@@ -79,6 +88,7 @@ export const usePublicSiteProjects = () => {
 
   return {
     sitePricingRules,
+    sitePricingStatus,
     leadFileUploadsEnabled,
     hasPublishedProjects,
     projectCategory,

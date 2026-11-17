@@ -1,4 +1,5 @@
 """Real request → offer → shipment → owned receipt → audited claim, local PG only."""
+from backend.features.warehouse_receipts.test_http_support import confirm_test_receipt, physical_receipt_payload
 import importlib.util
 import os
 from pathlib import Path
@@ -16,7 +17,9 @@ class ReceiptClaimChainPostgresTests(unittest.TestCase):
     api = support.OwnerStockPostgresTests.api
     request = support.OwnerStockPostgresTests.request
     setUp = support.OwnerStockPostgresTests.setUp
-    prepare_supplier_delivery = support.OwnerStockPostgresTests.prepare_supplier_delivery
+    def prepare_supplier_delivery(self):
+        self.sql("INSERT INTO company_requisites(company_id,full_name,inn) SELECT 2,'Synthetic buyer','7702222222' WHERE NOT EXISTS (SELECT 1 FROM company_requisites WHERE company_id=2)")
+        return support.OwnerStockPostgresTests.prepare_supplier_delivery(self)
 
     @classmethod
     def setUpClass(cls):
@@ -39,7 +42,7 @@ class ReceiptClaimChainPostgresTests(unittest.TestCase):
         cls.addClassCleanup(flags.stop)
 
     def receive(self, delivery, quantity, quality):
-        return self.api('director', 'PUT', f'/supply-deliveries/{delivery}/receive',
+        return confirm_test_receipt(self, 'director', delivery,
                         {'companyId': 2, 'receivedQuantity': quantity, 'qualityStatus': quality})
 
     def business_snapshot(self):

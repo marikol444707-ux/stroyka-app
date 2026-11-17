@@ -1,3 +1,12 @@
+# Deployment authorization (user-approved 09.11.2026)
+
+After a requested fix is implemented and its relevant regression tests, build
+and release checks pass, install that tested fix on the configured server without
+asking for deployment permission again. This authorization does not turn an
+unfinished or failed check into a pass and does not authorize unrelated changes.
+Preserve current server changes, prepare rollback material, perform the separate
+post-installation checks below, and report what was actually installed.
+
 # Deployment retention
 
 The user explicitly requires deleting deployment backups and staging after an
@@ -58,8 +67,9 @@ health endpoint alone is insufficient. Missing/failed verification retains backu
 
 - GitHub is the source of truth. Inspect and extend the existing architecture;
   keep changes small and scoped.
-- Never modify production data directly, deploy automatically, run destructive
-  database operations, or apply production migrations automatically.
+- Never modify production data directly or run destructive database operations.
+  Deploy tested requested fixes under the user-approved rule above; production
+  migrations still require a reviewed compatible transition and backup checks.
 - Never expose or commit secrets, API keys, passwords, tokens, or `.env` files.
 - Tenant isolation is mandatory. Preserve `company_id`, enforce ownership on the
   server, and never add fallback ownership such as `company_id=1`.

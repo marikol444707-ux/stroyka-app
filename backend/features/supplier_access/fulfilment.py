@@ -56,7 +56,7 @@ def save_delivery_check_result(get_db, snapshot, result, authorize):
 
 
 def internal_fulfilment_filter(actors, *, company_column, project_column,
-                                package_column, deps, worker_condition=None, full_view_roles=None):
+                                package_column, deps, worker_condition=None, full_view_roles=None, additional_project_roles=()):
     clauses, params = [], []
     for actor in actors:
         role = actor.get('role') or ''
@@ -64,7 +64,7 @@ def internal_fulfilment_filter(actors, *, company_column, project_column,
         if deps['can_see_all_company_data'](actor):
             if full_view_roles is not None and role not in full_view_roles:
                 continue
-        elif role in ('снабженец', 'кладовщик', 'прораб'):
+        elif role in ('снабженец', 'кладовщик', 'прораб', *additional_project_roles):
             condition, values = deps['scoped_project_filter'](actor, project_column)
         elif role in deps['worker_execution_roles'] and worker_condition:
             condition = ' AND ' + worker_condition

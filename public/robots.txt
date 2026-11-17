@@ -7,6 +7,7 @@ Allow: /project-catalog.json
 Allow: /contacts.html
 Allow: /privacy.html
 Allow: /terms.html
+Allow: /our-objects.html
 Disallow: /api/
 Disallow: /login
 Disallow: /register
