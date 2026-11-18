@@ -371,3 +371,14 @@ test('saveInvoiceNew keeps an explicitly selected supplier card', async () => {
     supplierName: 'ООО Проверенный',
   }));
 });
+
+test('receipt POST success remains success when subsequent refresh fails',async()=>{
+  global.fetch=jest.fn(async()=>({ok:true,json:async()=>({id:55,ok:true})}));
+  const actions=createActions({newInvoice:{number:'REVIEW-1',date:'2026-11-10',location:'Основной склад',sourceType:'scan_main_invoice',supplier:'Test',isNewSupplier:true,items:[{name:'Материал',quantity:2,price:10,lineTotal:20}]},
+    suppliers:[],user:{name:'Director'},getProjectWorkPackageOptions:()=>[],calcVat:total=>({base:total,vat:0,total}),
+    createInvoiceControlReviewTasksForInvoice:async()=>0,notify:jest.fn(),addActivity:jest.fn(),setNewInvoice:jest.fn(),
+    refreshData:jest.fn().mockRejectedValue(new Error('Refresh unavailable'))});
+  await expect(actions.saveInvoiceNew()).resolves.toBe(true);
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(alert).toHaveBeenCalledWith(expect.stringMatching(/принята.*список/is));
+});

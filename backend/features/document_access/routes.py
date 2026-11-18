@@ -149,6 +149,19 @@ def register_document_access_module(app, deps):
             platform_staff_roles=platform_staff_roles,
             client_account_roles=client_account_roles,
         )
+        if row.get("context") == "worker-profile-documents":
+            if (actor.get("role") not in deps.get("staff_manage_roles", ())
+                    and _positive_int(actor.get("id")) != _positive_int(row.get("uploaded_by_id"))):
+                raise HTTPException(403, "Нет доступа к личному документу другого сотрудника")
+        if row.get("context") == "pd-consents":
+            # A company membership alone must not expose a coworker's personal scan.
+            cur.execute("SELECT user_id FROM pd_consents WHERE scan_url IN (%s,%s)",
+                        (f"/tenant-files/{row['id']}/content", row.get("file_url") or ""))
+            owners = {int(item["user_id"]) for item in cur.fetchall()}
+            if not owners and row.get("uploaded_by_id"):
+                owners.add(int(row["uploaded_by_id"]))
+            if actor.get("role") not in deps.get("staff_manage_roles", ()) and int(actor.get("id") or 0) not in owners:
+                raise HTTPException(403, "Нет доступа к персональному согласию другого сотрудника")
         if row.get("project_id"):
             project = resolve_project_parent(cur, actor, project_id=row["project_id"])
             require_project_parent_access(cur, actor, project, project_full_view_roles)
@@ -265,7 +278,7 @@ def register_document_access_module(app, deps):
             row = load_file(cur, file_id, for_update=True)
             actor = authorize_file(cur, current_user, row, "delete", x_company_id, x_company_mode)
             if row.get('retained_at'):
-                raise HTTPException(409, 'Файл сохранён в истории договора и не может быть удалён')
+                raise HTTPException(409, 'Файл сохранён в истории документа и не может быть удалён')
             is_owner = _positive_int(row.get("uploaded_by_id")) == _positive_int(current_user.get("id"))
             if actor.get("role") not in leadership_roles and not is_owner:
                 raise HTTPException(

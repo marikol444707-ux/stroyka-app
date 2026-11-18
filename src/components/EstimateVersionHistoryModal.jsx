@@ -1,3 +1,6 @@
+import EstimateSaveNotice from './EstimateSaveNotice';
+import { estimateMutationPayload, estimateSaveFailure, readEstimateMutationResponse } from '../features/estimates/estimateSaveClient';
+import { captureEstimateSelection, isEstimateSelectionCurrent } from '../features/estimates/useEstimateSelection';
 import React from 'react';
 import { Bot, FileText } from 'lucide-react';
 
@@ -16,7 +19,9 @@ export default function EstimateVersionHistoryModal({
   btnO,
   API,
   user,
-  setSelectedEstimate,
+  estimateSelectionRef,
+  estimateSaveState,
+  beginEstimateSave,
   setEstimatesList,
   showPreview,
   buildEstimateDiffContent,
@@ -29,14 +34,24 @@ export default function EstimateVersionHistoryModal({
 
   const restoreVersion = async (v) => {
     if(!window.confirm('Восстановить эту версию? Текущие данные будут сохранены как новая запись в истории.')) return;
-    const ver=await fetch(API+'/estimate-version/'+v.id).then(r=>r.json());
-    if(ver&&ver.sections){
-      const updated={...selectedEstimate,sections:ver.sections};
-      await fetch(API+'/estimates/'+selectedEstimate.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...updated,versionComment:'Восстановление из v'+(v.versionLabel||''),updatedBy:user.name})});
-      setSelectedEstimate(updated);
-      setEstimatesList(prev=>prev.map(e=>e.id===updated.id?updated:e));
-      setShowVersionHistory(false);
-      alert('Версия восстановлена');
+    const operation = beginEstimateSave(selectedEstimate);
+    const token = captureEstimateSelection(estimateSelectionRef, selectedEstimate.id);
+    try {
+      const ver=await fetch(API+'/estimate-version/'+v.id).then(r=>r.json());
+      if (!operation.isCurrent() || !isEstimateSelectionCurrent(estimateSelectionRef, token)) return;
+      if(ver&&ver.sections){
+        const updated={...selectedEstimate,sections:ver.sections};
+        const response = await fetch(API+'/estimates/'+selectedEstimate.id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(estimateMutationPayload(selectedEstimate, {...updated,versionComment:'Восстановление из v'+(v.versionLabel||''),updatedBy:user.name}))});
+        if (!operation.isCurrent() || !isEstimateSelectionCurrent(estimateSelectionRef, token)) return;
+        const saved = await readEstimateMutationResponse(response);
+        if (!operation.isCurrent()) return;
+        operation.finish({status: 'saved', revision: saved.revision, estimate: updated});
+        setEstimatesList(prev=>prev.map(e=>e.id===updated.id?{...updated, revision: saved.revision}:e));
+        setShowVersionHistory(false);
+        alert('Версия восстановлена');
+      }
+    } catch (error) {
+      operation.finish(estimateSaveFailure(error));
     }
   };
 
@@ -90,6 +105,7 @@ export default function EstimateVersionHistoryModal({
           <b style={{color:C.text,fontSize:'15px'}}>📜 История версий: {selectedEstimate.name}</b>
           <button onClick={()=>setShowVersionHistory(false)} style={{background:'none',border:'none',cursor:'pointer',fontSize:'18px',color:C.textSec}}>×</button>
         </div>
+        <EstimateSaveNotice state={estimateSaveState} />
         {estimateVersions.length===0?(<p style={{color:C.textMuted,fontSize:'13px',padding:'20px',textAlign:'center'}}>История пуста. Снимки сохраняются автоматически при сохранении изменений сметы.</p>):(
           <>
             <p style={{color:C.textSec,fontSize:'12px',marginBottom:'10px'}}>Отметьте 2 версии, чтобы распечатать разницу или сравнить через ИИ:</p>

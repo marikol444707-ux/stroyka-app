@@ -160,7 +160,7 @@ export default function ProjectFinancePanel({
           setShowAccountableForm(true);
           setNewAccountable(createAccountablePaymentForm({projectName}));
         }} style={{...btnG, fontSize: '12px', padding: '7px 14px'}}>
-          <Plus size={13}/>Подотчёт по объекту
+          <Plus size={13}/>Выдать деньги сотруднику
         </button>
         {toReimburse.length > 0 && (
           <div style={{display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 14px', backgroundColor: C.warningLight, borderRadius: '8px', border: '1.5px solid ' + C.warningBorder}}>
@@ -233,7 +233,7 @@ export default function ProjectFinancePanel({
             <b style={{color: C.danger, fontSize: '15px'}}>{total.toLocaleString() + ' ₽'}</b>
           </div>
           <div style={{padding: '10px', backgroundColor: C.bgWhite, borderRadius: '8px'}}>
-            <p style={{color: C.textSec, fontSize: '11px', margin: '0 0 2px'}}>В подотчёте</p>
+            <p style={{color: C.textSec, fontSize: '11px', margin: '0 0 2px'}}>Выдано сотрудникам за вычетом отчётов</p>
             <b style={{color: C.warning, fontSize: '15px'}}>{inAccountable.toLocaleString() + ' ₽'}</b>
           </div>
           {showProfit && (

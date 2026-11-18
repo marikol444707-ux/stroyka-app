@@ -70,7 +70,7 @@ async function execute({ API, scope, fetchFn = window.fetch, fresh = false }) {
         body: JSON.stringify(command.payload) });
       const result = await response.json().catch(() => null);
       if (!response.ok) {
-        if (!attempted && [400, 403, 404, 409, 422].includes(response.status)) {
+        if (!attempted && [400, 403, 404, 409, 422, 428].includes(response.status)) {
           if (fresh && batch.next === 0) {
             sessionStorage.removeItem(key);
             window.dispatchEvent(new Event('work-material-batch-change'));
@@ -80,7 +80,7 @@ async function execute({ API, scope, fetchFn = window.fetch, fresh = false }) {
             save(scope, batch);
           }
         }
-        throw new Error(typeof result?.detail === 'string' ? result.detail : 'Не удалось подтвердить отправку работы.');
+        throw new Error(result?.detail?.message || (typeof result?.detail === 'string' ? result.detail : 'Не удалось подтвердить отправку работы.'));
       }
       if (command.path === '/work-journal' ? !Number.isSafeInteger(result?.id) : result?.ok !== true) {
         throw new Error('Сервер вернул неизвестный ответ. Повторите сохранённую отправку.');

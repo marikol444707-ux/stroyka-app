@@ -2,14 +2,14 @@
   "version": "2026-06-29",
   "site": "https://stroyka26.pro",
   "catalogUrl": "https://stroyka26.pro/project-catalog.html",
-  "projectCount": 45,
+  "projectCount": 43,
   "directionCount": 15,
   "directions": [
     {
       "id": 1,
       "title": "Одноэтажный современный дом",
       "description": "Компактные дома 90-160 м2 с террасой, светлой гостиной и понятной планировкой.",
-      "summary": "3 проекта · 3 вида · от 9,6 млн ₽",
+      "summary": "3 проекта · 3 вида · от 12 млн ₽",
       "previewImages": [
         {
           "src": "/site-assets/projects/h1-01/facade.webp",
@@ -326,7 +326,7 @@
           "title": "Коттедж 185 м2 с гостевой комнатой",
           "area": "185 м2",
           "floors": "1 этаж",
-          "layout": "4 спальни, гостевая, кухня-гостиная, постирочная.",
+          "layout": "4 спальни, гостевая, кухня-гостиная, 2 санузла и терраса.",
           "visuals": "Терраса, второй ракурс и план 185 м2.",
           "url": "https://stroyka26.pro/?project=FAM-03#projects",
           "media": [
@@ -360,7 +360,7 @@
       "id": 4,
       "title": "Двухэтажный современный дом",
       "description": "Современная архитектура, больше площади на компактном участке.",
-      "summary": "3 проекта · 4 вида · от 10,9 млн ₽",
+      "summary": "2 проекта · 4 вида · от 10,9 млн ₽",
       "previewImages": [
         {
           "src": "/site-assets/projects/h2-01/facade.webp",
@@ -417,8 +417,8 @@
           "title": "Дом 174 м2 с четырьмя спальнями",
           "area": "174 м2",
           "floors": "2 этажа",
-          "layout": "1 этаж: кухня-гостиная, кабинет, котельная. 2 этаж: 4 спальни, санузел, два балкона.",
-          "visuals": "Фасад с балконами и планы этажей.",
+          "layout": "1 этаж: кухня-столовая, гостиная, гостевая спальня, душевая. 2 этаж: 3 спальни, ванная, гардеробная и балкон. Лестничный холл с высоким остеклением.",
+          "visuals": "Фасад с боковым балконом и эскизные планы этажей.",
           "url": "https://stroyka26.pro/?project=H2-02#projects",
           "media": [
             {
@@ -451,46 +451,6 @@
             }
           ],
           "status": "Проект-идея / пример для расчета"
-        },
-        {
-          "code": "H2-03",
-          "title": "Дом 235 м2 с террасой и балконом",
-          "area": "235 м2",
-          "floors": "2 этажа",
-          "layout": "Большая кухня-гостиная, кабинет, мастер-спальня, 3 спальни, балкон, терраса.",
-          "visuals": "Большой современный фасад и планы этажей.",
-          "url": "https://stroyka26.pro/?project=H2-03#projects",
-          "media": [
-            {
-              "id": "render-front",
-              "kind": "image",
-              "role": "render",
-              "label": "3D фасад",
-              "src": "/site-assets/projects/h2-03/facade.webp"
-            },
-            {
-              "id": "render-side",
-              "kind": "image",
-              "role": "render",
-              "label": "Второй ракурс",
-              "src": "/site-assets/projects/h2-03/side.webp"
-            },
-            {
-              "id": "plan-1",
-              "kind": "image",
-              "role": "plan",
-              "label": "План 1 этажа",
-              "src": "/site-assets/projects/h2-03/plan-1.png"
-            },
-            {
-              "id": "plan-2",
-              "kind": "image",
-              "role": "plan",
-              "label": "План 2 этажа",
-              "src": "/site-assets/projects/h2-03/plan-2.png"
-            }
-          ],
-          "status": "Проект-идея / пример для расчета"
         }
       ]
     },
@@ -498,7 +458,7 @@
       "id": 5,
       "title": "Двухэтажный дом из кирпича",
       "description": "Капитальные дома с классическим фасадом и долгим сроком службы.",
-      "summary": "3 проекта · 4 вида · от 15,7 млн ₽",
+      "summary": "2 проекта · 4 вида · от 15,7 млн ₽",
       "previewImages": [
         {
           "src": "/site-assets/projects/b2-01/facade.webp",
@@ -555,8 +515,8 @@
           "title": "Дом 210 м2 с гаражной зоной",
           "area": "210 м2",
           "floors": "2 этажа",
-          "layout": "1 этаж: общая зона. 2 этаж: спальни. Отдельный хозблок.",
-          "visuals": "Фасад + план 1/2 этажа.",
+          "layout": "Концепция дома с гаражом. Площадь ориентировочная; состав помещений уточняется при проектировании.",
+          "visuals": "Два ракурса фасада. Планировка пока не разработана.",
           "url": "https://stroyka26.pro/?project=B2-02#projects",
           "media": [
             {
@@ -572,60 +532,6 @@
               "role": "render",
               "label": "Второй ракурс",
               "src": "/site-assets/projects/b2-02/side.webp"
-            },
-            {
-              "id": "plan-1",
-              "kind": "image",
-              "role": "plan",
-              "label": "План 1 этажа",
-              "src": "/site-assets/projects/b2-02/plan-1.png"
-            },
-            {
-              "id": "plan-2",
-              "kind": "image",
-              "role": "plan",
-              "label": "План 2 этажа",
-              "src": "/site-assets/projects/b2-02/plan-2.png"
-            }
-          ],
-          "status": "Проект-идея / пример для расчета"
-        },
-        {
-          "code": "B2-03",
-          "title": "Классический дом 240 м2",
-          "area": "240 м2",
-          "floors": "2 этажа",
-          "layout": "5 спален, кабинет, большая кухня-гостиная, 3 санузла.",
-          "visuals": "Классический фасад + планы.",
-          "url": "https://stroyka26.pro/?project=B2-03#projects",
-          "media": [
-            {
-              "id": "render-front",
-              "kind": "image",
-              "role": "render",
-              "label": "3D фасад",
-              "src": "/site-assets/projects/b2-03/facade.webp"
-            },
-            {
-              "id": "render-side",
-              "kind": "image",
-              "role": "render",
-              "label": "Второй ракурс",
-              "src": "/site-assets/projects/b2-03/side.webp"
-            },
-            {
-              "id": "plan-1",
-              "kind": "image",
-              "role": "plan",
-              "label": "План 1 этажа",
-              "src": "/site-assets/projects/b2-03/plan-1.png"
-            },
-            {
-              "id": "plan-2",
-              "kind": "image",
-              "role": "plan",
-              "label": "План 2 этажа",
-              "src": "/site-assets/projects/b2-03/plan-2.png"
             }
           ],
           "status": "Проект-идея / пример для расчета"
@@ -690,10 +596,10 @@
         },
         {
           "code": "GAR-02",
-          "title": "Дом 193 м2 с гаражом и плоской кровлей",
+          "title": "Дом 193 м2 с гаражом на два автомобиля",
           "area": "193 м2",
           "floors": "2 этажа",
-          "layout": "Гараж, кабинет, кухня-гостиная, мастер-спальня, 2 спальни, кровля-терраса.",
+          "layout": "Гараж на два автомобиля справа, кухня, гостиная-столовая, терраса. На втором этаже мастер-спальня, 2 спальни и ванная. Над гаражом кровля.",
           "visuals": "Современный фасад, гараж и планы этажей.",
           "url": "https://stroyka26.pro/?project=GAR-02#projects",
           "media": [
@@ -733,7 +639,7 @@
           "title": "Дом 218 м2 с гаражом и мастер-спальней",
           "area": "218 м2",
           "floors": "2 этажа",
-          "layout": "Гараж, мастерская, каминная гостиная, гостевая, мастер-спальня и 3 спальни.",
+          "layout": "Гараж и мастерская справа, кухня-гостиная и гостевая спальня. На втором этаже мастер-спальня, 2 спальни и ванная.",
           "visuals": "Фасад с гаражом, мастерская и планы этажей.",
           "url": "https://stroyka26.pro/?project=GAR-03#projects",
           "media": [

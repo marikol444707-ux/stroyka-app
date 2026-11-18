@@ -14,6 +14,7 @@ from contextlib import contextmanager
 from fastapi import HTTPException
 from psycopg2.extras import Json, RealDictCursor
 
+from ..supplier_access.legal_identity import lock_legal_keys
 from .connection_preview import diagnose
 from .service import ADMIN_ROLES, ready
 
@@ -70,8 +71,8 @@ def company_lock(cur, company_id):
 def authorities(cur, source_id, target_id, actors):
     cur.execute('SELECT id,inn,ogrn FROM suppliers WHERE id=ANY(%s) ORDER BY id',([source_id,target_id],))
     before={r['id']:(r['inn'],r['ogrn']) for r in cur.fetchall()}
-    for key in sorted({str(value).strip() for pair in before.values() for value in pair if value}):
-        cur.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))',('supplier-legal:'+key,))
+    lock_legal_keys(cur, [(key, value) for pair in before.values()
+                          for key, value in zip(('inn', 'ogrn'), pair)])
     cur.execute('SELECT id,user_id,name,inn,ogrn,status,participant_owner_epoch FROM suppliers WHERE id=ANY(%s) ORDER BY id FOR UPDATE',([source_id,target_id],))
     suppliers={r['id']:r for r in cur.fetchall()}
     if before!={r['id']:(r['inn'],r['ogrn']) for r in suppliers.values()}:

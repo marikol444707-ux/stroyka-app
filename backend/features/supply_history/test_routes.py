@@ -1,3 +1,4 @@
+import inspect
 import unittest
 
 from fastapi import HTTPException
@@ -52,12 +53,14 @@ class FakeConnection:
     def __init__(self, cursor):
         self._cursor = cursor
         self.committed = False
+        self.rolled_back = False
+        self.autocommit = True
 
     def cursor(self, **_kwargs):
         return self._cursor
 
     def rollback(self):
-        pass
+        self.rolled_back = True
 
     def commit(self):
         self.committed = True
@@ -135,9 +138,61 @@ class ContractsAndSupplyHistoryTest(unittest.TestCase):
 
     def test_supplier_without_links_gets_empty_history(self):
         cursor = FakeCursor()
-        app, _conn = history_build(cursor)
+        app, connection = history_build(cursor)
         result = app.routes[("GET", "/supply-history")](limit=None, offset=0, current_user={"role": "поставщик"})
         self.assertEqual(result, [])
+        self.assertFalse(connection.committed)
+        self.assertTrue(connection.rolled_back)
+
+    def test_get_history_reads_company_rows_without_writing(self):
+        cursor = FakeCursor(rows=[{"id": 4, "companyId": 3, "materialName": "Цемент"}])
+        schema_calls = []
+
+        def ensure(_cur):
+            schema_calls.append("schema")
+            raise AssertionError("история снабжения не должна менять схему при чтении")
+
+        app = FakeApp()
+        connection = FakeConnection(cursor)
+        readonly_user = lambda: {"role": "директор"}
+        register_supply_history_module(app, {
+            "resolve_work_company_context": lambda *args, **kwargs: {"mode": "company"},
+            "effective_company_actors": lambda *args: [{"companyId": 3, "role": "директор"}],
+            "get_db": lambda: connection,
+            "get_current_user": lambda: (_ for _ in ()).throw(AssertionError("писатель сессии")),
+            "get_current_user_readonly": readonly_user,
+            "require_roles": lambda *roles: (lambda: None),
+            "write_roles": ("директор",),
+            "worker_execution_roles": ("мастер",),
+            "limit_offset_sql": lambda limit, offset: (" LIMIT 200", []),
+            "ensure_supply_runtime_columns": ensure,
+            "can_see_all_company_data": lambda user: True,
+            "scoped_project_where": lambda user, col: ("", []),
+            "current_supplier_ids": lambda cur, user: [],
+            "user_project_names": lambda user: ["Объект"],
+            "package_access_filter": lambda user: ("", []),
+            "has_package_access": lambda user, pkg: True,
+            "require_project_or_warehouse_access": lambda user, project: None,
+            "company_id_for_project_or_user": lambda cur, project, user: 3,
+        })
+        handler = app.routes[("GET", "/supply-history")]
+        dependency = inspect.signature(handler).parameters["current_user"].default.dependency
+        self.assertIs(dependency, readonly_user)
+        result = handler(limit=None, offset=0, current_user={"role": "директор"})
+        self.assertEqual(result, [{"id": 4, "companyId": 3, "materialName": "Цемент"}])
+        self.assertEqual(schema_calls, [])
+        self.assertFalse(connection.committed)
+        self.assertTrue(connection.rolled_back)
+        self.assertFalse(connection.autocommit)
+        statements = [sql for sql, _params in cursor.calls]
+        self.assertEqual(statements[0], "SET TRANSACTION READ ONLY")
+        self.assertTrue(any("FROM supply_history" in sql and "company_id=%s" in sql for sql in statements))
+        self.assertTrue(any(params == (3,) for _sql, params in cursor.calls))
+        self.assertFalse(any(
+            token in sql
+            for sql in statements
+            for token in ("INSERT", "UPDATE", "DELETE", "ALTER")
+        ))
 
     def test_history_create_blocks_foreign_package(self):
         cursor = FakeCursor()
@@ -163,6 +218,44 @@ class ContractsAndSupplyHistoryTest(unittest.TestCase):
         insert = [c for c in cursor.calls if c[0].startswith("INSERT INTO supply_history")][0]
         self.assertEqual(insert[1][0], 3)
         self.assertTrue(connection.committed)
+
+
+class ReadOnlySessionLookupTests(unittest.TestCase):
+    def test_readonly_lookup_does_not_touch_last_seen(self):
+        from backend.features.supply_history.session_read import load_cookie_session_user
+
+        cursor = FakeCursor(fetchone_results=[{
+            "id": 7,
+            "auth_session_id": 15,
+            "role": "директор",
+            "company_id": 3,
+        }])
+        connection = FakeConnection(cursor)
+        seen = []
+        user = load_cookie_session_user(
+            cursor,
+            connection,
+            "hash",
+            touch_session=False,
+            enrich=lambda cur, row: seen.append(row) or row,
+        )
+        self.assertEqual(user["company_id"], 3)
+        self.assertEqual(seen, [user])
+        self.assertFalse(connection.committed)
+        statements = [sql for sql, _params in cursor.calls]
+        self.assertEqual(statements[0], "SET TRANSACTION READ ONLY")
+        self.assertIn("FROM user_sessions", statements[1])
+        self.assertFalse(any("UPDATE" in sql or "INSERT" in sql or "ALTER" in sql for sql in statements))
+
+    def test_ordinary_lookup_still_refreshes_last_seen(self):
+        from backend.features.supply_history.session_read import load_cookie_session_user
+
+        cursor = FakeCursor(fetchone_results=[{"id": 7, "auth_session_id": 15}])
+        connection = FakeConnection(cursor)
+        load_cookie_session_user(cursor, connection, "hash", touch_session=True)
+        self.assertTrue(connection.committed)
+        update = [call for call in cursor.calls if call[0].startswith("UPDATE user_sessions")]
+        self.assertEqual(update, [("UPDATE user_sessions SET last_seen_at=NOW() WHERE id=%s", (15,))])
 
 
 if __name__ == "__main__":

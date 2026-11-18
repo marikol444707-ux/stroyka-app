@@ -346,6 +346,7 @@ export default function PersonnelPage({
                   const myActs=interimActs.filter(a=>a.masterId===u.id);
                   const totalEarned=myActs.reduce((s,a)=>s+(a.totalAmount||0),0);
                   const totalPaid=myActs.reduce((s,a)=>s+(a.paidAmount||0),0);
+                  const totalAdvance=myActs.reduce((s,a)=>s+Number(a.advanceAmount||0),0);
                   const rating=masterRatings[u.id]||0;
                   const isOpen=expandedMaster===u.id;
                   return (
@@ -368,7 +369,7 @@ export default function PersonnelPage({
                         <div style={{display:'flex',alignItems:'center',gap:'10px'}}>
                           <div style={{textAlign:'right'}}>
                             <p style={{color:C.success,margin:0,fontSize:'13px',fontWeight:'600'}}>{totalEarned.toLocaleString()+' ₽'}</p>
-                            {totalEarned-totalPaid>0&&<p style={{color:C.danger,margin:'2px 0 0',fontSize:'11px'}}>{'Долг: '+(totalEarned-totalPaid).toLocaleString()+' ₽'}</p>}
+                            {totalEarned-totalPaid-totalAdvance>0&&<p style={{color:C.danger,margin:'2px 0 0',fontSize:'11px'}}>{'Долг: '+(totalEarned-totalPaid-totalAdvance).toLocaleString()+' ₽'}</p>}
                           </div>
                           {isOpen?<ChevronUp size={16} color={C.textMuted}/>:<ChevronDown size={16} color={C.textMuted}/>}
                         </div>

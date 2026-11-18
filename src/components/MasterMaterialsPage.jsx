@@ -121,7 +121,7 @@ export default function MasterMaterialsPage({
               <div>
                 <b style={{color:C.text,fontSize:'14px'}}>{t.name}</b>
                 <p style={{color:C.textSec,margin:'3px 0',fontSize:'12px'}}>{(t.inventoryNumber?'№ '+t.inventoryNumber:'')+(t.project?' · '+t.project:'')}</p>
-                {t.issueType==='В счёт зарплаты' && <span style={badge(C.danger,C.dangerLight,C.dangerBorder)}>{'Удержание: '+(t.cost||0).toLocaleString()+' ₽'}</span>}
+                {t.issueType==='В счёт зарплаты' && <span style={badge(C.danger,C.dangerLight,C.dangerBorder)}>{'Стоимость выдачи: '+(t.cost||0).toLocaleString()+' ₽'}</span>}
               </div>
               <span style={badge(C.accent,C.accentLight,C.accentBorder||C.border)}>{t.status}</span>
               {toolCustodyEnabled() && <button style={btnG} onClick={() => setTool(t)}>История и ответственность</button>}

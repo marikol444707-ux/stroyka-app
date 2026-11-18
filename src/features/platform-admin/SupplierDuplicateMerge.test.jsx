@@ -70,3 +70,27 @@ test('missing INN is completed only after document confirmation and requires ano
   expect(fetch.mock.calls.at(-1)[0]).toContain('/participants/7/duplicate-complete-inn');
   expect(screen.getByRole('button',{name:'Проверить последствия'})).toBeEnabled();
 });
+
+test.each([
+  'Кабинет используется другими организациями. Уточните общий профиль отдельно',
+  'С этим ИНН уже есть другой кабинет. Нужна проверка реквизитов',
+])('shows the INN completion blocker before offering a command: %s',async blocker=>{
+  global.fetch=jest.fn().mockResolvedValueOnce(response({items:[{id:8,name:'Кабинет',has_account:true}],hasMore:false}))
+    .mockResolvedValueOnce(response({sourceId:7,targetId:8,sourceInn:'7711223344',targetInn:'',canCompleteInn:false,
+      innCompletionBlocker:blocker,hasSupplierAccount:true,documents:{},reviewVersion:'e'.repeat(64)}))
+    .mockResolvedValueOnce(response({sourceId:7,targetId:8,sourceInn:'7711223344',targetInn:'',canCompleteInn:true,
+      innCompletionBlocker:null,hasSupplierAccount:true,documents:{},reviewVersion:'f'.repeat(64)}));
+  render(<SupplierDuplicateMerge {...props}/>);
+  fireEvent.click(screen.getByRole('button',{name:'Найти основную карточку'}));
+  fireEvent.click(await screen.findByRole('button',{name:/Кабинет ·/}));
+  fireEvent.click(screen.getByRole('button',{name:'Проверить последствия'}));
+  expect(await screen.findByText(blocker)).toBeInTheDocument();
+  expect(screen.queryByRole('button',{name:'Заполнить пропущенный ИНН'})).not.toBeInTheDocument();
+  expect(screen.queryByRole('button',{name:'Проверить доступ к истории'})).not.toBeInTheDocument();
+  expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  expect(fetch).toHaveBeenCalledTimes(2);
+  fireEvent.click(screen.getByRole('button',{name:'Повторить проверку реквизитов'}));
+  expect(await screen.findByRole('button',{name:'Заполнить пропущенный ИНН'})).toBeDisabled();
+  expect(screen.queryByText(blocker)).not.toBeInTheDocument();
+  expect(fetch.mock.calls.at(-1)[0]).toBe('/system/companies/2/participants/7/duplicate-preview');
+});

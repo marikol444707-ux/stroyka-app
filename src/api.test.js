@@ -165,6 +165,22 @@ describe('installAuthFetch', () => {
     expect(requestHeaders.has('Authorization')).toBe(false);
   });
 
+  it.each(['/site/leads', '/site/lead-files'])(
+    'does not wait for CSRF before sending public site mutation %s',
+    async path => {
+      const nativeFetch = jest.fn().mockResolvedValue(new Response('{"ok":true}', { status: 200 }));
+      window.fetch = nativeFetch;
+
+      installAuthFetch();
+      const response = await window.fetch(path, { method: 'POST', body: 'public form payload' });
+
+      expect(response.status).toBe(200);
+      expect(nativeFetch).toHaveBeenCalledTimes(1);
+      expect(nativeFetch.mock.calls[0][0]).toBe(path);
+      expect(new Headers(nativeFetch.mock.calls[0][1].headers || {}).has('X-CSRF-Token')).toBe(false);
+    },
+  );
+
   it('explains when an expired subscription blocks a mutation', async () => {
     const nativeFetch = jest.fn()
       .mockResolvedValueOnce(new Response('{"csrfToken":"csrf-token"}', { status: 200 }))
@@ -379,6 +395,26 @@ describe('installAuthFetch', () => {
       await window.fetch('/users');
       expect(nativeFetch).toHaveBeenCalledTimes(2);
       expect(window.location.reload).toHaveBeenCalledTimes(1);
+    } finally {
+      window.location = originalLocation;
+    }
+  });
+
+  it('does not reload when the cookie session probe is anonymous', async () => {
+    const nativeFetch = jest.fn().mockResolvedValue(new Response('{"detail":"Сессия недействительна"}', {status: 401}));
+    window.fetch = nativeFetch;
+    const originalLocation = window.location;
+    delete window.location;
+    window.location = {...originalLocation, origin: 'http://localhost', reload: jest.fn()};
+
+    try {
+      installAuthFetch();
+      const response = await window.fetch('/auth/session');
+
+      expect(response.status).toBe(401);
+      expect(window.location.reload).not.toHaveBeenCalled();
+      expect(sessionStorage.getItem('authExpiredNotice')).toBeNull();
+      expect(localStorage.getItem('user')).toBeNull();
     } finally {
       window.location = originalLocation;
     }

@@ -14,6 +14,7 @@ from typing import Optional
 
 import psycopg2.extras
 from fastapi import Depends, Header, HTTPException, Response
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from .company_directory import CompanySupplierDirectory, PUBLIC_FIELDS
@@ -289,11 +290,17 @@ def register_supplier_directory_module(app, deps):
         conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
-            profile.authorize(cur, current_user, id, write=True)
+            profile.authorize(cur, current_user, id)
             reject_global_commercial_fields(data)
-            result = profile.update(cur, id, data)
+            result = profile.update(cur, id, data,
+                                    authorize_write=lambda: profile.authorize(cur, current_user, id, write=True))
             conn.commit()
             return result
+        except profile.IdentityConflict as exc:
+            conn.rollback()
+            return JSONResponse(status_code=409, content={
+                'detail': exc.detail, 'code': 'supplier_identity_conflict',
+            })
         except Exception:
             conn.rollback()
             raise

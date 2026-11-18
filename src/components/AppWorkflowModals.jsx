@@ -42,12 +42,17 @@ export default function AppWorkflowModals({ ui, constants, state, actions }) {
     units,
   } = constants;
   const {
+    companyContext,
+    invoices,
     activeEstimateFromList,
     addExpenseProject,
     aiInput,
     aiLoading,
     aiMessages,
     creatingFromEstimate,
+    estimateSelectionRef,
+    estimateSaveState,
+    beginEstimateSave,
     estimateChatHistoryLoading,
     estimateChatInput,
     estimateChatLoading,
@@ -109,6 +114,7 @@ export default function AppWorkflowModals({ ui, constants, state, actions }) {
     applyEstimateActivationState,
     autoReconcileEstimateChanges,
     buildEstimateDiffContent,
+    buildInvoiceContent,
     clearEstimateChatHistory,
     createSupplierInvite,
     enrichEstimateMeasurementBasis,
@@ -181,6 +187,16 @@ export default function AppWorkflowModals({ ui, constants, state, actions }) {
     setSupplierInviteForm,
     setWarehouseTab,
   } = actions;
+  const receiptScope = `${companyContext?.mode || ''}:${companyContext?.selectedCompanyId || ''}:${user?.id || ''}`;
+  const previousReceiptScope = React.useRef(receiptScope);
+  React.useEffect(() => {
+    if (previousReceiptScope.current !== receiptScope) {
+      previousReceiptScope.current = receiptScope;
+      setShowScanInvoice(false);
+      setShowScannedInvoiceForm(false);
+      setNewInvoice({items:[],photos:[],photoUrls:[],originalUrls:[]});
+    }
+  }, [receiptScope, setShowScanInvoice, setShowScannedInvoiceForm, setNewInvoice]);
 
   return (
     <React.Suspense fallback={null}>
@@ -428,6 +444,9 @@ export default function AppWorkflowModals({ ui, constants, state, actions }) {
 
       {showVersionHistory && (
         <EstimateVersionHistoryModal
+          estimateSelectionRef={estimateSelectionRef}
+          estimateSaveState={estimateSaveState}
+          beginEstimateSave={beginEstimateSave}
           showVersionHistory={showVersionHistory}
           setShowVersionHistory={setShowVersionHistory}
           selectedEstimate={selectedEstimate}
@@ -458,7 +477,7 @@ export default function AppWorkflowModals({ ui, constants, state, actions }) {
           showReceiveDialog={showReceiveDialog}
           setShowReceiveDialog={setShowReceiveDialog}
           setShowScanInvoice={setShowScanInvoice}
-          setShowScannedInvoiceForm={setShowScannedInvoiceForm}
+          setNewInvoice={setNewInvoice}
           C={C}
           card={card}
           btnB={btnB}
@@ -468,6 +487,7 @@ export default function AppWorkflowModals({ ui, constants, state, actions }) {
 
       {showScannedInvoiceForm && (
         <ScannedInvoiceFormModal
+          companyId={companyContext?.selectedCompanyId}
           user={user}
           showScannedInvoiceForm={showScannedInvoiceForm}
           setShowScannedInvoiceForm={setShowScannedInvoiceForm}
@@ -487,8 +507,16 @@ export default function AppWorkflowModals({ ui, constants, state, actions }) {
         />
       )}
 
-      {showScanInvoice && (
         <ScanInvoiceModal
+          key={receiptScope}
+          companyId={companyContext?.selectedCompanyId}
+          unifiedReceipt
+          onReceiptConfirmed={refreshData}
+          onOpenReceipt={id => {
+            const invoice = (invoices || []).find(row => Number(row.id) === Number(id));
+            if (invoice && buildInvoiceContent) showPreview(buildInvoiceContent(invoice), 'Накладная № ' + invoice.number);
+            else { refreshData(); alert('Обновляем список накладных. Повторите открытие прихода.'); }
+          }}
           showScanInvoice={showScanInvoice}
           setShowScanInvoice={setShowScanInvoice}
           setShowScannedInvoiceForm={setShowScannedInvoiceForm}
@@ -503,7 +531,6 @@ export default function AppWorkflowModals({ ui, constants, state, actions }) {
           setNewInvoice={setNewInvoice}
           projects={projects}
         />
-      )}
 
       {showOwnExpenseForm && (
         <OwnExpenseFormModal

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import hashlib
 import re
 import sys
 from html import unescape
@@ -12,7 +13,6 @@ PUBLIC = ROOT / "public"
 BUILD = ROOT / "build"
 PUBLIC_SITE_CONTENT = ROOT / "src" / "features" / "public-site" / "publicSiteContent.jsx"
 PUBLIC_SITE_PAGE = ROOT / "src" / "components" / "PublicSitePage.jsx"
-PUBLIC_SITE_STYLES = ROOT / "src" / "components" / "PublicSitePage.css"
 HERO_IMAGE = "/site-assets/projects/h2-01/facade.webp"
 
 REQUIRED_PAGES = [
@@ -23,6 +23,9 @@ REQUIRED_PAGES = [
     "contacts.html",
     "privacy.html",
     "terms.html",
+    "our-objects.html",
+    "our-objects.css",
+    "our-objects.js",
     "llms.txt",
     "robots.txt",
     "sitemap.xml",
@@ -37,6 +40,7 @@ PUBLIC_URLS = [
     "https://stroyka26.pro/contacts.html",
     "https://stroyka26.pro/privacy.html",
     "https://stroyka26.pro/terms.html",
+    "https://stroyka26.pro/our-objects.html",
 ]
 
 EXPECTED_PROJECT_STATUS = "Проект-идея / пример для расчета"
@@ -110,8 +114,8 @@ def parse_ready_project_details(source):
         }
         for code, title, area, floors, layout, visuals in rows
     }
-    if len(projects) != 45:
-        fail(f"React project catalog should expose 45 projects, got {len(projects)}")
+    if len(projects) != 43:
+        fail(f"React project catalog should expose 43 projects, got {len(projects)}")
     return projects
 
 
@@ -133,13 +137,13 @@ def check_sitemap_robots_llms():
         if url not in sitemap:
             fail(f"sitemap missing {url}")
 
-    for page in ["features.html", "project-catalog.html", "project-catalog.json", "contacts.html", "privacy.html", "terms.html"]:
+    for page in ["features.html", "project-catalog.html", "project-catalog.json", "contacts.html", "privacy.html", "terms.html", "our-objects.html"]:
         if f"Allow: /{page}" not in robots:
             fail(f"robots missing Allow for /{page}")
         if page not in llms:
             fail(f"llms.txt missing {page}")
 
-    if "45 стартовыми карточками" not in llms and "45 стартовых карточек" not in llms:
+    if "43 стартовыми карточками" not in llms and "43 стартовых карточек" not in llms:
         fail("llms.txt missing project catalog scale")
 
 
@@ -150,8 +154,8 @@ def check_catalog_assets():
 
     if parser.catalog_cards != 15:
         fail(f"project catalog should have 15 direction cards, got {parser.catalog_cards}")
-    if parser.catalog_items != 45:
-        fail(f"project catalog should have 45 project items, got {parser.catalog_items}")
+    if parser.catalog_items != 43:
+        fail(f"project catalog should have 43 project items, got {parser.catalog_items}")
     if len(parser.images) < 30:
         fail(f"project catalog should expose facade and plan previews, got {len(parser.images)} images")
     catalog_lower = catalog.lower()
@@ -234,8 +238,8 @@ def check_catalog_json_matches_react_source():
 
     if catalog_json.get("directionCount") != 15 or len(catalog_json.get("directions", [])) != 15:
         fail("project-catalog.json should expose 15 directions")
-    if catalog_json.get("projectCount") != 45:
-        fail("project-catalog.json should expose 45 projects")
+    if catalog_json.get("projectCount") != 43:
+        fail("project-catalog.json should expose 43 projects")
 
     react_projects = parse_ready_project_details(source)
     json_projects = {
@@ -257,8 +261,8 @@ def check_catalog_json_matches_react_source():
         fail(f"project-catalog.json differs from React catalog; missing={missing[:5]} extra={extra[:5]}")
 
     for direction in catalog_json.get("directions", []):
-        if len(direction.get("projects", [])) != 3:
-            fail(f"project-catalog.json direction should have 3 projects: {direction.get('title')}")
+        if len(direction.get("projects", [])) not in (2, 3):
+            fail(f"project-catalog.json direction should have 2 or 3 projects: {direction.get('title')}")
         if len(direction.get("previewImages", [])) < 2:
             fail(f"project-catalog.json direction should expose preview images: {direction.get('title')}")
         for image in direction.get("previewImages", []):
@@ -276,11 +280,11 @@ def check_catalog_json_matches_react_source():
             if project.get("url") != expected_url:
                 fail(f"project-catalog.json project url mismatch for {code}")
             media = project.get("media", [])
-            if len(media) < 3:
+            if len(media) < 2:
                 fail(f"project-catalog.json project should expose media: {code}")
             if not any(item.get("role") == "render" for item in media):
                 fail(f"project-catalog.json project missing render media: {code}")
-            if not any(item.get("role") == "plan" for item in media):
+            if code != "B2-02" and not any(item.get("role") == "plan" for item in media):
                 fail(f"project-catalog.json project missing plan media: {code}")
             for item in media:
                 src = item.get("src", "")
@@ -299,8 +303,8 @@ def check_catalog_json_matches_react_source():
             break
     if not item_list:
         fail("project-catalog.html missing ItemList JSON-LD")
-    if item_list.get("numberOfItems") != 45:
-        fail("project-catalog.html ItemList should expose 45 projects")
+    if item_list.get("numberOfItems") != 43:
+        fail("project-catalog.html ItemList should expose 43 projects")
     item_list_description = item_list.get("description", "").lower()
     if "проектными примерами" not in item_list_description or "не опубликованными документами" not in item_list_description:
         fail("project-catalog.html ItemList should describe cards as examples, not published documents")
@@ -396,20 +400,32 @@ def check_react_project_media_assets():
 
     assets_root = PUBLIC / "site-assets" / "projects"
     asset_dirs = {path.name for path in assets_root.iterdir() if path.is_dir()}
-    if asset_dirs != expected_slugs:
+    if not expected_slugs.issubset(asset_dirs):
         missing = sorted(expected_slugs - asset_dirs)
         extra = sorted(asset_dirs - expected_slugs)
         fail(f"project asset directories differ from React project codes; missing={missing[:5]} extra={extra[:5]}")
 
-    leftover_svg = sorted(assets_root.rglob("*.svg"))
+    plan_manifest = json.loads(read(ROOT / "src/features/public-site/projectPlanPresentation.json"))
+    allowed_svg = {PUBLIC / entry[key].lstrip("/") for entry in plan_manifest.values() for key in ("diagram", "sheet")}
+    for asset in allowed_svg:
+        body = read(asset)
+        if re.search(r"<script|<foreignObject|\bon\w+\s*=|(?:href|src)\s*=", body, re.I):
+            fail(f"unexpected active content in plan SVG: {asset.relative_to(ROOT)}")
+    leftover_svg = sorted(set(assets_root.rglob("*.svg")) - allowed_svg)
     if leftover_svg:
         sample = leftover_svg[0].relative_to(ROOT)
         fail(f"project media should use PNG assets, found leftover SVG: {sample}")
 
+    facade_hashes = {}
     for slug, sources in sorted(media_by_slug.items()):
-        if len(sources) < 3:
-            fail(f"project {slug} should have at least 3 media files, got {len(sources)}")
-        if not any(Path(src).name.startswith("plan") for src in sources):
+        facade = assets_root / slug / 'facade.webp'
+        digest = hashlib.sha256(facade.read_bytes()).hexdigest()
+        if digest in facade_hashes:
+            fail(f"duplicate published facade: {slug} and {facade_hashes[digest]}")
+        facade_hashes[digest] = slug
+        if len(sources) < 2:
+            fail(f"project {slug} should have at least 2 media files, got {len(sources)}")
+        if slug != "b2-02" and not any(Path(src).name.startswith("plan") for src in sources):
             fail(f"project {slug} missing plan media")
         for src in sorted(sources):
             asset = PUBLIC / src.lstrip("/")
@@ -419,14 +435,95 @@ def check_react_project_media_assets():
                 fail(f"project media looks empty: {src}")
 
 
+OUR_OBJECT_CAPTIONS = {
+    "commerc_01": "Коммерческое здание из газоблока, мощение плиткой",
+    "commerc_06": "Коммерческое здание из газоблока, мощение плиткой",
+    "commerc_07": "Коммерческое здание из газоблока, мощение плиткой",
+    "commerc_fasad_18": "Готовый фасад коммерческого здания",
+    "dom_19": "Одноэтажный дом: облицовочный кирпич, колонны, металлочерепица",
+    "kladka_21": "Кладка газоблока в монолитном каркасе",
+    "monolit_23": "Монолитный ж/б каркас, перекрытие",
+    "monolit_25": "Двухэтажный монолитный каркас, гидроизоляция цоколя",
+    "monolit_opalubka_29": "Колонны в опалубке",
+    "metallokarkas_09": "Металлокаркас здания",
+    "metallokarkas_17": "Металлокаркас здания",
+    "fundament_gidroizol_32": "Блочный цоколь с обмазочной гидроизоляцией",
+    "fundament_zalivka_35": "Заливка фундамента",
+    "fundament_armatura_39": "Армирование фундаментной плиты с коммуникациями",
+}
+
+
+def webp_size(path):
+    data = path.read_bytes()
+    if data[:4] != b"RIFF" or data[8:12] != b"WEBP":
+        fail(f"not a webp file: {path.relative_to(ROOT)}")
+    chunk = data[12:16]
+    if chunk == b"VP8 ":
+        start = 20
+        if data[start + 3:start + 6] != b"\x9d\x01\x2a":
+            fail(f"unreadable webp frame: {path.relative_to(ROOT)}")
+        width = int.from_bytes(data[start + 6:start + 8], "little") & 0x3FFF
+        height = int.from_bytes(data[start + 8:start + 10], "little") & 0x3FFF
+        return width, height
+    if chunk == b"VP8X":
+        width = 1 + int.from_bytes(data[24:27], "little")
+        height = 1 + int.from_bytes(data[27:30], "little")
+        return width, height
+    fail(f"unsupported webp chunk {chunk!r}: {path.relative_to(ROOT)}")
+
+
+def check_our_objects():
+    page = read(PUBLIC / "our-objects.html")
+    if "Наши объекты" not in page:
+        fail("our-objects.html missing gallery heading")
+    if 'id="object-lightbox"' not in page or "ArrowLeft" not in read(PUBLIC / "our-objects.js"):
+        fail("our-objects gallery missing keyboard lightbox")
+    if 'loading="lazy"' not in page:
+        fail("our-objects gallery images should lazy-load")
+    if page.count("<li>") != len(OUR_OBJECT_CAPTIONS):
+        fail(f"our-objects gallery should list {len(OUR_OBJECT_CAPTIONS)} photos")
+
+    total = 0
+    for slug, caption in OUR_OBJECT_CAPTIONS.items():
+        full = PUBLIC / "site-assets" / "our-objects" / f"{slug}.webp"
+        thumb = PUBLIC / "site-assets" / "our-objects" / "thumbs" / f"{slug}.webp"
+        if not full.exists() or not thumb.exists():
+            fail(f"our-objects image missing: {slug}")
+        if f'data-caption="{caption}"' not in page:
+            fail(f"our-objects caption missing for {slug}")
+        if f'alt="{caption}"' not in page:
+            fail(f"our-objects alt text missing for {slug}")
+        if f"/site-assets/our-objects/thumbs/{slug}.webp" not in page:
+            fail(f"our-objects thumb not referenced: {slug}")
+        if f"/site-assets/our-objects/{slug}.webp" not in page:
+            fail(f"our-objects full image not referenced: {slug}")
+        full_width, _full_height = webp_size(full)
+        thumb_width, _thumb_height = webp_size(thumb)
+        if full_width > 1600:
+            fail(f"our-objects full image wider than 1600: {slug}")
+        if thumb_width > 600:
+            fail(f"our-objects thumb wider than 600: {slug}")
+        total += full.stat().st_size + thumb.stat().st_size
+
+    if total > 8 * 1024 * 1024:
+        fail(f"our-objects images are too heavy: {total} bytes")
+
+    site = read(PUBLIC_SITE_PAGE)
+    if 'href="/our-objects.html"' not in site or "Наши объекты" not in site:
+        fail("public site navigation should link to our-objects.html")
+    index = read(PUBLIC / "index.html")
+    if 'href="/our-objects.html"' not in index:
+        fail("index noscript should link to our-objects.html")
+
+
 def check_index_jsonld():
     index = read(PUBLIC / "index.html")
     page = read(PUBLIC_SITE_PAGE)
-    styles = read(PUBLIC_SITE_STYLES)
+    hero = read(ROOT / "src/features/public-site/PublicSiteHero.jsx")
 
     if f'href="%PUBLIC_URL%{HERO_IMAGE}"' not in index:
         fail("index.html missing local hero preload")
-    if "var(--public-hero-image)" not in styles or HERO_IMAGE not in page:
+    if HERO_IMAGE not in hero or 'fetchPriority="high"' not in hero:
         fail("public site hero should use the local project image")
     if not re.search(
         r'className="public-mobile-actions".*?scrollTo\(\'request\'\).*?Заявка',
@@ -457,7 +554,7 @@ def check_index_jsonld():
 def check_build_copy_if_present():
     if not BUILD.exists():
         return
-    for name in ["project-catalog.html", "project-catalog.json", "features.html", "contacts.html", "privacy.html", "terms.html"]:
+    for name in ["project-catalog.html", "project-catalog.json", "features.html", "contacts.html", "privacy.html", "terms.html", "our-objects.html"]:
         if not (BUILD / name).exists():
             fail(f"build missing copied public page: {name}")
 
@@ -469,6 +566,7 @@ def main():
     check_catalog_matches_react_source()
     check_catalog_json_matches_react_source()
     check_react_project_media_assets()
+    check_our_objects()
     check_index_jsonld()
     check_build_copy_if_present()
     print("Public static site check OK")

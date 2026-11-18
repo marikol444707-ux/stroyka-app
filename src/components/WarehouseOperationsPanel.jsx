@@ -521,7 +521,7 @@ export default function WarehouseOperationsPanel({
                     {tool.cost ? tool.cost.toLocaleString() + ' ₽' : '—'}
                     {tool.issueType === 'В счёт зарплаты' && (
                       <span style={{ ...badge(C.danger, C.dangerLight, C.dangerBorder), marginLeft: '4px', fontSize: '10px' }}>
-                        Удержание
+                        Удержание — по распределению бухгалтера
                       </span>
                     )}
                   </td>
