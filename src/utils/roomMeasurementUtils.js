@@ -71,6 +71,15 @@ export const roomSurfaceArea = (room, surface = 'Стены', roomWindows = [], 
   return 0;
 };
 
+export const recordMatchesProject = (record, project) => {
+  const recordProjectId = Number(record?.projectId || record?.project_id || 0);
+  const projectId = Number(project?.id || 0);
+  if (recordProjectId > 0 && projectId > 0) return recordProjectId === projectId;
+  const recordName = String(record?.project || record?.projectName || '');
+  const projectName = String(project?.name || '');
+  return recordName !== '' && recordName === projectName;
+};
+
 export const buildRoomMeasurementCheck = ({
   projectName,
   roomId,

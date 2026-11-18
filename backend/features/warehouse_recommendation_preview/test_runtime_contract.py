@@ -720,7 +720,7 @@ class WarehouseAnomalyRuntimeDisclosurePolicyTests(unittest.TestCase):
             ),
             # Room and measurement ownership wiring; the warehouse preview package is unchanged.
             backend_root / "main.py": (
-                "a50977e4044bc1c34a65b97d99bc03ca2cc9bcebb14b131124486c9fd3eefba3"
+                "85489011e6825f5c374a6e07c3281323ec9e19165ca43da122a48c03027c3afa"
             ),
         }
         actual = {

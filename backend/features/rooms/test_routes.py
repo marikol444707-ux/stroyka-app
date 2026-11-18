@@ -254,6 +254,29 @@ class RoomsRoutesTest(unittest.TestCase):
         self.assertEqual(result, {"ok": True})
         self.assertIn("SELECT room_id FROM room_doors WHERE id=%s", cursor.calls[0][0])
 
+    def test_moving_a_room_takes_its_openings_and_works_along(self):
+        cursor = FakeCursor(fetchone_results=[(4, 7, "Объект"), (8, 4, "Цех")])
+        app, _conn, _calls = build(cursor)
+        result = app.routes[("PUT", "/rooms/{id}")](
+            id=5,
+            r=RoomModel(project="Цех", projectId=8, name="Кухня"),
+            _current_user={"id": 1, "role": "директор"},
+        )
+        self.assertEqual(result, {"ok": True})
+        updates = [call for call in cursor.calls if call[0].startswith("UPDATE")]
+        self.assertEqual(updates[1][0], "UPDATE room_windows SET company_id=%s, project_id=%s WHERE room_id=%s")
+        self.assertEqual(updates[1][1], (4, 8, 5))
+        self.assertEqual(updates[2][1], (4, 8, 5))
+        self.assertEqual(updates[3][1], ("Цех", 4, 8, 5))
+
+    def test_platform_staff_are_allowed_to_read_unowned_lists(self):
+        main = (ROOT / "backend" / "main.py").read_text(encoding="utf-8")
+        records = (ROOT / "backend" / "features" / "project_records" / "routes.py").read_text(encoding="utf-8")
+        self.assertIn('"read_roles": (*PROJECT_DOCUMENT_ROLES, *PLATFORM_STAFF_ROLES)', main)
+        self.assertIn("require_roles(*PROJECT_DOCUMENT_ROLES, *PLATFORM_STAFF_ROLES)", main)
+        self.assertIn("measurement_read_roles", records)
+        self.assertIn("platform_staff_roles", records)
+
     def test_full_view_roles_match_company_wide_visibility(self):
         tree = ast.parse((ROOT / "backend" / "main.py").read_text(encoding="utf-8"))
         roles = None

@@ -15094,7 +15094,7 @@ def _room_work_scope():
     )
 
 @app.get("/room-works")
-def get_room_works(current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES)), request: Request = None):
+def get_room_works(current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES, *PLATFORM_STAFF_ROLES)), request: Request = None):
     conn = get_db()
     try:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -26564,7 +26564,7 @@ except ModuleNotFoundError:
 register_rooms_module(app, {
     "get_db": get_db,
     "require_roles": require_roles,
-    "read_roles": PROJECT_DOCUMENT_ROLES,
+    "read_roles": (*PROJECT_DOCUMENT_ROLES, *PLATFORM_STAFF_ROLES),
     "write_roles": PROJECT_WRITE_ROLES,
     "resolve_work_company_context": _resolve_work_company_context,
     "effective_company_actors": effective_company_actors,

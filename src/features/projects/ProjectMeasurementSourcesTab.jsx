@@ -1,4 +1,5 @@
 import React from 'react';
+import { recordMatchesProject } from '../../utils/roomMeasurementUtils';
 
 export default function ProjectMeasurementSourcesTab({ ctx, project }) {
   const {
@@ -49,9 +50,9 @@ export default function ProjectMeasurementSourcesTab({ ctx, project }) {
     user,
   } = ctx;
 
-  const docs = (projectMeasurements || []).filter(d => d.projectName === project.name);
-  const drafts = (measurementRoomDrafts || []).filter(d => d.projectName === project.name);
-  const projectRooms = rooms.filter(r => r.project === project.name);
+  const docs = (projectMeasurements || []).filter(d => recordMatchesProject(d, project));
+  const drafts = (measurementRoomDrafts || []).filter(d => recordMatchesProject(d, project));
+  const projectRooms = rooms.filter(r => recordMatchesProject(r, project));
   const roomChecks = projectRooms.map(roomCompleteness);
   const fullRooms = roomChecks.filter(x => x.status === 'Обмер полный').length;
   const missingRooms = roomChecks.filter(x => x.status === 'Не хватает данных').length;

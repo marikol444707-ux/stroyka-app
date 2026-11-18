@@ -208,6 +208,8 @@ def register_project_records_module(app, deps):
     yandex_folder_id = deps.get("yandex_folder_id", "")
 
     read_access = require_roles(*read_roles)
+    measurement_read_roles = tuple(dict.fromkeys((*tuple(read_roles), *tuple(deps.get("platform_staff_roles") or ()))))
+    measurement_read = require_roles(*measurement_read_roles)
     write_access = require_roles(*write_roles)
 
     from .owned_routes import register_owned_record_routes
@@ -255,7 +257,7 @@ def register_project_records_module(app, deps):
         return actors, mode, join, where, params
 
     @app.get("/project-measurements")
-    def get_project_measurements(project_name: str = None, _current_user: dict = Depends(read_access), request: Request = None):
+    def get_project_measurements(project_name: str = None, _current_user: dict = Depends(measurement_read), request: Request = None):
         conn = get_db()
         try:
             cur = conn.cursor()
@@ -348,7 +350,7 @@ def register_project_records_module(app, deps):
         return {"ok": True}
 
     @app.get("/measurement-room-drafts")
-    def get_measurement_room_drafts(project_name: str = None, measurement_id: int = None, _current_user: dict = Depends(read_access), request: Request = None):
+    def get_measurement_room_drafts(project_name: str = None, measurement_id: int = None, _current_user: dict = Depends(measurement_read), request: Request = None):
         conn = get_db()
         try:
             cur = conn.cursor()

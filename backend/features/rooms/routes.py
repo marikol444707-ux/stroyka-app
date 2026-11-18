@@ -113,6 +113,9 @@ def register_rooms_module(app, deps):
                            ceiling_type=%s,wall_material=%s,floor_material=%s,
                            windows=%s,doors=%s,photo_url=%s,notes=%s,company_id=%s,project_id=%s WHERE id=%s""",
                         (r.floor, r.liter, r.roomType, parent["name"], r.name, r.floorArea, r.wallArea, r.ceilingArea, r.height, r.ceilingType, r.wallMaterial, r.floorMaterial, r.windows, r.doors, r.photoUrl, r.notes, parent["companyId"], parent["id"], id))
+            cur.execute("UPDATE room_windows SET company_id=%s, project_id=%s WHERE room_id=%s", (parent["companyId"], parent["id"], id))
+            cur.execute("UPDATE room_doors SET company_id=%s, project_id=%s WHERE room_id=%s", (parent["companyId"], parent["id"], id))
+            cur.execute("UPDATE room_works SET project=%s, company_id=%s, project_id=%s WHERE room_id=%s", (parent["name"], parent["companyId"], parent["id"], id))
             project_name = parent["name"]
         finally:
             conn.close()
