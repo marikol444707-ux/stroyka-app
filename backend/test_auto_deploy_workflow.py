@@ -142,6 +142,9 @@ class WorkflowFileTests(unittest.TestCase):
         self.assertIn("github.event.workflow_run.head_sha", text)
         self.assertIn("refs/heads/main", text)
         self.assertNotIn("pull_request:", text)
+        self.assertEqual(text.count("secrets.DEPLOY_HOST"), 1)
+        self.assertIn("bash scripts/prepare-deploy-ssh.sh", text)
+        self.assertIn("bash scripts/run-remote-deploy.sh", text)
 
 
 class SshPreparationTests(unittest.TestCase):
@@ -221,6 +224,198 @@ class SshPreparationTests(unittest.TestCase):
             self.assertEqual(result.returncode, 1)
             self.assertIn("DEPLOY_HOST", result.stderr)
             self.assertNotIn(KEY_MATERIAL, result.stdout + result.stderr)
+
+    def env_map(self, env):
+        saved = Path(env["GITHUB_ENV"]).read_text(encoding="utf-8")
+        return dict(line.split("=", 1) for line in saved.splitlines() if line)
+
+    def test_pasted_host_user_and_port_are_normalized_for_later_steps(self):
+        cases = (
+            ("trailing-newline", "147.45.237.127\n", False),
+            ("crlf", "147.45.237.127\r\n", False),
+            ("nbsp", "\u00a0147.45.237.127\u00a0", False),
+            ("zero-width-space", "\u200b147.45.237.127", False),
+            ("zero-width-joiners", "147.45.237.127\u200c\u200d", False),
+            ("bom", "\ufeff147.45.237.127", False),
+            ("mixed-edges", "\ufeff\u00a0\t147.45.237.127 \r\n", False),
+            ("user-prefix", "root@147.45.237.127", False),
+            ("same-port-suffix", "147.45.237.127:22", False),
+            ("ssh-url", "ssh://root@147.45.237.127:22/", False),
+            ("https-url", "https://147.45.237.127/", False),
+            ("http-url", "http://147.45.237.127", False),
+            ("other-port-suffix", "root@147.45.237.127:2222", True),
+        )
+        for label, raw_host, other_port in cases:
+            with self.subTest(label=label):
+                with tempfile.TemporaryDirectory() as temporary:
+                    env = self.script_env(
+                        temporary,
+                        DEPLOY_HOST=raw_host,
+                        DEPLOY_USER="deployer\n",
+                        DEPLOY_PORT="22\u00a0\r\n",
+                        DEPLOY_KNOWN_HOSTS="pinned-host-key",
+                    )
+                    result = self.run_prepare(env)
+                    combined = result.stdout + result.stderr
+                    self.assertEqual(result.returncode, 0, combined)
+                    self.assertNotIn("147.45.237.127", combined)
+                    self.assertNotIn("root@", combined)
+                    self.assertNotIn("deployer", combined)
+                    self.assertNotIn("2222", combined)
+                    self.assertNotIn(KEY_MATERIAL, combined)
+                    if other_port:
+                        self.assertIn("другой порт", result.stdout)
+                    else:
+                        self.assertNotIn("другой порт", combined)
+                    values = self.env_map(env)
+                    self.assertEqual(values["DEPLOY_HOST"], "147.45.237.127")
+                    self.assertEqual(values["DEPLOY_USER"], "deployer")
+                    self.assertEqual(values["DEPLOY_PORT"], "22")
+                    self.assertEqual(values["SSH_HOST"], "147.45.237.127")
+                    self.assertEqual(values["SSH_USER"], "deployer")
+                    self.assertEqual(values["SSH_PORT"], "22")
+
+    def test_keyscan_receives_the_normalized_host_and_port(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            env = self.script_env(
+                temporary,
+                DEPLOY_HOST="ssh://root@147.45.237.127:2222/\n",
+                DEPLOY_USER="deployer\r\n",
+                DEPLOY_PORT="22\n",
+                DEPLOY_KNOWN_HOSTS="",
+            )
+            args_path = Path(temporary) / "keyscan-args"
+            env["KEYSCAN_ARGS"] = str(args_path)
+            keyscan = Path(temporary) / "ssh-keyscan"
+            keyscan.write_text(
+                "#!/bin/bash\nprintf '%s\\n' \"$@\" > \"$KEYSCAN_ARGS\"\nprintf 'ssh-ed25519 AAAATEST\\n'\n",
+                encoding="utf-8",
+            )
+            keyscan.chmod(0o755)
+            result = self.run_prepare(env, path_dir=Path(temporary))
+            combined = result.stdout + result.stderr
+            self.assertEqual(result.returncode, 0, combined)
+            self.assertNotIn("147.45.237.127", combined)
+            self.assertNotIn("2222", combined)
+            self.assertNotIn(KEY_MATERIAL, combined)
+            self.assertEqual(
+                args_path.read_text(encoding="utf-8").splitlines(),
+                ["-p", "22", "-T", "10", "-H", "147.45.237.127"],
+            )
+            values = self.env_map(env)
+            self.assertEqual(values["SSH_HOST"], "147.45.237.127")
+            self.assertEqual(values["SSH_PORT"], "22")
+            self.assertEqual(values["SSH_USER"], "deployer")
+
+    def test_leading_zero_port_is_decimal(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            env = self.script_env(
+                temporary,
+                DEPLOY_HOST="server.example\n",
+                DEPLOY_PORT="08\r\n",
+                DEPLOY_KNOWN_HOSTS="pinned-host-key",
+            )
+            result = self.run_prepare(env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            values = self.env_map(env)
+            self.assertEqual(values["DEPLOY_PORT"], "8")
+            self.assertEqual(values["SSH_PORT"], "8")
+            self.assertNotIn("server.example", result.stdout + result.stderr)
+
+    def test_bad_values_are_explained_without_printing_them(self):
+        cases = (
+            {
+                "label": "internal-space-after-newline",
+                "host": "uniq bad\n",
+                "user": "deployer",
+                "port": "22",
+                "present": ["DEPLOY_HOST", "Длина после очистки: 8.", "найден пробел внутри", "Есть пробелы или переводы строк: да."],
+                "absent": ["uniq", "найден перевод строки", "147.45.237.127"],
+            },
+            {
+                "label": "non-ascii-and-at",
+                "host": "ёжик@host",
+                "user": "deployer",
+                "port": "22",
+                "present": ["найден не-ASCII символ", "найден символ @", "Есть символы не из ASCII: да.", "Длина после очистки: 9."],
+                "absent": ["ёжик", "host"],
+            },
+            {
+                "label": "internal-zero-width",
+                "host": "147.45.\u200b237.127",
+                "user": "deployer",
+                "port": "22",
+                "present": ["найден не-ASCII символ", "Есть символы не из ASCII: да."],
+                "absent": ["147.45", "237.127"],
+            },
+            {
+                "label": "blank-after-cleanup",
+                "host": " \n\t\u00a0\u200b\ufeff",
+                "user": "deployer",
+                "port": "22",
+                "present": ["секрет DEPLOY_HOST пустой"],
+                "absent": ["Длина после очистки", "не задан секрет DEPLOY_HOST"],
+            },
+            {
+                "label": "scheme-only",
+                "host": "ssh://",
+                "user": "deployer",
+                "port": "22",
+                "present": ["секрет DEPLOY_HOST пустой"],
+                "absent": ["ssh://"],
+            },
+            {
+                "label": "shell-metacharacters",
+                "host": "$(echo uniqpwned)",
+                "user": "deployer",
+                "port": "22",
+                "present": ["найден недопустимый символ", "DEPLOY_HOST"],
+                "absent": ["uniqpwned", "echo"],
+            },
+            {
+                "label": "bad-user",
+                "host": "server.example",
+                "user": "bad user",
+                "port": "22",
+                "present": ["DEPLOY_USER", "найден пробел внутри"],
+                "absent": ["bad user", "server.example"],
+            },
+            {
+                "label": "port-out-of-range",
+                "host": "server.example",
+                "user": "deployer",
+                "port": "99999",
+                "present": ["DEPLOY_PORT", "число вне диапазона от 1 до 65535"],
+                "absent": ["99999", "server.example"],
+            },
+            {
+                "label": "port-letters",
+                "host": "server.example",
+                "user": "deployer",
+                "port": "22a\n",
+                "present": ["DEPLOY_PORT", "найдены буквы"],
+                "absent": ["22a"],
+            },
+        )
+        for case in cases:
+            with self.subTest(label=case["label"]):
+                with tempfile.TemporaryDirectory() as temporary:
+                    env = self.script_env(
+                        temporary,
+                        DEPLOY_HOST=case["host"],
+                        DEPLOY_USER=case["user"],
+                        DEPLOY_PORT=case["port"],
+                    )
+                    result = self.run_prepare(env)
+                    combined = result.stdout + result.stderr
+                    self.assertEqual(result.returncode, 1, combined)
+                    for fragment in case["present"]:
+                        self.assertIn(fragment, result.stderr)
+                    for fragment in case["absent"]:
+                        self.assertNotIn(fragment, combined)
+                    self.assertNotIn(KEY_MATERIAL, combined)
+                    self.assertEqual(Path(env["GITHUB_ENV"]).read_text(encoding="utf-8"), "")
+                    self.assertFalse((Path(env["RUNNER_TEMP"]) / "stroyka-ssh" / "id").exists())
 
 
 class RemoteDeployTests(unittest.TestCase):
