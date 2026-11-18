@@ -16,8 +16,9 @@ deploy_log=""
 deploy_status=0
 health_status=0
 
-# The EXIT trap calls this. Shellcheck does not follow traps.
-# shellcheck disable=SC2317
+# The EXIT trap calls this on every path. One direct call keeps ShellCheck
+# from treating the function as unused.
+# shellcheck disable=SC2317,SC2329
 cleanup() {
   if [[ -n "${curl_config_file}" ]]; then
     rm -f -- "$curl_config_file"
@@ -299,4 +300,5 @@ if [[ "$health_status" -ne 0 ]]; then
 fi
 
 echo "Выложено: $target"
+cleanup
 exit 0
