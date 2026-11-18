@@ -257,10 +257,10 @@ class WarehouseAnomalyRuntimeRouteRegistrationTests(unittest.TestCase):
         package_bytes = package_path.read_bytes()
         runtime_source = runtime_path.read_text(encoding="utf-8")
 
-        # Reviewed read-only supply-history wiring after the cookie-session restore; the warehouse preview package is unchanged.
+        # Room and measurement ownership wiring; the warehouse preview package is unchanged.
         self.assertEqual(
             hashlib.sha256(main_bytes).hexdigest(),
-            "43a459317c06cf364e8fc8f7f1ec9adfd11310c3505286c8e77755990e4afe92",
+            "a50977e4044bc1c34a65b97d99bc03ca2cc9bcebb14b131124486c9fd3eefba3",
         )
         self.assertEqual(
             hashlib.sha256(package_bytes).hexdigest(),
