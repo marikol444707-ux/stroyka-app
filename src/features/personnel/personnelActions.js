@@ -11,9 +11,12 @@ import {
   resolveContractPerformer as resolveContractPerformerRow,
 } from '../../utils/performerUtils';
 
+export const canEditTimesheet = (companyContext) => companyContext?.mode !== 'all_companies';
+
 export const createPersonnelActions = ({
   API,
   ROLE_LABELS,
+  companyContext,
   contracts,
   editingItem,
   expandedStaffId,
@@ -365,12 +368,25 @@ export const createPersonnelActions = ({
   };
 
   const toggleDay = async (staffId, day) => {
-    await fetch(API + '/timesheet', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({staffId, day}),
-    });
-    setTimesheet(prev => ({...prev, [staffId + '-' + day]: !prev[staffId + '-' + day]}));
+    if (!canEditTimesheet(companyContext)) {
+      notify?.('Чтобы отметить день, выберите одну компанию', 'staff');
+      return;
+    }
+    try {
+      const response = await fetch(API + '/timesheet', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({staffId, day}),
+      });
+      if (typeof readApiResult === 'function') {
+        await readApiResult(response);
+      } else if (!response?.ok) {
+        throw new Error('Не удалось изменить табель');
+      }
+      setTimesheet(prev => ({...(prev || {}), [staffId + '-' + day]: !prev?.[staffId + '-' + day]}));
+    } catch (error) {
+      notify?.(error?.message || 'Не удалось изменить табель', 'staff');
+    }
   };
 
   const createContract = async () => {
