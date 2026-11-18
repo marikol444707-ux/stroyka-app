@@ -1,9 +1,8 @@
 name: Deploy
 
+# GitHub runners cannot reach the production server. The server pulls main
+# itself (scripts/pull-deploy.sh). This workflow stays for a manual run only.
 on:
-  workflow_run:
-    workflows: ["CI"]
-    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -16,13 +15,7 @@ concurrency:
 
 jobs:
   deploy:
-    if: |
-      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'workflow_run' &&
-        github.event.workflow_run.conclusion == 'success' &&
-        github.event.workflow_run.event == 'push' &&
-        github.event.workflow_run.head_branch == 'main' &&
-        github.event.workflow_run.head_repository.full_name == github.repository)
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -34,15 +27,9 @@ jobs:
       - name: Resolve target commit
         id: target
         shell: bash
-        env:
-          WORKFLOW_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
-          if [ "$GITHUB_EVENT_NAME" = "workflow_run" ]; then
-            sha="$WORKFLOW_HEAD_SHA"
-          else
-            sha="$GITHUB_SHA"
-          fi
+          sha="$GITHUB_SHA"
           if ! printf '%s' "$sha" | grep -Eq '^[0-9a-f]{40}$'; then
             echo "ОШИБКА: не удалось определить SHA коммита для выкладки." >&2
             exit 1
@@ -93,13 +80,13 @@ jobs:
           echo "health_status=$status" >> "$GITHUB_OUTPUT"
 
       - name: Roll back after a failed health check
-        if: always() && !cancelled() && steps.deploy.outputs.deploy_status == '0' && steps.health.outputs.health_status != '0'
+        if: always() && !cancelled() && steps.deploy.outputs.deploy_status == '0' && steps.health.outputs.health_status != '0' && steps.deploy.outputs.rollback_sha != ''
         env:
           TARGET_SHA: ${{ steps.deploy.outputs.rollback_sha }}
         run: bash scripts/run-remote-deploy.sh --apply-only "$TARGET_SHA"
 
       - name: Health check after rollback
-        if: always() && !cancelled() && ((steps.deploy.outputs.deploy_status == '0' && steps.health.outputs.health_status != '0') || (steps.deploy.outputs.deploy_status != '0' && steps.deploy.outputs.deploy_status != 'skipped' && steps.deploy.outputs.deploy_status != ''))
+        if: always() && !cancelled() && steps.deploy.outputs.rollback_sha != '' && ((steps.deploy.outputs.deploy_status == '0' && steps.health.outputs.health_status != '0') || (steps.deploy.outputs.deploy_status != '0' && steps.deploy.outputs.deploy_status != 'skipped' && steps.deploy.outputs.deploy_status != ''))
         env:
           ROLLBACK_SHA: ${{ steps.deploy.outputs.rollback_sha }}
         run: |

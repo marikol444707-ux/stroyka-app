@@ -54,15 +54,23 @@ export STROYKA_REAL_FLOCK
 export STROYKA_DEPLOY_LOCK_FILE
 STROYKA_REAL_FLOCK="$(command -v flock)"
 STROYKA_DEPLOY_LOCK_FILE="$lock_file"
-if ! exec 8>"$lock_file"; then
-  echo "ОШИБКА: не удалось открыть блокировку выкладки." >&2
-  exit 1
-fi
-if ! "$STROYKA_REAL_FLOCK" -w "$lock_wait" 8; then
-  rollback_sha="$(git rev-parse HEAD)"
-  printf 'STROYKA_ROLLBACK_SHA=%s\n' "$rollback_sha"
-  echo "Другой деплой уже выполняется. Сервер не менялся." >&2
-  exit 1
+# pull-deploy.sh already holds this lock. Taking it again would wait on ourselves.
+if [[ "${STROYKA_EXTERNAL_LOCK:-}" == "1" ]]; then
+  if [[ ! -e "$lock_file" ]]; then
+    echo "ОШИБКА: внешняя блокировка не подготовлена." >&2
+    exit 1
+  fi
+else
+  if ! exec 8>"$lock_file"; then
+    echo "ОШИБКА: не удалось открыть блокировку выкладки." >&2
+    exit 1
+  fi
+  if ! "$STROYKA_REAL_FLOCK" -w "$lock_wait" 8; then
+    rollback_sha="$(git rev-parse HEAD)"
+    printf 'STROYKA_ROLLBACK_SHA=%s\n' "$rollback_sha"
+    echo "Другой деплой уже выполняется. Сервер не менялся." >&2
+    exit 1
+  fi
 fi
 
 # Re-read after the lock: a manual deploy may have moved HEAD while we waited.

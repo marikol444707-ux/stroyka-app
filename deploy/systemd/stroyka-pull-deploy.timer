@@ -1,0 +1,12 @@
+[Unit]
+Description=Каждые 5 минут проверять выкладку сайта Стройка
+
+[Timer]
+OnCalendar=*:0/5
+AccuracySec=15s
+Persistent=true
+RandomizedDelaySec=30
+Unit=stroyka-pull-deploy.service
+
+[Install]
+WantedBy=timers.target

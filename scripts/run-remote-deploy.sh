@@ -96,6 +96,14 @@ fi
   printf 'rollback_sha=%s\n' "$rollback"
 } >> "$GITHUB_OUTPUT"
 
+# ssh itself exits 255 when it cannot connect. A remote deploy.sh failure is a
+# different code and may already include a rollback commit, so that path stays
+# available to the later health steps. With no rollback line, nothing changed.
+if [[ "$status" -eq 255 && -z "$rollback" ]]; then
+  echo "ОШИБКА: не удалось подключиться к серверу по SSH. Откат не выполняется." >&2
+  exit 255
+fi
+
 if [[ "$recorded" == "skipped" ]]; then
   echo "Выкладка пропущена: на сервере уже более новый коммит."
 elif [[ "$status" -ne 0 ]]; then

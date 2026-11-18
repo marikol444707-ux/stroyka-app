@@ -1,3 +1,4 @@
+import fcntl
 import importlib.util
 import os
 import stat
@@ -129,22 +130,21 @@ class CiGateTests(unittest.TestCase):
 
 
 class WorkflowFileTests(unittest.TestCase):
-    def test_deploy_waits_for_green_main_push_and_serializes(self):
+    def test_deploy_is_manual_and_does_not_follow_ci(self):
         text = (ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
-        self.assertIn('workflows: ["CI"]', text)
         self.assertIn("workflow_dispatch:", text)
-        self.assertIn("conclusion == 'success'", text)
-        self.assertIn("event == 'push'", text)
-        self.assertIn("head_branch == 'main'", text)
-        self.assertIn("head_repository.full_name == github.repository", text)
+        self.assertNotIn("workflow_run:", text)
+        self.assertNotIn("github.event.workflow_run", text)
+        self.assertNotIn("pull_request:", text)
+        self.assertNotIn("\n  push:", text)
         self.assertIn("group: stroyka-production-deploy", text)
         self.assertIn("cancel-in-progress: false", text)
-        self.assertIn("github.event.workflow_run.head_sha", text)
         self.assertIn("refs/heads/main", text)
-        self.assertNotIn("pull_request:", text)
+        self.assertGreaterEqual(text.count("rollback_sha != ''"), 2)
         self.assertEqual(text.count("secrets.DEPLOY_HOST"), 1)
         self.assertIn("bash scripts/prepare-deploy-ssh.sh", text)
         self.assertIn("bash scripts/run-remote-deploy.sh", text)
+        self.assertIn("python3 scripts/confirm-deploy-ci.py", text)
 
 
 class SshPreparationTests(unittest.TestCase):
@@ -691,6 +691,61 @@ class RunnerWrapperTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("deploy_status=skipped", output.read_text(encoding="utf-8"))
+
+    def test_ssh_connect_failure_fails_the_step_without_a_rollback(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fake_ssh = root / "ssh"
+            fake_ssh.write_text("#!/bin/bash\ncat >/dev/null\nexit 255\n", encoding="utf-8")
+            fake_ssh.chmod(0o755)
+            key = root / "key"
+            known = root / "known"
+            key.write_text("key", encoding="utf-8")
+            known.write_text("known", encoding="utf-8")
+            output = root / "output"
+            env = os.environ.copy()
+            env.update({
+                "PATH": str(root) + os.pathsep + env["PATH"],
+                "SSH_KEY": str(key),
+                "SSH_KNOWN_HOSTS": str(known),
+                "SSH_PORT": "22",
+                "SSH_USER": "deploy",
+                "SSH_HOST": "server.example",
+                "GITHUB_OUTPUT": str(output),
+                "TARGET_SHA": NEW,
+            })
+            failed = subprocess.run(
+                ["bash", str(ROOT / "scripts" / "run-remote-deploy.sh")],
+                check=False, capture_output=True, text=True, env=env,
+            )
+            recorded = output.read_text(encoding="utf-8")
+            self.assertEqual(failed.returncode, 255, failed.stderr)
+            self.assertIn("не удалось подключиться", failed.stderr)
+            self.assertIn("deploy_status=255", recorded)
+            self.assertIn("rollback_sha=\n", recorded)
+            self.assertNotIn(KEY_MATERIAL, failed.stdout + failed.stderr)
+
+
+class ExternalLockTests(unittest.TestCase):
+    def test_caller_can_keep_the_deploy_lock(self):
+        harness = RemoteDeployTests(
+            "test_success_stays_on_the_exact_commit_and_does_not_pull_forward",
+        )
+        harness.setUp()
+        try:
+            harness.env["STROYKA_EXTERNAL_LOCK"] = "1"
+            harness.env["STROYKA_LOCK_WAIT"] = "0"
+            fd = os.open(harness.lock_file, os.O_CREAT | os.O_RDWR, 0o644)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                result = harness.run_remote(NEW)
+            finally:
+                os.close(fd)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(harness.head(), NEW)
+            self.assertEqual(harness.deploys(), [NEW])
+        finally:
+            harness.doCleanups()
 
 
 if __name__ == "__main__":
