@@ -718,9 +718,9 @@ class WarehouseAnomalyRuntimeDisclosurePolicyTests(unittest.TestCase):
             backend_root / "db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Reviewed read-only supply-history wiring after the cookie-session restore; the warehouse preview package is unchanged.
+            # Timesheet routes take company-context dependencies; the warehouse preview package is unchanged.
             backend_root / "main.py": (
-                "43a459317c06cf364e8fc8f7f1ec9adfd11310c3505286c8e77755990e4afe92"
+                "f32e9991991015237aa750d8fec78c8981a10649314e7ea0e3b7ac48b823d5ed"
             ),
         }
         actual = {
