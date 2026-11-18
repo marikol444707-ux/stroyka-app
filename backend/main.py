@@ -26189,7 +26189,9 @@ except ModuleNotFoundError:
 
 register_timesheet_module(app, {
     "get_db": get_db,
-    "require_roles": require_roles,
+    "get_current_user": get_current_user,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
     "staff_view_roles": STAFF_VIEW_ROLES,
     "staff_manage_roles": STAFF_MANAGE_ROLES,
     "log_audit": log_audit,
