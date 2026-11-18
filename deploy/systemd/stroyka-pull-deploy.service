@@ -1,0 +1,13 @@
+[Unit]
+Description=Выложить сайт Стройка, если в main появился зелёный коммит
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/var/www/stroyka-app
+ExecStart=/bin/bash /var/www/stroyka-app/scripts/pull-deploy.sh
+TimeoutStartSec=60min
+Nice=10
