@@ -83,6 +83,7 @@ class CiDecisionTests(unittest.TestCase):
             [workflow(NEW, branch="feature")],
             [workflow(OTHER)],
             [workflow(NEW, name="Other", path=".github/workflows/other.yml")],
+            [workflow(NEW, name="CI", path=".github/workflows/other.yml@main")],
         ):
             state, _message = CI.classify_ci({"workflow_runs": runs}, NEW)
             self.assertEqual(state, "pending")
@@ -92,6 +93,18 @@ class CiDecisionTests(unittest.TestCase):
             "workflow_runs": [workflow(NEW, name="Build and test")],
         }, NEW)
         self.assertEqual(state, "green")
+
+    def test_workflow_path_ref_suffix_still_matches_ci(self):
+        for path in (
+            ".github/workflows/ci.yml@main",
+            ".github/workflows/ci.yml@refs/heads/main",
+            "ci.yml@main",
+        ):
+            state, message = CI.classify_ci({
+                "workflow_runs": [workflow(NEW, name="Build and test", path=path)],
+            }, NEW)
+            self.assertEqual(state, "green", path)
+            self.assertIn("успеш", message)
 
     def test_bad_payload_is_an_error(self):
         for payload in (None, [], {"message": "nope"}, {"workflow_runs": "no"}):
@@ -591,17 +604,17 @@ class UnitAndInstallerTests(unittest.TestCase):
 
     def test_installer_refuses_a_normal_user_and_is_idempotent_in_a_prefix(self):
         script = str(ROOT / "scripts" / "install-pull-deploy.sh")
-        refused = subprocess.run(
-            ["bash", script],
-            check=False, capture_output=True, text=True,
-            env={key: value for key, value in os.environ.items() if key != "STROYKA_INSTALL_PREFIX"},
-        )
-        self.assertEqual(refused.returncode, 1)
-        self.assertIn("root", refused.stderr)
-
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             log = root / "systemctl.log"
+            fake_id = root / "id"
+            # Always report a normal user, even if this test itself is root.
+            # Otherwise the refusal check would install the real timer.
+            fake_id.write_text(
+                "#!/bin/bash\nif [[ \"${1:-}\" == \"-u\" ]]; then printf '1000\\n'; exit 0; fi\nexit 1\n",
+                encoding="utf-8",
+            )
+            fake_id.chmod(0o755)
             fake = root / "systemctl"
             fake.write_text(
                 "#!/bin/bash\nprintf '%s\\n' \"$*\" >> \"$SYSTEMCTL_LOG\"\nexit 0\n",
@@ -609,11 +622,20 @@ class UnitAndInstallerTests(unittest.TestCase):
             )
             fake.chmod(0o755)
             env = os.environ.copy()
+            env.pop("STROYKA_INSTALL_PREFIX", None)
             env.update({
                 "PATH": str(root) + os.pathsep + env["PATH"],
-                "STROYKA_INSTALL_PREFIX": str(root / "prefix"),
                 "SYSTEMCTL_LOG": str(log),
             })
+            refused = subprocess.run(
+                ["bash", script],
+                check=False, capture_output=True, text=True, env=env,
+            )
+            self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+            self.assertIn("root", refused.stderr)
+            self.assertFalse(log.exists())
+
+            env["STROYKA_INSTALL_PREFIX"] = str(root / "prefix")
             first = subprocess.run(["bash", script], check=False, capture_output=True, text=True, env=env)
             self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
             unit_dir = root / "prefix" / "etc" / "systemd" / "system"

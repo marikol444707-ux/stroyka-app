@@ -36,11 +36,22 @@ def parse_github_repo(url):
     return ""
 
 
+def _workflow_file(path):
+    """Drop the @ref GitHub appends, then keep the workflow filename."""
+    text = str(path or "").strip()
+    if "@" in text:
+        text = text.split("@", 1)[0]
+    text = text.rstrip("/")
+    if not text:
+        return ""
+    return text.rsplit("/", 1)[-1]
+
+
 def _is_main_ci(run):
-    path = str(run.get("path") or "")
+    path = _workflow_file(run.get("path"))
     name = str(run.get("name") or "")
     if path:
-        return path == "ci.yml" or path.endswith("/ci.yml")
+        return path == "ci.yml"
     return name in ("", "CI")
 
 
