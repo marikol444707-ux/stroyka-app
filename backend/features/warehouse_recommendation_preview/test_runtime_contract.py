@@ -718,9 +718,9 @@ class WarehouseAnomalyRuntimeDisclosurePolicyTests(unittest.TestCase):
             backend_root / "db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Reviewed cookie-session restore registration on the combined server tree; the warehouse preview package is unchanged.
+            # Reviewed read-only supply-history wiring after the cookie-session restore; the warehouse preview package is unchanged.
             backend_root / "main.py": (
-                "e02508e342b11433386f5f5ad623c3d4470c18ebc2017372bf5cde8d03c9bc00"
+                "43a459317c06cf364e8fc8f7f1ec9adfd11310c3505286c8e77755990e4afe92"
             ),
         }
         actual = {
