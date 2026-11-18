@@ -217,6 +217,16 @@ def write(path, value):
         handle.write(value + "\n")
 
 known_items = read(known).split()
+safe = os.path.join(root, "SAFE")
+if args == ["config", "--global", "--get-all", "safe.directory"]:
+    if not os.path.exists(safe) or not open(safe, encoding="utf-8").read().strip():
+        sys.exit(1)
+    sys.stdout.write(open(safe, encoding="utf-8").read())
+    sys.exit(0)
+if args[:4] == ["config", "--global", "--add", "safe.directory"] and len(args) == 5:
+    with open(safe, "a", encoding="utf-8") as handle:
+        handle.write(args[4] + "\n")
+    sys.exit(0)
 if args == ["rev-parse", "HEAD"]:
     print(read(head)); sys.exit(0)
 if args == ["rev-parse", "--short", "HEAD"]:
@@ -411,6 +421,18 @@ class PullDeployScriptTests(unittest.TestCase):
         if not path.exists():
             return ""
         return path.read_text(encoding="utf-8").strip()
+
+    def test_other_checkout_is_trusted_once_and_only_that_directory(self):
+        (self.git_root / "ORIGIN").write_text(OLD + "\n", encoding="utf-8")
+        first = self.run_script()
+        self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+        self.assertEqual(first.stdout, "")
+        recorded = (self.git_root / "SAFE").read_text(encoding="utf-8").splitlines()
+        self.assertEqual(recorded, [str(self.repo)])
+        self.assertNotIn("*", recorded)
+        second = self.run_script()
+        self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
+        self.assertEqual((self.git_root / "SAFE").read_text(encoding="utf-8").splitlines(), [str(self.repo)])
 
     def test_unchanged_commit_is_quiet_and_does_not_call_github(self):
         (self.git_root / "ORIGIN").write_text(OLD + "\n", encoding="utf-8")
@@ -621,11 +643,16 @@ class UnitAndInstallerTests(unittest.TestCase):
                 encoding="utf-8",
             )
             fake.chmod(0o755)
+            gitconfig = root / "gitconfig"
+            app_root = root / "app-root"
+            app_root.mkdir()
             env = os.environ.copy()
             env.pop("STROYKA_INSTALL_PREFIX", None)
             env.update({
                 "PATH": str(root) + os.pathsep + env["PATH"],
                 "SYSTEMCTL_LOG": str(log),
+                "STROYKA_GIT_CONFIG_GLOBAL": str(gitconfig),
+                "STROYKA_APP_ROOT": str(app_root),
             })
             refused = subprocess.run(
                 ["bash", script],
@@ -651,6 +678,13 @@ class UnitAndInstallerTests(unittest.TestCase):
             self.assertIn("enable --now stroyka-pull-deploy.timer", recorded)
             second = subprocess.run(["bash", script], check=False, capture_output=True, text=True, env=env)
             self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
+            trusted = subprocess.run(
+                ["git", "config", "--file", str(gitconfig), "--get-all", "safe.directory"],
+                check=False, capture_output=True, text=True,
+            )
+            self.assertEqual(trusted.returncode, 0, trusted.stderr)
+            self.assertEqual(trusted.stdout.splitlines(), [str(app_root)])
+            self.assertNotIn("*", trusted.stdout)
             removed = subprocess.run(
                 ["bash", script, "--uninstall"],
                 check=False, capture_output=True, text=True, env=env,

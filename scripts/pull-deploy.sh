@@ -169,6 +169,28 @@ run_health() {
   set -e
 }
 
+ensure_safe_directory() {
+  local dir="$1"
+  if [[ -z "$dir" ]]; then
+    return 0
+  fi
+  # Git ignores this key outside protected config. Record the exact checkout
+  # in root's global config so a timer can fetch a directory it does not own.
+  if git config --global --get-all safe.directory 2>/dev/null | grep -Fxq -e "$dir"; then
+    return 0
+  fi
+  git config --global --add safe.directory "$dir"
+}
+
+trust_checkout() {
+  local canonical=""
+  ensure_safe_directory "$APP_ROOT"
+  canonical="$(readlink -f "$APP_ROOT" 2>/dev/null || true)"
+  if [[ -n "$canonical" && "$canonical" != "$APP_ROOT" ]]; then
+    ensure_safe_directory "$canonical"
+  fi
+}
+
 finish_rollback() {
   local failed_sha="$1"
   local rollback_sha="$2"
@@ -206,6 +228,8 @@ fi
 if ! flock -n 9; then
   exit 0
 fi
+
+trust_checkout
 
 if ! git fetch --quiet origin main; then
   echo "Не удалось скачать origin/main. Повторю в следующий запуск." >&2
