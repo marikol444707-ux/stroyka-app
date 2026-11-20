@@ -296,6 +296,7 @@ export function buildAppActionGroups({
   const personnelActions = createPersonnelActions({
     API,
     ROLE_LABELS,
+    companyContext,
     contracts,
     editingItem,
     expandedStaffId,

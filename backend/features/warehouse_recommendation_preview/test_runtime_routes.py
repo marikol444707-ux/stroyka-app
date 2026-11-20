@@ -257,10 +257,10 @@ class WarehouseAnomalyRuntimeRouteRegistrationTests(unittest.TestCase):
         package_bytes = package_path.read_bytes()
         runtime_source = runtime_path.read_text(encoding="utf-8")
 
-        # Room and measurement ownership wiring; the warehouse preview package is unchanged.
+        # Timesheet company scope plus room and measurement ownership; the warehouse preview package is unchanged.
         self.assertEqual(
             hashlib.sha256(main_bytes).hexdigest(),
-            "85489011e6825f5c374a6e07c3281323ec9e19165ca43da122a48c03027c3afa",
+            "e1c2223597883c37ed8d1a39383ec20e31107baf0fd2ebeb73d6e134f7fa0cb1",
         )
         self.assertEqual(
             hashlib.sha256(package_bytes).hexdigest(),

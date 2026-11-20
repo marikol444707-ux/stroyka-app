@@ -1,6 +1,7 @@
 import React from 'react';
 import { Check, CheckCircle, ChevronDown, ChevronUp, Edit2, Eye, FileText, Plus, Search, Trash2, X } from 'lucide-react';
 import DocumentRecognitionPanel from './DocumentRecognitionPanel';
+import { canEditTimesheet } from '../features/personnel/personnelActions';
 
 const STAFF_SORT_GROUPS = [
   { key: 'management', label: 'Руководство', hint: 'директор, замы' },
@@ -293,6 +294,7 @@ export default function PersonnelPage({
     .filter(group => group.rows.length > 0);
   const isStaffGroupOpen = (groupKey) => Boolean(staffOpenGroups[groupKey]);
   const toggleStaffGroup = (groupKey) => setStaffOpenGroups(prev => ({ ...prev, [groupKey]: !prev[groupKey] }));
+  const timesheetEditable = canEditTimesheet(companyContext);
   const selectedCompanyRole = String(
     companyContext?.selectedCompany?.role || currentUser?.role || '',
   ).trim();
@@ -924,6 +926,11 @@ export default function PersonnelPage({
       {personnelTab==='timesheet'&&(
         <div>
           <h3 style={{color:C.text,marginBottom:'15px',fontSize:'15px',fontWeight:'700'}}>Табель учёта</h3>
+          {!timesheetEditable && (
+            <p style={{color:C.textSec,margin:'-6px 0 14px',fontSize:'12px',lineHeight:1.45}}>
+              Чтобы отметить день, выберите одну компанию вверху экрана. В режиме «Все компании» табель только для просмотра.
+            </p>
+          )}
           <div style={{overflowX:'auto'}}>
             <table style={tbl}>
               <thead>
@@ -939,7 +946,7 @@ export default function PersonnelPage({
                   <tr key={s.id}>
                     <td style={tblC}><b style={{fontSize:'12px'}}>{s.name}</b><p style={{color:C.textSec,margin:'1px 0',fontSize:'11px'}}>{s.role}</p></td>
                     {daysInMonth.map(d=>(
-                      <td key={d} style={{...tblC,textAlign:'center',padding:'4px',cursor:'pointer'}} onClick={()=>toggleDay(s.id,d)}>
+                      <td key={d} style={{...tblC,textAlign:'center',padding:'4px',cursor:timesheetEditable?'pointer':'default'}} onClick={timesheetEditable?()=>toggleDay(s.id,d):undefined}>
                         <div style={{width:'22px',height:'22px',borderRadius:'6px',backgroundColor:timesheet[s.id+'-'+d]?C.success:'transparent',border:'1.5px solid '+(timesheet[s.id+'-'+d]?C.success:C.border),display:'flex',alignItems:'center',justifyContent:'center',margin:'auto',fontSize:'10px',color:'white',fontWeight:'700'}}>
                           {timesheet[s.id+'-'+d]?'✓':''}
                         </div>

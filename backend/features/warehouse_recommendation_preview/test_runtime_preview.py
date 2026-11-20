@@ -946,9 +946,9 @@ class WarehouseAnomalyRuntimePreviewCompositionTests(unittest.TestCase):
             root / "backend/db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Room and measurement ownership wiring; the warehouse preview package is unchanged.
+            # Timesheet company scope plus room and measurement ownership; the warehouse preview package is unchanged.
             root / "backend/main.py": (
-                "85489011e6825f5c374a6e07c3281323ec9e19165ca43da122a48c03027c3afa"
+                "e1c2223597883c37ed8d1a39383ec20e31107baf0fd2ebeb73d6e134f7fa0cb1"
             ),
         }
         self.assertEqual({
