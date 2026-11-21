@@ -49,21 +49,68 @@ def empty_tables():
     return {"tools": [], "tool_history": [], "inventory": [], "inventory_items": []}
 
 
+def only_company(company_id=1):
+    return [{"id": company_id}]
+
+
+def projects_for(*rows):
+    return [{"id": project_id, "company_id": company_id, "name": name} for project_id, company_id, name in rows]
+
+
 class ToolInventoryBackfillTest(unittest.TestCase):
-    def test_project_name_and_creator_name_do_not_choose_a_company(self):
+    def test_single_company_keeps_every_legacy_row_and_a_second_company_does_not_receive_it(self):
         tables = empty_tables()
-        tables["tools"] = [tool(1, "Склад"), tool(2, "Объект"), tool(3, "")]
-        tables["inventory"] = [inventory(4, "Склад"), inventory(5, "")]
-        tables["tool_history"] = [history(6, None, "Склад"), history(7, None, "")]
-        plan = plan_backfill(tables)
-        self.assertEqual(plan["assignments"], [])
-        self.assertEqual(plan["counts"]["tools"]["unknown"], 3)
-        self.assertEqual(plan["counts"]["inventory"]["unknown"], 2)
-        self.assertEqual(plan["counts"]["tool_history"]["unknown"], 2)
+        tables["tools"] = [tool(1, "Склад"), tool(2, ""), tool(3, "Объект")]
+        tables["tool_history"] = [history(4, 1, "Склад"), history(5, 2, "")]
+        tables["inventory"] = [inventory(6, "Склад"), inventory(7, "")]
+        tables["inventory_items"] = [item(8, 6), item(9, 7)]
+        plan = plan_backfill(only_company(1), projects_for((12, 1, "Склад"), (13, 1, "Объект")), tables)
+        assigned = {(row["table"], row["id"]): (row["company_id"], row["project_id"], row["owner_scope"]) for row in plan["assignments"]}
+        self.assertEqual(plan["legacyCompanyId"], 1)
+        self.assertEqual(assigned[("tools", 1)], (1, 12, "project"))
+        self.assertEqual(assigned[("tools", 2)], (1, None, "company"))
+        self.assertEqual(assigned[("tools", 3)], (1, 13, "project"))
+        self.assertTrue(all(owner[0] == 1 for owner in assigned.values()))
+        self.assertNotIn(2, {owner[0] for owner in assigned.values()})
+        self.assertEqual(assigned[("inventory", 6)][0], 1)
+        self.assertEqual(assigned[("inventory_items", 8)][0], 1)
+        self.assertEqual(assigned[("tool_history", 4)][0], 1)
+
+    def test_newer_company_with_its_own_project_does_not_receive_the_original_blank_rows(self):
+        tables = empty_tables()
+        tables["tools"] = [tool(1, ""), tool(2, "Склад"), tool(3, "Цех"), tool(4, "Объект")]
+        tables["inventory"] = [inventory(5, "Склад")]
+        companies = [{"id": 1}, {"id": 5}]
+        projects = projects_for((12, 1, "Склад"), (13, 1, "Объект"), (90, 5, "Цех"), (91, 5, "Объект"))
+        plan = plan_backfill(companies, projects, tables)
+        assigned = {row["id"]: row for row in plan["assignments"] if row["table"] == "tools"}
+        self.assertIsNone(plan["legacyCompanyId"])
+        self.assertNotIn(1, assigned)
+        self.assertEqual((assigned[2]["company_id"], assigned[2]["project_id"]), (1, 12))
+        self.assertEqual((assigned[3]["company_id"], assigned[3]["project_id"]), (5, 90))
+        self.assertNotIn(4, assigned)
+        self.assertIn("Объект", plan["ambiguousNames"])
+        inventory_owner = next(row for row in plan["assignments"] if row["table"] == "inventory")
+        self.assertEqual(inventory_owner["company_id"], 1)
+        self.assertNotEqual(inventory_owner["company_id"], 5)
+
+    def test_empty_extra_company_does_not_take_the_original_warehouse(self):
+        tables = empty_tables()
+        tables["tools"] = [tool(1, ""), tool(2, "Склад")]
+        tables["tool_history"] = [history(3, 1, "")]
+        tables["inventory"] = [inventory(4, "")]
+        tables["inventory_items"] = [item(5, 4)]
+        plan = plan_backfill([{"id": 1}, {"id": 5}], projects_for((12, 1, "Склад")), tables)
+        self.assertEqual(plan["legacyCompanyId"], 1)
+        self.assertTrue(all(row["company_id"] == 1 for row in plan["assignments"]))
+        self.assertFalse(any(row["company_id"] == 5 for row in plan["assignments"]))
+
+    def test_creator_name_is_not_a_source_of_ownership(self):
         source = BACKFILL.read_text(encoding="utf-8")
         self.assertNotIn("created_by", source)
-        self.assertNotIn("FROM projects", source)
         self.assertNotIn("FROM users", source)
+        self.assertNotIn("company_id=1", source)
+        self.assertNotIn("DEFAULT 1", source)
 
     def test_children_copy_only_an_owner_the_parent_already_stores(self):
         tables = empty_tables()
@@ -82,7 +129,7 @@ class ToolInventoryBackfillTest(unittest.TestCase):
             inventory(8, "Склад"),
         ]
         tables["inventory_items"] = [item(9, 7), item(10, 8), item(11, 99)]
-        plan = plan_backfill(tables)
+        plan = plan_backfill([{"id": 2}, {"id": 4}], [], tables)
         assigned = {(row["table"], row["id"]): (row["owner_scope"], row["company_id"], row["project_id"]) for row in plan["assignments"]}
         self.assertEqual(assigned[("tool_history", 3)], ("project", 2, 12))
         self.assertEqual(assigned[("tool_history", 4)], ("project", 2, 12))
@@ -103,7 +150,7 @@ class ToolInventoryBackfillTest(unittest.TestCase):
         tables["tools"] = [tool(1, "Склад", company_id=2)]
         tables["tool_history"] = [history(2, 1, "Склад")]
         tables["inventory"] = [inventory(3, "Склад", company_id=4, project_id=14, owner_scope="project")]
-        plan = plan_backfill(tables)
+        plan = plan_backfill([{"id": 2}, {"id": 4}], [], tables)
         self.assertEqual(plan["assignments"], [])
         self.assertEqual(plan["counts"]["tools"]["partial"], 1)
         self.assertEqual(plan["counts"]["tool_history"]["parentUnowned"], 1)

@@ -222,7 +222,7 @@ def build(cursor):
                 "companies": [company_context(2), company_context(4)],
             }
         selected = int(x_company_id or 0)
-        if selected not in (2, 4):
+        if selected not in (1, 2, 4):
             raise HTTPException(status_code=403, detail="Нет доступа к выбранной компании")
         role = user.get("role") if user.get("role") in ("директор", "главный_инженер") else "директор"
         return company_context(selected, role)
@@ -453,6 +453,39 @@ class InventoryTenantRouteTests(unittest.TestCase):
             )
         self.assertEqual(error.exception.status_code, 404)
         self.assertFalse(any(call[0].startswith("INSERT") for call in cursor.calls))
+
+    def test_original_company_still_sees_its_rows_and_a_newer_company_does_not(self):
+        cursor = MemoryCursor(
+            tools=[
+                {"id": 1, "company_id": 1, "project": "Склад", "name": "Перфоратор", "owner_scope": "project", "project_id": 12, "location": "Склад", "master_id": None, "master_name": ""},
+                {"id": 2, "company_id": 2, "project": "Склад", "name": "Новая дрель", "owner_scope": "project", "project_id": 20, "location": "Склад", "master_id": None, "master_name": ""},
+            ],
+            history=[
+                {"id": 11, "company_id": 1, "tool_id": 1, "project": "Склад"},
+                {"id": 12, "company_id": 2, "tool_id": 2, "project": "Склад"},
+            ],
+            inventory=[
+                {"id": 21, "company_id": 1, "project": "Склад", "owner_scope": "project", "project_id": 12},
+                {"id": 22, "company_id": 2, "project": "Склад", "owner_scope": "project", "project_id": 20},
+            ],
+        )
+        routes, _connection = build(cursor)
+        original = {"id": 1, "role": "директор", "name": "АльянсСтрой"}
+        own_tools = routes[("GET", "/tools")](current_user=original, x_company_id="1", x_company_mode="company")
+        own_history = routes[("GET", "/tool-history")](current_user=original, x_company_id="1", x_company_mode="company")
+        own_inventory = routes[("GET", "/inventory")](current_user=original, x_company_id="1", x_company_mode="company")
+        self.assertEqual([row["id"] for row in own_tools], [1])
+        self.assertEqual([row["id"] for row in own_history], [11])
+        self.assertEqual([row["id"] for row in own_inventory], [21])
+
+        newer = {"id": 7, "role": "директор", "name": "Новый клиент"}
+        foreign_tools = routes[("GET", "/tools")](current_user=newer, x_company_id="2", x_company_mode="company")
+        foreign_history = routes[("GET", "/tool-history")](current_user=newer, x_company_id="2", x_company_mode="company")
+        foreign_inventory = routes[("GET", "/inventory")](current_user=newer, x_company_id="2", x_company_mode="company")
+        self.assertEqual([row["id"] for row in foreign_tools], [2])
+        self.assertEqual([row["id"] for row in foreign_history], [12])
+        self.assertEqual([row["id"] for row in foreign_inventory], [22])
+        self.assertNotIn(1, [row["id"] for row in foreign_tools])
 
     def test_chief_engineer_deletes_only_the_selected_company_tool(self):
         user = {"id": 8, "role": "главный_инженер", "name": "Инженер"}

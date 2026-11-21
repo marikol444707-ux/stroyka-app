@@ -43,7 +43,8 @@ def main(argv=None):
     try:
         with connection.cursor() as cur:
             if not owner_columns_present(cur):
-                plan = plan_backfill(load_snapshot(cur, owner_columns=False))
+                companies, projects, tables = load_snapshot(cur, owner_columns=False)
+                plan = plan_backfill(companies, projects, tables)
                 plan["columnsPresent"] = False
             else:
                 plan = apply_backfill(cur, write=False)

@@ -1,10 +1,9 @@
-"""Copy a stored owner from a tool or inventory row onto its children.
+"""Give legacy tool and inventory rows to the company that already owns them.
 
-A project name or a creator name is not an ownership link. Rows that do not
-already store a company stay unowned. History is updated only from the tool
-it points at, and only when that tool already has an owner and the history
-does not name a different project. Inventory lines are updated only from the
-inventory card they point at, and only when that card already has an owner.
+A row that already stores a company is left as it is. A row with no company
+is filled in only in two safe cases: the database has one operating company,
+or the project name points at exactly one project of one company. A person's
+name is never used. A newer company does not receive these old rows.
 """
 TABLES = ("tools", "tool_history", "inventory", "inventory_items")
 
@@ -92,7 +91,9 @@ def _bump(counts, table, state):
     bucket["total"] += 1
     key = {
         "already_owned": "alreadyOwned",
+        "assign": "assign",
         "inherited": "inherited",
+        "ambiguous": "ambiguous",
         "unknown": "unknown",
         "conflict": "conflict",
         "partial": "partial",
@@ -101,8 +102,82 @@ def _bump(counts, table, state):
     bucket[key] += 1
 
 
-def plan_backfill(tables):
-    """List child rows that can copy an owner their parent already stores."""
+def legacy_company_id(companies, projects):
+    """The one company that can receive old rows which name no other company.
+
+    This is the only company in the database, or the only company that already
+    has a project. It is not a hardcoded company number. When two companies
+    both have projects, there is no single legacy company.
+    """
+    company_ids = []
+    for row in companies or []:
+        company_id = _positive((row or {}).get("id"))
+        if company_id and company_id not in company_ids:
+            company_ids.append(company_id)
+    if len(company_ids) == 1:
+        return company_ids[0]
+    project_companies = []
+    for row in projects or []:
+        company_id = _positive((row or {}).get("company_id"))
+        if company_id and company_id not in project_companies:
+            project_companies.append(company_id)
+    if len(project_companies) == 1:
+        return project_companies[0]
+    return None
+
+
+def _project_groups(projects):
+    grouped = {}
+    for project in projects or []:
+        name = _project_key((project or {}).get("name"))
+        company_id = _positive((project or {}).get("company_id"))
+        project_id = _positive((project or {}).get("id"))
+        if name is None or not company_id or not project_id:
+            continue
+        grouped.setdefault(name, []).append({"company_id": company_id, "project_id": project_id})
+    return grouped
+
+
+def _company_owner(company_id):
+    return {
+        "state": "assign", "owner_scope": "company",
+        "company_id": company_id, "project_id": None,
+    }
+
+
+def _project_owner(company_id, project_id):
+    return {
+        "state": "assign", "owner_scope": "project",
+        "company_id": company_id, "project_id": project_id,
+    }
+
+
+def _owner_from_project_name(name, groups, legacy_company):
+    """Resolve a project label without giving one company's row to another."""
+    key = _project_key(name)
+    if key is None:
+        if legacy_company:
+            return _company_owner(legacy_company)
+        return {"state": "unknown"}
+    matches = groups.get(key) or []
+    companies = {item["company_id"] for item in matches}
+    if len(matches) == 1:
+        return _project_owner(matches[0]["company_id"], matches[0]["project_id"])
+    if len(companies) == 1:
+        return _company_owner(next(iter(companies)))
+    if not matches and legacy_company:
+        return _company_owner(legacy_company)
+    if len(companies) > 1:
+        return {"state": "ambiguous"}
+    return {"state": "unknown"}
+
+
+def _owned(decision):
+    return bool(decision) and decision.get("state") in ("already_owned", "assign", "inherited")
+
+
+def plan_backfill(companies, projects, tables):
+    """Assign legacy rows to the original company or to one exact project."""
     planned = {}
     counts = {}
     assignments = []
@@ -110,7 +185,7 @@ def plan_backfill(tables):
     def remember(table, row_id, decision):
         planned.setdefault(table, {})[_positive(row_id)] = decision
         _bump(counts, table, decision["state"])
-        if decision["state"] == "inherited" and _positive(row_id):
+        if decision["state"] in ("assign", "inherited") and _positive(row_id):
             assignments.append({
                 "table": table,
                 "id": _positive(row_id),
@@ -119,11 +194,14 @@ def plan_backfill(tables):
                 "project_id": decision["project_id"],
             })
 
+    legacy_company = legacy_company_id(companies, projects)
+    groups = _project_groups(projects)
     tool_rows = {}
     for row in tables.get("tools") or []:
         row = dict(row or {})
         tool_rows[_positive(row.get("id"))] = row
-        remember("tools", row.get("id"), _stored_owner(row) or {"state": "unknown"})
+        decision = _stored_owner(row) or _owner_from_project_name(row.get("project"), groups, legacy_company)
+        remember("tools", row.get("id"), decision)
 
     for row in tables.get("tool_history") or []:
         row = dict(row or {})
@@ -133,29 +211,37 @@ def plan_backfill(tables):
             parent = planned.get("tools", {}).get(_positive(row.get("tool_id")))
             history_project = _project_key(row.get("project"))
             tool_project = _project_key((tool or {}).get("project"))
-            if parent and parent.get("state") == "already_owned" and (
-                history_project is None or history_project == tool_project
-            ):
+            own = _owner_from_project_name(row.get("project"), groups, None)
+            if _owned(parent) and (history_project is None or history_project == tool_project):
                 decision = _owned_fields(parent)
-            elif parent and parent.get("state") == "already_owned":
+            elif _owned(parent) and own.get("state") == "assign" and own["company_id"] == parent["company_id"]:
+                decision = own
+            elif _owned(parent):
                 decision = {"state": "conflict"}
+            elif own.get("state") == "assign":
+                decision = own
+            elif legacy_company and own.get("state") in ("unknown", "ambiguous"):
+                decision = _company_owner(legacy_company)
             elif tool is not None or parent is not None:
                 decision = {"state": "parent_unowned"}
             else:
-                decision = {"state": "unknown"}
+                decision = own
         remember("tool_history", row.get("id"), decision)
 
     for row in tables.get("inventory") or []:
         row = dict(row or {})
-        remember("inventory", row.get("id"), _stored_owner(row) or {"state": "unknown"})
+        decision = _stored_owner(row) or _owner_from_project_name(row.get("project"), groups, legacy_company)
+        remember("inventory", row.get("id"), decision)
 
     for row in tables.get("inventory_items") or []:
         row = dict(row or {})
         decision = _stored_owner(row)
         if decision is None:
             parent = planned.get("inventory", {}).get(_positive(row.get("inventory_id")))
-            if parent and parent.get("state") == "already_owned":
+            if _owned(parent):
                 decision = _owned_fields(parent)
+            elif legacy_company:
+                decision = _company_owner(legacy_company)
             elif parent is not None:
                 decision = {"state": "parent_unowned"}
             else:
@@ -167,7 +253,11 @@ def plan_backfill(tables):
     return {
         "assignments": assignments,
         "counts": counts,
-        "ambiguousNames": [],
+        "ambiguousNames": sorted(
+            name for name, matches in groups.items()
+            if len({item["company_id"] for item in matches}) > 1
+        ),
+        "legacyCompanyId": legacy_company,
     }
 
 
@@ -185,6 +275,10 @@ def _owner_sql(present):
 
 def load_snapshot(cur, *, owner_columns=True):
     owner_sql = _owner_sql(owner_columns)
+    cur.execute("SELECT id FROM companies")
+    companies = [_row_dict(row, ("id",)) for row in cur.fetchall()]
+    cur.execute("SELECT id, company_id, name FROM projects")
+    projects = [_row_dict(row, ("id", "company_id", "name")) for row in cur.fetchall()]
     cur.execute(f"SELECT id, project, {owner_sql} FROM tools")
     tools = [
         _row_dict(row, ("id", "project", "owner_scope", "company_id", "project_id"))
@@ -205,7 +299,7 @@ def load_snapshot(cur, *, owner_columns=True):
         _row_dict(row, ("id", "inventory_id", "owner_scope", "company_id", "project_id"))
         for row in cur.fetchall()
     ]
-    return {
+    return companies, projects, {
         "tools": tools,
         "tool_history": history,
         "inventory": inventory,
@@ -214,16 +308,17 @@ def load_snapshot(cur, *, owner_columns=True):
 
 
 def apply_backfill(cur, *, write):
-    """Read a snapshot and copy stored parent owners only when `write` is true.
+    """Read a snapshot and fill missing owners only when `write` is true.
 
     The caller owns the transaction. Updates touch only rows that still have
     no owner scope, company or project.
     """
-    plan = plan_backfill(load_snapshot(cur, owner_columns=True))
+    companies, projects, tables = load_snapshot(cur, owner_columns=True)
+    plan = plan_backfill(companies, projects, tables)
     applied = 0
     if write:
         for item in plan["assignments"]:
-            if item["table"] not in ("tool_history", "inventory_items") or not item["id"]:
+            if item["table"] not in TABLES or not item["id"]:
                 continue
             cur.execute(
                 f"UPDATE {item['table']} SET owner_scope=%s, company_id=%s, project_id=%s "

@@ -1,10 +1,9 @@
 """Company owners for tools, tool history and inventory.
 
-The columns are added for new records. A legacy row is not given a company
-from its project name or from the name of the person who created it. History
-copies the owner already stored on its tool, and an inventory line copies the
-owner already stored on its inventory card. Anything else stays unowned, so
-company users cannot see it.
+A row that already has a company keeps it. A row without one is given to the
+only operating company, or to the one project whose name matches exactly.
+A person's name is not used. When two companies already have projects, a row
+that still cannot be tied to one of them stays unowned and hidden.
 """
 import json
 
