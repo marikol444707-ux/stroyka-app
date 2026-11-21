@@ -45,7 +45,7 @@ def require_reconciled(cur, contract):
         AND COALESCE(b.status,'')<>'Аннулирован'
         UNION ALL SELECT 1 FROM brigade_payments p WHERE p.contract_id=%s
         AND NOT EXISTS(SELECT 1 FROM work_contract_act_payments a WHERE a.payment_id=p.id)
-        UNION ALL SELECT 1 FROM piecework p JOIN work_journal w ON w.id=p.work_journal_id
+        UNION ALL SELECT 1 FROM piecework p JOIN work_journal w ON w.id=p.work_journal_id AND w.company_id=p.company_id
         JOIN brigade_contract_items i ON i.id=w.contract_item_id WHERE i.contract_id=%s LIMIT 1''',
         (contract['id'], contract['id'], contract['id']))
     if cur.fetchone():

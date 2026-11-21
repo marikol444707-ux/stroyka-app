@@ -52,6 +52,7 @@ class FakeConnection:
     def __init__(self, cursor):
         self._cursor = cursor
         self.committed = False
+        self.closed = False
 
     def cursor(self, **_kwargs):
         return self._cursor
@@ -88,10 +89,20 @@ def common_deps(cursor, access_calls=None):
         "finance_roles": ("директор",),
         "read_roles": ("директор",),
         "write_roles": ("директор",),
-        "visible_project_names": lambda user: ["Объект"],
+        "resolve_work_company_context": lambda _cur, user, _requested, action, x_company_id=None, x_company_mode=None: {
+            "mode": "company", "companyId": int(x_company_id or 1), "companyIds": [int(x_company_id or 1)],
+            "role": "директор", "effectiveRole": "директор", "active": True, "companyActive": True,
+            "assignedProjects": ["Объект"],
+        },
+        "effective_company_actors": lambda user, context: [{
+            **user, "role": "директор", "companyId": context["companyId"],
+            "active": True, "companyActive": True, "assignedProjects": ["Объект"],
+        }],
+        "company_id_scope_filter": lambda context, column="company_id": (f" AND {column}=%s", [context["companyId"]]),
+        "can_see_all_company_data": lambda user: True,
+        "user_project_names": lambda user: ["Объект"],
         "project_name_from_payload": lambda cur, data: data.get("projectName", "Объект"),
         "require_project_access": lambda user, project: access_log.append(project),
-        "require_row_project_access": lambda cur, table, row_id, user, col: access_log.append((table, row_id)),
     }
 
 
@@ -136,15 +147,17 @@ class RegionRoutesTest(unittest.TestCase):
 
     def test_checklist_delete_cascades_items_first(self):
         calls = []
-        cursor = FakeCursor()
+        cursor = FakeCursor(row=("Объект",))
         app = FakeApp()
         connection, deps = common_deps(cursor, calls)
         register_project_checklists_module(app, deps)
-        result = app.routes[("DELETE", "/project-checklists/{id}")](id=9, _current_user={})
+        result = app.routes[("DELETE", "/project-checklists/{id}")](
+            id=9, _current_user={"role": "директор"}, x_company_id="1", x_company_mode="company",
+        )
         self.assertEqual(result, {"ok": True})
-        self.assertEqual(calls, [("project_checklists", 9)])
-        self.assertIn("DELETE FROM checklist_items WHERE checklist_id=%s", cursor.calls[0][0])
-        self.assertIn("DELETE FROM project_checklists WHERE id=%s", cursor.calls[1][0])
+        self.assertIn("company_id=%s", cursor.calls[0][0])
+        self.assertIn("DELETE FROM checklist_items WHERE checklist_id=%s", cursor.calls[1][0])
+        self.assertIn("DELETE FROM project_checklists WHERE id=%s", cursor.calls[2][0])
         self.assertTrue(connection.committed)
 
     def test_all_urls_registered(self):

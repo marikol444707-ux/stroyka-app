@@ -383,9 +383,9 @@ class MaterialSettlementPostgresTests(unittest.TestCase):
 
     def test_legacy_piecework_cannot_be_deleted_to_hide_existing_contract_earnings(self):
         piecework_id = self.sql("""INSERT INTO piecework(staff_id,description,unit,quantity,
-            price_per_unit,total,project,date,work_journal_id)
-            VALUES(%s,'Synthetic historical earnings','шт',1,10,10,%s,'2026-09-18',%s) RETURNING id""",
-            (str(self.f["users"]["worker"]["id"]), self.f["project"], self.journal_id))[0][0]
+            price_per_unit,total,project,date,work_journal_id,owner_scope,company_id,project_id)
+            VALUES(%s,'Synthetic historical earnings','шт',1,10,10,%s,'2026-09-18',%s,'project',2,%s) RETURNING id""",
+            (str(self.f["users"]["worker"]["id"]), self.f["project"], self.journal_id, self.f["projectId"]))[0][0]
         before = self.snapshot()
         self.api("director", "DELETE", "/piecework/" + str(piecework_id), expected=409)
         self.assertEqual(self.snapshot(), before)

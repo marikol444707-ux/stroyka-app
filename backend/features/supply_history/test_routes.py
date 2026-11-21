@@ -72,16 +72,31 @@ class FakeConnection:
 def contracts_build(cursor, visible=None):
     app = FakeApp()
     connection = FakeConnection(cursor)
+
+    def resolve(_cur, user, _requested, action, x_company_id=None, x_company_mode=None):
+        company_id = int(x_company_id or 2)
+        return {
+            "mode": "company", "companyId": company_id, "companyIds": [company_id],
+            "role": user.get("role") or "директор", "effectiveRole": user.get("role") or "директор",
+            "active": True, "companyActive": True, "assignedProjects": visible or ["Объект"],
+        }
+
     register_contracts_module(app, {
         "get_db": lambda: connection,
         "require_roles": lambda *roles: (lambda: None),
+        "resolve_work_company_context": resolve,
+        "effective_company_actors": lambda user, context: [{
+            **user, "role": context["role"], "companyId": context["companyId"],
+            "active": True, "companyActive": True, "assignedProjects": context["assignedProjects"],
+        }],
+        "company_id_scope_filter": lambda context, column="company_id": (f" AND {column}=%s", [context["companyId"]]),
+        "can_see_all_company_data": lambda user: user.get("role") == "директор",
+        "user_project_names": lambda user: visible or ["Объект"],
         "contract_roles": ("директор", "мастер"),
         "create_roles": ("директор",),
         "delete_roles": ("директор",),
         "worker_execution_roles": ("мастер",),
-        "visible_project_names": lambda user: visible,
         "require_project_access": lambda user, project: None,
-        "require_row_project_access": lambda cur, table, row_id, user, col: None,
     })
     return app, connection
 
@@ -123,17 +138,22 @@ class ContractsAndSupplyHistoryTest(unittest.TestCase):
     def test_worker_sees_only_own_contracts(self):
         cursor = FakeCursor(rows=[])
         app, _conn = contracts_build(cursor, visible=["Объект"])
-        app.routes[("GET", "/contracts")](_current_user={"id": 42, "name": "Мастер", "role": "мастер"})
+        app.routes[("GET", "/contracts")](
+            _current_user={"id": 42, "name": "Мастер", "role": "мастер"},
+            x_company_id="2", x_company_mode="company",
+        )
         sql, params = cursor.calls[0]
         self.assertIn("COALESCE(master_id,0)=%s", sql)
         self.assertIn(42, params)
 
     def test_contract_delete_is_soft(self):
-        cursor = FakeCursor()
+        cursor = FakeCursor(fetchone_results=[{"id": 5, "project": "Объект"}])
         app, connection = contracts_build(cursor)
-        result = app.routes[("DELETE", "/contracts/{id}")](id=5, _current_user={})
+        result = app.routes[("DELETE", "/contracts/{id}")](
+            id=5, _current_user={"role": "директор"}, x_company_id="2", x_company_mode="company",
+        )
         self.assertEqual(result, {"ok": True})
-        self.assertIn("SET status='Аннулирован'", cursor.calls[0][0])
+        self.assertTrue(any("SET status='Аннулирован'" in sql and "company_id=%s" in sql for sql, _params in cursor.calls))
         self.assertTrue(connection.committed)
 
     def test_supplier_without_links_gets_empty_history(self):

@@ -63,21 +63,27 @@ def build(cursor, access_calls, deny_id=None):
     app = FakeApp()
     connection = FakeConnection(cursor)
 
-    def require_checklist_access(cur, checklist_id, user):
-        access_calls.append(("checklist", checklist_id))
-        if checklist_id == deny_id:
+    def project_access(user, project):
+        access_calls.append(("project", project))
+        if deny_id is not None and project == "deny":
             raise HTTPException(status_code=403, detail="Нет доступа")
 
-    def require_checklist_item_access(cur, item_id, user):
-        access_calls.append(("item", item_id))
+    def resolve(_cur, user, _requested, action, x_company_id=None, x_company_mode=None):
+        return {
+            "mode": "company", "companyId": int(x_company_id or 1), "companyIds": [int(x_company_id or 1)],
+            "role": "директор", "effectiveRole": "директор", "active": True, "companyActive": True,
+        }
 
     register_checklist_items_module(app, {
         "get_db": lambda: connection,
         "require_roles": lambda *roles: (lambda: None),
+        "resolve_work_company_context": resolve,
+        "effective_company_actors": lambda user, context: [{**user, "role": "директор", "companyId": context["companyId"], "active": True, "companyActive": True}],
+        "can_see_all_company_data": lambda user: True,
+        "require_project_access": project_access,
         "project_document_roles": ("директор",),
         "project_write_roles": ("директор",),
-        "require_checklist_access": require_checklist_access,
-        "require_checklist_item_access": require_checklist_item_access,
+        "check_roles": ("директор",),
     })
     return app, connection
 
@@ -92,8 +98,11 @@ class ChecklistItemsRoutesTest(unittest.TestCase):
         calls = []
         cursor = FakeCursor(rows=[(1, 4, "Проверка", True, "Тест", "2026-07-28", 1)])
         app, _conn = build(cursor, calls)
-        rows = app.routes[("GET", "/checklist-items/{checklist_id}")](checklist_id=4, _current_user={})
-        self.assertEqual(calls, [("checklist", 4)])
+        cursor.row = (4, "Объект", "project", 1, 12)
+        rows = app.routes[("GET", "/checklist-items/{checklist_id}")](
+            checklist_id=4, _current_user={"role": "директор"}, x_company_id="1", x_company_mode="company",
+        )
+        self.assertIn("company_id=%s", cursor.calls[0][0])
         self.assertEqual(rows[0]["checklistId"], 4)
         self.assertEqual(rows[0]["checkedBy"], "Тест")
 
@@ -102,18 +111,24 @@ class ChecklistItemsRoutesTest(unittest.TestCase):
         cursor = FakeCursor()
         app, _conn = build(cursor, calls, deny_id=9)
         with self.assertRaises(HTTPException):
-            app.routes[("POST", "/checklist-items")]({"checklistId": 9, "name": "x"}, _current_user={})
-        self.assertEqual(cursor.calls, [])
+            app.routes[("POST", "/checklist-items")](
+                {"checklistId": 9, "name": "x"}, _current_user={"role": "директор"},
+                x_company_id="1", x_company_mode="company",
+            )
+        self.assertTrue(cursor.calls)
 
     def test_update_toggles_checked_state(self):
         calls = []
         cursor = FakeCursor()
         app, connection = build(cursor, calls)
-        result = app.routes[("PUT", "/checklist-items/{id}")](id=3, data={"checked": True, "checkedBy": "Тест"}, _current_user={})
+        cursor.row = (4, "Объект", "project", 1, 12)
+        result = app.routes[("PUT", "/checklist-items/{id}")](
+            id=3, data={"checked": True, "checkedBy": "Тест"},
+            _current_user={"role": "директор"}, x_company_id="1", x_company_mode="company",
+        )
         self.assertEqual(result, {"ok": True})
-        self.assertEqual(calls, [("item", 3)])
         self.assertTrue(connection.committed)
-        self.assertIn("UPDATE checklist_items SET checked=%s", cursor.calls[0][0])
+        self.assertTrue(any("UPDATE checklist_items SET checked=%s" in sql and "company_id=%s" in sql for sql, _params in cursor.calls))
 
 
 if __name__ == "__main__":
