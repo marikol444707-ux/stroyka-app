@@ -1,5 +1,6 @@
 import React from 'react';
 import { createDoorForm, createRoomForm, createWindowForm } from '../project-operations/projectOperationInitialForms';
+import { recordMatchesProject } from '../../utils/roomMeasurementUtils';
 
 export default function ProjectRoomsTab({ ctx, project }) {
   const p = project;
@@ -20,7 +21,7 @@ export default function ProjectRoomsTab({ ctx, project }) {
 	                    {activeProjectTab==='Помещения'&&(<div>
 	                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'15px'}}>
 	                        <b style={{color:C.text}}>Помещения</b>
-                        {isProrab()&&<button onClick={()=>{setShowRoomForm(!showRoomForm);setEditingItem(null);setDraftRoomWindows([]);setDraftRoomDoors([]);setNewRoom(createRoomForm({project:p.name}));}} style={btnO}><Plus size={14}/>Добавить</button>}
+                        {isProrab()&&<button onClick={()=>{setShowRoomForm(!showRoomForm);setEditingItem(null);setDraftRoomWindows([]);setDraftRoomDoors([]);setNewRoom(createRoomForm({project:p.name,projectId:p.id}));}} style={btnO}><Plus size={14}/>Добавить</button>}
                       </div>
                       {showRoomForm&&(<div style={{...card,padding:'16px',marginBottom:'16px',backgroundColor:C.bg}}>
                         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
@@ -113,7 +114,7 @@ export default function ProjectRoomsTab({ ctx, project }) {
                         </div>
                         <div style={{display:'flex',gap:'8px',marginTop:'10px'}}><button onClick={saveRoom} style={btnO}><Check size={14}/>{editingItem?'Сохранить':'Добавить'}</button><button onClick={()=>{setShowRoomForm(false);setEditingItem(null);setDraftRoomWindows([]);setDraftRoomDoors([]);}} style={btnG}><X size={14}/>Отмена</button></div>
                   </div>)}
-                      {(()=>{const projectRooms=rooms.filter(r=>r.project===p.name);if(projectRooms.length===0)return null;const checked=projectRooms.map(roomCompleteness);const full=checked.filter(x=>x.status==='Обмер полный').length;const missing=checked.filter(x=>x.status==='Не хватает данных').length;const openings=checked.filter(x=>x.status==='Проверить проёмы').length;return(<div style={{...card,padding:'12px',marginBottom:'12px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border}}>
+                      {(()=>{const projectRooms=rooms.filter(r=>recordMatchesProject(r,p));if(projectRooms.length===0)return null;const checked=projectRooms.map(roomCompleteness);const full=checked.filter(x=>x.status==='Обмер полный').length;const missing=checked.filter(x=>x.status==='Не хватает данных').length;const openings=checked.filter(x=>x.status==='Проверить проёмы').length;return(<div style={{...card,padding:'12px',marginBottom:'12px',backgroundColor:C.bgWhite,border:'1.5px solid '+C.border}}>
                         <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr 1fr':'repeat(4,1fr)',gap:'8px'}}>
                           <div style={{padding:'10px',borderRadius:'8px',backgroundColor:C.bg,border:'1px solid '+C.border}}><p style={{color:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Помещений</p><b style={{color:C.text,fontSize:'16px'}}>{projectRooms.length}</b></div>
                           <div style={{padding:'10px',borderRadius:'8px',backgroundColor:C.successLight,border:'1px solid '+C.successBorder}}><p style={{color:C.success,fontSize:'10px',margin:'0 0 3px'}}>Обмер полный</p><b style={{color:C.success,fontSize:'16px'}}>{full}</b></div>
@@ -121,7 +122,7 @@ export default function ProjectRoomsTab({ ctx, project }) {
                           <div style={{padding:'10px',borderRadius:'8px',backgroundColor:openings?C.infoLight:C.bg,border:'1px solid '+(openings?C.infoBorder:C.border)}}><p style={{color:openings?C.info:C.textSec,fontSize:'10px',margin:'0 0 3px'}}>Проёмы/откосы</p><b style={{color:openings?C.info:C.text,fontSize:'16px'}}>{openings}</b></div>
                         </div>
                       </div>);})()}
-                      {rooms.filter(r=>r.project===p.name).map(room=>{
+                      {rooms.filter(r=>recordMatchesProject(r,p)).map(room=>{
                         const wins=roomWindows.filter(w=>Number(w.room_id)===Number(room.id));
                         const doors=roomDoors.filter(d=>Number(d.room_id)===Number(room.id));
                         const netWall=getRoomNetWall(room);
@@ -134,7 +135,7 @@ export default function ProjectRoomsTab({ ctx, project }) {
                           <div style={{padding:'14px',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center'}} onClick={()=>setExpandedRoom(isRoomOpen?null:room.id)}>
                             <div style={{minWidth:0,flex:1}}><b style={{color:C.text,fontSize:'13px'}}>{room.name}</b>{room.floor&&<span style={{fontSize:'11px',color:C.accent,marginLeft:'6px',padding:'1px 6px',backgroundColor:C.accentLight,borderRadius:'4px'}}>{'Эт.'+room.floor+(room.liter?' Лит.'+room.liter:'')}</span>}{room.roomType&&<span style={{fontSize:'11px',color:C.textSec,marginLeft:'4px'}}>{'· '+room.roomType}</span>}<span style={{...badge(completeness.color,completeness.bg,completeness.border),marginLeft:'6px'}}>{completeness.status}</span><p style={{color:C.textSec,margin:'2px 0',fontSize:'12px'}}>{'Пол: '+room.floorArea+'м² · Стены: '+room.wallArea+'м² (чистые: '+netWall+'м²) · Потолок: '+room.ceilingArea+'м² · Высота: '+(room.height||'—')+'м'}</p><p style={{color:C.textSec,margin:'0',fontSize:'11px'}}>{'Окна: '+wins.length+'шт · Двери: '+doors.length+'шт'+(winRevTotal>0?' · Откосы окон: '+winRevTotal+'м²':'')+(doorRevTotal>0?' · Откосы дверей: '+doorRevTotal+'м²':'')}</p>{roomPhotos.length>0&&<div style={{display:'flex',gap:'4px',flexWrap:'wrap',marginTop:'6px'}}>{roomPhotos.slice(0,4).map((url,index)=><img key={url+index} src={fileSrc(url)} alt='' onClick={e=>{e.stopPropagation();setShowPhotoModal(fileSrc(url));}} style={{width:'44px',height:'44px',objectFit:'cover',borderRadius:'6px',cursor:'pointer',border:'1px solid '+C.border}}/>)}{roomPhotos.length>4&&<span style={{fontSize:'11px',color:C.textSec,alignSelf:'center'}}>+{roomPhotos.length-4}</span>}</div>}{completeness.issues.length>0&&<p style={{color:completeness.color,margin:'3px 0 0',fontSize:'11px',fontWeight:'600'}}>{'Нужно: '+completeness.issues.slice(0,4).join(', ')+(completeness.issues.length>4?' …':'')}</p>}</div>
                             <div style={{display:'flex',gap:'6px',alignItems:'center'}}>
-                              {isProrab()&&(<><button onClick={e=>{e.stopPropagation();setEditingItem(room);setDraftRoomWindows([]);setDraftRoomDoors([]);setNewRoom({project:room.project,name:room.name,floor:room.floor||'',liter:room.liter||'',roomType:room.roomType||'Комната',floorArea:room.floorArea,wallArea:room.wallArea,ceilingArea:room.ceilingArea,height:room.height||'',ceilingType:room.ceiling_type||room.ceilingType||'Простой',wallMaterial:room.wall_material||room.wallMaterial||'Штукатурка',floorMaterial:room.floor_material||room.floorMaterial||'Стяжка',photoUrl:room.photoUrl||room.photo_url||'',notes:room.notes||''});setShowRoomForm(true);}} style={{...btnG,padding:'4px 8px'}}><Edit2 size={11}/></button><button onClick={e=>{e.stopPropagation();deleteRoom(room.id);}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button></>)}
+                              {isProrab()&&(<><button onClick={e=>{e.stopPropagation();setEditingItem(room);setDraftRoomWindows([]);setDraftRoomDoors([]);setNewRoom({project:room.project,projectId:room.projectId||p.id,name:room.name,floor:room.floor||'',liter:room.liter||'',roomType:room.roomType||'Комната',floorArea:room.floorArea,wallArea:room.wallArea,ceilingArea:room.ceilingArea,height:room.height||'',ceilingType:room.ceiling_type||room.ceilingType||'Простой',wallMaterial:room.wall_material||room.wallMaterial||'Штукатурка',floorMaterial:room.floor_material||room.floorMaterial||'Стяжка',photoUrl:room.photoUrl||room.photo_url||'',notes:room.notes||''});setShowRoomForm(true);}} style={{...btnG,padding:'4px 8px'}}><Edit2 size={11}/></button><button onClick={e=>{e.stopPropagation();deleteRoom(room.id);}} style={{...btnR,padding:'4px 8px'}}><Trash2 size={11}/></button></>)}
                               {isRoomOpen?<ChevronUp size={16} color={C.textMuted}/>:<ChevronDown size={16} color={C.textMuted}/>}
                             </div>
                           </div>
@@ -212,7 +213,7 @@ export default function ProjectRoomsTab({ ctx, project }) {
                   </div>)}
                         </div>);
                       })}
-                      {rooms.filter(r=>r.project===p.name).length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'20px'}}>Помещений нет</p>}
+                      {rooms.filter(r=>recordMatchesProject(r,p)).length===0&&<p style={{color:C.textMuted,textAlign:'center',padding:'20px'}}>Помещений нет</p>}
                   </div>)}
     </>
   );

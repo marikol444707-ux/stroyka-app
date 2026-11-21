@@ -42,6 +42,7 @@ export function createProjectMeasurementActions({
       body: JSON.stringify({
         ...newMeasurementDoc,
         projectName: project.name,
+        ...(Number(project.id) > 0 ? {projectId: Number(project.id)} : {}),
         roomsCreated: Number(newMeasurementDoc.roomsCreated || 0),
         uploadedBy: user.name,
       }),

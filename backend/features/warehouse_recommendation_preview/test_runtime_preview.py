@@ -946,9 +946,9 @@ class WarehouseAnomalyRuntimePreviewCompositionTests(unittest.TestCase):
             root / "backend/db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # CRM stores first-touch UTM columns in startup DDL; the warehouse preview package is unchanged.
+            # CRM first-touch UTM columns plus room ownership; the warehouse preview package is unchanged.
             root / "backend/main.py": (
-                "77fd6273c8ce78981731d555c0e25dc7b37cce629cf99c26268b3dbfac1b0db2"
+                "f7e5acafb10979f67e778534ef4ded439a29ae83dd5658ccaa5f3f32cea85962"
             ),
         }
         self.assertEqual({

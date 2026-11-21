@@ -621,7 +621,12 @@ export default function MasterCabinetPage(props) {
     : [];
   const masterProjectOptions = directAssignedProjectOptions.length ? directAssignedProjectOptions : parentProjectOptions;
   const selectedMasterProject = masterProjectOptions.find(project => project.id === Number(masterProjectId)) || projects.find(project => project.id === Number(masterProjectId));
-  const projectRooms = masterProjectId ? rooms.filter(room => room.project === (selectedMasterProject?.name || '')) : [];
+  const projectRooms = masterProjectId ? rooms.filter(room => {
+    const roomProjectId = Number(room.projectId || room.project_id || 0);
+    const selectedProjectId = Number(selectedMasterProject?.id || 0);
+    if (roomProjectId > 0 && selectedProjectId > 0) return roomProjectId === selectedProjectId;
+    return room.project === (selectedMasterProject?.name || '');
+  }) : [];
   const selectedProjectHasActiveCustomerEstimate = !!selectedMasterProject && visibleEstimatesList.some(estimate =>
     (estimate.projectName || estimate.project_name) === selectedMasterProject.name &&
     String(estimate.status || 'Активная').toLowerCase() === 'активная' &&

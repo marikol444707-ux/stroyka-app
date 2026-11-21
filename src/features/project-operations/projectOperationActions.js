@@ -62,8 +62,10 @@ export function createProjectOperationActions({
     if (!newRoom.name || !newRoom.project) return;
     const baseRoomTypes = ['Комната', 'Кабинет', 'Коридор', 'Санузел', 'Кухня', 'Балкон', 'Лестница', 'Холл', 'Техническое'];
     const roomType = newRoom.roomType && newRoom.roomType !== 'Другое' ? newRoom.roomType : 'Комната';
+    const projectId = Number(newRoom.projectId);
     const data = {
       project: newRoom.project,
+      ...(projectId > 0 ? {projectId} : {}),
       name: newRoom.name,
       floor: Number(newRoom.floor) || 1,
       liter: newRoom.liter || '',

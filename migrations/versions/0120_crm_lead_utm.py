@@ -1,7 +1,7 @@
 """Store the first-touch website campaign on a CRM lead.
 
-Revision ID: 0119_crm_lead_utm
-Revises: 0118_main_server_heads
+Revision ID: 0120_crm_lead_utm
+Revises: 0119_room_measurement_owners
 
 The same columns are added at startup by CRM schema ensure and by init_db,
 so a process that boots before this migration still accepts the new fields.
@@ -10,8 +10,8 @@ so a process that boots before this migration still accepts the new fields.
 from alembic import op
 
 
-revision = "0119_crm_lead_utm"
-down_revision = "0118_main_server_heads"
+revision = "0120_crm_lead_utm"
+down_revision = "0119_room_measurement_owners"
 branch_labels = None
 depends_on = None
 
