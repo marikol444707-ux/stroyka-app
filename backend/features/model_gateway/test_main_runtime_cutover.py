@@ -155,15 +155,31 @@ class MainRuntimeGatewayCutoverTest(unittest.TestCase):
             and node.name in EXPECTED
         }
         self.assertEqual(set(functions), set(EXPECTED))
+        delegated = {
+            "ai_suggest_material_inspection": "material_inspection_journal",
+            "ai_suggest_cable_journal": "cable_journal",
+        }
         for name, (capability, max_tokens) in EXPECTED.items():
             with self.subTest(name=name):
                 source = functions[name]
-                self.assertIn("generate_yandex_text", source)
-                self.assertIn(f"capability='{capability}'", source)
-                self.assertIn(f"max_output_tokens={max_tokens}", source)
                 self.assertNotIn("OpenAI", source)
                 self.assertNotIn("responses.create", source)
                 self.assertNotIn("gpt://", source)
+                if name in delegated:
+                    self.assertIn("_owned_quality_suggestion", source)
+                    self.assertIn(repr(delegated[name]), source)
+                    continue
+                self.assertIn("generate_yandex_text", source)
+                self.assertIn(f"capability='{capability}'", source)
+                self.assertIn(f"max_output_tokens={max_tokens}", source)
+        suggestion = (MAIN_PATH.parent / "features" / "quality_journals" / "suggestions.py").read_text(encoding="utf-8")
+        self.assertIn("build_model_request", suggestion)
+        self.assertIn("max_output_tokens=1500", suggestion)
+        self.assertIn("'material_inspection_suggestion'", suggestion)
+        self.assertIn("'cable_journal_suggestion'", suggestion)
+        self.assertNotIn("OpenAI", suggestion)
+        self.assertNotIn("responses.create", suggestion)
+        self.assertNotIn("gpt://", suggestion)
 
 
 if __name__ == "__main__":
