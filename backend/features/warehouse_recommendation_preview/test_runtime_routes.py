@@ -257,10 +257,10 @@ class WarehouseAnomalyRuntimeRouteRegistrationTests(unittest.TestCase):
         package_bytes = package_path.read_bytes()
         runtime_source = runtime_path.read_text(encoding="utf-8")
 
-        # Timesheet routes take company-context dependencies; the warehouse preview package is unchanged.
+        # CRM stores first-touch UTM columns in startup DDL; the warehouse preview package is unchanged.
         self.assertEqual(
             hashlib.sha256(main_bytes).hexdigest(),
-            "f32e9991991015237aa750d8fec78c8981a10649314e7ea0e3b7ac48b823d5ed",
+            "77fd6273c8ce78981731d555c0e25dc7b37cce629cf99c26268b3dbfac1b0db2",
         )
         self.assertEqual(
             hashlib.sha256(package_bytes).hexdigest(),

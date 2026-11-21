@@ -1,5 +1,6 @@
 import asyncio
 import io
+import os
 import unittest
 from types import SimpleNamespace
 
@@ -365,6 +366,134 @@ class PublicLeadNotesTests(unittest.TestCase):
 
         self.assertEqual(raised.exception.status_code, 503)
         self.assertEqual(database_calls, [])
+
+
+def _inserted_values(sql, params):
+    compact = " ".join(sql.split())
+    columns = [name.strip() for name in compact.split("(", 1)[1].split(")", 1)[0].split(",")]
+    value_sql = compact.split("VALUES", 1)[1].split("(", 1)[1].rsplit(")", 1)[0]
+    tokens = [token.strip() for token in value_sql.split(",")]
+    values = list(params or [])
+    mapped = {}
+    for name, token in zip(columns, tokens, strict=True):
+        mapped[name] = values.pop(0) if token == "%s" else token
+    if values:
+        raise AssertionError("unused insert values")
+    return mapped
+
+
+class _NotifyCursor(_FakeCursor):
+    def execute(self, query, params=None):
+        if "INSERT INTO messenger_outbox" in " ".join(str(query).split()):
+            raise RuntimeError("outbox unavailable")
+        super().execute(query, params)
+
+
+class PublicLeadSourceTests(unittest.TestCase):
+    def setUp(self):
+        self._env = unittest.mock.patch.dict(os.environ, {
+            "LEAD_NOTIFY_TELEGRAM_CHAT_ID": "",
+            "LEAD_NOTIFY_MAX_CHAT_ID": "",
+            "LEAD_NOTIFY_COMPANY_ID": "",
+        }, clear=False)
+        self._env.start()
+
+    def tearDown(self):
+        self._env.stop()
+
+    def _app(self, statements, cursor_cls=_FakeCursor):
+        connections = []
+
+        def get_db():
+            connection = _FakeConnection(statements)
+            connection.cursor_instance = cursor_cls(statements)
+            connections.append(connection)
+            return connection
+
+        app = _FakeApp()
+        register_public_site_routes(app, {
+            "get_db": get_db,
+            "require_roles": lambda *_roles: lambda: {},
+            "leadership_roles": ("директор",),
+            "require_project_access": lambda *_args: None,
+            "project_public_select": "",
+            "system_project_name": "Система",
+            "public_site_company_id": 7,
+        })
+        return app, connections
+
+    def _post(self, app, payload):
+        request = SimpleNamespace(headers={}, client=SimpleNamespace(host="203.0.113.10"))
+        return app.routes[("POST", "/site/leads")](payload, request)
+
+    def test_known_ad_source_is_stored_without_changing_utm_notes(self):
+        statements = []
+        app, connections = self._app(statements)
+        created = self._post(app, {
+            "name": "Иван",
+            "phone": "+79990000000",
+            "consentAccepted": True,
+            "source": "Сайт",
+            "address": "Ставрополь, ул. Мира, 1",
+            "calculation": {"typeLabel": "Дом"},
+            "utm": {
+                "utm_source": "netip",
+                "utm_medium": "telegram",
+                "utm_campaign": "ads",
+                "utm_content": "post-1",
+            },
+        })
+
+        self.assertEqual(created["ok"], True)
+        lead_sql, lead_params = next(
+            item for item in statements if item[0].startswith("INSERT INTO crm_leads")
+        )
+        saved = _inserted_values(lead_sql, lead_params)
+        self.assertEqual(saved["company_id"], 7)
+        self.assertEqual(saved["source"], "Сайт / Нетипичный Ставрополь")
+        self.assertEqual(saved["utm_source"], "netip")
+        self.assertEqual(saved["utm_medium"], "telegram")
+        self.assertEqual(saved["utm_campaign"], "ads")
+        self.assertEqual(saved["work_type"], "Дом")
+        self.assertEqual(saved["address"], "Ставрополь, ул. Мира, 1")
+        self.assertIn("UTM: utm_source=netip · utm_medium=telegram · utm_campaign=ads · utm_content=post-1", saved["notes"])
+        self.assertEqual(connections[0].commits, 1)
+        self.assertEqual(connections[0].rollbacks, 0)
+
+    def test_partner_form_keeps_channel_and_unknown_code(self):
+        statements = []
+        app, _connections = self._app(statements)
+        self._post(app, {
+            "name": "Поставщик",
+            "phone": "+79990000001",
+            "consentAccepted": True,
+            "partnerType": "supplier",
+            "source": "Сайт: партнерская заявка",
+            "utm": {"utm_source": "new_channel", "utm_medium": "telegram", "utm_campaign": "ads"},
+        })
+        lead_sql, lead_params = next(
+            item for item in statements if item[0].startswith("INSERT INTO crm_leads")
+        )
+        saved = _inserted_values(lead_sql, lead_params)
+        self.assertEqual(saved["source"], "Сайт: партнерская заявка / new_channel")
+        self.assertEqual(saved["utm_source"], "new_channel")
+        self.assertEqual(saved["work_type"], "Поставщик")
+        self.assertIn("UTM: utm_source=new_channel · utm_medium=telegram · utm_campaign=ads", saved["notes"])
+
+    def test_notification_failure_still_saves_the_lead(self):
+        statements = []
+        app, connections = self._app(statements, _NotifyCursor)
+        with unittest.mock.patch.dict("os.environ", {"LEAD_NOTIFY_TELEGRAM_CHAT_ID": "1001"}, clear=False):
+            created = self._post(app, {
+                "name": "Мария",
+                "phone": "+79990000002",
+                "consentAccepted": True,
+                "utm": {"utm_source": "bloknot"},
+            })
+        self.assertEqual(created["id"], 501)
+        self.assertEqual(connections[0].commits, 1)
+        self.assertEqual(connections[0].rollbacks, 0)
+        self.assertTrue(any(sql.startswith("ROLLBACK TO SAVEPOINT crm_lead_notify") for sql, _params in statements))
 
 
 if __name__ == "__main__":

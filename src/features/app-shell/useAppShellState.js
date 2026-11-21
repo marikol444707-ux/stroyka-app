@@ -9,6 +9,7 @@ import {
 } from '../../utils/appRuntimeUtils';
 import { isSupportWorkspaceUser } from '../participant-support/workspaceMode';
 import { quickActionPageFor } from '../quick-actions/quickActionRegistry';
+import { rememberCrmLeadFromLocation } from '../crm/crmLeadLink';
 
 export function useResponsiveLayout() {
   const [isMobile, setIsMobile] = useState(detectMobileLayout);
@@ -280,6 +281,7 @@ export function useAuthenticatedAppBootstrapEffect({
 
     try {
       const params = new URLSearchParams(window.location.search || '');
+      rememberCrmLeadFromLocation(window.location.search || '', window.sessionStorage);
       const quickAction = params.get('quickAction') || '';
       const targetPage = params.get('page') || quickActionPageFor(quickAction);
       if (targetPage) {

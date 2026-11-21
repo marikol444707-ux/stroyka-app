@@ -5,6 +5,7 @@ import uuid
 import psycopg2.extras
 from fastapi import Depends, Header, HTTPException
 
+from .lead_notifications import enqueue_lead_owner_notification
 from .writer_ownership import resolve_authenticated_lead_owner, resolve_lead_child_owner
 
 
@@ -70,6 +71,10 @@ def _ensure_crm_schema(get_db):
         ALTER TABLE crm_leads ADD COLUMN IF NOT EXISTS review_status VARCHAR(80) DEFAULT 'Новая';
         ALTER TABLE crm_leads ADD COLUMN IF NOT EXISTS public_site_origin BOOLEAN NOT NULL DEFAULT FALSE;
         ALTER TABLE crm_leads ADD COLUMN IF NOT EXISTS privacy_last_activity_at TIMESTAMPTZ;
+        ALTER TABLE crm_leads ADD COLUMN IF NOT EXISTS utm_source VARCHAR(120);
+        ALTER TABLE crm_leads ADD COLUMN IF NOT EXISTS utm_medium VARCHAR(120);
+        ALTER TABLE crm_leads ADD COLUMN IF NOT EXISTS utm_campaign VARCHAR(120);
+        CREATE INDEX IF NOT EXISTS idx_crm_leads_utm_source ON crm_leads (utm_source);
 
         CREATE TABLE IF NOT EXISTS crm_lead_documents (
             id SERIAL PRIMARY KEY,
@@ -160,6 +165,9 @@ LEAD_SELECT = """
     estimate_id AS "estimateId",
     COALESCE(document_status,'Не собраны') AS "documentStatus",
     COALESCE(review_status,'Новая') AS "reviewStatus",
+    COALESCE(utm_source,'') AS "utmSource",
+    COALESCE(utm_medium,'') AS "utmMedium",
+    COALESCE(utm_campaign,'') AS "utmCampaign",
     COALESCE((SELECT COUNT(*) FROM crm_lead_documents d
               WHERE d.lead_id=crm_leads.id
                 AND d.company_id=crm_leads.company_id
@@ -495,6 +503,17 @@ def register_crm_module(app, deps):
             ))
             created = cur.fetchone()
             lead_id = created.get("id") if isinstance(created, dict) else created[0]
+            if _bool(data.get("external")):
+                enqueue_lead_owner_notification(
+                    cur,
+                    company_id=owner["companyId"],
+                    lead_id=lead_id,
+                    name=_text(data.get("name")),
+                    phone=_text(data.get("phone"), 80),
+                    work_type=_text(data.get("workType")),
+                    address=data.get("address") or "",
+                    source=_text(data.get("source")),
+                )
             conn.commit()
             if log_audit:
                 log_audit(current_user.get("name", ""), current_user.get("role", ""), "create", "crm_lead", lead_id, "Создана CRM-заявка", "")

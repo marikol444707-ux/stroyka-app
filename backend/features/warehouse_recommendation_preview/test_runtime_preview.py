@@ -946,9 +946,9 @@ class WarehouseAnomalyRuntimePreviewCompositionTests(unittest.TestCase):
             root / "backend/db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Timesheet routes take company-context dependencies; the warehouse preview package is unchanged.
+            # CRM stores first-touch UTM columns in startup DDL; the warehouse preview package is unchanged.
             root / "backend/main.py": (
-                "f32e9991991015237aa750d8fec78c8981a10649314e7ea0e3b7ac48b823d5ed"
+                "77fd6273c8ce78981731d555c0e25dc7b37cce629cf99c26268b3dbfac1b0db2"
             ),
         }
         self.assertEqual({
