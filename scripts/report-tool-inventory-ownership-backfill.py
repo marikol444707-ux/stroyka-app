@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Read-only report of how tool and inventory rows would receive an owner.
+"""Read-only report of tool and inventory rows that still have no owner.
 
-The script never updates the database. It prints how many rows would be
-assigned, how many project names are shared, and how many rows stay without
-an owner. Set TOOL_INVENTORY_OWNERSHIP_REPORT=1 and the usual DB_* variables.
+The script never updates the database. A project name or a creator name is
+not treated as proof of a company. Set TOOL_INVENTORY_OWNERSHIP_REPORT=1 and
+the usual DB_* variables.
 """
 import json
 import os
@@ -43,8 +43,7 @@ def main(argv=None):
     try:
         with connection.cursor() as cur:
             if not owner_columns_present(cur):
-                projects, creators, tables = load_snapshot(cur, owner_columns=False)
-                plan = plan_backfill(projects, creators, tables)
+                plan = plan_backfill(load_snapshot(cur, owner_columns=False))
                 plan["columnsPresent"] = False
             else:
                 plan = apply_backfill(cur, write=False)
@@ -54,7 +53,6 @@ def main(argv=None):
     report = {
         "dryRun": True,
         "columnsPresent": plan["columnsPresent"],
-        "ambiguousNames": plan["ambiguousNames"],
         "counts": plan["counts"],
         "wouldAssign": len(plan["assignments"]),
     }

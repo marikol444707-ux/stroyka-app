@@ -1,14 +1,11 @@
-"""Assign tool and inventory owners from a unique project or a unique creator.
+"""Copy a stored owner from a tool or inventory row onto its children.
 
-A project name is used only when exactly one projects row has that name and
-that row already has a company. A creator name is used only when every active
-membership of that exact name belongs to one company. A known creator in a
-different company blocks the project match. Shared names, unknown names and
-rows that already have an owner are left untouched.
+A project name or a creator name is not an ownership link. Rows that do not
+already store a company stay unowned. History is updated only from the tool
+it points at, and only when that tool already has an owner and the history
+does not name a different project. Inventory lines are updated only from the
+inventory card they point at, and only when that card already has an owner.
 """
-from collections import defaultdict
-
-
 TABLES = ("tools", "tool_history", "inventory", "inventory_items")
 
 ADD_COLUMNS_SQL = "\n".join(
@@ -35,7 +32,6 @@ CREATE INDEX IF NOT EXISTS idx_{_table}_owner ON {_table}(owner_scope, company_i
 """)
 CONSTRAINTS_SQL = "\n".join(_CONSTRAINTS)
 
-_OWNED = ("already_owned", "assign", "inherited")
 _COUNT_KEYS = (
     "total", "alreadyOwned", "assign", "inherited", "ambiguous", "unknown",
     "conflict", "partial", "parentUnowned",
@@ -59,44 +55,6 @@ def _project_key(value):
     return text
 
 
-def _creator_name(value):
-    if value is None:
-        return None
-    text = str(value).strip()
-    return text or None
-
-
-def unique_project_owners(projects):
-    grouped = defaultdict(list)
-    for project in projects or []:
-        name = _project_key((project or {}).get("name"))
-        if name is None:
-            continue
-        grouped[name].append(project)
-    owners = {}
-    ambiguous = set()
-    for name, rows in grouped.items():
-        if len(rows) > 1:
-            ambiguous.add(name)
-            continue
-        company_id = _positive(rows[0].get("company_id"))
-        project_id = _positive(rows[0].get("id"))
-        if company_id and project_id:
-            owners[name] = {"company_id": company_id, "project_id": project_id}
-    return owners, ambiguous
-
-
-def creator_companies(memberships):
-    """Map a person name to one company. Two companies for one name map to nothing."""
-    grouped = defaultdict(set)
-    for row in memberships or []:
-        name = _creator_name((row or {}).get("name"))
-        company_id = _positive((row or {}).get("company_id"))
-        if name and company_id:
-            grouped[name].add(company_id)
-    return {name: next(iter(companies)) for name, companies in grouped.items() if len(companies) == 1}
-
-
 def _stored_owner(row):
     scope = str((row or {}).get("owner_scope") or "").strip()
     company_id = _positive((row or {}).get("company_id"))
@@ -114,47 +72,6 @@ def _stored_owner(row):
             "company_id": company_id, "project_id": project_id,
         }
     return {"state": "partial"}
-
-
-def _from_project(name, owners, ambiguous):
-    key = _project_key(name)
-    if key is None:
-        return {"state": "blank"}
-    if key in owners:
-        owner = owners[key]
-        return {
-            "state": "assign", "owner_scope": "project",
-            "company_id": owner["company_id"], "project_id": owner["project_id"],
-        }
-    if key in ambiguous:
-        return {"state": "ambiguous"}
-    return {"state": "unknown"}
-
-
-def _creator_company(created_by, creators):
-    name = _creator_name(created_by)
-    if name is None:
-        return None
-    return creators.get(name, "unknown")
-
-
-def _confirm_project(decision, created_by, creators):
-    if decision.get("state") != "assign":
-        return decision
-    creator = _creator_company(created_by, creators)
-    if isinstance(creator, int) and creator != decision["company_id"]:
-        return {"state": "conflict"}
-    return decision
-
-
-def _from_creator(created_by, creators):
-    creator = _creator_company(created_by, creators)
-    if isinstance(creator, int):
-        return {
-            "state": "assign", "owner_scope": "company",
-            "company_id": creator, "project_id": None,
-        }
-    return {"state": "unknown"}
 
 
 def _owned_fields(decision):
@@ -175,11 +92,8 @@ def _bump(counts, table, state):
     bucket["total"] += 1
     key = {
         "already_owned": "alreadyOwned",
-        "assign": "assign",
         "inherited": "inherited",
-        "ambiguous": "ambiguous",
         "unknown": "unknown",
-        "blank": "unknown",
         "conflict": "conflict",
         "partial": "partial",
         "parent_unowned": "parentUnowned",
@@ -187,14 +101,8 @@ def _bump(counts, table, state):
     bucket[key] += 1
 
 
-def plan_backfill(projects, creators, tables):
-    """Classify rows and list unowned rows that can receive an owner.
-
-    `creators` is the membership list `{name, company_id}`. `tables` maps each
-    table to rows. A child sees the owner its parent receives in this same plan.
-    """
-    owners, ambiguous = unique_project_owners(projects)
-    creator_map = creator_companies(creators)
+def plan_backfill(tables):
+    """List child rows that can copy an owner their parent already stores."""
     planned = {}
     counts = {}
     assignments = []
@@ -202,7 +110,7 @@ def plan_backfill(projects, creators, tables):
     def remember(table, row_id, decision):
         planned.setdefault(table, {})[_positive(row_id)] = decision
         _bump(counts, table, decision["state"])
-        if decision["state"] in ("assign", "inherited") and _positive(row_id):
+        if decision["state"] == "inherited" and _positive(row_id):
             assignments.append({
                 "table": table,
                 "id": _positive(row_id),
@@ -215,59 +123,40 @@ def plan_backfill(projects, creators, tables):
     for row in tables.get("tools") or []:
         row = dict(row or {})
         tool_rows[_positive(row.get("id"))] = row
-        decision = _stored_owner(row)
-        if decision is None:
-            decision = _from_project(row.get("project"), owners, ambiguous)
-            if decision["state"] == "blank":
-                decision = {"state": "unknown"}
-        remember("tools", row.get("id"), decision)
+        remember("tools", row.get("id"), _stored_owner(row) or {"state": "unknown"})
 
     for row in tables.get("tool_history") or []:
         row = dict(row or {})
         decision = _stored_owner(row)
         if decision is None:
-            tool_id = _positive(row.get("tool_id"))
-            parent = planned.get("tools", {}).get(tool_id)
-            tool = tool_rows.get(tool_id)
+            tool = tool_rows.get(_positive(row.get("tool_id")))
+            parent = planned.get("tools", {}).get(_positive(row.get("tool_id")))
             history_project = _project_key(row.get("project"))
             tool_project = _project_key((tool or {}).get("project"))
-            if parent and parent.get("state") in _OWNED and (
+            if parent and parent.get("state") == "already_owned" and (
                 history_project is None or history_project == tool_project
             ):
                 decision = _owned_fields(parent)
-            elif parent and parent.get("state") in _OWNED:
+            elif parent and parent.get("state") == "already_owned":
                 decision = {"state": "conflict"}
-            elif tool is not None:
+            elif tool is not None or parent is not None:
                 decision = {"state": "parent_unowned"}
             else:
-                decision = _confirm_project(
-                    _from_project(row.get("project"), owners, ambiguous),
-                    row.get("created_by"), creator_map,
-                )
-                if decision["state"] == "blank":
-                    decision = _from_creator(row.get("created_by"), creator_map)
+                decision = {"state": "unknown"}
         remember("tool_history", row.get("id"), decision)
 
     for row in tables.get("inventory") or []:
         row = dict(row or {})
-        decision = _stored_owner(row)
-        if decision is None:
-            decision = _confirm_project(
-                _from_project(row.get("project"), owners, ambiguous),
-                row.get("created_by"), creator_map,
-            )
-            if decision["state"] == "blank":
-                decision = _from_creator(row.get("created_by"), creator_map)
-        remember("inventory", row.get("id"), decision)
+        remember("inventory", row.get("id"), _stored_owner(row) or {"state": "unknown"})
 
     for row in tables.get("inventory_items") or []:
         row = dict(row or {})
         decision = _stored_owner(row)
         if decision is None:
             parent = planned.get("inventory", {}).get(_positive(row.get("inventory_id")))
-            if parent and parent.get("state") in _OWNED:
+            if parent and parent.get("state") == "already_owned":
                 decision = _owned_fields(parent)
-            elif parent:
+            elif parent is not None:
                 decision = {"state": "parent_unowned"}
             else:
                 decision = {"state": "unknown"}
@@ -278,7 +167,7 @@ def plan_backfill(projects, creators, tables):
     return {
         "assignments": assignments,
         "counts": counts,
-        "ambiguousNames": sorted(ambiguous),
+        "ambiguousNames": [],
     }
 
 
@@ -296,30 +185,19 @@ def _owner_sql(present):
 
 def load_snapshot(cur, *, owner_columns=True):
     owner_sql = _owner_sql(owner_columns)
-    cur.execute("SELECT id, company_id, name FROM projects")
-    projects = [_row_dict(row, ("id", "company_id", "name")) for row in cur.fetchall()]
-    cur.execute(
-        """SELECT u.name, r.company_id
-           FROM users u
-           JOIN user_company_roles r ON r.user_id = u.id
-           WHERE COALESCE(u.active, TRUE) IS TRUE
-             AND COALESCE(r.active, TRUE) IS TRUE
-             AND u.name IS NOT NULL"""
-    )
-    creators = [_row_dict(row, ("name", "company_id")) for row in cur.fetchall()]
     cur.execute(f"SELECT id, project, {owner_sql} FROM tools")
     tools = [
         _row_dict(row, ("id", "project", "owner_scope", "company_id", "project_id"))
         for row in cur.fetchall()
     ]
-    cur.execute(f"SELECT id, tool_id, project, created_by, {owner_sql} FROM tool_history")
+    cur.execute(f"SELECT id, tool_id, project, {owner_sql} FROM tool_history")
     history = [
-        _row_dict(row, ("id", "tool_id", "project", "created_by", "owner_scope", "company_id", "project_id"))
+        _row_dict(row, ("id", "tool_id", "project", "owner_scope", "company_id", "project_id"))
         for row in cur.fetchall()
     ]
-    cur.execute(f"SELECT id, project, created_by, {owner_sql} FROM inventory")
+    cur.execute(f"SELECT id, project, {owner_sql} FROM inventory")
     inventory = [
-        _row_dict(row, ("id", "project", "created_by", "owner_scope", "company_id", "project_id"))
+        _row_dict(row, ("id", "project", "owner_scope", "company_id", "project_id"))
         for row in cur.fetchall()
     ]
     cur.execute(f"SELECT id, inventory_id, {owner_sql} FROM inventory_items")
@@ -327,7 +205,7 @@ def load_snapshot(cur, *, owner_columns=True):
         _row_dict(row, ("id", "inventory_id", "owner_scope", "company_id", "project_id"))
         for row in cur.fetchall()
     ]
-    return projects, creators, {
+    return {
         "tools": tools,
         "tool_history": history,
         "inventory": inventory,
@@ -336,17 +214,16 @@ def load_snapshot(cur, *, owner_columns=True):
 
 
 def apply_backfill(cur, *, write):
-    """Read a snapshot, plan owners, and update only when `write` is true.
+    """Read a snapshot and copy stored parent owners only when `write` is true.
 
     The caller owns the transaction. Updates touch only rows that still have
     no owner scope, company or project.
     """
-    projects, creators, tables = load_snapshot(cur, owner_columns=True)
-    plan = plan_backfill(projects, creators, tables)
+    plan = plan_backfill(load_snapshot(cur, owner_columns=True))
     applied = 0
     if write:
         for item in plan["assignments"]:
-            if item["table"] not in TABLES or not item["id"]:
+            if item["table"] not in ("tool_history", "inventory_items") or not item["id"]:
                 continue
             cur.execute(
                 f"UPDATE {item['table']} SET owner_scope=%s, company_id=%s, project_id=%s "

@@ -1,9 +1,10 @@
 """Company owners for tools, tool history and inventory.
 
-An unambiguous project name is copied from projects. A blank project can use
-the creator when that person's active memberships all belong to one company.
-A name shared by two companies, an unknown name, or a creator from another
-company stays NULL. Company users cannot see those rows.
+The columns are added for new records. A legacy row is not given a company
+from its project name or from the name of the person who created it. History
+copies the owner already stored on its tool, and an inventory line copies the
+owner already stored on its inventory card. Anything else stays unowned, so
+company users cannot see it.
 """
 import json
 
@@ -32,7 +33,6 @@ def upgrade():
     print("TOOL_INVENTORY_OWNERSHIP_BACKFILL " + json.dumps({
         "write": True,
         "applied": plan["applied"],
-        "ambiguousNames": plan["ambiguousNames"],
         "counts": plan["counts"],
     }, ensure_ascii=False))
     op.execute(CONSTRAINTS_SQL)

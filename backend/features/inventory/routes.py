@@ -229,12 +229,12 @@ def register_inventory_module(app, deps):
         tool_id: int,
         x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
         x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
-        current_user: dict = Depends(require_roles(*warehouse_roles)),
+        current_user: dict = Depends(require_roles(*warehouse_roles, "главный_инженер")),
     ):
         conn = get_db(); conn.autocommit = False
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
-            _context, actor, company_id = selected_actor(cur, current_user, "delete", x_company_id, x_company_mode, warehouse_roles)
+            _context, actor, company_id = selected_actor(cur, current_user, "delete", x_company_id, x_company_mode, (*warehouse_roles, "главный_инженер"))
             require_tool_actor_access(cur, tool_id, actor, company_id)
             tool_records.guard_catalog(cur, tool_id, deleting=True)
             cur.execute("DELETE FROM tool_history WHERE tool_id=%s AND company_id=%s", (tool_id, company_id))

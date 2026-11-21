@@ -175,14 +175,14 @@ def require_project_access(user, project):
         raise HTTPException(status_code=403, detail="Нет доступа к объекту")
 
 
-def company_context(company_id):
+def company_context(company_id, role="директор"):
     return {
         "mode": "company",
         "companyId": company_id,
         "company_id": company_id,
         "companyIds": [company_id],
-        "role": "директор",
-        "effectiveRole": "директор",
+        "role": role,
+        "effectiveRole": role,
         "active": True,
         "companyActive": True,
         "assignedProjects": ["Склад"],
@@ -224,7 +224,8 @@ def build(cursor):
         selected = int(x_company_id or 0)
         if selected not in (2, 4):
             raise HTTPException(status_code=403, detail="Нет доступа к выбранной компании")
-        return company_context(selected)
+        role = user.get("role") if user.get("role") in ("директор", "главный_инженер") else "директор"
+        return company_context(selected, role)
 
     def require_roles(*_roles):
         def dependency():
@@ -452,6 +453,25 @@ class InventoryTenantRouteTests(unittest.TestCase):
             )
         self.assertEqual(error.exception.status_code, 404)
         self.assertFalse(any(call[0].startswith("INSERT") for call in cursor.calls))
+
+    def test_chief_engineer_deletes_only_the_selected_company_tool(self):
+        user = {"id": 8, "role": "главный_инженер", "name": "Инженер"}
+        scope = {"x_company_id": "2", "x_company_mode": "company"}
+        cursor = sample_cursor()
+        routes, connection = build(cursor)
+        routes[("DELETE", "/tools/{tool_id}")](tool_id=1, current_user=user, **scope)
+        deletes = [call for call in cursor.calls if call[0].startswith("DELETE")]
+        self.assertEqual(len(deletes), 2)
+        self.assertTrue(all(params[-1] == 2 for _sql, params in deletes))
+        self.assertTrue(connection.committed)
+
+        cursor = sample_cursor()
+        routes, connection = build(cursor)
+        with self.assertRaises(HTTPException) as error:
+            routes[("DELETE", "/tools/{tool_id}")](tool_id=2, current_user=user, **scope)
+        self.assertEqual(error.exception.status_code, 404)
+        self.assertFalse(any(call[0].startswith("DELETE") for call in cursor.calls))
+        self.assertTrue(connection.rolled_back)
 
     def test_all_companies_cannot_create_or_move_a_tool(self):
         cursor = sample_cursor()
