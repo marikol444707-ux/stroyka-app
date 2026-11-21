@@ -300,15 +300,17 @@ export default function CrmPage({
   React.useEffect(() => {
     if (typeof window === 'undefined' || showForm) return undefined;
     let leadId = '';
+    let storage = null;
     try {
-      leadId = window.sessionStorage.getItem('stroykaOpenCrmLead') || '';
+      storage = window.sessionStorage;
+      leadId = storage.getItem('stroykaOpenCrmLead') || '';
     } catch {
       return undefined;
     }
     if (!/^\d+$/.test(leadId)) return undefined;
     const lead = allLeads.find(item => String(item.id) === leadId);
     if (!lead) return undefined;
-    takeRememberedCrmLead(window.sessionStorage);
+    takeRememberedCrmLead(storage);
     setEditingItem(lead);
     setNewLead({ ...EMPTY_LEAD, ...lead });
     setShowForm(true);

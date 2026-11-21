@@ -63,6 +63,28 @@ test('sends the first ad source with the client form and the later partner form'
   expect(JSON.parse(global.fetch.mock.calls[1][1].body).source).toBe('Сайт: партнерская заявка');
 });
 
+test('still opens the form when the browser blocks localStorage', async () => {
+  const original = Object.getOwnPropertyDescriptor(window, 'localStorage');
+  Object.defineProperty(window, 'localStorage', {
+    configurable: true,
+    get() {
+      throw new DOMException('blocked');
+    },
+  });
+  window.history.replaceState({}, '', '/?utm_source=netip&utm_medium=telegram&utm_campaign=ads');
+  try {
+    jest.spyOn(global, 'fetch').mockResolvedValue({ ok: true, json: async () => ({ ok: true, id: 15 }) });
+    const { result } = renderHook(() => usePublicSiteLeadForms(options));
+    act(() => { result.current.setLeadConsent(true); });
+    await act(async () => { await result.current.submitLead(event); });
+    expect(result.current.sent).toBe(true);
+    expect(JSON.parse(global.fetch.mock.calls[0][1].body).utm.utm_source).toBe('netip');
+  } finally {
+    Object.defineProperty(window, 'localStorage', original);
+    window.history.replaceState({}, '', '/');
+  }
+});
+
 test('keeps server validation errors distinct from connection failures', async () => {
   jest.spyOn(global, 'fetch').mockResolvedValue({ ok: false, json: async () => ({ detail: 'Проверьте номер телефона' }) });
   const { result } = renderHook(() => usePublicSiteLeadForms(options));

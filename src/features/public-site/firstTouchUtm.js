@@ -8,6 +8,19 @@ const emptyStorage = {
   removeItem: () => {},
 };
 
+export const browserStorage = (kind) => {
+  if (typeof window === 'undefined') return emptyStorage;
+  try {
+    const storage = window[kind];
+    if (!storage || typeof storage.getItem !== 'function' || typeof storage.setItem !== 'function') {
+      return emptyStorage;
+    }
+    return storage;
+  } catch {
+    return emptyStorage;
+  }
+};
+
 const readStored = (storage, now) => {
   let raw = '';
   try {

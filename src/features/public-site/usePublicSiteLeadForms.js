@@ -5,15 +5,18 @@ import {
   formatMoney,
   partnerTypes,
 } from './publicSiteContent';
-import { captureFirstTouchUtm } from './firstTouchUtm';
+import { browserStorage, captureFirstTouchUtm } from './firstTouchUtm';
 import { mergePublicLeadFiles, uploadPublicLeadFiles } from './publicLeadFiles';
 
 const firstTouchUtm = () => {
-  if (typeof window === 'undefined') return {};
-  return captureFirstTouchUtm({
-    search: window.location.search,
-    storage: window.localStorage,
-  });
+  try {
+    return captureFirstTouchUtm({
+      search: typeof window === 'undefined' ? '' : window.location.search,
+      storage: browserStorage('localStorage'),
+    });
+  } catch {
+    return {};
+  }
 };
 
 const submissionErrorMessage = (error) => {

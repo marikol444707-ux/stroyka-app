@@ -1,4 +1,4 @@
-import { captureFirstTouchUtm, FIRST_TOUCH_UTM_TTL_MS } from './firstTouchUtm';
+import { browserStorage, captureFirstTouchUtm, FIRST_TOUCH_UTM_TTL_MS } from './firstTouchUtm';
 
 const memoryStorage = (initial = null) => {
   const values = new Map(initial ? [['stroykaFirstTouchUtm', initial]] : []);
@@ -25,6 +25,29 @@ test('keeps the first ad source for 30 days after the visitor leaves the landing
   });
   expect(first).toEqual({ utm_source: 'netip', utm_medium: 'telegram', utm_campaign: 'ads' });
   expect(later).toEqual(first);
+});
+
+test('uses the current link when the browser blocks localStorage', () => {
+  const original = Object.getOwnPropertyDescriptor(window, 'localStorage');
+  Object.defineProperty(window, 'localStorage', {
+    configurable: true,
+    get() {
+      throw new DOMException('blocked');
+    },
+  });
+  try {
+    expect(browserStorage('localStorage').getItem('stroykaFirstTouchUtm')).toBeNull();
+    expect(captureFirstTouchUtm({
+      search: '?utm_source=netip&utm_medium=telegram&utm_campaign=ads',
+      storage: browserStorage('localStorage'),
+    })).toEqual({
+      utm_source: 'netip',
+      utm_medium: 'telegram',
+      utm_campaign: 'ads',
+    });
+  } finally {
+    Object.defineProperty(window, 'localStorage', original);
+  }
 });
 
 test('forgets an ad source after 30 days and can remember the next visit', () => {
