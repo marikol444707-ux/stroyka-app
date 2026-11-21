@@ -238,6 +238,39 @@ class CrmRouteOwnershipTests(unittest.TestCase):
         self.assertEqual(response, {"ok": True, "id": 77})
         self.assertIs(connection.cursor_kwargs[0].get("cursor_factory"), psycopg2.extras.RealDictCursor)
         self.assertEqual(connection.commits, 1)
+        self.assertFalse(any("messenger_outbox" in sql for sql, _params in cursor.calls))
+
+    def test_external_manual_lead_queues_owner_notification_for_its_company(self):
+        cursor = FakeCursor(fetchone_values=[{"id": 77}])
+        app, connection, _resolver_calls, _resource_calls = self.build_app(cursor)
+        with unittest.mock.patch.dict("os.environ", {
+            "LEAD_NOTIFY_TELEGRAM_CHAT_ID": "1001",
+            "LEAD_NOTIFY_MAX_CHAT_ID": "",
+            "LEAD_NOTIFY_COMPANY_ID": "",
+        }, clear=False):
+            response = app.routes[("POST", "/crm/leads")](
+                {
+                    "name": "Иван",
+                    "phone": "+79990000000",
+                    "workType": "Дом",
+                    "address": "Ставрополь",
+                    "source": "Сайт / Блокнот",
+                    "external": True,
+                },
+                x_company_id="4",
+                x_company_mode="company",
+                current_user={"id": 9, "name": "Директор", "role": "директор"},
+            )
+        self.assertEqual(response, {"ok": True, "id": 77})
+        insert = next(params for sql, params in cursor.calls if sql.startswith("INSERT INTO messenger_outbox"))
+        self.assertEqual(insert[0], 4)
+        self.assertEqual(insert[1], "telegram")
+        self.assertIn("Имя: Иван", insert[6])
+        self.assertIn("Что нужно: Дом", insert[6])
+        self.assertIn("Адрес: Ставрополь", insert[6])
+        self.assertIn("Источник: Сайт / Блокнот", insert[6])
+        self.assertEqual(connection.commits, 1)
+        self.assertEqual(connection.rollbacks, 0)
 
     def test_lead_update_uses_stored_owner_in_authorization_and_sql(self):
         cursor = FakeCursor(fetchone_values=[lead_row()])

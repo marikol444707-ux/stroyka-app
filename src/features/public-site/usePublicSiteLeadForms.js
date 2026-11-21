@@ -5,7 +5,19 @@ import {
   formatMoney,
   partnerTypes,
 } from './publicSiteContent';
+import { browserStorage, captureFirstTouchUtm } from './firstTouchUtm';
 import { mergePublicLeadFiles, uploadPublicLeadFiles } from './publicLeadFiles';
+
+const firstTouchUtm = () => {
+  try {
+    return captureFirstTouchUtm({
+      search: typeof window === 'undefined' ? '' : window.location.search,
+      storage: browserStorage('localStorage'),
+    });
+  } catch {
+    return {};
+  }
+};
 
 const submissionErrorMessage = (error) => {
   if (error instanceof TypeError && /fetch|network|load failed/i.test(error.message)) {
@@ -38,6 +50,11 @@ export const usePublicSiteLeadForms = ({ result, selectedLeadProject, onLeadFile
   const [partnerSending, setPartnerSending] = useState(false);
   const [partnerSent, setPartnerSent] = useState(false);
   const [partnerError, setPartnerError] = useState('');
+  const [storedUtm] = useState(firstTouchUtm);
+  const utmForSubmit = () => {
+    const current = firstTouchUtm();
+    return Object.keys(current).length ? current : storedUtm;
+  };
 
   const chooseLeadFiles = (fileList) => {
     setLeadFileError('');
@@ -82,9 +99,7 @@ export const usePublicSiteLeadForms = ({ result, selectedLeadProject, onLeadFile
           referrer: typeof document !== 'undefined' ? document.referrer : '',
           userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
           submittedAt: new Date().toISOString(),
-          utm: typeof window !== 'undefined'
-            ? Object.fromEntries(new URLSearchParams(window.location.search).entries())
-            : {},
+          utm: utmForSubmit(),
           consentAccepted: leadConsent,
           consentVersion: PUBLIC_CONSENT_VERSION,
           website: leadWebsite,
@@ -149,6 +164,7 @@ export const usePublicSiteLeadForms = ({ result, selectedLeadProject, onLeadFile
           referrer: typeof document !== 'undefined' ? document.referrer : '',
           userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
           submittedAt: new Date().toISOString(),
+          utm: utmForSubmit(),
           consentAccepted: partnerConsent,
           consentVersion: PUBLIC_CONSENT_VERSION,
           website: partnerWebsite,

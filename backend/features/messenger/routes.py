@@ -29,6 +29,8 @@ from .outbox_worker_access import (
 )
 from .schema import ensure_messenger_schema
 from .writer_ownership import resolve_channel_write_owner as resolve_authenticated_channel_owner
+from ..crm.ad_sources import utm_columns
+from ..crm.lead_notifications import dispatch_telegram_lead_outbox, enqueue_lead_owner_notification, send_telegram_lead_message
 from ..crm.writer_ownership import resolve_marketing_lead_owner
 
 
@@ -3109,14 +3111,17 @@ def register_messenger_module(app, deps):
             source = max_lead_source(channel, lead_data)
             stage = _text(lead_data.get("stage") or channel.get("default_stage") or "Новый", 80) or "Новый"
             notes = max_lead_notes(channel, lead_data)
+            utm_source, utm_medium, utm_campaign = utm_columns(lead_data)
+            work_type = _text(lead_data.get("workType") or lead_data.get("work_type") or lead_data.get("service"), 255)
+            address = _text(lead_data.get("address"), 500)
             created_at = dt.datetime.utcnow().strftime("%Y-%m-%d")
             cur.execute(
                 """
                 INSERT INTO crm_leads
                     (company_id,name,phone,email,source,budget,notes,stage,created_by,created_at,
-                     lead_type,review_status)
+                     lead_type,review_status,work_type,address,utm_source,utm_medium,utm_campaign)
                 VALUES
-                    (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 RETURNING id,name,phone,email,source,budget,notes,stage,
                           created_by,created_at,project_id,photo_url,
                           COALESCE(lead_type,'Клиент') AS lead_type,
@@ -3135,9 +3140,24 @@ def register_messenger_module(app, deps):
                     created_at,
                     lead_type,
                     review_status,
+                    work_type,
+                    address,
+                    utm_source,
+                    utm_medium,
+                    utm_campaign,
                 ),
             )
             lead = cur.fetchone()
+            enqueue_lead_owner_notification(
+                cur,
+                company_id=lead_owner["companyId"],
+                lead_id=lead.get("id"),
+                name=name,
+                phone=phone,
+                work_type=work_type,
+                address=address,
+                source=source,
+            )
             conn.commit()
             return {
                 "ok": True,
@@ -3411,6 +3431,15 @@ def register_messenger_module(app, deps):
                         "error": _text(detail, 1000),
                         "item": _public_messenger_outbox_item(updated),
                     })
+            telegram = dispatch_telegram_lead_outbox(
+                cur,
+                send_message=send_telegram_lead_message,
+                dry_run=dry_run,
+                limit=limit,
+            )
+            planned.extend(telegram["planned"])
+            sent.extend(telegram["sent"])
+            failed.extend(telegram["failed"])
             if not dry_run:
                 conn.commit()
             return {"ok": True, "dryRun": dry_run, "planned": planned, "sent": sent, "failed": failed}

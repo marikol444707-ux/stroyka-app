@@ -2,6 +2,7 @@ import React from 'react';
 import { AlertTriangle, Building2, Check, ClipboardList, Edit2, ExternalLink, FileText, Filter, Plus, Search, Trash2, Upload, UserCheck, Users, X } from 'lucide-react';
 import DocumentRecognitionPanel from '../../components/DocumentRecognitionPanel';
 import PhotoAttachmentField from '../../components/PhotoAttachmentField';
+import { takeRememberedCrmLead } from './crmLeadLink';
 import { publicComparisonUrlFromLeadNotes } from './leadUtils';
 import OpportunityCandidatesPanel from './OpportunityCandidatesPanel';
 
@@ -81,7 +82,7 @@ export default function CrmPage({
   const [documentForm, setDocumentForm] = React.useState({ docType: 'Договор', title: '', status: 'Загружен', number: '', docDate: '', confidential: false, notes: '', fileUrl: '' });
   const [taskForm, setTaskForm] = React.useState({ title: '', dueDate: '', assignedTo: '', notes: '' });
   const [inviteResult, setInviteResult] = React.useState(null);
-  const [filters, setFilters] = React.useState({ search: '', leadType: '', responsibleName: '', attention: '' });
+  const [filters, setFilters] = React.useState({ search: '', leadType: '', responsibleName: '', attention: '', source: '' });
   const [saving, setSaving] = React.useState(false);
   const compact = isMobile || (typeof window !== 'undefined' && window.innerWidth <= 1100);
   const today = React.useMemo(() => new Date().toISOString().slice(0, 10), []);
@@ -296,6 +297,27 @@ export default function CrmPage({
   };
 
   const allLeads = safeList(leads);
+  React.useEffect(() => {
+    if (typeof window === 'undefined' || showForm) return undefined;
+    let leadId = '';
+    let storage = null;
+    try {
+      storage = window.sessionStorage;
+      leadId = storage.getItem('stroykaOpenCrmLead') || '';
+    } catch {
+      return undefined;
+    }
+    if (!/^\d+$/.test(leadId)) return undefined;
+    const lead = allLeads.find(item => String(item.id) === leadId);
+    if (!lead) return undefined;
+    takeRememberedCrmLead(storage);
+    setEditingItem(lead);
+    setNewLead({ ...EMPTY_LEAD, ...lead });
+    setShowForm(true);
+    loadDetails(lead.id);
+    setInviteResult(null);
+    return undefined;
+  }, [allLeads, loadDetails, setEditingItem, setInviteResult, setNewLead, setShowForm, showForm]);
   const attentionForLead = React.useCallback((lead) => ({
     overdue: isPastDue(lead.nextContactAt) || isPastDue(lead.nextTaskDueDate),
     today: isDueToday(lead.nextContactAt) || isDueToday(lead.nextTaskDueDate),
@@ -308,6 +330,7 @@ export default function CrmPage({
     const query = filters.search.trim().toLowerCase();
     return allLeads.filter(lead => {
       if (filters.leadType && lead.leadType !== filters.leadType) return false;
+      if (filters.source && (lead.source || '') !== filters.source) return false;
       if (filters.responsibleName && (lead.responsibleName || '') !== filters.responsibleName) return false;
       const attention = attentionForLead(lead);
       if (filters.attention && !attention[filters.attention]) return false;
@@ -321,6 +344,10 @@ export default function CrmPage({
 
   const responsibleOptions = React.useMemo(
     () => [...new Set(allLeads.map(lead => lead.responsibleName).filter(Boolean))].sort(),
+    [allLeads],
+  );
+  const sourceOptions = React.useMemo(
+    () => [...new Set(allLeads.map(lead => String(lead.source || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ru')),
     [allLeads],
   );
 
@@ -451,6 +478,7 @@ export default function CrmPage({
         setFilters={setFilters}
         leadTypes={LEAD_TYPES}
         responsibleOptions={responsibleOptions}
+        sourceOptions={sourceOptions}
       />
 
       {showForm && (
@@ -477,6 +505,12 @@ export default function CrmPage({
             <input placeholder="Телефон" value={newLead.phone || ''} onChange={e => setNewLead({ ...newLead, phone: e.target.value })} style={field(inp)} />
             <input placeholder="Email" value={newLead.email || ''} onChange={e => setNewLead({ ...newLead, email: e.target.value })} style={field(inp)} />
             <input placeholder="Источник" value={newLead.source || ''} onChange={e => setNewLead({ ...newLead, source: e.target.value })} style={field(inp)} />
+            {!editingItem && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', color: C.textSec, fontSize: '12px', minHeight: '38px' }}>
+                <input type="checkbox" checked={Boolean(newLead.external)} onChange={e => setNewLead({ ...newLead, external: e.target.checked })} />
+                Заявка с рекламы — сразу сообщить владельцу
+              </label>
+            )}
             <input placeholder="Тип работ / специализация" value={newLead.workType || ''} onChange={e => setNewLead({ ...newLead, workType: e.target.value })} style={field(inp)} />
             <input placeholder="Адрес / город" value={newLead.address || ''} onChange={e => setNewLead({ ...newLead, address: e.target.value })} style={field(inp)} />
             <input placeholder="Бюджет (₽)" type="number" step="any" value={newLead.budget || ''} onChange={e => setNewLead({ ...newLead, budget: e.target.value })} style={field(inp)} />
@@ -611,20 +645,25 @@ function PublicSiteLeadStats({ C, card, compact, leads }) {
   const campaigns = React.useMemo(() => {
     const groups = new Map();
     filtered.forEach(lead => {
-      const text = String(lead.notes || '');
-      const utmLine = text.split(/\r?\n/).find(line => line.trim().startsWith('UTM:')) || '';
-      const values = Object.fromEntries(
-        [...utmLine.matchAll(/(utm_source|utm_medium|utm_campaign)=([^·\n]+)/g)]
-          .map(([, key, value]) => [key, value.trim()]),
-      );
-      const label = values.utm_campaign
-        ? [values.utm_campaign, values.utm_source, values.utm_medium].filter(Boolean).join(' · ')
-        : (values.utm_source || values.utm_medium)
-          ? [values.utm_source, values.utm_medium].filter(Boolean).join(' · ')
-          : 'Без UTM-метки';
+      const source = String(lead.source || '').trim();
+      const channel = source.includes(' / ') ? source.split(' / ').slice(1).join(' / ').trim() : '';
+      let label = channel;
+      if (!label) {
+        const text = String(lead.notes || '');
+        const utmLine = text.split(/\r?\n/).find(line => line.trim().startsWith('UTM:')) || '';
+        const values = Object.fromEntries(
+          [...utmLine.matchAll(/(utm_source|utm_medium|utm_campaign)=([^·\n]+)/g)]
+            .map(([, key, value]) => [key, value.trim()]),
+        );
+        label = values.utm_campaign
+          ? [values.utm_campaign, values.utm_source, values.utm_medium].filter(Boolean).join(' · ')
+          : (values.utm_source || values.utm_medium)
+            ? [values.utm_source, values.utm_medium].filter(Boolean).join(' · ')
+            : (source || 'Без UTM-метки');
+      }
       groups.set(label, (groups.get(label) || 0) + 1);
     });
-    return [...groups.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'ru')).slice(0, 5);
+    return [...groups.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'ru'));
   }, [filtered]);
 
   if (!leads.length) return null;
@@ -669,7 +708,7 @@ function PublicSiteLeadStats({ C, card, compact, leads }) {
         <div style={{ marginTop: '10px' }}>
           <b style={{ display: 'block', color: C.text, fontSize: '11px', marginBottom: '5px' }}>Источники и кампании</b>
           <div style={{ display: 'grid', gap: '4px' }}>
-            {campaigns.map(([label, count]) => (
+            {campaigns.slice(0, 8).map(([label, count]) => (
               <div key={label} style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', color: C.textSec, fontSize: '11px', minWidth: 0 }}>
                 <span style={{ overflowWrap: 'anywhere' }}>{label}</span><b style={{ color: C.text, flex: '0 0 auto' }}>{count}</b>
               </div>
@@ -709,11 +748,11 @@ function CrmSummary({ C, card, compact, summary }) {
   );
 }
 
-function CrmFilters({ C, inp, btnG, compact, filters, setFilters, leadTypes, responsibleOptions }) {
+function CrmFilters({ C, inp, btnG, compact, filters, setFilters, leadTypes, responsibleOptions, sourceOptions = [] }) {
   const update = (patch) => setFilters(current => ({ ...current, ...patch }));
-  const reset = () => setFilters({ search: '', leadType: '', responsibleName: '', attention: '' });
+  const reset = () => setFilters({ search: '', leadType: '', responsibleName: '', attention: '', source: '' });
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: compact ? '1fr' : 'minmax(220px,1.4fr) repeat(3,minmax(150px,1fr)) auto', gap: '8px', alignItems: 'center', marginBottom: '14px' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: compact ? '1fr' : 'minmax(180px,1.2fr) repeat(4,minmax(130px,1fr)) auto', gap: '8px', alignItems: 'center', marginBottom: '14px' }}>
       <label style={{ position: 'relative', display: 'block' }}>
         <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: C.textMuted }} />
         <input
@@ -726,6 +765,10 @@ function CrmFilters({ C, inp, btnG, compact, filters, setFilters, leadTypes, res
       <select value={filters.leadType} onChange={event => update({ leadType: event.target.value })} style={field(inp)}>
         <option value="">Все типы</option>
         {leadTypes.map(type => <option key={type}>{type}</option>)}
+      </select>
+      <select aria-label="Источник" value={filters.source || ''} onChange={event => update({ source: event.target.value })} style={field(inp)}>
+        <option value="">Все источники</option>
+        {sourceOptions.map(source => <option key={source} value={source}>{source}</option>)}
       </select>
       <select value={filters.responsibleName} onChange={event => update({ responsibleName: event.target.value })} style={field(inp)}>
         <option value="">Все ответственные</option>

@@ -718,9 +718,9 @@ class WarehouseAnomalyRuntimeDisclosurePolicyTests(unittest.TestCase):
             backend_root / "db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Timesheet company scope plus room and measurement ownership; the warehouse preview package is unchanged.
+            # CRM first-touch UTM columns plus room ownership; the warehouse preview package is unchanged.
             backend_root / "main.py": (
-                "e1c2223597883c37ed8d1a39383ec20e31107baf0fd2ebeb73d6e134f7fa0cb1"
+                "f7e5acafb10979f67e778534ef4ded439a29ae83dd5658ccaa5f3f32cea85962"
             ),
         }
         actual = {

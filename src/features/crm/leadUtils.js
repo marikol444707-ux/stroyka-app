@@ -52,5 +52,5 @@ export const buildLeadPayload = (lead = {}, { createdBy = '', createdAt = '', in
     reviewStatus: lead.reviewStatus || 'Новая',
   };
 
-  return includeCreateMeta ? { ...body, createdBy, createdAt } : body;
+  return includeCreateMeta ? { ...body, createdBy, createdAt, external: Boolean(lead.external) } : body;
 };

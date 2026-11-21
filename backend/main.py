@@ -3621,6 +3621,9 @@ def init_db():
         );
 	        ALTER TABLE crm_leads ADD COLUMN IF NOT EXISTS project_id INT;
 	        ALTER TABLE crm_leads ADD COLUMN IF NOT EXISTS photo_url TEXT;
+	        ALTER TABLE crm_leads ADD COLUMN IF NOT EXISTS utm_source VARCHAR(120);
+	        ALTER TABLE crm_leads ADD COLUMN IF NOT EXISTS utm_medium VARCHAR(120);
+	        ALTER TABLE crm_leads ADD COLUMN IF NOT EXISTS utm_campaign VARCHAR(120);
         CREATE TABLE IF NOT EXISTS expense_reports (
             id SERIAL PRIMARY KEY,
             employee_id INT,

@@ -14,6 +14,8 @@ from .upload_policy import (
     public_upload_rate_exceeded,
     validate_public_lead_file,
 )
+from ..crm.ad_sources import utm_columns, website_lead_source
+from ..crm.lead_notifications import enqueue_lead_owner_notification
 from ..crm.writer_ownership import resolve_public_lead_owner
 
 
@@ -585,9 +587,24 @@ def register_public_site_routes(app, deps):
 
         name = _public_text(data.get("name") or "Заявка с сайта", 255)
         email = _public_text(data.get("email"), 255)
-        source = _public_text(data.get("source") or "Сайт", 255)
+        utm_source, utm_medium, utm_campaign = utm_columns(data)
+        partner_type = _public_text(data.get("partnerType"), 80)
+        source = website_lead_source(data.get("source"), utm_source, partner=bool(partner_type))
         budget = data.get("budget") or 0
         notes = _public_lead_notes(data)
+        calculation = data.get("calculation") if isinstance(data.get("calculation"), dict) else {}
+        work_type = _public_text(
+            calculation.get("typeLabel")
+            or data.get("workType")
+            or {
+                "supplier": "Поставщик",
+                "master": "Мастер",
+                "brigade": "Бригадир",
+                "subcontractor": "Субподрядчик",
+            }.get(partner_type, ""),
+            255,
+        )
+        address = _public_text(data.get("address"), 500)
         consent_version = _public_text(data.get("consentVersion"), 120)
         legal_source = _public_text(data.get("legalSource") or data.get("page"), 255)
         user_agent = _public_text(data.get("userAgent") or request.headers.get("user-agent"), 255)
@@ -601,7 +618,6 @@ def register_public_site_routes(app, deps):
         notes = (notes + ("\n\n" if notes else "") + "\n".join(legal_notes))[:4000]
         created_at = dt.datetime.utcnow().strftime("%Y-%m-%d")
 
-        partner_type = _public_text(data.get("partnerType"), 80)
         lead_type = {
             "supplier": "Поставщик",
             "master": "Мастер",
@@ -632,11 +648,12 @@ def register_public_site_routes(app, deps):
             cur.execute(
                 """INSERT INTO crm_leads
                    (company_id,name,phone,email,source,budget,notes,stage,created_by,created_at,lead_type,review_status,
-                    public_site_origin,privacy_last_activity_at)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE,NOW()) RETURNING id""",
+                    public_site_origin,privacy_last_activity_at,work_type,address,utm_source,utm_medium,utm_campaign)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE,NOW(),%s,%s,%s,%s,%s) RETURNING id""",
                 (
                     lead_owner["companyId"], name, phone, email, source, budget, notes,
                     "Новый", "Сайт", created_at, lead_type, review_status,
+                    work_type, address, utm_source, utm_medium, utm_campaign,
                 ),
             )
             new_id = cur.fetchone()[0]
@@ -676,6 +693,16 @@ def register_public_site_routes(app, deps):
             ))
             if enqueue_public_site_lead_email:
                 enqueue_public_site_lead_email(cur, lead_owner["companyId"], new_id)
+            enqueue_lead_owner_notification(
+                cur,
+                company_id=lead_owner["companyId"],
+                lead_id=new_id,
+                name=name,
+                phone=phone,
+                work_type=work_type,
+                address=address,
+                source=source,
+            )
             conn.commit()
             lead_last_submit[client_ip] = now
         except HTTPException:

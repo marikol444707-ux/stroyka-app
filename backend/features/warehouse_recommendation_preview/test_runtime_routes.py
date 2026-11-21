@@ -257,10 +257,10 @@ class WarehouseAnomalyRuntimeRouteRegistrationTests(unittest.TestCase):
         package_bytes = package_path.read_bytes()
         runtime_source = runtime_path.read_text(encoding="utf-8")
 
-        # Timesheet company scope plus room and measurement ownership; the warehouse preview package is unchanged.
+        # CRM first-touch UTM columns plus room ownership; the warehouse preview package is unchanged.
         self.assertEqual(
             hashlib.sha256(main_bytes).hexdigest(),
-            "e1c2223597883c37ed8d1a39383ec20e31107baf0fd2ebeb73d6e134f7fa0cb1",
+            "f7e5acafb10979f67e778534ef4ded439a29ae83dd5658ccaa5f3f32cea85962",
         )
         self.assertEqual(
             hashlib.sha256(package_bytes).hexdigest(),
