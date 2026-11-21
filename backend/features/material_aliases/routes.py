@@ -81,15 +81,15 @@ def register_material_aliases_module(app, deps):
             if project_name:
                 if actor:
                     project_access(actor, project_name)
-                where.append("(project_name=%s OR COALESCE(project_name,'')='' OR owner_scope='company')")
+                where.append("(project_name=%s OR COALESCE(project_name,'')='')")
                 params.append(project_name)
             else:
                 allowed = None if all_leadership or not actor or all_company_data(actor) else user_projects(actor)
                 if allowed is not None:
                     if not allowed:
-                        where.append("(COALESCE(project_name,'')='' OR owner_scope='company')")
+                        where.append("COALESCE(project_name,'')=''")
                     else:
-                        where.append("(project_name = ANY(%s) OR COALESCE(project_name,'')='' OR owner_scope='company')")
+                        where.append("(project_name = ANY(%s) OR COALESCE(project_name,'')='')")
                         params.append(allowed)
             params.extend(company_params)
             cur.execute(

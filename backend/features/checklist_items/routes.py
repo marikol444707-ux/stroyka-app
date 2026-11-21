@@ -31,8 +31,10 @@ def register_checklist_items_module(app, deps):
 
     def require_parent_access(cur, checklist_id, actor, company_id):
         row = parent_checklist(cur, checklist_id, company_id)
-        if not all_company_data(actor):
-            project_access(actor, row_value(row, "project_name", 1, "") or "")
+        scope = str(row_value(row, "owner_scope", 2, "") or "")
+        project_name = str(row_value(row, "project_name", 1, "") or "").strip()
+        if not all_company_data(actor) and scope != "company" and project_name:
+            project_access(actor, project_name)
         return row
 
     @app.get("/checklist-items/{checklist_id}")

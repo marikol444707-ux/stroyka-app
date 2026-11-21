@@ -8125,10 +8125,10 @@ def _resolve_material_alias(cur, project: str, name: str, unit: str = "", *, com
                        FROM material_aliases
                        WHERE active=TRUE
                          AND company_id=%s
-                         AND (project_name=%s OR COALESCE(project_name,'')='' OR owner_scope='company')
+                         AND (project_name=%s OR COALESCE(project_name,'')='')
                          AND LOWER(TRIM(alias_name))=LOWER(TRIM(%s))
-                       ORDER BY COALESCE(project_name,'') DESC, id DESC
-                       LIMIT 1""", (company_id, project_name, raw_name))
+                       ORDER BY CASE WHEN project_name=%s THEN 0 ELSE 1 END, id DESC
+                       LIMIT 1""", (company_id, project_name, raw_name, project_name))
         row = cur.fetchone()
         if row:
             return {
@@ -8144,8 +8144,8 @@ def _resolve_material_alias(cur, project: str, name: str, unit: str = "", *, com
                        FROM material_aliases
                        WHERE active=TRUE
                          AND company_id=%s
-                         AND (project_name=%s OR COALESCE(project_name,'')='' OR owner_scope='company')
-                       ORDER BY COALESCE(project_name,'') DESC, id DESC""", (company_id, (project or "").strip()))
+                         AND (project_name=%s OR COALESCE(project_name,'')='')
+                       ORDER BY CASE WHEN project_name=%s THEN 0 ELSE 1 END, id DESC""", (company_id, project_name, project_name))
         for alias_row in cur.fetchall() or []:
             alias_name = _row_get(alias_row, "alias_name", 2, "")
             if _norm_key_text(alias_name or "") != raw_key:

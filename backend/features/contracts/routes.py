@@ -62,13 +62,12 @@ def register_contracts_module(app, deps):
             if actor.get("role") in worker_roles:
                 where.append("(COALESCE(master_id,0)=%s OR (COALESCE(master_id,0)=0 AND master_name=%s))")
                 params.extend([actor.get("id"), actor.get("name") or ""])
-            else:
-                allowed = None if all_leadership else limited_projects(actor)
-                if allowed is not None:
-                    if not allowed:
-                        return []
-                    where.append("(owner_scope='company' OR project = ANY(%s))")
-                    params.append(allowed)
+            allowed = None if all_leadership else limited_projects(actor)
+            if allowed is not None:
+                if not allowed:
+                    return []
+                where.append("(owner_scope='company' OR project = ANY(%s))")
+                params.append(allowed)
             params.extend(company_params)
             query = (
                 "SELECT id,master_id as \"masterId\",master_name as \"masterName\","

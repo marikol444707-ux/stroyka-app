@@ -85,6 +85,20 @@ class FieldRecordBackfillTest(unittest.TestCase):
         self.assertTrue(all(row["company_id"] == 1 for row in plan["assignments"]))
         self.assertFalse(any(row["company_id"] == 5 for row in plan["assignments"]))
 
+    def test_ambiguous_piecework_keeps_the_linked_journal_company(self):
+        tables = empty()
+        tables["piecework"] = [owned(4, project="Объект", work_journal_id=9), owned(5, project="Цех", work_journal_id=9)]
+        tables["work_journal"] = [{"id": 9, "company_id": 1, "project": "Объект"}]
+        plan = plan_backfill(
+            [{"id": 1}, {"id": 5}],
+            projects_for((12, 1, "Объект"), (91, 5, "Объект"), (90, 5, "Цех")),
+            tables,
+        )
+        assigned = {row["id"]: row for row in plan["assignments"] if row["table"] == "piecework"}
+        self.assertEqual((assigned[4]["company_id"], assigned[4]["project_id"], assigned[4]["owner_scope"]), (1, 12, "project"))
+        self.assertNotIn(5, assigned)
+        self.assertEqual(plan["counts"]["piecework"]["conflict"], 1)
+
     def test_a_row_that_already_has_a_company_keeps_it(self):
         tables = empty()
         tables["material_inspection_journal"] = [

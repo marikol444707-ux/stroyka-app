@@ -248,6 +248,40 @@ def _owned(decision):
     return bool(decision) and decision.get("state") in ("already_owned", "assign", "inherited")
 
 
+def _journal_fields(journal, groups):
+    """Copy the work journal's stored company when the piecework label cannot."""
+    company_id = _positive((journal or {}).get("company_id"))
+    if not company_id:
+        return None
+    label = _project_key((journal or {}).get("project"))
+    matches = [item for item in (groups.get(label) or []) if item["company_id"] == company_id] if label else []
+    if len(matches) == 1:
+        decision = _project_owner(company_id, matches[0]["project_id"])
+    else:
+        decision = _company_owner(company_id)
+    decision["state"] = "inherited"
+    return decision
+
+
+def _piecework_owner(row, groups, legacy_company, journals):
+    stored = _stored_owner(row)
+    if stored:
+        return stored
+    named = _owner_from_project_name(row.get("project"), groups, legacy_company)
+    journal = journals.get(_positive((row or {}).get("work_journal_id")))
+    if not journal:
+        return named
+    parent = _journal_fields(journal, groups)
+    if not parent:
+        return named
+    if named.get("state") == "assign" and named["company_id"] == parent["company_id"]:
+        named["state"] = "inherited"
+        return named
+    if named.get("state") == "assign" and named["company_id"] != parent["company_id"]:
+        return {"state": "conflict"}
+    return parent
+
+
 def plan_backfill(companies, projects, tables):
     """Assign legacy rows to the original company or to one exact project."""
     planned = {}
@@ -285,9 +319,14 @@ def plan_backfill(companies, projects, tables):
         row = dict(row or {})
         remember("contracts", row.get("id"), _stored_owner(row) or _owner_from_project_name(row.get("project"), groups, legacy_company))
 
+    journals = {
+        _positive((row or {}).get("id")): dict(row or {})
+        for row in tables.get("work_journal") or []
+        if _positive((row or {}).get("id"))
+    }
     for row in tables.get("piecework") or []:
         row = dict(row or {})
-        remember("piecework", row.get("id"), _stored_owner(row) or _owner_from_project_name(row.get("project"), groups, legacy_company))
+        remember("piecework", row.get("id"), _piecework_owner(row, groups, legacy_company, journals))
 
     for row in tables.get("project_checklists") or []:
         row = dict(row or {})
@@ -361,9 +400,14 @@ def load_snapshot(cur, *, owner_columns=True):
         _row_dict(row, ("id", "project", "owner_scope", "company_id", "project_id"))
         for row in cur.fetchall()
     ]
-    cur.execute(f"SELECT id, project, {owner_sql} FROM piecework")
+    cur.execute(f"SELECT id, project, work_journal_id, {owner_sql} FROM piecework")
     tables["piecework"] = [
-        _row_dict(row, ("id", "project", "owner_scope", "company_id", "project_id"))
+        _row_dict(row, ("id", "project", "work_journal_id", "owner_scope", "company_id", "project_id"))
+        for row in cur.fetchall()
+    ]
+    cur.execute("SELECT id, company_id, project FROM work_journal")
+    tables["work_journal"] = [
+        _row_dict(row, ("id", "company_id", "project"))
         for row in cur.fetchall()
     ]
     if owner_columns:

@@ -260,7 +260,7 @@ class WarehouseAnomalyRuntimeRouteRegistrationTests(unittest.TestCase):
         # Field-record company owners plus tool and room ownership; the warehouse preview package is unchanged.
         self.assertEqual(
             hashlib.sha256(main_bytes).hexdigest(),
-            "7fee17547377f031eb5a8f63a77ad33264ed73002d3616cdf463323e4679f6b2",
+            "a26f214dbcbf1915b9361c289a26758024551d20e3e5aa236b697ed4b236cc00",
         )
         self.assertEqual(
             hashlib.sha256(package_bytes).hexdigest(),

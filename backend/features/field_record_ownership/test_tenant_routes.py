@@ -208,6 +208,15 @@ class CrossTenantFieldRecordTests(unittest.TestCase):
             x_company_id="2", x_company_mode="company",
         )
         self.assertEqual([row["id"] for row in foreign], [2])
+        worker = routes[("GET", "/contracts")](
+            _current_user={"id": 8, "role": "мастер", "name": "Иван", "assignedProjects": ["Склад"]},
+            x_company_id="1", x_company_mode="company",
+        )
+        worker_sql, worker_params = cursor.calls[-1]
+        self.assertIn("master_id", worker_sql)
+        self.assertIn("project = ANY(%s)", worker_sql)
+        self.assertIn(["Склад"], worker_params)
+        self.assertTrue(worker)
         routes[("POST", "/contracts")](
             ContractModel(masterId=3, masterName="Иван", contractNumber="1", project="Склад"),
             _current_user={"role": "директор"}, x_company_id="1", x_company_mode="company",

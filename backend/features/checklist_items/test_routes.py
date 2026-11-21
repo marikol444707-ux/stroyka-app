@@ -79,7 +79,7 @@ def build(cursor, access_calls, deny_id=None):
         "require_roles": lambda *roles: (lambda: None),
         "resolve_work_company_context": resolve,
         "effective_company_actors": lambda user, context: [{**user, "role": "директор", "companyId": context["companyId"], "active": True, "companyActive": True}],
-        "can_see_all_company_data": lambda user: True,
+        "can_see_all_company_data": lambda user: user.get("seeAll", True),
         "require_project_access": project_access,
         "project_document_roles": ("директор",),
         "project_write_roles": ("директор",),
@@ -129,6 +129,18 @@ class ChecklistItemsRoutesTest(unittest.TestCase):
         self.assertEqual(result, {"ok": True})
         self.assertTrue(connection.committed)
         self.assertTrue(any("UPDATE checklist_items SET checked=%s" in sql and "company_id=%s" in sql for sql, _params in cursor.calls))
+
+    def test_company_scoped_checklist_items_skip_the_blank_project_check(self):
+        calls = []
+        cursor = FakeCursor(rows=[(1, 4, "Пункт", False, "", "", 0)])
+        app, _conn = build(cursor, calls)
+        cursor.row = (4, "", "company", 1, None)
+        rows = app.routes[("GET", "/checklist-items/{checklist_id}")](
+            checklist_id=4, _current_user={"role": "директор", "seeAll": False},
+            x_company_id="1", x_company_mode="company",
+        )
+        self.assertEqual(rows[0]["name"], "Пункт")
+        self.assertEqual(calls, [])
 
 
 if __name__ == "__main__":
