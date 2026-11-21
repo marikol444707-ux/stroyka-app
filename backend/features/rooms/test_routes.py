@@ -1,6 +1,15 @@
+import ast
 import unittest
+from pathlib import Path
 
+from fastapi import HTTPException
+
+from backend.features.company_context.service import effective_company_user
+from backend.features.room_ownership.access import FULL_COMPANY_VIEW_ROLES
 from backend.features.rooms.routes import RoomModel, register_rooms_module
+
+
+ROOT = Path(__file__).resolve().parents[3]
 
 
 class FakeApp:
@@ -31,9 +40,15 @@ class FakeCursor:
         self.rows = list(rows)
         self.fetchone_results = list(fetchone_results)
         self.calls = []
+        self.description = [("id",)]
 
     def execute(self, sql, params=()):
-        self.calls.append((" ".join(sql.split()), tuple(params)))
+        normalized = " ".join(sql.split())
+        self.calls.append((normalized, tuple(params)))
+        if "project_name" in normalized.lower():
+            self.description = [("company_id",), ("project_id",), ("project_name",)]
+        else:
+            self.description = [("id",)]
 
     def fetchall(self):
         return list(self.rows)
@@ -60,73 +75,215 @@ class FakeConnection:
         self.closed = True
 
 
-def build(cursor, ai_calls=None):
+class RequestHeaders:
+    def __init__(self, headers):
+        self.headers = headers
+
+
+def company_context(company_id):
+    return {
+        "mode": "company",
+        "companyId": company_id,
+        "company_id": company_id,
+        "role": "директор",
+        "effectiveRole": "директор",
+        "active": True,
+        "companyActive": True,
+        "assignedProjects": [],
+    }
+
+
+def build(cursor, ai_calls=None, company_id=4):
     app = FakeApp()
     connection = FakeConnection(cursor)
     ai_log = ai_calls if ai_calls is not None else []
+    calls = []
+
+    def resolve(_cur, user, _requested, action, x_company_id=None, x_company_mode=None):
+        calls.append((action, x_company_id, x_company_mode, user.get("role")))
+        if user.get("role") == "system_owner":
+            raise HTTPException(status_code=403, detail="Платформенная роль не может выполнять рабочее действие без support-сессии компании")
+        if x_company_mode == "all_companies" and action == "write":
+            raise HTTPException(status_code=400, detail="Для изменения данных выберите конкретную компанию")
+        selected = int(x_company_id or company_id)
+        if selected == 3:
+            raise HTTPException(status_code=403, detail="Нет доступа к выбранной компании")
+        return company_context(selected)
+
     register_rooms_module(app, {
         "get_db": lambda: connection,
         "require_roles": lambda *roles: (lambda: None),
-        "read_roles": ("директор",),
+        "read_roles": ("директор", "system_owner"),
         "write_roles": ("директор",),
-        "visible_project_names": lambda user: ["Объект"],
-        "require_project_access": lambda user, project: None,
-        "require_row_project_access": lambda cur, table, row_id, user, col: None,
-        "require_room_access": lambda cur, room_id, user: None,
-        "require_room_child_access": lambda cur, table, row_id, user: None,
+        "resolve_work_company_context": resolve,
+        "effective_company_actors": lambda user, context: [effective_company_user(user, context)],
+        "full_view_roles": FULL_COMPANY_VIEW_ROLES,
+        "platform_staff_roles": ("system_owner", "platform_admin", "platform_support", "billing_admin"),
         "run_project_ai_control_safely": lambda project, reason: ai_log.append((project, reason)),
     })
-    return app, connection
+    return app, connection, calls
 
 
 class RoomsRoutesTest(unittest.TestCase):
     def test_all_twelve_urls_registered(self):
-        app, _conn = build(FakeCursor())
+        app, _conn, _calls = build(FakeCursor())
         expected = []
         for base in ("/rooms", "/room-windows", "/room-doors"):
             expected += [("GET", base), ("POST", base), ("PUT", base + "/{id}"), ("DELETE", base + "/{id}")]
         for key in expected:
             self.assertIn(key, app.routes)
 
-    def test_room_list_scopes_to_visible_projects(self):
+    def test_room_list_is_limited_to_the_selected_company(self):
         cursor = FakeCursor(rows=[])
-        app, _conn = build(cursor)
-        app.routes[("GET", "/rooms")](current_user={})
-        self.assertIn("WHERE project = ANY(%s)", cursor.calls[0][0])
+        app, _conn, _calls = build(cursor, company_id=2)
+        app.routes[("GET", "/rooms")](
+            current_user={"id": 1, "role": "директор"},
+            request=RequestHeaders({"x-company-id": "2", "x-company-mode": "company"}),
+        )
+        sql, params = cursor.calls[0]
+        self.assertIn("JOIN projects p ON p.id=r.project_id AND p.company_id=r.company_id", sql)
+        self.assertIn("p.company_id=%s", sql)
+        self.assertEqual(params, (2,))
+        self.assertNotIn("project = ANY", sql)
+        self.assertNotIn("IS NULL", sql)
 
-    def test_room_create_triggers_ai_recalc(self):
+    def test_same_project_name_uses_the_company_in_the_header(self):
+        first = FakeCursor(rows=[])
+        second = FakeCursor(rows=[])
+        app, _conn, _calls = build(first)
+        app.routes[("GET", "/rooms")](
+            current_user={"id": 1, "role": "директор"},
+            request=RequestHeaders({"x-company-id": "2"}),
+        )
+        build_second, _conn2, _calls2 = build(second)
+        build_second.routes[("GET", "/rooms")](
+            current_user={"id": 9, "role": "директор"},
+            request=RequestHeaders({"x-company-id": "4"}),
+        )
+        self.assertEqual(first.calls[0][1], (2,))
+        self.assertEqual(second.calls[0][1], (4,))
+
+    def test_platform_review_sees_only_unowned_rows(self):
+        cursor = FakeCursor(rows=[])
+        app, _conn, calls = build(cursor)
+        app.routes[("GET", "/rooms")](current_user={"id": 1, "role": "system_owner"})
+        sql, params = cursor.calls[0]
+        self.assertIn("r.company_id IS NULL", sql)
+        self.assertNotIn("JOIN projects", sql)
+        self.assertEqual(params, ())
+        self.assertEqual(calls, [])
+
+    def test_room_create_stores_verified_owner_and_recalculates(self):
         ai = []
-        cursor = FakeCursor(fetchone_results=[{"id": 1, "project": "Объект", "name": "Кухня"}])
-        app, _conn = build(cursor, ai_calls=ai)
-        app.routes[("POST", "/rooms")](RoomModel(project="Объект", name="Кухня"), _current_user={})
+        cursor = FakeCursor(rows=[(7, 4, "Объект")], fetchone_results=[{"id": 1, "project": "Объект", "name": "Кухня"}])
+        app, _conn, _calls = build(cursor, ai_calls=ai)
+        app.routes[("POST", "/rooms")](
+            RoomModel(project="Объект", name="Кухня", projectId=None),
+            _current_user={"id": 1, "role": "директор"},
+            request=RequestHeaders({"x-company-id": "4"}),
+        )
+        insert = next(call for call in cursor.calls if call[0].startswith("INSERT INTO rooms"))
+        self.assertEqual(insert[1][-2:], (4, 7))
+        self.assertNotIn(99, insert[1])
         self.assertEqual(ai, [("Объект", "room:create")])
 
-    def test_room_delete_cascades_children(self):
+    def test_ambiguous_project_name_is_rejected(self):
+        cursor = FakeCursor(rows=[(7, 4, "Объект"), (8, 4, "Объект")])
+        app, _conn, _calls = build(cursor)
+        with self.assertRaises(HTTPException) as error:
+            app.routes[("POST", "/rooms")](
+                RoomModel(project="Объект", name="Кухня"),
+                _current_user={"id": 1, "role": "директор"},
+            )
+        self.assertEqual(error.exception.status_code, 409)
+        self.assertFalse(any(call[0].startswith("INSERT") for call in cursor.calls))
+
+    def test_other_company_header_is_rejected_before_insert(self):
+        cursor = FakeCursor(rows=[(7, 4, "Объект")])
+        app, _conn, _calls = build(cursor)
+        with self.assertRaises(HTTPException) as error:
+            app.routes[("POST", "/rooms")](
+                RoomModel(project="Объект", name="Кухня"),
+                _current_user={"id": 1, "role": "директор"},
+                request=RequestHeaders({"x-company-id": "3"}),
+            )
+        self.assertEqual(error.exception.status_code, 403)
+
+    def test_all_companies_write_is_rejected(self):
         cursor = FakeCursor()
-        app, _conn = build(cursor)
-        result = app.routes[("DELETE", "/rooms/{id}")](id=5, _current_user={})
+        app, _conn, _calls = build(cursor)
+        with self.assertRaises(HTTPException) as error:
+            app.routes[("POST", "/rooms")](
+                RoomModel(project="Объект", name="Кухня"),
+                _current_user={"id": 1, "role": "директор"},
+                request=RequestHeaders({"x-company-mode": "all_companies"}),
+            )
+        self.assertEqual(error.exception.status_code, 400)
+
+    def test_room_delete_cascades_children_after_owner_check(self):
+        cursor = FakeCursor(fetchone_results=[(4, 7, "Объект")])
+        app, _conn, _calls = build(cursor)
+        result = app.routes[("DELETE", "/rooms/{id}")](
+            id=5, _current_user={"id": 1, "role": "директор"},
+        )
         self.assertEqual(result, {"ok": True})
-        tables = [c[0].split("DELETE FROM ")[1].split(" ")[0] for c in cursor.calls]
+        tables = [call[0].split("DELETE FROM ")[1].split(" ")[0] for call in cursor.calls if "DELETE FROM " in call[0]]
         self.assertEqual(tables, ["room_windows", "room_doors", "room_works", "rooms"])
 
-    def test_window_create_checks_room_access_and_recalcs(self):
+    def test_window_create_copies_room_owner_and_ignores_forged_company(self):
         ai = []
-        cursor = FakeCursor(fetchone_results=[(9, 5, "Окно"), ("Объект",)])
-        app, connection = build(cursor, ai_calls=ai)
+        cursor = FakeCursor(fetchone_results=[(4, 7, "Объект"), (9, 5, "Окно")])
+        app, connection, _calls = build(cursor, ai_calls=ai)
         app.routes[("POST", "/room-windows")](
-            {"roomId": 5, "name": "Окно", "width": 1.2, "height": 1.4}, _current_user={}
+            {"roomId": 5, "name": "Окно", "width": 1.2, "height": 1.4, "companyId": 99},
+            _current_user={"id": 1, "role": "директор"},
         )
         self.assertTrue(connection.committed)
+        insert = next(call for call in cursor.calls if "INSERT INTO room_windows" in call[0])
+        self.assertEqual(insert[1][-2:], (4, 7))
+        self.assertNotIn(99, insert[1])
         self.assertEqual(ai, [("Объект", "room_window:create")])
 
     def test_door_update_resolves_room_from_row_when_missing(self):
-        cursor = FakeCursor(fetchone_results=[(5,), ("Объект",)])
-        app, _conn = build(cursor)
+        cursor = FakeCursor(fetchone_results=[(5,), (4, 7, "Объект"), (4, 7, "Объект")])
+        app, _conn, _calls = build(cursor)
         result = app.routes[("PUT", "/room-doors/{id}")](
-            id=3, data={"name": "Дверь", "width": 0.9, "height": 2.1}, _current_user={}
+            id=3, data={"name": "Дверь", "width": 0.9, "height": 2.1},
+            _current_user={"id": 1, "role": "директор"},
         )
         self.assertEqual(result, {"ok": True})
         self.assertIn("SELECT room_id FROM room_doors WHERE id=%s", cursor.calls[0][0])
+
+    def test_moving_a_room_takes_its_openings_and_works_along(self):
+        cursor = FakeCursor(fetchone_results=[(4, 7, "Объект"), (8, 4, "Цех")])
+        app, _conn, _calls = build(cursor)
+        result = app.routes[("PUT", "/rooms/{id}")](
+            id=5,
+            r=RoomModel(project="Цех", projectId=8, name="Кухня"),
+            _current_user={"id": 1, "role": "директор"},
+        )
+        self.assertEqual(result, {"ok": True})
+        updates = [call for call in cursor.calls if call[0].startswith("UPDATE")]
+        self.assertEqual(updates[1][0], "UPDATE room_windows SET company_id=%s, project_id=%s WHERE room_id=%s")
+        self.assertEqual(updates[1][1], (4, 8, 5))
+        self.assertEqual(updates[2][1], (4, 8, 5))
+        self.assertEqual(updates[3][1], ("Цех", 4, 8, 5))
+
+    def test_platform_staff_are_allowed_to_read_unowned_lists(self):
+        main = (ROOT / "backend" / "main.py").read_text(encoding="utf-8")
+        records = (ROOT / "backend" / "features" / "project_records" / "routes.py").read_text(encoding="utf-8")
+        self.assertIn('"read_roles": (*PROJECT_DOCUMENT_ROLES, *PLATFORM_STAFF_ROLES)', main)
+        self.assertIn("require_roles(*PROJECT_DOCUMENT_ROLES, *PLATFORM_STAFF_ROLES)", main)
+        self.assertIn("measurement_read_roles", records)
+        self.assertIn("platform_staff_roles", records)
+
+    def test_full_view_roles_match_company_wide_visibility(self):
+        tree = ast.parse((ROOT / "backend" / "main.py").read_text(encoding="utf-8"))
+        roles = None
+        for node in tree.body:
+            if isinstance(node, ast.FunctionDef) and node.name == "can_see_all_company_data":
+                roles = tuple(item.value for item in node.body[0].value.comparators[0].elts)
+        self.assertEqual(roles, FULL_COMPANY_VIEW_ROLES)
 
 
 if __name__ == "__main__":

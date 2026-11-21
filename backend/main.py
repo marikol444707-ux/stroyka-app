@@ -2647,24 +2647,50 @@ def require_checklist_item_access(cur, item_id: int, user: dict):
     project_name = row[0] if not isinstance(row, dict) else row.get("project_name")
     require_project_access(user, project_name or "")
 
+def _room_owner_ids(row, company_index, project_index, company_key="company_id", project_key="project_id"):
+    if isinstance(row, dict):
+        return _positive_int_or_none(row.get(company_key)), _positive_int_or_none(row.get(project_key))
+    company_id = _positive_int_or_none(row[company_index] if len(row) > company_index else None)
+    project_id = _positive_int_or_none(row[project_index] if len(row) > project_index else None)
+    return company_id, project_id
+
+def _require_stored_room_company(user: dict, company_id, project_id):
+    if not company_id or not project_id:
+        if user.get("role") in PLATFORM_STAFF_ROLES:
+            return
+        raise HTTPException(status_code=404, detail="Запись не найдена")
+    if user.get("role") in PLATFORM_STAFF_ROLES:
+        return
+    user_company = _positive_int_or_none(user.get("companyId") or user.get("company_id"))
+    if not user_company or user_company != company_id:
+        raise HTTPException(status_code=404, detail="Запись не найдена")
+
 def require_room_access(cur, room_id: int, user: dict):
-    cur.execute("SELECT project FROM rooms WHERE id=%s", (room_id,))
+    cur.execute("SELECT project, company_id, project_id FROM rooms WHERE id=%s", (room_id,))
     row = cur.fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Помещение не найдено")
-    project_name = row[0] if not isinstance(row, dict) else row.get("project")
-    require_project_access(user, project_name or "")
+    project_name = row.get("project") if isinstance(row, dict) else row[0]
+    company_id, project_id = _room_owner_ids(row, 1, 2)
+    _require_stored_room_company(user, company_id, project_id)
+    if user.get("role") not in PLATFORM_STAFF_ROLES:
+        require_project_access(user, project_name or "")
 
 def require_room_child_access(cur, table: str, row_id: int, user: dict):
-    cur.execute(f"""SELECT r.project
+    if table not in ("room_windows", "room_doors", "room_works"):
+        raise HTTPException(status_code=404, detail="Запись не найдена")
+    cur.execute(f"""SELECT child.company_id, child.project_id, r.project
                     FROM {table} child
-                    JOIN rooms r ON r.id = child.room_id
+                    LEFT JOIN rooms r ON r.id = child.room_id
                     WHERE child.id=%s""", (row_id,))
     row = cur.fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Запись не найдена")
-    project_name = row[0] if not isinstance(row, dict) else row.get("project")
-    require_project_access(user, project_name or "")
+    company_id, project_id = _room_owner_ids(row, 0, 1)
+    project_name = row.get("project") if isinstance(row, dict) else row[2]
+    _require_stored_room_company(user, company_id, project_id)
+    if user.get("role") not in PLATFORM_STAFF_ROLES:
+        require_project_access(user, project_name or "")
 
 def require_tool_access(cur, tool_id: int, user: dict):
     role = user.get("role")
@@ -5143,6 +5169,24 @@ def init_db():
         ALTER TABLE room_works ADD COLUMN IF NOT EXISTS work_journal_id INT;
         ALTER TABLE room_works ADD COLUMN IF NOT EXISTS work_package VARCHAR(255);
         ALTER TABLE room_works ADD COLUMN IF NOT EXISTS estimate_item_key VARCHAR(255);
+        ALTER TABLE rooms ADD COLUMN IF NOT EXISTS company_id INTEGER;
+        ALTER TABLE rooms ADD COLUMN IF NOT EXISTS project_id INTEGER;
+        ALTER TABLE room_windows ADD COLUMN IF NOT EXISTS company_id INTEGER;
+        ALTER TABLE room_windows ADD COLUMN IF NOT EXISTS project_id INTEGER;
+        ALTER TABLE room_doors ADD COLUMN IF NOT EXISTS company_id INTEGER;
+        ALTER TABLE room_doors ADD COLUMN IF NOT EXISTS project_id INTEGER;
+        ALTER TABLE room_works ADD COLUMN IF NOT EXISTS company_id INTEGER;
+        ALTER TABLE room_works ADD COLUMN IF NOT EXISTS project_id INTEGER;
+        ALTER TABLE project_measurements ADD COLUMN IF NOT EXISTS company_id INTEGER;
+        ALTER TABLE project_measurements ADD COLUMN IF NOT EXISTS project_id INTEGER;
+        ALTER TABLE measurement_room_drafts ADD COLUMN IF NOT EXISTS company_id INTEGER;
+        ALTER TABLE measurement_room_drafts ADD COLUMN IF NOT EXISTS project_id INTEGER;
+        CREATE INDEX IF NOT EXISTS rooms_owner_idx ON rooms(company_id, project_id, id);
+        CREATE INDEX IF NOT EXISTS room_windows_owner_idx ON room_windows(company_id, project_id, id);
+        CREATE INDEX IF NOT EXISTS room_doors_owner_idx ON room_doors(company_id, project_id, id);
+        CREATE INDEX IF NOT EXISTS room_works_owner_idx ON room_works(company_id, project_id, id);
+        CREATE INDEX IF NOT EXISTS project_measurements_owner_idx ON project_measurements(company_id, project_id, id);
+        CREATE INDEX IF NOT EXISTS measurement_room_drafts_owner_idx ON measurement_room_drafts(company_id, project_id, id);
         CREATE TABLE IF NOT EXISTS tools (
             id SERIAL PRIMARY KEY,
             name VARCHAR(255),
@@ -6117,6 +6161,7 @@ class CopyPricelistModel(BaseModel):
 class RoomWorkModel(BaseModel):
     roomId: int
     project: str
+    projectId: Optional[int] = None
     roomName: str
     masterId: int
     masterName: str
@@ -13571,8 +13616,23 @@ def _work_journal_duplicate_is_pending_for_actor(duplicate, current_user: dict) 
     user_name = str(current_user.get("name") or "").strip()
     return bool(duplicate_master_name and user_name and duplicate_master_name == user_name)
 
-def _project_has_rooms(cur, project_name: str) -> bool:
-    cur.execute("SELECT COUNT(*) FROM rooms WHERE project=%s", (project_name or "",))
+def _project_has_rooms(cur, project_name: str, company_id=None, project_id=None) -> bool:
+    company_id = _positive_int_or_none(company_id)
+    project_id = _positive_int_or_none(project_id)
+    if not company_id:
+        return False
+    if project_id:
+        cur.execute(
+            "SELECT COUNT(*) FROM rooms WHERE company_id=%s AND project_id=%s",
+            (company_id, project_id),
+        )
+    else:
+        cur.execute(
+            """SELECT COUNT(*) FROM rooms r
+               JOIN projects p ON p.id=r.project_id AND p.company_id=r.company_id
+               WHERE r.company_id=%s AND p.name=%s""",
+            (company_id, project_name or ""),
+        )
     row = cur.fetchone()
     if isinstance(row, dict):
         count = row.get("count")
@@ -13592,7 +13652,7 @@ def _raise_work_journal_duplicate(duplicate):
         detail="Эта работа уже заведена" + room_part + ". Запись ЖПР №" + str(row_id) + " (" + str(master_name or "исполнитель") + ")"
     )
 
-def _room_work_duplicate(cur, project, room_id=None, room_name="", estimate_item_key="", description="", work_package="", exclude_work_journal_id=None, family_journal_ids=None):
+def _room_work_duplicate(cur, project, room_id=None, room_name="", estimate_item_key="", description="", work_package="", exclude_work_journal_id=None, family_journal_ids=None, *, company_id):
     project = (project or "").strip()
     room_name = (room_name or "").strip()
     estimate_item_key = (estimate_item_key or "").strip()
@@ -13612,20 +13672,24 @@ def _room_work_duplicate(cur, project, room_id=None, room_name="", estimate_item
         exclude_sql += " AND COALESCE(work_journal_id,0)<>ALL(%s)"
         exclude_params.append(family_journal_ids)
 
+    owner_company_id = _positive_int_or_none(company_id)
+    if not owner_company_id:
+        raise HTTPException(status_code=409, detail="Компания работы не определена")
+
     if room_id:
         cur.execute(f"""SELECT id, master_name, status, room_name, work_package FROM room_works
-                        WHERE project=%s AND room_id=%s AND {target_sql}
+                        WHERE project=%s AND company_id=%s AND room_id=%s AND {target_sql}
                           AND COALESCE(status,'') NOT IN ('Отклонено','Аннулировано'){package_sql}{exclude_sql}
-                        LIMIT 1""", [project, room_id, target_value] + package_params + exclude_params)
+                        LIMIT 1""", [project, owner_company_id, room_id, target_value] + package_params + exclude_params)
         duplicate = cur.fetchone()
         if duplicate:
             return duplicate
 
     if room_name:
         cur.execute(f"""SELECT id, master_name, status, room_name, work_package FROM room_works
-                        WHERE project=%s AND LOWER(TRIM(COALESCE(room_name,'')))=LOWER(TRIM(%s)) AND {target_sql}
+                        WHERE project=%s AND company_id=%s AND LOWER(TRIM(COALESCE(room_name,'')))=LOWER(TRIM(%s)) AND {target_sql}
                           AND COALESCE(status,'') NOT IN ('Отклонено','Аннулировано'){package_sql}{exclude_sql}
-                        LIMIT 1""", [project, room_name, target_value] + package_params + exclude_params)
+                        LIMIT 1""", [project, owner_company_id, room_name, target_value] + package_params + exclude_params)
         duplicate = cur.fetchone()
         if duplicate:
             return duplicate
@@ -13647,6 +13711,13 @@ def _sync_room_work_from_journal(cur, work_row: dict, *, family_journal_ids=None
             cur.execute("DELETE FROM room_works WHERE work_journal_id=%s", (work_journal_id,))
         return
 
+    try:
+        from backend.features.room_ownership.access import resolve_stored_project_owner
+    except ModuleNotFoundError:
+        from features.room_ownership.access import resolve_stored_project_owner
+    owner = resolve_stored_project_owner(
+        cur, work_row.get("company_id"), project, work_row.get("project_id"),
+    )
     duplicate = _room_work_duplicate(
         cur,
         project,
@@ -13657,6 +13728,7 @@ def _sync_room_work_from_journal(cur, work_row: dict, *, family_journal_ids=None
         work_package=work_package,
         exclude_work_journal_id=work_journal_id,
         family_journal_ids=family_journal_ids,
+        company_id=owner["companyId"],
     )
     if duplicate:
         _raise_work_journal_duplicate(duplicate)
@@ -13682,18 +13754,21 @@ def _sync_room_work_from_journal(cur, work_row: dict, *, family_journal_ids=None
         work_journal_id,
         work_package,
         estimate_item_key,
+        owner["companyId"],
+        owner["id"],
     )
     if existing:
         cur.execute("""UPDATE room_works
                        SET room_id=%s, project=%s, room_name=%s, master_id=%s, master_name=%s,
                            description=%s, surface=%s, unit=%s, quantity=%s, price_per_unit=%s,
                            total=%s, date=%s, status=%s, photo_url=%s, confirmed_by=%s,
-                           work_journal_id=%s, work_package=%s, estimate_item_key=%s
+                           work_journal_id=%s, work_package=%s, estimate_item_key=%s,
+                           company_id=%s, project_id=%s
                        WHERE work_journal_id=%s""", payload + (work_journal_id,))
     else:
         cur.execute("""INSERT INTO room_works
-                       (room_id,project,room_name,master_id,master_name,description,surface,unit,quantity,price_per_unit,total,date,status,photo_url,confirmed_by,work_journal_id,work_package,estimate_item_key)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", payload)
+                       (room_id,project,room_name,master_id,master_name,description,surface,unit,quantity,price_per_unit,total,date,status,photo_url,confirmed_by,work_journal_id,work_package,estimate_item_key,company_id,project_id)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", payload)
 
 def _work_journal_sync_row(cur, work_journal_id: int):
     if not work_journal_id:
@@ -13918,7 +13993,7 @@ def create_work_journal(
         journal_room_id = w.roomId
         journal_room_name = (w.roomName or "").strip()
         if user_role in WORKER_EXECUTION_ROLES and not journal_room_id and not journal_room_name:
-            if _project_has_rooms(cur, w.project):
+            if _project_has_rooms(cur, w.project, journal_company_id, journal_project["id"]):
                 raise HTTPException(status_code=400, detail="Для закрытия работ исполнителем укажите помещение. Это нужно для контроля обмеров и защиты от дублей.")
             journal_room_name = "Без помещения"
         estimate_work_item = None
@@ -15004,37 +15079,49 @@ def _sync_daily_interim_act_from_work_journal(cur, work_row: dict):
 
 
 
+def _room_work_scope():
+    try:
+        from backend.features.room_ownership.access import FULL_COMPANY_VIEW_ROLES, RoomOwnership
+    except ModuleNotFoundError:
+        from features.room_ownership.access import FULL_COMPANY_VIEW_ROLES, RoomOwnership
+    return RoomOwnership(
+        _resolve_work_company_context,
+        effective_company_actors,
+        full_view_roles=FULL_COMPANY_VIEW_ROLES,
+        platform_staff_roles=PLATFORM_STAFF_ROLES,
+        read_roles=PROJECT_DOCUMENT_ROLES,
+        write_roles=JOURNAL_WRITE_ROLES,
+    )
+
 @app.get("/room-works")
-def get_room_works(current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
+def get_room_works(current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES, *PLATFORM_STAFF_ROLES)), request: Request = None):
     conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    allowed_projects = visible_project_names(current_user)
-    role = current_user.get("role")
-    package_names = user_package_names(current_user) if role in PACKAGE_LIMIT_ROLES else []
-    if role in PACKAGE_LIMIT_ROLES and role != "прораб" and not package_names:
-        cur.close(); conn.close()
-        return []
-    select_sql = "SELECT id,room_id as \"roomId\",project,room_name as \"roomName\",master_id as \"masterId\",master_name as \"masterName\",description,surface,unit,quantity,price_per_unit as \"pricePerUnit\",total,date,status,photo_url as \"photoUrl\",confirmed_by as \"confirmedBy\",work_journal_id as \"workJournalId\",work_package as \"workPackage\",estimate_item_key as \"estimateItemKey\" FROM room_works"
-    conditions = []
-    params = []
-    if allowed_projects is not None:
-        if not allowed_projects:
-            cur.close(); conn.close()
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        scope = _room_work_scope()
+        actors, mode = scope.actors(cur, current_user, request, write=False, roles=PROJECT_DOCUMENT_ROLES)
+        role_user = actors[0] if mode == "company" and len(actors) == 1 else current_user
+        role = role_user.get("role")
+        package_names = user_package_names(role_user) if role in PACKAGE_LIMIT_ROLES else []
+        if role in PACKAGE_LIMIT_ROLES and role != "прораб" and not package_names:
             return []
-        conditions.append("project = ANY(%s)")
-        params.append(allowed_projects)
-    if role in WORKER_EXECUTION_ROLES:
-        conditions.append("(COALESCE(master_id,0)=%s OR (COALESCE(master_id,0)=0 AND LOWER(TRIM(master_name))=LOWER(TRIM(%s))))")
-        params.extend([current_user.get("id"), current_user.get("name") or ""])
-    if role in PACKAGE_LIMIT_ROLES and package_names:
-        conditions.append("COALESCE(NULLIF(work_package,''),'Основная') = ANY(%s)")
-        params.append(package_names)
-    if conditions:
-        cur.execute(select_sql + " WHERE " + " AND ".join(conditions) + " ORDER BY id DESC", tuple(params))
-    else:
-        cur.execute(select_sql + " ORDER BY id DESC")
-    rows = cur.fetchall()
-    conn.close()
+        join, where, params = scope.list_clause(actors, mode, "r")
+        conditions = [where]
+        params = list(params)
+        if role in WORKER_EXECUTION_ROLES:
+            conditions.append("(COALESCE(r.master_id,0)=%s OR (COALESCE(r.master_id,0)=0 AND LOWER(TRIM(r.master_name))=LOWER(TRIM(%s))))")
+            params.extend([role_user.get("id"), role_user.get("name") or ""])
+        if role in PACKAGE_LIMIT_ROLES and package_names:
+            conditions.append("COALESCE(NULLIF(r.work_package,''),'Основная') = ANY(%s)")
+            params.append(package_names)
+        cur.execute(
+            """SELECT r.id,r.room_id as \"roomId\",r.project,r.room_name as \"roomName\",r.master_id as \"masterId\",r.master_name as \"masterName\",r.description,r.surface,r.unit,r.quantity,r.price_per_unit as \"pricePerUnit\",r.total,r.date,r.status,r.photo_url as \"photoUrl\",r.confirmed_by as \"confirmedBy\",r.work_journal_id as \"workJournalId\",r.work_package as \"workPackage\",r.estimate_item_key as \"estimateItemKey\",r.company_id as \"companyId\",r.project_id as \"projectId\"
+               FROM room_works r """ + join + " WHERE " + " AND ".join(conditions) + " ORDER BY r.id DESC",
+            tuple(params),
+        )
+        rows = cur.fetchall()
+    finally:
+        conn.close()
     result = [dict(r) for r in rows]
     if role in WORKER_EXECUTION_ROLES:
         for row in result:
@@ -15043,55 +15130,66 @@ def get_room_works(current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_
     return result
 
 @app.post("/room-works")
-def create_room_work(w: RoomWorkModel, _current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES))):
-    require_project_access(_current_user, w.project)
-    if _current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(_current_user, w.workPackage or "Основная"):
-        raise HTTPException(status_code=403, detail="Нет доступа к пакету работ")
-    if _current_user.get("role") in WORKER_EXECUTION_ROLES:
-        if not w.workJournalId:
-            raise HTTPException(status_code=403, detail="Работа по помещению создаётся только через ЖПР")
-        own_id = str(_current_user.get("id") or "")
-        own_name = (_current_user.get("name") or "").strip().lower()
-        if str(w.masterId or "") != own_id and (w.masterName or "").strip().lower() != own_name:
-            raise HTTPException(status_code=403, detail="Мастер может создавать только свои работы по помещениям")
+def create_room_work(w: RoomWorkModel, _current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES)), request: Request = None):
     conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    if w.workJournalId:
-        work = require_work_journal_actor_access(cur, w.workJournalId, _current_user)
-        if (work.get("project") or "") != (w.project or ""):
-            cur.close(); conn.close()
-            raise HTTPException(status_code=400, detail="ЖПР относится к другому объекту")
-    _raise_work_journal_duplicate(_room_work_duplicate(
-        cur,
-        w.project,
-        room_id=w.roomId,
-        room_name=w.roomName,
-        estimate_item_key=w.estimateItemKey,
-        description=w.description,
-        work_package=w.workPackage,
-        exclude_work_journal_id=w.workJournalId,
-    ))
-    cur.execute("""INSERT INTO room_works
-                   (room_id,project,room_name,master_id,master_name,description,surface,unit,quantity,price_per_unit,total,date,photo_url,work_journal_id,work_package,estimate_item_key)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
-                (w.roomId,w.project,w.roomName,w.masterId,w.masterName,w.description,w.surface,w.unit,w.quantity,w.pricePerUnit,w.total,w.date,w.photoUrl,w.workJournalId,w.workPackage,w.estimateItemKey))
-    row = cur.fetchone()
-    conn.close()
-    _run_project_ai_control_safely(w.project, "room_work:create")
-    return dict(row)
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        scope = _room_work_scope()
+        actors, mode = scope.actors(cur, _current_user, request, write=True, roles=JOURNAL_WRITE_ROLES)
+        actor = actors[0]
+        parent = scope.verified_project(cur, actor, w)
+        role = actor.get("role")
+        if role in PACKAGE_LIMIT_ROLES and not has_package_access(actor, w.workPackage or "Основная"):
+            raise HTTPException(status_code=403, detail="Нет доступа к пакету работ")
+        if role in WORKER_EXECUTION_ROLES:
+            if not w.workJournalId:
+                raise HTTPException(status_code=403, detail="Работа по помещению создаётся только через ЖПР")
+            own_id = str(actor.get("id") or "")
+            own_name = (actor.get("name") or "").strip().lower()
+            if str(w.masterId or "") != own_id and (w.masterName or "").strip().lower() != own_name:
+                raise HTTPException(status_code=403, detail="Мастер может создавать только свои работы по помещениям")
+        if w.workJournalId:
+            work = require_work_journal_actor_access(cur, w.workJournalId, actor)
+            cur.execute("SELECT company_id FROM work_journal WHERE id=%s", (w.workJournalId,))
+            journal_company = _positive_int_or_none(_row_get(cur.fetchone(), "company_id", 0))
+            if journal_company != parent["companyId"] or (work.get("project") or "") != parent["name"]:
+                raise HTTPException(status_code=400, detail="ЖПР относится к другому объекту")
+        _raise_work_journal_duplicate(_room_work_duplicate(
+            cur,
+            parent["name"],
+            room_id=w.roomId,
+            room_name=w.roomName,
+            estimate_item_key=w.estimateItemKey,
+            description=w.description,
+            work_package=w.workPackage,
+            exclude_work_journal_id=w.workJournalId,
+            company_id=parent["companyId"],
+        ))
+        cur.execute("""INSERT INTO room_works
+                       (room_id,project,room_name,master_id,master_name,description,surface,unit,quantity,price_per_unit,total,date,photo_url,work_journal_id,work_package,estimate_item_key,company_id,project_id)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
+                    (w.roomId, parent["name"], w.roomName, w.masterId, w.masterName, w.description, w.surface, w.unit, w.quantity, w.pricePerUnit, w.total, w.date, w.photoUrl, w.workJournalId, w.workPackage, w.estimateItemKey, parent["companyId"], parent["id"]))
+        row = dict(cur.fetchone())
+        project_name = parent["name"]
+    finally:
+        conn.close()
+    _run_project_ai_control_safely(project_name, "room_work:create")
+    return row
 
 @app.put("/room-works/{id}")
-def update_room_work(id: int, data: dict, _current_user: dict = Depends(require_roles(*PROJECT_WRITE_ROLES, "технадзор", "стройконтроль"))):
+def update_room_work(id: int, data: dict, _current_user: dict = Depends(require_roles(*PROJECT_WRITE_ROLES, "технадзор", "стройконтроль")), request: Request = None):
     conn = get_db()
-    cur = conn.cursor()
-    require_row_project_access(cur, "room_works", id, _current_user, "project")
-    cur.execute("SELECT project FROM room_works WHERE id=%s", (id,))
-    project_row = cur.fetchone()
-    project_name = project_row[0] if project_row else ""
-    if 'status' in data:
-        cur.execute("UPDATE room_works SET status=%s,confirmed_by=%s WHERE id=%s",
-                    (data['status'],data.get('confirmedBy',''),id))
-    conn.close()
+    try:
+        cur = conn.cursor()
+        scope = _room_work_scope()
+        actors, mode = scope.actors(cur, _current_user, request, write=True, roles=(*PROJECT_WRITE_ROLES, "технадзор", "стройконтроль"))
+        owner = scope.mutable_row(cur, "room_works", id, actors, mode)
+        project_name = owner["name"]
+        if 'status' in data:
+            cur.execute("UPDATE room_works SET status=%s,confirmed_by=%s WHERE id=%s AND company_id=%s",
+                        (data['status'], data.get('confirmedBy', ''), id, owner["companyId"]))
+    finally:
+        conn.close()
     _run_project_ai_control_safely(project_name, "room_work:update")
     return {"ok": True}
 
@@ -15846,17 +15944,17 @@ def _run_project_ai_control(
     created = updated = tasks_created = tasks_updated = closed = 0
 
     cur.execute("""SELECT id, project, name, floor_area, wall_area, ceiling_area, height, windows, doors, notes, floor, liter, room_type
-                   FROM rooms WHERE project=%s ORDER BY id""", (project_name,))
+                   FROM rooms WHERE company_id=%s AND project_id=%s ORDER BY id""", (owner_company_id, owner_project_id,))
     rooms_rows = [dict(r) for r in cur.fetchall()]
     room_ids = [r["id"] for r in rooms_rows]
     windows_by_room, doors_by_room = {}, {}
     if room_ids:
         cur.execute("""SELECT w.id,w.room_id,w.name,w.width,w.height,w.reveal_depth
-                       FROM room_windows w WHERE w.room_id = ANY(%s) ORDER BY w.id""", (room_ids,))
+                       FROM room_windows w WHERE w.room_id = ANY(%s) AND w.company_id=%s ORDER BY w.id""", (room_ids, owner_company_id))
         for w in cur.fetchall():
             windows_by_room.setdefault(w["room_id"], []).append(dict(w))
         cur.execute("""SELECT d.id,d.room_id,d.name,d.width,d.height,d.reveal_depth
-                       FROM room_doors d WHERE d.room_id = ANY(%s) ORDER BY d.id""", (room_ids,))
+                       FROM room_doors d WHERE d.room_id = ANY(%s) AND d.company_id=%s ORDER BY d.id""", (room_ids, owner_company_id))
         for d in cur.fetchall():
             doors_by_room.setdefault(d["room_id"], []).append(dict(d))
 
@@ -15942,7 +16040,7 @@ def _run_project_ai_control(
                    WHERE project=%s AND COALESCE(status,'') NOT IN ('Отклонено','Аннулировано')
                    ORDER BY id DESC LIMIT 150""", (project_name,))
     journal_rows = [dict(r) for r in cur.fetchall()]
-    cur.execute("SELECT description, date FROM room_works WHERE project=%s", (project_name,))
+    cur.execute("SELECT description, date FROM room_works WHERE company_id=%s AND project_id=%s", (owner_company_id, owner_project_id))
     bound_keys = set((str(r.get("description") or "").strip().lower(), str(r.get("date") or "")) for r in cur.fetchall())
     unlinked_journal_rows = []
     for wj in journal_rows:
@@ -18751,7 +18849,7 @@ def _update_estimate_with_connection(conn, id, data, x_company_id, x_company_mod
                 room_id = None
             room_name = journal_params.get("roomName") or ""
             if _current_user.get("role") in WORKER_EXECUTION_ROLES and not room_id and not str(room_name).strip():
-                if _project_has_rooms(cur, project_name):
+                if _project_has_rooms(cur, project_name, estimate_scope["companyId"], estimate_scope.get("projectId")):
                     cur.close(); conn.close()
                     raise HTTPException(status_code=400, detail="Для закрытия работы нужно выбрать помещение. Так система не даст задвоить объём и свяжет работу с обмерами.")
                 room_name = "Без помещения"
@@ -26468,13 +26566,12 @@ except ModuleNotFoundError:
 register_rooms_module(app, {
     "get_db": get_db,
     "require_roles": require_roles,
-    "read_roles": PROJECT_DOCUMENT_ROLES,
+    "read_roles": (*PROJECT_DOCUMENT_ROLES, *PLATFORM_STAFF_ROLES),
     "write_roles": PROJECT_WRITE_ROLES,
-    "visible_project_names": visible_project_names,
-    "require_project_access": require_project_access,
-    "require_row_project_access": require_row_project_access,
-    "require_room_access": require_room_access,
-    "require_room_child_access": require_room_child_access,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
+    "full_view_roles": ("директор", "зам_директора", "бухгалтер", "главный_инженер", "сметчик"),
+    "platform_staff_roles": PLATFORM_STAFF_ROLES,
     "run_project_ai_control_safely": _run_project_ai_control_safely,
 })
 
@@ -28312,6 +28409,9 @@ register_project_records_module(app, {
     "visible_project_names": visible_project_names,
     "resolve_work_company_context": _resolve_work_company_context,
     "effective_company_user": effective_company_user,
+    "effective_company_actors": effective_company_actors,
+    "full_view_roles": ("директор", "зам_директора", "бухгалтер", "главный_инженер", "сметчик"),
+    "platform_staff_roles": PLATFORM_STAFF_ROLES,
     "read_roles": PROJECT_DOCUMENT_ROLES,
     "write_roles": PROJECT_DOCUMENT_WRITE_ROLES,
     "worker_execution_roles": WORKER_EXECUTION_ROLES,

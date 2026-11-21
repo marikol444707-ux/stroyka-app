@@ -718,9 +718,9 @@ class WarehouseAnomalyRuntimeDisclosurePolicyTests(unittest.TestCase):
             backend_root / "db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Timesheet routes take company-context dependencies; the warehouse preview package is unchanged.
+            # Timesheet company scope plus room and measurement ownership; the warehouse preview package is unchanged.
             backend_root / "main.py": (
-                "f32e9991991015237aa750d8fec78c8981a10649314e7ea0e3b7ac48b823d5ed"
+                "e1c2223597883c37ed8d1a39383ec20e31107baf0fd2ebeb73d6e134f7fa0cb1"
             ),
         }
         actual = {

@@ -85,6 +85,9 @@ def build_handler(visible_projects, selected_company_id=4, selected_role="дир
         "require_row_project_access": lambda *args, **kwargs: None,
         "visible_project_names": (lambda _user: visible_projects),
         "resolve_work_company_context": lambda *args, **kwargs: {},
+        "effective_company_actors": lambda user, context: [user],
+        "full_view_roles": ("директор",),
+        "platform_staff_roles": ("system_owner",),
         "effective_company_user": lambda user, context: {
             **user,
             "companyId": context.get("companyId"),

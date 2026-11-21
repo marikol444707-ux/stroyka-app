@@ -257,10 +257,10 @@ class WarehouseAnomalyRuntimeRouteRegistrationTests(unittest.TestCase):
         package_bytes = package_path.read_bytes()
         runtime_source = runtime_path.read_text(encoding="utf-8")
 
-        # Timesheet routes take company-context dependencies; the warehouse preview package is unchanged.
+        # Timesheet company scope plus room and measurement ownership; the warehouse preview package is unchanged.
         self.assertEqual(
             hashlib.sha256(main_bytes).hexdigest(),
-            "f32e9991991015237aa750d8fec78c8981a10649314e7ea0e3b7ac48b823d5ed",
+            "e1c2223597883c37ed8d1a39383ec20e31107baf0fd2ebeb73d6e134f7fa0cb1",
         )
         self.assertEqual(
             hashlib.sha256(package_bytes).hexdigest(),
