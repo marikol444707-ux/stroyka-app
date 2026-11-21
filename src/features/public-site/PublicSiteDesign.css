@@ -77,9 +77,16 @@ body.public-site-document {
 }
 
 .public-site .public-design-nav {
+  /* viewport-fit=cover draws this bar under the iOS status bar. Keep the usual
+     padding and add the safe area so the logo and Menu stay clear of it. */
+  --public-header-pad-y: 20px;
+  --public-header-pad-x: 40px;
   max-width: 1400px;
   margin: auto;
-  padding: 20px 40px;
+  padding-top: calc(var(--public-header-pad-y) + env(safe-area-inset-top, 0px));
+  padding-right: calc(var(--public-header-pad-x) + env(safe-area-inset-right, 0px));
+  padding-bottom: var(--public-header-pad-y);
+  padding-left: calc(var(--public-header-pad-x) + env(safe-area-inset-left, 0px));
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1012,7 +1019,8 @@ body.public-site-document {
 
 @media (max-width:1200px) {
   .public-site .public-design-nav {
-    padding: 18px 28px;
+    --public-header-pad-y: 18px;
+    --public-header-pad-x: 28px;
   }
 
   .public-site .public-design-nav-contact>a {
@@ -1163,7 +1171,8 @@ body.public-site-document {
 
 @media (max-width:800px) {
   .public-site .public-design-nav {
-    padding: 18px 20px;
+    --public-header-pad-y: 18px;
+    --public-header-pad-x: 20px;
     position: relative;
   }
 
@@ -1183,12 +1192,12 @@ body.public-site-document {
   .public-site .public-design-navigation {
     display: none;
     position: absolute;
-    top: 77px;
+    top: calc(77px + env(safe-area-inset-top, 0px));
     left: 0;
     right: 0;
     background: #fff;
     z-index: 20;
-    padding: 22px;
+    padding: 22px calc(22px + env(safe-area-inset-right, 0px)) 22px calc(22px + env(safe-area-inset-left, 0px));
     box-shadow: 0 12px 20px #15303a22;
   }
 

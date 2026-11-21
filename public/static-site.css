@@ -12,7 +12,11 @@ a {
 .page {
   max-width: 980px;
   margin: 0 auto;
-  padding: 32px 18px 56px;
+  /* Same safe-area contract as the home-page header: viewport-fit=cover. */
+  padding-top: calc(32px + env(safe-area-inset-top, 0px));
+  padding-right: calc(18px + env(safe-area-inset-right, 0px));
+  padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+  padding-left: calc(18px + env(safe-area-inset-left, 0px));
 }
 
 .topline {
@@ -293,7 +297,10 @@ li {
 
 @media (max-width: 720px) {
   .page {
-    padding: 18px 12px 40px;
+    padding-top: calc(18px + env(safe-area-inset-top, 0px));
+    padding-right: calc(12px + env(safe-area-inset-right, 0px));
+    padding-bottom: calc(40px + env(safe-area-inset-bottom, 0px));
+    padding-left: calc(12px + env(safe-area-inset-left, 0px));
   }
 
   .topline {
