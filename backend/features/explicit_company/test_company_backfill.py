@@ -144,7 +144,7 @@ class ExplicitCompanyBackfillTests(unittest.TestCase):
         config = Config(str(ROOT / "alembic.ini"))
         config.set_main_option("script_location", str(ROOT / "migrations"))
         graph = ScriptDirectory.from_config(config)
-        self.assertEqual(graph.get_heads(), ["0123_explicit_company_owner"])
+        self.assertEqual(graph.get_heads(), ["0124_document_record_owners"])
 
     def test_apply_updates_only_blank_rows(self):
         class Cursor:

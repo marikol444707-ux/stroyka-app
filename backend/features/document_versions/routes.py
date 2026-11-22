@@ -53,6 +53,7 @@ def register_document_versions_module(app, deps):
                  "JOIN projects p ON p.company_id=h.company_id AND p.name=h.project_name "
                  "LEFT JOIN work_journal w ON w.id=h.work_journal_id AND w.company_id=h.company_id "
                  "AND w.project=h.project_name WHERE (" + (' OR '.join(clauses) or 'FALSE') + ')'
+                 ' AND (v.company_id IS NULL OR v.company_id=h.company_id)'
                  ' AND NOT EXISTS (SELECT 1 FROM projects other WHERE other.company_id=p.company_id '
                  'AND other.name=p.name AND other.id<>p.id)')
         for column, value in [('v.id', version_id), ('v.document_type', document_type), ('v.document_id', document_id)]:
