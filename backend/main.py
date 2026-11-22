@@ -5255,6 +5255,21 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_tool_history_owner ON tool_history(owner_scope, company_id, project_id);
         CREATE INDEX IF NOT EXISTS idx_inventory_owner ON inventory(owner_scope, company_id, project_id);
         CREATE INDEX IF NOT EXISTS idx_inventory_items_owner ON inventory_items(owner_scope, company_id, project_id);
+        ALTER TABLE contracts ADD COLUMN IF NOT EXISTS owner_scope TEXT;
+        ALTER TABLE contracts ADD COLUMN IF NOT EXISTS company_id INT;
+        ALTER TABLE contracts ADD COLUMN IF NOT EXISTS project_id INT;
+        ALTER TABLE piecework ADD COLUMN IF NOT EXISTS owner_scope TEXT;
+        ALTER TABLE piecework ADD COLUMN IF NOT EXISTS company_id INT;
+        ALTER TABLE piecework ADD COLUMN IF NOT EXISTS project_id INT;
+        ALTER TABLE project_checklists ADD COLUMN IF NOT EXISTS owner_scope TEXT;
+        ALTER TABLE project_checklists ADD COLUMN IF NOT EXISTS company_id INT;
+        ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS owner_scope TEXT;
+        ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS company_id INT;
+        ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS project_id INT;
+        CREATE INDEX IF NOT EXISTS idx_contracts_owner ON contracts(owner_scope, company_id, project_id);
+        CREATE INDEX IF NOT EXISTS idx_piecework_owner ON piecework(owner_scope, company_id, project_id);
+        CREATE INDEX IF NOT EXISTS idx_project_checklists_owner ON project_checklists(owner_scope, company_id, project_id);
+        CREATE INDEX IF NOT EXISTS idx_checklist_items_owner ON checklist_items(owner_scope, company_id, project_id);
         ALTER TABLE work_journal ALTER COLUMN description TYPE TEXT;
         ALTER TABLE room_works ALTER COLUMN description TYPE TEXT;
         ALTER TABLE hidden_works_acts ALTER COLUMN section_name TYPE TEXT;
@@ -5452,6 +5467,10 @@ def init_db():
         ALTER TABLE material_aliases ALTER COLUMN canonical_unit TYPE TEXT;
         ALTER TABLE material_aliases ALTER COLUMN source TYPE TEXT;
         ALTER TABLE material_aliases ALTER COLUMN updated_by TYPE TEXT;
+        ALTER TABLE material_aliases ADD COLUMN IF NOT EXISTS owner_scope TEXT;
+        ALTER TABLE material_aliases ADD COLUMN IF NOT EXISTS company_id INT;
+        ALTER TABLE material_aliases ADD COLUMN IF NOT EXISTS project_id INT;
+        CREATE INDEX IF NOT EXISTS idx_material_aliases_owner ON material_aliases(owner_scope, company_id, project_id);
         CREATE TABLE IF NOT EXISTS material_norm_overrides (
             id SERIAL PRIMARY KEY,
             base_norm_id INT,
@@ -5605,6 +5624,7 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_material_inspection_delivery_id ON material_inspection_journal(delivery_id);
         CREATE INDEX IF NOT EXISTS idx_material_inspection_invoice_id ON material_inspection_journal(invoice_id);
         CREATE INDEX IF NOT EXISTS idx_material_inspection_source ON material_inspection_journal(source_type, source_id, source_item_key);
+        ALTER TABLE material_inspection_journal ADD COLUMN IF NOT EXISTS owner_scope TEXT;
         CREATE TABLE IF NOT EXISTS supervisor_acts (
             id SERIAL PRIMARY KEY,
             project_name VARCHAR(255),
@@ -5656,6 +5676,7 @@ def init_db():
         ALTER TABLE cable_journal ADD COLUMN IF NOT EXISTS source_id INT;
         ALTER TABLE cable_journal ADD COLUMN IF NOT EXISTS source_item_key VARCHAR(255);
         ALTER TABLE cable_journal ALTER COLUMN cable_brand TYPE TEXT;
+        ALTER TABLE cable_journal ADD COLUMN IF NOT EXISTS owner_scope TEXT;
         CREATE INDEX IF NOT EXISTS idx_cable_journal_delivery_id ON cable_journal(delivery_id);
         CREATE INDEX IF NOT EXISTS idx_cable_journal_invoice_id ON cable_journal(invoice_id);
         CREATE INDEX IF NOT EXISTS idx_cable_journal_source ON cable_journal(source_type, source_id, source_item_key);
@@ -5999,19 +6020,6 @@ class WarehouseMovementModel(BaseModel):
     notes: str = ""
     invoiceId: Optional[int] = None
     invoiceLineIndex: Optional[int] = None
-
-class PieceworkModel(BaseModel):
-    staffId: str
-    description: str
-    unit: str = "м2"
-    quantity: float
-    pricePerUnit: float
-    total: float
-    project: str = ""
-    date: str = ""
-    comment: str = ""
-    photoUrl: str = ""
-    workJournalId: Optional[int] = None
 
 class LoginModel(BaseModel):
     email: str
@@ -7595,110 +7603,6 @@ def _resolve_staff_or_user_id(cur, actor_id, actor_name: str = ""):
     return raw_id or None
 
 
-@app.get("/piecework")
-def get_piecework(current_user: dict = Depends(get_current_user)):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    allowed_projects = visible_project_names(current_user)
-    cols = "id,staff_id as \"staffId\",description,unit,quantity,price_per_unit as \"pricePerUnit\",total,project,date,comment,photo_url as \"photoUrl\",work_journal_id as \"workJournalId\""
-    active_clause = """NOT EXISTS (
-        SELECT 1 FROM work_journal wj
-        WHERE wj.id = piecework.work_journal_id
-          AND COALESCE(wj.status,'') = 'Отклонено'
-    ) AND NOT EXISTS (
-        SELECT 1 FROM work_journal w JOIN brigade_contract_items i ON i.id=w.contract_item_id
-        JOIN brigade_contracts c ON c.id=i.contract_id
-        WHERE w.id=piecework.work_journal_id AND c.settlement_version=2
-    )"""
-    if current_user.get("role") in WORKER_EXECUTION_ROLES:
-        cur.execute(f"""SELECT {cols} FROM piecework
-                        WHERE {active_clause}
-                          AND (staff_id=%s OR EXISTS (
-                              SELECT 1 FROM work_journal wj
-                              WHERE wj.id = piecework.work_journal_id
-                                AND (COALESCE(wj.master_id,0)=%s OR (COALESCE(wj.master_id,0)=0 AND LOWER(TRIM(COALESCE(wj.master_name,'')))=LOWER(TRIM(%s))))
-                          ))
-                        ORDER BY id DESC""",
-                    (str(current_user.get("id")), current_user.get("id"), current_user.get("name") or ""))
-    elif allowed_projects is None:
-        cur.execute(f"SELECT {cols} FROM piecework WHERE {active_clause} ORDER BY id DESC")
-    elif not allowed_projects:
-        cur.execute(f"SELECT {cols} FROM piecework WHERE {active_clause} AND staff_id=%s ORDER BY id DESC", (str(current_user.get("id")),))
-    else:
-        cur.execute(f"SELECT {cols} FROM piecework WHERE {active_clause} AND (project = ANY(%s) OR staff_id=%s) ORDER BY id DESC", (allowed_projects, str(current_user.get("id"))))
-    rows = cur.fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
-
-@app.post("/piecework")
-def create_piecework(p: PieceworkModel, _current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES))):
-    require_project_access(_current_user, p.project)
-    if _current_user.get("role") in WORKER_EXECUTION_ROLES:
-        raise HTTPException(status_code=403, detail="Сдельное начисление создаётся только после проверки ЖПР прорабом/руководителем")
-    conn = get_db()
-    conn.autocommit = False
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        if p.workJournalId:
-            work = require_work_journal_actor_access(cur, p.workJournalId, _current_user)
-            _lock_legacy_work_settlement(cur)
-            work_settlement_guards.require_legacy_work(cur, [p.workJournalId])
-            cur.execute("SELECT id FROM piecework WHERE work_journal_id=%s LIMIT 1", (p.workJournalId,))
-            existing = cur.fetchone()
-            if existing:
-                conn.close()
-                return dict(existing)
-            cur.execute("""SELECT master_id, master_name, project, description, unit, quantity,
-                                  execution_price_per_unit, execution_total, date
-                           FROM work_journal
-                           WHERE id=%s AND COALESCE(status,'')='Подтверждено'""", (p.workJournalId,))
-            work_row = cur.fetchone()
-            if not work_row:
-                conn.close()
-                raise HTTPException(status_code=400, detail="Сдельное начисление можно создать только по подтверждённой записи ЖПР")
-            p.staffId = str(work_row.get("master_id") or p.staffId or "")
-            p.project = work_row.get("project") or work.get("project") or p.project
-            p.description = work_row.get("description") or p.description
-            p.unit = work_row.get("unit") or p.unit
-            p.quantity = float(work_row.get("quantity") or 0)
-            p.pricePerUnit = float(work_row.get("execution_price_per_unit") or 0)
-            p.total = float(work_row.get("execution_total") or (p.quantity * p.pricePerUnit))
-            p.date = str(work_row.get("date") or p.date or "")
-        else:
-            conn.close()
-            raise HTTPException(status_code=400, detail="Ручные сдельные начисления отключены. Закрывайте работу через ЖПР: подтверждённая запись сама формирует сумму исполнителя и акт бухгалтерии.")
-        cur.execute("INSERT INTO piecework (staff_id,description,unit,quantity,price_per_unit,total,project,date,comment,photo_url,work_journal_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *",
-                    (p.staffId,p.description,p.unit,p.quantity,p.pricePerUnit,p.total,p.project,p.date,p.comment,p.photoUrl,p.workJournalId))
-        row = cur.fetchone()
-        conn.commit()
-        conn.close()
-        return dict(row)
-    finally:
-        if not conn.closed:
-            conn.rollback()
-            conn.close()
-
-@app.delete("/piecework/{id}")
-def delete_piecework(id: int, _current_user: dict = Depends(require_roles("директор"))):
-    conn = get_db()
-    conn.autocommit = False
-    cur = conn.cursor()
-    try:
-        require_row_project_access(cur, "piecework", id, _current_user, "project")
-        _lock_legacy_work_settlement(cur)
-        cur.execute("SELECT work_journal_id FROM piecework WHERE id=%s FOR UPDATE", (id,))
-        row = cur.fetchone()
-        if row and row[0]:
-            work_settlement_guards.require_legacy_work(cur, [row[0]])
-        cur.execute("DELETE FROM piecework WHERE id=%s", (id,))
-        conn.commit()
-        conn.close()
-        return {"ok": True}
-    finally:
-        if not conn.closed:
-            conn.rollback()
-            conn.close()
-
 try:
     from backend.features.company_users.routes import register_company_users
 except ModuleNotFoundError:
@@ -8213,17 +8117,18 @@ def _resolve_material_alias(cur, project: str, name: str, unit: str = "", *, com
         return resolve_owned_alias(cur, project, name, unit, company_id=company_id, project_id=project_id)
     raw_name = (name or "").strip()
     raw_unit = _norm_base_unit(unit or "")
-    if not raw_name:
+    if not raw_name or not company_id:
         return None
     project_name = (project or "").strip()
     try:
         cur.execute("""SELECT id, project_name, alias_name, canonical_name, canonical_unit
                        FROM material_aliases
                        WHERE active=TRUE
+                         AND company_id=%s
                          AND (project_name=%s OR COALESCE(project_name,'')='')
                          AND LOWER(TRIM(alias_name))=LOWER(TRIM(%s))
-                       ORDER BY COALESCE(project_name,'') DESC, id DESC
-                       LIMIT 1""", (project_name, raw_name))
+                       ORDER BY CASE WHEN project_name=%s THEN 0 ELSE 1 END, id DESC
+                       LIMIT 1""", (company_id, project_name, raw_name, project_name))
         row = cur.fetchone()
         if row:
             return {
@@ -8238,8 +8143,9 @@ def _resolve_material_alias(cur, project: str, name: str, unit: str = "", *, com
         cur.execute("""SELECT id, project_name, alias_name, canonical_name, canonical_unit
                        FROM material_aliases
                        WHERE active=TRUE
+                         AND company_id=%s
                          AND (project_name=%s OR COALESCE(project_name,'')='')
-                       ORDER BY COALESCE(project_name,'') DESC, id DESC""", ((project or "").strip(),))
+                       ORDER BY CASE WHEN project_name=%s THEN 0 ELSE 1 END, id DESC""", (company_id, project_name, project_name))
         for alias_row in cur.fetchall() or []:
             alias_name = _row_get(alias_row, "alias_name", 2, "")
             if _norm_key_text(alias_name or "") != raw_key:
@@ -13860,6 +13766,29 @@ def _lock_legacy_work_settlement(cur):
     lock_distribution_compatible_stock(cur)
 
 
+try:
+    from backend.features.piecework.routes import register_piecework_module
+except ModuleNotFoundError:
+    from features.piecework.routes import register_piecework_module
+
+register_piecework_module(app, {
+    "get_db": get_db,
+    "require_roles": require_roles,
+    "get_current_user": get_current_user,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
+    "company_id_scope_filter": company_id_scope_filter,
+    "can_see_all_company_data": can_see_all_company_data,
+    "user_project_names": user_project_names,
+    "require_project_access": require_project_access,
+    "require_work_journal_actor_access": require_work_journal_actor_access,
+    "lock_legacy_work_settlement": _lock_legacy_work_settlement,
+    "require_legacy_work": work_settlement_guards.require_legacy_work,
+    "journal_write_roles": JOURNAL_WRITE_ROLES,
+    "worker_execution_roles": WORKER_EXECUTION_ROLES,
+})
+
+
 def _lock_brigade_settlement_actor(cur, user, contract_id, roles, company, mode):
     cur.execute('SELECT company_id FROM brigade_contracts WHERE id=%s', (_positive_int_or_none(contract_id),))
     owner = cur.fetchone()
@@ -14572,7 +14501,10 @@ def delete_work_journal(
                             (company_id, name, unit, qty, 0, 0, project_name, "Возврат", work_package))
             cur.execute("INSERT INTO warehouse_history (company_id,material,type,quantity,unit,date,project,issued_by,work_package,date_time) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                         (company_id, name, "возврат (удаление работы)", qty, unit, str(work.get("date") or ""), project_name, master_name, work_package, datetime.now().strftime("%d.%m.%Y, %H:%M")))
-        cur.execute("SELECT COUNT(*) AS cnt FROM piecework WHERE work_journal_id=%s", (id,))
+        cur.execute(
+            "SELECT COUNT(*) AS cnt FROM piecework WHERE work_journal_id=%s AND company_id=%s",
+            (id, work.get("company_id")),
+        )
         piecework_row = cur.fetchone()
         piecework_count = int((piecework_row.get("cnt") if isinstance(piecework_row, dict) else piecework_row[0]) or 0)
         actor_name = _current_user.get("name") or ""
@@ -14896,13 +14828,16 @@ except ModuleNotFoundError:
 register_contracts_module(app, {
     "get_db": get_db,
     "require_roles": require_roles,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
+    "company_id_scope_filter": company_id_scope_filter,
+    "can_see_all_company_data": can_see_all_company_data,
+    "user_project_names": user_project_names,
     "contract_roles": CONTRACT_ROLES,
     "create_roles": (*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"),
     "delete_roles": (*LEADERSHIP_ROLES, "бухгалтер"),
     "worker_execution_roles": WORKER_EXECUTION_ROLES,
-    "visible_project_names": visible_project_names,
     "require_project_access": require_project_access,
-    "require_row_project_access": require_row_project_access,
 })
 
 
@@ -16753,12 +16688,15 @@ except ModuleNotFoundError:
 register_project_checklists_module(app, {
     "get_db": get_db,
     "require_roles": require_roles,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
+    "company_id_scope_filter": company_id_scope_filter,
+    "can_see_all_company_data": can_see_all_company_data,
+    "user_project_names": user_project_names,
     "read_roles": PROJECT_DOCUMENT_ROLES,
     "write_roles": PROJECT_WRITE_ROLES,
-    "visible_project_names": visible_project_names,
     "project_name_from_payload": project_name_from_payload,
     "require_project_access": require_project_access,
-    "require_row_project_access": require_row_project_access,
 })
 try:
     from backend.features.checklist_items.routes import register_checklist_items_module
@@ -16769,10 +16707,13 @@ except ModuleNotFoundError:
 register_checklist_items_module(app, {
     "get_db": get_db,
     "require_roles": require_roles,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
+    "can_see_all_company_data": can_see_all_company_data,
+    "require_project_access": require_project_access,
     "project_document_roles": PROJECT_DOCUMENT_ROLES,
     "project_write_roles": PROJECT_WRITE_ROLES,
-    "require_checklist_access": require_checklist_access,
-    "require_checklist_item_access": require_checklist_item_access,
+    "check_roles": (*PROJECT_WRITE_ROLES, "технадзор", "стройконтроль"),
 })
 
 try:
@@ -22767,10 +22708,14 @@ except ModuleNotFoundError:
 register_material_aliases_module(app, {
     "get_db": get_db,
     "require_roles": require_roles,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
+    "company_id_scope_filter": company_id_scope_filter,
+    "can_see_all_company_data": can_see_all_company_data,
+    "user_project_names": user_project_names,
     "read_roles": PROJECT_DOCUMENT_ROLES,
     "write_roles": (*LEADERSHIP_ROLES, "прораб", "главный_инженер", "сметчик", "снабженец", "кладовщик"),
     "require_project_access": require_project_access,
-    "visible_project_names": visible_project_names,
 })
 
 try:
@@ -24580,9 +24525,9 @@ def accept_material_norm_suggestion_as_override(id: int, payload: dict = Body(de
     return _material_norm_suggestion_row(dict(row))
 
 try:
-    from backend.features.quality_journals.access import quality_access_enabled, journal_operation
+    from backend.features.quality_journals.access import journal_operation
 except ModuleNotFoundError:
-    from features.quality_journals.access import quality_access_enabled, journal_operation
+    from features.quality_journals.access import journal_operation
 
 
 def _quality_journal_dependencies():
@@ -24612,359 +24557,45 @@ def _owned_quality_suggestion(user, request, table, row_id):
 
 
 def _quality_journal_reader(user: dict = Depends(get_current_user)):
-    if not quality_access_enabled() and user.get('role') not in PROJECT_DOCUMENT_ROLES:
-        raise HTTPException(403, 'Недостаточно прав')
     return user
-
 
 
 def _quality_journal_writer(user: dict = Depends(get_current_user)):
-    if not quality_access_enabled() and user.get('role') not in (*PROJECT_DOCUMENT_WRITE_ROLES, 'кладовщик', 'снабженец'):
-        raise HTTPException(403, 'Недостаточно прав')
     return user
-
 
 
 @app.get("/material-inspection")
 def list_material_inspections(request: Request, response: Response, project_name: str = None, _current_user: dict = Depends(_quality_journal_reader)):
-    if quality_access_enabled():
-        rows = _owned_quality_journal(_current_user, request, 'material_inspection_journal', project_name=project_name)
-        response.headers['X-Quality-Journal-Snapshot'] = 'owned-v1'
-        return rows
-    conn = get_db()
-    cur = conn.cursor()
-    _ensure_journal_source_columns(cur)
-    cols = """id, project_name, invoice_id, material_name, unit, quantity, supplier,
-              batch_number, passport_number, certificate_number, test_protocol_number,
-              visual_inspection_result, remarks, inspector_name,
-              received_at, inspected_at, inspected, normatives, ai_filled, created_at,
-              COALESCE(work_package,''), delivery_id, warehouse_history_id,
-              COALESCE(source_type,''), source_id, COALESCE(source_item_key,'')"""
-    allowed_projects = visible_project_names(_current_user)
-    package_sql, package_params = package_access_filter(_current_user)
-    if project_name and allowed_projects is not None and project_name not in allowed_projects:
-        cur.close(); conn.close()
-        return []
-    if not project_name and allowed_projects is not None and not allowed_projects:
-        cur.close(); conn.close()
-        return []
-    backfill_projects = None
-    if project_name:
-        backfill_projects = [project_name]
-    elif allowed_projects is not None:
-        backfill_projects = allowed_projects
-    try:
-        _backfill_material_inspection_journal(cur, backfill_projects)
-    except Exception as e:
-        print("MATERIAL INSPECTION BACKFILL ERROR:", str(e))
-    if project_name:
-        cur.execute(f"SELECT {cols} FROM material_inspection_journal WHERE project_name=%s" + package_sql + " ORDER BY id DESC", [project_name] + package_params)
-    elif allowed_projects is not None:
-        cur.execute(f"SELECT {cols} FROM material_inspection_journal WHERE project_name = ANY(%s)" + package_sql + " ORDER BY id DESC", [allowed_projects] + package_params)
-    else:
-        q = f"SELECT {cols} FROM material_inspection_journal"
-        if package_sql:
-            q += " WHERE 1=1" + package_sql
-        q += " ORDER BY id DESC"
-        cur.execute(q, package_params)
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return [{"id":r[0],"projectName":r[1] or "","invoiceId":r[2],"materialName":r[3] or "",
-             "unit":r[4] or "","quantity":float(r[5] or 0),"supplier":r[6] or "",
-             "batchNumber":r[7] or "","passportNumber":r[8] or "","certificateNumber":r[9] or "",
-             "testProtocolNumber":r[10] or "","visualInspectionResult":r[11] or "",
-             "remarks":r[12] or "","inspectorName":r[13] or "",
-             "receivedAt":str(r[14]) if r[14] else "","inspectedAt":str(r[15]) if r[15] else "",
-             "inspected":bool(r[16]),"normatives":r[17] or "",
-             "aiFilled":bool(r[18]),"createdAt":str(r[19]),"workPackage":r[20] or "",
-             "deliveryId":r[21],"warehouseHistoryId":r[22],"sourceType":r[23] or "",
-             "sourceId":r[24],"sourceItemKey":r[25] or ""} for r in rows]
+    rows = _owned_quality_journal(_current_user, request, 'material_inspection_journal', project_name=project_name)
+    response.headers['X-Quality-Journal-Snapshot'] = 'owned-v1'
+    return rows
 
 
 @app.put("/material-inspection/{id}")
 def update_material_inspection(id: int, data: dict, request: Request, _current_user: dict = Depends(_quality_journal_writer)):
-    if quality_access_enabled():
-        return _owned_quality_journal(_current_user, request, 'material_inspection_journal', row_id=id, data=data)
-    conn = get_db()
-    cur = conn.cursor()
-    require_row_project_access(cur, "material_inspection_journal", id, _current_user)
-    cur.execute("SELECT COALESCE(work_package,'') FROM material_inspection_journal WHERE id=%s", (id,))
-    inspection_row = cur.fetchone()
-    if inspection_row and not has_package_access(_current_user, inspection_row[0] or "Основная"):
-        cur.close(); conn.close()
-        raise HTTPException(status_code=403, detail="Нет доступа к разделу сметы входного контроля")
-    fields_map = [
-        ('batchNumber', 'batch_number'),
-        ('passportNumber', 'passport_number'),
-        ('certificateNumber', 'certificate_number'),
-        ('testProtocolNumber', 'test_protocol_number'),
-        ('visualInspectionResult', 'visual_inspection_result'),
-        ('remarks', 'remarks'),
-        ('inspectorName', 'inspector_name'),
-        ('inspectedAt', 'inspected_at'),
-        ('inspected', 'inspected'),
-        ('normatives', 'normatives'),
-    ]
-    sets, vals = [], []
-    ai_resetting_fields = {'visualInspectionResult','remarks','passportNumber','certificateNumber','testProtocolNumber','normatives'}
-    reset_ai = False
-    for js_key, db_col in fields_map:
-        if js_key in data:
-            sets.append(db_col + "=%s")
-            v = data[js_key]
-            if js_key == 'inspectedAt' and not v:
-                v = None
-            vals.append(v)
-            if js_key in ai_resetting_fields:
-                reset_ai = True
-    if reset_ai:
-        sets.append("ai_filled=FALSE")
-    if not sets:
-        cur.close(); conn.close()
-        return {"ok": True}
-    vals.append(id)
-    cur.execute("UPDATE material_inspection_journal SET " + ", ".join(sets) + " WHERE id=%s", vals)
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok": True}
+    return _owned_quality_journal(_current_user, request, 'material_inspection_journal', row_id=id, data=data)
 
 
 @app.post("/material-inspection/{id}/ai-suggest")
 def ai_suggest_material_inspection(id: int, request: Request, _current_user: dict = Depends(_quality_journal_writer)):
-    if quality_access_enabled():
-        return _owned_quality_suggestion(_current_user, request, 'material_inspection_journal', id)
-    import json as j, re
-    conn = get_db()
-    cur = conn.cursor()
-    require_row_project_access(cur, "material_inspection_journal", id, _current_user)
-    cur.execute("SELECT material_name, unit, quantity FROM material_inspection_journal WHERE id=%s", (id,))
-    row = cur.fetchone()
-    if not row:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=404, detail="запись не найдена")
-    material_name, unit, quantity = row[0] or "", row[1] or "", float(row[2] or 0)
-    cur.close()
-
-    user_text = (
-        "Материал: " + material_name + "\n"
-        "Единица: " + unit + "\n"
-        "Количество: " + str(quantity) + "\n\n"
-        "Верни СТРОГО JSON с двумя полями (без markdown, без тройных кавычек):\n"
-        '{"normatives": "...", "requiredDocs": "..."}\n'
-        "Где:\n"
-        "- normatives: перечень применимых ГОСТ/СП/СНиП для входного контроля этого материала через запятую\n"
-        "- requiredDocs: какие документы качества должны быть у поставщика "
-        "(паспорт качества, сертификат соответствия, протокол испытаний, декларация). 1-2 предложения."
-    )
-    instructions = "Ты отвечаешь СТРОГО валидным JSON. Никакого markdown, никаких тройных кавычек."
-    try:
-        answer = generate_yandex_text(
-            capability="material_inspection_suggestion",
-            instructions=instructions,
-            input_text=user_text,
-            temperature=0.1,
-            max_output_tokens=1500,
-            api_key=YANDEX_API_KEY,
-            folder_id=YANDEX_FOLDER_ID,
-        )
-    except ModelGatewayError as error:
-        conn.close()
-        raise HTTPException(status_code=502, detail="AI не ответил: " + error.code)
-    text = answer.strip()
-    m = re.search(r"\{.*\}", text, re.DOTALL)
-    if m:
-        text = m.group(0)
-    try:
-        parsed = j.loads(text)
-    except Exception as e:
-        conn.close()
-        raise HTTPException(status_code=502, detail="AI вернул невалидный JSON: " + str(e)[:200])
-    normatives = (parsed.get("normatives") or "").strip()
-    required_docs = (parsed.get("requiredDocs") or "").strip()
-    cur = conn.cursor()
-    cur.execute("""UPDATE material_inspection_journal
-                   SET normatives=%s,
-                       remarks = CASE WHEN COALESCE(remarks,'')='' THEN %s ELSE remarks END,
-                       ai_filled=TRUE
-                   WHERE id=%s""",
-                (normatives, ("Требуемые документы: " + required_docs) if required_docs else "", id))
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok": True, "normatives": normatives, "requiredDocs": required_docs, "aiFilled": True}
+    return _owned_quality_suggestion(_current_user, request, 'material_inspection_journal', id)
 
 
 @app.get("/cable-journal")
 def list_cable_journal(request: Request, response: Response, project_name: str = None, _current_user: dict = Depends(_quality_journal_reader)):
-    if quality_access_enabled():
-        rows = _owned_quality_journal(_current_user, request, 'cable_journal', project_name=project_name)
-        response.headers['X-Quality-Journal-Snapshot'] = 'owned-v1'
-        return rows
-    if _current_user.get("role") in WORKER_EXECUTION_ROLES:
-        return []
-    conn = get_db()
-    cur = conn.cursor()
-    _ensure_journal_source_columns(cur)
-    cols = """id, project_name, invoice_id, cable_brand, cross_section, cores_count,
-              length_received, length_installed, drum_number, manufacturer, supplier,
-              certificate_number, passport_number, insulation_before, insulation_after,
-              installation_location, installation_method,
-              installed_at, received_at, responsible_itr, normatives, ai_filled, created_at,
-              cable_type, COALESCE(work_package,''), delivery_id, warehouse_history_id,
-              COALESCE(source_type,''), source_id, COALESCE(source_item_key,'')"""
-    allowed_projects = visible_project_names(_current_user)
-    if project_name and allowed_projects is not None and project_name not in allowed_projects:
-        cur.close(); conn.close()
-        return []
-    if not project_name and allowed_projects is not None and not allowed_projects:
-        cur.close(); conn.close()
-        return []
-    backfill_projects = None
-    if project_name:
-        backfill_projects = [project_name]
-    elif allowed_projects is not None:
-        backfill_projects = allowed_projects
-    try:
-        _backfill_cable_journal(cur, backfill_projects)
-    except Exception as e:
-        print("CABLE JOURNAL BACKFILL ERROR:", str(e))
-    if project_name:
-        cur.execute(f"SELECT {cols} FROM cable_journal WHERE project_name=%s ORDER BY id DESC", (project_name,))
-    elif allowed_projects is not None:
-        cur.execute(f"SELECT {cols} FROM cable_journal WHERE project_name = ANY(%s) ORDER BY id DESC", (allowed_projects,))
-    else:
-        cur.execute(f"SELECT {cols} FROM cable_journal ORDER BY id DESC")
-    rows = cur.fetchall()
-    rows = [r for r in rows if (r[23] or _detect_cable_info(r[3] if len(r) > 3 else "")["isCable"])]
-    cur.close(); conn.close()
-    return [{"id":r[0],"projectName":r[1] or "","invoiceId":r[2],
-             "cableBrand":r[3] or "","crossSection":float(r[4] or 0),"coresCount":r[5],
-             "lengthReceived":float(r[6] or 0),"lengthInstalled":float(r[7] or 0),
-             "drumNumber":r[8] or "","manufacturer":r[9] or "","supplier":r[10] or "",
-             "certificateNumber":r[11] or "","passportNumber":r[12] or "",
-             "insulationBefore":float(r[13] or 0),"insulationAfter":float(r[14] or 0),
-             "installationLocation":r[15] or "","installationMethod":r[16] or "",
-             "installedAt":str(r[17]) if r[17] else "","receivedAt":str(r[18]) if r[18] else "",
-             "responsibleItr":r[19] or "","normatives":r[20] or "",
-             "aiFilled":bool(r[21]),"createdAt":str(r[22]),"cableType":r[23] or "",
-             "workPackage":r[24] or "","deliveryId":r[25],"warehouseHistoryId":r[26],
-             "sourceType":r[27] or "","sourceId":r[28],"sourceItemKey":r[29] or ""} for r in rows]
+    rows = _owned_quality_journal(_current_user, request, 'cable_journal', project_name=project_name)
+    response.headers['X-Quality-Journal-Snapshot'] = 'owned-v1'
+    return rows
 
 
 @app.put("/cable-journal/{id}")
 def update_cable_journal(id: int, data: dict, request: Request, _current_user: dict = Depends(_quality_journal_writer)):
-    if quality_access_enabled():
-        return _owned_quality_journal(_current_user, request, 'cable_journal', row_id=id, data=data)
-    conn = get_db()
-    cur = conn.cursor()
-    require_row_project_access(cur, "cable_journal", id, _current_user)
-    fields_map = [
-        ('cableBrand','cable_brand'),
-        ('cableType','cable_type'),
-        ('crossSection','cross_section'),
-        ('coresCount','cores_count'),
-        ('lengthReceived','length_received'),
-        ('lengthInstalled','length_installed'),
-        ('drumNumber','drum_number'),
-        ('manufacturer','manufacturer'),
-        ('certificateNumber','certificate_number'),
-        ('passportNumber','passport_number'),
-        ('insulationBefore','insulation_before'),
-        ('insulationAfter','insulation_after'),
-        ('installationLocation','installation_location'),
-        ('installationMethod','installation_method'),
-        ('installedAt','installed_at'),
-        ('responsibleItr','responsible_itr'),
-        ('normatives','normatives'),
-    ]
-    sets, vals = [], []
-    ai_resetting_fields = {'insulationBefore','insulationAfter','installationLocation','installationMethod','normatives','drumNumber'}
-    reset_ai = False
-    for js_key, db_col in fields_map:
-        if js_key in data:
-            sets.append(db_col + "=%s")
-            v = data[js_key]
-            if js_key == 'installedAt' and not v:
-                v = None
-            vals.append(v)
-            if js_key in ai_resetting_fields:
-                reset_ai = True
-    if reset_ai:
-        sets.append("ai_filled=FALSE")
-    if not sets:
-        cur.close(); conn.close()
-        return {"ok": True}
-    vals.append(id)
-    cur.execute("UPDATE cable_journal SET " + ", ".join(sets) + " WHERE id=%s", vals)
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok": True}
+    return _owned_quality_journal(_current_user, request, 'cable_journal', row_id=id, data=data)
 
 
 @app.post("/cable-journal/{id}/ai-suggest")
 def ai_suggest_cable_journal(id: int, request: Request, _current_user: dict = Depends(_quality_journal_writer)):
-    if quality_access_enabled():
-        return _owned_quality_suggestion(_current_user, request, 'cable_journal', id)
-    import json as j, re
-    conn = get_db()
-    cur = conn.cursor()
-    require_row_project_access(cur, "cable_journal", id, _current_user)
-    cur.execute("SELECT cable_brand, cross_section, cores_count, length_received, cable_type FROM cable_journal WHERE id=%s", (id,))
-    row = cur.fetchone()
-    if not row:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=404, detail="запись не найдена")
-    brand, section, cores, length, cable_type = row[0] or "", float(row[1] or 0), row[2], float(row[3] or 0), row[4] or ""
-    cur.close()
-
-    user_text = (
-        "Марка кабеля: " + brand + "\n"
-        "Тип системы: " + (cable_type or "не определён") + "\n"
-        "Сечение жилы (мм²): " + str(section) + "\n"
-        "Количество жил: " + (str(cores) if cores else "—") + "\n"
-        "Длина с барабана/бухты (м): " + str(length) + "\n\n"
-        "Верни СТРОГО JSON с тремя полями (без markdown, без тройных кавычек):\n"
-        '{"normatives": "...", "minInsulation": "...", "recommendations": "..."}\n'
-        "Где:\n"
-        "- normatives: применимые ГОСТ/СП/ПУЭ/СП для этой марки и типа системы: силовая электрика, СКС/интернет, слаботочка или пожарная сигнализация\n"
-        "- minInsulation: минимальное сопротивление изоляции в МΩ по ПУЭ для этой марки (одно число или диапазон)\n"
-        "- recommendations: 1-2 предложения по способу прокладки и испытаниям перед сдачей."
-    )
-    instructions = "Ты отвечаешь СТРОГО валидным JSON. Никакого markdown, никаких тройных кавычек."
-    try:
-        answer = generate_yandex_text(
-            capability="cable_journal_suggestion",
-            instructions=instructions,
-            input_text=user_text,
-            temperature=0.1,
-            max_output_tokens=1500,
-            api_key=YANDEX_API_KEY,
-            folder_id=YANDEX_FOLDER_ID,
-        )
-    except ModelGatewayError as error:
-        conn.close()
-        raise HTTPException(status_code=502, detail="AI не ответил: " + error.code)
-    text = answer.strip()
-    m = re.search(r"\{.*\}", text, re.DOTALL)
-    if m:
-        text = m.group(0)
-    try:
-        parsed = j.loads(text)
-    except Exception as e:
-        conn.close()
-        raise HTTPException(status_code=502, detail="AI вернул невалидный JSON: " + str(e)[:200])
-    normatives = (parsed.get("normatives") or "").strip()
-    min_insulation = (parsed.get("minInsulation") or "").strip()
-    recommendations = (parsed.get("recommendations") or "").strip()
-    full_normatives = normatives
-    if min_insulation:
-        full_normatives = "Мин. R изоляции по ПУЭ: " + min_insulation + " МΩ. " + normatives
-    if recommendations:
-        full_normatives = (full_normatives + "\n\nРекомендации: " + recommendations).strip()
-    cur = conn.cursor()
-    cur.execute("UPDATE cable_journal SET normatives=%s, ai_filled=TRUE WHERE id=%s", (full_normatives, id))
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok": True, "normatives": full_normatives, "minInsulation": min_insulation, "recommendations": recommendations, "aiFilled": True}
+    return _owned_quality_suggestion(_current_user, request, 'cable_journal', id)
 
 
 try:

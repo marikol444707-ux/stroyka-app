@@ -95,21 +95,26 @@ def journal_operation(deps, user, headers, table, *, project_name=None, row_id=N
             where, values = ['j.company_id=%s'], [actor['companyId']]
             allowed = deps['visible_projects'](actor)
             if allowed is not None:
-                where.append('p.name = ANY(%s)')
+                # A company-wide legacy row has no project. Same-named projects stay apart.
+                where.append('''(j.project_id IS NULL OR (
+                    p.name = ANY(%s)
+                    AND (SELECT count(*) FROM projects other WHERE other.company_id=p.company_id AND other.name=p.name)=1
+                ))''')
                 values.append(allowed)
-                # Name-based assignments cannot disambiguate same-company objects.
-                where.append('(SELECT count(*) FROM projects other WHERE other.company_id=p.company_id AND other.name=p.name)=1')
             package_sql, package_values = deps['package_filter'](actor, 'j.work_package')
             if project_name:
-                where.append('p.name=%s')
-                values.append(project_name)
+                where.append('(p.name=%s OR (j.project_id IS NULL AND j.project_name=%s))')
+                values.extend([project_name, project_name])
             if write:
                 where.append('j.id=%s')
                 values.append(row_id)
-            columns = ','.join('p.name AS project_name' if field == 'project_name' else 'j.'+field for field in FIELDS[table])
-            cur.execute(f'''SELECT {columns} FROM {table} j JOIN projects p
+            columns = ','.join(
+                'COALESCE(p.name, j.project_name) AS project_name' if field == 'project_name' else 'j.'+field
+                for field in FIELDS[table]
+            )
+            cur.execute(f'''SELECT {columns} FROM {table} j LEFT JOIN projects p
                 ON p.id=j.project_id AND p.company_id=j.company_id
-                WHERE {' AND '.join(where)} {package_sql} ORDER BY j.id DESC
+                WHERE {' AND '.join(where)} AND (j.project_id IS NULL OR p.id IS NOT NULL) {package_sql} ORDER BY j.id DESC
                 LIMIT 5001''' + (' FOR UPDATE OF j' if write else ''), values + package_values)
             rows = cur.fetchall()
             if not write:
@@ -140,8 +145,10 @@ def journal_operation(deps, user, headers, table, *, project_name=None, row_id=N
                 sets.append(field+'=%s')
                 params.append(value)
             if sets:
-                cur.execute(f"UPDATE {table} SET {','.join(sets)},ai_filled=%s WHERE id=%s AND company_id=%s AND project_id=%s",
-                    params + [bool(mark_ai), row_id, actor['companyId'], rows[0]['project_id']])
+                cur.execute(
+                    f"UPDATE {table} SET {','.join(sets)},ai_filled=%s WHERE id=%s AND company_id=%s AND project_id IS NOT DISTINCT FROM %s",
+                    params + [bool(mark_ai), row_id, actor['companyId'], rows[0]['project_id']],
+                )
             conn.commit()
             return {'ok': True}
     except DatabaseError:

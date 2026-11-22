@@ -246,7 +246,7 @@ class ToolInventoryBackfillTest(unittest.TestCase):
         config = Config(str(ROOT / "alembic.ini"))
         config.set_main_option("script_location", str(ROOT / "migrations"))
         graph = ScriptDirectory.from_config(config)
-        self.assertEqual(graph.get_heads(), ["0121_tool_inventory_owners"])
+        self.assertEqual(graph.get_heads(), ["0122_field_record_owners"])
 
 
 if __name__ == "__main__":
