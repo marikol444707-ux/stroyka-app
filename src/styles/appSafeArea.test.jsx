@@ -65,7 +65,8 @@ describe('app shell iOS safe area', () => {
     const back = screen.getByRole('button', { name: 'На сайт СтройКа' });
     expect(back.className).toContain('safe-edge-button');
     expect(appCss).toContain('padding-top: calc(20px + var(--safe-top)) !important;');
-    expect(appCss).toContain('padding-top: calc(24px + var(--safe-top) + var(--safe-top)) !important;');
+    expect(appCss).toContain('padding-top: max(24px, calc(var(--safe-top) + 16px)) !important;');
+    expect(appCss).not.toContain('var(--safe-top) + var(--safe-top)');
     expect(appCss).toContain('padding-bottom: max(24px, calc(var(--safe-bottom) + 16px)) !important;');
     expect(screenNode).toBeTruthy();
   });
