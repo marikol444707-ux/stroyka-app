@@ -5,16 +5,17 @@ from fastapi import APIRouter, Depends, HTTPException, Header
 from typing import Optional
 
 def register_workflow_invoice_module(app, deps):
-    WORKFLOW_TOKEN = deps['WORKFLOW_TOKEN']
+    workflow_token = deps['workflow_token']
     _float_or_zero = deps['_float_or_zero']
     _norm_base_unit = deps['_norm_base_unit']
     _normalize_invoice_totals_payload = deps['_normalize_invoice_totals_payload']
     router = APIRouter()
 
     def require_workflow_token(x_workflow_token: Optional[str] = Header(default=None)) -> dict:
-        if not WORKFLOW_TOKEN:
+        token = workflow_token()
+        if not token:
             raise HTTPException(status_code=503, detail="WORKFLOW_TOKEN не настроен")
-        if not x_workflow_token or not hmac.compare_digest(x_workflow_token.encode("utf-8"), WORKFLOW_TOKEN.encode("utf-8")):
+        if not x_workflow_token or not hmac.compare_digest(x_workflow_token.encode("utf-8"), token.encode("utf-8")):
             raise HTTPException(status_code=403, detail="Недостаточно прав Workflow")
         return {"role": "workflow", "name": "Yandex Workflow"}
 

@@ -3059,7 +3059,7 @@ register_director_agent_module(app, {
     "YANDEX_API_KEY": YANDEX_API_KEY,
     "YANDEX_FOLDER_ID": YANDEX_FOLDER_ID,
     "_resolve_work_company_context": _resolve_work_company_context,
-    "generate_yandex_text": generate_yandex_text,
+    "generate_yandex_text": lambda *args, **kwargs: generate_yandex_text(*args, **kwargs),
     "get_db": get_db,
     "log_audit": lambda **kwargs: log_audit(**kwargs),
     "require_roles": require_roles
@@ -6193,7 +6193,8 @@ except ModuleNotFoundError:
 
 register_session_logout_module(app, {
     "get_db": get_db,
-    "log_audit": lambda **kwargs: log_audit(**kwargs)
+    "log_audit": lambda **kwargs: log_audit(**kwargs),
+    "csrf_logout_enforced": lambda: CSRF_LOGOUT_ENFORCED,
 })
 
 try:
@@ -21427,7 +21428,7 @@ except ModuleNotFoundError:
     from features.workflow_invoice.routes import register_workflow_invoice_module
 
 register_workflow_invoice_module(app, {
-    "WORKFLOW_TOKEN": WORKFLOW_TOKEN,
+    "workflow_token": lambda: WORKFLOW_TOKEN,
     "_float_or_zero": _float_or_zero,
     "_norm_base_unit": lambda value: _norm_base_unit(value),
     "_normalize_invoice_totals_payload": _normalize_invoice_totals_payload
@@ -23363,7 +23364,7 @@ register_tb_journal_module(app, {
     "PROJECT_DOCUMENT_ROLES": PROJECT_DOCUMENT_ROLES,
     "YANDEX_API_KEY": YANDEX_API_KEY,
     "YANDEX_FOLDER_ID": YANDEX_FOLDER_ID,
-    "generate_yandex_text": generate_yandex_text,
+    "generate_yandex_text": lambda *args, **kwargs: generate_yandex_text(*args, **kwargs),
     "get_current_user": get_current_user,
     "project_record_scope": project_record_scope
 })
@@ -26101,8 +26102,8 @@ register_invoice_scan_module(app, {
     "_scan_invoice_supplier_name": _scan_invoice_supplier_name,
     "_supplier_invoice_template_json": _supplier_invoice_template_json,
     "_supplier_invoice_template_row": _supplier_invoice_template_row,
-    "generate_yandex_parts": generate_yandex_parts,
-    "generate_yandex_text": generate_yandex_text,
+    "generate_yandex_parts": lambda *args, **kwargs: generate_yandex_parts(*args, **kwargs),
+    "generate_yandex_text": lambda *args, **kwargs: generate_yandex_text(*args, **kwargs),
     "get_db": get_db,
     "require_roles": require_roles
 })

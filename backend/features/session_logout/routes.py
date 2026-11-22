@@ -4,13 +4,14 @@ from fastapi import APIRouter, Depends, HTTPException, Header, Request, Response
 from typing import Optional
 import psycopg2
 try:
-    from backend.auth import AUTH_SESSION_COOKIE_NAME, CSRF_LOGOUT_ENFORCED, _clear_auth_session_cookie, _session_token_hash, _valid_csrf_token
+    from backend.auth import AUTH_SESSION_COOKIE_NAME, _clear_auth_session_cookie, _session_token_hash, _valid_csrf_token
 except ModuleNotFoundError:
-    from auth import AUTH_SESSION_COOKIE_NAME, CSRF_LOGOUT_ENFORCED, _clear_auth_session_cookie, _session_token_hash, _valid_csrf_token
+    from auth import AUTH_SESSION_COOKIE_NAME, _clear_auth_session_cookie, _session_token_hash, _valid_csrf_token
 
 def register_session_logout_module(app, deps):
     get_db = deps['get_db']
     log_audit = deps['log_audit']
+    csrf_logout_enforced = deps['csrf_logout_enforced']
     router = APIRouter()
 
     def require_csrf_for_cookie_mutation(
@@ -18,7 +19,7 @@ def register_session_logout_module(app, deps):
         authorization: Optional[str] = Header(default=None),
         x_csrf_token: Optional[str] = Header(default=None, alias="X-CSRF-Token"),
     ) -> None:
-        if not CSRF_LOGOUT_ENFORCED:
+        if not csrf_logout_enforced():
             return None
         if authorization and authorization.lower().startswith("bearer "):
             return None
