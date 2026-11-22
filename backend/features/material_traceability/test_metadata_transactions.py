@@ -75,9 +75,9 @@ class ObservedConnection:
 
 def warehouse_handler(get_db):
     """Compile only this handler, with its body unchanged; never import main."""
-    path = Path(__file__).resolve().parents[2] / 'main.py'
+    path = Path(__file__).resolve().parents[1] / 'warehouse_main' / 'routes.py'
     tree = ast.parse(path.read_text(encoding='utf-8'))
-    selected = [node for node in tree.body if isinstance(node, ast.FunctionDef)
+    selected = [node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
                 and node.name == 'update_warehouse_main']
     if len(selected) != 1:
         raise AssertionError('Expected exactly one warehouse metadata handler')
