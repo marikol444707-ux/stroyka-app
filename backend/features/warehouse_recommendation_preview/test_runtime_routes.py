@@ -260,7 +260,7 @@ class WarehouseAnomalyRuntimeRouteRegistrationTests(unittest.TestCase):
         # Explicit company owners removed the company 1 default; the warehouse preview package is unchanged.
         self.assertEqual(
             hashlib.sha256(main_bytes).hexdigest(),
-            "66a194fa2b8ad7347006cb48144b77ea1c33ff0bc8d9cac44e69d93a591ac5c2",
+            "3d1ea1319a46f23762224099d3d866b0e3fe2b3ff74b2bf686fc3fe81bc56bf9",
         )
         self.assertEqual(
             hashlib.sha256(package_bytes).hexdigest(),

@@ -2217,7 +2217,7 @@ def _project_company_id(cur, project_name: str):
     except ModuleNotFoundError:
         from features.explicit_company.company_backfill import unique_project_company_id
     cur.execute(
-        "SELECT company_id FROM projects WHERE BTRIM(name)=BTRIM(%s) AND company_id IS NOT NULL",
+        "SELECT company_id FROM projects WHERE BTRIM(name)=BTRIM(%s)",
         (project_name,),
     )
     return unique_project_company_id(cur.fetchall())
@@ -14555,6 +14555,7 @@ def delete_work_journal(
         _sync_daily_interim_act_group(
             cur,
             project=work.get("project") or "",
+            company_id=owner_row.get("company_id") or work.get("company_id"),
             master_id=work.get("master_id"),
             master_name=work.get("master_name") or "",
             work_package=work.get("work_package") or "Основная",
@@ -14904,16 +14905,17 @@ def _confirmed_execution_total_for_act(cur, master_id, master_name, project, wor
     already_acted = float(scalar(cur.fetchone()) or 0)
     return max(0, confirmed_total - already_acted)
 
-def _sync_daily_interim_act_group(cur, *, project, master_id=None, master_name="", work_package="", work_date=""):
+def _sync_daily_interim_act_group(cur, *, project, company_id=None, master_id=None, master_name="", work_package="", work_date=""):
     project = (project or "").strip()
     work_date = str(work_date or "").strip()
     package = (work_package or "Основная").strip() or "Основная"
     master_name_key = (master_name or "").strip().lower()
+    company_id = _positive_int_or_none(company_id)
     try:
         master_id_value = int(master_id) if master_id not in (None, "", 0, "0") else None
     except Exception:
         master_id_value = None
-    if not project or not work_date or (not master_id_value and not master_name_key):
+    if not company_id or not project or not work_date or (not master_id_value and not master_name_key):
         return None
 
     master_filter = "master_id=%s" if master_id_value else "LOWER(TRIM(COALESCE(master_name,'')))=%s"
@@ -14921,14 +14923,15 @@ def _sync_daily_interim_act_group(cur, *, project, master_id=None, master_name="
     cur.execute(
         f"""SELECT id, COALESCE(status,'Новый') AS status
             FROM interim_acts
-            WHERE project=%s
+            WHERE company_id=%s
+              AND project=%s
               AND COALESCE(NULLIF(work_package,''),'Основная')=%s
               AND period_start=%s
               AND period_end=%s
               AND COALESCE(source_type,'')=%s
               AND {master_filter}
             ORDER BY id DESC LIMIT 1""",
-        (project, package, work_date, work_date, DAILY_WORK_ACT_SOURCE_TYPE, master_param),
+        (company_id, project, package, work_date, work_date, DAILY_WORK_ACT_SOURCE_TYPE, master_param),
     )
     daily_act = cur.fetchone()
     daily_act_id = _row_get(daily_act, "id", 0) if daily_act else None
@@ -14939,14 +14942,15 @@ def _sync_daily_interim_act_group(cur, *, project, master_id=None, master_name="
     cur.execute(
         f"""SELECT id, COALESCE(execution_total,0) AS execution_total, COALESCE(photo_url,'') AS photo_url
             FROM work_journal
-            WHERE project=%s
+            WHERE company_id=%s
+              AND project=%s
               AND COALESCE(NULLIF(work_package,''),'Основная')=%s
               AND date=%s
               AND status='Подтверждено'
               AND (room_id IS NOT NULL OR COALESCE(NULLIF(room_name,''),'') <> '')
               AND {master_filter}
             ORDER BY id""",
-        (project, package, work_date, master_param),
+        (company_id, project, package, work_date, master_param),
     )
     rows = cur.fetchall() or []
     work_ids = []
@@ -14958,11 +14962,12 @@ def _sync_daily_interim_act_group(cur, *, project, master_id=None, master_name="
             continue
         cur.execute(
             """SELECT id FROM interim_acts
-               WHERE COALESCE(status,'') <> 'Аннулирован'
+               WHERE company_id=%s
+                 AND COALESCE(status,'') <> 'Аннулирован'
                  AND id <> COALESCE(%s,0)
                  AND COALESCE(NULLIF(work_journal_ids,''),'[]')::jsonb ? %s
                LIMIT 1""",
-            (daily_act_id or 0, str(work_id)),
+            (company_id, daily_act_id or 0, str(work_id)),
         )
         if cur.fetchone():
             continue
@@ -14975,8 +14980,8 @@ def _sync_daily_interim_act_group(cur, *, project, master_id=None, master_name="
     if not work_ids:
         if daily_act_id:
             cur.execute(
-                "UPDATE interim_acts SET status='Аннулирован', total_amount=0, work_journal_ids='[]', photo_urls='[]' WHERE id=%s",
-                (daily_act_id,),
+                "UPDATE interim_acts SET status='Аннулирован', total_amount=0, work_journal_ids='[]', photo_urls='[]' WHERE id=%s AND company_id=%s",
+                (daily_act_id, company_id),
             )
         return daily_act_id
 
@@ -14986,18 +14991,19 @@ def _sync_daily_interim_act_group(cur, *, project, master_id=None, master_name="
         cur.execute(
             """UPDATE interim_acts
                SET total_amount=%s, work_journal_ids=%s, photo_urls=%s
-               WHERE id=%s""",
-            (round(total_amount, 2), work_ids_json, photos_json, daily_act_id),
+               WHERE id=%s AND company_id=%s""",
+            (round(total_amount, 2), work_ids_json, photos_json, daily_act_id, company_id),
         )
         return daily_act_id
 
     cur.execute(
         """INSERT INTO interim_acts
-           (master_id, master_name, project, work_package, period_start, period_end,
+           (company_id, master_id, master_name, project, work_package, period_start, period_end,
             total_amount, paid_amount, status, work_journal_ids, source_type, photo_urls)
-           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
            RETURNING id""",
         (
+            company_id,
             master_id_value,
             master_name or "",
             project,
@@ -15021,6 +15027,7 @@ def _sync_daily_interim_act_from_work_journal(cur, work_row: dict):
     return _sync_daily_interim_act_group(
         cur,
         project=work_row.get("project") or "",
+        company_id=work_row.get("company_id"),
         master_id=work_row.get("master_id"),
         master_name=work_row.get("master_name") or "",
         work_package=work_row.get("work_package") or "Основная",
@@ -15921,12 +15928,21 @@ def _run_project_ai_control(
                     "dedupeKey": f"ROOM_CONTROL:door:{d.get('id')}:reveal",
                 })
 
-    cur.execute("""SELECT id, description, section_name, unit, quantity, date, master_name
-                   FROM work_journal
-                   WHERE company_id=%s AND project=%s
-                     AND COALESCE(status,'') NOT IN ('Отклонено','Аннулировано')
-                   ORDER BY id DESC LIMIT 150""", (owner_company_id, project_name))
-    journal_rows = [dict(r) for r in cur.fetchall()]
+    cur.execute(
+        """SELECT COUNT(*) AS project_count FROM projects
+            WHERE company_id=%s AND BTRIM(name)=BTRIM(%s)""",
+        (owner_company_id, project_name),
+    )
+    project_name_is_unique = int(_row_get(cur.fetchone(), "project_count", 0, 0) or 0) == 1
+    if project_name_is_unique:
+        cur.execute("""SELECT id, description, section_name, unit, quantity, date, master_name
+                       FROM work_journal
+                       WHERE company_id=%s AND project=%s
+                         AND COALESCE(status,'') NOT IN ('Отклонено','Аннулировано')
+                       ORDER BY id DESC LIMIT 150""", (owner_company_id, project_name))
+        journal_rows = [dict(r) for r in cur.fetchall()]
+    else:
+        journal_rows = []
     cur.execute("SELECT description, date FROM room_works WHERE company_id=%s AND project_id=%s", (owner_company_id, owner_project_id))
     bound_keys = set((str(r.get("description") or "").strip().lower(), str(r.get("date") or "")) for r in cur.fetchall())
     unlinked_journal_rows = []
@@ -16051,10 +16067,13 @@ def _run_project_ai_control(
             estimate_assignment,
         )
 
-    cur.execute("""SELECT name, unit, quantity, price, COALESCE(work_package,'') AS work_package
-                   FROM materials WHERE company_id=%s AND project=%s""", (owner_company_id, project_name))
     stock = {}
-    for row in cur.fetchall() or []:
+    material_rows = []
+    if project_name_is_unique:
+        cur.execute("""SELECT name, unit, quantity, price, COALESCE(work_package,'') AS work_package
+                       FROM materials WHERE company_id=%s AND project=%s""", (owner_company_id, project_name))
+        material_rows = cur.fetchall() or []
+    for row in material_rows:
         work_package = _supply_work_package(row.get("work_package") or "Основная")
         key = (*_material_control_key(row.get("name") or "", row.get("unit") or ""), work_package)
         if not key[0]:
@@ -16063,14 +16082,17 @@ def _run_project_ai_control(
         qty = _float_or_zero(row.get("quantity"))
         item["qty"] += qty
         item["sum"] += qty * _float_or_zero(row.get("price"))
-    cur.execute("""SELECT material, quantity, unit, COALESCE(work_package,'') AS work_package
-                   FROM warehouse_history
-                   WHERE company_id=%s
-                     AND project=%s
-                     AND (LOWER(COALESCE(type,'')) LIKE %s OR LOWER(COALESCE(type,'')) LIKE %s)""",
-                (owner_company_id, project_name, "%расход%", "%спис%"))
     spent = {}
-    for row in cur.fetchall() or []:
+    history_rows = []
+    if project_name_is_unique:
+        cur.execute("""SELECT material, quantity, unit, COALESCE(work_package,'') AS work_package
+                       FROM warehouse_history
+                       WHERE company_id=%s
+                         AND project=%s
+                         AND (LOWER(COALESCE(type,'')) LIKE %s OR LOWER(COALESCE(type,'')) LIKE %s)""",
+                    (owner_company_id, project_name, "%расход%", "%спис%"))
+        history_rows = cur.fetchall() or []
+    for row in history_rows:
         work_package = _supply_work_package(row.get("work_package") or "Основная")
         key = (*_material_control_key(row.get("material") or "", row.get("unit") or ""), work_package)
         if key[0]:

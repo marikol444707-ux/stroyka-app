@@ -75,12 +75,42 @@ class ExplicitCompanyBackfillTests(unittest.TestCase):
         rows = [{"company_id": 7}, {"company_id": 3}]
         self.assertIsNone(unique_project_company_id(rows))
         self.assertEqual(unique_project_company_id([{"company_id": 7}, {"company_id": 7}]), 7)
+        self.assertIsNone(unique_project_company_id([{"company_id": 7}, {"company_id": None}]))
+
+    def test_supplier_without_a_company_stays_unbound(self):
+        plan = plan_backfill(
+            [{"id": 7, "name": "АльянсСтрой"}],
+            projects_for((12, 7, "Лицей")),
+            {"users": [
+                {"id": 1, "company_id": None, "role": "поставщик"},
+                {"id": 2, "company_id": None, "role": "директор"},
+            ]},
+        )
+        assigned = {
+            row["id"]: row["company_id"]
+            for row in plan["assignments"] if row["table"] == "users"
+        }
+        self.assertNotIn(1, assigned)
+        self.assertEqual(assigned[2], 7)
+
+    def test_unowned_namesake_project_keeps_the_record_hidden(self):
+        plan = plan_backfill(
+            [{"id": 7, "name": "АльянсСтрой"}, {"id": 3, "name": "Другая"}],
+            [
+                {"id": 12, "company_id": 7, "name": "Лицей"},
+                {"id": 13, "company_id": None, "name": "Лицей"},
+            ],
+            {"work_journal": [{"id": 1, "project": "Лицей", "company_id": None}]},
+        )
+        self.assertEqual(plan["assignments"], [])
+        self.assertEqual(plan["counts"]["work_journal"]["ambiguous"], 1)
 
     def test_person_name_is_not_a_source_of_ownership(self):
         source = BACKFILL.read_text(encoding="utf-8")
         self.assertNotIn("master_name", source)
         self.assertNotIn("created_by", source)
-        self.assertNotIn("FROM users", source)
+        self.assertIn("SELECT id, company_id, role FROM users", source)
+        self.assertNotIn("name FROM users", source)
         self.assertNotIn("company_id=1", source)
         self.assertNotIn("DEFAULT 1", source)
         self.assertNotIn("DEFAULT 1", DROP_DEFAULTS_SQL)

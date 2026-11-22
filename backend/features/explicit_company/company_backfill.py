@@ -36,6 +36,7 @@ TABLES = tuple(table for table, _column in NAMED_TABLES) + PLAIN_TABLES + (
 )
 
 _MAIN_WAREHOUSE = "Основной склад"
+_UNBOUND_USER_ROLES = frozenset({"поставщик"})
 
 
 def _positive(value):
@@ -74,22 +75,27 @@ def legacy_company_id(companies, projects):
 
 def _project_groups(projects):
     grouped = {}
+    unresolved = set()
     for project in projects or []:
         name = _text((project or {}).get("name"))
+        if not name:
+            continue
         company_id = _positive((project or {}).get("company_id"))
         project_id = _positive((project or {}).get("id"))
-        if not name or not company_id or not project_id:
+        if not company_id or not project_id:
+            unresolved.add(name)
             continue
         grouped.setdefault(name, []).append({
             "company_id": company_id,
             "project_id": project_id,
         })
-    return grouped
+    return grouped, unresolved
 
 
 def unique_project_company_id(rows):
     """Return a company only when every named project belongs to that one company."""
     company_ids = []
+    saw_unowned = False
     for row in rows or []:
         if isinstance(row, dict):
             company_id = _positive(row.get("company_id"))
@@ -97,11 +103,14 @@ def unique_project_company_id(rows):
             company_id = _positive(row[0])
         else:
             company_id = None
-        if company_id and company_id not in company_ids:
+        if not company_id:
+            saw_unowned = True
+            continue
+        if company_id not in company_ids:
             company_ids.append(company_id)
-    if len(company_ids) == 1:
-        return company_ids[0]
-    return None
+    if saw_unowned or len(company_ids) != 1:
+        return None
+    return company_ids[0]
 
 
 def _kept(company_id):
@@ -112,12 +121,14 @@ def _assigned(company_id):
     return {"state": "assign", "company_id": company_id}
 
 
-def _from_project_name(name, groups, legacy_company):
+def _from_project_name(name, groups, legacy_company, unresolved):
     key = _text(name)
     if key is None or key == _MAIN_WAREHOUSE:
         if legacy_company:
             return _assigned(legacy_company)
         return {"state": "unknown"}
+    if key in unresolved:
+        return {"state": "ambiguous"}
     matches = groups.get(key) or []
     companies = {item["company_id"] for item in matches}
     if len(companies) == 1:
@@ -129,13 +140,13 @@ def _from_project_name(name, groups, legacy_company):
     return {"state": "unknown"}
 
 
-def _from_locations(from_location, to_location, groups, legacy_company):
+def _from_locations(from_location, to_location, groups, legacy_company, unresolved):
     decisions = []
     for location in (from_location, to_location):
         key = _text(location)
         if key is None or key == _MAIN_WAREHOUSE:
             continue
-        decisions.append(_from_project_name(key, groups, None))
+        decisions.append(_from_project_name(key, groups, None, unresolved))
     if any(item.get("state") == "ambiguous" for item in decisions):
         return {"state": "ambiguous"}
     companies = {item["company_id"] for item in decisions if item.get("state") == "assign"}
@@ -149,7 +160,7 @@ def _from_locations(from_location, to_location, groups, legacy_company):
 
 
 def plan_backfill(companies, projects, tables):
-    groups = _project_groups(projects)
+    groups, unresolved = _project_groups(projects)
     legacy_company = legacy_company_id(companies, projects)
     requests = {
         _positive((row or {}).get("id")): _positive((row or {}).get("company_id"))
@@ -186,7 +197,7 @@ def plan_backfill(companies, projects, tables):
             row = dict(row or {})
             company_id = _positive(row.get("company_id"))
             decision = _kept(company_id) if company_id else _from_project_name(
-                row.get(column), groups, legacy_company,
+                row.get(column), groups, legacy_company, unresolved,
             )
             remember(table, row.get("id"), decision)
 
@@ -194,8 +205,11 @@ def plan_backfill(companies, projects, tables):
         for row in (tables or {}).get(table) or []:
             row = dict(row or {})
             company_id = _positive(row.get("company_id"))
+            role = str(row.get("role") or "").strip()
             if company_id:
                 decision = _kept(company_id)
+            elif table == "users" and role in _UNBOUND_USER_ROLES:
+                decision = {"state": "unknown"}
             elif legacy_company:
                 decision = _assigned(legacy_company)
             else:
@@ -221,7 +235,7 @@ def plan_backfill(companies, projects, tables):
         row = dict(row or {})
         company_id = _positive(row.get("company_id"))
         decision = _kept(company_id) if company_id else _from_locations(
-            row.get("from_location"), row.get("to_location"), groups, legacy_company,
+            row.get("from_location"), row.get("to_location"), groups, legacy_company, unresolved,
         )
         remember(MOVEMENT_TABLE, row.get("id"), decision)
 
@@ -288,6 +302,12 @@ def load_snapshot(cur):
     for table in PLAIN_TABLES:
         if table not in present:
             tables[table] = []
+            continue
+        if table == "users":
+            cur.execute("SELECT id, company_id, role FROM users ORDER BY id")
+            tables[table] = [
+                _row_dict(row, ("id", "company_id", "role")) for row in cur.fetchall() or []
+            ]
             continue
         cur.execute(f"SELECT id, company_id FROM {table} ORDER BY id")
         tables[table] = [_row_dict(row, ("id", "company_id")) for row in cur.fetchall() or []]

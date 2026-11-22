@@ -58,12 +58,22 @@ class AiAssignmentCompanyTests(unittest.TestCase):
         end = source.index("\ndef _run_project_ai_control_safely", start)
         body = source[start:end]
         self.assertIn("FROM work_journal", body)
+        self.assertIn("SELECT COUNT(*) AS project_count FROM projects", body)
         self.assertIn("WHERE company_id=%s AND project=%s", body)
         self.assertIn("FROM materials WHERE company_id=%s AND project=%s", body)
         self.assertIn("FROM warehouse_history", body)
         self.assertIn("WHERE company_id=%s", body)
         self.assertNotIn("WHERE project=%s AND COALESCE(status,'')", body)
         self.assertNotIn("FROM users", body)
+
+    def test_daily_interim_act_stores_the_verified_company(self):
+        source = (ROOT / "backend" / "main.py").read_text(encoding="utf-8")
+        start = source.index("def _sync_daily_interim_act_group(")
+        end = source.index("\ndef _sync_daily_interim_act_from_work_journal", start)
+        body = source[start:end]
+        self.assertIn("company_id = _positive_int_or_none(company_id)", body)
+        self.assertIn("(company_id, master_id, master_name, project", body)
+        self.assertIn("if not company_id", body)
 
 
 if __name__ == "__main__":
