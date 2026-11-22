@@ -78,7 +78,7 @@ class RoleChainAccessTests(unittest.TestCase):
             with self.subTest(role=row["role"], company=row["companyId"]):
                 self.assertNotIn(other, params)
                 if row["role"] in FINANCE_ROLES:
-                    self.assertEqual(params, [row["companyId"], row["companyId"]])
+                    self.assertEqual(params, [row["companyId"], row["companyId"], row["companyId"]])
                     self.assertIn("owned_project.company_id=%s", sql)
                     self.assertIn("company_scope_verified=TRUE", sql)
                 else:

@@ -13,7 +13,8 @@ class ProjectPaymentVisibilityFilterTests(unittest.TestCase):
             FINANCE_ROLES, ledger_exists=True)
         self.assertIn('ledger.id IS NULL', sql)
         self.assertLess(sql.index('ledger.id IS NULL'), sql.index('pp.amount > 0'))
-        self.assertEqual(params, [2, 2, ['Объект']])
+        self.assertIn("pp.company_id IS NULL OR pp.company_id=%s", sql)
+        self.assertEqual(params, [2, 2, 2, ['Объект']])
 
     def test_finance_membership_sees_only_its_company(self):
         sql, params = project_payment_visibility_filter(
@@ -24,7 +25,8 @@ class ProjectPaymentVisibilityFilterTests(unittest.TestCase):
         self.assertIn("owned_project.company_id=%s", sql)
         self.assertIn("pp.company_scope_verified=TRUE", sql)
         self.assertLess(sql.index("owned_project.company_id=%s"), sql.index("pp.company_scope_verified=TRUE"))
-        self.assertEqual(params, [4, 4])
+        self.assertIn("pp.company_id IS NULL OR pp.company_id=%s", sql)
+        self.assertEqual(params, [4, 4, 4])
 
     def test_all_companies_keeps_each_membership_role_separate(self):
         sql, params = project_payment_visibility_filter(
@@ -44,7 +46,7 @@ class ProjectPaymentVisibilityFilterTests(unittest.TestCase):
         self.assertIn("pp.amount > 0", sql)
         self.assertIn("pp.project_name = ANY(%s)", sql)
         self.assertNotIn("Чужой объект", params)
-        self.assertEqual(params, [1, 1, 2, 2, ["Школа"]])
+        self.assertEqual(params, [1, 1, 1, 2, 2, 2, ["Школа"]])
         self.assertEqual(sql.count("%s"), len(params))
 
     def test_customer_without_projects_fails_closed(self):

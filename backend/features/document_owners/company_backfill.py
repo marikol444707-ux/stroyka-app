@@ -1,21 +1,17 @@
-"""Fill a blank document only when one project can own it.
+"""Leave a blank project document unowned.
 
-A document that already stores a company is left as it is. A blank project
-document or letter is filled only when its name matches exactly one project,
-or when the install has a single operating company with exactly one project
-and the document names none. A person's name is never read. A shared name,
-or a namesake project that still has no company, leaves the row blank.
+A project document or letter that does not already store a company and a
+project stays blank. A project name, a person's name, and the fact that the
+install has only one project are not ownership. The row stays hidden until
+an explicit reviewed mapping stores both ids.
 
 A document version takes the company already stored on its hidden-work act.
-It is not guessed from a project name.
+That is the parent row's saved company, not a guess from a name.
 """
 
 from backend.features.explicit_company.company_backfill import (
     _positive,
-    _project_groups,
-    _text,
     dbapi_cursor,
-    legacy_company_id,
 )
 
 DOCUMENT_TABLES = (
@@ -25,37 +21,8 @@ DOCUMENT_TABLES = (
 VERSION_TABLE = "document_versions"
 
 
-def _sole_legacy_project(projects, legacy_company, unresolved):
-    if not legacy_company:
-        return None
-    matches = []
-    for project in projects or []:
-        project = dict(project or {})
-        name = _text(project.get("name"))
-        company_id = _positive(project.get("company_id"))
-        project_id = _positive(project.get("id"))
-        if not name or not project_id or company_id != legacy_company or name in unresolved:
-            continue
-        matches.append({"company_id": company_id, "project_id": project_id})
-    if len(matches) != 1:
-        return None
-    return matches[0]
-
-
-def _named_project(name, groups, unresolved):
-    key = _text(name)
-    if not key or key in unresolved:
-        return None
-    matches = groups.get(key) or []
-    if len(matches) != 1:
-        return None
-    return matches[0]
-
-
 def plan_document_owners(companies, projects, documents, versions):
-    groups, unresolved = _project_groups(projects)
-    legacy_company = legacy_company_id(companies, projects)
-    sole_project = _sole_legacy_project(projects, legacy_company, unresolved)
+    del companies, projects
     assignments = []
     counts = {}
 
@@ -84,34 +51,15 @@ def plan_document_owners(companies, projects, documents, versions):
                 item["project_id"] = decision["project_id"]
             assignments.append(item)
 
-    for table, column in DOCUMENT_TABLES:
+    for table, _column in DOCUMENT_TABLES:
         for row in (documents or {}).get(table) or []:
             row = dict(row or {})
             company_id = _positive(row.get("company_id"))
             project_id = _positive(row.get("project_id"))
-            if company_id or project_id:
-                remember(table, row.get("id"), {
-                    "state": "already_owned",
-                    "company_id": company_id,
-                })
-                continue
-            key = _text(row.get(column))
-            if key and key in unresolved:
-                decision = {"state": "ambiguous"}
-            elif key and key in groups and len(groups[key]) != 1:
-                decision = {"state": "ambiguous"}
+            if company_id and project_id:
+                decision = {"state": "already_owned", "company_id": company_id}
             else:
-                chosen = _named_project(key, groups, unresolved) if key else sole_project
-                if chosen:
-                    decision = {
-                        "state": "assign",
-                        "company_id": chosen["company_id"],
-                        "project_id": chosen["project_id"],
-                    }
-                elif key and key in groups:
-                    decision = {"state": "ambiguous"}
-                else:
-                    decision = {"state": "unknown"}
+                decision = {"state": "unknown"}
             remember(table, row.get("id"), decision)
 
     for row in versions or []:
@@ -138,7 +86,7 @@ def plan_document_owners(companies, projects, documents, versions):
     return {
         "assignments": assignments,
         "counts": counts,
-        "legacyCompanyId": legacy_company,
+        "legacyCompanyId": None,
     }
 
 

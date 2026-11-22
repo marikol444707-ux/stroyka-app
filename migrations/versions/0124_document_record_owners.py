@@ -1,9 +1,8 @@
-"""Store the owner company on blank registry documents.
+"""Store a document version's company from its hidden-work act.
 
-A document that already has a company keeps it. A blank project document or
-letter is filled only when one project owns that name, or when the install
-has one operating company and exactly one project. A version takes the
-company already stored on its hidden-work act. A person's name is not used.
+A project document or letter that does not already store a company stays
+blank. A name is not ownership. A version copies the company already saved
+on its hidden-work act.
 """
 import json
 
