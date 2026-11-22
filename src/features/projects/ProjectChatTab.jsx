@@ -1,6 +1,8 @@
 import React from 'react';
+import {projectChatFeed} from '../data-loaders/dataLoadActions';
 
 export default function ProjectChatTab({
+  companyId,
   C,
   btnG,
   btnO,
@@ -16,7 +18,8 @@ export default function ProjectChatTab({
   setShowPhotoModal,
   user,
 }) {
-  const messages = projectChatMessages[project.name] || [];
+  const feed = projectChatFeed(projectChatMessages, companyId, project.name);
+  const messages = feed.messages;
 
   return (
     <div>
@@ -56,7 +59,7 @@ export default function ProjectChatTab({
         />
         <button
           onClick={() => {
-            if (!projectChatMessages[project.name]) loadProjectChat(project.name);
+            if (!feed.loaded) loadProjectChat(project.name);
             sendProjectChatMessage(project.name, projectChatMessage, '');
           }}
           style={btnO}
@@ -64,7 +67,7 @@ export default function ProjectChatTab({
           ➤
         </button>
       </div>
-      {!projectChatMessages[project.name] && (
+      {!feed.loaded && (
         <button onClick={() => loadProjectChat(project.name)} style={{ ...btnG, marginTop: '8px', fontSize: '12px' }}>
           Загрузить чат
         </button>
