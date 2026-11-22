@@ -191,13 +191,23 @@ def _is_exact_feature_gate(node):
 
 
 def _csrf_function(tree):
+    registrations = [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "register_csrf_token_module"
+    ]
+    if len(registrations) != 1:
+        raise AssertionError("backend.main must register csrf_token once")
+    csrf_path = MAIN_PATH.parent / "features" / "csrf_token" / "routes.py"
+    feature_tree = ast.parse(csrf_path.read_text(encoding="utf-8"), filename=str(csrf_path))
     functions = [
-        node for node in tree.body
+        node for node in ast.walk(feature_tree)
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and node.name == "csrf_token"
     ]
     if len(functions) != 1:
-        raise AssertionError("backend.main must define exactly one csrf_token")
+        raise AssertionError("csrf_token must be defined once")
     return functions[0]
 
 
