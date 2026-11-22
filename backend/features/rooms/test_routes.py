@@ -272,8 +272,9 @@ class RoomsRoutesTest(unittest.TestCase):
     def test_platform_staff_are_allowed_to_read_unowned_lists(self):
         main = (ROOT / "backend" / "main.py").read_text(encoding="utf-8")
         records = (ROOT / "backend" / "features" / "project_records" / "routes.py").read_text(encoding="utf-8")
+        room_works = (ROOT / "backend" / "features" / "room_works" / "routes.py").read_text(encoding="utf-8")
         self.assertIn('"read_roles": (*PROJECT_DOCUMENT_ROLES, *PLATFORM_STAFF_ROLES)', main)
-        self.assertIn("require_roles(*PROJECT_DOCUMENT_ROLES, *PLATFORM_STAFF_ROLES)", main)
+        self.assertIn("require_roles(*PROJECT_DOCUMENT_ROLES, *PLATFORM_STAFF_ROLES)", room_works)
         self.assertIn("measurement_read_roles", records)
         self.assertIn("platform_staff_roles", records)
 
