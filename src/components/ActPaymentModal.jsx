@@ -21,7 +21,7 @@ export default function ActPaymentModal({
   if (!showPayActModal) return null;
   const payments = actPayments.filter(p=>p.actId===showPayActModal.id);
   return (
-    <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1500}}>
+    <div style={{boxSizing:'border-box',paddingTop:'var(--safe-top)',paddingRight:'var(--safe-right)',paddingBottom:'var(--safe-bottom)',paddingLeft:'var(--safe-left)',position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1500}}>
       <div style={{...card,padding:'30px',width:'420px'}}>
         <h3 style={{color:C.text,marginBottom:'5px',fontWeight:'700'}}>Добавить оплату</h3>
         <p style={{color:C.textSec,fontSize:'13px',marginBottom:'15px'}}>{'Акт №'+showPayActModal.id+' · '+showPayActModal.masterName}</p>

@@ -49,7 +49,7 @@ export default function SupplierHistoryMergeDialog({prefix,sourceId,targetId,sou
     document.body.style.overflow='hidden';dialog.current?.focus();
     return()=>{active.current=false;document.body.style.overflow=overflow;previous?.focus();};
   },[]);
-  return createPortal(<div style={{position:'fixed',inset:0,zIndex:950,background:'rgba(15,23,42,.65)',display:'flex',alignItems:'center',justifyContent:'center',padding:12}}>
+  return createPortal(<div style={{position:'fixed',inset:0,zIndex:950,background:'rgba(15,23,42,.65)',display:'flex',alignItems:'center',justifyContent:'center',boxSizing:'border-box',paddingTop:'max(12px, var(--safe-top))',paddingRight:'max(12px, var(--safe-right))',paddingBottom:'max(12px, var(--safe-bottom))',paddingLeft:'max(12px, var(--safe-left))'}}>
     <section ref={dialog} role="dialog" aria-modal="true" aria-labelledby="history-merge-title" tabIndex={-1}
       className="connection-requests" style={{background:'var(--c-card,#fff)',color:'var(--c-text,#172033)',width:520,maxWidth:'100%',maxHeight:'85dvh',overflowY:'auto',boxSizing:'border-box',padding:20,borderRadius:16}}
       onKeyDown={event=>{

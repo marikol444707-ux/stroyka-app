@@ -37,7 +37,7 @@ export default function SupplierMergeDialog({supplier, suppliers, API, C, onClos
     dialog.current?.focus();
     return () => { active.current=false; document.body.style.overflow=overflow; previous?.focus(); };
   }, []);
-  return createPortal(<div style={{position:'fixed',inset:0,zIndex:900,background:'rgba(15,23,42,.65)',display:'flex',alignItems:'center',justifyContent:'center',padding:12}}>
+  return createPortal(<div style={{position:'fixed',inset:0,zIndex:900,background:'rgba(15,23,42,.65)',display:'flex',alignItems:'center',justifyContent:'center',boxSizing:'border-box',paddingTop:'max(12px, var(--safe-top))',paddingRight:'max(12px, var(--safe-right))',paddingBottom:'max(12px, var(--safe-bottom))',paddingLeft:'max(12px, var(--safe-left))'}}>
     <div ref={dialog} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="supplier-merge-title"
       onKeyDown={event => {
         if(event.key==='Escape' && !pending) onClose();

@@ -367,7 +367,7 @@ export default function ScanInvoiceModal({
   };
 
   return (
-    <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:showScanInvoice?'flex':'none',alignItems:'center',justifyContent:'center'}}>
+    <div style={{boxSizing:'border-box',paddingTop:'var(--safe-top)',paddingRight:'var(--safe-right)',paddingBottom:'var(--safe-bottom)',paddingLeft:'var(--safe-left)',position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:showScanInvoice?'flex':'none',alignItems:'center',justifyContent:'center'}}>
       <div className='mobile-modal' style={{...card,padding:isMobile?'16px':'20px',width:isMobile?'calc(100vw - 24px)':review?'700px':'340px',margin:isMobile?'12px':'20px',maxHeight:isMobile?'calc(100dvh - 24px)':'90vh',overflowY:'auto',boxSizing:'border-box'}}>
         {review ? <UnifiedReceiptReview API={API} scan={review} onDifferentDocument={() => resetDocument()} onWaybillRequired={source => resetDocument({...source, requiresWaybill:true, receiptSourceScope:sourceScope, receiptSourceProjectId:review.projectId})} onConfirmed={result => { setNewInvoice(prev => ({...prev,receiptCompleted:true})); onReceiptConfirmed?.(result); }} onOpenReceipt={onOpenReceipt} onCancel={close} onNewDocument={confirmation => {
           const document = confirmation.receiptDocument;

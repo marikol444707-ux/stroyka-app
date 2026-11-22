@@ -27,7 +27,7 @@ export const BtnSecondary = ({children, onClick, style}) => (
 );
 
 export const Modal = ({children, title, onClose}) => (
-  <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center'}}>
+  <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center',boxSizing:'border-box',paddingTop:'max(20px, var(--safe-top))',paddingRight:'max(20px, var(--safe-right))',paddingBottom:'max(20px, var(--safe-bottom))',paddingLeft:'max(20px, var(--safe-left))'}}>
     <div style={{backgroundColor:'white',borderRadius:'16px',padding:'20px',width:'360px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
       {title&&<b style={{color:'#111827',fontSize:'15px',display:'block',marginBottom:'12px'}}>{title}</b>}
       {children}

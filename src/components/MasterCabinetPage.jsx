@@ -485,7 +485,7 @@ export default function MasterCabinetPage(props) {
 
   if (showProfileForm) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', backgroundColor: C.bg, padding: '20px' }}>
+      <div className="safe-page" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', backgroundColor: C.bg, '--safe-pad-top': '20px', '--safe-pad-x': '20px', '--safe-pad-bottom': '20px' }}>
         <div style={{ ...card, padding: '40px', width: '500px', maxHeight: '90vh', overflowY: 'auto' }}>
           <h2 style={{ textAlign: 'center', color: C.text, marginBottom: '25px', fontSize: '22px', fontWeight: '800' }}>
             {user.role === 'субподрядчик' ? '🔩 Заполните профиль субподрядчика' : '👷 Заполните профиль'}
@@ -1050,7 +1050,7 @@ export default function MasterCabinetPage(props) {
         validationAlert
       />
       {dailyWorkReview && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 1200, backgroundColor: 'rgba(15,23,42,.62)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '14px' }}>
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1200, backgroundColor: 'rgba(15,23,42,.62)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxSizing:'border-box',paddingTop:'max(14px, var(--safe-top))',paddingRight:'max(14px, var(--safe-right))',paddingBottom:'max(14px, var(--safe-bottom))',paddingLeft:'max(14px, var(--safe-left))' }}>
           <div style={{ ...card, width: '720px', maxWidth: '100%', maxHeight: '92vh', overflowY: 'auto', padding: '18px', backgroundColor: C.bgWhite }}>
 	            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', marginBottom: '14px' }}>
 	              <div>
@@ -1134,8 +1134,8 @@ export default function MasterCabinetPage(props) {
         </div>
       )}
 
-      <div style={{ flex: 1, padding: '15px', paddingBottom: isMobile ? '90px' : '15px', overflowY: 'auto' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', gap: '8px' }}>
+      <div style={{ flex: 1, overflowY: 'auto', minWidth: 0, paddingBottom: isMobile ? 'calc(90px + var(--safe-bottom))' : 'calc(15px + var(--safe-bottom))' }}>
+        <div className="safe-sticky-header" style={{ '--safe-pad-top': '15px', '--safe-pad-x': '15px', '--safe-sticky-bg': C.bg || '#f9fafb', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', gap: '8px' }}>
           <div>
             <h2 style={{ margin: 0, color: C.text, fontSize: '20px', fontWeight: '800' }}>СтройКа</h2>
             <p style={{ margin: 0, color: C.textSec, fontSize: '12px' }}>{user.name + ' — ' + (ROLE_LABELS[user.role] || user.role)}</p>
@@ -1159,6 +1159,7 @@ export default function MasterCabinetPage(props) {
               user={user}
               setUser={setUser}
               API={API}
+              isMobile={isMobile}
               dropdownWidth="300px"
               bellSize={16}
               markAllText="Все прочитано"
@@ -1170,6 +1171,7 @@ export default function MasterCabinetPage(props) {
             </button>
           </div>
         </div>
+        <div style={{ paddingTop: 0, paddingRight: 'calc(15px + var(--safe-right))', paddingBottom: 0, paddingLeft: 'calc(15px + var(--safe-left))' }}>
 
         {activePage === 'works' && (
           <div>
@@ -2165,9 +2167,10 @@ export default function MasterCabinetPage(props) {
             sendCompanyChatMessage={sendCompanyChatMessage}
           />
         )}
+        </div>
       </div>
 
-      <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, backgroundColor: 'white', borderTop: '1.5px solid ' + C.border, display: 'flex', justifyContent: 'flex-start', gap: '2px', padding: '10px 8px 14px', zIndex: 100, boxShadow: '0 -4px 20px rgba(0,0,0,0.06)', overflowX: 'auto' }}>
+      <div className="safe-bottom-bar master-cabinet-nav" style={{ '--safe-pad-top': '10px', '--safe-pad-x': '8px', '--safe-pad-bottom': '14px', position: 'fixed', bottom: 0, left: 0, right: 0, backgroundColor: 'white', borderTop: '1.5px solid ' + C.border, display: 'flex', justifyContent: 'flex-start', gap: '2px', zIndex: 100, boxShadow: '0 -4px 20px rgba(0,0,0,0.06)', overflowX: 'auto' }}>
         {[
           { id: 'works', icon: <Briefcase size={22} />, label: 'Работы' },
           { id: 'assignments', icon: <ClipboardList size={22} />, label: 'Поруч.', badge: myOpenAssignmentsCount },

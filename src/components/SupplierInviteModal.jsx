@@ -22,7 +22,7 @@ export default function SupplierInviteModal({
   if (!showSupplierInviteModal) return null;
 
   return (
-    <div onClick={()=>setShowSupplierInviteModal(false)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.55)',zIndex:1700,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px'}}>
+    <div onClick={()=>setShowSupplierInviteModal(false)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.55)',zIndex:1700,display:'flex',alignItems:'center',justifyContent:'center',boxSizing:'border-box',paddingTop:'max(20px, var(--safe-top))',paddingRight:'max(20px, var(--safe-right))',paddingBottom:'max(20px, var(--safe-bottom))',paddingLeft:'max(20px, var(--safe-left))'}}>
       <div onClick={e=>e.stopPropagation()} style={{...card,padding:'20px',width:'min(560px,100%)',maxHeight:'85vh',overflowY:'auto'}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px'}}>
           <b style={{color:C.text,fontSize:'16px'}}>🔗 Пригласить поставщика по ссылке</b>

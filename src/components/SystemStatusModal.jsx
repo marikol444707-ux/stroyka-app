@@ -37,7 +37,7 @@ function SystemStatusModal({
   };
 
   return (
-    <div onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }} style={{position:'fixed',inset:0,backgroundColor:'rgba(0,0,0,0.55)',zIndex:1710,display:'flex',alignItems:'center',justifyContent:'center',padding:'18px'}}>
+    <div onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }} style={{position:'fixed',inset:0,backgroundColor:'rgba(0,0,0,0.55)',zIndex:1710,display:'flex',alignItems:'center',justifyContent:'center',boxSizing:'border-box',paddingTop:'max(18px, var(--safe-top))',paddingRight:'max(18px, var(--safe-right))',paddingBottom:'max(18px, var(--safe-bottom))',paddingLeft:'max(18px, var(--safe-left))'}}>
       <div style={{backgroundColor:C.bgWhite,border:'1.5px solid '+C.border,borderRadius:'18px',boxShadow:'0 14px 55px rgba(0,0,0,0.35)',width:'min(760px,96vw)',maxHeight:'88vh',overflowY:'auto'}}>
         <div style={{padding:'18px 20px',borderBottom:'1.5px solid '+C.border,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'12px'}}>
           <div><h3 style={{margin:0,color:C.text,fontSize:'18px'}}>Статус системы</h3><p style={{margin:'4px 0 0',color:C.textSec,fontSize:'12px'}}>{systemStatus?.time||'—'}</p></div>

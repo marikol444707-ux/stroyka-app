@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import './index.css';
+import './styles/safeArea.css';
 import App from './App';
 import AppErrorBoundary from './components/AppErrorBoundary';
 import reportWebVitals from './reportWebVitals';

@@ -125,8 +125,8 @@ export default function EstimateSectionsEditor({
         const estimateTbl = {...tbl, minWidth: isMobile ? '880px' : '928px', tableLayout: 'fixed'};
         const estimateTblH = {...tblH, padding: '4px 5px', fontSize: '10px', lineHeight: 1.1, whiteSpace: 'nowrap'};
         const estimateTblC = {...tblC, padding: '3px 5px', fontSize: '11px', lineHeight: 1.15, verticalAlign: 'middle'};
-        const stickySumStyle = {position: 'sticky', right: '38px', zIndex: 2, boxShadow: '-8px 0 10px -10px ' + C.textMuted};
-        const stickyDeleteStyle = {position: 'sticky', right: 0, zIndex: 2};
+        const stickySumStyle = {position: 'sticky', right: 'calc(38px + var(--safe-right))', zIndex: 2, boxShadow: '-8px 0 10px -10px ' + C.textMuted};
+        const stickyDeleteStyle = {position: 'sticky', right: 'var(--safe-right)', zIndex: 2};
         const markSectionBasis = () => {
           const sections = (selectedEstimate.sections || []).map((s, sidx) => sidx === si ? {...s, items: (s.items || []).map(it => isEstimateWorkItem(it, s.name) ? {...it, measurementBasis: estimateMeasurementBasisOf(it, s.name)} : it)} : s);
           const updated = {...selectedEstimate, sections};
