@@ -55,6 +55,7 @@ class DocumentVersionsRoutesTest(unittest.TestCase):
         self.assertNotIn('snapshot',result[0])
         query,params=scope.calls[0]
         self.assertIn('p.company_id=%s',query)
+        self.assertIn('v.company_id IS NULL OR v.company_id=h.company_id',query)
         self.assertIn("v.document_type='hidden_works_act'",query)
         self.assertEqual(params,[2,'hidden_works_act',9])
         self.assertTrue(scope.closed)
