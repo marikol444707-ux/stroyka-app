@@ -67,7 +67,7 @@ describe('SystemOwnerCabinet mobile header', () => {
     ));
     for (const edge of ['top', 'right', 'bottom', 'left']) {
       expect(rule?.style.getPropertyValue(`padding-${edge}`)).toBe(
-        `calc(20px + env(safe-area-inset-${edge}, 0px))`,
+        `calc(20px + var(--safe-${edge}))`,
       );
     }
   });

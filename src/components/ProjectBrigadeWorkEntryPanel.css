@@ -1,5 +1,5 @@
-.brigade-work-entry-backdrop { position:fixed; inset:0; z-index:1200; background:rgb(15 23 42 / 60%); display:grid; place-items:center; padding:12px; }
-.brigade-work-entry-dialog { box-sizing:border-box; width:min(100%,560px); max-height:calc(100dvh - 24px); display:flex; flex-direction:column; border-radius:16px; padding:0 !important; overflow:hidden; }
+.brigade-work-entry-backdrop { position:fixed; inset:0; z-index:1200; background:rgb(15 23 42 / 60%); display:grid; place-items:center; box-sizing:border-box; padding-top:max(12px, var(--safe-top)); padding-right:max(12px, var(--safe-right)); padding-bottom:max(12px, var(--safe-bottom)); padding-left:max(12px, var(--safe-left)); }
+.brigade-work-entry-dialog { box-sizing:border-box; width:min(100%,560px); max-height:calc(100dvh - var(--safe-top) - var(--safe-bottom) - 24px); display:flex; flex-direction:column; border-radius:16px; padding:0 !important; overflow:hidden; }
 .brigade-work-entry-dialog header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px; flex-shrink:0; }
 .brigade-work-entry-dialog h2 { font-size:20px; margin:0; }
 .brigade-work-entry-dialog fieldset { min-height:0; min-width:0; overflow:auto; border:0; padding:16px; margin:0; }

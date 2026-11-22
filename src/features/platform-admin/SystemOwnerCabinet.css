@@ -1,11 +1,11 @@
 .system-owner-cabinet {
   box-sizing: border-box;
   padding: 20px;
-  /* The standalone iOS app uses viewport-fit=cover and a translucent status bar. */
-  padding-top: calc(20px + env(safe-area-inset-top, 0px));
-  padding-right: calc(20px + env(safe-area-inset-right, 0px));
-  padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
-  padding-left: calc(20px + env(safe-area-inset-left, 0px));
+  /* Same shared insets as the app shell (--safe-* in src/styles/safeArea.css). */
+  padding-top: calc(20px + var(--safe-top));
+  padding-right: calc(20px + var(--safe-right));
+  padding-bottom: calc(20px + var(--safe-bottom));
+  padding-left: calc(20px + var(--safe-left));
 }
 
 .system-owner-cabinet__header {

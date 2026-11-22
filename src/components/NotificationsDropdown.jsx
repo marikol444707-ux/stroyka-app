@@ -46,12 +46,12 @@ export default function NotificationsDropdown({
   const dropdownStyle = compactDropdown
     ? {
         position: 'fixed',
-        top: 'calc(env(safe-area-inset-top, 0px) + 76px)',
-        left: 'max(10px, env(safe-area-inset-left, 0px))',
-        right: 'max(10px, env(safe-area-inset-right, 0px))',
+        top: 'calc(var(--safe-top) + 76px)',
+        left: 'max(10px, var(--safe-left))',
+        right: 'max(10px, var(--safe-right))',
         width: 'auto',
         maxWidth: 'none',
-        maxHeight: 'calc(100dvh - env(safe-area-inset-top, 0px) - 96px)',
+        maxHeight: 'calc(100dvh - var(--safe-top) - var(--safe-bottom) - 96px)',
         transform: 'none',
         boxSizing: 'border-box',
         contain: 'layout paint',

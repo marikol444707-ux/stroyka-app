@@ -224,7 +224,7 @@ function UsersPage({
   return (
     <div>
       {maxBindingUser&&(
-        <div style={{position:'fixed',inset:0,zIndex:1800,background:'rgba(0,0,0,.55)',display:'flex',alignItems:'center',justifyContent:'center',padding:'18px'}}>
+        <div style={{position:'fixed',inset:0,zIndex:1800,background:'rgba(0,0,0,.55)',display:'flex',alignItems:'center',justifyContent:'center',boxSizing:'border-box',paddingTop:'max(18px, var(--safe-top))',paddingRight:'max(18px, var(--safe-right))',paddingBottom:'max(18px, var(--safe-bottom))',paddingLeft:'max(18px, var(--safe-left))'}}>
           <div style={{...card,width:'100%',maxWidth:'520px',padding:'20px',boxShadow:'0 18px 60px rgba(0,0,0,.35)'}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'12px',marginBottom:'14px'}}>
               <div>

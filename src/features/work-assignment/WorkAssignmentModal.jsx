@@ -290,12 +290,12 @@ export default function WorkAssignmentModal({
     }
   };
 
-  const modalWidth = isMobile ? 'calc(100vw - 20px)' : '920px';
+  const modalWidth = isMobile ? 'calc(100vw - var(--safe-left) - var(--safe-right) - 20px)' : '920px';
   const rowGrid = '28px minmax(140px,1.4fr) minmax(70px,.7fr) minmax(70px,.7fr) minmax(90px,.85fr) minmax(90px,.85fr)';
 
   return (
-    <div onClick={() => !submitting && onClose()} style={{position: 'fixed', inset: 0, backgroundColor: 'rgba(15,23,42,.62)', zIndex: 760, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: isMobile ? '10px' : '22px'}}>
-      <div role="dialog" aria-modal="true" aria-labelledby="work-assignment-title" onClick={event => event.stopPropagation()} style={{...card, width: modalWidth, maxHeight: 'calc(100dvh - 20px)', minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: 0}}>
+    <div onClick={() => !submitting && onClose()} style={{position: 'fixed', inset: 0, backgroundColor: 'rgba(15,23,42,.62)', zIndex: 760, display: 'flex', alignItems: 'center', justifyContent: 'center', boxSizing: 'border-box', paddingTop: isMobile ? 'max(10px, var(--safe-top))' : 'max(22px, var(--safe-top))', paddingRight: isMobile ? 'max(10px, var(--safe-right))' : 'max(22px, var(--safe-right))', paddingBottom: isMobile ? 'max(10px, var(--safe-bottom))' : 'max(22px, var(--safe-bottom))', paddingLeft: isMobile ? 'max(10px, var(--safe-left))' : 'max(22px, var(--safe-left))'}}>
+      <div role="dialog" aria-modal="true" aria-labelledby="work-assignment-title" onClick={event => event.stopPropagation()} style={{...card, width: modalWidth, maxHeight: 'calc(100dvh - var(--safe-top) - var(--safe-bottom) - 20px)', minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: 0}}>
         <div style={{flexShrink: 0, padding: isMobile ? '12px' : '18px 20px', borderBottom: '1px solid ' + C.border, display: 'flex', justifyContent: 'space-between', gap: '12px', alignItems: 'flex-start'}}>
           <div>
             <div style={{display: 'flex', gap: '8px', alignItems: 'center'}}>

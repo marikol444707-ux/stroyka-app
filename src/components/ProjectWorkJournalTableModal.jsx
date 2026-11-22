@@ -49,7 +49,7 @@ export default function ProjectWorkJournalTableModal({
   const countConfirmed = filtered.filter(item => item.status === 'Подтверждено').length;
 
   return (
-    <div onClick={() => setShowJournalTableModal(null)} style={{position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.55)', zIndex: 1600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px'}}>
+    <div onClick={() => setShowJournalTableModal(null)} style={{position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.55)', zIndex: 1600, display: 'flex', alignItems: 'center', justifyContent: 'center', boxSizing:'border-box',paddingTop:'max(20px, var(--safe-top))',paddingRight:'max(20px, var(--safe-right))',paddingBottom:'max(20px, var(--safe-bottom))',paddingLeft:'max(20px, var(--safe-left))'}}>
       <div onClick={event => event.stopPropagation()} style={{...card, padding: 0, width: 'min(1100px,100%)', maxHeight: '92vh', display: 'flex', flexDirection: 'column', overflow: 'hidden'}}>
         <div style={{padding: '16px 20px', borderBottom: '1.5px solid ' + C.border, backgroundColor: C.bg, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px'}}>
           <div>

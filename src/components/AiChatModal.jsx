@@ -5,7 +5,7 @@ export default function AiChatModal({showAiChat, isMobile, C, inp, btnO, aiMessa
   if (!showAiChat) return null;
 
   return (
-    <div style={isMobile?{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:C.bgWhite,zIndex:1000,display:'flex',flexDirection:'column',overflow:'hidden'}:{position:'fixed',bottom:'80px',right:'20px',width:'480px',height:'620px',backgroundColor:C.bgWhite,borderRadius:'16px',boxShadow:'0 8px 32px rgba(0,0,0,0.15)',border:'1.5px solid '+C.border,zIndex:1000,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+    <div style={isMobile?{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:C.bgWhite,zIndex:1000,display:'flex',flexDirection:'column',overflow:'hidden',boxSizing:'border-box',paddingTop:'var(--safe-top)',paddingRight:'var(--safe-right)',paddingBottom:'var(--safe-bottom)',paddingLeft:'var(--safe-left)'}:{position:'fixed',bottom:'calc(80px + var(--safe-bottom))',right:'calc(20px + var(--safe-right))',width:'480px',height:'620px',backgroundColor:C.bgWhite,borderRadius:'16px',boxShadow:'0 8px 32px rgba(0,0,0,0.15)',border:'1.5px solid '+C.border,zIndex:1000,display:'flex',flexDirection:'column',overflow:'hidden'}}>
       <div style={{padding:'14px 16px',backgroundColor:C.accent,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
         <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
           <span style={{fontSize:'20px'}}>🤖</span>

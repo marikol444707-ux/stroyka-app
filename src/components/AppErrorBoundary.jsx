@@ -56,14 +56,16 @@ export default class AppErrorBoundary extends React.Component {
     const message = this.state.error?.message || 'Неизвестная ошибка приложения';
 
     return (
-      <div style={{
+      <div className="safe-page" style={{
         minHeight: '100vh',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         background: '#070d1d',
         color: '#f8fafc',
-        padding: 20,
+        '--safe-pad-top': '20px',
+        '--safe-pad-x': '20px',
+        '--safe-pad-bottom': '20px',
       }}>
         <div style={{
           width: '100%',

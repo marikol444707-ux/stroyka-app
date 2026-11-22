@@ -99,7 +99,7 @@ export default function EstimateVersionHistoryModal({
   };
 
   return (
-    <div onClick={()=>setShowVersionHistory(false)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:600,display:'flex',alignItems:'center',justifyContent:'center'}}>
+    <div onClick={()=>setShowVersionHistory(false)} style={{boxSizing:'border-box',paddingTop:'var(--safe-top)',paddingRight:'var(--safe-right)',paddingBottom:'var(--safe-bottom)',paddingLeft:'var(--safe-left)',position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:600,display:'flex',alignItems:'center',justifyContent:'center'}}>
       <div onClick={e=>e.stopPropagation()} className='mobile-modal' style={{...card,padding:'20px',width:'520px',margin:'20px',maxHeight:'85vh',overflowY:'auto'}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'14px'}}>
           <b style={{color:C.text,fontSize:'15px'}}>📜 История версий: {selectedEstimate.name}</b>

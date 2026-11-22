@@ -19,7 +19,7 @@ import MobileBottomNav from './MobileBottomNav';
 import PreviewModal from './PreviewModal';
 import ProjectSitePublicationPage from './ProjectSitePublicationPage';
 
-function MaxAppReturnBar({visible, onBack, isMobile}) {
+function MaxAppReturnBar({visible, onBack, isMobile, insetTop}) {
   if (!visible) return null;
   return (
     <div style={{
@@ -27,7 +27,10 @@ function MaxAppReturnBar({visible, onBack, isMobile}) {
       alignItems:'center',
       justifyContent:'space-between',
       gap:'10px',
-      padding:isMobile ? '8px 12px' : '10px 24px',
+      paddingTop: insetTop ? `calc(${isMobile ? '8px' : '10px'} + var(--safe-top))` : (isMobile ? '8px' : '10px'),
+      paddingRight: `calc(${isMobile ? '12px' : '24px'} + var(--safe-right))`,
+      paddingBottom: isMobile ? '8px' : '10px',
+      paddingLeft: `calc(${isMobile ? '12px' : '24px'} + var(--safe-left))`,
       background:'#111827',
       borderBottom:'1px solid rgba(148,163,184,.24)',
       color:'#e5e7eb',
@@ -103,8 +106,8 @@ export default function AppAuthenticatedShell({
 
       <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden',width:'100%',minWidth:0,marginLeft:isMobile?0:'240px'}}>
         <AppHeaderBar {...(headerProps || {})} />
-        <MaxAppReturnBar {...(maxAppReturnProps || {})} isMobile={isMobile} />
-        <div className="app-scroll-content" style={{flex:1,overflowY:'auto',backgroundColor:activePage==='dashboard'?'#0b1120':theme.bg,padding:activePage==='dashboard'?(isMobile?'0 0 calc(76px + env(safe-area-inset-bottom, 0px))':'0'):(isMobile?'16px 16px calc(92px + env(safe-area-inset-bottom, 0px))':'24px'),scrollPaddingBottom:isMobile?'calc(92px + env(safe-area-inset-bottom, 0px))':undefined}}>
+        <MaxAppReturnBar {...(maxAppReturnProps || {})} isMobile={isMobile} insetTop={activePage==='dashboard'} />
+        <div className="app-scroll-content" style={{flex:1,overflowY:'auto',backgroundColor:activePage==='dashboard'?'#0b1120':theme.bg,paddingTop:activePage==='dashboard'?0:(isMobile?'16px':'24px'),paddingRight:`calc(${activePage==='dashboard'?'0px':(isMobile?'16px':'24px')} + var(--safe-right))`,paddingBottom:activePage==='dashboard'?(isMobile?'calc(76px + var(--safe-bottom))':'0px'):`calc(${isMobile?'92px':'24px'} + var(--safe-bottom))`,paddingLeft:`calc(${activePage==='dashboard'?'0px':(isMobile?'16px':'24px')} + var(--safe-left))`,scrollPaddingBottom:isMobile?(activePage==='dashboard'?'calc(76px + var(--safe-bottom))':'calc(92px + var(--safe-bottom))'):undefined}}>
           <React.Suspense fallback={pageFallback}>
             {activePage === 'dashboard' && <DashboardPage {...(dashboardProps || {})} />}
             {activePage === 'projects' && canOpenProjects && <ProjectsPage ctx={projectsPageContext} />}

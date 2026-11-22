@@ -144,7 +144,7 @@ export default function ProjectHiddenWorksActEditModal({
 
   return (
     <>
-      <div onClick={() => setEditingAct(null)} style={{position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.55)', zIndex: 1600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px'}}>
+      <div onClick={() => setEditingAct(null)} style={{position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.55)', zIndex: 1600, display: 'flex', alignItems: 'center', justifyContent: 'center', boxSizing:'border-box',paddingTop:'max(20px, var(--safe-top))',paddingRight:'max(20px, var(--safe-right))',paddingBottom:'max(20px, var(--safe-bottom))',paddingLeft:'max(20px, var(--safe-left))'}}>
         <div onClick={event => event.stopPropagation()} style={{...card, padding: 0, width: 'min(900px,100%)', maxHeight: '92vh', display: 'flex', flexDirection: 'column', overflow: 'hidden'}}>
           <div style={{padding: '16px 20px', borderBottom: '1.5px solid ' + C.border, backgroundColor: C.bg, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px'}}>
             <div>
@@ -314,7 +314,7 @@ export default function ProjectHiddenWorksActEditModal({
       </div>
 
       {act.__versionsOpen && (
-        <div onClick={() => setEditingAct(prev => ({...prev, __versionsOpen: false, __viewingVer: null}))} style={{position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 1700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px'}}>
+        <div onClick={() => setEditingAct(prev => ({...prev, __versionsOpen: false, __viewingVer: null}))} style={{position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.6)', zIndex: 1700, display: 'flex', alignItems: 'center', justifyContent: 'center', boxSizing:'border-box',paddingTop:'max(20px, var(--safe-top))',paddingRight:'max(20px, var(--safe-right))',paddingBottom:'max(20px, var(--safe-bottom))',paddingLeft:'max(20px, var(--safe-left))'}}>
           <div onClick={event => event.stopPropagation()} style={{...card, padding: 0, width: 'min(900px,100%)', maxHeight: '88vh', display: 'flex', flexDirection: 'column', overflow: 'hidden'}}>
             <div style={{padding: '14px 18px', borderBottom: '1.5px solid ' + C.border, backgroundColor: C.bg, display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
               <div>
