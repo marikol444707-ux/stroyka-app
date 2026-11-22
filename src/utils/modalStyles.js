@@ -16,7 +16,11 @@ export const modalOverlayStyle = () => ({
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  padding: '20px',
+  boxSizing: 'border-box',
+  paddingTop: 'max(20px, var(--safe-top))',
+  paddingRight: 'max(20px, var(--safe-right))',
+  paddingBottom: 'max(20px, var(--safe-bottom))',
+  paddingLeft: 'max(20px, var(--safe-left))',
 });
 
 export const modalShellStyle = (card, width = 'min(900px,100%)') => ({

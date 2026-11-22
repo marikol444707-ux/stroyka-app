@@ -51,7 +51,7 @@ export default function PricelistFromEstimateModal({
   };
 
   return (
-    <div onClick={()=>!creatingFromEstimate&&setShowFromEstimate(false)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:650,display:'flex',alignItems:'center',justifyContent:'center'}}>
+    <div onClick={()=>!creatingFromEstimate&&setShowFromEstimate(false)} style={{boxSizing:'border-box',paddingTop:'var(--safe-top)',paddingRight:'var(--safe-right)',paddingBottom:'var(--safe-bottom)',paddingLeft:'var(--safe-left)',position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:650,display:'flex',alignItems:'center',justifyContent:'center'}}>
       <div onClick={e=>e.stopPropagation()} className='mobile-modal' style={{...card,padding:'22px',width:'480px',margin:'20px',maxHeight:'90vh',overflowY:'auto'}}>
         <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'4px'}}>
           <span style={{fontSize:'22px'}}>📋</span>

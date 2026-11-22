@@ -80,7 +80,7 @@ export default function CustomerCabinetPage(props) {
   });
 
   return (
-    <div style={{ minHeight: '100vh', backgroundColor: C.bg, padding: '20px' }}>
+    <div className="safe-page" style={{ minHeight: '100vh', backgroundColor: C.bg, '--safe-pad-top': '20px', '--safe-pad-x': '20px', '--safe-pad-bottom': '20px' }}>
       <div style={{ maxWidth: '800px', margin: '0 auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>

@@ -219,7 +219,7 @@ export default function ScannedInvoiceFormModal({
   const canRememberTemplate = !inventoryOnly && isScannedInvoice && String(newInvoice.supplier || newInvoice.newSupplierName || scanRecognition.supplierName || '').trim();
 
   return (
-    <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:isMobile?'center':'center',justifyContent:'center',padding:isMobile?'12px':0,boxSizing:'border-box'}}>
+    <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.5)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center',boxSizing:'border-box',paddingTop:isMobile?'max(12px, var(--safe-top))':'var(--safe-top)',paddingRight:isMobile?'max(12px, var(--safe-right))':'var(--safe-right)',paddingBottom:isMobile?'max(12px, var(--safe-bottom))':'var(--safe-bottom)',paddingLeft:isMobile?'max(12px, var(--safe-left))':'var(--safe-left)'}}>
       <div className='mobile-modal' style={{...card,padding:isMobile?'14px':'20px',width:isMobile?'calc(100vw - 24px)':'520px',margin:isMobile?'0 auto':'20px',maxHeight:isMobile?'calc(100dvh - 24px)':'90vh',borderRadius:isMobile?'16px':card.borderRadius,overflowY:'auto',overflowX:'hidden',paddingBottom:isMobile?'24px':'20px',boxSizing:'border-box'}}>
         <b style={{color:C.text,fontSize:isMobile?'21px':'15px',display:'block',marginBottom:'4px'}}>📋 Накладная</b>
         <p style={{color:C.textSec,fontSize:isMobile?'16px':'12px',margin:'0 0 12px'}}>Проверьте данные и сохраните</p>

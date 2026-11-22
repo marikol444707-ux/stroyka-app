@@ -9,8 +9,8 @@ export default function MobileMenuSheet({showMobileMenu, setShowMobileMenu, menu
   const openPage = typeof navigateTo === 'function' ? navigateTo : (typeof setActivePage === 'function' ? setActivePage : () => {});
   return (
     <>
-      <div onMouseDown={e=>{e.preventDefault();closeMenu(false);}} style={{position:'fixed',top:0,left:0,right:0,bottom:'60px',backgroundColor:'rgba(0,0,0,0.5)',zIndex:299}}/>
-      <div style={{position:'fixed',bottom:'60px',left:0,right:0,backgroundColor:theme.bgWhite,borderRadius:'16px 16px 0 0',padding:'16px',zIndex:300,maxHeight:'60vh',overflowY:'auto',boxShadow:'0 -8px 30px rgba(0,0,0,0.15)',borderTop:'1.5px solid '+theme.border}}>
+      <div onMouseDown={e=>{e.preventDefault();closeMenu(false);}} style={{position:'fixed',top:0,left:0,right:0,bottom:'calc(60px + var(--safe-bottom))',backgroundColor:'rgba(0,0,0,0.5)',zIndex:299}}/>
+      <div className="safe-sheet" style={{position:'fixed',bottom:'calc(60px + var(--safe-bottom))',left:0,right:0,backgroundColor:theme.bgWhite,borderRadius:'16px 16px 0 0',paddingTop:'16px',paddingRight:'calc(16px + var(--safe-right))',paddingBottom:'16px',paddingLeft:'calc(16px + var(--safe-left))',zIndex:300,maxHeight:'calc(60vh - var(--safe-bottom))',overflowY:'auto',boxShadow:'0 -8px 30px rgba(0,0,0,0.15)',borderTop:'1.5px solid '+theme.border,boxSizing:'border-box'}}>
         <div style={{textAlign:'center',marginBottom:'12px'}}><div style={{width:'36px',height:'4px',backgroundColor:theme.borderDark,borderRadius:'2px',margin:'0 auto'}}/></div>
         <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'8px'}}>
           {items.map(m=>(

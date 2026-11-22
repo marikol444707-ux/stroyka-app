@@ -26,7 +26,7 @@ export default function RegisterPage({
   const isSupplierInvite = regInviteInfo?.role === 'поставщик' && !isTeamInvite;
 
   return (
-    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', backgroundColor: C.bg, padding: '20px' }}>
+    <div className="safe-page" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', backgroundColor: C.bg, '--safe-pad-top': '20px', '--safe-pad-x': '20px', '--safe-pad-bottom': '20px' }}>
       <div style={{ ...card, padding: '30px', width: isSupplierInvite ? '560px' : '420px', maxWidth: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.08)', maxHeight: '95vh', overflowY: 'auto' }}>
         <div style={{ textAlign: 'center', marginBottom: '24px' }}>
           <div style={{ fontSize: '42px', marginBottom: '8px' }}>{isSupplierInvite ? '🏭' : '🏗️'}</div>

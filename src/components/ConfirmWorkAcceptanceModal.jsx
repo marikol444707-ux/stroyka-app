@@ -34,7 +34,7 @@ export default function ConfirmWorkAcceptanceModal({
   const diffNorm = diff * factor;
 
   return (
-    <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.55)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1500,padding:'20px'}}>
+    <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,backgroundColor:'rgba(0,0,0,0.55)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1500,boxSizing:'border-box',paddingTop:'max(20px, var(--safe-top))',paddingRight:'max(20px, var(--safe-right))',paddingBottom:'max(20px, var(--safe-bottom))',paddingLeft:'max(20px, var(--safe-left))'}}>
       <div style={{...card,padding:'24px',width:'min(480px,100%)',maxHeight:'90vh',overflowY:'auto'}}>
         <h3 style={{color:C.text,marginBottom:'8px',fontWeight:'700'}}>✅ Принять работу мастера</h3>
         <p style={{color:C.textSec,fontSize:'12px',margin:'0 0 14px'}}>{(e.masterName||e.master_name||'—')+' · '+e.project}</p>

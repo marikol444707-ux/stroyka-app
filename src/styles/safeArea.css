@@ -1,0 +1,63 @@
+/*
+  Shared iPhone safe-area insets for the logged-in app.
+  The standalone app uses viewport-fit=cover and a translucent status bar,
+  so fixed and top-of-page chrome would otherwise sit on the clock and the
+  home indicator. env() is 0 on desktop and Android, so spacing there stays
+  the base padding stored in --safe-pad-*.
+*/
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+}
+
+.safe-page {
+  box-sizing: border-box;
+  padding-top: calc(var(--safe-pad-top, 0px) + var(--safe-top));
+  padding-right: calc(var(--safe-pad-right, var(--safe-pad-x, 0px)) + var(--safe-right));
+  padding-bottom: calc(var(--safe-pad-bottom, 0px) + var(--safe-bottom));
+  padding-left: calc(var(--safe-pad-left, var(--safe-pad-x, 0px)) + var(--safe-left));
+}
+
+.safe-top-bar,
+.safe-sticky-header {
+  box-sizing: border-box;
+  padding-top: calc(var(--safe-pad-top, 0px) + var(--safe-top));
+  padding-right: calc(var(--safe-pad-right, var(--safe-pad-x, 0px)) + var(--safe-right));
+  padding-bottom: var(--safe-pad-bottom, 0px);
+  padding-left: calc(var(--safe-pad-left, var(--safe-pad-x, 0px)) + var(--safe-left));
+}
+
+.safe-sticky-header {
+  background: var(--safe-sticky-bg, transparent);
+}
+
+@media (max-width: 768px), (max-width: 1100px) and (pointer: coarse) {
+  .safe-sticky-header {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+  }
+}
+
+.safe-bottom-bar {
+  box-sizing: border-box;
+  padding-top: var(--safe-pad-top, 0px);
+  padding-right: calc(var(--safe-pad-right, var(--safe-pad-x, 0px)) + var(--safe-right));
+  padding-bottom: calc(var(--safe-pad-bottom, 0px) + var(--safe-bottom));
+  padding-left: calc(var(--safe-pad-left, var(--safe-pad-x, 0px)) + var(--safe-left));
+}
+
+.safe-drawer {
+  box-sizing: border-box;
+  padding-top: var(--safe-top);
+  padding-right: var(--safe-right);
+  padding-bottom: var(--safe-bottom);
+  padding-left: var(--safe-left);
+}
+
+.safe-edge-button {
+  top: calc(var(--safe-edge-top, 18px) + var(--safe-top)) !important;
+  left: calc(var(--safe-edge-left, 18px) + var(--safe-left)) !important;
+}

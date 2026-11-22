@@ -94,7 +94,7 @@ function ClientAccountCabinet({user, setUser, C, card, btnG, API, handleLogout})
     {label:'Контакты', value:usage.openFollowups ?? 0, hint:'открытые задачи платформы', icon:Headphones},
   ];
 
-  const pageStyle = {minHeight:'100vh',background:C.bg,padding:'clamp(14px,3vw,28px)'};
+  const pageStyle = {minHeight:'100vh',background:C.bg,'--safe-pad-top':'clamp(14px,3vw,28px)','--safe-pad-x':'clamp(14px,3vw,28px)','--safe-pad-bottom':'clamp(14px,3vw,28px)'};
   const shellStyle = {maxWidth:'1180px',margin:'0 auto'};
   const sectionTitle = {color:C.text,fontSize:'18px',margin:'0 0 12px',fontWeight:900};
   const muted = {color:C.textSec,fontSize:'13px',lineHeight:1.45};
@@ -104,7 +104,7 @@ function ClientAccountCabinet({user, setUser, C, card, btnG, API, handleLogout})
 
   if (loading && !dashboard) {
     return (
-      <div style={pageStyle}>
+      <div className="safe-page" style={pageStyle}>
         <div style={shellStyle}>
           <div style={{...card,padding:'18px',display:'flex',alignItems:'center',gap:'10px'}}>
             <RefreshCw size={18} />
@@ -119,7 +119,7 @@ function ClientAccountCabinet({user, setUser, C, card, btnG, API, handleLogout})
   }
 
   return (
-    <div style={pageStyle}>
+    <div className="safe-page" style={pageStyle}>
       <div style={shellStyle}>
         <header style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'14px',flexWrap:'wrap',marginBottom:'18px'}}>
           <div>

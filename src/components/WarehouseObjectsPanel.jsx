@@ -484,7 +484,7 @@ export default function WarehouseObjectsPanel({
       {showTransferForm && selectedWarehouseProject && (
         <div
           onClick={() => setShowTransferForm(false)}
-          style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1600, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          style={{boxSizing:'border-box',paddingTop:'var(--safe-top)',paddingRight:'var(--safe-right)',paddingBottom:'var(--safe-bottom)',paddingLeft:'var(--safe-left)', position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1600, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
         >
           <div onClick={event => event.stopPropagation()} className="mobile-modal" style={{ ...card, padding: isMobile ? '14px' : '20px', width: isMobile ? 'calc(100vw - 24px)' : 'min(560px,92vw)', maxWidth: '720px', maxHeight: isMobile ? 'calc(100dvh - 24px)' : '90vh', overflowY: 'auto', overflowX: 'hidden', boxSizing: 'border-box' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>

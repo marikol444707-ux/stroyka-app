@@ -310,7 +310,7 @@ export default function SupplierCabinetPage({
       await refreshData();
     };
     return (
-      <div style={{minHeight:'100vh',backgroundColor:C.bg,padding:'20px'}}>
+      <div className="safe-page" style={{minHeight:'100vh',backgroundColor:C.bg,'--safe-pad-top':'20px','--safe-pad-x':'20px','--safe-pad-bottom':'20px'}}>
         <div className="supplier-workspace">
           <nav className="supplier-workspace-nav" aria-label="Кабинет поставщика">
             <strong>СТРОЙКА</strong>
