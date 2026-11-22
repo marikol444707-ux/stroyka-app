@@ -19,7 +19,7 @@ class ReleaseRevisionGraphTests(unittest.TestCase):
         config = Config(str(root / 'alembic.ini'))
         config.set_main_option('script_location', str(root / 'migrations'))
         graph = ScriptDirectory.from_config(config)
-        self.assertEqual(graph.get_heads(), ['0123_explicit_company_owner'])
+        self.assertEqual(graph.get_heads(), ['0124_document_record_owners'])
         for revision in graph.walk_revisions():
             self.assertLessEqual(len(revision.revision), 32, revision.revision)
         main_job = graph.get_revision('0101_job_candidates')
@@ -46,11 +46,12 @@ class ReleaseRevisionGraphTests(unittest.TestCase):
             '0121_tool_inventory_owners',
             '0122_field_record_owners',
             '0123_explicit_company_owner',
+            '0124_document_record_owners',
         ])
         # A database stamped with main's previous head receives the server chain.
         from_main = upgrade_ids('0102_platform_company_features')
         self.assertEqual(from_main[0], '0101_manual_brigade_origins')
-        self.assertEqual(from_main[-7:], [
+        self.assertEqual(from_main[-8:], [
             '0117_invoice_template_owners',
             '0118_main_server_heads',
             '0119_room_measurement_owners',
@@ -58,6 +59,7 @@ class ReleaseRevisionGraphTests(unittest.TestCase):
             '0121_tool_inventory_owners',
             '0122_field_record_owners',
             '0123_explicit_company_owner',
+            '0124_document_record_owners',
         ])
         self.assertNotIn('0101_job_candidates', from_main)
         self.assertEqual(upgrade_ids('0101_job_candidates')[0], '0102_platform_company_features')

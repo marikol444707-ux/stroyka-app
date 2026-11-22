@@ -44,6 +44,8 @@ class FakeCursor:
     def fetchone(self):
         if 'to_regclass' in self.calls[-1][0]:
             return {'ledger_exists': self.ledger_exists, 'tool_exists': self.tool_refund is not None}
+        if 'owned_project' in self.calls[-1][0]:
+            return getattr(self, 'project_owner', None)
         if 'FROM tool_deduction_events' in self.calls[-1][0]: return self.tool_refund
         if 'FROM supplier_payment_operations' in self.calls[-1][0]:
             return self.ledger_operation
@@ -231,6 +233,52 @@ class ProjectPaymentRoutesTest(unittest.TestCase):
                                                          x_company_mode='company',current_user={'id':7})
         self.assertEqual([row['id'] for row in result],[2])
         self.assertTrue(connection.rolled_back)
+
+    def test_list_dedupes_by_the_resolved_project_company(self):
+        cursor = FakeCursor(rows=[])
+        app, _connection, visibility = build(cursor)
+        with patch("backend.features.project_payment_access.routes.project_payment_visibility_filter", visibility):
+            app.routes[("GET", "/project-payments")](
+                project_name="", x_company_id="3", x_company_mode="company", current_user={"id": 7},
+            )
+        sql = cursor.calls[-1][0]
+        self.assertIn("SELECT DISTINCT ON", sql)
+        self.assertIn("COALESCE((SELECT MIN(owned_project.company_id)", sql)
+        self.assertIn("AS company_id", sql)
+
+    def test_conflicting_stored_company_cannot_be_reversed(self):
+        row = {"company_id": 3, "project_name": "Объект", "work_package": "", "amount": 500}
+        cursor = FakeCursor(fetchone_results=[row])
+        cursor.project_owner = {"company_id": 8}
+        app, connection, _ = build(cursor)
+        with self.assertRaises(HTTPException) as error:
+            app.routes[("DELETE", "/project-payments/{id}")](
+                id=5, x_company_id="8", x_company_mode="company", _current_user={},
+            )
+        self.assertEqual(error.exception.status_code, 409)
+        self.assertTrue(connection.rolled_back)
+        self.assertFalse(any(sql.startswith("INSERT") for sql, _ in cursor.calls))
+
+    def test_unowned_payment_reversal_uses_the_unique_project_company(self):
+        row = {"company_id": None, "project_name": "Объект", "work_package": "",
+               "amount": 500, "note": "оплата", "date": "2026-07-28", "added_by": "Тест"}
+        cursor = FakeCursor(fetchone_results=[row, None, {"id": 88}], ledger_exists=True)
+        cursor.project_owner = {"company_id": 8}
+        app, connection, _ = build(cursor)
+        seen = {}
+
+        def resolve(cur, user, company_id, action, **kwargs):
+            seen["company_id"] = company_id
+            return {"mode": "company", "companyId": company_id}, {"name": "Тест", "role": "директор"}
+
+        with patch("backend.features.project_payment_access.routes.resolve_resource_company_actor", resolve):
+            result = app.routes[("DELETE", "/project-payments/{id}")](
+                id=5, x_company_id="8", x_company_mode="company", _current_user={},
+            )
+        self.assertEqual(seen["company_id"], 8)
+        self.assertEqual(result["companyId"], 8)
+        insert = [call for call in cursor.calls if call[0].startswith("INSERT INTO project_payments")][0]
+        self.assertEqual(insert[1][0], 8)
 
 
 if __name__ == "__main__":

@@ -3677,6 +3677,7 @@ def init_db():
             id SERIAL PRIMARY KEY,
             document_type VARCHAR(100),
             document_id INT,
+            company_id INT,
             version_label VARCHAR(50),
             snapshot_json TEXT,
             changed_by VARCHAR(255),
@@ -25789,9 +25790,22 @@ def save_doc_version(document_type, document_id, snapshot_json, changed_by="", c
         count = cur.fetchone()[0]
         label = "v" + str(count+1) + "_" + _dt.now().strftime("%Y%m%d_%H%M%S")
         snap = snapshot_json if isinstance(snapshot_json, str) else _j.dumps(snapshot_json, ensure_ascii=False, default=str)
-        cur.execute("""INSERT INTO document_versions (document_type, document_id, version_label, snapshot_json, changed_by, change_reason)
-                       VALUES (%s,%s,%s,%s,%s,%s)""",
-                    (document_type, document_id, label, snap, changed_by, change_reason))
+        company_id = None
+        payload = snapshot_json if isinstance(snapshot_json, dict) else None
+        if payload is None and isinstance(snap, str):
+            try:
+                payload = _j.loads(snap)
+            except Exception:
+                payload = None
+        if isinstance(payload, dict):
+            try:
+                parsed_company = int(payload.get("company_id") or 0)
+            except (TypeError, ValueError):
+                parsed_company = 0
+            company_id = parsed_company if parsed_company > 0 else None
+        cur.execute("""INSERT INTO document_versions (document_type, document_id, company_id, version_label, snapshot_json, changed_by, change_reason)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+                    (document_type, document_id, company_id, label, snap, changed_by, change_reason))
         conn.commit()
         cur.close(); conn.close()
         return label
