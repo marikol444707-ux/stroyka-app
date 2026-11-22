@@ -696,21 +696,6 @@ def get_current_user_readonly(request: Request, authorization: Optional[str] = H
     """Same session check as get_current_user, without updating last_seen."""
     return _authenticate_request(request, authorization, touch_session=False)
 
-def require_csrf_for_cookie_mutation(
-    request: Request,
-    authorization: Optional[str] = Header(default=None),
-    x_csrf_token: Optional[str] = Header(default=None, alias="X-CSRF-Token"),
-) -> None:
-    if not CSRF_LOGOUT_ENFORCED:
-        return None
-    if authorization and authorization.lower().startswith("bearer "):
-        return None
-    session_token = request.cookies.get(AUTH_SESSION_COOKIE_NAME)
-    if not session_token:
-        return None
-    if not _valid_csrf_token(x_csrf_token or "", session_token):
-        raise HTTPException(status_code=403, detail="CSRF token missing or invalid")
-    return None
 
 def require_roles(*roles: str):
     allowed = set(roles)
@@ -729,12 +714,6 @@ def get_ai_control_runner(
         return _ai_system_user()
     return get_current_user(request, authorization)
 
-def require_workflow_token(x_workflow_token: Optional[str] = Header(default=None)) -> dict:
-    if not WORKFLOW_TOKEN:
-        raise HTTPException(status_code=503, detail="WORKFLOW_TOKEN не настроен")
-    if not x_workflow_token or not hmac.compare_digest(x_workflow_token.encode("utf-8"), WORKFLOW_TOKEN.encode("utf-8")):
-        raise HTTPException(status_code=403, detail="Недостаточно прав Workflow")
-    return {"role": "workflow", "name": "Yandex Workflow"}
 
 from backend.features.supplier_access.supply_request_workflow import (
     SUPPLIER_REQUEST_VISIBILITY_SQL,
@@ -789,7 +768,6 @@ STAFF_MANAGE_ROLES = ("директор", "зам_директора")
 STAFF_FULL_VIEW_ROLES = (*STAFF_MANAGE_ROLES, "бухгалтер")
 STAFF_VIEW_ROLES = (*STAFF_MANAGE_ROLES, "бухгалтер", "прораб", "главный_инженер")
 PRICELIST_MANAGE_ROLES = ("директор", "зам_директора", "прораб", "главный_инженер", "сметчик")
-PRICELIST_VIEW_ROLES = (*PRICELIST_MANAGE_ROLES, "бухгалтер", "снабженец", "кладовщик", "технадзор", "стройконтроль")
 OWN_EXPENSE_ROLES = ("директор", "зам_директора", "бухгалтер", "прораб", "главный_инженер", "сметчик", "мастер", "субподрядчик", "бригадир", "кладовщик", "снабженец")
 OWN_EXPENSE_REVIEW_ROLES = ("директор", "зам_директора", "бухгалтер")
 SUPPLIER_INVOICE_VIEW_ROLES = ("директор", "зам_директора", "бухгалтер", "прораб", "кладовщик", "снабженец", "поставщик")
@@ -3055,174 +3033,38 @@ def _count_table(cur, table: str, where: str = "", params: tuple = ()) -> Option
     cur.execute(sql, params)
     return int(cur.fetchone()[0] or 0)
 
-@app.get("/health")
-def health():
-    started = time.time()
-    db = {"ok": False}
-    try:
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute("SELECT 1")
-        cur.fetchone()
-        cur.close(); conn.close()
-        db = {"ok": True, "latencyMs": round((time.time() - started) * 1000, 1)}
-    except Exception as e:
-        db = {"ok": False, "error": e.__class__.__name__}
-    return {
-        "ok": db["ok"],
-        "status": "ok" if db["ok"] else "degraded",
-        "service": "stroyka-backend",
-        "time": _utc_now_iso(),
-        "version": _app_version(),
-        "db": db,
-    }
+try:
+    from backend.features.health.routes import register_health_module
+except ModuleNotFoundError:
+    from features.health.routes import register_health_module
 
-DIRECTOR_AGENT_ROLES = ("директор", "system_owner")
-DIRECTOR_AGENT_MAX_STEPS = 4
+register_health_module(app, {
+    "_app_version": _app_version,
+    "_utc_now_iso": _utc_now_iso,
+    "get_db": get_db
+})
+
 # Keep the HTTP assistant and the background runner on one immutable read path.
-DIRECTOR_AGENT_TOOLS = SHARED_DIRECTOR_AGENT_TOOLS
 
-def _director_agent_extract_json(text: str):
-    t = (text or "").strip()
-    if "```" in t:
-        parts = t.split("```")
-        if len(parts) >= 3:
-            t = parts[1].replace("json", "", 1).strip()
-    start = t.find("{")
-    end = t.rfind("}")
-    if start >= 0 and end > start:
-        t = t[start:end + 1]
-    return json.loads(t)
 
-def _director_agent_call_yandex(messages: list[dict], temperature: float = 0.2, max_tokens: int = 1600):
-    if not YANDEX_API_KEY or not YANDEX_FOLDER_ID:
-        raise HTTPException(status_code=503, detail="YANDEX_API_KEY / YANDEX_FOLDER_ID не настроены")
-    system_parts = []
-    conversation = []
-    role_labels = {
-        "user": "ПОЛЬЗОВАТЕЛЬ",
-        "assistant": "АССИСТЕНТ",
-    }
-    for message in messages or []:
-        role = str((message or {}).get("role") or "user")
-        text = str((message or {}).get("text") or "")
-        if role == "system":
-            system_parts.append(text)
-        else:
-            conversation.append(role_labels.get(role, "ПОЛЬЗОВАТЕЛЬ") + ":\n" + text)
-    try:
-        return generate_yandex_text(
-            capability="director_agent",
-            instructions="\n\n".join(system_parts) or "Отвечай по-русски.",
-            input_text="\n\n".join(conversation) or "Продолжи диалог.",
-            temperature=temperature,
-            max_output_tokens=max_tokens,
-            api_key=YANDEX_API_KEY,
-            folder_id=YANDEX_FOLDER_ID,
-        )
-    except ModelGatewayError as error:
-        raise HTTPException(
-            status_code=502,
-            detail="YandexGPT не ответил: " + error.code,
-        )
 
-@app.get("/director-agent/tools")
-def director_agent_tools(_current_user: dict = Depends(require_roles(*DIRECTOR_AGENT_ROLES))):
-    return [{"name": k, "desc": v["desc"]} for k, v in DIRECTOR_AGENT_TOOLS.items()]
+try:
+    from backend.features.director_agent.routes import register_director_agent_module
+except ModuleNotFoundError:
+    from features.director_agent.routes import register_director_agent_module
 
-@app.post("/director-agent/ask")
-def director_agent_ask(
-    data: dict,
-    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
-    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
-    current_user: dict = Depends(require_roles(*DIRECTOR_AGENT_ROLES)),
-):
-    question = str((data or {}).get("question") or "").strip()
-    if not question:
-        raise HTTPException(status_code=400, detail="Пустой вопрос")
-    if len(question) > 1000:
-        raise HTTPException(status_code=400, detail="Вопрос слишком длинный")
-    context_conn = get_db()
-    context_cur = context_conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        company_context = _resolve_work_company_context(
-            context_cur,
-            current_user,
-            None,
-            "read",
-            x_company_id=x_company_id,
-            x_company_mode=x_company_mode,
-        )
-        request_company_ids = company_context.get("companyIds") or []
-    finally:
-        context_cur.close()
-        context_conn.close()
-    tools_desc = "\n".join([f"- {name}: {meta['desc']}" for name, meta in DIRECTOR_AGENT_TOOLS.items()])
-    system = (
-        "Ты — директорский помощник ERP СтройКа. Отвечай по-русски, кратко и управленчески.\n"
-        "Ты ничего не меняешь в системе. Ты можешь только попросить данные через инструменты чтения.\n"
-        "Данные могут быть неполными: если информации не хватает, прямо скажи что нужно уточнить.\n"
-        "Инструменты:\n" + tools_desc + "\n\n"
-        "Чтобы получить данные, ответь строго JSON без лишнего текста:\n"
-        '{"tool":"имя_инструмента","args":{}}\n'
-        "Когда данных достаточно, ответь строго JSON:\n"
-        '{"tool":"answer","text":"ответ директору"}\n'
-        "Не выдумывай суммы, объёмы, людей и сроки."
-    )
-    messages = [
-        {"role": "system", "text": system},
-        {"role": "user", "text": question},
-    ]
-    steps = []
-    for _ in range(DIRECTOR_AGENT_MAX_STEPS):
-        reply = _director_agent_call_yandex(messages, temperature=0.15)
-        try:
-            parsed = _director_agent_extract_json(reply)
-        except Exception:
-            log_audit(
-                user_id=current_user.get("id"),
-                user_name=current_user.get("name", ""),
-                user_role=current_user.get("role", ""),
-                action="director_agent_ask",
-                entity_type="director_agent",
-                description="Вопрос директорскому агенту: " + question[:180],
-            )
-            return {"answer": reply, "steps": steps, "model": "yandexgpt-lite"}
-        tool = parsed.get("tool") or ""
-        if tool == "answer":
-            log_audit(
-                user_id=current_user.get("id"),
-                user_name=current_user.get("name", ""),
-                user_role=current_user.get("role", ""),
-                action="director_agent_ask",
-                entity_type="director_agent",
-                description="Вопрос директорскому агенту: " + question[:180],
-            )
-            return {"answer": parsed.get("text") or "", "steps": steps, "model": "yandexgpt-lite"}
-        if tool not in DIRECTOR_AGENT_TOOLS:
-            return {"answer": "Неизвестный инструмент: " + str(tool), "steps": steps, "model": "yandexgpt-lite"}
-        args = parsed.get("args") or {}
-        try:
-            result = DIRECTOR_AGENT_TOOLS[tool]["fn"](args, request_company_ids)
-        except Exception as e:
-            result = {"error": str(e)}
-        steps.append({"tool": tool, "args": args})
-        messages.append({"role": "assistant", "text": json.dumps(parsed, ensure_ascii=False)})
-        messages.append({
-            "role": "user",
-            "text": "Результат инструмента " + tool + ": " + json.dumps(result, ensure_ascii=False, default=str)[:12000],
-        })
-    messages.append({"role": "user", "text": "Дай финальный ответ директору на основе уже полученных данных обычным текстом."})
-    reply = _director_agent_call_yandex(messages, temperature=0.25)
-    log_audit(
-        user_id=current_user.get("id"),
-        user_name=current_user.get("name", ""),
-        user_role=current_user.get("role", ""),
-        action="director_agent_ask",
-        entity_type="director_agent",
-        description="Вопрос директорскому агенту: " + question[:180],
-    )
-    return {"answer": reply or "Не удалось получить ответ", "steps": steps, "model": "yandexgpt-lite"}
+register_director_agent_module(app, {
+    "ModelGatewayError": ModelGatewayError,
+    "SHARED_DIRECTOR_AGENT_TOOLS": SHARED_DIRECTOR_AGENT_TOOLS,
+    "YANDEX_API_KEY": YANDEX_API_KEY,
+    "YANDEX_FOLDER_ID": YANDEX_FOLDER_ID,
+    "_resolve_work_company_context": _resolve_work_company_context,
+    "generate_yandex_text": lambda *args, **kwargs: generate_yandex_text(*args, **kwargs),
+    "get_db": get_db,
+    "log_audit": lambda **kwargs: log_audit(**kwargs),
+    "require_roles": require_roles
+})
+
 
 def _s3_enabled() -> bool:
     return STORAGE_BACKEND == "s3" and not _s3_missing_config_keys()
@@ -6059,11 +5901,6 @@ class TwoFactorSetupConfirmModel(BaseModel):
     setupToken: str = ""
     code: str = ""
 
-class PricelistModel(BaseModel):
-    name: str
-    description: str = ""
-    forWho: str = ""
-    coefficient: float = 1.0
 
 
 class InviteCodeModel(BaseModel):
@@ -6096,39 +5933,8 @@ class SupplyRequestModel(BaseModel):
     # Многопозиционная заявка: массив объектов {materialName, quantity, unit}
     items: List[dict] = []
 
-class MaterialNormModel(BaseModel):
-    ruleKey: str = ""
-    name: str = ""
-    work: List[str] = []
-    blockWork: List[str] = []
-    material: List[str] = []
-    workUnit: str = "м2"
-    materialUnit: str = "кг"
-    qtyPerUnit: float = 0
-    thicknessBaseMm: Optional[float] = None
-    defaultThicknessMm: Optional[float] = None
-    label: str = ""
-    active: bool = True
 
 
-class MaterialNormOverrideModel(BaseModel):
-    baseNormId: Optional[int] = None
-    projectName: str = ""
-    estimateId: Optional[int] = None
-    sectionName: str = ""
-    workName: str = ""
-    materialName: str = ""
-    work: List[str] = []
-    blockWork: List[str] = []
-    material: List[str] = []
-    workUnit: str = "м2"
-    materialUnit: str = "кг"
-    qtyPerUnit: float = 0
-    thicknessBaseMm: Optional[float] = None
-    defaultThicknessMm: Optional[float] = None
-    label: str = ""
-    reason: str = ""
-    active: bool = True
 
 class MaterialNormSuggestionUpdateModel(BaseModel):
     status: str = ""
@@ -6176,28 +5982,8 @@ class WorkJournalModel(BaseModel):
 
 
 
-class CopyPricelistModel(BaseModel):
-    name: str
 
 
-class RoomWorkModel(BaseModel):
-    roomId: int
-    project: str
-    projectId: Optional[int] = None
-    roomName: str
-    masterId: int
-    masterName: str
-    description: str
-    surface: str = ""
-    unit: str = "м2"
-    quantity: float = 0
-    pricePerUnit: float = 0
-    total: float = 0
-    date: str = ""
-    photoUrl: str = ""
-    workJournalId: Optional[int] = None
-    workPackage: str = ""
-    estimateItemKey: str = ""
 
 DAILY_WORK_ACT_SOURCE_TYPE = "daily_work"
 INTERIM_ACT_LOCKED_STATUSES = {"Подписан", "Оплачен", "Частично оплачен", "Оплачен частично"}
@@ -6391,51 +6177,25 @@ def confirm_login_2fa_setup(data: TwoFactorSetupConfirmModel, response: Response
               description="Пользователь включил 2FA")
     return public_user(user, include_token=True, two_factor_passed=True)
 
-@app.get("/csrf-token")
-def csrf_token(
-    request: Request,
-    authorization: Optional[str] = Header(default=None),
-):
-    try:
-        build_cookie_session_authentication(
-            request,
-            authorization,
-            None,
-            require_csrf=False,
-        )
-    except CookieSessionAuthenticationError as exc:
-        raise HTTPException(status_code=401, detail=exc.code)
-    _current_user_from_session_cookie(request)
-    session_token = request.cookies.get(AUTH_SESSION_COOKIE_NAME)
-    if not session_token:
-        raise HTTPException(status_code=401, detail="Требуется cookie-сессия")
-    return {
-        "csrfToken": _create_csrf_token(session_token),
-        "expiresIn": CSRF_TOKEN_TTL_SECONDS,
-    }
+try:
+    from backend.features.csrf_token.routes import register_csrf_token_module
+except ModuleNotFoundError:
+    from features.csrf_token.routes import register_csrf_token_module
 
-@app.post("/logout")
-def logout(response: Response, request: Request, _csrf: None = Depends(require_csrf_for_cookie_mutation)):
-    token = request.cookies.get(AUTH_SESSION_COOKIE_NAME)
-    user_id = None
-    if token:
-        conn = get_db()
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute(
-            """UPDATE user_sessions
-               SET revoked_at=NOW()
-               WHERE session_hash=%s AND revoked_at IS NULL
-               RETURNING user_id""",
-            (_session_token_hash(token),),
-        )
-        row = cur.fetchone()
-        user_id = row.get("user_id") if row else None
-        conn.commit()
-        cur.close(); conn.close()
-    _clear_auth_session_cookie(response)
-    if user_id:
-        log_audit(user_name="—", user_role="—", action="logout", entity_type="user", entity_id=user_id, description="Выход из серверной сессии")
-    return {"ok": True}
+register_csrf_token_module(app, {
+    "_current_user_from_session_cookie": _current_user_from_session_cookie
+})
+
+try:
+    from backend.features.session_logout.routes import register_session_logout_module
+except ModuleNotFoundError:
+    from features.session_logout.routes import register_session_logout_module
+
+register_session_logout_module(app, {
+    "get_db": get_db,
+    "log_audit": lambda **kwargs: log_audit(**kwargs),
+    "csrf_logout_enforced": lambda: CSRF_LOGOUT_ENFORCED,
+})
 
 try:
     from backend.features.auth_session.routes import register_auth_session_module
@@ -6454,108 +6214,9 @@ register_auth_session_module(app, {
 def _password_reset_dedupe_key(user_id) -> str:
     return f"PASSWORD_RESET:{user_id}"
 
-def _password_reset_token_hash(email: str, code: str) -> str:
-    normalized_email = (email or "").strip().lower()
-    normalized_code = (code or "").strip()
-    return hmac.new(
-        AUTH_SECRET.encode("utf-8"),
-        f"password-reset:{normalized_email}:{normalized_code}".encode("utf-8"),
-        hashlib.sha256,
-    ).hexdigest()
 
-def _verify_password_reset_token(email: str, code: str, stored: str) -> bool:
-    token = (stored or "").strip()
-    clean_code = (code or "").strip()
-    if not token or not clean_code:
-        return False
-    # Backward compatibility for reset codes created before hashed storage.
-    if token.isdigit() and len(token) == 6:
-        return hmac.compare_digest(token, clean_code)
-    return hmac.compare_digest(token, _password_reset_token_hash(email, clean_code))
 
-def _upsert_password_reset_task(cur, user_id, user_name: str, email: str, code: str, expires, email_sent: bool):
-    dedupe_key = _password_reset_dedupe_key(user_id)
-    expires_text = expires.strftime("%d.%m.%Y %H:%M")
-    title = f"Сброс пароля: {email}"
-    code_line = (
-        f"Код: {code}\n"
-        if code else
-        "Код отправлен на email пользователя и не хранится в задаче.\n"
-    )
-    description = (
-        f"Пользователь {user_name or email} запросил восстановление пароля.\n"
-        f"Email: {email}\n"
-        f"{code_line}"
-        f"Действует до: {expires_text}\n\n"
-        + (
-            "Передайте код пользователю или задайте новый пароль в разделе Пользователи."
-            if not email_sent else
-            "Письмо отправлено. Задача оставлена как журнал события и контроль поддержки."
-        )
-    )
-    action_payload = json.dumps({
-        "type": "password_reset_request",
-        "email": email,
-        "userId": user_id,
-        "dedupeKey": dedupe_key,
-    }, ensure_ascii=False)
-    cur.execute("""
-        SELECT id
-        FROM ai_tasks
-        WHERE project_name=%s
-          AND owner_scope='platform'
-          AND company_id IS NULL
-          AND project_id IS NULL
-          AND dedupe_key=%s
-          AND status NOT IN ('Закрыто','Отклонено')
-        ORDER BY updated_at DESC, id DESC
-        LIMIT 1
-    """, (SYSTEM_PROJECT_NAME, dedupe_key))
-    existing = cur.fetchone()
-    if existing:
-        task_id = existing[0]
-        cur.execute("""
-            UPDATE ai_tasks
-            SET title=%s,
-                description=%s,
-                assigned_role='директор',
-                assigned_to='',
-                status='Новое',
-                due_date=%s,
-                accepted_by=NULL,
-                accepted_at=NULL,
-                closed_by=NULL,
-                closed_at=NULL,
-                action_label='Открыть пользователей',
-                action_payload=%s,
-                updated_at=NOW()
-            WHERE id=%s AND owner_scope='platform' AND company_id IS NULL AND project_id IS NULL
-        """, (title, description, expires.date(), action_payload, task_id))
-        return task_id
-    cur.execute("""
-        INSERT INTO ai_tasks (
-            owner_scope, company_id, project_id, finding_id, project_name, title, description, assigned_role, assigned_to,
-            status, due_date, action_label, action_payload, dedupe_key, created_at, updated_at
-        ) VALUES ('platform',NULL,NULL,NULL,%s,%s,%s,'директор','','Новое',%s,'Открыть пользователей',%s,%s,NOW(),NOW())
-        RETURNING id
-    """, (SYSTEM_PROJECT_NAME, title, description, expires.date(), action_payload, dedupe_key))
-    row = cur.fetchone()
-    return row[0] if row else None
 
-def _close_password_reset_task(cur, user_id):
-    cur.execute("""
-        UPDATE ai_tasks
-        SET status='Закрыто',
-            closed_by='system',
-            closed_at=NOW(),
-            updated_at=NOW()
-        WHERE project_name=%s
-          AND owner_scope='platform'
-          AND company_id IS NULL
-          AND project_id IS NULL
-          AND dedupe_key=%s
-          AND status NOT IN ('Закрыто','Отклонено')
-    """, (SYSTEM_PROJECT_NAME, _password_reset_dedupe_key(user_id)))
 
 def _smtp_configured() -> bool:
     return bool(SMTP_HOST and SMTP_PORT and SMTP_FROM)
@@ -6591,227 +6252,38 @@ def _should_skip_password_reset_email(email: str) -> bool:
     normalized = (email or "").strip().lower()
     return normalized.endswith(".local") or normalized.endswith("@stroyka.local")
 
-def _send_password_reset_email(email: str, user_name: str, code: str, expires) -> bool:
-    if _should_skip_password_reset_email(email):
-        return False
-    expires_text = expires.strftime("%d.%m.%Y %H:%M")
-    body = (
-        f"Здравствуйте, {user_name or 'пользователь'}.\n\n"
-        "Для входа в СтройКа был запрошен сброс пароля.\n\n"
-        f"Код восстановления: {code}\n"
-        f"Действует до: {expires_text}\n\n"
-        f"Откройте {APP_PUBLIC_URL} и введите этот код в форме восстановления пароля.\n"
-        "Если вы не запрашивали сброс, просто проигнорируйте письмо."
-    )
-    return _send_email(email, "Код восстановления пароля СтройКа", body)
 
-@app.post("/password-reset-request")
-def password_reset_request(data: dict):
-    """Генерирует 6-значный код для восстановления пароля. Действителен 30 минут."""
-    from datetime import datetime as _dt, timedelta as _td
-    email = (data.get("email") or "").strip().lower()
-    if not email:
-        raise HTTPException(status_code=400, detail="Введите email")
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT id, name FROM users WHERE LOWER(email)=%s", (email,))
-    row = cur.fetchone()
-    if not row:
-        cur.close(); conn.close()
-        # Не палим существование email для безопасности
-        return {"ok": True, "message": "Если такой email зарегистрирован, код восстановления создан"}
-    code = f"{secrets.randbelow(900000) + 100000:06d}"
-    expires = _dt.now() + _td(minutes=30)
-    token_hash = _password_reset_token_hash(email, code)
-    cur.execute("UPDATE users SET reset_token=%s, reset_token_expires=%s WHERE id=%s", (token_hash, expires, row[0]))
-    email_sent = _send_password_reset_email(email, row[1] or "", code, expires)
-    fallback_code = code if not email_sent else ""
-    _upsert_password_reset_task(cur, row[0], row[1], email, fallback_code, expires, email_sent)
-    conn.commit()
-    cur.close(); conn.close()
-    if os.getenv("SHOW_RESET_CODE", "").lower() in ("1", "true", "yes"):
-        print(f"PASSWORD RESET CODE for {email}: {code} (valid 30 min)")
-    log_audit(user_name=row[1] or "—", user_role="—",
-              action="password_reset_request", entity_type="user", entity_id=row[0],
-              description="Запрошен код восстановления пароля" + ("; email отправлен" if email_sent else "; email не отправлен"))
-    response = {
-        "ok": True,
-        "message": "Код восстановления отправлен на email" if email_sent else "Код восстановления создан. Если почта не подключена, его выдаст директор.",
-        "emailSent": email_sent,
-    }
-    if os.getenv("SHOW_RESET_CODE", "").lower() in ("1", "true", "yes"):
-        response["_devCode"] = code
-    return response
+try:
+    from backend.features.password_reset.routes import register_password_reset_module
+except ModuleNotFoundError:
+    from features.password_reset.routes import register_password_reset_module
 
-@app.post("/password-reset")
-def password_reset(data: dict):
-    """Меняет пароль по коду восстановления."""
-    from datetime import datetime as _dt
-    email = (data.get("email") or "").strip().lower()
-    code = (data.get("code") or "").strip()
-    new_password = (data.get("newPassword") or "").strip()
-    if not email or not code or not new_password:
-        raise HTTPException(status_code=400, detail="Заполните email, код и новый пароль")
-    if len(new_password) < 5:
-        raise HTTPException(status_code=400, detail="Пароль должен быть не короче 5 символов")
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT id, reset_token, reset_token_expires FROM users WHERE LOWER(email)=%s", (email,))
-    row = cur.fetchone()
-    if not row or not row[1] or not _verify_password_reset_token(email, code, row[1]):
-        cur.close(); conn.close()
-        raise HTTPException(status_code=401, detail="Неверный код или email")
-    if row[2] and row[2] < _dt.now():
-        cur.close(); conn.close()
-        raise HTTPException(status_code=401, detail="Код истёк — запросите новый")
-    cur.execute("UPDATE users SET password=%s, reset_token=NULL, reset_token_expires=NULL, failed_login_count=0, locked_until=NULL WHERE id=%s",
-                (hash_password(new_password), row[0]))
-    _revoke_user_sessions(cur, row[0])
-    _close_password_reset_task(cur, row[0])
-    conn.commit()
-    cur.close(); conn.close()
-    log_audit(user_name="—", user_role="—",
-              action="password_reset", entity_type="user", entity_id=row[0],
-              description="Сброс пароля через код восстановления")
-    return {"ok": True, "message": "Пароль изменён, можно входить"}
+register_password_reset_module(app, {
+    "APP_PUBLIC_URL": APP_PUBLIC_URL,
+    "AUTH_SECRET": AUTH_SECRET,
+    "SYSTEM_PROJECT_NAME": SYSTEM_PROJECT_NAME,
+    "_password_reset_dedupe_key": _password_reset_dedupe_key,
+    "_send_email": _send_email,
+    "_should_skip_password_reset_email": _should_skip_password_reset_email,
+    "get_db": get_db,
+    "log_audit": lambda **kwargs: log_audit(**kwargs)
+})
 
-@app.post("/register")
-def register(data: dict, response: Response, request: Request):
-    from datetime import datetime
-    code = (data.get("code") or "").strip()
-    name = (data.get("name") or "").strip()
-    email = (data.get("email") or "").strip().lower()
-    password = (data.get("password") or "").strip()
-    if not code or not name or not email or not password:
-        raise HTTPException(status_code=400, detail="Заполните имя, email, пароль и код приглашения")
-    conn = get_db()
-    conn.autocommit = False
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT * FROM invite_codes WHERE code=%s AND used=FALSE FOR UPDATE", (code,))
-    invite = cur.fetchone()
-    if not invite:
-        conn.close()
-        raise HTTPException(status_code=400, detail="Неверный или использованный код")
-    role = invite['role']
-    # Проверка срока действия
-    if invite.get('expires_at') and invite['expires_at'] < datetime.now():
-        conn.close()
-        raise HTTPException(status_code=400, detail="Код истёк — попросите новую ссылку")
-    try:
-        from backend.features.supplier_team.invitations import validate_binding
-        team_invite = validate_binding(cur, invite, lock=True)
-        from backend.features.company_users.access import COMPANY_ROLES, save_membership
-        from backend.features.invite_codes.company_membership import registration_scope
-        company_id = None
-        platform_account_id = None
-        project_id = None
-        project_name = ''
-        assigned_projects = []
-        assigned_packages = []
-        if role in COMPANY_ROLES:
-            company_id, platform_account_id, project_id, project_name, assigned_projects, assigned_packages = registration_scope(cur, invite)
-        elif role in ("account_owner", "account_admin"):
-            platform_account_id = invite.get('platform_account_id')
-            cur.execute('SELECT id FROM platform_accounts WHERE id=%s AND COALESCE(active,TRUE)=TRUE FOR SHARE', (platform_account_id,))
-            if not cur.fetchone():
-                raise HTTPException(409, 'Клиентский аккаунт приглашения недоступен')
-        elif role != 'поставщик' and role not in PLATFORM_STAFF_ROLES:
-            raise HTTPException(403, 'Недопустимая роль приглашения')
-        cur.execute("""INSERT INTO users
-                          (name,email,password,role,project_id,project_name,assigned_projects,assigned_packages,company_id,platform_account_id)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s,%s) RETURNING *""",
-                    (name, email, hash_password(password), role, project_id, project_name,
-                     json.dumps(assigned_projects), json.dumps(assigned_packages), company_id, platform_account_id))
-        user = cur.fetchone()
-        if role in COMPANY_ROLES:
-            save_membership(cur, user['id'], company_id, role, assigned_projects, assigned_packages, True, {'is_default':True})
-        if team_invite:
-            cur.execute("INSERT INTO supplier_team_members(supplier_id,user_id,role) VALUES(%s,%s,'manager')",
-                        (team_invite['supplier_id'], user['id']))
-        # Company owners and invited team members have separate registration paths.
-        if role == 'поставщик' and not team_invite:
-            company_name = data.get("companyName") or name
-            supplier_id = invite.get('supplier_id')
-            supplier_payload = {
-                **(data or {}),
-                "name": company_name,
-                "companyName": company_name,
-                "email": email,
-                "category": invite.get('preset_category') or data.get("category",""),
-                "status": "Активный",
-                "sourceType": "invite_link",
-                "sourceDetail": "Регистрация поставщика по ссылке приглашения",
-            }
-            from backend.features.supplier_access.legal_identity import canonical_legal
-            for key, lengths in (('inn', (10, 12)), ('ogrn', (13, 15))):
-                canonical = canonical_legal(supplier_payload.get(key), lengths)
-                if canonical is None:
-                    raise HTTPException(422, 'Некорректные реквизиты поставщика: ' + key)
-                supplier_payload[key] = canonical
-            requisites = _supplier_extract_requisites(supplier_payload)
-            # Registration identity comes only from its explicit fields, not OCR
-            # aliases or legal numbers extracted from names/free text.
-            requisites.update({key: supplier_payload[key] for key in ('inn', 'ogrn')})
-            requisites.update(name=str(company_name).strip(), nameKey=_normalize_supplier_name_key(company_name))
-            from backend.features.invite_codes.supplier_relationship import lock_inviting_company, lock_invited_identity
-            lock_inviting_company(cur, invite)
-            lock_invited_identity(cur, invite, requisites)
-            if not supplier_id:
-                from backend.features.invite_codes.supplier_relationship import matching_invited_card
-                supplier_id = matching_invited_card(cur, invite, requisites, _normalize_supplier_name_key)
-            if supplier_id:
-                from backend.features.invite_codes.supplier_relationship import claim_invited_supplier
-                supplier_id = claim_invited_supplier(cur, {**invite, 'supplier_id': supplier_id}, user, requisites)
-            else:
-                if _supplier_find_match(cur, supplier_payload):
-                    raise HTTPException(409, 'Приглашение не подтверждает право управлять существующей организацией поставщика. Войдите в её кабинет или обратитесь к администратору платформы для проверки привязки')
-                # Создаём новую компанию
-                cur.execute(
-                    "INSERT INTO suppliers (name, phone, email, category, specialization, "
-                    "inn, kpp, ogrn, legal_address, bank, bik, account, director_name, "
-                    "status, rating, user_id, registered_at, source_type, source_detail) "
-                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),%s,%s) RETURNING id",
-                    (company_name, data.get("phone",""), email,
-                     invite.get('preset_category') or data.get("category",""),
-                     data.get("specialization",""),
-                     requisites.get("inn"), data.get("kpp"), requisites.get("ogrn"),
-                     data.get("legalAddress"), data.get("bank"), data.get("bik"),
-                     data.get("account"), data.get("directorName"),
-                     'Активный', 5.0, user['id'],
-                     "invite_link", "Регистрация поставщика по ссылке приглашения"))
-                new_supplier = cur.fetchone()
-                supplier_id = new_supplier.get("id") if isinstance(new_supplier, dict) else new_supplier[0]
-            _remember_supplier_alias(cur, supplier_id, supplier_payload, source="supplier_invite", requisites=requisites)
-            from backend.features.invite_codes.supplier_relationship import link_registered_supplier
-            link_registered_supplier(cur, invite, supplier_id, user, supplier_payload)
-        cur.execute("UPDATE invite_codes SET used=TRUE WHERE code=%s", (code,))
-        session_token = None
-        if _user_requires_2fa(user):
-            secret = user.get("two_factor_secret") or _generate_totp_secret()
-            cur.execute(
-                "UPDATE users SET two_factor_secret=%s, two_factor_enabled=FALSE, two_factor_required=TRUE WHERE id=%s",
-                (secret, user["id"]),
-            )
-            user["two_factor_secret"] = secret
-            user["two_factor_enabled"] = False
-            user["two_factor_required"] = True
-        else:
-            session_token = _create_auth_session(cur, user, request, two_factor_passed=False)
-        conn.commit()
-        conn.close()
-        if _user_requires_2fa(user):
-            return _two_factor_setup_response(user, user.get("two_factor_secret") or secret)
-        if session_token:
-            _set_auth_session_cookie(response, session_token)
-        return public_user(user, include_token=True, two_factor_passed=False)
-    except HTTPException:
-        conn.rollback()
-        conn.close()
-        raise
-    except Exception as e:
-        conn.rollback()
-        conn.close()
-        raise HTTPException(status_code=400, detail=str(e))
+
+try:
+    from backend.features.account_registration.routes import register_account_registration_module
+except ModuleNotFoundError:
+    from features.account_registration.routes import register_account_registration_module
+
+register_account_registration_module(app, {
+    "PLATFORM_STAFF_ROLES": PLATFORM_STAFF_ROLES,
+    "_normalize_supplier_name_key": _normalize_supplier_name_key,
+    "_remember_supplier_alias": _remember_supplier_alias,
+    "_supplier_extract_requisites": _supplier_extract_requisites,
+    "_supplier_find_match": _supplier_find_match,
+    "get_db": get_db,
+    "public_user": public_user
+})
 
 def _project_access_helpers():
     try:
@@ -7640,110 +7112,24 @@ register_company_users(app, {
     'hash_password': hash_password, 'requires_2fa': _role_requires_2fa, 'revoke_sessions': _revoke_user_sessions,
 })
 
-@app.get("/pricelists")
-def get_pricelists(_current_user: dict = Depends(get_current_user)):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    role = _current_user.get("role")
-    if role in WORKER_EXECUTION_ROLES:
-        projects = user_project_names(_current_user)
-        if not projects:
-            cur.close(); conn.close()
-            return []
-        cur.execute("""SELECT DISTINCT pl.id,pl.name,pl.description,pl.for_who as "forWho",pl.coefficient
-                       FROM pricelists pl
-                       JOIN projects p ON p.pricelist_id=pl.id
-                       WHERE p.name = ANY(%s)
-                         AND NOT EXISTS (
-                             SELECT 1 FROM estimates e
-                             WHERE e.project_name=p.name
-                               AND e.status='Активная'
-                               AND COALESCE(e.smeta_type,'Заказчик')='Заказчик'
-                         )""", (projects,))
-    elif role not in PRICELIST_VIEW_ROLES:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=403, detail="Нет доступа к прайс-листам")
-    else:
-        cur.execute("SELECT id,name,description,for_who as \"forWho\",coefficient FROM pricelists")
-    rows = cur.fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+try:
+    from backend.features.pricelists.routes import register_pricelists_module
+except ModuleNotFoundError:
+    from features.pricelists.routes import register_pricelists_module
 
-@app.post("/pricelists")
-def create_pricelist(p: PricelistModel, _current_user: dict = Depends(require_roles(*PRICELIST_MANAGE_ROLES))):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("INSERT INTO pricelists (name,description,for_who,coefficient) VALUES (%s,%s,%s,%s) RETURNING id,name,description,for_who as \"forWho\",coefficient",
-                (p.name,p.description,p.forWho,p.coefficient))
-    row = cur.fetchone()
-    conn.close()
-    return dict(row)
+register_pricelists_module(app, {
+    "PRICELIST_MANAGE_ROLES": PRICELIST_MANAGE_ROLES,
+    "WORKER_EXECUTION_ROLES": WORKER_EXECUTION_ROLES,
+    "get_current_user": get_current_user,
+    "get_db": get_db,
+    "require_roles": require_roles,
+    "user_project_names": user_project_names
+})
 
-@app.put("/pricelists/{id}")
-def update_pricelist(id: int, p: PricelistModel, _current_user: dict = Depends(require_roles(*PRICELIST_MANAGE_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("UPDATE pricelists SET name=%s,description=%s,for_who=%s,coefficient=%s WHERE id=%s",
-                (p.name,p.description,p.forWho,p.coefficient,id))
-    conn.close()
-    return {"ok": True}
 
-@app.delete("/pricelists/{id}")
-def delete_pricelist(id: int, _current_user: dict = Depends(require_roles(*PRICELIST_MANAGE_ROLES))):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM pricelists WHERE id=%s", (id,))
-    cur.execute("DELETE FROM pricelist_items WHERE pricelist_id=%s", (id,))
-    conn.close()
-    return {"ok": True}
 
-@app.post("/pricelists/{id}/copy")
-def copy_pricelist(id: int, data: CopyPricelistModel, _current_user: dict = Depends(require_roles(*PRICELIST_MANAGE_ROLES))):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT * FROM pricelists WHERE id=%s", (id,))
-    pl = cur.fetchone()
-    cur.execute("INSERT INTO pricelists (name,description,for_who,coefficient) VALUES (%s,%s,%s,%s) RETURNING *",
-                (data.name,pl['description'],pl['for_who'],pl['coefficient']))
-    new_pl = cur.fetchone()
-    cur.execute("SELECT * FROM pricelist_items WHERE pricelist_id=%s", (id,))
-    items = cur.fetchall()
-    for item in items:
-        cur.execute("INSERT INTO pricelist_items (pricelist_id,name,unit,price,category,specialization) VALUES (%s,%s,%s,%s,%s,%s)",
-                    (new_pl['id'],item['name'],item['unit'],item['price'],item['category'],item['specialization']))
-    conn.close()
-    return dict(new_pl)
 
-@app.get("/pricelists/{id}/items")
-def get_pricelist_items(id: int, _current_user: dict = Depends(get_current_user)):
-    role = _current_user.get("role")
-    if role in WORKER_EXECUTION_ROLES:
-        projects = user_project_names(_current_user)
-        if not projects:
-            raise HTTPException(status_code=403, detail="Нет доступа к прайс-листу")
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute("""SELECT COUNT(*) FROM projects p
-                       WHERE p.pricelist_id=%s
-                         AND p.name = ANY(%s)
-                         AND NOT EXISTS (
-                             SELECT 1 FROM estimates e
-                             WHERE e.project_name=p.name
-                               AND e.status='Активная'
-                               AND COALESCE(e.smeta_type,'Заказчик')='Заказчик'
-                         )""", (id, projects))
-        allowed = (cur.fetchone() or [0])[0]
-        cur.close(); conn.close()
-        if not allowed:
-            raise HTTPException(status_code=403, detail="Исполнители видят только прайс, привязанный к объекту без активной сметы заказчика")
-    elif role not in PRICELIST_VIEW_ROLES:
-        raise HTTPException(status_code=403, detail="Нет доступа к прайс-листу")
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT id,pricelist_id as \"pricelistId\",name,unit,price,category,specialization FROM pricelist_items WHERE pricelist_id=%s ORDER BY category,name", (id,))
-    rows = cur.fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+
 
 try:
     from backend.features.pricelist_items.routes import register_pricelist_items_module
@@ -15040,119 +14426,34 @@ def _sync_daily_interim_act_from_work_journal(cur, work_row: dict):
 
 
 
-def _room_work_scope():
-    try:
-        from backend.features.room_ownership.access import FULL_COMPANY_VIEW_ROLES, RoomOwnership
-    except ModuleNotFoundError:
-        from features.room_ownership.access import FULL_COMPANY_VIEW_ROLES, RoomOwnership
-    return RoomOwnership(
-        _resolve_work_company_context,
-        effective_company_actors,
-        full_view_roles=FULL_COMPANY_VIEW_ROLES,
-        platform_staff_roles=PLATFORM_STAFF_ROLES,
-        read_roles=PROJECT_DOCUMENT_ROLES,
-        write_roles=JOURNAL_WRITE_ROLES,
-    )
 
-@app.get("/room-works")
-def get_room_works(current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES, *PLATFORM_STAFF_ROLES)), request: Request = None):
-    conn = get_db()
-    try:
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        scope = _room_work_scope()
-        actors, mode = scope.actors(cur, current_user, request, write=False, roles=PROJECT_DOCUMENT_ROLES)
-        role_user = actors[0] if mode == "company" and len(actors) == 1 else current_user
-        role = role_user.get("role")
-        package_names = user_package_names(role_user) if role in PACKAGE_LIMIT_ROLES else []
-        if role in PACKAGE_LIMIT_ROLES and role != "прораб" and not package_names:
-            return []
-        join, where, params = scope.list_clause(actors, mode, "r")
-        conditions = [where]
-        params = list(params)
-        if role in WORKER_EXECUTION_ROLES:
-            conditions.append("(COALESCE(r.master_id,0)=%s OR (COALESCE(r.master_id,0)=0 AND LOWER(TRIM(r.master_name))=LOWER(TRIM(%s))))")
-            params.extend([role_user.get("id"), role_user.get("name") or ""])
-        if role in PACKAGE_LIMIT_ROLES and package_names:
-            conditions.append("COALESCE(NULLIF(r.work_package,''),'Основная') = ANY(%s)")
-            params.append(package_names)
-        cur.execute(
-            """SELECT r.id,r.room_id as \"roomId\",r.project,r.room_name as \"roomName\",r.master_id as \"masterId\",r.master_name as \"masterName\",r.description,r.surface,r.unit,r.quantity,r.price_per_unit as \"pricePerUnit\",r.total,r.date,r.status,r.photo_url as \"photoUrl\",r.confirmed_by as \"confirmedBy\",r.work_journal_id as \"workJournalId\",r.work_package as \"workPackage\",r.estimate_item_key as \"estimateItemKey\",r.company_id as \"companyId\",r.project_id as \"projectId\"
-               FROM room_works r """ + join + " WHERE " + " AND ".join(conditions) + " ORDER BY r.id DESC",
-            tuple(params),
-        )
-        rows = cur.fetchall()
-    finally:
-        conn.close()
-    result = [dict(r) for r in rows]
-    if role in WORKER_EXECUTION_ROLES:
-        for row in result:
-            row["pricePerUnit"] = 0
-            row["total"] = 0
-    return result
+try:
+    from backend.features.room_works.routes import register_room_works_module
+except ModuleNotFoundError:
+    from features.room_works.routes import register_room_works_module
 
-@app.post("/room-works")
-def create_room_work(w: RoomWorkModel, _current_user: dict = Depends(require_roles(*JOURNAL_WRITE_ROLES)), request: Request = None):
-    conn = get_db()
-    try:
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        scope = _room_work_scope()
-        actors, mode = scope.actors(cur, _current_user, request, write=True, roles=JOURNAL_WRITE_ROLES)
-        actor = actors[0]
-        parent = scope.verified_project(cur, actor, w)
-        role = actor.get("role")
-        if role in PACKAGE_LIMIT_ROLES and not has_package_access(actor, w.workPackage or "Основная"):
-            raise HTTPException(status_code=403, detail="Нет доступа к пакету работ")
-        if role in WORKER_EXECUTION_ROLES:
-            if not w.workJournalId:
-                raise HTTPException(status_code=403, detail="Работа по помещению создаётся только через ЖПР")
-            own_id = str(actor.get("id") or "")
-            own_name = (actor.get("name") or "").strip().lower()
-            if str(w.masterId or "") != own_id and (w.masterName or "").strip().lower() != own_name:
-                raise HTTPException(status_code=403, detail="Мастер может создавать только свои работы по помещениям")
-        if w.workJournalId:
-            work = require_work_journal_actor_access(cur, w.workJournalId, actor)
-            cur.execute("SELECT company_id FROM work_journal WHERE id=%s", (w.workJournalId,))
-            journal_company = _positive_int_or_none(_row_get(cur.fetchone(), "company_id", 0))
-            if journal_company != parent["companyId"] or (work.get("project") or "") != parent["name"]:
-                raise HTTPException(status_code=400, detail="ЖПР относится к другому объекту")
-        _raise_work_journal_duplicate(_room_work_duplicate(
-            cur,
-            parent["name"],
-            room_id=w.roomId,
-            room_name=w.roomName,
-            estimate_item_key=w.estimateItemKey,
-            description=w.description,
-            work_package=w.workPackage,
-            exclude_work_journal_id=w.workJournalId,
-            company_id=parent["companyId"],
-        ))
-        cur.execute("""INSERT INTO room_works
-                       (room_id,project,room_name,master_id,master_name,description,surface,unit,quantity,price_per_unit,total,date,photo_url,work_journal_id,work_package,estimate_item_key,company_id,project_id)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
-                    (w.roomId, parent["name"], w.roomName, w.masterId, w.masterName, w.description, w.surface, w.unit, w.quantity, w.pricePerUnit, w.total, w.date, w.photoUrl, w.workJournalId, w.workPackage, w.estimateItemKey, parent["companyId"], parent["id"]))
-        row = dict(cur.fetchone())
-        project_name = parent["name"]
-    finally:
-        conn.close()
-    _run_project_ai_control_safely(project_name, "room_work:create")
-    return row
+register_room_works_module(app, {
+    "JOURNAL_WRITE_ROLES": JOURNAL_WRITE_ROLES,
+    "PACKAGE_LIMIT_ROLES": PACKAGE_LIMIT_ROLES,
+    "PLATFORM_STAFF_ROLES": PLATFORM_STAFF_ROLES,
+    "PROJECT_DOCUMENT_ROLES": PROJECT_DOCUMENT_ROLES,
+    "PROJECT_WRITE_ROLES": PROJECT_WRITE_ROLES,
+    "WORKER_EXECUTION_ROLES": WORKER_EXECUTION_ROLES,
+    "_positive_int_or_none": _positive_int_or_none,
+    "_raise_work_journal_duplicate": _raise_work_journal_duplicate,
+    "_resolve_work_company_context": _resolve_work_company_context,
+    "_room_work_duplicate": _room_work_duplicate,
+    "_row_get": _row_get,
+    "_run_project_ai_control_safely": lambda project_name, reason="event": _run_project_ai_control_safely(project_name, reason),
+    "effective_company_actors": effective_company_actors,
+    "get_db": get_db,
+    "has_package_access": has_package_access,
+    "require_roles": require_roles,
+    "require_work_journal_actor_access": require_work_journal_actor_access,
+    "user_package_names": user_package_names
+})
 
-@app.put("/room-works/{id}")
-def update_room_work(id: int, data: dict, _current_user: dict = Depends(require_roles(*PROJECT_WRITE_ROLES, "технадзор", "стройконтроль")), request: Request = None):
-    conn = get_db()
-    try:
-        cur = conn.cursor()
-        scope = _room_work_scope()
-        actors, mode = scope.actors(cur, _current_user, request, write=True, roles=(*PROJECT_WRITE_ROLES, "технадзор", "стройконтроль"))
-        owner = scope.mutable_row(cur, "room_works", id, actors, mode)
-        project_name = owner["name"]
-        if 'status' in data:
-            cur.execute("UPDATE room_works SET status=%s,confirmed_by=%s WHERE id=%s AND company_id=%s",
-                        (data['status'], data.get('confirmedBy', ''), id, owner["companyId"]))
-    finally:
-        conn.close()
-    _run_project_ai_control_safely(project_name, "room_work:update")
-    return {"ok": True}
+
 
 AI_FINDING_SELECT = """
 SELECT id,
@@ -16298,136 +15599,23 @@ register_pd_consents_module(app, {
     "staff_manage_roles": STAFF_MANAGE_ROLES,
 })
 
-@app.post("/upload-photo")
-async def upload_photo(
-    request: Request,
-    file: UploadFile = File(...),
-    projectName: str = Form(default=""),
-    project_name: str = Form(default=""),
-    projectId: Optional[int] = Form(default=None),
-    context: str = Form(default="general"),
-    supplierOfferId: Optional[int] = Form(default=None),
-    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
-    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
-    _current_user: dict = Depends(get_current_user),
-):
-    try:
-        from backend.features.document_access.service import (
-            build_document_upload_response,
-            document_project_reference,
-            document_storage_namespace,
-            require_document_upload_actor,
-        )
-        from backend.features.project_access.service import resolve_project_parent
-        from backend.features.project_access.service import require_project_parent_access
-    except ModuleNotFoundError:
-        from features.document_access.service import (
-            build_document_upload_response,
-            document_project_reference,
-            document_storage_namespace,
-            require_document_upload_actor,
-        )
-        from features.project_access.service import resolve_project_parent
-        from features.project_access.service import require_project_parent_access
-    conn = get_db()
-    conn.autocommit = False
-    access_cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    try:
-        if _current_user.get("role") == "поставщик":
-            try:
-                from backend.features.document_access.supplier_files import upload_scope
-            except ModuleNotFoundError:
-                from features.document_access.supplier_files import upload_scope
-            if request.url.path.rstrip("/") == "/upload-photo":
-                raise HTTPException(403, "Загрузите файл через карточку КП")
-            company_id, context, project = upload_scope(access_cur, _current_user, supplierOfferId)
-            requested_project_name = ""
-        else:
-            company_context = _resolve_work_company_context(
-                access_cur,
-                _current_user,
-                None,
-                "write",
-                x_company_id=x_company_id,
-                x_company_mode=x_company_mode,
-            )
-            actor = require_document_upload_actor(effective_company_actors(_current_user, company_context))
-            company_id = int(actor["companyId"])
-            requested_project_name = (projectName or project_name or "").strip()
-            bound_project_id, bound_project_name = document_project_reference(projectId, requested_project_name)
-            project = None
-            if bound_project_id:
-                project = resolve_project_parent(
-                    access_cur,
-                    actor,
-                    project_id=bound_project_id,
-                    project_name=bound_project_name,
-                )
-                require_project_parent_access(access_cur, actor, project, BRIGADE_FULL_VIEW_ROLES)
-            if actor.get("role") == "заказчик":
-                if not project:
-                    raise HTTPException(400, "Для вложения заказчика выберите объект")
-                context = "customer-request"
-        namespace = document_storage_namespace(
-            company_id,
-            (project or {}).get("id"),
-            (project or {}).get("name") or requested_project_name,
-            context,
-        )
-        uploaded = save_upload_file(file, namespace, context)
-        access_cur.execute(
-            """INSERT INTO file_ownership
-                      (company_id,project_id,file_url,storage_key,context,original_name,content_type,
-                       uploaded_by_id,uploaded_by)
-               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
-               ON CONFLICT (file_url) DO UPDATE
-                       SET company_id=EXCLUDED.company_id,
-                           project_id=EXCLUDED.project_id,
-                           storage_key=EXCLUDED.storage_key,
-                           context=EXCLUDED.context,
-                           original_name=EXCLUDED.original_name,
-                           content_type=EXCLUDED.content_type,
-                           uploaded_by_id=EXCLUDED.uploaded_by_id,
-                           uploaded_by=EXCLUDED.uploaded_by
-               RETURNING id""",
-            (
-                company_id,
-                (project or {}).get("id"),
-                uploaded.get("url"),
-                uploaded.get("key") or "",
-                context or "general",
-                file.filename or "file",
-                file.content_type or "",
-                _current_user.get("id"),
-                _current_user.get("name") or "",
-            ),
-        )
-        ownership_row = access_cur.fetchone()
-        file_id = _row_get(ownership_row, "id", 0)
-        conn.commit()
-        return build_document_upload_response(
-            uploaded,
-            file_id=file_id,
-            company_id=company_id,
-            project_id=(project or {}).get("id"),
-            project_name=(project or {}).get("name") or "",
-        )
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        access_cur.close()
-        conn.close()
+try:
+    from backend.features.uploads.routes import register_uploads_module
+except ModuleNotFoundError:
+    from features.uploads.routes import register_uploads_module
+
+register_uploads_module(app, {
+    "BRIGADE_FULL_VIEW_ROLES": BRIGADE_FULL_VIEW_ROLES,
+    "_resolve_work_company_context": _resolve_work_company_context,
+    "_row_get": _row_get,
+    "effective_company_actors": effective_company_actors,
+    "get_current_user": get_current_user,
+    "get_db": get_db,
+    "require_roles": require_roles,
+    "save_upload_file": save_upload_file
+})
 
 
-@app.post("/supplier-offers/{offer_id}/files")
-async def upload_supplier_offer_file(
-    offer_id: int, request: Request, file: UploadFile = File(...),
-    user: dict = Depends(require_roles("поставщик")),
-):
-    return await upload_photo(request=request, file=file, projectName="", project_name="",
-                              projectId=None, context="supplier-offers", supplierOfferId=offer_id,
-                              x_company_id=None, x_company_mode=None, _current_user=user)
 
 
 import urllib.request
@@ -20388,75 +19576,7 @@ def _find_supplier_invoice_template(cur, payload: dict, company_id: int, supplie
     row = cur.fetchone()
     return ({"row": row} if row else None), _scan_invoice_supplier_name(payload)
 
-def _invoice_scan_template_hint(company_id: int, limit: int = 12) -> str:
-    conn = get_db()
-    try:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("""SELECT supplier_name, template_name, document_type, match_keywords, sample_json, usage_count
-                           FROM supplier_invoice_templates
-                           WHERE active=TRUE AND company_id=%s
-                           ORDER BY usage_count DESC, updated_at DESC, id DESC
-                           LIMIT %s""", (company_id, limit))
-            rows = cur.fetchall()
-    finally:
-        conn.close()
-    if not rows:
-        return ""
-    lines = []
-    for row in rows:
-        keywords = _supplier_invoice_template_json(row.get("match_keywords"), [])
-        if not isinstance(keywords, list):
-            keywords = []
-        sample = _supplier_invoice_template_json(row.get("sample_json"), {})
-        sample_items = sample.get("items") if isinstance(sample, dict) else []
-        sample_names = []
-        if isinstance(sample_items, list):
-            for item in sample_items[:3]:
-                if isinstance(item, dict) and item.get("name"):
-                    sample_names.append(str(item.get("name")))
-        lines.append(
-            "- " + (row.get("supplier_name") or "Поставщик")
-            + " / " + (row.get("template_name") or "типовой шаблон")
-            + " / " + (row.get("document_type") or "любой документ")
-            + (": ключи " + ", ".join(str(k) for k in keywords[:4]) if keywords else "")
-            + ("; пример строк: " + "; ".join(sample_names) if sample_names else "")
-        )
-    return "\n".join(lines)
 
-def _apply_supplier_invoice_template_metadata(payload: dict, company_id: int) -> dict:
-    payload = dict(payload or {})
-    recognition = {
-        "method": "ai_ocr",
-        "label": "Распознано через AI/OCR",
-        "confidence": payload.get("confidence"),
-        "templateId": None,
-        "templateName": "",
-        "supplierId": 0,
-        "supplierName": _scan_invoice_supplier_name(payload),
-        "warnings": [],
-    }
-    from backend.features.supplier_invoice_templates.scope import exact_supplier
-    conn = get_db()
-    try:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            supplier = exact_supplier(cur, company_id, payload)
-            if supplier:
-                recognition["supplierId"] = supplier["id"]
-                recognition["supplierName"] = supplier["name"] or recognition["supplierName"]
-                match, _ = _find_supplier_invoice_template(cur, payload, company_id, supplier["id"])
-                if match:
-                    template = _supplier_invoice_template_row(match["row"])
-                    recognition.update({
-                        "method": "template", "label": "OCR с подсказкой шаблона; проверьте оригинал",
-                        "templateId": template["id"], "templateName": template["templateName"],
-                    })
-            else:
-                recognition["warnings"].append("Точный поставщик по ИНН в компании не определён. Выберите и проверьте его вручную.")
-    finally:
-        conn.close()
-    payload["recognition"] = recognition
-    payload["scanRecognition"] = recognition
-    return payload
 
 
 @app.get("/warehouse-invoices")
@@ -22302,111 +21422,17 @@ def update_warehouse_invoice_accounting(
     finally:
         cur.close(); conn.close()
 
-@app.post("/workflow/invoice/preview")
-def workflow_invoice_preview(data: dict, _workflow: dict = Depends(require_workflow_token)):
-    """Safe Workflow entrypoint: validate/preview invoice data without writing stock."""
-    document = data.get("document") if isinstance(data.get("document"), dict) else {}
-    totals = data.get("totals") if isinstance(data.get("totals"), dict) else {}
+try:
+    from backend.features.workflow_invoice.routes import register_workflow_invoice_module
+except ModuleNotFoundError:
+    from features.workflow_invoice.routes import register_workflow_invoice_module
 
-    photos = data.get("photos") or data.get("photoUrls") or data.get("images") or data.get("pages") or []
-    if isinstance(photos, str):
-        photos = [photos]
-    if not isinstance(photos, list):
-        photos = []
-    photos = [str(photo).strip() for photo in photos if str(photo or "").strip()]
-
-    items = data.get("items") or data.get("positions") or []
-    if not isinstance(items, list):
-        items = []
-
-    project_name = (
-        data.get("projectName")
-        or data.get("project")
-        or data.get("project_name")
-        or ""
-    )
-    warehouse_target = (data.get("warehouseTarget") or data.get("target") or "object").strip() or "object"
-    selected_action = (data.get("selectedAction") or data.get("action") or "receive_to_warehouse").strip()
-    warnings = []
-    status = "ok"
-
-    if selected_action not in ("receive_to_warehouse", "warehouse_invoice", "stock_receipt"):
-        status = "needs_review"
-        warnings.append("Маршрут не похож на складскую накладную. Проверьте, что документ не ушел в мои траты.")
-    if warehouse_target in ("object", "project") and not str(project_name).strip():
-        status = "needs_review"
-        warnings.append("Для прихода на объект нужно указать объект.")
-    if not photos:
-        status = "needs_review"
-        warnings.append("Фото накладной не переданы. Workflow подключен, но распознавание не запускалось.")
-    if len(photos) > 8:
-        status = "needs_review"
-        warnings.append("Передано больше 8 страниц. Сейчас безопасный лимит распознавания — 8 фото.")
-
-    invoice_preview = _normalize_invoice_totals_payload({
-        **data,
-        "document": document,
-        "totals": totals,
-        "items": items,
-    })
-    total_base = invoice_preview.get("totalBase", 0)
-    total_vat = invoice_preview.get("totalVat", 0)
-    total_with_vat = invoice_preview.get("totalWithVat", 0)
-    if total_with_vat and total_base and total_vat and abs((total_base + total_vat) - total_with_vat) > 2:
-        status = "needs_review"
-        warnings.append("Итог с НДС не сходится с суммой без НДС и НДС.")
-
-    normalized_items = []
-    for idx, raw_item in enumerate((invoice_preview.get("items") or [])[:300], start=1):
-        if not isinstance(raw_item, dict):
-            continue
-        qty = _float_or_zero(raw_item.get("quantity") or raw_item.get("qty"))
-        price = _float_or_zero(raw_item.get("price") or raw_item.get("priceWithVat") or raw_item.get("price_with_vat"))
-        line_total = _float_or_zero(raw_item.get("lineTotalWithVat") or raw_item.get("lineTotal") or raw_item.get("total"))
-        normalized_items.append({
-            "row": idx,
-            "name": str(raw_item.get("name") or raw_item.get("title") or "").strip(),
-            "quantity": qty,
-            "unit": _norm_base_unit(raw_item.get("unit") or "шт") or "шт",
-            "price": price,
-            "lineTotal": line_total or (qty * price if qty and price else 0),
-            "page": raw_item.get("page") or raw_item.get("pageNumber") or None,
-            "confidence": _float_or_zero(raw_item.get("confidence") or 0),
-            "needsReview": bool(raw_item.get("needsReview") or raw_item.get("needs_review")),
-        })
-    vat_label = str(invoice_preview.get("vat") or data.get("vat") or document.get("vat") or "").strip()
-
-    if len(items) > 300:
-        status = "needs_review"
-        warnings.append("В накладной больше 300 позиций. Вернули первые 300 для безопасного предпросмотра.")
-
-    pages_detected = int(_float_or_zero(data.get("pagesDetected") or document.get("pagesDetected")) or len(photos))
-
-    return {
-        "ok": True,
-        "status": status,
-        "route": "warehouse_invoice",
-        "document": {
-            "type": "invoice_preview",
-            "number": data.get("number") or data.get("invoiceNumber") or document.get("number") or document.get("invoiceNumber") or "",
-            "date": data.get("date") or data.get("invoiceDate") or document.get("date") or document.get("invoiceDate") or "",
-            "supplierName": data.get("supplierName") or data.get("supplier") or document.get("supplierName") or document.get("supplier") or "",
-            "vat": vat_label,
-            "pagesDetected": pages_detected,
-        },
-        "projectName": project_name,
-        "warehouseTarget": warehouse_target,
-        "selectedAction": selected_action,
-        "items": normalized_items,
-        "totals": {
-            "totalBase": total_base,
-            "totalVat": total_vat,
-            "totalWithVat": total_with_vat,
-        },
-        "photos": photos,
-        "warnings": warnings,
-        "message": "Workflow подключен. Это предпросмотр без записи в склад и без создания трат.",
-    }
+register_workflow_invoice_module(app, {
+    "workflow_token": lambda: WORKFLOW_TOKEN,
+    "_float_or_zero": _float_or_zero,
+    "_norm_base_unit": lambda value: _norm_base_unit(value),
+    "_normalize_invoice_totals_payload": _normalize_invoice_totals_payload
+})
 
 @app.delete("/warehouse-invoices/{id}")
 def delete_warehouse_invoice(
@@ -22581,88 +21607,9 @@ def _norm_list(value):
         return [v.strip() for v in raw.replace("\n", ",").split(",") if v.strip()]
     return []
 
-def _material_norm_row(row):
-    return {
-        "id": row["id"],
-        "ruleKey": row["rule_key"] or "",
-        "name": row["name"] or "",
-        "work": _norm_list(row["work_keywords"]),
-        "blockWork": _norm_list(row["block_work_keywords"]),
-        "material": _norm_list(row["material_keywords"]),
-        "workUnit": row["work_unit"] or "",
-        "materialUnit": row["material_unit"] or "",
-        "qtyPerUnit": float(row["qty_per_unit"] or 0),
-        "thicknessBaseMm": float(row["thickness_base_mm"]) if row["thickness_base_mm"] is not None else None,
-        "defaultThicknessMm": float(row["default_thickness_mm"]) if row["default_thickness_mm"] is not None else None,
-        "label": row["label"] or "",
-        "active": bool(row["active"]),
-        "updatedBy": row["updated_by"] or "",
-        "updatedAt": str(row["updated_at"]) if row["updated_at"] else "",
-    }
 
-def _material_norm_values(data: MaterialNormModel, user_name: str):
-    rule_key = (data.ruleKey or "").strip() or ("custom_" + uuid.uuid4().hex[:8])
-    return (
-        rule_key,
-        data.name.strip() or rule_key,
-        json.dumps(_norm_list(data.work), ensure_ascii=False),
-        json.dumps(_norm_list(data.blockWork), ensure_ascii=False),
-        json.dumps(_norm_list(data.material), ensure_ascii=False),
-        data.workUnit or "м2",
-        data.materialUnit or "кг",
-        data.qtyPerUnit or 0,
-        data.thicknessBaseMm,
-        data.defaultThicknessMm,
-        data.label.strip(),
-        bool(data.active),
-        user_name or "",
-    )
 
-def _material_norm_override_row(row):
-    return {
-        "id": row["id"],
-        "baseNormId": row["base_norm_id"],
-        "projectName": row["project_name"] or "",
-        "estimateId": row["estimate_id"],
-        "sectionName": row["section_name"] or "",
-        "workName": row["work_name"] or "",
-        "materialName": row["material_name"] or "",
-        "work": _norm_list(row["work_keywords"]),
-        "blockWork": _norm_list(row["block_work_keywords"]),
-        "material": _norm_list(row["material_keywords"]),
-        "workUnit": row["work_unit"] or "",
-        "materialUnit": row["material_unit"] or "",
-        "qtyPerUnit": float(row["qty_per_unit"] or 0),
-        "thicknessBaseMm": float(row["thickness_base_mm"]) if row["thickness_base_mm"] is not None else None,
-        "defaultThicknessMm": float(row["default_thickness_mm"]) if row["default_thickness_mm"] is not None else None,
-        "label": row["label"] or "",
-        "reason": row["reason"] or "",
-        "active": bool(row["active"]),
-        "updatedBy": row["updated_by"] or "",
-        "updatedAt": str(row["updated_at"]) if row["updated_at"] else "",
-    }
 
-def _material_norm_override_values(data: MaterialNormOverrideModel, user_name: str):
-    return (
-        data.baseNormId,
-        (data.projectName or "").strip(),
-        data.estimateId,
-        (data.sectionName or "").strip(),
-        (data.workName or "").strip(),
-        (data.materialName or "").strip(),
-        json.dumps(_norm_list(data.work), ensure_ascii=False),
-        json.dumps(_norm_list(data.blockWork), ensure_ascii=False),
-        json.dumps(_norm_list(data.material), ensure_ascii=False),
-        data.workUnit or "м2",
-        data.materialUnit or "кг",
-        data.qtyPerUnit or 0,
-        data.thicknessBaseMm,
-        data.defaultThicknessMm,
-        (data.label or "").strip(),
-        (data.reason or "").strip(),
-        bool(data.active),
-        user_name or "",
-    )
 
 
 def _material_norm_confidence_value(value) -> float:
@@ -22708,186 +21655,28 @@ register_owned_aliases(app, {
     "client_account_roles": CLIENT_ACCOUNT_ROLES,
 })
 
-@app.get("/material-norms")
-def list_material_norms(
-    search: str = "",
-    limit: Optional[int] = None,
-    offset: int = 0,
-    _current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES)),
-):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    where = ["active=TRUE"]
-    params = []
-    search_value = (search or "").strip()
-    if search_value:
-        where.append("""(
-            COALESCE(rule_key, '') ILIKE %s OR
-            COALESCE(name, '') ILIKE %s OR
-            COALESCE(label, '') ILIKE %s OR
-            COALESCE(array_to_string(work_keywords, ' '), '') ILIKE %s OR
-            COALESCE(array_to_string(material_keywords, ' '), '') ILIKE %s
-        )""")
-        params.extend([f"%{search_value}%"] * 5)
-    page_sql, page_params = limit_offset_sql(limit, offset)
-    cur.execute("""SELECT id, rule_key, name, work_keywords, block_work_keywords, material_keywords,
-                          work_unit, material_unit, qty_per_unit, thickness_base_mm,
-                          default_thickness_mm, label, active, updated_by, updated_at
-                   FROM material_norms
-                   WHERE """ + " AND ".join(where) + """
-                   ORDER BY name, id""" + page_sql, params + page_params)
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return [_material_norm_row(r) for r in rows]
+try:
+    from backend.features.material_norms.routes import register_material_norms_module
+except ModuleNotFoundError:
+    from features.material_norms.routes import register_material_norms_module
 
-@app.post("/material-norms")
-def create_material_norm(data: MaterialNormModel, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "прораб", "главный_инженер", "сметчик"))):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    vals = _material_norm_values(data, current_user.get("name", ""))
-    try:
-        cur.execute("""
-            INSERT INTO material_norms (
-                rule_key, name, work_keywords, block_work_keywords, material_keywords,
-                work_unit, material_unit, qty_per_unit, thickness_base_mm,
-                default_thickness_mm, label, active, updated_by, updated_at
-            )
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
-            RETURNING id, rule_key, name, work_keywords, block_work_keywords, material_keywords,
-                      work_unit, material_unit, qty_per_unit, thickness_base_mm,
-                      default_thickness_mm, label, active, updated_by, updated_at
-        """, vals)
-    except psycopg2.errors.UniqueViolation:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=400, detail="Код нормы уже используется")
-    row = cur.fetchone()
-    cur.close(); conn.close()
-    return _material_norm_row(row)
+register_material_norms_module(app, {
+    "LEADERSHIP_ROLES": LEADERSHIP_ROLES,
+    "PROJECT_DOCUMENT_ROLES": PROJECT_DOCUMENT_ROLES,
+    "_norm_list": _norm_list,
+    "get_db": get_db,
+    "limit_offset_sql": limit_offset_sql,
+    "require_project_access": require_project_access,
+    "require_roles": require_roles,
+    "visible_project_names": visible_project_names
+})
 
-@app.get("/material-norms/overrides")
-def list_material_norm_overrides(project_name: str = None, estimate_id: int = None, current_user: dict = Depends(require_roles(*PROJECT_DOCUMENT_ROLES))):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    where = ["active=TRUE"]
-    params = []
-    if project_name:
-        require_project_access(current_user, project_name)
-        where.append("project_name=%s")
-        params.append(project_name)
-    else:
-        allowed = visible_project_names(current_user)
-        if allowed is not None:
-            if not allowed:
-                cur.close(); conn.close()
-                return []
-            where.append("project_name = ANY(%s)")
-            params.append(allowed)
-    if estimate_id:
-        where.append("estimate_id=%s")
-        params.append(estimate_id)
-    cur.execute(f"""SELECT * FROM material_norm_overrides
-                    WHERE {' AND '.join(where)}
-                    ORDER BY updated_at DESC, id DESC""", tuple(params))
-    rows = cur.fetchall()
-    cur.close(); conn.close()
-    return [_material_norm_override_row(r) for r in rows]
 
-@app.post("/material-norms/overrides")
-def create_material_norm_override(data: MaterialNormOverrideModel, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "прораб", "главный_инженер", "сметчик"))):
-    project_name = (data.projectName or "").strip()
-    if not project_name:
-        raise HTTPException(status_code=400, detail="Укажите объект для поправки нормы")
-    require_project_access(current_user, project_name)
-    if (data.qtyPerUnit or 0) <= 0:
-        raise HTTPException(status_code=400, detail="Расход должен быть больше 0")
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    vals = _material_norm_override_values(data, current_user.get("name", ""))
-    cur.execute("""
-        INSERT INTO material_norm_overrides (
-            base_norm_id, project_name, estimate_id, section_name, work_name, material_name,
-            work_keywords, block_work_keywords, material_keywords, work_unit, material_unit,
-            qty_per_unit, thickness_base_mm, default_thickness_mm, label, reason, active,
-            updated_by, updated_at, created_at
-        )
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),NOW())
-        RETURNING *
-    """, vals)
-    row = cur.fetchone()
-    cur.close(); conn.close()
-    return _material_norm_override_row(row)
 
-@app.put("/material-norms/overrides/{id}")
-def update_material_norm_override(id: int, data: MaterialNormOverrideModel, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "прораб", "главный_инженер", "сметчик"))):
-    project_name = (data.projectName or "").strip()
-    if not project_name:
-        raise HTTPException(status_code=400, detail="Укажите объект для поправки нормы")
-    require_project_access(current_user, project_name)
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    vals = _material_norm_override_values(data, current_user.get("name", ""))
-    cur.execute("""
-        UPDATE material_norm_overrides
-        SET base_norm_id=%s, project_name=%s, estimate_id=%s, section_name=%s,
-            work_name=%s, material_name=%s, work_keywords=%s, block_work_keywords=%s,
-            material_keywords=%s, work_unit=%s, material_unit=%s, qty_per_unit=%s,
-            thickness_base_mm=%s, default_thickness_mm=%s, label=%s, reason=%s,
-            active=%s, updated_by=%s, updated_at=NOW()
-        WHERE id=%s
-        RETURNING *
-    """, vals + (id,))
-    row = cur.fetchone()
-    cur.close(); conn.close()
-    if not row:
-        raise HTTPException(status_code=404, detail="Поправка нормы не найдена")
-    return _material_norm_override_row(row)
 
-@app.delete("/material-norms/overrides/{id}")
-def delete_material_norm_override(id: int, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "прораб", "главный_инженер", "сметчик"))):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT project_name FROM material_norm_overrides WHERE id=%s", (id,))
-    row = cur.fetchone()
-    if not row:
-        cur.close(); conn.close()
-        raise HTTPException(status_code=404, detail="Поправка нормы не найдена")
-    require_project_access(current_user, row["project_name"] or "")
-    cur.execute("UPDATE material_norm_overrides SET active=FALSE, updated_by=%s, updated_at=NOW() WHERE id=%s", (current_user.get("name", ""), id))
-    cur.close(); conn.close()
-    return {"ok": True}
 
-@app.put("/material-norms/{id}")
-def update_material_norm(id: int, data: MaterialNormModel, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "прораб", "главный_инженер", "сметчик"))):
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    vals = _material_norm_values(data, current_user.get("name", ""))
-    cur.execute("""
-        UPDATE material_norms
-        SET rule_key=%s, name=%s, work_keywords=%s, block_work_keywords=%s,
-            material_keywords=%s, work_unit=%s, material_unit=%s, qty_per_unit=%s,
-            thickness_base_mm=%s, default_thickness_mm=%s, label=%s, active=%s,
-            updated_by=%s, updated_at=NOW()
-        WHERE id=%s
-        RETURNING id, rule_key, name, work_keywords, block_work_keywords, material_keywords,
-                  work_unit, material_unit, qty_per_unit, thickness_base_mm,
-                  default_thickness_mm, label, active, updated_by, updated_at
-    """, vals + (id,))
-    row = cur.fetchone()
-    cur.close(); conn.close()
-    if not row:
-        raise HTTPException(status_code=404, detail="Норма не найдена")
-    return _material_norm_row(row)
 
-@app.delete("/material-norms/{id}")
-def delete_material_norm(id: int, current_user: dict = Depends(require_roles(*LEADERSHIP_ROLES, "прораб", "главный_инженер", "сметчик"))):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("UPDATE material_norms SET active=FALSE, updated_by=%s, updated_at=NOW() WHERE id=%s", (current_user.get("name", ""), id))
-    affected = cur.rowcount
-    cur.close(); conn.close()
-    if affected == 0:
-        raise HTTPException(status_code=404, detail="Норма не найдена")
-    return {"ok": True}
+
 
 def _safe_float(value, default=0.0):
     try:
@@ -24499,78 +23288,49 @@ def accept_material_norm_suggestion_as_override(id: int, payload: dict = Body(de
     cur.close(); conn.close()
     return _material_norm_suggestion_row(dict(row))
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 try:
-    from backend.features.quality_journals.access import journal_operation
+    from backend.features.quality_journals.routes import register_quality_journal_routes
 except ModuleNotFoundError:
-    from features.quality_journals.access import journal_operation
+    from features.quality_journals.routes import register_quality_journal_routes
 
-
-def _quality_journal_dependencies():
-    return {
-        'get_db': get_db, 'read_roles': PROJECT_DOCUMENT_ROLES,
-        'write_roles': (*PROJECT_DOCUMENT_WRITE_ROLES, 'кладовщик', 'снабженец'),
-        'worker_roles': WORKER_EXECUTION_ROLES, 'visible_projects': visible_project_names,
-        'package_filter': package_access_filter, 'platform_staff_roles': PLATFORM_STAFF_ROLES,
-        'client_account_roles': CLIENT_ACCOUNT_ROLES,
-    }
-
-
-
-def _owned_quality_journal(user, request, table, **operation):
-    return journal_operation(_quality_journal_dependencies(), user, request.headers, table, **operation)
-
-
-
-def _owned_quality_suggestion(user, request, table, row_id):
-    try:
-        from backend.features.quality_journals.suggestions import suggest_journal
-    except ModuleNotFoundError:
-        from features.quality_journals.suggestions import suggest_journal
-    return suggest_journal(_quality_journal_dependencies(), user, request.headers, table, row_id,
-                          api_key=YANDEX_API_KEY, folder_id=YANDEX_FOLDER_ID)
+register_quality_journal_routes(app, {
+    "CLIENT_ACCOUNT_ROLES": CLIENT_ACCOUNT_ROLES,
+    "PLATFORM_STAFF_ROLES": PLATFORM_STAFF_ROLES,
+    "PROJECT_DOCUMENT_ROLES": PROJECT_DOCUMENT_ROLES,
+    "PROJECT_DOCUMENT_WRITE_ROLES": PROJECT_DOCUMENT_WRITE_ROLES,
+    "WORKER_EXECUTION_ROLES": WORKER_EXECUTION_ROLES,
+    "YANDEX_API_KEY": YANDEX_API_KEY,
+    "YANDEX_FOLDER_ID": YANDEX_FOLDER_ID,
+    "get_current_user": get_current_user,
+    "get_db": get_db,
+    "package_access_filter": package_access_filter,
+    "visible_project_names": visible_project_names
+})
 
 
 
-def _quality_journal_reader(user: dict = Depends(get_current_user)):
-    return user
 
 
-def _quality_journal_writer(user: dict = Depends(get_current_user)):
-    return user
 
 
-@app.get("/material-inspection")
-def list_material_inspections(request: Request, response: Response, project_name: str = None, _current_user: dict = Depends(_quality_journal_reader)):
-    rows = _owned_quality_journal(_current_user, request, 'material_inspection_journal', project_name=project_name)
-    response.headers['X-Quality-Journal-Snapshot'] = 'owned-v1'
-    return rows
 
 
-@app.put("/material-inspection/{id}")
-def update_material_inspection(id: int, data: dict, request: Request, _current_user: dict = Depends(_quality_journal_writer)):
-    return _owned_quality_journal(_current_user, request, 'material_inspection_journal', row_id=id, data=data)
 
-
-@app.post("/material-inspection/{id}/ai-suggest")
-def ai_suggest_material_inspection(id: int, request: Request, _current_user: dict = Depends(_quality_journal_writer)):
-    return _owned_quality_suggestion(_current_user, request, 'material_inspection_journal', id)
-
-
-@app.get("/cable-journal")
-def list_cable_journal(request: Request, response: Response, project_name: str = None, _current_user: dict = Depends(_quality_journal_reader)):
-    rows = _owned_quality_journal(_current_user, request, 'cable_journal', project_name=project_name)
-    response.headers['X-Quality-Journal-Snapshot'] = 'owned-v1'
-    return rows
-
-
-@app.put("/cable-journal/{id}")
-def update_cable_journal(id: int, data: dict, request: Request, _current_user: dict = Depends(_quality_journal_writer)):
-    return _owned_quality_journal(_current_user, request, 'cable_journal', row_id=id, data=data)
-
-
-@app.post("/cable-journal/{id}/ai-suggest")
-def ai_suggest_cable_journal(id: int, request: Request, _current_user: dict = Depends(_quality_journal_writer)):
-    return _owned_quality_suggestion(_current_user, request, 'cable_journal', id)
 
 
 try:
@@ -24594,40 +23354,20 @@ except ModuleNotFoundError:
 register_tb_journal(app, project_record_scope, get_current_user, PROJECT_DOCUMENT_ROLES,
                     JOURNAL_WRITE_ROLES, (*LEADERSHIP_ROLES, "прораб", "главный_инженер"))
 
-@app.post("/tb-journal/ai-generate")
-def ai_generate_tb_instruction(data: dict, current_user: dict = Depends(get_current_user), request: Request = None):
-    """AI генерирует текст инструктажа по ГОСТ 12.0.004-2015 для указанного типа работ."""
-    instruction_type = data.get("instructionType", "Первичный инструктаж")
-    work_context = data.get("workContext", "")
-    with project_record_scope.transaction(current_user, request, PROJECT_DOCUMENT_ROLES) as (cur, actors):
-        if len(actors) != 1:
-            raise HTTPException(403, "Выберите компанию с доступом к объекту")
-        parent = project_record_scope.parent(cur, actors[0], data, PROJECT_DOCUMENT_ROLES)
-        project_name = parent["name"]
+try:
+    from backend.features.tb_journal.ai_routes import register_tb_journal_module
+except ModuleNotFoundError:
+    from features.tb_journal.ai_routes import register_tb_journal_module
 
-    user_text = (
-        "Тип инструктажа: " + instruction_type + "\n"
-        "Объект: " + project_name + "\n"
-        "Контекст работ: " + (work_context or "общие строительно-монтажные работы") + "\n\n"
-        "Сгенерируй текст инструктажа по охране труда по ГОСТ 12.0.004-2015. "
-        "Включи: 1) программу (3-5 пунктов), 2) основные требования техники безопасности под этот тип работ, "
-        "3) последовательность действий при ЧП. "
-        "Используй официальный канцелярский русский. Объём 8-15 строк."
-    )
-    instructions = "Ты эксперт по охране труда в строительстве. Отвечай прямым связным текстом, без markdown."
-    try:
-        answer = generate_yandex_text(
-            capability="tb_instruction",
-            instructions=instructions,
-            input_text=user_text,
-            temperature=0.2,
-            max_output_tokens=2000,
-            api_key=YANDEX_API_KEY,
-            folder_id=YANDEX_FOLDER_ID,
-        )
-    except ModelGatewayError as error:
-        raise HTTPException(status_code=502, detail="AI не ответил: " + error.code)
-    return {"ok": True, "instructionText": answer.strip()}
+register_tb_journal_module(app, {
+    "ModelGatewayError": ModelGatewayError,
+    "PROJECT_DOCUMENT_ROLES": PROJECT_DOCUMENT_ROLES,
+    "YANDEX_API_KEY": YANDEX_API_KEY,
+    "YANDEX_FOLDER_ID": YANDEX_FOLDER_ID,
+    "generate_yandex_text": lambda *args, **kwargs: generate_yandex_text(*args, **kwargs),
+    "get_current_user": get_current_user,
+    "project_record_scope": project_record_scope
+})
 
 try:
     from backend.features.inspection_orders.routes import register_inspection_orders_module
@@ -25859,44 +24599,18 @@ register_project_payments_module(app, {
     "has_package_access": has_package_access,
 })
 
-def send_vk_notification(vk_user_id: int, message: str):
-    import requests
-    if not VK_TOKEN:
-        print("VK notify skipped: VK_TOKEN is not configured")
-        return
-    try:
-        requests.post("https://api.vk.com/method/messages.send", params={
-            "user_id": vk_user_id,
-            "message": message,
-            "random_id": 0,
-            "access_token": VK_TOKEN,
-            "v": "5.131"
-        }, timeout=5)
-    except Exception as e:
-        print("VK error:", e)
 
-@app.post("/vk-connect")
-def vk_connect(data: dict, current_user: dict = Depends(get_current_user)):
-    if data.get("email") and data.get("email") != current_user.get("email"):
-        raise HTTPException(status_code=403, detail="Можно подключить только свой VK")
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS vk_id INTEGER")
-    cur.execute("UPDATE users SET vk_id=%s WHERE email=%s", (data.get("vkId"), data.get("email")))
-    conn.commit()
-    cur.close(); conn.close()
-    return {"ok": True}
+try:
+    from backend.features.vk_notifications.routes import register_vk_notifications_module
+except ModuleNotFoundError:
+    from features.vk_notifications.routes import register_vk_notifications_module
 
-@app.post("/vk-notify")
-def vk_notify(data: dict, _current_user: dict = Depends(get_current_user)):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT vk_id FROM users WHERE id=%s", (data.get("userId"),))
-    row = cur.fetchone()
-    cur.close(); conn.close()
-    if row and row[0]:
-        send_vk_notification(row[0], data.get("message",""))
-    return {"ok": True}
+register_vk_notifications_module(app, {
+    "VK_TOKEN": VK_TOKEN,
+    "get_current_user": get_current_user,
+    "get_db": get_db
+})
+
 
 try:
     from backend.features.accountable_payments.routes import register_accountable_payments_module
@@ -27079,52 +25793,6 @@ register_estimate_chat_module(app, {
     "generate_answer": _generate_estimate_chat_answer,
 })
 
-def _normalize_invoice_scan_image_entry(entry):
-    mime_type = "image/jpeg"
-    filename = ""
-    if isinstance(entry, dict):
-        raw = (
-            entry.get("data")
-            or entry.get("base64")
-            or entry.get("image")
-            or entry.get("imageData")
-            or ""
-        )
-        mime_type = str(
-            entry.get("mimeType")
-            or entry.get("mime")
-            or entry.get("contentType")
-            or mime_type
-        ).strip() or mime_type
-        filename = str(entry.get("name") or entry.get("filename") or "")
-    else:
-        raw = str(entry or "")
-
-    raw = str(raw or "").strip()
-    if raw.startswith("data:"):
-        header, _, payload = raw.partition(",")
-        header = header[5:]
-        if ";" in header:
-            mime_type = header.split(";", 1)[0] or mime_type
-        raw = payload.strip()
-
-    mime_lower = mime_type.lower()
-    filename_lower = filename.lower()
-    if "heic" in mime_lower or "heif" in mime_lower or filename_lower.endswith((".heic", ".heif")):
-        raise HTTPException(
-            status_code=422,
-            detail="HEIC/HEIF нужно преобразовать в JPEG/PNG перед распознаванием накладной.",
-        )
-    if not raw:
-        return None
-    if mime_lower == "application/pdf" or filename_lower.endswith(".pdf"):
-        return {"data": raw, "mimeType": "application/pdf", "name": filename or "invoice.pdf"}
-    if not mime_type.lower().startswith("image/"):
-        raise HTTPException(
-            status_code=422,
-            detail="Для распознавания накладной нужен PDF или изображение.",
-        )
-    return {"data": raw, "mimeType": mime_type, "name": filename or "invoice-page.jpg"}
 
 def _invoice_scan_pdf_bytes(entry: dict) -> bytes:
     try:
@@ -27410,217 +26078,39 @@ def _invoice_scan_json_format() -> str:
         "}"
     )
 
-def _repair_invoice_scan_json(answer: str, parse_error: str):
-    raw_answer = (answer or "").strip()
-    if not raw_answer:
-        return None, parse_error or "empty"
-    instructions = (
-        "Ты исправляешь ответ распознавания складского или бухгалтерского документа: "
-        "счета на оплату, счета поставщика, УПД, товарной накладной, приходной накладной "
-        "или товарного чека. Верни только валидный JSON-объект без markdown, комментариев "
-        "и текста вокруг."
-    )
-    prompt = (
-        "Ниже ответ модели по документу, который не распарсился как JSON. "
-        "Преобразуй его в один валидный JSON-объект по схеме. "
-        "Не добавляй новые товары, которых нет в тексте. Если часть строки оборвана, "
-        "сохрани только читаемые полноценные позиции, а явно неполные элементы отбрось. "
-        "Все переносы внутри строк замени пробелами, кавычки экранируй. "
-        "Если это счет на оплату или счет поставщика с таблицей товаров, не отбрасывай его: "
-        "верни documentType \"supplier_invoice\" или \"payment_invoice\" и заполни items. "
-        "Если это фрагмент документа без шапки, но с таблицей товаров, сохрани читаемые строки, "
-        "пустые реквизиты оставь пустыми строками и не возвращай documentType \"other\". "
-        "Если данных по товарам нет, верни documentType \"other\" и пустой items. "
-        f"Схема: {_invoice_scan_json_format()}\n"
-        f"Ошибка JSON-парсера: {parse_error or 'invalid json'}\n"
-        "Ответ модели:\n"
-        f"{raw_answer[:18000]}"
-    )
-    try:
-        repair_answer = generate_yandex_text(
-            capability="invoice_scan",
-            instructions=instructions,
-            input_text=prompt,
-            temperature=0,
-            max_output_tokens=12000,
-            api_key=YANDEX_API_KEY,
-            folder_id=YANDEX_FOLDER_ID,
-        )
-        parsed, repair_error = _parse_ai_json_object(repair_answer)
-        if parsed is not None:
-            return parsed, ""
-        print("SCAN REPAIR FAILED:", repair_error)
-        print("SCAN REPAIR RAW HEAD:", repair_answer[:500])
-        return None, repair_error or parse_error or "invalid repaired json"
-    except ModelGatewayError as error:
-        print("SCAN REPAIR ERROR:", error.code)
-        return None, error.code
 
 
-def _retry_invoice_scan_compact_json(images: list):
-    try:
-        compact_content = []
-        for idx, image in enumerate(images or [], start=1):
-            compact_content.extend(_invoice_scan_ai_content(image, idx, len(images or [])))
-        compact_content.append(ModelInputPart(kind="text", value=(
-            "Повтори распознавание в коротком режиме. Верни только валидный JSON без markdown и без пояснений. "
-            "Подходят счет на оплату, счет поставщика, УПД, товарная накладная, приходная накладная и фрагмент товарной таблицы. "
-            "Если видна таблица товаров, documentType не должен быть other. Не пиши переносы строк внутри строк JSON. "
-            "Если строк много, верни первые 80 полностью читаемых строк и итог документа. "
-            "Формат: {"
-            "\"documentType\":\"supplier_invoice|payment_invoice|warehouse_invoice|universal_transfer_document|waybill|receipt|other\","
-            "\"confidence\":0..1,"
-            "\"pagesCount\":число,"
-            "\"number\":строка,"
-            "\"date\":\"YYYY-MM-DD или исходная дата\","
-            "\"supplier\":строка,"
-            "\"supplierInn\":строка,"
-            "\"supplierKpp\":строка,"
-            "\"supplierOgrn\":строка,"
-            "\"buyer\":строка,"
-            "\"vat\":\"Без НДС|С НДС 20%|С НДС 22%\","
-            "\"vatRate\":0|20|22,"
-            "\"totalBase\":число,"
-            "\"totalVat\":число,"
-            "\"totalWithVat\":число,"
-            "\"items\":[{\"name\":строка,\"quantity\":число,\"unit\":строка,\"price\":число,\"lineTotal\":число}]"
-            "}"
-        )))
-        retry_answer = generate_yandex_parts(
-            capability="invoice_scan",
-            instructions="Ты распознаешь строительные счета и накладные. Верни только короткий валидный JSON.",
-            input_parts=tuple(compact_content),
-            temperature=0,
-            max_output_tokens=9000,
-            api_key=YANDEX_API_KEY,
-            folder_id=YANDEX_FOLDER_ID,
-        )
-        parsed, retry_error = _parse_ai_json_object(retry_answer)
-        if parsed is not None:
-            return parsed, ""
-        print("SCAN COMPACT RETRY FAILED:", retry_error)
-        print("SCAN COMPACT RAW HEAD:", retry_answer[:500])
-        return None, retry_error or "invalid compact json"
-    except ModelGatewayError as error:
-        print("SCAN COMPACT RETRY ERROR:", error.code)
-        return None, error.code
-    except HTTPException as error:
-        return None, str(error.detail)
 
 
-@app.post("/scan-invoice")
-def scan_invoice(data: dict, x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"), x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"), _current_user: dict = Depends(require_roles(*PHYSICAL_RECEIPT_ROLES, "бухгалтер"))):
-    from backend.features.supplier_invoice_templates.scope import resolve_scan_company
-    conn = get_db()
-    try:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            company_id = resolve_scan_company(cur, _current_user, _resolve_work_company_context,
-                (*PHYSICAL_RECEIPT_ROLES, "бухгалтер"), company_id=data.get("companyId"),
-                x_company_id=x_company_id, x_company_mode=x_company_mode)
-    finally:
-        conn.close()
-    images = data.get("images") or data.get("pages") or []
-    if isinstance(images, (str, dict)):
-        images = [images]
-    if not isinstance(images, list):
-        images = []
-    if data.get("image"):
-        images = [data.get("image")] + images
-    if len(images) > 8:
-        raise HTTPException(422, "Выбрано больше 8 файлов. Загрузите полный документ допустимого размера или заполните его вручную.")
-    images = [_normalize_invoice_scan_image_entry(img) for img in images]
-    images = [img for img in images if img]
-    if not images:
-        return {"ok": False, "error": "Нет изображения документа"}
-    template_hint = _invoice_scan_template_hint(company_id)
-    try:
-        content = []
-        for idx, image in enumerate(images, start=1):
-            content.extend(_invoice_scan_ai_content(image, idx, len(images)))
-        content.append(ModelInputPart(kind="text", value=(
-            "Распознай складской или бухгалтерский документ с товарными строками: счет на оплату, счет поставщика, "
-            "УПД, универсальный передаточный документ, товарную накладную, приходную накладную или товарный чек. "
-            "Если это 'Счет на оплату' или 'Счёт на оплату' с таблицей товаров, он подходит: верни documentType "
-            "\"supplier_invoice\" или \"payment_invoice\" и распознай строки товаров. Если страниц несколько, это один документ: "
-            "объедини позиции со всех страниц в один items, номер/дату/поставщика бери из шапки, итог — с последней страницы или строки итого. "
-            "Если виден только фрагмент страницы с таблицей товаров без номера, даты или полной шапки, всё равно распознай строки: "
-            "documentType оставь \"supplier_invoice\", number/date/documentTitle заполни пустыми строками, supplier бери из "
-            "'Поставщик', 'Грузоотправитель' или ближайшей строки с ИНН, если она видна; ИНН/КПП/ОГРН поставщика положи отдельно в supplierInn/supplierKpp/supplierOgrn. "
-            "Документ может быть повернут на 90 или 180 градусов: мысленно поверни страницу и читай таблицу по строкам. "
-            "Верни только JSON без markdown. Не путай складскую накладную с личной тратой. Не выдумывай позиции: если строка товара читается плохо, "
-            "заполни confidence меньше 0.6 и sourceText коротким исходным фрагментом до 60 символов. Не вставляй переносы строк внутрь JSON-строк. "
-            "Для уверенно распознанных строк sourceText оставляй пустым, чтобы ответ был короче. Если виден только итог без списка товаров, "
-            "верни пустой items и documentType \"other\". Для счета на оплату номер и дату бери из строки вида "
-            "'Счет на оплату № ... от ...', поставщика — из поля 'Поставщик', покупателя — из поля 'Покупатель', "
-            "таблицу товаров — из раздела 'Товары (работы, услуги)'. "
-            f"Формат: {_invoice_scan_json_format()}. Если в документе есть строки 'Итого с НДС', 'Всего с учетом НДС', "
-            "'Всего к оплате' или 'Сумма с НДС' — положи это значение в totalWithVat. "
-            "Если есть 'в том числе НДС', 'В т.ч. НДС' или 'Сумма НДС' — положи сумму в totalVat. "
-            "Если ставка НДС 22%, верни vat \"С НДС 22%\" и vatRate 22. Если цена дана без НДС и есть НДС, "
-            "посчитай priceWithVat и lineTotalWithVat. Если цена дана только итогом строки, посчитай цену за единицу через количество. "
-            "Не округляй крупные суммы до тысяч, не теряй НДС, сохраняй единицы измерения как в документе."
-            + (("\nИзвестные шаблоны поставщиков для ориентира:\n" + template_hint) if template_hint else "")
-        )))
-        answer = generate_yandex_parts(
-            capability="invoice_scan",
-            instructions=(
-                "Ты распознаёшь счета на оплату, счета поставщика, УПД, товарные накладные, "
-                "приходные накладные и товарные чеки. Верни только JSON без комментариев и без markdown."
-            ),
-            input_parts=tuple(content),
-            temperature=0.1,
-            max_output_tokens=12000,
-            api_key=YANDEX_API_KEY,
-            folder_id=YANDEX_FOLDER_ID,
-        )
-        parsed, parse_error = _parse_ai_json_object(answer)
-        if parsed is None:
-            print("SCAN PARSE FAILED:", parse_error)
-            print("SCAN RAW LEN:", len(answer))
-            print("SCAN RAW HEAD:", answer[:500])
-            print("SCAN RAW TAIL:", answer[-500:] if len(answer) > 500 else "")
-            parsed, repair_error = _repair_invoice_scan_json(answer, parse_error)
-            if parsed is not None:
-                print("SCAN REPAIR OK")
-            else:
-                print("SCAN REPAIR FINAL FAILED:", repair_error)
-                parsed, compact_error = _retry_invoice_scan_compact_json(images)
-                if parsed is not None:
-                    print("SCAN COMPACT RETRY OK")
-                else:
-                    print("SCAN COMPACT RETRY FINAL FAILED:", compact_error)
-                    return {
-                        "ok": False,
-                        "error": "ИИ не смог корректно разобрать накладную. Попробуйте выбрать меньше страниц за раз или сделать фото ближе и ровнее.",
-                    }
-        page_items = []
-        if isinstance(parsed.get("pages"), list):
-            for page_idx, page in enumerate(parsed.get("pages") or [], start=1):
-                if not isinstance(page, dict):
-                    continue
-                for item in page.get("items") or []:
-                    if isinstance(item, dict):
-                        item = dict(item)
-                        item.setdefault("page", page.get("page") or page_idx)
-                        page_items.append(item)
-        if page_items and not parsed.get("items"):
-            parsed["items"] = page_items
-        parsed["pagesCount"] = int(parsed.get("pagesCount") or len(images))
-        parsed = _normalize_invoice_totals_payload(parsed)
-        parsed["pagesCount"] = int(parsed.get("pagesCount") or len(images))
-        from backend.features.supplier_invoice_templates.amounts import scan_amount_errors
-        parsed["validationWarnings"] = scan_amount_errors(parsed)
-        parsed = _apply_supplier_invoice_template_metadata(parsed, company_id)
-        print("SCAN OK: recognition completed")
-        return {"ok": True, "data": parsed}
-    except HTTPException as e:
-        return {"ok": False, "error": str(e.detail or "Ошибка распознавания PDF/фото")}
-    except ModelGatewayError as error:
-        print("SCAN ERROR:", error.code)
-        return {"ok": False, "error": "AI не ответил: " + error.code}
-    except Exception as e:
-        print("SCAN ERROR:", str(e))
-        return {"ok": False, "error": str(e)}
+try:
+    from backend.features.invoice_scan.routes import register_invoice_scan_module
+except ModuleNotFoundError:
+    from features.invoice_scan.routes import register_invoice_scan_module
+
+register_invoice_scan_module(app, {
+    "ModelGatewayError": ModelGatewayError,
+    "ModelInputPart": ModelInputPart,
+    "PHYSICAL_RECEIPT_ROLES": PHYSICAL_RECEIPT_ROLES,
+    "YANDEX_API_KEY": YANDEX_API_KEY,
+    "YANDEX_FOLDER_ID": YANDEX_FOLDER_ID,
+    "_find_supplier_invoice_template": _find_supplier_invoice_template,
+    "_invoice_scan_ai_content": _invoice_scan_ai_content,
+    "_invoice_scan_json_format": _invoice_scan_json_format,
+    "_normalize_invoice_totals_payload": _normalize_invoice_totals_payload,
+    "_parse_ai_json_object": _parse_ai_json_object,
+    "_resolve_work_company_context": _resolve_work_company_context,
+    "_scan_invoice_supplier_name": _scan_invoice_supplier_name,
+    "_supplier_invoice_template_json": _supplier_invoice_template_json,
+    "_supplier_invoice_template_row": _supplier_invoice_template_row,
+    "generate_yandex_parts": lambda *args, **kwargs: generate_yandex_parts(*args, **kwargs),
+    "generate_yandex_text": lambda *args, **kwargs: generate_yandex_text(*args, **kwargs),
+    "get_db": get_db,
+    "require_roles": require_roles
+})
+try:
+    from backend.features.invoice_scan.routes import scan_invoice
+except ModuleNotFoundError:
+    from features.invoice_scan.routes import scan_invoice
 
 try:
     from backend.features.platform_admin import (

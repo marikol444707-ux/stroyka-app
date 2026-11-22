@@ -85,11 +85,11 @@ class DirectorAgentReadToolsTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
 
     def test_http_director_agent_uses_the_shared_read_tool_registry(self):
-        main_path = Path(__file__).resolve().parents[2] / "main.py"
-        tree = ast.parse(main_path.read_text(encoding="utf-8"), filename=str(main_path))
+        routes_path = Path(__file__).resolve().parent / "routes.py"
+        tree = ast.parse(routes_path.read_text(encoding="utf-8"), filename=str(routes_path))
         assignments = [
             node
-            for node in tree.body
+            for node in ast.walk(tree)
             if isinstance(node, ast.Assign)
             and any(
                 isinstance(target, ast.Name) and target.id == "DIRECTOR_AGENT_TOOLS"

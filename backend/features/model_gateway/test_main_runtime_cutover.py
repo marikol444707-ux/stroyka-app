@@ -6,6 +6,18 @@ from backend.features.model_gateway.contract import ModelInputPart
 
 
 MAIN_PATH = Path(__file__).parents[2] / "main.py"
+INVOICE_SCAN_PATH = MAIN_PATH.parent / "features" / "invoice_scan" / "routes.py"
+DIRECTOR_PATH = MAIN_PATH.parent / "features" / "director_agent" / "routes.py"
+QUALITY_PATH = MAIN_PATH.parent / "features" / "quality_journals" / "routes.py"
+TB_PATH = MAIN_PATH.parent / "features" / "tb_journal" / "ai_routes.py"
+
+
+def _function_node(path, name):
+    tree = ast.parse(Path(path).read_text(encoding="utf-8"), filename=str(path))
+    return next(
+        node for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name
+    )
 
 EXPECTED = {
     "_enhance_norm_suggestions_with_ai": ("material_norm_suggestion", 3000),
@@ -20,28 +32,20 @@ EXPECTED = {
 
 class MainRuntimeGatewayCutoverTest(unittest.TestCase):
     def _load_invoice_ai_content(self, **overrides):
-        tree = ast.parse(MAIN_PATH.read_text(encoding="utf-8"))
-        function = next(
-            node for node in tree.body
-            if isinstance(node, ast.FunctionDef)
-            and node.name == "_invoice_scan_ai_content"
-        )
+        function = _function_node(MAIN_PATH, "_invoice_scan_ai_content")
         namespace = {"ModelInputPart": ModelInputPart, **overrides}
         module = ast.Module(body=[function], type_ignores=[])
         exec(compile(module, str(MAIN_PATH), "exec"), namespace)
         return namespace[function.name]
 
     def test_invoice_scan_and_its_retries_use_gateway_only(self):
-        tree = ast.parse(MAIN_PATH.read_text(encoding="utf-8"))
         functions = {
-            node.name: ast.unparse(node)
-            for node in tree.body
-            if isinstance(node, ast.FunctionDef)
-            and node.name in {
+            name: ast.unparse(_function_node(INVOICE_SCAN_PATH, name))
+            for name in (
                 "_repair_invoice_scan_json",
                 "_retry_invoice_scan_compact_json",
                 "scan_invoice",
-            }
+            )
         }
 
         self.assertEqual(len(functions), 3)
@@ -55,12 +59,7 @@ class MainRuntimeGatewayCutoverTest(unittest.TestCase):
             self.assertNotIn("gpt://", source)
 
     def test_invoice_pdf_and_images_are_carried_as_provider_neutral_parts(self):
-        tree = ast.parse(MAIN_PATH.read_text(encoding="utf-8"))
-        source = ast.unparse(next(
-            node for node in tree.body
-            if isinstance(node, ast.FunctionDef)
-            and node.name == "_invoice_scan_ai_content"
-        ))
+        source = ast.unparse(_function_node(MAIN_PATH, "_invoice_scan_ai_content"))
 
         self.assertNotIn("kind='file_data_url'", source)
         self.assertIn("kind='image_data_url'", source)
@@ -117,12 +116,7 @@ class MainRuntimeGatewayCutoverTest(unittest.TestCase):
                 self.assertEqual(raised.exception.status_code, 422)
 
     def test_director_agent_serializes_its_read_only_conversation_for_gateway(self):
-        tree = ast.parse(MAIN_PATH.read_text(encoding="utf-8"))
-        source = ast.unparse(next(
-            node for node in tree.body
-            if isinstance(node, ast.FunctionDef)
-            and node.name == "_director_agent_call_yandex"
-        ))
+        source = ast.unparse(_function_node(DIRECTOR_PATH, "_director_agent_call_yandex"))
 
         self.assertIn("generate_yandex_text", source)
         self.assertIn("capability='director_agent'", source)
@@ -147,12 +141,18 @@ class MainRuntimeGatewayCutoverTest(unittest.TestCase):
         self.assertNotIn("gpt://", source)
 
     def test_business_callers_use_fixed_gateway_capabilities_and_limits(self):
-        tree = ast.parse(MAIN_PATH.read_text(encoding="utf-8"))
+        locations = {
+            "_enhance_norm_suggestions_with_ai": MAIN_PATH,
+            "ai_suggest_material_inspection": QUALITY_PATH,
+            "ai_suggest_cable_journal": QUALITY_PATH,
+            "ai_generate_tb_instruction": TB_PATH,
+            "ai_generate_estimate": MAIN_PATH,
+            "ai_generate_pricelist": MAIN_PATH,
+            "ai_prefill_hidden_works_act": MAIN_PATH,
+        }
         functions = {
-            node.name: ast.unparse(node)
-            for node in tree.body
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and node.name in EXPECTED
+            name: ast.unparse(_function_node(path, name))
+            for name, path in locations.items()
         }
         self.assertEqual(set(functions), set(EXPECTED))
         delegated = {

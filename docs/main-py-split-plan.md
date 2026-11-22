@@ -4,7 +4,7 @@
 
 Line ranges below are the pre-move map. Each later pull request shifts the lines under the code it deletes. Sizes are the handler bodies, not the blank lines and already-extracted registrations that sit between them.
 
-This pull request is step 1. It moves `GET /companies` and `GET /material-price-history`.
+Step 1 is merged (`GET /companies` and `GET /material-price-history`). The next pull request replaces the whole-file `main.py` SHA256 pins and moves steps 2–13 below, except login and the two 2FA routes, which stay in `main.py` until the auth slice that issues sessions.
 
 ## What must not change
 
@@ -28,12 +28,7 @@ Paths, methods, dependency callables, role sets, status codes, response fields a
 - `backend/features/warehouse_recommendation_preview/test_runtime_contract.py`
 - `backend/features/warehouse_recommendation_preview/test_runtime_preview.py`
 
-Every split changes that hash even when the warehouse preview registration block is untouched. The pin was there to freeze the registration site. A better check is structural and would survive unrelated moves:
-
-- `main.py` still calls `register_warehouse_anomaly_preview_routes` only inside `WAREHOUSE_ANOMALY_PREVIEW_HTTP_ENABLED == "true"`, and only after the company-id allowlist parses.
-- The hashes of `runtime_routes.py`, `runtime_preview.py`, `runtime_contract.py` and the package `__init__.py` stay pinned, because those files are the preview implementation.
-
-This pull request updates the three hashes and leaves the pin mechanism in place. Replacing it changes the review contract for that package, so it belongs in a pull request that touches the preview tests on purpose.
+The whole-file pin was replaced by `warehouse_preview_registration_block` in `backend/features/warehouse_recommendation_preview/test_registration_block.py`. The three former pin sites call it. The check fails unless `main.py` still has exactly one `WAREHOUSE_ANOMALY_PREVIEW_HTTP_ENABLED == "true"` gate, the company-id allowlist is parsed before registration, `register_warehouse_anomaly_preview_routes` is called once inside that allowlist, and the source of that gate keeps its SHA256. The hashes of `runtime_routes.py`, `runtime_preview.py`, `runtime_contract.py` and the package `__init__.py` stay where those tests already pin the preview implementation. Unrelated edits to `main.py` no longer change this check.
 
 **Route order.** FastAPI keeps the first registered route for a path. Re-register a moved group at the same point in `main.py` where the handlers used to be defined.
 
@@ -92,19 +87,19 @@ The hottest shared helpers, used across many of the groups above, should stay in
 
 Each step stays under roughly 2–3k lines moved and registers at the old location. Lowest risk means read-only, few shared helpers, and no document or stock writes.
 
-1. **This PR.** `GET /companies` and `GET /material-price-history`. Read-only. Companies depends only on `get_db` and `get_current_user`. Price history depends on `get_db` and `require_roles(*MATERIAL_PRICE_HISTORY_ROLES)`.
-2. `GET /health`, then `GET /csrf-token`. Both are small. Health is the public probe, so it gets a pull request by itself.
-3. `POST /vk-connect` and `POST /vk-notify`, with `send_vk_notification`. One write of `users.vk_id`, no stock or money.
-4. Director-agent tools and ask, plus `_director_agent_extract_json` and `_director_agent_call_yandex`. Pass company context and `log_audit` through `deps`.
-5. Pricelist list/create/update/delete/copy and `GET /pricelists/{id}/items`. Leave `POST /pricelists/from-estimate` until estimates move; it calls estimate helpers.
-6. Material-norm CRUD (eight routes) with `MaterialNormModel`, `MaterialNormOverrideModel` and the four exclusive row helpers.
-7. Material-inspection and cable-journal. The handlers are thin wrappers around the quality-journal helpers, which stay in `main.py` for this step.
-8. `POST /tb-journal/ai-generate`.
-9. `POST /upload-photo` and `POST /supplier-offers/{offer_id}/files`.
-10. `POST /workflow/invoice/preview`.
-11. `POST /scan-invoice` with its exclusive scan helpers.
-12. Room-works. Small body, but it calls work-journal access helpers through `deps`.
-13. Logout, password-reset request, password reset, then register. Login and the two 2FA routes last inside auth, because they issue sessions.
+1. **Done, merged.** `GET /companies` and `GET /material-price-history` in `features/companies` and `features/material_price_history`.
+2. **Done.** `GET /health` in `features/health` and `GET /csrf-token` in `features/csrf_token`.
+3. **Done.** `POST /vk-connect` and `POST /vk-notify`, with `send_vk_notification`, in `features/vk_notifications`.
+4. **Done.** Director-agent tools and ask, plus the Yandex helpers, in `features/director_agent/routes.py`. Company context and `log_audit` are injected. `log_audit` is resolved when the request runs, because its definition stays later in `main.py`.
+5. **Done.** Pricelist list/create/update/delete/copy and `GET /pricelists/{id}/items` in `features/pricelists`. `POST /pricelists/from-estimate` stays until estimates move.
+6. **Done.** Material-norm CRUD and the exclusive row helpers in `features/material_norms`.
+7. **Done.** Material-inspection and cable-journal in `features/quality_journals/routes.py`. The shared journal access module stays put.
+8. **Done.** `POST /tb-journal/ai-generate` in `features/tb_journal/ai_routes.py`. The existing tb-journal routes file is unchanged.
+9. **Done.** `POST /upload-photo` and `POST /supplier-offers/{offer_id}/files` in `features/uploads`.
+10. **Done.** `POST /workflow/invoice/preview` in `features/workflow_invoice`.
+11. **Done.** `POST /scan-invoice` and its exclusive scan helpers in `features/invoice_scan`. `main.py` re-exports `scan_invoice` for the messenger registration.
+12. **Done.** Room-works in `features/room_works`.
+13. **Done, except login.** Logout is in `features/session_logout`, password reset in `features/password_reset`, and `POST /register` in `features/account_registration`. `POST /login` and the two 2FA routes stay in `main.py` for the next auth slice, because they issue sessions.
 14. Warehouse-main, then warehouse-history, then warehouse-movements. Movements pull in `_apply_warehouse_movement`, which other code still calls, so that helper stays and is passed in.
 15. Hidden-works acts.
 16. Brigade contracts.
