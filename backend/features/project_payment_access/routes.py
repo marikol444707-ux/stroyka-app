@@ -13,11 +13,21 @@ import psycopg2.extras
 from fastapi import Depends, Header, HTTPException
 
 try:
-    from backend.features.project_payment_access.service import project_payment_visibility_filter
+    from backend.features.project_payment_access.service import (
+        UNIQUE_PROJECT_COMPANY_SQL,
+        project_payment_visibility_filter,
+        resolved_payment_company_sql,
+        reversal_company_id,
+    )
     from backend.features.company_context.service import resolve_resource_company_actor
     from backend.features.supplier_payments.access import build_payment_access
 except ModuleNotFoundError:
-    from features.project_payment_access.service import project_payment_visibility_filter
+    from features.project_payment_access.service import (
+        UNIQUE_PROJECT_COMPANY_SQL,
+        project_payment_visibility_filter,
+        resolved_payment_company_sql,
+        reversal_company_id,
+    )
     from features.company_context.service import resolve_resource_company_actor
     from features.supplier_payments.access import build_payment_access
 
@@ -96,6 +106,7 @@ def register_project_payments_module(app, deps):
             ledger_identity = "ledger.id," if ledger_exists else ""
             # Separate confirmed tool refunds remain separate even with equal date/amount/note.
             ledger_identity += "tool_event.id," if tool_exists else ""
+            resolved_company = resolved_payment_company_sql("pp")
             ledger_columns = ("ledger.id AS operation_id,ledger.kind AS operation_kind,"
                               "ledger.reverses_id,ledger.payer_company_id") if ledger_exists else (
                               "NULL::bigint AS operation_id,NULL::text AS operation_kind,"
@@ -106,16 +117,16 @@ def register_project_payments_module(app, deps):
                             FROM (
                                 SELECT DISTINCT ON (
                                     {ledger_identity}
-                                    pp.company_id, pp.project_name, COALESCE(pp.work_package,''),
+                                    {resolved_company}, pp.project_name, COALESCE(pp.work_package,''),
                                     pp.amount, COALESCE(pp.note,''), pp.date, COALESCE(pp.added_by,'')
                                 )
-                                    pp.id,pp.company_id,pp.project_name,pp.amount,pp.note,pp.date,
+                                    pp.id,{resolved_company} AS company_id,pp.project_name,pp.amount,pp.note,pp.date,
                                     pp.added_by,pp.work_package,{ledger_columns},{tool_project} AS tool_project_id
                                 FROM project_payments pp
                                 {ledger_join}
                                 {tool_join}
                                 WHERE {' AND '.join(where)}
-                                ORDER BY {ledger_identity} pp.company_id, pp.project_name, COALESCE(pp.work_package,''),
+                                ORDER BY {ledger_identity} {resolved_company}, pp.project_name, COALESCE(pp.work_package,''),
                                          pp.amount, COALESCE(pp.note,''), pp.date,
                                          COALESCE(pp.added_by,''), pp.id DESC
                             ) p
@@ -257,10 +268,18 @@ def register_project_payments_module(app, deps):
             row = cur.fetchone()
             if not row:
                 raise HTTPException(status_code=404, detail="Платеж по объекту не найден")
+            project_name = row.get("project_name") or ""
+            cur.execute(UNIQUE_PROJECT_COMPANY_SQL, (project_name, project_name))
+            project_owner = cur.fetchone() or {}
+            company_id = reversal_company_id(
+                row.get("company_id"),
+                project_owner.get("company_id"),
+                project_owner.get("named_count"),
+            )
             _company_context, actor = resolve_resource_company_actor(
                 cur,
                 _current_user,
-                row.get("company_id"),
+                company_id,
                 "delete",
                 x_company_id=x_company_id,
                 x_company_mode=x_company_mode,
@@ -269,8 +288,6 @@ def register_project_payments_module(app, deps):
                 platform_staff_roles=platform_staff_roles,
                 client_account_roles=client_account_roles,
             )
-            company_id = positive_int_or_none(row.get("company_id"))
-            project_name = row.get("project_name") or ""
             work_package = row.get("work_package") or ""
             require_project_access(actor, project_name)
             if not has_package_access(actor, work_package or "Основная"):

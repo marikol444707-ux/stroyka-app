@@ -946,9 +946,9 @@ class WarehouseAnomalyRuntimePreviewCompositionTests(unittest.TestCase):
             root / "backend/db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # AI estimates and demo users store an explicit company; the warehouse preview package is unchanged.
+            # Document versions store the act company, and AI estimates store the caller company.
             root / "backend/main.py": (
-                "c2833e4bb3b88f0e2438adffbbc96414c3323941410964a3de8b5d85e5632959"
+                "820d8bff72310afa0b68532611bbeffefd789794b7aa4bfe97a1b4c21581f6b8"
             ),
         }
         self.assertEqual({
