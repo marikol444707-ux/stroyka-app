@@ -1,5 +1,7 @@
 import json
 
+from fastapi import HTTPException
+
 
 def _positive_int(value):
     try:
@@ -38,18 +40,52 @@ def resolved_payment_company_sql(alias="pp"):
 
 
 UNIQUE_PROJECT_COMPANY_SQL = """
-SELECT MIN(owned_project.company_id) AS company_id
-  FROM projects owned_project
- WHERE owned_project.company_id IS NOT NULL
-   AND BTRIM(owned_project.name)=BTRIM(%s)
-   AND NOT EXISTS (
-        SELECT 1 FROM projects other_project
-         WHERE BTRIM(other_project.name)=BTRIM(owned_project.name)
-           AND other_project.id<>owned_project.id
-           AND (other_project.company_id IS DISTINCT FROM owned_project.company_id
-                OR other_project.company_id IS NULL)
-   )
+SELECT (
+         SELECT MIN(owned_project.company_id)
+           FROM projects owned_project
+          WHERE owned_project.company_id IS NOT NULL
+            AND BTRIM(owned_project.name)=BTRIM(%s)
+            AND NOT EXISTS (
+                 SELECT 1 FROM projects other_project
+                  WHERE BTRIM(other_project.name)=BTRIM(owned_project.name)
+                    AND other_project.id<>owned_project.id
+                    AND (other_project.company_id IS DISTINCT FROM owned_project.company_id
+                         OR other_project.company_id IS NULL)
+            )
+       ) AS company_id,
+       (
+         SELECT COUNT(*)
+           FROM projects named_project
+          WHERE BTRIM(named_project.name)=BTRIM(%s)
+       ) AS named_count
 """
+
+
+def reversal_company_id(stored_company_id, project_company_id, named_project_count):
+    """The company allowed to reverse a payment, or a conflict when the name is shared.
+
+    A unique project names the company. A stored company that disagrees is refused.
+    When the name matches more than one project, or matches a project that still
+    has no company, the stored company is not used. A name that matches no project
+    keeps the company already stored on the payment.
+    """
+    stored = _positive_int(stored_company_id)
+    project = _positive_int(project_company_id)
+    try:
+        named = int(named_project_count or 0)
+    except (TypeError, ValueError):
+        named = 0
+    if named > 0 and not project:
+        raise HTTPException(
+            status_code=409,
+            detail="Название объекта платежа неоднозначно. Сначала нужна сверка.",
+        )
+    if project and stored and project != stored:
+        raise HTTPException(
+            status_code=409,
+            detail="Платёж записан на другую компанию, чем его объект. Сначала нужна сверка.",
+        )
+    return stored or project
 
 
 def _company_from_project_sql():

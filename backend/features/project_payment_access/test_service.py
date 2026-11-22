@@ -1,6 +1,11 @@
 import unittest
 
-from backend.features.project_payment_access.service import project_payment_visibility_filter
+from fastapi import HTTPException
+
+from backend.features.project_payment_access.service import (
+    project_payment_visibility_filter,
+    reversal_company_id,
+)
 
 
 FINANCE_ROLES = ("директор", "зам_директора", "бухгалтер")
@@ -57,6 +62,16 @@ class ProjectPaymentVisibilityFilterTests(unittest.TestCase):
             ),
             ("FALSE", []),
         )
+
+    def test_ambiguous_project_name_cannot_be_reversed_from_the_stored_company(self):
+        with self.assertRaises(HTTPException) as shared:
+            reversal_company_id(4, None, 2)
+        self.assertEqual(shared.exception.status_code, 409)
+        with self.assertRaises(HTTPException) as unowned:
+            reversal_company_id(4, None, 1)
+        self.assertEqual(unowned.exception.status_code, 409)
+        self.assertEqual(reversal_company_id(4, None, 0), 4)
+        self.assertEqual(reversal_company_id(None, 4, 1), 4)
 
     def test_disallowed_membership_fails_closed(self):
         self.assertEqual(

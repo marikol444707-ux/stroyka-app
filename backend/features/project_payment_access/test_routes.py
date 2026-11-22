@@ -259,6 +259,19 @@ class ProjectPaymentRoutesTest(unittest.TestCase):
         self.assertTrue(connection.rolled_back)
         self.assertFalse(any(sql.startswith("INSERT") for sql, _ in cursor.calls))
 
+    def test_ambiguous_project_name_cannot_be_reversed(self):
+        row = {"company_id": 3, "project_name": "Объект", "work_package": "", "amount": 500}
+        cursor = FakeCursor(fetchone_results=[row])
+        cursor.project_owner = {"company_id": None, "named_count": 2}
+        app, connection, _ = build(cursor)
+        with self.assertRaises(HTTPException) as error:
+            app.routes[("DELETE", "/project-payments/{id}")](
+                id=5, x_company_id="3", x_company_mode="company", _current_user={},
+            )
+        self.assertEqual(error.exception.status_code, 409)
+        self.assertTrue(connection.rolled_back)
+        self.assertFalse(any(sql.startswith("INSERT") for sql, _ in cursor.calls))
+
     def test_unowned_payment_reversal_uses_the_unique_project_company(self):
         row = {"company_id": None, "project_name": "Объект", "work_package": "",
                "amount": 500, "note": "оплата", "date": "2026-07-28", "added_by": "Тест"}

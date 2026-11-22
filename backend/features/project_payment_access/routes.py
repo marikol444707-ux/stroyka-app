@@ -17,6 +17,7 @@ try:
         UNIQUE_PROJECT_COMPANY_SQL,
         project_payment_visibility_filter,
         resolved_payment_company_sql,
+        reversal_company_id,
     )
     from backend.features.company_context.service import resolve_resource_company_actor
     from backend.features.supplier_payments.access import build_payment_access
@@ -25,6 +26,7 @@ except ModuleNotFoundError:
         UNIQUE_PROJECT_COMPANY_SQL,
         project_payment_visibility_filter,
         resolved_payment_company_sql,
+        reversal_company_id,
     )
     from features.company_context.service import resolve_resource_company_actor
     from features.supplier_payments.access import build_payment_access
@@ -267,19 +269,17 @@ def register_project_payments_module(app, deps):
             if not row:
                 raise HTTPException(status_code=404, detail="Платеж по объекту не найден")
             project_name = row.get("project_name") or ""
-            cur.execute(UNIQUE_PROJECT_COMPANY_SQL, (project_name,))
+            cur.execute(UNIQUE_PROJECT_COMPANY_SQL, (project_name, project_name))
             project_owner = cur.fetchone() or {}
-            project_company = positive_int_or_none(project_owner.get("company_id"))
-            stored_company = positive_int_or_none(row.get("company_id"))
-            if project_company and stored_company and project_company != stored_company:
-                raise HTTPException(
-                    status_code=409,
-                    detail="Платёж записан на другую компанию, чем его объект. Сначала нужна сверка.",
-                )
+            company_id = reversal_company_id(
+                row.get("company_id"),
+                project_owner.get("company_id"),
+                project_owner.get("named_count"),
+            )
             _company_context, actor = resolve_resource_company_actor(
                 cur,
                 _current_user,
-                stored_company or project_company,
+                company_id,
                 "delete",
                 x_company_id=x_company_id,
                 x_company_mode=x_company_mode,
@@ -288,7 +288,6 @@ def register_project_payments_module(app, deps):
                 platform_staff_roles=platform_staff_roles,
                 client_account_roles=client_account_roles,
             )
-            company_id = stored_company or project_company
             work_package = row.get("work_package") or ""
             require_project_access(actor, project_name)
             if not has_package_access(actor, work_package or "Основная"):
