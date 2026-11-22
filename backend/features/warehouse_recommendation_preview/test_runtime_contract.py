@@ -720,7 +720,7 @@ class WarehouseAnomalyRuntimeDisclosurePolicyTests(unittest.TestCase):
             ),
             # Project chat stores the selected company; the warehouse preview package is unchanged.
             backend_root / "main.py": (
-                "e0386bae2b515cb4c4f3232cd7ef758f081b7e3b577ee13484c19977f7bd4dc2"
+                "c541056c22209fdad86d1c44f20e1b9f6e682ebc770608d8d62f23dda3682d28"
             ),
         }
         actual = {
