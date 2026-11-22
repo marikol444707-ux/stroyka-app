@@ -157,7 +157,7 @@ class FieldRecordBackfillTest(unittest.TestCase):
         config = Config(str(ROOT / "alembic.ini"))
         config.set_main_option("script_location", str(ROOT / "migrations"))
         graph = ScriptDirectory.from_config(config)
-        self.assertEqual(graph.get_heads(), ["0124_document_record_owners"])
+        self.assertEqual(graph.get_heads(), ["0125_project_chat_owners"])
 
     def test_apply_labels_an_existing_journal_and_assigns_only_blank_rows(self):
         class Cursor:

@@ -1,5 +1,21 @@
+export function projectChatCacheKey(companyId, projectName) {
+  const id = Number(companyId);
+  const name = String(projectName || '').trim();
+  if (!Number.isInteger(id) || id <= 0 || !name) return '';
+  return `${id}:${name}`;
+}
+
+export function projectChatFeed(cache, companyId, projectName) {
+  const key = projectChatCacheKey(companyId, projectName);
+  if (!key || !Array.isArray(cache?.[key])) {
+    return {key, messages: [], loaded: false};
+  }
+  return {key, messages: cache[key], loaded: true};
+}
+
 export const createDataLoadActions = ({
   API,
+  companyId,
   setChecklistItems,
   setMasterProfile,
   setPricelistItems,
@@ -21,10 +37,16 @@ export const createDataLoadActions = ({
   };
 
   const loadProjectChat = async (projectName) => {
+    const key = projectChatCacheKey(companyId, projectName);
+    if (!key) return [];
     try {
       const msgs = await fetch(API + '/project-chat/' + encodeURIComponent(projectName)).then(r => r.json()).catch(() => []);
-      setProjectChatMessages(prev => ({ ...prev, [projectName]: Array.isArray(msgs) ? msgs : [] }));
-    } catch (e) {}
+      const list = Array.isArray(msgs) ? msgs : [];
+      setProjectChatMessages(prev => ({ ...prev, [key]: list }));
+      return list;
+    } catch (e) {
+      return [];
+    }
   };
 
   const loadChecklistItems = async (checklistId) => {

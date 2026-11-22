@@ -107,7 +107,7 @@ class DocumentOwnerPlanTests(unittest.TestCase):
         config = Config(str(ROOT / "alembic.ini"))
         config.set_main_option("script_location", str(ROOT / "migrations"))
         graph = ScriptDirectory.from_config(config)
-        self.assertEqual(graph.get_heads(), ["0124_document_record_owners"])
+        self.assertEqual(graph.get_heads(), ["0125_project_chat_owners"])
 
 
 if __name__ == "__main__":

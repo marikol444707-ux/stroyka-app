@@ -541,6 +541,7 @@ export default function ProjectsPage({ ctx }) {
                         btnO={btnO}
                         fileSrc={fileSrc}
                         inp={inp}
+                        companyId={ctx.companyContext?.selectedCompanyId}
                         loadProjectChat={loadProjectChat}
                         project={p}
                         projectChatMessage={projectChatMessage}

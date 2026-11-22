@@ -257,10 +257,10 @@ class WarehouseAnomalyRuntimeRouteRegistrationTests(unittest.TestCase):
         package_bytes = package_path.read_bytes()
         runtime_source = runtime_path.read_text(encoding="utf-8")
 
-        # Document versions store the act company, and AI estimates store the caller company.
+        # Project chat stores the selected company; the warehouse preview package is unchanged.
         self.assertEqual(
             hashlib.sha256(main_bytes).hexdigest(),
-            "820d8bff72310afa0b68532611bbeffefd789794b7aa4bfe97a1b4c21581f6b8",
+            "e0386bae2b515cb4c4f3232cd7ef758f081b7e3b577ee13484c19977f7bd4dc2",
         )
         self.assertEqual(
             hashlib.sha256(package_bytes).hexdigest(),

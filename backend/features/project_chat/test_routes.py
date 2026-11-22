@@ -66,10 +66,22 @@ def build(cursor, access_calls):
         if project_name == "чужой":
             raise HTTPException(status_code=403, detail="Нет доступа к объекту")
 
+    def resolve_context(cur, user, requested, mode, **kwargs):
+        return {"mode": "company", "companyId": user.get("companyId") or 7}
+
+    def actors(user, context):
+        return [dict(user, companyId=context["companyId"], role=user.get("role") or "директор")]
+
+    def parent(cur, actor, project_id=None, project_name=""):
+        return {"id": 1, "companyId": actor["companyId"], "name": project_name}
+
     register_project_chat_module(app, {
         "get_db": lambda: connection,
         "get_current_user": lambda: {},
         "require_project_access": require_project_access,
+        "resolve_work_company_context": resolve_context,
+        "effective_company_actors": actors,
+        "resolve_project_parent": parent,
     })
     return app, connection
 
@@ -82,9 +94,13 @@ class ProjectChatRoutesTest(unittest.TestCase):
 
     def test_get_checks_access_before_reading(self):
         calls = []
-        app, _conn = build(FakeCursor(rows=[]), calls)
-        app.routes[("GET", "/project-chat/{project_name}")]("Объект", current_user={"id": 42})
+        cursor = FakeCursor(rows=[])
+        app, _conn = build(cursor, calls)
+        app.routes[("GET", "/project-chat/{project_name}")]("Объект", current_user={"id": 42, "companyId": 7})
         self.assertEqual(calls, [(42, "Объект")])
+        sql, params = cursor.calls[-1]
+        self.assertIn("company_id=%s", sql)
+        self.assertEqual(params, ("Объект", 7))
 
     def test_foreign_project_is_rejected_before_any_query(self):
         calls = []
@@ -103,11 +119,11 @@ class ProjectChatRoutesTest(unittest.TestCase):
             {"projectName": "Объект", "text": "привет", "photoUrl": ""},
             current_user={"id": 42, "name": "Тест", "role": "прораб"},
         )
-        self.assertEqual(result, {"id": 15, "ok": True})
+        self.assertEqual(result, {"id": 15, "ok": True, "companyId": 7})
         self.assertTrue(connection.committed)
         sql, params = cursor.calls[0]
-        self.assertIn("INSERT INTO project_chat", sql)
-        self.assertEqual(params, ("Объект", 42, "Тест", "прораб", "привет", ""))
+        self.assertIn("company_id", sql)
+        self.assertEqual(params, ("Объект", 7, 42, "Тест", "прораб", "привет", ""))
 
 
 if __name__ == "__main__":

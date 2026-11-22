@@ -340,6 +340,7 @@ export function useAppCoreRuntime({
     loadProjectChat,
   } = createDataLoadActions({
     API,
+    companyId: companyContext?.selectedCompanyId,
     setChecklistItems,
     setMasterProfile,
     setPricelistItems,
