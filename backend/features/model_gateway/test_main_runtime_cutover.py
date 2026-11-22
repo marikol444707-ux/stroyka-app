@@ -10,6 +10,7 @@ INVOICE_SCAN_PATH = MAIN_PATH.parent / "features" / "invoice_scan" / "routes.py"
 DIRECTOR_PATH = MAIN_PATH.parent / "features" / "director_agent" / "routes.py"
 QUALITY_PATH = MAIN_PATH.parent / "features" / "quality_journals" / "routes.py"
 TB_PATH = MAIN_PATH.parent / "features" / "tb_journal" / "ai_routes.py"
+HIDDEN_WORKS_PATH = MAIN_PATH.parent / "features" / "hidden_works" / "routes.py"
 
 
 def _function_node(path, name):
@@ -148,7 +149,7 @@ class MainRuntimeGatewayCutoverTest(unittest.TestCase):
             "ai_generate_tb_instruction": TB_PATH,
             "ai_generate_estimate": MAIN_PATH,
             "ai_generate_pricelist": MAIN_PATH,
-            "ai_prefill_hidden_works_act": MAIN_PATH,
+            "ai_prefill_hidden_works_act": HIDDEN_WORKS_PATH,
         }
         functions = {
             name: ast.unparse(_function_node(path, name))

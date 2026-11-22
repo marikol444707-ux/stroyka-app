@@ -4,7 +4,7 @@
 
 Line ranges below are the pre-move map. Each later pull request shifts the lines under the code it deletes. Sizes are the handler bodies, not the blank lines and already-extracted registrations that sit between them.
 
-Step 1 is merged (`GET /companies` and `GET /material-price-history`). The next pull request replaces the whole-file `main.py` SHA256 pins and moves steps 2–13 below, except login and the two 2FA routes, which stay in `main.py` until the auth slice that issues sessions.
+Step 1 is merged (`GET /companies` and `GET /material-price-history`). Steps 2–17 are done, including login and the two 2FA routes. The next pull request starts at step 18.
 
 ## What must not change
 
@@ -99,11 +99,11 @@ Each step stays under roughly 2–3k lines moved and registers at the old locati
 10. **Done.** `POST /workflow/invoice/preview` in `features/workflow_invoice`.
 11. **Done.** `POST /scan-invoice` and its exclusive scan helpers in `features/invoice_scan`. `main.py` re-exports `scan_invoice` for the messenger registration.
 12. **Done.** Room-works in `features/room_works`.
-13. **Done, except login.** Logout is in `features/session_logout`, password reset in `features/password_reset`, and `POST /register` in `features/account_registration`. `POST /login` and the two 2FA routes stay in `main.py` for the next auth slice, because they issue sessions.
-14. Warehouse-main, then warehouse-history, then warehouse-movements. Movements pull in `_apply_warehouse_movement`, which other code still calls, so that helper stays and is passed in.
-15. Hidden-works acts.
-16. Brigade contracts.
-17. Supplier-document backfill and dedupe.
+13. **Done.** Logout is in `features/session_logout`, password reset in `features/password_reset`, and `POST /register` in `features/account_registration`. `POST /login` and the two 2FA routes, with their three request models, are in `features/auth_login`. `log_audit` is resolved when the request runs.
+14. **Done.** Warehouse-main is in `features/warehouse_main`, warehouse-history in `features/warehouse_history`, and warehouse-movements in `features/warehouse_movements`. `_apply_warehouse_movement` stays in `main.py` and is passed in. `WarehouseMovementModel` is re-exported for the distribution registration. The movement review helper is resolved when the request runs, because its import stays later in `main.py`.
+15. **Done.** Hidden-works acts are in `features/hidden_works`. `generate_yandex_text` and `log_audit` are resolved when the request runs. `work_acceptance_records` is imported before this registration because the original handlers were defined after that import.
+16. **Done.** Brigade contracts are in `features/brigade_contracts`. Shared contract helpers stay in `main.py`. `insert_pricelist_contract_item` is resolved when the request runs, because its import stays after the registration.
+17. **Done.** Supplier-document backfill and dedupe are in `features/supplier_documents/backfill_routes.py`. The existing supplier-document routes file is unchanged.
 18. Supply deliveries.
 19. `POST /ai-chat`, `POST /ai-generate-pricelist`, `POST /ai-generate-estimate`.
 20. Material-norm suggestions (handler body about 540 lines; exclusive generation helpers included, still under the cap).

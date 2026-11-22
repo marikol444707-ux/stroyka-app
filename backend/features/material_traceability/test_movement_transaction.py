@@ -7,8 +7,8 @@ from fastapi import HTTPException
 
 
 def load_route(namespace):
-    tree = ast.parse((Path(__file__).resolve().parents[2] / 'main.py').read_text())
-    node = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == 'create_warehouse_movement')
+    tree = ast.parse((Path(__file__).resolve().parents[1] / 'warehouse_movements' / 'routes.py').read_text())
+    node = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == 'create_warehouse_movement')
     node.decorator_list = []
     node.returns = None
     for arg in node.args.args:
@@ -20,10 +20,12 @@ def load_route(namespace):
 
 class MovementTransactionTest(unittest.TestCase):
     def test_legacy_writers_take_compatibility_lock_before_receipt_or_movement(self):
-        tree = ast.parse((Path(__file__).resolve().parents[2] / 'main.py').read_text())
-        for name, later in [('create_warehouse_movement', '_apply_warehouse_movement('),
-                            ('delete_warehouse_invoice', '_ensure_invoice_document_link_columns(')]:
-            node = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == name)
+        main_tree = ast.parse((Path(__file__).resolve().parents[2] / 'main.py').read_text())
+        movement_tree = ast.parse((Path(__file__).resolve().parents[1] / 'warehouse_movements' / 'routes.py').read_text())
+        for tree, name, later in [
+                (movement_tree, 'create_warehouse_movement', '_apply_warehouse_movement('),
+                (main_tree, 'delete_warehouse_invoice', '_ensure_invoice_document_link_columns(')]:
+            node = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == name)
             source = ast.unparse(node)
             self.assertLess(source.index('lock_distribution_compatible_stock(cur)'), source.index(later))
 
