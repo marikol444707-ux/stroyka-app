@@ -4945,6 +4945,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS project_chat (
             id SERIAL PRIMARY KEY,
             project_name VARCHAR(255),
+            company_id INT,
             author_id INT,
             author_name VARCHAR(255),
             author_role VARCHAR(50),
@@ -9184,9 +9185,9 @@ def _copy_approved_supply_request_control(cur, request_id, project: str, items: 
         from backend.features.material_aliases.runtime import owned_aliases_enabled
     except ModuleNotFoundError:
         from features.material_aliases.runtime import owned_aliases_enabled
-    if owned_aliases_enabled() and not company_id:
+    if not company_id:
         raise HTTPException(409, 'Компания заявки не определена')
-    cur.execute("SELECT status, items_json FROM supply_requests WHERE id=%s AND (company_id=%s OR %s IS NULL)", (request_id, company_id, company_id))
+    cur.execute("SELECT status, items_json FROM supply_requests WHERE id=%s AND company_id=%s", (request_id, company_id))
     req = cur.fetchone()
     if not req:
         return False
@@ -16731,10 +16732,18 @@ except ModuleNotFoundError:
     from features.project_chat.routes import register_project_chat_module
 
 
+try:
+    from backend.features.project_access.service import resolve_project_parent as resolve_chat_project_parent
+except ModuleNotFoundError:
+    from features.project_access.service import resolve_project_parent as resolve_chat_project_parent
+
 register_project_chat_module(app, {
     "get_db": get_db,
     "get_current_user": get_current_user,
     "require_project_access": require_project_access,
+    "resolve_work_company_context": _resolve_work_company_context,
+    "effective_company_actors": effective_company_actors,
+    "resolve_project_parent": resolve_chat_project_parent,
 })
 
 

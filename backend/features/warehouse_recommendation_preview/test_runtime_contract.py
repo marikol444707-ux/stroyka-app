@@ -718,9 +718,9 @@ class WarehouseAnomalyRuntimeDisclosurePolicyTests(unittest.TestCase):
             backend_root / "db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Document versions store the act company, and AI estimates store the caller company.
+            # Project chat stores the selected company; the warehouse preview package is unchanged.
             backend_root / "main.py": (
-                "820d8bff72310afa0b68532611bbeffefd789794b7aa4bfe97a1b4c21581f6b8"
+                "e0386bae2b515cb4c4f3232cd7ef758f081b7e3b577ee13484c19977f7bd4dc2"
             ),
         }
         actual = {
