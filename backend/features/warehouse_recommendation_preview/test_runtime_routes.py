@@ -29,6 +29,9 @@ from backend.features.warehouse_recommendation_preview.test_content_preview impo
 from backend.features.warehouse_recommendation_preview.test_runtime_access import (
     _artifact_row,
 )
+from backend.features.warehouse_recommendation_preview.test_registration_block import (
+    warehouse_preview_registration_block,
+)
 from backend.features.warehouse_recommendation_preview.test_runtime_preview import (
     _Clock,
     _Connection,
@@ -257,11 +260,8 @@ class WarehouseAnomalyRuntimeRouteRegistrationTests(unittest.TestCase):
         package_bytes = package_path.read_bytes()
         runtime_source = runtime_path.read_text(encoding="utf-8")
 
-        # Project chat stores the selected company; the warehouse preview package is unchanged.
-        self.assertEqual(
-            hashlib.sha256(main_bytes).hexdigest(),
-            "c541056c22209fdad86d1c44f20e1b9f6e682ebc770608d8d62f23dda3682d28",
-        )
+        # The registration gate is pinned on its own. Other main.py edits stay free.
+        warehouse_preview_registration_block(main_path)
         self.assertEqual(
             hashlib.sha256(package_bytes).hexdigest(),
             "d30babfeb425141af2fbf645be82eef358b6dea7d213b6d6b23cef3e7c551fea",

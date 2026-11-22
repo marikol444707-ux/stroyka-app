@@ -8,6 +8,9 @@ import unittest
 
 from backend.features.warehouse_recommendation_preview import runtime_contract
 from backend.features.warehouse_recommendation_preview import content_contract
+from backend.features.warehouse_recommendation_preview.test_registration_block import (
+    warehouse_preview_registration_block,
+)
 
 
 _parse_runtime_claims = (
@@ -718,16 +721,13 @@ class WarehouseAnomalyRuntimeDisclosurePolicyTests(unittest.TestCase):
             backend_root / "db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Project chat stores the selected company; the warehouse preview package is unchanged.
-            backend_root / "main.py": (
-                "c541056c22209fdad86d1c44f20e1b9f6e682ebc770608d8d62f23dda3682d28"
-            ),
         }
         actual = {
             path: hashlib.sha256(path.read_bytes()).hexdigest()
             for path in expected
         }
         self.assertEqual(actual, expected)
+        warehouse_preview_registration_block(backend_root / "main.py")
 
 
 if __name__ == "__main__":

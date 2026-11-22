@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi import HTTPException
 
 
-MAIN_PATH = Path(__file__).resolve().parent / "main.py"
+RESET_PATH = Path(__file__).resolve().parent / "features" / "password_reset" / "routes.py"
 
 
 class _App:
@@ -48,17 +48,18 @@ class _Connection:
 
 def _password_reset_function(namespace):
     tree = ast.parse(
-        MAIN_PATH.read_text(encoding="utf-8"),
-        filename=str(MAIN_PATH),
+        RESET_PATH.read_text(encoding="utf-8"),
+        filename=str(RESET_PATH),
     )
     function = next(
         node
-        for node in tree.body
+        for node in ast.walk(tree)
         if isinstance(node, ast.FunctionDef) and node.name == "password_reset"
     )
+    function.decorator_list = []
     module = ast.Module(body=[function], type_ignores=[])
     ast.fix_missing_locations(module)
-    exec(compile(module, str(MAIN_PATH), "exec"), namespace)
+    exec(compile(module, str(RESET_PATH), "exec"), namespace)
     return namespace["password_reset"]
 
 

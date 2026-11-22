@@ -14,6 +14,9 @@ from backend.features.warehouse_recommendation_preview import content_contract
 from backend.features.warehouse_recommendation_preview import runtime_budget
 from backend.features.warehouse_recommendation_preview import runtime_contract
 from backend.features.warehouse_recommendation_preview import runtime_preview
+from backend.features.warehouse_recommendation_preview.test_registration_block import (
+    warehouse_preview_registration_block,
+)
 from backend.features.warehouse_recommendation_preview.test_content_preview import (
     _real_a7_case,
 )
@@ -946,15 +949,12 @@ class WarehouseAnomalyRuntimePreviewCompositionTests(unittest.TestCase):
             root / "backend/db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Project chat stores the selected company; the warehouse preview package is unchanged.
-            root / "backend/main.py": (
-                "c541056c22209fdad86d1c44f20e1b9f6e682ebc770608d8d62f23dda3682d28"
-            ),
         }
         self.assertEqual({
             path: hashlib.sha256(path.read_bytes()).hexdigest()
             for path in expected_hashes
         }, expected_hashes)
+        warehouse_preview_registration_block(root / "backend/main.py")
         self.assertIn(
             "runtime_preview",
             (root / "backend/main.py").read_text(encoding="utf-8"),

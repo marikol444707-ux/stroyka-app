@@ -8,7 +8,7 @@ from backend.features.director_agent.read_tools import (
 )
 
 
-MAIN_PATH = Path(__file__).resolve().parents[2] / "main.py"
+ROUTES_PATH = Path(__file__).resolve().parent / "routes.py"
 
 
 class FakeCursor:
@@ -75,10 +75,10 @@ class DirectorAgentTenantScopeTests(unittest.TestCase):
                     self.assertTrue(any(value == [4, 9] for value in params))
 
     def test_route_passes_company_scope_to_shared_tools(self):
-        tree = ast.parse(MAIN_PATH.read_text(encoding="utf-8"), filename=str(MAIN_PATH))
+        tree = ast.parse(ROUTES_PATH.read_text(encoding="utf-8"), filename=str(ROUTES_PATH))
         route = next(
             node
-            for node in tree.body
+            for node in ast.walk(tree)
             if isinstance(node, ast.FunctionDef) and node.name == "director_agent_ask"
         )
         scoped_calls = [
