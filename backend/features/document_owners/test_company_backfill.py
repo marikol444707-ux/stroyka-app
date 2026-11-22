@@ -30,59 +30,26 @@ def document(row_id, name, company_id=None, project_id=None):
 
 
 class DocumentOwnerPlanTests(unittest.TestCase):
-    def test_blank_document_uses_the_only_project_of_the_original_company(self):
+    def test_blank_and_named_documents_stay_unowned(self):
         plan = plan_document_owners(
             companies(7, 9),
-            [project(4, 7, "Лицей")],
-            {"project_documents": [document(1, None)], "project_letters": []},
-            [],
-        )
-        self.assertEqual(plan["legacyCompanyId"], 7)
-        self.assertEqual(plan["assignments"], [{
-            "table": "project_documents",
-            "id": 1,
-            "company_id": 7,
-            "project_id": 4,
-            "state": "assign",
-        }])
-
-    def test_exact_project_name_assigns_that_project_company(self):
-        plan = plan_document_owners(
-            companies(7, 8),
             [project(4, 7, "Лицей"), project(5, 8, "Склад")],
-            {"project_documents": [document(2, "Склад")], "project_letters": [document(3, "Лицей")]},
+            {
+                "project_documents": [document(1, None), document(2, "Склад")],
+                "project_letters": [document(3, "Лицей")],
+            },
             [],
         )
         self.assertIsNone(plan["legacyCompanyId"])
-        assigned = {(item["table"], item["id"]): (item["company_id"], item["project_id"])
-                    for item in plan["assignments"]}
-        self.assertEqual(assigned[("project_documents", 2)], (8, 5))
-        self.assertEqual(assigned[("project_letters", 3)], (7, 4))
+        self.assertEqual(plan["assignments"], [])
+        self.assertEqual(plan["counts"]["project_documents"]["unknown"], 2)
+        self.assertEqual(plan["counts"]["project_letters"]["unknown"], 1)
 
-    def test_shared_name_and_unowned_namesake_stay_blank(self):
-        shared = plan_document_owners(
-            companies(7, 8),
-            [project(4, 7, "Лицей"), project(5, 8, "Лицей")],
-            {"project_documents": [document(1, "Лицей")], "project_letters": []},
-            [],
-        )
-        self.assertEqual(shared["assignments"], [])
-        self.assertEqual(shared["counts"]["project_documents"]["ambiguous"], 1)
-
-        unowned = plan_document_owners(
-            companies(7, 8),
-            [project(4, 7, "Лицей"), project(5, None, "Лицей")],
-            {"project_documents": [document(1, "Лицей")], "project_letters": []},
-            [],
-        )
-        self.assertEqual(unowned["assignments"], [])
-        self.assertEqual(unowned["counts"]["project_documents"]["ambiguous"], 1)
-
-    def test_named_document_is_not_attached_to_a_different_only_project(self):
+    def test_shared_name_does_not_become_ownership(self):
         plan = plan_document_owners(
-            companies(7),
-            [project(4, 7, "Лицей")],
-            {"project_documents": [document(1, "Склад")], "project_letters": []},
+            companies(7, 8),
+            [project(4, 7, "Лицей"), project(5, 8, "Лицей"), project(6, None, "Лицей")],
+            {"project_documents": [document(1, "Лицей")], "project_letters": []},
             [],
         )
         self.assertEqual(plan["assignments"], [])
@@ -109,15 +76,15 @@ class DocumentOwnerPlanTests(unittest.TestCase):
         self.assertEqual(plan["counts"]["document_versions"]["alreadyOwned"], 1)
         self.assertEqual(plan["counts"]["document_versions"]["unknown"], 1)
 
-    def test_several_projects_in_the_original_company_do_not_pick_a_blank_name(self):
+    def test_a_stored_pair_is_kept_and_a_partial_row_is_not_completed(self):
         plan = plan_document_owners(
-            companies(7, 9),
-            [project(4, 7, "Лицей"), project(5, 7, "Склад")],
-            {"project_documents": [document(1, None)], "project_letters": []},
+            companies(7),
+            [project(4, 7, "Лицей")],
+            {"project_documents": [document(1, "Лицей", company_id=7)], "project_letters": []},
             [],
         )
-        self.assertEqual(plan["legacyCompanyId"], 7)
         self.assertEqual(plan["assignments"], [])
+        self.assertEqual(plan["counts"]["project_documents"]["unknown"], 1)
 
     def test_migration_is_the_single_head_and_does_not_use_a_person_name(self):
         source = MIGRATION.read_text(encoding="utf-8")
