@@ -946,9 +946,9 @@ class WarehouseAnomalyRuntimePreviewCompositionTests(unittest.TestCase):
             root / "backend/db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Field-record company owners plus tool and room ownership; the warehouse preview package is unchanged.
+            # AI estimates and demo users store an explicit company; the warehouse preview package is unchanged.
             root / "backend/main.py": (
-                "3d1ea1319a46f23762224099d3d866b0e3fe2b3ff74b2bf686fc3fe81bc56bf9"
+                "c2833e4bb3b88f0e2438adffbbc96414c3323941410964a3de8b5d85e5632959"
             ),
         }
         self.assertEqual({

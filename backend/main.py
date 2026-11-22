@@ -5885,18 +5885,20 @@ def init_db():
         ALTER TABLE staff_documents ADD COLUMN IF NOT EXISTS expires_at DATE;
         ALTER TABLE staff_documents ADD COLUMN IF NOT EXISTS notes TEXT;
     """)
-    seed_users = [
-        ('Директор', 'admin@stroyka.ru', 'admin123', 'директор'),
-        ('Бухгалтер', 'buh@stroyka.ru', 'buh123', 'бухгалтер'),
-        ('Прораб', 'prorab@stroyka.ru', 'prorab123', 'прораб'),
-        ('Мастер', 'master@stroyka.ru', 'master123', 'мастер'),
-    ]
-    for seed_name, seed_email, seed_password, seed_role in seed_users:
-        cur.execute("""
-            INSERT INTO users (name, email, password, role)
-            VALUES (%s,%s,%s,%s)
-            ON CONFLICT (email) DO NOTHING
-        """, (seed_name, seed_email, hash_password(seed_password), seed_role))
+    try:
+        from backend.features.explicit_company.bootstrap_users import (
+            BOOTSTRAP_USERS,
+            seed_bootstrap_users,
+        )
+    except ModuleNotFoundError:
+        from features.explicit_company.bootstrap_users import (
+            BOOTSTRAP_USERS,
+            seed_bootstrap_users,
+        )
+    seed_bootstrap_users(cur, [
+        (seed_name, seed_email, hash_password(seed_password), seed_role)
+        for seed_name, seed_email, seed_password, seed_role in BOOTSTRAP_USERS
+    ])
     cur.execute("UPDATE users SET two_factor_required=TRUE WHERE role IN ('директор','зам_директора','бухгалтер')")
     for group_key, item_key, label, value, value_type, unit, sort_order in SITE_PRICE_RULE_DEFAULTS:
         cur.execute("""
@@ -26305,8 +26307,19 @@ register_ai_summary_module(app, {
 })
 
 @app.post("/ai-generate-estimate")
-def ai_generate_estimate(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
+def ai_generate_estimate(
+    data: dict,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик")),
+):
     import json as _json
+    try:
+        from backend.features.explicit_company.estimate_owner import explicit_estimate_company_id
+        from backend.features.project_access.service import require_project_write_actor, resolve_project_parent
+    except ModuleNotFoundError:
+        from features.explicit_company.estimate_owner import explicit_estimate_company_id
+        from features.project_access.service import require_project_write_actor, resolve_project_parent
     description = (data.get("description") or "").strip()
     project_id = data.get("projectId")
     pricelist_id = data.get("pricelistId")
@@ -26321,27 +26334,53 @@ def ai_generate_estimate(data: dict, _current_user: dict = Depends(require_roles
 
     conn = get_db()
     cur = conn.cursor()
+    try:
+        company_context = _resolve_work_company_context(
+            cur,
+            _current_user,
+            data.get("companyId") if "companyId" in data else data.get("company_id"),
+            "write",
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+        )
+        actor = require_project_write_actor(
+            effective_company_actors(_current_user, company_context),
+            (*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"),
+        )
+    except HTTPException:
+        cur.close(); conn.close()
+        raise
 
     pricelist_items = []
     project_name = ""
+    project_company_id = None
     if project_id:
         try:
-            cur.execute("SELECT name, pricelist_id FROM projects WHERE id=%s", (int(project_id),))
-            r = cur.fetchone()
-            if r:
-                project_name = r[0] or ""
-                if not pricelist_id and r[1]:
-                    pricelist_id = r[1]
-        except Exception:
-            pass
-        if not project_name:
+            project = resolve_project_parent(
+                cur,
+                actor,
+                project_id=project_id,
+                project_name=data.get("projectName") or data.get("project_name") or "",
+            )
+        except HTTPException:
             cur.close(); conn.close()
-            raise HTTPException(status_code=404, detail="Объект не найден")
-        require_project_access(_current_user, project_name)
-    if _current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(_current_user, work_package):
+            raise
+        project_id = project["id"]
+        project_name = project["name"]
+        project_company_id = project["companyId"]
+        cur.execute(
+            "SELECT pricelist_id FROM projects WHERE id=%s AND company_id=%s",
+            (project_id, project_company_id),
+        )
+        r = cur.fetchone()
+        if r and not pricelist_id and r[0]:
+            pricelist_id = r[0]
+        require_project_access(actor, project_name)
+    company_id = explicit_estimate_company_id(actor["companyId"], project_company_id)
+    if actor.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(actor, work_package):
         cur.close(); conn.close()
         raise HTTPException(status_code=403, detail="Нет доступа к пакету сметы")
-    if status == "Активная" and _current_user.get("role") not in LEADERSHIP_ROLES:
+    if status == "Активная" and actor.get("role") not in LEADERSHIP_ROLES:
         cur.close(); conn.close()
         raise HTTPException(status_code=403, detail="Активировать смету может только директор или замдиректора. Сохраните смету черновиком.")
     if pricelist_id:
@@ -26450,9 +26489,9 @@ def ai_generate_estimate(data: dict, _current_user: dict = Depends(require_roles
 
     final_name = (parsed.get("name") or name_hint or "Сгенерированная смета")
     cur.execute("""INSERT INTO estimates
-                   (project_id, project_name, name, version, sections_json, smeta_type, work_package, status)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-        (int(project_id) if project_id else None, project_name, final_name, version, _json.dumps(sections, ensure_ascii=False), smeta_type, work_package, status))
+                   (company_id, project_id, project_name, name, version, sections_json, smeta_type, work_package, status)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+        (company_id, int(project_id) if project_id else None, project_name, final_name, version, _json.dumps(sections, ensure_ascii=False), smeta_type, work_package, status))
     new_id = cur.fetchone()[0]
     conn.commit()
     cur.close(); conn.close()
