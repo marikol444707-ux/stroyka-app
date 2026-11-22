@@ -113,6 +113,7 @@ def upsert_finding(cur, finding, current_user, project, *, normalize_assignment,
         project_name,
         payload.get("assignedRole") or "",
         payload.get("assignedTo") or "",
+        company_id=project.get("companyId"),
     )
     payload.update({
         "projectName": project_name,

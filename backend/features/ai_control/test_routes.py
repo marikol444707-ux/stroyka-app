@@ -125,7 +125,6 @@ class AiControlRouteTests(unittest.TestCase):
         self.assertEqual((result["companyId"], result["projectId"]), (4, 10))
         self.assertEqual(owner_calls[0][1]["company_id"], 4)
         self.assertTrue(owner_calls[0][1]["for_update"])
-        self.assertIn("COUNT(DISTINCT company_id)", cursor.calls[0][0])
         self.assertFalse(connection.autocommit)
         self.assertTrue(connection.committed)
         self.assertTrue(connection.closed)
@@ -220,17 +219,18 @@ class AiControlRouteTests(unittest.TestCase):
         self.assertTrue(project_connection.rolled_back)
         self.assertFalse(project_connection.committed)
 
-    def test_single_run_rejects_duplicate_name_across_companies(self):
-        cursor = FakeCursor([{"company_count": 2, "project_count": 2}])
-        app, _connection, _calls = self.build_app(cursor)
+    def test_same_project_name_in_another_company_still_uses_the_selected_owner(self):
+        cursor = FakeCursor()
+        app, connection, owner_calls = self.build_app(cursor)
 
-        with self.assertRaises(HTTPException) as caught:
-            app.routes[("POST", "/ai-findings/generate")](
-                {"projectName": "Объект A"}, "4", "company", {"role": "директор"},
-            )
+        result = app.routes[("POST", "/ai-findings/generate")](
+            {"projectName": "Объект A"}, "4", "company", {"role": "директор"},
+        )
 
-        self.assertEqual(caught.exception.status_code, 409)
-        self.assertIn("одинаковым названием", caught.exception.detail)
+        self.assertTrue(result["ok"])
+        self.assertEqual((result["companyId"], result["projectId"]), (4, 10))
+        self.assertEqual(owner_calls[0][1]["company_id"], 4)
+        self.assertTrue(connection.committed)
 
     def test_runner_failure_rolls_back_whole_single_run(self):
         cursor = FakeCursor([{"company_count": 1, "project_count": 1}])

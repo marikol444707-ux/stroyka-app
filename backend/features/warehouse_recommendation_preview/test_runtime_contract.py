@@ -720,7 +720,7 @@ class WarehouseAnomalyRuntimeDisclosurePolicyTests(unittest.TestCase):
             ),
             # Field-record company owners plus tool and room ownership; the warehouse preview package is unchanged.
             backend_root / "main.py": (
-                "a26f214dbcbf1915b9361c289a26758024551d20e3e5aa236b697ed4b236cc00"
+                "66a194fa2b8ad7347006cb48144b77ea1c33ff0bc8d9cac44e69d93a591ac5c2"
             ),
         }
         actual = {
