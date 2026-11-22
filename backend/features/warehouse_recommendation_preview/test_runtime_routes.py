@@ -257,10 +257,10 @@ class WarehouseAnomalyRuntimeRouteRegistrationTests(unittest.TestCase):
         package_bytes = package_path.read_bytes()
         runtime_source = runtime_path.read_text(encoding="utf-8")
 
-        # Field-record company owners plus tool and room ownership; the warehouse preview package is unchanged.
+        # AI estimates and demo users store an explicit company; the warehouse preview package is unchanged.
         self.assertEqual(
             hashlib.sha256(main_bytes).hexdigest(),
-            "a26f214dbcbf1915b9361c289a26758024551d20e3e5aa236b697ed4b236cc00",
+            "c2833e4bb3b88f0e2438adffbbc96414c3323941410964a3de8b5d85e5632959",
         )
         self.assertEqual(
             hashlib.sha256(package_bytes).hexdigest(),

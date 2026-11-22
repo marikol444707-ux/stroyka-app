@@ -40,8 +40,6 @@ class _StockCursor:
             columns = [column.strip() for column in sql.split("(", 1)[1].split(")", 1)[0].split(",")]
             row = dict(zip(columns, params))
             if sql.startswith("INSERT INTO materials"):
-                # Match the real schema's DEFAULT 1 when the insert omits ownership.
-                row.setdefault("company_id", 1)
                 row["id"] = max((material["id"] for material in self.materials), default=0) + 1
                 self.materials.append(row)
             elif sql.startswith("INSERT INTO warehouse_history"):
@@ -122,12 +120,13 @@ class SupplyReceiptStockCompanyTests(unittest.TestCase):
         self.assertRegex(update_sql, r"WHERE id=%s AND company_id=%s")
         self.assertEqual((2, 2), update_params[-2:])
 
-    def test_default_company_remains_one_for_stock_and_history(self):
+    def test_missing_company_does_not_create_stock_for_company_one(self):
         cursor = _StockCursor()
         self.add_material(cursor, "Кабель", "м", 2, 30, "Объект")
 
-        self.assertEqual([1], [row["company_id"] for row in cursor.materials])
-        self.assertEqual([1], [row["company_id"] for row in cursor.history])
+        self.assertEqual([], cursor.materials)
+        self.assertEqual([], cursor.history)
+        self.assertEqual([], cursor.calls)
 
     def test_invalid_or_empty_receipt_remains_a_no_op(self):
         for values in ({"name": ""}, {"project": ""}, {"qty": 0}, {"qty": -1}):

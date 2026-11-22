@@ -44,7 +44,6 @@ def register_supply_history_module(app, deps):
     package_access_filter = deps["package_access_filter"]
     has_package_access = deps["has_package_access"]
     require_project_or_warehouse_access = deps["require_project_or_warehouse_access"]
-    company_id_for_project_or_user = deps["company_id_for_project_or_user"]
 
     resolve_context = deps["resolve_work_company_context"]
     effective_actors = deps["effective_company_actors"]
@@ -108,14 +107,17 @@ def register_supply_history_module(app, deps):
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         try:
             ensure_supply_runtime_columns(cur)
-            company_id = d.companyId or company_id_for_project_or_user(cur, d.project or "", _current_user)
-            context = resolve_context(cur, _current_user, company_id, "create",
+            claimed_company = d.companyId
+            context = resolve_context(cur, _current_user, claimed_company, "create",
                                       x_company_id=x_company_id, x_company_mode=x_company_mode)
             actors = effective_actors(_current_user, context)
             if context.get("mode") != "company" or len(actors) != 1 or actors[0].get("role") not in write_roles:
                 raise HTTPException(403, "Нет права добавлять поставки в выбранной компании")
             actor = actors[0]
-            if actor.get("companyId") != company_id:
+            company_id = int(context.get("companyId") or actor.get("companyId") or 0)
+            if company_id <= 0:
+                raise HTTPException(409, "Компания записи не определена")
+            if claimed_company and int(claimed_company) != company_id:
                 raise HTTPException(409, "Компания записи не совпадает с выбранной компанией")
             if d.project:
                 cur.execute('SELECT id FROM projects WHERE name=%s AND company_id=%s', (d.project, company_id))

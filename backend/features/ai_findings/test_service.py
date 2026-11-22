@@ -69,7 +69,7 @@ class AiFindingsServiceTests(unittest.TestCase):
             {"projectName": "Объект A", "title": "Проверить", "dedupeKey": "same"},
             {"id": 7, "name": "Директор"},
             {"id": 10, "companyId": 4, "name": "Объект A"},
-            normalize_assignment=lambda *_args: {"assignedRole": "прораб", "assignedTo": ""},
+            normalize_assignment=lambda *args, **kwargs: {"assignedRole": "прораб", "assignedTo": ""},
             ensure_task=lambda *_args: ensured.append(True),
         )
         self.assertEqual((finding_id, created), (20, False))
@@ -84,7 +84,7 @@ class AiFindingsServiceTests(unittest.TestCase):
             {"projectName": "Объект A", "title": "Новая"},
             {"id": 7, "name": "Директор"},
             {"id": 10, "companyId": 4, "name": "Объект A"},
-            normalize_assignment=lambda *_args: {"assignedRole": "", "assignedTo": ""},
+            normalize_assignment=lambda *args, **kwargs: {"assignedRole": "", "assignedTo": ""},
             ensure_task=lambda *_args: None,
         )
         self.assertEqual((finding_id, created), (22, True))

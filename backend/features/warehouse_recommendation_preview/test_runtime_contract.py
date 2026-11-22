@@ -718,9 +718,9 @@ class WarehouseAnomalyRuntimeDisclosurePolicyTests(unittest.TestCase):
             backend_root / "db.py": (
                 "7e53bc3f1bed6481c9579dc241768b948fc22b37ec5d0809505022e62e2d750f"
             ),
-            # Field-record company owners plus tool and room ownership; the warehouse preview package is unchanged.
+            # AI estimates and demo users store an explicit company; the warehouse preview package is unchanged.
             backend_root / "main.py": (
-                "a26f214dbcbf1915b9361c289a26758024551d20e3e5aa236b697ed4b236cc00"
+                "c2833e4bb3b88f0e2438adffbbc96414c3323941410964a3de8b5d85e5632959"
             ),
         }
         actual = {

@@ -12,14 +12,6 @@ def _positive_int(value):
     return result if result > 0 else None
 
 
-def _row_value(row, key, index=0):
-    if isinstance(row, dict):
-        return row.get(key)
-    if isinstance(row, (list, tuple)) and len(row) > index:
-        return row[index]
-    return None
-
-
 def _project_name(data):
     payload = dict(data or {})
     return str(payload.get("projectName") or payload.get("project_name") or payload.get("project") or "").strip()
@@ -44,24 +36,6 @@ def register_ai_control_module(app, deps):
         "companyId": project["companyId"],
         "company_id": project["companyId"],
     })
-
-    def assert_name_only_sources_are_unambiguous(cur, project):
-        cur.execute(
-            "SELECT COUNT(DISTINCT company_id) AS company_count,COUNT(*) AS project_count "
-            "FROM projects WHERE BTRIM(name)=BTRIM(%s)",
-            (project["name"],),
-        )
-        duplicate_row = cur.fetchone() or {}
-        company_count = int(_row_value(duplicate_row, "company_count", 0) or 0)
-        project_count = int(_row_value(duplicate_row, "project_count", 1) or 0)
-        if company_count != 1 or project_count != 1:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "ИИ-контроль временно недоступен: объект с одинаковым названием есть в нескольких "
-                    "компаниях. Сначала завершите перенос источников ИИ на project_id."
-                ),
-            )
 
     def selected_project(cur, current_user, project_name, allowed_roles, x_company_id, x_company_mode):
         context = resolve_work_company_context(
@@ -91,9 +65,6 @@ def register_ai_control_module(app, deps):
         actor["company_id"] = company_id
         project = resolve_project_owner(cur, project_name, company_id=company_id, for_update=True)
         require_project_access(actor, project["name"])
-
-        # Several AI source tables are still name-only. Fail closed until their project IDs are migrated.
-        assert_name_only_sources_are_unambiguous(cur, project)
         return actor, project
 
     def execute_single(data, current_user, allowed_roles, x_company_id, x_company_mode):
@@ -212,7 +183,6 @@ def register_ai_control_module(app, deps):
                     project_id=project_row.get("id"),
                     for_update=True,
                 )
-                assert_name_only_sources_are_unambiguous(cur, project)
                 project_actor = system_actor_for_project(project) if is_system else actor
                 require_project_access(project_actor, project["name"])
                 result = run_project_ai_control(

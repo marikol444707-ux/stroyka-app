@@ -1466,7 +1466,7 @@ def register_supplier_offers_module(app, deps):
                     price_per_unit = round(line_total / planned_qty, 6)
                 shipped_line_total = round(price_per_unit * shipped_qty, 2) if price_per_unit > 0 else line_total
                 vals = (
-                    offer.get('company_id') or 1,
+                    locked_company,
                     offer['request_id'], offer['supplier_id'], offer['supplier_name'] or '',
                     offer['project'] or '', _supply_work_package(item.get("workPackage") or offer.get('work_package')),
                     item.get("materialName") or '',

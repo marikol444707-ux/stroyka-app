@@ -83,7 +83,7 @@ class SupplierConnectionsPostgresTests(unittest.TestCase):
         source,target = self.pair()
         request = self.propose(source,target)
         self.decide(request,actor='director',expected=403)
-        other = self.sql("INSERT INTO users(name,email,password,role,active) VALUES('Synthetic wrong supplier',%s,'unused','поставщик',TRUE) RETURNING id",('synthetic-'+str(uuid.uuid4())+'@local.invalid',))[0][0]
+        other = self.sql("INSERT INTO users(name,email,password,role,active,company_id) VALUES('Synthetic wrong supplier',%s,'unused','поставщик',TRUE,2) RETURNING id",('synthetic-'+str(uuid.uuid4())+'@local.invalid',))[0][0]
         self.fixture['users']['other_supplier']=dict(id=other,role='поставщик',name='Synthetic wrong supplier')
         self.decide(request,actor='other_supplier',expected=404)
         self.assertNotIn(request['id'],[r['id'] for r in self.api('other_supplier','GET','/supplier/connection-requests')['items']])
@@ -185,7 +185,7 @@ class SupplierConnectionsPostgresTests(unittest.TestCase):
 
     def test_team_leader_is_not_primary_owner_and_database_evidence_cannot_be_rewritten(self):
         source,target=self.pair(); request=self.propose(source,target)
-        uid=self.sql("INSERT INTO users(name,email,password,role,active) VALUES('Synthetic delegated leader',%s,'unused','поставщик',TRUE) RETURNING id",(str(uuid.uuid4())+'@local.invalid',))[0][0]
+        uid=self.sql("INSERT INTO users(name,email,password,role,active,company_id) VALUES('Synthetic delegated leader',%s,'unused','поставщик',TRUE,2) RETURNING id",(str(uuid.uuid4())+'@local.invalid',))[0][0]
         self.fixture['users']['delegated']=dict(id=uid,name='Synthetic delegated leader',role='поставщик')
         self.sql("INSERT INTO supplier_team_members(supplier_id,user_id,role,active) VALUES(%s,%s,'leader',TRUE)",(target,uid))
         self.assertNotIn(request['id'],[r['id'] for r in self.api('delegated','GET','/supplier/connection-requests')['items']])

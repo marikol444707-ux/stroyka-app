@@ -2208,12 +2208,19 @@ def _resolve_crm_create_owner(cur, user, x_company_id=None, x_company_mode=None)
     )
 
 def _project_company_id(cur, project_name: str):
+    """Company of a project name only when that name belongs to exactly one company."""
     project_name = (project_name or "").strip()
     if not project_name or project_name == "Основной склад":
         return None
-    cur.execute("SELECT company_id FROM projects WHERE name=%s ORDER BY id DESC LIMIT 1", (project_name,))
-    row = cur.fetchone()
-    return _row_get(row, "company_id", 0, None) if row else None
+    try:
+        from backend.features.explicit_company.company_backfill import unique_project_company_id
+    except ModuleNotFoundError:
+        from features.explicit_company.company_backfill import unique_project_company_id
+    cur.execute(
+        "SELECT company_id FROM projects WHERE BTRIM(name)=BTRIM(%s)",
+        (project_name,),
+    )
+    return unique_project_company_id(cur.fetchall())
 
 def _positive_int_or_none(value):
     try:
@@ -2233,7 +2240,7 @@ def _company_id_for_project_or_user(cur, project_name: str = "", user: dict = No
         user_company_id = _positive_int_or_none(user.get("companyId") or user.get("company_id"))
         if user_company_id:
             return user_company_id
-    return 1
+    return None
 
 def _resolve_project_payment_actor(
     cur,
@@ -2276,9 +2283,16 @@ def _resolve_project_payment_actor(
     parent = resolve_project_parent(cur, actor, project_name=project_name)
     project_name = parent.get("name") or project_name
     if require_unambiguous_project:
-        cur.execute("SELECT COUNT(DISTINCT COALESCE(company_id,1)) FROM projects WHERE name=%s", (project_name,))
-        company_count = int(_row_get(cur.fetchone(), "count", 0, 0) or 0)
-        if company_count > 1:
+        cur.execute(
+            """SELECT COUNT(DISTINCT company_id) AS company_count,
+                      COUNT(*) FILTER (WHERE company_id IS NULL) AS unowned_count
+                 FROM projects WHERE BTRIM(name)=BTRIM(%s)""",
+            (project_name,),
+        )
+        scope_row = cur.fetchone()
+        company_count = int(_row_get(scope_row, "company_count", 0, 0) or 0)
+        unowned_count = int(_row_get(scope_row, "unowned_count", 1, 0) or 0)
+        if company_count > 1 or unowned_count:
             raise HTTPException(
                 status_code=409,
                 detail="Источник платежа не привязан к компании, а название объекта встречается в нескольких компаниях",
@@ -3398,7 +3412,7 @@ def init_db():
         ALTER TABLE materials ALTER COLUMN name TYPE TEXT;
         CREATE TABLE IF NOT EXISTS warehouse_history (
             id SERIAL PRIMARY KEY,
-            company_id INT NOT NULL DEFAULT 1,
+            company_id INT NOT NULL,
             material VARCHAR(255),
             type VARCHAR(50),
             quantity FLOAT,
@@ -3409,7 +3423,7 @@ def init_db():
             work_package VARCHAR(255),
             date_time VARCHAR(100)
         );
-        ALTER TABLE warehouse_history ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
+        ALTER TABLE warehouse_history ADD COLUMN IF NOT EXISTS company_id INT;
         ALTER TABLE warehouse_history ADD COLUMN IF NOT EXISTS work_package VARCHAR(255);
         ALTER TABLE warehouse_history ADD COLUMN IF NOT EXISTS unit VARCHAR(50);
         ALTER TABLE warehouse_history ADD COLUMN IF NOT EXISTS source_type VARCHAR(100);
@@ -3615,7 +3629,7 @@ def init_db():
         );
         CREATE TABLE IF NOT EXISTS supplier_invoices (
             id SERIAL PRIMARY KEY,
-            company_id INT DEFAULT 1,
+            company_id INT,
             supplier_id INT,
             supplier_name VARCHAR(255),
             project_name VARCHAR(255),
@@ -3634,7 +3648,7 @@ def init_db():
             paid_note TEXT,
             created_at TIMESTAMP DEFAULT NOW()
         );
-        ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
+        ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS company_id INT;
         ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(14,2) DEFAULT 0;
         ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS offer_id INT;
         ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS request_id INT;
@@ -4058,19 +4072,19 @@ def init_db():
             closed_at TIMESTAMP,
             created_at TIMESTAMP DEFAULT NOW()
         );
-        -- Ставим company_id на ключевые таблицы — пока всем 1 (текущая компания)
-        ALTER TABLE projects ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
-        ALTER TABLE users ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
-        ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
-        ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
-        ALTER TABLE estimates ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
-        ALTER TABLE materials ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
-        ALTER TABLE warehouse_main ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
-        ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
-        ALTER TABLE staff ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
+        -- company_id не получает значение по умолчанию: новая строка называет компанию явно.
+        ALTER TABLE projects ADD COLUMN IF NOT EXISTS company_id INT;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS company_id INT;
+        ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS company_id INT;
+        ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS company_id INT;
+        ALTER TABLE estimates ADD COLUMN IF NOT EXISTS company_id INT;
+        ALTER TABLE materials ADD COLUMN IF NOT EXISTS company_id INT;
+        ALTER TABLE warehouse_main ADD COLUMN IF NOT EXISTS company_id INT;
+        ALTER TABLE work_journal ADD COLUMN IF NOT EXISTS company_id INT;
+        ALTER TABLE staff ADD COLUMN IF NOT EXISTS company_id INT;
         ALTER TABLE staff ADD COLUMN IF NOT EXISTS telegram_id VARCHAR(100);
         ALTER TABLE staff ADD COLUMN IF NOT EXISTS telegram_chat_id VARCHAR(100);
-        ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
+        ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS company_id INT;
         ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS scan_url TEXT;
         ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS work_package VARCHAR(100) DEFAULT '';
         ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS work_journal_ids TEXT DEFAULT '[]';
@@ -4078,9 +4092,9 @@ def init_db():
         ALTER TABLE interim_acts ADD COLUMN IF NOT EXISTS photo_urls TEXT DEFAULT '[]';
         ALTER TABLE projects ADD COLUMN IF NOT EXISTS archived BOOLEAN DEFAULT FALSE;
         ALTER TABLE projects ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP;
-        ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
+        ALTER TABLE hidden_works_acts ADD COLUMN IF NOT EXISTS company_id INT;
         -- Рабочие роли пользователя в нескольких компаниях одного SaaS-аккаунта.
-        -- users.company_id остается default/legacy-привязкой до полной миграции рабочих цепочек.
+        -- users.company_id хранит выбранную компанию и больше не подставляется как 1.
         CREATE TABLE IF NOT EXISTS user_company_roles (
             id SERIAL PRIMARY KEY,
             user_id INT NOT NULL,
@@ -4227,7 +4241,7 @@ def init_db():
             notes TEXT,
             status VARCHAR(100) DEFAULT 'Ожидает'
         );
-        ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
+        ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS company_id INT;
         ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS payment_terms VARCHAR(100) DEFAULT 'Постоплата';
         ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS vat_included BOOLEAN DEFAULT TRUE;
         ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS pdf_url VARCHAR(500);
@@ -4255,7 +4269,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS supply_deliveries (
             id SERIAL PRIMARY KEY,
             offer_id INT,
-            company_id INT DEFAULT 1,
+            company_id INT,
             request_id INT,
             supplier_id INT,
             supplier_name VARCHAR(255),
@@ -4285,7 +4299,7 @@ def init_db():
             claim_id INT,
             created_at TIMESTAMP DEFAULT NOW()
         );
-        ALTER TABLE supply_deliveries ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
+        ALTER TABLE supply_deliveries ADD COLUMN IF NOT EXISTS company_id INT;
         ALTER TABLE supply_deliveries ADD COLUMN IF NOT EXISTS work_package VARCHAR(100);
         CREATE TABLE IF NOT EXISTS supply_claims (
             id SERIAL PRIMARY KEY,
@@ -4310,7 +4324,7 @@ def init_db():
         ALTER TABLE supply_claims ADD COLUMN IF NOT EXISTS work_package VARCHAR(100);
         CREATE TABLE IF NOT EXISTS supply_history (
             id SERIAL PRIMARY KEY,
-            company_id INT DEFAULT 1,
+            company_id INT,
             supplier_id INT,
             material_name VARCHAR(255),
             quantity FLOAT,
@@ -4323,7 +4337,7 @@ def init_db():
             confirmed_by VARCHAR(255),
             work_package VARCHAR(100) DEFAULT ''
         );
-        ALTER TABLE supply_history ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
+        ALTER TABLE supply_history ADD COLUMN IF NOT EXISTS company_id INT;
         ALTER TABLE supply_history ADD COLUMN IF NOT EXISTS work_package VARCHAR(100) DEFAULT '';
         ALTER TABLE supply_history ADD COLUMN IF NOT EXISTS request_id INT;
         ALTER TABLE supply_history ADD COLUMN IF NOT EXISTS delivery_id INT;
@@ -4404,7 +4418,7 @@ def init_db():
             ON material_transfers(company_id,project_id,id DESC);
         CREATE TABLE IF NOT EXISTS brigade_contracts (
             id SERIAL PRIMARY KEY,
-            company_id INT DEFAULT 1,
+            company_id INT,
             project_id INT,
             project_name VARCHAR(255),
             work_package VARCHAR(100) DEFAULT '',
@@ -4426,7 +4440,7 @@ def init_db():
         ALTER TABLE brigade_contracts ADD COLUMN IF NOT EXISTS party_snapshot_json JSONB;
         ALTER TABLE brigade_contracts ADD COLUMN IF NOT EXISTS party_snapshot_hash VARCHAR(64);
         ALTER TABLE brigade_contracts ADD COLUMN IF NOT EXISTS party_snapshot_frozen_at TIMESTAMPTZ;
-        ALTER TABLE brigade_contracts ALTER COLUMN company_id SET DEFAULT 1;
+        ALTER TABLE brigade_contracts ALTER COLUMN company_id DROP DEFAULT;
         ALTER TABLE brigade_contracts ALTER COLUMN company_id DROP NOT NULL;
         UPDATE brigade_contracts bc
            SET company_id=p.company_id
@@ -4890,7 +4904,7 @@ def init_db():
         ALTER TABLE checklist_items ADD COLUMN IF NOT EXISTS order_num INT DEFAULT 0;
         CREATE TABLE IF NOT EXISTS company_requisites (
             id SERIAL PRIMARY KEY,
-            company_id INT DEFAULT 1,
+            company_id INT,
             full_name VARCHAR(255),
             short_name VARCHAR(255),
             inn VARCHAR(20),
@@ -4908,10 +4922,14 @@ def init_db():
             rs VARCHAR(40),
             ks VARCHAR(40)
         );
-        ALTER TABLE company_requisites ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
-        UPDATE company_requisites SET company_id=1 WHERE company_id IS NULL;
-        ALTER TABLE company_requisites ALTER COLUMN company_id SET DEFAULT 1;
-        ALTER TABLE company_requisites ALTER COLUMN company_id SET NOT NULL;
+        ALTER TABLE company_requisites ADD COLUMN IF NOT EXISTS company_id INT;
+        ALTER TABLE company_requisites ALTER COLUMN company_id DROP DEFAULT;
+        DO $$
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM company_requisites WHERE company_id IS NULL) THEN
+                ALTER TABLE company_requisites ALTER COLUMN company_id SET NOT NULL;
+            END IF;
+        END $$;
         CREATE UNIQUE INDEX IF NOT EXISTS idx_company_requisites_company ON company_requisites(company_id);
         CREATE TABLE IF NOT EXISTS company_documents (
             id SERIAL PRIMARY KEY,
@@ -4958,7 +4976,7 @@ def init_db():
         );
         CREATE TABLE IF NOT EXISTS warehouse_invoices (
             id SERIAL PRIMARY KEY,
-            company_id INT DEFAULT 1,
+            company_id INT,
             number VARCHAR(100),
             date VARCHAR(50),
             supplier_id INT,
@@ -4976,7 +4994,7 @@ def init_db():
             photo_url TEXT,
             created_at TIMESTAMP DEFAULT NOW()
         );
-        ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
+        ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS company_id INT;
         ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS source_type VARCHAR(100);
         ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS source_id INT;
         ALTER TABLE warehouse_invoices ALTER COLUMN source_id TYPE TEXT USING source_id::text;
@@ -5210,7 +5228,7 @@ def init_db():
             notes TEXT
         );
         ALTER TABLE warehouse_movements ADD COLUMN IF NOT EXISTS work_package VARCHAR(255);
-        ALTER TABLE warehouse_movements ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1;
+        ALTER TABLE warehouse_movements ADD COLUMN IF NOT EXISTS company_id INT;
         ALTER TABLE warehouse_movements ADD COLUMN IF NOT EXISTS source_invoice_id INT;
         ALTER TABLE warehouse_movements ADD COLUMN IF NOT EXISTS source_invoice_line_index INT;
         ALTER TABLE warehouse_movements ADD COLUMN IF NOT EXISTS estimate_control_status VARCHAR(50) NOT NULL DEFAULT 'not_checked';
@@ -5219,7 +5237,6 @@ def init_db():
         ALTER TABLE warehouse_movements ADD COLUMN IF NOT EXISTS document_snapshot_json JSONB;
         ALTER TABLE warehouse_movements ADD COLUMN IF NOT EXISTS document_snapshot_hash CHAR(64);
         ALTER TABLE warehouse_movements ADD COLUMN IF NOT EXISTS document_snapshot_frozen_at TIMESTAMPTZ;
-        UPDATE warehouse_movements SET company_id=1 WHERE company_id IS NULL;
         ALTER TABLE warehouse_movements ALTER COLUMN material_name TYPE TEXT;
         CREATE TABLE IF NOT EXISTS inventory (
             id SERIAL PRIMARY KEY,
@@ -5868,18 +5885,20 @@ def init_db():
         ALTER TABLE staff_documents ADD COLUMN IF NOT EXISTS expires_at DATE;
         ALTER TABLE staff_documents ADD COLUMN IF NOT EXISTS notes TEXT;
     """)
-    seed_users = [
-        ('Директор', 'admin@stroyka.ru', 'admin123', 'директор'),
-        ('Бухгалтер', 'buh@stroyka.ru', 'buh123', 'бухгалтер'),
-        ('Прораб', 'prorab@stroyka.ru', 'prorab123', 'прораб'),
-        ('Мастер', 'master@stroyka.ru', 'master123', 'мастер'),
-    ]
-    for seed_name, seed_email, seed_password, seed_role in seed_users:
-        cur.execute("""
-            INSERT INTO users (name, email, password, role)
-            VALUES (%s,%s,%s,%s)
-            ON CONFLICT (email) DO NOTHING
-        """, (seed_name, seed_email, hash_password(seed_password), seed_role))
+    try:
+        from backend.features.explicit_company.bootstrap_users import (
+            BOOTSTRAP_USERS,
+            seed_bootstrap_users,
+        )
+    except ModuleNotFoundError:
+        from features.explicit_company.bootstrap_users import (
+            BOOTSTRAP_USERS,
+            seed_bootstrap_users,
+        )
+    seed_bootstrap_users(cur, [
+        (seed_name, seed_email, hash_password(seed_password), seed_role)
+        for seed_name, seed_email, seed_password, seed_role in BOOTSTRAP_USERS
+    ])
     cur.execute("UPDATE users SET two_factor_required=TRUE WHERE role IN ('директор','зам_директора','бухгалтер')")
     for group_key, item_key, label, value, value_type, unit, sort_order in SITE_PRICE_RULE_DEFAULTS:
         cur.execute("""
@@ -5952,6 +5971,11 @@ def init_db():
         )
     except Exception as e:
         print("OWN EXPENSE BACKFILL ERROR:", e)
+    try:
+        from backend.features.explicit_company.company_backfill import DROP_DEFAULTS_SQL
+    except ModuleNotFoundError:
+        from features.explicit_company.company_backfill import DROP_DEFAULTS_SQL
+    cur.execute(DROP_DEFAULTS_SQL)
     conn.close()
 
 init_db()
@@ -7959,23 +7983,23 @@ except ModuleNotFoundError:
 
 def _ensure_supply_runtime_columns(cur):
     """Поднимает колонки снабжения для старых баз, где миграция могла не пройти."""
-    cur.execute("ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1")
+    cur.execute("ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS company_id INT")
     cur.execute("ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS project_id INT")
-    cur.execute("ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1")
+    cur.execute("ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS company_id INT")
     cur.execute("ALTER TABLE supplier_offers ADD COLUMN IF NOT EXISTS party_snapshot_json JSONB")
-    cur.execute("ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1")
+    cur.execute("ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS company_id INT")
     cur.execute("ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS work_package VARCHAR(100)")
     cur.execute("ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS delivery_address TEXT DEFAULT ''")
     cur.execute("ALTER TABLE supply_requests ADD COLUMN IF NOT EXISTS requester_snapshot_json JSONB")
-    cur.execute("ALTER TABLE supply_deliveries ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1")
+    cur.execute("ALTER TABLE supply_deliveries ADD COLUMN IF NOT EXISTS company_id INT")
     cur.execute("ALTER TABLE supply_deliveries ADD COLUMN IF NOT EXISTS work_package VARCHAR(100)")
     cur.execute("ALTER TABLE supply_claims ADD COLUMN IF NOT EXISTS work_package VARCHAR(100)")
-    cur.execute("ALTER TABLE supply_history ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1")
+    cur.execute("ALTER TABLE supply_history ADD COLUMN IF NOT EXISTS company_id INT")
     cur.execute("ALTER TABLE supply_history ADD COLUMN IF NOT EXISTS work_package VARCHAR(100) DEFAULT ''")
     cur.execute("ALTER TABLE supply_history ADD COLUMN IF NOT EXISTS request_id INT")
     cur.execute("ALTER TABLE supply_history ADD COLUMN IF NOT EXISTS delivery_id INT")
-    cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1")
-    cur.execute("ALTER TABLE warehouse_history ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1")
+    cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS company_id INT")
+    cur.execute("ALTER TABLE warehouse_history ADD COLUMN IF NOT EXISTS company_id INT")
     _ensure_supply_request_recipients_table(cur)
 
 def _normalize_supplier_ids(value) -> list:
@@ -9381,7 +9405,9 @@ def create_supply_request(
             x_company_id=x_company_id,
             x_company_mode=x_company_mode,
         )
-        company_id = int(company_context.get("companyId") or requested_company_id or 1)
+        company_id = int(company_context.get("companyId") or requested_company_id or 0)
+        if company_id <= 0:
+            raise HTTPException(status_code=409, detail="Компания заявки не определена")
         project_id = _positive_int_or_none(r.projectId)
         if is_material_control_request:
             try:
@@ -11204,8 +11230,8 @@ def _ensure_warehouse_invoice_accounting_columns(cur):
     cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS paid_by VARCHAR(255)")
 
 def _ensure_invoice_document_link_columns(cur):
-    cur.execute("ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1")
-    cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1")
+    cur.execute("ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS company_id INT")
+    cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS company_id INT")
     cur.execute("ALTER TABLE supplier_invoices ADD COLUMN IF NOT EXISTS warehouse_invoice_id INT")
     cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS supplier_invoice_id INT")
 
@@ -11319,14 +11345,17 @@ def _add_project_material(
     price,
     project,
     work_package="",
-    company_id=1,
+    company_id=None,
     source_type="",
     source_id=None,
     source_invoice_id=None,
 ):
-    if not name or not project or qty <= 0:
+    try:
+        stock_company_id = int(company_id)
+    except (TypeError, ValueError):
+        stock_company_id = 0
+    if not name or not project or qty <= 0 or stock_company_id <= 0:
         return
-    stock_company_id = company_id or 1
     package_name = (work_package or "").strip()
     unit_name = _norm_base_unit(unit or "шт") or "шт"
     cur.execute(f"""SELECT id FROM materials
@@ -11422,22 +11451,31 @@ def _create_supply_delivery_history(cur, delivery, status=None, received_qty=Non
     status = status or delivery.get('status') or 'Принято'
     confirmed_by = confirmed_by if confirmed_by is not None else (delivery.get('received_by') or '')
     try:
-        cur.execute("ALTER TABLE supply_history ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1")
+        cur.execute("ALTER TABLE supply_history ADD COLUMN IF NOT EXISTS company_id INT")
         cur.execute("ALTER TABLE supply_history ADD COLUMN IF NOT EXISTS request_id INT")
         cur.execute("ALTER TABLE supply_history ADD COLUMN IF NOT EXISTS delivery_id INT")
         cur.execute("ALTER TABLE supply_history ADD COLUMN IF NOT EXISTS work_package VARCHAR(100)")
     except Exception as e:
         print("SUPPLY HISTORY MIGRATION ERROR:", str(e))
+    company_id = _positive_int_or_none(delivery.get('company_id') or delivery.get('companyId'))
+    if not company_id:
+        print("SUPPLY HISTORY SKIPPED: у поставки нет компании")
+        return
     if delivery_id:
         try:
-            cur.execute("SELECT id FROM supply_history WHERE delivery_id=%s LIMIT 1", (delivery_id,))
+            cur.execute("SELECT id, company_id FROM supply_history WHERE delivery_id=%s LIMIT 1", (delivery_id,))
             existing = cur.fetchone()
             if existing:
+                existing_id = existing['id'] if isinstance(existing, dict) else existing[0]
+                existing_company = _positive_int_or_none(existing['company_id'] if isinstance(existing, dict) else existing[1])
+                if existing_company and existing_company != company_id:
+                    print("SUPPLY HISTORY SKIPPED: запись относится к другой компании")
+                    return
                 cur.execute("""UPDATE supply_history SET company_id=%s, quantity=%s, status=%s, confirmed_by=%s, work_package=%s
-                               WHERE id=%s""",
-                            (delivery.get('company_id') or delivery.get('companyId') or 1,
+                               WHERE id=%s AND (company_id IS NULL OR company_id=%s)""",
+                            (company_id,
                              received_qty, status, confirmed_by, delivery.get('work_package') or delivery.get('workPackage') or '',
-                             existing['id'] if isinstance(existing, dict) else existing[0]))
+                             existing_id, company_id))
                 return
         except Exception as e:
             print("SUPPLY HISTORY CHECK ERROR:", str(e))
@@ -11446,7 +11484,7 @@ def _create_supply_delivery_history(cur, delivery, status=None, received_qty=Non
                        (company_id, supplier_id, material_name, quantity, unit, price_per_unit, total_price,
                         project, date, status, confirmed_by, request_id, delivery_id, work_package)
                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                    (delivery.get('company_id') or delivery.get('companyId') or 1,
+                    (company_id,
                      delivery.get('supplier_id'), delivery.get('material_name'), received_qty, delivery.get('unit'),
                      _float_or_zero(delivery.get('price_per_unit')),
                      _float_or_zero(delivery.get('price_per_unit')) * received_qty,
@@ -11455,18 +11493,6 @@ def _create_supply_delivery_history(cur, delivery, status=None, received_qty=Non
                      status, confirmed_by, request_id, delivery_id, delivery.get('work_package') or delivery.get('workPackage') or ''))
     except Exception as e:
         print("SUPPLY HISTORY LINKED INSERT ERROR:", str(e))
-        try:
-            cur.execute("""INSERT INTO supply_history
-                           (supplier_id, material_name, quantity, unit, price_per_unit, total_price,
-                            project, date, status, confirmed_by)
-                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-                        (delivery.get('supplier_id'), delivery.get('material_name'), received_qty, delivery.get('unit'),
-                         _float_or_zero(delivery.get('price_per_unit')),
-                         _float_or_zero(delivery.get('price_per_unit')) * received_qty,
-                         delivery.get('project'), __import__("datetime").date.today().isoformat(),
-                         status, confirmed_by))
-        except Exception as legacy_error:
-            print("SUPPLY HISTORY LEGACY INSERT ERROR:", str(legacy_error))
 
 def _guard_delivery_accounting_write(cur, delivery):
     """Authorized caller holds stock, company and delivery locks, in that order."""
@@ -11538,7 +11564,7 @@ def _ensure_supply_delivery_invoice(cur, delivery, received_qty=None, received_a
 
 
 def _prepare_legacy_delivery_invoice_columns(cur):
-    cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS company_id INT DEFAULT 1")
+    cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS company_id INT")
     cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS source_type VARCHAR(100)")
     cur.execute("ALTER TABLE warehouse_invoices ADD COLUMN IF NOT EXISTS source_id INT")
     cur.execute("ALTER TABLE warehouse_invoices ALTER COLUMN source_id TYPE TEXT USING source_id::text")
@@ -11577,6 +11603,8 @@ def _ensure_supply_delivery_invoice_prepared(cur, delivery, received_qty=None, r
                 delivery.get('project') or "",
                 explicit=delivery.get('company_id') or delivery.get('companyId'),
             )
+            if not company_id:
+                raise HTTPException(status_code=409, detail="Компания накладной поставки не определена")
             linked_supplier_invoice_id = source_invoice_id if source_checked else _find_supplier_invoice_for_supply(
                 cur,
                 request_id=delivery.get('request_id'),
@@ -11638,6 +11666,8 @@ def _ensure_supply_delivery_invoice_prepared(cur, delivery, received_qty=None, r
         project,
         explicit=delivery.get('company_id') or delivery.get('companyId'),
     )
+    if not company_id:
+        raise HTTPException(status_code=409, detail="Компания накладной поставки не определена")
     items = [item]
     if project:
         items = _attach_supply_estimate_control(
@@ -14527,6 +14557,7 @@ def delete_work_journal(
         _sync_daily_interim_act_group(
             cur,
             project=work.get("project") or "",
+            company_id=owner_row.get("company_id") or work.get("company_id"),
             master_id=work.get("master_id"),
             master_name=work.get("master_name") or "",
             work_package=work.get("work_package") or "Основная",
@@ -14876,16 +14907,17 @@ def _confirmed_execution_total_for_act(cur, master_id, master_name, project, wor
     already_acted = float(scalar(cur.fetchone()) or 0)
     return max(0, confirmed_total - already_acted)
 
-def _sync_daily_interim_act_group(cur, *, project, master_id=None, master_name="", work_package="", work_date=""):
+def _sync_daily_interim_act_group(cur, *, project, company_id=None, master_id=None, master_name="", work_package="", work_date=""):
     project = (project or "").strip()
     work_date = str(work_date or "").strip()
     package = (work_package or "Основная").strip() or "Основная"
     master_name_key = (master_name or "").strip().lower()
+    company_id = _positive_int_or_none(company_id)
     try:
         master_id_value = int(master_id) if master_id not in (None, "", 0, "0") else None
     except Exception:
         master_id_value = None
-    if not project or not work_date or (not master_id_value and not master_name_key):
+    if not company_id or not project or not work_date or (not master_id_value and not master_name_key):
         return None
 
     master_filter = "master_id=%s" if master_id_value else "LOWER(TRIM(COALESCE(master_name,'')))=%s"
@@ -14893,14 +14925,15 @@ def _sync_daily_interim_act_group(cur, *, project, master_id=None, master_name="
     cur.execute(
         f"""SELECT id, COALESCE(status,'Новый') AS status
             FROM interim_acts
-            WHERE project=%s
+            WHERE company_id=%s
+              AND project=%s
               AND COALESCE(NULLIF(work_package,''),'Основная')=%s
               AND period_start=%s
               AND period_end=%s
               AND COALESCE(source_type,'')=%s
               AND {master_filter}
             ORDER BY id DESC LIMIT 1""",
-        (project, package, work_date, work_date, DAILY_WORK_ACT_SOURCE_TYPE, master_param),
+        (company_id, project, package, work_date, work_date, DAILY_WORK_ACT_SOURCE_TYPE, master_param),
     )
     daily_act = cur.fetchone()
     daily_act_id = _row_get(daily_act, "id", 0) if daily_act else None
@@ -14911,14 +14944,15 @@ def _sync_daily_interim_act_group(cur, *, project, master_id=None, master_name="
     cur.execute(
         f"""SELECT id, COALESCE(execution_total,0) AS execution_total, COALESCE(photo_url,'') AS photo_url
             FROM work_journal
-            WHERE project=%s
+            WHERE company_id=%s
+              AND project=%s
               AND COALESCE(NULLIF(work_package,''),'Основная')=%s
               AND date=%s
               AND status='Подтверждено'
               AND (room_id IS NOT NULL OR COALESCE(NULLIF(room_name,''),'') <> '')
               AND {master_filter}
             ORDER BY id""",
-        (project, package, work_date, master_param),
+        (company_id, project, package, work_date, master_param),
     )
     rows = cur.fetchall() or []
     work_ids = []
@@ -14930,11 +14964,12 @@ def _sync_daily_interim_act_group(cur, *, project, master_id=None, master_name="
             continue
         cur.execute(
             """SELECT id FROM interim_acts
-               WHERE COALESCE(status,'') <> 'Аннулирован'
+               WHERE company_id=%s
+                 AND COALESCE(status,'') <> 'Аннулирован'
                  AND id <> COALESCE(%s,0)
                  AND COALESCE(NULLIF(work_journal_ids,''),'[]')::jsonb ? %s
                LIMIT 1""",
-            (daily_act_id or 0, str(work_id)),
+            (company_id, daily_act_id or 0, str(work_id)),
         )
         if cur.fetchone():
             continue
@@ -14947,8 +14982,8 @@ def _sync_daily_interim_act_group(cur, *, project, master_id=None, master_name="
     if not work_ids:
         if daily_act_id:
             cur.execute(
-                "UPDATE interim_acts SET status='Аннулирован', total_amount=0, work_journal_ids='[]', photo_urls='[]' WHERE id=%s",
-                (daily_act_id,),
+                "UPDATE interim_acts SET status='Аннулирован', total_amount=0, work_journal_ids='[]', photo_urls='[]' WHERE id=%s AND company_id=%s",
+                (daily_act_id, company_id),
             )
         return daily_act_id
 
@@ -14958,18 +14993,19 @@ def _sync_daily_interim_act_group(cur, *, project, master_id=None, master_name="
         cur.execute(
             """UPDATE interim_acts
                SET total_amount=%s, work_journal_ids=%s, photo_urls=%s
-               WHERE id=%s""",
-            (round(total_amount, 2), work_ids_json, photos_json, daily_act_id),
+               WHERE id=%s AND company_id=%s""",
+            (round(total_amount, 2), work_ids_json, photos_json, daily_act_id, company_id),
         )
         return daily_act_id
 
     cur.execute(
         """INSERT INTO interim_acts
-           (master_id, master_name, project, work_package, period_start, period_end,
+           (company_id, master_id, master_name, project, work_package, period_start, period_end,
             total_amount, paid_amount, status, work_journal_ids, source_type, photo_urls)
-           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
            RETURNING id""",
         (
+            company_id,
             master_id_value,
             master_name or "",
             project,
@@ -14993,6 +15029,7 @@ def _sync_daily_interim_act_from_work_journal(cur, work_row: dict):
     return _sync_daily_interim_act_group(
         cur,
         project=work_row.get("project") or "",
+        company_id=work_row.get("company_id"),
         master_id=work_row.get("master_id"),
         master_name=work_row.get("master_name") or "",
         work_package=work_row.get("work_package") or "Основная",
@@ -15248,6 +15285,7 @@ def _insert_ai_task(cur, data: dict, current_user: dict, task_owner: dict = None
         data.get("assignedRole") or data.get("assigned_role") or "",
         data.get("assignedTo") or data.get("assigned_to") or "",
         data.get("assignmentGroup") or data.get("assignment_group") or "",
+        company_id=owner.get("companyId"),
     )
     cur.execute("""
         INSERT INTO ai_tasks (
@@ -15306,6 +15344,7 @@ def _ensure_ai_task_for_finding(cur, finding_id: int, finding: dict, current_use
             finding.get("projectName") or "",
             finding.get("assignedRole") or "прораб",
             finding.get("assignedTo") or "",
+            company_id=task_owner.get("companyId"),
         )
         cur.execute(
             AI_TASK_SELECT + " WHERE project_name=%s AND dedupe_key=%s AND status NOT IN ('Закрыто','Отклонено') AND " + owner_sql + " ORDER BY updated_at DESC, id DESC LIMIT 1",
@@ -15400,98 +15439,30 @@ def _safe_project_list(value):
         pass
     return []
 
-def _user_row_matches_project(row: dict, project_name: str) -> bool:
-    direct = (row.get("project_name") or "").strip()
-    assigned = _safe_project_list(row.get("assigned_projects"))
-    if not direct and not assigned:
-        return True
-    return bool(project_name and (direct == project_name or project_name in assigned))
+def _ai_assignment_api():
+    try:
+        from backend.features.ai_control import assignment as ai_assignment
+    except ModuleNotFoundError:
+        from features.ai_control import assignment as ai_assignment
+    return ai_assignment
 
-def _find_responsible(cur, project_name: str, roles: list[str], preferred_name: str = "", preferred_role: str = ""):
-    preferred_name = (preferred_name or "").strip()
-    if preferred_name:
-        params = [preferred_name.lower()]
-        role_sql = ""
-        if preferred_role:
-            role_sql = " AND role=%s"
-            params.append(preferred_role)
-        cur.execute(f"""SELECT id,name,role,project_name,assigned_projects
-                        FROM users
-                        WHERE COALESCE(active,TRUE)=TRUE
-                          AND LOWER(COALESCE(name,''))=%s{role_sql}
-                        ORDER BY id LIMIT 20""", params)
-        for row in cur.fetchall() or []:
-            if _user_row_matches_project(dict(row), project_name):
-                return (row.get("role") or preferred_role or "мастер", row.get("name") or preferred_name)
-    for role in roles:
-        cur.execute("""SELECT id,name,role,project_name,assigned_projects
-                       FROM users
-                       WHERE COALESCE(active,TRUE)=TRUE
-                         AND role=%s
-                       ORDER BY id LIMIT 50""", (role,))
-        for row in cur.fetchall() or []:
-            if _user_row_matches_project(dict(row), project_name):
-                return (row.get("role") or role, row.get("name") or "")
-    if "директор" not in roles:
-        return _find_responsible(cur, project_name, ["директор", "зам_директора"])
-    return ("директор", "")
+def _find_responsible(cur, project_name: str, roles: list[str], preferred_name: str = "", preferred_role: str = "", company_id=None):
+    return _ai_assignment_api().find_responsible(
+        cur, company_id, project_name, roles, preferred_name, preferred_role,
+    )
 
-def _ai_assignment(cur, project_name: str, group: str, preferred_name: str = ""):
-    groups = {
-        "materials": ["снабженец", "кладовщик", "зам_директора", "директор"],
-        "estimate": ["сметчик", "главный_инженер", "директор", "зам_директора"],
-        "rooms": ["прораб", "главный_инженер", "директор"],
-        "work_room": ["прораб", "главный_инженер", "директор"],
-        "documents": ["прораб", "главный_инженер", "директор"],
-    }
-    if group == "work_room" and preferred_name:
-        role, name = _find_responsible(cur, project_name, groups[group], preferred_name, "мастер")
-    else:
-        role, name = _find_responsible(cur, project_name, groups.get(group) or ["директор"])
-    return {"assignedRole": role, "assignedTo": name}
+def _ai_assignment(cur, project_name: str, group: str, preferred_name: str = "", company_id=None):
+    return _ai_assignment_api().assignment(cur, company_id, project_name, group, preferred_name)
 
-def _ai_group_from_role(role: str) -> str:
-    role = role or ""
-    if role in ("снабженец", "кладовщик"):
-        return "materials"
-    if role in ("сметчик",):
-        return "estimate"
-    if role in ("прораб", "главный_инженер", *WORKER_EXECUTION_ROLES):
-        return "work_room"
-    return "documents"
+def _active_user_for_role(cur, project_name: str, role: str, preferred_name: str = "", company_id=None):
+    return _ai_assignment_api().active_user_for_role(
+        cur, company_id, project_name, role, preferred_name,
+    )
 
-def _active_user_for_role(cur, project_name: str, role: str, preferred_name: str = ""):
-    role = (role or "").strip()
-    if not role:
-        return None
-    params = [role]
-    name_sql = ""
-    if preferred_name:
-        name_sql = " AND LOWER(COALESCE(name,''))=%s"
-        params.append(preferred_name.strip().lower())
-    cur.execute(f"""SELECT id,name,role,project_name,assigned_projects
-                    FROM users
-                    WHERE COALESCE(active,TRUE)=TRUE
-                      AND role=%s{name_sql}
-                    ORDER BY id LIMIT 50""", params)
-    for row in cur.fetchall() or []:
-        row_dict = dict(row)
-        if _user_row_matches_project(row_dict, project_name):
-            return {"assignedRole": row_dict.get("role") or role, "assignedTo": row_dict.get("name") or preferred_name or ""}
-    return None
-
-def _normalize_ai_assignment(cur, project_name: str, assigned_role: str = "", assigned_to: str = "", group: str = ""):
-    assigned_role = (assigned_role or "").strip()
-    assigned_to = (assigned_to or "").strip()
-    if assigned_role and assigned_to:
-        active_exact = _active_user_for_role(cur, project_name, assigned_role, assigned_to)
-        if active_exact:
-            return active_exact
-    if assigned_role:
-        active_role = _active_user_for_role(cur, project_name, assigned_role)
-        if active_role:
-            return active_role
-    return _ai_assignment(cur, project_name, group or _ai_group_from_role(assigned_role), assigned_to)
+def _normalize_ai_assignment(cur, project_name: str, assigned_role: str = "", assigned_to: str = "", group: str = "", company_id=None):
+    return _ai_assignment_api().normalize_assignment(
+        cur, project_name, assigned_role, assigned_to, group, company_id,
+    )
 
 def _ai_payload(payload: dict) -> str:
     return json.dumps(payload or {}, ensure_ascii=False)
@@ -15511,6 +15482,7 @@ def _upsert_ai_task(cur, data: dict, current_user: dict, task_owner: dict = None
         data.get("assignedRole") or data.get("assigned_role") or "",
         data.get("assignedTo") or data.get("assigned_to") or "",
         data.get("assignmentGroup") or data.get("assignment_group") or "",
+        company_id=owner.get("companyId"),
     )
     data = {**data, "assignedRole": assignment.get("assignedRole") or "", "assignedTo": assignment.get("assignedTo") or ""}
     dedupe_key = _ai_task_dedupe_key(data)
@@ -15884,7 +15856,7 @@ def _run_project_ai_control(
     findings = []
     tasks = []
     active_task_keys = set()
-    room_assignment = _ai_assignment(cur, project_name, "rooms")
+    room_assignment = _ai_assignment(cur, project_name, "rooms", company_id=owner_company_id)
     for room in rooms_rows:
         room_title = room.get("name") or f"Помещение {room.get('id')}"
         for field, label, action in [
@@ -15958,11 +15930,21 @@ def _run_project_ai_control(
                     "dedupeKey": f"ROOM_CONTROL:door:{d.get('id')}:reveal",
                 })
 
-    cur.execute("""SELECT id, description, section_name, unit, quantity, date, master_name
-                   FROM work_journal
-                   WHERE project=%s AND COALESCE(status,'') NOT IN ('Отклонено','Аннулировано')
-                   ORDER BY id DESC LIMIT 150""", (project_name,))
-    journal_rows = [dict(r) for r in cur.fetchall()]
+    cur.execute(
+        """SELECT COUNT(*) AS project_count FROM projects
+            WHERE company_id=%s AND BTRIM(name)=BTRIM(%s)""",
+        (owner_company_id, project_name),
+    )
+    project_name_is_unique = int(_row_get(cur.fetchone(), "project_count", 0, 0) or 0) == 1
+    if project_name_is_unique:
+        cur.execute("""SELECT id, description, section_name, unit, quantity, date, master_name
+                       FROM work_journal
+                       WHERE company_id=%s AND project=%s
+                         AND COALESCE(status,'') NOT IN ('Отклонено','Аннулировано')
+                       ORDER BY id DESC LIMIT 150""", (owner_company_id, project_name))
+        journal_rows = [dict(r) for r in cur.fetchall()]
+    else:
+        journal_rows = []
     cur.execute("SELECT description, date FROM room_works WHERE company_id=%s AND project_id=%s", (owner_company_id, owner_project_id))
     bound_keys = set((str(r.get("description") or "").strip().lower(), str(r.get("date") or "")) for r in cur.fetchall())
     unlinked_journal_rows = []
@@ -15979,7 +15961,7 @@ def _run_project_ai_control(
     if unlinked_journal_rows:
         dedupe = "WORK_ROOM_LINK:summary:" + hashlib.sha1(project_name.encode("utf-8")).hexdigest()
         active_task_keys.add(dedupe)
-        assignment = _ai_assignment(cur, project_name, "work_room")
+        assignment = _ai_assignment(cur, project_name, "work_room", company_id=owner_company_id)
         lines = [
             f"Причина: {len(unlinked_journal_rows)} записей ЖПР не привязаны к помещению.",
             "Риск: факт работ нельзя корректно сверить с обмерами, сметой и списанием материалов.",
@@ -16036,7 +16018,7 @@ def _run_project_ai_control(
     planned_materials = {}
     work_count = 0
     material_count = 0
-    estimate_assignment = _ai_assignment(cur, project_name, "estimate")
+    estimate_assignment = _ai_assignment(cur, project_name, "estimate", company_id=owner_company_id)
     for est in estimates:
         sections = _estimate_sections(est.get("sections_json"))
         for section in sections:
@@ -16087,9 +16069,13 @@ def _run_project_ai_control(
             estimate_assignment,
         )
 
-    cur.execute("SELECT name, unit, quantity, price, COALESCE(work_package,'') AS work_package FROM materials WHERE project=%s", (project_name,))
     stock = {}
-    for row in cur.fetchall() or []:
+    material_rows = []
+    if project_name_is_unique:
+        cur.execute("""SELECT name, unit, quantity, price, COALESCE(work_package,'') AS work_package
+                       FROM materials WHERE company_id=%s AND project=%s""", (owner_company_id, project_name))
+        material_rows = cur.fetchall() or []
+    for row in material_rows:
         work_package = _supply_work_package(row.get("work_package") or "Основная")
         key = (*_material_control_key(row.get("name") or "", row.get("unit") or ""), work_package)
         if not key[0]:
@@ -16098,19 +16084,23 @@ def _run_project_ai_control(
         qty = _float_or_zero(row.get("quantity"))
         item["qty"] += qty
         item["sum"] += qty * _float_or_zero(row.get("price"))
-    cur.execute("""SELECT material, quantity, unit, COALESCE(work_package,'') AS work_package
-                   FROM warehouse_history
-                   WHERE project=%s
-                     AND (LOWER(COALESCE(type,'')) LIKE %s OR LOWER(COALESCE(type,'')) LIKE %s)""",
-                (project_name, "%расход%", "%спис%"))
     spent = {}
-    for row in cur.fetchall() or []:
+    history_rows = []
+    if project_name_is_unique:
+        cur.execute("""SELECT material, quantity, unit, COALESCE(work_package,'') AS work_package
+                       FROM warehouse_history
+                       WHERE company_id=%s
+                         AND project=%s
+                         AND (LOWER(COALESCE(type,'')) LIKE %s OR LOWER(COALESCE(type,'')) LIKE %s)""",
+                    (owner_company_id, project_name, "%расход%", "%спис%"))
+        history_rows = cur.fetchall() or []
+    for row in history_rows:
         work_package = _supply_work_package(row.get("work_package") or "Основная")
         key = (*_material_control_key(row.get("material") or "", row.get("unit") or ""), work_package)
         if key[0]:
             spent[key] = spent.get(key, 0.0) + _float_or_zero(row.get("quantity"))
 
-    material_assignment = _ai_assignment(cur, project_name, "materials")
+    material_assignment = _ai_assignment(cur, project_name, "materials", company_id=owner_company_id)
     purchase_shortages = []
     for key, need in planned_materials.items():
         stock_row = stock.get(key) or {"qty": 0.0}
@@ -16202,7 +16192,7 @@ def _run_project_ai_control(
     for tr in cur.fetchall() or []:
         dedupe = f"MATERIAL_RULE:transfer_unsigned:{tr.get('id')}"
         active_task_keys.add(dedupe)
-        assignment = _ai_assignment(cur, project_name, "materials")
+        assignment = _ai_assignment(cur, project_name, "materials", company_id=owner_company_id)
         _add_ai_task_candidate(
             tasks, project_name,
             f"Передача материала не подписана: {tr.get('material_name')}",
@@ -21397,7 +21387,7 @@ def _sync_supplier_invoice_from_warehouse_in_transaction(cur, warehouse_invoice_
             SELECT id, warehouse_invoice_id
               FROM supplier_invoices
              WHERE COALESCE(status,'') <> 'Аннулирован'
-               AND COALESCE(company_id,1)=%s
+               AND company_id=%s
                AND COALESCE(invoice_number,'')=%s
                AND COALESCE(invoice_date::text,'')=COALESCE(%s::text,'')
                AND COALESCE(project_name,'')=%s
@@ -25010,6 +25000,8 @@ def create_supplier_invoice(
                 source_owners.append(row['company_id'])
         company_id = source_owners[0] if source_owners else (
             claimed_id or _company_id_for_project_or_user(cur, project_name, _current_user))
+        if not _positive_int_or_none(company_id):
+            raise HTTPException(409, "Компания счёта не определена")
         if any(owner != company_id for owner in source_owners) or (claimed_id and claimed_id != company_id):
             raise HTTPException(409, 'Компания исходных документов не совпадает с companyId')
         cur.execute('SELECT pg_advisory_xact_lock(%s,%s)', (1735289201, company_id))
@@ -26315,8 +26307,19 @@ register_ai_summary_module(app, {
 })
 
 @app.post("/ai-generate-estimate")
-def ai_generate_estimate(data: dict, _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"))):
+def ai_generate_estimate(
+    data: dict,
+    x_company_id: Optional[str] = Header(default=None, alias="X-Company-Id"),
+    x_company_mode: Optional[str] = Header(default=None, alias="X-Company-Mode"),
+    _current_user: dict = Depends(require_roles(*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик")),
+):
     import json as _json
+    try:
+        from backend.features.explicit_company.estimate_owner import explicit_estimate_company_id
+        from backend.features.project_access.service import require_project_write_actor, resolve_project_parent
+    except ModuleNotFoundError:
+        from features.explicit_company.estimate_owner import explicit_estimate_company_id
+        from features.project_access.service import require_project_write_actor, resolve_project_parent
     description = (data.get("description") or "").strip()
     project_id = data.get("projectId")
     pricelist_id = data.get("pricelistId")
@@ -26331,27 +26334,53 @@ def ai_generate_estimate(data: dict, _current_user: dict = Depends(require_roles
 
     conn = get_db()
     cur = conn.cursor()
+    try:
+        company_context = _resolve_work_company_context(
+            cur,
+            _current_user,
+            data.get("companyId") if "companyId" in data else data.get("company_id"),
+            "write",
+            x_company_id=x_company_id,
+            x_company_mode=x_company_mode,
+        )
+        actor = require_project_write_actor(
+            effective_company_actors(_current_user, company_context),
+            (*FINANCE_ROLES, "прораб", "главный_инженер", "сметчик"),
+        )
+    except HTTPException:
+        cur.close(); conn.close()
+        raise
 
     pricelist_items = []
     project_name = ""
+    project_company_id = None
     if project_id:
         try:
-            cur.execute("SELECT name, pricelist_id FROM projects WHERE id=%s", (int(project_id),))
-            r = cur.fetchone()
-            if r:
-                project_name = r[0] or ""
-                if not pricelist_id and r[1]:
-                    pricelist_id = r[1]
-        except Exception:
-            pass
-        if not project_name:
+            project = resolve_project_parent(
+                cur,
+                actor,
+                project_id=project_id,
+                project_name=data.get("projectName") or data.get("project_name") or "",
+            )
+        except HTTPException:
             cur.close(); conn.close()
-            raise HTTPException(status_code=404, detail="Объект не найден")
-        require_project_access(_current_user, project_name)
-    if _current_user.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(_current_user, work_package):
+            raise
+        project_id = project["id"]
+        project_name = project["name"]
+        project_company_id = project["companyId"]
+        cur.execute(
+            "SELECT pricelist_id FROM projects WHERE id=%s AND company_id=%s",
+            (project_id, project_company_id),
+        )
+        r = cur.fetchone()
+        if r and not pricelist_id and r[0]:
+            pricelist_id = r[0]
+        require_project_access(actor, project_name)
+    company_id = explicit_estimate_company_id(actor["companyId"], project_company_id)
+    if actor.get("role") in PACKAGE_LIMIT_ROLES and not has_package_access(actor, work_package):
         cur.close(); conn.close()
         raise HTTPException(status_code=403, detail="Нет доступа к пакету сметы")
-    if status == "Активная" and _current_user.get("role") not in LEADERSHIP_ROLES:
+    if status == "Активная" and actor.get("role") not in LEADERSHIP_ROLES:
         cur.close(); conn.close()
         raise HTTPException(status_code=403, detail="Активировать смету может только директор или замдиректора. Сохраните смету черновиком.")
     if pricelist_id:
@@ -26460,9 +26489,9 @@ def ai_generate_estimate(data: dict, _current_user: dict = Depends(require_roles
 
     final_name = (parsed.get("name") or name_hint or "Сгенерированная смета")
     cur.execute("""INSERT INTO estimates
-                   (project_id, project_name, name, version, sections_json, smeta_type, work_package, status)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
-        (int(project_id) if project_id else None, project_name, final_name, version, _json.dumps(sections, ensure_ascii=False), smeta_type, work_package, status))
+                   (company_id, project_id, project_name, name, version, sections_json, smeta_type, work_package, status)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+        (company_id, int(project_id) if project_id else None, project_name, final_name, version, _json.dumps(sections, ensure_ascii=False), smeta_type, work_package, status))
     new_id = cur.fetchone()[0]
     conn.commit()
     cur.close(); conn.close()
